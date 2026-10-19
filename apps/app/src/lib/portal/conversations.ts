@@ -42,6 +42,7 @@ import {
 import { amendmentsFor, type RecordAmendment } from "@/lib/patient-rights/amendments";
 import { exportClinic, exportPatient } from "@/lib/patient-rights/export";
 import { isPatientRequester, type PatientRequester } from "@/lib/patient-rights/requesters";
+import { exportReceipt, receiptMatches } from "@/lib/portal/export-receipt";
 import type { TenantTx } from "@/lib/tenant";
 
 import {
@@ -806,8 +807,8 @@ export type ExportStanding = {
   deliveredAt: Date | null;
   /**
    * Once closed: when the records are deleted if the complete export is
-   * downloaded now (a download records the export as delivered), by the rule
-   * of the agreement the service ended under.
+   * downloaded now (a download that arrives in full records the export as
+   * delivered), by the rule of the agreement the service ended under.
    */
   deletedFromIfDownloaded: Date | null;
 };
@@ -871,8 +872,14 @@ export type ExportResult =
       filename: string;
       /** The bundle, as JSON: the same shape the operator's export writes. */
       body: string;
-      /** Set when this download recorded a closed clinic's export as delivered. */
-      deliveredAt: Date | null;
+      /**
+       * A closed clinic's whole export only: the receipt the browser sends
+       * back, with the digest of what it received, so that a download that
+       * arrived in full records the export as delivered (confirmClinicExport).
+       * Null otherwise: an open account's download, or one person's, is not
+       * the export the agreements owe.
+       */
+      receipt: string | null;
     }
   | { ok: false; reason: "destroyed" | "not_found" | "no_details" | "requester" };
 
@@ -890,9 +897,10 @@ function stamp(at: Date): string {
  * (in the outbox, in this transaction). The bundle is written out in full
  * inside the transaction, so a bundle that cannot be produced whole leaves no
  * row and no email. After cancellation it is the complete export the
- * agreements owe, so this download records it as delivered
- * (markExportDelivered), which sets the destruction date
- * (lib/offboarding/offboarding.ts).
+ * agreements owe (E4 points here), but producing it records nothing: it
+ * carries a receipt, and only the browser's report that the whole file
+ * arrived (confirmClinicExport) records it as delivered, which sets the
+ * destruction date (lib/offboarding/offboarding.ts).
  */
 export async function exportClinicRecords(
   page: PatientPage,
@@ -924,9 +932,6 @@ export async function exportClinicRecords(
       resourceId: tx.clinicId,
     });
     const body = JSON.stringify(bundle, null, 2);
-    const deliveredAt = clinic.offboardingStartedAt
-      ? await markExportDelivered(tx, "downloaded by the clinic from Conversations in the portal")
-      : null;
     await notifyRecordsExported(tx, {
       field: "clinic_export",
       exportId: randomUUID(),
@@ -937,8 +942,59 @@ export async function exportClinicRecords(
       ok: true,
       filename: `healdesk-records-${clinic.slug}-${stamp(now)}.json`,
       body,
-      deliveredAt,
+      receipt: clinic.offboardingStartedAt ? exportReceipt(tx.clinicId, body, now) : null,
     };
+  });
+}
+
+export type ConfirmExportResult =
+  | { ok: true; deliveredAt: Date }
+  | { ok: false; reason: "incomplete" | "destroyed" | "open" };
+
+/**
+ * The browser has the whole export: `receipt` is the one exportClinicRecords
+ * handed it with the file, `digest` the SHA-256 it computed over the file it
+ * received. A digest that matches the file the server produced, for this
+ * clinic, within the receipt's time, records the export as delivered
+ * (markExportDelivered): the stamp the destruction clock reads, once, and
+ * only while the clinic is closed and not destroyed. Anything else records
+ * nothing: a partial, altered or stale download is not a delivery, and the
+ * clinic downloads again. Behind the same step-up, and logged in the access
+ * log as the export reaching that device.
+ */
+export async function confirmClinicExport(
+  page: PatientPage,
+  receipt: unknown,
+  digest: unknown,
+  now: Date = new Date(),
+): Promise<ConfirmExportResult> {
+  if (!receiptMatches(receipt, page.portal.clinicId, digest, now)) {
+    return { ok: false, reason: "incomplete" };
+  }
+  return withPatientPage(page, async (tx) => {
+    const [clinic] = await tx.db
+      .select({ offboardingStartedAt: clinics.offboardingStartedAt, destroyedAt: clinics.destroyedAt })
+      .from(clinics)
+      .where(eq(clinics.id, tx.clinicId))
+      .limit(1);
+    if (!clinic || clinic.destroyedAt || !clinic.offboardingStartedAt) {
+      await logPatientAccess(tx, {
+        action: "read",
+        resourceType: "clinic_bundle",
+        resourceId: tx.clinicId,
+      });
+      return { ok: false, reason: clinic && !clinic.destroyedAt ? "open" : "destroyed" };
+    }
+    await logPatientAccess(tx, {
+      action: "export",
+      resourceType: "clinic_bundle",
+      resourceId: tx.clinicId,
+    });
+    const deliveredAt = await markExportDelivered(
+      tx,
+      "downloaded in full by the clinic from Conversations in the portal",
+    );
+    return { ok: true, deliveredAt };
   });
 }
 
@@ -988,7 +1044,7 @@ export async function exportPersonRecords(
       ok: true,
       filename: `healdesk-person-records-${stamp(now)}.json`,
       body,
-      deliveredAt: null,
+      receipt: null,
     };
   });
 }

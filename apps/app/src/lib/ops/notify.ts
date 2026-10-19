@@ -163,6 +163,12 @@ export const OPS_EVENTS = [
   // job's email into the 07:00 ops digest (Annex X6). Once per connection
   // and state; every finding is in the digest every morning.
   "connection_broken",
+  // E6, "Your data has been destroyed", could not reach the address
+  // captured at destruction (lib/offboarding/after-cancellation.ts): the
+  // mail provider refused it (`phase` rejected), this side refused to send
+  // it (`refused`), or a week of hourly attempts passed (`expired`). The
+  // address is cleared either way, so ops writes to the practice by hand.
+  "destruction_notice_undelivered",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

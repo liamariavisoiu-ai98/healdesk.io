@@ -286,6 +286,11 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "A clinic's stored connection below is revoked or in error. For a Meta platform (provider meta-messenger, meta-instagram or meta-whatsapp) that channel cannot reply to anyone until the clinic connects it again from Facebook login: call the clinic. Every connection finding is in the 07:00 digest as well.",
   },
+  destruction_notice_undelivered: {
+    title: "A practice was not told its data was destroyed",
+    action:
+      "The clinic below has had its data destroyed, and the email saying so (E6) could not be sent to the address on its account when it was destroyed: the mail provider refused it, this side refused to send it, or it kept failing for a week. healdesk no longer holds that address for the email, so write to the practice by hand from its account in the console: when its data was destroyed, that backups expire within 35 days, what Anthropic keeps under its agreement, and that the signed agreement and billing records are kept.",
+  },
   transcript_undelivered: {
     title: "A transcript could not be emailed",
     action:

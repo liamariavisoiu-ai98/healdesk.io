@@ -29,6 +29,7 @@ import {
   type BillingSummary,
   type PreviewNextInvoiceResult,
 } from "@/lib/billing/summary";
+import { readAfterCancellation, type AfterCancellation } from "@/lib/offboarding/after-cancellation";
 import { withTenant } from "@/lib/tenant";
 
 import { portalCount, portalDay, portalMoney } from "./format";
@@ -62,6 +63,12 @@ export type BillingView = {
    * plan names: the steps are the bought ones either way (planForChannels).
    */
   billedUntil: { billedPlanName: string; boughtPlanName: string; waiting: string[] } | null;
+  /**
+   * Once the service has ended: the export's deadline, or its delivery, and
+   * when the data goes, or went (lib/offboarding/after-cancellation.ts).
+   * Null while the clinic is in service.
+   */
+  afterCancellation: AfterCancellation | null;
 };
 
 export async function readBillingView(input: {
@@ -77,12 +84,18 @@ export async function readBillingView(input: {
     ? await previewNextInvoice(input.clinicId, { now })
     : null;
   const agreement = await readAgreement(input.clinicId, input.actor);
+  const afterCancellation = await readAfterCancellation({
+    clinicId: input.clinicId,
+    actor: input.actor,
+    now,
+  });
   return {
     summary,
     nextInvoice,
     pendingChange: pending ? { planId: pending.planId, interval: pending.interval } : null,
     agreement,
     billedUntil: billedUntil(summary),
+    afterCancellation,
   };
 }
 

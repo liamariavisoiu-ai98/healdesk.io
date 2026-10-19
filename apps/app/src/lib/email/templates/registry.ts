@@ -27,7 +27,10 @@ import { CHANNEL_LIVE_ENTRY } from "./channel_live";
 import { CHANNEL_READY_ENTRY } from "./channel_ready";
 import { CONNECT_CONNECTED_ENTRY } from "./connect_connected";
 import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
+import { DATA_DESTROYED_ENTRY } from "./data_destroyed";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
+import { EXPORT_READY_ENTRY } from "./export_ready";
+import { EXPORT_REMINDER_ENTRY } from "./export_reminder";
 import { GRACE_ENDING_ENTRY } from "./grace_ending";
 import { GUARANTEE_CLAIM_RECEIVED_ENTRY, GUARANTEE_FINDING_ENTRY } from "./guarantee_claim";
 import { INCIDENT_REPORT_ENTRY } from "./incident_report";
@@ -36,6 +39,7 @@ import { OPS_ALERT_FIXTURE, renderOpsAlert } from "./ops_alert";
 import { OPS_DIGEST_ENTRY } from "./ops_digest";
 import { ORDER_CONFIRMED_DELAYED_ENTRY } from "./order_confirmed_delayed";
 import { OVERAGE_INVOICED_ENTRY } from "./overage_invoiced";
+import { PASS_THROUGH_ENDING_ENTRY } from "./pass_through_ending";
 import { PAYMENT_ACTION_REQUIRED_ENTRY } from "./payment_action_required";
 import { PAYMENT_FAILED_ENTRY } from "./payment_failed";
 import { PLAN_CHANGED_ENTRY } from "./plan_changed";
@@ -173,6 +177,12 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   practice_questions_failed: PRACTICE_QUESTIONS_FAILED_ENTRY,
   // WP5: I2, the 07:00 ops digest.
   ops_digest: OPS_DIGEST_ENTRY,
+  // WP6, after cancellation (M6): E3, E4 and E5 from the outbox, E6 straight
+  // to the address captured at destruction (lib/offboarding/after-cancellation.ts).
+  pass_through_ending: PASS_THROUGH_ENDING_ENTRY,
+  export_ready: EXPORT_READY_ENTRY,
+  export_reminder: EXPORT_REMINDER_ENTRY,
+  data_destroyed: DATA_DESTROYED_ENTRY,
 };
 
 /**
@@ -278,6 +288,10 @@ export const PENDING_TEMPLATES: Record<
     | "assistant_ready"
     | "practice_questions_failed"
     | "ops_digest"
+    | "pass_through_ending"
+    | "export_ready"
+    | "export_reminder"
+    | "data_destroyed"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -297,11 +311,6 @@ export const PENDING_TEMPLATES: Record<
   // (patient_requests, behind the BAA gate) and the Home pointer. Not part of
   // WP7's operator notices, which are templated above.
   patient_request: { owner: "plan", package: "WP7", ships: "M5 (L32)" },
-  // WP6: after cancellation.
-  pass_through_ending: { owner: "plan", package: "WP6", ships: "M6 (E3)" },
-  export_ready: { owner: "plan", package: "WP6", ships: "M6 (E4)" },
-  export_reminder: { owner: "plan", package: "WP6", ships: "M6 (E5)" },
-  data_destroyed: { owner: "plan", package: "WP6", ships: "M6 (E6)" },
   // I4 waits for the flags themselves (package H's conversation_flags), which
   // do not exist yet; WP5 built I2 and leaves this one named to it.
   flag_alert: { owner: "plan", package: "WP5", ships: "Gate A (I4)" },

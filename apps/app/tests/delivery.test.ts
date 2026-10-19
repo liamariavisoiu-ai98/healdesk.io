@@ -428,6 +428,12 @@ describeDb("delivery", () => {
           // Its switch widens it: off, it still runs for the clinics whose
           // agreement states the export rule (C19, 12 October 2026).
           "offboarding-destroy",
+          // After cancellation (drizzle/0086): E6 to the address captured at
+          // destruction, right after it and hourly until it goes; and E3, E4
+          // and E5 queued for every clinic whose service has ended. Sweeps,
+          // not switched jobs.
+          "destruction-notices",
+          "after-cancellation",
           // The setup reminder (drizzle/0056), hourly behind its switch: each
           // clinic's reminder waits for that clinic's own daytime.
           "setup-reminders",
@@ -476,6 +482,8 @@ describeDb("delivery", () => {
         if (job === "offboarding-destroy") continue; // widening: runs for 1.3.0 and DPA clinics, switch or not
         if (job === "channel-states") continue; // a sweep: moves production clinics' channels on as their inputs allow
         if (job === "ai-pause") continue; // a sweep: records the end of a timed pause the clinic set
+        if (job === "destruction-notices") continue; // a sweep: E6 to an address captured at destruction
+        if (job === "after-cancellation") continue; // a sweep: queues E3–E5 for clinics whose service ended
         expect(status, job).toBe("disabled");
       }
       expect(jobs["offboarding-destroy"]).toBe("ok");
@@ -485,6 +493,8 @@ describeDb("delivery", () => {
       expect(jobs["address-changes"]).toBe("ok");
       expect(jobs["channel-states"]).toBe("ok");
       expect(jobs["ai-pause"]).toBe("ok");
+      expect(jobs["destruction-notices"]).toBe("ok");
+      expect(jobs["after-cancellation"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

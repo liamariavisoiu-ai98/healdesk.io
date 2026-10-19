@@ -2112,6 +2112,114 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`each template's output > data_destroyed, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk data has been destroyed</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">We destroyed the client information we held for Radiance Med Spa on 5 December.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">On Saturday 5 December we destroyed the client information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits; the credentials you connected through healdesk; and your setup.</p>
+<p style="margin:0 0 16px;">What remains, and why:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Copies in our encrypted database backups, until Saturday 9 January 2027, when the last of them expires (within 35 days of the destruction). We use them only to restore our systems, and destroy your data again in anything we restore.</li><li>What our language-model provider, Anthropic, keeps under its agreement with us, as our Terms describe: conversation content for 30 days, and up to two years for content its automated trust-and-safety systems flag or the law requires it to keep.</li><li>The signed agreement and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a client&#39;s name or contact details.</li><li>Your billing history, as tax law requires.</li></ul>
+<p style="margin:0 0 16px;">No other client information of Radiance Med Spa&#39;s is kept. There is nothing you need to do.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "We destroyed the client information we held for Radiance Med Spa on 5 December.",
+  "subject": "Your healdesk data has been destroyed",
+  "text": "On Saturday 5 December we destroyed the client information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits; the credentials you connected through healdesk; and your setup.
+
+What remains, and why:
+
+- Copies in our encrypted database backups, until Saturday 9 January 2027, when the last of them expires (within 35 days of the destruction). We use them only to restore our systems, and destroy your data again in anything we restore.
+- What our language-model provider, Anthropic, keeps under its agreement with us, as our Terms describe: conversation content for 30 days, and up to two years for content its automated trust-and-safety systems flag or the law requires it to keep.
+- The signed agreement and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a client's name or contact details.
+- Your billing history, as tax law requires.
+
+No other client information of Radiance Med Spa's is kept. There is nothing you need to do.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > data_destroyed, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk data has been destroyed</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">We destroyed the patient information we held for Radiance Med Spa on 5 December.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">On Saturday 5 December we destroyed the patient information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits; the credentials you connected through healdesk; and your setup.</p>
+<p style="margin:0 0 16px;">What remains, and why:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Copies in our encrypted database backups, until Saturday 9 January 2027, when the last of them expires (within 35 days of the destruction). We use them only to restore our systems, and destroy your data again in anything we restore.</li><li>What our language-model provider, Anthropic, keeps under its agreement with us, as our Terms describe: conversation content for 30 days, and up to two years for content its automated trust-and-safety systems flag or the law requires it to keep.</li><li>The signed agreement and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a patient&#39;s name or contact details.</li><li>Your billing history, as tax law requires.</li></ul>
+<p style="margin:0 0 16px;">No other patient information of Radiance Med Spa&#39;s is kept. There is nothing you need to do.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "We destroyed the patient information we held for Radiance Med Spa on 5 December.",
+  "subject": "Your healdesk data has been destroyed",
+  "text": "On Saturday 5 December we destroyed the patient information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits; the credentials you connected through healdesk; and your setup.
+
+What remains, and why:
+
+- Copies in our encrypted database backups, until Saturday 9 January 2027, when the last of them expires (within 35 days of the destruction). We use them only to restore our systems, and destroy your data again in anything we restore.
+- What our language-model provider, Anthropic, keeps under its agreement with us, as our Terms describe: conversation content for 30 days, and up to two years for content its automated trust-and-safety systems flag or the law requires it to keep.
+- The signed agreement and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a patient's name or contact details.
+- Your billing history, as tax law requires.
+
+No other patient information of Radiance Med Spa's is kept. There is nothing you need to do.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > deposit_to_collect, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>
@@ -2297,6 +2405,204 @@ If that wasn't someone at your clinic, reply to this email now. We'll remove the
 
 —
 You're receiving this because this address is the sign-in for a healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > export_ready, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk export is ready</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Download it from the portal by 4 December.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">The export of Radiance Med Spa&#39;s records is ready: every conversation, booking request and appointment healdesk holds for your practice, with any amendments and the log of who opened what, as one file.</p>
+<p style="margin:0 0 16px;">It isn&#39;t attached to this email, because it holds your clients&#39; details. To download it, sign in, open Conversations and confirm it&#39;s you with Face ID or your screen lock.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/conversations#export" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Download your export</a></p>
+<p style="margin:0 0 16px;">Download it by Friday 4 December. We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Download it from the portal by 4 December.",
+  "subject": "Your healdesk export is ready",
+  "text": "The export of Radiance Med Spa's records is ready: every conversation, booking request and appointment healdesk holds for your practice, with any amendments and the log of who opened what, as one file.
+
+It isn't attached to this email, because it holds your clients' details. To download it, sign in, open Conversations and confirm it's you with Face ID or your screen lock.
+
+Download your export: https://app.healdesk.test/c/radiance-med-spa/conversations#export
+
+Download it by Friday 4 December. We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > export_ready, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk export is ready</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Download it from the portal by 4 December.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">The export of Radiance Med Spa&#39;s records is ready: every conversation, booking request and appointment healdesk holds for your practice, with any amendments and the log of who opened what, as one file.</p>
+<p style="margin:0 0 16px;">It isn&#39;t attached to this email, because it holds your patients&#39; details. To download it, sign in, open Conversations and confirm it&#39;s you with Face ID or your screen lock.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/conversations#export" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Download your export</a></p>
+<p style="margin:0 0 16px;">Download it by Friday 4 December. We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Download it from the portal by 4 December.",
+  "subject": "Your healdesk export is ready",
+  "text": "The export of Radiance Med Spa's records is ready: every conversation, booking request and appointment healdesk holds for your practice, with any amendments and the log of who opened what, as one file.
+
+It isn't attached to this email, because it holds your patients' details. To download it, sign in, open Conversations and confirm it's you with Face ID or your screen lock.
+
+Download your export: https://app.healdesk.test/c/radiance-med-spa/conversations#export
+
+Download it by Friday 4 December. We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > export_reminder, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Download your healdesk export by 2 February 2027</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">We destroy our copies of your data by 4 February 2027, downloaded or not.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">The export of Radiance Med Spa&#39;s records hasn&#39;t been downloaded yet. Download it by Tuesday 2 February 2027: we destroy our copies of your data by Thursday 4 February 2027, whether or not it has been downloaded, and after that there is nothing left to export.</p>
+<p style="margin:0 0 16px;">It isn&#39;t attached to this email, because it holds your clients&#39; details. To download it, sign in, open Conversations and confirm it&#39;s you with Face ID or your screen lock.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/conversations#export" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Download your export</a></p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "We destroy our copies of your data by 4 February 2027, downloaded or not.",
+  "subject": "Download your healdesk export by 2 February 2027",
+  "text": "The export of Radiance Med Spa's records hasn't been downloaded yet. Download it by Tuesday 2 February 2027: we destroy our copies of your data by Thursday 4 February 2027, whether or not it has been downloaded, and after that there is nothing left to export.
+
+It isn't attached to this email, because it holds your clients' details. To download it, sign in, open Conversations and confirm it's you with Face ID or your screen lock.
+
+Download your export: https://app.healdesk.test/c/radiance-med-spa/conversations#export
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > export_reminder, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Download your healdesk export by 2 February 2027</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">We destroy our copies of your data by 4 February 2027, downloaded or not.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">The export of Radiance Med Spa&#39;s records hasn&#39;t been downloaded yet. Download it by Tuesday 2 February 2027: we destroy our copies of your data by Thursday 4 February 2027, whether or not it has been downloaded, and after that there is nothing left to export.</p>
+<p style="margin:0 0 16px;">It isn&#39;t attached to this email, because it holds your patients&#39; details. To download it, sign in, open Conversations and confirm it&#39;s you with Face ID or your screen lock.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/conversations#export" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Download your export</a></p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "We destroy our copies of your data by 4 February 2027, downloaded or not.",
+  "subject": "Download your healdesk export by 2 February 2027",
+  "text": "The export of Radiance Med Spa's records hasn't been downloaded yet. Download it by Tuesday 2 February 2027: we destroy our copies of your data by Thursday 4 February 2027, whether or not it has been downloaded, and after that there is nothing left to export.
+
+It isn't attached to this email, because it holds your patients' details. To download it, sign in, open Conversations and confirm it's you with Face ID or your screen lock.
+
+Download your export: https://app.healdesk.test/c/radiance-med-spa/conversations#export
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
 Replies reach the healdesk team. Please leave out patient details.
 healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
 US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
@@ -3482,6 +3788,110 @@ Overage is billed for each started block of 100, so that comes to $104, charged 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
 To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you've paid for runs out.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > pass_through_ending, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Calls stop passing through on 6 December</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Undo your call forwarding this week, so callers keep reaching you after 6 December.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Radiance Med Spa&#39;s line was set to forward calls to healdesk. Since your service ended, calls still forwarded to us pass straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won&#39;t reach you.</p>
+<p style="margin:0 0 16px;">If you haven&#39;t undone the forwarding yet, do it before Sunday 6 December, so callers keep reaching you directly. From the clinic&#39;s own line, dial these AT&amp;T codes:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding: *91</li><li>Cancel no-answer forwarding: *93</li></ul>
+<p style="margin:0 0 16px;">Once it&#39;s undone, calls ring your own line as they did before healdesk, and nothing is forwarded to us.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Undo your call forwarding this week, so callers keep reaching you after 6 December.",
+  "subject": "Calls stop passing through on 6 December",
+  "text": "Radiance Med Spa's line was set to forward calls to healdesk. Since your service ended, calls still forwarded to us pass straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won't reach you.
+
+If you haven't undone the forwarding yet, do it before Sunday 6 December, so callers keep reaching you directly. From the clinic's own line, dial these AT&T codes:
+
+- Cancel busy forwarding: *91
+- Cancel no-answer forwarding: *93
+
+Once it's undone, calls ring your own line as they did before healdesk, and nothing is forwarded to us.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > pass_through_ending, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Calls stop passing through on 6 December</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Undo your call forwarding this week, so callers keep reaching you after 6 December.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Radiance Med Spa&#39;s line was set to forward calls to healdesk. Since your service ended, calls still forwarded to us pass straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won&#39;t reach you.</p>
+<p style="margin:0 0 16px;">If you haven&#39;t undone the forwarding yet, do it before Sunday 6 December, so callers keep reaching you directly. From the clinic&#39;s own line, dial these AT&amp;T codes:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding: *91</li><li>Cancel no-answer forwarding: *93</li></ul>
+<p style="margin:0 0 16px;">Once it&#39;s undone, calls ring your own line as they did before healdesk, and nothing is forwarded to us.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Undo your call forwarding this week, so callers keep reaching you after 6 December.",
+  "subject": "Calls stop passing through on 6 December",
+  "text": "Radiance Med Spa's line was set to forward calls to healdesk. Since your service ended, calls still forwarded to us pass straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won't reach you.
+
+If you haven't undone the forwarding yet, do it before Sunday 6 December, so callers keep reaching you directly. From the clinic's own line, dial these AT&T codes:
+
+- Cancel busy forwarding: *91
+- Cancel no-answer forwarding: *93
+
+Once it's undone, calls ring your own line as they did before healdesk, and nothing is forwarded to us.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

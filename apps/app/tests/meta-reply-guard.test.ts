@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { guardReply, publishedTimesOf } from "@/lib/meta/front-door";
+import { guardReply, PRICE_REFUSAL, publishedTimesOf } from "@/lib/meta/front-door";
 
 /**
  * The Meta reply guard: BAA 1.3.0 clause 16's automated filters, which check
@@ -23,7 +23,8 @@ const HOURS = {
   sat: [["10:00", "14:00"]],
 };
 const PUBLISHED = publishedTimesOf(HOURS);
-const CLINIC = { clinicName: "Radiance", publishedTimes: PUBLISHED };
+/** The menu's figures the fixtures below quote: since 19 October a reply may name no other (the price check). */
+const CLINIC = { clinicName: "Radiance", publishedTimes: PUBLISHED, prices: [450, 4.5] };
 
 describe("the reply guard: appointment details", () => {
   test("the clinic's hours are read as its opening and closing times", () => {
@@ -313,9 +314,9 @@ describe("the reply guard: appointment details", () => {
 describe("the reply guard: treatment names off the menu", () => {
   test("a treatment word is refused whether or not the clinic has a menu, and whatever its menu calls it", () => {
     for (const context of [
-      {},
-      { clinicName: "Radiance" },
-      { clinicName: "Radiance", serviceNames: ["Neurotoxin", "Dermal fillers"] },
+      { prices: [120] },
+      { clinicName: "Radiance", prices: [120] },
+      { clinicName: "Radiance", serviceNames: ["Neurotoxin", "Dermal fillers"], prices: [120] },
     ]) {
       for (const reply of [
         "Yes, we do Botox — call the practice to book.",
@@ -353,7 +354,7 @@ describe("the reply guard: treatment names off the menu", () => {
       ok: true,
     });
     // It exempts the address, not the word: a peel is still a treatment there.
-    expect(guardReply("Our peels start from $120.", { ...CLINIC, address })).toEqual({
+    expect(guardReply("Our peels start from $120.", { ...CLINIC, address, prices: [120] })).toEqual({
       ok: false,
       reason: "a treatment name",
     });
@@ -491,3 +492,64 @@ describe("the reply guard: the person's own words", () => {
     expect(guardReply(reply, { ...context, inbound })).toEqual({ ok: true });
   });
 });
+
+// The 19 October audit: the prompt invites a price ("its published price")
+// and the guard never read one, so any figure went out on Instagram,
+// Messenger and WhatsApp; this file expected "Prices start from $450." to
+// pass whatever the menu said.
+describe("the reply guard: the menu's prices", () => {
+  const context = { clinicName: "Glow Clinic", prices: [150, 300, 600] };
+
+  test.each([
+    "Prices start from $450. Call the practice to book.",
+    "That one is $199. Call the practice to book.",
+    "That's about four hundred and fifty dollars. Call the practice to book.",
+    "It's two hundred dollars. Call the practice to book.",
+    "That's 10 per unit. Call the practice to book.",
+  ])("a figure not on the menu is refused, written or said: %j", (reply) => {
+    expect(guardReply(reply, context)).toEqual({ ok: false, reason: PRICE_REFUSAL });
+  });
+
+  test.each([
+    "Yes, the practice offers that: it's $150. Call the practice to book.",
+    "That's $300 to $600. Call the practice to book.",
+    "That's three hundred dollars. Call the practice to book.",
+  ])("a figure on the menu passes: %j", (reply) => {
+    expect(guardReply(reply, context)).toEqual({ ok: true });
+  });
+
+  test("with no menu, no figure passes", () => {
+    expect(guardReply("Prices start from $450. Call the practice to book.", { clinicName: "Glow Clinic" })).toEqual({
+      ok: false,
+      reason: PRICE_REFUSAL,
+    });
+  });
+});
+
+// Round 2 of the 19 October guardrails: the claim to be a person that a call
+// and a web chat refuse is refused here too, with the same check.
+describe("the reply guard: a claim to be a person", () => {
+  const context = { clinicName: "Glow Clinic" };
+
+  test.each([
+    "No, I'm not a bot. Call the practice to book.",
+    "I'm not an AI. Call the practice to book.",
+    "You're talking to Sarah at the front desk. Call the practice to book.",
+    "This is a human. Call the practice to book.",
+    "You're talking to a real person. Call the practice to book.",
+    "No soy un bot. Llame a la clínica.",
+  ])("refused: %j", (reply) => {
+    expect(guardReply(reply, context)).toEqual({ ok: false, reason: "a human claim" });
+  });
+
+  test.each([
+    "No, I'm an automated assistant, not a real person. Call the practice and someone on the team can help.",
+    "A person from our team will call you to confirm.",
+    "If you'd rather talk to a real person, call the practice.",
+    "Our staff can help: call the practice to book.",
+    "Thanks for messaging Glow Clinic! Call the practice to book.",
+  ])("passes: %j", (reply) => {
+    expect(guardReply(reply, context)).toEqual({ ok: true });
+  });
+});
+

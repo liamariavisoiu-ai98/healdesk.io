@@ -526,7 +526,7 @@ export const KEYS: readonly KeyDef[] = [
     label: "The password in each clinic's Retell line address",
     need: "later",
     waitsFor:
-      "every business associate agreement in the chain is signed, Retell's included, which the paste script asks you to confirm before it takes this. Then paste it, turn enable_voice on (production.tfvars, merged, an infra.yml apply, then a full deploy-app.yml), put the line address in a made-up clinic's Retell agent, and make a test call before any real one",
+      "you paste it for a test call, which may come before the business associate agreements (answer test when the paste script asks; yes once every agreement in the chain is signed, Retell's included), because until real calls are switched on the engine answers only the made-up demo clinic. Then turn enable_voice on (production.tfvars, merged, an infra.yml apply, then a full deploy-app.yml), put the line address in the demo clinic's Retell agent only, and make the test call",
     rotation: {
       kind: "every",
       days: 180,
@@ -535,16 +535,56 @@ export const KEYS: readonly KeyDef[] = [
     },
   },
   {
+    id: "aws.HEALDESK_RETELL_API_KEY",
+    env: "HEALDESK_RETELL_API_KEY",
+    home: "aws",
+    label: "Retell key (engine): call-ended messages, a call read back, each number's fallback line",
+    // Optional, not later: the live line runs without it. Without it the
+    // backstop for a call the voice task never recorded is off, and no AYA
+    // number has the clinic's direct line as Retell's fallback (the hourly
+    // sync, lib/voice/retell-fallback-sync.ts; the voice endpoint reads it
+    // back when the database is down, fallback-line.ts). As "later" it would
+    // show the whole voice line off while calls were being answered. Pasted
+    // once Retell's agreement is signed (the paste script takes it on yes
+    // only: the test-call exception names the line password alone), from the clinics' own Retell workspace (under
+    // Retell's agreement, never the demo line's, whose keys are on Vercel),
+    // the key with the webhook badge; each clinic's agent webhook is
+    // https://app.healdesk.io/api/webhooks/retell/<clinic id>.
+    need: "optional",
+    neverSameAs: "vercel.RETELL_API_KEY",
+    rotation: {
+      kind: "every",
+      days: 180,
+      how: `Make a new key in Retell (Settings, API Keys), in the workspace under the agreement, never the demo line's, and give it the webhook badge. ${AWS_HOW("HEALDESK_RETELL_API_KEY")} Then delete the old one.`,
+      impact: "Until the restart, Retell's call-ended messages are refused, and Retell retries them only for a few seconds, so a call lost by a crash in that window stays unrecorded; the hourly fallback sync cannot reach Retell and says so in Ops. Calls carry on.",
+    },
+  },
+  {
     // Not a secret: Terraform sets it on the web task whenever enable_voice is
-    // on (infra/aws/locals.tf), because the secret above is given to the web
-    // task, and so reads as present, before the voice service exists.
+    // on (infra/aws/locals.tf), because HEALDESK_RETELL_LLM_SECRET is given to
+    // the web task, and so reads as present, before the voice service exists.
     id: "aws.HEALDESK_VOICE_ENABLED",
     env: "HEALDESK_VOICE_ENABLED",
     home: "aws",
     label: "The voice endpoint's switch (enable_voice)",
     need: "later",
     waitsFor:
-      "enable_voice is turned on, once every business associate agreement in the chain is signed (Retell's included) and the Retell line password (HEALDESK_RETELL_LLM_SECRET) is pasted: set it in production.tfvars, merge, run an infra.yml apply and a full deploy-app.yml, put the line address in a made-up clinic's Retell agent, and make a test call before any real one",
+      "enable_voice is turned on, once the Retell line password (HEALDESK_RETELL_LLM_SECRET) is pasted, which may come before the business associate agreements for a test call on the made-up demo clinic: set it in production.tfvars, merge, run an infra.yml apply and a full deploy-app.yml, put the line address in the demo clinic's Retell agent, and make the test call",
+    rotation: { kind: "public" },
+  },
+  {
+    // Not a secret: Terraform sets it on the voice task, on the worker (whose
+    // call backstop reads it, in either worker_placement), and on the web task
+    // for this page, only with voice_real_calls (infra/aws/locals.tf). Without
+    // it the voice endpoint answers only the demo clinic (apps/app
+    // src/lib/voice/test-calls.ts).
+    id: "aws.HEALDESK_VOICE_REAL_CALLS",
+    env: "HEALDESK_VOICE_REAL_CALLS",
+    home: "aws",
+    label: "Real patients' calls (voice_real_calls)",
+    need: "later",
+    waitsFor:
+      "every business associate agreement in the chain is signed, Retell's included: then set voice_real_calls = true in production.tfvars, merge, and run an infra.yml apply and a full deploy-app.yml. Until then the voice line answers only the made-up demo clinic, and a call for any other clinic goes to its direct line, or is refused, before AYA speaks; the backstop for a lost call records the demo clinic's alone too",
     rotation: { kind: "public" },
   },
   {
@@ -659,7 +699,7 @@ export const KEYS: readonly KeyDef[] = [
     home: "clinic",
     label: "Each clinic's Instagram, Messenger or WhatsApp login",
     need: "required",
-    rotation: { kind: "only-if", when: "a clinic disconnects or Meta revokes it", how: "Make a new link with run-task.sh channels-link (meta for Facebook and Instagram, whatsapp for WhatsApp) and send it to the clinic. The set-up wizard's Connect with Facebook button won't come back by itself: it shows only until one of the clinic's Meta logins is connected, nothing tells the engine when Meta revokes one, and WhatsApp has no button in the portal." },
+    rotation: { kind: "only-if", when: "a clinic disconnects, or Meta drops the login (the clinic removes healdesk, changes its Facebook password, or Meta invalidates it)", how: "The clinic presses Reconnect in Settings → Channels, or Connect there or at set-up's channels step; Home lists it under Needs attention. A send Meta refuses, or the check every six hours, marks the login so the button returns. For a clinic that cannot, make a new link with run-task.sh channels-link (meta for Facebook and Instagram, whatsapp for WhatsApp) and send it." },
   },
   {
     id: "clinic.stripe",
@@ -825,7 +865,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     both: true,
     title: "The shop window hands work to the engine",
     carries:
-      "Paid purchases to set up, every Stripe billing change after that, email delivery reports, review and welcome checks, and every read and button on Ops, Reviews (the practice questions waiting for you), Host and this map; the engine answers with what those pages show",
+      "Paid purchases to set up, every Stripe billing change after that, email delivery reports, review and welcome checks, and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses, times and attempt counts, never the words), Reviews (the practice questions waiting for you), Host and this map; the engine answers with what those pages show",
     example: "A clinic's first invoice is paid. The shop window posts its signed agreement to the engine in an envelope sealed with a stamp only the two of them own; the engine checks the seal and opens the clinic's account.",
     keys: ["vercel.HEALDESK_PROVISION_SECRET", "aws.HEALDESK_PROVISION_SECRET", "vercel.HEALDESK_APP_URL", "aws.HEALDESK_ADMIN_EMAIL"],
     phi: false,
@@ -1120,13 +1160,13 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "A patient rings the clinic",
     carries: "The call, forwarded from the clinic's own number",
     example: "Maria calls the clinic at 8pm. The clinic's own number forwards the call to its Retell line, so Maria still dialled the number printed on the clinic's website.",
-    keys: [],
-    keyless: "The forwarding needs no key: the clinic sets it on its own line (a carrier code, a phone setting or a phone-system rule).",
+    keys: ["aws.HEALDESK_VOICE_REAL_CALLS"],
+    keyless: "The forwarding needs no key: the clinic sets it on its own line (a carrier code, a phone setting or a phone-system rule). Patients' calls wait only on the switch out of test mode.",
     dependsOn: "retell-app",
     phi: true,
     build: "built",
     buildNote:
-      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. If our voice endpoint is down, nothing of ours sends the call to the clinic's line: that rests on each Retell agent's own failure setting, so check it names the clinic's direct line. If Retell itself is down, no setting of Retell's runs, and the clinic's forwarding has to be removed by hand (the automatic fall-through is not built).",
+      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. Retell has no setting that sends a call on when our voice endpoint cannot be reached: after about 27 seconds of nothing it gives up and the call drops. So when the endpoint is down, you put Retell in outage mode, which by Retell's support material sends each number's calls to its fallback, the clinic's direct line, kept there every hour by the engine (that needs the Retell key). Outage mode has not been tried here: check the plan has it and make one test call before relying on it. If Retell itself is down, nothing of Retell's runs, and each clinic has to remove its forwarding by hand: nothing tells them automatically.",
   },
   {
     id: "retell-app",
@@ -1138,11 +1178,11 @@ export const BRIDGES: readonly BridgeDef[] = [
     carries: "What the caller says, and every word AYA says back",
     example:
       "While Maria talks, Retell streams each sentence to the engine over a private line whose address carries a password; the engine decides every word AYA says back, and takes Maria's request for Thursday at 3pm for the clinic to confirm.",
-    keys: ["aws.HEALDESK_RETELL_LLM_SECRET", "aws.HEALDESK_VOICE_ENABLED"],
+    keys: ["aws.HEALDESK_RETELL_LLM_SECRET", "aws.HEALDESK_VOICE_ENABLED", "aws.HEALDESK_RETELL_API_KEY"],
     phi: true,
     build: "built",
     buildNote:
-      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. A call in progress when the voice task crashes is lost, with its words and its booking request: the backstop from Retell's call-ended message is not built.",
+      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. Until real calls are switched on (voice_real_calls, once every agreement is signed), the engine itself answers only the demo clinic: a call for any other clinic goes to its direct line, or is refused, before AYA speaks, nothing of it is kept, and you are emailed each time (voice_test_mode_refused); a check that cannot answer within the three-second start deadline is a refusal too. So the line password may be pasted before the agreements. The demo clinic is answered by AYA even with a direct line set, though its phone channel can never go live, and its calls never start billing. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. If the voice task crashes mid-call, Retell's signed call-ended message (each clinic's agent webhook, https://app.healdesk.io/api/webhooks/retell/<clinic id>) queues a backstop that, ten minutes later, reads the call back from Retell and records it with its words, emailed to the clinic, and its minutes, marked urgent when its urgent alert went out, unless the live line already did; in test mode it does so for the demo clinic alone. A call AYA never spoke on (put through to the direct line or closed before her opening line, on either path) is recorded but bills no minutes and is left out of what Home and the summaries claim. What the caller asked for is not rebuilt: the clinic reads it in the transcript, and the call makes no booking request.",
   },
   {
     id: "retell-clinic",
@@ -1152,12 +1192,16 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "AYA puts the caller through to the clinic",
     carries: "The live call, to the clinic's direct line",
     example: "The clinic has paused AYA; Maria's call is answered with one line and put straight through to the front desk.",
+    // The transfer needs no key. The Retell key (on retell-app, where its
+    // absence reads as one part off) only adds the fallback; listed here as
+    // the bridge's only key, its absence would show every transfer off.
+    keyless: "The engine names the clinic's direct line and Retell dials it. The Retell key keeps that line as each number's fallback, for outage mode and for a call that starts while the database is down.",
     keys: [],
-    keyless: "The engine names the clinic's direct line and Retell dials it; no key of ours.",
     dependsOn: "retell-app",
     phi: true,
     build: "built",
-    buildNote: "Only while our endpoint is up, and only where the clinic has set a direct line.",
+    buildNote:
+      "Wherever the clinic has set a direct line: when AYA is paused, capped or suspended, when the model fails twice, when answering a turn fails, and when a call starts while the database is down (the engine remembers each clinic's line from its last call, and otherwise reads it back from Retell). In Retell's outage mode, untested here, Retell would dial it without us. With no line known, the caller hears a closing line. The engine never puts a call through to a number that would bring it back to AYA: a direct line equal to the clinic's published number, its AYA number or the number called counts as no line, AYA answers with the safe script (or closes the call once the Services have ended), and you are emailed (voice_direct_line_loops).",
   },
   {
     id: "patients-widget",
@@ -1167,15 +1211,15 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "A patient chats on the clinic's website",
     carries: "The patient's messages, straight to the engine",
     example:
-      "James opens the chat bubble on the clinic's website at midnight, asks what a first visit costs, and leaves a request for Friday morning that the clinic confirms.",
+      "James opens the chat bubble on the clinic's website at midnight. Its first line tells him he is talking to an AI assistant; he asks what a first visit costs and leaves a request for Friday morning that the clinic confirms.",
     // Each open chat carries a token the engine signs with a key made from
     // this secret (lib/chat/web-chat.ts).
     keys: ["aws.BETTER_AUTH_SECRET"],
     keyless: "No key on the clinic's site: the bubble names the clinic, and the engine decides whether to answer.",
     phi: true,
-    build: "partial",
+    build: "built",
     buildNote:
-      "The engine's chat is built; the bubble's script is not: nothing serves the address the pasted line points to. Yet once a clinic's script is approved, by you or by a passing practice-question run, its website chat counts as ready and the set-up wizard hands it the line to paste, with a Copy button; Home, the welcome email and the reminder email ask for it too. The chat cannot go live until you confirm in Ops that the line is on the clinic's site, so confirm none until the bubble exists.",
+      "The engine serves the bubble the pasted line loads (/widget/v1.js): it shows the AI line first, ends a chat when the visitor ends it or leaves the page, and becomes the website contact form, or the engine's line saying to call the practice on its published number (the website's own number where none is published or the engine cannot be reached), whenever AYA is not answering. Once a clinic's script is approved, by you or by a passing practice-question run, the set-up wizard hands it the line to paste, with a Copy button; Home, the welcome email and the reminder email ask for it too. Website chat still goes live only when you confirm in Ops that the line is on the clinic's site: the first chat opened from that site asks you to look, because a page's address proves nothing. Not yet tried on a real clinic's website.",
   },
   {
     id: "app-claude",
@@ -1205,7 +1249,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     phiNote: META_SCOPE,
     build: "built",
-    buildNote: "Each clinic also stays silent until you switch its Meta front door on in Ops, and the clinic's own switch for that platform is on.",
+    buildNote: "Each clinic also stays silent until you switch its Meta front door on in Ops, and the clinic's own switch for that platform is on. Someone who asks for a person is pointed to the clinic's phone and listed on Bookings, by a scrambled fingerprint of who wrote and never their words.",
   },
   {
     id: "app-meta",
@@ -1215,7 +1259,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "AYA answers in Instagram and Messenger",
     carries: "AYA's reply, inside Meta's 24-hour window only",
     example:
-      "The clinic presses Connect with Facebook at the channels step of its set-up and picks its Page; an Instagram account linked to that Page connects with it. A link you send works too. From then on AYA's answer appears in the same chat thread.",
+      "The clinic presses Connect with Facebook at the channels step of its set-up, or in Settings, and picks its Page; an Instagram account linked to that Page connects with it. If Meta later drops the login, Home says so and the button comes back as Reconnect. From then on AYA's answer appears in the same chat thread.",
     // The Facebook login's return address is built from the portal's.
     keys: ["aws.META_APP_ID", "aws.META_LOGIN_CONFIG_ID", "aws.BETTER_AUTH_URL", "clinic.meta"],
     dependsOn: "meta-app",
@@ -1223,7 +1267,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phiNote: META_SCOPE,
     build: "built",
     buildNote:
-      "The Connect with Facebook button is on the set-up wizard's channels step, not in Settings. It shows only until one of the clinic's Meta logins is connected, and only once the Facebook login's keys are in (without them the clinic is told to email us). For any later connection you make the clinic's link with run-task.sh channels-link and send it.",
+      "The button is on the set-up wizard's channels step and in Settings → Channels (Reconnect once connected), and shows only once the Facebook login's keys are in (without them the clinic is told to email us). Meta dropping a login is noticed by a send it refuses and by a check every six hours (Graph /me with the stored token); either marks the login, Home lists it and the button returns. Meta's Deauthorize Callback is not used: it names a Facebook user, which we do not store. Replacing the connected Page or Instagram account with a different one asks for the clinic's passkey step-up; a first connect or a reconnect of the same one does not. A link from run-task.sh channels-link still works for any clinic that needs one.",
   },
   {
     id: "app-whatsapp",
@@ -1233,14 +1277,14 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "AYA answers on WhatsApp",
     carries: "AYA's reply, inside Meta's 24-hour window only",
     example:
-      "You send the clinic a WhatsApp link; it connects its number through Meta's sign-up window, and it goes live once that WhatsApp account has a payment method.",
+      "The clinic presses Connect WhatsApp at set-up's channels step or in Settings, connects its number through Meta's sign-up window, and it goes live once that WhatsApp account has a payment method. If Meta drops the login the button comes back as Reconnect.",
     keys: ["aws.META_APP_ID", "aws.META_WHATSAPP_CONFIG_ID", "clinic.meta"],
     dependsOn: "meta-app",
     phi: true,
     phiNote: META_SCOPE,
     build: "built",
     buildNote:
-      "The portal has no WhatsApp button: set-up's Connect with Facebook links Instagram and Messenger only. You make the clinic's WhatsApp link with run-task.sh channels-link (choosing whatsapp) and send it.",
+      "The Connect WhatsApp button is on set-up's channels step and in Settings → Channels (Reconnect once connected, or when Meta drops the login: a refused send or the six-hourly check marks it). It opens /c/<slug>/whatsapp, which runs the same embedded sign-up as the emailed link. Replacing the connected number with a different one asks for the clinic's passkey step-up; a first connect or a reconnect of the same number does not. The step-up is asked before Meta is called, so a refused swap registers nothing, and a reconnect of the same number re-registers it with the two-step PIN sealed at its first connect, on the portal and on an emailed link alike. The clinic still adds its own payment method inside Meta's window. run-task.sh channels-link (choosing whatsapp) still works for operators.",
   },
   {
     id: "app-gcal",
@@ -1315,14 +1359,14 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "resend",
     title: "Everyday clinic email goes out",
-    carries: "Welcome, sign-in links, \"you have a new booking request\", the daily summary and the weekly recap; and alerts and support requests to you",
+    carries: "Welcome, sign-in links, the clinic's booking alerts (a new request, still open, missed, a deposit to collect, someone asking for a person, URGENT, a website message, a calendar check), the daily summary and the weekly recap; and alerts and support requests to you",
     example:
-      "\"New booking request via Instagram\": just a link, never a patient's name, number or time. The receptionist follows it, signs in, unlocks Bookings with the front-desk computer's passkey, and has 7 days to answer the request before it moves to Missed.",
+      "\"A booking request is waiting for your team\": just a link, never a patient's name, number or time. The receptionist follows it, signs in, unlocks Bookings with the front-desk computer's passkey, and has 7 days to answer the request before it moves to Missed.",
     keys: ["aws.RESEND_API_KEY", "aws.HEALDESK_EMAIL_FROM"],
     phi: false,
     build: "built",
     buildNote:
-      "Booking-request emails go, and each is only a pointer: its link opens the request on Bookings after sign-in and the passkey. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. Urgent, deposit and calendar-check alerts are only logged until the alerts are sent through the outbox (funnel M5), so an urgent caller's escalation reaches nobody yet. The daily summary goes at each clinic's opening time on its working days, and the weekly recap alone on Mondays while the summary is off, once their two jobs are switched on; each counts what AYA did and lists every booking and request only as a link.",
+      "Every booking alert is queued in the outbox in the same transaction as what it reports, so nothing goes for work that rolled back, and each is only a pointer to Bookings (Conversations for an urgent one) after sign-in and the passkey. They go to the clinic's account address; an urgent one goes in-process the moment its transaction commits. If an urgent alert cannot be queued, you are emailed at once (urgent_alert_not_queued) to phone the clinic, and neither the call nor website chat tells the person the team was told. Nothing goes while the billing-notices job is off, and go-live does not check it: switching it on before the first clinic goes live is an open item on /admin/seo; the opening-hour \"still open\" email also needs the requests-still-open job. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. The daily summary goes at each clinic's opening time on its working days, and the weekly recap alone on Mondays while the summary is off, once their two jobs are switched on; each counts what AYA did and lists every booking and request only as a link.",
   },
   {
     id: "app-ses",
@@ -1339,7 +1383,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Until AWS takes our Amazon email out of its sandbox (infra/aws/README.md, First run, step 9), it delivers only to addresses verified in our account, so no transcript reaches a clinic; this page cannot see which. A clinic that replies sends the transcript to hello@, which no agreement covers, until a covered reply-to address is set or that risk is accepted in writing.",
+      "Until AWS takes our Amazon email out of its sandbox (infra/aws/README.md, First run, step 9), it delivers only to addresses verified in our account, so no transcript reaches a clinic; this page cannot see which. A clinic that replies sends the transcript to hello@, which no agreement covers, until a covered reply-to address is set or that risk is accepted in writing. A website chat that had an urgent message ends, and its transcript goes at once, as soon as the visitor leaves a number to call back on, rather than after thirty quiet minutes.",
   },
   {
     id: "ses-app",
@@ -1399,7 +1443,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "All six screens are built: Home, Settings, Knowledge, Conversations, Bookings and Billing, with the set-up wizard, the support chat, Talk to your AYA (once the build tracker is complete) and, once a channel is live, the AYA is answering switch at the top of every screen. Conversations and Bookings open only behind a passkey. Bookings does not yet list a caller who asked for a person, or a message left while AYA was off: nothing records them yet.",
+      "All six screens are built: Home, Settings, Knowledge, Conversations, Bookings and Billing, with the set-up wizard, the support chat, Talk to your AYA (once the build tracker is complete) and, once a channel is live, the AYA is answering switch at the top of every screen. Conversations and Bookings open only behind a passkey. Bookings lists, under Needs you, each person who asked AYA for a person, on the phone, in website chat or on Instagram, Messenger or WhatsApp (not after an urgent alert that reached the clinic), newest first, up to 100 with a count of the older ones not shown, until the desk marks it handled (a call's shows the caller ID, and a number the caller gave AYA is in the call's transcript email, which the card says), and each message left on the website's contact form while AYA was off or paused.",
   },
   {
     id: "connectors-app",

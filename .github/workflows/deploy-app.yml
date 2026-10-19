@@ -142,6 +142,7 @@ env:
   PATIENT_EXPORT_FAMILY: healdesk-production-patient-export
   ERASE_PERSON_FAMILY: healdesk-production-erase-person
   AMEND_CONTACT_FAMILY: healdesk-production-amend-contact
+  PATIENT_REQUEST_FAMILY: healdesk-production-patient-request
   REAPPLY_ERASURES_FAMILY: healdesk-production-reapply-erasures
   DEMO_CLINIC_FAMILY: healdesk-production-demo-clinic
   CHANNELS_LINK_FAMILY: healdesk-production-channels-link
@@ -559,6 +560,7 @@ jobs:
           fetch "$PATIENT_EXPORT_FAMILY" patient-export
           fetch "$ERASE_PERSON_FAMILY" erase-person
           fetch "$AMEND_CONTACT_FAMILY" amend-contact
+          fetch "$PATIENT_REQUEST_FAMILY" patient-request
           fetch "$REAPPLY_ERASURES_FAMILY" reapply-erasures
           fetch "$DEMO_CLINIC_FAMILY" demo-clinic
           fetch "$CHANNELS_LINK_FAMILY" channels-link
@@ -685,7 +687,7 @@ jobs:
           if [ -n "$VOICE_FAMILY" ]; then
             revisions "$VOICE_FAMILY" >"$RUNNER_TEMP/voice-revisions"
             choose "$VOICE_FAMILY" voice "$commit" \
-              "If voice was switched on after that commit, roll back to a later one that ran voice too, or set enable_voice = false and apply before rolling back."
+              "If voice was switched on after that commit, roll back to a later one that ran voice too, or set enable_voice = false, with voice_real_calls = false in the same change if it is on, and apply before rolling back."
           fi
           echo "commit=$commit" >>"$GITHUB_OUTPUT"
 
@@ -696,7 +698,8 @@ jobs:
       # encrypted, plus worker exactly when the worker has no service of its
       # own; voice: app, plus tls-proxy while the hop is encrypted; worker,
       # destroy-due, patient-export, erase-person, amend-contact,
-      # reapply-erasures, demo-clinic, channels-link and migrate: app;
+      # patient-request, reapply-erasures, demo-clinic, channels-link and
+      # migrate: app;
       # db-bootstrap: db-admin. The
       # execution role everywhere, the app task role on web, worker, voice
       # and destroy-due, the export task role on patient-export, none on the
@@ -734,7 +737,7 @@ jobs:
                 fi
                 ;;
               voice) [ "$names" = '["app"]' ] || [ "$names" = '["app","tls-proxy"]' ] || refuse "$label" "$file" "containers $names" ;;
-              worker | destroy-due | patient-export | erase-person | amend-contact | reapply-erasures | demo-clinic | channels-link | migrate) [ "$names" = '["app"]' ] || refuse "$label" "$file" "containers $names" ;;
+              worker | destroy-due | patient-export | erase-person | amend-contact | patient-request | reapply-erasures | demo-clinic | channels-link | migrate) [ "$names" = '["app"]' ] || refuse "$label" "$file" "containers $names" ;;
               db-bootstrap) [ "$names" = '["db-admin"]' ] || refuse "$label" "$file" "containers $names" ;;
             esac
             [ "$(jq -r '.executionRoleArn // ""' "$file")" = "$role-ecs-execution" ] \
@@ -743,7 +746,7 @@ jobs:
               web | worker | voice | destroy-due) task_role="$role-app-task" ;;
               patient-export) task_role="$role-export-task" ;;
               db-bootstrap) task_role="$role-db-admin-task" ;;
-              migrate | erase-person | amend-contact | reapply-erasures | demo-clinic | channels-link) task_role="" ;;
+              migrate | erase-person | amend-contact | patient-request | reapply-erasures | demo-clinic | channels-link) task_role="" ;;
             esac
             [ "$(jq -r '.taskRoleArn // ""' "$file")" = "$task_role" ] \
               || refuse "$label" "$file" "task role $(jq -r '.taskRoleArn // "none"' "$file")"
@@ -763,7 +766,7 @@ jobs:
               [ "$found" = "$ARCHITECTURE" ] || refuse "$label" "$file" "declares $found, but the images were built for $ARCHITECTURE"
             fi
           }
-          for label in web worker voice destroy-due patient-export erase-person amend-contact reapply-erasures demo-clinic channels-link migrate db-bootstrap; do
+          for label in web worker voice destroy-due patient-export erase-person amend-contact patient-request reapply-erasures demo-clinic channels-link migrate db-bootstrap; do
             if [ -f "$RUNNER_TEMP/$label.json" ]; then check "$label"; fi
           done
           if [ "$failed" = 1 ]; then
@@ -971,6 +974,15 @@ jobs:
         uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
         with:
           task-definition: ${{ runner.temp }}/amend-contact.json
+          container-name: app
+          image: ${{ steps.images.outputs.app_image }}
+
+      - name: Render patient-request
+        id: render-patient-request
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
+        uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
+        with:
+          task-definition: ${{ runner.temp }}/patient-request.json
           container-name: app
           image: ${{ steps.images.outputs.app_image }}
 
@@ -1229,8 +1241,9 @@ jobs:
           task-definition: ${{ steps.render-patient-export.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
 
-      # And the two patient-rights operator scripts (docs/handover.md,
-      # "Deletion requests", "Amendments"), run by hand with run-task.sh.
+      # And the patient-rights operator scripts (docs/handover.md, "Deletion
+      # requests", "Amendments", "A request a patient makes to us"), run by
+      # hand with run-task.sh.
       - name: Register erase-person
         id: register-erase-person
         if: ${{ steps.run.outputs.mode == 'deploy' }}
@@ -1245,6 +1258,14 @@ jobs:
         uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
         with:
           task-definition: ${{ steps.render-amend-contact.outputs.task-definition }}
+          cluster: ${{ env.CLUSTER }}
+
+      - name: Register patient-request
+        id: register-patient-request
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
+        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        with:
+          task-definition: ${{ steps.render-patient-request.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
 
       - name: Register reapply-erasures
@@ -1342,6 +1363,7 @@ jobs:
           PATIENT_EXPORT_TASK: ${{ steps.register-patient-export.outputs.task-definition-arn }}
           ERASE_PERSON_TASK: ${{ steps.register-erase-person.outputs.task-definition-arn }}
           AMEND_CONTACT_TASK: ${{ steps.register-amend-contact.outputs.task-definition-arn }}
+          PATIENT_REQUEST_TASK: ${{ steps.register-patient-request.outputs.task-definition-arn }}
           REAPPLY_ERASURES_TASK: ${{ steps.register-reapply-erasures.outputs.task-definition-arn }}
           DEMO_CLINIC_TASK: ${{ steps.register-demo-clinic.outputs.task-definition-arn }}
           CHANNELS_LINK_TASK: ${{ steps.register-channels-link.outputs.task-definition-arn }}
@@ -1366,7 +1388,7 @@ jobs:
                 voice_line
                 echo "- destroy-due: ${DESTROY_DUE_TASK##*/} (registered; run by hand after a restore)"
                 echo "- patient-export: ${PATIENT_EXPORT_TASK##*/} (registered; run by hand at offboarding)"
-                echo "- erase-person: ${ERASE_PERSON_TASK##*/}, amend-contact: ${AMEND_CONTACT_TASK##*/}, reapply-erasures: ${REAPPLY_ERASURES_TASK##*/} (registered; run by hand)"
+                echo "- erase-person: ${ERASE_PERSON_TASK##*/}, amend-contact: ${AMEND_CONTACT_TASK##*/}, patient-request: ${PATIENT_REQUEST_TASK##*/}, reapply-erasures: ${REAPPLY_ERASURES_TASK##*/} (registered; run by hand)"
                 echo "- demo-clinic: ${DEMO_CLINIC_TASK##*/}, channels-link: ${CHANNELS_LINK_TASK##*/} (registered; run by hand with run-task.sh)"
                 echo "- db-bootstrap: $([ "$BOOTSTRAPPED" = true ] && echo ran || echo skipped)"
                 echo "- migrations: $([ "$MIGRATED" = true ] && echo ran || echo skipped)"

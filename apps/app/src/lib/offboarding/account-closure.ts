@@ -24,7 +24,7 @@ import { releaseNumberAfterPassThrough } from "./offboarding";
  * ## When
  *
  * Once nothing is left to finish (app_account_closure_waiting_on, drizzle/
- * 0092): the data destroyed; the pass-through over, the end of the service
+ * 0096): the data destroyed; the pass-through over, the end of the service
  * plus FORWARDING_PASS_THROUGH_DAYS, since the BAA's Term clause lets healdesk
  * "pass forwarded calls straight through to Practice's direct line for as
  * long as the Terms provide" and that call reads the direct line from
@@ -45,11 +45,12 @@ import { releaseNumberAfterPassThrough } from "./offboarding";
  * years. So the memberships are revoked (and kept, as the access history),
  * and each person whose last live grant this clinic held loses their
  * sessions, accounts, verifications, factors, backup codes, passkey
- * challenges, step-ups, lockouts, sign-in links, invitations and organisation
- * memberships, and their user row becomes a tombstone: an address under
- * RFC 2606's `.invalid`, no name. Then the setup (agent configuration,
- * settings and their history, report recipients, the practice questions, the
- * website re-reads, the clinic row's setup columns), our own notes and
+ * challenges, step-ups, lockouts, sign-in links, device recovery links,
+ * invitations and organisation memberships, and their user row becomes a
+ * tombstone: an address under RFC 2606's `.invalid`, no name. Then the
+ * setup (agent configuration, settings and their history, report recipients,
+ * the practice questions, the website re-reads, the clinic row's setup
+ * columns), our own notes and
  * phase-two runs, and the checkout the clinic was bought through. The
  * function's own list, which tests/booking-request-destruction.test.ts holds
  * to the catalog beside destruction's and KEPT_FOR_GOOD; after it, those

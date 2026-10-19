@@ -36,7 +36,7 @@ import { inTenant, seedChannels, seedClinic, seedPortalUser } from "./setup/fact
  * The spec closes a clinic "keeping only the signed agreement and the billing
  * records the law requires", and the Terms promise the same; destruction took
  * only the patient rows, and nothing ever closed the account.
- * app_close_clinic_account() (drizzle/0092) does, once nothing is left to
+ * app_close_clinic_account() (drizzle/0096) does, once nothing is left to
  * finish, and these tests hold it to that: what goes, what stays, when, and
  * that no other clinic is touched.
  *

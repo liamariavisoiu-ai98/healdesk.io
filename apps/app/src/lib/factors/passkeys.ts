@@ -24,9 +24,15 @@ import { describeError, log } from "@/lib/log";
 import { notifyDeviceChange } from "@/lib/notices/device-changes";
 import { publicOrigin } from "@/lib/public-url";
 
-import { activeFactors, anyClinicMayHoldPatientData, passkeyEnrolDecision } from "./authority";
+import {
+  activeFactors,
+  anyClinicMayHoldPatientData,
+  neverHadPasskey,
+  passkeyEnrolDecision,
+} from "./authority";
 import { validateDeviceLabel } from "./device";
 import { isUniqueViolationOn } from "./errors";
+import { spendDeviceRecovery } from "./recovery";
 import { endStepUps, findLiveStepUp, recordStepUp, type LiveStepUp } from "./step-ups";
 import { actorLabelFor, checkSecondFactorCode, type RequestMeta } from "./totp";
 
@@ -215,15 +221,24 @@ class Refused extends Error {
 
 export type RegistrationStart =
   | { ok: true; options: PublicKeyCredentialCreationOptionsJSON; basis: PasskeyEnrolBasis }
-  | { ok: false; reason: "needs_step_up" | "code_incorrect" | "code_locked" | "too_many_attempts" };
+  | {
+      ok: false;
+      /**
+       * `needs_step_up`: another device's passkey (or a code) unlocks it.
+       * `no_device`: the sign-in has no passkey to step up with, so only a
+       * code from the backup or the human route can.
+       */
+      reason: "needs_step_up" | "no_device" | "code_incorrect" | "code_locked" | "too_many_attempts";
+    };
 
 /**
  * Options for adding this device's passkey, once this session may (authority.ts):
  * the sign-in's first passkey before go-live, a live step-up on this session,
- * or `code`, from the authenticator app or the backup list, which is checked
- * and spent here, before the browser makes a credential, so a wrong code
- * never leaves an orphaned passkey on the device. The basis is stored with
- * the challenge and checked again when the passkey comes back.
+ * this session's claim on the human route's link, the paying browser's first
+ * enrolment, or `code`, from the authenticator app or the backup list, which
+ * is checked and spent here, before the browser makes a credential, so a
+ * wrong code never leaves an orphaned passkey on the device. The basis is
+ * stored with the challenge and checked again when the passkey comes back.
  *
  * authenticatorAttachment is left unset, so the browser offers "Use a phone or
  * tablet" (the cross-device QR flow) beside this device's own unlock; the
@@ -234,9 +249,13 @@ export async function startPasskeyRegistration(input: {
   session: SessionBinding;
   code?: string | null;
   request?: RequestMeta;
+  /** This is the browser that paid, within its window (lib/sign-in/paying-browser.ts). */
+  payingBrowser?: boolean;
 }): Promise<RegistrationStart> {
   const { userId, sessionTokenHash } = input.session;
-  const decision = await passkeyEnrolDecision(userId, sessionTokenHash);
+  const decision = await passkeyEnrolDecision(userId, sessionTokenHash, unsafeDb, {
+    payingBrowser: input.payingBrowser === true,
+  });
   let basis: PasskeyEnrolBasis;
   if (decision.allowed) {
     basis = decision.basis;
@@ -247,7 +266,7 @@ export async function startPasskeyRegistration(input: {
     }
     basis = "code";
   } else {
-    return { ok: false, reason: "needs_step_up" };
+    return { ok: false, reason: decision.hasPasskey ? "needs_step_up" : "no_device" };
   }
 
   const { rpID } = relyingParty();
@@ -291,9 +310,12 @@ export type RegistrationFinish =
  *
  * Under a per-sign-in advisory lock, the basis the challenge was issued on is
  * checked again: "first passkey" holds only while there is still none and
- * nothing is live (two browsers racing cannot both add a "first"), and a
- * step-up must still be live. A code was spent when the options were issued;
- * the single-use, session-bound challenge carries it.
+ * nothing is live (two browsers racing cannot both add a "first"), a step-up
+ * must still be live, the paying browser's first enrolment holds only while
+ * the sign-in has never had a passkey and this is still that browser, and
+ * the human route's link is spent on this passkey in the same transaction,
+ * once. A code was spent when the options were issued; the single-use,
+ * session-bound challenge carries it.
  */
 export async function finishPasskeyRegistration(input: {
   session: SessionBinding;
@@ -301,8 +323,9 @@ export async function finishPasskeyRegistration(input: {
   deviceLabel: unknown;
   request?: RequestMeta;
   /**
-   * This is the browser that paid (lib/sign-in/paying-browser.ts): its first
-   * passkey is the only addition that sends no device email (O3).
+   * This is the browser that paid, within its window (lib/sign-in/
+   * paying-browser.ts): its first passkey is the only addition that sends no
+   * device email (O3), and the paying-browser basis holds only while it is.
    */
   payingBrowser?: boolean;
 }): Promise<RegistrationFinish> {
@@ -342,6 +365,7 @@ export async function finishPasskeyRegistration(input: {
   const { credential, credentialBackedUp } = verification.registrationInfo;
 
   let first = false;
+  let recoveryId: string | null = null;
   let result: RegistrationFinish;
   try {
     result = await unsafeDb.transaction(async (tx) => {
@@ -358,6 +382,11 @@ export async function finishPasskeyRegistration(input: {
         if (!(await findLiveStepUp(tx, { sessionTokenHash, userId }, { touch: true }))) {
           throw new Refused("needs_step_up");
         }
+      } else if (basis === "paying_browser") {
+        if (input.payingBrowser !== true || !(await neverHadPasskey(userId, tx))) {
+          throw new Refused("needs_step_up");
+        }
+        first = true;
       }
 
       const [factor] = await tx
@@ -374,6 +403,11 @@ export async function finishPasskeyRegistration(input: {
         })
         .returning({ id: userFactors.id });
       if (!factor) throw new Error("The passkey was not stored.");
+      if (basis === "recovery") {
+        // Spent on this passkey, or the passkey goes: the link adds one device.
+        recoveryId = await spendDeviceRecovery(tx, input.session, factor.id);
+        if (!recoveryId) throw new Refused("needs_step_up");
+      }
 
       const stepUp = await recordStepUp(tx, {
         sessionTokenHash,
@@ -391,8 +425,22 @@ export async function finishPasskeyRegistration(input: {
         actorLabel,
         userId,
         ...meta,
-        metadata: { factorId: factor.id, basis, backedUp: credentialBackedUp },
+        metadata: {
+          factorId: factor.id,
+          basis,
+          backedUp: credentialBackedUp,
+          ...(recoveryId ? { recoveryId } : {}),
+        },
       });
+      if (recoveryId) {
+        await recordSecurityEvent(tx, {
+          event: "device_recovery_used",
+          actorLabel,
+          userId,
+          ...meta,
+          metadata: { recoveryId, factorId: factor.id },
+        });
+      }
       await recordSecurityEvent(tx, {
         event: "step_up_granted",
         actorLabel,
@@ -416,6 +464,8 @@ export async function finishPasskeyRegistration(input: {
       factorId: result.factorId,
       first,
       payingBrowser: input.payingBrowser === true,
+      // The human route's addition is always told, and told as that (O3).
+      ...(basis === "recovery" ? { source: "recovery" as const } : {}),
     });
   }
   return result;

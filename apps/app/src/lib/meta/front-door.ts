@@ -11,6 +11,7 @@ import {
   urgentSetFor,
   type AssistantTone,
   type BookingField,
+  type ServicePriceKind,
   type UrgentFinding,
 } from "@healdesk/catalog";
 import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors";
@@ -18,11 +19,13 @@ import { and, eq } from "drizzle-orm";
 
 import { agentConfigs, clinicChannels, clinicProviders, clinics, clinicSettings } from "@/db/schema";
 import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
-import { clinicOwnWords, neverSayIn } from "@/lib/assistant/guard";
+import { amountsIn, claimsToBeHuman, clinicOwnWords, neverSayIn } from "@/lib/assistant/guard";
+import { priceText } from "@/lib/assistant/prompt";
 import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/responder";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
 import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting, type Channel } from "@/lib/compliance/disclosure";
+import { raiseHandover } from "@/lib/handovers/record";
 import { describeError, log } from "@/lib/log";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { isOpenAt, parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
@@ -127,8 +130,9 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * Past the screen, two layers enforce the rest. The system prompt forbids
  * it, and a deterministic guard reads every reply before it is sent: a
  * clinical phrase or a named condition, an acknowledgement, a time, a price
- * commitment, a promise to text, a promotion or one of the clinic's own
- * service names replaces the reply with the fixed hand-off line. The guard
+ * that is not on the menu (written or said in words), a price commitment, a
+ * promise to text, a promotion or one of the clinic's own service names
+ * replaces the reply with the fixed hand-off line. The guard
  * is the one that counts; the prompt is the one that keeps the guard from
  * firing on every message.
  *
@@ -190,8 +194,19 @@ export type FrontDoorFacts = {
   /** The practice's providers, as it names them: words the language check reads as no language. */
   providerNames?: string[];
   websiteHint: string | null;
-  /** The approved menu. The model reads a name only to match what the person asked about, and never writes it back. */
-  services: { name: string; priceFromUsd: number | null; priceToUsd: number | null }[];
+  /**
+   * The approved menu. The model reads a name only to match what the person
+   * asked about, and never writes it back. Its prices are the only figures a
+   * reply may name (the guard). How a price is quoted ("per unit", a range,
+   * "from") comes with it where the clinic set one.
+   */
+  services: {
+    name: string;
+    priceFromUsd: number | null;
+    priceToUsd: number | null;
+    priceKind?: ServicePriceKind | null;
+    unit?: string | null;
+  }[];
   /**
    * Every service the clinic has configured, approved or not: the names the
    * guard refuses in a reply. Absent, the names in `services` are used.
@@ -361,19 +376,28 @@ const META_TONE: Record<AssistantTone, string> = {
   clinical: "Plain, calm and precise.",
 };
 
+/**
+ * One service's price as the menu states it, written as the phone and the
+ * website chat write it (lib/assistant/prompt.ts, priceText): a fixed price
+ * as itself ("$150", "$12 per unit"), a range, "from" or "up to" one bound.
+ * The model quotes only these, and the guard lets no other figure out.
+ */
+export function menuPriceText(service: FrontDoorFacts["services"][number]): string {
+  if (service.priceFromUsd === null && service.priceToUsd === null) return "no published price";
+  return priceText({
+    name: service.name,
+    priceFromUsd: service.priceFromUsd,
+    priceToUsd: service.priceToUsd,
+    priceKind: service.priceKind ?? null,
+    unit: service.unit ?? null,
+    durationMinutes: null,
+    depositUsd: null,
+  });
+}
+
 export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
   const menu = facts.services.length
-    ? facts.services
-        .map((s) => {
-          const price =
-            s.priceFromUsd !== null && s.priceToUsd !== null
-              ? s.priceFromUsd === s.priceToUsd
-                ? `from $${s.priceFromUsd}`
-                : `$${s.priceFromUsd}–$${s.priceToUsd}`
-              : "no published price";
-          return `- ${s.name}: ${price}`;
-        })
-        .join("\n")
+    ? facts.services.map((s) => `- ${s.name}: ${menuPriceText(s)}`).join("\n")
     : "- (the practice has not listed its services; say a person can tell them)";
   // Who the practice's people are, by audienceFor (plan Part L, "Copy"): a
   // veterinary practice's are clients, and nothing here calls them patients.
@@ -391,6 +415,7 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     '1. Start your reply with the substance. Never greet the person (no "Hi", "Hello" or "Hey"), and never introduce yourself or say what you are unless they ask: the code puts the channel\'s opening line in front of your reply wherever one is owed, and that line already greets them and says you are an AI assistant.',
     "2. Answer PUBLIC questions from the facts below: hours, location, parking, and whether the practice offers something the person asks about and its published price, without ever naming it.",
     `3. Move the person to a secure channel to discuss anything personal: the phone${facts.phone ? ` (${facts.phone})` : ""}${facts.websiteHint ? ` or the website (${facts.websiteHint})` : ""}.`,
+    `If they ask to speak to a person, say a person at the practice can help on the phone${facts.phone ? ` (${facts.phone})` : ""}, and set "handoff" to true.`,
     `4. If the person wants to book, take a BOOKING REQUEST for the practice to confirm by phone. Ask only for: their first name, a phone number the practice can call, a preferred day or time, and — once you have that — up to two other times that could also work. ${requiredMetaFieldsLine(facts.requirements)}. Ask for whichever are still missing, one message at a time. Never ask why they are visiting or which treatment they want, and never repeat their phone number back.`,
     "",
     "You must NEVER:",
@@ -403,6 +428,7 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     "- Ask the person any question about their health.",
     "- Promise to text, SMS or message them anything, or send them a link.",
     "- Claim to be human. If asked, say you are an automated assistant.",
+    "- Give a price that is not on the practice's menu below, exactly as written there.",
     "",
     "PROHIBITED ON EVERY META CHANNEL, whatever the person writes:",
     // The one Meta rule's list, word for word, in the practice's own words:
@@ -420,7 +446,7 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     "Always write in English, whatever language the message is in: this channel answers in English only.",
     "",
     "ANSWER FORMAT — respond with JSON only, no prose around it:",
-    '{"reply": "<what to send the person>", "booking": {"wants": <true if they want to book>, "first_name": <string or null>, "phone": <string or null>, "window": <their preferred day or time as they said it, or null>, "alt_windows": [<other times they named, as they said them, up to two>], "fields": {}}}',
+    '{"reply": "<what to send the person>", "handoff": <true if they asked to speak to a person: a human, the staff, the front desk>, "booking": {"wants": <true if they want to book>, "first_name": <string or null>, "phone": <string or null>, "window": <their preferred day or time as they said it, or null>, "alt_windows": [<other times they named, as they said them, up to two>], "fields": {}}}',
     "Fill the booking fields only with what the person actually wrote in THIS message; leave the rest null or empty. Put nothing about their health in any window.",
     "",
     "FACTS YOU MAY STATE:",
@@ -502,7 +528,24 @@ export type GuardContext = {
    * address (clinicOwnWords), and never when the entry names them itself.
    */
   neverSay?: readonly string[];
+  /**
+   * The menu's prices in dollars, each end of a range: the only figures a
+   * reply may name, written or said in words (amountsIn). Absent, none.
+   */
+  prices?: readonly number[];
 };
+
+/** Why the guard refused a reply that names a figure not on the menu. */
+export const PRICE_REFUSAL = "an unlisted price";
+
+/** Every figure the menu states, in dollars: each service's price, or each end of its range. */
+export function menuPrices(services: FrontDoorFacts["services"]): number[] {
+  const out = new Set<number>();
+  for (const s of services) {
+    for (const v of [s.priceFromUsd, s.priceToUsd]) if (typeof v === "number" && Number.isFinite(v)) out.add(v);
+  }
+  return [...out];
+}
 
 export function guardContextFor(
   facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address"> &
@@ -516,6 +559,7 @@ export function guardContextFor(
     ...(facts.address ? { address: facts.address } : {}),
     ...(ownFacts ? { ownFacts } : {}),
     ...(facts.neverSay?.length ? { neverSay: facts.neverSay } : {}),
+    prices: menuPrices(facts.services),
   };
 }
 
@@ -631,6 +675,17 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   const flat = reply.replace(/\s*[\r\n]+\s*/g, " ");
   const hit = REFUSED.find((r) => r.pattern.test(flat));
   if (hit) return { ok: false, reason: hit.label };
+  // A claim to be a person, or not to be an AI, as a call and a web chat
+  // refuse it (lib/assistant/guard.ts, claimsToBeHuman): "I'm not a bot",
+  // "you're talking to Sarah at the front desk", "soy una persona real".
+  if (claimsToBeHuman(flat, { clinicName: context.clinicName })) return { ok: false, reason: "a human claim" };
+  // No figure off the menu, written or said ("$450", "four hundred and fifty
+  // dollars"): the menu's own only, as on the phone and the website chat.
+  // The prompt invites a price; this is what holds it to the list.
+  const allowed = new Set((context.prices ?? []).map((p) => Math.round(p * 100)));
+  if (amountsIn(withoutAddress(flat, context.address)).some((cents) => !allowed.has(cents))) {
+    return { ok: false, reason: PRICE_REFUSAL };
+  }
   if (personaIntroduction(flat, context.clinicName)) return { ok: false, reason: "a human claim" };
   const staff = namedStaff(withoutClinicName(withoutAddress(flat, context.address), context.clinicName), context.clinicName);
   if (staff) return { ok: false, reason: staff };
@@ -1205,6 +1260,12 @@ export function openWithGreeting(greeting: string, reply: { text: string; source
 /** The model's structured answer. Anything that is not the expected JSON is read as a plain reply. */
 export type ModelReply = {
   reply: string;
+  /**
+   * They asked for a person. Read only from a model answer, which a message
+   * the inbound screen refused never reaches, so a Meta handover
+   * (lib/handovers/record.ts) never stands on clinical content.
+   */
+  handoff: boolean;
   booking: {
     wants: boolean;
     first_name: string | null;
@@ -1221,10 +1282,10 @@ export function parseModelReply(raw: string): ModelReply {
   const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
-  if (start === -1 || end <= start) return { reply: raw.trim(), booking: { ...NO_BOOKING } };
+  if (start === -1 || end <= start) return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
   try {
-    const parsed = JSON.parse(trimmed.slice(start, end + 1)) as { reply?: unknown; booking?: Record<string, unknown> };
-    if (typeof parsed.reply !== "string") return { reply: raw.trim(), booking: { ...NO_BOOKING } };
+    const parsed = JSON.parse(trimmed.slice(start, end + 1)) as { reply?: unknown; handoff?: unknown; booking?: Record<string, unknown> };
+    if (typeof parsed.reply !== "string") return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
     const b = parsed.booking ?? {};
     const s = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
     const alt_windows = Array.isArray(b.alt_windows) ? b.alt_windows.map(s).filter((v): v is string => v !== null).slice(0, 2) : [];
@@ -1237,10 +1298,11 @@ export function parseModelReply(raw: string): ModelReply {
     }
     return {
       reply: parsed.reply.trim(),
+      handoff: parsed.handoff === true,
       booking: { wants: b.wants === true, first_name: s(b.first_name), phone: s(b.phone), window: s(b.window), alt_windows, fields },
     };
   } catch {
-    return { reply: raw.trim(), booking: { ...NO_BOOKING } };
+    return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
   }
 }
 
@@ -1330,7 +1392,10 @@ export async function frontDoorFacts(
     websiteHint: null,
     // Only an approved script's services are public facts. Refusing a name
     // needs no approval, so the guard gets every one configured.
-    services: approved && agent ? agent.services.map((s) => ({ name: s.name, priceFromUsd: s.priceFromUsd, priceToUsd: s.priceToUsd })) : [],
+    services:
+      approved && agent
+        ? agent.services.map((s) => ({ name: s.name, priceFromUsd: s.priceFromUsd, priceToUsd: s.priceToUsd, priceKind: s.priceKind ?? null, unit: s.unit ?? null }))
+        : [],
     serviceNames: agent ? agent.services.map((s) => s.name) : [],
     notes: approved && agent ? agent.notes : null,
     escalationHours: approved && agent ? agent.escalationHours : null,
@@ -1377,6 +1442,8 @@ export type FrontDoorDraft = {
   /** What the model gathered for a booking request, cleaned; null when the model did not answer. */
   extracted: BookingFields | null;
   wants: boolean;
+  /** The model read a request for a person (never set for a screened message). */
+  handoff?: boolean;
 };
 
 /**
@@ -1431,6 +1498,7 @@ export async function draftFrontDoorAnswer(
         : { text: fallback, source: "handoff", guard: verdict.reason, screened: null, booking: "none", greeted: false },
       extracted: cleanBookingFields(parsed.booking),
       wants: parsed.booking.wants,
+      handoff: parsed.handoff,
     };
   } catch (error) {
     log.error("front door model call failed", { clinicId: input.clinicId, error: describeError(error) });
@@ -1493,6 +1561,13 @@ export async function answerFrontDoor(
   // by the webhook once this transaction has committed.
   if (screened === "urgent") {
     await notifyBookingAlert(tx, "urgent", { conversationId: conversation?.conversationId, channel: "meta" });
+  }
+  // L11: they asked for a person. Kept for Bookings' Needs you, once per
+  // conversation, by the thread's keyed reference and never their words
+  // (lib/handovers/record.ts); only from the model's answer, so never for a
+  // message the screen refused.
+  if (draft.handoff === true && screened === null && thread && conversation) {
+    await raiseHandover(tx, { channel: "meta", platform: thread.platform, partyRef: conversation.partyRef, metaConversationId: conversation.conversationId });
   }
 
   // Only the model extracts booking fields, so a screened message never

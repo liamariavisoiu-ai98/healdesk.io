@@ -294,7 +294,7 @@ run "production_defaults" {
       for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).secrets : e.name
       ]) == toset([
       "ANTHROPIC_API_KEY", "BETTER_AUTH_SECRET", "DATABASE_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
-      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_LLM_SECRET",
+      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_API_KEY", "HEALDESK_RETELL_LLM_SECRET",
       "META_APP_SECRET", "META_VERIFY_TOKEN",
       "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
     ])
@@ -349,9 +349,9 @@ run "production_defaults" {
   assert {
     condition = toset([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].secrets : e.name]) == toset([
       "BETTER_AUTH_SECRET", "DATABASE_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
-      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "RESEND_API_KEY", "STRIPE_SECRET_KEY",
+      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_API_KEY", "RESEND_API_KEY", "STRIPE_SECRET_KEY",
     ])
-    error_message = "The worker's secrets differ from what its code reads (Google included, for the calendar watch)."
+    error_message = "The worker's secrets differ from what its code reads (Google included, for the calendar watch, and Retell's key, for the voice call backstop)."
   }
 
   assert {
@@ -448,7 +448,7 @@ run "production_defaults" {
   assert {
     condition = alltrue(flatten([
       for name in ["HEALDESK_LOCAL_KEK", "HEALDESK_DIRECT_BOOKING_ENABLED", "HEALDESK_PHASE_TWO_ATTRIBUTION", "BETTER_AUTH_SECRETS", "APP_PASSWORD", "MIGRATOR_PASSWORD"] : [
-        for definition in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.worker.container_definitions, aws_ecs_task_definition.destroy_due.container_definitions, aws_ecs_task_definition.patient_export.container_definitions, aws_ecs_task_definition.ops_script["erase-person"].container_definitions, aws_ecs_task_definition.ops_script["amend-contact"].container_definitions, aws_ecs_task_definition.migrate.container_definitions, aws_ecs_task_definition.db_bootstrap[0].container_definitions] :
+        for definition in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.worker.container_definitions, aws_ecs_task_definition.destroy_due.container_definitions, aws_ecs_task_definition.patient_export.container_definitions, aws_ecs_task_definition.ops_script["erase-person"].container_definitions, aws_ecs_task_definition.ops_script["amend-contact"].container_definitions, aws_ecs_task_definition.ops_script["patient-request"].container_definitions, aws_ecs_task_definition.migrate.container_definitions, aws_ecs_task_definition.db_bootstrap[0].container_definitions] :
         !strcontains(definition, "\"${name}\"")
       ]
     ])) && !strcontains(aws_ecs_task_definition.web.container_definitions, "MIGRATION_DATABASE_URL") && !strcontains(aws_ecs_task_definition.worker.container_definitions, "MIGRATION_DATABASE_URL") && !strcontains(aws_ecs_task_definition.destroy_due.container_definitions, "MIGRATION_DATABASE_URL")
@@ -752,7 +752,7 @@ run "production_defaults" {
   assert {
     condition = (
       local.unset_placeholder == "__unset__" &&
-      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 10 &&
+      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 11 &&
       alltrue([
         for p in concat(values(aws_ssm_parameter.internal), values(aws_ssm_parameter.external)) :
         p.type == "SecureString" && p.key_id == aws_kms_key.main.arn && p.tier == "Standard" &&
@@ -778,13 +778,13 @@ run "production_defaults" {
     condition = (
       output.parameters_to_fill == sort([for name in [
         "ANTHROPIC_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "HEALDESK_PROVISION_SECRET",
-        "HEALDESK_RETELL_LLM_SECRET", "META_APP_SECRET",
+        "HEALDESK_RETELL_API_KEY", "HEALDESK_RETELL_LLM_SECRET", "META_APP_SECRET",
         "META_VERIFY_TOKEN", "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
       ] : "/healdesk/production/app/${name}"]) &&
       length(output.internal_parameters) == 6 &&
       !contains(output.parameters_to_fill, "/healdesk/production/ci/CLOUDFLARE_API_TOKEN")
     )
-    error_message = "parameters_to_fill lists the ten external keys, without the two retired Synthflow ones (and never the CI token, which Terraform does not manage)."
+    error_message = "parameters_to_fill lists the eleven external keys, without the two retired Synthflow ones (and never the CI token, which Terraform does not manage)."
   }
 
   assert {
@@ -957,26 +957,32 @@ run "production_defaults" {
   # --- the patient-rights operator scripts: ids only, no task role ---
   assert {
     condition = (
-      toset(keys(aws_ecs_task_definition.ops_script)) == toset(["erase-person", "amend-contact", "reapply-erasures", "demo-clinic", "channels-link"]) &&
+      toset(keys(aws_ecs_task_definition.ops_script)) == toset(["erase-person", "amend-contact", "patient-request", "reapply-erasures", "demo-clinic", "channels-link"]) &&
       jsondecode(aws_ecs_task_definition.ops_script["reapply-erasures"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/reapply-erasures.ts"] &&
       [for e in jsondecode(aws_ecs_task_definition.ops_script["reapply-erasures"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"] &&
       jsondecode(aws_ecs_task_definition.ops_script["erase-person"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/ops-erase-person.ts"] &&
       jsondecode(aws_ecs_task_definition.ops_script["amend-contact"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/ops-amend-contact.ts"] &&
       [for e in jsondecode(aws_ecs_task_definition.ops_script["erase-person"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"] &&
       [for e in jsondecode(aws_ecs_task_definition.ops_script["amend-contact"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL"] &&
+      jsondecode(aws_ecs_task_definition.ops_script["patient-request"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/ops-patient-request.ts"] &&
+      [for e in jsondecode(aws_ecs_task_definition.ops_script["patient-request"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL"] &&
+      {
+        for e in jsondecode(aws_ecs_task_definition.ops_script["patient-request"].container_definitions)[0].environment : e.name => e.value
+      } == { BETTER_AUTH_URL = "https://app.healdesk.io", NODE_ENV = "production", NODE_EXTRA_CA_CERTS = "/etc/ssl/rds/us-east-1-bundle.pem" } &&
       alltrue([for k, t in aws_ecs_task_definition.ops_script : t.task_role_arn == null && t.family == "healdesk-production-${k}"]) &&
       alltrue([for k in ["erase-person", "amend-contact", "reapply-erasures"] : {
         for e in jsondecode(aws_ecs_task_definition.ops_script[k].container_definitions)[0].environment : e.name => e.value
       } == { NODE_ENV = "production", NODE_EXTRA_CA_CERTS = "/etc/ssl/rds/us-east-1-bundle.pem" }]) &&
-      jsondecode(aws_ecs_task_definition.ops_script["erase-person"].container_definitions)[0].logConfiguration.options["awslogs-group"] == "/healdesk/production/erase-person"
+      jsondecode(aws_ecs_task_definition.ops_script["erase-person"].container_definitions)[0].logConfiguration.options["awslogs-group"] == "/healdesk/production/erase-person" &&
+      jsondecode(aws_ecs_task_definition.ops_script["patient-request"].container_definitions)[0].logConfiguration.options["awslogs-group"] == "/healdesk/production/patient-request"
     )
-    error_message = "erase-person and amend-contact run their scripts with the runtime URL (and, for erasure, the identifier key) as their only secrets, in production mode, with no task role."
+    error_message = "erase-person, amend-contact and patient-request run their scripts with the runtime URL (and, for erasure, the identifier key) as their only secrets, in production mode, with no task role; patient-request also gets the public origin L32 links to."
   }
 
   assert {
     condition = (
-      alltrue([for f in ["erase-person", "amend-contact", "reapply-erasures", "demo-clinic", "channels-link"] : contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RegisterOurTaskDefinitions"]).resources, "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-${f}:*")]) &&
-      !anytrue([for st in data.aws_iam_policy_document.github_deploy.statement : anytrue([for f in ["erase-person", "amend-contact", "reapply-erasures", "demo-clinic", "channels-link"] : strcontains(jsonencode(st.resources), f)]) if contains(st.actions, "ecs:RunTask")])
+      alltrue([for f in ["erase-person", "amend-contact", "patient-request", "reapply-erasures", "demo-clinic", "channels-link"] : contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RegisterOurTaskDefinitions"]).resources, "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-${f}:*")]) &&
+      !anytrue([for st in data.aws_iam_policy_document.github_deploy.statement : anytrue([for f in ["erase-person", "amend-contact", "patient-request", "reapply-erasures", "demo-clinic", "channels-link"] : strcontains(jsonencode(st.resources), f)]) if contains(st.actions, "ecs:RunTask")])
     )
     error_message = "The deploy role registers the operator scripts' revisions but may never run one."
   }
@@ -1340,6 +1346,17 @@ run "voice_on" {
     error_message = "With enable_voice on, the web task must say so in HEALDESK_VOICE_ENABLED, which the ops API's keyPresence reports."
   }
 
+  # Test mode by default: only the demo clinic's calls are answered, and only
+  # the demo clinic's lost calls backstopped. The web task holds the shared
+  # worker; the worker task is the separate placement's.
+  assert {
+    condition = alltrue([
+      for td in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.voice[0].container_definitions, aws_ecs_task_definition.worker.container_definitions] :
+      !strcontains(td, "HEALDESK_VOICE_REAL_CALLS")
+    ])
+    error_message = "With voice_real_calls off, neither the voice task, the web task nor the worker may carry HEALDESK_VOICE_REAL_CALLS: the endpoint and the backstop must stay in test mode."
+  }
+
   assert {
     condition = (
       one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).secrets ==
@@ -1485,6 +1502,76 @@ run "voice_on_plain_http_longest_environment" {
     )
     error_message = "Without alb_to_task_tls the voice task has no sidecar and its group is HTTP:3001 on the process; the group's name fits AWS's 32 characters at the longest environment."
   }
+}
+
+# Real patients' calls, the switch for once every agreement is signed: the
+# voice task gets the flag the endpoint reads, the web task the same, for
+# /admin/map, and the worker too, because the backstop for a call the voice
+# task never recorded runs there and reads the voice line's switch
+# (lib/voice/backstop.ts). Without it the backstop would stay in test mode and
+# drop every real clinic's lost call.
+run "voice_real_calls_on" {
+  command = plan
+
+  variables {
+    enable_voice     = true
+    voice_real_calls = true
+  }
+
+  assert {
+    condition = alltrue([
+      for td in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.voice[0].container_definitions] :
+      contains([for e in one([for c in jsondecode(td) : c if c.name == "app"]).environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_REAL_CALLS=1")
+    ])
+    error_message = "With voice_real_calls on, the voice task and the web task must carry HEALDESK_VOICE_REAL_CALLS=1."
+  }
+
+  # Shared placement (the default): the web task's "worker" container.
+  assert {
+    condition     = contains([for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "worker"]).environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_REAL_CALLS=1")
+    error_message = "With voice_real_calls on, the worker inside the web task must carry HEALDESK_VOICE_REAL_CALLS=1: the call backstop runs there."
+  }
+}
+
+# Separate placement: the worker's own task carries the switch as well.
+run "voice_real_calls_on_with_a_separate_worker" {
+  command = plan
+
+  variables {
+    enable_voice     = true
+    voice_real_calls = true
+    worker_placement = "separate"
+  }
+
+  assert {
+    condition = (
+      contains([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_REAL_CALLS=1") &&
+      !contains([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c.name], "worker") &&
+      aws_ecs_service.worker[0].task_definition == aws_ecs_task_definition.worker.arn
+    )
+    error_message = "With voice_real_calls on and worker_placement separate, the worker task must carry HEALDESK_VOICE_REAL_CALLS=1: the call backstop runs there."
+  }
+}
+
+run "refuses_real_calls_without_voice" {
+  command = plan
+
+  variables {
+    voice_real_calls = true
+  }
+
+  expect_failures = [var.voice_real_calls]
+}
+
+run "refuses_real_calls_through_app_environment" {
+  command = plan
+
+  variables {
+    enable_voice    = true
+    app_environment = { HEALDESK_VOICE_REAL_CALLS = "1" }
+  }
+
+  expect_failures = [var.app_environment]
 }
 
 run "refuses_a_voice_size_fargate_does_not_offer_and_a_fifth_task" {
@@ -1851,7 +1938,7 @@ run "standby" {
   assert {
     condition = (
       aws_kms_key.main.enable_key_rotation && aws_kms_alias.main.name == "alias/healdesk-production" &&
-      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 10 &&
+      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 11 &&
       toset(keys(aws_ecr_repository.this)) == toset(["app", "db-admin", "tls-proxy"]) &&
       length(aws_ecr_lifecycle_policy.this) == 3
     )
@@ -1868,14 +1955,18 @@ run "standby" {
     error_message = "Standby keeps the network, the security groups and the database's subnet and parameter groups, so everything comes back where it was."
   }
 
+  # GuardDuty by its `enable` attribute, not length(): the detector's object
+  # carries a sensitive mark, and Terraform 1.16.5 panics rendering it when
+  # this condition fails ("value has marks, so it cannot be serialized as
+  # JSON"), which hid the failure itself.
   assert {
     condition = (
-      aws_cloudtrail.main.name == "healdesk-production" && length(aws_guardduty_detector.main) == 1 &&
+      aws_cloudtrail.main.name == "healdesk-production" && aws_guardduty_detector.main[0].enable &&
       aws_config_configuration_recorder.main.name == "healdesk-production" &&
       aws_s3_bucket.exports.bucket == "healdesk-production-exports-865780386982" &&
       aws_sns_topic.alarms.name == "healdesk-production-alarms" && aws_sns_topic_subscription.alarm_email.protocol == "email" &&
       length(aws_sesv2_email_identity.main) == 1 && length(aws_sns_topic.ses_events) == 1 &&
-      length(aws_cloudwatch_log_group.app) == 13 && aws_cloudwatch_log_group.rds_postgresql.name == "/aws/rds/instance/healdesk-production/postgresql" &&
+      length(aws_cloudwatch_log_group.app) == 14 && aws_cloudwatch_log_group.rds_postgresql.name == "/aws/rds/instance/healdesk-production/postgresql" &&
       aws_budgets_budget.monthly.limit_amount == "250"
     )
     error_message = "Standby keeps the trail, Config, GuardDuty, the buckets, the alarm topic and its subscription, SES's identity and events topic, every log group and the budget."

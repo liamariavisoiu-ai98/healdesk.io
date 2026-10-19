@@ -203,6 +203,12 @@ import {
   opWithdrawPlatformCompliance,
 } from "@/lib/ops/compliance-ops";
 import {
+  opEndDeviceRecovery,
+  opGetClinicDevices,
+  opIssueDeviceRecovery,
+  opRemoveClinicDevices,
+} from "@/lib/ops/device-ops";
+import {
   blockersFor,
   listClinics as listClinicOverviews,
   type ClinicBlocker,
@@ -567,6 +573,19 @@ const OPERATIONS = [
   "listPlatformCompliance",
   "attestPlatformCompliance",
   "withdrawPlatformCompliance",
+  // The clinic's devices (wave 2, R4; plan Part D3 and Annex X5's O3;
+  // lib/ops/device-ops.ts): the sign-in's devices by the names staff gave
+  // them, its backup, its open sessions and the human route's links; the
+  // human route itself, a one-time link to the clinic's address on file for
+  // a clinic that has lost every device; that link ended unused; and O3's
+  // promise, the devices named removed with every session ended and the
+  // backup reset. The link and the removal are sent only after a call back
+  // and the operator's fresh TOTP, checked on apps/web. Never a patient,
+  // never a token.
+  "getClinicDevices",
+  "issueDeviceRecovery",
+  "endDeviceRecovery",
+  "removeClinicDevices",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -654,6 +673,11 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   // Mutating: an attestation of the platform recorded, or withdrawn.
   "attestPlatformCompliance",
   "withdrawPlatformCompliance",
+  // Mutating: a link that adds a device minted and mailed, or ended; devices
+  // removed and every session ended.
+  "issueDeviceRecovery",
+  "endDeviceRecovery",
+  "removeClinicDevices",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1250,6 +1274,14 @@ export async function runOperation(
       return opAttestPlatformCompliance(args, operator);
     case "withdrawPlatformCompliance":
       return opWithdrawPlatformCompliance(args, operator);
+    case "getClinicDevices":
+      return opGetClinicDevices(args, operator);
+    case "issueDeviceRecovery":
+      return opIssueDeviceRecovery(args, operator);
+    case "endDeviceRecovery":
+      return opEndDeviceRecovery(args, operator);
+    case "removeClinicDevices":
+      return opRemoveClinicDevices(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

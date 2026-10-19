@@ -77,6 +77,7 @@
  */
 
 import {
+  COVERAGE_MODES,
   GUARANTEE_FAILURES,
   GUARANTEE_OUTCOMES,
   INCIDENT_INFORMATION_TYPES,
@@ -91,6 +92,7 @@ import {
   getPlan,
   sign,
   type AgreementTerminationReason,
+  type CoverageModeId,
   type GuaranteeFailure,
   type GuaranteeOutcome,
   type IncidentInformationType,
@@ -105,6 +107,7 @@ import { headers } from "next/headers";
 
 import { requireOperator } from "@/lib/admin/operator";
 import { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
+import { TRANSCRIPT_STATUSES, type TranscriptStatus } from "@/lib/admin/transcript-status";
 import { clientKey } from "@/lib/rate-limit";
 
 /**
@@ -242,6 +245,10 @@ type OperatorOp =
   | "setConnectionPhiBasis"
   | "retryCalendarWrite"
   | "listCalendarWrites"
+  // The transcript outbox's receipts and its "send again" (apps/app
+  // lib/conversations/transcript-outbox.ts): ids, statuses, times, counts.
+  | "transcriptDeliveries"
+  | "resendTranscript"
   // The booking mode and the Google Calendar (plan §10): Auto-confirm, the
   // calendar link mailed to the practice's own address, and a disconnect.
   | "setAutoConfirm"
@@ -303,7 +310,17 @@ type OperatorOp =
   // fresh TOTP (lib/admin/platform-compliance.ts).
   | "listPlatformCompliance"
   | "attestPlatformCompliance"
-  | "withdrawPlatformCompliance";
+  | "withdrawPlatformCompliance"
+  // The clinic's devices (wave 2, R4; plan Part D3, Annex X5's O3): the
+  // sign-in's devices by name, its backup and sessions, and the human
+  // route's links; the link itself for a clinic that has lost every device;
+  // that link ended; and the devices removed with everyone signed out. The
+  // link and the removal are sent only after the call back and the
+  // operator's fresh TOTP (lib/admin/device-recovery.ts).
+  | "getClinicDevices"
+  | "issueDeviceRecovery"
+  | "endDeviceRecovery"
+  | "removeClinicDevices";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -1827,6 +1844,13 @@ export type OnboardingView = {
     attributionMode: "estimated" | "verified";
     isCoveredEntity: boolean | null;
     phoneSystemType: "landline" | "voip" | "unknown";
+    /**
+     * Which calls reach AYA, the clinic's own choice of the spec's three
+     * modes, made in its wizard or Settings. Null when apps/app does not say,
+     * as one deployed before this console read it (the deploy-order rule).
+     */
+    coverageMode: CoverageModeId | null;
+    /** The two-mode routing it is derived into. Not offered here: it cannot say "after hours only". */
     callRouting: "conditional" | "always";
     callRoutingConfirmedAt: string | null;
     carrier: string | null;
@@ -2049,6 +2073,11 @@ function readOnboardingView(value: unknown): OnboardingView {
       attributionMode: literal(clinic.attributionMode, ["estimated", "verified"], "clinic.attributionMode"),
       isCoveredEntity: typeof clinic.isCoveredEntity === "boolean" ? clinic.isCoveredEntity : null,
       phoneSystemType: literal(clinic.phoneSystemType, ["landline", "voip", "unknown"], "clinic.phoneSystemType"),
+      // Read leniently: an apps/app that does not send it, or sends a mode
+      // this console does not know, shows "not reported", never a malformed panel.
+      coverageMode: (COVERAGE_MODES as readonly unknown[]).includes(clinic.coverageMode)
+        ? (clinic.coverageMode as CoverageModeId)
+        : null,
       callRouting: literal(clinic.callRouting, ["conditional", "always"], "clinic.callRouting"),
       callRoutingConfirmedAt: optionalString(clinic.callRoutingConfirmedAt),
       carrier: optionalString(clinic.carrier),
@@ -3841,6 +3870,92 @@ export function fetchCalendarWrites(clinicId: string): Promise<OpsResult<Calenda
 }
 
 // -----------------------------------------------------------------------------
+// The transcript receipts (owner's decision of 14 October 2026). A transcript is
+// emailed to the clinic and the copy deleted once SES reports it delivered; the
+// row stays as a receipt without the words. What crosses is apps/app's
+// projection: a conversation's opaque id, a status, two times and a count.
+// Never the words, never the clinic's address, never SES's reason (a mail
+// server's diagnostic can quote the address), so this reader names exactly those
+// fields and drops anything else the answer carries.
+// -----------------------------------------------------------------------------
+
+export type { TranscriptStatus };
+
+export type TranscriptReceipt = {
+  conversationId: string;
+  status: TranscriptStatus;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  attempts: number;
+};
+
+export type TranscriptDeliveriesView = {
+  sinceDays: number;
+  counts: Record<TranscriptStatus, number>;
+  receipts: TranscriptReceipt[];
+};
+
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function readReceiptTime(value: unknown, at: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) throw new ShapeError(at);
+  return new Date(value).toISOString();
+}
+
+function readTranscriptReceipt(value: unknown): TranscriptReceipt {
+  const row = object(value, "transcriptDeliveries.receipts");
+  if (typeof row.conversationId !== "string" || !CONVERSATION_ID.test(row.conversationId)) {
+    throw new ShapeError("transcriptDeliveries.conversationId");
+  }
+  return {
+    conversationId: row.conversationId.toLowerCase(),
+    status: literal(row.status, TRANSCRIPT_STATUSES, "transcriptDeliveries.status"),
+    sentAt: readReceiptTime(row.sentAt, "transcriptDeliveries.sentAt"),
+    deliveredAt: readReceiptTime(row.deliveredAt, "transcriptDeliveries.deliveredAt"),
+    attempts: count(row.attempts, "transcriptDeliveries.attempts"),
+  };
+}
+
+/** One clinic's receipts over the last `sinceDays` days (the engine defaults to 30 and refuses more than 366). */
+export function fetchTranscriptDeliveries(clinicId: string, sinceDays?: number): Promise<OpsResult<TranscriptDeliveriesView>> {
+  return callOps("transcriptDeliveries", "read", { clinicId, ...(sinceDays === undefined ? {} : { sinceDays }) }, (value) => {
+    const data = object(value, "transcriptDeliveries");
+    // An error here is the engine's own sentence about the arguments; as a
+    // read it has no refusal shape, so it is a malformed answer to the page.
+    if (state(data, "transcriptDeliveries") !== "ok") throw new ShapeError("transcriptDeliveries.status");
+    const counts = object(data.counts, "transcriptDeliveries.counts");
+    return {
+      sinceDays: count(data.sinceDays, "transcriptDeliveries.sinceDays"),
+      counts: Object.fromEntries(
+        TRANSCRIPT_STATUSES.map((status) => [status, count(counts[status], `transcriptDeliveries.counts.${status}`)]),
+      ) as Record<TranscriptStatus, number>,
+      receipts: list(data.receipts, "transcriptDeliveries.receipts").map(readTranscriptReceipt),
+    };
+  });
+}
+
+export type ResendTranscriptOutcome =
+  | ({ status: "queued" } & Audited)
+  | { status: "gone" }
+  | { status: "refused"; message: string };
+
+/**
+ * Send a conversation's transcript to the clinic again, from its sealed copy.
+ * The address is always the clinic's; this call cannot name one. "gone" means
+ * the copy is already deleted (delivered, expired or unconfirmed).
+ */
+export function resendTranscript(clinicId: string, conversationId: string): Promise<OpsResult<ResendTranscriptOutcome>> {
+  return callOps("resendTranscript", "write", { clinicId, conversationId }, (value) => {
+    const data = object(value, "resendTranscript");
+    const status = state(data, "resendTranscript");
+    if (status === "gone") return { status: "gone" };
+    if (status !== "queued") return refusal(data, "resendTranscript");
+    return { status: "queued", auditRecorded: bool(data.auditRecorded, "resendTranscript.auditRecorded") };
+  });
+}
+
+// -----------------------------------------------------------------------------
 // The booking mode and the Google Calendar (plan §10). The mode is derived in
 // apps/app; the console switches only Auto-confirm, the clinic's own switch.
 // The owner's kill switch is an environment variable, and no operation sets it.
@@ -5093,4 +5208,201 @@ export function withdrawPlatformCompliance(
   input: Omit<PlatformAttestationInput, "expiresOn" | "openLaunchPromises">,
 ): Promise<OpsResult<PlatformAttestationOutcome>> {
   return callOps("withdrawPlatformCompliance", "write", { ...input }, readAttestation("withdrawPlatformCompliance"));
+}
+
+// -----------------------------------------------------------------------------
+// The clinic's devices (wave 2, R4; plan Part D3 and Annex X5's O3)
+//
+// The clinic's one sign-in's devices, by the names staff gave them, whether
+// its backup is set, how many browsers are signed in, and the human route's
+// links, each a projection apps/app wrote (lib/ops/device-ops.ts). Ids,
+// names, counts, states and times: never a patient, never a token.
+// -----------------------------------------------------------------------------
+
+export const DEVICE_RECOVERY_STATES = ["open", "claimed", "used", "expired", "ended"] as const;
+export const DEVICE_RECOVERY_REVOKE_REASONS = [
+  "replaced",
+  "someone_left",
+  "operator_signed_out",
+  "operator_ended",
+  "address_changed",
+] as const;
+
+export type ClinicDevice = {
+  id: string;
+  /** The name staff gave it, like "Front desk Mac". */
+  label: string;
+  addedAt: string;
+  lastUsedAt: string | null;
+};
+
+export type DeviceRecoveryRow = {
+  id: string;
+  state: (typeof DEVICE_RECOVERY_STATES)[number];
+  issuedBy: string;
+  createdAt: string;
+  expiresAt: string;
+  claimedAt: string | null;
+  usedAt: string | null;
+  revokedAt: string | null;
+  revokedReason: (typeof DEVICE_RECOVERY_REVOKE_REASONS)[number] | null;
+};
+
+export type ClinicDevicesView = {
+  clinicId: string;
+  hasSignIn: boolean;
+  devices: ClinicDevice[];
+  hasBackup: boolean;
+  backupCodesLeft: number;
+  /** Browsers signed in now. */
+  sessions: number;
+  /** A clinic of this sign-in is live or in production: a sign-in link alone adds no device. */
+  patientDataMayExist: boolean;
+  /** A change of the sign-in's address is open: no link can be sent until it ends. */
+  addressChangeOpen: boolean;
+  recoveries: DeviceRecoveryRow[];
+};
+
+function readDeviceRecovery(value: unknown): DeviceRecoveryRow {
+  const row = object(value, "recovery");
+  return {
+    id: id(row.id, "recovery.id"),
+    state: literal(row.state, DEVICE_RECOVERY_STATES, "recovery.state"),
+    issuedBy: text(row.issuedBy, "recovery.issuedBy"),
+    createdAt: isoInstant(row.createdAt, "recovery.createdAt"),
+    expiresAt: isoInstant(row.expiresAt, "recovery.expiresAt"),
+    claimedAt: optionalIsoInstant(row.claimedAt, "recovery.claimedAt"),
+    usedAt: optionalIsoInstant(row.usedAt, "recovery.usedAt"),
+    revokedAt: optionalIsoInstant(row.revokedAt, "recovery.revokedAt"),
+    revokedReason:
+      row.revokedReason === null
+        ? null
+        : literal(row.revokedReason, DEVICE_RECOVERY_REVOKE_REASONS, "recovery.revokedReason"),
+  };
+}
+
+export function fetchClinicDevices(clinicId: string): Promise<OpsResult<ClinicDevicesView>> {
+  return callOps("getClinicDevices", "read", { clinicId }, (value) => {
+    const data = object(value, "getClinicDevices");
+    return {
+      clinicId: id(data.clinicId, "getClinicDevices.clinicId"),
+      hasSignIn: bool(data.hasSignIn, "getClinicDevices.hasSignIn"),
+      devices: list(data.devices, "getClinicDevices.devices").map((entry) => {
+        const d = object(entry, "device");
+        return {
+          id: id(d.id, "device.id"),
+          label: text(d.label, "device.label").slice(0, 60),
+          addedAt: isoInstant(d.addedAt, "device.addedAt"),
+          lastUsedAt: optionalIsoInstant(d.lastUsedAt, "device.lastUsedAt"),
+        };
+      }),
+      hasBackup: bool(data.hasBackup, "getClinicDevices.hasBackup"),
+      backupCodesLeft: count(data.backupCodesLeft, "getClinicDevices.backupCodesLeft"),
+      sessions: count(data.sessions, "getClinicDevices.sessions"),
+      patientDataMayExist: bool(data.patientDataMayExist, "getClinicDevices.patientDataMayExist"),
+      // Missing from an apps/app that predates the address check: this app
+      // goes to Vercel as main moves, apps/app to AWS when the owner
+      // deploys, so for a while the older reply is the one that arrives,
+      // and it had no change check to report.
+      addressChangeOpen:
+        data.addressChangeOpen === undefined
+          ? false
+          : bool(data.addressChangeOpen, "getClinicDevices.addressChangeOpen"),
+      recoveries: list(data.recoveries, "getClinicDevices.recoveries").map(readDeviceRecovery),
+    };
+  });
+}
+
+export type IssueDeviceRecoveryOutcome =
+  | { status: "issued"; recoveryId: string; expiresAt: string; emailed: boolean; replaced: number }
+  | { status: "refused"; message: string };
+
+/**
+ * issueDeviceRecovery. The caller has already checked the session, the call
+ * back and the operator's fresh code (lib/admin/device-recovery.ts): this
+ * sends the clinic and the tick, and the far side decides and mails the link
+ * to the clinic's own address. No address crosses.
+ */
+export function issueDeviceRecovery(
+  clinicId: string,
+): Promise<OpsResult<IssueDeviceRecoveryOutcome>> {
+  return callOps(
+    "issueDeviceRecovery",
+    "write",
+    { clinicId, calledBack: true },
+    (value) => {
+      const data = object(value, "issueDeviceRecovery");
+      if (state(data, "issueDeviceRecovery") !== "issued") {
+        return refusal(data, "issueDeviceRecovery");
+      }
+      return {
+        status: "issued",
+        recoveryId: id(data.recoveryId, "issueDeviceRecovery.recoveryId"),
+        expiresAt: isoInstant(data.expiresAt, "issueDeviceRecovery.expiresAt"),
+        emailed: bool(data.emailed, "issueDeviceRecovery.emailed"),
+        replaced: count(data.replaced, "issueDeviceRecovery.replaced"),
+      };
+    },
+  );
+}
+
+export type EndDeviceRecoveryOutcome =
+  | { status: "ended"; browsersSignedOut: number }
+  | { status: "none" };
+
+/**
+ * The clinic's open link ended unused, and the browser that had opened it,
+ * if one had, signed out. It only takes access away, so no fresh code.
+ */
+export function endDeviceRecovery(
+  clinicId: string,
+): Promise<OpsResult<EndDeviceRecoveryOutcome>> {
+  return callOps("endDeviceRecovery", "write", { clinicId }, (value) => {
+    const data = object(value, "endDeviceRecovery");
+    const status = literal(data.status, ["ended", "none"] as const, "endDeviceRecovery.status");
+    return status === "none"
+      ? { status }
+      : {
+          status,
+          // Missing from an apps/app that predates signing the browser out
+          // (deployed after this app): it signed nobody out.
+          browsersSignedOut:
+            data.browsersSignedOut === undefined
+              ? 0
+              : count(data.browsersSignedOut, "endDeviceRecovery.browsersSignedOut"),
+        };
+  });
+}
+
+export type RemoveClinicDevicesOutcome =
+  | {
+      status: "done";
+      removedDevices: number;
+      sessionsEnded: number;
+      backupReset: boolean;
+      codesRevoked: number;
+    }
+  | { status: "refused"; message: string };
+
+/** removeClinicDevices. Sent only after the call back and a fresh code (lib/admin/device-recovery.ts). */
+export function removeClinicDevices(
+  clinicId: string,
+  factorIds: readonly string[],
+): Promise<OpsResult<RemoveClinicDevicesOutcome>> {
+  return callOps(
+    "removeClinicDevices",
+    "write",
+    { clinicId, factorIds: [...factorIds], calledBack: true },
+    (value) => {
+      const data = object(value, "removeClinicDevices");
+      if (state(data, "removeClinicDevices") !== "done") return refusal(data, "removeClinicDevices");
+      return {
+        status: "done",
+        removedDevices: count(data.removedDevices, "removeClinicDevices.removedDevices"),
+        sessionsEnded: count(data.sessionsEnded, "removeClinicDevices.sessionsEnded"),
+        backupReset: bool(data.backupReset, "removeClinicDevices.backupReset"),
+        codesRevoked: count(data.codesRevoked, "removeClinicDevices.codesRevoked"),
+      };
+    },
+  );
 }

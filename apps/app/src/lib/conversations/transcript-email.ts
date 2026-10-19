@@ -1,5 +1,6 @@
 import { SENDER_IDENTITY } from "@healdesk/catalog";
 
+import { cutCardNumbersAcrossTurns } from "@/lib/assistant/guard";
 import { escapeHtml } from "@/lib/email/templates/compose";
 import {
   getTransport,
@@ -150,7 +151,9 @@ export function renderTranscriptEmail(input: TranscriptEmailInput): RenderedTran
     throw new TranscriptEmailError("The conversation's start time is not a date.");
   }
 
-  const spoken = input.turns
+  // Card numbers, one read out across turns included: cut before the copy
+  // was sealed (queueTranscriptEmail), and again here for any sealed before.
+  const spoken = cutCardNumbersAcrossTurns(input.turns)
     .map((turn) => ({ label: speakerLabel(turn.speaker, input.channel), text: clean(turn.text) }))
     .filter((turn) => turn.text.length > 0);
   if (spoken.length === 0) {

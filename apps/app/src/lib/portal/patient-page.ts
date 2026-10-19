@@ -124,10 +124,14 @@ export const PATIENT_RECORD_TYPES = [
   "booking_request",
   /** A booking AYA made: Booked by AYA (Bookings). */
   "appointment",
+  /** Someone asked AYA for a person: Needs you, and Mark handled (Bookings). */
+  "handover",
   /** The clinic's whole export. */
   "clinic_bundle",
   /** One person's export, from a conversation (Conversations), named by their contact ids. */
   "patient_bundle",
+  /** A patient's own request to healdesk, passed to the practice (L32): its page off Home. */
+  "patient_request",
 ] as const;
 export type PatientRecordType = (typeof PATIENT_RECORD_TYPES)[number];
 

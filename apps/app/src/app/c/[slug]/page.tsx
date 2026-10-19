@@ -5,10 +5,11 @@ import { notFound } from "next/navigation";
 import { getBillingSummary } from "@/lib/billing/summary";
 import { setupLastDay } from "@/lib/clinic/setup-window";
 import { getCalendarConnection } from "@/lib/connections/google-calendar";
+import { readMetaConnectView } from "@/lib/meta/reconnect";
 import { requirePortal } from "@/lib/portal/access";
 import { needsAttention } from "@/lib/portal/attention";
 import { portalDay } from "@/lib/portal/format";
-import { readHomeFacts } from "@/lib/portal/home";
+import { readHomeFacts, readHomePatientRequests } from "@/lib/portal/home";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { waitingSentence } from "@/lib/portal/waiting-words";
@@ -17,7 +18,9 @@ import { claimsPayload } from "@/lib/reporting/claims";
 import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
 import { wizardFinished } from "@/lib/setup/screens";
 import { buildTracker, joinWords } from "@/lib/setup/tracker";
+import { withTenant } from "@/lib/tenant";
 
+import { PatientRequestsCard } from "./PatientRequestsCard";
 import { PortalShell } from "./PortalShell";
 
 export const metadata: Metadata = { title: "Home · healdesk", referrer: "no-referrer" };
@@ -36,6 +39,10 @@ export const dynamic = "force-dynamic";
  * one the daily summary and the weekly recap share (lib/reporting/claims.ts,
  * claim-words.ts); then the channels and the plan. Nothing here shows a
  * patient, never a name, a time or a service, so no step-up.
+ *
+ * Before and after go-live, and on a closed account, first of all: each
+ * patient's request passed to the practice that nobody has marked received
+ * (L32), with its day and one tap to its page, behind the step-up.
  */
 export default async function ClinicHome({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -47,9 +54,20 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
   const shell = shellProps(portal, page, "home");
 
   if (state.clinic.offboardingStartedAt) {
+    const requests = await readHomePatientRequests({
+      clinicId: portal.clinicId,
+      actor: page.actorContext,
+    });
     return (
       <PortalShell {...shell}>
         <h1 className="text-2xl font-semibold">Home</h1>
+        <PatientRequestsCard
+          slug={portal.clinicSlug}
+          requests={requests}
+          audience={shell.audience}
+          timeZone={shell.timeZone}
+          now={now}
+        />
         <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
           This account has closed.
         </p>
@@ -66,7 +84,12 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
   });
   const calendar = await getCalendarConnection(portal.clinicId, { actor: page.actorContext });
   const live = shell.status.kind !== "not_yet";
-  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts, live, calendar });
+  const meta = state.channels.some((c) => c.channel === "meta")
+    ? await withTenant({ clinicId: portal.clinicId, actor: page.actorContext }, (tx) =>
+        readMetaConnectView(tx.db, tx.clinicId),
+      )
+    : null;
+  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts, live, calendar, meta });
   const bookingsHref = isBuiltSection("bookings") ? sectionPath(portal.clinicSlug, "bookings") : null;
   const week = facts.week ? claimLines(claimsPayload(facts.week)) : [];
   const tracker = buildTracker(state, calendar, facts.practice, facts.goLive ?? undefined);
@@ -79,6 +102,14 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
   return (
     <PortalShell {...shell}>
       <h1 className="text-2xl font-semibold">Home</h1>
+
+      <PatientRequestsCard
+        slug={portal.clinicSlug}
+        requests={facts.patientRequests}
+        audience={shell.audience}
+        timeZone={shell.timeZone}
+        now={now}
+      />
 
       {live && facts.waiting ? (
         <section aria-labelledby="waiting-heading" className="mt-6">

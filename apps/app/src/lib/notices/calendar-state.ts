@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import type { Transaction } from "@/db";
 import { clinics } from "@/db/schema";
 import { describeError, log } from "@/lib/log";
+import { sectionPath } from "@/lib/portal/nav";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { helpContacts } from "@/lib/setup/help";
 
@@ -15,6 +16,12 @@ import { enqueuePlanNotice } from "./plan-notices";
  * Tell the clinic its calendar connection stopped working ("Bookings arrive
  * as requests until you reconnect"), or was reconnected after setup.
  * Connecting during setup sends nothing, so it is not called then.
+ *
+ * Both link to Settings → Calendar, never the wizard's calendar step: a
+ * connect started from the wizard returns to it as a setup connect, which
+ * sends no "reconnected" (lib/connections/google-oauth.ts), so a clinic
+ * that followed a "stopped" email there after setup would never hear that
+ * it worked. Settings' reconnect returns to the portal, which sends it.
  *
  * Called inside the caller's transaction, with the connections store's
  * convention of a `Transaction` and a clinic id (from a withTenant() block,
@@ -51,7 +58,7 @@ export async function notifyCalendarState(
         opts.dedupeKey,
         {
           changedAt: new Date().toISOString(),
-          calendarUrl: publicUrl(`/c/${clinic.slug}/setup?s=calendar`),
+          calendarUrl: publicUrl(calendarSettingsPath(clinic.slug)),
           helpPhoneE164: helpContacts().phoneE164,
         },
       );
@@ -67,4 +74,9 @@ export async function notifyCalendarState(
       // Nothing reaches the caller; see above.
     }
   }
+}
+
+/** Settings → Calendar, where a reconnect returns to the portal and so tells the clinic it worked. */
+export function calendarSettingsPath(slug: string): string {
+  return `${sectionPath(slug, "settings")}#calendar`;
 }

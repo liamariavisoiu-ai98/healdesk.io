@@ -105,7 +105,9 @@ export async function runRetentionPurgeJob(options: { now?: Date } = {}) {
             r.chatThreadsDeleted +
             r.slotHoldsDeleted +
             r.depositsDeleted +
-            r.metaMessageRefsDeleted,
+            r.metaMessageRefsDeleted +
+            r.handoversDeleted +
+            r.patientRequestsDeleted,
           skipped: acc.skipped + (r.skipped ? 1 : 0),
         }),
         { media: 0, rows: 0, skipped: 0 },

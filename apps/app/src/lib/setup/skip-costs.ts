@@ -8,7 +8,19 @@ import type { SetupState } from "./state";
  * dead ends"), worded from what is stored for this clinic, never from an
  * empty practice: on the funnel's main path the website read has already
  * filled step 1, and skipping then keeps what was read, unchecked.
+ *
+ * Three screens hold the whole build: a priced service, confirmed hours and
+ * the most-asked question are what "Your answers set up" needs
+ * (tracker.ts, answersMissing), and until they are there the practice
+ * questions ask nothing, so no channel can go live. A skip that leaves one
+ * of them missing says so (NOT_BUILT), with where it is put right: hours in
+ * Knowledge as well as here; the most-asked question only here, since
+ * Knowledge has no field for it (Setup's step list, and Home's "You
+ * skipped" once setup is done, link back to this screen).
  */
+/** How each line that holds the build begins. */
+const NOT_BUILT = "AYA isn't built until";
+
 export function skipCost(state: SetupState, screen: SetupScreenId): string {
   const voice = state.channels.some((c) => c.channel === "voice");
   const audience = audienceFor(state.clinic.specialty);
@@ -16,13 +28,13 @@ export function skipCost(state: SetupState, screen: SetupScreenId): string {
     case "basics":
       return basicsCost(state);
     case "hours":
-      return voice
-        ? "phone can't go live without your hours, and AYA can't say when you're open."
-        : "AYA can't say when you're open.";
+      return hoursCost(state);
     case "services":
       return servicesCost(state);
     case "question":
-      return "AYA answers your most common question less well until you add it in Knowledge.";
+      return state.knowledge.mostAsked
+        ? "AYA keeps the answer you saved."
+        : `${NOT_BUILT} you add it, so no channel can go live. You can add it later from Setup.`;
     case "insurance":
       return "nothing changes now; we'll ask again before AYA answers anyone.";
     case "tone":
@@ -47,6 +59,14 @@ export function skipCost(state: SetupState, screen: SetupScreenId): string {
     case "backup":
       return "";
   }
+}
+
+function hoursCost(state: SetupState): string {
+  if (state.clinic.openingHours && state.clinic.onboarding.hours_confirmed) {
+    return "AYA keeps the hours you confirmed.";
+  }
+  const read = state.clinic.openingHours ? "the hours we filled in stay unconfirmed, and " : "";
+  return `${read}${NOT_BUILT} your hours are confirmed, so no channel can go live. You can confirm them later in Knowledge.`;
 }
 
 /** Whether the clinic has answered this screen, rather than left what we filled in. */
@@ -82,7 +102,9 @@ function basicsCost(state: SetupState): string {
 function servicesCost(state: SetupState): string {
   if (answered(state, "services")) return "AYA keeps the prices you saved.";
   const priced = state.knowledge.services.some((s) => s.priceFromUsd !== null);
-  if (!priced) return "AYA quotes no prices; she offers to book a consultation instead.";
+  if (!priced) {
+    return `${NOT_BUILT} at least one service has its price, so no channel can go live.`;
+  }
   // The tracker counts prices only once this screen is saved (tracker.ts).
   return state.clinic.siteProfile !== null
     ? "the prices we read from your website stay unchecked, and AYA isn't built until you check them."

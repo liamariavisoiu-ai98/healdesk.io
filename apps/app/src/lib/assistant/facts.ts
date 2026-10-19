@@ -48,6 +48,8 @@ export type AssistantFacts = {
   timeZone: string;
   /** The clinic's published number. */
   phone: string | null;
+  /** The clinic's AYA number, which callers reach us on: never a line to put a call through to. */
+  assistantNumber?: string | null;
   /** What the urgent line gives after 911 (lib/setup/urgent.ts). */
   urgentPhone: string | null;
   /** A veterinary practice's emergency referral clinic: what its urgent line gives instead of 911. */
@@ -112,6 +114,7 @@ export async function assistantFacts(
       name: clinics.name,
       timeZone: clinics.timezone,
       phone: clinics.publishedPhoneE164,
+      assistantNumber: clinics.assistantNumberE164,
       specialty: clinics.specialty,
       bookingRequirements: clinics.bookingRequirements,
       openingHours: clinics.openingHours,
@@ -143,6 +146,7 @@ export async function assistantFacts(
     specialty: clinic.specialty,
     timeZone: clinic.timeZone,
     phone: clinic.phone,
+    assistantNumber: clinic.assistantNumber,
     urgentPhone: urgentHelpNumber({
       channels: bought,
       settings: { urgentHelpE164: settings.urgentHelpE164, directLineE164: settings.directLineE164 },

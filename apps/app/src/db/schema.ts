@@ -85,6 +85,17 @@ import {
 } from "../lib/engine/practice/types";
 import { DEVICE_LABEL_MAX } from "../lib/factors/device";
 import {
+  CHANNEL_NAMES,
+  CONVERSATION_OUTCOMES,
+  type ConversationChannel,
+  type ConversationOutcome,
+} from "../lib/portal/conversation-words";
+import {
+  DEVICE_RECOVERY_REVOKE_REASONS,
+  DEVICE_RECOVERY_TTL_HOURS,
+  type DeviceRecoveryRevokeReason,
+} from "../lib/factors/recovery-terms";
+import {
   SETTINGS_HISTORY_FIELDS,
   SETUP_SCREEN_OUTCOMES,
   SETUP_SCREENS,
@@ -610,7 +621,7 @@ export const clinics = pgTable(
      * database's to stamp, like destroyed_at: app_close_clinic_account()
      * writes it, the runtime role has no UPDATE on it, a new clinic cannot
      * carry it, and the tables the closure emptied refuse new rows after it
-     * (drizzle/0092).
+     * (drizzle/0096).
      */
     accountClosedAt: timestamp("account_closed_at", { withTimezone: true }),
     /**
@@ -974,6 +985,10 @@ export const contacts = pgTable(
     uniqueIndex("contacts_external_idx")
       .on(t.clinicId, t.externalSource, t.externalContactId)
       .where(sql`${t.externalContactId} is not null`),
+    // The key a patient's request names its contact by, with the clinic
+    // (patient_requests_contact_fk, drizzle/0094), so a request can only name
+    // a contact of its own clinic. id is unique already.
+    unique("contacts_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
 
@@ -1378,7 +1393,13 @@ export type AgentService = {
 };
 
 /** A question and the clinic's answer: a quick answer, or the most-asked question. */
-export type KnowledgeAnswer = { question: string; answer: string };
+/**
+ * A question and the answer AYA gives. `flagId` tags a quick answer that came
+ * from a "Flag this answer" correction (conversation_flags.id): the Flagged
+ * view reads it to say whether the correction is still live, and Knowledge
+ * shows it. It is a tag only: AYA's prompt reads the question and the answer.
+ */
+export type KnowledgeAnswer = { question: string; answer: string; flagId?: string };
 
 // -----------------------------------------------------------------------------
 // Report delivery — who gets the monthly email, and proof of what was sent
@@ -1563,6 +1584,14 @@ export type ForwardingTestObservation = {
   callerIdPreserved: boolean;
   /** Which forward condition fired, where the carrier told us. */
   condition: "busy" | "no_answer" | "all" | "unknown";
+  /**
+   * How it was observed. Absent: the first call in a forwarding test's
+   * window. `forwarded_call`: a call the carrier said it forwarded from the
+   * clinic's own published line, with no window open (the spec's "flips to
+   * live by itself"); it has no `windowUntil`, so it makes no call a test
+   * call.
+   */
+  via?: "forwarded_call";
 };
 
 export type DepositStatus = "none" | "pending_front_desk" | "pending_link" | "paid" | "waived";
@@ -2797,6 +2826,109 @@ export const recordAmendments = pgTable(
       sql`char_length(btrim(${t.recordedBy})) between 1 and 320`,
     ),
     check("record_amendments_requested_check", sql`${t.requestedAt} <= ${t.recordedAt}`),
+  ],
+);
+
+/**
+ * What a patient asked healdesk for about their information at a practice
+ * (BAA 1.5.1 clause 14, its last paragraph): to see it, to have it
+ * corrected, to be told who it was disclosed to, to have it deleted, or
+ * anything else about it. Chosen by the operator, never typed.
+ */
+export const PATIENT_REQUEST_KINDS = [
+  "access",
+  "amendment",
+  "accounting",
+  "deletion",
+  "other",
+] as const;
+export type PatientRequestKind = (typeof PATIENT_REQUEST_KINDS)[number];
+
+/**
+ * A request a patient made to healdesk itself, rather than to the practice
+ * (L32 in Annex X5 of the funnel and portal plan; BAA 1.5.1 clause 14:
+ * "healdesk will not act on it. It will pass the request to Practice within
+ * five business days"). The operator records it from the app's own shell
+ * (`npm run ops:patient-request -w @healdesk/app`, by ids and closed choices
+ * only); the practice gets L32, a pointer, and the request opens on its own
+ * patient page behind the passkey step-up, where staff mark it received
+ * (lib/patient-rights/patient-requests.ts).
+ *
+ * PHI while it names a contact: whose request it is, at which practice. So
+ * tenant RLS, FORCEd, and the BAA gate (drizzle/0094). It holds no name, no
+ * number, no address and nothing typed: the person is the contact it names,
+ * read from `contacts` when the page opens, and the contact's own clock and
+ * erasure govern them. Its foreign key (clinic_id, contact_id) is written by
+ * hand in the migration, because drizzle cannot say ON DELETE SET NULL of
+ * one column: when the contact goes, by erasure or the purge, the request
+ * stays as a record without the person.
+ *
+ * `reply_by` is the fifth business day after the clinic-local day the
+ * request reached healdesk: the day by which the practice is asked to mark
+ * it received, and the BAA's own deadline for passing it on. `recorded_at`
+ * and `acknowledged_at` are the database's clock (patient_requests_guard),
+ * nothing but the acknowledgement is ever added to a row, and that once.
+ */
+export const patientRequests = pgTable(
+  "patient_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<PatientRequestKind>().notNull(),
+    /** The contact the request is about, when the operator could name one. Nulled when the contact goes. */
+    contactId: uuid("contact_id"),
+    /**
+     * Whether a contact was named when it was recorded (patient_requests_guard
+     * sets it), so a page can tell "healdesk holds no record of them" from
+     * "their details have since been deleted".
+     */
+    contactNamed: boolean("contact_named").notNull().default(false),
+    /** When the request reached healdesk: the five business days run from here. */
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+    /** The fifth business day after the clinic-local day of received_at (YYYY-MM-DD). */
+    replyBy: date("reply_by", { mode: "string" }).notNull(),
+    /** The operator's healdesk address. */
+    recordedBy: text("recorded_by").notNull(),
+    /** When it was recorded, by the database's clock (patient_requests_guard). */
+    recordedAt: timestamp("recorded_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    /** When the practice marked it received, by the database's clock; once. */
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    /** The device it was marked from, by the name staff gave its passkey. */
+    acknowledgedBy: text("acknowledged_by"),
+  },
+  (t) => [
+    index("patient_requests_open_idx")
+      .on(t.clinicId, t.replyBy)
+      .where(sql`${t.acknowledgedAt} is null`),
+    index("patient_requests_contact_idx")
+      .on(t.clinicId, t.contactId)
+      .where(sql`${t.contactId} is not null`),
+    check(
+      "patient_requests_kind_check",
+      sql`${t.kind} in ('access', 'amendment', 'accounting', 'deletion', 'other')`,
+    ),
+    check(
+      "patient_requests_recorded_by_check",
+      sql`char_length(btrim(${t.recordedBy})) between 1 and 320`,
+    ),
+    check("patient_requests_received_check", sql`${t.receivedAt} <= ${t.recordedAt}`),
+    check("patient_requests_contact_check", sql`${t.contactId} is null or ${t.contactNamed}`),
+    // Five business days after a clinic-local day are five to seven calendar
+    // days after it (from a Sunday, a Saturday, any weekday), and that day is
+    // at most one either side of received_at's day in UTC.
+    check(
+      "patient_requests_reply_by_check",
+      sql`${t.replyBy} between (${t.receivedAt} at time zone 'UTC')::date + 4 and (${t.receivedAt} at time zone 'UTC')::date + 8`,
+    ),
+    check(
+      "patient_requests_acknowledged_check",
+      sql`(${t.acknowledgedAt} is null) = (${t.acknowledgedBy} is null)
+        and (${t.acknowledgedBy} is null or char_length(btrim(${t.acknowledgedBy})) between 1 and 200)`,
+    ),
   ],
 );
 
@@ -4936,10 +5068,19 @@ export type WebauthnChallengePurpose = (typeof WEBAUTHN_CHALLENGE_PURPOSES)[numb
 /**
  * Why this session may add a passkey, decided before the browser is asked to
  * make one (plan Part D3): the sign-in's first passkey before any of its
- * clinics has gone live, a passkey step-up on this session, or a code from
- * the authenticator app or a backup code.
+ * clinics has gone live, a passkey step-up on this session, a code from the
+ * authenticator app or a backup code, the human route's one-time link
+ * (`recovery`, device_recoveries), or the browser that paid, within its seven
+ * days, adding the sign-in's first passkey ever (`paying_browser`,
+ * lib/sign-in/paying-browser.ts).
  */
-export const PASSKEY_ENROL_BASES = ["first_passkey", "step_up", "code"] as const;
+export const PASSKEY_ENROL_BASES = [
+  "first_passkey",
+  "step_up",
+  "code",
+  "recovery",
+  "paying_browser",
+] as const;
 export type PasskeyEnrolBasis = (typeof PASSKEY_ENROL_BASES)[number];
 
 /**
@@ -5062,6 +5203,116 @@ export const factorLockouts = pgTable(
   },
   (t) => [check("factor_lockouts_failures_check", sql`${t.failures} >= 0`)],
 );
+
+/**
+ * The human route for a clinic that has lost every device (plan Part D3,
+ * "Lost every device"; drizzle/0095): after the operator has called the
+ * practice back on its published number and entered a fresh code from the
+ * operator's authenticator on apps/web, the ops operation
+ * issueDeviceRecovery mints one of these and emails its link to the
+ * clinic's address on file, and nowhere else (lib/factors/recovery.ts).
+ *
+ * One row is one basis for one passkey, and it can be spent once, by one
+ * session, inside its window:
+ *
+ *   - **issued**: `token_hash` is SHA-256 of the link's token, never the
+ *     token; `address_hash` is SHA-256 of the sign-in address it was mailed
+ *     to (app_address_hash), checked again at claim and at use, so a link
+ *     sent before the address moved adds nothing after. The database sets
+ *     `created_at` and `expires_at`, DEVICE_RECOVERY_TTL_HOURS later, on
+ *     INSERT (a trigger), and a row always arrives unclaimed;
+ *   - **claimed**: the link was used. `claimed_at` is set first, by one
+ *     conditional UPDATE, before any session exists, so a losing claim
+ *     signs nobody in; then `session_token_hash`, once, names the session
+ *     the winner started, so only that browser can use what it allows;
+ *   - **used**: that session added one passkey (`used_at`, `factor_id`), in
+ *     the same transaction as the passkey, and nothing more;
+ *   - **revoked**: ended unused, by a newer link, the clinic's "Someone
+ *     left", or the operator's removal.
+ *
+ * At most one is open (unused and unrevoked) per sign-in, by a partial
+ * unique index; issuing a new one revokes the last. `landing` is the portal
+ * path the link lands on, the Protect page of the clinic whose number was
+ * called.
+ *
+ * Identity plane, like user_factors and sign_in_links: a passkey belongs to
+ * the sign-in, not to a clinic, so no clinic_id and no RLS; the clinic is
+ * named in the security events and in `landing`. The runtime role may move
+ * only the claim, the use and the end, never DELETE, and a trigger freezes
+ * what was issued and a row once it is used or revoked. Kept: each row is
+ * the record that a device was added on our word, after a call.
+ */
+export const deviceRecoveries = pgTable(
+  "device_recoveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    tokenHash: bytea("token_hash").notNull(),
+    /** SHA-256 of the sign-in's address when the link was mailed to it (app_address_hash). */
+    addressHash: bytea("address_hash").notNull(),
+    /** Where the link lands: `/c/<slug>/protect`. A path on this app, like sign_in_links.redirect_to. */
+    landing: text("landing").notNull(),
+    /** The operator's address, as a snapshot. */
+    issuedBy: text("issued_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    /** SHA-256 of the Better Auth session token the link started, never the token. */
+    sessionTokenHash: bytea("session_token_hash"),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    factorId: uuid("factor_id").references(() => userFactors.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedReason: text("revoked_reason").$type<DeviceRecoveryRevokeReason>(),
+  },
+  (t) => [
+    uniqueIndex("device_recoveries_token_hash_idx").on(t.tokenHash),
+    uniqueIndex("device_recoveries_one_open_idx")
+      .on(t.userId)
+      .where(sql`${t.usedAt} is null and ${t.revokedAt} is null`),
+    index("device_recoveries_user_idx").on(t.userId, t.createdAt),
+    index("device_recoveries_session_idx")
+      .on(t.sessionTokenHash)
+      .where(sql`${t.sessionTokenHash} is not null`),
+    check("device_recoveries_token_hash_length", sql`octet_length(${t.tokenHash}) = 32`),
+    check("device_recoveries_address_hash_length", sql`octet_length(${t.addressHash}) = 32`),
+    check(
+      "device_recoveries_session_hash_length",
+      sql`${t.sessionTokenHash} is null or octet_length(${t.sessionTokenHash}) = 32`,
+    ),
+    check(
+      "device_recoveries_landing_check",
+      sql`${t.landing} like '/c/%/protect' and ${t.landing} not like '//%' and ${t.landing} !~ '[\\\\[:cntrl:][:space:]]' and char_length(${t.landing}) <= 200`,
+    ),
+    check(
+      "device_recoveries_issued_by_check",
+      sql`char_length(${t.issuedBy}) between 1 and 200`,
+    ),
+    check(
+      "device_recoveries_window_check",
+      sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '${sql.raw(String(DEVICE_RECOVERY_TTL_HOURS))} hours'`,
+    ),
+    check(
+      "device_recoveries_claim_check",
+      sql`${t.sessionTokenHash} is null or ${t.claimedAt} is not null`,
+    ),
+    check(
+      "device_recoveries_use_check",
+      sql`${t.usedAt} is null or ${t.sessionTokenHash} is not null`,
+    ),
+    check(
+      "device_recoveries_factor_check",
+      sql`${t.factorId} is null or ${t.usedAt} is not null`,
+    ),
+    check(
+      "device_recoveries_revoked_check",
+      sql`(${t.revokedAt} is null) = (${t.revokedReason} is null) and (${t.revokedAt} is null or ${t.usedAt} is null) and (${t.revokedReason} is null or ${t.revokedReason} in (${sqlList(DEVICE_RECOVERY_REVOKE_REASONS)}))`,
+    ),
+  ],
+);
+
+export type DeviceRecovery = typeof deviceRecoveries.$inferSelect;
 
 // -----------------------------------------------------------------------------
 // Google Calendar (drizzle/0057): calendar terms per location, the OAuth
@@ -5846,6 +6097,9 @@ export const TENANT_SCOPED_TABLES = [
   "site_rereads",
   "website_changes",
   "transcript_emails",
+  "handovers",
+  "conversation_flags",
+  "patient_requests",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -5965,6 +6219,109 @@ export const transcriptEmails = pgTable(
     ),
   ],
 );
+
+// -----------------------------------------------------------------------------
+// Flag this answer (spec, "When the agent gets something wrong"; plan Part F4)
+// -----------------------------------------------------------------------------
+
+/** Where a flagged conversation is held: a call's or web chat's row, or a Meta thread. */
+export const CONVERSATION_FLAG_SOURCES = ["call_or_chat", "meta_thread"] as const;
+export type ConversationFlagSource = (typeof CONVERSATION_FLAG_SOURCES)[number];
+
+/**
+ * A staff member's "Flag this answer" on one conversation: the clinic says
+ * AYA got something wrong there. One per conversation. It opens an ops ticket
+ * (I4, lib/ops/flag-alert.ts: ids and counts only), and two flags from one
+ * clinic in seven days make that ticket an alert. It may carry a correction,
+ * typed by staff and screened as Knowledge screens a quick answer, which is
+ * written into the clinic's quick answers at once, tagged with this flag's id
+ * (KnowledgeAnswer.flagId), so the Flagged view can say whether it is still
+ * live. The correction's words live there, in the clinic's knowledge, and
+ * never here; nothing of the conversation's words is anywhere, since none is
+ * kept.
+ *
+ * It points at the conversation the portal shows: a call's or web chat's row
+ * (`conversation_id`, against conversations' (clinic_id, id) key), or a Meta
+ * thread's current conversation (`thread_conversation_id`, with the thread's
+ * channel and keyed party reference against chat_threads' key), and records
+ * that conversation's channel, outcome and start, so the Flagged view can
+ * list a Meta conversation its thread has since moved on from. Either way it
+ * goes with what it points at, through the foreign key's cascade: an erasure,
+ * the record clock or a quiet thread's purge, and destruction, which also
+ * deletes it first and checks (drizzle/0093).
+ *
+ * PHI-adjacent, since it marks a patient's conversation: tenant RLS, forced,
+ * and the BAA gate. `flagged_at` and `corrected_at` are the database's clock
+ * (a trigger), so the seven-day count cannot be moved; the runtime role may
+ * change only `corrected_at`, once, from none.
+ */
+export const conversationFlags = pgTable(
+  "conversation_flags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    source: text("source").$type<ConversationFlagSource>().notNull(),
+    /** A call's or web chat's conversations row. */
+    conversationId: uuid("conversation_id"),
+    /** A Meta thread's conversation id, as Conversations shows it (chat_threads.conversation_id). */
+    threadConversationId: uuid("thread_conversation_id"),
+    /** The Meta thread's keyed party reference (chat_threads.party_ref), the thread's key with `channel`. */
+    threadPartyRef: text("thread_party_ref"),
+    /** The channel as Conversations names it (lib/portal/conversation-words.ts). */
+    channel: text("channel").$type<ConversationChannel>().notNull(),
+    /** The conversation's outcome when it was flagged; null for a Meta thread with none stored. */
+    outcome: text("outcome").$type<ConversationOutcome>(),
+    /** When the flagged conversation started. */
+    conversationStartedAt: timestamp("conversation_started_at", { withTimezone: true }).notNull(),
+    flaggedAt: timestamp("flagged_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    /** When staff's correction went into the quick answers; null while none has. */
+    correctedAt: timestamp("corrected_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("conversation_flags_conversation_idx")
+      .on(t.clinicId, t.conversationId)
+      .where(sql`${t.conversationId} is not null`),
+    uniqueIndex("conversation_flags_thread_conversation_idx")
+      .on(t.clinicId, t.threadConversationId)
+      .where(sql`${t.threadConversationId} is not null`),
+    index("conversation_flags_flagged_idx").on(t.clinicId, t.flaggedAt),
+    // Composite, so a flag can only point at its own clinic's records; it
+    // goes when they go.
+    foreignKey({
+      name: "conversation_flags_conversation_fk",
+      columns: [t.clinicId, t.conversationId],
+      foreignColumns: [conversations.clinicId, conversations.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "conversation_flags_thread_fk",
+      columns: [t.clinicId, t.channel, t.threadPartyRef],
+      foreignColumns: [chatThreads.clinicId, chatThreads.channel, chatThreads.partyRef],
+    }).onDelete("cascade"),
+    check("conversation_flags_source_check", sql`${t.source} in (${sqlList(CONVERSATION_FLAG_SOURCES)})`),
+    check(
+      "conversation_flags_target_check",
+      sql`(${t.source} = 'call_or_chat' and ${t.conversationId} is not null and ${t.threadConversationId} is null and ${t.threadPartyRef} is null)
+        or (${t.source} = 'meta_thread' and ${t.conversationId} is null and ${t.threadConversationId} is not null and ${t.threadPartyRef} is not null
+            and ${t.channel} in ('instagram', 'messenger', 'whatsapp'))`,
+    ),
+    check(
+      "conversation_flags_channel_check",
+      sql`${t.channel} in (${sqlList(Object.keys(CHANNEL_NAMES))})`,
+    ),
+    check(
+      "conversation_flags_outcome_check",
+      sql`${t.outcome} is null or ${t.outcome} in (${sqlList(CONVERSATION_OUTCOMES)})`,
+    ),
+    check(
+      "conversation_flags_party_ref_check",
+      sql`${t.threadPartyRef} is null or char_length(${t.threadPartyRef}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type ConversationFlagRow = typeof conversationFlags.$inferSelect;
 
 // -----------------------------------------------------------------------------
 // The signed website re-reads and the drift list (plan Part B, "Re-reads";
@@ -6180,3 +6537,111 @@ export const platformCompliance = pgTable(
 );
 
 export type PlatformComplianceRow = typeof platformCompliance.$inferSelect;
+
+// -----------------------------------------------------------------------------
+// Handovers  ⚠️ PHI by what they point at
+// -----------------------------------------------------------------------------
+
+/** The channels a person can ask AYA for a person on. */
+export type HandoverChannel = "voice" | "web_chat" | "meta";
+export type HandoverPlatform = "instagram" | "messenger" | "whatsapp";
+
+/**
+ * Someone asked AYA for a person (alert L11; spec, "Every switch in the
+ * portal": Handover requests, "Where 'I want to speak to a person' goes"),
+ * kept so Bookings can list it under Needs you until the desk marks it
+ * handled (plan Part F5: "open handovers"). lib/handovers/record.ts is its
+ * one writer, in the transaction that queues the alert.
+ *
+ * It holds no words and no identity of its own: only which conversation it
+ * was asked in, so the person is reached, kept and erased through that
+ * conversation, and for a web chat the number the visitor gave for the call
+ * back. A call or web chat points at its conversation and goes with
+ * it by the foreign key's cascade (a call's row is written when the call
+ * ends, so a call's handover carries the vendor's call id until then and
+ * the database links it, drizzle/0092). A Meta thread points at its
+ * chat_threads row, the keyed hash of who wrote, and goes with that.
+ * Nothing the Meta screen refused is ever behind one: the front door records
+ * a handover only from the model's answer, which a screened message never
+ * reaches. The record clock deletes what outlives both (lib/retention/purge.ts).
+ */
+export const handovers = pgTable(
+  "handovers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    channel: text("channel").$type<HandoverChannel>().notNull(),
+    /** Meta only: which of the three. */
+    platform: text("platform").$type<HandoverPlatform>(),
+    /** Voice only: the vendor's call id, which the call's conversation will carry. */
+    externalCallId: text("external_call_id"),
+    /** The call's or web chat's conversation. A call's is set when its row is written. */
+    conversationId: uuid("conversation_id"),
+    /** Meta only: the keyed reference to who wrote (chat_threads.party_ref). */
+    partyRef: text("party_ref"),
+    /** Meta only: the thread's conversation (chat_threads.conversation_id), once per which. */
+    metaConversationId: uuid("meta_conversation_id"),
+    /**
+     * Web chat only: the number the visitor gave so the desk can call back
+     * (E.164), and the first name with it, set once. ⚠️ PHI. On the handover,
+     * never as a contact: the number is whatever was typed, so a contact
+     * would be found by every later lookup by that number and could take a
+     * patient's call or booking; and never on the conversation, which a later
+     * request in the chat may tie to someone else. Erasure by the number
+     * deletes it (lib/patient-rights/erasure.ts).
+     */
+    callbackPhone: text("callback_phone"),
+    callbackFirstName: text("callback_first_name"),
+    /** When they asked: the database's clock at the insert. */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    /** The desk marked it handled: the database's clock, once. */
+    handledAt: timestamp("handled_at", { withTimezone: true }),
+    /** Who: the device whose passkey stepped up, as staff named it. */
+    handledByLabel: text("handled_by_label"),
+    handledByUserId: text("handled_by_user_id"),
+  },
+  (t) => [
+    index("handovers_clinic_idx").on(t.clinicId, t.createdAt),
+    uniqueIndex("handovers_call_idx")
+      .on(t.clinicId, t.externalCallId)
+      .where(sql`${t.externalCallId} is not null`),
+    uniqueIndex("handovers_conversation_idx")
+      .on(t.clinicId, t.conversationId)
+      .where(sql`${t.conversationId} is not null`),
+    uniqueIndex("handovers_meta_conversation_idx")
+      .on(t.clinicId, t.metaConversationId)
+      .where(sql`${t.metaConversationId} is not null`),
+    index("handovers_thread_idx").on(t.clinicId, t.platform, t.partyRef),
+    index("handovers_callback_idx").on(t.clinicId, t.callbackPhone).where(sql`${t.callbackPhone} is not null`),
+    foreignKey({
+      name: "handovers_conversation_fk",
+      columns: [t.clinicId, t.conversationId],
+      foreignColumns: [conversations.clinicId, conversations.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "handovers_thread_fk",
+      columns: [t.clinicId, t.platform, t.partyRef],
+      foreignColumns: [chatThreads.clinicId, chatThreads.channel, chatThreads.partyRef],
+    }).onDelete("cascade"),
+    check(
+      "handovers_shape_check",
+      sql`(${t.channel} = 'voice' and ${t.externalCallId} is not null and ${t.platform} is null and ${t.partyRef} is null and ${t.metaConversationId} is null and ${t.callbackPhone} is null)
+        or (${t.channel} = 'web_chat' and ${t.conversationId} is not null and ${t.externalCallId} is null and ${t.platform} is null and ${t.partyRef} is null and ${t.metaConversationId} is null)
+        or (${t.channel} = 'meta' and ${t.platform} in ('instagram', 'messenger', 'whatsapp') and ${t.partyRef} is not null and ${t.metaConversationId} is not null and ${t.conversationId} is null and ${t.externalCallId} is null and ${t.callbackPhone} is null)`,
+    ),
+    check(
+      "handovers_callback_check",
+      sql`(${t.callbackPhone} is null or ${t.callbackPhone} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.callbackFirstName} is null or (${t.callbackPhone} is not null and char_length(${t.callbackFirstName}) between 1 and 40))`,
+    ),
+    check(
+      "handovers_call_id_check",
+      sql`${t.externalCallId} is null or char_length(${t.externalCallId}) between 1 and 200`,
+    ),
+    check(
+      "handovers_handled_check",
+      sql`(${t.handledAt} is null) = (${t.handledByLabel} is null) and (${t.handledAt} is null) = (${t.handledByUserId} is null) and (${t.handledByLabel} is null or char_length(${t.handledByLabel}) between 1 and 200)`,
+    ),
+  ],
+);

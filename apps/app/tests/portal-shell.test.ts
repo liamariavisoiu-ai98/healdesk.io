@@ -293,6 +293,37 @@ describe("Needs attention", () => {
     }
   });
 
+  test("website chat waiting on its line: one item into Settings, where the line is, at any stage, and none once the line is seen or the channel is live", () => {
+    const waiting = channel({
+      channel: "web",
+      readyAt: at,
+      status: "waiting",
+      waitingOn: "snippet",
+    });
+    for (const live of [false, true]) {
+      expect(
+        needsAttention(facts({ live, state: stateWith({ channels: [waiting] }) })),
+      ).toEqual([
+        {
+          id: "website_line",
+          text: "Website chat is ready: paste one line on your website, and AYA is designed to start answering there.",
+          action: { label: "Get the line", href: "/c/glow/settings#website-line" },
+        },
+      ]);
+    }
+    for (const web of [
+      // Ready, but setup is still the clinic's step; seen on the site, waiting on us; live; Off.
+      { ...waiting, waitingOn: "setup" as const },
+      { ...waiting, waitingOn: null },
+      { ...waiting, status: "live" as const, liveAt: at, waitingOn: null },
+      { ...waiting, status: "off" as const, enabled: false },
+      // Phone's forwarding is not website chat's line.
+      { ...waiting, channel: "voice" as const, waitingOn: "forwarding" as const },
+    ]) {
+      expect(needsAttention(facts({ state: stateWith({ channels: [web] }) }))).toEqual([]);
+    }
+  });
+
   test("an address that bounces and a payment that failed come first; the website list is M7's", () => {
     const items = needsAttention(
       facts({

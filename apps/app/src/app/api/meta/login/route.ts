@@ -1,9 +1,10 @@
 import { withinConnectAttemptLimit } from "@/lib/connections/attempt-limit";
 import { issueConnectionLink, resolveConnectionLink } from "@/lib/connections/links";
 import { env } from "@/lib/env";
-import { META_CALLBACK_PATH, metaApp, publicUrl, requestContextFrom, seeOther } from "@/lib/meta/connect-http";
+import { fromOwnPage, META_CALLBACK_PATH, metaApp, publicUrl, requestContextFrom, seeOther } from "@/lib/meta/connect-http";
 import { loginDialogUrl } from "@/lib/meta/graph";
 import { encodeLoginCookie, loginCookieHeader, newNonce } from "@/lib/meta/login-state";
+import { portalReturnUrl, surfaceOf } from "@/lib/meta/portal-return";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
 
@@ -34,7 +35,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request): Promise<Response> {
   const form = await request.formData().catch(() => null);
   const clinic = form?.get("clinic");
-  if (typeof clinic === "string" && clinic !== "") return fromPortal(request, clinic);
+  if (typeof clinic === "string" && clinic !== "") return fromPortal(request, clinic, surfaceOf(form?.get("from")));
   const raw = form?.get("token");
   const token = typeof raw === "string" ? raw : "";
   const back = (problem: string) => seeOther(publicUrl(`/channels/meta/${encodeURIComponent(token)}?problem=${problem}`));
@@ -66,18 +67,18 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,99}$/;
 const PORTAL_LINK_DAYS = 1;
 
 /**
- * The portal's button (setup step 4): the clinic's signed-in session, then a
+ * The portal's button (set-up step 4, and Settings → Channels, which also
+ * serves Reconnect; `from` says which): the clinic's signed-in session, then a
  * fresh single-use `meta` link for it, then Facebook. A problem before
  * Facebook comes back to the channels screen, which says what it was.
  */
-async function fromPortal(request: Request, slug: string): Promise<Response> {
-  if (!SLUG.test(slug)) {
+async function fromPortal(request: Request, slug: string, from: "setup" | "settings"): Promise<Response> {
+  if (!SLUG.test(slug) || !fromOwnPage(request.headers)) {
     return new Response("Not found.", { status: 404, headers: { "Cache-Control": "no-store" } });
   }
   // Outside any try: both answer by throwing Next's redirect or not-found.
   const portal = await requirePortal(slug);
-  const back = (problem: string) =>
-    seeOther(publicUrl(`/c/${encodeURIComponent(portal.clinicSlug)}/setup?s=channels&meta=${problem}`));
+  const back = (problem: string) => seeOther(portalReturnUrl(portal.clinicSlug, from, problem));
 
   const context = requestContextFrom(request);
   if (!withinConnectAttemptLimit("submit", `portal-meta:${portal.clinicId}`, context.ipAddress ?? null)) {
@@ -100,5 +101,5 @@ async function fromPortal(request: Request, slug: string): Promise<Response> {
     redirectUri: publicUrl(META_CALLBACK_PATH),
     state: nonce,
   });
-  return seeOther(dialog, loginCookieHeader(encodeLoginCookie({ token, nonce })));
+  return seeOther(dialog, loginCookieHeader(encodeLoginCookie({ token, nonce, from })));
 }

@@ -11,6 +11,11 @@ import {
   requestContextFrom,
   seeOther,
 } from "@/lib/meta/connect-http";
+import { portalReturnUrl } from "@/lib/meta/portal-return";
+import { replacesConnectedAsset, retireDroppedFacebookRows } from "@/lib/meta/reconnect";
+import { portalOrNull } from "@/lib/portal/access";
+import { portalActor } from "@/lib/portal/actor";
+import { stepUpPath } from "@/lib/portal/step-up";
 import { decodeLoginCookie, LOGIN_COOKIE, loginCookieHeader, readCookie, stateMatches } from "@/lib/meta/login-state";
 import { withTenant } from "@/lib/tenant";
 
@@ -44,15 +49,28 @@ export async function GET(request: Request): Promise<Response> {
   const cookie = decodeLoginCookie(readCookie(request.headers.get("cookie"), LOGIN_COOKIE));
   if (!cookie || !stateMatches(url.searchParams.get("state"), cookie.nonce)) return invalid();
 
+  // A login the portal's button started returns to the portal screen it was
+  // pressed on (cookie.from, set only by /api/meta/login's portal branch);
+  // a mailed link's returns to its own page. The slug comes from the link,
+  // never the browser.
+  let slug: string | null = null;
   const back = (problem: string) =>
-    seeOther(publicUrl(`/channels/meta/${encodeURIComponent(cookie.token)}?problem=${problem}`), clear);
+    seeOther(
+      cookie.from && slug
+        ? portalReturnUrl(slug, cookie.from, problem)
+        : publicUrl(`/channels/meta/${encodeURIComponent(cookie.token)}?problem=${problem}`),
+      clear,
+    );
 
-  const code = url.searchParams.get("code");
-  if (url.searchParams.get("error") || !code) return back("cancelled");
-
+  // Resolved before the cancelled answer, so a portal login that Facebook
+  // sent back without a code returns to the portal, not to the mailed page.
   const context = requestContextFrom(request);
   const link = await resolveConnectionLink(cookie.token, context, "meta");
   if (!link) return invalid();
+  slug = link.clinicSlug;
+
+  const code = url.searchParams.get("code");
+  if (url.searchParams.get("error") || !code) return back("cancelled");
 
   const app = metaApp();
   if (!app) return back("not_configured");
@@ -66,11 +84,40 @@ export async function GET(request: Request): Promise<Response> {
     return back(outcome.problem);
   }
 
+  // A login the portal started (or any link a signed-in person minted), that would swap the clinic's connected Page or
+  // Instagram account for another, needs a live passkey step-up on the session
+  // that comes back (the Google Calendar rule for a different account); a
+  // first connect and a reconnect of the same Page need none. Without one the
+  // clinic is sent to step up and presses the button again. The write is then
+  // recorded under the device's name instead of the service's.
+  let actor: typeof META_CONNECT_ACTOR | { type: "user"; userId: string; label: string } = META_CONNECT_ACTOR;
+  // Decided on the link, not the cookie: a portal-minted link names the person
+  // who issued it, an operator's does not, and a cookie edited to drop `from`,
+  // or the link opened on its mailed page, must not skip the step-up.
+  const portalIssued = cookie.from !== undefined || link.issuedBy !== null;
+  const surface = cookie.from ?? "setup";
+  if (portalIssued) {
+    const portal = await portalOrNull(link.clinicSlug);
+    const stepped = portal ? await portalActor(portal) : null;
+    if (portal && stepped) actor = { type: "user", userId: portal.userId, label: stepped.label };
+    const swaps = await withTenant({ clinicId: link.clinicId, actor: META_CONNECT_ACTOR, request: context }, (tx) =>
+      replacesConnectedAsset(tx.db, tx.clinicId, outcome.channels),
+    );
+    if (swaps && !stepped?.steppedUp) {
+      const next = surface === "settings" ? `/c/${link.clinicSlug}/settings` : `/c/${link.clinicSlug}/setup?s=channels`;
+      return seeOther(publicUrl(stepUpPath(link.clinicSlug, next)), clear);
+    }
+  }
+
   try {
-    await withTenant({ clinicId: link.clinicId, actor: META_CONNECT_ACTOR, request: context }, async (tx) => {
+    await withTenant({ clinicId: link.clinicId, actor, request: context }, async (tx) => {
       for (const channel of outcome.channels) {
         await attachMetaChannel(tx, { ...channel, via: "facebook_login" });
       }
+      // A Facebook login this one no longer returns (the Page has no linked
+      // Instagram any more) whose token Meta already dropped would stay
+      // marked, with a Reconnect nothing can clear. It is dead, so retire it.
+      await retireDroppedFacebookRows(tx, outcome.channels.map((c) => c.platform));
       const burned = await consumeConnectionLinkWithin(tx, cookie.token, context.ipAddress ?? null, "meta");
       if (!burned) throw new LinkAlreadySpentError();
     });
@@ -83,6 +130,8 @@ export async function GET(request: Request): Promise<Response> {
     log.error("Storing a clinic's Meta channels failed", { clinicId: link.clinicId, error: describeError(error) });
     return back("meta_error");
   }
+
+  if (portalIssued) return seeOther(portalReturnUrl(link.clinicSlug, surface, "connected"), clear);
 
   const done = new URLSearchParams({ channel: "meta", page: outcome.page.name });
   if (outcome.instagram) done.set("instagram", outcome.instagram.username ?? "");

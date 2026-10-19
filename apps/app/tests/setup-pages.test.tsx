@@ -1,8 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
+import { setupLine, WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
+import { GREETING_LABELS, META_GREETING_NOTE } from "@/lib/setup/greetings";
 import { loadSetupState } from "@/lib/setup/state";
-import { publicUrl } from "@/lib/public-url";
+import { publicOrigin, publicUrl } from "@/lib/public-url";
 
 import { axeViolations } from "./setup/axe";
 import {
@@ -126,6 +127,16 @@ async function voiceReady(clinic: PortalClinic, options: { directLine: boolean }
   );
 }
 
+describe("what the wizard and the welcome email promise about website chat", () => {
+  test("pasting the line is a step, and answering after it is phrased as design until production does it on the paste", () => {
+    // CLAUDE.md, "Copy first, then the switch": website chat goes live only
+    // once an operator confirms the line is on the site (web-chat-on-paste).
+    expect(setupLine("web", "finish_setup")).toBe(
+      "Website chat: after setup, you paste one line on your website, and AYA is designed to start answering there.",
+    );
+  });
+});
+
 describeDb("the setup wizard's pages", () => {
   beforeAll(async () => {
     await runMigrations();
@@ -172,6 +183,20 @@ describeDb("the setup wizard's pages", () => {
       }
     }
   }, 60_000);
+
+  test("2.1: the chat greeting is website chat's, and a Meta clinic is told its channels open with their own line", async () => {
+    // It was labelled "When someone opens a chat or sends a message", though
+    // no Instagram, Messenger or WhatsApp reply ever says it.
+    as(everything);
+    const meta = text(await wizard({ s: "tone" }));
+    expect(meta).toContain(GREETING_LABELS.chat);
+    expect(meta).toContain(META_GREETING_NOTE);
+    expect(meta).not.toContain("sends a message");
+    as(voiceWeb);
+    const web = text(await wizard({ s: "tone" }));
+    expect(web).toContain(GREETING_LABELS.chat);
+    expect(web).not.toContain(META_GREETING_NOTE);
+  });
 
   describe("2.4: deposits and the payment account", () => {
     test("a chat package may connect Stripe; doing it later in Settings → Payments is the default", async () => {
@@ -281,7 +306,7 @@ describeDb("the setup wizard's pages", () => {
       delete process.env.META_LOGIN_CONFIG_ID;
       const off = await wizard({ s: "channels" });
       expect(off).not.toContain("/api/meta/login");
-      expect(text(off)).toContain("Email hello@healdesk.io and we’ll connect them with you.");
+      expect(text(off)).toContain("Email hello@healdesk.io and we’ll connect Facebook and Instagram with you.");
 
       // A login that could not start comes back here and says why.
       const back = text(await wizard({ s: "channels", meta: "not_configured" }));
@@ -296,16 +321,95 @@ describeDb("the setup wizard's pages", () => {
         const words = text(html);
         expect(words).toContain("Website chat Waiting on you Paste one line on your website.");
         expect(words).toContain("The line for your website");
+        // Production goes live on an operator's confirmation, not on the paste
+        // (LAUNCH_PROMISES, web-chat-on-paste), so the line is phrased as design.
+        expect(words).toContain("AYA is designed to start answering there once it’s in.");
+        expect(words).not.toContain("AYA starts answering there");
         // Go-live is automatic: a chat on the live site is a real one (WP2).
         expect(words).toContain(WEB_CHAT_COUNTS_LINE);
         expect(words).toContain(
           `<script src="${publicUrl("/widget/v1.js")}" data-clinic="${voiceWeb.clinicSlug}" async></script>`,
         );
         expect(words).toContain("Copy the line");
+        // "Send this to my web person" (spec), beside the line.
+        expect(words).toContain("Email to my web person");
+        expect(words).toContain("Send the line");
         expect(words).not.toContain(process.env.HEALDESK_APP_URL ?? "app-internal");
+        expect(brokenLinks(html, voiceWeb.clinicSlug)).toEqual([]);
         expect(await axeViolations(html)).toEqual([]);
       } finally {
         await setChannel(voiceWeb, "web", `ready_at = null, waiting_on = null`);
+      }
+    });
+
+    test("the website line's panel is Settings' own, and its email goes through the action the phone steps use", async () => {
+      const fs = await import("node:fs");
+      // One component in both places, so the line and its words never differ.
+      for (const file of [
+        "src/app/c/[slug]/setup/screens/ChannelsScreen.tsx",
+        "src/app/c/[slug]/settings/SettingsCards.tsx",
+      ]) {
+        const source = fs.readFileSync(file, "utf8");
+        expect(source, file).toMatch(/import \{ WebsiteLinePanel \} from "\.\.\/(\.\.\/)?WebsiteLinePanel"/);
+        expect(source, file).toContain("<WebsiteLinePanel slug=");
+      }
+      expect(fs.readFileSync("src/app/c/[slug]/SendStepsForm.tsx", "utf8")).toContain(
+        "sendStepsAction(props.slug",
+      );
+
+      const { sendStepsAction } = await import("@/app/c/[slug]/steps-actions");
+      as(voiceWeb);
+      steps.sendStepsOn.mockResolvedValueOnce({ status: "sent", to: "web@agency.test" });
+      expect(await sendStepsAction(voiceWeb.clinicSlug, "web", "web@agency.test")).toEqual({
+        ok: true,
+        message: "Sent to web@agency.test.",
+      });
+      // Website chat's line needs no number: lib/notices/steps-sent.ts checks
+      // the channel is open itself.
+      expect(steps.sendStepsOn).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          clinicId: voiceWeb.clinicId,
+          channel: "web",
+          to: "web@agency.test",
+          ayaNumberE164: null,
+        }),
+      );
+      // A browser can send anything: a channel with no step to send is refused here.
+      steps.sendStepsOn.mockClear();
+      expect(
+        await sendStepsAction(voiceWeb.clinicSlug, "meta" as "web", "web@agency.test"),
+      ).toEqual({ ok: false, message: "There's nothing to send for that." });
+      expect(steps.sendStepsOn).not.toHaveBeenCalled();
+    });
+
+    test("a live channel says since when, and a paused one until when (plan Part E step 4)", async () => {
+      // Until 19 October 2026 the words were a bare "Live" and "Paused".
+      as(voiceWeb);
+      // Inside the tenant: the tables force row-level security, the migrator's included.
+      const pause = (set: string) =>
+        inTenant(voiceWeb.clinicId, (c) =>
+          c.query(`update clinic_settings set ${set} where clinic_id = $1`, [voiceWeb.clinicId]),
+        );
+      await setChannel(
+        voiceWeb,
+        "web",
+        `ready_at = '2026-10-14T15:00:00Z', live_at = '2026-10-14T15:00:00Z'`,
+      );
+      try {
+        expect(text(await wizard({ s: "channels" }))).toMatch(
+          /Website chat Live since 14 October(?: 2026)? /,
+        );
+        await pause(`ai_paused_at = now(), ai_paused_until = '2099-03-02T19:00:00Z'`);
+        expect(text(await wizard({ s: "channels" }))).toMatch(
+          /Website chat Paused until \d{1,2}(?::\d{2})? [ap]m [A-Z]{2,5} on Monday 2 March 2099 /,
+        );
+        await pause(`ai_paused_until = null`);
+        expect(text(await wizard({ s: "channels" }))).toContain(
+          "Website chat Paused until you switch AYA back on",
+        );
+      } finally {
+        await pause(`ai_paused_at = null, ai_paused_until = null`);
+        await setChannel(voiceWeb, "web", `ready_at = null, live_at = null, waiting_on = null`);
       }
     });
 
@@ -399,7 +503,7 @@ describeDb("the setup wizard's pages", () => {
       return new Request("https://app.healdesk.test/api/meta/login", {
         method: "POST",
         body: new URLSearchParams(fields),
-        headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "vitest" },
+        headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "vitest", origin: publicOrigin() },
       });
     }
 
@@ -448,6 +552,39 @@ describeDb("the setup wizard's pages", () => {
       );
       expect(off.headers.get("set-cookie")).toBeNull();
       expect((await POST(post({ clinic: "../admin" }))).status).toBe(404);
+    });
+
+    test("from Settings it returns to Settings and the cookie remembers it; an unknown `from` means set-up; a foreign Origin is refused", async () => {
+      process.env.META_APP_ID = "1234";
+      process.env.META_APP_SECRET = "meta-secret";
+      process.env.META_LOGIN_CONFIG_ID = "5678";
+      as(everything);
+      const { POST } = await import("@/app/api/meta/login/route");
+      const { decodeLoginCookie } = await import("@/lib/meta/login-state");
+      const fromSettings = await POST(post({ clinic: everything.clinicSlug, from: "settings" }));
+      const raw = fromSettings.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!;
+      expect(decodeLoginCookie(raw)?.from).toBe("settings");
+      const other = await POST(post({ clinic: everything.clinicSlug, from: "https://evil.example" }));
+      expect(decodeLoginCookie(other.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!)?.from).toBe("setup");
+
+      const foreign = new Request("https://app.healdesk.test/api/meta/login", {
+        method: "POST",
+        body: new URLSearchParams({ clinic: everything.clinicSlug }),
+        headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://evil.example" },
+      });
+      expect((await POST(foreign)).status).toBe(404);
+      const none = new Request("https://app.healdesk.test/api/meta/login", {
+        method: "POST",
+        body: new URLSearchParams({ clinic: everything.clinicSlug }),
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      });
+      expect((await POST(none)).status).toBe(404);
+
+      delete process.env.META_LOGIN_CONFIG_ID;
+      const off = await POST(post({ clinic: everything.clinicSlug, from: "settings" }));
+      expect(off.headers.get("location")).toBe(
+        publicUrl(`/c/${everything.clinicSlug}/settings?meta=not_configured#channels`),
+      );
     });
   });
 });

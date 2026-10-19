@@ -59,12 +59,30 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     blocksGoLive: true,
   },
   {
+    id: "web-chat-on-paste",
+    promise: "You paste one line on your website, and AYA is designed to start answering there",
+    where: "Set-up wizard and welcome email (website chat)",
+    status: "building",
+    left: "The line now loads the chat bubble, but website chat goes live only once an operator confirms in Ops that the line is on the clinic's site, and Ops is asked only when someone first opens the bubble there. Until then the bubble tells visitors to call the practice.",
+    evidence: "apps/app/src/widget/v1.js, apps/app/src/lib/channels/events.ts (noteWidgetLoaded, confirmWidgetOnSite)",
+    blocksGoLive: false,
+  },
+  {
     id: "urgent-alert",
     promise: "An urgent message goes at once to the contact the clinic names",
     where: "Terms section 2",
     status: "on",
-    left: "Sent in-process the moment the urgent screen fires, on calls, website chat and Meta. Like every email it needs the host's email key, and a failed first send is retried only once the billing-notices job is switched on.",
+    left: "Queued with the urgent screen's own writes and sent in-process right after commit, on calls, website chat and Meta, to the clinic's account address. Like every email, the first send included, it goes only while the billing-notices job is on and the host's email key is set: the alert-sender item below.",
     evidence: "apps/app/src/lib/notices/booking-alerts.ts, apps/app/src/lib/email/outbox.ts (deliverCriticalAfterCommit), apps/app/tests/live-alerts.test.ts",
+    blocksGoLive: true,
+  },
+  {
+    id: "alert-sender-on",
+    promise: "Every alert AYA promises the clinic reaches it, the urgent one included",
+    where: "Terms section 2, AYA's urgent reply (\"I've told the team\")",
+    status: "owner",
+    left: "Switch on the billing-notices job (Scheduled jobs in /admin/ops) and set RESEND_API_KEY on the host before the first clinic goes live: every booking alert waits on both, and while they are off AYA still tells an urgent caller the team has been told. Go-live does not check the switch itself, and nothing stops it being switched off later. If an urgent alert cannot be queued at all, you are emailed at once to phone the clinic, and neither the call nor website chat says the team was told.",
+    evidence: "apps/app/src/lib/email/outbox.ts, apps/app/src/lib/notices/booking-alerts.ts (URGENT_ALERT_DELIVERED), apps/app/src/lib/scheduler/jobs.ts (JOB_BILLING_NOTICES)",
     blocksGoLive: true,
   },
   {
@@ -80,9 +98,9 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     id: "failure-direct-line",
     promise: "Every failure ends with calls going to a direct clinic line",
     where: "Terms, portal behaviour screens, CLAUDE.md",
-    status: "on",
-    left: "Endpoint or vendor failure is each clinic's Retell agent's own fallback transfer to the direct line, set when the agent is created.",
-    evidence: "apps/app/src/lib/voice/retell.ts (RetellCallSession.open), apps/app/src/lib/billing/answering.ts (patientDataRefused), apps/app/tests/retell-voice.test.ts",
+    status: "owner",
+    left: "Inside our endpoint every failure transfers to the direct line wherever the line can be known, a database outage included, and never to a line that forwards back to AYA (the clinic's published or AYA number), which counts as none; with none known the caller hears a closing line. Left for you: paste the Retell key (HEALDESK_RETELL_API_KEY, once Retell's agreement is signed), so the hourly sync gives each AYA number the clinic's direct line as Retell's fallback; confirm the plan has Retell's outage mode, the step for our endpoint being down, and make one test call on a made-up clinic with it on. Retell itself being down still means each clinic removing its forwarding by hand.",
+    evidence: "apps/app/src/lib/voice/retell.ts, apps/app/src/lib/voice/fallback-line.ts, apps/app/src/lib/voice/retell-fallback-sync.ts, apps/app/src/lib/billing/answering.ts (patientDataRefused), docs/on-call.md",
     blocksGoLive: true,
   },
   {
@@ -108,8 +126,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "Phone is live once call forwarding is set",
     where: "Pricing, setup",
     status: "owner",
-    left: "Turn enable_voice on in the infrastructure, set the Retell secret, apply, deploy, and make one test call on a synthetic clinic.",
-    evidence: "infra/aws (enable_voice), apps/app/src/voice/server.ts",
+    left: "Turn enable_voice on in the infrastructure, set the Retell secret, apply, deploy, and make one test call on the demo clinic, which may come before the agreements. Then, once every agreement in the chain is signed, turn voice_real_calls on, apply and deploy: until then the voice line answers only the demo clinic.",
+    evidence: "infra/aws (enable_voice, voice_real_calls), apps/app/src/voice/server.ts, apps/app/src/lib/voice/test-calls.ts",
     blocksGoLive: true,
   },
   {
@@ -150,6 +168,17 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     blocksGoLive: true,
   },
   {
+    id: "extra-locations",
+    promise:
+      "Each further location is added to the same plan from Billing, at the plan's price again plus its own setup fee, renewing on the same date",
+    where: "Pricing (Prices are per location), Get AYA's package step and Review and pay, terms (More than one location)",
+    status: "building",
+    left: "healdesk-io-58's Package C: addLocation is written, but createLocationClinic is a stub and LOCATION_CLINICS_READY is false, so addLocation refuses, Billing's Add a location card asks the clinic to email hello@healdesk.io, and no path, the ops console's included, can add a location to a plan yet. It moves to On in the commit that flips the flag, once that release is deployed. One location works without it, so it does not hold go-live.",
+    evidence:
+      "apps/app/src/lib/location-clinic.ts (LOCATION_CLINICS_READY), apps/app/src/lib/billing/stripe-actions.ts (addLocation), apps/app/src/app/c/[slug]/billing/page.tsx",
+    blocksGoLive: false,
+  },
+  {
     id: "direct-booking-addendum",
     promise: "A clinic can elect direct booking under its agreement",
     where: "Setup, agreement",
@@ -157,5 +186,14 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     left: "The direct-booking addendum is drafted and marked not approved by counsel; approve it, or decide to release it without counsel as with the legal pages.",
     evidence: "packages/catalog/src/direct-booking-addendum.ts",
     blocksGoLive: true,
+  },
+  {
+    id: "phone-flips-live",
+    promise: "Phone goes live by itself once a call forwarded from the clinic's main line reaches AYA",
+    where: "Setup wizard (phone), Settings → Channels",
+    status: "owner",
+    left: "Built: a call the carrier says it forwarded from the clinic's published number (its Diversion or History-Info header), with the caller's number kept, meets phone's forwarding step with no test window and no operator, and the clinic's own Test it now does the same from the wizard or Settings. Left: once enable_voice is on, check on a forwarded test call that Retell passes the carrier's Diversion or History-Info header on its numbers; where it does not, Test it now is how phone goes live.",
+    evidence: "apps/app/src/lib/voice/forwarded-from.ts, apps/app/src/lib/onboarding/forwarding-test.ts, apps/app/src/lib/setup/forwarding-test-view.ts",
+    blocksGoLive: false,
   },
 ];

@@ -9,12 +9,14 @@ import type { AssistantFacts } from "./facts";
  *
  * Inbound, before the model: a card number is cut out of what the person
  * said, so it reaches neither the model nor the transcript email, and they
- * are told why (cardNumberIn).
+ * are told why (cardNumberIn). One read out across turns is cut where the
+ * transcript is assembled (cutCardNumbersAcrossTurns).
  *
  * Outbound, after the model, a reply is refused when it:
  *   - says anything on the never-say list (the clinic's own and the defaults);
  *   - names a dollar amount that is not one of the clinic's configured prices
- *     or deposits: an off-menu price becomes the offer of a consultation;
+ *     or deposits, written or said in words (amountsIn): an off-menu price
+ *     becomes the offer of a consultation;
  *   - asks for card or bank details;
  *   - calls the practice or healdesk "HIPAA compliant";
  *   - says anything clinical: the catalog's findClinicalContent, the default
@@ -34,7 +36,17 @@ import type { AssistantFacts } from "./facts";
  *     outcome claims, triage, and a dose given as a bare number. A clinical
  *     reply becomes the offer of a consultation;
  *   - is written in a language the screens do not read (messageLanguage):
- *     English and Spanish are screened, any other is not sent.
+ *     English and Spanish are screened, any other is not sent;
+ *   - claims to be a person, or not to be an AI ("I'm a real person", "I'm
+ *     not a bot", "you're talking to Sarah at the front desk", "soy una
+ *     persona real"), in any reply on any channel (claimsToBeHuman): the
+ *     opening line says an AI assistant is answering, and nothing after it
+ *     may say otherwise;
+ *   - says a booking is made, or that the assistant is making one ("you're
+ *     booked", "confirmed for Tuesday", "I'll book you in"), on a turn where
+ *     the tool layer wrote no booking (ReplyTurn, confirmsBooking): the
+ *     brain has no booking tools yet, so it takes a request and the team
+ *     confirms it, and a reply saying otherwise becomes that line.
  * A refused reply is replaced by a fixed line; nothing of it is sent.
  *
  * The limit of the never-say list: its entries are the clinic's own words, in
@@ -55,9 +67,20 @@ export type GuardRefusal =
   | "hipaa_claim"
   | "clinical"
   | "language"
+  | "booking_confirmation"
+  | "human_claim"
   | "empty";
 
 export type GuardVerdict = { ok: true } | { ok: false; reason: GuardRefusal };
+
+/**
+ * What the tool layer did on the turn the reply answers. A reply may say a
+ * booking is made only on a turn where the tool layer wrote one (CLAUDE.md:
+ * bookings are written only by the fixed tool layer, and the slot is held
+ * before anything confirming is said). The brain has no booking tools yet
+ * (turn.ts), so no turn writes one, and every confirmation is refused.
+ */
+export type ReplyTurn = { bookingWritten?: boolean };
 
 function normalise(text: string): string {
   return text
@@ -82,7 +105,294 @@ function allowedAmounts(facts: Pick<AssistantFacts, "services">): Set<number> {
 const DOLLARS = /\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(\s?k\b)?/gi;
 const SPOKEN_DOLLARS = /\b(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s?(?:dollars|usd|bucks|d[oó]lares)(?![\p{L}])/giu;
 
-/** The cents of each amount the reply names, "$1,200", "$99.50", "1200 dollars". */
+// -----------------------------------------------------------------------------
+// Amounts said in words
+// -----------------------------------------------------------------------------
+//
+// The voice prompt asks for numbers the way a person says them aloud
+// (prompt.ts), so a price on a call is as likely to be "two hundred dollars"
+// or "a hundred and fifty" as "$200". Each form below is a price the guard
+// reads, and checks against the menu like any other:
+//
+//   - number words before "dollars" or "bucks", with any "and fifty cents"
+//     after ("two hundred dollars", "a hundred and fifty dollars", "one
+//     fifty dollars", "twelve dollars and fifty cents");
+//   - a number with "hundred" or "thousand" in it, with no currency word,
+//     where it ends a clause or runs on into one ("the consultation is a
+//     hundred and fifty", "two hundred, or three with the deposit"), and not
+//     where a noun follows ("a hundred reviews", "two hundred clients"), a
+//     room or a suite leads ("suite two hundred"), or it is a time of the
+//     twenty-four hour clock ("we close at seventeen hundred");
+//   - a number, in digits or words, said by the unit ("twelve a unit", "12
+//     per unit", "six hundred a syringe");
+//   - Spanish number words, read the same ways (spanishAmounts): before
+//     "dólares", by the unit, and with "cien", "-cientos" or "mil" in them
+//     ("cuesta ciento cincuenta", "son doscientos").
+//
+// A bare number with none of these ("it's fifty") is not read: it is as often
+// a count or a time as a price, and the prompt asks for prices as listed.
+
+const ONES: Readonly<Record<string, number>> = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19,
+};
+const TENS: Readonly<Record<string, number>> = {
+  twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+};
+/** One number word, whole: the longest spellings first, so "fourteen" is never read as "four". */
+const NUMBER_WORD = `(?:${[...Object.keys(ONES), ...Object.keys(TENS), "hundred", "thousand", "and", "a"]
+  .sort((a, b) => b.length - a.length)
+  .join("|")})(?![\\p{L}])`;
+/** A run of number words, hyphens or spaces between: "one hundred and fifty", "twenty-five". */
+const NUMBER_RUN = `${NUMBER_WORD}(?:[\\s-]+${NUMBER_WORD})*`;
+
+/**
+ * A run of number words as a number: "one hundred and fifty" → 150, "a
+ * thousand" → 1000, "twenty-five" → 25. Said the way prices are said aloud,
+ * with the hundred left out, too: "one fifty" → 150, "two ninety-nine" →
+ * 299, "twelve fifty" → 1250. Null when the words are not one number ("one
+ * five", "ninety and a hundred"). "A" counts only as the first word, before
+ * "hundred" or "thousand".
+ */
+export function wordsToNumber(words: string): number | null {
+  const parts = words
+    .toLowerCase()
+    .split(/[\s-]+/)
+    .filter((w) => w && w !== "and");
+  if (parts.length === 0) return null;
+  let total = 0; // the thousands
+  let hundreds = 0; // the hundreds of the group being read
+  let small: number | null = null; // below a hundred, being read
+  let last: "unit" | "teen" | "tens" | "magnitude" | null = null;
+  let elided = false;
+  let seen = false;
+  for (const [i, part] of parts.entries()) {
+    if (part === "a") {
+      const next = parts[i + 1];
+      if (i !== 0 || (next !== "hundred" && next !== "thousand")) return null;
+      small = 1;
+      last = "unit";
+      continue;
+    }
+    if (part in ONES || part in TENS) {
+      const value = (ONES[part] ?? TENS[part])!;
+      const kind = part in TENS ? "tens" : value >= 10 ? "teen" : "unit";
+      seen = true;
+      if (small === null) {
+        small = value;
+      } else if (last === "tens" && kind === "unit" && value > 0) {
+        small += value; // "twenty five"
+      } else if (kind !== "unit" && hundreds === 0 && total === 0 && !elided && last !== "magnitude") {
+        // "one fifty", "two ninety-nine", "twelve fifty": the hundred left out.
+        hundreds = small * 100;
+        small = value;
+        elided = true;
+      } else {
+        return null;
+      }
+      last = kind;
+      continue;
+    }
+    if (part === "hundred") {
+      if (elided || hundreds !== 0) return null;
+      hundreds = (small ?? 1) * 100;
+      small = null;
+      last = "magnitude";
+      seen = true;
+      continue;
+    }
+    if (part === "thousand") {
+      if (elided) return null;
+      total += (hundreds + (small ?? 0) || 1) * 1000;
+      hundreds = 0;
+      small = null;
+      last = "magnitude";
+      seen = true;
+      continue;
+    }
+    return null;
+  }
+  return seen ? total + hundreds + (small ?? 0) : null;
+}
+
+/** A run read as a number, or, failing that, without a leading "a" or "and" ("a fifty dollar deposit"). */
+function runValue(run: string): number | null {
+  return wordsToNumber(run) ?? wordsToNumber(run.replace(/^\s*(?:a|and)[\s-]+/i, ""));
+}
+
+const WORD_DOLLARS = new RegExp(
+  `(?<![\\p{L}])(${NUMBER_RUN})\\s+(?:dollars?|bucks)(?![\\p{L}])(?:\\s+and\\s+(${NUMBER_RUN})\\s+cents?(?![\\p{L}]))?`,
+  "giu",
+);
+const PER_UNIT = new RegExp(
+  `(?<![$\\d.,\\p{L}])(\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d{1,2})?|${NUMBER_RUN})\\s+(?:a|an|per|each|every)\\s+(?:units?|syringes?|vials?|ml|areas?)(?![\\p{L}])`,
+  "giu",
+);
+const MAGNITUDE_RUN = new RegExp(`(?<![\\p{L}])${NUMBER_RUN}`, "giu");
+/** What may follow a number said as a price with no currency word: the end of a clause, or a word that runs on. */
+const PRICE_ENDS = /^(?:\s*$|\s*[.,;:!?)\]—–]|\s+-\s|\s+(?:for|per|a|an|each|every|to|and|or|with|plus|including|depending|if|but|so|up|total|altogether)(?![\p{L}]))/iu;
+/** What leads a number that is a place, not a price. */
+const PLACE_LEADS = /(?:\b(?:room|suite|ste|unit|apt|apartment|floor|level|building|bldg|number|no\.?|highway|route|interstate|exit)|#)\s*$/i;
+/** A time word before a number: an hour of the twenty-four hour clock said as "seventeen hundred". */
+const TIME_LEADS = /\b(?:at|until|till|til|by|after|before|around|from|between|and)\s+$/i;
+const PRICE_AT = /\b(?:priced|starts?|starting|comes? in|runs?|costs?|charged|billed|is|it['’]s|that['’]s)\s+at\s+$/i;
+const CLOCK_HUNDRED =
+  /^(?:(?:oh|zero)[\s-]+(?:one|two|three|four|five|six|seven|eight|nine)|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty(?:[\s-]+(?:one|two|three))?)[\s-]+hundred$/i;
+/** A word before a year said aloud ("since two thousand ten", "back in nineteen ninety"). */
+const YEAR_LEADS = /\b(?:since|in|year|back in|until|till|founded|opened|established)\s+$/i;
+
+/** The run without a trailing "and" or "a", which belong to what follows ("a hundred and Lip filler"). */
+function trimRun(run: string): string {
+  return run.replace(/(?:[\s-]+(?:and|a))+$/i, "");
+}
+
+/** Every amount said in English number words, in cents, in the order they come. */
+function wordAmounts(text: string): number[] {
+  const found: { at: number; cents: number }[] = [];
+  const taken: [number, number][] = [];
+  for (const m of text.matchAll(WORD_DOLLARS)) {
+    const dollars = runValue(m[1]!);
+    if (dollars === null) continue;
+    const cents = m[2] ? (wordsToNumber(m[2]) ?? 0) : 0;
+    found.push({ at: m.index!, cents: dollars * 100 + (cents < 100 ? cents : 0) });
+    taken.push([m.index!, m.index! + m[0].length]);
+  }
+  for (const m of text.matchAll(PER_UNIT)) {
+    if (taken.some(([a, b]) => m.index! >= a && m.index! < b)) continue;
+    const said = m[1]!;
+    const value = /^\d/.test(said) ? Number(said.replace(/,/g, "")) : runValue(trimRun(said));
+    if (value === null || !Number.isFinite(value)) continue;
+    found.push({ at: m.index!, cents: Math.round(value * 100) });
+    taken.push([m.index!, m.index! + m[0].length]);
+  }
+  for (const m of text.matchAll(MAGNITUDE_RUN)) {
+    const run = trimRun(m[0]);
+    if (!/hundred|thousand/i.test(run)) continue;
+    const start = m.index!;
+    const end = start + run.length;
+    if (taken.some(([a, b]) => start < b && end > a)) continue;
+    const before = text.slice(0, start);
+    const after = text.slice(end);
+    if (!PRICE_ENDS.test(after) || PLACE_LEADS.test(before)) continue;
+    if (CLOCK_HUNDRED.test(run.trim()) && TIME_LEADS.test(before) && !PRICE_AT.test(before)) continue;
+    const value = runValue(run);
+    if (value === null) continue;
+    if (value > 1900 && value < 2100 && YEAR_LEADS.test(before)) continue;
+    found.push({ at: start, cents: value * 100 });
+  }
+  return found.sort((a, b) => a.at - b.at).map((f) => f.cents);
+}
+
+const ES_VALUES: Readonly<Record<string, number>> = {
+  cero: 0, un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8,
+  nueve: 9, diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, "dieciséis": 16,
+  dieciseis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19, veinte: 20, veintiuno: 21,
+  "veintiún": 21, veintiun: 21, veintiuna: 21, "veintidós": 22, veintidos: 22, "veintitrés": 23,
+  veintitres: 23, veinticuatro: 24, veinticinco: 25, "veintiséis": 26, veintiseis: 26,
+  veintisiete: 27, veintiocho: 28, veintinueve: 29, treinta: 30, cuarenta: 40, cincuenta: 50,
+  sesenta: 60, setenta: 70, ochenta: 80, noventa: 90, cien: 100, ciento: 100, doscientos: 200,
+  doscientas: 200, trescientos: 300, trescientas: 300, cuatrocientos: 400, cuatrocientas: 400,
+  quinientos: 500, quinientas: 500, seiscientos: 600, seiscientas: 600, setecientos: 700,
+  setecientas: 700, ochocientos: 800, ochocientas: 800, novecientos: 900, novecientas: 900,
+};
+const ES_WORD = `(?:${[...Object.keys(ES_VALUES), "mil", "y"].sort((a, b) => b.length - a.length).join("|")})(?![\\p{L}])`;
+const ES_DOLLARS = new RegExp(`(?<![\\p{L}])(${ES_WORD}(?:\\s+${ES_WORD})*)\\s+d[oó]lar(?:es)?(?![\\p{L}])`, "giu");
+
+/** Spanish number words as a number: "ciento cincuenta" → 150, "mil doscientos" → 1200. */
+function spanishToNumber(words: string): number | null {
+  let total = 0;
+  let current = 0;
+  let seen = false;
+  for (const part of words.toLowerCase().split(/\s+/)) {
+    if (!part || part === "y") continue;
+    if (part === "mil") {
+      total += (current || 1) * 1000;
+      current = 0;
+      seen = true;
+      continue;
+    }
+    const value = ES_VALUES[part];
+    if (value === undefined) return null;
+    current += value;
+    seen = true;
+  }
+  return seen ? total + current : null;
+}
+
+const ES_RUN = new RegExp(`(?<![\\p{L}])${ES_WORD}(?:\\s+${ES_WORD})*`, "giu");
+const ES_PER_UNIT = new RegExp(
+  `(?<![$\\d.,\\p{L}])(\\d+(?:[.,]\\d{1,2})?|${ES_WORD}(?:\\s+${ES_WORD})*)\\s+(?:por|cada|la|el)\\s+(?:unidad|jeringa|vial|ml|[áa]rea|zona)(?![\\p{L}])`,
+  "giu",
+);
+/** A Spanish number with "cien", "-cientos" or "mil" in it: one said as a price with no currency word. */
+const ES_MAGNITUDE = /(?:cien(?:to)?|ient[oa]s|mil)(?![\p{L}])/iu;
+/** What may follow such a number as a price: the end of a clause, or a word that runs on ("doscientos por sesión"). */
+const ES_PRICE_ENDS =
+  /^(?:\s*$|\s*[.,;:!?)\]—–]|\s+-\s|\s+(?:por|o|a|hasta|m[áa]s|con|cada|seg[uú]n|dependiendo|en total|si|pero|y|al)(?![\p{L}]))/iu;
+/** What leads a Spanish number that is a place: "consultorio doscientos", "en el doscientos". */
+const ES_PLACE_LEADS =
+  /(?:(?<![\p{L}])(?:suite|consultorio|oficina|n[uú]mero|piso|sala|local|calle|avenida|av\.|carretera|ruta|salida|el)|n[ºo°]\.?|#)\s*$/iu;
+/** A word before a year said aloud: "desde dos mil diez", "fundada en mil novecientos noventa". */
+const ES_YEAR_LEADS = /(?<![\p{L}])(?:desde|en|año|del|fundad[oa]s?\s+en|abiert[oa]s?\s+en)\s+$/iu;
+
+/** The run without a trailing "y", "un" or "una", which belong to what follows ("doscientos y la consulta"). */
+function trimSpanishRun(run: string): string {
+  return run.replace(/(?:\s+(?:y|un|una|uno))+$/iu, "");
+}
+
+/**
+ * Every amount said in Spanish number words, in cents, in the order they
+ * come: before "dólares" ("ciento cincuenta dólares"); by the unit ("doce por
+ * unidad"); and with "cien", "-cientos" or "mil" in it and no currency word
+ * ("cuesta ciento cincuenta", "son doscientos"), where it ends or runs on
+ * into a clause, the same skips as in English: a noun after it ("doscientos
+ * clientes", "mil gracias"), a place before it ("consultorio doscientos") or
+ * a year ("desde dos mil diez").
+ */
+function spanishAmounts(text: string): number[] {
+  const found: { at: number; cents: number }[] = [];
+  const taken: [number, number][] = [];
+  for (const m of text.matchAll(ES_DOLLARS)) {
+    const value = spanishToNumber(m[1]!);
+    if (value === null) continue;
+    found.push({ at: m.index!, cents: value * 100 });
+    taken.push([m.index!, m.index! + m[0].length]);
+  }
+  for (const m of text.matchAll(ES_PER_UNIT)) {
+    if (taken.some(([a, b]) => m.index! >= a && m.index! < b)) continue;
+    const said = m[1]!;
+    const value = /^\d/.test(said) ? Number(said.replace(",", ".")) : spanishToNumber(trimSpanishRun(said));
+    if (value === null || !Number.isFinite(value)) continue;
+    found.push({ at: m.index!, cents: Math.round(value * 100) });
+    taken.push([m.index!, m.index! + m[0].length]);
+  }
+  for (const m of text.matchAll(ES_RUN)) {
+    const run = trimSpanishRun(m[0]);
+    if (!ES_MAGNITUDE.test(run)) continue;
+    const start = m.index!;
+    const end = start + run.length;
+    if (taken.some(([a, b]) => start < b && end > a)) continue;
+    const before = text.slice(0, start);
+    if (!ES_PRICE_ENDS.test(text.slice(end)) || ES_PLACE_LEADS.test(before)) continue;
+    const value = spanishToNumber(run);
+    if (value === null) continue;
+    if (value > 1900 && value < 2100 && ES_YEAR_LEADS.test(before)) continue;
+    found.push({ at: start, cents: value * 100 });
+  }
+  return found.sort((a, b) => a.at - b.at).map((f) => f.cents);
+}
+
+/** The cents of each amount said in words, English and Spanish: "two hundred dollars", "a hundred and fifty", "son doscientos". */
+export function spokenAmountsIn(text: string): number[] {
+  return [...wordAmounts(text), ...spanishAmounts(text)];
+}
+
+/**
+ * The cents of each amount the reply names: written ("$1,200", "$99.50",
+ * "1200 dollars") and said ("two hundred dollars", "a hundred and fifty",
+ * "twelve a unit").
+ */
 export function amountsIn(text: string): number[] {
   const out: number[] = [];
   for (const pattern of [DOLLARS, SPOKEN_DOLLARS]) {
@@ -93,7 +403,7 @@ export function amountsIn(text: string): number[] {
       out.push(Math.round((whole * thousands) * 100 + cents));
     }
   }
-  return out;
+  return [...out, ...spokenAmountsIn(text)];
 }
 
 const PAYMENT_ASK = /\b(card number|credit card|debit card|card details|cvv|cvc|security code|expir(y|ation) date|bank (account|details)|routing number)\b/i;
@@ -106,11 +416,12 @@ const HIPAA_CLAIM = /\bhipaa[- ]?(compliant|certified|approved)\b/i;
  * after an amount, so "how many units" is still dosing.
  */
 function perUnitPrices(text: string): string {
-  return text.replace(
-    /((?:\$\s?\d[\d,]*(?:\.\d{1,2})?)|\b\d[\d,]*(?:\.\d{1,2})?\s?(?:dollars|usd|bucks))\s+(?:a|an|each|every)\s+(units?|ml)\b/gi,
-    "$1 per $2",
-  );
+  return text.replace(PER_UNIT_PRICE, "$1 per $2");
 }
+const PER_UNIT_PRICE = new RegExp(
+  `((?:\\$\\s?\\d[\\d,]*(?:\\.\\d{1,2})?)|\\b\\d[\\d,]*(?:\\.\\d{1,2})?\\s?(?:dollars|usd|bucks)|(?<![\\p{L}])${NUMBER_RUN}\\s+(?:dollars?|bucks))\\s+(?:a|an|each|every)\\s+(units?|ml)(?![\\p{L}])`,
+  "giu",
+);
 
 type ScreenFacts = Pick<AssistantFacts, "services"> &
   Partial<Pick<AssistantFacts, "clinicName" | "address" | "requirements" | "providerNames">>;
@@ -320,7 +631,71 @@ export function neverSayBlocksDisclosure(entry: string): boolean {
   return NEVER_SAY_PROTECTED.some((sentence) => neverSayIn(sentence, [entry]));
 }
 
-export function guardAssistantReply(reply: string, facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts): GuardVerdict {
+// -----------------------------------------------------------------------------
+// A booking said to be made
+// -----------------------------------------------------------------------------
+
+const BOOKED = "(?:booked(?: in)?|confirmed|scheduled|reserved|pencil(?:l)?ed in|locked in|secured)";
+const DAY_OR_TIME =
+  "(?:you\\b|(?:mon|tues|wednes|thurs|fri|satur|sun)day\\b|(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\\b|tomorrow\\b|today\\b|tonight\\b|next\\b|this\\b|the\\s+\\d|\\d|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\b)";
+
+/**
+ * A reply that says a booking exists, or that the assistant is making one:
+ * "you're booked", "your booking is confirmed for Mon 3pm", "confirmed for
+ * Tuesday", "I've put you down for 3pm", "I'll book you in", "you're all set
+ * for Tuesday", a confirmation number; and in Spanish, "su cita está
+ * confirmada", "le he reservado", "confirmada para el martes". Read on the
+ * normalised reply, sentence by sentence (confirmsBooking).
+ */
+const CONFIRMATIONS: readonly RegExp[] = [
+  new RegExp(`\\b(?:you're|you are|you've been|you have been|they're|they are)\\s+(?:now\\s+|all\\s+)?${BOOKED}\\b`),
+  new RegExp(
+    `\\b(?:(?:your|the|this|that)\\s+(?:appointment|booking|slot|visit|consultation|session|reservation|time)|it|that|this|everything)\\s*(?:is|'s|has been|was|have been)\\s+(?:now\\s+|all\\s+)?(?:${BOOKED}|made|all set|in the (?:diary|calendar|books?))\\b`,
+  ),
+  /\b(?:i've|i have|we've|we have|i|we)\s+(?:just\s+|now\s+|already\s+|gone ahead and\s+)?(?:booked|confirmed|scheduled|reserved|secured|locked in|pencil(?:l)?ed)\s+(?:you|your|it|that|this|a|an|the)\b/,
+  /\b(?:i've|i have|we've|we have)\s+(?:got|put|added|pencil(?:l)?ed)\s+you\s+(?:down|in)\b/,
+  /\b(?:i'll|i will|let me|we'll|we will)\s+(?:go ahead and\s+)?(?:book|reserve|schedule|lock in|pencil)\s+(?:you|that|it|this|your|a|an|the)\b/,
+  new RegExp(`\\b${BOOKED}\\s+for\\s+${DAY_OR_TIME}`),
+  new RegExp(`\\b(?:all set|good to go)\\s+for\\s+(?:${DAY_OR_TIME}|your)`),
+  /\bconfirmation (?:number|code|email|text|message)\b/,
+  /(?<![\p{L}])(?:est[áa]|queda|qued[óo]|ha quedado|ha sido|fue)\s+(?:ya\s+)?(?:confirmad[oa]|reservad[oa]|agendad[oa]|programad[oa]|apuntad[oa])(?![\p{L}])/u,
+  /(?<![\p{L}])(?:le|te|lo|la)\s+(?:he|hemos)\s+(?:reservado|agendado|confirmado|apuntado|programado)(?![\p{L}])/u,
+  /(?<![\p{L}])(?:confirmad[oa]|reservad[oa]|agendad[oa])\s+para\s+(?:el|la|ma[ñn]ana|hoy|las?)(?![\p{L}])/u,
+];
+
+/** Words before a confirmation that make it a condition or a time to come: "once you're booked", "until it's confirmed". */
+const NOT_YET = /\b(?:once|when|until|till|after|as soon as|if|before|unless|whether)\b|(?<![\p{L}])(?:cuando|una vez|hasta que|si|antes de que|en cuanto)(?![\p{L}])/u;
+/** Words right before one that put it in the future or deny it: "will be confirmed for", "isn't booked for". */
+const FUTURE_OR_NOT =
+  /(?:\b(?:will|'ll|would|to|can|could|should|must|may|might)\s+(?:be\s+|get\s+)?|\b(?:not|never|no longer)\s+(?:\w+\s+)?|n't\s+(?:\w+\s+)?|(?<![\p{L}])no\s+(?:\p{L}+\s+)?)$/u;
+
+/**
+ * Whether the reply says a booking is made, or that the assistant is making
+ * one. A question asks ("would you like to be booked for Tuesday?"), a
+ * condition or a time to come promises nothing ("once it's confirmed", "the
+ * team will confirm it within a day", "it will be confirmed for you"), and a
+ * denial is no confirmation ("it isn't booked for Tuesday yet").
+ */
+export function confirmsBooking(reply: string): boolean {
+  for (const sentence of normalise(reply).split(/(?<=[.!?])\s+/)) {
+    const said = sentence.trim();
+    if (!said || said.endsWith("?") || said.startsWith("¿")) continue;
+    for (const pattern of CONFIRMATIONS) {
+      const match = pattern.exec(said);
+      if (!match) continue;
+      const before = said.slice(0, match.index);
+      if (NOT_YET.test(before) || FUTURE_OR_NOT.test(before)) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+export function guardAssistantReply(
+  reply: string,
+  facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts,
+  turn: ReplyTurn = {},
+): GuardVerdict {
   const text = normalise(reply);
   if (!text.trim()) return { ok: false, reason: "empty" };
   // English entries matched as written, in a reply in either language (see the file header).
@@ -333,11 +708,138 @@ export function guardAssistantReply(reply: string, facts: Pick<AssistantFacts, "
     return { ok: false, reason: "payment_details" };
   }
   if (HIPAA_CLAIM.test(reply)) return { ok: false, reason: "hipaa_claim" };
+  if (claimsToBeHuman(reply, facts)) return { ok: false, reason: "human_claim" };
   // The practice's own words (its menu, its people, its city) are no language either way.
   const knownTerms = [facts.clinicName, facts.address, ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])];
   if (messageLanguage(reply, { knownTerms }) === "other") return { ok: false, reason: "language" };
   if (clinicalIn(reply, facts)) return { ok: false, reason: "clinical" };
+  // Last, so a reply refused for anything above keeps that reason.
+  if (turn.bookingWritten !== true && confirmsBooking(reply)) return { ok: false, reason: "booking_confirmation" };
   return { ok: true };
+}
+
+// -----------------------------------------------------------------------------
+// A claim to be a person
+// -----------------------------------------------------------------------------
+
+/** Who answers at a practice, as a role the assistant could claim: "the receptionist", "a member of the team". */
+const HUMAN_ROLE =
+  "(?:person|human(?: being)?|receptionist|front desk|nurse|staff member|member of (?:the\\s+)?(?:staff|team)|team member)";
+const ARTICLE = "(?:(?:a|an|the|your|one of the|part of the|on the|a member of(?: the)?)\\s+)?";
+const REAL = "(?:real\\s+|actual\\s+|live\\s+)?";
+
+/**
+ * The assistant claiming to be a person, or not to be an AI, in its own
+ * words: "I'm a real person", "I am human", "I'm the receptionist", "this is
+ * a human", "a real person here", "you're talking to a real person", "I'm
+ * not a bot", "I'm not an AI", "this isn't an automated system"; and in
+ * Spanish, "soy una persona real", "no soy un bot", "está hablando con una
+ * persona". Each needs the assistant as its subject, so an offer of a person
+ * passes ("a person from our team will call you", "if you'd rather talk to
+ * a real person, just ask", "our staff can help"), and so does the honest
+ * answer ("I'm an AI assistant, not a real person").
+ */
+const HUMAN_CLAIMS: readonly RegExp[] = [
+  new RegExp(`\\b(?:i['’]?m|i am)\\s+(?:(?:just|only|actually|really|definitely|totally|very much)\\s+)?${ARTICLE}${REAL}${HUMAN_ROLE}\\b(?!['’]s)`, "i"),
+  new RegExp(`\\b(?:this is|you['’]ve reached)\\s+${ARTICLE}${REAL}${HUMAN_ROLE}\\b(?!['’]s)`, "i"),
+  new RegExp(`\\byou(?:['’]re| are)\\s+(?:talking|speaking|chatting)\\s+(?:to|with)\\s+${ARTICLE}${REAL}${HUMAN_ROLE}\\b(?!['’]s)`, "i"),
+  /\b(?:a\s+)?real (?:person|human)\s+(?:here|speaking|answering)\b/i,
+  /\b(?:i['’]?m|i am)\s+not\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|chatbot|machine|computer|automated|virtual|recording)\b/i,
+  /\b(?:this|it)\s+(?:is\s+not|isn['’]t|['’]s\s+not)\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|chatbot|machine|computer|automated|recording)\b/i,
+  /\byou(?:['’]re| are)\s+not\s+(?:talking|speaking|chatting)\s+(?:to|with)\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|chatbot|machine|computer)\b/i,
+  /(?<![\p{L}])(?<!(?<![\p{L}])no\s+)soy\s+(?:una?\s+)?(?:persona(?:\s+real)?|humano|humana|ser humano|recepcionista|enfermer[oa]|(?:parte|miembro)\s+del\s+(?:equipo|personal))(?![\p{L}])/iu,
+  /(?<![\p{L}])no\s+soy\s+(?:una?\s+)?(?:ia|i\.a\.|inteligencia artificial|bot|robot|m[áa]quina|programa|asistente\s+(?:virtual|autom[áa]tic[oa]|de\s+ia))(?![\p{L}])/iu,
+  /(?<![\p{L}])est[áa]s?\s+hablando\s+con\s+(?:una?\s+)?(?:persona(?:\s+real)?|humano|humana|recepcionista|enfermer[oa])(?![\p{L}])/iu,
+];
+
+/** A capitalised word in a name: "Sarah", "Mary-Jane", "O'Neil". */
+const NAME = "(\\p{Lu}[\\p{Ll}'’-]+)";
+/** Where a claim names a person who works at the practice: "Sarah at the front desk", "Sarah from the team". */
+const AT_THE_PRACTICE = "(?:at|from|on|in|of|with)\\s+(?:the|our)\\s+(?:front desk|reception|team|staff|office|practice|clinic)\\b";
+
+/** The same, with a person's name in it: "I'm Sarah, a real person", "you're talking to Sarah at the front desk". */
+const NAMED_CLAIMS: readonly RegExp[] = [
+  new RegExp(
+    `(?:\\b[Ii]['’]?m|\\b[Ii] am|\\b[Mm]y name is|\\b[Tt]his is)\\s+${NAME}(?:\\s*,\\s*|\\s+)(?:${ARTICLE}${REAL}${HUMAN_ROLE}\\b|${AT_THE_PRACTICE})`,
+    "u",
+  ),
+  new RegExp(`\\b[Yy]ou(?:['’]re| are)\\s+(?:talking|speaking|chatting)\\s+(?:to|with)\\s+${NAME}(?=\\s*(?:[,.!?]|$)|\\s+${AT_THE_PRACTICE})`, "u"),
+  new RegExp(`(?:^|[.!?]\\s+)${NAME}\\s+(?:here|speaking)\\b(?=\\s*(?:[,.!?—–-]|$|from|at|with|on))`, "u"),
+];
+
+/** Capitalised words a claim may follow without being a person's name: the assistant's own name, days, words that open a sentence. */
+const NOT_A_PERSON = new Set([
+  "aya", "ai", "an", "a", "the", "your", "our", "sorry", "happy", "glad", "afraid", "here", "not",
+  "just", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "today",
+]);
+
+/** Words before a claim that make it a question asked back or a report of one: "you asked whether I'm a real person". */
+const ASKED = /\b(?:if|whether|asked|wondering|wonder)\b/i;
+
+/**
+ * Whether the reply has the assistant say it is a person, or not an AI
+ * (HUMAN_CLAIMS, NAMED_CLAIMS). The clinic's own name, and the assistant's,
+ * are never a person's ("This is Glow Clinic", "you're talking to AYA").
+ * One check for every channel: the Meta front door's guard asks it too.
+ */
+export function claimsToBeHuman(reply: string, facts: { clinicName?: string | null } = {}): boolean {
+  const text = reply.replace(/\s+/g, " ");
+  const clinicFirst = (facts.clinicName ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+    for (const pattern of HUMAN_CLAIMS) {
+      const m = pattern.exec(sentence);
+      if (m && !ASKED.test(sentence.slice(0, m.index))) return true;
+    }
+    for (const pattern of NAMED_CLAIMS) {
+      const m = pattern.exec(sentence);
+      if (!m) continue;
+      const name = m[1]!.toLowerCase();
+      if (NOT_A_PERSON.has(name) || name === clinicFirst) continue;
+      if (!ASKED.test(sentence.slice(0, m.index))) return true;
+    }
+  }
+  return false;
+}
+
+// -----------------------------------------------------------------------------
+// The clinic's greeting
+// -----------------------------------------------------------------------------
+
+/**
+ * A greeting that undoes the AI line before it: one that has AYA say she is a
+ * person or a member of staff ("I'm Sarah, a real person", "this is the
+ * front desk", "you're talking to a real person"), or that she is not an AI.
+ * An offer of a person is no claim to be one ("if you'd rather talk to a
+ * real person, just ask").
+ */
+const UNDOES_DISCLOSURE: readonly RegExp[] = [
+  /\b(?:i['’]?m|i am|this is|my name is|you['’]re (?:talking|speaking|chatting) (?:to|with)|you['’]ve reached)\s+(?:[\p{L}'’-]+,?\s+)?(?:(?:just|only|actually|really)\s+)?(?:(?:a|an|the|your|one of the|part of the|on the|a member of(?: the)?)\s+)?(?:real\s+|actual\s+|live\s+)?(?:person|human(?: being)?|receptionist|front desk|nurse|staff member|member of (?:the\s+)?(?:staff|team)|team member)\b/iu,
+  /\bnot (?:an? )?(?:ai|bot|robot|machine|computer|automated)\b/i,
+  /\b(?:a\s+)?real (?:person|human)\s+(?:here|speaking|answering)\b|^\W*real (?:person|human)\b/i,
+];
+
+export function undoesDisclosure(greeting: string): boolean {
+  return UNDOES_DISCLOSURE.some((pattern) => pattern.test(greeting));
+}
+
+export type GreetingRefusal = GuardRefusal | "undoes_disclosure";
+
+/**
+ * The clinic's own greeting, said after the locked AI line on every call and
+ * shown after it in every web chat (opening.ts): the same guard as any reply
+ * (guardAssistantReply: the never-say list, a price off the menu, card
+ * details, "HIPAA compliant", clinical content, a language no screen reads,
+ * a booking said to be made), and nothing that undoes the AI line. Asked
+ * when the clinic saves it (lib/setup/settings.ts) and again each time it
+ * is said, since the menu and the never-say list can change after it was
+ * saved; refused there, the default greeting is said instead.
+ */
+export function guardGreeting(
+  greeting: string,
+  facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts,
+): { ok: true } | { ok: false; reason: GreetingRefusal } {
+  if (undoesDisclosure(greeting)) return { ok: false, reason: "undoes_disclosure" };
+  return guardAssistantReply(greeting, facts);
 }
 
 /** The line a refused reply becomes. */
@@ -350,6 +852,12 @@ export function guardedLine(reason: GuardRefusal, clinicName: string): string {
   }
   if (reason === "payment_details") {
     return `Please don't share any card or bank details with me. The practice handles payment securely itself.`;
+  }
+  if (reason === "human_claim") {
+    return `I'm an AI assistant, not a person. The team at ${clinicName} can help with anything I can't, and they get back to people within a day.`;
+  }
+  if (reason === "booking_confirmation") {
+    return `I can't confirm appointments myself, but I can pass your request to the team at ${clinicName}, who confirm every booking and get back to people within a day.`;
   }
   return `I'm not able to help with that here, but I can pass your details to the team at ${clinicName}, who will get back to you within a day.`;
 }
@@ -373,23 +881,183 @@ function luhn(digits: string): boolean {
   return sum % 10 === 0;
 }
 
-const CARDISH = /\b(?:\d[ -]?){12,18}\d\b/g;
+/**
+ * A run of digits a card number can be written in: groups of digits with up
+ * to three spaces, full stops, commas, hyphens or slashes between them, as a
+ * recogniser punctuates a number read aloud ("4242, 4242, 4242, 4242.",
+ * "4,242 4,242", double spaces) and as a person types one, with the expiry
+ * and the security code said straight after it ("... 4242 12/28 123").
+ */
+const DIGIT_RUN = /\d(?:[\s.,/\-\u2010-\u2015]{0,3}\d)*/g;
+const DIGIT_GROUP = /\d+/g;
+
+/** The first digit of every major issuer's card numbers: Mastercard's 2-series, Amex, Diners and JCB, Visa, Mastercard, Discover. */
+function issuerDigit(digits: string): boolean {
+  return digits[0]! >= "2" && digits[0]! <= "6";
+}
 
 /**
- * The text with every card number cut out, and whether there was one. A run
- * of 13 to 19 digits, spaced or dashed, that passes the Luhn check; a phone
- * number does not pass it by design often enough to matter, and one that does
- * is only cut from the transcript.
+ * Where the card numbers in `text` are, as [start, end) spans: each from the
+ * first digit of a number that passes the Luhn check to the end of its run,
+ * so an expiry or a security code said after the number goes with it.
+ *
+ * A run of 13 to 19 digits is tested whole, as it always was. Then every
+ * stretch of its digit groups holding 13 to 19 digits is tested: dropping
+ * groups from the front finds a number said straight after a phone number,
+ * dropping them from the back finds one followed by its expiry or code. Such
+ * a stretch must also start with an issuer's digit (2 to 6) and take in no
+ * part of a phone number's shape; and nothing tested, whole or not, takes in
+ * a slash or a date's separators (shapes). A group of 17 digits or more, a
+ * number with its code typed onto it, is tested at each length from 13 to
+ * 19 from its start.
+ *
+ * A phone number, a date, a price or a time on its own holds fewer than 13
+ * digits and is never tested; a 3-3-4 phone number next to a date written
+ * with slashes, hyphens or full stops, or next to another 3-3-4 phone
+ * number, is never read as a card. A run of 13 to 19 digits tested whole can
+ * still pass by chance, one time in ten, as it always could ("415 555 0192
+ * 94110"); it is cut, and the person asked not to share card details, the
+ * safe way to be wrong. Not across a comma or a full stop, though, when a
+ * phone number's shape is in it: "415-555-0192, 94117" is a number and a ZIP
+ * code, and cutting it would lose the number someone left to be called on.
+ *
+ * `crossing`, for the pass over a transcript's turns joined together
+ * (cutCardNumbersAcrossTurns): only a number that spans one of these
+ * offsets is returned, and only at 15 or 16 digits, the lengths of nearly
+ * every card in use, with an issuer's first digit, so that the end of one
+ * message and the start of the next are seldom read as one card.
+ */
+function cardNumberSpans(text: string, crossing?: readonly number[]): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (const run of text.matchAll(DIGIT_RUN)) {
+    const groups = [...run[0].matchAll(DIGIT_GROUP)].map((g) => ({
+      start: run.index + g.index,
+      end: run.index + g.index + g[0].length,
+      digits: g[0],
+    }));
+    if (groups.reduce((n, g) => n + g.digits.length, 0) < 13) continue;
+    const { breakBefore, inPhone } = shapes(text, groups);
+    // A comma or full stop inside the run: ordinary writing joins a phone
+    // number to what follows it that way ("415-555-0192, 94117"), so a run
+    // across one is never read as a card through a phone number's shape.
+    const punctuated = /[.,]/.test(run[0]);
+    // Groups s to e, or only the first `digits.length` digits of group s.
+    const passes = (digits: string, s: number, e: number, to: number, whole: boolean): boolean => {
+      const from = groups[s]!.start;
+      if (crossing) {
+        if (digits.length !== 15 && digits.length !== 16) return false;
+        if (!crossing.some((at) => from < at && at < to)) return false;
+      } else if (whole) {
+        return luhn(digits) && !(punctuated && inPhone.slice(s, e + 1).some(Boolean));
+      }
+      return issuerDigit(digits) && !inPhone.slice(s, e + 1).some(Boolean) && luhn(digits);
+    };
+    let cutFrom: number | null = null;
+    for (let s = 0; s < groups.length && cutFrom === null; s += 1) {
+      const first = groups[s]!;
+      let digits = "";
+      for (let e = s; e < groups.length; e += 1) {
+        if (e > s && breakBefore[e]) break;
+        digits += groups[e]!.digits;
+        if (digits.length > 19) break;
+        if (digits.length >= 13 && passes(digits, s, e, groups[e]!.end, s === 0 && e === groups.length - 1)) {
+          cutFrom = first.start;
+          break;
+        }
+      }
+      for (let n = 13; cutFrom === null && first.digits.length >= 17 && n <= Math.min(19, first.digits.length - 1); n += 1) {
+        if (passes(first.digits.slice(0, n), s, s, first.start + n, false)) cutFrom = first.start;
+      }
+    }
+    if (cutFrom !== null) spans.push([cutFrom, run.index + run[0].length]);
+  }
+  return spans;
+}
+
+/**
+ * What in a run of digit groups is not part of a card. `breakBefore`: the
+ * separator before the group is a slash, or one of a date's ("12-03-2026",
+ * "2026.12.03"), which no card number is written across. `inPhone`: the
+ * group is part of a phone number's 3-3-4 shape, after an optional 1, with
+ * one and the same space, hyphen or full stop between ("415-555-0192",
+ * "1 415 555 0192"), which only a run tested whole may take in, as it always
+ * could; so two phone numbers side by side are never read as one card.
+ */
+function shapes(text: string, groups: readonly { start: number; end: number; digits: string }[]): { breakBefore: boolean[]; inPhone: boolean[] } {
+  const sep = groups.map((g, i) => (i === 0 ? "" : text.slice(groups[i - 1]!.end, g.start)));
+  const len = groups.map((g) => g.digits.length);
+  const breakBefore = sep.map((s) => s.includes("/"));
+  const inPhone = groups.map(() => false);
+  for (let i = 0; i < groups.length; i += 1) {
+    if (i + 2 < groups.length && sep[i + 1] === sep[i + 2] && (sep[i + 1] === "-" || sep[i + 1] === ".")) {
+      const [a, b, c] = [len[i]!, len[i + 1]!, len[i + 2]!];
+      if ((a <= 2 && b <= 2 && (c === 2 || c === 4)) || (a === 4 && b <= 2 && c <= 2)) breakBefore[i + 1] = breakBefore[i + 2] = true;
+    }
+    for (const shape of [[3, 3, 4], [1, 3, 3, 4]]) {
+      if (i + shape.length > groups.length || !shape.every((n, k) => len[i + k] === n)) continue;
+      const between = shape.slice(1).map((_, k) => sep[i + k + 1]);
+      if ([" ", "-", "."].includes(between[0]!) && between.every((s) => s === between[0])) {
+        for (let k = 0; k < shape.length; k += 1) inPhone[i + k] = true;
+      }
+    }
+  }
+  return { breakBefore, inPhone };
+}
+
+const CARD_REMOVED = "[card number removed]";
+
+/**
+ * The text with every card number cut out, and whether there was one
+ * (cardNumberSpans says what is taken for one). The live path's cut: what it
+ * leaves reaches the model and the transcript.
  */
 export function cardNumberIn(text: string): { text: string; found: boolean } {
-  let found = false;
-  const cut = text.replace(CARDISH, (match) => {
-    const digits = match.replace(/[ -]/g, "");
-    if (digits.length >= 13 && digits.length <= 19 && luhn(digits)) {
-      found = true;
-      return "[card number removed]";
-    }
-    return match;
+  const spans = cardNumberSpans(text);
+  let cut = text;
+  for (const [start, end] of [...spans].reverse()) cut = cut.slice(0, start) + CARD_REMOVED + cut.slice(end);
+  return { text: cut, found: spans.length > 0 };
+}
+
+/**
+ * Every card number cut from the person's turns of a transcript, one read
+ * out across turns included ("my card is 4242 4242", the assistant answers,
+ * "4242 4242"), which no single turn holds whole. Each person turn is cut
+ * on its own as cardNumberIn cuts it; then the person's turns are read
+ * joined, past whatever the assistant said between them, and each part of a
+ * number found across them is cut from the turn that holds it. Run where
+ * the transcript is assembled for the email (queueTranscriptEmail, before
+ * it is sealed, and renderTranscriptEmail), the one place every channel's
+ * turns are seen together.
+ */
+export function cutCardNumbersAcrossTurns<T extends { speaker: "assistant" | "person"; text: string }>(turns: readonly T[]): T[] {
+  const out = turns.map((turn) => (turn.speaker === "person" ? { ...turn, text: cardNumberIn(turn.text).text } : { ...turn }));
+  // The person's turns, trimmed and joined by one space, and where each sits in the join.
+  const placed: { index: number; from: number; length: number; at: number }[] = [];
+  let joined = "";
+  out.forEach((turn, index) => {
+    if (turn.speaker !== "person") return;
+    const from = turn.text.length - turn.text.trimStart().length;
+    const length = turn.text.trim().length;
+    if (length === 0) return;
+    if (joined) joined += " ";
+    placed.push({ index, from, length, at: joined.length });
+    joined += turn.text.slice(from, from + length);
   });
-  return { text: cut, found };
+  if (placed.length < 2) return out;
+  const spans = cardNumberSpans(joined, placed.slice(1).map((p) => p.at - 1));
+  // Last first, so the offsets of the cuts still to make stand.
+  for (const [start, end] of spans.reverse()) {
+    for (const p of [...placed].reverse()) {
+      // This turn's part of the number, from its first digit to its last:
+      // the punctuation either side of it stays with the turn.
+      const part = joined.slice(Math.max(start, p.at), Math.min(end, p.at + p.length));
+      const first = part.search(/\d/);
+      if (first < 0) continue;
+      const last = part.search(/\d\D*$/) + 1;
+      const turn = out[p.index]!;
+      const local = p.from + (Math.max(start, p.at) - p.at) + first;
+      turn.text = turn.text.slice(0, local) + CARD_REMOVED + turn.text.slice(local + (last - first));
+    }
+  }
+  return out;
 }

@@ -22,9 +22,11 @@ import {
 import {
   ANSWER_GATE_CHANNELS,
   gateBInCode,
+  gateBNotBuilt,
   pendingLiveSet,
   routedAnsweredCounterBuilt,
 } from "@/lib/compliance/gate-b";
+import { casesNotAskable, practiceCases } from "@/lib/engine/practice/cases";
 import {
   decidePlatform,
   platformMissing,
@@ -357,6 +359,34 @@ describe("Gate B in code", () => {
     );
   });
 
+  // The 19 October audit: the booking and deposit cases are hard-coded not
+  // applicable while the brain has no tools, the channel's result passed
+  // without them, and Gate B marked the practice questions built, so go-live
+  // could proceed on a pass that never asked them. Pass means every case.
+  test("the practice questions are not built while a case cannot be asked: the booking and deposit cases, on every channel, until the brain has booking tools", () => {
+    expect(casesNotAskable()).toEqual(["booking", "deposit_booking"]);
+    const profile = {
+      clinicName: "Glow",
+      specialty: "med-spa",
+      services: [{ name: "Botox", priceFromUsd: 12, priceToUsd: 12, depositUsd: 50 }],
+      knownText: "",
+      languages: ["en"] as const,
+    };
+    for (const channel of ["web", "voice", "meta"] as const) {
+      const unasked = practiceCases({ ...profile, languages: [...profile.languages] }, channel)
+        .filter((c) => c.notApplicable === "runtime_has_no_tools")
+        .map((c) => c.id);
+      expect(unasked, channel).toEqual(["booking", "deposit_booking"]);
+    }
+    const item = gateBInCode().find((i) => i.id === "practice_questions")!;
+    expect(item).toMatchObject({ built: false, checked: true });
+    expect(item.detail).toMatch(/a straightforward booking/);
+    expect(item.detail).toMatch(/a booking for a deposit-required service/);
+    expect(item.detail).toMatch(/Pass means every case/);
+    // Named where go-live names what is not built, so it holds every clinic.
+    expect(gateBNotBuilt()).toContain(`${item.label}: ${item.detail}`);
+  });
+
   test("what is not built is named and asked: the routed/answered counter while it and its templates wait, and each live email still without one", () => {
     const items = gateBInCode();
     // Gate B is fail-closed: every item is asked.
@@ -378,6 +408,11 @@ describe("Gate B in code", () => {
     expect(pendingLiveSet().map((p) => p.annex)).toEqual(
       expect.arrayContaining(["L17", "L18", "L21"]),
     );
+    // L32, a patient's request, left the list when its template shipped
+    // (drizzle/0094): what still holds Gate B's live set is the runtime's.
+    expect(pendingLiveSet().map((p) => p.annex)).not.toContain("L32");
+    expect(live.detail).not.toMatch(/L32|patient_request/);
+    expect(pendingLiveSet().every((p) => p.package === "runtime")).toBe(true);
   });
 });
 

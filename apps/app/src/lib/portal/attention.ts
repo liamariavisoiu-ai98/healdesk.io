@@ -7,7 +7,9 @@ import {
   wizardFinished,
   wizardScreens,
 } from "@/lib/setup/screens";
+import type { ChannelState } from "@/lib/channels/state";
 import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
+import type { MetaConnectView } from "@/lib/meta/reconnect";
 import type { SetupState } from "@/lib/setup/state";
 import { PRACTICE_SECTION_WORDS } from "@/lib/engine/practice/sections";
 import { practiceDoubleChecking, type PracticeState } from "@/lib/engine/practice/state";
@@ -41,6 +43,11 @@ import { isBuiltSection, sectionPath, type PortalSection } from "./nav";
  * linking to the section, while AYA keeps answering as she was. Before
  * go-live the build tracker says the same thing in its own stage.
  *
+ * At any stage, website chat waiting on its line (ready on our side, setup
+ * done, the line not yet seen on the clinic's site): the one step left is
+ * the clinic's, and the line lives in Settings → Channels with its copy
+ * button and "Email to my web person", so the item links there.
+ *
  * Pure: the page reads the facts, this decides what to say.
  */
 
@@ -53,9 +60,12 @@ export type AttentionId =
   | "passkey"
   | "backup"
   | "payment_account"
+  | "website_line"
   | "website_changes"
   | "calendar_disconnected"
   | "quiet_channel"
+  | "meta_facebook_dropped"
+  | "meta_whatsapp_dropped"
   | "double_checking";
 
 export type AttentionItem = {
@@ -71,13 +81,18 @@ export type AttentionFacts = {
   state: Pick<
     SetupState,
     "screens" | "progress" | "clinic" | "hasPasskey" | "hasBackup" | "billing" | "address"
-  >;
+  > & {
+    /** Each bought channel's state, for the one step a channel waits on the clinic for. */
+    channels?: readonly Pick<ChannelState, "channel" | "status" | "waitingOn">[];
+  };
   /** The latest report on the clinic's address says it bounced, complained or was suppressed. */
   addressUndeliverable: boolean;
   /** The clinic's Stripe account was disconnected and nothing is connected now. */
   paymentAccountDisconnected?: boolean;
   /** The clinic's Google Calendar connection as the calendar session reads it. */
   calendar?: CalendarConnectionView;
+  /** The clinic's Meta logins, when it bought Meta: one Meta dropped is a line here, with Reconnect. */
+  meta?: MetaConnectView | null;
   /** Website changes a re-read found and nobody has confirmed or ignored (lib/website). */
   websiteChanges?: number;
   /** Where the practice questions stand (lib/engine/practice). */
@@ -157,6 +172,15 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
     });
   }
 
+  const web = state.channels?.find((c) => c.channel === "web");
+  if (web?.status === "waiting" && web.waitingOn === "snippet") {
+    items.push({
+      id: "website_line",
+      text: "Website chat is ready: paste one line on your website, and AYA is designed to start answering there.",
+      action: screenLink(slug, "settings", "#website-line", "Get the line"),
+    });
+  }
+
   if (!state.hasPasskey) {
     items.push({
       id: "passkey",
@@ -199,6 +223,24 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
         action: screenLink(slug, "settings", "#channels", "Check it in Settings"),
       });
     }
+  }
+
+  // A login Meta dropped (lib/meta/reconnect.ts): AYA can't reply on those
+  // apps until the clinic signs in again, which is worth a line at any stage.
+  // No patient is named; the words are the apps'.
+  if (facts.meta?.facebook.state === "needs_reconnect") {
+    items.push({
+      id: "meta_facebook_dropped",
+      text: `Facebook dropped the connection to ${joinWords(facts.meta.facebook.names)}, so AYA can't reply there.`,
+      action: screenLink(slug, "settings", "#meta-connections", "Reconnect it in Settings"),
+    });
+  }
+  if (facts.meta?.whatsapp.state === "needs_reconnect") {
+    items.push({
+      id: "meta_whatsapp_dropped",
+      text: "Meta dropped the WhatsApp connection, so AYA can't reply there.",
+      action: screenLink(slug, "settings", "#meta-connections", "Reconnect it in Settings"),
+    });
   }
 
   const changes = facts.websiteChanges ?? 0;

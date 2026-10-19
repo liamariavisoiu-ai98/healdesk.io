@@ -78,6 +78,13 @@ export const QUEUE_PRACTICE_QUESTIONS = "practice-questions";
  * should see it read before the screens that use it.
  */
 export const QUEUE_SITE_READS = "site-reads";
+/**
+ * The voice call backstop (lib/voice/backstop.ts): one delayed job per call
+ * Retell says has ended, which records the call only if the live socket
+ * never did. Created with the `short` policy (scripts/install-queue.ts), so
+ * one job per call waits at a time.
+ */
+export const QUEUE_VOICE_CALL_BACKSTOP = "voice-call-backstop";
 
 /**
  * scripts/install-queue.ts creates exactly these, and pg-boss v10 refuses to
@@ -101,6 +108,7 @@ export const QUEUES = [
   QUEUE_CALENDAR_WATCH,
   QUEUE_PRACTICE_QUESTIONS,
   QUEUE_SITE_READS,
+  QUEUE_VOICE_CALL_BACKSTOP,
 ] as const;
 
 export type QueueName = (typeof QUEUES)[number];
@@ -248,6 +256,9 @@ const ALLOWED_KEYS = new Set([
   "periodKey",
   "resource",
   "reason",
+  // A voice vendor's call id (lib/voice/backstop.ts): opaque, assigned by
+  // Retell, and says nothing about who called or why.
+  "callId",
 ]);
 
 export class PayloadContentError extends Error {

@@ -46,6 +46,9 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "organizationId",
   "connectionId",
   "conversationId",
+  // A voice vendor's call id ("call_..."): which call, before its
+  // conversation row exists, so two calls' alerts are never folded into one.
+  "callId",
   "agreementId",
   "requestId",
   "jobId",

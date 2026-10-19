@@ -381,7 +381,8 @@ export function PromotionsForm(props: { slug: string; initial: string }) {
 // Quick answers
 // -----------------------------------------------------------------------------
 
-type Answer = { question: string; answer: string };
+/** `flagId`: the row is a correction from Flag this answer, kept through every save. */
+type Answer = { question: string; answer: string; flagId?: string };
 
 export function QuickAnswersForm(props: { slug: string; initial: Answer[] }) {
   const { save, working, problem, clearProblem } = useKnowledgeSave(props.slug, "quick_answers");
@@ -404,6 +405,9 @@ export function QuickAnswersForm(props: { slug: string; initial: Answer[] }) {
       {rows.map((row, i) => (
         <fieldset key={i} className="border-line grid gap-2 rounded-xl border px-4 py-3">
           <legend className="sr-only">Quick answer {i + 1}</legend>
+          {row.flagId ? (
+            <p className="text-muted text-sm font-semibold">From a flagged conversation</p>
+          ) : null}
           <input
             aria-label={`Question ${i + 1}`}
             placeholder="The question, e.g. Where do I park?"

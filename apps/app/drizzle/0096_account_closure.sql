@@ -21,9 +21,9 @@ ALTER TABLE "clinics" ADD CONSTRAINT "clinics_notice_address_check" CHECK ("clin
 -- actor_type 'user'), and that log is kept six years. So, for each person
 -- whose last live grant this clinic held, it deletes their sessions,
 -- accounts, verifications, factors, backup codes, passkey challenges,
--- step-ups, lockouts, sign-in links, invitations and organisation
--- memberships, and turns the user row into a tombstone (a non-routable
--- address, no name). The clinic's memberships are revoked, never deleted:
+-- step-ups, lockouts, sign-in links, device recovery links (0095),
+-- invitations and organisation memberships, and turns the user row into a
+-- tombstone (a non-routable address, no name). The clinic's memberships are revoked, never deleted:
 -- they are its access history (schema.ts, clinic_memberships). It then
 -- deletes the setup (agent_configs, clinic_settings with its history,
 -- report_recipients, the practice questions and their review queue, the
@@ -263,6 +263,7 @@ BEGIN
       DELETE FROM user_backup_codes b WHERE b.user_id = uid;
       DELETE FROM user_factors f WHERE f.user_id = uid;
       DELETE FROM sign_in_links l WHERE l.user_id = uid;
+      DELETE FROM device_recoveries d WHERE d.user_id = uid;
       DELETE FROM session s WHERE s.user_id = uid;
       DELETE FROM account a WHERE a.user_id = uid;
       DELETE FROM invitation i WHERE i.inviter_id = uid;
@@ -357,7 +358,7 @@ BEGIN
 END
 $$;--> statement-breakpoint
 COMMENT ON FUNCTION app_close_clinic_account(uuid, text) IS
-  'Closes a clinic''s account once app_account_closure_waiting_on() says nothing is left: revokes its memberships and, for each person whose last live grant it held, deletes every way in (sessions, accounts, verifications, factors, codes, challenges, step-ups, lockouts, sign-in links, invitations, organisation memberships) and tombstones the user row, which the audit log keeps naming; deletes its setup, touches, sync runs, unnamed connection links and checkout intents; clears the clinic row''s setup columns; keeps the notice address for six years after the service ended; stamps clinics.account_closed_at. Returns what it did by table, or NULL when already closed. No patient data.';--> statement-breakpoint
+  'Closes a clinic''s account once app_account_closure_waiting_on() says nothing is left: revokes its memberships and, for each person whose last live grant it held, deletes every way in (sessions, accounts, verifications, factors, codes, challenges, step-ups, lockouts, sign-in links, device recovery links, invitations, organisation memberships) and tombstones the user row, which the audit log keeps naming; deletes its setup, touches, sync runs, unnamed connection links and checkout intents; clears the clinic row''s setup columns; keeps the notice address for six years after the service ended; stamps clinics.account_closed_at. Returns what it did by table, or NULL when already closed. No patient data.';--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_close_clinic_account(uuid, text) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_close_clinic_account(uuid, text) TO healdesk_app;--> statement-breakpoint
 
@@ -491,7 +492,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM clinics c WHERE c.id = NEW.clinic_id AND c.account_closed_at IS NOT NULL) THEN
     RAISE EXCEPTION 'Clinic %''s account is closed; % takes no new or changed rows for it.', NEW.clinic_id, TG_TABLE_NAME
       USING ERRCODE = 'check_violation',
-            HINT = 'A closed account is not reopened piecemeal (app_close_clinic_account, drizzle/0092).';
+            HINT = 'A closed account is not reopened piecemeal (app_close_clinic_account, drizzle/0096).';
   END IF;
   RETURN NEW;
 END
@@ -509,7 +510,7 @@ BEGIN
     'clinic_closures', 'chat_threads', 'meta_inbound_messages', 'clinic_setup_screens', 'slot_holds',
     'clinic_provider_services', 'clinic_providers', 'suppressions', 'consent_records',
     'contact_attempts', 'erasure_requests', 'record_amendments', 'deposit_payments',
-    'transcript_emails',
+    'transcript_emails', 'handovers', 'conversation_flags', 'patient_requests',
     -- What the closure empties.
     'agent_configs', 'clinic_settings', 'clinic_settings_history', 'report_recipients',
     'audit_review_queue', 'practice_question_results', 'practice_question_runs', 'website_changes',

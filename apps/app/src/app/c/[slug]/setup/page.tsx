@@ -15,10 +15,8 @@ import { connectConfigured } from "@/lib/billing/connect";
 import { getDepositSettings } from "@/lib/billing/deposits";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { disclosureFor } from "@/lib/compliance/disclosure";
-import { connectedMetaPlatforms, META_PLATFORM_NAMES } from "@/lib/channels/meta-platforms";
 import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
 import { MAX_PROVIDERS } from "@/lib/connections/google-calendar";
-import { env } from "@/lib/env";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
 import {
@@ -28,14 +26,19 @@ import {
   requestedScreen,
   type CalendarNotice,
 } from "@/lib/setup/calendar";
-import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
-import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
+import { channelNextStep, channelStatusLabel, setupSentence } from "@/lib/setup/channels";
+import {
+  defaultChatGreeting,
+  defaultPhoneGreeting,
+  META_GREETING_NOTE,
+} from "@/lib/setup/greetings";
 import {
   forwardingView,
   voiceForwardingReady,
   waitsOnDirectLine,
   type ForwardingFacts,
 } from "@/lib/setup/forwarding";
+import { readForwardingTest } from "@/lib/setup/forwarding-test-view";
 import { formatPhone, helpContacts } from "@/lib/setup/help";
 import { serviceInputOf } from "@/lib/setup/knowledge";
 import {
@@ -58,6 +61,7 @@ import { skipCost } from "@/lib/setup/skip-costs";
 import { snippetOpen, widgetSnippet } from "@/lib/setup/snippet";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
 import { urgentHelpField } from "@/lib/setup/urgent";
+import { readMetaConnectView } from "@/lib/meta/reconnect";
 import { withTenant } from "@/lib/tenant";
 
 import { HelpPanel } from "../HelpPanel";
@@ -369,17 +373,15 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
           isDefault: settings.phoneGreeting === null,
         });
       }
-      if (channels.includes("web") || channels.includes("meta")) {
+      // Website chat's alone: Instagram, Messenger and WhatsApp open with
+      // their own fixed line, and the clinic with them is told so.
+      if (channels.includes("web")) {
         greetings.push({
           kind: "chat" as const,
-          // Website chat's line where the clinic has it; a Meta-only clinic's
-          // people read the Meta channels' own warning first.
-          lockedLine: disclosureFor({
-            clinicName: name,
-            channel: channels.includes("web") ? "web_chat" : "instagram_dm",
-          }),
+          lockedLine: disclosureFor({ clinicName: name, channel: "web_chat" }),
           text: settings.chatGreeting ?? defaultChatGreeting(),
           isDefault: settings.chatGreeting === null,
+          note: channels.includes("meta") ? META_GREETING_NOTE : null,
         });
       }
       return (
@@ -532,17 +534,18 @@ async function ChannelsStep({
     .filter((id) => id !== "channels" && SCREEN_DEFINITIONS[id].step !== "end")
     .every((id) => state.progress.has(id));
   const bought = state.channels.map((c) => c.channel);
-  const connected = bought.includes("meta")
-    ? await withTenant({ clinicId: state.clinic.id, actor }, (tx) =>
-        connectedMetaPlatforms(tx.db, tx.clinicId),
-      )
-    : [];
-  const metaLogin = Boolean(env.metaAppId() && env.metaAppSecret() && env.metaLoginConfigId());
+  const metaView = bought.includes("meta")
+    ? await withTenant({ clinicId: state.clinic.id, actor }, (tx) => readMetaConnectView(tx.db, tx.clinicId))
+    : null;
   const facts: ForwardingFacts = {
     voice: state.channels.find((c) => c.channel === "voice"),
     assistantNumberE164: state.clinic.assistantNumberE164,
     directLineE164: state.settings.directLineE164,
   };
+  // "Test it now" and what it saw, beside the forwarding steps.
+  const forwardingTest = voiceForwardingReady(facts)
+    ? await withTenant({ clinicId: state.clinic.id, actor }, (tx) => readForwardingTest(tx))
+    : null;
   return (
     <ChannelsScreen
       slug={slug}
@@ -556,7 +559,7 @@ async function ChannelsStep({
         const row = {
           channel: c.channel,
           name: CHANNEL_NAMES[c.channel],
-          status: channelStatusWord(c.status),
+          status: channelStatusLabel(c, state.clinic.timezone, new Date()),
           line: setupSentence(c.channel, step),
         };
         // A step shown below the row is the one the row names, whatever
@@ -573,10 +576,7 @@ async function ChannelsStep({
           case "meta":
             return {
               ...row,
-              meta: {
-                connected: connected.map((p) => META_PLATFORM_NAMES[p]),
-                canConnect: metaLogin,
-              },
+              meta: metaView,
             };
           case "voice":
             return voiceForwardingReady(facts)
@@ -589,6 +589,7 @@ async function ChannelsStep({
                     phoneSystemType: state.clinic.phoneSystemType,
                     coverageMode: state.settings.coverageMode,
                   }),
+                  forwardingTest,
                 }
               : {
                   ...row,

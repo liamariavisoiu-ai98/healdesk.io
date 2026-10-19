@@ -9,8 +9,10 @@ import {
   clinics,
   contacts,
   conversations,
+  handovers,
   metaBookingDrafts,
   metaInboundMessages,
+  patientRequests,
   reconciliationExceptions,
   recordAmendments,
   slotHolds,
@@ -23,6 +25,7 @@ import {
   META_MESSAGE_REF_RETENTION_DAYS,
 } from "@/lib/billing/housekeeping";
 import { DRAFT_TTL_HOURS } from "@/lib/meta/booking-requests";
+import { linkCallHandovers } from "@/lib/handovers/record";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -114,7 +117,20 @@ import type { TenantTx } from "@/lib/tenant";
  *     ships switched off (drizzle/0043), so the "purged after 7 days" in
  *     lib/meta/inbound.ts held only once someone switched it on;
  *   - a deposit: with its appointment, or, once its appointment is gone, the
- *     record clock after it was made (app_purge_deposit_payments, 0067).
+ *     record clock after it was made (app_purge_deposit_payments, 0067);
+ *   - a patient's request passed to the practice (L32, drizzle/0094): the
+ *     record clock after it reached healdesk, marked received or not. The
+ *     agreements state no period of their own for it; the record clock is
+ *     the longest of the periods they do state, and outlasts the practice's
+ *     own windows for answering the person (30 days for access, 60 for an
+ *     amendment, under HIPAA), while it may still want to see what was asked.
+ *     Its contact is not kept for it: when the contact's own clock takes it,
+ *     the request keeps no one (its foreign key sets contact_id to NULL).
+ *
+ * A handover (someone asked for a person, drizzle/0092) is part of the
+ * record of the conversation it was asked in, and holds nothing of its own:
+ * it goes with that conversation, or with its messaging thread, and in any
+ * case the record clock after it was asked.
  *
  * Each cutoff taken by one of these periods is a day early (periodCutoff):
  * the job runs at 03 and 09 UTC, so a cutoff of exactly the period kept a
@@ -208,8 +224,12 @@ export const PURGE_COVERAGE: Readonly<{
     chat_threads: "thirty days after its last message, or the record or transcript clock if shorter",
     meta_inbound_messages: "seven days (META_MESSAGE_REF_RETENTION_DAYS), or the record clock if shorter",
     slot_holds: "a week once it no longer blocks, or the record clock if shorter",
+    handovers: "with its conversation or thread (cascade), and in any case the record clock after it was asked",
+    patient_requests: "the record clock after it reached healdesk, marked received or not",
   },
   notPurged: {
+    conversation_flags:
+      "no clock of its own: goes with the conversation or thread it flags, by cascade, when the purge deletes that",
     transcript_emails:
       "its own clock: the outbox job deletes each sealed copy on delivery and never keeps one past 30 days, and the receipt goes with its conversation by cascade (lib/conversations/transcript-outbox.ts)",
     erasure_requests: "its own clock: expireErasureRecords, hourly, BACKUP_RETENTION_DAYS after the deletion",
@@ -268,6 +288,10 @@ export type PurgeResult = {
   depositsDeleted: number;
   /** Handled Meta messages' keyed references past their seven days. */
   metaMessageRefsDeleted: number;
+  /** Handovers past the record clock that their conversation or thread did not take with it (drizzle/0092). */
+  handoversDeleted: number;
+  /** Patients' requests passed to the practice, past the record clock (drizzle/0094). */
+  patientRequestsDeleted: number;
 };
 
 const promised = new Map<string, boolean>();
@@ -335,6 +359,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     slotHoldsDeleted: 0,
     depositsDeleted: 0,
     metaMessageRefsDeleted: 0,
+    handoversDeleted: 0,
+    patientRequestsDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -380,6 +406,9 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   const transcriptDays = Math.min(clinic.mediaDays, settings?.transcriptDays ?? clinic.mediaDays);
   const mediaBefore = periodCutoff(now, transcriptDays);
   const recordBefore = periodCutoff(now, clinic.recordDays);
+  // A call's handover the database missed linking goes with its
+  // conversation from here (drizzle/0092).
+  await linkCallHandovers(tx);
 
   // 1. Media references.
   const cleared = await tx.db
@@ -559,6 +588,27 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
       .returning({ id: conversations.id });
     result.conversationsDeleted += gone.length;
   }
+  // A handover goes with its conversation or thread (the foreign keys'
+  // cascades), and in any case at the record clock after it was asked: a
+  // call whose conversation was never written leaves one pointing at
+  // nothing (drizzle/0092). One the database missed linking to its call's
+  // conversation is linked first (linkCallHandovers), so it went with it.
+  const oldHandovers = await tx.db
+    .delete(handovers)
+    .where(and(eq(handovers.clinicId, tx.clinicId), lt(handovers.createdAt, recordBefore)))
+    .returning({ id: handovers.id });
+  result.handoversDeleted = oldHandovers.length;
+
+  // 3b. Patients' requests passed to the practice (L32), the record clock
+  //     after each reached healdesk, before the contacts, whose delete would
+  //     otherwise clear each one's contact_id first for nothing.
+  const requestsPassed = await tx.db
+    .delete(patientRequests)
+    .where(
+      and(eq(patientRequests.clinicId, tx.clinicId), lt(patientRequests.receivedAt, recordBefore)),
+    )
+    .returning({ id: patientRequests.id });
+  result.patientRequestsDeleted = requestsPassed.length;
 
   // 4. Contacts nothing refers to any more, and that are themselves old. A
   //    request still inside the clock keeps its person: a Meta request reuses
@@ -674,7 +724,9 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.chatThreadsDeleted +
     result.slotHoldsDeleted +
     result.depositsDeleted +
-    result.metaMessageRefsDeleted;
+    result.metaMessageRefsDeleted +
+    result.handoversDeleted +
+    result.patientRequestsDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -693,6 +745,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         slotHolds: result.slotHoldsDeleted,
         deposits: result.depositsDeleted,
         metaMessageRefs: result.metaMessageRefsDeleted,
+        handovers: result.handoversDeleted,
+        patientRequests: result.patientRequestsDeleted,
         mediaDays: clinic.mediaDays,
         transcriptDays,
         recordDays: clinic.recordDays,

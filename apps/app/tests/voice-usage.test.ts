@@ -34,9 +34,11 @@ const DIRECT = "+14155550111";
 
 describe("what a call bills (R18)", () => {
   const startedAt = new Date("2026-10-15T15:00:00Z");
+  // AYA's opening line played: she answered the call.
   const call = (extra: Partial<VoiceCallEvent> = {}) => ({
     callerPhone: "+15550100123",
     startedAt,
+    disclosurePlayedAt: startedAt,
     ...extra,
   });
   const facts = { isTestCall: false, ownNumbers: [PUBLISHED, DIRECT, ASSISTANT] };
@@ -74,6 +76,27 @@ describe("what a call bills (R18)", () => {
     expect(voiceMeteringFor(call({ callerPhone: undefined, durationSeconds: 61 }), facts)).toEqual({
       minutes: 2,
     });
+  });
+
+  test("an urgent call AYA answered bills, though Retell dropped her opening line and only the urgent reply was said", () => {
+    const urgentOnly = voiceMeteringFor(call({ durationSeconds: 75, disclosurePlayedAt: undefined, urgent: true }), facts);
+    expect(urgentOnly).not.toEqual({ skipped: "not_answered" });
+    expect(urgentOnly).toEqual(voiceMeteringFor(call({ durationSeconds: 75, urgent: true }), facts));
+  });
+
+  test("nothing for a call AYA never spoke on: put through to the clinic or closed, with no opening line", () => {
+    // The fall-through's trouble transfer after a start that failed, or the
+    // pass-through of a paused clinic: our outage or the clinic's switch.
+    expect(voiceMeteringFor(call({ durationSeconds: 75, disclosurePlayedAt: undefined }), facts)).toEqual({
+      skipped: "not_answered",
+    });
+    // A test call and the clinic's own number still say so, for the first answer.
+    expect(
+      voiceMeteringFor(call({ durationSeconds: 75, disclosurePlayedAt: undefined }), { ...facts, isTestCall: true }),
+    ).toEqual({ skipped: "test_call" });
+    expect(
+      voiceMeteringFor(call({ callerPhone: DIRECT, durationSeconds: 75, disclosurePlayedAt: undefined }), facts),
+    ).toEqual({ skipped: "own_number" });
   });
 });
 
@@ -120,6 +143,7 @@ describeDb("counting calls at ingest (R18)", () => {
       callerPhone: "+15550100123",
       startedAt: NOW,
       durationSeconds: 270,
+      disclosurePlayedAt: NOW,
     };
     const first = await ingestCall(event, ACTOR);
     expect(first.duplicate).toBe(false);
@@ -160,6 +184,7 @@ describeDb("counting calls at ingest (R18)", () => {
         callerPhone: "+15550100777",
         startedAt: new Date(until.getTime() - 60_000),
         durationSeconds: 120,
+        disclosurePlayedAt: new Date(until.getTime() - 60_000),
       },
       ACTOR,
     );
@@ -171,6 +196,7 @@ describeDb("counting calls at ingest (R18)", () => {
         callerPhone: DIRECT,
         startedAt: NOW,
         durationSeconds: 120,
+        disclosurePlayedAt: NOW,
       },
       ACTOR,
     );
@@ -184,6 +210,7 @@ describeDb("counting calls at ingest (R18)", () => {
         callerPhone: "+15550100778",
         startedAt: NOW,
         durationSeconds: 59,
+        disclosurePlayedAt: NOW,
       },
       ACTOR,
     );
@@ -193,10 +220,38 @@ describeDb("counting calls at ingest (R18)", () => {
   test("a call ingested for a clinic with no billing row is recorded and not metered", async () => {
     const c = await seedClinic("voice-no-billing");
     const result = await ingestCall(
-      { externalCallId: "call_free", clinicId: c.clinicId, startedAt: NOW, durationSeconds: 300 },
+      { externalCallId: "call_free", clinicId: c.clinicId, startedAt: NOW, durationSeconds: 300, disclosurePlayedAt: NOW },
       ACTOR,
     );
     expect(result.duplicate).toBe(false);
     expect(await usageRows(c.clinicId)).toEqual([]);
+  });
+
+  test("a call AYA never spoke on is recorded, and neither billed nor counted as a call that would have rung out", async () => {
+    const c = await seedClinic("voice-not-answered");
+    await seedEntitled(c.clinicId, { planStartedAt: WINDOW_START });
+    // The fall-through put the caller through to the direct line after a
+    // start that failed: no opening line, on an overflow line in hours.
+    const put = await ingestCall(
+      { externalCallId: "call_put_through", clinicId: c.clinicId, callerPhone: "+15550100779", startedAt: NOW, durationSeconds: 75 },
+      ACTOR,
+    );
+    expect(put.recoveryReason).toBeNull();
+    expect(await usageRows(c.clinicId)).toEqual([]);
+    expect(await voiceUsed(c.clinicId)).toBe(0);
+    const stored = await inTenant(c.clinicId, (client) =>
+      client.query<{ recovery_reason: string | null; disclosure_played_at: Date | null }>(
+        `select recovery_reason, disclosure_played_at from conversations where external_call_id = 'call_put_through'`,
+      ),
+    );
+    expect(stored.rows).toEqual([{ recovery_reason: null, disclosure_played_at: null }]);
+
+    // The same call answered by AYA bills and is recovered.
+    const answered = await ingestCall(
+      { externalCallId: "call_answered", clinicId: c.clinicId, callerPhone: "+15550100779", startedAt: NOW, durationSeconds: 75, disclosurePlayedAt: NOW },
+      ACTOR,
+    );
+    expect(answered.recoveryReason).not.toBeNull();
+    expect((await usageRows(c.clinicId)).map((r) => r.quantity)).toEqual([2]);
   });
 });

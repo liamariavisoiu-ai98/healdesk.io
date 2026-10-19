@@ -11,16 +11,21 @@ import { helpLine } from "./welcome";
 
 /**
  * O7: the setup reminder (Annex X5, with the owner's cadence of 6 October
- * 2026). While no channel is answering, one email every five days, six in
- * all, naming each channel's single action, and for phone the five-minute
- * call (spec, "The first 48 hours"). It stops the moment a channel is live:
- * lib/setup/reminders.ts queues it only while none is, and only in the
- * clinic's daytime, so it goes within the minute it is queued.
+ * 2026), in two forms (spec, "The first 48 hours"):
+ *
+ *   - while no channel is answering, one email every five days, six in all,
+ *     naming each channel's single action, and for phone the five-minute
+ *     call; it prints the window's last day, because it is the reason for the
+ *     email: the day the account closes, never a day a channel opens;
+ *   - once a channel is answering (`liveRows`), one email for each other
+ *     channel still waiting on the clinic 48 hours on, naming its single
+ *     action. The account no longer closes, so it says nothing of the window.
+ *
+ * lib/setup/reminders.ts queues both, only in the clinic's daytime, so each
+ * goes within the minute it is queued.
  *
  * An outbox kind, so it carries no token (X1.5): "Continue setup" opens the
- * wizard behind sign-in. The window's last day is printed because it is the
- * reason for the email; it is the day the account closes, never a day a
- * channel opens.
+ * wizard behind sign-in.
  */
 
 export type SetupReminderRow = {
@@ -30,30 +35,28 @@ export type SetupReminderRow = {
 };
 
 export type SetupReminderPayload = {
-  /** Which of the six this is, 1 to 6. */
-  reminderCount: number;
+  /** Before a channel is live: which of the six this is, 1 to 6. */
+  reminderCount?: number;
   /** How many of the wizard's four steps still have a screen nobody has answered. */
   stepsLeftCount: number;
-  /** One row per bought channel that is not live. */
+  /**
+   * Before a channel is live, one row per bought channel that is not live;
+   * after, one per channel this reminder is for.
+   */
   rows: SetupReminderRow[];
-  /** The setup window's last day, as an ISO date on the clinic's calendar. */
-  closesOn: string;
-  /** publicUrl("/c/<slug>/setup"). */
+  /** Before a channel is live: the setup window's last day, as an ISO date on the clinic's calendar. */
+  closesOn?: string;
+  /** Once a channel is live: the channels AYA answers on. */
+  liveRows?: { channel: Channel }[];
+  /** publicUrl("/c/<slug>/setup"), or its channels step once a channel is live. */
   setupUrl: string;
   helpPhoneE164: string | null;
   /** This app's /help/call, when phone is bought and a scheduling page is set. */
   callUrl: string | null;
 };
 
-export const renderSetupReminder: EmailTemplate<SetupReminderPayload> = (payload, ctx) => {
-  if (payload.rows.length === 0) {
-    throw new EmailCompositionError("A setup reminder names at least one channel.");
-  }
-  const clinic = ctx.clinicName ?? "your practice";
-  const audience = audienceSingular(ctx.audience);
-  const closes = formatReplyBy(payload.closesOn);
-  const last = payload.reminderCount >= 6;
-
+/** Each row's one action, and the wizard's steps left first. */
+function actionsOf(payload: SetupReminderPayload): string[] {
   const actions: string[] = [];
   if (payload.stepsLeftCount > 0) {
     actions.push(
@@ -63,7 +66,9 @@ export const renderSetupReminder: EmailTemplate<SetupReminderPayload> = (payload
     );
   }
   for (const row of payload.rows) {
-    if (row.status === "finish_setup") continue;
+    // The steps-left line says it, unless every screen is answered and a
+    // skipped one is what the channel waits on (its hours, say).
+    if (row.status === "finish_setup" && payload.stepsLeftCount > 0) continue;
     const action = actionLine(row.channel, row.status);
     actions.push(
       action
@@ -71,6 +76,78 @@ export const renderSetupReminder: EmailTemplate<SetupReminderPayload> = (payload
         : `${CHANNEL_NAMES[row.channel]}: we're preparing it, nothing for you to do`,
     );
   }
+  return actions;
+}
+
+/** A channel as a sentence names it. */
+function channelPhrase(channel: Channel): string {
+  switch (channel) {
+    case "voice":
+      return "your phone";
+    case "web":
+      return "your website chat";
+    case "meta":
+      return "Instagram, Messenger & WhatsApp";
+  }
+}
+
+function joined(items: string[]): string {
+  return items.length <= 1
+    ? (items[0] ?? "")
+    : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/** Once a channel is live: one reminder for the channels still waiting on the clinic 48 hours on. */
+const renderAfterLive: EmailTemplate<SetupReminderPayload> = (payload, ctx) => {
+  const clinic = ctx.clinicName ?? "your practice";
+  const audience = audienceSingular(ctx.audience);
+  const live = joined((payload.liveRows ?? []).map((row) => channelPhrase(row.channel)));
+  const waiting = payload.rows.map((row) => CHANNEL_NAMES[row.channel]);
+  const phone = payload.rows.some((row) => row.channel === "voice");
+  const blocks: Block[] = [
+    {
+      type: "paragraph",
+      text: `AYA is answering ${audience}s for ${clinic} on ${live}. ${joined(waiting)} ${waiting.length === 1 ? "isn't" : "aren't"} answering yet, and ${waiting.length === 1 ? "it needs" : "each needs"} one thing from you:`,
+    },
+    { type: "list", items: actionsOf(payload) },
+    { type: "action", label: "Continue setup", url: payload.setupUrl },
+  ];
+  if (phone && payload.callUrl) {
+    blocks.push({
+      type: "paragraph",
+      text: "Call forwarding is easier with someone on the line. Book a five-minute call and we'll do it with you.",
+    });
+    blocks.push({ type: "action", label: "Book a five-minute call", url: payload.callUrl });
+  }
+  blocks.push({ type: "paragraph", text: helpLine(payload, audience) });
+  return compose(
+    {
+      subject:
+        payload.rows.length === 1
+          ? `One step left for AYA on ${channelPhrase(payload.rows[0]!.channel)}`
+          : "One step left for AYA on your other channels",
+      preheader: `AYA is answering on ${live}. Here's what the rest needs.`,
+      blocks,
+    },
+    ctx,
+  );
+};
+
+export const renderSetupReminder: EmailTemplate<SetupReminderPayload> = (payload, ctx) => {
+  if (payload.rows.length === 0) {
+    throw new EmailCompositionError("A setup reminder names at least one channel.");
+  }
+  if (payload.liveRows && payload.liveRows.length > 0) return renderAfterLive(payload, ctx);
+  if (payload.reminderCount === undefined || payload.closesOn === undefined) {
+    throw new EmailCompositionError(
+      "A setup reminder before any channel is live names its count and the window's last day.",
+    );
+  }
+  const clinic = ctx.clinicName ?? "your practice";
+  const audience = audienceSingular(ctx.audience);
+  const closes = formatReplyBy(payload.closesOn);
+  const last = payload.reminderCount >= 6;
+  const actions = actionsOf(payload);
   const phone = payload.rows.some((row) => row.channel === "voice");
 
   const blocks: Block[] = [
@@ -125,3 +202,15 @@ export const SETUP_REMINDER_ENTRY: TemplateEntry<SetupReminderPayload> = {
     };
   },
 };
+
+/** The reminder once a channel is live, for its tests: website chat answering, phone waiting on forwarding. */
+export function setupReminderAfterLiveFixture(): SetupReminderPayload {
+  return {
+    stepsLeftCount: 0,
+    rows: [{ channel: "voice", status: "forwarding" }],
+    liveRows: [{ channel: "web" }],
+    setupUrl: publicUrl("/c/radiance-med-spa/setup?s=channels"),
+    helpPhoneE164: "+18885550100",
+    callUrl: publicUrl("/help/call"),
+  };
+}

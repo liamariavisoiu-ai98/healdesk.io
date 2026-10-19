@@ -163,6 +163,8 @@ export type LinkPurpose = "connect" | "setup" | "meta" | "whatsapp" | "calendar"
 /** What the wizard (or the setup page) needs to render, and nothing else. */
 export type ResolvedLink = {
   clinicId: string;
+  /** The signed-in person who minted the link (the portal's button); null for an operator's or the system's. */
+  issuedBy: string | null;
   /** Shown so the clinic can see the link is genuinely theirs. */
   clinicName: string;
   /**
@@ -370,6 +372,7 @@ export async function resolveConnectionLink(
         allowsAccountChange: connectionLinks.allowsAccountChange,
         pendingElection: connectionLinks.pendingElection,
         sentTo: connectionLinks.sentTo,
+        issuedBy: connectionLinks.issuedBy,
         // Evaluated by Postgres so expiry is judged by one clock — the same one
         // that stamped expires_at and that the consuming UPDATE will use.
         expired: sql<boolean>`${connectionLinks.expiresAt} <= now()`,
@@ -428,6 +431,7 @@ export async function resolveConnectionLink(
       allowsAccountChange: row.allowsAccountChange,
       pendingElection: row.pendingElection ?? null,
       sentTo: row.sentTo ?? null,
+      issuedBy: row.issuedBy ?? null,
     };
   });
 }

@@ -45,6 +45,42 @@ channel calls it. Direct booking waits for counsel and the owner
 - **Limits**: 8 KB a request, 2,000 characters a message, 20 requests a minute per address and
   clinic in each process, 120 turns a conversation, a token 12 hours.
 
+## The bubble: `src/widget/v1.js`, `app/widget/v1.js/route.ts`
+
+The script the pasted line loads, served byte for byte from `apps/app`, cached five minutes and
+revalidated by its ETag, the same for every clinic and holding nothing of anyone's. It draws a launcher
+in a closed shadow root, builds its DOM without markup parsing, and needs no inline style or eval, so it
+runs under a strict CSP and Trusted Types once the page allows the script and connections to its origin.
+
+- **Start** is asked when the visitor first opens the bubble, not on every page view. The opening line is
+  shown first; a start with no opening line opens no chat.
+- **Requests** are `text/plain`, CORS-simple, so no preflight: the routes check the Origin themselves and
+  read the body as JSON whatever its type. No cookie, no storage: the token and the words live in the
+  page's memory only.
+- **The engine's own ends**: it closes a chat after thirty quiet minutes or 120 turns and would open
+  the next one silently, so the bubble opens a new chat itself after 29 quiet minutes or 59 answers. A
+  chat the quiet time closes between the bubble's check and the engine's write still opens without a
+  new line on screen.
+- **End**: the visitor's End chat button, or a keepalive request on `pagehide` (not for a page kept for
+  Back), once a message has been sent and no reply is pending. The next message after any end asks for a
+  new chat first, so every conversation's opening line is on screen.
+- **Not answering** (any `contact_form` reply, two failures in a row to reach us, or an answer the
+  browser hides because the page is not the clinic's site): the contact form when it takes messages,
+  otherwise a line saying to call the practice. The engine sends that line, the fixed "please call the
+  practice on {number}" with the clinic's published number (`callPracticeLine`), as the offer's
+  `callLine` and as the `reply` of a contact message refused with 409 `closed`; the bubble shows it as
+  text. Only where no line comes back (a network failure, a 503, the closed form sent when the offer
+  itself could not be read) or the line names no number (none published) does the bubble point to the
+  number on the clinic's own website instead. A start that failed is asked again when the bubble reopens.
+- **Known limits.** The bubble runs in the clinic's page, so a script there that wraps `fetch` (a
+  session-replay or tag-manager script) can see what a visitor types; only a frame served from
+  `apps/app` would hide it, and the engine's origin check would have to allow for that. The script is
+  served only by `apps/app`: while the host is in standby or down, a visitor whose browser cached it in
+  the last day sees a bubble that says to call the practice, and anyone else sees no bubble, only the
+  clinic's own page and number. A message whose reply never came (ninety seconds' wait) or was lost can be
+  sent again, and the engine may then record it twice. Going live waits for an operator, who is asked only
+  once someone opens the bubble from the clinic's site (`LAUNCH_PROMISES`, `web-chat-on-paste`).
+
 ## The voice endpoint: `src/voice/server.ts`, `lib/voice/retell.ts`
 
 Its own long-lived Node process from the same image (`node --import tsx src/voice/server.ts`,
@@ -78,15 +114,24 @@ Its own long-lived Node process from the same image (`node --import tsx src/voic
 
 ## Not built, or to check before the first real call
 
-- **The widget's script** (the bubble a clinic pastes) is not built; only its API. The spec's "first load
-  flips the channel live" is not wired either.
+- **The widget's script** (the bubble a clinic pastes) was built on 19 October 2026:
+  `apps/app/src/widget/v1.js`, served at `/widget/v1.js` (see "The bubble" above). The spec's "first load
+  flips the channel live" is still not automatic: the first chat opened from the clinic's own site asks an
+  operator to look and confirm in Ops, because an Origin header proves nothing.
 - **Retell's protocol fields**: `transfer_number` on a response, and the `call_details` event's
   `from_number`, `direction` and `start_timestamp`, are written from Retell's custom-LLM WebSocket
-  reference as it was known; check them against the current reference and a test call on a synthetic
-  clinic before any real call.
-- **A call in progress when its task dies** is lost with its words: the session is in memory until the
-  hang-up. The load balancer drains a task for up to an hour before ECS stops it, so a deploy does not
-  cut calls; a crash does. Retell's own call-ended webhook could backstop it; not built.
+  reference as it was known; check them against the current reference and a test call on the demo
+  clinic (the only one the endpoint answers until `voice_real_calls`) before any real call.
+- **A call in progress when its task dies** loses what was in its memory: the session holds the call
+  until the hang-up. The load balancer drains a task for up to an hour before ECS stops it, so a deploy
+  does not cut calls; a crash does. Built 19 October 2026: Retell's signed call-ended webhook
+  (`/api/webhooks/retell/<clinic id>`, each agent's own webhook URL, verified with
+  `HEALDESK_RETELL_API_KEY`) queues one job per call; ten minutes later, if the call still has no
+  conversation, the worker reads it back from Retell, checks it reached the clinic's own Retell
+  number, and ingests it, idempotent on the call id: the conversation, the transcript and the minutes,
+  but no booking request, since the caller's request was the dead session's (`lib/voice/backstop.ts`).
+  It covers a call never recorded, not one recorded in part: if Retell reconnects the call to another
+  task, that session records from the reconnect on and the first half stays unrecorded.
 - **The per-process rate limit** is per task: with several web tasks the limit is that many times
   higher.
 - **Meta-style screening on the web chat**: the web chat may carry clinical words (it is BAA-covered),

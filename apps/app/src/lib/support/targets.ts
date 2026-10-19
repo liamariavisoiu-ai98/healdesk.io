@@ -8,6 +8,7 @@ import {
   type SettingKey,
 } from "@/lib/portal/settings";
 import { publicUrl } from "@/lib/public-url";
+import { GREETING_LABELS, META_GREETING_NOTE } from "@/lib/setup/greetings";
 
 /**
  * Where the support chat may send someone (`link_to`, plan Part H): every
@@ -79,13 +80,13 @@ export const SETTING_PLACES: Readonly<Record<SettingKey, SettingPlace>> = {
   },
   phone_greeting: {
     card: "how-aya-talks",
-    label: "When AYA answers a call",
+    label: GREETING_LABELS.phone,
     does: "What AYA says first on a call. The line saying she is an AI assistant and that the call is transcribed is always said and can't be edited out.",
   },
   chat_greeting: {
     card: "how-aya-talks",
-    label: "When someone opens a chat or sends a message",
-    does: "What AYA writes first in a chat. The line saying she is an AI assistant is always there and can't be edited out.",
+    label: GREETING_LABELS.chat,
+    does: `What AYA writes first in a website chat. The line saying she is an AI assistant is always there and can't be edited out. ${META_GREETING_NOTE}`,
   },
   languages: {
     card: "how-aya-talks",

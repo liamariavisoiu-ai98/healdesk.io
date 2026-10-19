@@ -1,5 +1,5 @@
 import { compose } from "./compose";
-import { alertFixture, openBlocks, practiceOf, type BookingAlertPayload } from "./booking-alert-copy";
+import { alertFixture, fixtureBookingsUrl, openBlocks, practiceOf, type BookingAlertPayload } from "./booking-alert-copy";
 import type { TemplateEntry } from "./registry";
 import type { EmailTemplate } from "./types";
 
@@ -9,7 +9,8 @@ import type { EmailTemplate } from "./types";
  * later decision by the team won. Queued by notifyBookingAlert from the
  * booking writer's own transaction (lib/booking/writer.ts, holds.ts, and the
  * desk's decision in lib/meta/booking-requests.ts), and sent at once, at any
- * hour, so the team checks before the appointment.
+ * hour, so the team checks before the appointment. The link opens the
+ * request's row in Bookings, which shows the booking and its calendar state.
  */
 
 export const renderCalendarCheck: EmailTemplate<BookingAlertPayload> = (payload, ctx) =>
@@ -31,6 +32,10 @@ export const renderCalendarCheck: EmailTemplate<BookingAlertPayload> = (payload,
 export const CALENDAR_CHECK_ENTRY: TemplateEntry<BookingAlertPayload> = {
   render: renderCalendarCheck,
   get fixture(): BookingAlertPayload {
-    return alertFixture({ channel: "voice", bookingRequestId: "8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f" });
+    return alertFixture({
+      channel: "voice",
+      bookingRequestId: "8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f",
+      portalUrl: fixtureBookingsUrl("request-8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f"),
+    });
   },
 };

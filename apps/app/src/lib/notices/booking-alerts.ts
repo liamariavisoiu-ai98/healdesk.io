@@ -97,18 +97,32 @@ function channelOfRequest(channel: "voice" | "meta" | "web_chat"): Channel {
 }
 
 /**
- * Where an alert opens in the clinic portal: the conversation it came from in
- * Conversations, or Conversations itself while there is no conversation to
- * open (a call still going on, a request the engine logged mid-call). The
- * only place an alert's link is decided: the Bookings screen moves booking
- * requests, deposits and calendar checks to their own row there, here.
+ * Where an alert opens in the clinic portal. The only place an alert's link
+ * is decided.
+ *
+ * A booking request (L7), a deposit (L10) and a calendar check (L34) open
+ * their own row in Bookings (app/c/[slug]/bookings), where staff act on it:
+ * a deposit left for the team at its appointment in Deposits to collect, and
+ * otherwise the request, which Bookings anchors in Waiting for you, in
+ * Missed, or on the booking it was confirmed as. A deposit reservation or a
+ * booking refused for want of a deposit is a request, so it opens there too.
+ *
+ * A handover (L11) and an urgent message (L12) open the conversation they
+ * came from in Conversations, or Conversations itself while there is no
+ * conversation to open (a call still going on), as does an L10 that names
+ * neither a request nor an appointment.
  */
 export function alertPortalPath(
   slug: string,
   kind: SentAlertKind,
-  target: { conversationId: string | null; bookingRequestId: string | null },
+  target: { conversationId: string | null; bookingRequestId: string | null; appointmentId: string | null },
 ): string {
-  void kind;
+  if (kind === "booking_request" || kind === "deposit_to_collect" || kind === "calendar_check") {
+    const bookings = sectionPath(slug, "bookings");
+    if (kind === "deposit_to_collect" && target.appointmentId) return `${bookings}#deposit-${target.appointmentId}`;
+    if (target.bookingRequestId) return `${bookings}#request-${target.bookingRequestId}`;
+    if (target.appointmentId) return `${bookings}#booking-${target.appointmentId}`;
+  }
   const conversations = sectionPath(slug, "conversations");
   return target.conversationId ? `${conversations}/${target.conversationId}` : conversations;
 }
@@ -331,7 +345,11 @@ export async function notifyBookingAlert(
         isPossiblyPaid: kind === "deposit_to_collect" && ref.mayBePaid === true,
         isBurst: burst !== null,
         portalUrl: publicUrl(
-          alertPortalPath(clinic.slug, kind, { conversationId: pointsAt, bookingRequestId: ref.bookingRequestId ?? null }),
+          alertPortalPath(clinic.slug, kind, {
+            conversationId: pointsAt,
+            bookingRequestId: ref.bookingRequestId ?? null,
+            appointmentId: ref.appointmentId ?? null,
+          }),
         ),
       };
       // Inserted now, or already there under its key: this conversation's

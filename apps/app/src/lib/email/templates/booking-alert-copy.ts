@@ -157,28 +157,47 @@ function findThemLine(payload: BookingAlertPayload): string {
     case "web_maybe":
       return "If they left a name and number, they open in healdesk once you sign in and confirm it's you. The chat's transcript, emailed to you when the chat ends, has everything they wrote.";
     case "portal":
-      return "Who it is and how to reach them open in healdesk once you sign in and confirm it's you.";
+      return opensBookings(payload)
+        ? "Who it is, how to reach them and what is left to do open in Bookings in healdesk once you sign in and confirm it's you."
+        : "Who it is and how to reach them open in healdesk once you sign in and confirm it's you.";
+  }
+}
+
+/**
+ * Whether the link opens Bookings (alertPortalPath): a booking request, a
+ * deposit or a calendar check, at its own row. Read from the link itself, so
+ * the words always match where it goes. There the request or the booking is
+ * the thing to open, so the lines about a call still going on and a Meta
+ * conversation moving on, which are about Conversations, do not apply.
+ */
+export function opensBookings(payload: Pick<BookingAlertPayload, "portalUrl">): boolean {
+  try {
+    return /\/c\/[^/]+\/bookings$/.test(new URL(payload.portalUrl).pathname);
+  } catch {
+    return false;
   }
 }
 
 /**
  * The end every alert shares: the one link, a line for a call that is still
  * going on (its conversation is recorded when it ends, so the link opens
- * Conversations instead), a line for a Meta link that can move on, where to
- * find who it is (findThem), and why the email names nobody.
+ * Conversations instead), a line for a Meta link that can move on (neither
+ * when the link opens a row in Bookings), where to find who it is
+ * (findThem), and why the email names nobody.
  */
 export function openBlocks(payload: BookingAlertPayload, ctx: TemplateContext): Block[] {
   const person = audienceSingular(ctx.audience);
-  const burst = payload.isBurst === true;
+  // Neither line below is about a row in Bookings: a request stays where it is.
+  const conversationsOnly = payload.isBurst !== true && !opensBookings(payload);
   return [
     { type: "action", label: "Open in healdesk", url: payload.portalUrl },
-    ...(payload.channel === "voice" && !payload.conversationId && !burst
+    ...(payload.channel === "voice" && !payload.conversationId && conversationsOnly
       ? [{ type: "paragraph" as const, text: "The call shows in Conversations once it ends." }]
       : []),
     // A Meta thread keeps only its current conversation (lib/meta/greeting.ts):
     // after a day's quiet a new message starts another, and this link no
     // longer opens.
-    ...(payload.channel === "meta" && payload.conversationId && !burst
+    ...(payload.channel === "meta" && payload.conversationId && conversationsOnly
       ? [
           {
             type: "paragraph" as const,
@@ -188,6 +207,11 @@ export function openBlocks(payload: BookingAlertPayload, ctx: TemplateContext): 
       : []),
     { type: "paragraph", text: `${findThemLine(payload)} This email carries no ${person} details on purpose.` },
   ];
+}
+
+/** A fixture's link to a row in Bookings, as alertPortalPath builds it: `request-<id>`, `deposit-<id>`. */
+export function fixtureBookingsUrl(anchor: string): string {
+  return publicUrl(`/c/radiance-med-spa/bookings#${anchor}`);
 }
 
 /** A realistic fixture: a website chat's conversation, opened in Conversations. */

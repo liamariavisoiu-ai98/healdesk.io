@@ -39,8 +39,8 @@ import {
   ORDER_REASON,
   SIGN_IN_REASON,
 } from "@/lib/email/templates/context";
-import { alertFixture } from "@/lib/email/templates/booking-alert-copy";
-import { DEPOSIT_DECLINED_FIXTURE } from "@/lib/email/templates/deposit_to_collect";
+import { alertFixture, fixtureBookingsUrl, opensBookings } from "@/lib/email/templates/booking-alert-copy";
+import { DEPOSIT_DECLINED_FIXTURE, DEPOSIT_TO_COLLECT_ENTRY } from "@/lib/email/templates/deposit_to_collect";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
 import { stepsReason } from "@/lib/email/templates/steps_sent";
@@ -783,6 +783,38 @@ describe("the live alerts: L7, L10, L11, L12 and L34", () => {
     expect(going.text).toContain("The call shows in Conversations once it ends.");
     const ended = renderUrgent(alertFixture({ channel: "voice" }), contextFor("urgent"));
     expect(ended.text).not.toContain("once it ends");
+  });
+
+  test("a booking request, a deposit or a calendar check opens its own row in Bookings, and the words follow the link there", () => {
+    const requestId = "8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f";
+    const atRequest = fixtureBookingsUrl(`request-${requestId}`);
+    for (const kind of ["booking_request", "deposit_to_collect", "calendar_check"] as const) {
+      for (const [channel, platform, conversationId] of [
+        // A call still going on: the request is in Bookings already.
+        ["voice", null, null],
+        ["web", null, "5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d"],
+        // A Meta request: its row does not move when the thread does.
+        ["meta", "whatsapp", "5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d"],
+        ["meta", "instagram", "5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d"],
+      ] as const) {
+        const payload = alertFixture({ channel, platform, conversationId, bookingRequestId: requestId, portalUrl: atRequest });
+        expect(opensBookings(payload)).toBe(true);
+        const r = templateFor(kind)!.render(payload, contextFor(kind));
+        expect(r.text, `${kind} ${channel}`).toContain(atRequest);
+        expect(r.text).toContain("open in Bookings in healdesk once you sign in and confirm it's you.");
+        expect(r.text).not.toContain("once it ends");
+        expect(r.text).not.toContain("this link stops opening");
+        expect(r.text).not.toMatch(/inbox/i);
+        expect(linkProblems(r, kind)).toEqual([]);
+        expect(() => assertPayloadAllowed(payload, kind)).not.toThrow();
+      }
+    }
+    // A deposit left for the team opens its row in Deposits to collect.
+    const deposit = DEPOSIT_TO_COLLECT_ENTRY.fixture;
+    expect(deposit.portalUrl).toMatch(/\/c\/radiance-med-spa\/bookings#deposit-/);
+    expect(templateFor("deposit_to_collect")!.render(deposit, contextFor("deposit_to_collect")).text).toContain("open in Bookings");
+    // A conversation link is not Bookings, whatever the payload names.
+    expect(opensBookings(alertFixture({ bookingRequestId: requestId }))).toBe(false);
   });
 
   test("a deposit: booked and left to the team, possibly paid already, or not booked for want of one", () => {

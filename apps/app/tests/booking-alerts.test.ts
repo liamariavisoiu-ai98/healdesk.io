@@ -143,10 +143,13 @@ describeDb("the live alerts", () => {
     });
     // A call still going on has no conversation yet: Conversations itself.
     expect(byKind.handover!.payload).toMatchObject({ channel: "voice", conversationId: null, portalUrl: `${ORIGIN}/c/${c.slug}/conversations` });
-    expect(byKind.booking_request!.payload).toMatchObject({ channel: "web", conversationId, bookingRequestId: queued.request, portalUrl: conversation });
+    // A request, a deposit and a calendar check open their row in Bookings,
+    // where staff act on them; the conversation still travels as an id.
+    const atRequest = `${ORIGIN}/c/${c.slug}/bookings#request-${queued.request}`;
+    expect(byKind.booking_request!.payload).toMatchObject({ channel: "web", conversationId, bookingRequestId: queued.request, portalUrl: atRequest });
     // Package D's mayBePaid travels as the flag the allowlist reads, and only on L10.
-    expect(byKind.deposit_to_collect!.payload).toMatchObject({ isPossiblyPaid: true });
-    expect(byKind.calendar_check!.payload).toMatchObject({ isPossiblyPaid: false });
+    expect(byKind.deposit_to_collect!.payload).toMatchObject({ isPossiblyPaid: true, portalUrl: atRequest });
+    expect(byKind.calendar_check!.payload).toMatchObject({ isPossiblyPaid: false, portalUrl: atRequest });
     for (const row of rows) expect(() => assertPayloadAllowed(row.payload, row.kind as "urgent")).not.toThrow();
     expect(JSON.stringify(rows)).not.toMatch(/Thursday|filler|Lip|0123|Synthetic|\/booking\//);
 
@@ -227,7 +230,8 @@ describeDb("the live alerts", () => {
     expect(rows[0]).toMatchObject({
       kind: "deposit_to_collect",
       dedupe_key: `deposit_to_collect:${appointmentId}`,
-      payload: { appointmentId, isPossiblyPaid: true, portalUrl: `${ORIGIN}/c/${c.slug}/conversations` },
+      // Its row in Deposits to collect, where staff mark it paid.
+      payload: { appointmentId, isPossiblyPaid: true, portalUrl: `${ORIGIN}/c/${c.slug}/bookings#deposit-${appointmentId}` },
     });
     expect(rows[0]!.payload).not.toHaveProperty("mayBePaid");
   });

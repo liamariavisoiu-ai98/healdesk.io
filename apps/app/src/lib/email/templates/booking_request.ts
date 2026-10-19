@@ -1,5 +1,5 @@
 import { compose } from "./compose";
-import { alertFixture, openBlocks, practiceOf, wherePhrase, type BookingAlertPayload } from "./booking-alert-copy";
+import { alertFixture, fixtureBookingsUrl, openBlocks, practiceOf, wherePhrase, type BookingAlertPayload } from "./booking-alert-copy";
 import type { TemplateEntry } from "./registry";
 import type { EmailTemplate } from "./types";
 
@@ -11,8 +11,9 @@ import type { EmailTemplate } from "./types";
  * nothing, because it is in the clinic's calendar and the daily summary.
  *
  * It replaces the desk email that carried a /booking/<token> link: the
- * request now opens in the signed-in portal, never on a page whose link is
- * its only key.
+ * request now opens at its own row in Bookings, in the signed-in portal
+ * behind the passkey step-up, where staff confirm it, propose other times or
+ * decline it, never on a page whose link is its only key.
  */
 
 export const renderBookingRequest: EmailTemplate<BookingAlertPayload> = (payload, ctx) =>
@@ -34,6 +35,9 @@ export const renderBookingRequest: EmailTemplate<BookingAlertPayload> = (payload
 export const BOOKING_REQUEST_ENTRY: TemplateEntry<BookingAlertPayload> = {
   render: renderBookingRequest,
   get fixture(): BookingAlertPayload {
-    return alertFixture({ bookingRequestId: "8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f" });
+    return alertFixture({
+      bookingRequestId: "8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f",
+      portalUrl: fixtureBookingsUrl("request-8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f"),
+    });
   },
 };

@@ -561,7 +561,7 @@ function needWords(channel: ChannelId, input: ChannelLiveInput): string {
       return channel === "voice"
         ? "No forwarding-test call observed with the caller's number intact: run the forwarding test above. A stamped step is not enough."
         : channel === "web"
-          ? "Nobody has confirmed the chat is on the clinic's website. Open the site, check the chat is there and answers, then confirm below."
+          ? "Nobody has confirmed the chat is on the clinic's website. Open the site, check the chat bubble is there (until you confirm, it tells visitors to call the practice), then confirm below."
           : "No Instagram, Messenger or WhatsApp account is connected.";
     case "go_live":
       return "Go live first (above).";

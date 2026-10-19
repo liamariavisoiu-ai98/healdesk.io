@@ -56,6 +56,15 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     blocksGoLive: true,
   },
   {
+    id: "web-chat-on-paste",
+    promise: "You paste one line on your website and AYA starts answering there",
+    where: "Set-up wizard and welcome email (website chat)",
+    status: "building",
+    left: "The line now loads the chat bubble, but website chat goes live only once an operator confirms in Ops that the line is on the clinic's site, and Ops is asked only when someone first opens the bubble there. Until then the bubble tells visitors to call the practice.",
+    evidence: "apps/app/src/widget/v1.js, apps/app/src/lib/channels/events.ts (noteWidgetLoaded, confirmWidgetOnSite)",
+    blocksGoLive: false,
+  },
+  {
     id: "urgent-alert",
     promise: "An urgent message goes at once to the contact the clinic names",
     where: "Terms section 2",

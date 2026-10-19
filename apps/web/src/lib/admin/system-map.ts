@@ -1165,15 +1165,15 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "A patient chats on the clinic's website",
     carries: "The patient's messages, straight to the engine",
     example:
-      "James opens the chat bubble on the clinic's website at midnight, asks what a first visit costs, and leaves a request for Friday morning that the clinic confirms.",
+      "James opens the chat bubble on the clinic's website at midnight. Its first line tells him he is talking to an AI assistant; he asks what a first visit costs and leaves a request for Friday morning that the clinic confirms.",
     // Each open chat carries a token the engine signs with a key made from
     // this secret (lib/chat/web-chat.ts).
     keys: ["aws.BETTER_AUTH_SECRET"],
     keyless: "No key on the clinic's site: the bubble names the clinic, and the engine decides whether to answer.",
     phi: true,
-    build: "partial",
+    build: "built",
     buildNote:
-      "The engine's chat is built; the bubble's script is not: nothing serves the address the pasted line points to. Yet once a clinic's script is approved, by you or by a passing practice-question run, its website chat counts as ready and the set-up wizard hands it the line to paste, with a Copy button; Home, the welcome email and the reminder email ask for it too. The chat cannot go live until you confirm in Ops that the line is on the clinic's site, so confirm none until the bubble exists.",
+      "The engine serves the bubble the pasted line loads (/widget/v1.js): it shows the AI line first, ends a chat when the visitor ends it or leaves the page, and becomes the website contact form, or a line saying to call the practice, whenever AYA is not answering. Once a clinic's script is approved, by you or by a passing practice-question run, the set-up wizard hands it the line to paste, with a Copy button; Home, the welcome email and the reminder email ask for it too. Website chat still goes live only when you confirm in Ops that the line is on the clinic's site: the first chat opened from that site asks you to look, because a page's address proves nothing. Not yet tried on a real clinic's website.",
   },
   {
     id: "app-claude",

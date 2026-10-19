@@ -51,6 +51,14 @@ const nextConfig: NextConfig = {
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
         ],
       },
+      // The one exception to no-store: the website chat bubble, the same
+      // static bytes for every clinic's site, holding nothing of anyone's
+      // (lib/widget/script.ts). A header set here overrides the route's own,
+      // and the later rule wins, so this must stay below the one above.
+      {
+        source: "/widget/v1.js",
+        headers: [{ key: "Cache-Control", value: "public, max-age=300, stale-while-revalidate=86400" }],
+      },
     ];
   },
 };

@@ -279,7 +279,7 @@ const WORDING: Record<OpsEvent, Wording> = {
   web_widget_to_confirm: {
     title: "Confirm a clinic's website chat is on its site",
     action:
-      "The clinic below has website chat waiting on its line, and the chat was opened from what claims to be its website. A claim is not proof, so website chat stays off until you look: open the clinic's website, check the chat is there and answers, then press \"The line is on their website\" on the clinic's onboarding page in the console.",
+      "The clinic below has website chat waiting on its line, and the chat was opened from what claims to be its website. A claim is not proof, so website chat stays off until you look: open the clinic's website and check the chat bubble is there (until you confirm, it tells visitors to call the practice), then press \"The line is on their website\" on the clinic's onboarding page in the console.",
   },
   connection_broken: {
     title: "A clinic's connection stopped working",

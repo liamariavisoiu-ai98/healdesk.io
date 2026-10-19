@@ -120,7 +120,9 @@ export const SETTING_CHANNELS: Readonly<Record<SettingKey, readonly Channel[]>> 
   tone: ["web", "meta", "voice"],
   phone_greeting: ["voice"],
   chat_greeting: ["web", "meta"],
-  languages: ["web", "meta", "voice"],
+  // Instagram, Messenger and WhatsApp answer in English only: the Meta front
+  // door's reply guard reads English, so its language is not a choice.
+  languages: ["web", "voice"],
   // The signed agreement bars add-ons and promotions on the Meta channels.
   suggest_add_ons: ["web", "voice"],
   mention_promotions: ["web", "voice"],

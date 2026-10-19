@@ -29,6 +29,15 @@ export type BookingAlertKind =
    */
   | "calendar_check";
 
+/**
+ * Whether an urgent alert (L12) reaches the clinic today. The fixed urgent
+ * reply says "I've told the team" only when it does (@healdesk/catalog,
+ * fixedUrgentReply), so the line never promises an alert that was not sent.
+ * False while notifyBookingAlert only logs; package F sets it true in the
+ * change that sends L12 through the outbox.
+ */
+export const URGENT_ALERT_DELIVERED = false;
+
 /** What the alert points at. Ids only: the portal shows the rest behind sign-in and step-up. */
 export type BookingAlertRef = {
   appointmentId?: string;

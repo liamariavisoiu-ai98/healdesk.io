@@ -208,7 +208,7 @@ export type KeyHome = "vercel" | "aws" | "aws-ci" | "computer" | "clinic";
 export const HOME_LABEL: Record<KeyHome, string> = {
   vercel: "Vercel (shop window)",
   aws: "AWS (clinic engine)",
-  "aws-ci": "AWS, deploy shelf",
+  "aws-ci": "AWS, deploys only",
   computer: "Your computer",
   clinic: "Each clinic's own login",
 };
@@ -373,6 +373,7 @@ export const KEYS: readonly KeyDef[] = [
   { id: "vercel.RETELL_DEMO_AGENT_ID", env: "RETELL_DEMO_AGENT_ID", home: "vercel", label: "Which Retell agent is AYA's demo", need: "required", rotation: { kind: "public" } },
   { id: "vercel.RETELL_DEMO_FROM_NUMBER", env: "RETELL_DEMO_FROM_NUMBER", home: "vercel", label: "The demo line's phone number", need: "required", rotation: { kind: "public" } },
   { id: "vercel.RETELL_CLINIC_DEMO_AGENT_ID", env: "RETELL_CLINIC_DEMO_AGENT_ID", home: "vercel", label: "The personalised-demo agent", need: "optional", rotation: { kind: "public" } },
+  { id: "vercel.RETELL_DEMO_INBOUND_AGENT_ID", env: "RETELL_DEMO_INBOUND_AGENT_ID", home: "vercel", label: "The homepage's \"Talk now\" agent", need: "optional", rotation: { kind: "public" } },
   {
     id: "vercel.RETELL_WEBHOOK_KEY",
     env: "RETELL_WEBHOOK_KEY",
@@ -572,6 +573,19 @@ export const KEYS: readonly KeyDef[] = [
 
   // --- Not visible to any running app -------------------------------------------
   {
+    id: "aws-ci.MIGRATION_DATABASE_URL",
+    env: "MIGRATION_DATABASE_URL",
+    home: "aws-ci",
+    label: "The database's owner password (migrations only)",
+    need: "required",
+    rotation: {
+      kind: "every",
+      days: 180,
+      how: "Set db/MIGRATOR_PASSWORD and migrator/MIGRATION_DATABASE_URL to __unset__, then run deploy-app.yml with bootstrap_db and migrate (infra/aws/README.md, Rotating secrets).",
+      impact: "None for patients or clinics: only a deploy's migration step uses it.",
+    },
+  },
+  {
     id: "aws-ci.CLOUDFLARE_API_TOKEN",
     env: "CLOUDFLARE_API_TOKEN",
     home: "aws-ci",
@@ -590,6 +604,52 @@ export const KEYS: readonly KeyDef[] = [
   { id: "clinic.meta", env: null, home: "clinic", label: "Each clinic's Instagram, Messenger or WhatsApp login", need: "required", rotation: { kind: "only-if", when: "a clinic disconnects or Meta revokes it", how: "The clinic presses Connect again in its portal." } },
   { id: "clinic.stripe", env: null, home: "clinic", label: "Each clinic's Stripe connection", need: "required", rotation: { kind: "only-if", when: "a clinic disconnects its Stripe", how: "The clinic connects again from its portal, or a link from Ops." } },
 ];
+
+/**
+ * Environment variables either app reads that are settings, not keys: a
+ * number, a switch, a public address, or something the platform sets. They
+ * are not on the map because nothing can leak through them and nothing is
+ * rotated, and each says why.
+ *
+ * system-map.test.ts holds both apps to this: every variable their code
+ * reads must be a key on the map or listed here, so a new secret cannot
+ * arrive unseen. Add a new variable to KEYS if it guards a connection or
+ * could do harm in the wrong hands; here only if it is plainly neither.
+ */
+export const NOT_KEYS: Readonly<Record<string, string>> = {
+  // Set by the platform.
+  NODE_ENV: "Set by Node: development or production.",
+  NEXT_PHASE: "Set by Next while it builds.",
+  VERCEL_ENV: "Set by Vercel: production or preview.",
+  PORT: "Set by the AWS task: which port to listen on.",
+  HOSTNAME: "Set by the AWS task: which address to listen on.",
+  KEEP_ALIVE_TIMEOUT: "Set by the AWS task: how long an idle connection stays open.",
+  AWS_REGION: "Which AWS region: us-east-1, the one under the BAA.",
+  // Public addresses and names.
+  NEXT_PUBLIC_SITE_URL: "healdesk.io's public address.",
+  NEXT_PUBLIC_PORTAL_URL: "The clinic portal's public sign-in address.",
+  HEALDESK_REPO: "Which GitHub repository the Changes tab reads: a name.",
+  HEALDESK_APP_URL: "The engine's private address. The engine reads it only to refuse it in any email it sends.",
+  HEALDESK_SUPPORT_PHONE: "Our public support number, shown in the portal's Help.",
+  HEALDESK_CALL_BOOKING_URL: "The public page clinics book their set-up call on.",
+  HEALDESK_OPS_EMAIL: "Where operator alerts are emailed: an address.",
+  HEALDESK_TEST_NUMBERS: "Your own test phones, so a test call to a clinic is never billed.",
+  // Settings and switches.
+  CSP_REPORT_ONLY: "Whether the site's security policy only reports, while it is being rolled out.",
+  CSP_REPORT_URI: "Where those security-policy reports go.",
+  DEMO_DAILY_CHAT_CAP: "A daily limit on demo chats, to cap the bill.",
+  DEMO_DAILY_CALL_CAP: "A daily limit on demo calls, to cap the bill.",
+  DEMO_DAILY_WEBCALL_CAP: "A daily limit on personalised-demo browser calls.",
+  VOICE_DEMO_DAILY_WEBCALL_CAP: "A daily limit on the homepage's browser calls.",
+  OWN_DEMO_DAILY_CAP: "A daily limit on \"send me my own AI assistant\" demos.",
+  STRIPE_AUTOMATIC_TAX: "Whether Stripe adds sales tax at checkout.",
+  HEALDESK_EMAIL_TRANSPORT: "Which service carries the engine's email: a word.",
+  HEALDESK_KMS_PROVIDER: "Which key safe the engine uses. The key itself never leaves AWS; the key-safe line checks it live.",
+  HEALDESK_KMS_KEY_ID: "Names the key in the key safe; not the key.",
+  HEALDESK_LOCAL_KEK: "Development only: production refuses it and uses the key safe.",
+  HEALDESK_DIRECT_BOOKING_ENABLED: "Your switch for AYA booking by herself rather than asking the clinic.",
+  HEALDESK_PHASE_TWO_ATTRIBUTION: "The phase-two switch, off in v1.",
+};
 
 // -----------------------------------------------------------------------------
 // Bridges: the curved lines
@@ -759,9 +819,9 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "web",
     to: "retell-demo",
     title: "We ask Retell to ring a clinic owner",
-    carries: "The owner's number and which demo to play",
-    example: "An owner types a mobile number and presses \"Have AYA call me\"; seconds later that phone rings from our demo number.",
-    keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_DEMO_AGENT_ID", "vercel.RETELL_DEMO_FROM_NUMBER", "vercel.RETELL_CLINIC_DEMO_AGENT_ID"],
+    carries: "The owner's number and which demo to play, or a browser call",
+    example: "An owner types a mobile number and presses \"Have AYA call me\"; seconds later that phone rings from our demo number. Or they press \"Talk now\" and speak to AYA in the browser.",
+    keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_DEMO_AGENT_ID", "vercel.RETELL_DEMO_FROM_NUMBER", "vercel.RETELL_CLINIC_DEMO_AGENT_ID", "vercel.RETELL_DEMO_INBOUND_AGENT_ID"],
     phi: false,
     build: "built",
   },
@@ -950,8 +1010,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "claude-baa",
     title: "Claude writes AYA's replies to patients",
-    carries: "The conversation so far and the clinic's settings",
-    example: "A patient asks \"anything Saturday morning?\". The engine asks Claude, under the business associate agreement, to write AYA's answer, then checks it against the clinic's rules before it is said.",
+    carries: "The conversation so far and the clinic's settings; and the portal's support chat, screened first",
+    example: "A patient asks \"anything Saturday morning?\". The engine asks Claude, under the business associate agreement, to write AYA's answer, then checks it against the clinic's rules before it is said. The clinic's own support chat in the portal uses the same key, and answers with a fixed line and our support number until it is added.",
     keys: ["aws.ANTHROPIC_API_KEY"],
     phi: true,
     build: "built",
@@ -1090,7 +1150,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "The engine's memory",
     carries: "Clinics, bookings, conversations, settings",
     example: "Bookings and conversations live in the database. A caller's phone number is stored only as a scrambled fingerprint, never as the number itself.",
-    keys: ["aws.DATABASE_URL", "aws.HEALDESK_IDENTIFIER_REF_KEY"],
+    keys: ["aws.DATABASE_URL", "aws.HEALDESK_IDENTIFIER_REF_KEY", "aws-ci.MIGRATION_DATABASE_URL"],
     phi: true,
     build: "built",
   },
@@ -1119,7 +1179,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["aws.BETTER_AUTH_SECRET", "aws.BETTER_AUTH_URL"],
     phi: true,
     build: "partial",
-    buildNote: "Home, Settings, Knowledge, Billing and the set-up wizard are built; the Conversations and Bookings screens are not yet.",
+    buildNote: "Home, Settings, Knowledge, Billing, the set-up wizard, the support chat and Conversations (opened only behind a passkey) are built; the Bookings screen is not yet.",
   },
   {
     id: "connectors-app",
@@ -1413,7 +1473,7 @@ function keyState(key: KeyDef, live: LiveInputs): { state: KeyState; text: strin
     case "computer":
       return { state: "not-checked", text: "Lives on your computer, where this page cannot look." };
     case "aws-ci":
-      return { state: "not-checked", text: "Only GitHub's deploys can read it, so this page cannot check it." };
+      return { state: "not-checked", text: "Only a deploy run from GitHub reads it, and no running service is given it, so this page cannot check it." };
     case "clinic":
       return { state: "per-clinic", text: "One per clinic, made when the clinic presses its login button. Ops shows each clinic's." };
     case "vercel": {

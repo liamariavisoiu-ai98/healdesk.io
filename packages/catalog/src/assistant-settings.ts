@@ -68,6 +68,24 @@ export const ASSISTANT_LANGUAGE_NAMES: Readonly<Record<AssistantLanguage, string
   ru: "Russian",
 };
 
+/**
+ * The languages AYA may answer in today: the ones its screens read. The
+ * urgent screen (urgent-content.ts) and the clinical screen
+ * (clinical-content.ts) are written in English and Spanish, and a message in
+ * any other language gets a fixed line instead of the model
+ * (message-language.ts). Settings offers only these, and the engine reads
+ * only these from a clinic's choice; ASSISTANT_LANGUAGES stays the list the
+ * database accepts, so a row saved before keeps its meaning. A language joins
+ * this list only with its urgent set, its clinical vocabulary, its fixed
+ * replies and their tests.
+ */
+export const SCREENED_LANGUAGES = ["en", "es"] as const satisfies readonly AssistantLanguage[];
+export type ScreenedLanguage = (typeof SCREENED_LANGUAGES)[number];
+
+export function isScreenedLanguage(value: unknown): value is ScreenedLanguage {
+  return typeof value === "string" && (SCREENED_LANGUAGES as readonly string[]).includes(value);
+}
+
 /** The longest greeting the clinic may write after the locked AI line. */
 export const GREETING_MAX_CHARS = 300;
 

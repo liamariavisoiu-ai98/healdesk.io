@@ -61,9 +61,9 @@ export function CompliancePanel({
       <h1 className="font-display text-[32px] font-medium tracking-[-0.02em]">Compliance</h1>
       <p className="text-muted mt-2 max-w-[70ch] text-sm">
         Go-live is automatic: a clinic goes to production by itself once its own part is done and
-        everything below that its channel needs is attested. A withdrawal never takes a live channel
-        offline; it holds back what has not gone live yet. Each entry needs a fresh code from your
-        authenticator. Days are UTC; today is {v.today}.
+        everything below that its channel needs is attested and built. A withdrawal never takes a
+        live channel offline; it holds back what has not gone live yet. Each entry needs a fresh
+        code from your authenticator. Days are UTC; today is {v.today}.
       </p>
 
       <Section title="Business associate agreements in the chain">
@@ -81,7 +81,7 @@ export function CompliancePanel({
               <p className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-semibold">{item.label}</span>
                 <span className={item.built ? "text-sm" : "text-red-deep text-sm font-semibold"}>
-                  {item.built ? (item.checked ? "Built, asked" : "Built") : "Not built, named only"}
+                  {item.built ? "Built" : "Not built: holds every go-live"}
                 </span>
               </p>
               <p className="text-muted mt-1">{item.detail}</p>

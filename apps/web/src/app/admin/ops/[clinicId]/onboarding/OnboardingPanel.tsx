@@ -495,7 +495,10 @@ function GoLiveControl({ view, onGoLive }: { view: OnboardingView; onGoLive: Act
   const named =
     notBuilt.length > 0 ? (
       <div className="mt-3">
-        <p className="text-muted text-sm">Gate B names these, and go-live doesn&rsquo;t ask them, because they aren&rsquo;t built:</p>
+        <p className="text-muted text-sm">
+          Gate B asks these of the code and they aren&rsquo;t built yet, so no clinic goes live
+          until they are:
+        </p>
         <ul className="text-muted list-disc pl-5 text-sm">
           {notBuilt.map((m, i) => (
             <li key={i}>{m}</li>

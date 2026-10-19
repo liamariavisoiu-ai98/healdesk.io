@@ -22,16 +22,23 @@ import { PENDING_TEMPLATES } from "@/lib/email/templates/registry";
  *   - **The routed/answered counter and its miss notice**: not built. The
  *     runtime's count of what was routed to AYA against what she answered,
  *     which L17, L18 and L21 wait on and no package builds yet
- *     (lib/email/templates/registry.ts, package `runtime`). Go-live asks it
- *     "where it exists" (the WP2 brief): until it exists it is named, not
- *     asked. Built, by this reading, once no template waits on the runtime.
+ *     (lib/email/templates/registry.ts, package `runtime`). Built once
+ *     ROUTED_ANSWERED_COUNTER_BUILT says so and no template waits on the
+ *     runtime.
  *   - **Annex X9's live set** (L1, L3, L4, L7 to L15, L17 to L21, L32, L34,
- *     E3 to E6): built once each of their kinds has a template. Named while
- *     one waits; its kinds' own packages ship them.
+ *     E3 to E6): built once each of their kinds has a template; its kinds'
+ *     own packages ship them.
  *
- * Neither of the last two holds go-live back: they are listed beside it, on
- * the operator's go-live view and /admin/compliance, so whoever attests the
- * platform sees what is not built before they do.
+ * Gate B is fail-closed (the plan's Gates table), so whatever is not built
+ * holds every clinic's go-live: `gateBNotBuilt()` is that list, go-live's
+ * `gate_b_not_built` is its code, and the go-live view and /admin/compliance
+ * name each item. Removing an item from the list is what opens go-live: the
+ * runtime does it by building the counter and its templates, which sets
+ * ROUTED_ANSWERED_COUNTER_BUILT and takes L17, L18 and L21 out of
+ * PENDING_TEMPLATES, and in the same commit redefines
+ * app_gate_b_code_built() (drizzle/0088), the database's copy of "the list
+ * is empty", to true. tests/go-live.test.ts fails while the two disagree, so
+ * neither opens without the other.
  */
 
 /** The runtimes that ask the answer gate before AYA answers. Every channel, today. */
@@ -71,7 +78,7 @@ export type GateBCodeItem = {
   id: GateBCodeId;
   label: string;
   built: boolean;
-  /** Whether go-live asks it: a built item that is checked, or one named only. */
+  /** Whether go-live asks it. Every item is asked: one not built holds go-live (`gate_b_not_built`). */
   checked: boolean;
   detail: string;
 };
@@ -88,10 +95,18 @@ export function pendingLiveSet(): { kind: string; annex: string; package: string
     .sort((a, b) => a.annex.localeCompare(b.annex, "en", { numeric: true }));
 }
 
-/** Whether the routed/answered counter exists: no template still waits on the runtime for it. */
+/**
+ * The runtime's routed/answered counter exists: false until the commit that
+ * builds it, which sets this beside its templates (see the header).
+ */
+export const ROUTED_ANSWERED_COUNTER_BUILT = false;
+
+/** Whether the routed/answered counter exists: built, and no template still waits on the runtime for it. */
 export function routedAnsweredCounterBuilt(): boolean {
   const pending = PENDING_TEMPLATES as Readonly<Record<string, { package: string }>>;
-  return !Object.values(pending).some((p) => p.package === "runtime");
+  return (
+    ROUTED_ANSWERED_COUNTER_BUILT && !Object.values(pending).some((p) => p.package === "runtime")
+  );
 }
 
 export function gateBInCode(): GateBCodeItem[] {
@@ -120,25 +135,29 @@ export function gateBInCode(): GateBCodeItem[] {
       id: "routed_answered_counter",
       label: "The routed/answered counter and its miss notice",
       built: counter,
-      checked: false,
+      checked: true,
       detail: counter
-        ? "Built. Go-live does not ask it yet: ask it in the commit that wires its count into go-live."
-        : "Not built: no package builds the runtime's count of what was routed to AYA against what she answered, which the outage notices and the guarantee's miss notice (L17, L18, L21) wait on. Go-live asks it where it exists, so it does not hold a clinic back; a first-month guarantee claim is checked by hand until it does.",
+        ? "Built, with its outage and miss notices."
+        : "Not built: no package builds the runtime's count of what was routed to AYA against what she answered, which the outage notices and the guarantee's miss notice (L17, L18, L21) wait on. Gate B is fail-closed, so no clinic goes live until it is.",
     },
     {
       id: "live_email_set",
       label: "The live emails (Annex X9)",
       built: live.length === 0,
-      checked: false,
+      checked: true,
       detail:
         live.length === 0
           ? "Every email of the live set has a template."
-          : `Still without a template: ${live.map((p) => `${p.annex} (${p.kind}, ${p.package})`).join(", ")}. Each is queued and held until its template ships; go-live does not wait on it.`,
+          : `Still without a template: ${live.map((p) => `${p.annex} (${p.kind}, ${p.package})`).join(", ")}. Gate B is fail-closed, so no clinic goes live until each has one.`,
     },
   ];
 }
 
-/** The operator's lines for what Gate B names and does not ask: every item not built. */
+/**
+ * What Gate B asks of the code and is not built, in the operator's words:
+ * each line holds every clinic's go-live (`gate_b_not_built`) until it
+ * leaves this list (see the header for how the runtime takes it off).
+ */
 export function gateBNotBuilt(): string[] {
   return gateBInCode()
     .filter((item) => !item.built)

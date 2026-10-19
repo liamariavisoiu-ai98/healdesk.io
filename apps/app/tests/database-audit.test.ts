@@ -22,7 +22,7 @@ import {
 } from "./setup/db";
 import { inTenant, seedClinic } from "./setup/factories";
 import { readyWebChat, setAgreement } from "./setup/go-live";
-import { attestPlatform } from "./setup/platform";
+import { attestPlatform, setGateBCodeBuilt } from "./setup/platform";
 
 /**
  * The September database audit, asserted (drizzle/0031_database_audit.sql).
@@ -111,9 +111,13 @@ describeDb("database audit (0031)", () => {
     await runMigrations();
     await truncateAll();
     await attestPlatform();
+    // The go-live tests below stand in for the commit that builds what Gate
+    // B asks of the code (tests/go-live.test.ts holds today's state, false).
+    await setGateBCodeBuilt(true);
   }, 60_000);
 
   afterAll(async () => {
+    await setGateBCodeBuilt(false);
     await closePools();
   });
 
@@ -533,6 +537,19 @@ describeDb("database audit (0031)", () => {
       ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/covered-entity status/) });
     });
     await getMigratorPool().query(`update clinics set is_covered_entity = false where id = $1`, [clinicId]);
+
+    // Gate B is fail-closed: while what it asks of the code is not built, no
+    // clinic goes live, and the database says why (0088, gate_b_not_built).
+    await setGateBCodeBuilt(false);
+    try {
+      await asTenant(clinicId, async (c) => {
+        await expect(
+          c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
+        ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/Gate B asks what is not built yet/) });
+      });
+    } finally {
+      await setGateBCodeBuilt(true);
+    }
 
     // Committed, not rolled back: the flip is the thing under test.
     const { rows } = await committedInTenant(clinicId, (c) =>

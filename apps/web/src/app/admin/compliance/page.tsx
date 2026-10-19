@@ -25,7 +25,8 @@ import { CompliancePanel, type AttestationForm } from "./CompliancePanel";
  * operator's authenticator, checked on this app before the signed request
  * goes (lib/admin/platform-compliance.ts). A withdrawal never takes a live
  * channel offline; it holds back what has not gone live yet. What Gate B
- * names but does not ask, because it is not built, is listed beside it.
+ * asks of the code is listed beside it, and while any of it is not built no
+ * clinic goes live.
  *
  * Business data about the platform, never a clinic's or a patient's. Every
  * read and write is an operation on the signed ops envelope; this app keeps

@@ -60,7 +60,7 @@ import {
   seedEntitled,
   setWeekdayHours,
 } from "./setup/factories";
-import { attestPlatform } from "./setup/platform";
+import { attestPlatform, setGateBCodeBuilt } from "./setup/platform";
 import { provisionPortalClinic } from "./setup/portal-clinic";
 
 /**
@@ -82,6 +82,15 @@ import { provisionPortalClinic } from "./setup/portal-clinic";
  */
 
 const flags = vi.hoisted(() => ({ failBilling: false }));
+
+// Go-live waits on what Gate B asks of the code and is not built
+// (lib/compliance/gate-b.ts; tests/go-live.test.ts holds that). This file's
+// go-lives stand in for the commit that builds it: nothing on the list, and
+// app_gate_b_code_built() true in the database for the file (beforeAll).
+vi.mock("@/lib/compliance/gate-b", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/compliance/gate-b")>();
+  return { ...actual, gateBNotBuilt: () => [] };
+});
 
 vi.mock("@/lib/billing/requests", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/billing/requests")>();
@@ -620,6 +629,7 @@ describeDb("channel events against the database", () => {
     // Every channel's live asks the platform's attestations (drizzle/0088);
     // this file is about the channel's own inputs, so they are all in place.
     await attestPlatform();
+    await setGateBCodeBuilt(true);
   }, 180_000);
 
   afterEach(() => {
@@ -629,6 +639,7 @@ describeDb("channel events against the database", () => {
 
   afterAll(async () => {
     __setMetaRuntimeForTests(undefined, undefined);
+    await setGateBCodeBuilt(false);
     await closePools();
   });
 

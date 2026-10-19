@@ -9,7 +9,7 @@ import {
   type Channel,
 } from "@healdesk/catalog";
 import { sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { unsafeDb } from "@/db";
 import { agreementTemplateReleased } from "@/lib/agreements/kind";
@@ -67,7 +67,18 @@ import {
   setWeekdayHours,
 } from "./setup/factories";
 import { finishWizard, readyForGoLive, readyWebChat, setAgreement } from "./setup/go-live";
-import { attestPlatform, withdrawPlatform } from "./setup/platform";
+import { attestPlatform, setGateBCodeBuilt, withdrawPlatform } from "./setup/platform";
+
+// What Gate B asks of the code is not built today, so every clinic's go-live
+// waits on it (gate_b_not_built). The tests that take a clinic live stand in
+// for the commit that builds it: this list empty here, and
+// app_gate_b_code_built() true in the database (setGateBCodeBuilt). Null
+// reads the real list.
+const gate = vi.hoisted(() => ({ notBuilt: null as string[] | null }));
+vi.mock("@/lib/compliance/gate-b", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/compliance/gate-b")>();
+  return { ...actual, gateBNotBuilt: () => gate.notBuilt ?? actual.gateBNotBuilt() };
+});
 
 /**
  * Automatic go-live (WP2; plan Part G "Automatic go-live", Part J "Go-live",
@@ -111,18 +122,33 @@ const READY: GoLiveFacts = {
   agreement: { version: CURRENT_BAA_VERSION, kind: "baa" },
   platform: [],
   channels: [WEB_MET],
+  notBuilt: [],
 };
 
 describe("goLivePreconditions", () => {
-  test("everything in place is ok, and what Gate B names but does not ask is listed beside it", () => {
+  test("everything in place is ok; anything Gate B asks of the code and is not built holds it, named", () => {
     const check = goLivePreconditions(READY);
-    expect(check.ok).toBe(true);
-    expect(check.missing).toEqual([]);
-    expect(check.notBuilt).toEqual(
+    expect(check).toEqual({ ok: true, missing: [], notBuilt: [] });
+    const counter = "The routed/answered counter and its miss notice: Not built.";
+    const held = goLivePreconditions({ ...READY, notBuilt: [counter] });
+    expect(held).toEqual({
+      ok: false,
+      missing: [
+        {
+          code: "gate_b_not_built",
+          side: "ours",
+          text: `Gate B asks what is not built yet, so no clinic goes live: ${counter}`,
+        },
+      ],
+      notBuilt: [counter],
+    });
+    // The real list, today: the counter is on it.
+    expect(gate.notBuilt).toBeNull();
+    expect(
       gateBInCode()
         .filter((i) => !i.built)
-        .map((i) => `${i.label}: ${i.detail}`),
-    );
+        .map((i) => i.id),
+    ).toContain("routed_answered_counter");
   });
 
   test("each precondition missing alone is its own code, in the database's order", () => {
@@ -136,6 +162,10 @@ describe("goLivePreconditions", () => {
       [{ regulatoryRegime: "non-hipaa" }, "agreement_insufficient"],
       [{ platform: ["anthropic"] }, "platform"],
       [{ channels: [{ ...WEB_MET, met: false, missing: ["audit"] }] }, "gate_b"],
+      [
+        { notBuilt: ["The live emails (Annex X9): Still without a template: L17."] },
+        "gate_b_not_built",
+      ],
     ];
     for (const [over, code] of cases) {
       expect(goLiveCodes(goLivePreconditions({ ...READY, ...over })), code).toEqual([code]);
@@ -148,6 +178,7 @@ describe("goLivePreconditions", () => {
       agreement: { version: "dpa/1.0.0", kind: "dpa" },
       platform: ["aws"],
       channels: [],
+      notBuilt: ["x"],
     });
     // No agreement and a version to judge are each other's opposites; every other code comes in order.
     expect(goLiveCodes(everything)).toEqual(GO_LIVE_CODES.filter((c) => c !== "no_agreement"));
@@ -233,6 +264,9 @@ describe("goLivePreconditions", () => {
     expect(
       line({ platform: ["aws"], channels: [{ ...WEB_MET, met: false, missing: ["clinic_step"] }] }),
     ).toMatch(/Your channels, below/);
+    expect(line({ notBuilt: ["x"] })).toBe(
+      "Your part is done. We're finishing the last checks on our side before AYA answers anyone, and she goes live without anything more from you.",
+    );
     expect(line({ platform: ["anthropic"] })).toBe(
       "Your part is done. We're finishing the last checks on our side before AYA answers anyone, and she goes live without anything more from you.",
     );
@@ -323,8 +357,10 @@ describe("Gate B in code", () => {
     );
   });
 
-  test("what is not built is named, not asked: the routed/answered counter while templates wait on it, and each live email still without one", () => {
+  test("what is not built is named and asked: the routed/answered counter while it and its templates wait, and each live email still without one", () => {
     const items = gateBInCode();
+    // Gate B is fail-closed: every item is asked.
+    expect(items.every((i) => i.checked)).toBe(true);
     expect(items.map((i) => i.id)).toEqual([
       "practice_questions",
       "answer_gate",
@@ -332,7 +368,6 @@ describe("Gate B in code", () => {
       "live_email_set",
     ]);
     const counter = items.find((i) => i.id === "routed_answered_counter")!;
-    expect(counter.checked).toBe(false);
     expect(counter.built).toBe(routedAnsweredCounterBuilt());
     // Today the outage and miss notices (L17, L18, L21) wait on the runtime's counter.
     expect(routedAnsweredCounterBuilt()).toBe(false);
@@ -462,14 +497,98 @@ async function passedRun(
   return runId;
 }
 
-describeDb("automatic go-live against the database", () => {
+describeDb("Gate B's code, as the database and the TypeScript read it", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
     await attestPlatform();
   }, 180_000);
 
+  test("app_gate_b_code_built() is gateBNotBuilt() being empty: both say not built today", async () => {
+    const { rows } = await getMigratorPool().query<{ built: boolean }>(
+      `select app_gate_b_code_built() as built`,
+    );
+    expect(rows[0]!.built).toBe(gateBInCode().every((i) => i.built));
+    expect(rows[0]!.built).toBe(false);
+  });
+
+  test("everything else holds and only the counter is missing: the clinic stays as it is, and ops, the console and the tracker say why", async () => {
+    const counter = gateBInCode().find((i) => i.id === "routed_answered_counter")!;
+    const line = `${counter.label}: ${counter.detail}`;
+    gate.notBuilt = [line];
+    try {
+      const c = await ready("gl-not-built");
+      expect(await codes(c.clinicId)).toEqual(["gate_b_not_built"]);
+      await evaluate(c.clinicId);
+      expect((await clinicRow(c.clinicId)).data_classification).toBe("synthetic");
+      expect(await liveAt(c.clinicId, "web")).toBeNull();
+      expect((await heldAlerts(c.clinicId)).map((a) => a.fields.code)).toEqual([
+        "gate_b_not_built",
+      ]);
+
+      const text = `Gate B asks what is not built yet, so no clinic goes live: ${line}`;
+      const view = await data("getOnboarding", { clinicId: c.clinicId });
+      expect(view.goLive).toEqual({
+        ok: false,
+        missing: [text],
+        codes: ["gate_b_not_built"],
+        notBuilt: [line],
+      });
+      expect(await data("goLive", { clinicId: c.clinicId })).toEqual({
+        status: "refused",
+        message: "Not ready.",
+        missing: [text],
+      });
+      // The database refuses on its own, by name.
+      await expect(
+        withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+          tx.db.execute(sql`select app_mark_clinic_production(${c.clinicId}::uuid)`),
+        ).catch((error: unknown) => Promise.reject(new Error(refusalReason(error)))),
+      ).rejects.toThrow(/Gate B asks what is not built yet/);
+
+      const facts = await readHomeFacts({ clinicId: c.clinicId, address: null, actor: ACTOR });
+      expect(facts.goLive?.line).toMatch(
+        /^Your part is done\. We're finishing the last checks on our side/,
+      );
+      const state = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        readSetupState(tx, { userId: null }),
+      );
+      expect(
+        buildTracker(state!, CALENDAR, facts.practice, facts.goLive!).stages.at(-1),
+      ).toMatchObject({
+        id: "go_live",
+        state: "not_done",
+        detail: facts.goLive!.line,
+      });
+
+      // Built, on both sides, is what opens it: the next check takes it live.
+      gate.notBuilt = [];
+      await setGateBCodeBuilt(true);
+      expect(await codes(c.clinicId)).toEqual([]);
+      await evaluate(c.clinicId);
+      expect((await clinicRow(c.clinicId)).data_classification).toBe("production");
+      expect(await liveAt(c.clinicId, "web")).not.toBeNull();
+    } finally {
+      gate.notBuilt = null;
+      await setGateBCodeBuilt(false);
+    }
+  });
+});
+
+describeDb("automatic go-live against the database", () => {
+  beforeAll(async () => {
+    await runMigrations();
+    await truncateAll();
+    await attestPlatform();
+    // Every test below takes clinics live, so it stands in for the commit
+    // that builds Gate B's code; the describe above holds today's state.
+    gate.notBuilt = [];
+    await setGateBCodeBuilt(true);
+  }, 180_000);
+
   afterAll(async () => {
+    gate.notBuilt = null;
+    await setGateBCodeBuilt(false);
     await closePools();
   });
 
@@ -499,6 +618,17 @@ describeDb("automatic go-live against the database", () => {
     for (const [i, [label, fixture, expected]] of cases.entries()) {
       const c = await ready(`gl-parity-${i}`, fixture);
       expect(await codes(c.clinicId), label).toEqual(expected);
+    }
+
+    // What Gate B asks of the code, not built: last, after everything else.
+    const unbuilt = await ready("gl-parity-not-built", { version: "1.5.0" });
+    gate.notBuilt = ["The routed/answered counter and its miss notice: Not built."];
+    await setGateBCodeBuilt(false);
+    try {
+      expect(await codes(unbuilt.clinicId)).toEqual(["agreement_version", "gate_b_not_built"]);
+    } finally {
+      gate.notBuilt = [];
+      await setGateBCodeBuilt(true);
     }
 
     // Leaving, and healdesk's own demo clinic.
@@ -665,6 +795,46 @@ describeDb("automatic go-live against the database", () => {
     expect((await clinicRow(c.clinicId)).data_classification).toBe("production");
     expect(await liveAt(c.clinicId, "web")).not.toBeNull();
     expect((await wentLiveEvents(c.slug))[0]!.metadata).toMatchObject({ via: "sweep" });
+  });
+
+  test("going live waits on no transaction that only references the clinic: a call being recorded while it flips, and both finish", async () => {
+    // healdesk-io-58's review: a transaction that inserted a row referencing
+    // the clinic (a conversation at voice ingest, a connection in
+    // attachMetaChannel) holds FOR KEY SHARE on the clinic until it commits,
+    // and then asks for the channel rows. Go-live holds the channel rows and
+    // locks the clinic. Under FOR UPDATE the two waited on each other and
+    // Postgres aborted one; the flip changes no key, so FOR NO KEY UPDATE.
+    const c = await ready("gl-locks");
+    const call = await getAppPool().connect();
+    const flip = await getAppPool().connect();
+    const tenant = `select set_config('app.clinic_id', $1, true)`;
+    const lockChannels = `select channel from clinic_channels where clinic_id = $1 order by channel for update`;
+    try {
+      await call.query("begin");
+      await call.query(tenant, [c.clinicId]);
+      await call.query(
+        `insert into conversations (clinic_id, channel, started_at) values ($1, 'web_chat', now())`,
+        [c.clinicId],
+      );
+      await flip.query("begin");
+      await flip.query(tenant, [c.clinicId]);
+      await flip.query(lockChannels, [c.clinicId]);
+      const flipped = flip.query(`select app_mark_clinic_production($1::uuid) as signed`, [
+        c.clinicId,
+      ]);
+      const calling = call.query(lockChannels, [c.clinicId]);
+      const signed = await flipped;
+      expect(signed.rows[0]!.signed).toBeInstanceOf(Date);
+      await flip.query("commit");
+      await expect(calling).resolves.toMatchObject({ rows: [{ channel: "web" }] });
+      await call.query("commit");
+    } finally {
+      await flip.query("rollback").catch(() => {});
+      await call.query("rollback").catch(() => {});
+      flip.release();
+      call.release();
+    }
+    expect((await clinicRow(c.clinicId)).data_classification).toBe("production");
   });
 
   test("nothing takes a live channel offline: a withdrawn attestation holds back only what has not gone live", async () => {

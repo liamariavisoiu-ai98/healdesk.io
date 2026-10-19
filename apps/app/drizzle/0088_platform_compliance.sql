@@ -39,12 +39,16 @@ CREATE INDEX "platform_compliance_subject_idx" ON "platform_compliance" USING bt
 --     covers the practice (app_agreement_kind_sufficient, 0051);
 --   * that the platform is attested (platform_compliance, below): the model
 --     provider, the database host and AWS, and the owner's launch promises;
---   * and Gate B for at least one channel: its runtime (ours and the
---     clinic's step), its practice questions passed (app_channel_audit_ok,
---     the SQL of lib/channels/audit-seam.ts and practiceQuestionsGate),
---     setup as its skip lines promise, and its own attestations (Retell,
---     phone's runtime and pass-through test; website chat's and the Meta
---     channel's runtimes).
+--   * Gate B for at least one channel: its runtime (ours and the clinic's
+--     step), its practice questions passed (app_channel_audit_ok, the SQL of
+--     lib/channels/audit-seam.ts and practiceQuestionsGate), setup as its
+--     skip lines promise, and its own attestations (Retell, phone's runtime
+--     and pass-through test; website chat's and the Meta channel's
+--     runtimes);
+--   * and nothing Gate B asks of the code left unbuilt (the routed/answered
+--     counter and its miss notice, Annex X9's live emails): Gate B is
+--     fail-closed, and app_gate_b_code_built() is the database's copy of
+--     lib/compliance/gate-b.ts's list being empty, false today.
 --
 -- A channel's `live` (app_channel_live_ok, 0079) now also asks the practice
 -- questions' gate and the channel's attestations, so a channel bought after
@@ -354,12 +358,34 @@ REVOKE ALL ON FUNCTION app_channel_inputs_ok(uuid, text) FROM PUBLIC;--> stateme
 REVOKE ALL ON FUNCTION app_channel_gate_b_ok(uuid, text) FROM PUBLIC;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
+-- Gate B in code: built, or not
+-- -----------------------------------------------------------------------------
+-- gateBNotBuilt() (lib/compliance/gate-b.ts) being empty, written out: SQL
+-- cannot read the template registry, so this says it as a constant. False
+-- while the runtime's routed/answered counter and its miss notice (L17, L18,
+-- L21) are not built, and while any of Annex X9's live emails waits for its
+-- template. The commit that empties the list redefines this to true, and
+-- tests/go-live.test.ts fails while the two disagree, so neither side opens
+-- go-live alone. STABLE with a pinned search path, never inlined, so a
+-- redefinition reaches every plan that calls it.
+CREATE OR REPLACE FUNCTION app_gate_b_code_built()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT false
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_gate_b_code_built() FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_gate_b_code_built() TO healdesk_app;--> statement-breakpoint
+
+-- -----------------------------------------------------------------------------
 -- What go-live still waits on
 -- -----------------------------------------------------------------------------
 -- The codes of goLivePreconditions (lib/onboarding/go-live.ts), in its order:
 -- leaving, demo, covered_status, no_agreement, agreement_version,
--- agreement_kind_mismatch, agreement_insufficient, platform, gate_b. Empty
--- when the clinic may go live. tests/go-live.test.ts runs fixtures through
+-- agreement_kind_mismatch, agreement_insufficient, platform, gate_b,
+-- gate_b_not_built. Empty when the clinic may go live. tests/go-live.test.ts runs fixtures through
 -- both and fails when they disagree.
 --
 -- SECURITY DEFINER so it reads as the functions it calls are written to,
@@ -426,6 +452,7 @@ BEGIN
                     AND app_channel_gate_b_ok(target_clinic, cc.channel)) THEN
     codes := codes || 'gate_b'::text;
   END IF;
+  IF NOT app_gate_b_code_built() THEN codes := codes || 'gate_b_not_built'::text; END IF;
   RETURN codes;
 END
 $$;--> statement-breakpoint
@@ -438,12 +465,16 @@ GRANT EXECUTE ON FUNCTION app_go_live_missing(uuid) TO healdesk_app;--> statemen
 -- The only path from synthetic to production, rewritten with
 -- goLivePreconditions. It runs in the clinic's own tenant (the channel
 -- events' writer calls it, lib/channels/events.ts, and so does the
--- operator's "Check go-live now"), locks the clinic's row so two callers flip
--- it once, and returns the agreement's acceptance date, which it copies into
--- baa_signed_at, as before. A clinic already in production is left as it is
--- and its date returned: go-live happens once. A refusal names what is
--- missing first, in the order of app_go_live_missing, with the rest in its
--- HINT, and writes nothing.
+-- operator's "Check go-live now"), locks the clinic's row FOR NO KEY UPDATE
+-- so two callers flip it once (FOR UPDATE would also wait on the FOR KEY
+-- SHARE that any open transaction inserting a row that references the
+-- clinic holds, a conversation or a connection, while that transaction may
+-- be waiting on the channel rows this caller holds: a deadlock; the flip
+-- changes no key column, so the weaker lock is enough), and returns the
+-- agreement's acceptance date, which it copies into baa_signed_at, as before.
+-- A clinic already in production is left as it is and its date returned:
+-- go-live happens once. A refusal names what is missing first, in the order
+-- of app_go_live_missing, with the rest in its HINT, and writes nothing.
 CREATE OR REPLACE FUNCTION app_mark_clinic_production(target_clinic uuid)
 RETURNS timestamptz
 LANGUAGE plpgsql
@@ -470,7 +501,7 @@ BEGIN
          c.regulatory_regime, c.agreement_kind, c.is_covered_entity
     INTO org, classification, signed_before, regime, clinic_kind, covered
     FROM clinics c WHERE c.id = target_clinic
-    FOR UPDATE;
+    FOR NO KEY UPDATE;
   IF org IS NULL THEN
     RAISE EXCEPTION 'Clinic % does not exist.', target_clinic USING ERRCODE = 'no_data_found';
   END IF;
@@ -520,10 +551,14 @@ BEGIN
       RAISE EXCEPTION 'The platform is not attested for go-live (%); refusing to mark clinic % production.',
         array_to_string(app_platform_missing(NULL), ', '), target_clinic
         USING ERRCODE = 'check_violation', HINT = 'An operator attests each on /admin/compliance. ' || rest;
-    ELSE
+    ELSIF 'gate_b' = ANY (missing) THEN
       RAISE EXCEPTION 'No channel of clinic % meets Gate B; refusing to mark it production.', target_clinic
         USING ERRCODE = 'check_violation',
               HINT = 'A channel needs its runtime, its practice questions passed, its own step, setup done and its attestations. ' || rest;
+    ELSE
+      RAISE EXCEPTION 'Gate B asks what is not built yet (app_gate_b_code_built); refusing to mark clinic % production.', target_clinic
+        USING ERRCODE = 'check_violation',
+              HINT = 'The routed/answered counter, its miss notice and the live emails come first (lib/compliance/gate-b.ts). ' || rest;
     END IF;
   END IF;
 
@@ -606,11 +641,13 @@ GRANT EXECUTE ON FUNCTION app_clinics_overview() TO healdesk_app;--> statement-b
 COMMENT ON TABLE platform_compliance IS
   'Ops-only, platform-wide: each operator attestation (or its withdrawal) of a vendor''s business associate agreement in the chain (anthropic, database_host, aws; retell for phone) or a Gate B readiness flag, with the operator, the dates and a reference to the document. Go-live and each channel''s live read the latest row per subject (app_platform_attested). Append-only; written outside any tenant, from the ops envelope. No clinic_id and no patient data, so no RLS (0088 says why) and no place in destruction or the purge.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_production(uuid) IS
-  'The only path from synthetic to production, automatic since 0088: in the clinic''s own tenant, once app_go_live_missing() is empty (not leaving, not a demo, covered status determined, an acceptable agreement of the clinic''s kind that covers it, the platform attested, and Gate B for a channel). Copies the agreement''s accepted_at into baa_signed_at; a clinic already in production is left as it is.';--> statement-breakpoint
+  'The only path from synthetic to production, automatic since 0088: in the clinic''s own tenant, once app_go_live_missing() is empty (not leaving, not a demo, covered status determined, an acceptable agreement of the clinic''s kind that covers it, the platform attested, Gate B for a channel, and nothing Gate B asks of the code unbuilt). Copies the agreement''s accepted_at into baa_signed_at; a clinic already in production is left as it is.';--> statement-breakpoint
 COMMENT ON FUNCTION app_go_live_missing(uuid) IS
   'What go-live still waits on, as goLivePreconditions'' codes in its order; empty when the clinic may go live. In the clinic''s own tenant only. No patient data.';--> statement-breakpoint
 COMMENT ON FUNCTION app_agreement_version_acceptable(text) IS
   'Whether a clinic may go live under an agreement version, by its kind: a DPA through app_dpa_version_released, a BAA through app_baa_version_acceptable. The SQL of agreementTemplateReleased() (parity test in tests/go-live.test.ts).';--> statement-breakpoint
+COMMENT ON FUNCTION app_gate_b_code_built() IS
+  'Whether everything Gate B asks of the code is built: gateBNotBuilt() in lib/compliance/gate-b.ts being empty, written out (parity test in tests/go-live.test.ts). False until the routed/answered counter, its miss notice and the live emails exist; while false, go-live refuses every clinic (gate_b_not_built).';--> statement-breakpoint
 COMMENT ON FUNCTION app_dpa_version_released(text) IS
   'The released DPA versions, written out: none until the owner releases the DPA (packages/catalog/src/dpa.ts). Must equal getDpaTemplate(v).approvedByCounsel (parity test in tests/go-live.test.ts).';--> statement-breakpoint
 COMMENT ON FUNCTION app_channel_live_ok(uuid, text) IS
@@ -642,8 +679,9 @@ BEGIN
   END IF;
   IF has_function_privilege('public', 'app_go_live_missing(uuid)', 'EXECUTE')
      OR has_function_privilege('public', 'app_mark_clinic_production(uuid)', 'EXECUTE')
-     OR NOT has_function_privilege('healdesk_app', 'app_mark_clinic_production(uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'go-live''s definers must be executable by healdesk_app and not by PUBLIC.';
+     OR NOT has_function_privilege('healdesk_app', 'app_mark_clinic_production(uuid)', 'EXECUTE')
+     OR app_gate_b_code_built() THEN
+    RAISE EXCEPTION 'go-live''s definers must be executable by healdesk_app and not by PUBLIC, and Gate B''s code is not built yet.';
   END IF;
 END
 $$;

@@ -50,10 +50,12 @@ import type { TenantTx } from "@/lib/tenant";
  *   6. `gate_b`: at least one channel meets Gate B: its live inputs but the
  *      go-live itself (its runtime, its practice questions, setup, the
  *      clinic's own step), its own attestations (Retell and phone's tests;
- *      the other channels' runtimes) and the answer gate.
- *
- * What Gate B names but does not ask, because it is not built, is listed
- * beside the answer as `notBuilt` (lib/compliance/gate-b.ts).
+ *      the other channels' runtimes) and the answer gate;
+ *   7. `gate_b_not_built`: nothing Gate B asks of the code is unbuilt (the
+ *      routed/answered counter and its miss notice, Annex X9's live emails;
+ *      lib/compliance/gate-b.ts). Gate B is fail-closed, so while any is,
+ *      no clinic goes live; each is named as `notBuilt`, and taking it off
+ *      that list is what opens go-live.
  *
  * A refusal leaves the clinic as it is and says why: to the operator here
  * and in the console's go-live view, to ops once per reason
@@ -74,6 +76,7 @@ export const GO_LIVE_CODES = [
   "agreement_insufficient",
   "platform",
   "gate_b",
+  "gate_b_not_built",
 ] as const;
 export type GoLiveCode = (typeof GO_LIVE_CODES)[number];
 
@@ -111,12 +114,14 @@ export type GoLiveFacts = {
   /** What every channel needs attested and is not. */
   platform: readonly PlatformSubject[];
   channels: readonly GoLiveChannelGate[];
+  /** What Gate B asks of the code and is not built (gateBNotBuilt), in the operator's words. */
+  notBuilt: readonly string[];
 };
 
 export type GoLiveCheck = {
   ok: boolean;
   missing: GoLiveMissing[];
-  /** What Gate B names and go-live does not ask, because it is not built. */
+  /** What Gate B asks of the code and is not built: each holds go-live (`gate_b_not_built`). */
   notBuilt: string[];
 };
 
@@ -140,14 +145,6 @@ const INPUT_WORDS: Record<LiveInput, string> = {
   platform: "its attestations",
   go_live: "go-live",
 };
-
-let notBuiltMemo: string[] | null = null;
-
-/** Gate B's items that are not built; the template registry is static, so read once. */
-function notBuiltNow(): string[] {
-  notBuiltMemo ??= gateBNotBuilt();
-  return [...notBuiltMemo];
-}
 
 /** Pure: what stands between the clinic and production, in the database's order. */
 export function goLivePreconditions(facts: GoLiveFacts): GoLiveCheck {
@@ -208,7 +205,14 @@ export function goLivePreconditions(facts: GoLiveFacts): GoLiveCheck {
   if (!facts.channels.some((c) => gateBMet(c))) {
     add("gate_b", gateBText(facts.channels), facts.channels.some((c) => c.missing.length === 0) ? "ours" : "clinic");
   }
-  return { ok: missing.length === 0, missing, notBuilt: notBuiltNow() };
+  if (facts.notBuilt.length > 0) {
+    add(
+      "gate_b_not_built",
+      `Gate B asks what is not built yet, so no clinic goes live: ${facts.notBuilt.join(" ")}`,
+      "ours",
+    );
+  }
+  return { ok: missing.length === 0, missing, notBuilt: [...facts.notBuilt] };
 }
 
 /** Gate B for one channel, as go-live asks it: the answer gate is the code's part. */
@@ -271,6 +275,7 @@ export async function readGoLiveFacts(
     agreement: inEffect ? { version: inEffect.documentVersion, kind: inEffect.agreementKind } : null,
     platform: input.platform,
     channels: input.channels,
+    notBuilt: gateBNotBuilt(),
   };
 }
 
@@ -400,7 +405,7 @@ export function goLiveSummary(production: boolean, check: GoLiveCheck): GoLiveSu
       line: "AYA goes live on a channel once her practice questions pass and that channel's own step is done: Your channels, below, says what each still needs.",
     };
   }
-  if (codes.has("platform")) {
+  if (codes.has("platform") || codes.has("gate_b_not_built")) {
     return {
       production,
       line: "Your part is done. We're finishing the last checks on our side before AYA answers anyone, and she goes live without anything more from you.",

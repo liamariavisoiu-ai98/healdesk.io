@@ -4,7 +4,9 @@
 > The owner releases it at launch (Gate A) by setting `approvedByCounsel` to
 > true on `DPA_TEMPLATES[0]` in `packages/catalog/src/dpa.ts`, after reading
 > [`docs/dpa-v1.0.0.txt`](../dpa-v1.0.0.txt), once the rest of § 9's checklist
-> is done: the flag alone does not let a DPA practice go live (gap 11).
+> is done: the flag alone does not let a DPA practice go live, and its
+> release adds `dpa/1.0.0` to `app_dpa_version_released` in a migration in
+> the same commit (gap 11).
 > Drafted by an AI assistant, as the rest of this folder was; the primary
 > sources are linked so anyone can check the reading.
 >
@@ -473,18 +475,23 @@ above:
     LEGAL_VERSION 2026-10-12.2 defines it in Terms § 1 and uses it where the
     agreement ends (§§ 4, 7, 13, 14 and 15); the other sentences still name
     the BAA.
-11. **Go-live refuses every DPA practice today.** Main's 0048 made
-    `app_mark_clinic_production` accept only the BAA versions on
-    `app_baa_version_acceptable()`'s allow-list, and `goLivePreconditions`
-    and the ops card read `isBaaVersionAcceptable()`, which knows only BAA
-    templates. A practice bound to `dpa/1.0.0` therefore reads as superseded,
-    and the console tells the operator to have it sign the BAA, which
-    provisioning and the supersede both refuse for a vet. Releasing the DPA
-    needs a migration that leaves 0048's BAA floor intact and accepts a
-    released `dpa/*` version where `app_agreement_kind_sufficient` holds,
-    with the TypeScript checks to match and tests that take a vet and a "No"
-    practice live (TODO in 0051 and in `goLivePreconditions`). The PHI gate
-    asks the sufficiency rule on every write already.
+11. **Go-live refuses every DPA practice until the release, and the release
+    is two changes, not one.** Since WP2 (19 October 2026, apps/app
+    `drizzle/0088`) go-live is kind-aware: `app_mark_clinic_production` and
+    `goLivePreconditions` ask `app_agreement_version_acceptable`, which reads
+    a BAA through `app_baa_version_acceptable` and a DPA through
+    `app_dpa_version_released`, and ask `app_agreement_kind_sufficient` of
+    the agreement in effect. `app_dpa_version_released` is the SQL copy of
+    `approvedByCounsel` and lists nothing today, so a practice bound to
+    `dpa/1.0.0` is refused by name ("not released"), as its TypeScript twin
+    `agreementTemplateReleased` refuses it. **The release checklist
+    therefore has this item:** in the commit that sets `approvedByCounsel`
+    to true on `DPA_TEMPLATES[0]`, add a migration redefining
+    `app_dpa_version_released` to list `dpa/1.0.0`. Until it lands, go-live
+    keeps refusing every DPA practice, the safe way round, and apps/app's
+    `tests/go-live.test.ts` fails on the disagreement. Tests that take a vet
+    and a "No" practice live belong in that commit. The PHI gate asks the
+    sufficiency rule on every write already.
 12. **The "United States infrastructure" and "no call audio" sentences**
     depend on Retell's region and recording settings, which are unconfirmed
     (agreement-changes.md R6), exactly as in 1.2.1.

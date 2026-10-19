@@ -617,8 +617,7 @@ function add(counts: ErasureCounts, contact: ErasureResult): void {
 
 /**
  * Web chat handovers, and each one's chat where nothing of anyone else's
- * holds it (a contact, a booking request, an appointment or an amendment),
- * its queued transcript going by the cascade.
+ * holds it (eraseChats).
  */
 async function eraseHandovers(tx: TenantTx, counts: ErasureCounts, which: SQL, before: Date): Promise<void> {
   const asked = await tx.db
@@ -626,14 +625,28 @@ async function eraseHandovers(tx: TenantTx, counts: ErasureCounts, which: SQL, b
     .where(and(eq(handovers.clinicId, tx.clinicId), eq(handovers.channel, "web_chat"), which, lte(handovers.createdAt, before)))
     .returning({ conversationId: handovers.conversationId });
   counts.handovers += asked.length;
-  const chats = asked.map((h) => h.conversationId).filter((id): id is string => id !== null);
+  await eraseChats(
+    tx,
+    counts,
+    asked.map((h) => h.conversationId).filter((id): id is string => id !== null),
+    before,
+  );
+}
+
+/**
+ * Web chats, each where nothing of anyone else's holds it: no contact on it,
+ * and no booking request, appointment or amendment pointing at it. A web chat
+ * carries no contact, so nothing else in an erasure reaches one; its queued
+ * transcript and any handover go by the cascade.
+ */
+async function eraseChats(tx: TenantTx, counts: ErasureCounts, chats: string[], before: Date): Promise<void> {
   if (!chats.length) return;
   const gone = await tx.db
     .delete(conversations)
     .where(
       and(
         eq(conversations.clinicId, tx.clinicId),
-        inArray(conversations.id, chats),
+        inArray(conversations.id, [...new Set(chats)]),
         eq(conversations.channel, "web_chat"),
         isNull(conversations.contactId),
         lte(conversations.startedAt, before),
@@ -696,7 +709,6 @@ async function eraseSurveyed(
               eq(bookingRequests.channel, "web_chat"),
               inArray(bookingRequests.contactId, s.contactIds),
               isNotNull(bookingRequests.conversationId),
-              lte(bookingRequests.createdAt, before),
             ),
           )
       )
@@ -720,8 +732,11 @@ async function eraseSurveyed(
   if (s.handovers.length) {
     await eraseHandovers(tx, counts, inArray(handovers.id, s.handovers), before);
   }
+  // The chats their requests were made in, now that the requests are gone:
+  // any handover asked there, and the chat itself where nothing else holds it.
   if (requestChats.length) {
     await eraseHandovers(tx, counts, inArray(handovers.conversationId, [...new Set(requestChats)]), before);
+    await eraseChats(tx, counts, requestChats, before);
   }
 
   // A call with no caller ID: no contact led to its conversation, but its

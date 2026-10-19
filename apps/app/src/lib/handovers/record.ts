@@ -171,8 +171,8 @@ export async function linkCallHandovers(tx: TenantTx): Promise<number> {
 }
 
 /**
- * Thrown when a named handover's chat is held by a record of its own (a
- * booking request, an appointment, an amendment, or a contact on the chat):
+ * Thrown when a named handover's chat is held by a booking (a booking
+ * request, an appointment, or a contact on the chat):
  * erasing the handover alone would keep that chat, and erasing its contact
  * afterwards could never reach it. The person has a contact, so the operator
  * names that contact instead: erasure takes the chats a contact's booking
@@ -181,7 +181,7 @@ export async function linkCallHandovers(tx: TenantTx): Promise<number> {
  */
 export class HandoverChatHeldError extends Error {
   constructor() {
-    super("That chat also holds a booking or a contact. Name the person by that contact's id instead: the chats their bookings were made in go with them, with this handover.");
+    super("That chat also holds a booking. Name the person by the booking's contact id instead: the chats a contact's bookings were made in go with them, with this handover.");
     this.name = "HandoverChatHeldError";
   }
 }
@@ -221,8 +221,7 @@ export async function namedHandover(tx: TenantTx, id: string): Promise<{ handove
       .select({
         held: sql<boolean>`exists (select 1 from conversations v where v.id = ${chat}::uuid and v.contact_id is not null)
           or exists (select 1 from booking_requests r where r.conversation_id = ${chat}::uuid)
-          or exists (select 1 from appointments a where a.conversation_id = ${chat}::uuid)
-          or exists (select 1 from record_amendments ra where ra.conversation_id = ${chat}::uuid)`,
+          or exists (select 1 from appointments a where a.conversation_id = ${chat}::uuid)`,
       })
       .from(sql`(select 1) as once`);
     if (held?.held) throw new HandoverChatHeldError();

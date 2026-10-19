@@ -17,6 +17,7 @@ import { answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door"
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
+import { appendAmendment } from "@/lib/patient-rights/amendments";
 import { erasePerson, reapplyErasures } from "@/lib/patient-rights/erasure";
 import { exportClinic, exportPatient } from "@/lib/patient-rights/export";
 import { purgeClinic } from "@/lib/retention/purge";
@@ -395,12 +396,51 @@ describeDb("handovers: the table", () => {
       withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportPatient(tx, { contactId: chat, requestedBy: "practice" })),
     ).rejects.toBeInstanceOf(HandoverChatHeldError);
     const contactId = await inTenant(c.clinicId, async (q) => (await q.query<{ id: string }>(`select id from contacts where phone = '+14155550192'`)).rows[0]!.id);
+    // Their export carries what erasing them takes: the chat and the handover in it.
+    const bundle = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportPatient(tx, { contactId, requestedBy: "practice" }));
+    expect(bundle.conversations.map((v) => v.id)).toEqual([chat]);
+    expect(bundle.handovers).toHaveLength(1);
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => erasePerson(tx, { contactId, requestedBy: "practice" }));
     const left = await inTenant(c.clinicId, async (q) => ({
       handovers: (await q.query(`select id from handovers`)).rows.length,
       chats: (await q.query(`select id from conversations`)).rows.length,
     }));
     expect(left).toEqual({ handovers: 0, chats: 0 });
+  });
+
+  test("erasing a contact takes a chat their booking was made in with no handover, and a shared chat once its last booking goes", async () => {
+    const c = await seedClinic("handover-request-chats");
+    const booked = await conversationRow(c.clinicId, { channel: "web_chat" });
+    const shared = await conversationRow(c.clinicId, { channel: "web_chat" });
+    const ids = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      const [a] = await tx.db.insert(contacts).values({ clinicId: c.clinicId, phone: "+14155550201", timezone: "America/New_York", updatedAt: new Date() }).returning({ id: contacts.id });
+      const [b] = await tx.db.insert(contacts).values({ clinicId: c.clinicId, phone: "+14155550202", timezone: "America/New_York", updatedAt: new Date() }).returning({ id: contacts.id });
+      await createBookingRequest(tx, { channel: "web_chat", contactId: a!.id, conversationId: booked, preferredWindow: "Monday", treatment: null });
+      await createBookingRequest(tx, { channel: "web_chat", contactId: a!.id, conversationId: shared, preferredWindow: "Tuesday", treatment: null });
+      await createBookingRequest(tx, { channel: "web_chat", contactId: b!.id, conversationId: shared, preferredWindow: "Wednesday", treatment: null });
+      return { a: a!.id, b: b!.id };
+    });
+    await raise(c.clinicId, { channel: "web_chat", conversationId: shared });
+    const chats = async () => (await inTenant(c.clinicId, async (q) => (await q.query<{ id: string }>(`select id from conversations order by id`)).rows.map((r) => r.id)));
+
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => erasePerson(tx, { contactId: ids.a, requestedBy: "practice" }));
+    // The chat with no handover goes; the shared one stays for B's booking.
+    expect(await chats()).toEqual([shared]);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => erasePerson(tx, { contactId: ids.b, requestedBy: "practice" }));
+    expect(await chats()).toEqual([]);
+  });
+
+  test("an amended chat does not stop a call-back-only visitor being erased: the handover goes, the chat waits for its amendment's clock", async () => {
+    const c = await seedClinic("handover-amended");
+    const chat = await conversationRow(c.clinicId, { channel: "web_chat" });
+    await raise(c.clinicId, { channel: "web_chat", conversationId: chat });
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await attachHandoverCaller(tx, { conversationId: chat, capture: { firstName: "Jo", phone: "415 555 0211" } });
+      await appendAmendment(tx, { target: { kind: "conversation", id: chat }, amendment: "The visitor asked for this to be noted.", requestedBy: "practice", recordedBy: "ops@healdesk.test" });
+    });
+    const erased = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => erasePerson(tx, { contactId: chat, requestedBy: "practice" }));
+    expect(erased.deleted).toMatchObject({ handovers: 1 });
+    expect(await handoverRows(c.clinicId)).toEqual([]);
   });
 
   test("a call's handover the database missed linking is linked before anything relies on it", async () => {

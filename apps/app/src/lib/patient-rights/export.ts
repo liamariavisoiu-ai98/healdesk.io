@@ -320,8 +320,17 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
   // A call's handover the database missed linking is linked first, so it is
   // found through its conversation like the rest.
   await linkCallHandovers(tx);
+  // The web chats their booking requests were made in, which erasing them
+  // takes, with any handover asked there (lib/patient-rights/erasure.ts).
+  const requestChats = [
+    ...new Set(
+      bookings
+        .filter((b) => b.channel === "web_chat" && b.conversationId !== null)
+        .map((b) => b.conversationId!),
+    ),
+  ];
   const asked =
-    convos.length || phones.length || callback
+    convos.length || phones.length || callback || requestChats.length
       ? await tx.db
           .select(HANDOVER_COLUMNS)
           .from(handovers)
@@ -332,15 +341,32 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
                 convos.length ? inArray(handovers.conversationId, convos.map((v) => v.id)) : sql`false`,
                 phones.length ? inArray(handovers.callbackPhone, phones) : sql`false`,
                 callback ? eq(handovers.id, callback.handoverId) : sql`false`,
+                requestChats.length ? inArray(handovers.conversationId, requestChats) : sql`false`,
               ),
             ),
           )
       : [];
-  // The web chat behind a call-back handover is the person's too, where
-  // erasure would take it with them: no contact on it, and nothing of anyone
-  // else's holding it. The conversation row holds no contact to find it by.
+  // The web chat behind a call-back handover is the person's too, where no
+  // one else's booking holds it (an amended one included: erasure keeps it
+  // with its amendment, so access shows it). So is a chat their own booking request was made in.
+  // The conversation row holds no contact to find either by.
   const known = new Set(convos.map((v) => v.id));
-  const chatIds = [...new Set(asked.map((h) => h.conversationId).filter((id): id is string => id !== null && !known.has(id)))];
+  const ownChats = requestChats.filter((id) => !known.has(id));
+  const chatIds = [
+    ...new Set(
+      asked
+        .map((h) => h.conversationId)
+        .filter((id): id is string => id !== null && !known.has(id) && !ownChats.includes(id)),
+    ),
+  ];
+  if (ownChats.length) {
+    convos.push(
+      ...(await tx.db
+        .select()
+        .from(conversations)
+        .where(and(eq(conversations.clinicId, tx.clinicId), inArray(conversations.id, ownChats), eq(conversations.channel, "web_chat")))),
+    );
+  }
   if (chatIds.length) {
     convos.push(
       ...(await tx.db
@@ -354,7 +380,6 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
             isNull(conversations.contactId),
             sql`not exists (select 1 from booking_requests r where r.conversation_id = ${conversations.id})`,
             sql`not exists (select 1 from appointments a where a.conversation_id = ${conversations.id})`,
-            sql`not exists (select 1 from record_amendments ra where ra.conversation_id = ${conversations.id})`,
           ),
         )),
     );

@@ -45,6 +45,24 @@ channel calls it. Direct booking waits for counsel and the owner
 - **Limits**: 8 KB a request, 2,000 characters a message, 20 requests a minute per address and
   clinic in each process, 120 turns a conversation, a token 12 hours.
 
+## The bubble: `src/widget/v1.js`, `app/widget/v1.js/route.ts`
+
+The script the pasted line loads, served byte for byte from `apps/app`, cached five minutes and
+revalidated by its ETag, the same for every clinic and holding nothing of anyone's. It draws a launcher
+in a closed shadow root, builds its DOM without markup parsing, and needs no inline style or eval, so it
+runs under a strict CSP and Trusted Types once the page allows the script and connections to its origin.
+
+- **Start** is asked when the visitor first opens the bubble, not on every page view. The opening line is
+  shown first; a start with no opening line opens no chat.
+- **Requests** are `text/plain`, CORS-simple, so no preflight: the routes check the Origin themselves and
+  read the body as JSON whatever its type. No cookie, no storage: the token and the words live in the
+  page's memory only.
+- **End**: the visitor's End chat button, or a beacon on `pagehide`, once a message has been sent.
+- **Not answering** (any `contact_form` reply, a 5xx, a failure to reach us, or an answer the browser
+  hides because the page is not the clinic's site): the contact form when it takes messages, otherwise a
+  line saying to call the practice, with the number from an optional `data-phone` on the line, or a
+  pointer to the number on the clinic's own website.
+
 ## The voice endpoint: `src/voice/server.ts`, `lib/voice/retell.ts`
 
 Its own long-lived Node process from the same image (`node --import tsx src/voice/server.ts`,
@@ -75,8 +93,10 @@ Its own long-lived Node process from the same image (`node --import tsx src/voic
 
 ## Not built, or to check before the first real call
 
-- **The widget's script** (the bubble a clinic pastes) is not built; only its API. The spec's "first load
-  flips the channel live" is not wired either.
+- **The widget's script** (the bubble a clinic pastes) was built on 19 October 2026:
+  `apps/app/src/widget/v1.js`, served at `/widget/v1.js` (see "The bubble" above). The spec's "first load
+  flips the channel live" is still not automatic: the first chat opened from the clinic's own site asks an
+  operator to look and confirm in Ops, because an Origin header proves nothing.
 - **Retell's protocol fields**: `transfer_number` on a response, and the `call_details` event's
   `from_number`, `direction` and `start_timestamp`, are written from Retell's custom-LLM WebSocket
   reference as it was known; check them against the current reference and a test call on a synthetic

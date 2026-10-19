@@ -246,7 +246,7 @@ describe("assess", () => {
     expect(bridge(view, "app-kms")).toMatchObject({ status: "working", proven: true });
     expect(bridge(view, "you-console")).toMatchObject({ status: "working", proven: false });
     expect(bridge(view, "connectors-app").status).toBe("parked");
-    expect(bridge(view, "patients-widget").status).toBe("to-build");
+    expect(bridge(view, "patients-widget").status).toBe("working");
     expect(view.todos.filter((t) => t.kind === "fix" || t.kind === "add-key")).toEqual([]);
   });
 
@@ -384,7 +384,7 @@ describe("assess", () => {
     expect(view.todos.some((t) => t.kind === "check")).toBe(true);
     // What is unbuilt stays on the list, whatever the host is doing.
     const builds = view.todos.filter((t) => t.kind === "build").map((t) => t.bridge);
-    expect(builds).toEqual(expect.arrayContaining(["patients-widget", "app-clinic-stripe"]));
+    expect(builds).toEqual(expect.arrayContaining(["app-clinic-stripe"]));
   });
 
   test("a host that refuses the signed call breaks the bridge between the two apps", () => {

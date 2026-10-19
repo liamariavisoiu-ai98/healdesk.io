@@ -53,9 +53,9 @@ const PINNED = {
    */
   replaces: "2026-10-14.1",
   sha256: {
-    "/terms": "af0046414073c16282dd12593fe9fb070538ef226fca28f9bc2af54f7ae64b28",
+    "/terms": "0f681024aef44dbcdec7295b534646af5b375f86a5973c3534605b96768541da",
     "/privacy": "228833087c2dbed5b16a38cd1346a7186385fa1db33abab2af9efd13f16479cf",
-    "/data-deletion": "5adfb2b98798281af6d33d904e134feb0ba1ea578b6336dff9e74b9c6ac338d6",
+    "/data-deletion": "75c4b93b1bd3883451a475e1109325c43c5d6bf42eb51ce4b237c452cea28a7c",
   },
 } as const;
 

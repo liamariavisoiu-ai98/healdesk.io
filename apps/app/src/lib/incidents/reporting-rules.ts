@@ -41,6 +41,7 @@ export const REPORTING_RULES: Readonly<
   Record<AgreementKind, Readonly<Record<string, ReportingRule>>>
 > = {
   baa: {
+    "1.5.1": "sixty_calendar_days",
     "1.5.0": "sixty_calendar_days",
     "1.4.0": "sixty_calendar_days",
     "1.3.0": "sixty_calendar_days",
@@ -60,6 +61,7 @@ export const SUBCONTRACTOR_NOTICE_RULES: Readonly<
   Record<AgreementKind, Readonly<Record<string, SubcontractorNoticeRule>>>
 > = {
   baa: {
+    "1.5.1": "twenty_four_hours",
     "1.5.0": "twenty_four_hours",
     "1.4.0": "twenty_four_hours",
     "1.3.0": "twenty_four_hours",

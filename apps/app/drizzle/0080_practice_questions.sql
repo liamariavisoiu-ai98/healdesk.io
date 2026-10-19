@@ -184,6 +184,48 @@ REVOKE ALL ON FUNCTION app_due_practice_runs(integer) FROM PUBLIC;--> statement-
 GRANT EXECUTE ON FUNCTION app_due_practice_runs(integer) TO healdesk_app;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
+-- The practice questions record a channel's audit input (lib/channels/
+-- audit-seam.ts): app_channel_record_input, 0079's definer, takes a third
+-- closed way, ('audit_passed', 'practice_questions'), recorded with actor
+-- 'system' rather than 'ops', since no operator made it. Otherwise 0079's
+-- body as it was: inside a tenant, a bought channel, a clinic that has not
+-- left, once per channel. Its owner, search path and grants are kept by
+-- CREATE OR REPLACE.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION app_channel_record_input(p_channel text, p_kind text, p_via text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  c uuid := app_current_clinic_id();
+  inserted integer := 0;
+BEGIN
+  IF c IS NULL THEN
+    RAISE EXCEPTION 'app_channel_record_input runs inside a tenant' USING ERRCODE = '42501';
+  END IF;
+  IF NOT ((p_kind = 'audit_passed' AND p_via IN ('ops_attested', 'practice_questions'))
+          OR (p_kind = 'runtime_seen' AND p_channel = 'web' AND p_via = 'ops_confirmed')) THEN
+    RAISE EXCEPTION 'app_channel_record_input: % by % on % is not an input this records', p_kind, p_via, p_channel
+      USING ERRCODE = '22023';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM clinic_channels WHERE clinic_id = c AND channel = p_channel) THEN
+    RAISE EXCEPTION 'app_channel_record_input: the clinic did not buy %', p_channel USING ERRCODE = 'P0002';
+  END IF;
+  IF EXISTS (SELECT 1 FROM clinics WHERE id = c AND (offboarding_started_at IS NOT NULL OR destroyed_at IS NOT NULL)) THEN
+    RAISE EXCEPTION 'app_channel_record_input: the clinic has left' USING ERRCODE = '55000';
+  END IF;
+  INSERT INTO channel_events (clinic_id, channel, kind, actor, detail)
+  VALUES (c, p_channel, p_kind, CASE WHEN p_via = 'practice_questions' THEN 'system' ELSE 'ops' END,
+          jsonb_build_object('via', p_via))
+  ON CONFLICT (clinic_id, channel, kind) WHERE kind IN ('audit_passed', 'runtime_seen') DO NOTHING;
+  GET DIAGNOSTICS inserted = ROW_COUNT;
+  RETURN inserted > 0;
+END
+$$;--> statement-breakpoint
+
+-- -----------------------------------------------------------------------------
 -- The job row, off: every run asks the model, and spends real tokens. The
 -- owner switches it on with the engine's key in place.
 -- -----------------------------------------------------------------------------

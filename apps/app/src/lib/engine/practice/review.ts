@@ -214,6 +214,7 @@ export async function decidePracticeReview(input: {
       const results = await tx.db
         .select({
           id: practiceQuestionResults.id,
+          channel: practiceQuestionResults.channel,
           status: practiceQuestionResults.status,
           cases: practiceQuestionResults.cases,
         })
@@ -241,6 +242,7 @@ export async function decidePracticeReview(input: {
           runId: run.id,
           agentVersion: run.agentVersion,
           slug: await slugOf(tx),
+          channels: results.filter((r) => r.status !== "error").map((r) => r.channel),
           now,
         });
       } else {

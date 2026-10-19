@@ -12,6 +12,8 @@ import {
   type PracticeQuestionRun,
 } from "@/db/schema";
 import { assistantFacts } from "@/lib/assistant/facts";
+import { recordAuditPassed, type AuditPassVia } from "@/lib/channels/audit-seam";
+import { evaluateChannelsSafely } from "@/lib/channels/events";
 import { frontDoorFacts } from "@/lib/meta/front-door";
 import { enqueuePlanNotice } from "@/lib/notices/plan-notices";
 import { approveAgentConfigVersion } from "@/lib/onboarding/agent-config";
@@ -535,6 +537,7 @@ export async function recordPracticeRun(
     runId: run.id,
     agentVersion: read.agentVersion,
     slug: read.slug,
+    channels: input.outcomes.map((o) => o.channel),
     now,
     talkToAyaBuilt: input.talkToAyaBuilt,
   });
@@ -570,6 +573,8 @@ export async function afterPass(
     runId: string;
     agentVersion: number | null;
     slug: string;
+    /** The channels whose result passed: each has its audit input recorded. */
+    channels: readonly Channel[];
     now: Date;
     talkToAyaBuilt?: boolean;
   },
@@ -587,11 +592,30 @@ export async function afterPass(
         .where(eq(practiceQuestionRuns.id, input.runId));
     }
   }
+  await recordAuditInputs(tx, input.channels, "practice_questions", input.now);
   await queueReadyEmail(tx, {
     slug: input.slug,
     now: input.now,
     talkToAyaBuilt: input.talkToAyaBuilt,
   });
+}
+
+/**
+ * Record each channel's audit input (lib/channels/audit-seam.ts), once per
+ * channel, and move the clinic's channels on as far as their inputs now
+ * allow (lib/channels/events.ts), in a savepoint, so a channel that cannot
+ * move yet never undoes the run's own record; the hourly sweep tries again.
+ */
+async function recordAuditInputs(
+  tx: TenantTx,
+  channels: readonly Channel[],
+  via: AuditPassVia,
+  now: Date,
+): Promise<void> {
+  for (const channel of channels) await recordAuditPassed(tx, channel, { via });
+  if (channels.length > 0) {
+    await evaluateChannelsSafely(tx, { now, actor: via === "ops_attested" ? "ops" : "system" });
+  }
 }
 
 /**
@@ -617,7 +641,9 @@ export async function queueReadyEmail(
 // What the tracker, Home and the gate read
 // -----------------------------------------------------------------------------
 
-export async function readPracticeState(tx: TenantTx): Promise<PracticeState> {
+export async function readPracticeState(
+  tx: Pick<TenantTx, "db" | "clinicId">,
+): Promise<PracticeState> {
   const [pending] = await tx.db
     .select({ id: practiceQuestionRuns.id })
     .from(practiceQuestionRuns)
@@ -686,7 +712,10 @@ export type PracticeGate =
  * result passed (or the operator's override), and nothing changed since.
  * For the go-live event's writer (WP1, WP2), which asks it per channel.
  */
-export async function practiceQuestionsGate(tx: TenantTx, channel: Channel): Promise<PracticeGate> {
+export async function practiceQuestionsGate(
+  tx: Pick<TenantTx, "db" | "clinicId">,
+  channel: Channel,
+): Promise<PracticeGate> {
   const [row] = await tx.db
     .select({ liveAt: clinicChannels.liveAt })
     .from(clinicChannels)
@@ -756,6 +785,8 @@ export async function recordOperatorOverride(
     resourceId: run!.id,
     metadata: { override: true, version: read?.agentVersion ?? null },
   });
+  // The operator cleared every bought channel's audit, as an attestation does.
+  await recordAuditInputs(tx, read?.channels.map((c) => c.channel) ?? [], "ops_attested", now);
   return run!.id;
 }
 

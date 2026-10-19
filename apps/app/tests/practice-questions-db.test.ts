@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import type { AssistantResponder } from "@/lib/assistant/turn";
+import { channelsWithAuditPassed } from "@/lib/channels/audit-seam";
 import {
   duePracticeRuns,
   runOnePracticeRun,
@@ -125,6 +126,28 @@ async function runs(): Promise<Record<string, unknown>[]> {
     clinic.clinicId,
     async (c) => (await c.query(`select * from practice_question_runs order by requested_at`)).rows,
   );
+}
+
+/** The clinic's audit inputs as recorded: channel, how, by whom. */
+async function auditRows(): Promise<Record<string, unknown>[]> {
+  return inTenant(
+    clinic.clinicId,
+    async (c) =>
+      (
+        await c.query(
+          `select channel, actor, detail->>'via' as via from channel_events where kind = 'audit_passed' order by channel`,
+        )
+      ).rows,
+  );
+}
+
+/** What `live` reads as the channels whose audit has passed. */
+async function auditPassed(): Promise<string[]> {
+  return [
+    ...(await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      channelsWithAuditPassed(tx.db, tx.clinicId),
+    )),
+  ].sort();
 }
 
 /** The clinic's queued run, made due now. */
@@ -652,3 +675,81 @@ describeDb("the practice questions, against the database", () => {
     }
   });
 });
+
+describeDb(
+  "the practice questions as the channel's audit input (lib/channels/audit-seam.ts)",
+  () => {
+    beforeAll(async () => {
+      await runMigrations();
+    }, 300_000);
+
+    afterAll(async () => {
+      await closePools();
+    });
+
+    beforeEach(async () => {
+      clinic = await provisionPortalClinic("pq-seam", { plan: "voice-webchat-1000-1000" });
+    }, 120_000);
+
+    test("a pass records each channel's audit once, by the questions; a later failure holds back a channel not yet live, never a live one", async () => {
+      await setAnswers();
+      expect(await auditPassed()).toEqual([]);
+      const first = await dueQueued();
+      expect(
+        await runOnePracticeRun(clinic.clinicId, first, {
+          responder: model(),
+          metaResponder: null,
+          judge: judge("pass"),
+        }),
+      ).toBe("passed");
+      expect(await auditRows()).toEqual([
+        { channel: "voice", actor: "system", via: "practice_questions" },
+        { channel: "web", actor: "system", via: "practice_questions" },
+      ]);
+      expect(await auditPassed()).toEqual(["voice", "web"]);
+
+      // A change: until it is checked, neither channel's audit counts.
+      await saveSetupScreen(ctx(), "question", {
+        question: "Any offers?",
+        answer: "Signature facial is $149 this month.",
+      });
+      expect(await auditPassed()).toEqual([]);
+      const second = await dueQueued();
+      expect(
+        await runOnePracticeRun(clinic.clinicId, second, {
+          responder: model("$149"),
+          metaResponder: null,
+          judge: judge("pass"),
+        }),
+      ).toBe("failed");
+      // Failed: the record stays, once, and the channels wait for a pass.
+      expect(await auditRows()).toHaveLength(2);
+      expect(await auditPassed()).toEqual([]);
+      // A channel already live is never held back by it.
+      await inTenant(clinic.clinicId, (c) =>
+        c.query(
+          `update clinic_channels set ready_at = now(), live_at = now() where channel = 'voice'`,
+        ),
+      );
+      expect(await auditPassed()).toEqual(["voice"]);
+    });
+
+    test("the operator's approval of the script records every bought channel's audit as attested, which counts for good", async () => {
+      await setAnswers();
+      await runOperation(
+        "approveAgentConfig",
+        { clinicId: clinic.clinicId, approvedBy: "Laura Owner" },
+        OPERATOR,
+      );
+      expect(await auditRows()).toEqual([
+        { channel: "voice", actor: "ops", via: "ops_attested" },
+        { channel: "web", actor: "ops", via: "ops_attested" },
+      ]);
+      await saveSetupScreen(ctx(), "question", {
+        question: "Any offers?",
+        answer: "Ten percent off in May.",
+      });
+      expect(await auditPassed()).toEqual(["voice", "web"]);
+    });
+  },
+);

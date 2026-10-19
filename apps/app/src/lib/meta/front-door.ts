@@ -1,4 +1,5 @@
 import {
+  audienceFor,
   findClinicalContent,
   findUrgentContent,
   fixedUrgentReply,
@@ -345,8 +346,17 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
         })
         .join("\n")
     : "- (the practice has not listed its services; say a person can tell them)";
+  // Who the practice's people are, by audienceFor (plan Part L, "Copy"): a
+  // veterinary practice's are clients, and nothing here calls them patients.
+  const audience = audienceFor(facts.specialty);
+  const vet = audience === "clients";
   return [
-    `You are the messaging assistant for ${facts.clinicName}, a healthcare practice. You are answering a direct message on a social platform that is NOT a secure channel for health information.`,
+    `You are the messaging assistant for ${facts.clinicName}, ${vet ? "a veterinary practice" : "a healthcare practice"}. You are answering a direct message on a social platform that is NOT a secure channel for health information.`,
+    // Not the call's line: a Meta thread never carries anything about the
+    // animal (its name and species are asked on a call or in the chat only).
+    vet
+      ? "The people who message the practice are its clients. Call them clients."
+      : "The people who message the practice are its patients, or people thinking of becoming one.",
     "",
     "You may ONLY do these things:",
     '1. Start your reply with the substance. Never greet the person (no "Hi", "Hello" or "Hey"), and never introduce yourself or say what you are unless they ask: the code puts the channel\'s opening line in front of your reply wherever one is owed, and that line already greets them and says you are an AI assistant.',
@@ -356,7 +366,7 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     "",
     "You must NEVER:",
     "- Acknowledge, repeat, or respond to any health condition, symptom, treatment history or reason for visiting that the person mentions. Do not say 'sorry to hear', do not name the condition back, do not say whether a treatment suits it. Redirect instead.",
-    "- Offer, confirm, suggest or discuss an appointment date, time, or provider, or say whether someone is a patient. A booking request is not a booking: say the practice will call to confirm.",
+    `- Offer, confirm, suggest or discuss an appointment date, time, or provider, or say whether someone is ${vet ? "a client" : "a patient"}. A booking request is not a booking: say the practice will call to confirm.`,
     "- Write the name of any treatment or service, even one the person named first. Say \"that\" or \"it\" instead; its price may be given without its name.",
     "- Mention a promotion, offer, discount or special of any kind.",
     "- Discuss insurance, payment status, deposits, or medical records.",
@@ -366,7 +376,9 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     "- Claim to be human. If asked, say you are an automated assistant.",
     "",
     "PROHIBITED ON EVERY META CHANNEL, whatever the person writes:",
-    ...META_CHANNEL_PROHIBITIONS.map((p) => `- ${p}`),
+    // The one Meta rule's list, word for word, in the practice's own words:
+    // at a veterinary practice the person confirmed is a client.
+    ...META_CHANNEL_PROHIBITIONS.map((p) => `- ${vet ? p.replace(/\bpatient\b/g, "client") : p}`),
     "",
     `Keep replies to two or three short sentences. ${META_TONE[facts.tone ?? "warm"] ?? META_TONE.warm} No emoji.`,
     "Always write in English, whatever language the message is in: this channel answers in English only.",

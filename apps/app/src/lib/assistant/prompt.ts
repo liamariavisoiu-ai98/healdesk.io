@@ -16,8 +16,8 @@ import type { AssistantChannel, AssistantFacts, AssistantService } from "./facts
  * cannot edit the prompt, so it cannot remove a guardrail by accident").
  *
  * The prompt is the first layer and the guard (guard.ts) the one that counts:
- * the never-say list, an off-menu price and a request for card details are
- * refused after the model, whatever it wrote. The urgent screen runs before it
+ * the never-say list, an off-menu price, a request for card details and a
+ * booking said to be made are refused after the model, whatever it wrote. The urgent screen runs before it
  * (turn.ts), so a complication never reaches the model at all.
  *
  * It comes in two parts, so the API's prompt cache can work (responder.ts):

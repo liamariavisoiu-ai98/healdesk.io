@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import WebSocket from "ws";
 
-import type { AssistantResponder } from "@/lib/assistant/turn";
+import { SCREENED_TURN, type AssistantMessage, type AssistantResponder } from "@/lib/assistant/turn";
 import { addRecipient } from "@/lib/reporting/recipients";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
@@ -75,7 +75,12 @@ describeDb("the Retell voice endpoint", () => {
   let server: ReturnType<typeof createVoiceServer>;
   const transport = new FakeTransport();
   let modelAnswer: (last: string) => Record<string, unknown> = () => ({ reply: "Happy to help." });
-  const responder: AssistantResponder = async ({ messages }) => JSON.stringify(modelAnswer(messages[messages.length - 1]!.content));
+  /** Every conversation the model was sent, in order. */
+  const modelSaw: AssistantMessage[][] = [];
+  const responder: AssistantResponder = async ({ messages }) => {
+    modelSaw.push(messages);
+    return JSON.stringify(modelAnswer(messages[messages.length - 1]!.content));
+  };
 
   beforeAll(async () => {
     await runMigrations();
@@ -367,6 +372,39 @@ describeDb("the Retell voice endpoint", () => {
       client.query<{ outcome: string; urgent: boolean }>(`select outcome, urgent from conversations`),
     );
     expect(rows).toEqual([{ outcome: "escalated_to_human", urgent: true }]);
+  });
+
+  // The 19 October audit: answerTurn short-circuited only the urgent turn
+  // itself, and the session kept every turn's words in the history it sends
+  // the model on the next one.
+  test("an urgent caller's words never reach the model on a later turn, and the clinic's transcript still has them", async () => {
+    const clinic = await seedClinic("retell-urgent-later");
+    await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) => addRecipient(tx, { email: "desk@retell-later.test", addedBy: "test" }));
+    modelAnswer = () => ({ reply: "We're open weekdays nine to five." });
+    modelSaw.length = 0;
+    const urgent = "I'm having a severe reaction to my filler";
+    const c = await call(port, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_urgent_later`);
+    await c.waitFor((r) => responses(r).length >= 1);
+    c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: urgent }] });
+    await c.waitFor((r) => responses(r).length >= 2);
+    expect(String(responses(c.received)[1]!.content)).toMatch(/call 911/);
+    expect(modelSaw).toHaveLength(0);
+    c.send({
+      interaction_type: "response_required",
+      response_id: 2,
+      transcript: [{ role: "agent", content: String(responses(c.received)[1]!.content) }, { role: "user", content: "When are you open?" }],
+    });
+    await c.waitFor((r) => responses(r).length >= 3);
+    expect(responses(c.received)[2]).toMatchObject({ response_id: 2, content: "We're open weekdays nine to five." });
+    expect(modelSaw).toHaveLength(1);
+    expect(JSON.stringify(modelSaw[0])).not.toContain("severe reaction");
+    expect(modelSaw[0]![0]).toEqual({ role: "user", content: SCREENED_TURN });
+    await c.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Promise.all([...server.sessions].map((s) => s.finish()));
+    const transcripts = transport.sent.filter((s) => s.message.phiClass === "may-carry-phi" && s.target.clinicId === clinic.clinicId);
+    expect(transcripts).toHaveLength(1);
+    expect(transcripts[0]!.message.text).toContain(`Caller: ${urgent}`);
   });
 
   test("an outbound call is ended at once, and recorded as refused", async () => {

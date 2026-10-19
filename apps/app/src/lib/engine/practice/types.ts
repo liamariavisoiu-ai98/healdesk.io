@@ -36,7 +36,12 @@ export type PracticeCaseId = (typeof PRACTICE_CASE_IDS)[number];
  *   - review: only the judge failed it, or could not say: a person decides;
  *   - not_applicable: the case cannot be checked against this runtime (the
  *     booking cases, until the brain has tools), or does not apply to the
- *     clinic (a second language it does not serve); never counted as a pass;
+ *     clinic (a second language it does not serve); never counted as a pass.
+ *     One the clinic does not need is simply not asked. One the runtime
+ *     cannot ask is a case the spec's "Pass means every case" still needs:
+ *     while any is, Gate B names the practice questions as not built
+ *     (lib/compliance/gate-b.ts, casesNotAskable) and no clinic goes live on
+ *     them, whatever its run passed;
  *   - error: the model or the judge could not be reached, so nothing was learnt.
  */
 export const PRACTICE_CASE_STATUSES = [

@@ -11,6 +11,7 @@ import {
   urgentSetFor,
   type AssistantTone,
   type BookingField,
+  type ServicePriceKind,
   type UrgentFinding,
 } from "@healdesk/catalog";
 import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors";
@@ -18,7 +19,8 @@ import { and, eq } from "drizzle-orm";
 
 import { agentConfigs, clinicChannels, clinicProviders, clinics, clinicSettings } from "@/db/schema";
 import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
-import { clinicOwnWords, neverSayIn } from "@/lib/assistant/guard";
+import { amountsIn, clinicOwnWords, neverSayIn } from "@/lib/assistant/guard";
+import { priceText } from "@/lib/assistant/prompt";
 import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/responder";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
@@ -127,8 +129,9 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * Past the screen, two layers enforce the rest. The system prompt forbids
  * it, and a deterministic guard reads every reply before it is sent: a
  * clinical phrase or a named condition, an acknowledgement, a time, a price
- * commitment, a promise to text, a promotion or one of the clinic's own
- * service names replaces the reply with the fixed hand-off line. The guard
+ * that is not on the menu (written or said in words), a price commitment, a
+ * promise to text, a promotion or one of the clinic's own service names
+ * replaces the reply with the fixed hand-off line. The guard
  * is the one that counts; the prompt is the one that keeps the guard from
  * firing on every message.
  *
@@ -190,8 +193,19 @@ export type FrontDoorFacts = {
   /** The practice's providers, as it names them: words the language check reads as no language. */
   providerNames?: string[];
   websiteHint: string | null;
-  /** The approved menu. The model reads a name only to match what the person asked about, and never writes it back. */
-  services: { name: string; priceFromUsd: number | null; priceToUsd: number | null }[];
+  /**
+   * The approved menu. The model reads a name only to match what the person
+   * asked about, and never writes it back. Its prices are the only figures a
+   * reply may name (the guard). How a price is quoted ("per unit", a range,
+   * "from") comes with it where the clinic set one.
+   */
+  services: {
+    name: string;
+    priceFromUsd: number | null;
+    priceToUsd: number | null;
+    priceKind?: ServicePriceKind | null;
+    unit?: string | null;
+  }[];
   /**
    * Every service the clinic has configured, approved or not: the names the
    * guard refuses in a reply. Absent, the names in `services` are used.
@@ -361,19 +375,28 @@ const META_TONE: Record<AssistantTone, string> = {
   clinical: "Plain, calm and precise.",
 };
 
+/**
+ * One service's price as the menu states it, written as the phone and the
+ * website chat write it (lib/assistant/prompt.ts, priceText): a fixed price
+ * as itself ("$150", "$12 per unit"), a range, "from" or "up to" one bound.
+ * The model quotes only these, and the guard lets no other figure out.
+ */
+export function menuPriceText(service: FrontDoorFacts["services"][number]): string {
+  if (service.priceFromUsd === null && service.priceToUsd === null) return "no published price";
+  return priceText({
+    name: service.name,
+    priceFromUsd: service.priceFromUsd,
+    priceToUsd: service.priceToUsd,
+    priceKind: service.priceKind ?? null,
+    unit: service.unit ?? null,
+    durationMinutes: null,
+    depositUsd: null,
+  });
+}
+
 export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
   const menu = facts.services.length
-    ? facts.services
-        .map((s) => {
-          const price =
-            s.priceFromUsd !== null && s.priceToUsd !== null
-              ? s.priceFromUsd === s.priceToUsd
-                ? `from $${s.priceFromUsd}`
-                : `$${s.priceFromUsd}–$${s.priceToUsd}`
-              : "no published price";
-          return `- ${s.name}: ${price}`;
-        })
-        .join("\n")
+    ? facts.services.map((s) => `- ${s.name}: ${menuPriceText(s)}`).join("\n")
     : "- (the practice has not listed its services; say a person can tell them)";
   // Who the practice's people are, by audienceFor (plan Part L, "Copy"): a
   // veterinary practice's are clients, and nothing here calls them patients.
@@ -403,6 +426,7 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     "- Ask the person any question about their health.",
     "- Promise to text, SMS or message them anything, or send them a link.",
     "- Claim to be human. If asked, say you are an automated assistant.",
+    "- Give a price that is not on the practice's menu below, exactly as written there.",
     "",
     "PROHIBITED ON EVERY META CHANNEL, whatever the person writes:",
     // The one Meta rule's list, word for word, in the practice's own words:
@@ -502,7 +526,24 @@ export type GuardContext = {
    * address (clinicOwnWords), and never when the entry names them itself.
    */
   neverSay?: readonly string[];
+  /**
+   * The menu's prices in dollars, each end of a range: the only figures a
+   * reply may name, written or said in words (amountsIn). Absent, none.
+   */
+  prices?: readonly number[];
 };
+
+/** Why the guard refused a reply that names a figure not on the menu. */
+export const PRICE_REFUSAL = "an unlisted price";
+
+/** Every figure the menu states, in dollars: each service's price, or each end of its range. */
+export function menuPrices(services: FrontDoorFacts["services"]): number[] {
+  const out = new Set<number>();
+  for (const s of services) {
+    for (const v of [s.priceFromUsd, s.priceToUsd]) if (typeof v === "number" && Number.isFinite(v)) out.add(v);
+  }
+  return [...out];
+}
 
 export function guardContextFor(
   facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address"> &
@@ -516,6 +557,7 @@ export function guardContextFor(
     ...(facts.address ? { address: facts.address } : {}),
     ...(ownFacts ? { ownFacts } : {}),
     ...(facts.neverSay?.length ? { neverSay: facts.neverSay } : {}),
+    prices: menuPrices(facts.services),
   };
 }
 
@@ -631,6 +673,13 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   const flat = reply.replace(/\s*[\r\n]+\s*/g, " ");
   const hit = REFUSED.find((r) => r.pattern.test(flat));
   if (hit) return { ok: false, reason: hit.label };
+  // No figure off the menu, written or said ("$450", "four hundred and fifty
+  // dollars"): the menu's own only, as on the phone and the website chat.
+  // The prompt invites a price; this is what holds it to the list.
+  const allowed = new Set((context.prices ?? []).map((p) => Math.round(p * 100)));
+  if (amountsIn(withoutAddress(flat, context.address)).some((cents) => !allowed.has(cents))) {
+    return { ok: false, reason: PRICE_REFUSAL };
+  }
   if (personaIntroduction(flat, context.clinicName)) return { ok: false, reason: "a human claim" };
   const staff = namedStaff(withoutClinicName(withoutAddress(flat, context.address), context.clinicName), context.clinicName);
   if (staff) return { ok: false, reason: staff };
@@ -1330,7 +1379,10 @@ export async function frontDoorFacts(
     websiteHint: null,
     // Only an approved script's services are public facts. Refusing a name
     // needs no approval, so the guard gets every one configured.
-    services: approved && agent ? agent.services.map((s) => ({ name: s.name, priceFromUsd: s.priceFromUsd, priceToUsd: s.priceToUsd })) : [],
+    services:
+      approved && agent
+        ? agent.services.map((s) => ({ name: s.name, priceFromUsd: s.priceFromUsd, priceToUsd: s.priceToUsd, priceKind: s.priceKind ?? null, unit: s.unit ?? null }))
+        : [],
     serviceNames: agent ? agent.services.map((s) => s.name) : [],
     notes: approved && agent ? agent.notes : null,
     escalationHours: approved && agent ? agent.escalationHours : null,

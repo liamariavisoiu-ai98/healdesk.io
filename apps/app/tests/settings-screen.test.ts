@@ -14,6 +14,7 @@ import { unsubscribeToken } from "@/lib/email/unsubscribe";
 import { NOT_A_DEVICE_LABEL } from "@/lib/notices/setting-changed";
 import { SIGN_IN_ACTOR_LABEL } from "@/lib/portal/actor";
 import { SETTING_CHANNELS } from "@/lib/portal/settings";
+import { saveNeverSay } from "@/lib/setup/knowledge";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -735,6 +736,34 @@ describeDb("Settings", () => {
       ok: true,
       toast: expect.stringMatching(/^Greeting back to the default\./),
     });
+  });
+
+  // The 19 October audit: the greeting is said after the locked AI line,
+  // and only clinical content was screened, so "I'm Sarah, a real person",
+  // a price or "HIPAA compliant" saved and went out on every call.
+  test("a greeting gets the guard every reply gets: no claim to be a person, no price off the menu, nothing on the never-say list, no HIPAA claim", async () => {
+    await withTenant({ clinicId: portal.clinicId, actor: ACTOR }, (tx) => saveNeverSay(tx, ["walk-ins welcome"]));
+    try {
+      for (const [greeting, why] of [
+        ["Hi, I'm Sarah, a real person on the front desk.", /can't say AYA is a person or not an AI/],
+        ["Thanks for calling! Consultations are just $1 this week.", /isn't one of your listed prices/],
+        ["Thanks for calling! Walk-ins welcome.", /never-say list/],
+        ["Thanks for calling. We're fully HIPAA compliant.", /"HIPAA compliant"/],
+        ["Thanks for calling! You're booked for a great experience.", /can't say an appointment is booked/],
+      ] as const) {
+        expect(await save("phone_greeting", greeting), greeting).toMatchObject({
+          ok: false,
+          message: expect.stringMatching(why),
+        });
+      }
+      // An offer of a person reinforces the AI line; it saves.
+      expect(
+        await save("phone_greeting", "Thanks for calling. If you'd rather talk to a real person, just ask."),
+      ).toMatchObject({ ok: true });
+    } finally {
+      await withTenant({ clinicId: portal.clinicId, actor: ACTOR }, (tx) => saveNeverSay(tx, []));
+      await save("phone_greeting", null);
+    }
   });
 
   test("the page: every switch a labelled role=switch with its line, bought channels only, and every link goes somewhere", async () => {

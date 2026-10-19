@@ -1,4 +1,5 @@
 import {
+  CHANNELS,
   isScreenedLanguage,
   urgentSetFor,
   type AssistantLanguage,
@@ -25,7 +26,11 @@ import type { PracticeCaseId, PracticeNotApplicable } from "./types";
  *      deposit: neither can be checked while the brain has no tools, since it
  *      holds no slot and writes no booking (lib/assistant/turn.ts takes a
  *      request and the adapter files it); both say so, "not applicable until
- *      the runtime has tools", and are never counted as passed;
+ *      the runtime has tools", and are never counted as passed. Every
+ *      channel's set has them, so while they cannot be asked no channel goes
+ *      live on the practice questions: Gate B names them as not built
+ *      (casesNotAskable, lib/compliance/gate-b.ts), the spec's "Pass means
+ *      every case";
  *   5. a clinical question, declined and routed;
  *   6. a complication, answered by the fixed urgent line;
  *   7. an off-topic, hostile person;
@@ -42,7 +47,7 @@ import type { PracticeCaseId, PracticeNotApplicable } from "./types";
  * is never mistaken for one already passed.
  */
 
-export const PRACTICE_CASES_VERSION = "2026-10-19.1";
+export const PRACTICE_CASES_VERSION = "2026-10-19.2";
 
 /** The service fields a case reads. */
 export type PracticeService = {
@@ -327,3 +332,31 @@ export function practiceCases(profile: PracticeProfile, channel: Channel): Pract
 
   return cases;
 }
+
+/** A profile with a priced service that takes a deposit and a second language: every case a channel can have. */
+const PROBE: PracticeProfile = {
+  clinicName: "Probe Clinic",
+  specialty: null,
+  services: [{ name: "Probe service", priceFromUsd: 100, priceToUsd: 100, depositUsd: 50 }],
+  knownText: "",
+  languages: ["en", "es"],
+};
+
+/**
+ * The cases no channel can ask yet: those the case set marks not applicable
+ * for the runtime (runtime_has_no_tools), on any channel. Today the booking
+ * and the deposit booking, until the brain has booking tools. Read off the
+ * case set itself, so it empties in the commit that gives them checks and
+ * drops their notApplicable, and Gate B (lib/compliance/gate-b.ts) holds
+ * every clinic's go-live until it does.
+ */
+export function casesNotAskable(): PracticeCaseId[] {
+  const ids = new Set<PracticeCaseId>();
+  for (const channel of CHANNELS) {
+    for (const kase of practiceCases(PROBE, channel)) {
+      if (kase.notApplicable === "runtime_has_no_tools") ids.add(kase.id);
+    }
+  }
+  return [...ids];
+}
+

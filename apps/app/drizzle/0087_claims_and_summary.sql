@@ -54,5 +54,5 @@ INSERT INTO scheduled_jobs (name, cadence, enabled) VALUES
   ('daily-summary', 'Hourly; at each live clinic''s opening time on its working days, while its Daily summary switch is on, queues the daily summary (L13): the day''s counts, every booking and request since the last one, every request still open, and on the week''s first, last week''s recap', false)
 ON CONFLICT (name) DO NOTHING;--> statement-breakpoint
 UPDATE scheduled_jobs
-   SET cadence = 'Hourly; on each live clinic''s Monday from 08:00 its time, while no daily summary can carry it (the Daily summary switch is off, or no opening hours are on file), queues last week''s recap (L14) to the clinic''s address'
+   SET cadence = 'Hourly; on each live clinic''s Monday from 08:00 its time, while no daily summary can carry it (the Daily summary switch is off, or the clinic has no hours on file), queues last week''s recap (L14) to the clinic''s address'
  WHERE name = 'weekly-recap';

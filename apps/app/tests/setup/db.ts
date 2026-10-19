@@ -92,7 +92,7 @@ export async function truncateAll(): Promise<void> {
       ('heartbeat', 'Every worker tick; last_run_at is the liveness signal', true),
       ('connection-health', 'Hourly; flags revoked connections, stale syncs and stuck webhooks, raises a revoked one to ops at once, and leaves the rest to the 07:00 ops digest', false),
       ('annual-renewal-reminder', 'Daily; emails the billing contact 30 days before an annual renewal, once per period', false),
-      ('weekly-recap', 'Hourly; on each live clinic''s Monday from 08:00 its time, while no daily summary can carry it (the Daily summary switch is off, or no opening hours are on file), queues last week''s recap (L14) to the clinic''s address', false),
+      ('weekly-recap', 'Hourly; on each live clinic''s Monday from 08:00 its time, while no daily summary can carry it (the Daily summary switch is off, or the clinic has no hours on file), queues last week''s recap (L14) to the clinic''s address', false),
       ('daily-summary', 'Hourly; at each live clinic''s opening time on its working days, while its Daily summary switch is on, queues the daily summary (L13): the day''s counts, every booking and request since the last one, every request still open, and on the week''s first, last week''s recap', false),
       ('nightly-sync', 'Daily at 02:00 UTC; enqueues a sync per active connection, staggered; reconcile on the 1st', false),
       ('offboarding-destroy', 'Hourly; destroys each offboarded clinic''s patient data when the agreement its service ended under says: under BAA 1.2.2 and earlier from day 29, export or not; under BAA 1.3.0 and the DPA from day 29 once the export is delivered (from the delivery when later) and from day 89 without it', false),

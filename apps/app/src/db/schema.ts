@@ -1589,7 +1589,8 @@ export type EmailEventStatus = (typeof EMAIL_EVENT_STATUSES)[number];
  *
  * A kind, a status and a time, and no more: no address, no clinic, no
  * message id, nothing a person could be found by. `event_id` is the
- * webhook's own id, so a redelivered event counts once. Ours, not a
+ * webhook's own id, so a redelivered event counts once, or I3's daily claim,
+ * a digest of the clinic, the code and the day (lib/sign-in/help.ts). Ours, not a
  * tenant's: no clinic_id and no row-level security. The digest deletes rows
  * past 30 days, which nothing reads.
  */
@@ -1602,7 +1603,7 @@ export const emailEvents = pgTable(
     status: text("status").notNull(),
     /** When it happened: the send's answer, or the event's own timestamp. */
     at: timestamp("at", { withTimezone: true }).notNull(),
-    /** The webhook delivery's id (svix-id), for a relayed event. */
+    /** The webhook delivery's id (svix-id), for a relayed event; I3's daily claim digest. */
     eventId: text("event_id"),
     recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
   },

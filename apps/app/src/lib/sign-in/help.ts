@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { SENDER_IDENTITY } from "@healdesk/catalog";
 import { and, count, eq, gte, lt, sql } from "drizzle-orm";
@@ -336,9 +336,19 @@ export const ACCESS_REQUEST_DAILY_CAP = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * The claim's event id: a digest of the clinic, the code and the UTC day, so
+ * the day's dedupe holds and email_events, which says it holds no clinic,
+ * does not carry one.
+ */
+export function accessRequestClaimId(clinicId: string, code: AccessRequestCode, day: string): string {
+  return `i3.${createHash("sha256").update(`${clinicId}|${code}|${day}`).digest("hex").slice(0, 40)}`;
+}
+
+/**
  * Claim today's one I3 email for this clinic and code, under the day's cap.
  * The claim is the email_events row the digest counts (status `sent`), keyed
- * by its event id `i3.<clinic>.<code>.<UTC day>`, so a second request about
+ * by its event id `i3.<digest of clinic, code and UTC day>`, so the table
+ * holds no clinic id, and a second request about
  * the same clinic and code that day finds it and sends nothing, and the cap
  * is a count of the day's claims. Serialised by an advisory lock, so two
  * processes cannot both take the last place.
@@ -370,7 +380,7 @@ async function claimAccessRequest(
         kind: "access_request",
         status: "sent",
         at: now,
-        eventId: `i3.${clinicId}.${code}.${day}`,
+        eventId: accessRequestClaimId(clinicId, code, day),
       })
       .onConflictDoNothing()
       .returning({ id: emailEvents.id });

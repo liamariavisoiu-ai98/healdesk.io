@@ -418,10 +418,13 @@ describeDb("/sign-in/help", () => {
     await ask(transport);
     await ask(transport);
     expect(sent.map((s) => s.to)).toEqual(["hello@healdesk.io"]);
-    const { rows } = await getMigratorPool().query<{ status: string }>(
-      `select status from email_events where kind = 'access_request' order by recorded_at`,
+    const { rows } = await getMigratorPool().query<{ status: string; event_id: string | null }>(
+      `select status, event_id from email_events where kind = 'access_request' order by recorded_at`,
     );
     expect(rows.map((r) => r.status)).toEqual(["failed", "sent"]);
+    // The claim is a digest: email_events, which holds no clinic, holds no clinic id.
+    expect(rows[1]!.event_id).toMatch(/^i3\.[0-9a-f]{40}$/);
+    expect(rows[1]!.event_id).not.toContain(clinic.clinicId);
   });
 
   test("past the day's cap hello@ gets nothing more, and ops hears once", async () => {

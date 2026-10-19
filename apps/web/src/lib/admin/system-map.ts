@@ -535,6 +535,25 @@ export const KEYS: readonly KeyDef[] = [
     },
   },
   {
+    // Read by the worker's hourly fallback sync and by the voice endpoint when
+    // the database is down (apps/app/src/lib/voice/retell-fallback-sync.ts,
+    // fallback-line.ts).
+    id: "aws.HEALDESK_RETELL_API_KEY",
+    env: "HEALDESK_RETELL_API_KEY",
+    home: "aws",
+    label: "Retell key (patient-data workspace)",
+    need: "later",
+    waitsFor:
+      "Retell's business associate agreement is signed and voice is about to go on: make the key in the Retell workspace under that agreement, then paste it. Until then no clinic's AYA number has its direct line as Retell's fallback",
+    neverSameAs: "vercel.RETELL_API_KEY",
+    rotation: {
+      kind: "every",
+      days: 180,
+      how: `${AWS_HOW("HEALDESK_RETELL_API_KEY")} Always the key of the workspace under the agreement, never the demo line's.`,
+      impact: "Until the restart, the hourly sync cannot reach Retell and says so in Ops; calls carry on.",
+    },
+  },
+  {
     // Not a secret: Terraform sets it on the web task whenever enable_voice is
     // on (infra/aws/locals.tf), because the secret above is given to the web
     // task, and so reads as present, before the voice service exists.
@@ -1123,7 +1142,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. If our voice endpoint is down, nothing of ours sends the call to the clinic's line: that rests on each Retell agent's own failure setting, so check it names the clinic's direct line. If Retell itself is down, no setting of Retell's runs, and the clinic's forwarding has to be removed by hand (the automatic fall-through is not built).",
+      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. Retell has no setting that sends a call on when our voice endpoint cannot be reached: it gives up and the call drops. So when the endpoint is down, you put Retell in outage mode (Settings, Reliability), and every clinic's calls go to its direct line, which the engine keeps as each number's fallback every hour (that needs the Retell key). If Retell itself is down, nothing of Retell's runs, and each clinic has to remove its forwarding by hand: nothing tells them automatically.",
   },
   {
     id: "retell-app",
@@ -1149,12 +1168,13 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "AYA puts the caller through to the clinic",
     carries: "The live call, to the clinic's direct line",
     example: "The clinic has paused AYA; Maria's call is answered with one line and put straight through to the front desk.",
-    keys: [],
-    keyless: "The engine names the clinic's direct line and Retell dials it; no key of ours.",
+    keyless: "The engine names the clinic's direct line and Retell dials it. The Retell key keeps that line as each number's fallback, for outage mode and for a call that starts while the database is down.",
+    keys: ["aws.HEALDESK_RETELL_API_KEY"],
     dependsOn: "retell-app",
     phi: true,
     build: "built",
-    buildNote: "Only while our endpoint is up, and only where the clinic has set a direct line.",
+    buildNote:
+      "Wherever the clinic has set a direct line: when AYA is paused, capped or suspended, when the model fails twice, when answering a turn fails, and when a call starts while the database is down (the engine remembers each clinic's line from its last call, and otherwise reads it back from Retell). In outage mode Retell dials it without us. With no line known, the caller hears a closing line.",
   },
   {
     id: "patients-widget",

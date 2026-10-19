@@ -155,6 +155,16 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "AYA could not pass a call through because the clinic has no direct line set, so she answered it with the fixed safe script. Ask the clinic for a direct line that does not forward back to us.",
   },
+  voice_call_start_failed: {
+    title: "A call started while the database could not be read",
+    action:
+      "The voice endpoint could not read the clinic's settings when a call came in. The code says where the call went: transferred_memory or transferred_retell sent it to the clinic's direct line, closed means no direct line was known and the caller heard the closing line. Check the database first; if it stays down, put Retell in outage mode (docs/on-call.md).",
+  },
+  retell_fallback_unsynced: {
+    title: "A Retell fallback is not the direct line",
+    action:
+      "The hourly sync could not set the fallback number of the clinic's AYA number in Retell to its direct line. The code says why: missing (Retell has no such number), rejected or unreachable. Until it is fixed, outage mode and a voice task started during a database outage cannot send that clinic's calls to its direct line. Check the number in Retell's dashboard and HEALDESK_RETELL_API_KEY.",
+  },
   plan_start_after_cancel: {
     title: "A plan started on a subscription set to cancel",
     action:

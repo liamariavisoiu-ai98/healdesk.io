@@ -46,6 +46,7 @@ KEYS=(
   META_VERIFY_TOKEN
   ANTHROPIC_API_KEY
   HEALDESK_RETELL_LLM_SECRET
+  HEALDESK_RETELL_API_KEY
   CLOUDFLARE_API_TOKEN
 )
 
@@ -74,6 +75,7 @@ hint_for() {
     META_VERIFY_TOKEN) echo "the webhook verify token set in Meta's dashboard" ;;
     ANTHROPIC_API_KEY) echo "a key of the HIPAA-enabled Anthropic organisation, never the marketing one" ;;
     HEALDESK_RETELL_LLM_SECRET) echo "the secret in every clinic's Retell agent URL (wss://app.healdesk.io/llm-websocket/<this>/<clinic id>): 32 to 200 random letters, digits, - or _, such as the output of openssl rand -hex 32; the same value goes into each agent" ;;
+    HEALDESK_RETELL_API_KEY) echo "an API key (key_...) of the Retell workspace under the BAA, never the marketing site's RETELL_API_KEY; it keeps each AYA number's fallback on the clinic's direct line" ;;
     CLOUDFLARE_API_TOKEN) echo "Cloudflare API token (Edit zone DNS, healdesk.io), read by infra.yml and host.yml only" ;;
   esac
 }
@@ -108,6 +110,7 @@ shape_problem() {
     # guessed, and nothing a URL would need escaped (the endpoint takes 16 to
     # 200 characters other than /).
     HEALDESK_RETELL_LLM_SECRET) [[ "$2" =~ ^[A-Za-z0-9_-]{32,200}$ ]] || echo "it must be 32 to 200 letters, digits, - or _ (openssl rand -hex 32 makes one)" ;;
+    HEALDESK_RETELL_API_KEY) [[ "$2" == key_* ]] || echo "a Retell API key starts with key_" ;;
   esac
 }
 

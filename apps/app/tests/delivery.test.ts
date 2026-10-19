@@ -456,6 +456,9 @@ describeDb("delivery", () => {
           "channel-states",
           // The header's pause: a sweep that records a timed pause's end.
           "ai-pause",
+          // The voice fall-through: each AYA number's Retell fallback kept on
+          // the clinic's direct line; not switched, idle without its key.
+          "retell-fallback",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -470,6 +473,7 @@ describeDb("delivery", () => {
         if (job === "offboarding-destroy") continue; // widening: runs for 1.3.0 and DPA clinics, switch or not
         if (job === "channel-states") continue; // a sweep: moves production clinics' channels on as their inputs allow
         if (job === "ai-pause") continue; // a sweep: records the end of a timed pause the clinic set
+        if (job === "retell-fallback") continue; // not switched: does nothing until HEALDESK_RETELL_API_KEY is set
         expect(status, job).toBe("disabled");
       }
       expect(jobs["offboarding-destroy"]).toBe("ok");
@@ -479,6 +483,7 @@ describeDb("delivery", () => {
       expect(jobs["address-changes"]).toBe("ok");
       expect(jobs["channel-states"]).toBe("ok");
       expect(jobs["ai-pause"]).toBe("ok");
+      expect(jobs["retell-fallback"]).toBe(process.env.HEALDESK_RETELL_API_KEY ? "ok" : "skipped");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

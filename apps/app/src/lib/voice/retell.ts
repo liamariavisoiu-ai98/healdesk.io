@@ -1,16 +1,18 @@
 import type { ActorContext } from "@/lib/audit";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
-import { answerTurn, EMPTY_CAPTURE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
+import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { servicesEnded, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { describeError, log } from "@/lib/log";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { notifyOps } from "@/lib/ops/notify";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
+import { fallbackLineFor, rememberDirectLine, type FallbackLookup } from "./fallback-line";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
 
 /**
@@ -58,6 +60,11 @@ import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
  * caller to the clinic's direct line where there is one. With none, the
  * assistant takes the caller's details, so the call still reaches someone;
  * once the Services have ended, it closes the call with a fixed line.
+ * A call that cannot start because the database cannot be read goes to the
+ * direct line too, known without the database (fallback-line.ts: this
+ * process's memory of the clinic's last call, then the fallback number Retell
+ * holds for the clinic's AYA number); only with neither does it close. A
+ * fault while answering a turn is a failure like the model's, never silence.
  *
  * Nothing here is written to disk or a log but ids, counts and outcomes. The
  * call's words live in this object until the ingest seals them.
@@ -76,7 +83,7 @@ type RetellEvent = {
   response_id?: unknown;
   transcript?: unknown;
   timestamp?: unknown;
-  call?: { from_number?: unknown; direction?: unknown; start_timestamp?: unknown; call_id?: unknown };
+  call?: { from_number?: unknown; to_number?: unknown; direction?: unknown; start_timestamp?: unknown; call_id?: unknown };
 };
 
 export type RetellOutbound =
@@ -90,7 +97,14 @@ export type RetellSessionDeps = {
   now?: () => Date;
   gate?: (clinicId: string, now: Date) => Promise<AnswerDecision>;
   ingest?: (event: VoiceCallEvent) => Promise<IngestResult>;
+  /** Where the call goes when the database cannot be read (fallback-line.ts). */
+  fallbackLine?: FallbackLookup;
+  /** How long a call that cannot start waits for Retell's call details, which name the number called. */
+  callDetailsWaitMs?: number;
 };
+
+/** Retell sends call details straight after our config; this only bounds a call where it never does. */
+const CALL_DETAILS_WAIT_MS = 1_500;
 
 /** The caller's words since the agent last spoke, from Retell's transcript. */
 export function latestCallerWords(transcript: unknown): string {
@@ -113,6 +127,12 @@ export class RetellCallSession {
   private startedAt: Date | null = null;
   private disclosurePlayedAt: Date | null = null;
   private callerPhone: string | null = null;
+  /** The AYA number the call came in on, from call details. */
+  private calledNumber: string | null = null;
+  private calledNumberArrived: () => void = () => {};
+  private readonly callDetailsArrived = new Promise<void>((resolve) => {
+    this.calledNumberArrived = resolve;
+  });
   private outbound = false;
   private urgent = false;
   private handoff = false;
@@ -158,17 +178,21 @@ export class RetellCallSession {
   async open(): Promise<void> {
     this.send({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
     const now = this.now();
-    let decision: AnswerDecision;
+    let decision: AnswerDecision | null = null;
     try {
       decision = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
       this.facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
     } catch (error) {
       log.error("retell call could not start", { clinicId: this.clinicId, error: describeError(error) });
       this.closing = true;
-      this.say(0, CLOSED_LINE, { endCall: true });
+      // A gate that answered before the facts failed already named the line.
+      const known = decision?.decision === "pass_through" ? decision.directLine : null;
+      this.sending.push(this.fallThrough(known));
       return;
     }
     this.directLine = this.facts?.directLine ?? (decision.decision === "pass_through" ? decision.directLine : null);
+    // Kept for a later call that cannot read the database (fallback-line.ts).
+    if (this.facts) rememberDirectLine(this.clinicId, this.facts.directLine);
 
     if (!this.facts || (decision.decision === "pass_through" && servicesEnded(decision.reason))) {
       this.closing = true;
@@ -184,6 +208,34 @@ export class RetellCallSession {
     this.gateAnswered = decision.decision === "answer";
     this.disclosurePlayedAt = now;
     this.say(0, openingLine(this.facts, "voice"));
+  }
+
+  /**
+   * The call could not start: send it to the direct line, known without the
+   * database, or close it when nowhere holds one. Runs beside the message
+   * chain rather than in it, because the number the call came in on arrives
+   * as a message (call details) after this has begun. The record waits for it.
+   */
+  private async fallThrough(known: string | null): Promise<void> {
+    let found: { line: string; source: string } | null = known ? { line: known, source: "gate" } : null;
+    if (!found) {
+      await Promise.race([
+        this.callDetailsArrived,
+        new Promise<void>((resolve) => setTimeout(resolve, this.deps.callDetailsWaitMs ?? CALL_DETAILS_WAIT_MS).unref?.()),
+      ]);
+      try {
+        found = await (this.deps.fallbackLine ?? fallbackLineFor)({ clinicId: this.clinicId, calledNumber: this.calledNumber });
+      } catch {
+        found = null;
+      }
+    }
+    if (found && found.line !== this.calledNumber) {
+      this.say(0, TROUBLE_TRANSFER_LINE, { transferTo: found.line });
+    } else {
+      found = null;
+      this.say(0, CLOSED_LINE, { endCall: true });
+    }
+    await notifyOps("voice_call_start_failed", { clinicId: this.clinicId, code: found ? `transferred_${found.source}` : "closed" });
   }
 
   /** One message from Retell. Never throws: a fault is logged and the caller hears a fixed line. */
@@ -205,7 +257,11 @@ export class RetellCallSession {
         return;
       case "reminder_required":
       case "response_required":
-        await this.respond(event);
+        try {
+          await this.respond(event);
+        } catch (error) {
+          this.respondFailed(event, error);
+        }
         return;
       default:
         return;
@@ -215,6 +271,8 @@ export class RetellCallSession {
   private callDetails(event: RetellEvent): void {
     const call = event.call ?? {};
     if (typeof call.from_number === "string" && call.from_number.trim()) this.callerPhone = call.from_number.trim();
+    if (typeof call.to_number === "string" && call.to_number.trim()) this.calledNumber = call.to_number.trim();
+    this.calledNumberArrived();
     if (typeof call.start_timestamp === "number") this.startedAt = new Date(call.start_timestamp);
     if (call.direction === "outbound") {
       // healdesk places no calls. A call the vendor says we placed is a
@@ -292,6 +350,24 @@ export class RetellCallSession {
     // waits on an email. It never rejects; whatever it misses, the minute
     // queue sends.
     if (urgentQueued) this.sending.push(deliverCriticalAfterCommit(this.clinicId, { transport: this.deps.transport }));
+  }
+
+  /**
+   * Answering a turn threw (anything outside the model, whose own failure
+   * answerTurn already turns into FAILURE_LINE): the caller goes to the
+   * direct line, or hears the failure line, never silence.
+   */
+  private respondFailed(event: RetellEvent, error: unknown): void {
+    log.error("retell turn failed", { clinicId: this.clinicId, error: describeError(error) });
+    const responseId = typeof event.response_id === "number" ? event.response_id : NaN;
+    if (this.closing || !Number.isInteger(responseId) || responseId < this.latestResponseId) return;
+    if (this.directLine) {
+      this.closing = true;
+      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: this.directLine });
+      return;
+    }
+    this.failures += 1;
+    this.say(responseId, FAILURE_LINE);
   }
 
   /** What the caller asked the desk for, as the ingest reads it. */

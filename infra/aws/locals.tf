@@ -197,7 +197,8 @@ locals {
 
   # Traced from src/workers/index.ts: the database, session signing (email
   # stop links), identifier references, provisioning's signature, mail,
-  # Stripe, and Google for the calendar watch, sync and connection health.
+  # Stripe, Google for the calendar watch, sync and connection health, and
+  # Retell for the hourly fallback-number sync (lib/voice/retell-fallback-sync.ts).
   worker_secret_names = [
     "BETTER_AUTH_SECRET",
     "DATABASE_URL",
@@ -205,6 +206,7 @@ locals {
     "GOOGLE_OAUTH_CLIENT_SECRET",
     "HEALDESK_IDENTIFIER_REF_KEY",
     "HEALDESK_PROVISION_SECRET",
+    "HEALDESK_RETELL_API_KEY",
     "RESEND_API_KEY",
     "STRIPE_SECRET_KEY",
   ]

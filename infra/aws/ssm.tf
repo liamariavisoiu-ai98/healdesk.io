@@ -72,6 +72,10 @@ locals {
   # HEALDESK_RETELL_LLM_SECRET is the path segment that admits Retell's
   # WebSocket (src/voice/server.ts): the same value goes into every clinic's
   # Retell agent URL, and while it is unset every call is refused.
+  # HEALDESK_RETELL_API_KEY is the BAA Retell workspace's API key: the worker
+  # keeps each AYA number's fallback on the clinic's direct line with it, and
+  # the voice endpoint reads that fallback back when the database is down
+  # (lib/voice/retell-fallback-sync.ts, lib/voice/fallback-line.ts).
   external_parameter_names = [
     "HEALDESK_PROVISION_SECRET",
     "STRIPE_SECRET_KEY",
@@ -81,6 +85,7 @@ locals {
     "META_VERIFY_TOKEN",
     "ANTHROPIC_API_KEY",
     "HEALDESK_RETELL_LLM_SECRET",
+    "HEALDESK_RETELL_API_KEY",
     "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_OAUTH_CLIENT_SECRET",
   ]

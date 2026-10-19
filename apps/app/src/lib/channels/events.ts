@@ -62,7 +62,8 @@ import { connectedMetaPlatforms } from "./meta-platforms";
  * clinic's Retell agent and number exist; the Meta channel: the operator's
  * front door; website chat has no half of ours). The operator's go-live is
  * not needed, so phone is ready, and the clinic told to forward its line
- * (O10, and the "Email these steps" form, O11), before go-live.
+ * (O10, and the "Email these steps" form, O11), before go-live; website
+ * chat likewise, with the line to paste (O10, and "Email to my web person").
  *
  * **Waiting on the clinic**, while ready and not live, names the clinic's one
  * next step: finishing setup (`setup`), phone's direct line
@@ -622,19 +623,14 @@ async function evaluate(
       });
     }
 
-    // O10: phone is ready and waiting on the clinic's forwarding. Queued now,
-    // due an hour after readiness, and closed unsent at its due time if the
-    // forwarding was done meanwhile (lib/email/superseded.ts). Once per
-    // readiness, whatever this is asked.
-    if (
-      row.channel === "voice" &&
-      waitingChanged &&
-      waitingOn === "forwarding" &&
-      readyAt &&
-      facts.assistantNumberE164
-    ) {
+    // O10: the channel is ready and waiting on the clinic's own step, phone's
+    // forwarding or website chat's line (the Meta login has no ready email;
+    // queueChannelReady says no). Queued now, due an hour after readiness,
+    // and closed unsent at its due time if the step was done meanwhile
+    // (lib/email/superseded.ts). Once per readiness, whatever this is asked.
+    if (waitingChanged && waitingOn !== null && waitingOn === CLINIC_STEP[row.channel] && readyAt) {
       await queueChannelReady(tx, {
-        channel: "voice",
+        channel: row.channel,
         ayaNumberE164: facts.assistantNumberE164,
         sendAfter: new Date(readyAt.getTime() + CHANNEL_READY_EMAIL_DELAY_MS),
       });

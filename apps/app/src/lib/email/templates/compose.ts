@@ -27,6 +27,13 @@ export type Block =
   | { type: "action"; label: string; url: string }
   | { type: "list"; items: readonly string[] }
   /**
+   * Text to copy exactly, such as the line a clinic pastes on its website
+   * (O10, O11): on a line of its own in text, and in HTML a monospaced box
+   * that wraps rather than scrolls, escaped like every other value, so a tag
+   * in it is shown and never parsed.
+   */
+  | { type: "code"; text: string }
+  /**
    * A list whose every item ends in its own link: the daily summary's rows,
    * "Phone call · Waiting for you", each opening its request. "- text:
    * url" in text; in HTML the label is the link.
@@ -100,6 +107,8 @@ function blockText(block: Block): string {
       return `${block.label}: ${block.url}`;
     case "list":
       return block.items.map((item) => `- ${item}`).join("\n");
+    case "code":
+      return block.text;
     case "links":
       return block.items.map((item) => `- ${item.text}: ${item.url}`).join("\n");
   }
@@ -179,6 +188,15 @@ function blockHtml(block: Block): string {
         `<p style="margin:16px 0 24px;"><a class="hd-action" href="${escapeHtml(block.url)}" ` +
         `style="display:inline-block;background:${INK};color:#ffffff;padding:10px 16px;` +
         `border-radius:6px;text-decoration:none;font-weight:600;">${escapeHtml(block.label)}</a></p>`
+      );
+    case "code":
+      // Its own ink on its own ground, so a client's dark mode, which
+      // repaints the page, never leaves light text on this light box.
+      return (
+        `<pre style="margin:0 0 16px;padding:12px;background:#f6f8fa;color:${INK};` +
+        `border:1px solid #d0d7de;border-radius:6px;font-family:ui-monospace, SFMono-Regular, ` +
+        `Menlo, Consolas, monospace;font-size:13px;line-height:1.4;white-space:pre-wrap;` +
+        `word-break:break-all;">${escapeHtml(block.text)}</pre>`
       );
     case "list":
       return `<ul style="margin:0 0 16px;padding-left:20px;">${block.items

@@ -26,9 +26,13 @@ import { site } from "@/lib/site";
  *
  * It is not a sign-in. It proves the browser holds the link we emailed, for
  * fourteen days, and nothing about who is typing. Single use is enforced on
- * top: once the request is paid, the checkout refuses the link however valid
- * its signature, and from M2 a unique `invite_ref` on the checkout intent
- * makes that a database constraint as well.
+ * top: once the request is paid (its `paid_at`, stamped by the Stripe
+ * webhook), the checkout refuses the link however valid its signature, and a
+ * press of Pay on a purchase already provisioned is refused too. There is no
+ * database constraint behind it: since 14 October 2026 the purchase records
+ * are in the marketing Sheet, which has no unique index (app/api/checkout/
+ * route.ts says what that costs, and apps/app refuses a second subscription
+ * as a duplicate).
  */
 
 export const SETUP_COOKIE = "hd_setup";

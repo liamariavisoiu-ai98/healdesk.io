@@ -6,7 +6,7 @@ import {
 } from "@healdesk/catalog";
 
 import { clientKey, rateLimit } from "@/lib/rate-limit";
-import { gateState, refuseWithoutLink } from "@/lib/setup-gate";
+import { demoInvitation, gateState, refuseWithoutLink } from "@/lib/setup-gate";
 import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
 import { cleanWebsite } from "@/lib/setup-requests";
 import { readClinicSite, type SiteRead } from "@/lib/site-read/read";
@@ -22,18 +22,21 @@ import { readClinicSite, type SiteRead } from "@/lib/site-read/read";
  * setup never asks for what the site already says
  * (docs/design/funnel-onboarding-portal-2026-10-06.md, Part B).
  *
- * ## Why here, and why it keeps nothing
+ * ## Why here, and what keeps it
  *
  * Fetching a URL a stranger typed belongs off the PHI host, so the read runs
- * on apps/web, behind the fetch guard in lib/site-read/fetch.ts. And apps/web
- * stores nothing from it: no Sheet row, no cache, no copy of the profile.
- * The browser holds it until Pay, and apps/app keeps it from there.
+ * on apps/web, behind the fetch guard in lib/site-read/fetch.ts. This route
+ * stores nothing from it: no cache and no row of its own. The browser holds
+ * the profile until Pay, which puts it in the purchase's sealed record in the
+ * marketing Sheet (lib/checkout/records.ts), and apps/app keeps it from the
+ * first paid invoice on, when it imports that record.
  *
  * ## Who may ask
  *
  * - **Browsers**, gated exactly like the other purchase routes: in pilot mode
- *   only with a valid setup link (`gateState` on the `hd_setup` cookie), in
- *   public mode anyone. Each browser gets one read per half hour (the
+ *   only with a valid setup link (`gateState` on the `hd_setup` cookie) or a
+ *   personalised demo's invitation (`demoInvitation`, as /api/agreement and
+ *   /api/checkout accept it), in public mode anyone. Each browser gets one read per half hour (the
  *   `hd_site_read` cookie, which only spares the bill: a script can drop it,
  *   and the per-IP limit and the site-wide daily cap are what bound it).
  * - **apps/app**, signed with HEALDESK_PROVISION_SECRET like every
@@ -170,11 +173,14 @@ async function browserRead(request: Request, raw: string, started: number): Prom
   if (!limit.ok) return failed(429, { "Retry-After": String(limit.retryAfter) });
 
   // The setup link, while the purchase is by invitation (lib/checkout-mode.ts),
-  // with the same refusal /api/agreement and /api/checkout give.
+  // with the same refusal /api/agreement and /api/checkout give, and the same
+  // exception: a personalised demo is an invitation too (lib/setup-gate.ts).
+  // Without it a buyer the operator invited through a demo could sign and pay
+  // but never have the website read, and setup would ask what the site says.
   const gate = await gateState(readCookie(request.headers, SETUP_COOKIE));
   if (gate.mode === "pilot") {
     const refused = refuseWithoutLink(gate);
-    if (refused) return refused;
+    if (refused && !(await demoInvitation(request.headers.get("cookie")))) return refused;
   }
 
   if (readCookie(request.headers, READ_COOKIE)) return failed(429);

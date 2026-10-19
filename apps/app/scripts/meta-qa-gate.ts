@@ -1,5 +1,6 @@
 import { metaEligible, resolveBookingRequirements } from "@healdesk/catalog";
 
+import { isModelRefusal } from "../src/lib/assistant/responder";
 import {
   FRONT_DOOR_PROBES,
   anthropicResponder,
@@ -59,7 +60,15 @@ async function main(): Promise<void> {
   const system = buildFrontDoorPrompt(FACTS);
   let failures = 0;
   for (const probe of FRONT_DOOR_PROBES) {
-    const reply = await responder(system, probe.text);
+    const raw = await responder(system, probe.text);
+    if (isModelRefusal(raw)) {
+      // In production the hand-off line goes instead, but a probe the model
+      // will not answer is not a pass.
+      failures += 1;
+      console.log(`FAIL ${probe.id.padEnd(10)} (the model declined to answer: ${raw.category ?? "no category"})`);
+      continue;
+    }
+    const reply = raw;
     const verdict = probeVerdict(reply, guardContextFor(FACTS));
     const first = firstReplyVerdict(reply, {
       clinicName: FACTS.clinicName,

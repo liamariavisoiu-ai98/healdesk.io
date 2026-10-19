@@ -9,6 +9,7 @@ import { CANCEL_REVERSED_ENTRY } from "./cancel_reversed";
 import { CANCEL_SCHEDULED_ENTRY } from "./cancel_scheduled";
 import { CANCELED_ENTRY } from "./canceled";
 import { CARD_EXPIRING_ENTRY } from "./card_expiring";
+import { CHANNEL_LIVE_ENTRY } from "./channel_live";
 import { CHANNEL_READY_ENTRY } from "./channel_ready";
 import { CONNECT_CONNECTED_ENTRY } from "./connect_connected";
 import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
@@ -33,6 +34,8 @@ import { SETUP_REMINDER_ENTRY } from "./setup_reminder";
 import { SIGN_IN_LINK_ENTRY } from "./sign_in_link";
 import { STEP_UP_REMINDER_ENTRY } from "./step_up_reminder";
 import { STEPS_SENT_ENTRY } from "./steps_sent";
+import { SUPPORT_ESCALATION_ENTRY } from "./support_escalation";
+import { SUPPORT_REQUEST_ENTRY } from "./support_request";
 import { SUSPENDED_ENTRY } from "./suspended";
 import type { EmailTemplate } from "./types";
 import { USAGE_100_ENTRY, USAGE_80_ENTRY } from "./usage_alert";
@@ -108,9 +111,14 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   setting_changed: SETTING_CHANGED_ENTRY,
   channel_ready: CHANNEL_READY_ENTRY,
   steps_sent: STEPS_SENT_ENTRY,
+  // Go-live (M6): L1, queued when a channel is recorded live.
+  channel_live: CHANNEL_LIVE_ENTRY,
   // The calendar backend's two (plan §2.6, §4.1).
   calendar_link: CALENDAR_LINK_ENTRY,
   calendar_election_recorded: CALENDAR_ELECTION_RECORDED_ENTRY,
+  // WP10, the support chat (M7): L25 to the clinic, I3 to hello@.
+  support_request: SUPPORT_REQUEST_ENTRY,
+  support_escalation: SUPPORT_ESCALATION_ENTRY,
 };
 
 /**
@@ -183,9 +191,12 @@ export const PENDING_TEMPLATES: Record<
     | "calendar_reconnected"
     | "setting_changed"
     | "channel_ready"
+    | "channel_live"
     | "steps_sent"
     | "calendar_link"
     | "calendar_election_recorded"
+    | "support_request"
+    | "support_escalation"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -194,8 +205,6 @@ export const PENDING_TEMPLATES: Record<
   sign_in_help_link: { owner: "plan", package: "WP8", ships: "M2, sign-in (O6)" },
   address_change_confirm: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
   address_changing: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
-  // WP1: the channel events.
-  channel_live: { owner: "plan", package: "WP1", ships: "M6 (L1)" },
   // F: the live alerts, through notifyBookingAlert.
   booking_request: { owner: "plan", package: "F", ships: "M5 (L7)" },
   request_still_open: { owner: "plan", package: "F", ships: "M5 (L8)" },
@@ -218,8 +227,6 @@ export const PENDING_TEMPLATES: Record<
   agreement_to_sign: { owner: "plan", package: "WP9", ships: "M2 (L22)" },
   // WP11: the drift list.
   website_changes: { owner: "plan", package: "WP11", ships: "M7 (L23)" },
-  // WP10: the support chat.
-  support_request: { owner: "plan", package: "WP10", ships: "M7 (L25)" },
   // WP7: the operator's notices and incidents, from /admin.
   terms_notice: { owner: "plan", package: "WP7", ships: "Gate A (L28)" },
   subprocessor_notice: { owner: "plan", package: "WP7", ships: "Gate A (L29)" },

@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import type { SettingsView } from "@/lib/portal/settings-view";
 
+import { SendStepsForm } from "../SendStepsForm";
+
 import {
   ChecklistSetting,
   ChoiceSetting,
@@ -43,7 +45,14 @@ export function Card(props: { id: string; title: string; intro?: ReactNode; chil
 // Channels
 // -----------------------------------------------------------------------------
 
-export function ChannelsCard({ view }: { view: SettingsView }) {
+export function ChannelsCard({
+  view,
+  phoneSteps = null,
+}: {
+  view: SettingsView;
+  /** AYA's number as the page prints it, once phone is ready on our side; null until then. */
+  phoneSteps?: { numberLabel: string } | null;
+}) {
   return (
     <Card id="channels" title="Channels" intro="Each channel you bought, on or off on its own.">
       {view.channels.map((c) =>
@@ -99,6 +108,9 @@ export function ChannelsCard({ view }: { view: SettingsView }) {
           options={view.coverage.options}
           initial={view.coverage.mode}
         />
+      ) : null}
+      {view.bought.voice && phoneSteps ? (
+        <SendStepsForm slug={view.slug} numberLabel={phoneSteps.numberLabel} />
       ) : null}
       {view.bought.web ? (
         <p className="text-muted py-3 text-sm">
@@ -193,7 +205,7 @@ export function TalkCard({ view }: { view: SettingsView }) {
         slug={view.slug}
         settingKey="languages"
         legend="Languages"
-        line="AYA answers in the language each person uses, and stays in it."
+        line="AYA answers in the language each person uses, and stays in it, on the phone and the website chat. Instagram, Messenger and WhatsApp answer in English."
         applies={view.applies.languages}
         options={talk.languageOptions}
         initial={talk.languages}

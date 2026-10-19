@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 
 import { POST as messagePost, __setWebChatDepsForTests } from "@/app/api/widget/v1/[slug]/message/route";
 import { OPTIONS as startOptions, POST as startPost } from "@/app/api/widget/v1/[slug]/start/route";
-import type { AssistantMessage, AssistantResponder } from "@/lib/assistant/turn";
+import type { AssistantMessage, AssistantPrompt, AssistantResponder } from "@/lib/assistant/turn";
 import { endWebChat, originAllowed, readToken, sendWebChatMessage, signToken, startWebChat, webChatClinic, type WebChatClinic } from "@/lib/chat/web-chat";
 import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -37,7 +37,7 @@ class FakeTransport implements EmailTransport {
   }
 }
 
-type Seen = { system: string; messages: AssistantMessage[] };
+type Seen = { system: AssistantPrompt; messages: AssistantMessage[] };
 
 function scripted(answer: (last: string, seen: Seen) => Record<string, unknown> | string) {
   const seen: Seen[] = [];
@@ -144,9 +144,12 @@ describeDb("the web chat", () => {
 
     // The model saw the whole conversation, the opening line in the system prompt.
     expect(seen[1]!.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
-    expect(seen[1]!.system).toContain("You opened the conversation with");
-    expect(seen[1]!.system).toContain("Consultation: $150");
-    expect(seen[1]!.system).toContain("guaranteed results");
+    // The opening line is the turn's own context; the menu and the never-say
+    // list are the stable prefix the prompt cache holds.
+    expect(seen[1]!.system.turn).toContain("You opened the conversation with");
+    expect(seen[1]!.system.stable).toContain("Consultation: $150");
+    expect(seen[1]!.system.stable).toContain("guaranteed results");
+    expect(seen[1]!.system.stable).toBe(seen[0]!.system.stable);
 
     const { rows: convos } = await inTenant(clinic.clinicId, (client) =>
       client.query<{ channel: string; disclosure_played_at: Date | null }>(`select channel, disclosure_played_at from conversations where id = $1`, [conversationId]),
@@ -173,6 +176,11 @@ describeDb("the web chat", () => {
     const answer = await sendWebChatMessage(clinic, start.token, "I'm having a bad reaction to the filler", { responder });
     expect(answer.mode === "chat" && answer.reply).toMatch(/call 911/);
     expect(seen).toHaveLength(0);
+    // Recorded as urgent, not only as escalated, so Conversations can tell it from a handover.
+    const { rows } = await inTenant(clinic.clinicId, (client) =>
+      client.query<{ outcome: string; urgent: boolean }>(`select outcome, urgent from conversations`),
+    );
+    expect(rows).toEqual([{ outcome: "escalated_to_human", urgent: true }]);
   });
 
   test("a card number is cut from the transcript and never reaches the model", async () => {
@@ -189,6 +197,24 @@ describeDb("the web chat", () => {
     const email = transport.transcripts()[0]!.message.text;
     expect(email).not.toContain("4242 4242");
     expect(email).toContain("[card number removed]");
+  });
+
+  test("a language saved before the screens read it is never answered in: the prompt offers only English and Spanish", async () => {
+    const clinic = await liveWebClinic("chat-languages");
+    // The database still accepts the older list; the engine reads it through SCREENED_LANGUAGES.
+    await inTenant(clinic.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, languages) values ($1, '{en,fr,es}')
+         on conflict (clinic_id) do update set languages = excluded.languages`,
+        [clinic.clinicId],
+      ),
+    );
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("no chat");
+    const { responder, seen } = scripted(() => ({ reply: "We're open weekdays." }));
+    await sendWebChatMessage(clinic, start.token, "When are you open?", { responder });
+    expect(seen[0]!.system.stable).toContain("Languages: you answer in English and Spanish.");
+    expect(seen[0]!.system.stable).not.toContain("French");
   });
 
   test("the guard replaces an off-menu price and a never-say phrase", async () => {

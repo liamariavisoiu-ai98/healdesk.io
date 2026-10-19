@@ -72,6 +72,8 @@ export function actionLine(channel: Channel, step: ChannelNextStep): string | nu
   switch (step) {
     case "finish_setup":
       return "Finish setup";
+    case "direct_line":
+      return "Add your direct line, where calls go whenever AYA can't answer";
     case "snippet":
       return "Paste one line on your website";
     case "forwarding":

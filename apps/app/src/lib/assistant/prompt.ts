@@ -1,3 +1,5 @@
+import { ASSISTANT_LANGUAGE_NAMES, type AssistantTone } from "@healdesk/catalog";
+
 import { formatPhone } from "@/lib/setup/help";
 import { spokenPhone } from "@/lib/voice/spoken";
 
@@ -12,6 +14,18 @@ import type { AssistantChannel, AssistantFacts, AssistantService } from "./facts
  * the never-say list, an off-menu price and a request for card details are
  * refused after the model, whatever it wrote. The urgent screen runs before it
  * (turn.ts), so a complication never reaches the model at all.
+ *
+ * It comes in two parts, so the API's prompt cache can work (responder.ts):
+ *
+ *   - `buildAssistantPrompt`, the stable prefix: the rules, the guardrails,
+ *     the clinic's knowledge, its Behaviour switches and its never-say list.
+ *     The same bytes for every turn of every conversation with that clinic on
+ *     that channel until the clinic changes something, so it is sent with a
+ *     cache breakpoint and read from the cache after the first turn. Nothing
+ *     that changes by the minute may go in it: one changed byte and every
+ *     turn pays for the whole prefix again.
+ *   - `assistantTurnContext`, after it: what this turn alone knows, the time
+ *     now and how this conversation opened.
  */
 
 function money(value: number): string {
@@ -38,6 +52,7 @@ function phoneFor(channel: AssistantChannel, e164: string | null): string | null
 const RULES = `Rules you never break:
 - You are an AI assistant, not a person; never claim to be human. You have already said so in your first line.
 - No diagnosis, no prescribing, no treatment plans, no outcome guarantees, no opinion on whether someone is a good candidate. Anything medical about the person goes to the practice's clinicians: offer to pass their details on.
+- Never say whether a treatment is safe, and do not discuss risks, side effects, dosing, downtime, recovery, aftercare or medication: offer a consultation instead.
 - Quote only the prices listed below, exactly as written. For anything without a listed price, offer to book a consultation instead of a number.
 - Never take card numbers, bank details or any payment details. If someone offers them, stop them and say the practice handles payment securely.
 - Never say anything on the never-say list.
@@ -45,6 +60,27 @@ const RULES = `Rules you never break:
 - Do not invent facts about the practice. If you do not know, say the team will answer it.
 - Times you mention are in the practice's own time zone.
 - Never say the practice is "HIPAA compliant".`;
+
+/** How the clinic's tone setting reads to the model (spec, "Tone": changes how the assistant speaks on every channel). */
+const TONE: Record<AssistantTone, string> = {
+  warm: "Be warm, welcoming and unhurried, like the best person at the front desk, and keep it brief and useful.",
+  clinical: "Be calm, brief and precise: professional rather than chatty, and still kind.",
+};
+
+function languagesLine(facts: Pick<AssistantFacts, "languages">): string {
+  const names = facts.languages.map((code) => ASSISTANT_LANGUAGE_NAMES[code]).filter(Boolean);
+  if (names.length <= 1) {
+    return `Language: answer in English. If someone writes or speaks another language, say politely, in English, that you can only help in English, and that the practice's team can help otherwise.`;
+  }
+  const list = `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `Languages: you answer in ${list}. Answer in the language the person uses, if it is one of these, and stay in it for the rest of the conversation. If they use another language, answer in English and say you can help in ${list}. Quote prices exactly as listed, whatever the language.`;
+}
+
+function addOnsLine(facts: Pick<AssistantFacts, "suggestAddOns">): string {
+  return facts.suggestAddOns
+    ? `Add-ons: while someone is booking, you may suggest one complementary service from the list below, once, with its listed price, and drop it if they are not interested.`
+    : `Add-ons: keep to what the person asked about. Do not suggest other services or products.`;
+}
 
 const BOOKING = `Booking: you do not book appointments yourself. When someone wants an appointment, collect what the practice needs (listed below) one or two questions at a time, then confirm back the day and time they asked for and tell them the practice team will confirm it within a day. Never say an appointment is confirmed or booked. If they ask for a person ("representative", "human", "staff"), collect their first name and number and say the team will get back to them within a day.`;
 
@@ -61,19 +97,23 @@ const OUTPUT = `Answer with ONE JSON object and nothing else:
  "end": true only when the person has said goodbye or has nothing more to ask}
 Leave a booking value empty when you do not know it yet. Copy values only from what the person said.`;
 
-export function buildAssistantPrompt(facts: AssistantFacts, channel: AssistantChannel, now: Date): string {
+/**
+ * The stable prefix: everything the model is told that does not change from
+ * one turn to the next. No clock, no conversation: see the file header.
+ */
+export function buildAssistantPrompt(facts: AssistantFacts, channel: AssistantChannel): string {
   const lines: string[] = [];
   lines.push(
-    `You are the AI assistant answering ${channel === "voice" ? "the phone" : "the website chat"} for ${facts.clinicName}, a practice. Be warm, brief and useful.`,
+    `You are the AI assistant answering ${channel === "voice" ? "the phone" : "the website chat"} for ${facts.clinicName}, a practice. ${TONE[facts.tone] ?? TONE.warm}`,
   );
-  lines.push(RULES, BOOKING, format(channel));
+  lines.push(RULES, BOOKING, format(channel), languagesLine(facts), addOnsLine(facts));
 
   lines.push(`\nThe practice:`);
   lines.push(`- Name: ${facts.clinicName}`);
   const phone = phoneFor(channel, facts.phone);
   if (phone) lines.push(`- Main number: ${phone}`);
   if (facts.address) lines.push(`- Address: ${facts.address}`);
-  lines.push(`- Time zone: ${facts.timeZone}. Now it is ${now.toLocaleString("en-US", { timeZone: facts.timeZone, weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}.`);
+  lines.push(`- Time zone: ${facts.timeZone}. The time now is given at the end, after these facts.`);
   if (facts.hours.length > 0) lines.push(`- Opening hours:\n  ${facts.hours.join("\n  ")}`);
   if (facts.escalationHours) lines.push(`- When the team answers: ${facts.escalationHours}`);
   if (facts.notes) lines.push(`- Notes from the practice: ${facts.notes}`);
@@ -89,7 +129,12 @@ export function buildAssistantPrompt(facts: AssistantFacts, channel: AssistantCh
   if (facts.quickAnswers.length > 0) {
     lines.push(`\nAnswers the practice wrote:\n${facts.quickAnswers.map((a) => `- Q: ${a.question}\n  A: ${a.answer}`).join("\n")}`);
   }
-  if (facts.promotions) lines.push(`\nCurrent offer you may mention: ${facts.promotions}`);
+  // The promotions box, only while "Mention promotions" is on (facts.ts).
+  lines.push(
+    facts.promotions
+      ? `\nCurrent offer you may mention: ${facts.promotions}`
+      : `\nOffers: there is no current offer. Do not mention discounts, deals or promotions.`,
+  );
 
   lines.push(`\nWhat a booking request needs (field id: how to ask):`);
   for (const field of facts.requirements) {
@@ -97,10 +142,23 @@ export function buildAssistantPrompt(facts: AssistantFacts, channel: AssistantCh
       lines.push(`- phone: the number they are calling from is already known; ask only if they want another one`);
       continue;
     }
-    lines.push(`- ${field.id}: ${field.ask}`);
+    // A closed-form field says how its value is written (the catalogue's
+    // `answer`); one written any other way is refused when it is stored.
+    lines.push(`- ${field.id}: ${field.ask}${field.answer ? ` (write it as ${field.answer})` : ""}`);
   }
 
   lines.push(`\nNever-say list (never write or say any of these, in any form):\n${facts.neverSay.map((p) => `- ${p}`).join("\n")}`);
   lines.push(`\n${OUTPUT}`);
+  return lines.join("\n");
+}
+
+/**
+ * What only this turn knows, sent after the cached prefix: the time now, in
+ * the practice's zone, and the line the conversation opened with.
+ */
+export function assistantTurnContext(facts: Pick<AssistantFacts, "timeZone">, now: Date, opening?: string | null): string {
+  const time = now.toLocaleString("en-US", { timeZone: facts.timeZone, weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const lines = [`Now it is ${time} in the practice's time zone.`];
+  if (opening) lines.push(`You opened the conversation with: "${opening}"`);
   return lines.join("\n");
 }

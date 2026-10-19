@@ -589,3 +589,19 @@ undeclared variable is invisible to the task.
 - Lint: `npm run lint` (ESLint 9 on `apps/web`; each rule choice and its reason
   is in `apps/web/eslint.config.mjs`). CI runs it and fails the job on any lint
   error, so run it before pushing.
+- **Keep `/admin/map` true, in the same change.** It is the owner's one-look
+  picture of every tool, connection and key. Key status is read live, but the
+  picture itself is written by hand in `apps/web/src/lib/admin/system-map.ts`,
+  so update it whenever a change:
+  - adds a tool or vendor: `TOOLS`, in a category from `GROUPS` (a new
+    category also needs a place in `lib/admin/map-layout.ts`);
+  - adds a connection between two tools: `BRIDGES`;
+  - adds an environment variable: `KEYS`, with where it lives and how it is
+    rotated, or `NOT_KEYS`, with the reason it is only a setting. An AWS-side
+    key also goes in `apps/app/src/lib/ops/key-presence.ts`;
+  - finishes something the map shows as still to build: that bridge's
+    `build` and `buildNote`.
+
+  `system-map.test.ts` fails on a variable either app reads that is on neither
+  list, and on a key nothing reads. It cannot see a new connection or a
+  finished build, so those depend on this rule.

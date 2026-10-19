@@ -4,17 +4,20 @@ import { toE164 } from "@healdesk/connectors";
 import { and, asc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { unsafeDb, type Transaction } from "@/db";
-import { bookingRequests, clinics, clinicSettings, contacts, conversations } from "@/db/schema";
+import { agentConfigs, bookingRequests, clinics, clinicSettings, contacts, conversations } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext } from "@/lib/audit";
 import { recordUsage } from "@/lib/billing/usage";
+import { evaluateChannelsSafely, recordFirstAnswer, voiceFirstAnswerEvidence } from "@/lib/channels/events";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { queueTranscriptEmail, sendQueuedTranscriptNow } from "@/lib/conversations/transcript-outbox";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { cleanAlternatives, cleanCollectedFields, createBookingRequest, notifyDesk } from "@/lib/meta/booking-requests";
-import { evaluateForwardingCall, observeForwardingCall } from "@/lib/onboarding/forwarding-test";
+import { evaluateForwardingCall, inForwardingTestWindow, observeForwardingCall } from "@/lib/onboarding/forwarding-test";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
+
+import { isHealdeskTestNumber } from "./test-numbers";
 
 /**
  * Turning a finished call into the one row the whole product depends on.
@@ -92,7 +95,21 @@ export type VoiceCallEvent = {
     | "escalated_to_human"
     | "spam"
     | "abandoned";
+  /**
+   * The urgent screen matched on the call (the Retell process sets it when
+   * answerTurn says so). Kept beside `outcome`, which says
+   * `escalated_to_human` for an urgent hit and a handover alike, so the
+   * portal can tell them apart (conversations.urgent, drizzle/0078).
+   */
+  urgent?: boolean;
   treatmentInterest?: string;
+  /**
+   * The answer gate said answer when the call came in, so AYA answered it as
+   * herself, not with the safe script for a refused call: the one kind of
+   * call that can be phone's first answer (lib/channels/events.ts). Absent is
+   * false.
+   */
+  answeredByAssistant?: boolean;
   /** Proof the AI disclosure played before audio reached transcription. */
   disclosurePlayedAt?: Date;
   recordingOptOut?: boolean;
@@ -365,10 +382,13 @@ export function classifyBooking(
 /**
  * Why a call is or is not counted against the clinic's voice minutes (R18).
  * Every ingested call is, apart from the calls the contracts' `first_answer`
- * rule also leaves out: the forwarding test (healdesk's own call, inside its
- * five-minute window) and a call from one of the clinic's own numbers (its
- * published line, its direct line, the assistant's number); and a call with
- * no length to bill. The answer gate's decision at call time is not asked
+ * rule also leaves out: Healdesk's own test calls (every call inside a
+ * forwarding test's five-minute window, and a call from one of
+ * HEALDESK_TEST_NUMBERS) and a call from one of the clinic's own numbers (its
+ * published line, its direct line, the assistant's number, its escalation,
+ * urgent-help and transfer numbers), compared as E.164 on both sides, since
+ * the vendor's caller ID arrives in whatever shape the carrier gave it; and a
+ * call with no length to bill. The answer gate's decision at call time is not asked
  * again here: it changed what the assistant offered on the call, and the
  * call still happened.
  */
@@ -382,7 +402,8 @@ export function voiceMeteringFor(
   facts: { isTestCall: boolean; ownNumbers: readonly (string | null | undefined)[] },
 ): VoiceMetering {
   if (facts.isTestCall) return { skipped: "test_call" };
-  if (event.callerPhone && facts.ownNumbers.some((n) => n && n === event.callerPhone)) {
+  const caller = event.callerPhone ? (toE164(event.callerPhone) ?? event.callerPhone.trim()) : null;
+  if (caller && facts.ownNumbers.some((n) => n && (toE164(n) ?? n.trim()) === caller)) {
     return { skipped: "own_number" };
   }
   const elapsed =
@@ -445,6 +466,7 @@ export async function ingestCall(
         // left every clinic whose call_routing was not 'always'.
         coverageMode: clinicSettings.coverageMode,
         forwardingTestUntil: clinics.forwardingTestUntil,
+        forwardingTestObserved: clinics.forwardingTestObserved,
         publishedPhoneE164: clinics.publishedPhoneE164,
         assistantNumberE164: clinics.assistantNumberE164,
         specialty: clinics.specialty,
@@ -476,6 +498,7 @@ export async function ingestCall(
         channel: "voice",
         recoveryReason,
         outcome: event.outcome ?? null,
+        urgent: event.urgent ?? false,
         treatmentInterest: event.treatmentInterest ?? null,
         // Transcripts are emailed, never kept, and neither is a link to one.
         transcriptUri: null,
@@ -609,19 +632,47 @@ export async function ingestCall(
     // What the call bills, judged against the forwarding window as it stood
     // when the call arrived: observeForwardingCall below consumes it.
     const [settings] = await tx.db
-      .select({ directLine: clinicSettings.directLineE164 })
+      .select({
+        directLine: clinicSettings.directLineE164,
+        urgentHelp: clinicSettings.urgentHelpE164,
+        transfer: clinicSettings.transferE164,
+      })
       .from(clinicSettings)
       .where(eq(clinicSettings.clinicId, tx.clinicId))
       .limit(1);
+    const [agent] = await tx.db
+      .select({ escalationPhone: agentConfigs.escalationPhone })
+      .from(agentConfigs)
+      .where(eq(agentConfigs.clinicId, tx.clinicId))
+      .limit(1);
     const metering = voiceMeteringFor(event, {
-      isTestCall: evaluateForwardingCall(clinic, event, row.id).isTest,
-      ownNumbers: [clinic.publishedPhoneE164, settings?.directLine, clinic.assistantNumberE164],
+      isTestCall:
+        evaluateForwardingCall(clinic, event, row.id).isTest ||
+        inForwardingTestWindow(clinic, event.startedAt) ||
+        isHealdeskTestNumber(event.callerPhone),
+      ownNumbers: [
+        clinic.publishedPhoneE164,
+        settings?.directLine,
+        clinic.assistantNumberE164,
+        agent?.escalationPhone,
+        settings?.urgentHelp,
+        settings?.transfer,
+      ],
     });
 
     // The forwarding test, and the caller-ID watch: after the row exists, in
     // the same transaction, so a test call that stamps the step and the
     // conversation it stamped it from commit or roll back together.
     await observeForwardingCall(tx, clinic, event, row.id);
+
+    // Channel events (lib/channels/events.ts), in the same transaction: the
+    // forwarding test above may have confirmed phone's last step, and this
+    // call may be phone's first answer, which records the plan start or the
+    // step-up with it. Each runs in a savepoint that never throws, so neither
+    // can cost the call its record, its transcript or its request; and a live
+    // phone channel takes no lock at all.
+    await evaluateChannelsSafely(tx, { only: "voice" });
+    await recordFirstAnswer(tx, voiceFirstAnswerEvidence(event, metering, row.id));
 
     // The transcript, sealed in the outbox with the conversation it belongs
     // to: both commit or neither does.

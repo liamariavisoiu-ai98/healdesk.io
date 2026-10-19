@@ -22,7 +22,9 @@ vi.mock("next/headers", () => ({
 import * as opsClient from "@/lib/admin/ops-client";
 import {
   closeUnfinishedSetup,
+  attestChannelAudit,
   commitRefund,
+  confirmWebWidget,
   disconnectCalendar,
   extendSetupDeadline,
   fetchClinicBilling,
@@ -122,6 +124,16 @@ describe("what the console says when apps/app fails (F12)", () => {
     });
     reply({ error: "Unauthorized.", code: "unauthorized" }, 401);
     expect(await setOverageMode(CLINIC, "allow")).toMatchObject({ code: "refused" });
+  });
+
+  test("an operation the application does not know yet is 'outdated', not a refusal to go hunting a secret for", async () => {
+    reply({ error: "Unknown operation.", code: "unknown_operation" }, 400);
+    expect(await setOverageMode(CLINIC, "allow")).toEqual({
+      ok: false,
+      code: "outdated",
+      message:
+        "The application is running an older version that does not know this yet. Nothing was changed; deploy it, then try again.",
+    });
   });
 });
 
@@ -803,6 +815,66 @@ describe("the billing panel's writes", () => {
 // The booking card (plan §10, C17)
 // -----------------------------------------------------------------------------
 
+describe("the channels card: each channel's go-live state, and the audit seam", () => {
+  test("getOnboarding's channels are read field by field; a code this console doesn't know is left out; an older apps/app's is null", async () => {
+    const withChannels = onboardingWith("Hi") as { data: Record<string, unknown> };
+    withChannels.data.channels = [
+      {
+        channel: "voice",
+        readyAt: "2026-10-14T15:00:00.000Z",
+        waitingOn: "forwarding",
+        liveAt: null,
+        firstAnswerAt: null,
+        auditPassed: true,
+        missing: ["clinic_step", "something_new"],
+      },
+      { channel: "web", readyAt: null, waitingOn: null, liveAt: null, firstAnswerAt: null, auditPassed: false, missing: ["audit"] },
+    ];
+    reply(withChannels);
+    const view = await fetchOnboarding(CLINIC);
+    if (!view.ok) throw new Error(view.message);
+    expect(view.data.channels).toEqual([
+      {
+        channel: "voice",
+        readyAt: "2026-10-14T15:00:00.000Z",
+        waitingOn: "forwarding",
+        liveAt: null,
+        firstAnswerAt: null,
+        auditPassed: true,
+        missing: ["clinic_step"],
+      },
+      { channel: "web", readyAt: null, waitingOn: null, liveAt: null, firstAnswerAt: null, auditPassed: false, missing: ["audit"] },
+    ]);
+
+    reply(onboardingWith("Hi"));
+    const older = await fetchOnboarding(CLINIC);
+    if (!older.ok) throw new Error(older.message);
+    expect(older.data.channels).toBeNull();
+  });
+
+  test("confirming website chat's line sends only the clinic, and reads a refusal as one", async () => {
+    reply({ data: { status: "updated" } });
+    expect(await confirmWebWidget(CLINIC)).toEqual({ ok: true, data: { status: "updated" } });
+    expect(sent.at(-1)).toEqual({ op: "confirmWebWidget", args: { clinicId: CLINIC } });
+    reply({ data: { status: "error", message: "The clinic didn't buy website chat." } });
+    expect(await confirmWebWidget(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "refused", message: "The clinic didn't buy website chat." },
+    });
+  });
+
+  test("attesting a channel's audit sends the clinic and the channel, and reads a refusal as one", async () => {
+    reply({ data: { status: "updated" } });
+    expect(await attestChannelAudit(CLINIC, "voice")).toEqual({ ok: true, data: { status: "updated" } });
+    expect(sent.at(-1)).toEqual({ op: "attestChannelAudit", args: { clinicId: CLINIC, channel: "voice" } });
+    reply({ data: { status: "error", message: "The clinic didn't buy that channel." } });
+    expect(await attestChannelAudit(CLINIC, "meta")).toEqual({
+      ok: true,
+      data: { status: "refused", message: "The clinic didn't buy that channel." },
+    });
+  });
+});
+
 describe("the booking card reads the derived mode, and switches only Auto-confirm", () => {
   test("getOnboarding's booking is read field by field, instants in the console's UTC form", async () => {
     reply(onboardingWith("Hi"));
@@ -1139,5 +1211,65 @@ describe("the first-weeks list", () => {
     const result = await fetchClinicHealth();
     if (!result.ok) throw new Error(result.message);
     expect(result.data.map((row) => row.plan)).toEqual(["AYA Voice, 500 minutes", "complete", null]);
+  });
+});
+
+/**
+ * The owner's direct-booking switch, for the purchase funnel's step 2. It is
+ * apps/app's one reader's answer, carried across without a session; anything
+ * but a clear "on" is off, and the answer is remembered for five minutes so a
+ * public page cannot make every visitor a request to apps/app.
+ */
+describe("directBookingOpen", () => {
+  const MINUTE = 60_000;
+
+  beforeEach(() => {
+    opsClient.__resetBookingSwitchForTests();
+  });
+
+  test("asks apps/app as a relay, with no browser context, and carries its answer", async () => {
+    reply({ data: { directBooking: true } });
+    expect(await opsClient.directBookingOpen(0)).toBe(true);
+    expect(sent).toEqual([{ op: "bookingSwitch", args: {} }]);
+    const init = vi.mocked(fetch).mock.calls[0]![1] as { body: string };
+    expect(JSON.parse(init.body)).not.toHaveProperty("context");
+  });
+
+  test("off when apps/app says off", async () => {
+    reply({ data: { directBooking: false } });
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+  });
+
+  test("off, and nothing asked, on a deployment that cannot ask", async () => {
+    vi.stubEnv("HEALDESK_APP_URL", "");
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+    expect(sent).toEqual([]);
+  });
+
+  test("off when apps/app fails, is unreachable or answers something else", async () => {
+    reply({ error: "The operations API is unavailable.", code: "unavailable" }, 503);
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+    opsClient.__resetBookingSwitchForTests();
+    reply({ data: { directBooking: "true" } });
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+    opsClient.__resetBookingSwitchForTests();
+    // No reply stubbed: the fetch throws, as an unreachable host does.
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+  });
+
+  test("remembers the answer, success or failure, for five minutes", async () => {
+    reply({ data: { directBooking: true } });
+    expect(await opsClient.directBookingOpen(0)).toBe(true);
+    expect(await opsClient.directBookingOpen(4 * MINUTE)).toBe(true);
+    expect(sent).toHaveLength(1);
+    reply({ data: { directBooking: false } });
+    expect(await opsClient.directBookingOpen(5 * MINUTE)).toBe(false);
+    expect(sent).toHaveLength(2);
+  });
+
+  test("one question in flight, however many ask at once", async () => {
+    reply({ data: { directBooking: true } });
+    expect(await Promise.all([opsClient.directBookingOpen(0), opsClient.directBookingOpen(0)])).toEqual([true, true]);
+    expect(sent).toHaveLength(1);
   });
 });

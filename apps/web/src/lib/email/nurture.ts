@@ -1,11 +1,12 @@
+import { type AgreementKind, COHORT_SETUP_CREDIT } from "@healdesk/catalog";
+
 import type { Lead } from "@/lib/leads";
-import { ENTITY } from "@/lib/legal";
-import { COHORT_SETUP_CREDIT } from "@healdesk/catalog";
 
 import { setupFeeRangeLabel } from "@/lib/pricing";
 import { site } from "@/lib/site";
 
 import { unsubscribeUrl } from "./index";
+import { commercialFooter, longDate, nameForSubject } from "./setup-emails";
 
 /**
  * The follow-up sequence for people who tried the demo and ticked the box.
@@ -21,8 +22,9 @@ import { unsubscribeUrl } from "./index";
  * eligible for TOUCHES[nurtureStep] once `consentAt + afterHours` has passed,
  * and the cron sends at most one touch per lead per run.
  *
- * The abandonment message is separate (below) and is `relationship` mail: it
- * goes to someone who started a checkout, whether or not they ticked the box.
+ * The "still open" message (P7) is separate (below) and is `relationship`
+ * mail: it goes to someone who started a purchase, whether or not they
+ * ticked the box.
  */
 
 export type Touch = {
@@ -39,16 +41,20 @@ function firstName(lead: Lead): string {
 }
 
 /**
- * The CAN-SPAM line: the sender's name and a valid physical postal address.
- * The name is the trade name and the address is the Delaware correspondence
- * mailbox; the legal entity is never printed in mail (decision of
- * 23 September 2026, docs/handover.md "Decisions log", item 14).
+ * The footer every commercial email carries (Annex X1.9 and X1.10, the same
+ * one the setup-link emails use): why it came and the one-click way to stop
+ * it, that replies reach the healdesk team and should leave out patient
+ * details, the operating entity as the site names it, and the mailing address
+ * CAN-SPAM requires. It replaced, on 14 October 2026, a footer that named the
+ * trade name alone and asked no one to keep patient details out of replies.
  */
 function footer(lead: Lead): string {
-  const address = `\n${site.name}, ${ENTITY.postalAddress}`;
   return (
-    `\n\n—\nYou're getting this because you ticked "email me about ${site.agent}" on ${site.domain}. ` +
-    `One click stops it: ${unsubscribeUrl(lead.id)}${address}`
+    "\n" +
+    commercialFooter(
+      `You're getting this because you ticked "email me about ${site.agent}" on ${site.domain}.`,
+      unsubscribeUrl(lead.id),
+    )
   );
 }
 
@@ -116,22 +122,63 @@ export function dueTouch(lead: Lead, now: Date): Touch | null {
 }
 
 /**
- * Abandoned checkout: one message, an hour after the Stripe Session was
- * created with no completion. Relationship mail — they started this — so it
- * carries no marketing footer, but the unsubscribe link is still there.
+ * P7, "still open": one message, 24 hours after the latest Checkout Session
+ * expired unpaid (Annex X5; the webhook records the expiry), re-checked at
+ * send time against the purchase's own records (lib/email/run-nurture.ts).
+ * It replaced, on 14 October 2026, the "checkout not finished" email, which
+ * went an hour after a Session was created, said the setup was "saved where
+ * you left it" (nothing is saved: the answers live in the buyer's tab), named
+ * the Business Associate Agreement whichever agreement the practice signed,
+ * and carried no setup link (X6).
+ *
+ * Commercial mail (X1.10): the opt-out, the postal address and the footer
+ * every email carries. Relationship eligibility (lib/leads.ts `canEmail`):
+ * they started a purchase, so no consent box is needed, and it stops on
+ * unsubscribe, bounce and purchase.
  */
-export const ABANDONMENT_AFTER_MS = 60 * 60 * 1000;
+export const STILL_OPEN_AFTER_MS = 24 * 60 * 60 * 1000;
+/** A P7 not sent within a week of the expiry is not sent at all. */
+export const STILL_OPEN_WITHIN_MS = 7 * 24 * 60 * 60 * 1000;
 
-export function abandonmentEmail(lead: Lead): { subject: string; text: string } {
+/** What P7 says, read from the purchase at send time. */
+export type StillOpenFacts = {
+  /** The practice's name as the purchase gave it, or the lead's. */
+  clinicName: string | null;
+  /** The agreement the buyer signed for this purchase, or null when it cannot be read. */
+  agreementKind: AgreementKind | null;
+  /** The setup link, re-signed from the request's stored expiry, while it still works. */
+  setupLink: { url: string; expiresAt: Date } | null;
+};
+
+const AGREEMENT_NOUN: Readonly<Record<AgreementKind, string>> = {
+  baa: "business associate agreement",
+  dpa: "data protection agreement",
+};
+
+export function stillOpenEmail(lead: Lead, facts: StillOpenFacts): { subject: string; text: string } {
+  const clinic = facts.clinicName?.trim() || null;
+  const agreement = facts.agreementKind ? `the ${AGREEMENT_NOUN[facts.agreementKind]}` : "the data agreement your practice needs";
+  const subject = facts.setupLink
+    ? `Your setup link for ${nameForSubject(clinic ?? "your clinic", 70 - "Your setup link for  is still open".length)} is still open`
+    : clinic
+      ? `Your purchase for ${nameForSubject(clinic, 70 - "Your purchase for  is not finished".length)} is not finished`
+      : "Your healdesk purchase is not finished";
+  const next = facts.setupLink
+    ? `Your setup link still works, until ${longDate(facts.setupLink.expiresAt)}:\n\n${facts.setupLink.url}\n\n` +
+      `It opens the purchase again: choose your package, tell us about your clinic, sign ${agreement} and pay the setup fee.`
+    : `To finish, start again at ${site.url}/get-started: choose your package, tell us about your clinic, sign ${agreement} and pay the setup fee.`;
   return {
-    subject: `Your ${site.name} setup is saved where you left it`,
+    subject,
     text:
       `Hi ${firstName(lead)},\n\n` +
-      `You got as far as payment on ${site.domain} and stopped — which is fine, and usually means a question came up.\n\n` +
-      `Nothing has been charged. If you signed the Business Associate Agreement, it is on file and unbound: it attaches to your account only if you finish, and if you'd rather we voided it, reply and say so.\n\n` +
-      `To pick up where you left off: ${site.url}/get-started\n\n` +
-      `If the question was about price, the booking system, or whether a cash-pay practice needs this at all, reply and I'll answer it directly.\n\n` +
-      `${site.name}, ${ENTITY.postalAddress}\n` +
-      `Stop these emails: ${unsubscribeUrl(lead.id)}`,
+      `You got as far as payment${clinic ? ` for ${clinic}` : ""} on ${site.domain} and stopped. Nothing has been charged.\n\n` +
+      `${next}\n\n` +
+      `If you signed ${agreement}, it is on file and belongs to no account: it attaches to yours only if you finish, and if you'd rather we voided it, reply and say so.\n\n` +
+      `If a question stopped you, about price, your booking system or the agreement, reply and a person answers.` +
+      "\n" +
+      commercialFooter(
+        `You're getting this because you started a purchase${clinic ? ` for ${clinic}` : ""} at ${site.domain}.`,
+        unsubscribeUrl(lead.id),
+      ),
   };
 }

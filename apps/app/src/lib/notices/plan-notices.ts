@@ -2,10 +2,12 @@ import type { Transaction } from "@/db";
 import { billingNotices } from "@/db/schema";
 import { PLAN_NOTICE_KINDS, type PlanNoticeKind } from "@/lib/email/kinds";
 import type { CalendarStatePayload } from "@/lib/email/templates/calendar_state";
+import type { ChannelLivePayload } from "@/lib/email/templates/channel_live";
 import type { ChannelReadyPayload } from "@/lib/email/templates/channel_ready";
 import type { SettingChangedPayload } from "@/lib/email/templates/setting_changed";
 import type { SetupClosedPayload } from "@/lib/email/templates/setup_closed";
 import type { SetupReminderPayload } from "@/lib/email/templates/setup_reminder";
+import type { SupportRequestPayload } from "@/lib/email/templates/support_request";
 
 /**
  * The plan's own outbox kinds (lib/email/kinds.ts, owner "plan"): their
@@ -46,9 +48,10 @@ export type PlanNoticePayloads = {
   setting_changed: SettingChangedPayload;
   /** Dedupe `channel_ready:<channel>:<ready_at>`: once per readiness. */
   channel_ready: ChannelReadyPayload;
+  /** Dedupe `channel_live:<channel>`: once per channel, which goes live once. */
+  channel_live: ChannelLivePayload;
 
   // Registered ahead of their packages; each package names its payload here.
-  channel_live: OwedPayload;
   booking_request: OwedPayload;
   request_still_open: OwedPayload;
   request_missed: OwedPayload;
@@ -64,7 +67,8 @@ export type PlanNoticePayloads = {
   outage_ended: OwedPayload;
   guarantee_miss: OwedPayload;
   website_changes: OwedPayload;
-  support_request: OwedPayload;
+  /** Dedupe `support_request:<escalation id>`: once per escalation (lib/support/escalate.ts). */
+  support_request: SupportRequestPayload;
   terms_notice: OwedPayload;
   subprocessor_notice: OwedPayload;
   incident_report: OwedPayload;

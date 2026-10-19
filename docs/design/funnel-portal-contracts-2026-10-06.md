@@ -243,8 +243,13 @@ The catalogue ids are the plan's Annex X.
 
 ## 7. Engine and runtime (built by the plan; the runtime consumes it)
 
-- `respond(...)` and `recordTurn(...)`: `recordTurn` is the only writer to
-  `conversation_turns`.
+- **No turn is stored.** `recordTurn(...)` and `conversation_turns` are dropped
+  (owner, 13 October 2026): the transcript is emailed to the practice when the
+  conversation ends and healdesk keeps no copy of it, and BAA 1.5.0 deletes
+  the outbox's copy once delivery is confirmed
+  (`docs/design/transcript-email-2026-10-13.md`). One brain,
+  `apps/app/src/lib/assistant/*`, answers the call and the web chat
+  (`answerTurn`), on one model client the Meta front door shares.
 - **Channel events:**
   - `live`: setup done, runtime present, the channel's audit passed;
   - `first_answer`: the first inbound patient conversation answered on a live
@@ -258,8 +263,10 @@ The catalogue ids are the plan's Annex X.
   with the call's or conversation's own reference (signatures in §2).
 - **Also provided:**
   - the pre-model urgent matcher, keyed by specialty, with human and veterinary
-    sets;
-  - per-channel engine config (model, effort, `max_tokens`, streaming).
+    sets (`findUrgentContent(text, specialty)` in packages/catalog), and the
+    fixed urgent replies (`fixedUrgentReply`);
+  - per-channel engine config (model, effort, `max_tokens`, timeout), with no
+    streaming: the guard reads the whole reply.
 
 ## 8. New environment variables
 
@@ -275,4 +282,5 @@ hello@), `RESEND_WEBHOOK_SECRET`, `ANTHROPIC_API_KEY`,
 | `STRIPE_AUTOMATIC_TAX` | web | M2 | `true` turns on Stripe Tax at checkout (owner's open item 9) |
 | `NEXT_PUBLIC_PORTAL_URL` | web | M3 | The site's "Sign in" link. Declared in `turbo.json`'s `build.env` |
 | `HEALDESK_SUPPORT_PHONE` | app | M3 | Help's voicemail number (open item 7), E.164: `+18886889404`, the owner's. Help hides it while unset or malformed |
+| `HEALDESK_TEST_NUMBERS` | app | M6 | Healdesk's own test phones, comma-separated, kept as E.164: a call from one is never billed as minutes or counted as phone's first answer (lib/voice/test-numbers.ts). Empty by default |
 | `HEALDESK_CALL_BOOKING_URL` | app | M3 | The five-minute call link (open item 8), https: `https://calendly.com/healdesk-io/quick-onboarding`, the owner's. Emails link it through `/help/call`; the button hides while unset or malformed |

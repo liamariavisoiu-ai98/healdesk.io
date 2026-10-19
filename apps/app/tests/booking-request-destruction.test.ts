@@ -219,9 +219,9 @@ const KEPT_AT_DESTRUCTION: Record<string, string> = {
   report_deliveries: "the ledger of every email sent to the clinic",
   report_recipients: "the clinic's own addresses for its email",
   sign_in_address_changes:
-    "the record of each change of the clinic's address, the notice address its agreement names; business contact data, no patient (0081)",
+    "the record of each change of the clinic's address, the notice address its agreement names; business contact data, no patient (0084)",
   agreement_resigns:
-    "the record of each re-sign from the DPA to the BAA: which agreement covered the practice, and when; contract metadata, no patient (0082)",
+    "the record of each re-sign from the DPA to the BAA: which agreement covered the practice, and when; contract metadata, no patient (0085)",
   sync_runs: "append-only by grant: what each sync ran, no patient",
   usage_events: "billing evidence: the usage ledger the clinic was charged from",
 };

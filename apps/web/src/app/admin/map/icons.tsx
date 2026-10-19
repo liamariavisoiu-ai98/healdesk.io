@@ -123,6 +123,18 @@ const PATHS: Record<IconName | ExtraIcon, React.ReactNode> = {
   ),
   chart: <path d="M4 20V11M10 20V5M16 20v-6.5M21.5 20h-19" />,
   shield: <path d="M12 3.2 19.5 6v5.6c0 4.6-3.1 8-7.5 9.2-4.4-1.2-7.5-4.6-7.5-9.2V6z" />,
+  terminal: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m7 9.5 3 2.5-3 2.5M12 15h5" />
+    </>
+  ),
+  archive: (
+    <>
+      <rect x="3" y="4" width="18" height="4.5" rx="1" />
+      <path d="M4.5 8.5V19a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1V8.5M10 12.5h4" />
+    </>
+  ),
   inbox: (
     <>
       <path d="M3 13.5 6 5h12l3 8.5V19H3z" />

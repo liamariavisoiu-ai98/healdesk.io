@@ -173,35 +173,17 @@ describe("the template registry", () => {
       (byPackage[pending.package] ??= []).push(kind);
     }
     expect(byPackage).toEqual({
-      F: [
-        "booking_request",
-        "request_still_open",
-        "request_missed",
-        "deposit_to_collect",
-        "handover",
-        "urgent",
-        "website_message",
-        "calendar_check",
-      ],
       WP4: ["daily_summary", "weekly_recap"],
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
       WP11: ["website_changes"],
-      WP7: [
-        "terms_notice",
-        "subprocessor_notice",
-        "incident_report",
-        "guarantee_claim_received",
-        "guarantee_finding",
-        "suspended_for_cause",
-        "patient_request",
-        "product_update",
-      ],
+      // WP7's operator notices are templated; L32 is the one left.
+      WP7: ["patient_request"],
       WP6: ["pass_through_ending", "export_ready", "export_reminder", "data_destroyed"],
       WP5: ["ops_digest", "flag_alert"],
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, and L22", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, and L22", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -242,6 +224,21 @@ describe("the template registry", () => {
       "ai_paused",
       "calendar_link",
       "calendar_election_recorded",
+      "booking_request",
+      "request_still_open",
+      "request_missed",
+      "deposit_to_collect",
+      "handover",
+      "urgent",
+      "website_message",
+      "calendar_check",
+      "terms_notice",
+      "subprocessor_notice",
+      "incident_report",
+      "guarantee_claim_received",
+      "guarantee_finding",
+      "suspended_for_cause",
+      "product_update",
       "sign_in_help_link",
       "address_change_confirm",
       "address_changing",

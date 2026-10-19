@@ -610,12 +610,17 @@ undeclared variable is invisible to the task.
   - adds a tool or vendor: `TOOLS`, in a category from `GROUPS` (a new
     category also needs a place in `lib/admin/map-layout.ts`);
   - adds a connection between two tools: `BRIDGES`;
-  - adds an environment variable: `KEYS`, with where it lives and how it is
-    rotated, or `NOT_KEYS`, with the reason it is only a setting. An AWS-side
-    key also goes in `apps/app/src/lib/ops/key-presence.ts`;
+  - adds an environment variable, or a GitHub repository variable a workflow
+    needs: `KEYS`, with where it lives and how it is rotated, or `NOT_KEYS`,
+    with the reason it is only a setting. An AWS-side key also goes in
+    `apps/app/src/lib/ops/key-presence.ts`;
+  - changes what a connection does, not only whether it exists (a channel
+    that starts booking, a deposit link that starts being sent): that
+    bridge's words, and the story that plays it;
   - finishes something the map shows as still to build: that bridge's
     `build` and `buildNote`.
 
-  `system-map.test.ts` fails on a variable either app reads that is on neither
-  list, and on a key nothing reads. It cannot see a new connection or a
-  finished build, so those depend on this rule.
+  `system-map.test.ts` fails on a variable either app or its scripts read
+  that is on neither list, and on a key nothing reads. It cannot see a new
+  connection, a finished build or a changed behaviour, so those depend on
+  this rule.

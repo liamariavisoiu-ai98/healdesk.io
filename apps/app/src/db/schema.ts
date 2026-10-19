@@ -1543,6 +1543,33 @@ export const incidents = pgTable(
      * kept; see lib/incidents/incidents.ts.
      */
     ftcNotifyBy: timestamp("ftc_notify_by", { withTimezone: true }),
+    /**
+     * The deadline the clinic's agreement itself promises, set when the
+     * incident is opened from the agreement in effect then
+     * (lib/incidents/reporting-rules.ts): 60 calendar days after discovery
+     * under BAA 1.2.2 on and the DPA; five calendar days for a breach and
+     * five business days for the rest under 1.2.1 and before, and for a
+     * clinic with no agreement or one the map does not know. Null for a
+     * service complaint, which no agreement clocks. `notify_by` is healdesk's
+     * own target, stricter, and never a promise (owner, 12 October 2026).
+     */
+    agreementNotifyBy: timestamp("agreement_notify_by", { withTimezone: true }),
+    /** The version that deadline was read from, or null when there was none (the strictest rule applied). */
+    agreementVersion: text("agreement_version"),
+    /**
+     * Ops' decision on an incident the agreement covers (plan Part J,
+     * "incidents"): a report sent (L29, from fixed fields only, through the
+     * outbox) or not reportable, with the reason. Nothing reaches a clinic
+     * unless ops sends it. `reports_sent` counts the reports and their
+     * updates, so each one has its own outbox dedupe key.
+     */
+    reportedAt: timestamp("reported_at", { withTimezone: true }),
+    reportsSent: integer("reports_sent").notNull().default(0),
+    notReportableAt: timestamp("not_reportable_at", { withTimezone: true }),
+    /** Operator prose, PHI-scanned on the way in like the summary. */
+    notReportableReason: text("not_reportable_reason"),
+    /** Who decided: the administrator's address (lib/ops/api.ts). */
+    decidedBy: text("decided_by"),
     openedBy: text("opened_by").notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolution: text("resolution"),
@@ -1552,6 +1579,14 @@ export const incidents = pgTable(
   (t) => [
     index("incidents_clinic_idx").on(t.clinicId, t.discoveredAt),
     index("incidents_open_idx").on(t.notifyBy).where(sql`${t.resolvedAt} is null`),
+    // One decision: a report sent, or not reportable with its reason, never both.
+    check(
+      "incidents_decision_check",
+      sql`not (${t.reportedAt} is not null and ${t.notReportableAt} is not null)
+          and (${t.notReportableAt} is null) = (${t.notReportableReason} is null)
+          and (${t.reportedAt} is null) = (${t.reportsSent} = 0)
+          and ${t.reportsSent} >= 0`,
+    ),
   ],
 );
 
@@ -1696,11 +1731,25 @@ export const bookingRequests = pgTable(
      * route idempotent on a retried tool call. Frozen after insert.
      */
     vendorCallId: text("vendor_call_id"),
+    /**
+     * How the request was taken: by AYA in a conversation, or on the
+     * website's contact form while website chat was not answering (L20,
+     * package F): a first name, a number and one of a fixed set of times,
+     * nothing else. A contact-form request is always web chat's, with no
+     * conversation (CHECK). Frozen after insert: the runtime role has no
+     * UPDATE on it, and the no-rewrite trigger refuses it to the owner too.
+     */
+    source: text("source").$type<BookingRequestSource>().notNull().default("assistant"),
     /** The person's last inbound message on the thread — the start of Meta's 24-hour window. */
     lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    check("booking_requests_source_known", sql`${t.source} in ('assistant', 'contact_form')`),
+    check(
+      "booking_requests_source_shape",
+      sql`${t.source} = 'assistant' or (${t.channel} = 'web_chat' and ${t.conversationId} is null and ${t.vendorCallId} is null)`,
+    ),
     uniqueIndex("booking_requests_token_idx").on(t.tokenHash),
     index("booking_requests_clinic_idx").on(t.clinicId, t.createdAt),
     uniqueIndex("booking_requests_vendor_call_idx")
@@ -1718,6 +1767,8 @@ export const bookingRequests = pgTable(
 export type ProposedSlot = { at: string; label: string; source: "calendar" | "desk" };
 /** See bookingRequests.bookedVia. 0041 dropped 'callback' from the CHECK: healdesk places no calls. */
 export type BookedVia = "desk" | "agent_direct";
+/** See bookingRequests.source: AYA took it, or the website's contact form did while AYA was not answering. */
+export type BookingRequestSource = "assistant" | "contact_form";
 
 /**
  * The id and token hash of every booking request ever written, kept after
@@ -2547,7 +2598,7 @@ export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
 
 /**
  * An amendment Practice directed to a record that must stay as it was made
- * (clause 14(b) of BAA 1.5.0, as of 1.3.0; 45 CFR 164.526(c)(1); the DPA's
+ * (clause 14(b) of BAA 1.5.1, as of 1.3.0; 45 CFR 164.526(c)(1); the DPA's
  * Clients' requests clause; release gate 8, PT-17). A booking request's
  * facts never change (the no-rewrite trigger, 0039 and 0041), a conversation
  * is the record of what was said, and an appointment is the booking as the
@@ -4413,7 +4464,7 @@ export type ClinicSettingsHistoryRow = typeof clinicSettingsHistory.$inferSelect
 
 /**
  * Where a change of the clinic's one address stands (plan Part D5, Annex X5
- * O5; drizzle/0081). `awaiting_confirmation`: asked for from Settings, with a
+ * O5; drizzle/0084). `awaiting_confirmation`: asked for from Settings, with a
  * single-use link sent to the new address. `pending`: confirmed (or entered
  * by the operator through ops' changeClinicEmail), and taking effect at
  * `effective_at`, 72 hours on. Then exactly one of `applied`, `stopped` (by
@@ -4450,7 +4501,7 @@ export type AddressChangeStopper = (typeof ADDRESS_CHANGE_STOPPERS)[number];
  * which move together when it takes effect (lib/sign-in/address-change.ts).
  * Business contact data, never a patient. Tenant RLS on the clinic it was
  * asked for; the confirmation link and the hourly job find a row across
- * tenants only through two SECURITY DEFINER functions (0081).
+ * tenants only through two SECURITY DEFINER functions (0084).
  *
  * The confirmation token is never stored, only its SHA-256, as sign-in links
  * keep theirs. The runtime role may move the state columns and never DELETE:
@@ -4552,7 +4603,7 @@ export const signInAddressChanges = pgTable(
 export type SignInAddressChange = typeof signInAddressChanges.$inferSelect;
 
 // -----------------------------------------------------------------------------
-// The DPA→BAA re-sign (package WP9, plan Part L, Annex X5 L22; drizzle/0082)
+// The DPA→BAA re-sign (package WP9, plan Part L, Annex X5 L22; drizzle/0085)
 // -----------------------------------------------------------------------------
 
 /** Why a practice under the Data Protection Agreement now needs the BAA: its answer. */
@@ -4590,7 +4641,7 @@ export type AgreementResignStatus = (typeof AGREEMENT_RESIGN_STATUSES)[number];
  *
  * Contract metadata, never a patient: no BAA gate. Tenant RLS on the clinic
  * that recorded the answer; the hourly job walks open rows through a SECURITY
- * DEFINER function that answers ids only (0082). Destruction keeps it: it is
+ * DEFINER function that answers ids only (0085). Destruction keeps it: it is
  * part of the record of which agreement covered the practice, and when.
  */
 export const agreementResigns = pgTable(
@@ -5577,7 +5628,7 @@ export const auditReviewQueue = pgTable(
       .references(() => clinics.id, { onDelete: "cascade" }),
     /**
      * What the review is about (AUDIT_REVIEW_KINDS): a practice-questions
-     * run, or the agreement-kind signal (WP9, drizzle/0082), which has no run.
+     * run, or the agreement-kind signal (WP9, drizzle/0085), which has no run.
      */
     kind: text("kind").$type<AuditReviewKind>().notNull().default("practice_questions"),
     /** The run reviewed; null exactly when the review is not about one. */

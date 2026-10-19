@@ -1,6 +1,6 @@
 /**
  * The closed time grammar a Meta booking window must fit. Clause 11 of the
- * agreement in force (BAA 1.5.0, in the words it has carried since 1.3.0) has
+ * agreement in force (BAA 1.5.1, in the words it has carried since 1.3.0) has
  * healdesk keep from Instagram, Messenger or WhatsApp only the details in its
  * item (a), "each checked by automated filters designed to keep clinical
  * content out, and preferred times only in a fixed day-and-time form", and

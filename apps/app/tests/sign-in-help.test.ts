@@ -273,7 +273,9 @@ describeDb("/sign-in/help", () => {
         { transport },
       ),
     ).toBe("no_match");
-    expect(sent).toEqual([]);
+    // No link, to anyone: the one email is I3's, to hello@.
+    expect(sent.map((s) => s.to)).toEqual(["hello@healdesk.io"]);
+    expect(sent[0]!.message.text).not.toMatch(/\/link\//);
     const alerts = await opsAlerts();
     expect(alerts).toEqual([
       { code: "no_match", clinicId: clinic.clinicId, signal: "clinic_not_named" },
@@ -290,6 +292,65 @@ describeDb("/sign-in/help", () => {
       clinicId: clinic.clinicId,
       signal: "clinic_not_named",
     });
+  });
+
+  /**
+   * Plan Part D5: "Anything else emails hello@ with structured fields" (Annex
+   * X5's I3, access requests). Until 19 October 2026 an unmatched request
+   * reached only HEALDESK_OPS_EMAIL, through notifyOps, and hello@, where a
+   * person answers access requests, never heard.
+   */
+  test("an unmatched request emails hello@ the structured fields, never what was typed, replying to the account", async () => {
+    const { stripe } = fakeStripe({
+      cards: [{ id: "pm_2", card: { last4: "1111", exp_month: 4, exp_year: 2028 } }],
+    });
+    __setStripeForTests(stripe);
+    const { sent, transport } = fakeTransport();
+    await runSignInHelp(
+      { email: clinic.staffEmail, clinic: "Somewhere Else Entirely", detail: { kind: "card", last4: "9876", expMonth: 7, expYear: 2029 } },
+      {},
+      { transport },
+    );
+    expect(sent).toHaveLength(1);
+    const [{ to, message }] = sent as [Sent];
+    expect(to).toBe("hello@healdesk.io");
+    expect(message.subject).toBe("Sign-in help: no link was sent");
+    expect(message.replyTo).toBe(clinic.staffEmail);
+    expect(message.tags).toEqual([
+      { name: "app", value: "app" },
+      { name: "kind", value: "access_request" },
+      { name: "delivery", value: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+    ]);
+    expect(message.idempotencyKey).toMatch(/^hd-access_request-[0-9a-f-]{36}-1$/);
+    expect(message.text).toContain("the billing detail matched nothing on the account");
+    expect(message.text).toContain(clinic.clinicId);
+    expect(message.text).toContain("did not match the account's");
+    expect(message.text).toContain("a card");
+    for (const body of [message.text, message.html]) {
+      expect(body).not.toContain("Somewhere");
+      expect(body).not.toContain("9876");
+      expect(body).not.toContain(clinic.staffEmail);
+    }
+    // Ops still hears, once an hour per clinic and code.
+    expect((await opsAlerts()).map((a) => a.code)).toEqual(["no_match"]);
+  });
+
+  test("an address with no account: hello@ hears it masked, and a reply stays with us", async () => {
+    const { transport, sent } = fakeTransport();
+    await runSignInHelp(
+      { email: "nobody@nowhere.test", clinic: "Nowhere", detail: { kind: "invoice", number: "ABCD1234-0001" } },
+      {},
+      { transport },
+    );
+    expect(sent).toHaveLength(1);
+    const { to, message } = sent[0]!;
+    expect(to).toBe("hello@healdesk.io");
+    expect(message.replyTo).toBe("hello@healdesk.io");
+    expect(message.text).toContain("n•••@nowhere.test");
+    expect(message.text).toContain("the address has no healdesk account");
+    expect(message.text).toContain("an invoice number");
+    expect(message.text).not.toContain("ABCD1234");
+    expect(message.text).not.toContain("nobody@");
   });
 
   test("an address with no account, and Stripe unreachable: no link either way", async () => {

@@ -176,6 +176,13 @@ export const DIRECT_KIND_REGISTRY = {
    * acceptance's id, the row whose copy_sent_at records it.
    */
   agreement_copy: direct("P6", "transactional", "plan", { linkEmail: false, locksOut: false }),
+  /**
+   * I3's access request: a /sign-in/help request that sent no link, to hello@
+   * with structured fields only (plan Part D5; lib/sign-in/help.ts), and the
+   * account's address as reply-to when the address typed is one. No `clinic`
+   * tag: it goes to our own inbox, as the support escalation does.
+   */
+  access_request: direct("I3", "transactional", "plan", { linkEmail: false, locksOut: false }),
 } as const;
 
 export type DirectKind = keyof typeof DIRECT_KIND_REGISTRY;

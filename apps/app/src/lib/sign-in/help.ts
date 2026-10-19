@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+
+import { SENDER_IDENTITY } from "@healdesk/catalog";
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -7,13 +10,19 @@ import { billingDetailMatches, type BillingDetail } from "@/lib/billing/billing-
 import { stripeCustomerOf } from "@/lib/billing/customer-email";
 import { stripeConfigured } from "@/lib/billing/stripe-client";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
+import {
+  renderAccessRequest,
+  type AccessRequestCode,
+  type AccessRequestPayload,
+} from "@/lib/email/templates/access_request";
 import { renderSignInHelpLink, SIGN_IN_HELP_REASON } from "@/lib/email/templates/sign_in_help_link";
+import { SUPPORT_REASON } from "@/lib/email/templates/support_escalation";
 import { describeError, log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
 import { portalGrants } from "@/lib/portal/access";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 
-import { issueSignInLink, SIGN_IN_LINK_TTL_MS } from "./links";
+import { issueSignInLink, maskEmail, SIGN_IN_LINK_TTL_MS } from "./links";
 import { looksLikeEmail, normaliseSignInEmail } from "./request";
 
 /**
@@ -25,10 +34,16 @@ import { looksLikeEmail, normaliseSignInEmail } from "./request";
  * (lib/billing/billing-detail.ts). On a match, O6 sends a sign-in link to the
  * address already on the account, and only there; it never adds a device,
  * and patient pages still need a passkey. Anything else sends no link and
- * tells ops through notifyOps, with structured fields only (a code, the
- * clinic's id when the address is one, and whether the name typed matched),
- * never what was typed. notifyOps keeps that to one email an hour per
- * clinic, so the form cannot be used to flood the inbox.
+ * emails hello@ (plan D5: "Anything else emails hello@ with structured
+ * fields"; Annex X5's I3, access requests), with structured fields only: a
+ * code, the clinic's id when the address is one, whether the name typed
+ * matched, which kind of billing detail was offered and the address masked,
+ * never what was typed. A person answers it there; when the address is an
+ * account's own, the reply-to is that address. Ops is told too, through
+ * notifyOps, which keeps that to one alert an hour per clinic and code; the
+ * form's own limits (three a window per address, ten per IP) bound the
+ * hello@ emails. Until 19 October 2026 only the ops alert went, to
+ * HEALDESK_OPS_EMAIL, and hello@ never heard.
  *
  * The page answers every well-formed request the same way, at once, and this
  * runs after the answer has gone (the action hands it to after()), so
@@ -137,8 +152,14 @@ export async function runSignInHelp(
 ): Promise<SignInHelpOutcome> {
   const trace = { ipAddress: context.ipAddress ?? null, userAgent: context.userAgent ?? null };
   const unmatched = async (
-    code: Exclude<SignInHelpOutcome, "sent" | "failed">,
-    fields: { userId?: string | null; clinicId?: string | null; clinicNamed?: boolean } = {},
+    code: AccessRequestCode,
+    fields: {
+      userId?: string | null;
+      clinicId?: string | null;
+      clinicNamed?: boolean;
+      /** The account's own address, when the address typed is one: the I3 email's reply-to. */
+      accountEmail?: string | null;
+    } = {},
   ): Promise<SignInHelpOutcome> => {
     const signal =
       fields.clinicNamed === undefined
@@ -162,6 +183,19 @@ export async function runSignInHelp(
       clinicId: fields.clinicId ?? null,
       signal,
     });
+    await sendAccessRequest(
+      {
+        requestId: randomUUID(),
+        code,
+        clinicId: fields.clinicId ?? null,
+        signal,
+        detail: request.detail.kind,
+        addressMasked: maskEmail(request.email),
+        hasReplyAddress: Boolean(fields.accountEmail),
+      },
+      fields.accountEmail ?? null,
+      options,
+    );
     return code;
   };
 
@@ -181,13 +215,14 @@ export async function runSignInHelp(
     if (customer) customers.add(customer);
   }
   if (customers.size === 0) {
-    return unmatched("no_billing", { userId: account.id, clinicId: firstClinic, clinicNamed });
+    return unmatched("no_billing", { userId: account.id, clinicId: firstClinic, clinicNamed, accountEmail: account.email });
   }
   if (!stripeConfigured()) {
     return unmatched("billing_unavailable", {
       userId: account.id,
       clinicId: firstClinic,
       clinicNamed,
+      accountEmail: account.email,
     });
   }
 
@@ -205,10 +240,11 @@ export async function runSignInHelp(
       userId: account.id,
       clinicId: firstClinic,
       clinicNamed,
+      accountEmail: account.email,
     });
   }
   if (!matched) {
-    return unmatched("no_match", { userId: account.id, clinicId: firstClinic, clinicNamed });
+    return unmatched("no_match", { userId: account.id, clinicId: firstClinic, clinicNamed, accountEmail: account.email });
   }
 
   const originProblem = publicOriginProblem();
@@ -268,6 +304,56 @@ export async function runSignInHelp(
   } catch (error) {
     log.error("sign-in help link not sent", { deliveryId: link.id, error: describeError(error) });
     return "failed";
+  }
+}
+
+/** Where an access request goes: hello@, the support inbox (I3), as the support chat's escalation does. */
+const ACCESS_REQUEST_INBOX = SENDER_IDENTITY.replyTo;
+
+/**
+ * I3, an access request: the unmatched request to hello@, structured fields
+ * only (templates/access_request.ts), keyed by the request's own id. Never
+ * throws: the person has already been answered, and ops has been told.
+ */
+async function sendAccessRequest(
+  payload: AccessRequestPayload,
+  replyTo: string | null,
+  options: SendEmailOptions,
+): Promise<void> {
+  try {
+    const rendered = renderAccessRequest(payload, {
+      clinicName: null,
+      audience: "patients",
+      reason: SUPPORT_REASON,
+      raisedAt: options.now ?? new Date(),
+      timeZone: "America/New_York",
+    });
+    const result = await sendEmail(
+      {
+        to: ACCESS_REQUEST_INBOX,
+        kind: "access_request",
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
+        phiClass: "none",
+        payload,
+        deliveryId: payload.requestId,
+        idempotencyKey: `hd-access_request-${payload.requestId}-1`,
+        ...(replyTo ? { replyTo } : {}),
+      },
+      options,
+    );
+    if (result.status === "failed") {
+      log.warn("sign-in help access request not delivered", {
+        deliveryId: payload.requestId,
+        reason: result.reason,
+      });
+    }
+  } catch (error) {
+    log.error("sign-in help access request not sent", {
+      deliveryId: payload.requestId,
+      error: describeError(error),
+    });
   }
 }
 

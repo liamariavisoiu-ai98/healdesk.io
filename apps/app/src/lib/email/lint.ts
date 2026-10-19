@@ -134,6 +134,9 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   // id from lib/support/escalation-fields.ts's fixed lists, never words.
   "topic",
   "symptom",
+  // I3's access request (lib/sign-in/help.ts): which billing detail was
+  // offered, "card" or "invoice", never the detail itself.
+  "detail",
 ]);
 
 /** The class a key's value must belong to, or null when the key is not on the list. */

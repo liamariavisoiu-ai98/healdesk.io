@@ -103,7 +103,8 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
       kind === "ops_digest" ||
       kind === "sign_in_link" ||
       kind === "sign_in_help_link" ||
-      kind === "device_changed"
+      kind === "device_changed" ||
+      kind === "access_request"
         ? null
         : "Radiance Med Spa",
     audience,
@@ -122,7 +123,7 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
               ? ACCOUNT_REASON
               : kind === "steps_sent"
                 ? stepsReason("Radiance Med Spa")
-                : kind === "support_escalation"
+                : kind === "support_escalation" || kind === "access_request"
                   ? SUPPORT_REASON
                   : clinicReason("Radiance Med Spa"),
     ...(scope ? { unsubscribeUrl: unsubscribeUrl(CLINIC_ID, scope) } : {}),
@@ -181,7 +182,7 @@ describe("the template registry", () => {
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, the DPA re-sign's L22, the drift list's L23, and P6's resend", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, the DPA re-sign's L22, the drift list's L23, P6's resend and I3's access request", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -254,6 +255,7 @@ describe("the template registry", () => {
       "agreement_to_sign",
       "website_changes",
       "agreement_copy",
+      "access_request",
     ]);
   });
 

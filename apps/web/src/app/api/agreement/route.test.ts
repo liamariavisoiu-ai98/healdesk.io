@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { DOWNLOAD_COOKIE } from "@/lib/agreement-download";
 import { findAgreementRecord } from "@/lib/checkout/records";
 import { mailboxOf, UNCONFIRMED_COPIES_PER_DAY } from "@/lib/email/agreement-copy";
-import { __resetRateLimiterForTests } from "@/lib/rate-limit";
+import { __resetRateLimiterForTests, takeRateLimit } from "@/lib/rate-limit";
 import { signatureRequestFor } from "@/lib/checkout/records.testing";
 import { issueSetupToken, setupLinkExpiry } from "@/lib/setup-link";
 import { createSetupRequest, findSetupRequest, updateSetupRequest } from "@/lib/setup-requests";
@@ -451,16 +451,21 @@ describe("POST /api/agreement holds the copy to an address nobody confirmed to P
 
   test("the day's copies to unconfirmed addresses are capped across mailboxes, and a refusal takes nothing", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    for (let i = 0; i < UNCONFIRMED_COPIES_PER_DAY; i += 1) {
-      await sign(null, signature(`owner${i}@clinic${i}.com`));
+    // The day's places but one are taken already, by other mailboxes.
+    for (let i = 1; i < UNCONFIRMED_COPIES_PER_DAY; i += 1) {
+      expect((await takeRateLimit("agreement-copy:day", UNCONFIRMED_COPIES_PER_DAY, 24 * 60 * 60 * 1000)).ok).toBe(true);
     }
-    expect(emails()).toHaveLength(UNCONFIRMED_COPIES_PER_DAY);
+    const last = (await (await sign(null, signature("last@clinic.com"))).json()) as { copy: unknown };
+    expect(last.copy).toEqual({ status: "sent" });
     const over = (await (await sign(null, signature("one.more@clinic.com"))).json()) as { copy: unknown };
     expect(over.copy).toEqual({
       status: "not_sent",
       reason: "We have emailed as many copies today as we send in a day, so yours has not been sent.",
     });
-    expect(emails()).toHaveLength(UNCONFIRMED_COPIES_PER_DAY);
+    expect(emails()).toHaveLength(1);
+    // The refused mailbox kept nothing: its own day is free for tomorrow's place.
+    const day = sheets.records("counters").find((r) => r.key === "agreement-copy:day");
+    expect(Number(day!.count)).toBe(UNCONFIRMED_COPIES_PER_DAY);
   });
 
   /**

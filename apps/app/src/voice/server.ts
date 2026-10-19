@@ -8,6 +8,7 @@ import type { AssistantResponder } from "@/lib/assistant/turn";
 import { describeError, log } from "@/lib/log";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
+import { voiceRealCallsAllowed } from "@/lib/voice/test-calls";
 
 /**
  * The voice endpoint: Retell's custom-LLM WebSocket, one socket per call, held
@@ -33,6 +34,11 @@ import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
  * Retell's WebSocket request carries no signature of its own: the load
  * balancer and the sidecar keep no access log, and neither does this process.
  *
+ * Until HEALDESK_VOICE_REAL_CALLS=1 (Terraform's voice_real_calls, once
+ * every agreement is signed) it is in test mode: a call for any clinic but a
+ * made-up one is passed to that clinic's line or refused, unanswered and
+ * unrecorded (lib/voice/test-calls.ts).
+ *
  * On SIGTERM it stops taking calls and records every call still open (the
  * load balancer has already drained it for up to an hour by then, ecs.tf).
  */
@@ -51,6 +57,8 @@ export type VoiceServerOptions = {
   secret?: string | null;
   responder?: AssistantResponder | null;
   transport?: EmailTransport;
+  /** Real patients' calls allowed; unset reads HEALDESK_VOICE_REAL_CALLS. */
+  realCalls?: boolean;
   /** For tests: the session's dependencies beyond the model. */
   sessionDeps?: Partial<ConstructorParameters<typeof RetellCallSession>[3]>;
 };
@@ -101,7 +109,7 @@ export function createVoiceServer(options: VoiceServerOptions = {}): { server: S
     const send = (message: RetellOutbound) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
     };
-    const session = new RetellCallSession(clinicId, callId, send, { responder, transport: options.transport, ...options.sessionDeps });
+    const session = new RetellCallSession(clinicId, callId, send, { responder, transport: options.transport, realCalls: options.realCalls, ...options.sessionDeps });
     sessions.add(session);
     // Messages are handled one at a time, in order; a newer response request
     // supersedes an older one inside the session.
@@ -136,6 +144,9 @@ async function main(): Promise<void> {
   const { server, drain } = createVoiceServer();
   if (!process.env.HEALDESK_RETELL_LLM_SECRET?.trim()) {
     log.warn("voice endpoint has no HEALDESK_RETELL_LLM_SECRET: every call is refused", { status: "refusing" });
+  }
+  if (!voiceRealCallsAllowed()) {
+    log.info("voice endpoint in test mode: only a made-up clinic's calls are answered", { status: "test-calls" });
   }
   server.listen(port, host, () => log.info("voice endpoint ready", { status: "listening" }));
   for (const signal of ["SIGTERM", "SIGINT"] as const) {

@@ -63,6 +63,9 @@ export const KEY_PRESENCE_NAMES = [
   // Set with enable_voice, because HEALDESK_RETELL_LLM_SECRET reads as
   // present here before the voice service exists (infra/aws/locals.tf).
   "HEALDESK_VOICE_ENABLED",
+  // Set with voice_real_calls: the voice endpoint answers real patients, not
+  // only the demo clinic (lib/voice/test-calls.ts).
+  "HEALDESK_VOICE_REAL_CALLS",
 ] as const;
 
 export type KeyPresenceName = (typeof KEY_PRESENCE_NAMES)[number];

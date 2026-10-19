@@ -314,6 +314,7 @@ describeDb("pause control", () => {
     const said: RetellOutbound[] = [];
     const session = new RetellCallSession(c.clinicId, `call_${randomUUID()}`, (m) => said.push(m), {
       responder,
+      realCalls: true,
       now: () => when,
     });
     await session.open();

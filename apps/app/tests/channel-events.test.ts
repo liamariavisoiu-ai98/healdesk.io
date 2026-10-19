@@ -1262,6 +1262,7 @@ describeDb("channel events against the database", () => {
         () => undefined,
         {
           responder: reply,
+          realCalls: true,
           gate: async () => decision,
           ingest: async (event) => {
             events.push(event);

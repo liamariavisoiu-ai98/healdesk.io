@@ -115,6 +115,8 @@ locals {
     # parameter, so it reads as present the moment it is pasted, with the voice
     # service, its target group and its listener rule still switched off.
     var.enable_voice ? { HEALDESK_VOICE_ENABLED = "1" } : {},
+    # And whether it answers real patients or only the demo clinic.
+    var.voice_real_calls ? { HEALDESK_VOICE_REAL_CALLS = "1" } : {},
     {
       for k, v in {
         META_APP_ID              = var.meta_app_id
@@ -138,13 +140,16 @@ locals {
   # answers no SNS, Meta or Stripe Connect callback, takes no card, and reads
   # no KEEP_ALIVE_TIMEOUT (it is a plain Node server, not Next). A choice of
   # model (HEALDESK_VOICE_MODEL) is app_environment's, like any other public
-  # setting.
+  # setting. HEALDESK_VOICE_REAL_CALLS (voice_real_calls) is the one switch
+  # that lets it answer a real patient; without it, only the made-up demo
+  # clinic's calls are answered (src/lib/voice/test-calls.ts).
   voice_environment = merge(
     local.app_environment_common,
     {
       PORT     = "3001"
       HOSTNAME = "0.0.0.0"
     },
+    var.voice_real_calls ? { HEALDESK_VOICE_REAL_CALLS = "1" } : {},
   )
 
   # Every name the stack sets on any task from its own variables. A literal,
@@ -165,6 +170,7 @@ locals {
     "HEALDESK_SES_CONFIGURATION_SET",
     "HEALDESK_SES_EVENTS_TOPIC_ARN",
     "HEALDESK_VOICE_ENABLED",
+    "HEALDESK_VOICE_REAL_CALLS",
     "HOSTNAME",
     "KEEP_ALIVE_TIMEOUT",
     "META_APP_ID",

@@ -281,6 +281,19 @@ describe("assess", () => {
     expect(bridge(view, "retell-clinic").status).toBe("off");
   });
 
+  test("voice on for test calls only: the line is up, and patients' calls stay off until voice_real_calls", () => {
+    const live = allGood();
+    (live.host as Extract<HostReach, { state: "answered" }>).present.HEALDESK_VOICE_REAL_CALLS = false;
+    const view = assess(live);
+
+    expect(key(view, "aws.HEALDESK_VOICE_REAL_CALLS").state).toBe("waiting");
+    expect(bridge(view, "retell-app").status).not.toBe("off");
+    expect(bridge(view, "patients-retell").status).toBe("off");
+    expect(bridge(view, "patients-retell").statusText).toContain("voice_real_calls");
+    expect(bridge(view, "patients-retell").statusText).toContain("demo clinic");
+    expect(view.todos.some((t) => t.kind === "add-key" && t.key === "aws.HEALDESK_VOICE_REAL_CALLS")).toBe(false);
+  });
+
   test("checkout waits on the Sheet it seals purchases into, and on the seal", () => {
     const sheetDown = assess(allGood({ proofs: { ...allGood().proofs, sheet: { ok: false, detail: "no access" } } }));
     // A broken Sheet breaks checkout too; only the Sheet gets the to-do.

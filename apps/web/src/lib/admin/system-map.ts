@@ -526,7 +526,7 @@ export const KEYS: readonly KeyDef[] = [
     label: "The password in each clinic's Retell line address",
     need: "later",
     waitsFor:
-      "every business associate agreement in the chain is signed, Retell's included, which the paste script asks you to confirm before it takes this. Then paste it, turn enable_voice on (production.tfvars, merged, an infra.yml apply, then a full deploy-app.yml), put the line address in a made-up clinic's Retell agent, and make a test call before any real one",
+      "you paste it for a test call, which may come before the business associate agreements (answer test when the paste script asks; yes once every agreement in the chain is signed, Retell's included), because until real calls are switched on the engine answers only the made-up demo clinic. Then turn enable_voice on (production.tfvars, merged, an infra.yml apply, then a full deploy-app.yml), put the line address in the demo clinic's Retell agent only, and make the test call",
     rotation: {
       kind: "every",
       days: 180,
@@ -544,7 +544,21 @@ export const KEYS: readonly KeyDef[] = [
     label: "The voice endpoint's switch (enable_voice)",
     need: "later",
     waitsFor:
-      "enable_voice is turned on, once every business associate agreement in the chain is signed (Retell's included) and the Retell line password (HEALDESK_RETELL_LLM_SECRET) is pasted: set it in production.tfvars, merge, run an infra.yml apply and a full deploy-app.yml, put the line address in a made-up clinic's Retell agent, and make a test call before any real one",
+      "enable_voice is turned on, once the Retell line password (HEALDESK_RETELL_LLM_SECRET) is pasted, which may come before the business associate agreements for a test call on the made-up demo clinic: set it in production.tfvars, merge, run an infra.yml apply and a full deploy-app.yml, put the line address in the demo clinic's Retell agent, and make the test call",
+    rotation: { kind: "public" },
+  },
+  {
+    // Not a secret: Terraform sets it on the voice task, and on the web task
+    // for this page, only with voice_real_calls (infra/aws/locals.tf). Without
+    // it the voice endpoint answers only the demo clinic (apps/app
+    // src/lib/voice/test-calls.ts).
+    id: "aws.HEALDESK_VOICE_REAL_CALLS",
+    env: "HEALDESK_VOICE_REAL_CALLS",
+    home: "aws",
+    label: "Real patients' calls (voice_real_calls)",
+    need: "later",
+    waitsFor:
+      "every business associate agreement in the chain is signed, Retell's included: then set voice_real_calls = true in production.tfvars, merge, and run an infra.yml apply and a full deploy-app.yml. Until then the voice line answers only the made-up demo clinic, and a call for any other clinic goes to its direct line, or is refused, before AYA speaks",
     rotation: { kind: "public" },
   },
   {
@@ -1118,8 +1132,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "A patient rings the clinic",
     carries: "The call, forwarded from the clinic's own number",
     example: "Maria calls the clinic at 8pm. The clinic's own number forwards the call to its Retell line, so Maria still dialled the number printed on the clinic's website.",
-    keys: [],
-    keyless: "The forwarding needs no key: the clinic dials a short code on its own phone line.",
+    keys: ["aws.HEALDESK_VOICE_REAL_CALLS"],
     dependsOn: "retell-app",
     phi: true,
     build: "built",
@@ -1140,7 +1153,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. A call in progress when the voice task crashes is lost, with its words and its booking request: the backstop from Retell's call-ended message is not built.",
+      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. Until real calls are switched on (voice_real_calls, once every agreement is signed), the engine itself answers only the demo clinic: a call for any other clinic goes to its direct line, or is refused, before AYA speaks, and nothing of it is kept, so the line password may be pasted before the agreements. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. A call in progress when the voice task crashes is lost, with its words and its booking request: the backstop from Retell's call-ended message is not built.",
   },
   {
     id: "retell-clinic",

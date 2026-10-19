@@ -114,8 +114,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "Phone is live once call forwarding is set",
     where: "Pricing, setup",
     status: "owner",
-    left: "Turn enable_voice on in the infrastructure, set the Retell secret, apply, deploy, and make one test call on a synthetic clinic.",
-    evidence: "infra/aws (enable_voice), apps/app/src/voice/server.ts",
+    left: "Turn enable_voice on in the infrastructure, set the Retell secret, apply, deploy, and make one test call on the demo clinic, which may come before the agreements. Then, once every agreement in the chain is signed, turn voice_real_calls on, apply and deploy: until then the voice line answers only the demo clinic.",
+    evidence: "infra/aws (enable_voice, voice_real_calls), apps/app/src/voice/server.ts, apps/app/src/lib/voice/test-calls.ts",
     blocksGoLive: true,
   },
   {

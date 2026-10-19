@@ -370,6 +370,53 @@ describe("the guard", () => {
     expect(guardAssistantReply(line, GLOW)).toEqual({ ok: true });
   });
 
+  // Round 2 of the 19 October guardrails: the opening line says an AI
+  // assistant is answering, and no reply after it may say otherwise.
+  test.each([
+    "Yes, I'm a real person.",
+    "I am human, so ask me anything.",
+    "I'm the receptionist here at Glow.",
+    "No, I'm not a bot.",
+    "I'm not an AI, I promise.",
+    "This is a human, not a recording.",
+    "You're talking to a real person.",
+    "You're talking to Sarah at the front desk.",
+    "I'm Sarah, a real person on the team.",
+    "This is Sarah from the front desk.",
+    "Sarah here, from the front desk.",
+    "A real person here, happy to help.",
+    "This isn't an automated system.",
+    "Sí, soy una persona real.",
+    "No soy un bot.",
+    "Está hablando con una persona real.",
+  ])("a reply claiming to be a person, or not an AI, is refused: %j", (text) => {
+    expect(guardAssistantReply(text, GLOW)).toEqual({ ok: false, reason: "human_claim" });
+  });
+
+  test.each([
+    "A person from our team will call you within a day.",
+    "If you'd rather talk to a real person, just ask.",
+    "Our staff can help with that when you call.",
+    "I'm an AI assistant, not a real person.",
+    "No, I'm not a real person: I'm the practice's AI assistant.",
+    "You asked whether I'm a real person: I'm an AI assistant.",
+    "You're talking to AYA, the practice's AI assistant.",
+    "I'm happy to pass you to a member of the team.",
+    "I'm sorry, the team will get back to you within a day.",
+    "This is the front desk's direct line: (415) 555-0123.",
+    "It's a real person who calls you back, within a day.",
+    "No soy una persona: soy el asistente de IA de la clínica.",
+    "Una persona del equipo le llamará.",
+  ])("an offer of a person, or the honest answer, passes: %j", (text) => {
+    expect(guardAssistantReply(text, GLOW)).toEqual({ ok: true });
+  });
+
+  test("a refused claim becomes a line that says it is an AI assistant", () => {
+    const line = guardedLine("human_claim", GLOW.clinicName);
+    expect(line).toMatch(/^I'm an AI assistant, not a person\./);
+    expect(guardAssistantReply(line, GLOW)).toEqual({ ok: true });
+  });
+
   test("third review: a reply in a language no list knows is never sent", () => {
     expect(guardAssistantReply("Mwen pa ka ede w ak sa, rele klinik la.", GLOW)).toEqual({ ok: false, reason: "language" });
     expect(guardAssistantReply("Nie mogę pomóc, proszę zadzwonić do kliniki.", GLOW)).toEqual({ ok: false, reason: "language" });

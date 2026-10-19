@@ -36,6 +36,11 @@ import type { AssistantFacts } from "./facts";
  *     reply becomes the offer of a consultation;
  *   - is written in a language the screens do not read (messageLanguage):
  *     English and Spanish are screened, any other is not sent;
+ *   - claims to be a person, or not to be an AI ("I'm a real person", "I'm
+ *     not a bot", "you're talking to Sarah at the front desk", "soy una
+ *     persona real"), in any reply on any channel (claimsToBeHuman): the
+ *     opening line says an AI assistant is answering, and nothing after it
+ *     may say otherwise;
  *   - says a booking is made, or that the assistant is making one ("you're
  *     booked", "confirmed for Tuesday", "I'll book you in"), on a turn where
  *     the tool layer wrote no booking (ReplyTurn, confirmsBooking): the
@@ -62,6 +67,7 @@ export type GuardRefusal =
   | "clinical"
   | "language"
   | "booking_confirmation"
+  | "human_claim"
   | "empty";
 
 export type GuardVerdict = { ok: true } | { ok: false; reason: GuardRefusal };
@@ -641,6 +647,7 @@ export function guardAssistantReply(
     return { ok: false, reason: "payment_details" };
   }
   if (HIPAA_CLAIM.test(reply)) return { ok: false, reason: "hipaa_claim" };
+  if (claimsToBeHuman(reply, facts)) return { ok: false, reason: "human_claim" };
   // The practice's own words (its menu, its people, its city) are no language either way.
   const knownTerms = [facts.clinicName, facts.address, ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])];
   if (messageLanguage(reply, { knownTerms }) === "other") return { ok: false, reason: "language" };
@@ -648,6 +655,89 @@ export function guardAssistantReply(
   // Last, so a reply refused for anything above keeps that reason.
   if (turn.bookingWritten !== true && confirmsBooking(reply)) return { ok: false, reason: "booking_confirmation" };
   return { ok: true };
+}
+
+// -----------------------------------------------------------------------------
+// A claim to be a person
+// -----------------------------------------------------------------------------
+
+/** Who answers at a practice, as a role the assistant could claim: "the receptionist", "a member of the team". */
+const HUMAN_ROLE =
+  "(?:person|human(?: being)?|receptionist|front desk|nurse|staff member|member of (?:the\\s+)?(?:staff|team)|team member)";
+const ARTICLE = "(?:(?:a|an|the|your|one of the|part of the|on the|a member of(?: the)?)\\s+)?";
+const REAL = "(?:real\\s+|actual\\s+|live\\s+)?";
+
+/**
+ * The assistant claiming to be a person, or not to be an AI, in its own
+ * words: "I'm a real person", "I am human", "I'm the receptionist", "this is
+ * a human", "a real person here", "you're talking to a real person", "I'm
+ * not a bot", "I'm not an AI", "this isn't an automated system"; and in
+ * Spanish, "soy una persona real", "no soy un bot", "está hablando con una
+ * persona". Each needs the assistant as its subject, so an offer of a person
+ * passes ("a person from our team will call you", "if you'd rather talk to
+ * a real person, just ask", "our staff can help"), and so does the honest
+ * answer ("I'm an AI assistant, not a real person").
+ */
+const HUMAN_CLAIMS: readonly RegExp[] = [
+  new RegExp(`\\b(?:i['’]?m|i am)\\s+(?:(?:just|only|actually|really|definitely|totally|very much)\\s+)?${ARTICLE}${REAL}${HUMAN_ROLE}\\b(?!['’]s)`, "i"),
+  new RegExp(`\\b(?:this is|you['’]ve reached)\\s+${ARTICLE}${REAL}${HUMAN_ROLE}\\b(?!['’]s)`, "i"),
+  new RegExp(`\\byou(?:['’]re| are)\\s+(?:talking|speaking|chatting)\\s+(?:to|with)\\s+${ARTICLE}${REAL}${HUMAN_ROLE}\\b(?!['’]s)`, "i"),
+  /\b(?:a\s+)?real (?:person|human)\s+(?:here|speaking|answering)\b/i,
+  /\b(?:i['’]?m|i am)\s+not\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|chatbot|machine|computer|automated|virtual|recording)\b/i,
+  /\b(?:this|it)\s+(?:is\s+not|isn['’]t|['’]s\s+not)\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|chatbot|machine|computer|automated|recording)\b/i,
+  /\byou(?:['’]re| are)\s+not\s+(?:talking|speaking|chatting)\s+(?:to|with)\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|chatbot|machine|computer)\b/i,
+  /(?<![\p{L}])(?<!(?<![\p{L}])no\s+)soy\s+(?:una?\s+)?(?:persona(?:\s+real)?|humano|humana|ser humano|recepcionista|enfermer[oa]|(?:parte|miembro)\s+del\s+(?:equipo|personal))(?![\p{L}])/iu,
+  /(?<![\p{L}])no\s+soy\s+(?:una?\s+)?(?:ia|i\.a\.|inteligencia artificial|bot|robot|m[áa]quina|programa|asistente\s+(?:virtual|autom[áa]tic[oa]|de\s+ia))(?![\p{L}])/iu,
+  /(?<![\p{L}])est[áa]s?\s+hablando\s+con\s+(?:una?\s+)?(?:persona(?:\s+real)?|humano|humana|recepcionista|enfermer[oa])(?![\p{L}])/iu,
+];
+
+/** A capitalised word in a name: "Sarah", "Mary-Jane", "O'Neil". */
+const NAME = "(\\p{Lu}[\\p{Ll}'’-]+)";
+/** Where a claim names a person who works at the practice: "Sarah at the front desk", "Sarah from the team". */
+const AT_THE_PRACTICE = "(?:at|from|on|in|of|with)\\s+(?:the|our)\\s+(?:front desk|reception|team|staff|office|practice|clinic)\\b";
+
+/** The same, with a person's name in it: "I'm Sarah, a real person", "you're talking to Sarah at the front desk". */
+const NAMED_CLAIMS: readonly RegExp[] = [
+  new RegExp(
+    `(?:\\b[Ii]['’]?m|\\b[Ii] am|\\b[Mm]y name is|\\b[Tt]his is)\\s+${NAME}(?:\\s*,\\s*|\\s+)(?:${ARTICLE}${REAL}${HUMAN_ROLE}\\b|${AT_THE_PRACTICE})`,
+    "u",
+  ),
+  new RegExp(`\\b[Yy]ou(?:['’]re| are)\\s+(?:talking|speaking|chatting)\\s+(?:to|with)\\s+${NAME}(?=\\s*(?:[,.!?]|$)|\\s+${AT_THE_PRACTICE})`, "u"),
+  new RegExp(`(?:^|[.!?]\\s+)${NAME}\\s+(?:here|speaking)\\b(?=\\s*(?:[,.!?—–-]|$|from|at|with|on))`, "u"),
+];
+
+/** Capitalised words a claim may follow without being a person's name: the assistant's own name, days, words that open a sentence. */
+const NOT_A_PERSON = new Set([
+  "aya", "ai", "an", "a", "the", "your", "our", "sorry", "happy", "glad", "afraid", "here", "not",
+  "just", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "today",
+]);
+
+/** Words before a claim that make it a question asked back or a report of one: "you asked whether I'm a real person". */
+const ASKED = /\b(?:if|whether|asked|wondering|wonder)\b/i;
+
+/**
+ * Whether the reply has the assistant say it is a person, or not an AI
+ * (HUMAN_CLAIMS, NAMED_CLAIMS). The clinic's own name, and the assistant's,
+ * are never a person's ("This is Glow Clinic", "you're talking to AYA").
+ * One check for every channel: the Meta front door's guard asks it too.
+ */
+export function claimsToBeHuman(reply: string, facts: { clinicName?: string | null } = {}): boolean {
+  const text = reply.replace(/\s+/g, " ");
+  const clinicFirst = (facts.clinicName ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+    for (const pattern of HUMAN_CLAIMS) {
+      const m = pattern.exec(sentence);
+      if (m && !ASKED.test(sentence.slice(0, m.index))) return true;
+    }
+    for (const pattern of NAMED_CLAIMS) {
+      const m = pattern.exec(sentence);
+      if (!m) continue;
+      const name = m[1]!.toLowerCase();
+      if (NOT_A_PERSON.has(name) || name === clinicFirst) continue;
+      if (!ASKED.test(sentence.slice(0, m.index))) return true;
+    }
+  }
+  return false;
 }
 
 // -----------------------------------------------------------------------------
@@ -701,6 +791,9 @@ export function guardedLine(reason: GuardRefusal, clinicName: string): string {
   }
   if (reason === "payment_details") {
     return `Please don't share any card or bank details with me. The practice handles payment securely itself.`;
+  }
+  if (reason === "human_claim") {
+    return `I'm an AI assistant, not a person. The team at ${clinicName} can help with anything I can't, and they get back to people within a day.`;
   }
   if (reason === "booking_confirmation") {
     return `I can't confirm appointments myself, but I can pass your request to the team at ${clinicName}, who confirm every booking and get back to people within a day.`;

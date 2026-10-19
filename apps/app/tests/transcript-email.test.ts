@@ -119,6 +119,22 @@ describe("renderTranscriptEmail", () => {
     expect(() => renderTranscriptEmail({ ...INPUT, channel: "whatsapp" as never })).toThrow(/Meta/);
   });
 
+  test("a card number read out across the caller's turns is not in the email", () => {
+    const email = renderTranscriptEmail({
+      ...INPUT,
+      turns: [
+        { speaker: "assistant", text: "Hi, I'm Radiance's AI assistant, and this call is transcribed. How can I help?" },
+        { speaker: "person", text: "Can I pay the deposit? My card is 4242 4242." },
+        { speaker: "assistant", text: "Please don't read me card numbers: the practice handles payment securely itself." },
+        { speaker: "person", text: "4242 4242, and I'm on 415 555 0192." },
+      ],
+    });
+    expect(email.text).not.toContain("4242");
+    expect(email.html).not.toContain("4242");
+    expect(email.text).toContain("Caller: Can I pay the deposit? My card is [card number removed].");
+    expect(email.text).toContain("Caller: [card number removed], and I'm on 415 555 0192.");
+  });
+
   test("an empty transcript is refused", () => {
     expect(() => renderTranscriptEmail({ ...INPUT, turns: [{ speaker: "person", text: "  \u0007 " }] })).toThrow(/empty/);
   });

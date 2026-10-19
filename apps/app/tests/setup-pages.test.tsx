@@ -1,9 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
+import { setupLine, WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import { GREETING_LABELS, META_GREETING_NOTE } from "@/lib/setup/greetings";
 import { loadSetupState } from "@/lib/setup/state";
-import { publicUrl } from "@/lib/public-url";
+import { publicOrigin, publicUrl } from "@/lib/public-url";
 
 import { axeViolations } from "./setup/axe";
 import {
@@ -126,6 +126,16 @@ async function voiceReady(clinic: PortalClinic, options: { directLine: boolean }
     ]),
   );
 }
+
+describe("what the wizard and the welcome email promise about website chat", () => {
+  test("pasting the line is a step, and answering after it is phrased as design until production does it on the paste", () => {
+    // CLAUDE.md, "Copy first, then the switch": website chat goes live only
+    // once an operator confirms the line is on the site (web-chat-on-paste).
+    expect(setupLine("web", "finish_setup")).toBe(
+      "Website chat: after setup, you paste one line on your website, and AYA is designed to start answering there.",
+    );
+  });
+});
 
 describeDb("the setup wizard's pages", () => {
   beforeAll(async () => {
@@ -296,7 +306,7 @@ describeDb("the setup wizard's pages", () => {
       delete process.env.META_LOGIN_CONFIG_ID;
       const off = await wizard({ s: "channels" });
       expect(off).not.toContain("/api/meta/login");
-      expect(text(off)).toContain("Email hello@healdesk.io and we’ll connect them with you.");
+      expect(text(off)).toContain("Email hello@healdesk.io and we’ll connect Facebook and Instagram with you.");
 
       // A login that could not start comes back here and says why.
       const back = text(await wizard({ s: "channels", meta: "not_configured" }));
@@ -311,6 +321,10 @@ describeDb("the setup wizard's pages", () => {
         const words = text(html);
         expect(words).toContain("Website chat Waiting on you Paste one line on your website.");
         expect(words).toContain("The line for your website");
+        // Production goes live on an operator's confirmation, not on the paste
+        // (LAUNCH_PROMISES, web-chat-on-paste), so the line is phrased as design.
+        expect(words).toContain("AYA is designed to start answering there once it’s in.");
+        expect(words).not.toContain("AYA starts answering there");
         // Go-live is automatic: a chat on the live site is a real one (WP2).
         expect(words).toContain(WEB_CHAT_COUNTS_LINE);
         expect(words).toContain(
@@ -445,7 +459,7 @@ describeDb("the setup wizard's pages", () => {
       return new Request("https://app.healdesk.test/api/meta/login", {
         method: "POST",
         body: new URLSearchParams(fields),
-        headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "vitest" },
+        headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "vitest", origin: publicOrigin() },
       });
     }
 
@@ -494,6 +508,39 @@ describeDb("the setup wizard's pages", () => {
       );
       expect(off.headers.get("set-cookie")).toBeNull();
       expect((await POST(post({ clinic: "../admin" }))).status).toBe(404);
+    });
+
+    test("from Settings it returns to Settings and the cookie remembers it; an unknown `from` means set-up; a foreign Origin is refused", async () => {
+      process.env.META_APP_ID = "1234";
+      process.env.META_APP_SECRET = "meta-secret";
+      process.env.META_LOGIN_CONFIG_ID = "5678";
+      as(everything);
+      const { POST } = await import("@/app/api/meta/login/route");
+      const { decodeLoginCookie } = await import("@/lib/meta/login-state");
+      const fromSettings = await POST(post({ clinic: everything.clinicSlug, from: "settings" }));
+      const raw = fromSettings.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!;
+      expect(decodeLoginCookie(raw)?.from).toBe("settings");
+      const other = await POST(post({ clinic: everything.clinicSlug, from: "https://evil.example" }));
+      expect(decodeLoginCookie(other.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!)?.from).toBe("setup");
+
+      const foreign = new Request("https://app.healdesk.test/api/meta/login", {
+        method: "POST",
+        body: new URLSearchParams({ clinic: everything.clinicSlug }),
+        headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://evil.example" },
+      });
+      expect((await POST(foreign)).status).toBe(404);
+      const none = new Request("https://app.healdesk.test/api/meta/login", {
+        method: "POST",
+        body: new URLSearchParams({ clinic: everything.clinicSlug }),
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      });
+      expect((await POST(none)).status).toBe(404);
+
+      delete process.env.META_LOGIN_CONFIG_ID;
+      const off = await POST(post({ clinic: everything.clinicSlug, from: "settings" }));
+      expect(off.headers.get("location")).toBe(
+        publicUrl(`/c/${everything.clinicSlug}/settings?meta=not_configured#channels`),
+      );
     });
   });
 });

@@ -74,13 +74,14 @@ describe("the notice seams", () => {
 
   test("the booking alerts queue through the outbox since M5, and never throw into their caller", async () => {
     // A transaction that cannot run anything: the alert is not queued, one
-    // error line says so, and the deposit it reports on goes on.
-    // tests/live-alerts.test.ts proves the queueing on a real transaction.
+    // error line says so, the caller hears false, and the deposit it
+    // reports on goes on. tests/live-alerts.test.ts proves the queueing on
+    // a real transaction.
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const tenantTx = { clinicId: CLINIC } as unknown as TenantTx;
     await expect(
       notifyBookingAlert(tenantTx, "deposit_to_collect", { appointmentId: CLINIC }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(error).toHaveBeenCalledTimes(1);
     expect(String(error.mock.calls[0]![0])).toMatch(/^\[healdesk\] booking alert not queued /);
   });

@@ -43,7 +43,7 @@ export default async function WhatsAppChannelPage({ params }: { params: Promise<
   return (
     <ChannelFrame clinicName={link.clinicName} title="Let your assistant answer WhatsApp messages">
       <p className="mt-4 max-w-[58ch] text-[15px] text-[color:var(--color-muted)]">
-        WhatsApp is set up in a window from Meta. It takes two to five minutes if you have these to hand:
+        WhatsApp is set up in a window from Meta. Have these to hand:
       </p>
       <ul className="mt-3 list-disc space-y-1 pl-5 text-[15px] text-[color:var(--color-muted)]">
         <li>The Facebook account that manages your business on Meta.</li>

@@ -15,10 +15,8 @@ import { connectConfigured } from "@/lib/billing/connect";
 import { getDepositSettings } from "@/lib/billing/deposits";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { disclosureFor } from "@/lib/compliance/disclosure";
-import { connectedMetaPlatforms, META_PLATFORM_NAMES } from "@/lib/channels/meta-platforms";
 import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
 import { MAX_PROVIDERS } from "@/lib/connections/google-calendar";
-import { env } from "@/lib/env";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
 import {
@@ -62,6 +60,7 @@ import { skipCost } from "@/lib/setup/skip-costs";
 import { snippetOpen, widgetSnippet } from "@/lib/setup/snippet";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
 import { urgentHelpField } from "@/lib/setup/urgent";
+import { readMetaConnectView } from "@/lib/meta/reconnect";
 import { withTenant } from "@/lib/tenant";
 
 import { HelpPanel } from "../HelpPanel";
@@ -534,12 +533,9 @@ async function ChannelsStep({
     .filter((id) => id !== "channels" && SCREEN_DEFINITIONS[id].step !== "end")
     .every((id) => state.progress.has(id));
   const bought = state.channels.map((c) => c.channel);
-  const connected = bought.includes("meta")
-    ? await withTenant({ clinicId: state.clinic.id, actor }, (tx) =>
-        connectedMetaPlatforms(tx.db, tx.clinicId),
-      )
-    : [];
-  const metaLogin = Boolean(env.metaAppId() && env.metaAppSecret() && env.metaLoginConfigId());
+  const metaView = bought.includes("meta")
+    ? await withTenant({ clinicId: state.clinic.id, actor }, (tx) => readMetaConnectView(tx.db, tx.clinicId))
+    : null;
   const facts: ForwardingFacts = {
     voice: state.channels.find((c) => c.channel === "voice"),
     assistantNumberE164: state.clinic.assistantNumberE164,
@@ -575,10 +571,7 @@ async function ChannelsStep({
           case "meta":
             return {
               ...row,
-              meta: {
-                connected: connected.map((p) => META_PLATFORM_NAMES[p]),
-                canConnect: metaLogin,
-              },
+              meta: metaView,
             };
           case "voice":
             return voiceForwardingReady(facts)

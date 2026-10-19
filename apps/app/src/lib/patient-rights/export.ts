@@ -1,4 +1,4 @@
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import {
   appointments,
@@ -10,12 +10,14 @@ import {
   contacts,
   conversations,
   depositPayments,
+  handovers,
   metaBookingDrafts,
   slotHolds,
   suppressions,
   transactions,
   webhookEvents,
 } from "@/db/schema";
+import { linkCallHandovers, namedHandover } from "@/lib/handovers/record";
 import type { TenantTx } from "@/lib/tenant";
 
 import { amendmentsFor, withAmendments, type RecordAmendment } from "./amendments";
@@ -83,6 +85,13 @@ export type PatientBundle = {
   bookingRequests: Amended<Omit<typeof bookingRequests.$inferSelect, "tokenHash">>[];
   /** Deposits taken through the clinic's own Stripe account for their appointments: never the Stripe account id or event id. */
   depositPayments: DepositRecord[];
+  /**
+   * The times they asked AYA for a person in one of these conversations, or
+   * leaving one of these numbers for the call back (drizzle/0092): the channel, when, and when
+   * the desk marked it handled.
+   * The clinic's bundle carries every one, Meta's by their thread's keyed reference.
+   */
+  handovers: HandoverRecord[];
   /** Times the assistant held for them on a call (plan §11.8): when, for how long, and what became of it. */
   slotHolds: { id: string; startsAt: Date; endsAt: Date; status: string; createdAt: Date }[];
   /** Every audit row that touched any of the ids above: the accounting of disclosures. */
@@ -99,6 +108,24 @@ export type PatientBundle = {
   messagingThreads?: MessagingThreadRecord[];
   /** The whole clinic's bundle only: half-collected Meta bookings (a first name, a number, a time). */
   metaBookingDrafts?: (typeof metaBookingDrafts.$inferSelect)[];
+};
+
+export type HandoverRecord = Omit<typeof handovers.$inferSelect, "handledByUserId">;
+
+const HANDOVER_COLUMNS = {
+  id: handovers.id,
+  clinicId: handovers.clinicId,
+  channel: handovers.channel,
+  platform: handovers.platform,
+  externalCallId: handovers.externalCallId,
+  conversationId: handovers.conversationId,
+  partyRef: handovers.partyRef,
+  metaConversationId: handovers.metaConversationId,
+  callbackPhone: handovers.callbackPhone,
+  callbackFirstName: handovers.callbackFirstName,
+  createdAt: handovers.createdAt,
+  handledAt: handovers.handledAt,
+  handledByLabel: handovers.handledByLabel,
 };
 
 export type RawPayloadRecord = {
@@ -231,6 +258,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
   let phone = query.phone;
   let email = query.email?.toLowerCase();
   const contactId = query.contactId;
+  let callback: { handoverId: string } | null = null;
   if (contactId !== undefined) {
     if (phone || email) throw new Error("Name the person by a contact's id, or by their details, not both.");
     if (!CONTACT_ID.test(contactId)) throw new Error("A contact's id is its uuid.");
@@ -239,9 +267,14 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
       .from(contacts)
       .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, contactId)))
       .limit(1);
-    if (!contact) throw new ExportContactNotFound();
-    phone = contact.phone ?? undefined;
-    email = contact.email?.toLowerCase() ?? undefined;
+    // A handover's id, or its chat's, names someone who only left a
+    // call-back number in web chat, which no contact holds: that handover and
+    // its chat, as erasure takes them, and nothing found by the number they
+    // typed (namedHandover; drizzle/0092).
+    callback = contact ? null : await namedHandover(tx, contactId);
+    if (!contact && !callback) throw new ExportContactNotFound();
+    phone = contact?.phone ?? undefined;
+    email = contact?.email?.toLowerCase() ?? undefined;
   } else if (!phone && !email) {
     throw new Error("A phone number, an email address or a contact's id is required.");
   }
@@ -284,6 +317,73 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
   const bookings = ids.length
     ? (await tx.db.select().from(bookingRequests).where(and(eq(bookingRequests.clinicId, tx.clinicId), inArray(bookingRequests.contactId, ids)))).map(withoutDigest)
     : [];
+  // A call's handover the database missed linking is linked first, so it is
+  // found through its conversation like the rest.
+  await linkCallHandovers(tx);
+  // The web chats their booking requests were made in, which erasing them
+  // takes, with any handover asked there (lib/patient-rights/erasure.ts).
+  const requestChats = [
+    ...new Set(
+      bookings
+        .filter((b) => b.channel === "web_chat" && b.conversationId !== null)
+        .map((b) => b.conversationId!),
+    ),
+  ];
+  const asked =
+    convos.length || phones.length || callback || requestChats.length
+      ? await tx.db
+          .select(HANDOVER_COLUMNS)
+          .from(handovers)
+          .where(
+            and(
+              eq(handovers.clinicId, tx.clinicId),
+              or(
+                convos.length ? inArray(handovers.conversationId, convos.map((v) => v.id)) : sql`false`,
+                phones.length ? inArray(handovers.callbackPhone, phones) : sql`false`,
+                callback ? eq(handovers.id, callback.handoverId) : sql`false`,
+                requestChats.length ? inArray(handovers.conversationId, requestChats) : sql`false`,
+              ),
+            ),
+          )
+      : [];
+  // The web chat behind a call-back handover is the person's too, where no
+  // one else's booking holds it (an amended one included: erasure keeps it
+  // with its amendment, so access shows it). So is a chat their own booking request was made in.
+  // The conversation row holds no contact to find either by.
+  const known = new Set(convos.map((v) => v.id));
+  const ownChats = requestChats.filter((id) => !known.has(id));
+  const chatIds = [
+    ...new Set(
+      asked
+        .map((h) => h.conversationId)
+        .filter((id): id is string => id !== null && !known.has(id) && !ownChats.includes(id)),
+    ),
+  ];
+  if (ownChats.length) {
+    convos.push(
+      ...(await tx.db
+        .select()
+        .from(conversations)
+        .where(and(eq(conversations.clinicId, tx.clinicId), inArray(conversations.id, ownChats), eq(conversations.channel, "web_chat")))),
+    );
+  }
+  if (chatIds.length) {
+    convos.push(
+      ...(await tx.db
+        .select()
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.clinicId, tx.clinicId),
+            inArray(conversations.id, chatIds),
+            eq(conversations.channel, "web_chat"),
+            isNull(conversations.contactId),
+            sql`not exists (select 1 from booking_requests r where r.conversation_id = ${conversations.id})`,
+            sql`not exists (select 1 from appointments a where a.conversation_id = ${conversations.id})`,
+          ),
+        )),
+    );
+  }
   const conversationAmendments = await amendmentsFor(tx, "conversation", convos.map((c) => c.id));
   const bookingAmendments = await amendmentsFor(tx, "booking_request", bookings.map((b) => b.id));
   const appointmentAmendments = await amendmentsFor(tx, "appointment", appts.map((a) => a.id));
@@ -299,6 +399,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
         .from(depositPayments)
         .where(and(eq(depositPayments.clinicId, tx.clinicId), inArray(depositPayments.appointmentId, appts.map((a) => a.id))))
     : [];
+
 
   const everyId = [
     ...ids,
@@ -316,6 +417,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
       .map((a) => a.id),
     ...holds.map((h) => h.id),
     ...deposits.map((d) => d.id),
+    ...asked.map((h) => h.id),
   ];
   const accounting = everyId.length
     ? await tx.db
@@ -335,12 +437,12 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
   tx.audit.record({
     action: "export",
     resourceType: "patient_bundle",
-    resourceIds: ids,
+    resourceIds: callback ? [...ids, callback.handoverId] : ids,
     resultCount: everyId.length,
     metadata: {
       requestedBy: query.requestedBy,
       rows: everyId.length,
-      by: contactId ? "contact_id" : "details",
+      by: callback ? "handover" : contactId ? "contact_id" : "details",
     },
   });
 
@@ -355,6 +457,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
     contactAttempts: attempts,
     bookingRequests: withAmendments(bookings, bookingAmendments),
     depositPayments: deposits,
+    handovers: asked,
     slotHolds: holds,
     accountingOfDisclosures: accounting,
   };
@@ -450,6 +553,7 @@ export async function exportClinic(
     .from(slotHolds)
     .where(eq(slotHolds.clinicId, c));
   const deposits = await tx.db.select(DEPOSIT_COLUMNS).from(depositPayments).where(eq(depositPayments.clinicId, c));
+  const asked = await tx.db.select(HANDOVER_COLUMNS).from(handovers).where(eq(handovers.clinicId, c));
   const accounting = await tx.db.select().from(auditLog).where(eq(auditLog.clinicId, c));
   // Clause 17's "an export of the patient information it holds": the raw
   // payloads can hold a vendor's transcript, which no other table does, and
@@ -492,6 +596,7 @@ export async function exportClinic(
     contactAttempts: attempts,
     bookingRequests: withAmendments(bookings, bookingAmendments),
     depositPayments: deposits,
+    handovers: asked,
     slotHolds: holds,
     accountingOfDisclosures: accounting,
     rawPayloads: payloads,

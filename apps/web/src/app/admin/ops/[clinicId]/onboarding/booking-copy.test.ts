@@ -383,7 +383,7 @@ describe("the channels card", () => {
     );
     expect(card).toContain("Website chat · not ready on our side");
     expect(card).toContain(
-      "Nobody has confirmed the chat is on the clinic's website. Open the site, check the chat is there and answers, then confirm below. clinic_step",
+      "Nobody has confirmed the chat is on the clinic's website. Open the site, check the chat bubble is there (until you confirm, it tells visitors to call the practice), then confirm below. clinic_step",
     );
     // The audit's words send the operator to the preview or a test number, never an ordinary call.
     expect(card).toContain("calling from one of healdesk's test numbers (HEALDESK_TEST_NUMBERS)");

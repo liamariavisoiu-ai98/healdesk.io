@@ -2,9 +2,12 @@
 
 import { useId, useState } from "react";
 
+import { portalMetaOutcome } from "@/lib/meta/portal-return";
+import type { MetaConnectView } from "@/lib/meta/reconnect";
 import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import type { ForwardingView } from "@/lib/setup/forwarding";
 
+import { MetaConnectButtons } from "../../MetaConnectButtons";
 import { sendPhoneStepsAction } from "../../steps-actions";
 import { ScreenShell } from "../ScreenShell";
 
@@ -16,7 +19,9 @@ import { ScreenShell } from "../ScreenShell";
  *   - Website chat: the line to paste, once the channel is open (ready on our
  *     side), with a Copy button (lib/setup/snippet.ts);
  *   - Instagram, Messenger & WhatsApp: "Connect with Facebook", the Meta
- *     login (/api/meta/login), until a platform is connected;
+ *     login (/api/meta/login), and "Connect WhatsApp", Meta's embedded
+ *     sign-up (/c/[slug]/whatsapp), each until it is connected, and
+ *     Reconnect where Meta dropped it (MetaConnectButtons.tsx);
  *   - Phone: nothing about forwarding until voice is ready for the clinic
  *     (lib/setup/forwarding.ts); then AYA's number, the codes for the
  *     clinic's carrier and coverage mode with a carrier picker, the undo
@@ -37,20 +42,12 @@ export type ChannelRow = {
   line: string;
   /** Website chat, once open: the line to paste. */
   snippet?: string | null;
-  /** Instagram, Messenger & WhatsApp: what is connected, and whether the login can start. */
-  meta?: { connected: string[]; canConnect: boolean } | null;
+  /** Instagram, Messenger & WhatsApp: what is connected, dropped or still to connect, and whether each login can start. */
+  meta?: MetaConnectView | null;
   /** Phone, once ready for the clinic: the forwarding steps. */
   forwarding?: ForwardingView | null;
   /** Phone, ready but for the direct line: where to set it. */
   directLineHref?: string | null;
-};
-
-/** What the Meta login's return said, when it came back here instead of to Facebook. */
-const META_PROBLEMS: Record<string, string> = {
-  not_configured:
-    "Connecting Facebook and Instagram isn't switched on here. Email hello@healdesk.io and we'll connect them with you.",
-  throttled:
-    "That was tried several times in a short space of time. Wait a few minutes and try again.",
 };
 
 export function ChannelsScreen(props: {
@@ -62,7 +59,7 @@ export function ChannelsScreen(props: {
   metaProblem?: string | null;
 }) {
   const phone = props.rows.find((row) => row.channel === "voice");
-  const metaProblem = props.metaProblem ? META_PROBLEMS[props.metaProblem] : undefined;
+  const metaOutcome = portalMetaOutcome(props.metaProblem);
   return (
     <ScreenShell
       slug={props.slug}
@@ -71,12 +68,14 @@ export function ChannelsScreen(props: {
       intro={<p>Where each channel you bought stands, and what it needs from you.</p>}
       lead={
         <>
-          {metaProblem ? (
+          {metaOutcome ? (
             <p
-              role="status"
-              className="rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-800"
+              role={metaOutcome.ok ? "status" : "alert"}
+              className={`rounded-xl border bg-white px-4 py-3 text-sm ${
+                metaOutcome.ok ? "border-line" : "border-red-200 text-red-800"
+              }`}
             >
-              {metaProblem}
+              {metaOutcome.text}
             </p>
           ) : null}
           <ul className="grid gap-3">
@@ -91,7 +90,7 @@ export function ChannelsScreen(props: {
                 </p>
                 <p className="text-muted mt-1 text-sm">{row.line}</p>
                 {row.snippet ? <Snippet snippet={row.snippet} /> : null}
-                {row.meta ? <MetaConnect slug={props.slug} meta={row.meta} /> : null}
+                {row.meta ? <MetaConnectButtons slug={props.slug} from="setup" view={row.meta} /> : null}
                 {row.forwarding ? (
                   <Forwarding
                     slug={props.slug}
@@ -179,51 +178,14 @@ function Snippet({ snippet }: { snippet: string }) {
       />
       <p className="text-muted">
         Paste it once, just before <code>&lt;/body&gt;</code>, on every page of your website, or
-        send it to whoever looks after your site. AYA starts answering there once it&rsquo;s in.
+        send it to whoever looks after your site. AYA is designed to start answering there once
+        it&rsquo;s in.
       </p>
       <p>{WEB_CHAT_COUNTS_LINE}</p>
       <p>
         <CopyButton text={snippet} label="Copy the line" targetId={id} />
       </p>
     </div>
-  );
-}
-
-function MetaConnect({
-  slug,
-  meta,
-}: {
-  slug: string;
-  meta: { connected: string[]; canConnect: boolean };
-}) {
-  if (meta.connected.length > 0) {
-    return <p className="mt-2 text-sm">Connected: {meta.connected.join(", ")}.</p>;
-  }
-  if (!meta.canConnect) {
-    return (
-      <p className="text-muted mt-2 text-sm">
-        Email hello@healdesk.io and we&rsquo;ll connect them with you.
-      </p>
-    );
-  }
-  return (
-    <form method="post" action="/api/meta/login" className="mt-3 grid gap-2 text-sm">
-      <input type="hidden" name="clinic" value={slug} />
-      <p className="text-muted">
-        Sign in with Facebook and choose your practice&rsquo;s Page. An Instagram professional
-        account linked to that Page connects at the same time. AYA is designed to reply only to
-        people who message you, within 24 hours of their message, and to move anyone describing a
-        medical condition to a call.
-      </p>
-      <p>
-        <button
-          type="submit"
-          className="bg-ink min-h-11 rounded-full px-5 text-sm font-bold text-white"
-        >
-          Connect with Facebook
-        </button>
-      </p>
-    </form>
   );
 }
 

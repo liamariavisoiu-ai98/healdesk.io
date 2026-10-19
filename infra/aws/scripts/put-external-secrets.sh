@@ -46,6 +46,7 @@ KEYS=(
   META_VERIFY_TOKEN
   ANTHROPIC_API_KEY
   HEALDESK_RETELL_LLM_SECRET
+  HEALDESK_RETELL_API_KEY
   CLOUDFLARE_API_TOKEN
 )
 
@@ -74,6 +75,7 @@ hint_for() {
     META_VERIFY_TOKEN) echo "the webhook verify token set in Meta's dashboard" ;;
     ANTHROPIC_API_KEY) echo "a key of the HIPAA-enabled Anthropic organisation, never the marketing one" ;;
     HEALDESK_RETELL_LLM_SECRET) echo "the secret in every clinic's Retell agent URL (wss://app.healdesk.io/llm-websocket/<this>/<clinic id>): 32 to 200 random letters, digits, - or _, such as the output of openssl rand -hex 32; the same value goes into each agent" ;;
+    HEALDESK_RETELL_API_KEY) echo "the API key (key_...) of the Retell workspace the clinics' agents are in, under Retell's BAA, the one with the webhook badge (Settings, API Keys): it signs the call-ended webhook, reads a call back, and keeps each AYA number's fallback on the clinic's direct line. Never the marketing site's RETELL_API_KEY or the demo line's workspace" ;;
     CLOUDFLARE_API_TOKEN) echo "Cloudflare API token (Edit zone DNS, healdesk.io), read by infra.yml and host.yml only" ;;
   esac
 }
@@ -81,12 +83,35 @@ hint_for() {
 # Keys that switch on a path carrying patients' messages. The guide asks for
 # them only once the business associate agreements behind that path are in
 # place, so the script asks too. HEALDESK_RETELL_LLM_SECRET opens the voice
-# endpoint to Retell's calls (enable_voice), and may stay __unset__ until then.
+# endpoint to Retell's calls (enable_voice), and may stay __unset__ until then,
+# with one exception (owner, 19 October 2026): it may be pasted for a test call
+# on a made-up clinic before the agreements are signed. The voice endpoint
+# enforces that itself: until Terraform's voice_real_calls is on, it answers
+# only the demo clinic (apps/app/src/lib/voice/test-calls.ts).
+# HEALDESK_RETELL_API_KEY is workspace-wide at Retell: it reads those calls
+# back, words included, and sets each AYA number's fallback. The owner's
+# exception names the line password alone, so this key waits for `yes`, once
+# Retell's agreement is signed: it can read any call in its workspace.
 patient_facing() {
   case "$1" in
-    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_RETELL_LLM_SECRET) return 0 ;;
+    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_RETELL_LLM_SECRET | HEALDESK_RETELL_API_KEY) return 0 ;;
   esac
   return 1
+}
+
+# Keys that may be pasted for a test on made-up data before the agreements.
+test_allowed() {
+  case "$1" in
+    HEALDESK_RETELL_LLM_SECRET) return 0 ;;
+  esac
+  return 1
+}
+
+# What a test answer allows, said once it is given.
+test_allows() {
+  case "$1" in
+    HEALDESK_RETELL_LLM_SECRET) echo "This allows a test call on the made-up demo clinic (scripts/demo-clinic.ts) and nothing else: keep voice_real_calls = false, and the voice endpoint answers no other clinic. A call for a real clinic is put through to its direct line, or refused, and nothing of it is kept. Put this address only in the demo clinic's Retell agent." ;;
+  esac
 }
 
 # The shape of a few vendors' keys, so a value pasted under the wrong name is
@@ -108,6 +133,8 @@ shape_problem() {
     # guessed, and nothing a URL would need escaped (the endpoint takes 16 to
     # 200 characters other than /).
     HEALDESK_RETELL_LLM_SECRET) [[ "$2" =~ ^[A-Za-z0-9_-]{32,200}$ ]] || echo "it must be 32 to 200 letters, digits, - or _ (openssl rand -hex 32 makes one)" ;;
+    # Sent as a bearer and used as an HMAC key: one word, Retell's key_ prefix.
+    HEALDESK_RETELL_API_KEY) [[ "$2" =~ ^key_[A-Za-z0-9_-]{16,196}$ ]] || echo "a Retell API key is one word starting key_, of letters, digits, - or _" ;;
   esac
 }
 
@@ -232,7 +259,22 @@ for key in "${selected[@]}"; do
 
   echo >&2
   say "$key ($current): $(hint_for "$key")"
-  if patient_facing "$key"; then
+  testing=false
+  if patient_facing "$key" && test_allowed "$key"; then
+    answer=""
+    read -r -p "  $key switches on a path that carries patients' calls. Type yes once every agreement in the chain is signed, Retell's included, or test for a test on a made-up clinic only (the agreements are not signed yet): " answer || true
+    case "$answer" in
+      yes) say "$key: yes, the whole chain is signed. Real patients' calls still need voice_real_calls = true in production.tfvars, applied and deployed; until then only the demo clinic is answered, and only its lost calls backstopped." ;;
+      test)
+        testing=true
+        say "$key: test. $(test_allows "$key")"
+        ;;
+      *)
+        summary+=("$key|kept ($current)")
+        continue
+        ;;
+    esac
+  elif patient_facing "$key"; then
     answer=""
     read -r -p "  $key switches on a path that carries patients' messages. Type yes once its agreements are in place: " answer || true
     if [ "$answer" != yes ]; then
@@ -298,7 +340,11 @@ for key in "${selected[@]}"; do
   fi
   rm -f "$tmp/value"
   say "$key: saved to $name"
-  summary+=("$key|pasted")
+  if [ "$testing" = true ]; then
+    summary+=("$key|pasted, for a test on the demo clinic only")
+  else
+    summary+=("$key|pasted")
+  fi
   case "$key" in
     CLOUDFLARE_API_TOKEN) pasted_ci=true ;;
     HEALDESK_PROVISION_SECRET)

@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { bookingRequests, clinics } from "@/db/schema";
+import { bookingRequests, clinics, providerConnections } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { evaluateChannels } from "@/lib/channels/events";
@@ -11,7 +11,8 @@ import { saveConnection, withCredentials } from "@/lib/connections/store";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import type { MetaPlatform } from "./front-door";
-import { GRAPH_VERSION } from "./graph";
+import { GRAPH_VERSION, GraphError, isTokenInvalid } from "./graph";
+import { markMetaConnectionBroken } from "./reconnect";
 import { META_PROVIDERS } from "./providers";
 
 /**
@@ -128,6 +129,13 @@ export async function attachMetaChannel(
     if (isAssetTaken(error)) throw new MetaAssetTakenError(input.platform);
     throw error;
   }
+  // A fresh login is the reconnect: whatever marked the old token dead is
+  // cleared with it (lib/meta/reconnect.ts), so the button goes away and the
+  // channel is no longer listed as needing attention.
+  await tx.db
+    .update(providerConnections)
+    .set({ brokenAt: null, brokenAlertedAt: null, transientFailures: 0, lastError: null })
+    .where(eq(providerConnections.id, id));
   tx.audit.record({
     action: "create",
     resourceType: "provider_connection",
@@ -297,7 +305,13 @@ export async function graphSend(input: Parameters<MetaSender>[0]): Promise<void>
     headers: { "content-type": "application/json", authorization: `Bearer ${input.accessToken}` },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(`Graph API ${response.status}`);
+  if (!response.ok) {
+    // Only Meta's numeric code is read off the answer, never its text, so
+    // sendMetaReply can tell a dead token from every other refusal.
+    const body = (await response.json().catch(() => ({}))) as { error?: { code?: unknown } };
+    const code = typeof body.error?.code === "number" ? body.error.code : undefined;
+    throw new GraphError(`Graph API ${response.status}`, response.status, code);
+  }
 }
 
 export type MetaSendOutcome =
@@ -347,10 +361,27 @@ export async function sendMetaReply(
     tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: owner.platform, outcome: "outside_window" } });
     return { status: "outside_window" };
   }
-  await withCredentials(tx.db, { clinicId: tx.clinicId, connectionId: owner.connectionId }, async (credentials) => {
-    const accessToken = credentials.accessToken;
-    if (!accessToken) throw new Error("The channel has no access token.");
-    await send({ platform: owner.platform, externalId, accessToken, recipientId, text });
-  });
+  // When the login the send uses was saved, read before the token: a
+  // reconnect that commits while Meta is refusing the old token is a new
+  // login, and the mark below must not land on it.
+  const [read] = await tx.db
+    .select({ updatedAt: providerConnections.updatedAt })
+    .from(providerConnections)
+    .where(and(eq(providerConnections.id, owner.connectionId), eq(providerConnections.clinicId, tx.clinicId)))
+    .limit(1);
+  try {
+    await withCredentials(tx.db, { clinicId: tx.clinicId, connectionId: owner.connectionId }, async (credentials) => {
+      const accessToken = credentials.accessToken;
+      if (!accessToken) throw new Error("The channel has no access token.");
+      await send({ platform: owner.platform, externalId, accessToken, recipientId, text });
+    });
+  } catch (error) {
+    // Meta says the login is dead: remember it, so Home and Settings offer
+    // Reconnect. Written in a transaction of its own and not awaited here,
+    // because the caller's is about to roll back on this throw and the mark
+    // must survive it, and waiting would hold two pooled connections.
+    if (isTokenInvalid(error)) markMetaConnectionBroken(tx.clinicId, owner.connectionId, "token_invalid", read?.updatedAt);
+    throw error;
+  }
   return { status: "sent" };
 }

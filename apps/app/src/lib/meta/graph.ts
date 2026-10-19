@@ -70,6 +70,36 @@ async function call<T>(fetchImpl: FetchLike, url: string, init: RequestInit = {}
   return body as T;
 }
 
+/**
+ * Meta's "this token is no good" code (OAuthException 190): the clinic removed
+ * healdesk from the Page or account, changed its Facebook password, or Meta
+ * invalidated the token. Every sub-code (458 app removed, 460 password
+ * changed, 463 expired, 467 invalid) means the same to us: only a fresh login
+ * helps. Deliberately not code 10 or the 200 range: those also answer a send
+ * outside the 24-hour window or a recipient who cannot be reached, which say
+ * nothing about the token.
+ */
+export const GRAPH_TOKEN_INVALID_CODE = 190;
+
+export function isTokenInvalid(error: unknown): boolean {
+  return error instanceof GraphError && error.code === GRAPH_TOKEN_INVALID_CODE;
+}
+
+/**
+ * Ask Graph who the token is, the cheapest call every Meta token can make.
+ * `invalid` only when Meta says the token itself is dead; a timeout, a 5xx or
+ * any other refusal is `unknown`, because a blip must not tell a clinic to log
+ * in again. The token travels in the Authorization header (rule 1).
+ */
+export async function probeToken(fetchImpl: FetchLike, token: string): Promise<"valid" | "invalid" | "unknown"> {
+  try {
+    await call<unknown>(fetchImpl, `${GRAPH}/me?fields=id`, { headers: bearer(token) });
+    return "valid";
+  } catch (error) {
+    return isTokenInvalid(error) ? "invalid" : "unknown";
+  }
+}
+
 function bearer(token: string): HeadersInit {
   return { Authorization: `Bearer ${token}` };
 }

@@ -31,6 +31,7 @@ import {
 import { getBillingSummary } from "@/lib/billing/summary";
 import { disclosureFor } from "@/lib/compliance/disclosure";
 import type { MetaPlatform } from "@/lib/meta/front-door";
+import { readMetaConnectView, type MetaConnectView } from "@/lib/meta/reconnect";
 import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { formatPhone } from "@/lib/setup/help";
@@ -80,6 +81,8 @@ export type SettingsView = {
     }[];
   }[];
   bought: { web: boolean; meta: boolean; voice: boolean };
+  /** The Facebook / Instagram / Messenger and WhatsApp connections (Connect and Reconnect); null when Meta isn't bought. */
+  metaConnect: MetaConnectView | null;
   /** Each setting's "Applies when …" line, or null once its channels answer. */
   applies: Partial<Record<SettingKey, string | null>>;
   coverage: {
@@ -161,8 +164,9 @@ export async function readSettingsView(input: {
       ? {
           switches: await readMetaPlatformSwitches(tx.db, tx.clinicId),
           connected: await connectedMetaPlatforms(tx.db, tx.clinicId),
+          connect: await readMetaConnectView(tx.db, tx.clinicId),
         }
-      : { switches: { ...DEFAULT_META_PLATFORM_SWITCHES }, connected: [] as MetaPlatform[] };
+      : { switches: { ...DEFAULT_META_PLATFORM_SWITCHES }, connected: [] as MetaPlatform[], connect: null };
     return {
       deposits,
       carrier: phone?.carrier ?? null,
@@ -203,6 +207,7 @@ export async function readSettingsView(input: {
     slug,
     audience: audienceFor(clinic.specialty),
     bought,
+    metaConnect: tenant.meta.connect,
     applies,
     channels: state.channels.map((c) => {
       const statusWord = channelStatusWord(c.status);

@@ -270,11 +270,16 @@ under emulation (13 October 2026).
   a deploy never cuts a call), the listener rule `/llm-websocket/*` on the
   public host, an alarm, and `deploy-app.yml` rolls it with web. Each clinic's
   Retell agent uses `wss://app.healdesk.io/llm-websocket/<HEALDESK_RETELL_LLM_SECRET>/<clinic id>`.
-  Never tested against Retell itself: check its protocol fields on a synthetic
+  Never tested against Retell itself: check its protocol fields on the demo
   clinic first (`docs/design/web-chat-and-voice-2026-10-13.md`).
 
 What stands between this and real patients is the BAA chain above, and for
-voice, `enable_voice` with its secret and a test call.
+voice, `enable_voice` with its secret, a test call, and then `voice_real_calls`.
+The secret and `enable_voice` may come before the agreements, for a test call
+only (owner, 19 October 2026): until `voice_real_calls` sets
+`HEALDESK_VOICE_REAL_CALLS=1`, the voice endpoint answers only the demo clinic
+(`app_clinic_is_demo()`) and sends any other clinic's caller to its direct line,
+or refuses the call, recording nothing (`lib/voice/test-calls.ts`).
 
 ---
 

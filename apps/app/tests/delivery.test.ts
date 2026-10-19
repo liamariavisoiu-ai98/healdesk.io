@@ -342,7 +342,12 @@ describeDb("delivery", () => {
   describe("the hourly tick", () => {
     test("beats the heart and runs every job through its own switch", async () => {
       const now = new Date("2026-09-14T02:00:00Z");
-      const out = await runTick(now);
+      // Never a live Retell call from a test: the fallback sync stays idle.
+      const retellKey = process.env.HEALDESK_RETELL_API_KEY;
+      delete process.env.HEALDESK_RETELL_API_KEY;
+      const out = await runTick(now).finally(() => {
+        if (retellKey !== undefined) process.env.HEALDESK_RETELL_API_KEY = retellKey;
+      });
       expect(await heartbeatAgeSeconds(now)).toBe(0);
       const jobs = Object.fromEntries(out.map((o) => [o.job, o.status]));
       // Hour 2 gates the nightly sync in; nothing else night-time is due.
@@ -352,6 +357,9 @@ describeDb("delivery", () => {
           "booking-request-expiry",
           "booking-requirements-defaults",
           "connection-health",
+          // Every six hours from hour 2: Meta logins that have been dropped
+          // are marked so the portal offers Reconnect (lib/meta/token-watch.ts).
+          "meta-token-watch",
           "monthly-report",
           "nightly-sync",
           // The daily summary (drizzle/0087) and the weekly recap alone, hourly
@@ -421,6 +429,9 @@ describeDb("delivery", () => {
           // site-reads; the monthly drift check, behind website-drift.
           "site-reads",
           "website-drift",
+          // The voice fall-through: each AYA number's Retell fallback kept on
+          // the clinic's direct line; not switched, idle without its key.
+          "retell-fallback",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -434,10 +445,12 @@ describeDb("delivery", () => {
         if (job === "address-changes") continue; // a sweep: applies only the changes whose 72 hours are up
         if (job === "offboarding-destroy") continue; // widening: runs for 1.3.0 and DPA clinics, switch or not
         if (job === "channel-states") continue; // a sweep: moves production clinics' channels on as their inputs allow
+        if (job === "meta-token-watch") continue; // a check, not a switched job: marks only logins Meta says are dead
         if (job === "ai-pause") continue; // a sweep: records the end of a timed pause the clinic set
         if (job === "destruction-notices") continue; // a sweep: E6 to an address captured at destruction
         if (job === "after-cancellation") continue; // a sweep: queues E3–E5 for clinics whose service ended
         if (job === "agreement-resigns") continue; // a sweep: L22's reminders for the open re-signs only
+        if (job === "retell-fallback") continue; // not switched: does nothing until HEALDESK_RETELL_API_KEY is set
         expect(status, job).toBe("disabled");
       }
       expect(jobs["offboarding-destroy"]).toBe("ok");
@@ -450,6 +463,7 @@ describeDb("delivery", () => {
       expect(jobs["destruction-notices"]).toBe("ok");
       expect(jobs["after-cancellation"]).toBe("ok");
       expect(jobs["agreement-resigns"]).toBe("ok");
+      expect(jobs["retell-fallback"]).toBe("skipped");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

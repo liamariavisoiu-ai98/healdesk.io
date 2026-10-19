@@ -1,11 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, Instrument_Sans } from "next/font/google";
 
+import { JsonLd } from "@/components/JsonLd";
 import { CookieNotice } from "@/components/analytics/CookieNotice";
 import { CampaignMemory } from "@/components/analytics/CampaignMemory";
 import { PostHogProvider } from "@/components/analytics/PostHogProvider";
 import { RevealOnScroll } from "@/components/RevealOnScroll";
 import { site } from "@/lib/site";
+import { organizationLd, websiteLd } from "@/lib/structured-data";
 
 import "./globals.css";
 
@@ -70,8 +72,10 @@ const instrument = Instrument_Sans({
 export const metadata: Metadata = {
   metadataBase: new URL(site.url),
   applicationName: site.name,
+  // The homepage's title carries the category's words; the visible headline
+  // stays the owner's tagline (strategy decision, 14 October 2026).
   title: {
-    default: `${site.name}, ${site.tagline}`,
+    default: `${site.name}: ${site.category}`,
     template: `%s, ${site.name}`,
   },
   description: site.description,
@@ -80,12 +84,12 @@ export const metadata: Metadata = {
     locale: "en_US",
     url: site.url,
     siteName: site.name,
-    title: `${site.name}, ${site.tagline}`,
+    title: `${site.name}: ${site.category}`,
     description: site.description,
   },
   twitter: {
     card: "summary_large_image",
-    title: `${site.name}, ${site.tagline}`,
+    title: `${site.name}: ${site.category}`,
     description: site.description,
   },
   // Pages that must not rank (/get-started, the 404) override this locally;
@@ -113,6 +117,9 @@ export default function RootLayout({
       className={`${fraunces.variable} ${instrument.variable}`}
     >
       <body className="min-h-screen antialiased">
+        {/* Who publishes this site, for search and AI engines. Facts only,
+            each also printed somewhere on the site (lib/structured-data.ts). */}
+        <JsonLd data={[organizationLd(), websiteLd()]} />
         {children}
         {/* Analytics initialises only after the visitor accepts the notice,
             and never on /admin or a personalised demo. No advertising pixel or

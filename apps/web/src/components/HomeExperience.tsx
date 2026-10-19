@@ -64,7 +64,7 @@ export function HomeExperience() {
             on a call she books and flags the deposit (docs/v1-product-spec.md). */}
         <div data-reveal="stagger" className="mx-auto mb-8 text-center sm:mb-10">
           <p className="eyebrow-tag">
-            Meet your smart assistant, {site.agent} 3.0
+            Meet your AI receptionist, {site.agent} 3.0
           </p>
           <h2 className="heading-section text-ink mx-auto mt-5">
             One assistant, every channel, 24/7

@@ -80,7 +80,7 @@ export const TOUCHES: readonly Touch[] = [
       `Two things clinic owners ask first, answered plainly.\n\n` +
       `1. It does not give medical advice. Ask it whether a treatment is safe during pregnancy and it says it can't answer that and offers to book a consultation with your provider instead. That is the product, not a limitation.\n\n` +
       `2. It does not pretend to be a person. Every call, chat and DM opens by saying it is an AI assistant, and on the phone that the call is transcribed, not recorded. You cannot switch that off.\n\n` +
-      `What it does do: answer every call, chat and DM, day or night; qualify; book straight into your Google Calendar during the conversation; take deposits in chat through your own checkout link; and show you what it handled and booked. Every product, its price per step of 100 and its setup fee are on one page: ${site.url}/pricing\n\n` +
+      `What it does do: answer the calls you forward to it, and your chats and DMs, day or night; qualify; book straight into your Google Calendar during the conversation; take deposits in chat through your own checkout link; and show you what it handled and booked. Every product, its price per step of 100 and its setup fee are on one page: ${site.url}/pricing\n\n` +
       `Reply with your booking system and I'll tell you whether it reads Google Calendar for conflicts, which decides whether she books live for you or your staff confirm each booking.` +
       footer(lead),
   },

@@ -220,11 +220,13 @@ export async function POST(request: Request): Promise<Response> {
           // channel's first answer, if it is one, with its plan start or
           // step-up (lib/channels/events.ts). It never undoes the send's record.
           if (outcome.status === "sent") {
-            await recordFirstAnswer(
-              tx,
-              { channel: "meta", source: "runtime", gateAnswered: true, personAnswered: true, conversationId: thread.conversationId },
-              now,
-            );
+            await recordFirstAnswer(tx, {
+              channel: "meta",
+              source: "runtime",
+              gateAnswered: true,
+              personAnswered: true,
+              conversationId: thread.conversationId,
+            });
           }
         });
         answered += 1;

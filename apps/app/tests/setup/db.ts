@@ -90,7 +90,7 @@ export async function truncateAll(): Promise<void> {
       ('billing-sweep', 'Hourly; suspends past-due clinics after grace, rolls annual allowances monthly', false),
       ('retention-purge', 'Nightly; removes media references and rows past each clinic''s retention window, and processed webhook payloads older than 30 days', false),
       ('heartbeat', 'Every worker tick; last_run_at is the liveness signal', true),
-      ('connection-health', 'Hourly; flags revoked connections, stale syncs and stuck webhooks, emails ops one digest', false),
+      ('connection-health', 'Hourly; flags revoked connections, stale syncs and stuck webhooks, raises a revoked one to ops at once, and leaves the rest to the 07:00 ops digest', false),
       ('annual-renewal-reminder', 'Daily; emails the billing contact 30 days before an annual renewal, once per period', false),
       ('weekly-recap', 'Hourly check; sends each live clinic a 7-day recap on its own Monday morning, and a first one on day 7', false),
       ('nightly-sync', 'Daily at 02:00 UTC; enqueues a sync per active connection, staggered; reconcile on the 1st', false),
@@ -109,7 +109,10 @@ export async function truncateAll(): Promise<void> {
       ('setup-reminders', 'Hourly; while none of a clinic''s channels is live, queues the setup reminder due on day 5, 10, 15, 20, 25 or 30 of its setup window, counted back from the window''s last day, in the clinic''s daytime', false),
       ('incident-deadlines', 'Hourly; raises one ops alert, ever, for each open incident past the internal 24-hour notice target with no notice recorded', false),
       ('transcript-emails', 'Every minute, from the billing-minute queue: sends each queued transcript to its clinic through SES and retries a failed or bounced one with back-off; deletes each sealed copy SES has not reported delivered 30 days after it was queued, or 72 hours after a send nothing answered (a delivered one is deleted by SES''s event)', false),
-      ('practice-questions', 'Every minute, from the practice-questions queue: runs each clinic''s due practice questions, one at a time per clinic, two minutes after its last change; hourly from the tick, asks for a run where a clinic''s inputs changed with none asked for, alerts ops on a review past its day, and sends O8 once a clinic''s tracker is complete', false)
+      ('practice-questions', 'Every minute, from the practice-questions queue: runs each clinic''s due practice questions, one at a time per clinic, two minutes after its last change; hourly from the tick, asks for a run where a clinic''s inputs changed with none asked for, alerts ops on a review past its day, and sends O8 once a clinic''s tracker is complete', false),
+      ('health-flags', 'Hourly; raises to ops, once each, a clinic with no interaction on any channel 48 hours after its first channel went live, and a live phone channel with no inbound call for 14 days. Internal: never shown to the clinic', false),
+      ('ops-digest', 'Daily at 07 UTC, or the first hour after it, once a UTC day: emails ops every queue with the age of its oldest item, email health per kind, connection health and Resend''s daily count. Ids and counts only', false),
+      ('ops-watch', 'Every minute from the billing-minute queue, and hourly from the tick: raises to ops, once each, a paid order with no account ten minutes after its payment reached the host, an order follow-up (B3) past its day, and, hourly, a support reply (L25) past its day with none marked', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);
 }

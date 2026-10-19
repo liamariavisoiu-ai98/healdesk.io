@@ -3393,6 +3393,22 @@ export const checkoutIntents = pgTable(
     /** Provisioning refused this intent: /welcome says so instead of waiting. */
     provisionFailedAt: timestamp("provision_failed_at", { withTimezone: true }),
     /**
+     * When a paid first invoice's relay first reached /api/provision for this
+     * purchase (WP5): the database's clock, written before provisioning runs
+     * and kept whatever it does. Ten minutes later with no account, the ops
+     * watch raises `paid_intent_without_clinic` (lib/ops/watch.ts). The relay
+     * is the only caller, and it calls only for a paid first invoice (or, in
+     * development, for the unpaid path that provisions at once).
+     */
+    paidSeenAt: timestamp("paid_seen_at", { withTimezone: true }),
+    /**
+     * How many provisioning attempts failed in a way a retry could fix (a 500
+     * that Stripe redelivers). At PROVISION_DEAD_LETTER_AT the purchase is
+     * dead-lettered: ops is told, B3 goes to the buyer, and /welcome stops
+     * waiting; later redeliveries still provision (lib/checkout/dead-letter.ts).
+     */
+    provisionFailures: integer("provision_failures").notNull().default(0),
+    /**
      * Stripe's hosted page for the paid first invoice, where the setup-fee
      * receipt is, as the invoice.paid relay passed it to provisioning (0056).
      * The welcome email (B1) links it on every attempt: plan C4, and contracts

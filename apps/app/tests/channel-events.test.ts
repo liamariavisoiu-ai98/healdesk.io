@@ -505,8 +505,8 @@ async function patient(clinicId: string, channel: Channel = "voice"): Promise<Fi
   };
 }
 
-function firstAnswer(clinicId: string, evidence: FirstAnswerEvidence, now?: Date) {
-  return withTenant({ clinicId, actor: ACTOR }, (tx) => recordFirstAnswer(tx, evidence, now));
+function firstAnswer(clinicId: string, evidence: FirstAnswerEvidence) {
+  return withTenant({ clinicId, actor: ACTOR }, (tx) => recordFirstAnswer(tx, evidence));
 }
 
 async function channelRow(clinicId: string, channel: Channel) {
@@ -730,7 +730,7 @@ describeDb("channel events against the database", () => {
       await client.query("rollback to savepoint s");
       expect(
         await one(
-          `select app_channel_record_first_answer('voice', $1::uuid, 'plan_start', now())`,
+          `select app_channel_record_first_answer('voice', $1::uuid, 'plan_start')`,
           [randomUUID()],
         ),
       ).toBe("not_live");
@@ -901,6 +901,41 @@ describeDb("channel events against the database", () => {
       live_at: null,
     });
     expect((await channelRow(synth.clinicId, "voice")).ready_at).not.toBeNull();
+  });
+
+  test("the first answer is stamped from the database's clock, and no caller can pass a time (0081)", async () => {
+    const c = await boughtClinic("ev-first-clock", { channels: [{ channel: "voice", liveAt: LIVE }] });
+    const conversationId = await conversation(c.clinicId, "voice");
+    const client = await getAppPool().connect();
+    try {
+      await client.query("begin");
+      await client.query(`select set_config('app.clinic_id', $1, true)`, [c.clinicId]);
+      const { rows: [clock] } = await client.query<{ now: Date }>(`select now() as now`);
+      // The old signature, with the caller's time, is gone.
+      await client.query("savepoint s");
+      await expect(
+        client.query(`select app_channel_record_first_answer('voice', $1::uuid, 'plan_start', now() - interval '3 days')`, [
+          conversationId,
+        ]),
+      ).rejects.toMatchObject({ code: "42883" });
+      await client.query("rollback to savepoint s");
+      const { rows: [recorded] } = await client.query<{ outcome: string }>(
+        `select app_channel_record_first_answer('voice', $1::uuid, 'plan_start') as outcome`,
+        [conversationId],
+      );
+      expect(recorded!.outcome).toBe("recorded");
+      const { rows: [row] } = await client.query<{ first_answer_at: Date }>(
+        `select first_answer_at from clinic_channels where channel = 'voice'`,
+      );
+      const { rows: [event] } = await client.query<{ occurred_at: Date }>(
+        `select occurred_at from channel_events where channel = 'voice' and kind = 'first_answer'`,
+      );
+      expect(row!.first_answer_at.getTime()).toBe(clock!.now.getTime());
+      expect(event!.occurred_at.getTime()).toBe(clock!.now.getTime());
+      await client.query("rollback");
+    } finally {
+      client.release();
+    }
   });
 
   test("the first answer: startPlan for the clinic's first channel, stepUpPackage for the next, once each, and no second start from the reconcile", async () => {

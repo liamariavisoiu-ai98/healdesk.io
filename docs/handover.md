@@ -918,6 +918,62 @@ table, which `drizzle/0074_drop_admin_totp.sql` drops. There is no public sign-u
 Clinic users sign in to the portal in `apps/app`, which is not built
 ([policies/access-control.md](./policies/access-control.md) has its rules).
 
+### A clinic that cannot get in: lost devices, a lost address
+
+Three acts on `/admin/ops/<clinic>/account` stand in for the clinic when it cannot act
+itself. Each goes through the signed ops API, and each is recorded in `security_events`.
+None of them runs because an email arrived: a reply can come from whoever holds the inbox.
+
+**Which one.**
+
+| The clinic says | What to do |
+|---|---|
+| "The link expired", "I can't find the email" | Nothing on the console. `/sign-in` sends a fresh link; `/sign-in/help` sends one after a billing check. Neither adds a device |
+| "No phone or computer of ours opens patient details any more, and we have no authenticator code" | **Send a link to add a device** (the human route, plan Part D3) |
+| "That inbox is gone" (closed, or kept by someone who left) | **Change the address** (`changeClinicEmail`) |
+| A reply to a device email (O3) about a device, or a sign-out, nobody at the clinic made | **Remove devices and sign everyone out** |
+
+If the clinic has lost both its devices and its address, change the address first. No
+device link can be sent while a change is open (the console says so and the API refuses),
+because the address on file is the one being retired until the change takes effect, 72
+hours later. Send the device link after that.
+
+**Before any of them: the call back.** Call the practice on its published number, from its
+own website or its Google listing, never a number given in the email, the chat or the
+call that asked. Hear from the practice that it asked for this. Then tick the call-back
+box and enter a fresh code from the operator's authenticator, one code per act; a used
+code is refused until the next one appears.
+
+**What the clinic receives.**
+
+- *Device link* (O16, `lib/factors/recovery.ts`): one email to the address on file, and
+  nowhere else, with a link that signs in and lets one phone or computer add its passkey,
+  once, within 24 hours. When the device is added, O3 tells the same address it came by
+  that link. The link stops working if the address changes or a change of it starts.
+- *Address change* (O5, `lib/sign-in/address-change.ts`): a notice to both addresses; the
+  sign-in, the Stripe customer and the agreement's notice address move together 72 hours
+  later.
+- *Removal*: O3 says healdesk signed every browser out at the clinic's request. Every
+  session ends, the devices ticked are removed, and the authenticator backup and backup
+  codes are reset, as the clinic's own "Someone left" does. Devices not ticked keep
+  working after a fresh sign-in link.
+
+**How to end each.**
+
+- *Device link*: **End this link**, when the clinic says nobody there asked for it (it was
+  told to write to hello@ afresh, not to reply, so the link is not quoted into our inbox).
+  A browser that had already opened the link is signed out with it. Sending a new link
+  ends the old one the same way, and so does starting a change of address.
+- *Address change*: **Stop this change**, at any time in its 72 hours, on an objection from
+  either address or a call from the practice.
+- *Removal*: not undone. The clinic adds devices again from a signed-in browser with
+  another device's passkey or a backup code, or, with neither, by the device link.
+
+The records: `device_recovery_issued`, `_link_sent`, `_claimed`, `_used`, `_revoked`,
+`_refused` and `device_recovery_issue_refused`; `sign_in_address_change_entered`,
+`_stopped` and `sign_in_address_changed`; `operator_signed_out`. Each names the operator's
+address and the clinic's id, never a patient.
+
 ---
 
 ## Decisions log (21 September 2026)

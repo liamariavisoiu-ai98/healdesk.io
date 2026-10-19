@@ -818,7 +818,7 @@ describe("undoing call forwarding", () => {
     expect(withVoice).toContain("Cancel all-call forwarding: *73");
     expect(withVoice).toContain("pass straight through to your direct line");
     expect(chatOnly).not.toMatch(/forward/i);
-    expect(chatOnly).toContain("contact form until you remove the healdesk snippet");
+    expect(chatOnly).toContain("Until you remove the healdesk snippet from your website, it asks visitors to call your practice instead.");
   });
 
   test("a plan change prints undo steps only when it dropped the phone", () => {
@@ -1207,6 +1207,19 @@ describe("what each email says", () => {
     expect(meta).toContain("Your plan never started, so nothing more was charged.");
     expect(meta).toContain("AYA no longer replies on Instagram, Messenger or WhatsApp.");
     expect(meta).toContain("and by Wednesday 3 February 2027 at the latest.");
+  });
+
+  test("the end of service says the website chat takes no messages and asks visitors to call, never that it shows a contact form", () => {
+    // A clinic that has left keeps nothing new about a patient (BAA clause
+    // 17; lib/chat/contact-form.ts keepsMessages), so its widget shows the
+    // practice's number in the form's place. Until 19 October E2 promised a
+    // contact form there.
+    const { text } = render(named("service ended: website chat and phone, AT&T all calls"));
+    expect(text).toContain(
+      "Your website chat no longer takes messages. Until you remove the healdesk snippet from your website, it asks visitors to call your practice instead.",
+    );
+    expect(text).not.toMatch(/contact form/i);
+    expect(render(named("service ended before the plan started: Meta only")).text).not.toMatch(/contact form/i);
   });
 });
 

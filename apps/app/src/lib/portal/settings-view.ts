@@ -314,6 +314,16 @@ const SWITCH_LINES: Record<Channel, string> = {
  * stops her, in the clinic's words. Every path ends with a person: calls go
  * to the direct line, website chat becomes a contact form (CLAUDE.md,
  * "Failure").
+ *
+ * Except at the end of the plan. The contact form keeps a visitor's message
+ * for the practice, and once the service has ended nothing new about a
+ * patient may be kept (BAA clause 17: after termination healdesk uses PHI
+ * only to return or destroy it; lib/chat/contact-form.ts, keepsMessages), so
+ * the widget takes nothing and shows the practice's number to call instead.
+ * The spec puts the contact form on the pause and the allowance cap only;
+ * its failure rule for a cancellation is the direct line (spec, "Non-payment
+ * never produces a dead phone line"). Until 19 October this row said the
+ * chat "shows a contact form" after the plan ended, which it never did.
  */
 export function failureLines(input: {
   bought: { web: boolean; meta: boolean; voice: boolean };
@@ -340,12 +350,7 @@ export function failureLines(input: {
       when: "A payment fails",
       then: `We email you, and AYA keeps answering for ${GRACE_DAYS} days while it's put right. After that, ${lowerFirst(everywhere)}`,
     },
-    {
-      when: "Your plan ends",
-      then: bought.voice
-        ? `For ${FORWARDING_PASS_THROUGH_DAYS} days calls still reach your direct line through us, while you undo call forwarding.${chat ? " Website chat shows a contact form until you remove its line from your site." : ""}`
-        : `${everywhere}`,
-    },
+    { when: "Your plan ends", then: planEndLine(bought) },
   );
   if (input.allowance) {
     lines.push({
@@ -357,6 +362,23 @@ export function failureLines(input: {
     });
   }
   return lines;
+}
+
+/** What happens on each channel bought once the plan has ended: see failureLines. */
+function planEndLine(bought: { web: boolean; meta: boolean; voice: boolean }): string {
+  const parts: string[] = [];
+  if (bought.voice) {
+    parts.push(
+      `For ${FORWARDING_PASS_THROUGH_DAYS} days calls still reach your direct line through us, while you undo call forwarding.`,
+    );
+  }
+  if (bought.web) {
+    parts.push(
+      "Website chat takes no more messages: it asks visitors to call your practice instead, until you remove its line from your site.",
+    );
+  }
+  if (bought.meta) parts.push("Messages wait for your team in the apps.");
+  return parts.length ? parts.join(" ") : "Nothing changes for anyone.";
 }
 
 function sentence(parts: (string | null)[]): string {

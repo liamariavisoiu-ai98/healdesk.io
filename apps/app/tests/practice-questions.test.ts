@@ -403,7 +403,7 @@ describe("a channel's run, through the brain the channel answers with", () => {
     expect(runVerdict([outcome])).toEqual({ status: "in_review", count: 1 });
   });
 
-  test("on a call, a wrong price said in words, which the guard does not read, fails too", async () => {
+  test("on a call, a wrong price said in words fails too: the guard reads it now, so the caller never hears it", async () => {
     const outcome = await runPracticeChannel(
       { channel: "voice", facts: FACTS },
       KNOWLEDGE,
@@ -411,7 +411,8 @@ describe("a channel's run, through the brain the channel answers with", () => {
     );
     expect(byId(outcome.cases, "listed_price")).toMatchObject({
       status: "failed",
-      sources: ["model"],
+      sources: ["guard"],
+      attribution: { kind: "engine" },
     });
     expect(
       byId(outcome.cases, "disclosure").answered[0]!.startsWith(
@@ -463,6 +464,25 @@ describe("a channel's run, through the brain the channel answers with", () => {
       status: "failed",
       attribution: { kind: "clinic_data", section: "how_aya_talks", count: 1 },
     });
+  });
+
+  test("a greeting the guard refuses fails the disclosure too: the channel says the default, and the clinic's own is the clinic's to fix", async () => {
+    const facts = {
+      ...FACTS,
+      greeting: { ...FACTS.greeting, phone: "Thanks for calling! We're HIPAA compliant." },
+    };
+    const outcome = await runPracticeChannel({ channel: "voice", facts }, KNOWLEDGE, deps());
+    const disclosure = byId(outcome.cases, "disclosure");
+    expect(disclosure).toMatchObject({
+      status: "failed",
+      attribution: { kind: "clinic_data", section: "how_aya_talks", count: 1 },
+    });
+    expect(disclosure.checks).toContainEqual({
+      name: "greeting_passes_the_reply_guard",
+      ok: false,
+      detail: "hipaa_claim",
+    });
+    expect(disclosure.answered[0]).not.toContain("HIPAA");
   });
 
   test("a judge's failure is a review, never a failed run; a judge that cannot be reached is an error", async () => {
@@ -641,6 +661,44 @@ describe("Instagram, Messenger and WhatsApp, through the front door's read half"
     expect(j.calls.map((c) => c.caseId)).not.toContain("clinical");
     expect(byId(outcome.cases, "unknown").status).toBe("passed");
     expect(outcome.status).toBe("passed");
+  });
+
+  test("a figure off the menu on Meta is refused by the guard, and the practice question fails", async () => {
+    const outcome = await runPracticeChannel(
+      { channel: "meta", facts: META, languages: ["en"] },
+      KNOWLEDGE,
+      deps({
+        metaResponder: async (system, text) =>
+          /How much is/.test(text)
+            ? JSON.stringify({ reply: "That's $10 per unit.", booking: { wants: false } })
+            : metaModel(system, text),
+        judge: judge("pass"),
+      }),
+    );
+    expect(byId(outcome.cases, "listed_price")).toMatchObject({
+      status: "failed",
+      sources: ["handoff"],
+      attribution: { kind: "engine" },
+    });
+  });
+
+  test("a wrong figure the clinic's own words state is the clinic's to fix, on Meta as on the other channels", async () => {
+    const outcome = await runPracticeChannel(
+      { channel: "meta", facts: META, languages: ["en"] },
+      { ...KNOWLEDGE, texts: { ...KNOWLEDGE.texts, quick_answers: ["Any offers? It's $10 a unit this month."] } },
+      deps({
+        metaResponder: async (system, text) =>
+          /How much is/.test(text)
+            ? JSON.stringify({ reply: "That's $10 per unit.", booking: { wants: false } })
+            : metaModel(system, text),
+        judge: judge("pass"),
+      }),
+    );
+    expect(byId(outcome.cases, "listed_price").attribution).toEqual({
+      kind: "clinic_data",
+      section: "quick_answers",
+      count: 1,
+    });
   });
 });
 

@@ -15,7 +15,8 @@ import type { AssistantFacts } from "./facts";
  * Outbound, after the model, a reply is refused when it:
  *   - says anything on the never-say list (the clinic's own and the defaults);
  *   - names a dollar amount that is not one of the clinic's configured prices
- *     or deposits: an off-menu price becomes the offer of a consultation;
+ *     or deposits, written or said in words (amountsIn): an off-menu price
+ *     becomes the offer of a consultation;
  *   - asks for card or bank details;
  *   - calls the practice or healdesk "HIPAA compliant";
  *   - says anything clinical: the catalog's findClinicalContent, the default
@@ -35,7 +36,12 @@ import type { AssistantFacts } from "./facts";
  *     outcome claims, triage, and a dose given as a bare number. A clinical
  *     reply becomes the offer of a consultation;
  *   - is written in a language the screens do not read (messageLanguage):
- *     English and Spanish are screened, any other is not sent.
+ *     English and Spanish are screened, any other is not sent;
+ *   - says a booking is made, or that the assistant is making one ("you're
+ *     booked", "confirmed for Tuesday", "I'll book you in"), on a turn where
+ *     the tool layer wrote no booking (ReplyTurn, confirmsBooking): the
+ *     brain has no booking tools yet, so it takes a request and the team
+ *     confirms it, and a reply saying otherwise becomes that line.
  * A refused reply is replaced by a fixed line; nothing of it is sent.
  *
  * The limit of the never-say list: its entries are the clinic's own words, in
@@ -56,9 +62,19 @@ export type GuardRefusal =
   | "hipaa_claim"
   | "clinical"
   | "language"
+  | "booking_confirmation"
   | "empty";
 
 export type GuardVerdict = { ok: true } | { ok: false; reason: GuardRefusal };
+
+/**
+ * What the tool layer did on the turn the reply answers. A reply may say a
+ * booking is made only on a turn where the tool layer wrote one (CLAUDE.md:
+ * bookings are written only by the fixed tool layer, and the slot is held
+ * before anything confirming is said). The brain has no booking tools yet
+ * (turn.ts), so no turn writes one, and every confirmation is refused.
+ */
+export type ReplyTurn = { bookingWritten?: boolean };
 
 function normalise(text: string): string {
   return text
@@ -83,7 +99,234 @@ function allowedAmounts(facts: Pick<AssistantFacts, "services">): Set<number> {
 const DOLLARS = /\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(\s?k\b)?/gi;
 const SPOKEN_DOLLARS = /\b(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s?(?:dollars|usd|bucks|d[oó]lares)(?![\p{L}])/giu;
 
-/** The cents of each amount the reply names, "$1,200", "$99.50", "1200 dollars". */
+// -----------------------------------------------------------------------------
+// Amounts said in words
+// -----------------------------------------------------------------------------
+//
+// The voice prompt asks for numbers the way a person says them aloud
+// (prompt.ts), so a price on a call is as likely to be "two hundred dollars"
+// or "a hundred and fifty" as "$200". Each form below is a price the guard
+// reads, and checks against the menu like any other:
+//
+//   - number words before "dollars" or "bucks", with any "and fifty cents"
+//     after ("two hundred dollars", "a hundred and fifty dollars", "one
+//     fifty dollars", "twelve dollars and fifty cents");
+//   - a number with "hundred" or "thousand" in it, with no currency word,
+//     where it ends a clause or runs on into one ("the consultation is a
+//     hundred and fifty", "two hundred, or three with the deposit"), and not
+//     where a noun follows ("a hundred reviews", "two hundred clients"), a
+//     room or a suite leads ("suite two hundred"), or it is a time of the
+//     twenty-four hour clock ("we close at seventeen hundred");
+//   - a number, in digits or words, said by the unit ("twelve a unit", "12
+//     per unit", "six hundred a syringe");
+//   - Spanish number words before "dólares" ("ciento cincuenta dólares").
+//
+// A bare number with none of these ("it's fifty") is not read: it is as often
+// a count or a time as a price, and the prompt asks for prices as listed.
+
+const ONES: Readonly<Record<string, number>> = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19,
+};
+const TENS: Readonly<Record<string, number>> = {
+  twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+};
+/** One number word, whole: the longest spellings first, so "fourteen" is never read as "four". */
+const NUMBER_WORD = `(?:${[...Object.keys(ONES), ...Object.keys(TENS), "hundred", "thousand", "and", "a"]
+  .sort((a, b) => b.length - a.length)
+  .join("|")})(?![\\p{L}])`;
+/** A run of number words, hyphens or spaces between: "one hundred and fifty", "twenty-five". */
+const NUMBER_RUN = `${NUMBER_WORD}(?:[\\s-]+${NUMBER_WORD})*`;
+
+/**
+ * A run of number words as a number: "one hundred and fifty" → 150, "a
+ * thousand" → 1000, "twenty-five" → 25. Said the way prices are said aloud,
+ * with the hundred left out, too: "one fifty" → 150, "two ninety-nine" →
+ * 299, "twelve fifty" → 1250. Null when the words are not one number ("one
+ * five", "ninety and a hundred"). "A" counts only as the first word, before
+ * "hundred" or "thousand".
+ */
+export function wordsToNumber(words: string): number | null {
+  const parts = words
+    .toLowerCase()
+    .split(/[\s-]+/)
+    .filter((w) => w && w !== "and");
+  if (parts.length === 0) return null;
+  let total = 0; // the thousands
+  let hundreds = 0; // the hundreds of the group being read
+  let small: number | null = null; // below a hundred, being read
+  let last: "unit" | "teen" | "tens" | "magnitude" | null = null;
+  let elided = false;
+  let seen = false;
+  for (const [i, part] of parts.entries()) {
+    if (part === "a") {
+      const next = parts[i + 1];
+      if (i !== 0 || (next !== "hundred" && next !== "thousand")) return null;
+      small = 1;
+      last = "unit";
+      continue;
+    }
+    if (part in ONES || part in TENS) {
+      const value = (ONES[part] ?? TENS[part])!;
+      const kind = part in TENS ? "tens" : value >= 10 ? "teen" : "unit";
+      seen = true;
+      if (small === null) {
+        small = value;
+      } else if (last === "tens" && kind === "unit" && value > 0) {
+        small += value; // "twenty five"
+      } else if (kind !== "unit" && hundreds === 0 && total === 0 && !elided && last !== "magnitude") {
+        // "one fifty", "two ninety-nine", "twelve fifty": the hundred left out.
+        hundreds = small * 100;
+        small = value;
+        elided = true;
+      } else {
+        return null;
+      }
+      last = kind;
+      continue;
+    }
+    if (part === "hundred") {
+      if (elided || hundreds !== 0) return null;
+      hundreds = (small ?? 1) * 100;
+      small = null;
+      last = "magnitude";
+      seen = true;
+      continue;
+    }
+    if (part === "thousand") {
+      if (elided) return null;
+      total += (hundreds + (small ?? 0) || 1) * 1000;
+      hundreds = 0;
+      small = null;
+      last = "magnitude";
+      seen = true;
+      continue;
+    }
+    return null;
+  }
+  return seen ? total + hundreds + (small ?? 0) : null;
+}
+
+/** A run read as a number, or, failing that, without a leading "a" or "and" ("a fifty dollar deposit"). */
+function runValue(run: string): number | null {
+  return wordsToNumber(run) ?? wordsToNumber(run.replace(/^\s*(?:a|and)[\s-]+/i, ""));
+}
+
+const WORD_DOLLARS = new RegExp(
+  `(?<![\\p{L}])(${NUMBER_RUN})\\s+(?:dollars?|bucks)(?![\\p{L}])(?:\\s+and\\s+(${NUMBER_RUN})\\s+cents?(?![\\p{L}]))?`,
+  "giu",
+);
+const PER_UNIT = new RegExp(
+  `(?<![$\\d.,\\p{L}])(\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d{1,2})?|${NUMBER_RUN})\\s+(?:a|an|per|each|every)\\s+(?:units?|syringes?|vials?|ml|areas?)(?![\\p{L}])`,
+  "giu",
+);
+const MAGNITUDE_RUN = new RegExp(`(?<![\\p{L}])${NUMBER_RUN}`, "giu");
+/** What may follow a number said as a price with no currency word: the end of a clause, or a word that runs on. */
+const PRICE_ENDS = /^(?:\s*$|\s*[.,;:!?)\]—–]|\s+-\s|\s+(?:for|per|a|an|each|every|to|and|or|with|plus|including|depending|if|but|so|up|total|altogether)(?![\p{L}]))/iu;
+/** What leads a number that is a place, not a price. */
+const PLACE_LEADS = /(?:\b(?:room|suite|ste|unit|apt|apartment|floor|level|building|bldg|number|no\.?|highway|route|interstate|exit)|#)\s*$/i;
+/** A time word before a number: an hour of the twenty-four hour clock said as "seventeen hundred". */
+const TIME_LEADS = /\b(?:at|until|till|til|by|after|before|around|from|between|and)\s+$/i;
+const PRICE_AT = /\b(?:priced|starts?|starting|comes? in|runs?|costs?|charged|billed|is|it['’]s|that['’]s)\s+at\s+$/i;
+const CLOCK_HUNDRED =
+  /^(?:(?:oh|zero)[\s-]+(?:one|two|three|four|five|six|seven|eight|nine)|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty(?:[\s-]+(?:one|two|three))?)[\s-]+hundred$/i;
+/** A word before a year said aloud ("since two thousand ten", "back in nineteen ninety"). */
+const YEAR_LEADS = /\b(?:since|in|year|back in|until|till|founded|opened|established)\s+$/i;
+
+/** The run without a trailing "and" or "a", which belong to what follows ("a hundred and Lip filler"). */
+function trimRun(run: string): string {
+  return run.replace(/(?:[\s-]+(?:and|a))+$/i, "");
+}
+
+/** Every amount said in English number words, in cents, in the order they come. */
+function wordAmounts(text: string): number[] {
+  const found: { at: number; cents: number }[] = [];
+  const taken: [number, number][] = [];
+  for (const m of text.matchAll(WORD_DOLLARS)) {
+    const dollars = runValue(m[1]!);
+    if (dollars === null) continue;
+    const cents = m[2] ? (wordsToNumber(m[2]) ?? 0) : 0;
+    found.push({ at: m.index!, cents: dollars * 100 + (cents < 100 ? cents : 0) });
+    taken.push([m.index!, m.index! + m[0].length]);
+  }
+  for (const m of text.matchAll(PER_UNIT)) {
+    if (taken.some(([a, b]) => m.index! >= a && m.index! < b)) continue;
+    const said = m[1]!;
+    const value = /^\d/.test(said) ? Number(said.replace(/,/g, "")) : runValue(trimRun(said));
+    if (value === null || !Number.isFinite(value)) continue;
+    found.push({ at: m.index!, cents: Math.round(value * 100) });
+    taken.push([m.index!, m.index! + m[0].length]);
+  }
+  for (const m of text.matchAll(MAGNITUDE_RUN)) {
+    const run = trimRun(m[0]);
+    if (!/hundred|thousand/i.test(run)) continue;
+    const start = m.index!;
+    const end = start + run.length;
+    if (taken.some(([a, b]) => start < b && end > a)) continue;
+    const before = text.slice(0, start);
+    const after = text.slice(end);
+    if (!PRICE_ENDS.test(after) || PLACE_LEADS.test(before)) continue;
+    if (CLOCK_HUNDRED.test(run.trim()) && TIME_LEADS.test(before) && !PRICE_AT.test(before)) continue;
+    const value = runValue(run);
+    if (value === null) continue;
+    if (value > 1900 && value < 2100 && YEAR_LEADS.test(before)) continue;
+    found.push({ at: start, cents: value * 100 });
+  }
+  return found.sort((a, b) => a.at - b.at).map((f) => f.cents);
+}
+
+const ES_VALUES: Readonly<Record<string, number>> = {
+  cero: 0, un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8,
+  nueve: 9, diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, "dieciséis": 16,
+  dieciseis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19, veinte: 20, veintiuno: 21,
+  "veintiún": 21, veintiun: 21, veintiuna: 21, "veintidós": 22, veintidos: 22, "veintitrés": 23,
+  veintitres: 23, veinticuatro: 24, veinticinco: 25, "veintiséis": 26, veintiseis: 26,
+  veintisiete: 27, veintiocho: 28, veintinueve: 29, treinta: 30, cuarenta: 40, cincuenta: 50,
+  sesenta: 60, setenta: 70, ochenta: 80, noventa: 90, cien: 100, ciento: 100, doscientos: 200,
+  doscientas: 200, trescientos: 300, trescientas: 300, cuatrocientos: 400, cuatrocientas: 400,
+  quinientos: 500, quinientas: 500, seiscientos: 600, seiscientas: 600, setecientos: 700,
+  setecientas: 700, ochocientos: 800, ochocientas: 800, novecientos: 900, novecientas: 900,
+};
+const ES_WORD = `(?:${[...Object.keys(ES_VALUES), "mil", "y"].sort((a, b) => b.length - a.length).join("|")})(?![\\p{L}])`;
+const ES_DOLLARS = new RegExp(`(?<![\\p{L}])(${ES_WORD}(?:\\s+${ES_WORD})*)\\s+d[oó]lar(?:es)?(?![\\p{L}])`, "giu");
+
+/** Spanish number words as a number: "ciento cincuenta" → 150, "mil doscientos" → 1200. */
+function spanishToNumber(words: string): number | null {
+  let total = 0;
+  let current = 0;
+  let seen = false;
+  for (const part of words.toLowerCase().split(/\s+/)) {
+    if (!part || part === "y") continue;
+    if (part === "mil") {
+      total += (current || 1) * 1000;
+      current = 0;
+      seen = true;
+      continue;
+    }
+    const value = ES_VALUES[part];
+    if (value === undefined) return null;
+    current += value;
+    seen = true;
+  }
+  return seen ? total + current : null;
+}
+
+/** The cents of each amount said in words, English and Spanish: "two hundred dollars", "a hundred and fifty". */
+export function spokenAmountsIn(text: string): number[] {
+  const out = wordAmounts(text);
+  for (const m of text.matchAll(ES_DOLLARS)) {
+    const value = spanishToNumber(m[1]!);
+    if (value !== null) out.push(value * 100);
+  }
+  return out;
+}
+
+/**
+ * The cents of each amount the reply names: written ("$1,200", "$99.50",
+ * "1200 dollars") and said ("two hundred dollars", "a hundred and fifty",
+ * "twelve a unit").
+ */
 export function amountsIn(text: string): number[] {
   const out: number[] = [];
   for (const pattern of [DOLLARS, SPOKEN_DOLLARS]) {
@@ -94,7 +337,7 @@ export function amountsIn(text: string): number[] {
       out.push(Math.round((whole * thousands) * 100 + cents));
     }
   }
-  return out;
+  return [...out, ...spokenAmountsIn(text)];
 }
 
 const PAYMENT_ASK = /\b(card number|credit card|debit card|card details|cvv|cvc|security code|expir(y|ation) date|bank (account|details)|routing number)\b/i;
@@ -107,11 +350,12 @@ const HIPAA_CLAIM = /\bhipaa[- ]?(compliant|certified|approved)\b/i;
  * after an amount, so "how many units" is still dosing.
  */
 function perUnitPrices(text: string): string {
-  return text.replace(
-    /((?:\$\s?\d[\d,]*(?:\.\d{1,2})?)|\b\d[\d,]*(?:\.\d{1,2})?\s?(?:dollars|usd|bucks))\s+(?:a|an|each|every)\s+(units?|ml)\b/gi,
-    "$1 per $2",
-  );
+  return text.replace(PER_UNIT_PRICE, "$1 per $2");
 }
+const PER_UNIT_PRICE = new RegExp(
+  `((?:\\$\\s?\\d[\\d,]*(?:\\.\\d{1,2})?)|\\b\\d[\\d,]*(?:\\.\\d{1,2})?\\s?(?:dollars|usd|bucks)|(?<![\\p{L}])${NUMBER_RUN}\\s+(?:dollars?|bucks))\\s+(?:a|an|each|every)\\s+(units?|ml)(?![\\p{L}])`,
+  "giu",
+);
 
 type ScreenFacts = Pick<AssistantFacts, "services"> &
   Partial<Pick<AssistantFacts, "clinicName" | "address" | "requirements" | "providerNames">>;
@@ -321,7 +565,71 @@ export function neverSayBlocksDisclosure(entry: string): boolean {
   return NEVER_SAY_PROTECTED.some((sentence) => neverSayIn(sentence, [entry]));
 }
 
-export function guardAssistantReply(reply: string, facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts): GuardVerdict {
+// -----------------------------------------------------------------------------
+// A booking said to be made
+// -----------------------------------------------------------------------------
+
+const BOOKED = "(?:booked(?: in)?|confirmed|scheduled|reserved|pencil(?:l)?ed in|locked in|secured)";
+const DAY_OR_TIME =
+  "(?:you\\b|(?:mon|tues|wednes|thurs|fri|satur|sun)day\\b|(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\\b|tomorrow\\b|today\\b|tonight\\b|next\\b|this\\b|the\\s+\\d|\\d|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\b)";
+
+/**
+ * A reply that says a booking exists, or that the assistant is making one:
+ * "you're booked", "your booking is confirmed for Mon 3pm", "confirmed for
+ * Tuesday", "I've put you down for 3pm", "I'll book you in", "you're all set
+ * for Tuesday", a confirmation number; and in Spanish, "su cita está
+ * confirmada", "le he reservado", "confirmada para el martes". Read on the
+ * normalised reply, sentence by sentence (confirmsBooking).
+ */
+const CONFIRMATIONS: readonly RegExp[] = [
+  new RegExp(`\\b(?:you're|you are|you've been|you have been|they're|they are)\\s+(?:now\\s+|all\\s+)?${BOOKED}\\b`),
+  new RegExp(
+    `\\b(?:(?:your|the|this|that)\\s+(?:appointment|booking|slot|visit|consultation|session|reservation|time)|it|that|this|everything)\\s*(?:is|'s|has been|was|have been)\\s+(?:now\\s+|all\\s+)?(?:${BOOKED}|made|all set|in the (?:diary|calendar|books?))\\b`,
+  ),
+  /\b(?:i've|i have|we've|we have|i|we)\s+(?:just\s+|now\s+|already\s+|gone ahead and\s+)?(?:booked|confirmed|scheduled|reserved|secured|locked in|pencil(?:l)?ed)\s+(?:you|your|it|that|this|a|an|the)\b/,
+  /\b(?:i've|i have|we've|we have)\s+(?:got|put|added|pencil(?:l)?ed)\s+you\s+(?:down|in)\b/,
+  /\b(?:i'll|i will|let me|we'll|we will)\s+(?:go ahead and\s+)?(?:book|reserve|schedule|lock in|pencil)\s+(?:you|that|it|this|your|a|an|the)\b/,
+  new RegExp(`\\b${BOOKED}\\s+for\\s+${DAY_OR_TIME}`),
+  new RegExp(`\\b(?:all set|good to go)\\s+for\\s+(?:${DAY_OR_TIME}|your)`),
+  /\bconfirmation (?:number|code|email|text|message)\b/,
+  /(?<![\p{L}])(?:est[áa]|queda|qued[óo]|ha quedado|ha sido|fue)\s+(?:ya\s+)?(?:confirmad[oa]|reservad[oa]|agendad[oa]|programad[oa]|apuntad[oa])(?![\p{L}])/u,
+  /(?<![\p{L}])(?:le|te|lo|la)\s+(?:he|hemos)\s+(?:reservado|agendado|confirmado|apuntado|programado)(?![\p{L}])/u,
+  /(?<![\p{L}])(?:confirmad[oa]|reservad[oa]|agendad[oa])\s+para\s+(?:el|la|ma[ñn]ana|hoy|las?)(?![\p{L}])/u,
+];
+
+/** Words before a confirmation that make it a condition or a time to come: "once you're booked", "until it's confirmed". */
+const NOT_YET = /\b(?:once|when|until|till|after|as soon as|if|before|unless|whether)\b|(?<![\p{L}])(?:cuando|una vez|hasta que|si|antes de que|en cuanto)(?![\p{L}])/u;
+/** Words right before one that put it in the future or deny it: "will be confirmed for", "isn't booked for". */
+const FUTURE_OR_NOT =
+  /(?:\b(?:will|'ll|would|to|can|could|should|must|may|might)\s+(?:be\s+|get\s+)?|\b(?:not|never|no longer)\s+(?:\w+\s+)?|n't\s+(?:\w+\s+)?|(?<![\p{L}])no\s+(?:\p{L}+\s+)?)$/u;
+
+/**
+ * Whether the reply says a booking is made, or that the assistant is making
+ * one. A question asks ("would you like to be booked for Tuesday?"), a
+ * condition or a time to come promises nothing ("once it's confirmed", "the
+ * team will confirm it within a day", "it will be confirmed for you"), and a
+ * denial is no confirmation ("it isn't booked for Tuesday yet").
+ */
+export function confirmsBooking(reply: string): boolean {
+  for (const sentence of normalise(reply).split(/(?<=[.!?])\s+/)) {
+    const said = sentence.trim();
+    if (!said || said.endsWith("?") || said.startsWith("¿")) continue;
+    for (const pattern of CONFIRMATIONS) {
+      const match = pattern.exec(said);
+      if (!match) continue;
+      const before = said.slice(0, match.index);
+      if (NOT_YET.test(before) || FUTURE_OR_NOT.test(before)) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+export function guardAssistantReply(
+  reply: string,
+  facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts,
+  turn: ReplyTurn = {},
+): GuardVerdict {
   const text = normalise(reply);
   if (!text.trim()) return { ok: false, reason: "empty" };
   // English entries matched as written, in a reply in either language (see the file header).
@@ -338,7 +646,50 @@ export function guardAssistantReply(reply: string, facts: Pick<AssistantFacts, "
   const knownTerms = [facts.clinicName, facts.address, ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])];
   if (messageLanguage(reply, { knownTerms }) === "other") return { ok: false, reason: "language" };
   if (clinicalIn(reply, facts)) return { ok: false, reason: "clinical" };
+  // Last, so a reply refused for anything above keeps that reason.
+  if (turn.bookingWritten !== true && confirmsBooking(reply)) return { ok: false, reason: "booking_confirmation" };
   return { ok: true };
+}
+
+// -----------------------------------------------------------------------------
+// The clinic's greeting
+// -----------------------------------------------------------------------------
+
+/**
+ * A greeting that undoes the AI line before it: one that has AYA say she is a
+ * person or a member of staff ("I'm Sarah, a real person", "this is the
+ * front desk", "you're talking to a real person"), or that she is not an AI.
+ * An offer of a person is no claim to be one ("if you'd rather talk to a
+ * real person, just ask").
+ */
+const UNDOES_DISCLOSURE: readonly RegExp[] = [
+  /\b(?:i['’]?m|i am|this is|my name is|you['’]re (?:talking|speaking|chatting) (?:to|with)|you['’]ve reached)\s+(?:[\p{L}'’-]+,?\s+)?(?:(?:just|only|actually|really)\s+)?(?:(?:a|an|the|your|one of the|part of the|on the|a member of(?: the)?)\s+)?(?:real\s+|actual\s+|live\s+)?(?:person|human(?: being)?|receptionist|front desk|nurse|staff member|member of (?:the\s+)?(?:staff|team)|team member)\b/iu,
+  /\bnot (?:an? )?(?:ai|bot|robot|machine|computer|automated)\b/i,
+  /\b(?:a\s+)?real (?:person|human)\s+(?:here|speaking|answering)\b|^\W*real (?:person|human)\b/i,
+];
+
+export function undoesDisclosure(greeting: string): boolean {
+  return UNDOES_DISCLOSURE.some((pattern) => pattern.test(greeting));
+}
+
+export type GreetingRefusal = GuardRefusal | "undoes_disclosure";
+
+/**
+ * The clinic's own greeting, said after the locked AI line on every call and
+ * shown after it in every web chat (opening.ts): the same guard as any reply
+ * (guardAssistantReply: the never-say list, a price off the menu, card
+ * details, "HIPAA compliant", clinical content, a language no screen reads,
+ * a booking said to be made), and nothing that undoes the AI line. Asked
+ * when the clinic saves it (lib/setup/settings.ts) and again each time it
+ * is said, since the menu and the never-say list can change after it was
+ * saved; refused there, the default greeting is said instead.
+ */
+export function guardGreeting(
+  greeting: string,
+  facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts,
+): { ok: true } | { ok: false; reason: GreetingRefusal } {
+  if (undoesDisclosure(greeting)) return { ok: false, reason: "undoes_disclosure" };
+  return guardAssistantReply(greeting, facts);
 }
 
 /** The line a refused reply becomes. */
@@ -351,6 +702,9 @@ export function guardedLine(reason: GuardRefusal, clinicName: string): string {
   }
   if (reason === "payment_details") {
     return `Please don't share any card or bank details with me. The practice handles payment securely itself.`;
+  }
+  if (reason === "booking_confirmation") {
+    return `I can't confirm appointments myself, but I can pass your request to the team at ${clinicName}, who confirm every booking and get back to people within a day.`;
   }
   return `I'm not able to help with that here, but I can pass your details to the team at ${clinicName}, who will get back to you within a day.`;
 }

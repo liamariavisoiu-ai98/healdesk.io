@@ -46,6 +46,7 @@ KEYS=(
   META_VERIFY_TOKEN
   ANTHROPIC_API_KEY
   HEALDESK_RETELL_LLM_SECRET
+  HEALDESK_RETELL_API_KEY
   CLOUDFLARE_API_TOKEN
 )
 
@@ -74,6 +75,7 @@ hint_for() {
     META_VERIFY_TOKEN) echo "the webhook verify token set in Meta's dashboard" ;;
     ANTHROPIC_API_KEY) echo "a key of the HIPAA-enabled Anthropic organisation, never the marketing one" ;;
     HEALDESK_RETELL_LLM_SECRET) echo "the secret in every clinic's Retell agent URL (wss://app.healdesk.io/llm-websocket/<this>/<clinic id>): 32 to 200 random letters, digits, - or _, such as the output of openssl rand -hex 32; the same value goes into each agent" ;;
+    HEALDESK_RETELL_API_KEY) echo "the API key of the Retell workspace the clinics' agents are in, the one with the webhook badge (Settings, API Keys): it signs the call-ended webhook and reads a call back" ;;
     CLOUDFLARE_API_TOKEN) echo "Cloudflare API token (Edit zone DNS, healdesk.io), read by infra.yml and host.yml only" ;;
   esac
 }
@@ -81,10 +83,11 @@ hint_for() {
 # Keys that switch on a path carrying patients' messages. The guide asks for
 # them only once the business associate agreements behind that path are in
 # place, so the script asks too. HEALDESK_RETELL_LLM_SECRET opens the voice
-# endpoint to Retell's calls (enable_voice), and may stay __unset__ until then.
+# endpoint to Retell's calls (enable_voice), and may stay __unset__ until then;
+# HEALDESK_RETELL_API_KEY reads those calls back from Retell, words included.
 patient_facing() {
   case "$1" in
-    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_RETELL_LLM_SECRET) return 0 ;;
+    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_RETELL_LLM_SECRET | HEALDESK_RETELL_API_KEY) return 0 ;;
   esac
   return 1
 }
@@ -108,6 +111,8 @@ shape_problem() {
     # guessed, and nothing a URL would need escaped (the endpoint takes 16 to
     # 200 characters other than /).
     HEALDESK_RETELL_LLM_SECRET) [[ "$2" =~ ^[A-Za-z0-9_-]{32,200}$ ]] || echo "it must be 32 to 200 letters, digits, - or _ (openssl rand -hex 32 makes one)" ;;
+    # Sent as a bearer and used as an HMAC key: one line, no spaces.
+    HEALDESK_RETELL_API_KEY) [[ "$2" =~ ^[A-Za-z0-9_-]{20,200}$ ]] || echo "a Retell API key is one word of letters, digits, - or _ (key_...)" ;;
   esac
 }
 

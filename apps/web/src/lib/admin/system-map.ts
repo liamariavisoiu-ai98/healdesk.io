@@ -535,6 +535,21 @@ export const KEYS: readonly KeyDef[] = [
     },
   },
   {
+    id: "aws.HEALDESK_RETELL_API_KEY",
+    env: "HEALDESK_RETELL_API_KEY",
+    home: "aws",
+    label: "Retell key (engine): signs call-ended messages and reads a call back",
+    need: "later",
+    waitsFor:
+      "every business associate agreement in the chain is signed, Retell's included, which the paste script asks you to confirm before it takes this. Paste the key of the Retell workspace the clinics' agents are in, the one with the webhook badge, and set each clinic's agent webhook to https://app.healdesk.io/api/webhooks/retell/<clinic id>",
+    rotation: {
+      kind: "every",
+      days: 180,
+      how: `Make a new key in Retell (Settings, API Keys) and give it the webhook badge. ${AWS_HOW("HEALDESK_RETELL_API_KEY")} Then delete the old one.`,
+      impact: "Retell's call-ended messages are refused until the restart, and Retell retries them only for a few seconds: a call lost by a crash in that window stays unrecorded.",
+    },
+  },
+  {
     // Not a secret: Terraform sets it on the web task whenever enable_voice is
     // on (infra/aws/locals.tf), because the secret above is given to the web
     // task, and so reads as present, before the voice service exists.
@@ -1135,11 +1150,11 @@ export const BRIDGES: readonly BridgeDef[] = [
     carries: "What the caller says, and every word AYA says back",
     example:
       "While Maria talks, Retell streams each sentence to the engine over a private line whose address carries a password; the engine decides every word AYA says back, and takes Maria's request for Thursday at 3pm for the clinic to confirm.",
-    keys: ["aws.HEALDESK_RETELL_LLM_SECRET", "aws.HEALDESK_VOICE_ENABLED"],
+    keys: ["aws.HEALDESK_RETELL_LLM_SECRET", "aws.HEALDESK_VOICE_ENABLED", "aws.HEALDESK_RETELL_API_KEY"],
     phi: true,
     build: "built",
     buildNote:
-      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. A call in progress when the voice task crashes is lost, with its words and its booking request: the backstop from Retell's call-ended message is not built.",
+      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. If the voice task crashes mid-call, Retell's signed call-ended message (each clinic's agent webhook, https://app.healdesk.io/api/webhooks/retell/<clinic id>) queues a backstop that, ten minutes later, reads the call back from Retell and records it with its words, emailed to the clinic, and its minutes, unless the live line already did. What the caller asked for is not rebuilt: the clinic reads it in the transcript, and the call makes no booking request.",
   },
   {
     id: "retell-clinic",

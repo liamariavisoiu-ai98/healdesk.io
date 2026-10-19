@@ -14,6 +14,7 @@ import {
   QUEUE_RECONCILE_CLINIC,
   QUEUE_SYNC_CONNECTION,
   QUEUE_TICK,
+  QUEUE_VOICE_CALL_BACKSTOP,
   startGuardedClock,
   stopBoss,
   type ProcessWebhookPayload,
@@ -26,6 +27,7 @@ import {
   runCalendarWatchJob,
 } from "@/lib/scheduler/calendar-watch";
 import { runPracticeQuestionsJob } from "@/lib/engine/practice/job";
+import { handleCallBackstopJob, type CallBackstopPayload } from "@/lib/voice/backstop";
 import { runTick } from "@/lib/scheduler/tick";
 import { syncConnection } from "@/lib/sync/run";
 import { processWebhookEvent } from "@/lib/sync/webhooks";
@@ -217,6 +219,23 @@ async function main(): Promise<void> {
     },
     { retryLimit: 0 },
   );
+
+  // The voice call backstop (lib/voice/backstop.ts): a call Retell says has
+  // ended and the live socket never recorded. Each job is ten minutes behind
+  // its webhook and idempotent on the call id; a throw is retried by
+  // pg-boss with the backoff set at enqueue. Guarded like the clocks: where
+  // `queue:install` has not been re-run since this queue arrived, the log
+  // names the fix and the rest of the worker starts.
+  try {
+    await boss.work<CallBackstopPayload>(QUEUE_VOICE_CALL_BACKSTOP, { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await handleCallBackstopJob(job.data);
+    });
+  } catch (error) {
+    log.error("queue not worked: run `npm run queue:install` as the migrator, then restart the worker", {
+      job: QUEUE_VOICE_CALL_BACKSTOP,
+      error: describeError(error),
+    });
+  }
 
   // No outbound clock. The call-back dialer of 23 September 2026 was removed
   // (v1 is inbound only): nothing in this process asks a vendor to dial.

@@ -81,9 +81,14 @@ Its own long-lived Node process from the same image (`node --import tsx src/voic
   `from_number`, `direction` and `start_timestamp`, are written from Retell's custom-LLM WebSocket
   reference as it was known; check them against the current reference and a test call on a synthetic
   clinic before any real call.
-- **A call in progress when its task dies** is lost with its words: the session is in memory until the
-  hang-up. The load balancer drains a task for up to an hour before ECS stops it, so a deploy does not
-  cut calls; a crash does. Retell's own call-ended webhook could backstop it; not built.
+- **A call in progress when its task dies** loses what was in its memory: the session holds the call
+  until the hang-up. The load balancer drains a task for up to an hour before ECS stops it, so a deploy
+  does not cut calls; a crash does. Built 19 October 2026: Retell's signed call-ended webhook
+  (`/api/webhooks/retell/<clinic id>`, each agent's own webhook URL, verified with
+  `HEALDESK_RETELL_API_KEY`) queues one job per call; ten minutes later, if the call still has no
+  conversation, the worker reads it back from Retell, checks it reached the clinic's own Retell
+  number, and ingests it, idempotent on the call id: the conversation, the transcript and the minutes,
+  but no booking request, since the caller's request was the dead session's (`lib/voice/backstop.ts`).
 - **The per-process rate limit** is per task: with several web tasks the limit is that many times
   higher.
 - **Meta-style screening on the web chat**: the web chat may carry clinical words (it is BAA-covered),

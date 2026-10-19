@@ -23,9 +23,11 @@ import { isHealdeskTestNumber } from "./test-numbers";
 /**
  * Turning a finished call into the one row the whole product depends on.
  *
- * `VoiceCallEvent` is vendor-neutral. Its one producer is the Retell
- * custom-LLM endpoint (lib/voice/retell.ts, run by src/voice/server.ts),
- * which hands the call over here when Retell closes the socket.
+ * `VoiceCallEvent` is vendor-neutral. Its producer is the Retell custom-LLM
+ * endpoint (lib/voice/retell.ts, run by src/voice/server.ts), which hands the
+ * call over here when Retell closes the socket; and, for a call that socket
+ * never recorded, the backstop (lib/voice/backstop.ts), from Retell's own
+ * record of the call, ten minutes after its call-ended webhook.
  *
  * Until this existed, nothing anywhere wrote a `conversations` row. Every
  * downstream system — the attribution engine, the reconciliation matcher, the

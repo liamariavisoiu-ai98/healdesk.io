@@ -166,13 +166,15 @@
     }
   });
   input.addEventListener("input", grow);
-  // Inside the shadow root, events reach the document retargeted to the host.
-  doc.addEventListener("pointerdown", function (event) {
-    if (event.target !== host) away += 1;
-  }, true);
-  doc.addEventListener("focusin", function (event) {
-    if (event.target !== host) away += 1;
-  }, true);
+  // An event from inside the bubble has the host on its path (the closed
+  // root hides the rest). On the window in capture, so a page script
+  // stopping events on the document cannot hide a visit to the page.
+  ["pointerdown", "focusin"].forEach(function (type) {
+    win.addEventListener(type, function (event) {
+      var path = event.composedPath ? event.composedPath() : [event.target];
+      if (path.indexOf(host) === -1) away += 1;
+    }, true);
+  });
   win.addEventListener("pagehide", function (event) {
     // A page kept for Back (persisted) comes back with the chat on screen,
     // so it stays open; if it never comes back, the quiet time sends it.

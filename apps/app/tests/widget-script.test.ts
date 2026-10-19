@@ -603,6 +603,19 @@ describe("when the chat is not answering", () => {
     expect(root.activeElement).toBeNull();
   });
 
+  test("a click inside the bubble while a reply is on its way is not a visit to the page", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Sure.", token: "t1", ended: false } });
+    const root = await load();
+    await open(root);
+    q<HTMLTextAreaElement>(root, "textarea").value = "Hello";
+    q<HTMLFormElement>(root, ".compose").dispatchEvent(new Event("submit", { cancelable: true }));
+    q(root, ".log").dispatchEvent(new Event("pointerdown", { bubbles: true, composed: true }));
+    (root.activeElement as HTMLElement | null)?.blur();
+    await settle();
+    expect(root.activeElement).toBe(q(root, "textarea"));
+  });
+
   test("the contact form's answer leaves focus on the clinic's page if the visitor went there", async () => {
     answer("start", { status: 200, body: { mode: "contact_form", reason: "paused", form: { takesMessages: true, times: TIMES } } });
     answer("contact", { status: 200, body: { mode: "received", reply: "Thanks." } });

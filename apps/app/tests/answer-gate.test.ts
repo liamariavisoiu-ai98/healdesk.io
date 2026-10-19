@@ -21,7 +21,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { bindAgreementInEffect, inTenant, seedChannels, seedClinic, seedEntitled } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedChannels, seedClinic, seedDemoClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The answer gate (BD9, BD22, BD23, R1, R18, R20, R21, R25): the pure rules
@@ -204,6 +204,32 @@ describe("decideAnswer: every rule (BD22)", () => {
       "channel_off",
     ],
     ["not live yet", facts({ channelRow: { enabled: true, liveAt: null } }), "channel_not_live"],
+    // The demo clinic's voice can never go live (0090), and answers.
+    [
+      "the demo clinic's voice, not live",
+      facts({ isDemo: true, isSynthetic: true, billing: { status: "demo" }, channelRow: { enabled: true, liveAt: null } }),
+      "answer",
+    ],
+    [
+      "the demo clinic's voice, switched off",
+      facts({ isDemo: true, isSynthetic: true, billing: { status: "demo" }, channelRow: { enabled: false, liveAt: null } }),
+      "channel_off",
+    ],
+    [
+      "the demo clinic's website chat, not live",
+      facts({ channel: "web", isDemo: true, isSynthetic: true, billing: { status: "demo" }, channelRow: { enabled: true, liveAt: null } }),
+      "channel_not_live",
+    ],
+    [
+      "a synthetic clinic that is not the demo, not live",
+      facts({ isSynthetic: true, billing: { status: "demo" }, channelRow: { enabled: true, liveAt: null } }),
+      "channel_not_live",
+    ],
+    [
+      "a demo marker on production data, not live",
+      facts({ isDemo: true, billing: { status: "active" }, channelRow: { enabled: true, liveAt: null } }),
+      "channel_not_live",
+    ],
     // 4. The pause (BD26: isPaused).
     [
       "paused until switched back",
@@ -485,12 +511,22 @@ async function setDirectLine(clinicId: string, line: string | null): Promise<voi
   );
 }
 
-async function opsAlertsFor(clinicId: string): Promise<{ code: unknown }[]> {
+async function opsAlertsFor(clinicId: string, event = "voice_fallback_no_direct_line"): Promise<{ code: unknown }[]> {
   const { rows } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
-    `select fields from ops_alerts where event = 'voice_fallback_no_direct_line' and fields->>'clinicId' = $1`,
-    [clinicId],
+    `select fields from ops_alerts where event = $2 and fields->>'clinicId' = $1`,
+    [clinicId, event],
   );
   return rows.map((r) => ({ code: r.fields.code }));
+}
+
+/** An alert raised without being awaited, once it is in. */
+async function eventuallyAlerted(clinicId: string, event: string): Promise<{ code: unknown }[]> {
+  for (let i = 0; i < 50; i++) {
+    const rows = await opsAlertsFor(clinicId, event);
+    if (rows.length > 0) return rows;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return [];
 }
 
 async function noticesOf(clinicId: string, kind: string) {
@@ -780,5 +816,57 @@ describeDb("assistantMayAnswer, reading the facts (R1)", () => {
     const fine = await seedClinic("gate-voice-fine");
     expect(await voiceAnswerDecision(fine.clinicId, NOW)).toEqual({ decision: "answer" });
     expect(await opsAlertsFor(fine.clinicId)).toEqual([]);
+  });
+
+  test("a direct line that is the clinic's published or AYA number is no line, and ops hears it forwards back", async () => {
+    for (const column of ["published_phone_e164", "assistant_number_e164"] as const) {
+      const c = await seedClinic(`gate-loop-${column.split("_")[0]}`);
+      await makeProduction(c.clinicId);
+      await setDirectLine(c.clinicId, LINE);
+      await getMigratorPool().query(`update clinics set ${column} = $2 where id = $1`, [c.clinicId, LINE]);
+      // Not active: passed through, but not to a line that comes back to AYA.
+      expect(await voiceAnswerDecision(c.clinicId, NOW)).toEqual({
+        decision: "pass_through",
+        reason: "not_active",
+        fallback: "direct_line",
+        directLine: null,
+      });
+      expect(await eventuallyAlerted(c.clinicId, "voice_direct_line_loops")).toEqual([{ code: "not_active" }]);
+      // One alert for the one gap, not a second saying no line is set.
+      expect(await opsAlertsFor(c.clinicId)).toEqual([]);
+    }
+    // A line apart from both is put through to, and raises nothing.
+    const apart = await seedClinic("gate-loop-apart");
+    await makeProduction(apart.clinicId);
+    await setDirectLine(apart.clinicId, LINE);
+    await getMigratorPool().query(
+      `update clinics set published_phone_e164 = '+14155550111', assistant_number_e164 = '+14155550112' where id = $1`,
+      [apart.clinicId],
+    );
+    expect(await voiceAnswerDecision(apart.clinicId, NOW)).toMatchObject({ directLine: LINE });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await opsAlertsFor(apart.clinicId, "voice_direct_line_loops")).toEqual([]);
+  });
+
+  test("the demo clinic's voice answers though it can never go live, with a direct line, and raises nothing", async () => {
+    const demo = await seedDemoClinic("gate-demo");
+    await setDirectLine(demo.clinicId, LINE);
+    const { rows } = await inTenant(demo.clinicId, (client) =>
+      client.query<{ live_at: Date | null }>(`select live_at from clinic_channels where channel = 'voice'`),
+    );
+    expect(rows).toEqual([{ live_at: null }]);
+    expect(await voiceAnswerDecision(demo.clinicId, NOW)).toEqual({ decision: "answer" });
+    expect(await opsAlertsFor(demo.clinicId)).toEqual([]);
+    // Its website chat keeps the rule: not live is not live.
+    expect(await assistantMayAnswer({ clinicId: demo.clinicId, channel: "web", now: NOW, actor })).toMatchObject({
+      reason: "channel_not_live",
+    });
+
+    // Another synthetic clinic with the same rows is still refused.
+    const other = await seedClinic("gate-not-demo");
+    await seedEntitled(other.clinicId, {});
+    await seedChannels(other.clinicId, [{ channel: "voice", readyAt: LIVE, waitingOn: "forwarding" }]);
+    await setDirectLine(other.clinicId, LINE);
+    expect(await voiceAnswerDecision(other.clinicId, NOW)).toMatchObject({ reason: "channel_not_live", directLine: LINE });
   });
 });

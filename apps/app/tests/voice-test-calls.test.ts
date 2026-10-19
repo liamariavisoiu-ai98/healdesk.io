@@ -1,5 +1,14 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
+const notified = vi.hoisted(() => [] as { event: string; fields: Record<string, unknown> }[]);
+vi.mock("@/lib/ops/notify", () => ({
+  notifyOps: async (event: string, fields: Record<string, unknown>) => {
+    notified.push({ event, fields });
+  },
+  notifyOpsOnce: async () => {},
+}));
+
+import { forgetDirectLines, rememberDirectLine } from "@/lib/voice/fallback-line";
 import { CLOSED_LINE, RetellCallSession, TRANSFER_LINE, type RetellOutbound, type RetellSessionDeps } from "@/lib/voice/retell";
 import { voiceRealCallsAllowed } from "@/lib/voice/test-calls";
 
@@ -14,10 +23,17 @@ import { voiceRealCallsAllowed } from "@/lib/voice/test-calls";
 
 type Response = Extract<RetellOutbound, { response_type: "response" }>;
 
+const CLINIC = "00000000-0000-4000-8000-000000000001";
+
+beforeEach(() => {
+  notified.length = 0;
+  forgetDirectLines();
+});
+
 function session(deps: Partial<RetellSessionDeps>) {
   const said: RetellOutbound[] = [];
   const calls = { gate: 0, ingest: 0, model: 0 };
-  const s = new RetellCallSession("00000000-0000-4000-8000-000000000001", "call_test", (m) => said.push(m), {
+  const s = new RetellCallSession(CLINIC, "call_test", (m) => said.push(m), {
     responder: async () => {
       calls.model += 1;
       return JSON.stringify({ reply: "model" });
@@ -83,6 +99,51 @@ describe("a call in test mode", () => {
     expect(await s.finish()).toBeNull();
     expect(responses().map((r) => [r.content, r.end_call])).toEqual([[CLOSED_LINE, true]]);
     expect(calls).toEqual({ gate: 0, ingest: 0, model: 0 });
+  });
+
+  test("a check still out at the start's deadline is a refusal inside it, never silence, and nothing is kept", async () => {
+    const { s, calls, responses } = session({ realCalls: false, startDeadlineMs: 30, screen: () => new Promise(() => {}) });
+    const started = Date.now();
+    await s.open();
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(responses()).toEqual([{ response_type: "response", response_id: 0, content: CLOSED_LINE, content_complete: true, end_call: true }]);
+    expect(await s.finish()).toBeNull();
+    expect(calls).toEqual({ gate: 0, ingest: 0, model: 0 });
+  });
+
+  test("a check that cannot answer puts the caller through to the line this process remembers for the clinic", async () => {
+    rememberDirectLine(CLINIC, "+14155550123");
+    for (const screen of [() => new Promise<never>(() => {}), async () => Promise.reject(new Error("database down"))]) {
+      const { s, said, responses } = session({ realCalls: false, startDeadlineMs: 30, screen });
+      await s.open();
+      expect(responses()).toEqual([
+        { response_type: "response", response_id: 0, content: TRANSFER_LINE, content_complete: true, end_call: false, transfer_number: "+14155550123" },
+      ]);
+      expect(said[0]).toEqual({ response_type: "config", config: { auto_reconnect: true, call_details: false } });
+      expect(await s.finish()).toBeNull();
+    }
+  });
+
+  test("every refusal tells ops, by why and where the call went", async () => {
+    const refuse = async (deps: Partial<RetellSessionDeps>) => {
+      const { s } = session({ realCalls: false, startDeadlineMs: 30, ...deps });
+      await s.open();
+      await s.finish();
+    };
+    await refuse({ screen: async () => ({ madeUp: false, directLine: "+14155550123" }) });
+    await refuse({ screen: async () => ({ madeUp: false, directLine: null }) });
+    await refuse({ screen: () => new Promise(() => {}) });
+    expect(notified).toEqual([
+      { event: "voice_test_mode_refused", fields: { clinicId: CLINIC, phase: "not_made_up", code: "transferred" } },
+      { event: "voice_test_mode_refused", fields: { clinicId: CLINIC, phase: "not_made_up", code: "closed" } },
+      { event: "voice_test_mode_refused", fields: { clinicId: CLINIC, phase: "check_failed", code: "closed" } },
+    ]);
+    // A made-up clinic's call is no refusal.
+    notified.length = 0;
+    const { s } = session({ realCalls: false, screen: async () => ({ madeUp: true, directLine: null }) });
+    await s.open();
+    await s.finish();
+    expect(notified.filter((n) => n.event === "voice_test_mode_refused")).toEqual([]);
   });
 
   test("a drain that records the call while the check is still out keeps nothing, whatever the check says", async () => {

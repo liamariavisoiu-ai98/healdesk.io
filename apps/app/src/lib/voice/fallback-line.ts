@@ -27,22 +27,37 @@ import { getRetellPhoneNumber, isE164, retellApiKey, type RetellApiOptions } fro
  *
  * Neither is PHI: a clinic's direct line is business contact data, keyed by
  * the clinic. A line equal to the number the call came in on is refused,
- * because that would send the caller back to us.
+ * because that would send the caller back to us (usableLine).
  *
  * With neither, the session falls back to its fixed closing line: there is
  * nowhere known to send the call.
  */
+
+/**
+ * The one check every transfer number passes (CLAUDE.md, "Failure": a direct
+ * line that does not forward back to us): E.164, and none of the numbers
+ * that reach AYA, which the caller would be put through to only to come
+ * straight back, round and round, never reaching a person. Those are the
+ * number the call came in on, the clinic's published number (forwarded to
+ * AYA) and its AYA number, as far as the caller knows them. Settings refuse
+ * a direct line equal to the published number only when the published
+ * number is already set, so a later website read or an operator can still
+ * make them equal. Null when the line is no line at all.
+ */
+export function usableLine(line: string | null | undefined, reachesUs: readonly (string | null | undefined)[]): string | null {
+  return isE164(line) && !reachesUs.includes(line) ? line : null;
+}
 
 const remembered = new Map<string, string>();
 
 /**
  * The direct line read for this clinic on a call that started normally; null
  * forgets it. A line equal to the clinic's published number, which forwards
- * to AYA, is forgotten too: settings refuse one when it is set, but not when
- * the published number changes later.
+ * to AYA, is forgotten too (usableLine).
  */
 export function rememberDirectLine(clinicId: string, line: string | null, publishedPhone: string | null = null): void {
-  if (isE164(line) && line !== publishedPhone) remembered.set(clinicId, line);
+  const usable = usableLine(line, [publishedPhone]);
+  if (usable) remembered.set(clinicId, usable);
   else remembered.delete(clinicId);
 }
 
@@ -64,16 +79,17 @@ export async function fallbackLineFor(
   input: { clinicId: string; calledNumber: string | null },
   options: RetellApiOptions = {},
 ): Promise<FallbackLine | null> {
-  const usable = (line: string | null): line is string => isE164(line) && line !== input.calledNumber;
+  const usable = (line: string | null) => usableLine(line, [input.calledNumber]);
 
-  const fromMemory = rememberedDirectLine(input.clinicId);
-  if (usable(fromMemory)) return { line: fromMemory, source: "memory" };
+  const fromMemory = usable(rememberedDirectLine(input.clinicId));
+  if (fromMemory) return { line: fromMemory, source: "memory" };
 
   const key = options.key === undefined ? retellApiKey() : options.key;
   if (!key || !isE164(input.calledNumber)) return null;
   try {
     const number = await getRetellPhoneNumber(input.calledNumber, { ...options, key });
-    return number && usable(number.fallbackNumber) ? { line: number.fallbackNumber, source: "retell" } : null;
+    const fromRetell = usable(number?.fallbackNumber ?? null);
+    return fromRetell ? { line: fromRetell, source: "retell" } : null;
   } catch (error) {
     log.warn("retell fallback number not read", { clinicId: input.clinicId, error: describeError(error) });
     return null;

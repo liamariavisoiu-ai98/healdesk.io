@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 vi.mock("@/lib/ops/notify", () => ({ notifyOps: async () => {}, notifyOpsOnce: async () => {} }));
 
 import { forgetDirectLines, rememberedDirectLine } from "@/lib/voice/fallback-line";
-import { RetellCallSession, TROUBLE_TRANSFER_LINE, type RetellOutbound } from "@/lib/voice/retell";
+import { CLOSED_LINE, RetellCallSession, TROUBLE_TRANSFER_LINE, type RetellOutbound } from "@/lib/voice/retell";
 import { syncRetellFallbacks } from "@/lib/voice/retell-fallback-sync";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -69,6 +69,27 @@ describeDb("the voice fall-through, with the database", () => {
     expect(sent.filter((m) => m.response_type === "response")).toEqual([
       expect.objectContaining({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT }),
     ]);
+  });
+
+  test("a start that fails never puts the call through to a direct line that is the published number, read alone", async () => {
+    const clinicId = await withNumbers("fall-loop");
+    // A later website read made the published number the direct line.
+    await getMigratorPool().query(`update clinics set published_phone_e164 = $2 where id = $1`, [clinicId, DIRECT]);
+    const sent: RetellOutbound[] = [];
+    const session = new RetellCallSession(clinicId, "call_loop", (m) => sent.push(m), {
+      responder: null,
+      realCalls: true,
+      gate: async () => {
+        throw new Error("settings could not be read");
+      },
+      fallbackLine: async () => null,
+      callDetailsWaitMs: 0,
+      ingest: async () => ({}) as never,
+    });
+    await session.open();
+    for (let i = 0; i < 60 && !sent.some((m) => m.response_type === "response"); i++) await new Promise((resolve) => setTimeout(resolve, 50));
+    await session.finish();
+    expect(sent.filter((m) => m.response_type === "response")).toEqual([expect.objectContaining({ content: CLOSED_LINE, end_call: true })]);
   });
 
   test("a caller who spoke before the opening line went out hears the AI line first", async () => {

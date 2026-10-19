@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import { clinicSettings } from "@/db/schema";
+import { clinics, clinicSettings } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
@@ -16,7 +16,7 @@ import { notifyOps } from "@/lib/ops/notify";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
-import { fallbackLineFor, rememberDirectLine, type FallbackLookup } from "./fallback-line";
+import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, type FallbackLookup } from "./fallback-line";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
 import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./test-calls";
 
@@ -33,7 +33,10 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *                   before anything else, with the call's transcription and
  *                   that no audio is kept (lib/compliance/disclosure.ts),
  *                   then the clinic's phone greeting. The time it was sent is
- *                   the call's disclosure_played_at.
+ *                   the call's disclosure_played_at. A caller who spoke
+ *                   before it went out never heard it: it is said again
+ *                   before the next reply that is not urgent, and the time
+ *                   moves with it.
  *   call_details    the caller's number and the call's start, kept in memory;
  *                   an outbound call is ended at once (v1 is inbound only).
  *   ping_pong       echoed.
@@ -63,13 +66,17 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  * Until real calls are switched on (HEALDESK_VOICE_REAL_CALLS, lib/voice/
  * test-calls.ts), a call is taken only for a made-up clinic: any other is
  * put through to its direct line, or closed with a fixed line, before the
- * gate runs, and nothing of it is recorded.
+ * gate runs, and nothing of it is recorded. The check shares the start's
+ * deadline: one that cannot answer in time is a refusal too, to the line
+ * this process remembers or with the closing line, never silence.
  *
  * Every degradation ends at a person (CLAUDE.md, "Failure"): a gate that
  * refuses the call, or a model that fails twice running, transfers the
  * caller to the clinic's direct line where there is one. With none, the
  * assistant takes the caller's details, so the call still reaches someone;
  * once the Services have ended, it closes the call with a fixed line.
+ * Every number a call is put through to is first checked not to be one that
+ * reaches us (fallback-line.ts, usableLine), so a transfer never loops.
  * A call that cannot start because the database cannot be read goes to the
  * direct line too, known without the database (fallback-line.ts: this
  * process's memory of the clinic's last call, then the fallback number Retell
@@ -209,6 +216,24 @@ export class RetellCallSession {
   /** The record has begun: a late start must not rewrite what it reads. */
   private recording = false;
   /**
+   * The socket has closed, told at once by the server rather than in turn
+   * behind open(): a start that lands after it says nothing, and nothing is
+   * recorded as heard.
+   */
+  private hungUp = false;
+  /**
+   * The opening line has not reached the caller: Retell dropped it for a
+   * caller who spoke first, it went unsaid because the first reply was
+   * urgent, or a late start answered the caller's words instead. The next
+   * reply that is not urgent says it first.
+   */
+  private openingOwed = false;
+  /**
+   * The newest request that came while the start was still being found (the
+   * fall-through): a start that lands late answers it, words and all.
+   */
+  private pendingStart: RetellEvent | null = null;
+  /**
    * The last thing said that ended the call or put it through. Retell keeps
    * only the latest response, so a caller who speaks before it is said, or
    * over it, would otherwise lose the transfer; every later request while
@@ -249,7 +274,9 @@ export class RetellCallSession {
    * caller's number only once the clinic is known to be made up.
    */
   async open(): Promise<void> {
-    if (!(this.deps.realCalls ?? voiceRealCallsAllowed()) && !(await this.madeUpClinic())) return;
+    // One deadline for the whole start, the test-mode check included.
+    const startBy = Date.now() + (this.deps.startDeadlineMs ?? START_DEADLINE_MS);
+    if (!(this.deps.realCalls ?? voiceRealCallsAllowed()) && !(await this.madeUpClinic(startBy))) return;
     this.send({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
     const now = this.now();
     let gated: AnswerDecision | null = null;
@@ -263,7 +290,7 @@ export class RetellCallSession {
     })();
     let result: Started;
     try {
-      result = await withDeadline(started, this.deps.startDeadlineMs ?? START_DEADLINE_MS);
+      result = await withDeadline(started, Math.max(0, startBy - Date.now()));
     } catch (error) {
       log.error("retell call could not start", { clinicId: this.clinicId, error: describeError(error) });
       this.closing = true;
@@ -281,21 +308,28 @@ export class RetellCallSession {
     this.begin(result);
   }
 
-  /** The gate and the facts are in: transfer, close, or say the opening line. */
-  private begin({ decision, facts }: Started): void {
+  /**
+   * The gate and the facts are in: transfer, close, or say the opening line.
+   * Without the opening line (a late start answering the caller's words), it
+   * is owed to the first reply.
+   */
+  private begin({ decision, facts }: Started, options: { opening?: boolean } = {}): void {
     this.facts = facts;
     // On the newest request, if the caller spoke while the start was slow.
     const responseId = Math.max(this.latestResponseId, 0);
-    this.directLine = facts?.directLine ?? (decision.decision === "pass_through" ? decision.directLine : null);
+    this.directLine = this.usable(facts?.directLine ?? (decision.decision === "pass_through" ? decision.directLine : null));
     // Kept for a later call that cannot read the database (fallback-line.ts).
-    if (facts) rememberDirectLine(this.clinicId, facts.directLine, facts.phone);
+    if (facts) rememberDirectLine(this.clinicId, this.usable(facts.directLine), facts.phone);
+    // Hung up while the start was read: nothing is said, and nothing heard.
+    if (this.hungUp) return;
 
-    if (decision.decision === "pass_through" && decision.directLine) {
+    const passTo = decision.decision === "pass_through" ? this.usable(decision.directLine) : null;
+    if (passTo) {
       // Paused, capped, suspended, or the service ended (the Terms'
       // pass-through, sections 2 and 7): the caller goes to a person, never
       // to silence. Every degradation path ends at the direct line.
       this.closing = true;
-      this.say(responseId, TRANSFER_LINE, { transferTo: decision.directLine });
+      this.say(responseId, TRANSFER_LINE, { transferTo: passTo });
       return;
     }
     // No direct line, and the clinic has left, its Services have ended, or
@@ -308,8 +342,29 @@ export class RetellCallSession {
       return;
     }
     this.gateAnswered = decision.decision === "answer";
+    if (options.opening === false) {
+      this.openingOwed = true;
+      return;
+    }
     this.disclosurePlayedAt = this.now();
     this.say(responseId, openingLine(facts, "voice"));
+  }
+
+  /**
+   * A line this call may be put through to (usableLine): never the number
+   * it came in on, once call details have named it, nor the clinic's
+   * published number. The answer gate has already refused the clinic's own
+   * published and AYA numbers from the database.
+   */
+  private usable(line: string | null | undefined): string | null {
+    return usableLine(line, [this.calledNumber, this.facts?.phone]);
+  }
+
+  /** The request kept while the start was found, if it is still the newest and has words to answer. */
+  private keptRequest(): RetellEvent | null {
+    const kept = this.pendingStart;
+    this.pendingStart = null;
+    return kept && kept.response_id === this.latestResponseId && latestCallerWords(kept.transcript) ? kept : null;
   }
 
   /**
@@ -327,7 +382,7 @@ export class RetellCallSession {
     const lateStart = late ? withDeadline(late, LATE_START_GRACE_MS) : null;
     lateStart?.catch(() => {});
     const gateLine = () => {
-      const line = known();
+      const line = usableLine(known(), [this.calledNumber]);
       return line ? { line, source: "gate" } : null;
     };
     let found: { line: string; source: string } | null = gateLine();
@@ -353,7 +408,7 @@ export class RetellCallSession {
     if (this.outbound) return;
     // A line that would send the caller back to us is no line at all; and a
     // slow gate may have named one while the lookup ran.
-    if (found?.line === this.calledNumber) found = null;
+    if (found && !usableLine(found.line, [this.calledNumber])) found = null;
     found ??= gateLine();
     if (!found && lateStart) {
       // Nowhere holds a line, and the start was slow rather than failed:
@@ -361,17 +416,28 @@ export class RetellCallSession {
       try {
         const result = await lateStart;
         // Hung up meanwhile: the record has begun, and nothing was heard.
-        if (this.outbound || this.recording) return;
+        if (this.outbound || this.recording || this.hungUp) return;
         log.warn("retell call started late", { clinicId: this.clinicId });
         this.closing = false;
-        this.begin(result);
+        // The caller spoke into the silence: the start answers that request,
+        // so their words reach the urgent screen and the record, rather than
+        // the bare opening line taking its place.
+        const kept = this.keptRequest();
+        this.begin(result, { opening: !kept });
+        if (kept && !this.closing) {
+          try {
+            await this.respond({ ...kept, interaction_type: "response_required" });
+          } catch (error) {
+            this.respondFailed(kept, error);
+          }
+        }
         return;
       } catch {
         if (this.outbound) return;
       }
       found = gateLine();
     }
-    if (this.recording) {
+    if (this.recording || this.hungUp) {
       // Hung up, or the process is shutting down, before anything was said:
       // nothing to say, nowhere it went.
       void notifyOps("voice_call_start_failed", { clinicId: this.clinicId, code: "hung_up" });
@@ -379,8 +445,9 @@ export class RetellCallSession {
     }
     // The latest request, if the caller has spoken while this was found.
     const responseId = Math.max(this.latestResponseId, 0);
-    if (found && found.line !== this.calledNumber) {
-      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: found.line });
+    const line = found ? usableLine(found.line, [this.calledNumber]) : null;
+    if (found && line) {
+      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: line });
     } else {
       found = null;
       this.say(responseId, CLOSED_LINE, { endCall: true });
@@ -390,16 +457,20 @@ export class RetellCallSession {
     void notifyOps("voice_call_start_failed", { clinicId: this.clinicId, code: found ? `transferred_${found.source}` : "closed" });
   }
 
-  /** The clinic's direct line, read alone for a call whose start failed; null when that fails too. */
+  /**
+   * The clinic's direct line, read alone for a call whose start failed, with
+   * the numbers it must not be (usableLine); null when that fails too.
+   */
   private async directLineAlone(): Promise<string | null> {
     try {
       return await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => {
         const [row] = await tx.db
-          .select({ line: clinicSettings.directLineE164 })
+          .select({ line: clinicSettings.directLineE164, published: clinics.publishedPhoneE164, assistant: clinics.assistantNumberE164 })
           .from(clinicSettings)
+          .innerJoin(clinics, eq(clinics.id, clinicSettings.clinicId))
           .where(eq(clinicSettings.clinicId, tx.clinicId))
           .limit(1);
-        return row?.line ?? null;
+        return usableLine(row?.line, [row?.published, row?.assistant]);
       });
     } catch (error) {
       log.error("retell direct line not read", { clinicId: this.clinicId, error: describeError(error) });
@@ -410,27 +481,42 @@ export class RetellCallSession {
   /**
    * Test mode: true for a made-up clinic. Otherwise the caller has already
    * been put through to the clinic's direct line, or heard CLOSED_LINE, and
-   * the call is marked to be forgotten. A failed check fails closed.
+   * the call is marked to be forgotten. A failed check fails closed, and so
+   * does one still out at the start's deadline (a database that hangs): the
+   * caller goes to the line this process remembers for the clinic, if any,
+   * else hears the closing line, never silence. Ops hears of every refusal.
    */
-  private async madeUpClinic(): Promise<boolean> {
+  private async madeUpClinic(startBy: number): Promise<boolean> {
     this.unrecorded = true;
-    let screen: TestCallScreen = { madeUp: false, directLine: null };
+    let screen: TestCallScreen | null = null;
     try {
-      screen = await (this.deps.screen ?? screenTestCall)(this.clinicId);
+      screen = await withDeadline((this.deps.screen ?? screenTestCall)(this.clinicId), Math.max(0, startBy - Date.now()));
     } catch (error) {
       log.error("retell test-call check failed", { clinicId: this.clinicId, error: describeError(error) });
     }
-    if (screen.madeUp && !this.closing) {
+    if (screen?.madeUp && !this.closing) {
       this.unrecorded = false;
       return true;
     }
-    if (screen.madeUp) return false;
+    if (screen?.madeUp) return false;
     log.warn("retell call refused: real calls are off and the clinic is not made up", { clinicId: this.clinicId });
     this.closing = true;
     this.send({ response_type: "config", config: { auto_reconnect: true, call_details: false } });
-    if (screen.directLine) this.say(0, TRANSFER_LINE, { transferTo: screen.directLine });
+    const line = usableLine(screen ? screen.directLine : rememberedDirectLine(this.clinicId), [this.calledNumber]);
+    if (line) this.say(0, TRANSFER_LINE, { transferTo: line });
     else this.say(0, CLOSED_LINE, { endCall: true });
+    // Not awaited: the database may be what failed the check.
+    void notifyOps("voice_test_mode_refused", {
+      clinicId: this.clinicId,
+      phase: screen ? "not_made_up" : "check_failed",
+      code: line ? "transferred" : "closed",
+    });
     return false;
+  }
+
+  /** The socket closed. Called at once, before the record waits its turn. */
+  socketClosed(): void {
+    this.hungUp = true;
   }
 
   /** One message from Retell. Never throws: a fault is logged and the caller hears a fixed line. */
@@ -487,8 +573,9 @@ export class RetellCallSession {
     if (!Number.isInteger(responseId) || responseId < 0) return;
     this.latestResponseId = Math.max(this.latestResponseId, responseId);
     if (this.closing) {
+      if (responseId !== this.latestResponseId) return;
       // Answer again with the transfer or the goodbye, on the newest id.
-      if (this.final && responseId === this.latestResponseId) {
+      if (this.final) {
         this.send({
           response_type: "response",
           response_id: responseId,
@@ -497,6 +584,10 @@ export class RetellCallSession {
           end_call: this.final.endCall,
           ...(this.final.transferTo ? { transfer_number: this.final.transferTo } : {}),
         });
+      } else if (!this.recording) {
+        // Nothing said yet: the start is still being found. Kept, so a
+        // start that lands late answers these words rather than drop them.
+        this.pendingStart = event;
       }
       return;
     }
@@ -555,9 +646,10 @@ export class RetellCallSession {
     if (turn.source !== "fallback") this.answered = true;
     if (turn.source === "fallback") {
       this.failures += 1;
-      if (this.failures >= 2 && this.directLine) {
+      const line = this.usable(this.directLine);
+      if (this.failures >= 2 && line) {
         this.closing = true;
-        this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: this.directLine });
+        this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: line });
         return;
       }
     } else {
@@ -566,10 +658,22 @@ export class RetellCallSession {
     if (turn.end) this.closing = true;
     // Retell keeps only the latest response: a caller who spoke before the
     // opening line went out may never have heard it. Retell's transcript
-    // then holds no word of the agent's, and the AI line comes first here.
-    // Not before an urgent reply, which must not wait behind it.
-    const heardOpening = Array.isArray(event.transcript) && (event.transcript as RetellTranscriptEntry[]).some((e) => e.role === "agent");
-    const reply = !heardOpening && !turn.urgent && this.disclosurePlayedAt ? `${openingLine(facts, "voice")} ${turn.reply}` : turn.reply;
+    // then holds no word of the agent's, and the opening line is owed. It
+    // comes first in the next reply that is not urgent: an urgent reply
+    // must not wait behind it (and says it is an AI itself), so the line
+    // stays owed past it, whatever the transcript then holds. The call's
+    // disclosure_played_at is when it was said.
+    const agentSpoke = Array.isArray(event.transcript) && (event.transcript as RetellTranscriptEntry[]).some((e) => e.role === "agent");
+    if (this.disclosurePlayedAt && !agentSpoke) {
+      this.disclosurePlayedAt = null;
+      this.openingOwed = true;
+    }
+    let reply = turn.reply;
+    if (this.openingOwed && !turn.urgent) {
+      reply = `${openingLine(facts, "voice")} ${turn.reply}`;
+      this.openingOwed = false;
+      this.disclosurePlayedAt = this.now();
+    }
     this.say(responseId, reply, { endCall: turn.end });
     // The urgent alert is critical: sent in-process once its row has
     // committed, after the caller has heard the reply, so the line never
@@ -587,9 +691,10 @@ export class RetellCallSession {
     log.error("retell turn failed", { clinicId: this.clinicId, error: describeError(error) });
     const responseId = typeof event.response_id === "number" ? event.response_id : NaN;
     if (this.closing || !Number.isInteger(responseId) || responseId < this.latestResponseId) return;
-    if (this.directLine) {
+    const line = this.usable(this.directLine);
+    if (line) {
       this.closing = true;
-      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: this.directLine });
+      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: line });
       return;
     }
     this.failures += 1;

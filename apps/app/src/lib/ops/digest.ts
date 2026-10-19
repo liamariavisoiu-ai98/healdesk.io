@@ -13,6 +13,7 @@ import {
   stripeConnectEvents,
   transcriptEmails,
 } from "@/db/schema";
+import { emailEventCounts, pruneEmailEvents } from "@/lib/email/health";
 import { MAX_NOTICE_ATTEMPTS } from "@/lib/email/outbox";
 import { dailyEmailCount, quotaDay } from "@/lib/email/quota";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
@@ -51,7 +52,13 @@ import { listSupportRequests } from "./support-replies";
  *   - email health per kind over the last 24 hours: sent, failed, bounced,
  *     complaints and suppressed from the ledger and the webhook's events,
  *     and the outbox's dead letters over seven days; I1's own sends from the
- *     ops log;
+ *     ops log; and, since 19 October 2026, the mail no ledger holds, from
+ *     email_events (lib/email/health.ts): the direct kinds with no ledger
+ *     row, and apps/web's mail as its webhook relays Resend's events, under
+ *     `web:<kind>`. The bounce and complaint rates are over all of it, the
+ *     whole Resend account's, which is what Resend pauses; what still cannot
+ *     be seen (an apps/web send Resend refused, events while this app was
+ *     unreachable) the email says;
  *   - connection health: every finding of the connection-health watchdog
  *     (lib/scheduler/connection-health.ts), whose own email this replaced,
  *     and Google Calendar connections counted by state;
@@ -227,6 +234,14 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
       );
     if ((sent?.n ?? 0) + (failed?.n ?? 0) > 0) {
       tally.email("ops_alert", { sentCount: sent?.n ?? 0, failedCount: failed?.n ?? 0 });
+    }
+  });
+
+  // The mail no ledger holds: the direct kinds with no ledger row, and
+  // apps/web's, as its webhook relayed Resend's events (lib/email/health.ts).
+  await tally.read("email_events", async () => {
+    for (const { app, kind, ...counts } of await emailEventCounts(since)) {
+      tally.email(app === "web" ? `web:${kind}` : kind, counts);
     }
   });
 
@@ -486,6 +501,8 @@ export async function sendOpsDigest(
 
   let outcome: DigestOutcome;
   try {
+    // Email health keeps a month; nothing reads further back than a day.
+    await pruneEmailEvents(now);
     const payload = await collectDigest(now);
     // The allowlist runs on every send, as the outbox's does: ids, counts,
     // dates and categories, or nothing goes.

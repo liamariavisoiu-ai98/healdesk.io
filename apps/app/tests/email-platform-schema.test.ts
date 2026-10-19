@@ -258,4 +258,56 @@ describeDb("drizzle/0046: the email platform's schema", () => {
       expect(rows[0]!.tenant).toBe(a.clinicId);
     });
   });
+
+  /**
+   * drizzle/0097: the mail the ledgers do not hold, counted for the ops
+   * digest. A kind, a status and a time; the runtime role reads, appends and
+   * prunes, and never rewrites a row.
+   */
+  test("0097: email_events holds a kind, a status and a time, appended once and never rewritten", async () => {
+    expect(await tablePrivileges("email_events")).toEqual({
+      select: true,
+      insert: true,
+      update: false,
+      delete: true,
+    });
+    expect(await updatableColumns("email_events")).toEqual([]);
+    const { rows: columns } = await getMigratorPool().query<{ column_name: string }>(
+      `select column_name from information_schema.columns where table_name = 'email_events' order by column_name`,
+    );
+    expect(columns.map((c) => c.column_name)).toEqual([
+      "app",
+      "at",
+      "event_id",
+      "id",
+      "kind",
+      "recorded_at",
+      "status",
+    ]);
+    await asApp(null, async (c) => {
+      await c.query(
+        `insert into email_events (app, kind, status, at, event_id) values ('web', 'nurture_1', 'complained', now(), 'msg_schema_1')`,
+      );
+      for (const bad of [
+        `insert into email_events (app, kind, status, at) values ('leadgen', 'nurture_1', 'sent', now())`,
+        `insert into email_events (app, kind, status, at) values ('web', 'owner@clinic.test', 'sent', now())`,
+        `insert into email_events (app, kind, status, at) values ('web', 'nurture_1', 'opened', now())`,
+        `insert into email_events (app, kind, status, at, event_id) values ('web', 'nurture_1', 'sent', now(), 'a b')`,
+      ]) {
+        await c.query("savepoint s");
+        await expect(c.query(bad)).rejects.toMatchObject({ code: "23514" });
+        await c.query("rollback to savepoint s");
+      }
+      await c.query("savepoint s");
+      await expect(
+        c.query(
+          `insert into email_events (app, kind, status, at, event_id) values ('web', 'nurture_1', 'sent', now(), 'msg_schema_1')`,
+        ),
+      ).rejects.toMatchObject({ code: "23505" });
+      await c.query("rollback to savepoint s");
+      await expect(c.query(`update email_events set status = 'sent'`)).rejects.toMatchObject({
+        code: "42501",
+      });
+    });
+  });
 });

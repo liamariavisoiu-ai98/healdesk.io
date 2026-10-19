@@ -10,6 +10,7 @@ import {
 } from "@/lib/reporting/deliver";
 import { PhiRoutingError, ResendTransport } from "@/lib/reporting/resend-transport";
 
+import { countsAtSend, recordEmailEvent } from "./health";
 import { isDirectKind, isEmailKind, KIND_SHAPE } from "./kind-rules";
 import {
   assertLinksAllowed,
@@ -48,7 +49,10 @@ import { recordDailyQuota } from "./quota";
  *     kind's sender checked or not as it chose: O3 printed a device's label,
  *     and B3 a clinic's name typed at checkout, unchecked;
  *   - the DAILY COUNT. Resend's x-resend-daily-quota header is recorded on
- *     every answer, and notifyOps fires once when it reaches 70.
+ *     every answer, and notifyOps fires once when it reaches 70;
+ *   - the EMAIL HEALTH of a direct kind with no ledger row (lib/email/health.ts):
+ *     each send's answer, sent or failed, so the ops digest counts the mail
+ *     no ledger holds.
  */
 
 export type EmailToSend = {
@@ -196,6 +200,14 @@ export async function sendEmail(
 
   if (result.status !== "skipped" && result.quota !== undefined) {
     await recordDailyQuota(result.quota, options.now ?? new Date());
+  }
+  if (result.status !== "skipped" && countsAtSend(email.kind)) {
+    await recordEmailEvent({
+      app: "app",
+      kind: email.kind,
+      status: result.status,
+      at: options.now ?? new Date(),
+    });
   }
   return result;
 }

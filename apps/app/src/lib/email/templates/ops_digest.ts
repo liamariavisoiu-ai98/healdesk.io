@@ -14,7 +14,22 @@ import type { EmailTemplate } from "./types";
  * Nothing in it is about a patient. A queue is a count and an age; a
  * connection is a clinic's id, the connection's id, the provider and a
  * condition; the targets are Resend's (X8).
+ *
+ * Email health covers both apps since 19 October 2026: the ledgers, the ops
+ * log, the direct kinds no ledger holds, and apps/web's mail under
+ * `web:<kind>`, from the events its webhook relays. The rates are over all
+ * of it, because Resend pauses the account, not one app. What apps/app still
+ * cannot see is said under the table, every day, so a quiet row is never
+ * read as a healthy one.
  */
+
+/**
+ * What the email-health table cannot see: apps/web's sends that never reached
+ * Resend (a refusal raises no event), and any event relayed while apps/app
+ * could not be reached, which apps/web does not retry.
+ */
+export const DIGEST_EMAIL_BLIND_SPOTS =
+  "Kinds starting web: are the marketing site's mail, counted from the events Resend reports and its webhook relays here. Not counted: a marketing-site send Resend refused, which raises no event, and any event relayed while this app could not be reached.";
 
 export type DigestQueueRow = {
   /** The queue's name: a fixed word, or `pgboss:<queue>`. */
@@ -171,6 +186,7 @@ export const renderOpsDigest: EmailTemplate<OpsDigestPayload> = (payload, ctx) =
           },
         ]
       : []),
+    { type: "paragraph", text: DIGEST_EMAIL_BLIND_SPOTS },
     {
       type: "paragraph",
       text:
@@ -247,6 +263,24 @@ export const OPS_DIGEST_FIXTURE: OpsDigestPayload = {
       suppressedCount: 0,
       deadCount: 0,
     },
+    {
+      kind: "sign_in_link",
+      sentCount: 2,
+      failedCount: 0,
+      bouncedCount: 0,
+      complainedCount: 0,
+      suppressedCount: 0,
+      deadCount: 0,
+    },
+    {
+      kind: "web:nurture_1",
+      sentCount: 5,
+      failedCount: 0,
+      bouncedCount: 0,
+      complainedCount: 0,
+      suppressedCount: 0,
+      deadCount: 0,
+    },
   ],
   connectionRows: [
     {
@@ -264,7 +298,7 @@ export const OPS_DIGEST_FIXTURE: OpsDigestPayload = {
   emailsYesterdayCount: 42,
   emailsTodayCount: 5,
   hasQuotaWarning: false,
-  bouncePercent: 14.29,
+  bouncePercent: 7.14,
   complaintPercent: 0,
   hasRateWarning: true,
   unreadCount: 0,

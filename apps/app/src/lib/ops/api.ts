@@ -4154,12 +4154,22 @@ async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> 
   const clinic = stringArg(args, "clinic", 64);
   const delivery = stringArg(args, "delivery", 64);
   const kind = stringArg(args, "kind", 64);
+  // apps/web's own mail, relayed to be counted for the digest (19 October
+  // 2026). An apps/web older than that sends neither field.
+  const app = stringArg(args, "app", 8);
+  const eventId = stringArg(args, "eventId", 128);
   if (
     (clinic && !UUID_SHAPED.test(clinic)) ||
     (delivery && !UUID_SHAPED.test(delivery)) ||
-    (kind && !KIND_SHAPE.test(kind))
+    (kind && !KIND_SHAPE.test(kind)) ||
+    (app && app !== "web") ||
+    (eventId && !/^[A-Za-z0-9_.-]{1,128}$/.test(eventId))
   ) {
     return opsProblem("The event's tags are not ids.", 400, "invalid_args");
+  }
+  // A web event names no clinic and no ledger row of ours.
+  if (app === "web" && (clinic || delivery)) {
+    return opsProblem("apps/web's mail has no clinic or delivery of ours.", 400, "invalid_args");
   }
   const result = await applyEmailEvent({
     type,
@@ -4167,6 +4177,8 @@ async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> 
     ...(clinic ? { clinic } : {}),
     ...(delivery ? { delivery } : {}),
     ...(kind ? { kind } : {}),
+    ...(app === "web" ? { app: "web" as const } : {}),
+    ...(eventId ? { eventId } : {}),
   });
   return ok(result);
 }

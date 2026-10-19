@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { relayEmailEvent, type EmailEventRelay } from "@/lib/admin/ops-client";
+import { relayEmailEvent, relayWebEmailEvent, type EmailEventRelay } from "@/lib/admin/ops-client";
 import { markDeliveryFailure } from "@/lib/leads";
 
 export const runtime = "nodejs";
@@ -37,6 +37,18 @@ export const dynamic = "force-dynamic";
  * else: never the address, the subject or anything else in Resend's payload.
  * If apps/app cannot be reached the answer is a 503, so Resend retries the
  * delivery rather than the event being lost.
+ *
+ * ## This site's own mail is counted there too (19 October 2026)
+ *
+ * The ops digest's email health and its bounce and complaint rates are read
+ * in apps/app, which never sends this site's mail, so they left out nurture,
+ * the setup links and P2 to P9, the stream most likely to draw a complaint,
+ * while Resend pauses the whole account at 0.08%. After its own lead handling,
+ * this route hands apps/app each sent, bounced, complained or suppressed event
+ * about this site's mail (relayWebEmailEvent): the type, the time, the kind
+ * tag and the webhook delivery's id, nothing else. Best effort: the lead is
+ * already marked, so an apps/app that cannot be reached (the host in standby)
+ * costs one count, not a retried delivery.
  */
 const TOLERANCE_S = 5 * 60;
 
@@ -81,7 +93,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const tags = tagsOf(event);
-  if (tags.app === "app") return relayToApp(event, tags);
+  if (tags.app === "app") {
+    return relayToApp(event, tags, request.headers.get("svix-id") ?? request.headers.get("webhook-id"));
+  }
 
   const to = Array.isArray(event.data?.to) ? event.data?.to[0] : event.data?.to;
   if (!to) return NextResponse.json({ received: true });
@@ -96,7 +110,45 @@ export async function POST(request: Request): Promise<NextResponse> {
       await markDeliveryFailure(to, "bounce");
     }
   }
+  await countForTheDigest(event, tags, request.headers);
   return NextResponse.json({ received: true });
+}
+
+/** The webhook delivery's id, as Svix names it: one event, however often delivered. */
+const EVENT_ID = /^[A-Za-z0-9_.-]{1,128}$/;
+
+/**
+ * Hand apps/app one event about this site's own mail, to be counted for the
+ * ops digest. Best effort: a relay that fails is logged and dropped, never a
+ * reason to fail the delivery, whose lead handling is done.
+ */
+async function countForTheDigest(
+  event: ResendEvent,
+  tags: Record<string, string>,
+  headers: Headers,
+): Promise<void> {
+  const type = relayTypeOf(event);
+  if (type !== "sent" && type !== "bounced" && type !== "complained" && type !== "suppressed") return;
+  // This site's kind tags use hyphens ("setup-link"); apps/app's kinds are
+  // underscores only. Untagged mail predates the tags.
+  const kind = (tags.kind ?? "untagged").toLowerCase().replace(/-/g, "_");
+  if (!KIND.test(kind)) return;
+  const eventId = headers.get("svix-id") ?? headers.get("webhook-id") ?? undefined;
+  const at =
+    typeof event.created_at === "string" && !Number.isNaN(Date.parse(event.created_at))
+      ? event.created_at
+      : new Date().toISOString();
+  try {
+    const relayed = await relayWebEmailEvent({
+      type,
+      at,
+      kind,
+      ...(eventId && EVENT_ID.test(eventId) ? { eventId } : {}),
+    });
+    if (!relayed.ok) console.warn(`[healdesk] resend webhook: not counted in apps/app (${relayed.code})`);
+  } catch {
+    console.warn("[healdesk] resend webhook: not counted in apps/app (threw)");
+  }
 }
 
 type ResendEvent = {
@@ -160,7 +212,11 @@ function relayTypeOf(event: ResendEvent): EmailEventRelay["type"] | null {
   }
 }
 
-async function relayToApp(event: ResendEvent, tags: Record<string, string>): Promise<NextResponse> {
+async function relayToApp(
+  event: ResendEvent,
+  tags: Record<string, string>,
+  eventId: string | null,
+): Promise<NextResponse> {
   const type = relayTypeOf(event);
   if (!type) return NextResponse.json({ received: true });
 
@@ -174,6 +230,8 @@ async function relayToApp(event: ResendEvent, tags: Record<string, string>): Pro
     ...(tags.clinic && UUID.test(tags.clinic) ? { clinic: tags.clinic } : {}),
     ...(tags.delivery && UUID.test(tags.delivery) ? { delivery: tags.delivery } : {}),
     ...(tags.kind && KIND.test(tags.kind) ? { kind: tags.kind } : {}),
+    // The delivery's own id, so a retried delivery counts once in the digest.
+    ...(eventId && EVENT_ID.test(eventId) ? { eventId } : {}),
   };
 
   const relayed = await relayEmailEvent(relay);

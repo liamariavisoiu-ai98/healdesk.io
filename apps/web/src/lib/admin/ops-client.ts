@@ -793,6 +793,8 @@ export type EmailEventRelay = {
   clinic?: string;
   delivery?: string;
   kind?: string;
+  /** The webhook delivery's id (svix-id), so a retried delivery is counted once. */
+  eventId?: string;
 };
 
 /**
@@ -808,12 +810,45 @@ export function relayEmailEvent(
   if (event.clinic) args.clinic = event.clinic;
   if (event.delivery) args.delivery = event.delivery;
   if (event.kind) args.kind = event.kind;
+  if (event.eventId) args.eventId = event.eventId;
   return send(
     "emailEvent",
     "write",
     (value) => ({ recorded: bool(object(value, "emailEvent").recorded, "emailEvent.recorded") }),
     args,
     { context: false },
+  );
+}
+
+/**
+ * Hand apps/app one delivery event about THIS site's own mail, only so the
+ * 07:00 ops digest can count it (Annex X5's email health per kind, X8's
+ * targets, which are the whole Resend account's): its type, its timestamp,
+ * the kind tag this site put on it, and the webhook delivery's id, which
+ * apps/app records once. Never the address, the subject or anything else in
+ * Resend's payload. A short timeout, because the host may be in standby and
+ * the lead handling has already happened; an apps/app older than 19 October
+ * 2026 reads it as an event with no clinic, logs it and answers
+ * `recorded: false`.
+ */
+export function relayWebEmailEvent(event: {
+  type: "sent" | "bounced" | "complained" | "suppressed";
+  at: string;
+  kind: string;
+  eventId?: string;
+}): Promise<OpsResult<{ recorded: boolean }>> {
+  return send(
+    "emailEvent",
+    "write",
+    (value) => ({ recorded: bool(object(value, "emailEvent").recorded, "emailEvent.recorded") }),
+    {
+      type: event.type,
+      at: event.at,
+      kind: event.kind,
+      app: "web",
+      ...(event.eventId ? { eventId: event.eventId } : {}),
+    },
+    { context: false, timeoutMs: EMAIL_QUOTA_TIMEOUT_MS },
   );
 }
 

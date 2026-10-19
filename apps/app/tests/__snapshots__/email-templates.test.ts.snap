@@ -4046,7 +4046,7 @@ exports[`each template's output > ops_digest, for clients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">Email sent through Resend, the whole account (both apps):</p>
 <p style="margin:0 0 4px;"><strong>Yesterday (UTC):</strong> 42</p>
 <p style="margin:0 0 4px;"><strong>Today so far:</strong> 5</p>
-<p style="margin:0 0 4px;"><strong>Hard bounces:</strong> 14.29% (target under 2%)</p>
+<p style="margin:0 0 4px;"><strong>Hard bounces:</strong> 7.14% (target under 2%)</p>
 <p style="margin:0 0 4px;"><strong>Complaints:</strong> 0.00% (target under 0.05%)</p>
 <p style="margin:0 0 16px;">Queues with something waiting, and the age of the oldest item:</p>
 <p style="margin:0 0 4px;"><strong>outbox:</strong> 2 waiting, oldest 14 min</p>
@@ -4055,6 +4055,9 @@ exports[`each template's output > ops_digest, for clients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">Email by kind, last 24 hours (sent, failed, bounced, complaints, suppressed; dead letters over seven days):</p>
 <p style="margin:0 0 4px;"><strong>payment_failed:</strong> 3 sent, 0 failed, 1 bounced, 0 complaints, 0 suppressed, 0 dead</p>
 <p style="margin:0 0 4px;"><strong>ops_alert:</strong> 4 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead</p>
+<p style="margin:0 0 4px;"><strong>sign_in_link:</strong> 2 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead</p>
+<p style="margin:0 0 4px;"><strong>web:nurture_1:</strong> 5 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead</p>
+<p style="margin:0 0 16px;">Kinds starting web: are the marketing site&#39;s mail, counted from the events Resend reports and its webhook relays here. Not counted: a marketing-site send Resend refused, which raises no event, and any event relayed while this app could not be reached.</p>
 <p style="margin:0 0 16px;">Connections that need a look (revoked ones were alerted at once):</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Clinic 0c1d2e3f-0000-4000-8000-000000000000, connection 9a8b7c6d-5e4f-4321-8765-0fedcba98765: meta-whatsapp, revoked</li></ul>
 <p style="margin:0 0 16px;">Google Calendar connections, by state:</p>
@@ -4078,7 +4081,7 @@ Email sent through Resend, the whole account (both apps):
 
 Yesterday (UTC): 42
 Today so far: 5
-Hard bounces: 14.29% (target under 2%)
+Hard bounces: 7.14% (target under 2%)
 Complaints: 0.00% (target under 0.05%)
 
 Queues with something waiting, and the age of the oldest item:
@@ -4091,6 +4094,10 @@ Email by kind, last 24 hours (sent, failed, bounced, complaints, suppressed; dea
 
 payment_failed: 3 sent, 0 failed, 1 bounced, 0 complaints, 0 suppressed, 0 dead
 ops_alert: 4 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead
+sign_in_link: 2 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead
+web:nurture_1: 5 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead
+
+Kinds starting web: are the marketing site's mail, counted from the events Resend reports and its webhook relays here. Not counted: a marketing-site send Resend refused, which raises no event, and any event relayed while this app could not be reached.
 
 Connections that need a look (revoked ones were alerted at once):
 
@@ -4135,7 +4142,7 @@ exports[`each template's output > ops_digest, for patients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">Email sent through Resend, the whole account (both apps):</p>
 <p style="margin:0 0 4px;"><strong>Yesterday (UTC):</strong> 42</p>
 <p style="margin:0 0 4px;"><strong>Today so far:</strong> 5</p>
-<p style="margin:0 0 4px;"><strong>Hard bounces:</strong> 14.29% (target under 2%)</p>
+<p style="margin:0 0 4px;"><strong>Hard bounces:</strong> 7.14% (target under 2%)</p>
 <p style="margin:0 0 4px;"><strong>Complaints:</strong> 0.00% (target under 0.05%)</p>
 <p style="margin:0 0 16px;">Queues with something waiting, and the age of the oldest item:</p>
 <p style="margin:0 0 4px;"><strong>outbox:</strong> 2 waiting, oldest 14 min</p>
@@ -4144,6 +4151,9 @@ exports[`each template's output > ops_digest, for patients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">Email by kind, last 24 hours (sent, failed, bounced, complaints, suppressed; dead letters over seven days):</p>
 <p style="margin:0 0 4px;"><strong>payment_failed:</strong> 3 sent, 0 failed, 1 bounced, 0 complaints, 0 suppressed, 0 dead</p>
 <p style="margin:0 0 4px;"><strong>ops_alert:</strong> 4 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead</p>
+<p style="margin:0 0 4px;"><strong>sign_in_link:</strong> 2 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead</p>
+<p style="margin:0 0 4px;"><strong>web:nurture_1:</strong> 5 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead</p>
+<p style="margin:0 0 16px;">Kinds starting web: are the marketing site&#39;s mail, counted from the events Resend reports and its webhook relays here. Not counted: a marketing-site send Resend refused, which raises no event, and any event relayed while this app could not be reached.</p>
 <p style="margin:0 0 16px;">Connections that need a look (revoked ones were alerted at once):</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Clinic 0c1d2e3f-0000-4000-8000-000000000000, connection 9a8b7c6d-5e4f-4321-8765-0fedcba98765: meta-whatsapp, revoked</li></ul>
 <p style="margin:0 0 16px;">Google Calendar connections, by state:</p>
@@ -4167,7 +4177,7 @@ Email sent through Resend, the whole account (both apps):
 
 Yesterday (UTC): 42
 Today so far: 5
-Hard bounces: 14.29% (target under 2%)
+Hard bounces: 7.14% (target under 2%)
 Complaints: 0.00% (target under 0.05%)
 
 Queues with something waiting, and the age of the oldest item:
@@ -4180,6 +4190,10 @@ Email by kind, last 24 hours (sent, failed, bounced, complaints, suppressed; dea
 
 payment_failed: 3 sent, 0 failed, 1 bounced, 0 complaints, 0 suppressed, 0 dead
 ops_alert: 4 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead
+sign_in_link: 2 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead
+web:nurture_1: 5 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead
+
+Kinds starting web: are the marketing site's mail, counted from the events Resend reports and its webhook relays here. Not counted: a marketing-site send Resend refused, which raises no event, and any event relayed while this app could not be reached.
 
 Connections that need a look (revoked ones were alerted at once):
 

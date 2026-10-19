@@ -7,7 +7,10 @@ import {
   PROVISION_DEAD_LETTER_AT,
   recordProvisionFailure,
 } from "@/lib/checkout/dead-letter";
+import { pruneEmailEvents } from "@/lib/email/health";
 import { assertPayloadAllowed } from "@/lib/email/lint";
+import { sendEmail } from "@/lib/email/send";
+import { DIGEST_EMAIL_BLIND_SPOTS, renderOpsDigest } from "@/lib/email/templates/ops_digest";
 import { flagClinics, runHealthFlagsJob } from "@/lib/ops/health-flags";
 import { collectDigest, sendOpsDigest } from "@/lib/ops/digest";
 import { parseEnvelope, runOperation } from "@/lib/ops/api";
@@ -570,6 +573,73 @@ describeDb("WP5: health flags, the ops watch and the digest", () => {
       const text = JSON.stringify(digest);
       expect(text).not.toContain("example-clinic.test");
       expect(text).not.toContain(clinic.slug);
+    });
+
+    /**
+     * Until 19 October 2026 the digest read only the ledgers and the ops log:
+     * the direct kinds no ledger holds were counted nowhere, and apps/web's
+     * mail never reached apps/app, though Resend pauses the whole account.
+     */
+    test("counts the mail no ledger holds, apps/web's under web:, takes the rates over all of it, and says what it cannot see", async () => {
+      await getMigratorPool().query(`truncate email_events`);
+      const now = new Date();
+      // A sign-in link (B2): no ledger row, so sendEmail counts the send.
+      await sendEmail(
+        {
+          to: "owner@digest-clinic.test",
+          kind: "sign_in_link",
+          subject: "Your healdesk sign-in link",
+          text: "Sign in.",
+          html: "<p>Sign in.</p>",
+          phiClass: "none",
+          payload: { validMinutes: 15 },
+          deliveryId: randomUUID(),
+          idempotencyKey: `hd-sign_in_link-${randomUUID()}-1`,
+        },
+        { transport: new FakeTransport(), now: new Date(now.getTime() - HOUR) },
+      );
+      // apps/web's mail, as its webhook relays Resend's events: three sent, a complaint.
+      const at = new Date(now.getTime() - 2 * HOUR).toISOString();
+      for (const [type, eventId] of [
+        ["sent", "msg_d1"],
+        ["sent", "msg_d2"],
+        ["sent", "msg_d3"],
+        ["complained", "msg_d4"],
+      ] as const) {
+        const parsed = parseEnvelope(
+          JSON.stringify({ op: "emailEvent", args: { type, at, kind: "nurture_1", app: "web", eventId } }),
+        );
+        if (!parsed.ok) throw new Error("the relay's envelope did not parse");
+        await runOperation(parsed.envelope.op, parsed.envelope.args, {
+          email: "ops@healdesk.test",
+          request: { requestId: "req_digest" },
+        });
+      }
+
+      const digest = await collectDigest(now);
+      expect(() => assertPayloadAllowed(digest, "ops_digest")).not.toThrow();
+      expect(digest.emailRows.find((e) => e.kind === "sign_in_link")).toMatchObject({ sentCount: 1 });
+      expect(digest.emailRows.find((e) => e.kind === "web:nurture_1")).toMatchObject({
+        sentCount: 3,
+        complainedCount: 1,
+      });
+      // The complaint is the account's: over the target, whichever app sent it.
+      expect(digest.complaintPercent).toBeGreaterThan(0.05);
+      expect(digest.hasRateWarning).toBe(true);
+      const rendered = renderOpsDigest(digest, {
+        clinicName: null,
+        audience: "patients",
+        reason: "You're receiving this because you're on healdesk's ops rota.",
+        raisedAt: now,
+        timeZone: "UTC",
+      });
+      expect(rendered.text).toContain(DIGEST_EMAIL_BLIND_SPOTS);
+      expect(JSON.stringify(digest)).not.toContain("digest-clinic.test");
+
+      // Kept a month, then gone.
+      await pruneEmailEvents(new Date(now.getTime() + 31 * DAY));
+      const { rows } = await getMigratorPool().query(`select 1 from email_events`);
+      expect(rows).toEqual([]);
     });
 
     test("goes once a UTC day from 07:00, to ops, and is retried by the next tick when it fails", async () => {

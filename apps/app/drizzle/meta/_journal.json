@@ -652,6 +652,13 @@
       "when": 1792418840796,
       "tag": "0092_handovers",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1792428035018,
+      "tag": "0097_email_events",
+      "breakpoints": true
     }
   ]
 }

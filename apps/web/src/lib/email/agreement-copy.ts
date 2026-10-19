@@ -6,7 +6,7 @@ import { agreementPdfRecordOf, type AgreementRecord } from "@healdesk/catalog/ch
 
 import { recordAgreementCopy } from "@/lib/checkout/records";
 import { normalizeEmail } from "@/lib/leads";
-import { isOverLimit, rateLimit } from "@/lib/rate-limit";
+import { rateLimit, releaseRateLimit } from "@/lib/rate-limit";
 
 import { emailKey, sendSafely } from "./index";
 
@@ -46,8 +46,11 @@ import { emailKey, sendSafely } from "./index";
  *
  *   - at most one copy per address per day, counted in the marketing Sheet
  *     (`agreement-copy:` in lib/rate-limit.ts SHARED_KEY_PREFIXES), so warm
- *     instances share the count. Peeked before the send and spent only on a
- *     send that went, so a copy the provider refused does not use up the day;
+ *     instances share the count. The address is counted as a mailbox, not as
+ *     typed: a `+tag` is dropped, and so are the dots of a Gmail address,
+ *     which Gmail ignores. The day's place is taken before the send, so two
+ *     signings at once cannot both pass, and given back when the copy did
+ *     not go, so a provider's refusal does not use up the day;
  *   - the typed text it carries, the practice's legal name, the signer's
  *     name and title (in the body and in the PDF), restricted to the safe
  *     characters of the catalog's isSafeTypedText: a name, never a link, an
@@ -64,9 +67,33 @@ export type CopyOptions = { addressConfirmed: boolean };
 /** One copy per unconfirmed address per day (P6). */
 const COPY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** The shared counter's key: a digest of the address, never the address. */
+/** Gmail's two domains, which deliver to one mailbox whatever dots the local part carries. */
+const GMAIL_DOMAINS: ReadonlySet<string> = new Set(["gmail.com", "googlemail.com"]);
+
+/**
+ * The mailbox an address reaches, as far as can be known from the address:
+ * lower case, without a `+tag` (which nearly every provider delivers to the
+ * same mailbox), and, at Gmail, without dots, on one domain. Used only to
+ * count, never to send.
+ */
+export function mailboxOf(address: string): string {
+  const normalized = normalizeEmail(address);
+  const at = normalized.lastIndexOf("@");
+  if (at < 1) return normalized;
+  let local = normalized.slice(0, at);
+  let domain = normalized.slice(at + 1);
+  const plus = local.indexOf("+");
+  if (plus > 0) local = local.slice(0, plus);
+  if (GMAIL_DOMAINS.has(domain)) {
+    local = local.replace(/\./g, "");
+    domain = "gmail.com";
+  }
+  return `${local}@${domain}`;
+}
+
+/** The shared counter's key: a digest of the mailbox, never the address. */
 function copyLimitKey(address: string): string {
-  return `agreement-copy:${createHash("sha256").update(normalizeEmail(address)).digest("hex").slice(0, 32)}`;
+  return `agreement-copy:${createHash("sha256").update(mailboxOf(address)).digest("hex").slice(0, 32)}`;
 }
 
 /** Whether every typed field the copy carries is safe to mail to an address nobody confirmed. */
@@ -127,17 +154,25 @@ export async function deliverAgreementCopy(
   text: string,
   options: CopyOptions = { addressConfirmed: false },
 ): Promise<CopyOutcome> {
-  const limitKey = options.addressConfirmed ? null : copyLimitKey(record.signatoryEmail);
+  let limitKey: string | null = null;
   if (!options.addressConfirmed) {
     if (!copyTextIsSafe(record)) {
       console.warn("[healdesk] signed copy withheld: unsafe typed text", { agreementId: record.id });
       return { status: "withheld", reason: "unsafe_text" };
     }
-    if (limitKey && (await isOverLimit(limitKey, 1))) {
+    // The day's one place is taken now, before the send, so a second signing
+    // to the same mailbox at the same moment finds it taken.
+    const key = copyLimitKey(record.signatoryEmail);
+    if (!(await rateLimit(key, 1, COPY_WINDOW_MS)).ok) {
       console.warn("[healdesk] signed copy withheld: one already went to this address today", { agreementId: record.id });
       return { status: "withheld", reason: "already_sent_today" };
     }
+    limitKey = key;
   }
+  // A copy that did not go gives the day's place back.
+  const giveBack = async () => {
+    if (limitKey) await releaseRateLimit(limitKey).catch(() => undefined);
+  };
   try {
     const pdf = await renderAgreementPdf(agreementPdfRecordOf(record, text));
     const clinicName =
@@ -163,10 +198,9 @@ export async function deliverAgreementCopy(
     if (result.status !== "sent") {
       // The id finds the record; never the address, never the provider's words.
       console.warn("[healdesk] signed copy not sent", { agreementId: record.id, status: result.status });
+      await giveBack();
       return { status: result.status, reason: result.reason };
     }
-    // The day's one copy to this address is spent only by a copy that went.
-    if (limitKey) await rateLimit(limitKey, 1, COPY_WINDOW_MS).catch(() => undefined);
     try {
       const written = await recordAgreementCopy(record.id, {
         sentAt: new Date().toISOString(),
@@ -183,6 +217,7 @@ export async function deliverAgreementCopy(
     }
     return { status: "sent", pdfSha256: pdf.sha256 };
   } catch (error) {
+    await giveBack();
     console.error("[healdesk] signed copy could not be prepared", {
       agreementId: record.id,
       error: error instanceof Error ? error.name : "unknown error",

@@ -9,6 +9,7 @@ import {
   clientKey,
   isOverLimit,
   rateLimit,
+  releaseRateLimit,
 } from "./rate-limit";
 
 /**
@@ -120,6 +121,25 @@ describe("rateLimit (the global daily caps)", () => {
     expect(isGlobalCapKey("contact:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("setup-request:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("admin-sign-in:10.0.0.1")).toBe(false);
+  });
+
+  it("serialises one key's calls, so two at once cannot both pass a limit of one, and gives a count back", async () => {
+    const sheets = new FakeSheets();
+    __setSheetsClientForTests(sheets);
+    const k = "agreement-copy:0123456789abcdef";
+    const [a, b] = await Promise.all([rateLimit(k, 1, DAY), rateLimit(k, 1, DAY)]);
+    expect([a.ok, b.ok].sort()).toEqual([false, true]);
+    // Both are given back: the one that passed and the one past the limit.
+    await releaseRateLimit(k);
+    await releaseRateLimit(k);
+    __resetRateLimiterForTests();
+    expect((await rateLimit(k, 1, DAY)).ok).toBe(true);
+    expect(sheets.records("counters")[0]!.count).toBe(1);
+    // Never below zero.
+    await releaseRateLimit(k);
+    await releaseRateLimit(k);
+    __resetRateLimiterForTests();
+    expect(sheets.records("counters")[0]!.count).toBe(0);
   });
 
   it("goes through the counters tab and survives a fresh instance", async () => {

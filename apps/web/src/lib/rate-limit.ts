@@ -276,7 +276,30 @@ function resultFrom(state: Shared, limit: number, now: number): RateLimitResult 
   return { ok: true, remaining: limit - state.count, retryAfter };
 }
 
+/**
+ * One shared key's reads and writes at a time in this process. Without it,
+ * two calls for the same key that overlap both read the row before either
+ * has counted, and both pass a limit of one: a per-address limit (P6, P8) is
+ * exactly the case where two requests arrive together.
+ */
+const keyLocks = new Map<string, Promise<unknown>>();
+
+async function withKeyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const before = keyLocks.get(key) ?? Promise.resolve();
+  const run = before.catch(() => undefined).then(fn);
+  keyLocks.set(key, run);
+  try {
+    return await run;
+  } finally {
+    if (keyLocks.get(key) === run) keyLocks.delete(key);
+  }
+}
+
 async function rateLimitShared(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+  return withKeyLock(key, () => rateLimitSharedUnlocked(key, limit, windowMs));
+}
+
+async function rateLimitSharedUnlocked(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
   const client = await counters();
   const now = Date.now();
   const state = await currentShared(client, key, windowMs, now);
@@ -340,6 +363,32 @@ export async function isOverLimit(key: string, limit: number): Promise<boolean> 
 }
 
 /**
+ * Give back one count a caller took with `rateLimit` and did not use: a
+ * per-address limit spent before an email, so that parallel requests cannot
+ * both pass, and refunded when the email did not go. Best effort, and never
+ * below zero; on the shared path another instance's cached count may still
+ * hold the spent one until it re-reads the row, within REFRESH_MS.
+ */
+export async function releaseRateLimit(key: string): Promise<void> {
+  const local = windows.get(key);
+  if (local && local.resetAt > Date.now() && local.count > 0) local.count -= 1;
+  if (!isGlobalCapKey(key) || !hasSharedStore()) return;
+  try {
+    await withKeyLock(key, async () => {
+      const client = await counters();
+      const now = Date.now();
+      const state = await currentShared(client, key, 0, now);
+      if (state.count <= 0 || state.windowStart + state.windowMs <= now) return;
+      state.count -= 1;
+      windows.set(key, { count: state.count, resetAt: state.windowStart + state.windowMs });
+      await writeShared(client, key, state);
+    });
+  } catch (error) {
+    logStoreError("release failed", error);
+  }
+}
+
+/**
  * Best-effort client IP. Behind Vercel/most proxies `x-forwarded-for` is set and
  * its first entry is the client. Falls back to a shared bucket, which fails
  * closed-ish: unidentifiable clients share one limit rather than getting none.
@@ -357,6 +406,7 @@ export function clientKey(headers: Headers): string {
 export function __resetRateLimiterForTests(): void {
   windows.clear();
   shared.clear();
+  keyLocks.clear();
   warnedNoStore = false;
   lastErrorLogAt = 0;
 }

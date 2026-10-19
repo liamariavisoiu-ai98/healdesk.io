@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { DOWNLOAD_COOKIE } from "@/lib/agreement-download";
 import { findAgreementRecord } from "@/lib/checkout/records";
+import { mailboxOf } from "@/lib/email/agreement-copy";
 import { __resetRateLimiterForTests } from "@/lib/rate-limit";
 import { signatureRequestFor } from "@/lib/checkout/records.testing";
 import { issueSetupToken, setupLinkExpiry } from "@/lib/setup-link";
@@ -330,6 +331,30 @@ describe("POST /api/agreement holds the copy to an address nobody confirmed to P
     // Another address is its own day.
     const other = await sign(null, signature("owner@glow.com"));
     expect(((await other.json()) as { copy: unknown }).copy).toEqual({ status: "sent" });
+  });
+
+  /** The review of 19 October 2026: a +tag or Gmail's dots made a new address of the same mailbox. */
+  test("the day's copy is counted per mailbox: a +tag or Gmail's dots are the same inbox", async () => {
+    const first = await sign(null, signature("alex.chen+p6@gmail.com"));
+    expect(((await first.json()) as { copy: unknown }).copy).toEqual({ status: "sent" });
+    for (const variant of ["alexchen@googlemail.com", "Alex.Chen+other@Gmail.com", "a.l.e.x.chen@gmail.com"]) {
+      const again = await sign(null, signature(variant));
+      expect(((await again.json()) as { copy: { status: string } }).copy.status).toBe("not_sent");
+    }
+    expect(emails()).toHaveLength(1);
+    expect(mailboxOf("Alex.Chen+p6@GoogleMail.com")).toBe("alexchen@gmail.com");
+    // Elsewhere only the tag goes: dots can be part of the name.
+    expect(mailboxOf("alex.chen+p6@radiance.com")).toBe("alex.chen@radiance.com");
+  });
+
+  test("two signings to one mailbox at the same moment send one copy", async () => {
+    const [a, b] = await Promise.all([
+      sign(null, signature("info@radiance.com")),
+      sign(null, signature("info@radiance.com")),
+    ]);
+    const statuses = [a, b].map(async (r) => ((await r.json()) as { copy: { status: string } }).copy.status);
+    expect((await Promise.all(statuses)).sort()).toEqual(["not_sent", "sent"]);
+    expect(emails()).toHaveLength(1);
   });
 
   test("a copy the provider refused does not use up the address's day", async () => {

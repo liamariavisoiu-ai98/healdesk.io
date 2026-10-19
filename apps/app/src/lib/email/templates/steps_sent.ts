@@ -40,10 +40,12 @@ export const renderStepsSent: EmailTemplate<StepsSentPayload> = (payload, ctx) =
     );
   }
   const clinic = ctx.clinicName ?? "a practice";
+  // Where the name opens a sentence (a name the email may not print is left out).
+  const clinicStart = ctx.clinicName ?? "A practice";
   const blocks: Block[] = [
     {
       type: "paragraph",
-      text: `${clinic} asked us to send you these steps. They forward the practice's main line to AYA, its AI assistant from healdesk, so the calls the front desk can't take are answered. ${howItIsDone(payload)}`,
+      text: `${clinicStart} asked us to send you these steps. They forward the practice's main line to AYA, its AI assistant from healdesk, so the calls the front desk can't take are answered. ${howItIsDone(payload)}`,
     },
     ...forwardingBlocks(payload),
   ];
@@ -100,6 +102,8 @@ function renderWebLine(
   ctx: TemplateContext,
 ) {
   const clinic = ctx.clinicName ?? "a practice";
+  // Where the name opens a sentence (a name the email may not print is left out).
+  const clinicStart = ctx.clinicName ?? "A practice";
   return compose(
     {
       subject: `Website chat line from ${clinic}`.slice(0, 70),
@@ -107,7 +111,7 @@ function renderWebLine(
       blocks: [
         {
           type: "paragraph",
-          text: `${clinic} asked us to send you this line for its website. Paste it once, ${PASTE_WHERE} of the site. AYA, the practice's AI assistant from healdesk, is designed to start answering chats there once it's in.`,
+          text: `${clinicStart} asked us to send you this line for its website. Paste it once, ${PASTE_WHERE} of the site. AYA, the practice's AI assistant from healdesk, is designed to start answering chats there once it's in.`,
         },
         webLineBlock(payload),
         { type: "paragraph", text: QUESTIONS_LINE },

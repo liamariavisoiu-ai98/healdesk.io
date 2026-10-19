@@ -37,6 +37,8 @@ export type AddressChangingPayload = {
 
 export const renderAddressChanging: EmailTemplate<AddressChangingPayload> = (payload, ctx) => {
   const clinic = ctx.clinicName ?? "your practice";
+  // Where the name opens a sentence (a name the email may not print is left out).
+  const clinicStart = ctx.clinicName ?? "Your practice";
   const when = new Intl.DateTimeFormat("en-US", {
     timeZone: ctx.timeZone,
     weekday: "long",
@@ -65,7 +67,7 @@ export const renderAddressChanging: EmailTemplate<AddressChangingPayload> = (pay
     : [
         {
           type: "paragraph",
-          text: `${clinic}'s healdesk address is changing from ${payload.oldAddressMasked} to ${payload.newAddressMasked}. It was asked for in Settings and confirmed from the new address, and it takes effect on ${when}.`,
+          text: `${clinicStart}'s healdesk address is changing from ${payload.oldAddressMasked} to ${payload.newAddressMasked}. It was asked for in Settings and confirmed from the new address, and it takes effect on ${when}.`,
         },
         { type: "paragraph", text: moves },
         {

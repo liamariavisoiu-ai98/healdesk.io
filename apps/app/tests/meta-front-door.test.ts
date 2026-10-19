@@ -14,15 +14,19 @@ import {
   guardContextFor,
   guardReply,
   handoffLine,
+  NEVER_SAY_HEADING,
   probeVerdict,
 } from "@/lib/meta/front-door";
 import { parseMetaEvents, signMetaBody, verifyMetaSignature } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
+import { neverSayWithDefaults } from "@/lib/setup/knowledge";
 import { withTenant } from "@/lib/tenant";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled, setWeekdayHours } from "./setup/factories";
+import { attestPlatform } from "./setup/platform";
 
 /**
  * The Meta front door: a narrow agent, a deterministic guard, and a webhook
@@ -124,6 +128,53 @@ describe("the guard", () => {
     }
   });
 
+  test("refuses a phrase on the clinic's never-say list, as a call and a web chat do, however it is written, and checks it last", () => {
+    // CLAUDE.md, "Guardrails": the never-say list goes into every
+    // conversation on every channel. The built-in defaults, then the clinic's own.
+    const facts = { clinicName: "Radiance", services: [], serviceNames: SERVICES, publishedTimes: [540, 1020] };
+    const listed = guardContextFor({ ...facts, neverSay: neverSayWithDefaults(["cheapest in town", "best-kept secret", "you'll love it"]) });
+    for (const reply of [
+      // Each passes every other check: only the list refuses it.
+      "We're the cheapest in town, so do call the practice.",
+      "It's painless, call the practice to book.",
+      // In another case, with a curly apostrophe, with another dash, across a line break.
+      "We're the CHEAPEST in Town, so do call the practice.",
+      "You’ll love it! Call the practice to book.",
+      "We're the best–kept secret around: call the practice to book.",
+      "We're the cheapest\nin town, so call the practice to book.",
+    ]) {
+      expect(guardReply(reply, guardContextFor(facts)), reply).toEqual({ ok: true });
+      expect(guardReply(reply, listed), reply).toEqual({ ok: false, reason: "a never-say phrase" });
+      expect(guardReply(reply, { ...listed, neverSay: [] }), reply).toEqual({ ok: true });
+    }
+    // Last of the checks: a reply refused for something else keeps its own
+    // reason in the audit row, "guaranteed results" a default entry or not.
+    expect(guardReply("We offer guaranteed results; call the practice.", listed)).toEqual({ ok: false, reason: "a results guarantee" });
+    expect(guardReply("Sorry to hear that! We're the cheapest in town.", listed)).toEqual({ ok: false, reason: "an acknowledgement" });
+    // A public answer still goes out.
+    expect(guardReply("We're open weekdays 9 to 5; call the practice to book.", listed)).toEqual({ ok: true });
+    // The context carries a list only when there is one, so the shapes above hold.
+    expect(listed.neverSay).toEqual([...neverSayWithDefaults(), "cheapest in town", "best-kept secret", "you'll love it"]);
+    expect(guardContextFor({ ...facts, neverSay: [] })).not.toHaveProperty("neverSay");
+  });
+
+  test("answers \"are you a real person?\" honestly: the question's words are not an echo, and no list entry can refuse the answer", () => {
+    // The disclosure when someone asks is the model's, after the greeting:
+    // refused, it would become the hand-off line, which never says AI.
+    const facts = { clinicName: "Radiance", services: [], serviceNames: SERVICES, publishedTimes: [540, 1020] };
+    const listed = guardContextFor({ ...facts, neverSay: neverSayWithDefaults(["automated assistant", "AI", "cheapest in town"]) });
+    for (const [inbound, reply] of [
+      ["Are you a real person?", "No, I'm an automated assistant, not a real person. Call the practice and someone on the team can help."],
+      ["Am I talking to a human or a robot?", "I'm an AI assistant, not a human. Call the practice and someone on the team can help."],
+      ["is this a chatbot or a person", "Yes, I'm an automated assistant, not a person. Call the practice and someone on the team can help."],
+    ] as const) {
+      expect(guardReply(reply, { ...listed, inbound }), reply).toEqual({ ok: true });
+    }
+    // A claim to be human is still refused, and so is the person's own word that is not about who answers.
+    expect(guardReply("Yes, I'm a real person here at the practice.", { ...listed, inbound: "Are you a real person?" })).toEqual({ ok: false, reason: "a human claim" });
+    expect(guardReply("I'm an automated assistant; call the practice about your eczema.", { ...listed, inbound: "Are you a real person? I have eczema" })).not.toEqual({ ok: true });
+  });
+
   test("the prompt forbids the four things, carries the Meta prohibitions, and lists only approved public facts", () => {
     // A plastic-surgery practice collects a surname, the service and the visit
     // type on the phone; none of those may be asked on this channel.
@@ -137,6 +188,7 @@ describe("the guard", () => {
       escalationHours: null,
       requirements: metaEligible(resolved),
       deferredRequirements: resolved.filter((f) => !f.metaEligible),
+      neverSay: [],
     });
     expect(prompt).toMatch(/NEVER/);
     expect(prompt).toMatch(/Acknowledge, repeat, or respond to any health condition/);
@@ -179,6 +231,7 @@ describe("the guard", () => {
       escalationHours: null,
       requirements: metaEligible(resolved),
       deferredRequirements: resolved.filter((f) => !f.metaEligible),
+      neverSay: [],
     });
     expect(prompt).not.toContain("Greet the person warmly and briefly");
     // The one line that speaks of greeting or introducing forbids both, and says why.
@@ -192,6 +245,41 @@ describe("the guard", () => {
     expect(rules[1]).toBe("2. Answer PUBLIC questions from the facts below: hours, location, parking, and whether the practice offers something the person asks about and its published price, without ever naming it.");
     expect(rules[2]).toBe("3. Move the person to a secure channel to discuss anything personal: the phone (+1 415 555 0199) or the website (radiance.example).");
     expect(prompt).toContain("- Claim to be human. If asked, say you are an automated assistant.");
+  });
+
+  test("the prompt lists the clinic's never-say list after the Meta prohibitions, which stay word for word, and changes nothing else", () => {
+    const resolved = resolveBookingRequirements("med-spa", null);
+    const base = {
+      clinicName: "Radiance",
+      phone: "+1 415 555 0199",
+      websiteHint: "radiance.example",
+      services: [{ name: "Consultation", priceFromUsd: 0, priceToUsd: 0 }],
+      notes: "Free parking.",
+      escalationHours: null,
+      requirements: metaEligible(resolved),
+      deferredRequirements: resolved.filter((f) => !f.metaEligible),
+    };
+    const list = neverSayWithDefaults(["cheapest in town"]);
+    const without = buildFrontDoorPrompt({ ...base, neverSay: [] });
+    const prompt = buildFrontDoorPrompt({ ...base, neverSay: list });
+    // An empty list adds no heading.
+    expect(without).not.toContain(NEVER_SAY_HEADING);
+    expect(without).not.toMatch(/never-say/i);
+    // Under its heading, one line an entry: the defaults, then the clinic's own.
+    const lines = prompt.split("\n");
+    const at = lines.indexOf(NEVER_SAY_HEADING);
+    expect(at).toBeGreaterThan(0);
+    expect(lines.slice(at + 1, at + 1 + list.length)).toEqual(list.map((p) => `- ${p}`));
+    expect(list.at(-1)).toBe("cheapest in town");
+    // The one Meta rule's list is there word for word and in order, and the
+    // never-say list comes after it.
+    const prohibitions = META_CHANNEL_PROHIBITIONS.map((p) => `- ${p}`);
+    const first = lines.indexOf(prohibitions[0]!);
+    expect(lines.slice(first, first + prohibitions.length)).toEqual(prohibitions);
+    expect(at).toBeGreaterThan(first + prohibitions.length - 1);
+    // Nothing else moves: rules 1 to 4, the prohibitions and the facts are
+    // the same lines as without the list.
+    expect(lines.filter((_, i) => i < at || i > at + list.length)).toEqual(without.split("\n"));
   });
 });
 
@@ -292,6 +380,9 @@ describeDb("the front door, end to end", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // The vendors' agreements in force, as a launched platform holds them
+    // (the answer gate reads them, lib/compliance/vendor-coverage.ts).
+    await attestPlatform(COVERAGE_VENDORS);
     process.env.META_APP_SECRET = APP_SECRET;
     process.env.META_VERIFY_TOKEN = "verify-me";
   }, 60_000);

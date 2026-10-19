@@ -137,8 +137,8 @@ WHAT HEALDESK ACTUALLY DOES
   live on its own: website chat once the snippet is on the site, Instagram and
   Messenger once connected, WhatsApp once the clinic's WhatsApp account has a
   payment method, the phone once call forwarding is set.
-  Call forwarding is a setting the clinic can undo in one step. No number to
-  port, no phone system to replace, no hardware.
+  Call forwarding is a setting the clinic can undo itself, any time, without
+  us. No number to port, no phone system to replace, no hardware.
 
 WHAT THE CLINIC SEES
   A small portal, signed into from an emailed link: switches for how the

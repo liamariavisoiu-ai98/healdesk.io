@@ -24,9 +24,18 @@ import { withTenant } from "@/lib/tenant";
  * there is no number to forward to, and a clinic that forwards its line early
  * sends its callers nowhere (setup's "Don't change your call forwarding
  * yet"). The chat then says exactly that, rather than guessing at codes.
+ *
+ * Once the account has closed it returns the undo steps alone. The portal
+ * and this chat stay open through the pass-through days, when the
+ * cancellation email tells the clinic to undo its forwarding before calls
+ * stop passing through to the direct line, and Settings shows a closed
+ * account nothing to change; a clinic that asked the chat how to undo it was
+ * told to leave its forwarding alone. Undoing needs no number, so the steps are
+ * right whatever became of AYA's.
  */
 
 export type ForwardingSteps = {
+  closed: false;
   /** AYA's number, which the codes dial: the chat's screen lets it through. */
   ayaNumberE164: string;
   carrier: string;
@@ -36,6 +45,15 @@ export type ForwardingSteps = {
   notes: string[];
   needsCarrierHelp: boolean;
 };
+
+/** A closed account's answer: only the way back, for its carrier and coverage mode. */
+export type ClosedForwardingSteps = {
+  closed: true;
+  carrier: string;
+  undo: { label: string; dial: string }[];
+};
+
+export type ForwardingAnswer = ForwardingSteps | ClosedForwardingSteps;
 
 export type ForwardingFacts = {
   /**
@@ -59,23 +77,36 @@ export function voiceReadyForForwarding(facts: ForwardingFacts): boolean {
   );
 }
 
-/** The pure half: the steps, or null before voice is ready. */
+/** The pure half: the steps, the undo steps alone once closed, or null before voice is ready. */
+export function forwardingAnswerFrom(facts: ForwardingFacts): ForwardingAnswer | null {
+  if (!facts.isClosed) return forwardingStepsFrom(facts);
+  const carrier = isCarrier(facts.carrier) ? facts.carrier : null;
+  return {
+    closed: true,
+    carrier: carrierName(carrier),
+    undo: forwardingInstructions({
+      carrier,
+      phoneSystemType: phoneSystemOf(facts),
+      routing: facts.mode,
+      destinationE164: "",
+    }).undo,
+  };
+}
+
+/** The steps to forward and undo, or null before voice is ready (and once closed). */
 export function forwardingStepsFrom(facts: ForwardingFacts): ForwardingSteps | null {
   if (!voiceReadyForForwarding(facts)) return null;
   const carrier = isCarrier(facts.carrier) ? facts.carrier : null;
-  const phoneSystem: PhoneSystemType =
-    facts.phoneSystem === "voip" || facts.phoneSystem === "landline"
-      ? facts.phoneSystem
-      : "unknown";
   const instructions = forwardingInstructions({
     carrier,
-    phoneSystemType: phoneSystem,
+    phoneSystemType: phoneSystemOf(facts),
     routing: facts.mode,
     destinationE164: facts.phoneStepsNumberE164!,
   });
   return {
+    closed: false,
     ayaNumberE164: facts.phoneStepsNumberE164!,
-    carrier: CARRIERS.find((c) => c.id === carrier)?.name ?? "not given",
+    carrier: carrierName(carrier),
     mode: COVERAGE_MODE_OPTIONS.find((m) => m.id === facts.mode)?.label ?? facts.mode,
     steps: instructions.steps,
     undo: instructions.undo,
@@ -84,11 +115,19 @@ export function forwardingStepsFrom(facts: ForwardingFacts): ForwardingSteps | n
   };
 }
 
-/** Read the facts for clinic `clinicId` and return its steps, or null before voice is ready. */
+function carrierName(carrier: string | null): string {
+  return CARRIERS.find((c) => c.id === carrier)?.name ?? "not given";
+}
+
+function phoneSystemOf(facts: ForwardingFacts): PhoneSystemType {
+  return facts.phoneSystem === "voip" || facts.phoneSystem === "landline" ? facts.phoneSystem : "unknown";
+}
+
+/** Read the facts for clinic `clinicId` and return its answer (forwardingAnswerFrom). */
 export async function readForwardingSteps(input: {
   clinicId: string;
   actor: ActorContext;
-}): Promise<ForwardingSteps | null> {
+}): Promise<ForwardingAnswer | null> {
   const facts = await withTenant({ clinicId: input.clinicId, actor: input.actor }, async (tx) => {
     const [clinic] = await tx.db
       .select({
@@ -109,5 +148,5 @@ export async function readForwardingSteps(input: {
       isClosed: clinic.offboardingStartedAt !== null,
     } satisfies ForwardingFacts;
   });
-  return facts ? forwardingStepsFrom(facts) : null;
+  return facts ? forwardingAnswerFrom(facts) : null;
 }

@@ -22,6 +22,7 @@ import { disclosureFor, metaChannelGreeting } from "@/lib/compliance/disclosure"
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import {
   draftFrontDoorAnswer,
+  META_NEVER_SAY_REASON,
   openWithGreeting,
   parseModelReply,
   urgentLine,
@@ -390,7 +391,7 @@ function refusedBy(
   brain: Brain,
 ): PracticeAttribution {
   const text = answer.modelText ?? "";
-  if (answer.guard === "never_say") {
+  if (answer.guard === "never_say" || answer.guard === META_NEVER_SAY_REASON) {
     const count = ownNeverSayIn(text, knowledge.ownNeverSay);
     return count > 0 ? { kind: "clinic_data", section: "never_say", count } : ENGINE;
   }

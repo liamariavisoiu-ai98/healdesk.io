@@ -280,7 +280,7 @@ describeDb("the channel step emails", () => {
       last_error: "not sent: the channel's last step was done before it could go",
     });
   });
-  test("O11's steps follow the coverage mode: After hours only gets all-call forwarding at closing and *73, never the busy pair", async () => {
+  test("O11's steps follow the coverage mode: After hours only gets all-call forwarding at closing and *73, never the busy and no-answer codes", async () => {
     await inTenant(clinic.clinicId, (c) =>
       c.query(
         `insert into clinic_settings (clinic_id, coverage_mode) values ($1, 'after_hours_only')
@@ -308,7 +308,9 @@ describeDb("the channel step emails", () => {
       expect(text).toContain("*725125550142");
       expect(text).toMatch(/when you close/);
       expect(text).toContain("Cancel all-call forwarding: *73");
-      expect(text).not.toMatch(/\*9[0-3]/);
+      // Verizon's busy and no-answer codes: *42 or *41, cancelled with *43,
+      // on a home phone, and *71 on a mobile line; and the *90 to *93 family.
+      expect(text).not.toMatch(/\*9[0-3]|\*4[1-3]|\*71/);
     } finally {
       await inTenant(clinic.clinicId, (c) =>
         c.query(

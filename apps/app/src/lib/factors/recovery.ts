@@ -46,7 +46,7 @@ import type { DeviceRecoveryRevokeReason } from "./recovery-terms";
  * Every step writes a security_events row with ids only. The token is
  * returned once, into one email, and only its SHA-256 is stored.
  *
- * Identity plane (drizzle/0091): a passkey belongs to the sign-in, not to a
+ * Identity plane (drizzle/0092): a passkey belongs to the sign-in, not to a
  * clinic. "For that clinic" is the clinic's one sign-in: the row is bound to
  * its user and lands on that clinic's Protect page, and another sign-in's
  * session can do nothing with it. Business contact data; no patient.

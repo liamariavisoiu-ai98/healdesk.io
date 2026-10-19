@@ -286,7 +286,8 @@ const FACTS = `WHAT HEALDESK IS, facts to put in your own words
     Messenger and WhatsApp, whichever they buy. It says it's an AI assistant
     first; on the phone, that the call is transcribed.
   · The clinic keeps its number and forwards calls: all, overflow and after
-    hours (the default), or after hours only. Undone in one step.
+    hours (the default), or after hours only. The clinic can undo it itself,
+    any time, without us.
   · It answers from the clinic's own services, prices and policies, checks
     live availability in their Google Calendar and books during the
     conversation. Auto-confirm is on by default; off, staff approve each

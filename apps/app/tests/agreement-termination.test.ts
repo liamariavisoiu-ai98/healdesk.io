@@ -11,6 +11,7 @@ import { commitRefund, previewRefund } from "@/lib/billing/stripe-actions";
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { destroyDueClinics } from "@/lib/offboarding/offboarding";
 import { runOperation, type Operator } from "@/lib/ops/api";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 
 import { asApp } from "./setup/calendar-db";
 import {
@@ -22,6 +23,7 @@ import {
 } from "./setup/db";
 import { inTenant, seedChannels, seedClinic, seedEntitled } from "./setup/factories";
 import { createStripeWorld, type StripeWorld } from "./setup/stripe-world";
+import { attestPlatform } from "./setup/platform";
 
 /**
  * Ending the agreement ends the Services (BAA 1.3.0 clause 1, clause 17 ¶3,
@@ -278,6 +280,9 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // The vendors' agreements in force, as a launched platform holds them
+    // (the answer gate reads them, lib/compliance/vendor-coverage.ts).
+    await attestPlatform(COVERAGE_VENDORS);
   }, 180_000);
 
   beforeEach(async () => {

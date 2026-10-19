@@ -11,6 +11,7 @@ import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-co
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { startOffboarding } from "@/lib/offboarding/offboarding";
 import { withTenant } from "@/lib/tenant";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 
 import {
   closePools,
@@ -26,6 +27,7 @@ import {
   seedEntitled,
   setWeekdayHours,
 } from "./setup/factories";
+import { attestPlatform, withdrawPlatform } from "./setup/platform";
 
 /**
  * The Meta webhook in front of the answer gate (BD24, R18): a redelivered
@@ -91,6 +93,9 @@ describeDb("the Meta webhook and the answer gate", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // The vendors' agreements in force, as a launched platform holds them
+    // (the answer gate reads them, lib/compliance/vendor-coverage.ts).
+    await attestPlatform(COVERAGE_VENDORS);
     process.env.META_APP_SECRET = APP_SECRET;
   }, 60_000);
 
@@ -310,6 +315,45 @@ describeDb("the Meta webhook and the answer gate", () => {
     ]);
     expect(s.fallbacks).toHaveLength(1);
     expect(sent.map((m) => m.recipientId)).toEqual(["psid-allowed", "psid-allowed"]);
+  });
+
+  test("while the host's agreement has lapsed a message keeps nothing and is answered by no one; the model provider's lapse alone keeps the thread", async () => {
+    try {
+      const c = await liveClinic("gate-host-lapsed", "310000000000012");
+      const lines: string[] = [];
+      vi.spyOn(console, "warn").mockImplementation((line: unknown) => {
+        lines.push(String(line));
+      });
+
+      await withdrawPlatform(["aws"]);
+      const res = await post(
+        batch("310000000000012", [{ sender: "psid-host", text: "can I book a consultation?", mid: "mid.host" }]),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ received: true, answered: 0, skipped: 1 });
+      expect(asked).toHaveLength(0);
+      expect(sent).toHaveLength(0);
+      let s = await stored(c.clinicId);
+      expect(s.handled).toEqual([]);
+      expect(s.threads).toEqual([]);
+      expect(s.usage).toEqual([]);
+      const line = lines.find((l) => l.includes("meta message not kept: the host's agreement has lapsed"));
+      expect(line).toContain(c.clinicId);
+      expect(line).not.toMatch(/psid-host|mid\.host|consultation/);
+
+      // The model provider's lapse: the host still covers the thread, AYA does not answer.
+      await attestPlatform(["aws"]);
+      await withdrawPlatform(["anthropic"]);
+      await post(batch("310000000000012", [{ sender: "psid-host", text: "hello?", mid: "mid.host2" }]));
+      expect(asked).toHaveLength(0);
+      expect(sent).toHaveLength(0);
+      s = await stored(c.clinicId);
+      expect(s.threads).toHaveLength(1);
+      expect(s.audit).toEqual([{ platform: "messenger", source: "withheld", reason: "vendor_agreement_lapsed" }]);
+    } finally {
+      // Every vendor in force again for the tests after this one.
+      await attestPlatform(COVERAGE_VENDORS);
+    }
   });
 
   test("a practice the PHI gate refuses (its re-sign to the BAA unsigned) keeps nothing of a message, answers nothing, and acknowledges it", async () => {

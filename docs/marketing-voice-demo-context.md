@@ -64,7 +64,7 @@ That is one of two on-point objections already recorded in the repo against this
 
 ### 1.1 The product in one paragraph
 
-healdesk is an AI front desk for high-ticket elective clinics — med spas, plastic surgery, dermatology, dental, fertility, medical weight loss. The clinic keeps its published phone number. That number keeps ringing at the clinic. Only when nobody picks up, or the line is engaged, does the call forward to healdesk's agent. So the agent answers exactly the calls the front desk missed, never instead of a human who was free. Setup is a call-forwarding setting the clinic can undo in one step: no number to port, no phone system to replace, no hardware, nothing installed. Entry price is two hundred and forty-nine dollars a month, no setup fee, five hundred included minutes, fourteen-day trial — `packages/catalog/src/plans.ts`: `monthlyUsd: 249`, `setupFeeUsd: 0`, `includedMinutes: 500`, `TRIAL_DAYS = 14`. The trial takes a card up front and cancels itself if no payment method is on file: `apps/web/src/lib/billing.ts:126–149` sets `trial_period_days: TRIAL_DAYS`, `payment_method_collection: "always"`, and `trial_settings.end_behavior.missing_payment_method: "cancel"`. **[SHARED — this is the same product both agents exist around.]**
+healdesk is an AI front desk for high-ticket elective clinics — med spas, plastic surgery, dermatology, dental, fertility, medical weight loss. The clinic keeps its published phone number. That number keeps ringing at the clinic. Only when nobody picks up, or the line is engaged, does the call forward to healdesk's agent. So the agent answers exactly the calls the front desk missed, never instead of a human who was free. Setup is a call-forwarding setting the clinic can undo itself, any time, without us: no number to port, no phone system to replace, no hardware, nothing installed. Entry price is two hundred and forty-nine dollars a month, no setup fee, five hundred included minutes, fourteen-day trial — `packages/catalog/src/plans.ts`: `monthlyUsd: 249`, `setupFeeUsd: 0`, `includedMinutes: 500`, `TRIAL_DAYS = 14`. The trial takes a card up front and cancels itself if no payment method is on file: `apps/web/src/lib/billing.ts:126–149` sets `trial_period_days: TRIAL_DAYS`, `payment_method_collection: "always"`, and `trial_settings.end_behavior.missing_payment_method: "cancel"`. **[SHARED — this is the same product both agents exist around.]**
 
 One state marker on that paragraph, because the agent will be tempted to close on it. The checkout is **built and never deployed**: `apps/web` has no deployment and the live-mode Stripe prices have never been created (§10.3). Quoting the price on a call is fine. Telling a buyer they can go and buy it right now is not true yet, and the close depends on open question 2.
 
@@ -2704,8 +2704,9 @@ WHAT IT DOES TODAY, AND WHAT HAPPENS AT SETUP
 Their published number keeps ringing at the clinic. Only when nobody picks up,
 or the line is engaged, does it forward to us — so we answer exactly the calls
 the front desk missed, never instead of a human who was free.
-Setup is a call-forwarding setting they can undo in one step. No number to port,
-no phone system to replace, no hardware, nothing installed.
+Setup is a call-forwarding setting they can undo themselves, any time, without
+us. No number to port, no phone system to replace, no hardware, nothing
+installed.
 Most vendors report calls answered. We report calls recovered — the ones nobody
 at the practice picked up. That is the difference, and it is the whole pitch.
 Today, on a call like this one: it answers, it asks the right things, it keeps

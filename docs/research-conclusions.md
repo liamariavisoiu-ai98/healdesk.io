@@ -5,8 +5,9 @@
 > only live task list is the [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ)
 > of the spec's source doc. Voice is Retell, not Synthflow; there is no SMS, 10DLC or
 > outbound of any kind; Google Calendar is the only booking write target; Boulevard and
-> GoHighLevel read-back is phase two; and Anthropic's covered API runs with 30-day
-> retention, not zero retention. The FTC, trust-badge and SES findings still stand.
+> GoHighLevel read-back is phase two; and Anthropic's HIPAA-ready API runs under
+> standard retention (no more than 30 days for the models the product calls), not zero
+> retention; only its Covered Models require 30 days (agreement-changes.md § 16). The FTC, trust-badge and SES findings still stand.
 
 It explains the rules as they stood in August — what they are, why they exist, which
 vendors trip over them, and what it means for the business.
@@ -333,7 +334,7 @@ nothing; they only change whose account holds them. Synthflow's own docs call th
 or after hours) **to a landing number you own in your own Twilio account.** Usually
 `*61*<number>#` on a landline, or a routing rule on a cloud phone system.
 
-Forwarding is reversible in one step. That single fact is the biggest objection-killer in the
+Forwarding is reversible by the clinic itself. That single fact is the biggest objection-killer in the
 sales conversation — you are not asking them to change their number, port anything, or trust
 you with their front door permanently.
 

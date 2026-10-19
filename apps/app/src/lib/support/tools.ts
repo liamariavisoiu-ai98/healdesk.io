@@ -33,7 +33,7 @@ export const SUPPORT_TOOLS: Anthropic.Tool[] = [
   {
     name: "get_forwarding_steps",
     description:
-      "The call forwarding codes for this practice's carrier, line and coverage mode, with the undo codes. Returns nothing until phone is ready for forwarding on healdesk's side.",
+      "The call forwarding codes for this practice's carrier, line and coverage mode, with the undo codes. Returns nothing until phone is ready for forwarding on healdesk's side, and only the undo steps once the service has ended.",
     input_schema: NO_INPUT,
     strict: true,
   },

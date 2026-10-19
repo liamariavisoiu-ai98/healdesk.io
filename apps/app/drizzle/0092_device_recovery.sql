@@ -129,7 +129,7 @@ CREATE TRIGGER device_recoveries_no_rewrite
 REVOKE ALL ON FUNCTION app_device_recovery_no_rewrite() FROM PUBLIC;--> statement-breakpoint
 
 COMMENT ON TABLE device_recoveries IS
-  'The human route for a clinic that lost every device (plan Part D3; 0091): one link, issued by the operator after a call back to the practice''s published number and mailed only to the clinic''s address, that lets the session it starts add one passkey within its window. Identity plane, no PHI. The runtime role moves the claim, the use and the end only, and never deletes.';--> statement-breakpoint
+  'The human route for a clinic that lost every device (plan Part D3; 0092): one link, issued by the operator after a call back to the practice''s published number and mailed only to the clinic''s address, that lets the session it starts add one passkey within its window. Identity plane, no PHI. The runtime role moves the claim, the use and the end only, and never deletes.';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- The audit: fails this migration, and any later one that widens it.
@@ -137,12 +137,12 @@ COMMENT ON TABLE device_recoveries IS
 DO $$
 BEGIN
   IF has_table_privilege('healdesk_app'::name, 'device_recoveries'::regclass, 'DELETE') THEN
-    RAISE EXCEPTION 'healdesk_app can delete device_recoveries, which 0091 keeps.';
+    RAISE EXCEPTION 'healdesk_app can delete device_recoveries, which 0092 keeps.';
   END IF;
   IF has_column_privilege('healdesk_app'::name, 'device_recoveries'::regclass, 'token_hash', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'device_recoveries'::regclass, 'expires_at', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'device_recoveries'::regclass, 'user_id', 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app can re-point a device recovery or stretch its window, which 0091 fixes.';
+    RAISE EXCEPTION 'healdesk_app can re-point a device recovery or stretch its window, which 0092 fixes.';
   END IF;
   IF NOT has_column_privilege('healdesk_app'::name, 'device_recoveries'::regclass, 'used_at', 'UPDATE') THEN
     RAISE EXCEPTION 'healdesk_app cannot spend a device recovery.';

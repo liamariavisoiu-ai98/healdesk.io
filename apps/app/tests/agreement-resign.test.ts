@@ -470,15 +470,18 @@ describeDb("the DPA→BAA re-sign", () => {
       resolved_by: practice.staffEmail,
     });
     expect((await pause(practice.clinicId)).ai_paused_at).toBeNull();
-    // Both are written in the signing transaction, where occurred_at's now()
-    // is the same instant for each, so no column orders them: each once.
     const { rows: events } = await getMigratorPool().query<{ event: string }>(
       `select event from security_events
         where event in ('agreement_superseded', 'agreement_resign_signed')
-          and metadata->>'clinicId' = $1 order by event`,
+          and metadata->>'clinicId' = $1 order by occurred_at`,
       [practice.clinicId],
     );
-    expect(events.map((e) => e.event)).toEqual(["agreement_resign_signed", "agreement_superseded"]);
+    // Both are written in the signing transaction, so they share now() and
+    // occurred_at cannot order them: compare them as a set.
+    expect(events.map((e) => e.event).sort()).toEqual([
+      "agreement_resign_signed",
+      "agreement_superseded",
+    ]);
 
     // The link is spent: a second signature with it is refused, and it opens on "signed".
     const again = await signAgreementResign(token, {

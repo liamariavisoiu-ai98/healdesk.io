@@ -1,15 +1,17 @@
 import {
+  agreementKindOfVersion,
+  agreementKindSufficient,
   CURRENT_BAA_VERSION,
   emptyOnboarding,
-  isBaaVersionAcceptable,
-  ONBOARDING_LABELS,
-  openRequiredSteps,
+  type AgreementKind,
   type OnboardingState,
+  type RegulatoryRegime,
 } from "@healdesk/catalog";
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import type { ForwardingTestObservation } from "@/db/schema";
+import { agreementTemplateReleased } from "@/lib/agreements/kind";
 
 /**
  * Clinic listing for ops, via the SECURITY DEFINER function.
@@ -85,6 +87,14 @@ export type ClinicOverview = {
    * read from it (destructionPlan in lib/offboarding). Contract metadata.
    */
   destructionAgreementVersion: string | null;
+  /**
+   * 0090: the agreement gate's two columns (0051), the regime of the
+   * clinic's specialty at provisioning and the kind of agreement it records,
+   * so the card can say an agreement does not cover the practice before
+   * go-live refuses it. Null on a clinic created before 0051.
+   */
+  regulatoryRegime: RegulatoryRegime | null;
+  agreementKind: AgreementKind | null;
 };
 
 /** Something an operator has to act on before this clinic can go live. */
@@ -105,7 +115,8 @@ export async function listClinics(): Promise<ClinicOverview[]> {
                timezone_confirmed_at,
                booking_requirements, booking_requirements_confirmed_at, booking_requirements_source,
                billing_clinic_id, stripe_connect_disconnected_at,
-               baa_version, destruction_agreement_version
+               baa_version, destruction_agreement_version,
+               regulatory_regime, agreement_kind
           from app_clinics_overview()`,
   );
 
@@ -164,20 +175,27 @@ export async function listClinics(): Promise<ClinicOverview[]> {
       : null,
     baaVersion: (row.baa_version as string | null) ?? null,
     destructionAgreementVersion: (row.destruction_agreement_version as string | null) ?? null,
+    regulatoryRegime: (["hipaa", "hipaa-if-covered", "non-hipaa"] as const).find((r) => r === row.regulatory_regime) ?? null,
+    agreementKind: (["baa", "dpa"] as const).find((k) => k === row.agreement_kind) ?? null,
   }));
 }
 
 /**
- * What's standing between this clinic and handling real patient data.
+ * What's standing between this clinic and handling real patient data, as the
+ * clinic list shows it.
  *
  * Ordered by severity, and worded as the action to take rather than the state
  * observed — "sign the BAA" is more useful on a dashboard than "baa_signed_at
- * is null".
+ * is null". Go-live is automatic (lib/onboarding/go-live.ts) and the whole
+ * of what it waits on is on the clinic's onboarding page, read in the
+ * clinic's tenant; this list, read across clinics from the overview, says
+ * what the overview alone can: the agreement and the covered status.
  */
 export function blockersFor(clinic: ClinicOverview): ClinicBlocker[] {
   const blockers: ClinicBlocker[] = [];
+  const live = clinic.dataClassification === "production";
 
-  if (clinic.dataClassification === "production" && !clinic.baaSignedAt) {
+  if (live && !clinic.baaSignedAt) {
     blockers.push({
       level: "blocked",
       message:
@@ -185,18 +203,39 @@ export function blockersFor(clinic: ClinicOverview): ClinicBlocker[] {
     });
   }
 
-  if (clinic.baaVersion !== null && !isBaaVersionAcceptable(clinic.baaVersion)) {
+  if (clinic.baaVersion !== null && !agreementTemplateReleased(clinic.baaVersion)) {
     // Before the covered-entity line on purpose: when nothing is blocked the
     // clinic card shows the first item, and on a synthetic clinic this one
     // decides whether it can go live at all (app_mark_clinic_production
-    // refuses it, 0048). Not "blocked": a live clinic keeps running under
-    // the agreement it signed while the practice accepts the current one.
+    // refuses it). Not "blocked": a live clinic keeps running under the
+    // agreement it signed while the practice accepts the current one.
+    const dpa = agreementKindOfVersion(clinic.baaVersion) === "dpa";
     blockers.push({
       level: "attention",
-      message:
-        clinic.dataClassification === "production"
+      message: dpa
+        ? `The data protection agreement ${clinic.baaVersion} is not released: the practice can't go live under it until it is.`
+        : live
           ? `Live under BAA v${clinic.baaVersion}, which has been superseded: have the practice accept v${CURRENT_BAA_VERSION}.`
           : `BAA v${clinic.baaVersion} has been superseded: the practice accepts v${CURRENT_BAA_VERSION} before go-live.`,
+    });
+  }
+
+  if (
+    clinic.baaVersion !== null &&
+    clinic.regulatoryRegime !== null &&
+    !agreementKindSufficient(
+      clinic.regulatoryRegime,
+      agreementKindOfVersion(clinic.baaVersion),
+      clinic.isCoveredEntity,
+    )
+  ) {
+    // The PHI gate refuses a production clinic's data in this state
+    // (app_clinic_accepts_phi, 0051), and go-live refuses a synthetic one.
+    blockers.push({
+      level: live ? "blocked" : "attention",
+      message: live
+        ? "Its agreement no longer covers the practice, so the database refuses its patient data: move it to a business associate agreement."
+        : "Its agreement does not cover the practice: it signs a business associate agreement before go-live.",
     });
   }
 
@@ -211,28 +250,11 @@ export function blockersFor(clinic: ClinicOverview): ClinicBlocker[] {
     });
   }
 
-  if (clinic.dataClassification === "synthetic") {
-    // What stands between this clinic and go-live, as actions. The database
-    // function refuses on the same facts; this is the list before the call.
-    const open = openRequiredSteps(clinic.onboarding, {
-      requirePlatform: clinic.attributionMode === "verified",
-    });
-    if (!clinic.openingHoursPresent) {
-      blockers.push({ level: "attention", message: "Confirm opening hours — after-hours recovery needs them." });
-    }
-    if (!clinic.callRoutingConfirmedAt) {
-      blockers.push({ level: "attention", message: "Confirm call routing: does the number ring at the practice first?" });
-    }
-    if (!clinic.agentApprovedAt) {
-      blockers.push({ level: "attention", message: "Get the agent script approved by the clinic." });
-    }
-    for (const step of open) {
-      if (["hours_confirmed", "call_routing_chosen", "agent_script_approved"].includes(step)) continue;
-      blockers.push({ level: "attention", message: `Onboarding: ${ONBOARDING_LABELS[step].title}.` });
-    }
+  if (!live) {
     blockers.push({
       level: "attention",
-      message: "Synthetic only — not yet accepting real patient data.",
+      message:
+        "Synthetic only — not yet accepting real patient data. It goes live by itself once everything go-live asks holds; its onboarding page lists what is left.",
     });
   }
 

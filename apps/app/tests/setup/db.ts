@@ -71,6 +71,9 @@ export async function truncateAll(): Promise<void> {
   // the rest of the billing ledger. 0057's tables all hang off clinics
   // (google_oauth_states by target_clinic_id), so the cascade empties them,
   // and RESTART IDENTITY puts clinics_client_number_seq back to its start.
+  // platform_compliance (0090) has no clinic and no foreign key, so it is
+  // named: an attestation left by one file would let the next file's
+  // synthetic clinics go live by themselves (lib/onboarding/go-live.ts).
   await pool.query(`
     truncate table
       billing_events, billing_transitions, billing_requests, entitlements,
@@ -80,7 +83,8 @@ export async function truncateAll(): Promise<void> {
       clinic_memberships, clinics, baa_acceptances,
       checkout_intents, sign_in_links, stripe_connect_events, stripe_connect_states,
       step_ups, webauthn_challenges, user_backup_codes, user_factors, factor_lockouts,
-      invitation, member, organization, session, account, verification, "user"
+      invitation, member, organization, session, account, verification, "user",
+      platform_compliance
     restart identity cascade
   `);
 

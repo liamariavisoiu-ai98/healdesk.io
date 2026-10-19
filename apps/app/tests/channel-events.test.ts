@@ -36,7 +36,6 @@ import type { FrontDoorResponder } from "@/lib/meta/front-door";
 import { signMetaBody } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { inForwardingTestWindow, startForwardingTest } from "@/lib/onboarding/forwarding-test";
-import { goLive } from "@/lib/onboarding/go-live";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { runOperation, type Operator } from "@/lib/ops/api";
 import { saveSetupScreen, skipSetupScreen } from "@/lib/setup/save";
@@ -61,6 +60,7 @@ import {
   seedEntitled,
   setWeekdayHours,
 } from "./setup/factories";
+import { attestPlatform, setGateBCodeBuilt } from "./setup/platform";
 import { provisionPortalClinic } from "./setup/portal-clinic";
 
 /**
@@ -68,9 +68,10 @@ import { provisionPortalClinic } from "./setup/portal-clinic";
  * waiting_on, live and first answer, and the billing hooks the first answer
  * records (healdesk-io-58's startPlan and stepUpPackage).
  *
- *   - phone is ready before go-live, so O10 and the steps fire; live needs the
- *     operator's go-live, the audit, an observed forwarding test and setup as
- *     its skip lines promise, and the database's definers re-check it all;
+ *   - phone is ready before go-live, so O10 and the steps fire; live needs
+ *     go-live (automatic since WP2: tests/go-live.test.ts), the audit, an
+ *     observed forwarding test, setup as its skip lines promise and the
+ *     platform's attestations, and the database's definers re-check it all;
  *   - the runtime role cannot write a channel's lifecycle, or `live`'s inputs;
  *   - website chat's line is confirmed by an operator, never by an Origin;
  *   - the first answer records startPlan for the clinic's first channel and
@@ -81,6 +82,15 @@ import { provisionPortalClinic } from "./setup/portal-clinic";
  */
 
 const flags = vi.hoisted(() => ({ failBilling: false }));
+
+// Go-live waits on what Gate B asks of the code and is not built
+// (lib/compliance/gate-b.ts; tests/go-live.test.ts holds that). This file's
+// go-lives stand in for the commit that builds it: nothing on the list, and
+// app_gate_b_code_built() true in the database for the file (beforeAll).
+vi.mock("@/lib/compliance/gate-b", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/compliance/gate-b")>();
+  return { ...actual, gateBNotBuilt: () => [] };
+});
 
 vi.mock("@/lib/billing/requests", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/billing/requests")>();
@@ -117,6 +127,7 @@ const ALL_IN: ChannelInputs = {
   pricesChecked: true,
   coveredStatus: true,
   clinicStepDone: true,
+  platform: true,
   opsReady: true,
 };
 
@@ -222,6 +233,7 @@ describe("decideChannel", () => {
       forwardingObserved: true,
       auditPassed: new Set<Channel>(["web", "meta", "voice"]),
       runtimeSeen: new Set<Channel>(),
+      platform: { clinic: [], channel: { web: [], meta: [], voice: [] } },
     };
     expect(decideChannel(channelInputs("voice", facts)).missing).toEqual(["runtime"]);
     expect(decideChannel(channelInputs("meta", facts)).missing).toEqual(["runtime"]);
@@ -614,17 +626,20 @@ describeDb("channel events against the database", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // Every channel's live asks the platform's attestations (drizzle/0090);
+    // this file is about the channel's own inputs, so they are all in place.
+    await attestPlatform();
+    await setGateBCodeBuilt(true);
   }, 180_000);
 
-  afterEach(async () => {
+  afterEach(() => {
     flags.failBilling = false;
     delete process.env.HEALDESK_TEST_NUMBERS;
-    // Jobs ship off: a go-live test that switched the sender on leaves it as it found it.
-    await getMigratorPool().query(`update scheduled_jobs set enabled = false where name = 'billing-notices'`);
   });
 
   afterAll(async () => {
     __setMetaRuntimeForTests(undefined, undefined);
+    await setGateBCodeBuilt(false);
     await closePools();
   });
 
@@ -1555,49 +1570,38 @@ describeDb("channel events against the database", () => {
       ),
     ).toBe(AYA);
 
-    // The forwarding test: the operator opens the window and the call reaches AYA.
+    // The forwarding test: the operator opens the window and the call reaches
+    // AYA. It is the last input, so go-live, which is automatic (WP2), takes
+    // the clinic to production and phone live in the call's own transaction:
+    // no checklist, no button.
     expect(await data("startForwardingTest", { clinicId: id })).toMatchObject({
       status: "started",
     });
     await ingestCall(
       call(id, { callerPhone: "+14155550888", answeredByAssistant: false, outcome: "abandoned" }),
     );
-    expect(await stepUp()).toMatchObject({ waiting_on: null, live_at: null });
-
-    // The operator's go-live, through the envelope, with the voice-era checklist it still asks.
-    expect(await data("approveAgentConfig", { clinicId: id, approvedBy: "Dr Chen" })).toMatchObject(
-      { status: "updated" },
-    );
-    for (const step of [
-      "covered_entity_confirmed",
-      "forwarding_configured",
-      "agent_script_approved",
-      "booking_requirements_confirmed",
-    ]) {
-      expect(await data("completeOnboardingStep", { clinicId: id, step }), step).toMatchObject({
-        status: "updated",
-      });
-    }
-    await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'billing-notices'`);
-    const live = await data("goLive", { clinicId: id });
-    expect(live.status, JSON.stringify(live)).toBe("live");
+    expect(await stepUp()).toMatchObject({ waiting_on: null });
     expect((await stepUp()).live_at).not.toBeNull();
     expect(await noticesOf(id, "channel_live")).toHaveLength(1);
+    const { rows } = await getMigratorPool().query<{ data_classification: string }>(
+      `select data_classification from clinics where id = $1`,
+      [id],
+    );
+    expect(rows[0]!.data_classification).toBe("production");
+    // Asking by hand afterwards changes nothing.
+    expect(await data("goLive", { clinicId: id })).toMatchObject({
+      status: "refused",
+      message: "Already in production.",
+    });
   });
 
-  test("the operator's go-live is an input: it moves every channel on as far as the others allow", async () => {
+  test("go-live is an input: once the clinic may go live, the same evaluation moves every channel on as far as the others allow", async () => {
     const c = await phoneClinic("ev-golive", { production: false });
+    // Without an agreement in effect, go-live waits, and phone with it.
+    expect((await evaluate(c.clinicId, "voice"))[0]!.missing).toEqual(["go_live"]);
+    expect((await channelRow(c.clinicId, "voice")).live_at).toBeNull();
     await getMigratorPool().query(
-      `update clinics
-          set is_covered_entity = false,
-              call_routing_confirmed_at = now(),
-              agent_approved_at = now(),
-              onboarding = jsonb_build_object(
-                'hours_confirmed', now()::text, 'phone_type_confirmed', now()::text,
-                'call_routing_chosen', now()::text, 'covered_entity_confirmed', now()::text,
-                'agent_script_approved', now()::text, 'forwarding_configured', now()::text,
-                'test_call_passed', now()::text, 'booking_requirements_confirmed', now()::text)
-        where id = $1`,
+      `update clinics set is_covered_entity = false, regulatory_regime = 'hipaa-if-covered', agreement_kind = 'baa' where id = $1`,
       [c.clinicId],
     );
     await getMigratorPool().query(
@@ -1605,11 +1609,7 @@ describeDb("channel events against the database", () => {
        values ($1, $2, repeat('d', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@golive.test', now(), now())`,
       [c.organizationId, CURRENT_BAA_VERSION],
     );
-    expect((await evaluate(c.clinicId, "voice"))[0]!.missing).toEqual(["go_live"]);
-    // Go-live refuses while the email sender is off (lib/onboarding/go-live.ts).
-    await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'billing-notices'`);
-    const result = await goLive(c.clinicId, { label: "ops@healdesk.test" });
-    expect(result.status, JSON.stringify(result)).toBe("live");
+    expect((await evaluate(c.clinicId, "voice"))[0]).toMatchObject({ wentLive: true, missing: [] });
     expect((await channelRow(c.clinicId, "voice")).live_at).not.toBeNull();
     expect(await noticesOf(c.clinicId, "channel_live")).toHaveLength(1);
   });

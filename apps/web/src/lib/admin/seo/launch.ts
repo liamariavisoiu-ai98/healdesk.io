@@ -6,9 +6,12 @@
  * on before it is switched on (phrased as design where a page describes
  * behaviour, "AYA is designed to ..."), never the other way round, and this
  * list is how the gap is tracked. No clinic goes live while an item here that
- * blocks go-live is open. /admin/seo shows it; update an item in the commit
- * that changes what it describes, and move it to `on` only when the code
- * does it in production.
+ * blocks go-live is open: go-live is automatic (WP2) and waits on the
+ * platform's `launch_promises` attestation, which /admin/compliance refuses
+ * to enter while one is open (lib/admin/platform-compliance.ts), and which
+ * should be withdrawn there when an item that blocks go-live is added.
+ * /admin/seo shows it; update an item in the commit that changes what it
+ * describes, and move it to `on` only when the code does it in production.
  *
  * Pure data: client components import it.
  */
@@ -69,8 +72,17 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "An urgent message goes at once to the contact the clinic names",
     where: "Terms section 2",
     status: "on",
-    left: "Queued with the urgent screen's own writes and sent in-process right after commit, on calls, website chat and Meta, to the clinic's account address. Like every email, the first send included, it goes only while the billing-notices job is on and the host's email key is set, so go-live refuses while that job is off.",
-    evidence: "apps/app/src/lib/notices/booking-alerts.ts, apps/app/src/lib/email/outbox.ts (deliverCriticalAfterCommit), apps/app/src/lib/onboarding/go-live.ts (ALERTS_OFF), apps/app/tests/live-alerts.test.ts",
+    left: "Queued with the urgent screen's own writes and sent in-process right after commit, on calls, website chat and Meta, to the clinic's account address. Like every email, the first send included, it goes only while the billing-notices job is on and the host's email key is set: the alert-sender item below.",
+    evidence: "apps/app/src/lib/notices/booking-alerts.ts, apps/app/src/lib/email/outbox.ts (deliverCriticalAfterCommit), apps/app/tests/live-alerts.test.ts",
+    blocksGoLive: true,
+  },
+  {
+    id: "alert-sender-on",
+    promise: "Every alert AYA promises the clinic reaches it, the urgent one included",
+    where: "Terms section 2, AYA's urgent reply (\"I've told the team\")",
+    status: "owner",
+    left: "Switch on the billing-notices job (Scheduled jobs in /admin/ops) and set RESEND_API_KEY on the host before the first clinic goes live: every booking alert waits on both, and while they are off AYA still tells an urgent caller the team has been told. Go-live does not check the switch itself, and nothing stops it being switched off later.",
+    evidence: "apps/app/src/lib/email/outbox.ts, apps/app/src/lib/notices/booking-alerts.ts (URGENT_ALERT_DELIVERED), apps/app/src/lib/scheduler/jobs.ts (JOB_BILLING_NOTICES)",
     blocksGoLive: true,
   },
   {

@@ -6,6 +6,7 @@ import { __clearPriceCacheForTests } from "@/lib/billing/prices";
 import { __clearPortalConfigurationForTests } from "@/lib/billing/stripe-actions";
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
+import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import { withTenant } from "@/lib/tenant";
 
 import { axeViolations } from "./setup/axe";
@@ -212,6 +213,14 @@ describeDb("the portal's screens, before and after go-live", () => {
       expect(brokenLinks(html, portal.clinicSlug), screen).toEqual([]);
       expect(await axeViolations(html, screen), screen).toEqual([]);
     }
+  });
+
+  test("before go-live: Home's tracker says where going live stands, and Settings says a chat on the clinic's site is a real one (WP2)", async () => {
+    // Go-live is automatic, so once the line is on the live site, staff
+    // trying the chat there start the plan: Settings says so beside it.
+    expect(text(await render("settings"))).toContain(WEB_CHAT_COUNTS_LINE);
+    const home = text(await render("home"));
+    expect(home).toContain("Going live");
   });
 
   describe("after go-live", () => {

@@ -276,6 +276,11 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "AYA answered a patient on the live channel below, but its first answer, and the plan start or price step-up that goes with it, could not be recorded, so billing for that channel has not begun. The conversation itself is recorded. The next answered conversation on the channel tries again; if this repeats, read the error lines for the first answer in apps/app's log and check the channel on the clinic's billing page in the console.",
   },
+  go_live_held: {
+    title: "A clinic is held back from going live",
+    action:
+      "The clinic below cannot go live, so AYA answers no one there yet, and nothing has been taken offline. The code is the first thing go-live waits on: platform means an attestation is missing on /admin/compliance; no_agreement, agreement_version, agreement_kind_mismatch or agreement_insufficient mean the practice's agreement has to be signed again or moved to a business associate agreement, so call the practice; gate_b means a channel still waits on its own attestations; gate_b_not_built means Gate B asks of the code what is not built yet (the routed/answered counter, its miss notice or a live email), which holds every clinic until it ships; database means the database refused what the console allowed, so read the error lines for go-live in apps/app's log. The clinic's onboarding page in the console lists everything go-live waits on; it goes live by itself once nothing is left.",
+  },
   web_widget_to_confirm: {
     title: "Confirm a clinic's website chat is on its site",
     action:

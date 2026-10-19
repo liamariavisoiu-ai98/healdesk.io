@@ -1,8 +1,12 @@
-import { renderAgreementCopy } from "@healdesk/catalog";
+import { createHash } from "node:crypto";
+
+import { isSafeTypedText, renderAgreementCopy } from "@healdesk/catalog";
 import { renderAgreementPdf } from "@healdesk/catalog/agreement-pdf";
 import { agreementPdfRecordOf, type AgreementRecord } from "@healdesk/catalog/checkout-record";
 
 import { recordAgreementCopy } from "@/lib/checkout/records";
+import { normalizeEmail } from "@/lib/leads";
+import { isOverLimit, rateLimit } from "@/lib/rate-limit";
 
 import { emailKey, sendSafely } from "./index";
 
@@ -30,13 +34,58 @@ import { emailKey, sendSafely } from "./index";
  * `copy_document_sha256`. The file's digest is the question a dispute asks,
  * what does the clinic actually hold; the renderer is deterministic, so the
  * same record renders the same bytes on either side.
+ *
+ * ## An address nobody confirmed (Annex X5, P6)
+ *
+ * In pilot mode a setup link binds the signer's address: it is the one we
+ * sent the link to, and the copy goes there freely. Anywhere else (public
+ * mode, or a personalised demo's invitation, which binds no address by the
+ * owner's decision of 7 October 2026) the address is whatever was typed, so
+ * the copy is a way to have healdesk's sender mail a stranger. Two rules hold
+ * it, both from P6:
+ *
+ *   - at most one copy per address per day, counted in the marketing Sheet
+ *     (`agreement-copy:` in lib/rate-limit.ts SHARED_KEY_PREFIXES), so warm
+ *     instances share the count. Peeked before the send and spent only on a
+ *     send that went, so a copy the provider refused does not use up the day;
+ *   - the typed text it carries, the practice's legal name, the signer's
+ *     name and title (in the body and in the PDF), restricted to the safe
+ *     characters of the catalog's isSafeTypedText: a name, never a link, an
+ *     address or a number to call.
+ *
+ * A copy either rule holds back is `withheld`, never failed: the signature
+ * stands, the buyer is told why in a sentence, and the record shows the copy
+ * is still owed, so a person sends it.
  */
+
+/** Whether the signer's address is one we confirmed (pilot mode's setup link). */
+export type CopyOptions = { addressConfirmed: boolean };
+
+/** One copy per unconfirmed address per day (P6). */
+const COPY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** The shared counter's key: a digest of the address, never the address. */
+function copyLimitKey(address: string): string {
+  return `agreement-copy:${createHash("sha256").update(normalizeEmail(address)).digest("hex").slice(0, 32)}`;
+}
+
+/** Whether every typed field the copy carries is safe to mail to an address nobody confirmed. */
+export function copyTextIsSafe(record: AgreementRecord): boolean {
+  const legalName = (record.variables as { clinicLegalName?: unknown }).clinicLegalName;
+  return (
+    isSafeTypedText(legalName, 200) &&
+    isSafeTypedText(record.signatoryName, 120) &&
+    (record.signatoryTitle === null || record.signatoryTitle.trim() === "" || isSafeTypedText(record.signatoryTitle, 120))
+  );
+}
 
 /** How long signing waits for the copy before answering the buyer anyway. */
 export const COPY_BUDGET_MS = 8_000;
 
 export type CopyOutcome =
   | { status: "sent"; pdfSha256: string }
+  /** Held back by P6's rules for an unconfirmed address: not an error, and still owed. */
+  | { status: "withheld"; reason: "already_sent_today" | "unsafe_text" }
   | { status: "skipped" | "failed"; reason: string };
 
 /** What the buyer is told: a status and a sentence written here, never the provider's own words. */
@@ -57,6 +106,14 @@ export function copyReport(outcome: CopyOutcome): CopyReport {
     // signing had to answer: "has not been sent" is true of that one too.
     case "failed":
       return { status: "not_sent", reason: "We tried to email your copy and it did not go out." };
+    case "withheld":
+      return {
+        status: "not_sent",
+        reason:
+          outcome.reason === "already_sent_today"
+            ? "A copy of an agreement already went to this address today, so we have not emailed another."
+            : "We email a copy to an address we haven't confirmed only when the names on it are letters, numbers and ordinary punctuation, so yours has not been sent.",
+      };
   }
 }
 
@@ -65,7 +122,22 @@ export function copyReport(outcome: CopyOutcome): CopyReport {
  * and record the evidence. Never throws: by the time this runs the signature
  * is recorded, and a throw would tell the buyer it was not.
  */
-export async function deliverAgreementCopy(record: AgreementRecord, text: string): Promise<CopyOutcome> {
+export async function deliverAgreementCopy(
+  record: AgreementRecord,
+  text: string,
+  options: CopyOptions = { addressConfirmed: false },
+): Promise<CopyOutcome> {
+  const limitKey = options.addressConfirmed ? null : copyLimitKey(record.signatoryEmail);
+  if (!options.addressConfirmed) {
+    if (!copyTextIsSafe(record)) {
+      console.warn("[healdesk] signed copy withheld: unsafe typed text", { agreementId: record.id });
+      return { status: "withheld", reason: "unsafe_text" };
+    }
+    if (limitKey && (await isOverLimit(limitKey, 1))) {
+      console.warn("[healdesk] signed copy withheld: one already went to this address today", { agreementId: record.id });
+      return { status: "withheld", reason: "already_sent_today" };
+    }
+  }
   try {
     const pdf = await renderAgreementPdf(agreementPdfRecordOf(record, text));
     const clinicName =
@@ -93,6 +165,8 @@ export async function deliverAgreementCopy(record: AgreementRecord, text: string
       console.warn("[healdesk] signed copy not sent", { agreementId: record.id, status: result.status });
       return { status: result.status, reason: result.reason };
     }
+    // The day's one copy to this address is spent only by a copy that went.
+    if (limitKey) await rateLimit(limitKey, 1, COPY_WINDOW_MS).catch(() => undefined);
     try {
       const written = await recordAgreementCopy(record.id, {
         sentAt: new Date().toISOString(),
@@ -128,8 +202,9 @@ export async function deliverAgreementCopyWithin(
   record: AgreementRecord,
   text: string,
   keepAlive: (pending: Promise<unknown>) => void = () => {},
+  options: CopyOptions = { addressConfirmed: false },
 ): Promise<CopyOutcome> {
-  const attempt = deliverAgreementCopy(record, text);
+  const attempt = deliverAgreementCopy(record, text, options);
   keepAlive(attempt);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<CopyOutcome>((resolve) => {

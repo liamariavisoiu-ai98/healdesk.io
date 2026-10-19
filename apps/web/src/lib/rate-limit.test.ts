@@ -111,6 +111,9 @@ describe("rateLimit (the global daily caps)", () => {
     expect(isGlobalCapKey("contact-ack:0123456789abcdef")).toBe(true);
     // The signed re-reads' per-clinic limit: apps/app's, never a visitor's.
     expect(isGlobalCapKey("site-read:clinic:0c1d2e3f-0000-4000-8000-000000000000")).toBe(true);
+    // The signer's copy of the agreement, once per unconfirmed address a day (P6).
+    expect(isGlobalCapKey("agreement-copy:0123456789abcdef")).toBe(true);
+    expect(isGlobalCapKey("agreement:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("site-read:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("contact:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("setup-request:10.0.0.1")).toBe(false);

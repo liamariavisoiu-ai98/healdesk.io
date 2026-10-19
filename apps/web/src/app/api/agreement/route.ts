@@ -64,7 +64,10 @@ import { updateSetupRequest } from "@/lib/setup-requests";
  * Resend sender (lib/email/agreement-copy.ts), within eight seconds; a send
  * still running then is left to finish (Next's `after`) and still records
  * its evidence. The response says whether the copy went, because the browser
- * is the only place the buyer can learn that it did not.
+ * is the only place the buyer can learn that it did not. To an address no
+ * setup link confirmed, the copy goes once per address per day and only with
+ * names of safe characters (Annex X5, P6); one those rules hold back is still
+ * owed, and the buyer is told so.
  *
  * ## The download cookie
  *
@@ -216,7 +219,11 @@ export async function POST(request: Request): Promise<Response> {
   });
 
   // From here the agreement is recorded, and nothing below may say otherwise.
-  const copy = await deliverAgreementCopyWithin(COPY_BUDGET_MS, record, prepared.text, keepAlive);
+  // A setup link's address is one we sent the link to; any other is only
+  // typed, so the copy is held to P6's rules for it (lib/email/agreement-copy.ts).
+  const copy = await deliverAgreementCopyWithin(COPY_BUDGET_MS, record, prepared.text, keepAlive, {
+    addressConfirmed: invited !== null,
+  });
 
   const out = NextResponse.json(
     {

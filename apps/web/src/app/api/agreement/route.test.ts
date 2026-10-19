@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { DOWNLOAD_COOKIE } from "@/lib/agreement-download";
 import { findAgreementRecord } from "@/lib/checkout/records";
+import { __resetRateLimiterForTests } from "@/lib/rate-limit";
 import { signatureRequestFor } from "@/lib/checkout/records.testing";
 import { issueSetupToken, setupLinkExpiry } from "@/lib/setup-link";
 import { createSetupRequest, findSetupRequest, updateSetupRequest } from "@/lib/setup-requests";
@@ -47,6 +48,7 @@ beforeEach(() => {
   sheets = new FakeSheets();
   __setSheetsClientForTests(sheets);
   __resetSheetSchemaForTests();
+  __resetRateLimiterForTests();
 });
 
 afterEach(() => {
@@ -296,6 +298,83 @@ describe("POST /api/agreement records the signature here, sealed, and never call
  * calendarAccount, by those names), and the platform the released agreement
  * still renders from must be the one the booking system implies.
  */
+/**
+ * Annex X5, P6: "In pilot mode it goes only to the email bound to the setup
+ * link. In public mode it goes once per address per day, with the typed
+ * variables restricted to safe characters." Until 19 October 2026 the only
+ * limit was five signatures an hour per IP, per instance, and any text could
+ * be mailed to any address.
+ */
+describe("POST /api/agreement holds the copy to an address nobody confirmed to P6's rules", () => {
+  beforeEach(() => {
+    vi.stubEnv("HEALDESK_CHECKOUT_MODE", "public");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  test("one copy per address a day, counted in the Sheet, so another instance does not send a second", async () => {
+    const first = await sign(null, signature("info@radiance.com"));
+    expect(((await first.json()) as { copy: unknown }).copy).toEqual({ status: "sent" });
+    // A cold start, or another warm instance: its memory is empty.
+    __resetRateLimiterForTests();
+    const second = await sign(null, signature("INFO@radiance.com"));
+    expect(second.status).toBe(201);
+    const body = (await second.json()) as { agreementId: string; copy: unknown };
+    expect(body.copy).toEqual({
+      status: "not_sent",
+      reason: "A copy of an agreement already went to this address today, so we have not emailed another.",
+    });
+    expect(emails()).toHaveLength(1);
+    // Signed and on file all the same, with its copy still owed.
+    const found = await findAgreementRecord(body.agreementId);
+    expect(found.status === "found" && found.record.copy).toBeNull();
+    // Another address is its own day.
+    const other = await sign(null, signature("owner@glow.com"));
+    expect(((await other.json()) as { copy: unknown }).copy).toEqual({ status: "sent" });
+  });
+
+  test("a copy the provider refused does not use up the address's day", async () => {
+    resend.mockImplementationOnce(async () => new Response("down", { status: 500 }));
+    await sign(null, signature("info@radiance.com"));
+    const again = await sign(null, signature("info@radiance.com"));
+    expect(((await again.json()) as { copy: unknown }).copy).toEqual({ status: "sent" });
+  });
+
+  test.each([
+    ["the practice's name", { clinicLegalName: "Claim your prize at radiance-prizes.com" }],
+    ["the signer's name", { signatoryName: "Call 5125550100 now" }],
+    ["the signer's title", { signatoryTitle: "Owner: https://evil.example" }],
+  ])("%s with a link or a number in it is signed, and the copy is not mailed", async (_field, overrides) => {
+    const response = await sign(null, signature("someone@stranger.com", overrides));
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { agreementId: string; copy: { status: string } };
+    expect(body.copy.status).toBe("not_sent");
+    expect(emails()).toHaveLength(0);
+    expect((await findAgreementRecord(body.agreementId)).status).toBe("found");
+  });
+
+  test("the copy carries the footer every email does, under a subject of at most 70 characters", async () => {
+    const long = `Radiance ${"Aesthetic and Wellness ".repeat(6)}Med Spa LLC`;
+    await sign(null, signature("info@radiance.com", { clinicLegalName: long }));
+    const [email] = emails();
+    expect([...String(email!.subject)].length).toBeLessThanOrEqual(70);
+    expect(String(email!.text)).toContain("Replies reach the healdesk team. Please leave out patient details.");
+    expect(String(email!.text)).toContain("healdesk is a service of Viixi FZC");
+    expect(String(email!.text)).toContain("Wilmington, DE 19801");
+    expect(String(email!.html)).not.toMatch(/href=/);
+  });
+});
+
+describe("POST /api/agreement, under a setup link, mails the address the link was sent to", () => {
+  test("each signature's copy goes, whatever the day's count: the link confirmed the address", async () => {
+    const { token } = await invited("info@radiance.com");
+    for (const name of ["Radiance Med Spa", "Radiance Med Spa LLC"]) {
+      const response = await sign(token, signature("info@radiance.com", { clinicLegalName: name }));
+      expect(((await response.json()) as { copy: unknown }).copy).toEqual({ status: "sent" });
+    }
+    expect(emails()).toHaveLength(2);
+  });
+});
+
 describe("POST /api/agreement checks the calendar answers before anything is signed", () => {
   beforeEach(() => {
     vi.stubEnv("HEALDESK_CHECKOUT_MODE", "public");

@@ -102,7 +102,14 @@ export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
  * through it too, so a clinic's reads a day are four, not four per warm
  * instance; the key after the prefix is the clinic's id.
  */
-export const SHARED_KEY_PREFIXES: readonly string[] = ["contact-ack:", "site-read:clinic:"];
+export const SHARED_KEY_PREFIXES: readonly string[] = [
+  "contact-ack:",
+  "site-read:clinic:",
+  // The signer's copy of the agreement (P6) to an address no setup link
+  // confirmed: once per address per day, keyed on a digest of the address
+  // (lib/email/agreement-copy.ts).
+  "agreement-copy:",
+];
 
 export function isGlobalCapKey(key: string): boolean {
   return GLOBAL_CAP_KEYS.has(key) || SHARED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));

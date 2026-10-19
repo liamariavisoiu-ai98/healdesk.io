@@ -29,6 +29,7 @@ import {
 import { hashSessionToken } from "@/lib/factors/step-ups";
 import { createBookingRequest } from "@/lib/meta/booking-requests";
 import { startOffboarding } from "@/lib/offboarding/offboarding";
+import { exportDigest } from "@/lib/portal/export-receipt";
 import { receiptSentence } from "@/lib/portal/conversation-words";
 import {
   dayRange,
@@ -1253,7 +1254,7 @@ describeDb("Conversations", () => {
     expect(JSON.stringify(notices)).not.toMatch(/Maria|0134/);
   });
 
-  test("after cancellation the complete export is recorded as delivered; one person's is not", async () => {
+  test("after cancellation only a complete download of the whole export is recorded as delivered; producing it, or one person's, is not", async () => {
     const desk = await steppedUp("conv-closed");
     const c = desk.clinic.clinicId;
     const call = await seedCall(c, { startedAt: new Date(), phone: "+14155550134", name: "Maria" });
@@ -1262,23 +1263,55 @@ describeDb("Conversations", () => {
       (await getMigratorPool().query(`select export_delivered_at from clinics where id = $1`, [c]))
         .rows[0]!.export_delivered_at as Date | null;
 
-    // The page says what a download sets in motion before anyone presses it.
+    // The page says what a download sets in motion before anyone presses it,
+    // and E4's link lands on the export.
     const page = await ConversationsPage({ params: Promise.resolve({ slug: desk.clinic.slug }) });
-    expect(JSON.stringify(page)).toMatch(/Downloading this records your export as delivered/);
+    expect(JSON.stringify(page)).toMatch(
+      /A download that arrives in full records your export as delivered/,
+    );
+    expect(JSON.stringify(page)).toMatch(/"id":"export"/);
 
     const person = await actions.exportPersonAction(
       desk.clinic.slug,
       call.conversationId,
       "practice",
     );
-    expect(person.ok).toBe(true);
+    expect(person).toMatchObject({ ok: true, receipt: null });
     expect(await delivered()).toBeNull();
 
+    // Producing the file records nothing: it is handed over with a receipt.
     const result = await actions.exportAllAction(desk.clinic.slug);
-    expect(result).toMatchObject({
+    if (!result.ok || !result.receipt) throw new Error("expected a closed clinic's export with a receipt");
+    expect(result.message).toBe("Export downloaded. Your clinic's address gets an email saying so.");
+    expect(await delivered()).toBeNull();
+
+    // A file that did not arrive whole (its digest differs), or a receipt
+    // tampered with, records nothing.
+    const truncated = exportDigest(result.body.slice(0, -10));
+    expect(await actions.confirmExportAction(desk.clinic.slug, result.receipt, truncated)).toEqual({
+      ok: false,
+      message:
+        "The export didn't arrive in full, so it isn't recorded as delivered. Download it again.",
+    });
+    const [head] = result.receipt.split(".");
+    expect(
+      (
+        await actions.confirmExportAction(
+          desk.clinic.slug,
+          `${head}.${"A".repeat(43)}`,
+          exportDigest(result.body),
+        )
+      ).ok,
+    ).toBe(false);
+    expect(await delivered()).toBeNull();
+
+    // The whole file, as the browser received it: delivered, once.
+    expect(
+      await actions.confirmExportAction(desk.clinic.slug, result.receipt, exportDigest(result.body)),
+    ).toEqual({
       ok: true,
       message:
-        "Export downloaded, and recorded as delivered. Your clinic's address gets an email saying so.",
+        "Export downloaded in full, and recorded as delivered. Your clinic's address gets an email saying so.",
     });
     const stamped = await delivered();
     expect(stamped).toBeInstanceOf(Date);
@@ -1287,11 +1320,26 @@ describeDb("Conversations", () => {
         action: "export",
         resource_type: "clinic_offboarding",
         resource_id: c,
+        metadata: expect.objectContaining({
+          how: "downloaded in full by the clinic from Conversations in the portal",
+        }),
       }),
     );
-    // Once: a second download moves nothing.
-    await actions.exportAllAction(desk.clinic.slug);
+    // Once: a second download, confirmed, moves nothing.
+    const again = await actions.exportAllAction(desk.clinic.slug);
+    if (!again.ok || !again.receipt) throw new Error("expected a receipt");
+    await actions.confirmExportAction(desk.clinic.slug, again.receipt, exportDigest(again.body));
     expect(await delivered()).toEqual(stamped);
+    // A receipt is this clinic's alone.
+    const other = await steppedUp("conv-closed-other");
+    await withTenant({ clinicId: other.clinic.clinicId, actor: ACTOR }, (tx) =>
+      startOffboarding(tx, "operator"),
+    );
+    expect(
+      (await actions.confirmExportAction(other.clinic.slug, again.receipt, exportDigest(again.body)))
+        .ok,
+    ).toBe(false);
+    browse(desk.link, `/c/${desk.clinic.slug}/conversations`);
 
     // Destroyed: nothing left to export, and nothing stamped or emailed.
     await getMigratorPool().query(`update clinics set destroyed_at = now() where id = $1`, [c]);
@@ -1308,9 +1356,10 @@ describeDb("Conversations", () => {
       resource_type: "clinic_bundle",
       resource_id: c,
     });
+    // Two downloads, and the confirmation of each that it arrived in full.
     expect(
       access.filter((r) => r.action === "export" && r.resource_type === "clinic_bundle"),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
   });
 
   test("the menu opens Conversations for a live channel, or once there is a conversation or a Meta thread; Bookings once there is a request", async () => {

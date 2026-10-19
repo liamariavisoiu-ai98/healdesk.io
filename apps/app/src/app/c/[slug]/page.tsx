@@ -59,7 +59,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
   const calendar = await getCalendarConnection(portal.clinicId, { actor: page.actorContext });
   const live = shell.status.kind !== "not_yet";
   const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts, live, calendar });
-  const tracker = buildTracker(state, calendar, facts.practice);
+  const tracker = buildTracker(state, calendar, facts.practice, facts.goLive ?? undefined);
   const finished = wizardFinished(state.screens, state.progress);
   const plan = state.billing ? getPlan(state.billing.boughtPlanId) : undefined;
   const one = audienceSingular(shell.audience);

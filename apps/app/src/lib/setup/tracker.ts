@@ -1,6 +1,7 @@
 import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
 import { whatToFix } from "@/lib/engine/practice/sections";
 import { NO_PRACTICE_STATE, practicePassed, type PracticeState } from "@/lib/engine/practice/state";
+import type { GoLiveSummary } from "@/lib/onboarding/go-live";
 import { formatReplyBy } from "@/lib/reply-by";
 
 import type { SetupState } from "./state";
@@ -39,7 +40,14 @@ import type { SetupState } from "./state";
 export const TALK_TO_AYA_BUILT = true;
 
 export type StageId =
-  "agreement" | "payment" | "website" | "answers" | "calendar" | "built" | "practice_questions";
+  | "agreement"
+  | "payment"
+  | "website"
+  | "answers"
+  | "calendar"
+  | "built"
+  | "practice_questions"
+  | "go_live";
 
 export type StageState = "done" | "not_done" | "info";
 
@@ -86,11 +94,27 @@ export function buildTracker(
   state: SetupState,
   calendar: CalendarConnectionView,
   practice: PracticeState = NO_PRACTICE_STATE,
+  goLive?: GoLiveSummary,
 ): Tracker {
   const stages = blockingStages(state, practice);
   stages.splice(4, 0, calendarStage(calendar));
+  // Home passes where go-live stands (lib/onboarding/go-live.ts), so the
+  // clinic reads why it has not gone live yet, from what go-live itself
+  // asks. It never blocks Talk to your AYA, which comes before it.
+  if (goLive) stages.push(goLiveStage(goLive));
   const left = stages.filter((s) => s.blocks && s.state !== "done").map((s) => s.label);
   return { stages, left, previewUnlocked: left.length === 0 };
+}
+
+/** "Going live": done once the clinic is in production, otherwise the one thing go-live says. */
+function goLiveStage(goLive: GoLiveSummary): Stage {
+  return {
+    id: "go_live",
+    label: "Going live",
+    state: goLive.production ? "done" : "not_done",
+    detail: goLive.line,
+    blocks: false,
+  };
 }
 
 /**

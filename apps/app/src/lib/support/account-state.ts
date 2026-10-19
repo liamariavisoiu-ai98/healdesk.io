@@ -198,6 +198,8 @@ const STAGE_LABELS: Readonly<Record<StageId, string>> = {
   calendar: "Calendar",
   built: "Assistant built",
   practice_questions: "Practice questions passed",
+  // Home's tracker shows it; the support chat's tracker is built without it.
+  go_live: "Going live",
 };
 
 const STAGE_WORDS: Readonly<Record<StageState, string>> = {

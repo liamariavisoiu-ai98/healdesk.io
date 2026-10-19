@@ -1,9 +1,7 @@
-import { CURRENT_BAA_VERSION, findClinicalContent, forwardingInstructions, openRequiredSteps } from "@healdesk/catalog";
-import { DrizzleQueryError, sql } from "drizzle-orm";
+import { findClinicalContent, forwardingInstructions, openRequiredSteps } from "@healdesk/catalog";
+import { DrizzleQueryError } from "drizzle-orm";
 import { DatabaseError } from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-
-import { unsafeDb } from "@/db";
 
 import {
   AgentConfigError,
@@ -15,14 +13,7 @@ import {
   validateAgentConfig,
 } from "@/lib/onboarding/agent-config";
 import { issueConnectionLink } from "@/lib/connections/links";
-import {
-  goLive,
-  goLivePreconditions,
-  NO_DIRECT_LINE,
-  readVoiceLine,
-  refusalReason,
-} from "@/lib/onboarding/go-live";
-import { setPhoneSettings } from "@/lib/onboarding/phone";
+import { refusalReason } from "@/lib/onboarding/go-live";
 import { applyBookingRequirementDefaults, applyBookingRequirementDefaultsFor } from "@/lib/onboarding/requirements";
 import { completeStep, readOnboarding, reopenStep } from "@/lib/onboarding/steps";
 import { listClinics } from "@/lib/ops/clinics";
@@ -30,7 +21,7 @@ import { undoSteps } from "@/lib/portal/settings-view";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedChannels, seedClinic } from "./setup/factories";
+import { inTenant, seedClinic } from "./setup/factories";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ACTOR = { type: "service", serviceName: "test" } as const;
@@ -210,159 +201,10 @@ describeDb("onboarding", () => {
     expect(overview.agentApprovedAt).toBeNull();
   });
 
-  test("go-live lists what is missing, then flips the clinic once everything is confirmed", async () => {
-    const { clinicId, organizationId } = await seedClinic("golive");
-    const before = (await listClinics()).find((c) => c.id === clinicId)!;
-    const check = goLivePreconditions(before);
-    expect(check.ok).toBe(false);
-    if (!check.ok) expect(check.missing.length).toBeGreaterThan(3);
-
-    const refused = await goLive(clinicId, { label: "ops@healdesk.test" });
-    expect(refused.status).toBe("refused");
-
-    // Ready it the way the onboarding call does.
-    await getMigratorPool().query(
-      `update clinics set is_covered_entity = false, opening_hours = '{"mon":[["09:00","17:00"]]}'::jsonb where id = $1`,
-      [clinicId],
-    );
-    await getMigratorPool().query(
-      `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
-       values ($1, $2, repeat('b', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@golive.test', now(), now())`,
-      [organizationId, CURRENT_BAA_VERSION],
-    );
-    await withTenant({ clinicId, actor: ACTOR }, async (tx) => {
-      await setPhoneSettings(tx, { phoneSystemType: "landline", carrier: "verizon", callRouting: "conditional", assistantNumberE164: "+14155550199" });
-      await seedAgentConfig(tx, "med-spa", "Golive Clinic");
-      await approveAgentConfig(tx, "Owner");
-      await completeStep(tx, "hours_confirmed");
-      await completeStep(tx, "covered_entity_confirmed");
-      await completeStep(tx, "forwarding_configured");
-      await completeStep(tx, "test_call_passed");
-    });
-
-    // 0040: the booking requirement set must be confirmed too, and the
-    // database refuses on its own while it is open — whichever of the two
-    // checks (goLivePreconditions or app_mark_clinic_production) says no
-    // first, the refusal names the step.
-    const stillOpen = await goLive(clinicId, { label: "ops@healdesk.test" });
-    expect(stillOpen.status).toBe("refused");
-    expect(JSON.stringify(stillOpen)).toMatch(/booking.requirements.confirmed/);
-    await getMigratorPool().query(
-      `update clinics set onboarding = onboarding || jsonb_build_object('booking_requirements_confirmed', now()::text) where id = $1`,
-      [clinicId],
-    );
-
-    const live = await goLive(clinicId, { label: "ops@healdesk.test" });
-    expect(live.status, JSON.stringify(live)).toBe("live");
-    const after = (await listClinics()).find((c) => c.id === clinicId)!;
-    expect(after.dataClassification).toBe("production");
-    expect(after.wentLiveAt).not.toBeNull();
-    const events = await getMigratorPool().query(`select count(*)::int as n from security_events where event = 'clinic_went_live'`);
-    expect(events.rows[0].n).toBe(1);
-
-    expect((await goLive(clinicId, { label: "ops@healdesk.test" })).status).toBe("refused");
-  });
-
-  test("go-live refuses an account on a superseded agreement, in the console's words and the database's", async () => {
-    const { clinicId, organizationId } = await seedClinic("superseded");
-    await getMigratorPool().query(
-      `update clinics
-          set is_covered_entity = false,
-              opening_hours = '{"mon":[["09:00","17:00"]]}'::jsonb,
-              call_routing_confirmed_at = now(),
-              agent_approved_at = now(),
-              onboarding = jsonb_build_object(
-                'hours_confirmed', now()::text, 'phone_type_confirmed', now()::text,
-                'call_routing_chosen', now()::text, 'covered_entity_confirmed', now()::text,
-                'agent_script_approved', now()::text, 'forwarding_configured', now()::text,
-                'test_call_passed', now()::text, 'booking_requirements_confirmed', now()::text)
-        where id = $1`,
-      [clinicId],
-    );
-    await getMigratorPool().query(
-      `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
-       values ($1, '1.0.0', repeat('c', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@superseded.test', now() - interval '30 days', now() - interval '30 days')`,
-      [organizationId],
-    );
-
-    // Everything else is confirmed, so the agreement is the one thing missing.
-    const superseded = `The agreement in effect is BAA v1.0.0, which has been superseded. The practice must accept v${CURRENT_BAA_VERSION} before go-live.`;
-    const before = (await listClinics()).find((c) => c.id === clinicId)!;
-    expect(before.baaVersion).toBe("1.0.0");
-    expect(goLivePreconditions(before)).toEqual({ ok: false, missing: [superseded] });
-    expect(await goLive(clinicId, { label: "ops@healdesk.test" })).toEqual({ status: "refused", reason: "Not ready.", missing: [superseded] });
-
-    // The database refuses on its own, and its sentence, not drizzle's
-    // "Failed query", is what the console would show.
-    const refused = await unsafeDb
-      .execute(sql`select app_mark_clinic_production(${clinicId}::uuid) as signed`)
-      .then(() => null, (error: unknown) => error);
-    expect(refused).toBeInstanceOf(DrizzleQueryError);
-    const reason = refusalReason(refused);
-    expect(reason).toContain("version 1.0.0, which has been superseded; refusing to mark it production.");
-    expect(reason).toContain("The practice accepts the current agreement first");
-    expect(reason).not.toMatch(/Failed query/);
-    expect((await listClinics()).find((c) => c.id === clinicId)!.dataClassification).toBe("synthetic");
-
-    // Once the practice has accepted the current version and it is bound, it
-    // is the agreement in effect and go-live copies its date. Bound here as
-    // the migrator: the re-acceptance path is a portal-build item, and
-    // app_bind_agreement refuses a second agreement for an organisation.
-    const { rows } = await getMigratorPool().query<{ accepted_at: Date }>(
-      `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
-       values ($1, $2, repeat('d', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@superseded.test', now(), now())
-       returning accepted_at`,
-      [organizationId, CURRENT_BAA_VERSION],
-    );
-    const live = await goLive(clinicId, { label: "ops@healdesk.test" });
-    expect(live, JSON.stringify(live)).toEqual({ status: "live", baaSignedAt: rows[0]!.accepted_at });
-  });
-
-  test("go-live refuses a clinic that bought phone until it has a direct line", async () => {
-    // CLAUDE.md, "Failure": every call AYA can't answer goes to the direct
-    // line. The wizard lets it be skipped, and says phone can't go live
-    // without it; go-live is where that holds.
-    const { clinicId, organizationId } = await seedClinic("golive-line");
-    await getMigratorPool().query(
-      `update clinics
-          set is_covered_entity = false,
-              opening_hours = '{"mon":[["09:00","17:00"]]}'::jsonb,
-              call_routing_confirmed_at = now(),
-              agent_approved_at = now(),
-              onboarding = jsonb_build_object(
-                'hours_confirmed', now()::text, 'phone_type_confirmed', now()::text,
-                'call_routing_chosen', now()::text, 'covered_entity_confirmed', now()::text,
-                'agent_script_approved', now()::text, 'forwarding_configured', now()::text,
-                'test_call_passed', now()::text, 'booking_requirements_confirmed', now()::text)
-        where id = $1`,
-      [clinicId],
-    );
-    await getMigratorPool().query(
-      `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
-       values ($1, $2, repeat('e', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@golive-line.test', now(), now())`,
-      [organizationId, CURRENT_BAA_VERSION],
-    );
-    await seedChannels(clinicId, [{ channel: "voice" }]);
-
-    const overview = (await listClinics()).find((c) => c.id === clinicId)!;
-    expect(goLivePreconditions(overview, await readVoiceLine(clinicId))).toEqual({
-      ok: false,
-      missing: [NO_DIRECT_LINE],
-    });
-    expect(await goLive(clinicId, { label: "ops@healdesk.test" })).toEqual({
-      status: "refused",
-      reason: "Not ready.",
-      missing: [NO_DIRECT_LINE],
-    });
-
-    await inTenant(clinicId, (c) =>
-      c.query(`insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550190')`, [
-        clinicId,
-      ]),
-    );
-    const live = await goLive(clinicId, { label: "ops@healdesk.test" });
-    expect(live.status, JSON.stringify(live)).toBe("live");
-  });
+  // Go-live is automatic since WP2 and no longer the voice-era checklist
+  // these steps fed: what it asks, its refusals in the console's words and
+  // the database's, a superseded agreement and phone's direct line are in
+  // tests/go-live.test.ts.
 
   test("the expiry fallback stamps source 'defaults' once the setup link has expired unspent", async () => {
     const { clinicId } = await seedClinic("defaults");

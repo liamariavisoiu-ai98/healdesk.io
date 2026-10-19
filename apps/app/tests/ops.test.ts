@@ -75,6 +75,8 @@ const clinic = (over: Partial<ClinicOverview> = {}): ClinicOverview => ({
   destructionAgreementVersion: null,
   billingClinicId: null,
   stripeConnectDisconnectedAt: null,
+  regulatoryRegime: "hipaa-if-covered",
+  agreementKind: "baa",
   ...over,
 });
 
@@ -141,6 +143,36 @@ describe("clinic blockers", () => {
     ]);
   });
 
+  test("go-live is automatic: a synthetic clinic's card says so, not the voice-era checklist (WP2)", () => {
+    const blockers = blockersFor(
+      clinic({ callRoutingConfirmedAt: null, agentApprovedAt: null, openingHoursPresent: false, onboarding: {} }),
+    );
+    expect(blockers.map((b) => b.message)).toEqual([
+      "Synthetic only — not yet accepting real patient data. It goes live by itself once everything go-live asks holds; its onboarding page lists what is left.",
+    ]);
+  });
+
+  test("an agreement that doesn't cover the practice is said before go-live, and blocks a live clinic's data (0051, 0085)", () => {
+    // A DPA practice that now bills insurance: the PHI gate refuses its data.
+    const live = blockersFor(
+      clinic({ dataClassification: "production", baaVersion: "dpa/1.0.0", agreementKind: "dpa", isCoveredEntity: true }),
+    );
+    expect(live.find((b) => b.level === "blocked")?.message).toMatch(/no longer covers the practice/);
+    const synthetic = blockersFor(
+      clinic({ baaVersion: "dpa/1.0.0", agreementKind: "dpa", isCoveredEntity: true }),
+    );
+    expect(synthetic.map((b) => b.message)).toEqual(
+      expect.arrayContaining([
+        "The data protection agreement dpa/1.0.0 is not released: the practice can't go live under it until it is.",
+        "Its agreement does not cover the practice: it signs a business associate agreement before go-live.",
+      ]),
+    );
+    // A clinic from before 0051, with no regime recorded, is not judged on it.
+    expect(
+      blockersFor(clinic({ dataClassification: "production", regulatoryRegime: null, agreementKind: null })),
+    ).toEqual([]);
+  });
+
   test("the current version, or no agreement at all, adds nothing about the version", () => {
     // No agreement at all is go-live's to report ("No signed business
     // associate agreement is in effect…"); this item is only about a version
@@ -188,6 +220,7 @@ describeDb("ops clinic listing", () => {
     expect(Object.keys(first!).sort()).toEqual(
       [
         "agentApprovedAt",
+        "agreementKind",
         "assistantNumberE164",
         "attributionMode",
         "baaSignedAt",
@@ -220,6 +253,7 @@ describeDb("ops clinic listing", () => {
         "phoneSystemType",
         "plan",
         "publishedPhoneE164",
+        "regulatoryRegime",
         "slug",
         "specialty",
         "stripeConnectAccountId",
@@ -246,6 +280,20 @@ describeDb("ops clinic listing", () => {
     expect(found?.baaSignedAt).toBeInstanceOf(Date);
     expect(found?.dataClassification).toBe("production");
     expect(blockersFor(found!)).toEqual([]);
+  });
+
+  test("projects the agreement gate's two columns, as provisioning and a supersede leave them (0085)", async () => {
+    const { clinicId } = await seedClinic("ops-gate-cols");
+    const read = async () => {
+      const found = (await listClinics()).find((c) => c.id === clinicId)!;
+      return { regime: found.regulatoryRegime, kind: found.agreementKind };
+    };
+    expect(await read()).toEqual({ regime: null, kind: null });
+    await getMigratorPool().query(
+      `update clinics set regulatory_regime = 'hipaa-if-covered', agreement_kind = 'baa' where id = $1`,
+      [clinicId],
+    );
+    expect(await read()).toEqual({ regime: "hipaa-if-covered", kind: "baa" });
   });
 
   test("reports the version of the agreement in effect: the newest bound, unterminated one (0048)", async () => {

@@ -21,6 +21,8 @@ import {
   truncateAll,
 } from "./setup/db";
 import { inTenant, seedClinic } from "./setup/factories";
+import { readyWebChat, setAgreement } from "./setup/go-live";
+import { attestPlatform } from "./setup/platform";
 
 /**
  * The September database audit, asserted (drizzle/0031_database_audit.sql).
@@ -77,28 +79,38 @@ async function seedAcceptance(
   return id;
 }
 
-/** Everything go-live checks except the agreement, set as the onboarding call sets it. */
-async function readyForGoLive(clinicId: string): Promise<void> {
-  await getMigratorPool().query(
-    `update clinics
-        set is_covered_entity = false,
-            opening_hours = '{"mon":[["09:00","17:00"]]}'::jsonb,
-            call_routing_confirmed_at = now(),
-            agent_approved_at = now(),
-            onboarding = jsonb_build_object(
-              'hours_confirmed', now()::text, 'phone_type_confirmed', now()::text,
-              'call_routing_chosen', now()::text, 'covered_entity_confirmed', now()::text,
-              'agent_script_approved', now()::text, 'forwarding_configured', now()::text,
-              'test_call_passed', now()::text, 'booking_requirements_confirmed', now()::text)
-      where id = $1`,
-    [clinicId],
-  );
+/**
+ * Everything go-live checks except the agreement (drizzle/0085): the
+ * agreement gate's columns, website chat meeting Gate B, and the platform
+ * attested (in beforeAll).
+ */
+async function readyForGoLive(clinicId: string, kind: "baa" | "dpa" = "baa"): Promise<void> {
+  await setAgreement(clinicId, "", { kind, version: null });
+  await readyWebChat(clinicId);
+}
+
+/** One committed transaction on the app role inside the clinic's tenant: go-live runs only there. */
+async function committedInTenant<T>(clinicId: string, fn: (c: Client) => Promise<T>): Promise<T> {
+  const client = await getAppPool().connect();
+  try {
+    await client.query("begin");
+    await client.query(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
+    const out = await fn(client as unknown as Client);
+    await client.query("commit");
+    return out;
+  } catch (error) {
+    await client.query("rollback").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 describeDb("database audit (0031)", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    await attestPlatform();
   }, 60_000);
 
   afterAll(async () => {
@@ -490,71 +502,74 @@ describeDb("database audit (0031)", () => {
     expect(rows[0]).toEqual({ released: false, live: false });
   });
 
-  test("app_mark_clinic_production refuses without a bound agreement and copies its date with one", async () => {
+  test("app_mark_clinic_production runs only in the clinic's own tenant, refuses without a bound agreement, and copies its date with one", async () => {
     const { clinicId, organizationId } = await seedClinic("golive");
+    await readyForGoLive(clinicId);
 
-    await asTenant(null, async (c) => {
+    // Outside the clinic's tenant (no tenant, or another's) it runs at all
+    // nowhere: the channel tables it reads FORCE row-level security (0085).
+    const other = await seedClinic("golive-other");
+    for (const tenant of [null, other.clinicId]) {
+      await asTenant(tenant, async (c) => {
+        await expect(
+          c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
+        ).rejects.toMatchObject({ code: "42501" });
+      });
+    }
+
+    await asTenant(clinicId, async (c) => {
       await expect(
         c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
-      ).rejects.toMatchObject({ code: "23514" });
+      ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/no bound, in-effect agreement/) });
     });
 
-    const agreementId = await seedAcceptance(organizationId);
+    const accepted = await setAgreement(clinicId, organizationId);
 
-    // Bound agreement but covered-entity status still "I'm not sure": still no.
-    await asTenant(null, async (c) => {
+    // Bound agreement but covered-entity status "I'm not sure": still no.
+    await getMigratorPool().query(`update clinics set is_covered_entity = null where id = $1`, [clinicId]);
+    await asTenant(clinicId, async (c) => {
       await expect(
         c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
-      ).rejects.toMatchObject({ code: "23514" });
+      ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/covered-entity status/) });
     });
     await getMigratorPool().query(`update clinics set is_covered_entity = false where id = $1`, [clinicId]);
 
-    // Still no: the onboarding checklist (0033) is open. The refusal names it.
-    await asTenant(null, async (c) => {
-      await expect(
-        c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
-      ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/opening hours/) });
-    });
-    await getMigratorPool().query(
-      `update clinics
-          set opening_hours = '{"mon":[["09:00","17:00"]]}'::jsonb,
-              call_routing_confirmed_at = now(),
-              agent_approved_at = now(),
-              onboarding = jsonb_build_object(
-                'hours_confirmed', now()::text, 'phone_type_confirmed', now()::text,
-                'call_routing_chosen', now()::text, 'covered_entity_confirmed', now()::text,
-                'agent_script_approved', now()::text, 'forwarding_configured', now()::text,
-                'test_call_passed', now()::text, 'booking_requirements_confirmed', now()::text)
-        where id = $1`,
-      [clinicId],
-    );
-
-    const { rows: accepted } = await getMigratorPool().query<{ accepted_at: Date }>(
-      `select accepted_at from baa_acceptances where id = $1`,
-      [agreementId],
-    );
-
     // Committed, not rolled back: the flip is the thing under test.
-    const { rows } = await getAppPool().query<{ signed: Date }>(
-      `select app_mark_clinic_production($1::uuid) as signed`,
-      [clinicId],
+    const { rows } = await committedInTenant(clinicId, (c) =>
+      c.query<{ signed: Date }>(`select app_mark_clinic_production($1::uuid) as signed`, [clinicId]),
     );
-    expect(rows[0]!.signed.getTime()).toBe(accepted[0]!.accepted_at.getTime());
+    expect(rows[0]!.signed.getTime()).toBe(accepted!.getTime());
 
-    const { rows: clinic } = await getMigratorPool().query<{
-      data_classification: string;
-      baa_signed_at: Date;
-    }>(`select data_classification, baa_signed_at from clinics where id = $1`, [clinicId]);
-    expect(clinic[0]!.data_classification).toBe("production");
-    expect(clinic[0]!.baa_signed_at.getTime()).toBe(accepted[0]!.accepted_at.getTime());
+    const read = async () =>
+      (
+        await getMigratorPool().query<{
+          data_classification: string;
+          baa_signed_at: Date;
+          went_live_at: Date;
+        }>(`select data_classification, baa_signed_at, went_live_at from clinics where id = $1`, [clinicId])
+      ).rows[0]!;
+    const after = await read();
+    expect(after.data_classification).toBe("production");
+    expect(after.baa_signed_at.getTime()).toBe(accepted!.getTime());
 
-    // A terminated agreement no longer qualifies.
-    await getMigratorPool().query(`update baa_acceptances set terminated_at = now() where id = $1`, [
-      agreementId,
-    ]);
-    await asTenant(null, async (c) => {
+    // Go-live happens once: asked again, it returns the same date and moves nothing.
+    const again = await committedInTenant(clinicId, (c) =>
+      c.query<{ signed: Date }>(`select app_mark_clinic_production($1::uuid) as signed`, [clinicId]),
+    );
+    expect(again.rows[0]!.signed.getTime()).toBe(accepted!.getTime());
+    expect((await read()).went_live_at.getTime()).toBe(after.went_live_at.getTime());
+
+    // A terminated agreement no longer qualifies another clinic.
+    const ended = await seedClinic("golive-ended");
+    await readyForGoLive(ended.clinicId);
+    await setAgreement(ended.clinicId, ended.organizationId);
+    await getMigratorPool().query(
+      `update baa_acceptances set terminated_at = now() where organization_id = $1`,
+      [ended.organizationId],
+    );
+    await asTenant(ended.clinicId, async (c) => {
       await expect(
-        c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
+        c.query(`select app_mark_clinic_production($1::uuid)`, [ended.clinicId]),
       ).rejects.toMatchObject({ code: "23514" });
     });
   });
@@ -572,12 +587,14 @@ describeDb("database audit (0031)", () => {
       await readyForGoLive(clinicId);
       await seedAcceptance(organizationId, version);
 
-      await expect(
-        getAppPool().query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
-      ).rejects.toMatchObject({
-        code: "23514",
-        message: expect.stringContaining(`version ${version}, which has been superseded`),
-        hint: expect.stringMatching(/accepts the current agreement first/),
+      await asTenant(clinicId, async (c) => {
+        await expect(
+          c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
+        ).rejects.toMatchObject({
+          code: "23514",
+          message: expect.stringContaining(`version ${version}, which has been superseded`),
+          hint: expect.stringMatching(/accepts the current agreement first/),
+        });
       });
       const { rows } = await getMigratorPool().query(
         `select data_classification, baa_signed_at, went_live_at from clinics where id = $1`,
@@ -592,12 +609,14 @@ describeDb("database audit (0031)", () => {
     // clinic had signed 1.5.0, which says the optional booking details are
     // asked only on a call while the website chat asks for them too, so 1.5.1
     // replaced it outright (owner, 19 October 2026), as 1.5.0 had replaced
-    // 1.4.0 (14 October), and the test above refuses a 1.5.0 clinic.
+    // 1.4.0 (14 October), and the test above refuses a 1.5.0 clinic. Go-live
+    // reads the floor through app_baa_version_acceptable, never a version of
+    // its own (0085), so the next release moves it too.
     expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.5.1");
     const { clinicId, organizationId } = await seedClinic("acceptable");
     await readyForGoLive(clinicId);
     await seedAcceptance(organizationId, "1.5.1");
-    await getAppPool().query(`select app_mark_clinic_production($1::uuid)`, [clinicId]);
+    await committedInTenant(clinicId, (c) => c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]));
     const { rows } = await getMigratorPool().query(
       `select data_classification from clinics where id = $1`,
       [clinicId],
@@ -605,19 +624,23 @@ describeDb("database audit (0031)", () => {
     expect(rows[0]).toEqual({ data_classification: "production" });
   });
 
-  test("app_mark_clinic_production refuses a DPA clinic until the DPA's release gives go-live a kind-aware rule (0051)", async () => {
-    // 0048's allow-list names BAA versions only, so a practice under the DPA
-    // reads as superseded and cannot go live. That is the safe way round while
-    // the DPA is a draft; releasing it has to change go-live on purpose, and
-    // this test is what makes that change deliberate.
+  test("app_mark_clinic_production asks a DPA's release, not the BAA floor, of a DPA clinic: refused while it is a draft (0085)", async () => {
+    // The kind-aware rule 0051 left for this rewrite: a DPA's version goes
+    // live once released (app_dpa_version_released), a BAA's at the floor.
+    // The DPA is a draft, so a practice under it, which it covers (a
+    // hipaa-if-covered practice that is not covered), is refused by name.
     const { clinicId, organizationId } = await seedClinic("dpagolive");
-    await readyForGoLive(clinicId);
+    await readyForGoLive(clinicId, "dpa");
     await seedAcceptance(organizationId, "dpa/1.0.0");
-    await expect(
-      getAppPool().query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
-    ).rejects.toMatchObject({
-      code: "23514",
-      message: expect.stringContaining("version dpa/1.0.0, which has been superseded"),
+    await asTenant(clinicId, async (c) => {
+      const { rows } = await c.query<{ codes: string[] }>(`select app_go_live_missing($1::uuid) as codes`, [clinicId]);
+      expect(rows[0]!.codes).toEqual(["agreement_version"]);
+      await expect(
+        c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
+      ).rejects.toMatchObject({
+        code: "23514",
+        message: expect.stringContaining("data protection agreement version dpa/1.0.0, which is not released"),
+      });
     });
   });
 

@@ -100,6 +100,7 @@ import {
   confirmWidgetOnSite,
   decideChannel,
   evaluateChannels,
+  readGoLiveCheck,
   readReadinessFacts,
   type LiveInput,
 } from "@/lib/channels/events";
@@ -156,7 +157,7 @@ import {
   type TranscriptDeliveries,
 } from "@/lib/conversations/transcript-outbox";
 import { isDemoClinic } from "@/lib/booking/terms";
-import { applyBookingRequirementDefaultsFor, setBookingRequirementsWithin } from "@/lib/onboarding/requirements";
+import { setBookingRequirementsWithin } from "@/lib/onboarding/requirements";
 import {
   opCloseUnfinishedSetup,
   opCommitRefund,
@@ -186,6 +187,11 @@ import {
   opStopClinicEmailChange,
 } from "@/lib/ops/account-ops";
 import {
+  opAttestPlatformCompliance,
+  opListPlatformCompliance,
+  opWithdrawPlatformCompliance,
+} from "@/lib/ops/compliance-ops";
+import {
   blockersFor,
   listClinics as listClinicOverviews,
   type ClinicBlocker,
@@ -198,7 +204,7 @@ import {
   updateAgentConfig,
   type AgentConfigInput,
 } from "@/lib/onboarding/agent-config";
-import { goLive, goLivePreconditions, readVoiceLine } from "@/lib/onboarding/go-live";
+import { markClinicProduction } from "@/lib/onboarding/go-live";
 import {
   decidePracticeReview,
   listPracticeReviews,
@@ -520,6 +526,15 @@ const OPERATIONS = [
   "setCoveredEntity",
   "listClinicCards",
   "listSiteReadFailures",
+  // The platform's attestations (WP2, lib/ops/compliance-ops.ts; plan Part
+  // K): the vendors' business associate agreements in the chain and Gate
+  // B's readiness flags, which automatic go-live and each channel's live
+  // read. Entered with the operator's fresh TOTP, checked on apps/web before
+  // the request is signed. Subjects, a document reference and two days;
+  // never a clinic, never a patient.
+  "listPlatformCompliance",
+  "attestPlatformCompliance",
+  "withdrawPlatformCompliance",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -599,6 +614,9 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "changeClinicEmail",
   "stopClinicEmailChange",
   "setCoveredEntity",
+  // Mutating: an attestation of the platform recorded, or withdrawn.
+  "attestPlatformCompliance",
+  "withdrawPlatformCompliance",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1177,6 +1195,12 @@ export async function runOperation(
       return opListClinicCards(operator);
     case "listSiteReadFailures":
       return opListSiteReadFailures(operator);
+    case "listPlatformCompliance":
+      return opListPlatformCompliance();
+    case "attestPlatformCompliance":
+      return opAttestPlatformCompliance(args, operator);
+    case "withdrawPlatformCompliance":
+      return opWithdrawPlatformCompliance(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -2361,7 +2385,14 @@ export type OnboardingView = {
     approvedAt: string | null;
     approvedByLabel: string | null;
   } | null;
-  goLive: { ok: true } | { ok: false; missing: string[] };
+  /**
+   * Go-live, automatic since WP2 (lib/onboarding/go-live.ts): nothing left,
+   * or what it still waits on in the console's words, with each item's code;
+   * and what Gate B names but does not ask, because it is not built.
+   */
+  goLive:
+    | { ok: true; notBuilt: string[] }
+    | { ok: false; missing: string[]; codes: string[]; notBuilt: string[] };
   /** §H.5: the booking requirement set — resolved ids (locked ones included), who settled it, when. */
   requirements: {
     fields: string[];
@@ -2437,7 +2468,7 @@ async function opGetOnboarding(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
 
-  const { agent, metaChannels, metaPlatforms, bookingRequests, booking, bookingView, channels, coverageMode } = await withTenant(
+  const { agent, metaChannels, metaPlatforms, bookingRequests, booking, bookingView, channels, coverageMode, goLive } = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
@@ -2447,7 +2478,9 @@ async function opGetOnboarding(
         tx,
         states.map((c) => c.channel),
       );
+      const goLiveNow = await readGoLiveCheck(tx);
       return {
+        goLive: goLiveNow,
         channels: states.map((c): OnboardingChannelView => ({
           channel: c.channel,
           readyAt: c.readyAt?.toISOString() ?? null,
@@ -2543,7 +2576,7 @@ async function opGetOnboarding(
           approvedByLabel: agent.approvedByLabel,
         }
       : null,
-    goLive: goLivePreconditions(clinic, await readVoiceLine(clinic.id)),
+    goLive: goLiveView(goLive),
     channels,
     requirements: {
       fields: resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements).map((f) => f.id),
@@ -2922,6 +2955,29 @@ export type GoLiveState =
   | { status: "refused"; message: string; missing: string[] }
   | { status: "error"; message: string };
 
+/** The onboarding view's go-live: what is left, as the console words it. */
+function goLiveView(
+  read: Awaited<ReturnType<typeof readGoLiveCheck>>,
+): OnboardingView["goLive"] {
+  if (!read) return { ok: false, missing: ["No such clinic."], codes: [], notBuilt: [] };
+  const { check, production } = read;
+  if (production || check.ok) return { ok: true, notBuilt: check.notBuilt };
+  return {
+    ok: false,
+    missing: check.missing.map((m) => m.text),
+    codes: check.missing.map((m) => m.code),
+    notBuilt: check.notBuilt,
+  };
+}
+
+/**
+ * "Check go-live now": the operator asks what the clinic's channel events
+ * ask by themselves (lib/channels/events.ts) whenever one of their inputs
+ * arrives, so it never does more than automatic go-live would. When nothing
+ * is missing it flips the clinic, recorded under the operator's address, and
+ * moves every channel on; otherwise it says what is left, in the console's
+ * words, and changes nothing. A demo clinic is refused first, by name.
+ */
 async function opGoLive(
   args: Record<string, unknown>,
   operator: Operator,
@@ -2930,18 +2986,16 @@ async function opGoLive(
   if (!clinicId || !UUID_SHAPED.test(clinicId)) {
     return ok({ status: "error", message: "That is not a clinic id." } satisfies GoLiveState);
   }
+  const clinic = await clinicById(clinicId);
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies GoLiveState);
   // A demo clinic is healdesk's own fictional practice (scripts/demo-clinic.ts,
-  // owner decision Q6), under an agreement the operator signed for it, on
-  // which draft calendar terms count. It never handles a real patient, so it
-  // never goes live: the flip would put a fictional signature behind a
-  // production clinic. Asked before anything else is touched, and of the
-  // database's own marker (app_clinic_is_demo), which is false for any clinic
-  // with a Stripe id.
-  const demo = await withTenant(
-    { clinicId, actor: actorFor(operator), request: operator.request },
-    (tx) => isDemoClinic(tx),
-  );
-  if (demo) {
+  // owner decision Q6), under an agreement the operator signed for it. It
+  // never handles a real patient, so it never goes live: the flip would put
+  // a fictional signature behind a production clinic. Go-live refuses it on
+  // the database's own marker (app_clinic_is_demo) too; this is the console's
+  // sentence for it.
+  const context = { clinicId, actor: actorFor(operator), request: operator.request };
+  if (await withTenant(context, (tx) => isDemoClinic(tx))) {
     return ok({
       status: "refused",
       message: "This is a demo clinic, and a demo clinic never goes live.",
@@ -2950,33 +3004,30 @@ async function opGoLive(
       ],
     } satisfies GoLiveState);
   }
-  // §H.5, "whichever comes first": a setup link that expired unspent has the
-  // specialty defaults stamped now rather than at the next hourly tick, so
-  // the operator on the call is not blocked by a step nobody can answer. The
-  // same rule as the tick — an outstanding link, or a clinic with no link
-  // inside its fourteen-day grace, still leaves the step open and go-live
-  // refuses as before. Never fatal: go-live judges the row as it finds it.
-  try {
-    await applyBookingRequirementDefaultsFor(clinicId);
-  } catch (error) {
-    log.warn("ops api: could not apply booking requirement defaults before go-live", {
-      clinicId,
-      error: error instanceof Error ? error.name : "unknown error",
+  if (clinic.dataClassification === "production") {
+    return ok({ status: "refused", message: "Already in production.", missing: [] } satisfies GoLiveState);
+  }
+  const outcome = await withTenant(context, async (tx): Promise<GoLiveState> => {
+    const read = await readGoLiveCheck(tx);
+    if (!read) return { status: "error", message: "No such clinic." };
+    if (read.production) return { status: "refused", message: "Already in production.", missing: [] };
+    if (!read.check.ok) {
+      return { status: "refused", message: "Not ready.", missing: read.check.missing.map((m) => m.text) };
+    }
+    const result = await markClinicProduction(tx, {
+      via: "operator",
+      actorLabel: operator.email,
+      ipAddress: operator.request.ipAddress ?? null,
+      userAgent: operator.request.userAgent ?? null,
+      clinicSlug: clinic.slug,
     });
-  }
-  const result = await goLive(clinicId, {
-    label: operator.email,
-    ipAddress: operator.request.ipAddress,
-    userAgent: operator.request.userAgent,
+    if (result.status === "refused") return { status: "refused", message: result.reason, missing: [] };
+    // Each channel moves on as far as its own inputs allow, in the same
+    // transaction as the flip: what has every input goes live with it.
+    await evaluateChannels(tx, { actor: "ops", goLiveVia: "operator" });
+    return { status: "live", baaSignedOn: asDate(result.baaSignedAt) };
   });
-  switch (result.status) {
-    case "live":
-      return ok({ status: "live", baaSignedOn: asDate(result.baaSignedAt) } satisfies GoLiveState);
-    case "refused":
-      return ok({ status: "refused", message: result.reason, missing: result.missing } satisfies GoLiveState);
-    case "not_found":
-      return ok({ status: "error", message: "No such clinic." } satisfies GoLiveState);
-  }
+  return ok(outcome);
 }
 
 

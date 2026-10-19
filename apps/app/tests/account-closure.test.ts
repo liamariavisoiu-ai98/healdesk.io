@@ -180,7 +180,10 @@ async function seedAccount(clinicId: string, userId: string, email: string): Pro
     await c.query(
       `update clinics set website = 'example-clinic.test', site_profile = '{"services": []}'::jsonb,
               onboarding = '{"basics": true}'::jsonb, published_phone_e164 = '+15550100002',
-              carrier = 'att', booking_provider = 'mindbody', meta_front_door_enabled = true
+              carrier = 'att', booking_provider = 'mindbody', meta_front_door_enabled = true,
+              call_routing = 'always', call_routing_confirmed_at = now(),
+              timezone_confirmed_at = now(), agent_approved_at = now(), went_live_at = now(),
+              attribution_mode = 'verified', plan = 'voice-web'
         where id = $1`,
       [clinicId],
     );
@@ -422,6 +425,15 @@ describeDb("closing the account once the data is destroyed and nothing is left t
       carrier: null,
       booking_provider: null,
       meta_front_door_enabled: false,
+      // How calls were routed, what was confirmed, when it went live and the
+      // package: setup, back to the defaults (the review's #12).
+      call_routing: "conditional",
+      call_routing_confirmed_at: null,
+      timezone_confirmed_at: null,
+      agent_approved_at: null,
+      went_live_at: null,
+      attribution_mode: "estimated",
+      plan: null,
       name: "close-leaving Clinic",
       published_phone_e164: "+15550100002",
       notice_address: leaving.staffEmail,

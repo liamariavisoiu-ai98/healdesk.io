@@ -334,11 +334,24 @@ BEGIN
   DELETE FROM checkout_intents ci WHERE ci.provisioned_clinic_id = target_clinic;
   GET DIAGNOSTICS n = ROW_COUNT; done := done || jsonb_build_object('checkout_intents', n);
 
-  -- The setup columns of the clinic row, and the closure beside them. Its
-  -- name, slug, specialty, time zone, address and published number stay: the
-  -- kept records name the practice by them, and the widget a clinic has not
-  -- yet taken off its website shows the number to call. The direct-booking
-  -- clause it signed stays with the agreement.
+  -- The setup columns of the clinic row, and the closure beside them: every
+  -- column the practice or the wizard set up, how calls were routed and
+  -- when it went live included, back to its default. What stays, and why:
+  --   name, slug, specialty, time zone and address: the kept records name
+  --     the practice by them;
+  --   the published number: the widget a clinic has not yet taken off its
+  --     website shows it as the number to call;
+  --   is_covered_entity, the agreement kind and regime, the BAA stamps, the
+  --     data classification and the direct-booking clause: terms of the
+  --     signed agreement;
+  --   the record clock (retention_*_days and its shortening): the clock the
+  --     agreement's retention clause ran on, which the kept audit of each
+  --     purge and the destruction refers to;
+  --   billing_clinic_id, the Stripe Connect disconnect and client_number:
+  --     billing records, and the label the destroyed credentials were sealed
+  --     under;
+  --   the offboarding dates, the destruction notice address and the
+  --     organisation: what destruction and its notice ran on.
   UPDATE clinics c
      SET site_profile = NULL,
          onboarding = '{}'::jsonb,
@@ -357,6 +370,13 @@ BEGIN
          booking_mode = 'desk_confirms',
          meta_front_door_enabled = false,
          stripe_connect_connected_at = NULL,
+         call_routing = 'conditional',
+         call_routing_confirmed_at = NULL,
+         timezone_confirmed_at = NULL,
+         agent_approved_at = NULL,
+         went_live_at = NULL,
+         attribution_mode = 'estimated',
+         plan = NULL,
          notice_address = kept_address,
          notice_address_until = CASE WHEN kept_address IS NULL THEN NULL
                                      ELSE clinic_row.offboarding_started_at + interval '6 years' END,

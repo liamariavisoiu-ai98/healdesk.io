@@ -280,11 +280,34 @@ describe("assess", () => {
   });
 
   test("checkout waits on the Sheet it seals purchases into, and on the seal", () => {
-    expect(bridge(assess(allGood({ proofs: { ...allGood().proofs, sheet: { ok: false, detail: "no access" } } })), "web-stripe").status).toBe("off");
+    const sheetDown = assess(allGood({ proofs: { ...allGood().proofs, sheet: { ok: false, detail: "no access" } } }));
+    // A broken Sheet breaks checkout too; only the Sheet gets the to-do.
+    expect(bridge(sheetDown, "web-stripe").status).toBe("broken");
+    expect(bridge(sheetDown, "web-stripe").statusText).toMatch(/^Waits on bridge \d+, "Leads and setup requests/);
+    expect(sheetDown.todos.filter((t) => t.kind === "fix").map((t) => t.bridge)).toEqual(["web-sheets"]);
 
     const live = allGood();
     live.vercel.HEALDESK_PROVISION_SECRET = false;
     expect(bridge(assess(live), "web-stripe").status).toBe("needs-key");
+  });
+
+  test("a bridge that waits on a broken or unconfigured one takes its colour, never 'off on purpose'", () => {
+    const refused = assess(allGood({ host: { state: "refused", message: "most often the two copies differ" }, proofs: {} }));
+    expect(bridge(refused, "stripe-web").status).toBe("broken");
+    expect(bridge(refused, "stripe-web").statusText).toContain("Most often the two copies differ");
+
+    expect(bridge(assess(allGood({ host: { state: "unconfigured" }, proofs: {} })), "stripe-web").status).toBe("needs-key");
+    expect(bridge(assess(allGood({ proofs: { ...allGood().proofs, kms: { ok: false, detail: "denied" } } })), "app-ses").status).toBe("broken");
+  });
+
+  test("an engine older than this page's list says so, rather than 'could not be read'", () => {
+    const live = allGood();
+    delete (live.host as Extract<HostReach, { state: "answered" }>).present.HEALDESK_VOICE_ENABLED;
+    const view = assess(live);
+    expect(bridge(view, "retell-app").status).toBe("unknown");
+    expect(bridge(view, "retell-app").statusText).toContain("older version");
+    for (const b of view.bridges) expect(b.statusText, b.id).not.toContain("could not be read");
+    expect(view.todos.some((t) => t.kind === "check" && t.text.includes("deploy-app.yml"))).toBe(true);
   });
 
   test("GitHub's repository variables are named but never checked from here", () => {
@@ -320,8 +343,14 @@ describe("assess", () => {
     expect(bridge(view, "web-app").status).toBe("unknown");
     expect(bridge(view, "app-kms").status).toBe("unknown");
     expect(bridge(view, "app-gcal").status).toBe("unknown");
+    // Keyless work on the engine is not "connected" while there is no engine.
+    expect(bridge(view, "console-app").status).toBe("unknown");
+    expect(bridge(view, "app-exports").status).toBe("unknown");
     expect(view.todos.some((t) => t.kind === "add-key" && t.key?.startsWith("aws."))).toBe(false);
     expect(view.todos.some((t) => t.kind === "check")).toBe(true);
+    // What is unbuilt stays on the list, whatever the host is doing.
+    const builds = view.todos.filter((t) => t.kind === "build").map((t) => t.bridge);
+    expect(builds).toEqual(expect.arrayContaining(["patients-widget", "app-clinic-stripe", "clinic-app"]));
   });
 
   test("a host that refuses the signed call breaks the bridge between the two apps", () => {

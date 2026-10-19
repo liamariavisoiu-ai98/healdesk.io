@@ -245,7 +245,8 @@ same conversation code.
   `META_APP_ID`, `META_LOGIN_CONFIG_ID`, `META_WHATSAPP_CONFIG_ID` and `STRIPE_CONNECT_CLIENT_ID`
   (the worker gets the Connect client id too: offboarding revokes Connect access with it), and,
   with `enable_voice`, `HEALDESK_VOICE_ENABLED=1`, which tells `/admin/map` the voice endpoint
-  exists (the pasted secret cannot: the web tier holds every `app/` parameter); the voice task
+  exists (the pasted secret cannot: the web tier holds every `app/` parameter; like any task
+  change, it reaches the running web tasks with the next full deploy); the voice task
   (`enable_voice`) adds only `PORT=3001` and `HOSTNAME=0.0.0.0`. An empty variable is left out,
   not set to `""`.
 - **Never set on web, worker or voice**, enforced by preconditions that fail the plan and by the
@@ -1139,7 +1140,8 @@ is a process and a service of its own. Turning it on creates:
   by default, on `task_cpu_architecture`). The process is container `app`: `node --import tsx
   src/voice/server.ts` in `/repo/apps/app` under ECS's init, `stopTimeout` 120, health check
   `GET http://127.0.0.1:3001/health`. It gets the web tier's plain environment without the
-  web-only names (`KEEP_ALIVE_TIMEOUT`, the SES events topic, the Meta and Connect ids), on
+  web-only names (`KEEP_ALIVE_TIMEOUT`, the SES events topic, the Meta and Connect ids,
+  `HEALDESK_VOICE_ENABLED`), on
   `PORT=3001` and `HOSTNAME=0.0.0.0`; the web tier's secrets, `HEALDESK_RETELL_LLM_SECRET` among
   them; the app task role; log group `/healdesk/production/voice`. Beside it, the `tls-proxy`
   sidecar exactly as in the web task, except its health check, which asks for `/health`: the
@@ -1195,8 +1197,10 @@ calls to an agent not yet updated are refused in between, so do it in a quiet ho
 
 **Turning it off**: point each clinic's forwarding back to its own line, set `enable_voice = false`
 and apply. The apply waits while the voice tasks drain, up to an hour (the service's delete
-timeout is 65 minutes, inside `infra.yml`'s 90), so do it in a quiet hour. The log group and its
-logs stay.
+timeout is 65 minutes, inside `infra.yml`'s 90), so do it in a quiet hour. Then run a full
+`deploy-app.yml` (not `restart_only`): the web tasks keep the revision the last deploy registered,
+so until then they still carry `HEALDESK_VOICE_ENABLED` and `/admin/map` still shows voice as on.
+The log group and its logs stay.
 
 **Cost**, on Fargate ARM64 in us-east-1 at $0.03238 per vCPU-hour and $0.00356 per GB-hour, 730
 hours a month: one task of 0.25 vCPU and 1 GB is 5.91 + 2.60 = $8.51 a month, plus $0.10 for its

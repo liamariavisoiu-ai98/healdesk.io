@@ -39,7 +39,7 @@ export const BANDS: Record<Band, Rect & { title: string; note: string }> = {
     note: "Patient data lives only here: our AWS account, under business associate agreements.",
   },
   shared: { x: 16, y: 448, w: 1368, h: 170, title: "Shared by both sides", note: "Both apps use these. No patient data goes through them." },
-  shop: { x: 16, y: 630, w: 1368, h: 360, title: "Shop side", note: "healdesk.io on Vercel. No patient data, ever." },
+  shop: { x: 16, y: 630, w: 1368, h: 360, title: "Shop side", note: "healdesk.io on Vercel. It never holds patient data." },
 };
 
 export type HubId = "app" | "web";

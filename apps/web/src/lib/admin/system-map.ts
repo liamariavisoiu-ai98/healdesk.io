@@ -524,7 +524,8 @@ export const KEYS: readonly KeyDef[] = [
     home: "aws",
     label: "The password in each clinic's Retell line address",
     need: "later",
-    waitsFor: "every business associate agreement in the chain is signed, Retell's included; then voice is switched on (enable_voice) after a test call on a made-up clinic",
+    waitsFor:
+      "you turn voice on, and it comes first: paste it, then switch enable_voice on with a full deploy, then make a test call on a made-up clinic. Real calls wait until every business associate agreement in the chain is signed, Retell's included",
     rotation: {
       kind: "every",
       days: 180,
@@ -541,7 +542,8 @@ export const KEYS: readonly KeyDef[] = [
     home: "aws",
     label: "The voice endpoint's switch (enable_voice)",
     need: "later",
-    waitsFor: "every business associate agreement in the chain is signed and a test call on a made-up clinic has passed; then enable_voice is turned on in production.tfvars",
+    waitsFor:
+      "enable_voice is turned on, after the password above is pasted: set it in production.tfvars, run infra.yml apply and a full deploy-app.yml, then make a test call on a made-up clinic. Real calls wait until every business associate agreement in the chain is signed, Retell's included",
     rotation: { kind: "public" },
   },
   {
@@ -1066,8 +1068,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "Owners talk to AYA's demo",
     carries: "Their voice, in the browser or on the phone",
     example: "An owner presses \"Talk now\" and speaks to AYA in the browser, straight to Retell; or dials the demo line from their mobile.",
-    keys: [],
-    keyless: "The browser uses a one-call pass the shop window fetched for it; a phone call needs nothing.",
+    // The browser half needs the one-call pass the shop window fetches with
+    // these (lib/retell-web-call.ts); a phone call to the demo line needs none.
+    keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_DEMO_INBOUND_AGENT_ID", "vercel.RETELL_CLINIC_DEMO_AGENT_ID"],
+    keyless: "A phone call to the demo line needs nothing of ours; the browser uses a one-call pass the shop window fetches with these keys.",
     phi: false,
     build: "built",
   },
@@ -1100,7 +1104,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. If our voice endpoint or Retell is down, nothing of ours sends the call to the clinic's line: that rests on each Retell agent's own fallback setting (the automatic fall-through is not built).",
+      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. If our voice endpoint is down, nothing of ours sends the call to the clinic's line: that rests on each Retell agent's own failure setting, so check it names the clinic's direct line. If Retell itself is down, no setting of Retell's runs, and the clinic's forwarding has to be removed by hand (the automatic fall-through is not built).",
   },
   {
     id: "retell-app",
@@ -1116,7 +1120,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Switched off in AWS (enable_voice) until a test call on a made-up clinic checks Retell's fields. A call in progress when the voice task crashes is lost, with its words and its booking request: the backstop from Retell's call-ended message is not built.",
+      "Off in AWS (enable_voice). Turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. A call in progress when the voice task crashes is lost, with its words and its booking request: the backstop from Retell's call-ended message is not built.",
   },
   {
     id: "retell-clinic",
@@ -1263,13 +1267,15 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "clinic-stripe",
     to: "app",
     title: "Stripe tells us a deposit was paid",
-    carries: "\"Deposit paid\", a clinic disconnecting its Stripe, and every other sale on the clinic's Stripe, ignored on arrival",
-    example: "The patient pays the deposit link sent in the website chat; Stripe tells the engine, signed, and the booking shows the deposit as paid.",
+    carries:
+      "\"Deposit paid\", a clinic disconnecting its Stripe, and every other Stripe Checkout or Payment Link sale on the clinic's Stripe, ignored on arrival",
+    example:
+      "Today: a clinic disconnects its Stripe, Stripe tells the engine, signed, and the engine turns that clinic's deposits off. Once chat sends deposit links, a patient paying one will show on the booking as paid.",
     // The route answers 503 without our platform key.
     keys: ["aws.STRIPE_CONNECT_WEBHOOK_SECRET", "aws.STRIPE_SECRET_KEY"],
     phi: true,
     phiNote:
-      "Stripe signs no business associate agreement. The clinic's own Stripe account sends every sale it makes, patients' details included; the engine acts only on its own deposits and a disconnect, and drops the rest on arrival without keeping it.",
+      "Stripe signs no business associate agreement. The clinic's own Stripe account sends every sale it takes through Stripe Checkout or a Payment Link, patients' details included; the engine acts only on its own deposits and a disconnect, and drops the rest on arrival without keeping it.",
     build: "built",
     buildNote: "Only disconnects act until a chat sends deposit links.",
   },
@@ -1337,9 +1343,9 @@ export const BRIDGES: readonly BridgeDef[] = [
     theme: "serving",
     from: "app",
     to: "kms",
-    title: "Logins and waiting words are locked in the key safe",
+    title: "Logins and waiting words are locked with the key safe",
     carries:
-      "Each clinic's Google and Meta logins, the portal's authenticator-app secrets, and the words of open chats and of transcripts waiting to be emailed, to lock and unlock",
+      "The keys that lock each clinic's Google and Meta logins, the portal's authenticator-app secrets, and the words of open chats and of transcripts waiting to be emailed. The logins and the words are locked inside the engine and never travel here",
     example: "When a clinic connects Google Calendar, its login is locked in a box whose key never leaves Amazon's safe, and every opening is logged.",
     keys: [],
     keyless: "No password: AWS lets the engine use the key safe because of the role it runs as.",
@@ -1465,10 +1471,12 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "you",
     title: "You download a leaving clinic's export",
     carries: "The bundle, to hand over and then delete",
-    example: "You download it in CloudShell, hand it over the way the handover names, and delete it.",
+    example: "You copy it into CloudShell, download it, hand it over by the route the handover names, and delete both copies.",
     keys: [],
     keyless: "Your AWS administrator sign-in, in CloudShell.",
     phi: true,
+    phiNote:
+      "Patient data reaches your own computer here, on purpose and only for this: a leaving clinic's own records, held just long enough to hand back to it, then deleted there and in CloudShell (docs/handover.md, Retention and offboarding).",
     build: "built",
   },
 ];
@@ -1851,12 +1859,20 @@ function proofPassed(bridge: BridgeDef, live: LiveInputs): boolean {
   return Boolean(result?.ok);
 }
 
+const HOST_UNREAD = "Can't check right now: the AWS host could not be read. It may be in standby (see Host).";
+
 function bridgeStatus(bridge: BridgeDef, keys: KeyView[], live: LiveInputs): { status: BridgeStatus; text: string } {
   if (bridge.build === "parked") return { status: "parked", text: bridge.buildNote ?? "Parked on purpose." };
   if (bridge.build === "not-built") return { status: "to-build", text: bridge.buildNote ?? "Not built yet." };
 
   if (bridge.proof === "kms" && live.host.state !== "answered") {
     return { status: "unknown", text: "Can't check right now: the AWS host could not be read, and only it can reach the key safe." };
+  }
+
+  // A keyless connection that runs on the engine (a one-off job, an export)
+  // exists only while the engine does: standby removes every service.
+  if (bridge.keys.length === 0 && (bridge.from === "app" || bridge.to === "app") && live.host.state !== "answered") {
+    return { status: "unknown", text: HOST_UNREAD };
   }
 
   const failure = proofFailure(bridge, live);
@@ -1885,8 +1901,14 @@ function bridgeStatus(bridge: BridgeDef, keys: KeyView[], live: LiveInputs): { s
     return { status: "needs-key", text: `Built, waiting for ${missing.length === 1 ? "a key" : `${missing.length} keys`}: ${missing.map((key) => key.label).join("; ")}.` };
   }
 
-  if (keys.some((key) => key.state === "unknown") || (bridge.id === "web-app" && live.host.state === "silent")) {
-    return { status: "unknown", text: "Can't check right now: the AWS host could not be read. It may be in standby (see Host)." };
+  const unknown = keys.find((key) => key.state === "unknown");
+  if (unknown && live.host.state === "answered") {
+    // The engine answered but did not name this key: it runs a build from
+    // before the key joined its list, until deploy-app.yml runs.
+    return { status: "unknown", text: `The engine runs an older version that does not report ${midSentence(unknown.label)}: deploy it (deploy-app.yml) to check this.` };
+  }
+  if (unknown || (bridge.id === "web-app" && live.host.state === "silent")) {
+    return { status: "unknown", text: HOST_UNREAD };
   }
 
   const waiting = keys.find((key) => key.state === "waiting");
@@ -1915,6 +1937,9 @@ function midSentence(label: string): string {
 
 const TODO_ORDER: Record<TodoKind, number> = { fix: 0, "add-key": 1, rotate: 2, build: 3, check: 4, waiting: 5 };
 
+/** What a dependant shows when the bridge it waits on is not connected; anything else reads "off". */
+const INHERITED: Partial<Record<BridgeStatus, BridgeStatus>> = { broken: "broken", "needs-key": "needs-key", unknown: "unknown", "not-checked": "not-checked" };
+
 export function assess(live: LiveInputs): MapView {
   const usedBy = new Map<string, string[]>();
   for (const bridge of BRIDGES) {
@@ -1940,13 +1965,18 @@ export function assess(live: LiveInputs): MapView {
 
   const own = new Map(BRIDGES.map((bridge) => [bridge.id, bridgeStatus(bridge, bridge.keys.map((id) => keyView.get(id)!), live)]));
 
+  // A bridge that is fine itself but useless without another takes that
+  // one's trouble: a broken Sheet breaks checkout too, rather than leaving it
+  // calmly "off on purpose". Only the cause gets a to-do, below.
+  const inherited = new Set<string>();
   const bridges: BridgeView[] = BRIDGES.map((bridge, index) => {
     let { status, text } = own.get(bridge.id)!;
     const dependency = bridge.dependsOn ? BRIDGES.find((other) => other.id === bridge.dependsOn) : undefined;
     const upstream = dependency ? own.get(dependency.id) : undefined;
     if (dependency && upstream && status === "working" && upstream.status !== "working") {
-      status = upstream.status === "unknown" ? "unknown" : "off";
-      text = `Waits on bridge ${BRIDGES.indexOf(dependency) + 1}, "${dependency.title}". ${upstream.text}`;
+      status = INHERITED[upstream.status] ?? "off";
+      text = `Waits on bridge ${BRIDGES.indexOf(dependency) + 1}, "${dependency.title}". ${upstream.text.charAt(0).toUpperCase()}${upstream.text.slice(1)}`;
+      inherited.add(bridge.id);
     }
     const stripeMode =
       bridge.id === "web-stripe" || bridge.id === "stripe-web"
@@ -1968,8 +1998,12 @@ export function assess(live: LiveInputs): MapView {
 
   const todos: Todo[] = [];
   for (const bridge of bridges) {
-    if (bridge.status === "broken") todos.push({ kind: "fix", text: `${bridge.title}: ${bridge.statusText}`, bridge: bridge.id, key: null });
-    if (bridge.status === "to-build") todos.push({ kind: "build", text: `${bridge.title}: ${bridge.statusText}`, bridge: bridge.id, key: null });
+    if (bridge.status === "broken" && !inherited.has(bridge.id)) todos.push({ kind: "fix", text: `${bridge.title}: ${bridge.statusText}`, bridge: bridge.id, key: null });
+    // By what is built, not by colour: a half-built bridge whose host is in
+    // standby is still half built.
+    if (bridge.build === "partial" || bridge.build === "not-built") {
+      todos.push({ kind: "build", text: `${bridge.title}: ${bridge.buildNote ?? (bridge.build === "partial" ? "Half built." : "Not built yet.")}`, bridge: bridge.id, key: null });
+    }
   }
   const seenMissing = new Set<string>();
   for (const bridge of bridges) {
@@ -1988,6 +2022,14 @@ export function assess(live: LiveInputs): MapView {
   }
   if (live.host.state === "silent") {
     todos.push({ kind: "check", text: "The AWS host could not be read, so its keys could not be checked. If it is in standby, turn it on from Host to see them.", bridge: "web-app", key: null });
+  }
+  if (live.host.state === "answered" && keys.some((key) => key.home === "aws" && key.state === "unknown")) {
+    todos.push({
+      kind: "check",
+      text: "The engine runs an older version that does not report every key this page asks about. Deploy it (deploy-app.yml) to check them all.",
+      bridge: "web-app",
+      key: null,
+    });
   }
   const waitingSeen = new Set<string>();
   for (const key of keys) {

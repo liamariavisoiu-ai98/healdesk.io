@@ -275,7 +275,7 @@ function Bands() {
         style={{ left: BANDS.shared.x + 24, top: BANDS.shared.y - 13, color: BAND_ACCENT.patient.ink, borderColor: BAND_ACCENT.patient.edge }}
       >
         <Icon name="shield" className="size-3.5" strokeWidth={2.2} />
-        The patient-data line: nothing below it ever holds patient data
+        The patient-data line: no system below it holds patient data
       </div>
     </>
   );
@@ -398,7 +398,7 @@ function BundleLines({
   );
 }
 
-/** The one bridge across the patient-data line: a sealed envelope, signed both ends. */
+/** The one bridge between the two apps across the patient-data line: a sealed envelope, signed both ends. */
 function Seal({ x, y, status }: { x: number; y: number; status: BridgeStatus }) {
   const style = STATUS_STYLE[status];
   return (

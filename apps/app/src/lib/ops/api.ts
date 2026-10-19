@@ -206,7 +206,7 @@ import {
   updateAgentConfig,
   type AgentConfigInput,
 } from "@/lib/onboarding/agent-config";
-import { goLive, goLivePreconditions, readVoiceLine } from "@/lib/onboarding/go-live";
+import { goLive, goLivePreconditions, readAlertSender, readVoiceLine } from "@/lib/onboarding/go-live";
 import {
   decidePracticeReview,
   listPracticeReviews,
@@ -2589,7 +2589,7 @@ async function opGetOnboarding(
           approvedByLabel: agent.approvedByLabel,
         }
       : null,
-    goLive: goLivePreconditions(clinic, await readVoiceLine(clinic.id)),
+    goLive: goLivePreconditions(clinic, await readVoiceLine(clinic.id), await readAlertSender()),
     channels,
     requirements: {
       fields: resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements).map((f) => f.id),

@@ -75,11 +75,13 @@ export type BookingAlertRef = {
 };
 
 /**
- * The portal screen each alert links to. Bookings for all of them today. An
- * urgent message or a handover with no booking is a conversation, not a
- * booking: once package G's Conversations screen lands, these two point
- * there. The path is built either way; nothing here depends on the screen
- * existing.
+ * The portal screen each alert links to. An urgent message is a conversation,
+ * not a booking: Conversations marks an urgent call or chat Urgent (a call
+ * appears once it ends; a Meta thread carries no mark). Everything else is on
+ * Bookings. A handover is there too because the next thing staff do is reach
+ * the person back, though Bookings does not list one yet (lib/portal/bookings.ts);
+ * until it does, Conversations is where a call or chat that asked for a person
+ * shows. The path is built either way.
  */
 export const ALERT_SECTION: Readonly<Record<BookingAlertKind, PortalSection>> = {
   booking_request: "bookings",
@@ -87,7 +89,7 @@ export const ALERT_SECTION: Readonly<Record<BookingAlertKind, PortalSection>> = 
   request_missed: "bookings",
   deposit_to_collect: "bookings",
   handover: "bookings",
-  urgent: "bookings",
+  urgent: "conversations",
   website_message: "bookings",
   calendar_check: "bookings",
 };

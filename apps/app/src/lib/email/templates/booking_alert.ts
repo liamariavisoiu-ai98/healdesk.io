@@ -222,11 +222,11 @@ export const renderHandover: EmailTemplate<BookingAlertPayload> = (payload, ctx)
   compose(
     {
       subject: "Someone asked to speak with a person",
-      preheader: "AYA told them your team would get back to them.",
+      preheader: "AYA is telling them your team will get back to them.",
       blocks: [
         {
           type: "paragraph",
-          text: `Someone asked to speak with a person at ${clinicOf(ctx)}${viaChannel(payload.channel)}. AYA took their details and told them your team would get back to them.`,
+          text: `Someone asked to speak with a person at ${clinicOf(ctx)}${viaChannel(payload.channel)}. AYA is taking a name and number and telling them your team will get back to them.`,
         },
         ...whereTheDetailsAre(payload.channel),
         ...openAction(payload.portalUrl),
@@ -246,7 +246,7 @@ export const renderUrgent: EmailTemplate<BookingAlertPayload> = (payload, ctx) =
   // emergency referral clinic. Never what the person said.
   const reply =
     ctx.audience === "clients"
-      ? "which gives them the emergency referral clinic you set"
+      ? "which tells them to call 911 if a person is in danger and gives them the emergency referral clinic you set, or the nearest emergency vet if you set none"
       : "which tells them to call 911 in an emergency and gives them the urgent-help number you set";
   return compose(
     {
@@ -381,7 +381,8 @@ export const HANDOVER_ENTRY: TemplateEntry<BookingAlertPayload> = {
 export const URGENT_ENTRY: TemplateEntry<BookingAlertPayload> = {
   render: renderUrgent,
   get fixture() {
-    return alertFixture({ channel: "voice" });
+    // Linked to Conversations, as notifyBookingAlert sends it (ALERT_SECTION).
+    return alertFixture({ channel: "voice", portalUrl: publicUrl("/c/radiance-med-spa/conversations") });
   },
 };
 

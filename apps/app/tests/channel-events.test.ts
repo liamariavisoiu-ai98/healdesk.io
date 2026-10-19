@@ -616,9 +616,11 @@ describeDb("channel events against the database", () => {
     await truncateAll();
   }, 180_000);
 
-  afterEach(() => {
+  afterEach(async () => {
     flags.failBilling = false;
     delete process.env.HEALDESK_TEST_NUMBERS;
+    // Jobs ship off: a go-live test that switched the sender on leaves it as it found it.
+    await getMigratorPool().query(`update scheduled_jobs set enabled = false where name = 'billing-notices'`);
   });
 
   afterAll(async () => {
@@ -1576,6 +1578,7 @@ describeDb("channel events against the database", () => {
         status: "updated",
       });
     }
+    await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'billing-notices'`);
     const live = await data("goLive", { clinicId: id });
     expect(live.status, JSON.stringify(live)).toBe("live");
     expect((await stepUp()).live_at).not.toBeNull();
@@ -1603,6 +1606,8 @@ describeDb("channel events against the database", () => {
       [c.organizationId, CURRENT_BAA_VERSION],
     );
     expect((await evaluate(c.clinicId, "voice"))[0]!.missing).toEqual(["go_live"]);
+    // Go-live refuses while the email sender is off (lib/onboarding/go-live.ts).
+    await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'billing-notices'`);
     const result = await goLive(c.clinicId, { label: "ops@healdesk.test" });
     expect(result.status, JSON.stringify(result)).toBe("live");
     expect((await channelRow(c.clinicId, "voice")).live_at).not.toBeNull();

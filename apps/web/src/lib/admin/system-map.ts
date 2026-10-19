@@ -1326,14 +1326,14 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "resend",
     title: "Everyday clinic email goes out",
-    carries: "Welcome, sign-in links, \"you have a new booking request\", the daily summary and the weekly recap; and alerts and support requests to you",
+    carries: "Welcome, sign-in links, the clinic's booking alerts (a new request, still open, missed, a deposit to collect, someone asking for a person, URGENT, a website message, a calendar check), the daily summary and the weekly recap; and alerts and support requests to you",
     example:
-      "\"New booking request via Instagram\": just a link, never a patient's name, number or time. The receptionist follows it, signs in, unlocks Bookings with the front-desk computer's passkey, and has 7 days to answer the request before it moves to Missed.",
+      "\"A booking request is waiting for your team\": just a link, never a patient's name, number or time. The receptionist follows it, signs in, unlocks Bookings with the front-desk computer's passkey, and has 7 days to answer the request before it moves to Missed.",
     keys: ["aws.RESEND_API_KEY", "aws.HEALDESK_EMAIL_FROM"],
     phi: false,
     build: "built",
     buildNote:
-      "Booking-request emails go, and each is only a pointer: its link opens the request on Bookings after sign-in and the passkey. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. Urgent, deposit and calendar-check alerts are only logged until the alerts are sent through the outbox (funnel M5), so an urgent caller's escalation reaches nobody yet. The daily summary goes at each clinic's opening time on its working days, and the weekly recap alone on Mondays while the summary is off, once their two jobs are switched on; each counts what AYA did and lists every booking and request only as a link.",
+      "Every booking alert is queued in the outbox in the same transaction as what it reports, so nothing goes for work that rolled back, and each is only a pointer to Bookings (Conversations for an urgent one) after sign-in and the passkey. They go to the clinic's account address; an urgent one goes in-process the moment its transaction commits. Nothing goes while the billing-notices job is off, so go-live refuses until it is on; the opening-hour \"still open\" email also needs the requests-still-open job. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. The daily summary goes at each clinic's opening time on its working days, and the weekly recap alone on Mondays while the summary is off, once their two jobs are switched on; each counts what AYA did and lists every booking and request only as a link.",
   },
   {
     id: "app-ses",

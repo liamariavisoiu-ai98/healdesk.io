@@ -16,9 +16,11 @@ import {
 } from "@/lib/onboarding/agent-config";
 import { issueConnectionLink } from "@/lib/connections/links";
 import {
+  ALERTS_OFF,
   goLive,
   goLivePreconditions,
   NO_DIRECT_LINE,
+  readAlertSender,
   readVoiceLine,
   refusalReason,
 } from "@/lib/onboarding/go-live";
@@ -152,10 +154,17 @@ describe("a go-live refusal reaches the console in the database's words", () => 
   });
 });
 
+/** The email sender's switch (the billing-notices job), which go-live asks about. */
+async function setAlertSender(on: boolean): Promise<void> {
+  await getMigratorPool().query(`update scheduled_jobs set enabled = $1 where name = 'billing-notices'`, [on]);
+}
+
 describeDb("onboarding", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // Jobs ship off; go-live refuses while the sender is (the test below).
+    await setAlertSender(true);
   }, 60_000);
 
   afterAll(async () => {
@@ -251,6 +260,21 @@ describeDb("onboarding", () => {
       `update clinics set onboarding = onboarding || jsonb_build_object('booking_requirements_confirmed', now()::text) where id = $1`,
       [clinicId],
     );
+
+    // Everything else is ready: the sender's switch alone holds it back.
+    await setAlertSender(false);
+    try {
+      expect(await readAlertSender()).toBe(false);
+      const ready = (await listClinics()).find((c) => c.id === clinicId)!;
+      expect(goLivePreconditions(ready, await readVoiceLine(clinicId), false)).toEqual({ ok: false, missing: [ALERTS_OFF] });
+      expect(await goLive(clinicId, { label: "ops@healdesk.test" })).toEqual({
+        status: "refused",
+        reason: "Not ready.",
+        missing: [ALERTS_OFF],
+      });
+    } finally {
+      await setAlertSender(true);
+    }
 
     const live = await goLive(clinicId, { label: "ops@healdesk.test" });
     expect(live.status, JSON.stringify(live)).toBe("live");

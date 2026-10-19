@@ -35,6 +35,7 @@ import {
   ALERT_SECTION,
   dedupeKey,
   notifyBookingAlert,
+  queueRequestsStillOpen,
   URGENT_ALERT_DELIVERED,
   type BookingAlertKind,
 } from "@/lib/notices/booking-alerts";
@@ -252,8 +253,10 @@ describe("the live alerts' templates", () => {
     expect(render(payload, ctx("clients")).text).toContain("no client details");
   });
 
-  test("every live alert links Bookings; urgent and handover move to Conversations once package G ships it", () => {
-    expect(new Set(Object.values(ALERT_SECTION))).toEqual(new Set(["bookings"]));
+  test("an urgent alert links Conversations, which marks an urgent call or chat; every other live alert links Bookings", () => {
+    const { urgent, ...rest } = ALERT_SECTION;
+    expect(urgent).toBe("conversations");
+    expect(new Set(Object.values(rest))).toEqual(new Set(["bookings"]));
   });
 
   test("the dedupe key: the appointment, then the request, the conversation, the call, else a fresh one", () => {
@@ -421,7 +424,7 @@ describeDb("the live alerts' hooks", () => {
     expect(Object.keys(queued[0]!.payload).sort()).toEqual(KEYS_OF.urgent);
     expect(queued[0]!.payload).toMatchObject({
       channel: "web",
-      portalUrl: `${ORIGIN}/c/${seeded.slug}/bookings`,
+      portalUrl: `${ORIGIN}/c/${seeded.slug}/conversations`,
     });
     expect(queued[0]!.dedupe_key).toBe(`urgent:conversation:${queued[0]!.payload.conversationId}`);
     expect(() => assertPayloadAllowed(queued[0]!.payload, "urgent")).not.toThrow();
@@ -694,6 +697,69 @@ describeDb("the live alerts' hooks", () => {
       expect(() =>
         assertPayloadAllowed(notice.payload, notice.kind as BookingAlertKind),
       ).not.toThrow();
+  });
+
+  test("an alert queued in a transaction that rolls back is never queued, so nothing is sent", async () => {
+    const c = await seedClinic("alert-rollback");
+    await senderOn(c);
+    const transport = new FakeTransport();
+    const contactId = await seedContact(c.clinicId, "+15550100780");
+    await expect(
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+        const request = await createBookingRequest(tx, {
+          channel: "voice",
+          contactId,
+          conversationId: null,
+          preferredWindow: "Monday",
+          treatment: null,
+        });
+        await notifyBookingAlert(tx, "booking_request", { bookingRequestId: request.id });
+        await notifyBookingAlert(tx, "urgent", { callId: "call_rolled_back", channel: "voice" });
+        throw new Error("the caller's work failed after queueing");
+      }),
+    ).rejects.toThrow("the caller's work failed");
+    expect(await queuedNotices(c.clinicId)).toEqual([]);
+    await sendPendingNotices({ transport });
+    expect(transport.sent).toEqual([]);
+  });
+
+  test("every live alert kind is sent to the clinic's one address, and to no report recipient", async () => {
+    const c = await seedClinic("alert-every-kind");
+    await senderOn(c);
+    const transport = new FakeTransport();
+    const contactId = await seedContact(c.clinicId, "+15550100781");
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await addRecipient(tx, { email: DESK, addedBy: "test" });
+      const request = () =>
+        createBookingRequest(tx, { channel: "web_chat", contactId, conversationId: null, preferredWindow: "Friday", treatment: null });
+      await notifyBookingAlert(tx, "booking_request", { bookingRequestId: (await request()).id });
+      await notifyBookingAlert(tx, "request_missed", { bookingRequestId: (await request()).id });
+      await notifyBookingAlert(tx, "deposit_to_collect", { bookingRequestId: (await request()).id });
+      await notifyBookingAlert(tx, "handover", { callId: "call_every_kind", channel: "voice" });
+      await notifyBookingAlert(tx, "urgent", { conversationId: randomUUID(), channel: "web" });
+      await notifyBookingAlert(tx, "website_message", { bookingRequestId: (await request()).id });
+      await notifyBookingAlert(tx, "calendar_check", { bookingRequestId: (await request()).id });
+      await queueRequestsStillOpen(tx, { localDate: "2026-10-19", openCount: 2, closesAfterDays: 7 });
+    });
+    const queued = await queuedNotices(c.clinicId);
+    expect(queued.map((n) => n.kind).sort()).toEqual(Object.keys(ALERT_SECTION).sort());
+
+    await sendPendingNotices({ transport });
+    expect(transport.sent.some((s) => s.target.to === DESK)).toBe(false);
+    expect(new Set(transport.notices().map((s) => s.target.to))).toEqual(new Set([c.staffEmail]));
+    expect(transport.notices().map((s) => s.message.subject).sort()).toEqual(
+      [
+        "2 booking requests are still waiting",
+        "A booking may not be in your calendar",
+        "A booking request is waiting for your team",
+        "A deposit to collect",
+        "A message was left on your website",
+        "Missed: they were told you'd call",
+        "Someone asked to speak with a person",
+        "URGENT: a complication or urgent symptom was reported",
+      ].sort(),
+    );
+    expect((await queuedNotices(c.clinicId)).every((n) => n.sent_at !== null)).toBe(true);
   });
 
   test("an alert that cannot be queued breaks nothing: the caller's transaction still commits", async () => {

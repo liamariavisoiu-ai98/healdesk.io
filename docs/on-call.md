@@ -42,14 +42,17 @@ follows in this section works.
 **Voice endpoint down** (the voice alarm, or no `retell call recorded` lines while
 clinics are live). Retell has no per-agent or per-number setting for an unreachable
 custom-LLM endpoint: it tries to open the socket three times, seven seconds each, and
-then drops the call (`error_llm_websocket_open` in Retell's call history). So:
+then drops the call (`error_llm_websocket_open` in Retell's call history), so the caller
+hears about 27 seconds of nothing first. So:
 
-1. In Retell's dashboard, Settings → Reliability, turn **outage mode** on. Every
-   inbound call to the workspace's numbers then goes to its number's fallback, the
-   clinic's direct line. It is workspace-wide: every clinic, healthy or not, until it
-   is turned off. Retell offers no API to toggle it, so it is a person's step.
-   Confirm once, before launch, that outage mode is available on the workspace's plan
-   and that a test call in it reaches a made-up clinic's direct line.
+1. In Retell's dashboard, turn **outage mode** on (it has been under Settings →
+   Reliability). By Retell's support material, every inbound call to the workspace's
+   numbers then goes to its number's fallback, the clinic's direct line; it is
+   workspace-wide, every clinic, healthy or not, until it is turned off; and it is
+   toggled only in the dashboard, so it is a person's step. None of this is in
+   Retell's API reference and none of it has been tried here: confirm once, before
+   launch, that the workspace's plan has outage mode and that a test call in it
+   reaches a made-up clinic's direct line.
 2. Fix the endpoint; turn outage mode off; make a test call.
 
 A number at Retell's concurrency limit falls back to the same line by itself.

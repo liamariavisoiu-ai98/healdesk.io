@@ -1200,7 +1200,8 @@ calls drop and the other answers the next.
    job sets each clinic's AYA number's fallback in Retell to the clinic's direct line; the job
    list shows its count. Retell drops a call whose endpoint it cannot reach, so this fallback,
    with outage mode turned on in Retell's dashboard, is how calls reach the clinic while our
-   endpoint is down (`docs/on-call.md`, "Voice endpoint down"). Make one test call to a made-up
+   endpoint is down. Outage mode is described in Retell's support material, not in its API
+   reference, and has not been tried here, so this step is also its first test (`docs/on-call.md`, "Voice endpoint down"). Make one test call to a made-up
    clinic with outage mode on, and check it rings that clinic's direct line.
 
 **Rotating the secret**: paste a new value, run `restart_only`, then update every agent's URL;

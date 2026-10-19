@@ -158,7 +158,7 @@ const WORDING: Record<OpsEvent, Wording> = {
   voice_call_start_failed: {
     title: "A call started while the database could not be read",
     action:
-      "The voice endpoint could not read the clinic's settings when a call came in. The code says where the call went: transferred_memory or transferred_retell sent it to the clinic's direct line, closed means no direct line was known and the caller heard the closing line. Check the database first; if it stays down, put Retell in outage mode (docs/on-call.md).",
+      "The voice endpoint could not read the clinic's settings when a call came in. The code says where the call went: transferred_gate, transferred_memory or transferred_retell sent it to the clinic's direct line (named by the answer gate before the failure, remembered from the clinic's last call, or read back from Retell), closed means no direct line was known and the caller heard the closing line. Check the database first; if it stays down, put Retell in outage mode (docs/on-call.md).",
   },
   retell_fallback_unsynced: {
     title: "A Retell fallback is not the direct line",

@@ -78,8 +78,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "Every failure ends with calls going to a direct clinic line",
     where: "Terms, portal behaviour screens, CLAUDE.md",
     status: "building",
-    left: "Calls after a cancelled service, a settings failure and repeated model failures are being transferred to the direct line instead of closed.",
-    evidence: "apps/app/src/lib/voice/retell.ts",
+    left: "Inside our endpoint every failure now transfers to the direct line, a database outage included. Left: calls after a cancelled service still close instead of transferring; the Retell key is not pasted, so no AYA number has its direct line as Retell's fallback yet; Retell's outage mode, the step for our endpoint being down, is untested (confirm the plan has it and make one test call on a made-up clinic); and Retell itself being down still means each clinic removing its forwarding by hand.",
+    evidence: "apps/app/src/lib/voice/retell.ts, apps/app/src/lib/voice/retell-fallback-sync.ts, docs/on-call.md",
     blocksGoLive: true,
   },
   {

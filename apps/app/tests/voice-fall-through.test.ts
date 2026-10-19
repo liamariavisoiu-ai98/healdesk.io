@@ -7,6 +7,12 @@ vi.mock("@/lib/ops/notify", () => ({
   },
   notifyOpsOnce: async () => {},
 }));
+// No database here: any tenant read fails as one that refuses would.
+vi.mock("@/lib/tenant", () => ({
+  withTenant: async () => {
+    throw new Error("connect ECONNREFUSED");
+  },
+}));
 const turn = vi.hoisted(() => ({ throws: false }));
 vi.mock("@/lib/assistant/turn", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/assistant/turn")>();
@@ -148,6 +154,19 @@ describe("a call that cannot read the database", () => {
     await s.handle(JSON.stringify({ interaction_type: "call_details", call: { to_number: AYA, direction: "outbound" } }));
     await s.finish();
     expect(responses()).toEqual([expect.objectContaining({ content: "", end_call: true })]);
+  });
+
+  test("a gate that named the line before the facts read failed transfers there at once", async () => {
+    const { s, responses } = session({
+      gate: async () => ({ decision: "pass_through", reason: "ai_paused", directLine: DIRECT }) as never,
+      fallbackLine: async () => {
+        throw new Error("not asked");
+      },
+    });
+    await s.open();
+    await s.finish();
+    expect(responses()).toEqual([expect.objectContaining({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT })]);
+    expect(notified[0]!.fields.code).toBe("transferred_gate");
   });
 
   test("a database that hangs rather than refuses still falls through, within the deadline", async () => {

@@ -1142,7 +1142,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. Retell has no setting that sends a call on when our voice endpoint cannot be reached: it gives up and the call drops. So when the endpoint is down, you put Retell in outage mode (Settings, Reliability), and every clinic's calls go to its direct line, which the engine keeps as each number's fallback every hour (that needs the Retell key). If Retell itself is down, nothing of Retell's runs, and each clinic has to remove its forwarding by hand: nothing tells them automatically.",
+      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. Retell has no setting that sends a call on when our voice endpoint cannot be reached: after about 27 seconds of nothing it gives up and the call drops. So when the endpoint is down, you put Retell in outage mode, which by Retell's support material sends each number's calls to its fallback, the clinic's direct line, kept there every hour by the engine (that needs the Retell key). Outage mode has not been tried here: check the plan has it and make one test call before relying on it. If Retell itself is down, nothing of Retell's runs, and each clinic has to remove its forwarding by hand: nothing tells them automatically.",
   },
   {
     id: "retell-app",
@@ -1174,7 +1174,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Wherever the clinic has set a direct line: when AYA is paused, capped or suspended, when the model fails twice, when answering a turn fails, and when a call starts while the database is down (the engine remembers each clinic's line from its last call, and otherwise reads it back from Retell). In outage mode Retell dials it without us. With no line known, the caller hears a closing line.",
+      "Wherever the clinic has set a direct line: when AYA is paused, capped or suspended, when the model fails twice, when answering a turn fails, and when a call starts while the database is down (the engine remembers each clinic's line from its last call, and otherwise reads it back from Retell). In Retell's outage mode, untested here, Retell would dial it without us. With no line known, the caller hears a closing line.",
   },
   {
     id: "patients-widget",

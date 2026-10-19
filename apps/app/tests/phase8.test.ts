@@ -48,6 +48,8 @@ function call(clinicId: string, over: Partial<VoiceCallEvent> = {}): VoiceCallEv
     clinicId,
     callerPhone: "+15550100123",
     startedAt: new Date(),
+    // AYA's opening line played: she answered it.
+    disclosurePlayedAt: new Date(),
     rangAtClinicFirst: true,
     ...over,
   };

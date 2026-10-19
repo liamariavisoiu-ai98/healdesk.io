@@ -118,7 +118,11 @@ export type VoiceCallEvent = {
    * false.
    */
   answeredByAssistant?: boolean;
-  /** Proof the AI disclosure played before audio reached transcription. */
+  /**
+   * Proof the AI disclosure played before audio reached transcription. Absent
+   * is a call AYA never spoke on (put through or closed without her opening
+   * line): recorded, but billed no minutes and never counted as recovered.
+   */
   disclosurePlayedAt?: Date;
   recordingOptOut?: boolean;
   responseLatencySeconds?: number;
@@ -395,25 +399,32 @@ export function classifyBooking(
  * HEALDESK_TEST_NUMBERS) and a call from one of the clinic's own numbers (its
  * published line, its direct line, the assistant's number, its escalation,
  * urgent-help and transfer numbers), compared as E.164 on both sides, since
- * the vendor's caller ID arrives in whatever shape the carrier gave it; and a
- * call with no length to bill. The answer gate's decision at call time is not asked
- * again here: it changed what the assistant offered on the call, and the
- * call still happened.
+ * the vendor's caller ID arrives in whatever shape the carrier gave it; a
+ * call AYA never spoke on, with no opening line played (`disclosurePlayedAt`
+ * absent): put through to the clinic's direct line or closed with the fixed
+ * line by the pass-through or by a start that failed, the clinic's own
+ * switch or our outage, never minutes she answered; and a call with no
+ * length to bill. Otherwise the answer gate's decision at call time is not
+ * asked again here: the safe script changed what the assistant offered on
+ * the call, and she still answered it.
  */
 export type VoiceMetering =
   | { minutes: number }
-  | { skipped: "test_call" | "own_number" | "no_duration" | "too_short" };
+  | { skipped: "test_call" | "own_number" | "not_answered" | "no_duration" | "too_short" };
 
 /** Pure: what this call bills, from the facts the ingest already holds. */
 export function voiceMeteringFor(
-  event: Pick<VoiceCallEvent, "callerPhone" | "startedAt" | "endedAt" | "durationSeconds">,
+  event: Pick<VoiceCallEvent, "callerPhone" | "startedAt" | "endedAt" | "durationSeconds" | "disclosurePlayedAt">,
   facts: { isTestCall: boolean; ownNumbers: readonly (string | null | undefined)[] },
 ): VoiceMetering {
+  // The test and own-number exclusions first: the first answer reads them
+  // from here (voiceFirstAnswerEvidence).
   if (facts.isTestCall) return { skipped: "test_call" };
   const caller = event.callerPhone ? (toE164(event.callerPhone) ?? event.callerPhone.trim()) : null;
   if (caller && facts.ownNumbers.some((n) => n && (toE164(n) ?? n.trim()) === caller)) {
     return { skipped: "own_number" };
   }
+  if (!event.disclosurePlayedAt) return { skipped: "not_answered" };
   const elapsed =
     event.endedAt && event.endedAt.getTime() >= event.startedAt.getTime()
       ? (event.endedAt.getTime() - event.startedAt.getTime()) / 1000
@@ -490,8 +501,11 @@ export async function ingestCall(
 
     // The carrier's activation call is the clinic switching its forwarding
     // on, not a caller it would have missed, so it never counts as a call
-    // that would have rung out (isForwardingActivationCall).
-    const recoveryReason = isForwardingActivationCall(clinic, event)
+    // that would have rung out (isForwardingActivationCall). Nor does a call
+    // AYA never spoke on, with no opening line played: the caller was put
+    // through to the clinic or heard the closing line, and she answered
+    // nothing (voiceMeteringFor bills it nothing, and the claims leave it out).
+    const recoveryReason = isForwardingActivationCall(clinic, event) || !event.disclosurePlayedAt
       ? null
       : classifyRecovery(event, {
           coverageMode,

@@ -411,6 +411,85 @@ describeDb("who an incident affected", () => {
     expect(await listed(clinic.clinicId, incident.id)).toEqual([]);
   });
 
+  test("the list is recorded through offboarding and after the agreement ends, since breach reports stay owed; never once the clinic is destroyed", async () => {
+    const clinic = await seedClinic("affectedleaving");
+    const agreementId = await bindAgreementInEffect(clinic.clinicId, "1.5.1");
+    const people = [
+      await seedContact(clinic.clinicId, "+15550190261"),
+      await seedContact(clinic.clinicId, "+15550190262"),
+      await seedContact(clinic.clinicId, "+15550190263"),
+    ];
+    const incident = await open(clinic.clinicId);
+    await getMigratorPool().query(
+      `update clinics set data_classification = 'production', baa_signed_at = now() - interval '30 days',
+              offboarding_started_at = now()
+        where id = $1`,
+      [clinic.clinicId],
+    );
+    const record = (contactId: string) =>
+      recordAffectedFromShell({
+        clinicId: clinic.clinicId,
+        incidentId: incident.id,
+        contactIds: contactId,
+        operator: OPERATOR,
+      });
+
+    // Offboarding: the clinic takes no new patient row, but the list is not one.
+    const accepts = async () =>
+      (
+        await getMigratorPool().query<{ ok: boolean }>(`select app_clinic_accepts_phi($1) as ok`, [
+          clinic.clinicId,
+        ])
+      ).rows[0]!.ok;
+    expect(await accepts()).toBe(false);
+    expect(await record(people[0]!)).toMatchObject({ status: "recorded", changed: 1, total: 1 });
+
+    // The agreement terminated: the breach duties outlive it (BAA clause 17).
+    await getMigratorPool().query(
+      `update baa_acceptances set terminated_at = now(), termination_reason = 'change_in_law' where id = $1`,
+      [agreementId],
+    );
+    expect(await record(people[1]!)).toMatchObject({ status: "recorded", changed: 1, total: 2 });
+
+    // Destroyed: there is no one left to name, whoever writes.
+    await getMigratorPool().query(`update clinics set destroyed_at = now() where id = $1`, [
+      clinic.clinicId,
+    ]);
+    await expect(
+      inTenant(clinic.clinicId, (client) =>
+        client.query(
+          `insert into incident_affected_contacts (clinic_id, incident_id, contact_id, recorded_by)
+           values ($1, $2, $3, 'ops@healdesk.test')`,
+          [clinic.clinicId, incident.id, people[2]],
+        ),
+      ),
+    ).rejects.toThrow(
+      /is destroyed: it holds no one to name; refusing to write PHI to incident_affected_contacts/,
+    );
+    expect(await listed(clinic.clinicId, incident.id)).toEqual([people[0], people[1]].sort());
+  });
+
+  test("every other table still refuses a new row from an offboarding production clinic", async () => {
+    const clinic = await seedClinic("affectedgateholds");
+    await bindAgreementInEffect(clinic.clinicId, "1.5.1");
+    await getMigratorPool().query(
+      `update clinics set data_classification = 'production', baa_signed_at = now() - interval '30 days',
+              offboarding_started_at = now()
+        where id = $1`,
+      [clinic.clinicId],
+    );
+    await expect(
+      inTenant(clinic.clinicId, (client) =>
+        client.query(
+          `insert into contacts (clinic_id, phone, full_name) values ($1, '+15550190264', 'Synthetic Patient')`,
+          [clinic.clinicId],
+        ),
+      ),
+    ).rejects.toThrow(
+      /marked production without an agreement in effect.*refusing to write PHI to contacts/,
+    );
+  });
+
   test("the practice reads the list behind its passkey, once a report has gone, with an access row naming each contact", async () => {
     const clinic = await seedClinic("affectedpage");
     await bindAgreementInEffect(clinic.clinicId, "1.5.1");

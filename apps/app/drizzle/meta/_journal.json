@@ -708,6 +708,13 @@
       "when": 1792437923507,
       "tag": "0100_calendar_terms_on_supersede",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1792438362627,
+      "tag": "0101_incident_affected_until_destroyed",
+      "breakpoints": true
     }
   ]
 }

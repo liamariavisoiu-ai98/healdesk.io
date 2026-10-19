@@ -350,6 +350,8 @@ describeDb("billing foundation", () => {
   });
 
   describe("job wiring and stubs", () => {
+    // Two whole ticks, every job in each: seconds on a loaded machine, so not
+    // the default five (tests must not race the clock).
     test("the 05 and 06 UTC ticks add the annual overage invoice and the housekeeping, each behind its switch", async () => {
       const at5 = Object.fromEntries(
         (await runTick(new Date("2026-10-05T05:00:00Z"))).map((o) => [o.job, o.status]),
@@ -388,7 +390,7 @@ describeDb("billing foundation", () => {
       // The notices sender runs every minute from the `notices` queue now, not
       // from the hourly tick (lib/email/outbox.ts).
       expect(at5["billing-notices"]).toBeUndefined();
-    });
+    }, 30_000);
 
     test("the stubs later packages replace are safe: they run behind their switches and do nothing", async () => {
       const now = new Date("2026-10-05T07:00:00Z");

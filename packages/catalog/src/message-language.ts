@@ -33,6 +33,10 @@
  * language the screens cannot read is ever answered by the model.
  */
 
+import { scowlWords } from "./english-words";
+import { TREATMENT_NAMES } from "./treatment-names";
+import { META_TREATMENT_VOCABULARY } from "./treatment-vocabulary";
+
 export type MessageLanguage = "en" | "es" | "other";
 
 const words = (list: string): ReadonlySet<string> => new Set(list.split(/\s+/).filter(Boolean));
@@ -85,14 +89,15 @@ const ES = words(
 /** Words of the other Latin-script languages met most often, none of them English or Spanish. */
 const OTHER = words(
   [
-    // French
-    "je j' tu nous vous il est suis sommes êtes pas ne n' c' ça qu' des du au aux et avec très oui combien coûte être avoir fait peux veux mon ma mes ton votre vos notre dans chez alors aussi où quel quelle quoi demain plaît voudrais respire respirer chien chat",
+    // French. Its function words win over the large English list, which holds
+    // some of them as English ("sans", "pendant", "pour", "tout").
+    "je j' tu nous vous il elle est suis sommes êtes pas ne n' c' ça qu' des du au aux et avec très oui combien coûte être avoir fait faire peut peux veux mon ma mes ton votre vos notre dans chez alors aussi où quel quelle quoi demain plaît voudrais respire respirer chien chat sans pendant pour tout toute tous comme donc toujours jamais rien sur leur cette ces",
     // Portuguese
-    "não você vocês eu estou tenho quanto muito também uma isso isto meu minha seu sua custa quero posso bom boa noite hoje amanhã horário consigo respirar cachorro está",
+    "não você vocês eu estou tenho quanto muito também uma isso isto meu minha seu sua custa quero posso bom boa noite hoje amanhã horário consigo respirar cachorro está abrem abre aberto aberta fechado fechada queria gostaria marcar filho filha marido esposa dor doendo dente dentes unha cabelo rosto preço tudo vocês obrigada onde tem pode fazer mais agora depois ainda nossa nosso efeitos",
     // German
-    "ich nicht und ist sind sie das ein eine einen mit bitte kann können haben wir mein meine hallo guten wie viel kostet termin heute morgen hilfe atmen atmet hund",
+    "ich nicht und ist sind sie das ein eine einen mit bitte kann können haben wir mein meine hallo guten wie viel kostet termin heute morgen hilfe atmen atmet hund auch noch schon aber oder wenn dann muss habe hast sehr dein ihr von für auf",
     // Italian
-    "sono che gli della dello vorrei appuntamento oggi domani aiuto respirare riesco non",
+    "sono che gli della dello vorrei appuntamento oggi domani aiuto respirare riesco non anche molto posso questo quello dove perché niente siamo",
     // Dutch
     "ik niet het een dank je jij wij hoeveel afspraak vandaag alstublieft",
     // Tagalog
@@ -102,7 +107,7 @@ const OTHER = words(
     // Polish
     "nie mogę oddychać proszę dziękuję jestem",
     // Vietnamese without its marks, romanised Chinese and Arabic
-    "toi khong tho duoc ban cua xin cam wo bu neng huxi ana mish ader atnafas",
+    "toi khong tho duoc ban cua xin cam wo bu neng huxi ana mish mesh ader atnafas atnafes enta enti ayez ayza bokra bekam kam momken mumkin feen fein emta keda yaani leh",
   ].join(" "),
 );
 
@@ -115,7 +120,7 @@ const NEUTRAL_PHRASES =
 
 /** Day and month abbreviations, and time zones. */
 const DAYS_AND_ZONES = words(
-  "mon tue tues wed thu thur thurs fri sat sun mo th fr sa su di jan feb mar apr jun jul aug sep sept oct nov dec est edt cst cdt mst mdt pst pdt et ct mt pt utc gmt",
+  "mon tue tues wed thu thur thurs fri sat sun mo th fr sa su di jan feb mar apr jun jul aug sep sept oct nov dec edt cst cdt mst mdt pst pdt ct mt pt utc gmt",
 );
 /** US postal codes for the states, read only in capitals: "Boston MA". */
 const STATE_CODES = words(
@@ -136,9 +141,67 @@ const OTHER_SCRIPT =
   /[\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Gurmukhi}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Thai}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Armenian}\p{Script=Georgian}\p{Script=Ethiopic}\p{Script=Khmer}\p{Script=Lao}\p{Script=Myanmar}]/gu;
 const LATIN_LETTER = /\p{Script=Latin}/gu;
 
-/** The English word list, through the common endings: "booked", "prices", "breathing", "babies". */
-function isEnglish(word: string): boolean {
-  if (EN.has(word)) return true;
+/**
+ * English words of a clinic's front desk that a general word list misses or
+ * holds only rarely: the words of dentistry, a vet's desk, wellness clinics
+ * and access and admin. Counted as English, like the hand list above.
+ */
+const DOMAIN = words(
+  [
+    "dentistry dental dentist dentists orthodontist orthodontists orthodontic orthodontics periodontal periodontist periodontics endodontist endodontic oral hygienist hygiene prophylaxis cleaning cleanings checkup checkups exam exams xray xrays x-ray radiograph radiographs cavity cavities filling fillings crown crowns bridge bridges denture dentures implant implants veneer veneers extraction extractions wisdom molar molars gum gums gingivitis fluoride sealant sealants retainer retainers aligner aligners braces bite nightguard mouthguard whitening bleaching pediatric paediatric pediatrician kids sedation sedated anesthesia anaesthesia anesthetic numbing nitrous laughing",
+    "wellness infusion infusions iv drip drips hydration vitamin vitamins injection injections shot shots booster boosters pellet pellets hormone hormones hormonal testosterone estrogen progesterone thyroid peptide peptides metabolic weight loss medical medically supervised telehealth telemedicine virtual video consult consults consultation consultations follow-up followup refill refills prescription prescriptions pharmacy labs lab bloodwork blood panel panels draw test tests testing screening screenings results",
+    "massage lymphatic drainage contouring sculpting tightening resurfacing rejuvenation microneedling dermaplaning facial facials peel peels lift lifting filler fillers injectable injectables neurotoxin toxin tox wrinkle wrinkles lines spider veins vein veins sclerotherapy cellulite stretch marks pigmentation melasma rosacea acne scarring pores laser lasers hair removal brow brows lash lashes extensions tint lamination wax waxing threading spray tan tanning skincare serum serums retinol sunscreen consultation aesthetic aesthetics esthetic esthetics esthetician aesthetician injector injectors nurse practitioner physician assistant",
+    "puppy puppies kitten kittens dog dogs cat cats pet pets wellness vaccine vaccines vaccinations rabies distemper parvo bordetella lepto leptospirosis heartworm flea fleas tick ticks prevention preventive deworming dewormer microchip microchipping spay spayed spaying neuter neutered neutering dental grooming groom groomer bath nails nail trim boarding daycare kennel senior geriatric bloodwork urinalysis fecal stool sample allergy itchy ear ears infection limping limp lump checkup vet veterinarian veterinary clinic hospital exotic exotics rabbit guinea hamster ferret bird reptile",
+    "wheelchair accessible accessibility ramp elevator handicap disabled disability ada compliant compliance hipaa insurance insured coverage covered copay deductible financing finance carecredit cherry affirm klarna installment installments payment payments plan plans hsa fsa receipt invoice superbill refund refundable nonrefundable deposit deposits cancellation reschedule rescheduling availability available openings opening slot slots waitlist walk-in walk-ins walkin parking validate validation directions entrance suite downtown location locations hours weekend weekends holiday holidays referral referrals referred records transfer form forms intake paperwork portal login",
+    "combo combos package packages bundle bundles membership memberships member members discount discounts promo promos promotion promotions special specials deal deals offer offers gift card cards voucher vouchers credit credits points loyalty rewards price prices pricing cost costs quote estimate rate rates fee fees session sessions treatment treatments service services menu",
+    // Texting and the commonest misspellings a front desk gets.
+    "appt appts apt tmrw tmr tmrow tomorow tommorow tommorrow tomorro 2moro 2morrow tonite nite thru pls plz thx thanx ty tysm u ur r k kk ok okk okay lmk idk rn bc cuz coz b4 w wk wks hr hrs min mins sec info msg txt bday sched resched reschedual reshedule reschdule cancle cancell appointmnet appoinment appointmet availible availabe avaliable recieve wich wat wanna gonna gotta lemme gimme ya'll y'all yall dont cant wont didnt doesnt isnt im ive id youre theyre thats whats hows wheres",
+  ].join(" "),
+);
+
+/**
+ * Treatment, brand and device names: neutral, neither English nor another
+ * language. The catalog's treatment vocabulary (./treatment-vocabulary.ts,
+ * ./treatment-names.ts) and the names a US med spa, dentist or wellness
+ * clinic lists beside them: "daxxify", "emsculpt neo", "NAD+ infusion".
+ */
+const BRANDS = words(
+  [
+    "botox dysport xeomin jeuveau daxxify letybo juvederm voluma volbella vollure volux restylane lyft kysse defyne refyne radiesse sculptra belotero rha versa revanesse skinvive kybella",
+    "fraxel halo bbl moxi picosure picoway pico ipl co2 erbium aerolase vbeam alexandrite gentlemax candela sciton lumenis cynosure cutera morpheus8 morpheus potenza vivace secret scarlet ultherapy thermage sofwave emsculpt emsella emface emtone neo coolsculpting coolpeel trusculpt bodytite facetite accutite sculpsure vanquish hydrafacial diamondglow aquagold sylfirm exion profound opus renuvion plexr viora microdermabrasion photofacial",
+    "nad nad+ myers glutathione biotin b12 lipo lipo-c lipo-b mic ketamine ozone chelation bpc bpc-157 tb-500 ipamorelin sermorelin cjc tesamorelin semaglutide tirzepatide liraglutide ozempic wegovy mounjaro zepbound saxenda contrave qsymia phentermine metformin hcg trt bhrt estradiol evexipel biote clomid enclomiphene anastrozole",
+    "rf hifu microchanneling vs versus glo2facial oxygeneo geneo",
+    "invisalign clearcorrect smiledirect lumineers cerec prophy srp zirconia waterpik sonicare nightguard all-on-4 all-on-x",
+    "apoquel cytopoint simparica nexgard bravecto heartgard interceptor frontline seresto trifexis credelio proheart dhpp dapp fvrcp felv rimadyl carprofen cerenia convenia",
+  ].join(" "),
+);
+
+let treatmentWords: ReadonlySet<string> | null = null;
+
+/** The treatment vocabulary's words, built once. */
+function treatmentWordSet(): ReadonlySet<string> {
+  if (!treatmentWords) {
+    const set = new Set<string>(BRANDS);
+    for (const term of [...META_TREATMENT_VOCABULARY, ...TREATMENT_NAMES]) {
+      for (const word of normaliseTerm(term)) set.add(word);
+    }
+    treatmentWords = set;
+  }
+  return treatmentWords;
+}
+
+/** A term's words, lower case, accents off, the way tokens are compared. */
+function normaliseTerm(term: string): string[] {
+  return term
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}+]+/u)
+    .filter((w) => w.length > 0);
+}
+
+/** A word through the common endings: "booked", "prices", "breathing", "babies". */
+function stemsOf(word: string): string[] {
   const stems: string[] = [];
   if (word.endsWith("'s")) stems.push(word.slice(0, -2));
   if (word.endsWith("s'")) stems.push(word.slice(0, -1));
@@ -150,100 +213,266 @@ function isEnglish(word: string): boolean {
     stems.push(word.slice(0, -3), `${word.slice(0, -3)}e`, word.slice(0, -4));
   if (word.endsWith("ly")) stems.push(word.slice(0, -2));
   if (word.endsWith("er")) stems.push(word.slice(0, -2), word.slice(0, -1));
-  return stems.some((stem) => stem.length >= 2 && EN.has(stem));
+  return stems.filter((stem) => stem.length >= 2);
 }
 
-/** The Spanish word list, through the plural. */
+/** The hand list and the domain lexicon: full English evidence, short words included. */
+function isCoreEnglish(word: string): boolean {
+  if (EN.has(word) || DOMAIN.has(word)) return true;
+  return stemsOf(word).some((stem) => EN.has(stem) || DOMAIN.has(stem));
+}
+
+/**
+ * The large list (./english-words.ts, SCOWL size 35). Evidence only for a
+ * word of four letters or more that is not a word of another language the
+ * check knows: SCOWL holds "pa", "ma", "mesh", "non", "pas", "con" and
+ * "boa", which are Haitian, Arabic, Italian, French and Portuguese words
+ * as often as English ones, and short words are where the languages meet.
+ */
+function isListedEnglish(word: string): boolean {
+  if (word.length < 4) return false;
+  const list = scowlWords();
+  if (list.has(word)) return true;
+  return stemsOf(word).some((stem) => stem.length >= 4 && list.has(stem));
+}
+
+/** Damerau-Levenshtein distance, capped: for a misspelt English word. */
+function editDistance(a: string, b: string, cap: number): number {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1;
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [
+    i,
+    ...Array<number>(b.length).fill(0),
+  ]);
+  for (let j = 1; j <= b.length; j += 1) d[0]![j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    let best = cap + 1;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let v = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+        v = Math.min(v, d[i - 2]![j - 2]! + 1);
+      d[i]![j] = v;
+      best = Math.min(best, v);
+    }
+    if (best > cap) return cap + 1;
+  }
+  return d[a.length]![b.length]!;
+}
+
+let fuzzyTargets: string[] | null = null;
+
+/**
+ * A misspelling of an English word a front desk uses ("appointmnet",
+ * "availible", "reciept"): one edit away for a word of five to seven
+ * letters, two for a longer one, from the hand list and the domain lexicon
+ * only. Half evidence, never for a word of another language the check knows.
+ */
+function isMisspeltEnglish(word: string): boolean {
+  if (word.length < 5) return false;
+  fuzzyTargets ??= [...EN, ...DOMAIN].filter((w) => w.length >= 4 && /^[a-z]+$/.test(w));
+  const cap = word.length >= 8 ? 2 : 1;
+  return fuzzyTargets.some((target) => editDistance(word, target, cap) <= cap);
+}
+
+/**
+ * The Spanish word list, through the plural, except where the plural would
+ * be a word of another language the check knows ("das" is German, not the
+ * plural of "da").
+ */
 function isSpanish(word: string): boolean {
   if (ES.has(word)) return true;
+  if (OTHER.has(word)) return false;
   if (word.endsWith("es") && ES.has(word.slice(0, -2))) return true;
   return word.endsWith("s") && ES.has(word.slice(0, -1));
 }
 
-type Token = { raw: string; word: string };
+type Token = { raw: string; word: string; afterTime?: boolean; sentenceStart?: boolean };
 
 function tokensOf(text: string): Token[] {
   const out: Token[] = [];
-  for (const raw of text.replace(/[‘’ʼ]/g, "'").split(/[^\p{L}\p{N}'/-]+/u)) {
+  let sentenceStart = true;
+  for (const raw of text.replace(/[‘’ʼ]/g, "'").split(/(?<=[.!?¿¡])|[^\p{L}\p{N}'/+.!?¿¡-]+/u)) {
     if (!raw) continue;
-    for (const piece of raw.split(/[-/]/)) {
+    if (/^[.!?¿¡]+$/.test(raw) || /[.!?]$/.test(raw)) {
+      // A sentence's end: the next word starts one, and is capitalised for that alone.
+      const word = raw.replace(/[.!?¿¡]+$/u, "").replace(/^[¿¡]+/u, "");
+      if (word) pushToken(out, word, sentenceStart);
+      sentenceStart = true;
+      continue;
+    }
+    pushToken(out, raw.replace(/^[¿¡]+/u, ""), sentenceStart);
+    sentenceStart = false;
+  }
+  const tokens = out.filter((t) => t.word.length > 0);
+  for (let i = 1; i < tokens.length; i += 1) {
+    if (/^\d{1,2}(:\d{2})?(am|pm|a|p)?$/i.test(tokens[i - 1]!.word)) tokens[i]!.afterTime = true;
+  }
+  return tokens;
+}
+
+function pushToken(out: Token[], raw: string, sentenceStart: boolean): void {
+  {
+    let first = true;
+    for (const piece of raw.split(/[-/.]/)) {
       if (!piece) continue;
       // "n'arrive" is "n'" and "arrive"; "can't" and "i'm" stay whole.
       const m = /^([a-z]')(\p{L}+)$/iu.exec(piece);
       if (m && !["i'", "o'"].includes(m[1]!.toLowerCase())) {
         out.push(
-          { raw: m[1]!, word: m[1]!.toLowerCase() },
+          { raw: m[1]!, word: m[1]!.toLowerCase(), sentenceStart: sentenceStart && first },
           { raw: m[2]!, word: m[2]!.toLowerCase() },
         );
       } else {
-        out.push({ raw: piece, word: piece.toLowerCase().replace(/^'+|'+$/g, "") });
+        out.push({
+          raw: piece,
+          word: piece.toLowerCase().replace(/^'+|'+$/g, ""),
+          sentenceStart: sentenceStart && first,
+        });
       }
+      first = false;
     }
   }
-  return out.filter((t) => t.word.length > 0);
 }
 
 function isTitleCase(raw: string): boolean {
   return /^\p{Lu}[\p{Ll}'.]+$/u.test(raw);
 }
 
-/** Whether a token counts for no language: a number, a time, a day, a code, a greeting, a letter, a name. */
-function isNeutral(token: Token): boolean {
+/**
+ * Whether a token counts for no language: a number, a time, a day, a code,
+ * a greeting, a letter, a treatment's or a brand's name, one of the clinic's
+ * own terms.
+ */
+/** What may follow a number and still be a number: a time, an ordinal, a unit, a count. */
+const NUMBER_SUFFIX =
+  /^\d+(st|nd|rd|th|am|pm|a|p|k|x|h|hr|hrs|min|mins|m|s|d|w|wk|wks|yo|ml|mg|mcg|cc|u|iu|lb|lbs|oz|kg|g|cm|mm|in|ft|\+)?$/i;
+
+/**
+ * Arabic written in Latin letters and digits ("2ader", "sa3dooni",
+ * "maw3ed"): a digit standing for a letter inside a word. Evidence of
+ * another language, never a number. Texting shorthand ("b4", "2day") and the
+ * names of things ("co2", "b12", "morpheus8") are read before this.
+ */
+function isArabizi(word: string): boolean {
+  if (!/\p{N}/u.test(word) || NUMBER_SUFFIX.test(word)) return false;
+  return /\p{L}[2356789]\p{L}|^[2356789]\p{L}{3,}|\p{L}{3,}[2356789]$/u.test(word);
+}
+
+function isNeutral(token: Token, known: ReadonlySet<string>): boolean {
   const { raw, word } = token;
-  if (/\p{N}/u.test(word)) return true; // 3pm, 10am, 2nd, 415
+  if (/\p{N}/u.test(word) && (!isArabizi(word) || treatmentWordSet().has(word) || DOMAIN.has(word)))
+    return true; // 3pm, 10am, 2nd, 415, co2
   if (!/\p{L}/u.test(word)) return true;
   if (OTHER_SCRIPT.test(raw)) {
     OTHER_SCRIPT.lastIndex = 0;
     return true; // counted on its own, by script (messageLanguage)
   }
   OTHER_SCRIPT.lastIndex = 0;
-  if (
-    word.length === 1 &&
-    word !== "a" &&
-    word !== "i" &&
-    word !== "y" &&
-    word !== "o" &&
-    word !== "u"
-  )
-    return true;
+  if (word.length === 1 && !["a", "i", "y", "o", "u"].includes(word)) return true;
   if (DAYS_AND_ZONES.has(word) || NEUTRAL_WORDS.has(word)) return true;
   if (STATE_CODES.has(raw)) return true;
+  // "EST" and "ET" are time zones in capitals or after a time ("6pm est"); in a
+  // French sentence "est" and "et" are French.
+  if ((word === "est" || word === "et") && (raw === raw.toUpperCase() || token.afterTime))
+    return true;
+  const bare = normaliseTerm(word).join("");
+  if (known.has(bare) || treatmentWordSet().has(bare) || treatmentWordSet().has(word)) return true;
   return false;
 }
 
+/** A word with a letter held for emphasis, as the word: "hiii" is "hi", "sooo" is "so", "goood" is "good". */
+function unstretched(word: string): string {
+  if (!/(\p{L})\1{2,}/u.test(word)) return word;
+  const double = word.replace(/(\p{L})\1{2,}/gu, "$1$1");
+  if (isCoreEnglish(double) || isListedEnglish(double) || isSpanish(double)) return double;
+  return word.replace(/(\p{L})\1{2,}/gu, "$1");
+}
+
+/** What the check may be told about the practice. */
+export type LanguageOptions = {
+  /**
+   * The practice's own words: its name, its services, its providers, its
+   * address and city. Neutral, like a brand: "is Okonkwo in on Tuesday" and
+   * "hydra glow facial price" read as English when the clinic says so.
+   */
+  knownTerms?: readonly (string | null | undefined)[];
+};
+
+function knownWords(options: LanguageOptions): ReadonlySet<string> {
+  const set = new Set<string>();
+  for (const term of options.knownTerms ?? []) {
+    if (!term) continue;
+    for (const word of normaliseTerm(term)) if (word.length >= 2) set.add(word);
+  }
+  return set;
+}
+
 /** The counts the decision reads, exported so the tests can see why. */
-export function languageScores(text: string): {
+export function languageScores(
+  text: string,
+  options: LanguageOptions = {},
+): {
   en: number;
   es: number;
-  /** Words found in either list, each counted once. */
+  /** Evidence of English or Spanish: one a word, half a misspelt one. */
   screened: number;
   other: number;
   unknown: number;
   tokens: number;
 } {
+  const known = knownWords(options);
   const list = tokensOf(text.replace(NEUTRAL_PHRASES, " "));
   let en = 0;
   let es = 0;
   let screened = 0;
   let other = 0;
   let unknown = 0;
-  for (const [index, token] of list.entries()) {
-    if (isNeutral(token)) continue;
-    const english = isEnglish(token.word);
-    const spanish = isSpanish(token.word);
-    if (english || spanish) {
-      if (english) en += 1;
+  for (const [index, original] of list.entries()) {
+    // Letters held for emphasis read as the word: "hiii", "helloooo", "sooo".
+    const token = { ...original, word: unstretched(original.word) };
+    if (isNeutral(token, known)) continue;
+    const word = token.word;
+    const foreign = OTHER.has(word) || VIETNAMESE.has(word) || isArabizi(word);
+    const core = isCoreEnglish(word);
+    const spanish = isSpanish(word);
+    if (core || spanish) {
+      if (core) en += 1;
       if (spanish) es += 1;
+      // A Spanish word of one or two letters ("el", "ni", "se") is half
+      // evidence on its own: Arabic written in Latin letters, Yoruba and
+      // others share them. An English one counts in full.
+      const half = !core && word.length <= 2;
+      screened += half ? 0.5 : 1;
+      if (half) unknown += 0.5;
+      continue;
+    }
+    // A word of another language the check knows wins over the large list.
+    if (!foreign && isListedEnglish(word)) {
+      en += 1;
       screened += 1;
       continue;
     }
-    const foreign = OTHER.has(token.word) || VIETNAMESE.has(token.word);
     // A capitalised word no list knows is a name: "Chez Nous", "Sono Bello",
     // "Jean-Pierre". The first word of the message is capitalised anyway, so
     // there a word of another language counts as one ("Magkano po…").
-    if (isTitleCase(token.raw) && !(index === 0 && foreign)) continue;
-    if (foreign) other += 1;
-    else unknown += 1;
+    if (
+      isTitleCase(token.raw) &&
+      !((index === 0 || token.sentenceStart || word === "ich") && foreign)
+    )
+      continue;
+    if (foreign) {
+      other += 1;
+      continue;
+    }
+    // A short word only the large list holds is no evidence either way.
+    if (word.length < 4 && scowlWords().has(word)) continue;
+    if (isMisspeltEnglish(word)) {
+      en += 0.5;
+      screened += 0.5;
+      unknown += 0.5;
+      continue;
+    }
+    unknown += 1;
   }
   // Spanish marks ("¿", "ñ") are evidence of Spanish, and so of a screened language.
   if (ES_MARKS.test(text)) {
@@ -256,11 +485,16 @@ export function languageScores(text: string): {
 
 /**
  * English, Spanish or another language, closed: English or Spanish only on
- * positive evidence (see the file header).
+ * positive evidence (see the file header). Pass the practice's own terms
+ * (LanguageOptions) wherever they are known, so its menu and its people
+ * count as no language.
  */
-export function messageLanguage(text: string | null | undefined): MessageLanguage {
+export function messageLanguage(
+  text: string | null | undefined,
+  options: LanguageOptions = {},
+): MessageLanguage {
   if (!text || !text.trim()) return "en";
-  const scores = languageScores(text);
+  const scores = languageScores(text, options);
   const screened = scores.screened;
   // Another script, unless it is a name inside an English or Spanish sentence.
   const otherScript = (text.match(OTHER_SCRIPT) ?? []).length;
@@ -270,7 +504,7 @@ export function messageLanguage(text: string | null | undefined): MessageLanguag
   if (vietnamese >= 3 && screened < 2) return "other";
   if (scores.other >= 2 && scores.other > scores.en && scores.other > scores.es) return "other";
   const counted = screened + scores.other + scores.unknown;
-  // Nothing but neutral words: a time, a day, a greeting, a name.
+  // Nothing but neutral words: a time, a day, a greeting, a name, a treatment.
   if (counted === 0) return "en";
   if (screened / counted < SCREENED_SHARE) return "other";
   if (scores.es >= 2 && scores.es > scores.en) return "es";

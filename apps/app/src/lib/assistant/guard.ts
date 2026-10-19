@@ -109,7 +109,7 @@ function perUnitPrices(text: string): string {
 }
 
 type ScreenFacts = Pick<AssistantFacts, "services"> &
-  Partial<Pick<AssistantFacts, "clinicName" | "address" | "requirements">>;
+  Partial<Pick<AssistantFacts, "clinicName" | "address" | "requirements" | "providerNames">>;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -228,7 +228,9 @@ export function guardAssistantReply(reply: string, facts: Pick<AssistantFacts, "
     return { ok: false, reason: "payment_details" };
   }
   if (HIPAA_CLAIM.test(reply)) return { ok: false, reason: "hipaa_claim" };
-  if (messageLanguage(reply) === "other") return { ok: false, reason: "language" };
+  // The practice's own words (its menu, its people, its city) are no language either way.
+  const knownTerms = [facts.clinicName, facts.address, ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])];
+  if (messageLanguage(reply, { knownTerms }) === "other") return { ok: false, reason: "language" };
   if (clinicalIn(reply, facts)) return { ok: false, reason: "clinical" };
   return { ok: true };
 }

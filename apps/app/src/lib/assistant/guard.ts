@@ -35,7 +35,12 @@ import type { AssistantFacts } from "./facts";
  *     outcome claims, triage, and a dose given as a bare number. A clinical
  *     reply becomes the offer of a consultation;
  *   - is written in a language the screens do not read (messageLanguage):
- *     English and Spanish are screened, any other is not sent.
+ *     English and Spanish are screened, any other is not sent;
+ *   - says a booking is made, or that the assistant is making one ("you're
+ *     booked", "confirmed for Tuesday", "I'll book you in"), on a turn where
+ *     the tool layer wrote no booking (ReplyTurn, confirmsBooking): the
+ *     brain has no booking tools yet, so it takes a request and the team
+ *     confirms it, and a reply saying otherwise becomes that line.
  * A refused reply is replaced by a fixed line; nothing of it is sent.
  *
  * The limit of the never-say list: its entries are the clinic's own words, in
@@ -52,9 +57,19 @@ export type GuardRefusal =
   | "hipaa_claim"
   | "clinical"
   | "language"
+  | "booking_confirmation"
   | "empty";
 
 export type GuardVerdict = { ok: true } | { ok: false; reason: GuardRefusal };
+
+/**
+ * What the tool layer did on the turn the reply answers. A reply may say a
+ * booking is made only on a turn where the tool layer wrote one (CLAUDE.md:
+ * bookings are written only by the fixed tool layer, and the slot is held
+ * before anything confirming is said). The brain has no booking tools yet
+ * (turn.ts), so no turn writes one, and every confirmation is refused.
+ */
+export type ReplyTurn = { bookingWritten?: boolean };
 
 function normalise(text: string): string {
   return text
@@ -441,7 +456,71 @@ export function clinicalIn(reply: string, facts: ScreenFacts): boolean {
   return PLAIN_CLINICAL.some((pattern) => pattern.test(text));
 }
 
-export function guardAssistantReply(reply: string, facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts): GuardVerdict {
+// -----------------------------------------------------------------------------
+// A booking said to be made
+// -----------------------------------------------------------------------------
+
+const BOOKED = "(?:booked(?: in)?|confirmed|scheduled|reserved|pencil(?:l)?ed in|locked in|secured)";
+const DAY_OR_TIME =
+  "(?:you\\b|(?:mon|tues|wednes|thurs|fri|satur|sun)day\\b|(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\\b|tomorrow\\b|today\\b|tonight\\b|next\\b|this\\b|the\\s+\\d|\\d|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\b)";
+
+/**
+ * A reply that says a booking exists, or that the assistant is making one:
+ * "you're booked", "your booking is confirmed for Mon 3pm", "confirmed for
+ * Tuesday", "I've put you down for 3pm", "I'll book you in", "you're all set
+ * for Tuesday", a confirmation number; and in Spanish, "su cita está
+ * confirmada", "le he reservado", "confirmada para el martes". Read on the
+ * normalised reply, sentence by sentence (confirmsBooking).
+ */
+const CONFIRMATIONS: readonly RegExp[] = [
+  new RegExp(`\\b(?:you're|you are|you've been|you have been|they're|they are)\\s+(?:now\\s+|all\\s+)?${BOOKED}\\b`),
+  new RegExp(
+    `\\b(?:(?:your|the|this|that)\\s+(?:appointment|booking|slot|visit|consultation|session|reservation|time)|it|that|this|everything)\\s*(?:is|'s|has been|was|have been)\\s+(?:now\\s+|all\\s+)?(?:${BOOKED}|made|all set|in the (?:diary|calendar|books?))\\b`,
+  ),
+  /\b(?:i've|i have|we've|we have|i|we)\s+(?:just\s+|now\s+|already\s+|gone ahead and\s+)?(?:booked|confirmed|scheduled|reserved|secured|locked in|pencil(?:l)?ed)\s+(?:you|your|it|that|this|a|an|the)\b/,
+  /\b(?:i've|i have|we've|we have)\s+(?:got|put|added|pencil(?:l)?ed)\s+you\s+(?:down|in)\b/,
+  /\b(?:i'll|i will|let me|we'll|we will)\s+(?:go ahead and\s+)?(?:book|reserve|schedule|lock in|pencil)\s+(?:you|that|it|this|your|a|an|the)\b/,
+  new RegExp(`\\b${BOOKED}\\s+for\\s+${DAY_OR_TIME}`),
+  new RegExp(`\\b(?:all set|good to go)\\s+for\\s+(?:${DAY_OR_TIME}|your)`),
+  /\bconfirmation (?:number|code|email|text|message)\b/,
+  /(?<![\p{L}])(?:est[áa]|queda|qued[óo]|ha quedado|ha sido|fue)\s+(?:ya\s+)?(?:confirmad[oa]|reservad[oa]|agendad[oa]|programad[oa]|apuntad[oa])(?![\p{L}])/u,
+  /(?<![\p{L}])(?:le|te|lo|la)\s+(?:he|hemos)\s+(?:reservado|agendado|confirmado|apuntado|programado)(?![\p{L}])/u,
+  /(?<![\p{L}])(?:confirmad[oa]|reservad[oa]|agendad[oa])\s+para\s+(?:el|la|ma[ñn]ana|hoy|las?)(?![\p{L}])/u,
+];
+
+/** Words before a confirmation that make it a condition or a time to come: "once you're booked", "until it's confirmed". */
+const NOT_YET = /\b(?:once|when|until|till|after|as soon as|if|before|unless|whether)\b|(?<![\p{L}])(?:cuando|una vez|hasta que|si|antes de que|en cuanto)(?![\p{L}])/u;
+/** Words right before one that put it in the future or deny it: "will be confirmed for", "isn't booked for". */
+const FUTURE_OR_NOT =
+  /(?:\b(?:will|'ll|would|to|can|could|should|must|may|might)\s+(?:be\s+|get\s+)?|\b(?:not|never|no longer)\s+(?:\w+\s+)?|n't\s+(?:\w+\s+)?|(?<![\p{L}])no\s+(?:\p{L}+\s+)?)$/u;
+
+/**
+ * Whether the reply says a booking is made, or that the assistant is making
+ * one. A question asks ("would you like to be booked for Tuesday?"), a
+ * condition or a time to come promises nothing ("once it's confirmed", "the
+ * team will confirm it within a day", "it will be confirmed for you"), and a
+ * denial is no confirmation ("it isn't booked for Tuesday yet").
+ */
+export function confirmsBooking(reply: string): boolean {
+  for (const sentence of normalise(reply).split(/(?<=[.!?])\s+/)) {
+    const said = sentence.trim();
+    if (!said || said.endsWith("?") || said.startsWith("¿")) continue;
+    for (const pattern of CONFIRMATIONS) {
+      const match = pattern.exec(said);
+      if (!match) continue;
+      const before = said.slice(0, match.index);
+      if (NOT_YET.test(before) || FUTURE_OR_NOT.test(before)) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+export function guardAssistantReply(
+  reply: string,
+  facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts,
+  turn: ReplyTurn = {},
+): GuardVerdict {
   const text = normalise(reply);
   if (!text.trim()) return { ok: false, reason: "empty" };
   // English entries matched as written, in a reply in either language (see the file header).
@@ -461,6 +540,8 @@ export function guardAssistantReply(reply: string, facts: Pick<AssistantFacts, "
   const knownTerms = [facts.clinicName, facts.address, ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])];
   if (messageLanguage(reply, { knownTerms }) === "other") return { ok: false, reason: "language" };
   if (clinicalIn(reply, facts)) return { ok: false, reason: "clinical" };
+  // Last, so a reply refused for anything above keeps that reason.
+  if (turn.bookingWritten !== true && confirmsBooking(reply)) return { ok: false, reason: "booking_confirmation" };
   return { ok: true };
 }
 
@@ -474,6 +555,9 @@ export function guardedLine(reason: GuardRefusal, clinicName: string): string {
   }
   if (reason === "payment_details") {
     return `Please don't share any card or bank details with me. The practice handles payment securely itself.`;
+  }
+  if (reason === "booking_confirmation") {
+    return `I can't confirm appointments myself, but I can pass your request to the team at ${clinicName}, who confirm every booking and get back to people within a day.`;
   }
   return `I'm not able to help with that here, but I can pass your details to the team at ${clinicName}, who will get back to you within a day.`;
 }

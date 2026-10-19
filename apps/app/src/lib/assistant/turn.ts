@@ -75,6 +75,14 @@ export type AssistantTurnResult = {
 };
 
 
+/**
+ * What the tool layer wrote on a turn: never a booking. The brain has no
+ * booking tools: it takes a request and the adapter files it, so a reply
+ * that says a booking is made is refused (guard.ts, confirmsBooking). The
+ * tool layer, once it exists, says per turn whether it wrote one.
+ */
+const NO_BOOKING_WRITTEN = { bookingWritten: false } as const;
+
 export const FAILURE_LINE =
   "Sorry, I'm having trouble on my end. Please try again in a moment, or contact the practice directly.";
 
@@ -304,7 +312,7 @@ export async function answerTurn(input: {
   }
   const answer = parseModelAnswer(raw);
   const merged = mergeCapture(capture, answer.booking);
-  const verdict = guardAssistantReply(answer.reply, facts);
+  const verdict = guardAssistantReply(answer.reply, facts, NO_BOOKING_WRITTEN);
   if (!verdict.ok) {
     return { ...base, capture: merged, handoff: answer.handoff, reply: guardedLine(verdict.reason, facts.clinicName), source: "guard", guard: verdict.reason };
   }

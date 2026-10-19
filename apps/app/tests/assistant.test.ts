@@ -290,7 +290,6 @@ describe("the guard", () => {
     "Sí, tenemos citas el sábado a las 10.",
     "Claro, ¿le viene bien el martes a las 3?",
     "Merci for the message! We're open until 6.",
-    "Your booking is confirmed for Mon 3pm.",
     "The consultation is free and lasts about 30 minutes.",
     "Bring your ID and arrive about 10 min early.",
     "You can park on level 2, it's free for 2 hours.",
@@ -304,6 +303,51 @@ describe("the guard", () => {
     "It won't hurt to ask the team!",
   ])("third review: an ordinary reply passes: %j", (text) => {
     expect(guardAssistantReply(text, GLOW)).toEqual({ ok: true });
+  });
+
+  // The 19 October audit: the brain holds no slot and writes nothing, so a
+  // reply saying a booking is made is false, and the rule rested on the
+  // prompt alone. "Your booking is confirmed for Mon 3pm." was on the list of
+  // ordinary replies above.
+  test.each([
+    "Your booking is confirmed for Mon 3pm.",
+    "You're booked!",
+    "You're booked in for Tuesday at 3pm.",
+    "Great, confirmed for Tuesday afternoon.",
+    "Thanks Dana, you're all set for Thursday.",
+    "I've booked you in for Thursday at 2.",
+    "I've put you down for 3pm on Friday.",
+    "I'll book you in for Tuesday.",
+    "Your appointment has been scheduled for next Monday.",
+    "It's booked. See you then!",
+    "Your confirmation number is 4821.",
+    "Su cita está confirmada para el martes.",
+    "Le he reservado el jueves a las 3.",
+  ])("a booking said to be made is refused while the brain has no booking tools: %j", (text) => {
+    expect(guardAssistantReply(text, GLOW)).toEqual({ ok: false, reason: "booking_confirmation" });
+  });
+
+  test.each([
+    "I can pass on a request for Tuesday at 3pm. The team will confirm it within a day.",
+    "Thanks Dana, the team will confirm Thursday afternoon within a day.",
+    "Would you like me to pass on a request to be booked for Tuesday?",
+    "Once it's confirmed, the team will let you know.",
+    "Your appointment will be confirmed for you by the team within a day.",
+    "It isn't booked yet: the team confirms every booking.",
+    "Your appointment is at 2pm; please arrive 10 minutes early.",
+    "Let me confirm your number: is it 415 555 0192?",
+    "Booking takes about 2 minutes online.",
+    "¿Le viene bien el martes a las 3?",
+  ])("a request, a question or a confirmation still to come passes: %j", (text) => {
+    expect(guardAssistantReply(text, GLOW)).toEqual({ ok: true });
+  });
+
+  test("a confirmation passes only on a turn where the tool layer wrote a booking, and becomes a line that passes the request on", () => {
+    expect(guardAssistantReply("You're booked for Tuesday at 3pm.", GLOW, { bookingWritten: true })).toEqual({ ok: true });
+    const line = guardedLine("booking_confirmation", GLOW.clinicName);
+    expect(line).toMatch(/can't confirm appointments myself/);
+    expect(line).toContain(GLOW.clinicName);
+    expect(guardAssistantReply(line, GLOW)).toEqual({ ok: true });
   });
 
   test("third review: a reply in a language no list knows is never sent", () => {
@@ -634,6 +678,19 @@ describe("answerTurn", () => {
     });
     expect(seen[0]!.system.stable).toBe(buildAssistantPrompt(FACTS, "web_chat"));
     expect(seen[0]!.system.turn).toBe(assistantTurnContext(FACTS, OPEN, "Hi, I'm an AI assistant."));
+  });
+
+  test("a model that says the booking is made is refused: the brain wrote nothing, and the request still counts", async () => {
+    const result = await answerTurn({
+      facts: FACTS,
+      channel: "voice",
+      history: [],
+      text: "I'm Dana, can I come in Tuesday at 3?",
+      responder: reply("Perfect, Dana, you're booked for Tuesday at 3pm.", { booking: { wants: true, first_name: "Dana", window: "Tuesday at 3" } }),
+    });
+    expect(result).toMatchObject({ source: "guard", guard: "booking_confirmation" });
+    expect(result.reply).toBe(guardedLine("booking_confirmation", FACTS.clinicName));
+    expect(result.capture).toMatchObject({ wants: true, firstName: "Dana", window: "Tuesday at 3" });
   });
 
   test("a refused reply becomes a fixed line, and the capture still counts", async () => {

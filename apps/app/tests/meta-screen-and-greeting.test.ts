@@ -12,6 +12,7 @@ import {
   buildFrontDoorPrompt,
   firstReplyVerdict,
   frontDoorFacts,
+  frontDoorTerms,
   guardReply,
   handoffLine,
   languageLine,
@@ -159,6 +160,16 @@ describe("the screen, before any model", () => {
     expect(line).toContain("call 911 now");
     expect(line).toContain(DIRECT);
     expect(guardReply(line, { clinicName: "Radiance", serviceNames: ["Botox"] })).toEqual({ ok: true });
+  });
+
+  test("the practice's own terms are no language to the screen: its menu and its people reach the model", () => {
+    expect(screenInbound("zelora glow + kaviar peel?", "med-spa", "Glow Med Spa")).toBe("language");
+    expect(screenInbound("zelora glow + kaviar peel?", "med-spa", "Glow Med Spa", ["Zelora Glow Facial", "Kaviar Peel"])).toBeNull();
+    expect(
+      frontDoorTerms({ clinicName: "Glow", services: [], serviceNames: ["Kaviar Peel"], address: "1 Main St, Austin", providerNames: ["Ngozi Okafor"] }),
+    ).toEqual(["Glow", "1 Main St, Austin", "Kaviar Peel", "Ngozi Okafor"]);
+    // Never another language made English by them.
+    expect(screenInbound("Mwen pa ka respire, Kaviar Peel", "med-spa", "Glow Med Spa", ["Kaviar Peel"])).toBe("language");
   });
 
   test("the prompt carries the clinic's tone, and asks for English only: the guard reads English", () => {

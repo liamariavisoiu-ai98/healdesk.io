@@ -158,6 +158,20 @@ export function refusalLine(
   );
 }
 
+/**
+ * The practice's own words, for the language check (@healdesk/catalog,
+ * messageLanguage): its name, its address and city, its services and its
+ * providers. Neither English nor another language, so "is Okonkwo in on
+ * Tuesday?" or the name of its signature facial never turns a message away.
+ */
+export function languageTerms(
+  facts: Pick<AssistantFacts, "clinicName" | "address" | "services"> & Partial<Pick<AssistantFacts, "providerNames">>,
+): string[] {
+  return [facts.clinicName, facts.address ?? "", ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])].filter(
+    (term) => term.trim().length > 0,
+  );
+}
+
 /** The fixed line for a message in a language no screen reads, in English and in Spanish. */
 export function languageLine(facts: ReplyFacts & Pick<AssistantFacts, "specialty">, channel: AssistantChannel): string {
   return otherLanguageReply({
@@ -269,7 +283,7 @@ export async function answerTurn(input: {
     return { ...base, reply: CARD_LINE, source: "card" };
   }
   // A language the screens cannot read: no model, a fixed line in English and Spanish.
-  if (messageLanguage(personText) === "other") {
+  if (messageLanguage(personText, { knownTerms: languageTerms(facts) }) === "other") {
     return { ...base, reply: languageLine(facts, channel), source: "language" };
   }
   if (!input.responder) {

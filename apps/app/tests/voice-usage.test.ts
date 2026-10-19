@@ -78,6 +78,12 @@ describe("what a call bills (R18)", () => {
     });
   });
 
+  test("an urgent call AYA answered bills, though Retell dropped her opening line and only the urgent reply was said", () => {
+    const urgentOnly = voiceMeteringFor(call({ durationSeconds: 75, disclosurePlayedAt: undefined, urgent: true }), facts);
+    expect(urgentOnly).not.toEqual({ skipped: "not_answered" });
+    expect(urgentOnly).toEqual(voiceMeteringFor(call({ durationSeconds: 75, urgent: true }), facts));
+  });
+
   test("nothing for a call AYA never spoke on: put through to the clinic or closed, with no opening line", () => {
     // The fall-through's trouble transfer after a start that failed, or the
     // pass-through of a paused clinic: our outage or the clinic's switch.

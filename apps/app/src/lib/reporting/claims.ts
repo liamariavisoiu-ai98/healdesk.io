@@ -132,7 +132,9 @@ const RANG_OUT_LIST = sql.raw(RANG_OUT_REASONS.map((r) => `'${r}'`).join(", "));
  * call, and leaves one without it unbilled and unrecovered
  * (lib/voice/ingest.ts); the claims count only these.
  */
-const ANSWERED_CALL = sql`(${conversations.channel} = 'voice' and ${conversations.disclosurePlayedAt} is not null)`;
+// AYA spoke: her opening line played, or she said the fixed urgent reply
+// (lib/voice/ingest.ts, ayaSpoke).
+const ANSWERED_CALL = sql`(${conversations.channel} = 'voice' and (${conversations.disclosurePlayedAt} is not null or ${conversations.urgent}))`;
 
 /** The claims over [from, to) for the transaction's clinic. */
 export async function readClaims(

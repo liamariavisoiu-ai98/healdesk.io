@@ -412,6 +412,18 @@ export type VoiceMetering =
   | { minutes: number }
   | { skipped: "test_call" | "own_number" | "not_answered" | "no_duration" | "too_short" };
 
+/**
+ * Whether AYA spoke on the call: her opening line played (its disclosure
+ * time), or the urgent screen matched and she said the fixed urgent reply,
+ * which can be all she said when Retell dropped the opening line because
+ * the caller spoke first. A call put through or closed before either was
+ * not handled by her: it bills nothing and is not claimed (lib/reporting/
+ * claims.ts reads the same two columns).
+ */
+export function ayaSpoke(event: Pick<VoiceCallEvent, "disclosurePlayedAt" | "urgent">): boolean {
+  return Boolean(event.disclosurePlayedAt) || event.urgent === true;
+}
+
 /** Pure: what this call bills, from the facts the ingest already holds. */
 export function voiceMeteringFor(
   event: Pick<VoiceCallEvent, "callerPhone" | "startedAt" | "endedAt" | "durationSeconds" | "disclosurePlayedAt">,
@@ -424,7 +436,7 @@ export function voiceMeteringFor(
   if (caller && facts.ownNumbers.some((n) => n && (toE164(n) ?? n.trim()) === caller)) {
     return { skipped: "own_number" };
   }
-  if (!event.disclosurePlayedAt) return { skipped: "not_answered" };
+  if (!ayaSpoke(event)) return { skipped: "not_answered" };
   const elapsed =
     event.endedAt && event.endedAt.getTime() >= event.startedAt.getTime()
       ? (event.endedAt.getTime() - event.startedAt.getTime()) / 1000
@@ -505,7 +517,7 @@ export async function ingestCall(
     // AYA never spoke on, with no opening line played: the caller was put
     // through to the clinic or heard the closing line, and she answered
     // nothing (voiceMeteringFor bills it nothing, and the claims leave it out).
-    const recoveryReason = isForwardingActivationCall(clinic, event) || !event.disclosurePlayedAt
+    const recoveryReason = isForwardingActivationCall(clinic, event) || !ayaSpoke(event)
       ? null
       : classifyRecovery(event, {
           coverageMode,

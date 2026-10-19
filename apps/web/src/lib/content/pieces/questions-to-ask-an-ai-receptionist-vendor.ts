@@ -3,8 +3,9 @@ import type { Piece } from "@/lib/content/types";
 /**
  * Piece 3: the yardstick. One section per question, each with its sourced
  * reason and what a complete answer includes. It names no AI receptionist
- * vendor and makes no claim about one; AYA's own answers live on piece 2,
- * which the closing note links to. Every reason was rechecked on
+ * vendor and makes no claim about one. AYA's own answers will live on piece
+ * 2, which is held back until the owner settles the booking claim, so the
+ * closing note does not link there yet. Every reason was rechecked on
  * 19 October 2026. HHS's statement that it recognises no private HIPAA
  * "certification" was dropped because hhs.gov could not be opened that day.
  */
@@ -32,8 +33,8 @@ export const piece: Piece = {
             "A Pew Research Center survey of 3,488 US adults, published in August 2026, found that most want to be told when a healthcare provider uses AI in their care. " +
             "Pew reports that 72% of US adults say it is extremely or very important that a doctor or other healthcare provider tells them if they are using AI in their healthcare. " +
             "Asked about specific tasks, 56% said a provider or its office should tell them when AI schedules a medical appointment, the lowest share of any task, and 33% said it should not. " +
-            "Several states also have disclosure rules that can reach an assistant answering a clinic's phone or chat, which [Does an AI receptionist have to say it is an AI?](/guides/does-an-ai-receptionist-have-to-say-it-is-an-ai) sets out. " +
-            "What a caller must be told about transcription is covered in [AI call transcription consent by state](/guides/ai-call-transcription-consent-by-state).",
+            "Several states also have disclosure rules that can reach an assistant answering a clinic's phone or chat, which the [guide to AI disclosure laws](/guides/does-an-ai-receptionist-have-to-say-it-is-an-ai) sets out. " +
+            "What a caller must be told about transcription is covered in the [guide to call-transcription consent](/guides/ai-call-transcription-consent-by-state).",
           cite: ["pew-2026"],
         },
         { kind: "h3", text: "What a complete answer includes" },
@@ -59,7 +60,7 @@ export const piece: Piece = {
             "Under 45 CFR 164.502(e), a covered entity may let a business associate create, receive, maintain or transmit protected health information on its behalf if it obtains satisfactory assurance that the information will be safeguarded. " +
             "Those assurances must be documented in a written contract or other written arrangement that meets the requirements of 45 CFR 164.504(e). " +
             "A business associate may in turn let a subcontractor handle the information if it obtains the same kind of assurances from that subcontractor. " +
-            "Whether HIPAA reaches a cash-pay practice at all is the subject of [Is a cash-pay clinic covered by HIPAA?](/guides/is-a-cash-pay-clinic-covered-by-hipaa).",
+            "Whether HIPAA reaches a cash-pay practice at all is the subject of the [guide to HIPAA for cash-pay clinics](/guides/is-a-cash-pay-clinic-covered-by-hipaa).",
           cite: ["ecfr-164-502", "ecfr-164-504"],
         },
         { kind: "h3", text: "What a complete answer includes" },
@@ -236,9 +237,8 @@ export const piece: Piece = {
   ],
   aya: [
     "AYA's monthly prices and setup fees are on the [pricing](/pricing) page, so the price question is answered before any sales call.",
-    "AYA is built to say it is an AI assistant in its first line on every channel, and to contact no patient first.",
+    "AYA has not yet answered a real patient, but it is built to say it is an AI assistant in its first line on every channel and to contact no patient first.",
     "We sign a business associate agreement and handle patient data under it.",
-    "AYA has not yet answered a real patient, so these describe how it is designed rather than a record of live use.",
   ],
   sources: [
     {

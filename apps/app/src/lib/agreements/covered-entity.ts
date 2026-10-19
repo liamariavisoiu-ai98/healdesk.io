@@ -11,6 +11,7 @@ import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/l
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { agreementInEffect } from "./in-effect";
+import { closeAgreementKindReview } from "./misclassification";
 import { openAgreementResign, sendAgreementToSign, withdrawAgreementResign } from "./resign";
 
 /**
@@ -39,7 +40,8 @@ import { openAgreementResign, sendAgreementToSign, withdrawAgreementResign } fro
  *
  * The practice records the same answer itself from Billing ("We've started
  * billing insurance electronically", behind a passkey step-up), through this
- * same function with `source: "portal"`.
+ * same function with `source: "portal"`. Either way an open misclassification
+ * review (lib/agreements/misclassification.ts) is decided by the answer.
  *
  * Contract metadata only; never a patient.
  */
@@ -120,6 +122,13 @@ export async function setCoveredEntity(input: {
           agreementKind: clinic.kind,
         },
       });
+      // The answer is what the misclassification review waited for.
+      await closeAgreementKindReview(tx, {
+        answer: input.answer,
+        decidedBy: input.actorLabel,
+        now,
+      });
+
       const stillCovered = agreementKindSufficient(
         clinic.regime as RegulatoryRegime,
         clinic.kind,

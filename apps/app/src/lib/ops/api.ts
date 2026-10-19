@@ -167,7 +167,9 @@ import {
 } from "@/lib/ops/billing";
 import {
   opChangeClinicEmail,
+  opDecideAgreementReview,
   opGetClinicSignIn,
+  opListAgreementReviews,
   opListClinicCards,
   opListSiteReadFailures,
   opSetCoveredEntity,
@@ -492,6 +494,12 @@ const OPERATIONS = [
   "setCoveredEntity",
   "listClinicCards",
   "listSiteReadFailures",
+  // The misclassification signal (WP9, plan Part L; lib/agreements/
+  // misclassification.ts): the DPA "No" practices whose website says they
+  // accept insurance, and the decision, which is the practice's answer
+  // recorded through setCoveredEntity. Business data; never a patient.
+  "listAgreementReviews",
+  "decideAgreementReview",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -561,6 +569,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "changeClinicEmail",
   "stopClinicEmailChange",
   "setCoveredEntity",
+  // Mutating: a covered-entity answer recorded from the misclassification review.
+  "decideAgreementReview",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1119,6 +1129,10 @@ export async function runOperation(
       return opListClinicCards(operator);
     case "listSiteReadFailures":
       return opListSiteReadFailures(operator);
+    case "listAgreementReviews":
+      return opListAgreementReviews(operator);
+    case "decideAgreementReview":
+      return opDecideAgreementReview(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

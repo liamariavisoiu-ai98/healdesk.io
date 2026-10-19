@@ -1356,3 +1356,66 @@ describe("the practice questions' review queue (/admin/reviews)", () => {
     expect(sent[2]).toEqual({ op: "rerunPracticeQuestions", args: { clinicId: CLINIC } });
   });
 });
+
+describe("the agreement checks (plan Part L, WP9)", () => {
+  const CHECK = "5b9d6f2a-3c4e-4f80-9a1b-2c3d4e5f6a7b";
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: CHECK,
+    clinicId: CLINIC,
+    clinicSlug: "glow",
+    clinicName: "Glow Med Spa",
+    status: "open",
+    signal: "site_accepts_insurance",
+    createdAt: "2026-10-19T12:00:00.000Z",
+    decidedAt: null,
+    decidedByLabel: null,
+    ...over,
+  });
+
+  test("reads each check, and refuses a status or signal it does not know", async () => {
+    reply({ data: { reviews: [row()] } });
+    const read = await opsClient.fetchAgreementReviews();
+    if (!read.ok) throw new Error(read.message);
+    expect(read.data[0]).toMatchObject({
+      id: CHECK,
+      status: "open",
+      signal: "site_accepts_insurance",
+      createdAt: { on: "2026-10-19" },
+      decidedAt: null,
+    });
+    expect(sent[0]).toEqual({ op: "listAgreementReviews", args: {} });
+
+    reply({ data: { reviews: [row({ status: "superseded" })] } });
+    expect((await opsClient.fetchAgreementReviews()).ok).toBe(false);
+    reply({ data: { reviews: [row({ signal: "the website looks medical" })] } });
+    expect((await opsClient.fetchAgreementReviews()).ok).toBe(false);
+  });
+
+  test("a decision sends the clinic, the check and the practice's answer, and reads setCoveredEntity's reply", async () => {
+    reply({
+      data: {
+        status: "recorded",
+        agreementKind: "dpa",
+        isCoveredEntity: true,
+        covered: false,
+        supersedeStarted: true,
+        linkSent: true,
+        auditRecorded: true,
+      },
+    });
+    expect(await opsClient.decideAgreementReview(CLINIC, CHECK, "yes")).toMatchObject({
+      ok: true,
+      data: { status: "recorded", supersedeStarted: true, linkSent: true },
+    });
+    expect(sent[0]).toEqual({
+      op: "decideAgreementReview",
+      args: { clinicId: CLINIC, reviewId: CHECK, answer: "yes" },
+    });
+
+    reply({ data: { status: "refused", message: "This review has been decided already." } });
+    expect(await opsClient.decideAgreementReview(CLINIC, CHECK, "no")).toEqual({
+      ok: true,
+      data: { status: "refused", message: "This review has been decided already." },
+    });
+  });
+});

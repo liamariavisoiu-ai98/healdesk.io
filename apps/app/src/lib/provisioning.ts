@@ -34,6 +34,7 @@ import {
 
 import { bindAgreement } from "./agreements";
 import { agreementKindSufficient, agreementTemplateReleased } from "./agreements/kind";
+import { flagInsuranceMismatch } from "./agreements/misclassification";
 import { recordAgreementTerms, signedCalendarTerms } from "./booking/elections";
 import { log } from "./log";
 import { AuditRecorder } from "./audit";
@@ -559,6 +560,10 @@ async function provisionOnce({
       seed: settled.seed,
       callRouting: request.callRouting,
     });
+    // The misclassification signal (plan Part L): a practice that signed the
+    // DPA as billing no insurance electronically, whose own website says it
+    // accepts insurance, waits in the review queue for ops to ask it.
+    await flagInsuranceMismatch(provisioningTx);
     // The welcome email is owed from this commit on: its ledger row is
     // written here, so a send that never runs after commit (the process
     // exits, its first read fails) still leaves a row the hourly backstop

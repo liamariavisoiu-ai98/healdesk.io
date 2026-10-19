@@ -61,7 +61,7 @@ const MITIGATIONS = Object.entries(INCIDENT_MITIGATIONS) as [IncidentMitigation,
 export function affectedLine(count: number | null): string {
   if (count === null) return "Not known here until apps/app is deployed.";
   const how =
-    "Record it from the app's shell by contact id (npm run ops:incident-affected); the practice reads it on the incident's page in its portal, behind its passkey, once a report has gone. The report itself never names anyone.";
+    "Record it by contact id with bash infra/aws/scripts/run-task.sh incident-affected (npm run ops:incident-affected on a development machine); the practice reads it on the incident's page in its portal, behind its passkey, once a report has gone. The report itself never names anyone.";
   return count === 0
     ? `No one recorded yet. ${how}`
     : `${count} ${count === 1 ? "person" : "people"} recorded. ${how}`;

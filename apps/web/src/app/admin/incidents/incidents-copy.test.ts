@@ -124,6 +124,8 @@ describe("the incidents page", () => {
   test("who an incident affected is a count and where it is recorded, never who, and unknown before apps/app has it", () => {
     const none = board([ROW]);
     expect(none).toContain("Who it affected No one recorded yet.");
+    // The AWS host has no shell: its one-off task, as the runbook gives it.
+    expect(none).toContain("run-task.sh incident-affected");
     expect(none).toContain("npm run ops:incident-affected");
     expect(none).toContain("The report itself never names anyone.");
     expect(board([{ ...ROW, affectedCount: 3 }])).toContain("3 people recorded.");

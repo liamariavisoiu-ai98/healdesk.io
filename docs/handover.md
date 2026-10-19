@@ -798,12 +798,12 @@ recorded by CloudTrail. So on the AWS host: by contact id, through run-task.sh o
   everywhere: `HEALDESK_INCIDENT_CLINIC_ID`, `HEALDESK_INCIDENT_ID`,
   `HEALDESK_INCIDENT_CONTACT_IDS` (comma-separated, at most 1,000 a run), optionally
   `HEALDESK_INCIDENT_ACTION=remove` for a contact named in error, and
-  `HEALDESK_OPS_OPERATOR`. Its one-off task is not in `infra/` yet: it mirrors
-  erase-person's (an `ops_script["incident-affected"]` entry in `infra/aws/ecs.tf` with
-  the runtime `DATABASE_URL` as its only secret and no task role, its log group in
-  `logs.tf`, its family in the deploy role's `RegisterOurTaskDefinitions` and in
-  `deploy-app.yml`, and a `run-task.sh` case). Until then it runs on a development
-  machine only.
+  `HEALDESK_OPS_OPERATOR`. On the AWS host it is the one-off task `incident-affected`
+  (`ops_script["incident-affected"]` in `infra/aws/ecs.tf`: the runtime `DATABASE_URL` as
+  its only secret, no task role), run with
+  `bash infra/aws/scripts/run-task.sh incident-affected <clinic id> <incident id> <contact ids> <you@healdesk.io> [add|remove]`,
+  at most 150 contacts a run there, because ECS takes 8,192 characters of overrides; run
+  it again for the rest. It needs an infra apply before the first deploy that registers it.
 
 **Open items.** run-task.sh runs `erase-person` and `amend-contact` as one-off tasks.
 The operator needs a contact's id without the person's details crossing any channel,

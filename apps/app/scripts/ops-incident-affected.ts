@@ -24,15 +24,13 @@ import {
  *                                  a contact named in error
  *   HEALDESK_OPS_OPERATOR          the operator's healdesk address
  *
- * The task it needs mirrors erase-person's, and is not in infra/ yet: an
- * `ops_script["incident-affected"]` entry in infra/aws/ecs.tf running
- * `node --import tsx scripts/ops-incident-affected.ts` with DATABASE_URL (the
- * runtime role) as its one secret, NODE_ENV=production and no task role,
- * logging to /healdesk/production/incident-affected (infra/aws/logs.tf), its
- * family healdesk-production-incident-affected in the deploy role's
- * RegisterOurTaskDefinitions (iam.tf) and in deploy-app.yml's fetch list,
- * and a run-task.sh case `incident-affected <clinic id> <incident id>
- * <contact ids> <you@healdesk.io> [add|remove]`.
+ * The task is `ops_script["incident-affected"]` in infra/aws/ecs.tf, mirroring
+ * erase-person's: DATABASE_URL (the runtime role) as its one secret,
+ * NODE_ENV=production and no task role, logging to
+ * /healdesk/production/incident-affected. Run it with
+ * `bash infra/aws/scripts/run-task.sh incident-affected <clinic id>
+ * <incident id> <contact ids> <you@healdesk.io> [add|remove]`, which takes at
+ * most 150 contacts a run (ECS's 8,192 characters of overrides).
  *
  * On a development machine, against a development database, the same as
  * arguments:

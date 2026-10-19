@@ -358,6 +358,17 @@ locals {
         secrets     = ["DATABASE_URL"]
         environment = { BETTER_AUTH_URL = local.app_url }
       }
+      # Who an incident affected, for the practice to read on the incident's
+      # page behind its passkey step-up (L29: the list is never emailed;
+      # docs/handover.md, "Incidents"; apps/app/scripts/ops-incident-affected.ts).
+      # run-task.sh passes only the clinic's, the incident's and the contacts'
+      # ids, add or remove, and the operator's work address. It writes the
+      # list and sends nothing, so the runtime URL is its one secret.
+      "incident-affected" = {
+        script      = "scripts/ops-incident-affected.ts"
+        secrets     = ["DATABASE_URL"]
+        environment = {}
+      }
       # After a restore, beside destroy-due (docs/handover.md, "Restoring",
       # step 5): every deletion the restored database still remembers, done
       # again. No arguments; it finds people by the keyed references its

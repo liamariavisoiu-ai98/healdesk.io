@@ -1,8 +1,10 @@
 import type { Piece } from "@/lib/content/types";
 
 import { piece as aiCallTranscriptionConsent } from "./ai-call-transcription-consent-by-state";
+import { piece as conditionalCallForwarding } from "./conditional-call-forwarding";
 import { piece as howAyaIsBuiltToBehave } from "./how-aya-is-built-to-behave";
 import { piece as cashPayClinicHipaa } from "./is-a-cash-pay-clinic-covered-by-hipaa";
+import { piece as phoneBookingStatistics } from "./phone-booking-and-missed-call-statistics";
 import { piece as questionsToAskAVendor } from "./questions-to-ask-an-ai-receptionist-vendor";
 
 /**
@@ -12,6 +14,8 @@ import { piece as questionsToAskAVendor } from "./questions-to-ask-an-ai-recepti
 export const PIECES: readonly Piece[] = [
   howAyaIsBuiltToBehave,
   questionsToAskAVendor,
+  phoneBookingStatistics,
+  conditionalCallForwarding,
   cashPayClinicHipaa,
   aiCallTranscriptionConsent,
 ];

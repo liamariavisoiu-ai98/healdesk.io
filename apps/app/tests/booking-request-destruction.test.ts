@@ -1,4 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { getBaaTemplate, type BaaVariables } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -1707,5 +1710,69 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       `select 1 from pg_trigger where tgname = 'clinics_insert_guard' and tgenabled = 'O'`,
     );
     expect(rows).toHaveLength(1);
+  });
+});
+
+// The review's N5, older than the account closure: an audit row whose actor
+// is a connector names its provider connection (audit_log.actor_connection_id,
+// ON DELETE SET NULL), and audit_log_actor_shape needs that id for a
+// connector. Destruction deletes every connection, so a clinic with one such
+// row could never be destroyed: the delete would fail and roll the whole
+// destruction back. Nothing writes one today. These two hold it there: the
+// first fails the moment code builds a connector actor, and the second shows
+// why, so whoever lifts the first makes destruction handle the row first.
+describe("connector actors in the audit log", () => {
+  test("no code builds an audit actor of type connector, which destruction cannot yet survive", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (/\.(ts|tsx)$/.test(entry.name)) {
+          readFileSync(path, "utf8")
+            .split("\n")
+            .forEach((line, i) => {
+              if (/type:\s*["'`]connector["'`]/.test(line)) {
+                hits.push(`${relative(root, path)}:${i + 1}`);
+              }
+            });
+        }
+      }
+    };
+    walk(join(root, "src"));
+    walk(join(root, "scripts"));
+    // The one allowed: the ActorContext member itself, in lib/audit.ts.
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatch(/^src\/lib\/audit\.ts:\d+$/);
+  });
+});
+
+describeDb("a connector actor's audit row against destruction", () => {
+  beforeAll(async () => {
+    await runMigrations();
+  }, 180_000);
+
+  afterAll(async () => {
+    await closePools();
+  });
+
+  test("deleting the connection a connector-actor audit row names is refused, so destruction would roll back", async () => {
+    const c = await seedClinic("connector-actor");
+    await expect(
+      inTenant(c.clinicId, async (q) => {
+        const { rows } = await q.query<{ id: string }>(
+          `insert into provider_connections (clinic_id, provider, ciphertext, iv, auth_tag, wrapped_dek, key_version)
+           values ($1, 'mindbody', 'x', 'x', 'x', 'x', 'test') returning id`,
+          [c.clinicId],
+        );
+        await q.query(
+          `insert into audit_log (clinic_id, actor_type, actor_label, actor_connection_id, action, resource_type)
+           values ($1, 'connector', 'sync', $2, 'read', 'appointment')`,
+          [c.clinicId, rows[0]!.id],
+        );
+        await q.query(`delete from provider_connections where id = $1`, [rows[0]!.id]);
+      }),
+    ).rejects.toMatchObject({ code: "23514", constraint: "audit_log_actor_shape" });
   });
 });

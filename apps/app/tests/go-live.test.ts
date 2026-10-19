@@ -727,6 +727,23 @@ describeDb("automatic go-live against the database", () => {
     expect(await codes(before.clinicId)).toEqual([]);
     await overrideRun(before.clinicId);
     expect(await codes(before.clinicId)).toEqual([]);
+    // Only the label marks an override, which the runtime role cannot write:
+    // a real run it renames 'override' (it may update reason) is still read.
+    await passedRun(before.clinicId, "web", "failed");
+    expect(await codes(before.clinicId)).toEqual(["gate_b"]);
+    const renamer = await getAppPool().connect();
+    try {
+      await renamer.query("begin");
+      await renamer.query(`select set_config('app.clinic_id', $1, true)`, [before.clinicId]);
+      const renamed = await renamer.query(
+        `update practice_question_runs set reason = 'override' where status = 'failed'`,
+      );
+      expect(renamed.rowCount).toBe(1);
+      await renamer.query("commit");
+    } finally {
+      renamer.release();
+    }
+    expect(await codes(before.clinicId)).toEqual(["gate_b"]);
 
     // The platform: one shared subject withdrawn is go-live's own code; a
     // channel's own is Gate B's. Restored after, for the tests below.

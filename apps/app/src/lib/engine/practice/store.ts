@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { NEVER_SAY_DEFAULTS, type Channel } from "@healdesk/catalog";
-import { and, desc, eq, inArray, isNotNull, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 
 import {
   agentConfigs,
@@ -667,11 +667,22 @@ export async function queueReadyEmail(
 // -----------------------------------------------------------------------------
 
 /**
+ * A run of the questions, not the retired script approval's override. Known
+ * by `override_label`, which the runtime role cannot update (drizzle/0080's
+ * column grants) and which the table's check ties to reason `override`;
+ * never by `reason`, which the runtime role can update, so a real run renamed
+ * `override` is still read. drizzle/0097 asks the same.
+ */
+function notAnOverride() {
+  return isNull(practiceQuestionRuns.overrideLabel);
+}
+
+/**
  * Where the clinic's practice questions stand: the one reader of it, which
  * Home, Talk to your AYA, the support chat's get_account_state, the console's
  * clinic cards, O8 and the gate all ask, so none of them can read a clinic
- * differently. An operator's override (reason `override`, retired) is not a
- * run of the questions and is never the latest run.
+ * differently. An operator's override (retired; notAnOverride) is not a run
+ * of the questions and is never the latest run.
  */
 export async function readPracticeState(
   tx: Pick<TenantTx, "db" | "clinicId">,
@@ -692,7 +703,7 @@ export async function readPracticeState(
     .where(
       and(
         eq(practiceQuestionRuns.clinicId, tx.clinicId),
-        ne(practiceQuestionRuns.reason, "override"),
+        notAnOverride(),
         inArray(practiceQuestionRuns.status, [...PRACTICE_COMPLETED_STATUSES]),
         isNotNull(practiceQuestionRuns.finishedAt),
       ),
@@ -819,10 +830,7 @@ export async function latestRunVersion(
     })
     .from(practiceQuestionRuns)
     .where(
-      and(
-        eq(practiceQuestionRuns.clinicId, tx.clinicId),
-        ne(practiceQuestionRuns.reason, "override"),
-      ),
+      and(eq(practiceQuestionRuns.clinicId, tx.clinicId), notAnOverride()),
     )
     .orderBy(desc(practiceQuestionRuns.requestedAt))
     .limit(1);

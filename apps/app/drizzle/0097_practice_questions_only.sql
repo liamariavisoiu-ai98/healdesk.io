@@ -27,7 +27,11 @@
 --      does not read an override run as the latest run at all: it is not a
 --      run of the questions. The latest run whose outcome stands is the
 --      latest one they asked, as readPracticeState reads it
---      (lib/engine/practice/store.ts);
+--      (lib/engine/practice/store.ts). An override is known by its
+--      `override_label`, which the runtime role cannot update (0080's column
+--      grants) and which 0080's check ties to reason 'override' and status
+--      'passed'; never by `reason`, which the runtime role can update, so a
+--      real run renamed 'override' still counts;
 --   2. app_channel_audit_ok counts a channel's record, whoever wrote it, only
 --      while the questions' gate holds open for the channel, as
 --      channelsWithAuditPassed does (lib/channels/audit-seam.ts): the pass
@@ -70,7 +74,7 @@ AS $$
                                    AND x.channel = p_channel AND x.status = 'passed')
                FROM practice_question_runs r
               WHERE r.clinic_id = p_clinic
-                AND r.reason <> 'override'
+                AND r.override_label IS NULL
                 AND r.status IN ('passed', 'failed', 'in_review', 'error')
                 AND r.finished_at IS NOT NULL
               ORDER BY r.finished_at DESC

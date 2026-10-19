@@ -685,7 +685,7 @@ jobs:
           if [ -n "$VOICE_FAMILY" ]; then
             revisions "$VOICE_FAMILY" >"$RUNNER_TEMP/voice-revisions"
             choose "$VOICE_FAMILY" voice "$commit" \
-              "If voice was switched on after that commit, roll back to a later one that ran voice too, or set enable_voice = false and apply before rolling back."
+              "If voice was switched on after that commit, roll back to a later one that ran voice too, or set enable_voice = false, with voice_real_calls = false in the same change if it is on, and apply before rolling back."
           fi
           echo "commit=$commit" >>"$GITHUB_OUTPUT"
 

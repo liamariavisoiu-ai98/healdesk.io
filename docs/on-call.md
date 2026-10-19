@@ -37,7 +37,8 @@ connection or statement timeout (`src/db/index.ts`), so after a hang it can stay
 jammed until its connections give up; a pool timeout is the fix, not yet made.
 
 The worker keeps that Retell fallback number equal to each clinic's direct line every
-hour (`lib/voice/retell-fallback-sync.ts`, tick job `retell-fallback`), through
+hour (`lib/voice/retell-fallback-sync.ts`, `retell-fallback` in the worker's `tick` log
+line; it has no row in the ops console's job list), through
 `HEALDESK_RETELL_API_KEY`. It never sets a line equal to the AYA number or the
 clinic's published number. It clears the fallback of a number whose clinic has no
 usable direct line, since a line left there could only be a previous holder's, and of a
@@ -46,8 +47,8 @@ whose number it could not set (`duplicate`, `missing`, `not_kept`, `rejected`, `
 `database`); a refused key (`key_refused`) or three numbers in a row timing out
 (`retell_unreachable`) stops the run with one alert for every clinic. Offboarding forgets a clinic's AYA number, so the sync cannot clear that
 number's fallback: release the number in Retell, or clear its fallback, when a clinic
-leaves. Until the key is pasted the job reports `skipped` and none of what
-follows in this section works.
+leaves. Until the key is pasted the tick line reports `retell-fallback=skipped` and none
+of what follows in this section works.
 
 **Voice endpoint down** (the voice alarm, or no `retell call recorded` lines while
 clinics are live). Retell has no per-agent or per-number setting for an unreachable
@@ -199,7 +200,7 @@ the location to manual booking in the same turn, from the tool layer
 | Email | `/api/health` → `email.lateCriticalNotices` and `reasons`; ops alert emails (`ops_alerts`); the job list, row `billing-notices` | 0 late | any late: a critical email is still unsent ten minutes after it was due. `/api/health` answers 503 with `"reasons": ["critical_notice_undelivered"]` and ops is emailed once per notice. Check Resend and the job's note, then call the clinic |
 | Jobs | ops console job list: `last_run_status` and `last_run_note` | `ok` | `failed` twice in a row, or `already-running` for over an hour (a stale lock is reclaimed after 60 min; 10 min for `calendar-watch`) |
 | Calendar watch | ops alert emails (`calendar_broken`, `calendar_degraded`, `calendar_recovered`, `google_oauth_client_rejected`, `calendar_watch_incomplete`, `calendar_watch_failed`); the job list, row `calendar-watch`, whose note counts each run's checks, breakages, misses, skips and failures and ends with the run's id | `ok` every five minutes once switched on | `google_oauth_client_rejected`: at once, every clinic is affected. `calendar_watch_failed`, or `failed` on the job row, twice in a row: read the worker's `calendar watch` error lines. `calendar_watch_incomplete` on most runs. No `last_run_at` ten minutes after switching it on: the queue was not installed or the worker not restarted (look for `queue clock not running` with `calendar-watch`) |
-| Voice endpoint | The voice target group's healthy-task alarm (`alarms.tf`); ops alerts `voice_call_start_failed` and `retell_fallback_unsynced`; the job list, row `retell-fallback`; Retell's call history for `error_llm_websocket_*` | healthy tasks at `voice_desired`; `retell-fallback` `ok` | The alarm, or any `error_llm_websocket_*` call: outage mode on ("Voice endpoint down"). `voice_call_start_failed`: the database, first. `retell_fallback_unsynced`: that clinic's number in Retell, or the key |
+| Voice endpoint | The voice target group's healthy-task alarm (`alarms.tf`); ops alerts `voice_call_start_failed` and `retell_fallback_unsynced`; the worker's hourly `tick` log line, `retell-fallback=` (the sync is not a row in the job list); Retell's call history for `error_llm_websocket_*` | healthy tasks at `voice_desired`; `retell-fallback=ok` | The alarm, or any `error_llm_websocket_*` call: outage mode on ("Voice endpoint down"). `voice_call_start_failed`: the database, first. `retell_fallback_unsynced`: that clinic's number in Retell, or the key |
 | Meta webhooks | The audit rows the front door writes per answered message, the `front door` lines in the logs, and any delivery failures Meta reports for the app | Messages answered | Meta reports failed deliveries, model calls fail, or a clinic with a connected channel goes quiet |
 
 Point an external uptime check (any provider; it lives outside the thing it

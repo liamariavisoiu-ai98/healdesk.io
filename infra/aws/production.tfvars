@@ -65,7 +65,10 @@ voice_memory  = 1024
 
 # Real patients' calls: off until every business associate agreement in the
 # chain is signed, Retell's included. Off, the voice endpoint answers only the
-# made-up demo clinic, for a test call (owner, 19 October 2026).
+# made-up demo clinic, for a test call (owner, 19 October 2026), and the
+# worker's backstop records only that clinic's lost calls. On, the web, worker
+# and voice tasks all carry the switch. It needs enable_voice: turning voice
+# off means setting both to false in the same change.
 voice_real_calls = false
 
 # Database.

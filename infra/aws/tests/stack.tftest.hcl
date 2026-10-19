@@ -1340,13 +1340,15 @@ run "voice_on" {
     error_message = "With enable_voice on, the web task must say so in HEALDESK_VOICE_ENABLED, which the ops API's keyPresence reports."
   }
 
-  # Test mode by default: only the demo clinic's calls are answered.
+  # Test mode by default: only the demo clinic's calls are answered, and only
+  # the demo clinic's lost calls backstopped. The web task holds the shared
+  # worker; the worker task is the separate placement's.
   assert {
     condition = alltrue([
-      for td in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.voice[0].container_definitions] :
+      for td in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.voice[0].container_definitions, aws_ecs_task_definition.worker.container_definitions] :
       !strcontains(td, "HEALDESK_VOICE_REAL_CALLS")
     ])
-    error_message = "With voice_real_calls off, neither the voice task nor the web task may carry HEALDESK_VOICE_REAL_CALLS: the endpoint must stay in test mode."
+    error_message = "With voice_real_calls off, neither the voice task, the web task nor the worker may carry HEALDESK_VOICE_REAL_CALLS: the endpoint and the backstop must stay in test mode."
   }
 
   assert {
@@ -1497,8 +1499,11 @@ run "voice_on_plain_http_longest_environment" {
 }
 
 # Real patients' calls, the switch for once every agreement is signed: the
-# voice task gets the flag the endpoint reads, and the web task the same, for
-# /admin/map; the worker, which answers no call, does not.
+# voice task gets the flag the endpoint reads, the web task the same, for
+# /admin/map, and the worker too, because the backstop for a call the voice
+# task never recorded runs there and reads the voice line's switch
+# (lib/voice/backstop.ts). Without it the backstop would stay in test mode and
+# drop every real clinic's lost call.
 run "voice_real_calls_on" {
   command = plan
 
@@ -1515,9 +1520,30 @@ run "voice_real_calls_on" {
     error_message = "With voice_real_calls on, the voice task and the web task must carry HEALDESK_VOICE_REAL_CALLS=1."
   }
 
+  # Shared placement (the default): the web task's "worker" container.
   assert {
-    condition     = !strcontains(jsonencode([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "worker"]), "HEALDESK_VOICE_REAL_CALLS")
-    error_message = "The worker answers no call and must not carry HEALDESK_VOICE_REAL_CALLS."
+    condition     = contains([for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "worker"]).environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_REAL_CALLS=1")
+    error_message = "With voice_real_calls on, the worker inside the web task must carry HEALDESK_VOICE_REAL_CALLS=1: the call backstop runs there."
+  }
+}
+
+# Separate placement: the worker's own task carries the switch as well.
+run "voice_real_calls_on_with_a_separate_worker" {
+  command = plan
+
+  variables {
+    enable_voice     = true
+    voice_real_calls = true
+    worker_placement = "separate"
+  }
+
+  assert {
+    condition = (
+      contains([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_REAL_CALLS=1") &&
+      !contains([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c.name], "worker") &&
+      aws_ecs_service.worker[0].task_definition == aws_ecs_task_definition.worker.arn
+    )
+    error_message = "With voice_real_calls on and worker_placement separate, the worker task must carry HEALDESK_VOICE_REAL_CALLS=1: the call backstop runs there."
   }
 }
 

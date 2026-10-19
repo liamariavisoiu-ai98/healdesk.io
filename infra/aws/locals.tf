@@ -115,7 +115,8 @@ locals {
     # parameter, so it reads as present the moment it is pasted, with the voice
     # service, its target group and its listener rule still switched off.
     var.enable_voice ? { HEALDESK_VOICE_ENABLED = "1" } : {},
-    # And whether it answers real patients or only the demo clinic.
+    # And whether it answers real patients or only the demo clinic. The voice
+    # task and the worker (below) carry the same switch and act on it.
     var.voice_real_calls ? { HEALDESK_VOICE_REAL_CALLS = "1" } : {},
     {
       for k, v in {
@@ -130,9 +131,16 @@ locals {
   # The worker reads STRIPE_CONNECT_CLIENT_ID too: billing-reconcile's
   # offboarding calls disconnectStripeConnect, which cannot revoke a
   # connected account's access without it (lib/billing/connect.ts).
+  # And HEALDESK_VOICE_REAL_CALLS: the worker answers no call, but it runs the
+  # backstop for a call the voice task never recorded (lib/voice/backstop.ts),
+  # which reads the voice line's own switch (lib/voice/test-calls.ts). Without
+  # it here, once real calls are on, the backstop would stay in test mode and
+  # drop every real clinic's lost call. Both placements get it: the shared
+  # "worker" container and the worker task are the same container (ecs.tf).
   worker_environment = merge(
     local.app_environment_common,
     { for k, v in { STRIPE_CONNECT_CLIENT_ID = var.stripe_connect_client_id } : k => v if v != "" },
+    var.voice_real_calls ? { HEALDESK_VOICE_REAL_CALLS = "1" } : {},
   )
 
   # The voice endpoint (enable_voice, src/voice/server.ts): the common

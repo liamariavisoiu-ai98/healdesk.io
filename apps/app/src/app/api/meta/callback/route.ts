@@ -84,7 +84,7 @@ export async function GET(request: Request): Promise<Response> {
     return back(outcome.problem);
   }
 
-  // A login the portal started, that would swap the clinic's connected Page or
+  // A login the portal started (or any link a signed-in person minted), that would swap the clinic's connected Page or
   // Instagram account for another, needs a live passkey step-up on the session
   // that comes back (the Google Calendar rule for a different account); a
   // first connect and a reconnect of the same Page need none. Without one the

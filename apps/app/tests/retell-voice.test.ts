@@ -8,11 +8,12 @@ import { addRecipient } from "@/lib/reporting/recipients";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 import { CLOSED_LINE, latestCallerWords, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE } from "@/lib/voice/retell";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 import { createVoiceServer } from "@/voice/server";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { bindAgreementInEffect, inTenant, seedClinic, seedDemoClinic } from "./setup/factories";
-import { attestPlatform } from "./setup/platform";
+import { attestPlatform, withdrawPlatform } from "./setup/platform";
 
 /**
  * The Retell voice endpoint (src/voice/server.ts, lib/voice/retell.ts), end to
@@ -196,12 +197,19 @@ describeDb("the Retell voice endpoint", () => {
         [clinic.clinicId],
       ),
     );
-    // Passed through (no billing row), with no line to pass to: the safe script.
-    const c = await call(port, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_loop`);
-    await c.waitFor((r) => responses(r).length >= 1);
-    expect(responses(c.received)[0]).not.toHaveProperty("transfer_number");
-    expect(String(responses(c.received)[0]!.content)).toMatch(/^Hi, I'm an AI assistant/);
-    await c.close();
+    // Passed through (no billing row), with no line to pass to: the safe
+    // script. The vendors are in force for this call only: a later test reads
+    // this file as having attested nothing, and a withdrawal reads the same.
+    await attestPlatform(COVERAGE_VENDORS);
+    try {
+      const c = await call(port, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_loop`);
+      await c.waitFor((r) => responses(r).length >= 1);
+      expect(responses(c.received)[0]).not.toHaveProperty("transfer_number");
+      expect(String(responses(c.received)[0]!.content)).toMatch(/^Hi, I'm an AI assistant/);
+      await c.close();
+    } finally {
+      await withdrawPlatform(COVERAGE_VENDORS);
+    }
   });
 
   test("a practice whose agreement no longer covers it goes to its direct line, and with none the call is closed, never the assistant", async () => {

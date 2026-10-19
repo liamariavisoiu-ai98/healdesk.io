@@ -252,8 +252,8 @@ export type WindowScreen = { conditions?: boolean; timeGrammar?: boolean };
  * everyday skin and hair conditions are refused as well, because Meta signs
  * no BAA and its channels are scoped to carry nothing clinical, by filters
  * that are designed to keep it out and cannot catch every wording (clause 16
- * of BAA 1.5.0). `timeGrammar` is Meta's too (META_WINDOW, clause 11 of BAA
- * 1.5.0, as of 1.3.0): the window must fit the closed time
+ * of BAA 1.5.1). `timeGrammar` is Meta's too (META_WINDOW, clause 11 of BAA
+ * 1.5.1, as of 1.3.0): the window must fit the closed time
  * grammar (isTimeWindow), every word of it a word for a time, because no list
  * of refused words is ever complete. A voice request's alternatives, which
  * come from a call the BAA covers, are screened without either.
@@ -824,7 +824,7 @@ export type BookingRequestView = {
    * The practice's amendments to this request (record_amendments,
    * lib/patient-rights/amendments.ts), oldest first. The request stays as it
    * was made, and every screen of healdesk's that shows it carries them
-   * (clause 14(b) of the agreement in force, BAA 1.5.0, unchanged since
+   * (clause 14(b) of the agreement in force, BAA 1.5.1, unchanged since
    * 1.3.0): Bookings opens only behind the passkey, so it shows their words
    * beside the request.
    */
@@ -1709,7 +1709,7 @@ async function insertAppointment(tx: TenantTx, input: AppointmentInput): Promise
     .limit(1);
   const depositPolicy = input.deposit ? null : (agent?.depositPolicy ?? null);
   // The clinic's listed price for the service booked, as its list says it
-  // now, kept on the booking (drizzle/0081): booked value multiplies by
+  // now, kept on the booking (drizzle/0082): booked value multiplies by
   // this, so a later edit to Prices never rewrites what was booked. The
   // service is matched as the calendar matches it (serviceDuration).
   const services = agent?.services ?? [];

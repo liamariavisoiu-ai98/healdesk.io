@@ -294,13 +294,17 @@ export function BridgeCard({
             </div>
             {bridge.buildNote ? (
               <div>
-                <dt className="text-[11px] font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">Still to do</dt>
+                <dt className="text-[11px] font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">{bridge.build === "built" ? "Worth knowing" : "Still to do"}</dt>
                 <dd className="mt-0.5 text-[14px]">{bridge.buildNote}</dd>
               </div>
             ) : null}
             <div>
               <dt className="text-[11px] font-bold tracking-[0.12em] text-[#5c6e7e] uppercase">{bridge.phi ? "Patient data" : "No patient data"}</dt>
-              <dd className="mt-0.5 text-[14px]">{bridge.phi ? "Carries what a patient said or did, so it runs only under business associate agreements." : "Nothing about a patient travels here."}</dd>
+              <dd className="mt-0.5 text-[14px]">
+                {bridge.phi
+                  ? (bridge.phiNote ?? "Carries what a patient said or did, so it runs only under business associate agreements.")
+                  : "Nothing about a patient travels here."}
+              </dd>
             </div>
           </dl>
           {bridge.keyless ? <p className="mt-3 text-[14px] text-[#3c4f60]">{bridge.keyless}</p> : null}

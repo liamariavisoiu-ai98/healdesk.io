@@ -51,7 +51,7 @@ import {
  * on by default; the same switch F's L8 reads, which goes only while this is
  * off).
  *
- * Hourly from the tick, behind its own job switch (seeded off, drizzle/0081).
+ * Hourly from the tick, behind its own job switch (seeded off, drizzle/0082).
  * For each clinic the first run on a working day at or after that day's
  * first opening time, and before 20:00 its time, queues the day's summary,
  * once (`daily_summary:<local date>`). A day with no hours in the weekly

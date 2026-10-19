@@ -55,7 +55,7 @@ import type { ClaimsPayload } from "./claim-words";
  *     (lib/booking/mode.ts), "direct" once AYA books.
  *   - **Booked value**: every appointment that cohort produced, at the
  *     clinic's listed price snapshotted when it was booked
- *     (appointments.listed_price_*, drizzle/0081). Exact prices as they are,
+ *     (appointments.listed_price_*, drizzle/0082). Exact prices as they are,
  *     "from" and range prices at their low end; a per-unit price is counted
  *     apart and never multiplied into the total; a booking with no listed
  *     price is counted apart too. Never called revenue.

@@ -195,6 +195,20 @@ describe("1.5.0's state-law clause", () => {
   });
 });
 
+describe("1.5.1's state-law clause", () => {
+  test("is 1.5.0's own object: it names the booking details by the list, never by a channel", () => {
+    // The owner's decision of 19 October 2026 changes only which channels
+    // items (b) and (c) of the Minimum necessary clause name; the state-law
+    // clause points at that list, so it says the same under either.
+    const clause = (version: string) =>
+      getBaaTemplate(version)!.clauses.find((c) => c.id === "state-law")!;
+    expect(clause("1.5.1")).toBe(clause("1.5.0"));
+    const text = unwrap(stateLawClauseBody140({ subject: "patient information", sync: "live" }));
+    expect(text).toContain('the other booking details the clause headed "Minimum necessary" lists');
+    expect(text).not.toMatch(/only on a call|on a call, where/);
+  });
+});
+
 describe("the Payments clause", () => {
   test("names no patient, so the DPA shares it word for word", () => {
     expect(PAYMENTS_CLAUSE_BODY).not.toMatch(/patient|PHI/i);
@@ -203,7 +217,7 @@ describe("the Payments clause", () => {
   });
 });
 
-describe.each(["1.3.0", "1.4.0", "1.5.0"])("%s's render guard", (version) => {
+describe.each(["1.3.0", "1.4.0", "1.5.0", "1.5.1"])("%s's render guard", (version) => {
   test("refuses verified reporting, the phase-two read-back it does not describe", () => {
     const template = getBaaTemplate(version)!;
     expect(template.clauses.map((c) => c.id)).not.toContain("data-sources-verified");
@@ -222,7 +236,7 @@ describe.each(["1.3.0", "1.4.0", "1.5.0"])("%s's render guard", (version) => {
   });
 });
 
-describe.each(["1.3.0", "1.4.0", "1.5.0"])("every %s document", (version) => {
+describe.each(["1.3.0", "1.4.0", "1.5.0", "1.5.1"])("every %s document", (version) => {
   test("names other clauses only by headings it has, and fits 78 columns", () => {
     const template = getBaaTemplate(version)!;
     for (const { label, variables } of everyDocument()) {

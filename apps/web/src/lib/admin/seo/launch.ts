@@ -125,7 +125,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     where: "Settings → Alerts, the setup wizard, the spec's Daily summary switch",
     status: "owner",
     left: "Built: the summary (L13) and the recap (L14) are queued through the outbox. Switch on the daily-summary and weekly-recap jobs in /admin, with billing-notices (the sender), before the first clinic goes live: while they are off, a clinic with the summary on hears about a waiting request only when it is taken and when it expires.",
-    evidence: "apps/app/src/lib/scheduler/daily-summary.ts, apps/app/src/lib/scheduler/weekly-recap.ts, apps/app/drizzle/0081_claims_and_summary.sql",
+    evidence: "apps/app/src/lib/scheduler/daily-summary.ts, apps/app/src/lib/scheduler/weekly-recap.ts, apps/app/drizzle/0082_claims_and_summary.sql",
     blocksGoLive: true,
   },
   {

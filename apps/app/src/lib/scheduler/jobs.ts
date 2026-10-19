@@ -33,7 +33,7 @@ export const JOB_ANNUAL_RENEWAL_REMINDER = "annual-renewal-reminder";
 export const JOB_WEEKLY_RECAP = "weekly-recap";
 /**
  * The daily summary (L13, lib/scheduler/daily-summary.ts), seeded off by
- * drizzle/0081: hourly from the tick, at each live clinic's opening time on
+ * drizzle/0082: hourly from the tick, at each live clinic's opening time on
  * its working days, while its Daily summary switch is on. The owner switches
  * it on with the email launch set, once the sender's own switch is on.
  */

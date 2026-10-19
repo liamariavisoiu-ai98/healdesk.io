@@ -384,7 +384,7 @@ describeDb("delivery", () => {
           "connection-health",
           "monthly-report",
           "nightly-sync",
-          // The daily summary (drizzle/0081) and the weekly recap alone, hourly
+          // The daily summary (drizzle/0082) and the weekly recap alone, hourly
           // behind their switches, each on the clinic's own clock.
           "daily-summary",
           "weekly-recap",

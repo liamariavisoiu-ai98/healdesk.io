@@ -41,7 +41,7 @@ import {
  * (claim-words.ts), which Home's week, the daily summary and the weekly
  * recap share; Home's "Waiting for you" counts and a quiet channel in Needs
  * attention; and the listed-price snapshot booked value multiplies by
- * (drizzle/0081). The summaries themselves: tests/daily-summary.test.ts.
+ * (drizzle/0082). The summaries themselves: tests/daily-summary.test.ts.
  *
  * The claims rules are the spec's ("What v1 can prove, and what it cannot")
  * and CLAUDE.md's: never revenue, "collected" only in "deposits collected",

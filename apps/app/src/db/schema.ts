@@ -1119,7 +1119,7 @@ export const appointments = pgTable(
 
     /**
      * The clinic's own listed price for the booked service when the booking
-     * was made (drizzle/0081): what "booked value" multiplies by (spec, "What
+     * was made (drizzle/0082): what "booked value" multiplies by (spec, "What
      * v1 can prove": bookings times the clinic's own configured prices,
      * labelled booked value, never revenue; lib/reporting/claims.ts). The
      * low end of the price as Knowledge → Prices states it: an exact price,
@@ -2567,7 +2567,7 @@ export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
 
 /**
  * An amendment Practice directed to a record that must stay as it was made
- * (clause 14(b) of BAA 1.5.0, as of 1.3.0; 45 CFR 164.526(c)(1); the DPA's
+ * (clause 14(b) of BAA 1.5.1, as of 1.3.0; 45 CFR 164.526(c)(1); the DPA's
  * Clients' requests clause; release gate 8, PT-17). A booking request's
  * facts never change (the no-rewrite trigger, 0039 and 0041), a conversation
  * is the record of what was said, and an appointment is the booking as the

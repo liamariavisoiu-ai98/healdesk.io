@@ -1,6 +1,6 @@
 /**
  * The treatment vocabulary no reply on Instagram, Messenger or WhatsApp may
- * use. Clause 16 of the agreement in force (BAA 1.5.0, unchanged since
+ * use. Clause 16 of the agreement in force (BAA 1.5.1, unchanged since
  * 1.3.0) has the assistant instructed not to name a treatment there, and
  * every reply the language model writes there checked by automated filters
  * designed to keep treatment names out, a refused reply replaced by a fixed

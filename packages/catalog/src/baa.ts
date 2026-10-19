@@ -74,22 +74,24 @@ import { wrap } from "./wrap";
  * server-side, and the client sends back a hash of what it displayed so a
  * mismatch is refused rather than recorded.
  *
- * ⚖️ Version 1.5.0 is the current template and is what clinics now sign. It
- * is 1.4.0 with the transcript's one encrypted copy held only until the
- * practice's mail server confirms delivery, and deleted at once, rather than
- * for seven days after the email first goes (owner, 14 October 2026). It
- * was released on 2026-10-14 by the owner, on the owner's own instruction
- * and without external counsel; the doc comment on `approvedByCounsel`
- * records exactly what that flag now means, and
- * docs/counsel/agreement-changes.md §15 recommends counsel review it. It
- * replaced 1.4.0 outright: no clinic had signed 1.4.0, so it is no longer
- * signable and the go-live floor (MIN_ACCEPTABLE_BAA_VERSION) is 1.5.0.
- * 1.4.0, released on 2026-10-13, which is 1.3.0, the calendar-dependent
- * version, with its three transcript passages said as the product then
- * worked (§14), 1.3.0, released on 2026-10-12 after Claude's own audit of
- * the full text against the code (plan C19), 1.2.2, released on 2026-10-09,
- * 1.2.1 and 1.2.0, each released on 2026-10-01, 1.0.0, which counsel
- * approved in September 2026,
+ * ⚖️ Version 1.5.1 is the current template and is what clinics now sign. It
+ * is 1.5.0 with the optional booking details (a last name, the service,
+ * new or returning, consultation or treatment, a practitioner) said to be
+ * asked in a website chat as well as on a call, as the website chat does
+ * (owner, 19 October 2026). It was released on 2026-10-19 by the owner, on
+ * the owner's own instruction and without external counsel; the doc comment
+ * on `approvedByCounsel` records exactly what that flag now means, and
+ * docs/counsel/agreement-changes.md §16 recommends counsel review it. It
+ * replaced 1.5.0 outright: no clinic had signed 1.5.0, so it is no longer
+ * signable and the go-live floor (MIN_ACCEPTABLE_BAA_VERSION) is 1.5.1.
+ * 1.5.0, released on 2026-10-14, which is 1.4.0 with the transcript's one
+ * encrypted copy held only until the practice's mail server confirms
+ * delivery (§15), 1.4.0, released on 2026-10-13, which is 1.3.0, the
+ * calendar-dependent version, with its three transcript passages said as
+ * the product then worked (§14), 1.3.0, released on 2026-10-12 after
+ * Claude's own audit of the full text against the code (plan C19), 1.2.2,
+ * released on 2026-10-09, 1.2.1 and 1.2.0, each released on 2026-10-01,
+ * 1.0.0, which counsel approved in September 2026,
  * 1.1.0-draft, which was never offered, and 0.1.0-draft are
  * retained below them and never offered again: accounts created against
  * 1.0.0 and 0.1.0-draft signed that exact text, and their stored hash has to
@@ -239,9 +241,9 @@ export type BaaTemplate = {
    *
    * The name predates the decision it now records. 1.0.0 was approved by
    * counsel; versions 1.2.0 and 1.2.1 were released on 2026-10-01, 1.2.2 on
-   * 2026-10-09, 1.3.0 on 2026-10-12, 1.4.0 on 2026-10-13 and 1.5.0 on
-   * 2026-10-14, each by the owner without external counsel, and this flag is
-   * what records each release.
+   * 2026-10-09, 1.3.0 on 2026-10-12, 1.4.0 on 2026-10-13, 1.5.0 on
+   * 2026-10-14 and 1.5.1 on 2026-10-19, each by the owner without external
+   * counsel, and this flag is what records each release.
    * Not renamed, because provisioning, agreements, AgreementStep and the
    * tests all read it by this name.
    */
@@ -4296,9 +4298,12 @@ function validate140(v: BaaVariables): void {
  * outright on its release, with no overlap: no clinic had signed 1.4.0 (the
  * product has not launched, and apps/app has only ever held synthetic data),
  * and 1.4.0 promises a copy kept seven days after delivery, which the
- * product no longer keeps, so MIN_ACCEPTABLE_BAA_VERSION is 1.5.0. Frozen
- * from the release: a later wording is a new version, and its golden hashes
- * (apps/app/tests/baa-golden.test.ts, agreement-changes.md §15) never move.
+ * product no longer keeps, so MIN_ACCEPTABLE_BAA_VERSION became 1.5.0. 1.5.1
+ * replaced it the same way on 2026-10-19, because it says the optional
+ * booking details are asked only on a call (above MINIMUM_NECESSARY_1_5_1).
+ * Frozen from the release: a later wording is a new version, and its golden
+ * hashes (apps/app/tests/baa-golden.test.ts, agreement-changes.md §15) never
+ * move.
  */
 const MINIMUM_NECESSARY_1_5: BaaClause = {
   id: "minimum-necessary",
@@ -4444,10 +4449,163 @@ function validate150(v: BaaVariables): void {
   validateFrom130(v, "1.5.0");
 }
 
+// -----------------------------------------------------------------------------
+// 1.5.1: the optional booking details asked in a website chat too
+// -----------------------------------------------------------------------------
+
+/**
+ * ⚖️ 1.5.0's Minimum necessary clause, carried from 1.3.0, lists what the
+ * assistant asks someone who wants to book: (a) on every channel, a first
+ * name, a number, a preferred time and one or two others; (b) "on a call",
+ * where Practice's settings or its specialty's defaults ask for them, a last
+ * name and the service; and (c) "on a call, on the same condition", whether
+ * the person is new or returning, consultation or treatment, and any
+ * practitioner. The website chat does the same as the call: the assistant's
+ * prompt lists every field the practice's requirements resolve to, whatever
+ * the channel (apps/app lib/assistant/prompt.ts), and a web chat's booking
+ * request keeps what it collected (collected_fields) and the service asked
+ * about (the request's treatment) (apps/app lib/chat/web-chat.ts,
+ * takeRequest). So 1.5.0 told a practice that the optional details are asked
+ * only on a call, while the website chat asks for them and keeps them. On 19
+ * October 2026 the owner chose to say what the product does rather than
+ * narrow the website chat, and released 1.5.1 that day without external
+ * counsel (agreement-changes.md §16). Against 1.5.0, one clause changes, in
+ * two list items, and nothing else does; every other clause is 1.5.0's own
+ * object, in 1.5.0's order:
+ *
+ *   minimum          Items (b) and (c) say "on a call or in a website chat"
+ *                    where 1.5.0 says "on a call". The rest of the clause is
+ *                    1.5.0's, word for word: (a) is still every channel's,
+ *                    and Instagram, Messenger and WhatsApp still keep only the
+ *                    details in (a), as booking-requirements.ts's
+ *                    metaEligible holds them.
+ *
+ * Nothing else in 1.5.0 ties the optional details to a call: the state-law
+ * clause's "the other booking details the Minimum necessary clause lists"
+ * follows the list, and the calendar clauses and the Google Calendar
+ * disclosure name the service on every channel already. 22 clauses are
+ * registered and 20 render, as in 1.3.0, 1.4.0 and 1.5.0; the render guard
+ * is 1.3.0's (validate151). It replaced 1.5.0 outright on its release, with
+ * no overlap: no clinic had signed 1.5.0 (the product has not launched, and
+ * apps/app has only ever held synthetic data), and 1.5.0 understates what
+ * the website chat asks and keeps, so MIN_ACCEPTABLE_BAA_VERSION is 1.5.1.
+ * Frozen from the release: a later wording is a new version, and its golden
+ * hashes (apps/app/tests/baa-golden.test.ts, agreement-changes.md §16) never
+ * move.
+ */
+const MINIMUM_NECESSARY_1_5_1: BaaClause = {
+  id: "minimum-necessary",
+  heading: HEADINGS_1_3.minimum,
+  appliesWhen: ALWAYS,
+  body: () =>
+    wrap(
+      `Each party will limit its use, disclosure and requests of PHI to the minimum necessary ` +
+        `to accomplish the purpose, consistent with 45 CFR 164.502(b).`,
+    ) +
+    "\n\n" +
+    wrap(
+      `When someone wants to book, the assistant asks the person booking for no more than a ` +
+        `receptionist would write on a callback slip:`,
+    ) +
+    "\n\n" +
+    [
+      `a. on every channel: a first name, a telephone number Practice can call, a preferred day ` +
+        `or time, and one or two other times that could work;`,
+      `b. on a call or in a website chat, where Practice's settings or its specialty's defaults ` +
+        `ask for them: a last name and the service asked about; and`,
+      `c. on a call or in a website chat, on the same condition: whether the person is a new or ` +
+        `returning patient, whether the visit is a consultation or a treatment, and any ` +
+        `practitioner they would like to see.`,
+    ]
+      .map(item)
+      .join("\n") +
+    "\n\n" +
+    wrap(
+      `It asks for no email address and no history, medication or diagnosis, and it never ` +
+        `takes a card number. Anything else a person chooses to say or write on a call or in a ` +
+        `website chat is kept only in the transcript of that conversation, for no longer than ` +
+        `the next paragraph allows. healdesk does not keep the messages a person sends on ` +
+        `Instagram, Messenger or WhatsApp. From those channels it keeps only the details in (a) ` +
+        `(a first name and a telephone number, each checked by automated filters designed to ` +
+        `keep clinical content out, and preferred times only in a fixed day-and-time form) and ` +
+        `the identifier Meta attaches to the conversation. On every channel the assistant's ` +
+        `opening line says that it is an AI assistant and, on a call, that the call is ` +
+        `transcribed; Practice cannot switch that statement off or edit it out.`,
+    ) +
+    "\n\n" +
+    wrap(
+      `healdesk does not keep transcripts. When a call or a website chat ends, healdesk emails ` +
+        `its transcript to the email address on Practice's healdesk account, and to no other ` +
+        `address, only over an encrypted connection, as the Safeguards clause provides. So that ` +
+        `an email that fails or is returned can be sent again, healdesk holds one encrypted copy ` +
+        `of the transcript only until Practice's mail server confirms that it has received the ` +
+        `email, and then deletes the copy at once. If a send fails or the email is returned, ` +
+        `healdesk keeps the copy and sends the email again until it is delivered. If the email ` +
+        `is accepted for delivery but neither its delivery nor its failure is confirmed within ` +
+        `72 hours of its last sending, healdesk deletes the copy then. In no case does healdesk ` +
+        `hold the copy for more than 30 days after the transcript was queued for sending: a copy ` +
+        `whose email has not been delivered by then is deleted. While it holds the copy, ` +
+        `healdesk may also send the email again when Practice asks. healdesk keeps a record of ` +
+        `each transcript's delivery, without what was said or written in it, for as long as it ` +
+        `keeps the record of that conversation. It keeps no other copy of a transcript, apart ` +
+        `from the backups described below; what Anthropic keeps is what the Subcontractors ` +
+        `clause describes. Once healdesk's copy is deleted, the email is Practice's own record ` +
+        `of what was said, and Practice is responsible for keeping, protecting and deleting it.`,
+    ) +
+    "\n\n" +
+    wrap(
+      `healdesk keeps the record of each conversation, without what was said or written in it, ` +
+        `for ${TRANSCRIPT_RETENTION_DAYS} days after it took place, and each appointment record ` +
+        `for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time. It keeps each ` +
+        `booking request for ${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was ` +
+        `made, the time it was confirmed for and its appointment's time. A person's contact ` +
+        `details are kept while any conversation, appointment record or booking request of ` +
+        `theirs is kept, and in any case until ${TRANSCRIPT_RETENTION_DAYS} days after the last ` +
+        `time those details were recorded or changed. A backup copy of anything healdesk ` +
+        `deletes expires within ${BACKUP_RETENTION_DAYS} days of the deletion. No call audio is ` +
+        `kept at all. The Term clause governs what is held after termination.`,
+    ),
+};
+
+/** 1.5.0's clauses in 1.5.0's order, with the object above in place of its own. */
+const CLAUSES_1_5_1: readonly BaaClause[] = CLAUSES_1_5.map((clause) =>
+  clause.id === MINIMUM_NECESSARY_1_5_1.id ? MINIMUM_NECESSARY_1_5_1 : clause,
+);
+
+/** 1.3.0's preamble, naming version 1.5.1. */
+function preamble151(v: BaaVariables): string {
+  return preambleFrom130(v, "1.5.1");
+}
+
+/** 1.3.0's render guard, its refusals naming version 1.5.1. */
+function validate151(v: BaaVariables): void {
+  validateFrom130(v, "1.5.1");
+}
+
 export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   // Newest RELEASED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
   // read [0], so a version stays at [0] until its successor is approved for
   // release too.
+  {
+    version: "1.5.1",
+    publishedOn: "2026-10-19",
+    // Approved for release by the OWNER on 2026-10-19, on the owner's own
+    // instruction and without external counsel: as the field's doc comment
+    // on BaaTemplate defines it, the flag records the owner's release, not a
+    // lawyer's approval. agreement-changes.md §16 recommends counsel review
+    // it. 1.5.0 with the optional booking details asked in a website chat as
+    // well as on a call (above MINIMUM_NECESSARY_1_5_1).
+    approvedByCounsel: true,
+    preamble: preamble151,
+    clauses: CLAUSES_1_5_1,
+    validate: validate151,
+  },
+  // Released on 2026-10-14 and offered until 1.5.1 replaced it on
+  // 2026-10-19, outright and with no overlap: no clinic signed it, and it
+  // says the optional booking details are asked only on a call, while the
+  // website chat asks for them and keeps them. Retained and frozen all the
+  // same, as every released version is. Below MIN_ACCEPTABLE_BAA_VERSION, so
+  // go-live refuses it.
   {
     version: "1.5.0",
     publishedOn: "2026-10-14",
@@ -4591,19 +4749,25 @@ export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
  * judgement made at each release, and a floor makes it a constant raised on
  * purpose rather than a side effect of publishing.
  *
- * 1.5.0. Raised from 1.4.0 with the 1.5.0 release on 2026-10-14
- * (agreement-changes.md §15), on the owner's decision of that day that a
- * transcript's sealed copy is deleted the moment delivery is confirmed. No
- * clinic had signed 1.4.0 (the product has not launched; apps/app has only
- * ever held synthetic and seed data, and no real account is bound to any
- * agreement), so nobody has to re-accept, and a 1.4.0 document promises a
- * copy kept until seven days after the email first goes, which the product no
- * longer keeps. It refuses 1.4.0, 1.3.0, 1.2.2, 1.2.1, 1.2.0, 1.0.0 and every
- * unreleased draft. Nothing in the code needed 1.4.0 to stay acceptable:
- * createDemoClinic and every signing path sign BAA_TEMPLATES[0], and 1.5.0
- * carries 1.3.0's calendar clauses under the same ids, as 1.4.0 does, so
- * provisioning gives a 1.5.0 signer's first location its calendar terms
+ * 1.5.1. Raised from 1.5.0 with the 1.5.1 release on 2026-10-19
+ * (agreement-changes.md §16), on the owner's decision of that day that the
+ * agreement says the website chat asks for the optional booking details, as
+ * it does, rather than the website chat stop asking. No clinic had signed
+ * 1.5.0 (the product has not launched; apps/app has only ever held synthetic
+ * and seed data, and no real account is bound to any agreement), so nobody
+ * has to re-accept, and a 1.5.0 document says the optional details are asked
+ * only on a call, while the website chat asks for them and keeps them. It
+ * refuses 1.5.0, 1.4.0, 1.3.0, 1.2.2, 1.2.1, 1.2.0, 1.0.0 and every
+ * unreleased draft. Nothing in the code needed 1.5.0 to stay acceptable:
+ * createDemoClinic and every signing path sign BAA_TEMPLATES[0], and 1.5.1
+ * carries 1.3.0's calendar clauses under the same ids, as 1.4.0 and 1.5.0 do,
+ * so provisioning gives a 1.5.1 signer's first location its calendar terms
  * exactly as before.
+ *
+ * 1.5.0 had been the floor since its own release on 2026-10-14
+ * (agreement-changes.md §15), raised from 1.4.0 the same way: no clinic had
+ * signed 1.4.0, and a 1.4.0 document promises a copy kept until seven days
+ * after the email first goes, which the product does not keep.
  *
  * 1.4.0 had been the floor since its own release on 2026-10-13
  * (agreement-changes.md §14), raised from 1.3.0 the same way: no clinic had
@@ -4631,14 +4795,14 @@ export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
  * (calendar_elections_agreement_shape, drizzle/0057). That reasoning protected
  * clinics holding 1.2.2, and there are none, so it no longer applies: every
  * clinic is provisioned under the current version and takes its first
- * location's calendar terms from the agreement itself, as 1.5.0's are taken.
+ * location's calendar terms from the agreement itself, as 1.5.1's are taken.
  *
  * At each release: decide whether the new version raises the floor, and add
  * every acceptable version to app_baa_version_acceptable() in a migration.
  * Go-live refuses any version that SQL list leaves out, and the parity test
  * in apps/app/tests/database-audit.test.ts fails until the two agree.
  */
-export const MIN_ACCEPTABLE_BAA_VERSION = "1.5.0";
+export const MIN_ACCEPTABLE_BAA_VERSION = "1.5.1";
 
 /**
  * Whether a clinic may go live under an agreement of this version: the
@@ -4657,7 +4821,7 @@ export function isBaaVersionAcceptable(version: string): boolean {
 }
 
 /**
- * The calendar clause ids of 1.3.0, which 1.4.0 and 1.5.0 carry as the same objects.
+ * The calendar clause ids of 1.3.0, which 1.4.0, 1.5.0 and 1.5.1 carry as the same objects.
  * An acceptance whose `appliedClauses`
  * holds one of them carries calendar terms for the location provisioned
  * against it; one that holds none (every earlier version) leaves the location
@@ -4702,11 +4866,14 @@ export function templateReadsCalendarAccount(template: BaaTemplate): boolean {
  * longer than it has to be. The 1.5.0 release (2026-10-14) lists nothing
  * either: no clinic had signed 1.4.0, nothing had been deployed for a buyer
  * to be part-way through, and 1.4.0 promises a seven-day copy the product no
- * longer keeps. apps/app's signing reads it (signableTemplate in
- * apps/app/src/lib/agreements.ts): a version listed here signs only if it
- * was released, and only before its deadline, which must be an ISO 8601
- * instant with its own offset, such as "2026-10-12T12:00:00Z". A deadline in
- * any other form closes the window.
+ * longer keeps. The 1.5.1 release (2026-10-19) lists nothing either: no
+ * clinic had signed 1.5.0, nothing had been deployed for a buyer to be
+ * part-way through, and 1.5.0 says the optional booking details are asked
+ * only on a call, which the website chat contradicts. apps/app's signing
+ * reads it (signableTemplate in apps/app/src/lib/agreements.ts): a version
+ * listed here signs only if it was released, and only before its deadline,
+ * which must be an ISO 8601 instant with its own offset, such as
+ * "2026-10-12T12:00:00Z". A deadline in any other form closes the window.
  */
 export const BAA_RELEASE_OVERLAP: Readonly<Record<string, string>> = {};
 

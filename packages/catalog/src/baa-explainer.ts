@@ -160,8 +160,9 @@ const TERMS_1_3_0: Readonly<Record<string, BaaExplainerTerm>> = {
 };
 
 /**
- * 1.3.0's nine bullets. 1.4.0 and 1.5.0 show the same list, the same object:
- * their Term clause is 1.3.0's own, and no bullet speaks of transcripts.
+ * 1.3.0's nine bullets. 1.4.0, 1.5.0 and 1.5.1 show the same list, the same
+ * object: their Term clause is 1.3.0's own, and no bullet speaks of
+ * transcripts or of which channel asks for which booking detail.
  */
 const BULLETS_1_3_0: readonly BaaExplainerTerm[] = BAA_EXPLAINER.terms.map(
   (term) => TERMS_1_3_0[term.citation] ?? term,
@@ -174,6 +175,7 @@ const BULLETS_1_3_0: readonly BaaExplainerTerm[] = BAA_EXPLAINER.terms.map(
  */
 export const BAA_EXPLAINER_TERMS_BY_VERSION: Readonly<Record<string, readonly BaaExplainerTerm[]>> =
   {
+    "1.5.1": BULLETS_1_3_0,
     "1.5.0": BULLETS_1_3_0,
     "1.4.0": BULLETS_1_3_0,
     "1.3.0": BULLETS_1_3_0,
@@ -215,9 +217,9 @@ const BAA_EXPLAINERS_BY_VERSION: Readonly<Record<string, BaaExplainer>> = Object
  * its bullets from `baaExplainerTerms`: BAA_EXPLAINER itself for 1.2.2, the
  * version signed until 1.3.0's release, for 1.2.1 before it, and for any
  * version that words no bullet differently, so what that screen shows for
- * them stays byte for byte what it showed; for 1.3.0, 1.4.0 and 1.5.0, the
- * current version, the same heading, lead, objection and disclaimer above
- * 1.3.0's bullets.
+ * them stays byte for byte what it showed; for 1.3.0, 1.4.0, 1.5.0 and 1.5.1,
+ * the current version, the same heading, lead, objection and disclaimer
+ * above 1.3.0's bullets.
  * The signing screen takes the explainer from here with the version it
  * renders, never BAA_EXPLAINER directly (agreement-changes.md §12.14, release
  * gate 11).
@@ -370,6 +372,13 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
  * confirms delivery, kept and sent again until then, and never held past 30
  * days (owner, 14 October 2026). Its minimum-necessary note says so in place
  * of 1.4.0's seven days; its other two notes are 1.3.0's, as in 1.4.0.
+ *
+ * In 1.5.1 the minimum-necessary clause asks for the optional booking
+ * details (a last name, the service, new or returning, consultation or
+ * treatment, a practitioner) in a website chat as well as on a call, as the
+ * website chat does (owner, 19 October 2026). Its note says "on calls and in
+ * website chats" where 1.5.0's says "on calls", and is otherwise 1.5.0's;
+ * its other two notes are 1.3.0's, as in 1.5.0.
  */
 const CLAUSE_NOTES_1_3_0: Partial<Record<ExplainedClauseId, BaaExplainerTerm>> = {
   "data-sources-none": {
@@ -412,6 +421,25 @@ const CLAUSE_NOTES_1_3_0: Partial<Record<ExplainedClauseId, BaaExplainerTerm>> =
 export const BAA_CLAUSE_EXPLAINERS_BY_VERSION: Readonly<
   Record<string, Partial<Record<ExplainedClauseId, BaaExplainerTerm>>>
 > = {
+  "1.5.1": {
+    ...CLAUSE_NOTES_1_3_0,
+    "minimum-necessary": {
+      plain:
+        "When someone books, the assistant asks only for what a receptionist would write on a " +
+        "callback slip: a first name, a number you can call, a preferred time and one or two " +
+        "others, and on calls and in website chats, where your settings or your specialty's " +
+        "defaults ask for them, a last name, the service, whether they're new or returning, " +
+        "consultation or treatment, and a preferred practitioner. It asks for no email, " +
+        "history, medication or diagnosis, and never takes a card number. It says it is an AI " +
+        "assistant in its first line on every channel, and on calls that the call is " +
+        "transcribed; you cannot switch that off. healdesk doesn't keep transcripts: when a " +
+        "call or website chat ends, its transcript is emailed to your account's address, and " +
+        "healdesk deletes its encrypted copy as soon as your mail server confirms delivery. If " +
+        "the email can't be delivered, healdesk keeps trying for up to 30 days, then deletes " +
+        "the copy. From then on that email is your practice's record, to keep and protect",
+      citation: "164.502(b)",
+    },
+  },
   "1.5.0": {
     ...CLAUSE_NOTES_1_3_0,
     "minimum-necessary": {

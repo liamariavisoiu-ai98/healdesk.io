@@ -1,7 +1,7 @@
 import { toE164 } from "@healdesk/connectors";
 import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
-import { contacts, conversations, handovers, type HandoverPlatform } from "@/db/schema";
+import { conversations, handovers, type HandoverPlatform } from "@/db/schema";
 import type { BookingCapture } from "@/lib/assistant/turn";
 import { describeError, log } from "@/lib/log";
 import { cleanFirstName } from "@/lib/meta/booking-requests";
@@ -171,49 +171,28 @@ export async function linkCallHandovers(tx: TenantTx): Promise<number> {
 }
 
 /**
- * Thrown when a handover named by an id holds a number a contact also
- * carries: the number is whatever the visitor typed, so it may be a patient's
- * own, and an erasure or an export by it would reach that patient's whole
- * record (review of 19 October 2026). The operator confirms with the practice
- * who the person is and names them by that contact's id instead.
+ * The web chat handover an id names, by the handover's own id or its chat's
+ * conversation id (the address the practice sees in its portal): how an
+ * erasure or an export names someone who only asked for a person and left a
+ * number, whom no contact holds. Null for any other id.
+ *
+ * Named this way, the request reaches that one handover and its chat and
+ * nothing found by the number: the number is whatever the visitor typed, so
+ * it may be a patient's own, another visitor's, or a WhatsApp sender's, and
+ * following it would export or erase them (reviews of 19 October 2026).
  */
-export class CallbackNumberHeldError extends Error {
-  constructor() {
-    super(
-      "That handover's call-back number is also on a contact. Confirm with the practice who the person is, and name them by the contact's id.",
-    );
-    this.name = "CallbackNumberHeldError";
-  }
-}
-
-/**
- * The call-back number a web chat handover holds, by the handover's id or
- * its chat's conversation id (the address the practice sees in its portal):
- * how an erasure or an export names someone who only asked for a person and
- * left a number, whom no contact holds. Null for any other id; throws
- * CallbackNumberHeldError when a contact carries the number too.
- */
-export async function handoverCallback(
-  tx: TenantTx,
-  id: string,
-): Promise<{ phone: string; handoverId: string } | null> {
+export async function namedHandover(tx: TenantTx, id: string): Promise<{ handoverId: string } | null> {
   const [row] = await tx.db
-    .select({ phone: handovers.callbackPhone, id: handovers.id })
+    .select({ id: handovers.id })
     .from(handovers)
     .where(
       and(
         eq(handovers.clinicId, tx.clinicId),
+        eq(handovers.channel, "web_chat"),
         isNotNull(handovers.callbackPhone),
         or(eq(handovers.id, id), eq(handovers.conversationId, id)),
       ),
     )
     .limit(1);
-  if (!row?.phone) return null;
-  const [held] = await tx.db
-    .select({ id: contacts.id })
-    .from(contacts)
-    .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.phone, row.phone)))
-    .limit(1);
-  if (held) throw new CallbackNumberHeldError();
-  return { phone: row.phone, handoverId: row.id };
+  return row ? { handoverId: row.id } : null;
 }

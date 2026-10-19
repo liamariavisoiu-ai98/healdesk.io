@@ -10,7 +10,7 @@ import { auth } from "@/lib/auth";
 import { sendWebChatMessage, startWebChat, webChatClinic, type WebChatClinic } from "@/lib/chat/web-chat";
 import { hashSessionToken } from "@/lib/factors/step-ups";
 import { contacts } from "@/db/schema";
-import { attachHandoverCaller, CallbackNumberHeldError, linkCallHandovers, raiseHandover } from "@/lib/handovers/record";
+import { attachHandoverCaller, linkCallHandovers, raiseHandover } from "@/lib/handovers/record";
 import { createBookingRequest } from "@/lib/meta/booking-requests";
 import { attachMetaChannel, setMetaFrontDoor } from "@/lib/meta/channels";
 import { answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
@@ -314,16 +314,17 @@ describeDb("handovers: the table", () => {
     expect(erased.deleted).toMatchObject({ handovers: 1, conversations: 1 });
     expect(await handoverRows(c.clinicId)).toEqual([]);
 
-    // A restore brings the row back: re-applying the erasure takes it again.
+    // A restore brings the row back as it was: re-applying the erasure takes
+    // it, and its chat, again.
     const back = await conversationRow(c.clinicId, { channel: "web_chat" });
     const pool = getMigratorPool();
     await pool.query(`alter table handovers disable trigger handovers_guard`);
     try {
       await inTenant(c.clinicId, (q) =>
         q.query(
-          `insert into handovers (clinic_id, channel, conversation_id, callback_phone, callback_first_name, created_at)
-           values ($1, 'web_chat', $2, '+14155550171', 'Ari', now() - interval '1 hour')`,
-          [c.clinicId, back],
+          `insert into handovers (id, clinic_id, channel, conversation_id, callback_phone, callback_first_name, created_at)
+           values ($3, $1, 'web_chat', $2, '+14155550171', 'Ari', now() - interval '1 hour')`,
+          [c.clinicId, back, row!.id],
         ),
       );
     } finally {
@@ -336,25 +337,39 @@ describeDb("handovers: the table", () => {
     expect(chats).toEqual([]);
   });
 
-  test("named by a handover's id, a number a contact also carries is refused, never widened to that patient's record", async () => {
-    const c = await seedClinic("handover-held");
+  test("named by a handover's or its chat's id, only that handover and its chat are reached, never anyone found by the typed number", async () => {
+    const c = await seedClinic("handover-scoped");
+    // A patient, and another visitor's handover, both on the number typed.
     await inTenant(c.clinicId, (q) =>
       q.query(`insert into contacts (clinic_id, phone, full_name) values ($1, '+14155550181', 'Pat Patient')`, [c.clinicId]),
     );
-    const chat = await conversationRow(c.clinicId, { channel: "web_chat" });
-    await raise(c.clinicId, { channel: "web_chat", conversationId: chat });
-    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      attachHandoverCaller(tx, { conversationId: chat, capture: { firstName: "Sam", phone: "415 555 0181" } }),
+    const theirs = await conversationRow(c.clinicId, { channel: "web_chat" });
+    const other = await conversationRow(c.clinicId, { channel: "web_chat" });
+    for (const [conversationId, firstName] of [[theirs, "Sam"], [other, "Robin"]] as const) {
+      await raise(c.clinicId, { channel: "web_chat", conversationId });
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        attachHandoverCaller(tx, { conversationId, capture: { firstName, phone: "415 555 0181" } }),
+      );
+    }
+    const mine = (await handoverRows(c.clinicId)).find((h) => h.conversation_id === theirs)!;
+
+    const bundle = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      exportPatient(tx, { contactId: theirs, requestedBy: "practice" }),
     );
-    await expect(
-      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => erasePerson(tx, { contactId: chat, requestedBy: "practice" })),
-    ).rejects.toBeInstanceOf(CallbackNumberHeldError);
-    await expect(
-      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportPatient(tx, { contactId: chat, requestedBy: "practice" })),
-    ).rejects.toBeInstanceOf(CallbackNumberHeldError);
-    const left = await inTenant(c.clinicId, async (q) => (await q.query(`select id from contacts`)).rows.length);
-    expect(left).toBe(1);
-    expect(await handoverRows(c.clinicId)).toHaveLength(1);
+    expect(bundle.contacts).toEqual([]);
+    expect(bundle.handovers.map((h) => h.id)).toEqual([mine.id]);
+    expect(bundle.conversations.map((v) => v.id)).toEqual([theirs]);
+
+    const erased = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      erasePerson(tx, { contactId: mine.id, requestedBy: "practice" }),
+    );
+    expect(erased.deleted).toMatchObject({ handovers: 1, conversations: 1, contacts: 0 });
+    expect((await handoverRows(c.clinicId)).map((h) => h.conversation_id)).toEqual([other]);
+    const left = await inTenant(c.clinicId, async (q) => ({
+      contacts: (await q.query(`select id from contacts`)).rows.length,
+      chats: (await q.query(`select id from conversations order by id`)).rows.length,
+    }));
+    expect(left).toEqual({ contacts: 1, chats: 1 });
   });
 
   test("a call's handover the database missed linking is linked before anything relies on it", async () => {

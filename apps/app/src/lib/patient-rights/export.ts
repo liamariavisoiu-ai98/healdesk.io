@@ -17,7 +17,7 @@ import {
   transactions,
   webhookEvents,
 } from "@/db/schema";
-import { handoverCallback, linkCallHandovers } from "@/lib/handovers/record";
+import { linkCallHandovers, namedHandover } from "@/lib/handovers/record";
 import type { TenantTx } from "@/lib/tenant";
 
 import { amendmentsFor, withAmendments, type RecordAmendment } from "./amendments";
@@ -258,7 +258,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
   let phone = query.phone;
   let email = query.email?.toLowerCase();
   const contactId = query.contactId;
-  let callback: { phone: string; handoverId: string } | null = null;
+  let callback: { handoverId: string } | null = null;
   if (contactId !== undefined) {
     if (phone || email) throw new Error("Name the person by a contact's id, or by their details, not both.");
     if (!CONTACT_ID.test(contactId)) throw new Error("A contact's id is its uuid.");
@@ -268,11 +268,12 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
       .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, contactId)))
       .limit(1);
     // A handover's id, or its chat's, names someone who only left a
-    // call-back number in web chat, which no contact holds (drizzle/0085),
-    // as erasure does, and is refused when a contact carries the number too.
-    callback = contact ? null : await handoverCallback(tx, contactId);
+    // call-back number in web chat, which no contact holds: that handover and
+    // its chat, as erasure takes them, and nothing found by the number they
+    // typed (namedHandover; drizzle/0085).
+    callback = contact ? null : await namedHandover(tx, contactId);
     if (!contact && !callback) throw new ExportContactNotFound();
-    phone = contact ? (contact.phone ?? undefined) : callback!.phone;
+    phone = contact?.phone ?? undefined;
     email = contact?.email?.toLowerCase() ?? undefined;
   } else if (!phone && !email) {
     throw new Error("A phone number, an email address or a contact's id is required.");
@@ -320,7 +321,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
   // found through its conversation like the rest.
   await linkCallHandovers(tx);
   const asked =
-    convos.length || phones.length
+    convos.length || phones.length || callback
       ? await tx.db
           .select(HANDOVER_COLUMNS)
           .from(handovers)
@@ -330,6 +331,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
               or(
                 convos.length ? inArray(handovers.conversationId, convos.map((v) => v.id)) : sql`false`,
                 phones.length ? inArray(handovers.callbackPhone, phones) : sql`false`,
+                callback ? eq(handovers.id, callback.handoverId) : sql`false`,
               ),
             ),
           )

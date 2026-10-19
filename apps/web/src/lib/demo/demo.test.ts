@@ -24,6 +24,9 @@ import {
   updateDemoSession,
 } from "./sessions";
 
+/** An opt-out link, as the sender passes the lead's. */
+const OPT_OUT = "https://healdesk.io/api/email/unsubscribe?t=lead.sig";
+
 /**
  * The personalised demo (src/lib/demo, app/demo/[slug]).
  *
@@ -335,11 +338,16 @@ describe("what the demo says", () => {
       profile: PROFILE as unknown as Record<string, unknown>,
       expiresAt: new Date("2026-10-13T12:00:00Z"),
     } as Parameters<typeof demoEmail>[0];
-    const { subject, text } = demoEmail(session);
+    const { subject, text } = demoEmail(session, Date.now(), { unsubscribeUrl: OPT_OUT });
     expect(subject).toBe("Custom demo instance ready for Smith Dental");
     expect(text).toContain("/demo/smith-dental-k7q2mz9xwa");
     expect(text).toContain("Tuesday, October 13");
     expect(text).toMatch(/Wilmington, DE/);
+    // Commercial (it can carry the setup offer): the opt-out and the X1.9 footer.
+    expect(text).toContain(`Stop these emails: ${OPT_OUT}`);
+    expect(text).toContain("healdesk is a service of Viixi FZC");
+    expect(text).toContain("Replies reach the healdesk team. Please leave out patient details.");
+    expect(text).toContain("You're getting this because a demo was built for Smith Dental");
   });
 
   it("offers half off setup until 48 hours after the demo was ready, and never after", () => {
@@ -354,12 +362,14 @@ describe("what the demo says", () => {
       readyAt,
       expiresAt: new Date("2026-10-20T16:00:00Z"),
     } as Parameters<typeof demoEmail>[0];
-    const fresh = demoEmail(session, readyAt.getTime()).text;
+    const fresh = demoEmail(session, readyAt.getTime(), { unsubscribeUrl: OPT_OUT }).text;
     expect(fresh).toContain("the setup fee is 50% off when you start from the demo page before Thursday, October 15");
-    const late = demoEmail(session, readyAt.getTime() + 48 * 3_600_000).text;
+    const late = demoEmail(session, readyAt.getTime() + 48 * 3_600_000, { unsubscribeUrl: OPT_OUT }).text;
     expect(late).not.toMatch(/50%|setup fee/);
     // A demo the visitor asked for on the homepage carries 30%, not half.
-    const homepage = demoEmail({ ...session, createdBy: SELF_SERVE_DEMO }, readyAt.getTime()).text;
+    const homepage = demoEmail({ ...session, createdBy: SELF_SERVE_DEMO }, readyAt.getTime(), {
+      unsubscribeUrl: OPT_OUT,
+    }).text;
     expect(homepage).toContain("the setup fee is 30% off");
   });
 });

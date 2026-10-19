@@ -387,6 +387,46 @@ export async function findLeadByEmail(email: string): Promise<Lead | null> {
   return (await locateByEmail(await store(), normalizeEmail(email)))?.value ?? null;
 }
 
+/**
+ * The lead row for an address we are about to send a one-off commercial
+ * email to, found or opened: the demo-ready email (lib/demo/build.ts) and the
+ * setup link AYA's demo call promises (app/api/voice-demo/follow-up). Both
+ * carry a setup offer, so CAN-SPAM wants a working opt-out on them (Annex
+ * X1.10), and an opt-out needs a row to record it on: the unsubscribe link
+ * names the lead, and `markUnsubscribed` stamps it, which every later email
+ * to the address reads through `canEmail`.
+ *
+ * A row opened here records no consent (`marketingConsent` stays false), so
+ * nurture never starts from it; it is what the address asked for and nothing
+ * more. `event` names why, on the lead's event log. Null when the Sheet is
+ * not configured or cannot be reached: then there is nowhere to keep an
+ * opt-out, and the caller does not send. Never throws.
+ */
+export async function leadForCommercialEmail(email: string, event: string): Promise<Lead | null> {
+  if (!isMarketingStoreConfigured()) return null;
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+  try {
+    const client = await store();
+    const existing = await locateByEmail(client, normalized);
+    if (existing) {
+      await appendEvent(client, existing.value.id, event);
+      return existing.value;
+    }
+    const lead = newLead(new Date(), { email: email.trim(), emailNormalized: normalized });
+    await appendLead(client, lead);
+    await appendEvent(client, lead.id, event);
+    return lead;
+  } catch (error) {
+    // The address is not logged: the log keeps it with no retention policy.
+    console.error("[healdesk] lead store unavailable; the commercial email is not sent", {
+      event,
+      error: describe(error),
+    });
+    return null;
+  }
+}
+
 export async function findLeadById(id: string): Promise<Lead | null> {
   if (!isMarketingStoreConfigured()) return null;
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;

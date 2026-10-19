@@ -1,7 +1,8 @@
 import { isSpecialtyId } from "@healdesk/catalog";
 
-import { send, type SendResult } from "@/lib/email";
-import { ENTITY } from "@/lib/legal";
+import { emailKey, send, unsubscribeUrl, type SendResult } from "@/lib/email";
+import { demoEmail } from "@/lib/email/demo-ready";
+import { canEmail, leadForCommercialEmail } from "@/lib/leads";
 import { normalizePhone } from "@/lib/phone";
 import { site } from "@/lib/site";
 
@@ -20,8 +21,6 @@ import { isUsableProfile, normalizeProfile, type ClinicProfile } from "./profile
 import { parseWebsiteUrl, scrapeClinicSite, ScrapeError, type ScrapedPage } from "./scrape";
 import {
   createDemoSession,
-  demoOfferEndsAt,
-  demoSetupCredit,
   demoUrl,
   displayName,
   getDemoSession,
@@ -354,82 +353,45 @@ export async function releaseHeldDemo(slug: string, operator: string): Promise<D
 // The email
 // -----------------------------------------------------------------------------
 
-function expiryDate(session: DemoSession): string {
-  return session.expiresAt.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    timeZone: "America/New_York",
-  });
-}
-
-/**
- * The demo's setup offer, in a sentence, while it holds (catalog
- * `demoSetupCredit`: 50% off setup from an operator's demo, 30% from a homepage
- * one, for 48 hours from the demo being ready,
- * owner, 13 October 2026). Empty once it has ended, so an email an operator
- * releases late never promises a discount checkout would refuse.
- */
-function offerLines(session: DemoSession, now: number): string[] {
-  const ends = demoOfferEndsAt(session, now);
-  if (!ends) return [];
-  const when = ends.toLocaleString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "America/New_York",
-    timeZoneName: "short",
-  });
-  return [
-    `If you decide to go ahead, the setup fee is ${demoSetupCredit(session).percentOfSetupFee}% off when you start from the demo page before ${when}.`,
-    "",
-  ];
-}
-
-/** Subject and body, exported for the console's preview and for the test. */
-export function demoEmail(session: DemoSession, now: number = Date.now()): { subject: string; text: string } {
-  const name = displayName(session);
-  return {
-    subject: `Custom demo instance ready for ${name}`,
-    text: [
-      "Hi,",
-      "",
-      `As promised, here is the demo we built for ${name} from your website:`,
-      "",
-      demoUrl(session.slug),
-      "",
-      `On that page you can talk to the voice assistant from your browser, have it ring your phone, and chat with the website assistant. Both answer as ${name}, with the services, hours and FAQs from your site.`,
-      "",
-      "It runs in demo mode: it doesn't have your booking calendar or a confirmed price list yet, so it will tell you where it would book or quote for real. Try it the way a patient would: ask what a treatment costs, when you're open, or to book a consult.",
-      "",
-      `The link is private to you and stays live until ${expiryDate(session)}. Just reply to this email with any questions.`,
-      "",
-      ...offerLines(session, now),
-      `The ${site.name} team`,
-      "",
-      "--",
-      `${site.name}, ${ENTITY.postalAddress}`,
-    ].join("\n"),
-  };
-}
+/** The words (lib/email/demo-ready.ts), here too for the callers that import them from the builder. */
+export { demoEmail };
 
 /**
  * Send the link to the prospect and stamp the row. Refuses a demo the audit
  * has not cleared (`handoffBlocker`) or one with no address. Every path that
  * mails a demo comes through here, so this is where the gate cannot be
- * walked around.
+ * walked around: the build's pass, an operator's release and the console's
+ * "Email" button alike.
+ *
+ * The email can carry a setup offer, so it is commercial (Annex X1.10): it
+ * goes only to an address whose lead row says we may (`canEmail`, so an
+ * address that unsubscribed or bounced is never mailed again), and carries
+ * that row's one-click opt-out. With no row to keep an opt-out on (the
+ * marketing Sheet unreachable), it does not go. Keyed by the demo, never the
+ * address, so an operator who presses "Email" twice sends one email.
  */
 export async function sendDemoEmail(session: DemoSession): Promise<SendResult> {
   const blocked = handoffBlocker(session);
   if (blocked) return { status: "skipped", reason: blocked };
   if (!session.leadEmail) return { status: "skipped", reason: "no prospect email on this demo" };
 
-  const { subject, text } = demoEmail(session);
+  const lead = await leadForCommercialEmail(session.leadEmail, "demo_email");
+  if (!lead) return { status: "skipped", reason: "no lead row to keep the opt-out on" };
+  const may = canEmail(lead, "relationship");
+  if (!may.ok) return { status: "skipped", reason: `the address is ${may.reason}` };
+
+  const optOut = unsubscribeUrl(lead.id);
+  const { subject, text } = demoEmail(session, Date.now(), { unsubscribeUrl: optOut });
   let result: SendResult;
   try {
-    result = await send({ to: session.leadEmail, subject, text, tag: "demo-ready" });
+    result = await send({
+      to: session.leadEmail,
+      subject,
+      text,
+      tag: "demo-ready",
+      unsubscribeUrl: optOut,
+      idempotencyKey: emailKey("demo-ready", session.id),
+    });
   } catch (error) {
     result = { status: "failed", reason: error instanceof Error ? error.message : String(error) };
   }

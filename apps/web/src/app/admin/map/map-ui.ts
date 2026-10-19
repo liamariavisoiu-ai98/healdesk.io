@@ -33,14 +33,14 @@ export const STATUS_STYLE: Record<BridgeStatus, StatusStyle> = {
 
 /** What each colour means, in the owner's words. */
 export const STATUS_MEANING: Record<BridgeStatus, string> = {
-  working: "Every key it needs is in place. A tick means it was tested live as the page loaded.",
+  working: "Every key it needs is in place (or, if it says so, all but an optional one). A tick means it was tested live as the page loaded.",
   "needs-key": "Built and ready: it is waiting for you to add a key.",
-  off: "Built, and switched off on purpose until something else is done first.",
+  off: "Built, and switched off: on purpose until something else is done first, or an optional key not added.",
   broken: "A live check failed, or two copies of a key disagree. Fix these first.",
-  unknown: "Lives on the AWS host, which did not answer (usually standby).",
+  unknown: "Lives on the AWS host, which did not answer (usually standby) or runs a version too old to say.",
   "to-build": "Not built yet, or only half built.",
   parked: "Phase two: kept in the code, fenced out of v1.",
-  "not-checked": "Its keys live where this page cannot look: your computer, or GitHub's deploys.",
+  "not-checked": "Its keys live where this page cannot look: your computer, GitHub, or AWS's one-off jobs.",
 };
 
 export const LEGEND_ORDER: readonly BridgeStatus[] = ["working", "needs-key", "broken", "off", "to-build", "unknown", "not-checked", "parked"];

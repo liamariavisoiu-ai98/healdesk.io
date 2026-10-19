@@ -332,9 +332,22 @@ describe("assess", () => {
   test("an optional key that is missing switches a feature off and is not a to-do", () => {
     const live = allGood();
     live.vercel.SLACK_WEBHOOK_URL = false;
+    live.vercel.RETELL_DEMO_INBOUND_AGENT_ID = false;
     const view = assess(live);
     expect(key(view, "vercel.SLACK_WEBHOOK_URL").state).toBe("optional-off");
     expect(view.todos.some((t) => t.key === "vercel.SLACK_WEBHOOK_URL")).toBe(false);
+    // Its only key: the whole line is off. One of several: that part is.
+    expect(bridge(view, "web-slack").status).toBe("off");
+    expect(bridge(view, "prospects-retell-demo").status).toBe("working");
+    expect(bridge(view, "prospects-retell-demo").statusText).toContain("not added, so that part is off");
+    expect(bridge(view, "prospects-retell-demo").statusText).not.toContain("every key it needs is in place");
+  });
+
+  test("an engine that is up but refuses is not called 'in standby'", () => {
+    const view = assess(allGood({ host: { state: "refused", message: "the two copies differ" }, proofs: {} }));
+    expect(bridge(view, "console-app").status).toBe("unknown");
+    expect(bridge(view, "console-app").statusText).toContain("refused");
+    expect(bridge(view, "app-gcal").statusText).not.toContain("standby");
   });
 
   test("a host that does not answer makes its keys unknown, never missing", () => {

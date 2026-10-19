@@ -731,6 +731,7 @@ aws s3 cp "s3://healdesk-production-exports-865780386982/$KEY" .
 # Actions > Download file, hand it over by the route the handover names, then delete both copies:
 aws s3 rm "s3://healdesk-production-exports-865780386982/$KEY"
 rm -f "$KEY"
+# ...and the file you downloaded, from your own computer, once it is handed over.
 ```
 
 The bucket is SSE-KMS under the product key, TLS only, private and not versioned, so the delete

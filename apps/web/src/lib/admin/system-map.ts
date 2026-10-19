@@ -525,7 +525,7 @@ export const KEYS: readonly KeyDef[] = [
     label: "The password in each clinic's Retell line address",
     need: "later",
     waitsFor:
-      "you turn voice on, and it comes first: paste it, then switch enable_voice on with a full deploy, then make a test call on a made-up clinic. Real calls wait until every business associate agreement in the chain is signed, Retell's included",
+      "every business associate agreement in the chain is signed, Retell's included, which the paste script asks you to confirm. Only a test call on a made-up clinic may come first: paste it, turn enable_voice on (production.tfvars, an infra.yml apply, then a full deploy-app.yml), put the line address in that clinic's Retell agent, and call",
     rotation: {
       kind: "every",
       days: 180,
@@ -543,7 +543,7 @@ export const KEYS: readonly KeyDef[] = [
     label: "The voice endpoint's switch (enable_voice)",
     need: "later",
     waitsFor:
-      "enable_voice is turned on, after the password above is pasted: set it in production.tfvars, run infra.yml apply and a full deploy-app.yml, then make a test call on a made-up clinic. Real calls wait until every business associate agreement in the chain is signed, Retell's included",
+      "enable_voice is turned on, after the Retell line password (HEALDESK_RETELL_LLM_SECRET) is pasted: set it in production.tfvars, run an infra.yml apply and a full deploy-app.yml, put the line address in a made-up clinic's Retell agent, and make a test call. Real calls wait until every business associate agreement in the chain is signed, Retell's included",
     rotation: { kind: "public" },
   },
   {
@@ -1120,7 +1120,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Off in AWS (enable_voice). Turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. A call in progress when the voice task crashes is lost, with its words and its booking request: the backstop from Retell's call-ended message is not built.",
+      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. A call in progress when the voice task crashes is lost, with its words and its booking request: the backstop from Retell's call-ended message is not built.",
   },
   {
     id: "retell-clinic",
@@ -1346,7 +1346,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "Logins and waiting words are locked with the key safe",
     carries:
       "The keys that lock each clinic's Google and Meta logins, the portal's authenticator-app secrets, and the words of open chats and of transcripts waiting to be emailed. The logins and the words are locked inside the engine and never travel here",
-    example: "When a clinic connects Google Calendar, its login is locked in a box whose key never leaves Amazon's safe, and every opening is logged.",
+    example:
+      "When a clinic connects Google Calendar, the engine locks its login with a fresh key, and Amazon's safe locks that key under a master key that never leaves it; every unlock is logged.",
     keys: [],
     keyless: "No password: AWS lets the engine use the key safe because of the role it runs as.",
     phi: false,
@@ -1476,7 +1477,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     keyless: "Your AWS administrator sign-in, in CloudShell.",
     phi: true,
     phiNote:
-      "Patient data reaches your own computer here, on purpose and only for this: a leaving clinic's own records, held just long enough to hand back to it, then deleted there and in CloudShell (docs/handover.md, Retention and offboarding).",
+      "Patient data reaches your own computer here, on purpose: a leaving clinic's bundle, or one person's for a patient-rights request, downloaded only to hand over by the route the handover names. Then delete all three copies: the bucket's, CloudShell's and your download (infra/aws/README.md, patient-export).",
     build: "built",
   },
 ];
@@ -1859,7 +1860,17 @@ function proofPassed(bridge: BridgeDef, live: LiveInputs): boolean {
   return Boolean(result?.ok);
 }
 
-const HOST_UNREAD = "Can't check right now: the AWS host could not be read. It may be in standby (see Host).";
+/** Why an engine-side thing cannot be checked, in the words of what the host did. */
+function hostUnread(live: LiveInputs): string {
+  switch (live.host.state) {
+    case "refused":
+      return "Can't check right now: the engine is up but refused this page's signed call (see the line from the shop window to the engine).";
+    case "unconfigured":
+      return "Can't check: this deployment is missing the seal or the engine's address, so the engine was not asked.";
+    default:
+      return "Can't check right now: the AWS host could not be read. It may be in standby (see Host).";
+  }
+}
 
 function bridgeStatus(bridge: BridgeDef, keys: KeyView[], live: LiveInputs): { status: BridgeStatus; text: string } {
   if (bridge.build === "parked") return { status: "parked", text: bridge.buildNote ?? "Parked on purpose." };
@@ -1872,7 +1883,7 @@ function bridgeStatus(bridge: BridgeDef, keys: KeyView[], live: LiveInputs): { s
   // A keyless connection that runs on the engine (a one-off job, an export)
   // exists only while the engine does: standby removes every service.
   if (bridge.keys.length === 0 && (bridge.from === "app" || bridge.to === "app") && live.host.state !== "answered") {
-    return { status: "unknown", text: HOST_UNREAD };
+    return { status: "unknown", text: hostUnread(live) };
   }
 
   const failure = proofFailure(bridge, live);
@@ -1908,7 +1919,7 @@ function bridgeStatus(bridge: BridgeDef, keys: KeyView[], live: LiveInputs): { s
     return { status: "unknown", text: `The engine runs an older version that does not report ${midSentence(unknown.label)}: deploy it (deploy-app.yml) to check this.` };
   }
   if (unknown || (bridge.id === "web-app" && live.host.state === "silent")) {
-    return { status: "unknown", text: HOST_UNREAD };
+    return { status: "unknown", text: hostUnread(live) };
   }
 
   const waiting = keys.find((key) => key.state === "waiting");
@@ -1923,8 +1934,17 @@ function bridgeStatus(bridge: BridgeDef, keys: KeyView[], live: LiveInputs): { s
     return { status: "not-checked", text: "Its keys live where this page cannot look." };
   }
 
+  // An optional key that is not added switches its part off: the whole
+  // bridge when it is the only kind of key there, one feature otherwise.
+  const optionalOff = keys.filter((key) => key.state === "optional-off");
+  if (optionalOff.length > 0 && optionalOff.length === keys.length) {
+    return { status: "off", text: `Off: ${midSentence(optionalOff.map((key) => key.label).join("; "))} ${optionalOff.length === 1 ? "is" : "are"} not added. Optional, so nothing else breaks.` };
+  }
   if (proofPassed(bridge, live)) return { status: "working", text: "Connected, and checked live just now." };
   if (bridge.keys.length === 0) return { status: "working", text: bridge.keyless ?? "No key needed." };
+  if (optionalOff.length > 0) {
+    return { status: "working", text: `Connected, but ${optionalOff.map((key) => midSentence(key.label)).join("; ")} ${optionalOff.length === 1 ? "is" : "are"} not added, so that part is off.` };
+  }
   return { status: "working", text: "Connected: every key it needs is in place." };
 }
 

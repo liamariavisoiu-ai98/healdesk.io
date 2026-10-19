@@ -94,10 +94,10 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
   {
     id: "forwarding-codes",
     promise: "Onboarding gives the right call-forwarding codes for each carrier",
-    where: "Setup wizard, forwarding-steps email, guide to call forwarding",
-    status: "building",
-    left: "The codes are being corrected against each carrier's own pages.",
-    evidence: "packages/catalog/src/forwarding.ts",
+    where: "Setup wizard, forwarding-steps email, Settings, support chat, guide to call forwarding",
+    status: "owner",
+    left: "Built: the codes are corrected against each carrier's own pages and pinned by tests in the catalog and the guide, and the carrier's activation call on a Verizon home phone or a traditional AT&T landline is no longer read as lost caller ID. Left: once enable_voice is on, a test call on each carrier's line (Verizon *42 or *41, Spectrum Business Voice, AT&T's 1 for a long-distance number), and the guide's audit before it goes live; it stays a draft until then.",
+    evidence: "packages/catalog/src/forwarding.ts, apps/web/src/lib/content/pieces/conditional-call-forwarding.ts, apps/app/src/lib/onboarding/forwarding-test.ts",
     blocksGoLive: true,
   },
   {

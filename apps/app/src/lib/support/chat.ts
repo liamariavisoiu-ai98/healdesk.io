@@ -10,7 +10,7 @@ import type { SetupState } from "@/lib/setup/state";
 import type { AccountState } from "./account-state";
 import { escalateToSupport } from "./escalate";
 import { supportLines } from "./lines";
-import type { ForwardingSteps } from "./forwarding";
+import type { ForwardingAnswer } from "./forwarding";
 import type { SupportLimiter } from "./limits";
 import type { SupportModelClient } from "./model";
 import { buildSupportPrompt } from "./prompt";
@@ -75,7 +75,7 @@ export type SupportChatContext = {
   /** The model, or null when no key is set. */
   client: SupportModelClient | null;
   readAccount: () => Promise<{ account: AccountState; state: SetupState } | null>;
-  readForwarding: () => Promise<ForwardingSteps | null>;
+  readForwarding: () => Promise<ForwardingAnswer | null>;
   email?: SendEmailOptions;
   now?: Date;
   newId?: () => string;
@@ -172,7 +172,8 @@ export async function handleSupportChat(
       accountState: async () => account,
       forwardingSteps: async () => {
         const steps = await ctx.readForwarding();
-        if (steps) numbers.push(steps.ayaNumberE164, ...CARRIER_SERVICE_NUMBERS);
+        // A closed account's answer is the undo steps alone, with no number of AYA's.
+        if (steps) numbers.push(...(steps.closed ? [] : [steps.ayaNumberE164]), ...CARRIER_SERVICE_NUMBERS);
         return steps;
       },
       linkTo: (setting) => (isLinkTarget(setting) ? linkTo(ctx.slug, setting) : null),

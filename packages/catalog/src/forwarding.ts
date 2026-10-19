@@ -157,10 +157,12 @@ const CODES: Partial<Record<Carrier, CarrierCodes>> = {
   // Verizon's star-code page for Fios Digital Voice and traditional lines,
   // the Calling Features User Guide it links to, and its mobile Call
   // Forwarding FAQs and article. *72 and *73 are the same on both kinds of
-  // line; on a home phone the guide (p. 7) has Verizon call the number at
-  // once and the forwarding start when that call is answered, and then hang
-  // up, so the label says to stay on until the assistant answers and then
-  // hang up. The same page says a toll-restricted line cannot forward to a
+  // line, and the all-call label speaks to each; on a home phone the guide
+  // (p. 7) has Verizon call the number at once and the forwarding start when
+  // that call is answered, and then hang up, so the label says to stay on
+  // until the assistant answers and then hang up. That call reaches AYA from
+  // the clinic's own number, and apps/app reads it as such
+  // (isForwardingActivationCall), not as caller-ID loss. The same page says a toll-restricted line cannot forward to a
   // toll number, which AYA's number usually is from a traditional line, so
   // the notes name it for a line where forwarding never starts.
   //
@@ -179,13 +181,13 @@ const CODES: Partial<Record<Carrier, CarrierCodes>> = {
   verizon: {
     allCalls: [
       {
-        label: `Forward ALL calls to your assistant (your staff will not get the line back until you undo this). On a Verizon home phone, dial *72, then the number at the tone, and ${STAY_THEN_HANG_UP}:`,
+        label: `Forward ALL calls to your assistant (your staff will not get the line back until you undo this). On a Verizon mobile line, dial the code as shown. On a Verizon home phone, dial *72, then the number at the tone, and ${STAY_THEN_HANG_UP}:`,
         dial: "*72{n}",
       },
     ],
     afterHours: [
       {
-        label: `Each day when you close, forward ALL calls to your assistant. On a Verizon home phone, dial *72, then the number at the tone, and ${STAY_THEN_HANG_UP}:`,
+        label: `Each day when you close, forward ALL calls to your assistant. On a Verizon mobile line, dial the code as shown. On a Verizon home phone, dial *72, then the number at the tone, and ${STAY_THEN_HANG_UP}:`,
         dial: "*72{n}",
       },
       { label: AT_OPENING, dial: "*73" },
@@ -229,10 +231,11 @@ const CODES: Partial<Record<Carrier, CarrierCodes>> = {
   // which is part of "the calls staff cannot take" as T-Mobile's not
   // reachable is. On AT&T Phone, missed-call voicemail is itself busy and
   // no-answer forwarding ("Send missed calls to voicemail or another
-  // number"), so pointing *90 and *92 at AYA replaces it, and *91# and *93#
-  // turn it off rather than bring voicemail back; AT&T's business help
-  // (KM1181691) restores it in Voicemail Settings online, which the undo
-  // says. A traditional AT&T landline takes *72 or 72#, then the number at
+  // number", KM1000459), so pointing *90 and *92 at AYA replaces it, and
+  // *91# and *93# turn it off rather than bring voicemail back. AT&T's
+  // business help (KM1181691) restores it in Voicemail Settings online; the
+  // home page gives no such path, so the undo gives that path for AT&T Phone
+  // for Business and tells a home line to ask AT&T. A traditional AT&T landline takes *72 or 72#, then the number at
   // the dial tone; AT&T then calls that number and the forwarding starts
   // only if it is answered, so a confirmation tone alone does not mean it is
   // on. Its busy and no-answer forwarding has no code: AT&T sets it on a
@@ -307,7 +310,7 @@ const CODES: Partial<Record<Carrier, CarrierCodes>> = {
       { label: "Cancel Safe Call Forwarding on AT&T Phone:", dial: "*373#" },
       {
         label:
-          "On AT&T Phone, those codes don't bring back AT&T voicemail for missed calls: to send unanswered and busy calls to voicemail again, sign in to your AT&T account, open Voicemail Settings and set No Answer and Busy Call Forwarding to Forward to Voice Mail.",
+          "On AT&T Phone, those codes don't bring back AT&T voicemail for missed calls. To send unanswered and busy calls to voicemail again on AT&T Phone for Business, sign in to your AT&T account, open Voicemail Settings and set No Answer and Busy Call Forwarding to Forward to Voice Mail; on AT&T Phone at home, ask AT&T to set them back to voicemail.",
         dial: "",
       },
       {
@@ -408,8 +411,9 @@ const CODES: Partial<Record<Carrier, CarrierCodes>> = {
   // four numbers alongside the home phone, so AYA set up that way would
   // answer before staff could; the ask step warns against it. Comcast
   // Business's 2017 handset guides for VoiceEdge and Managed Voice give
-  // *72/*73, *92/*93 for no answer and *90/*91 for busy "if call waiting is
-  // not enabled", each followed by the number. So the busy and no-answer
+  // *72/*73, *92/*93 for no answer and *90/*91 for busy, each followed by
+  // the number; the Managed Voice guide adds that busy forwarding applies
+  // "if call waiting is not enabled". So the busy and no-answer
   // codes are offered for those two services by name, and every other
   // Comcast line is told to ask.
   comcast: {
@@ -422,7 +426,7 @@ const CODES: Partial<Record<Carrier, CarrierCodes>> = {
     overflow: [
       {
         label:
-          "On Comcast Business VoiceEdge or Managed Voice, forward calls when the line is busy (Comcast's guides say this applies when you're on a call and call waiting is off):",
+          "On Comcast Business VoiceEdge or Managed Voice, forward calls when the line is busy (Comcast's Managed Voice guide says this applies when you're on a call and call waiting is off):",
         dial: "*90{n}",
       },
       { label: "On Comcast Business VoiceEdge or Managed Voice, forward calls nobody answers:", dial: "*92{n}" },

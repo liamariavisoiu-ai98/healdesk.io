@@ -308,8 +308,8 @@ export const piece: Piece = {
             "On Verizon home phones the cancel codes are *73, *91, *93 and *43, on AT&T Phone *73#, *91#, *93# and *373#, and on Comcast Business *73, *91 and *93. " +
             "Verizon mobile and Spectrum Voice use *73 for both kinds, and Verizon notes that its confirmation may sound like a busy signal. " +
             "T-Mobile uses ##21#, ##61#, ##62# and ##67#, and ##004# resets its call forwarding to the default. " +
-            "On AT&T Phone for Business, busy and no-answer forwarding is also what sends missed calls to voicemail. " +
-            "AT&T's help restores voicemail by setting both to Forward to Voice Mail in Voicemail Settings in the online account. " +
+            "On AT&T Phone, busy and no-answer forwarding is also what sends missed calls to voicemail: AT&T's home phone page describes no-answer forwarding as sending missed calls \"to voicemail or another number\". " +
+            "AT&T's business help restores voicemail on AT&T Phone for Business by setting both to Forward to Voice Mail in Voicemail Settings in the online account; the home phone page gives no such setting. " +
             "Where Verizon fixed the forwarding number, its guide says changing that number takes a service order request. " +
             "On a cloud phone system, the rule is removed or changed in the same screen that created it.",
           cite: [

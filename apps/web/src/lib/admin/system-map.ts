@@ -985,7 +985,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     carries: "The call, forwarded from the clinic's own number",
     example: "Maria calls the clinic at 8pm. The clinic's own number forwards the call to its Retell line, so Maria still dialled the number printed on the clinic's website.",
     keys: [],
-    keyless: "The forwarding needs no key: the clinic dials a short code on its own phone line.",
+    keyless: "The forwarding needs no key: the clinic sets it on its own line (a carrier code, a phone setting or a phone-system rule).",
     dependsOn: "retell-app",
     phi: true,
     build: "built",

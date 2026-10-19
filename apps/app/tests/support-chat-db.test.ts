@@ -8,7 +8,7 @@ import { escalateToSupport } from "@/lib/support/escalate";
 import { readForwardingSteps } from "@/lib/support/forwarding";
 import { SupportLimiter } from "@/lib/support/limits";
 
-import { closePools, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { inTenant } from "./setup/factories";
 import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic";
 
@@ -258,9 +258,21 @@ describeDb("the support chat, on a real clinic", () => {
       );
     });
     const steps = await read();
-    expect(steps).toMatchObject({ ayaNumberE164: "+15125550142", carrier: "Verizon" });
+    expect(steps).toMatchObject({ closed: false, ayaNumberE164: "+15125550142", carrier: "Verizon" });
+    if (!steps || steps.closed) throw new Error("expected the forwarding steps");
     // Verizon's home-phone and mobile codes, then the two steps with nothing
     // to dial (a machine answering first, and the test call).
-    expect(steps!.steps.map((s) => s.dial)).toEqual(["*425125550142", "*715125550142", "", ""]);
+    expect(steps.steps.map((s) => s.dial)).toEqual(["*425125550142", "*715125550142", "", ""]);
+
+    // Once the account closes, the way back alone: never "nothing yet".
+    await getMigratorPool().query(`update clinics set offboarding_started_at = now() where id = $1`, [
+      clinic.clinicId,
+    ]);
+    const closed = await read();
+    expect(closed).toMatchObject({ closed: true, carrier: "Verizon" });
+    expect(closed!.undo.map((s) => s.dial)).toEqual(["*43", "", "*73"]);
+    await getMigratorPool().query(`update clinics set offboarding_started_at = null where id = $1`, [
+      clinic.clinicId,
+    ]);
   });
 });

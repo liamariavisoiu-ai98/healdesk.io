@@ -14,7 +14,7 @@ import {
   screenAllowFor,
   type SupportChatContext,
 } from "@/lib/support/chat";
-import { forwardingStepsFrom, type ForwardingFacts } from "@/lib/support/forwarding";
+import { forwardingAnswerFrom, forwardingStepsFrom, type ForwardingFacts } from "@/lib/support/forwarding";
 import { HELP_TEXT } from "@/lib/support/help-text";
 import { SUPPORT_LIMITS, SupportLimiter } from "@/lib/support/limits";
 import { SUPPORT_MODEL, supportRequest, type SupportModelClient } from "@/lib/support/model";
@@ -475,6 +475,39 @@ describe("get_forwarding_steps", () => {
     expect(forwardingStepsFrom({ ...ready, phoneStepsNumberE164: null })).toBeNull();
     expect(forwardingStepsFrom({ ...ready, phoneStepsNumberE164: "5125550142" })).toBeNull();
     expect(forwardingStepsFrom({ ...ready, isClosed: true })).toBeNull();
+  });
+
+  test("a closed account gets the undo steps alone, which need no number", () => {
+    // The cancellation email asks the clinic to undo forwarding before the
+    // pass-through days end, and Settings shows a closed account nothing.
+    for (const facts of [{ ...ready, isClosed: true }, { ...ready, isClosed: true, phoneStepsNumberE164: null }]) {
+      const answer = forwardingAnswerFrom(facts)!;
+      expect(answer).toMatchObject({ closed: true, carrier: "Verizon" });
+      expect(answer.undo.map((s) => s.dial)).toEqual(["*43", "", "*73"]);
+      expect(JSON.stringify(answer)).not.toContain("5125550142");
+    }
+    expect(forwardingAnswerFrom(ready)).toEqual(forwardingStepsFrom(ready));
+  });
+
+  test("through the chat, a closed account is told to undo forwarding now, never to leave it", async () => {
+    const answer = forwardingAnswerFrom({ ...ready, carrier: "att", isClosed: true })!;
+    const line = answer.undo.find((s) => s.label.includes("800.288.2020"))!;
+    const model = fakeModel([
+      { tools: [{ name: "get_forwarding_steps", input: {} }] },
+      { text: [line.label] },
+    ]);
+    const { events } = await chat(
+      context(model, { readForwarding: async () => answer }),
+      "How do I undo call forwarding?",
+    );
+    const result = model.requests[1]!.messages.at(-1)!.content as Anthropic.ToolResultBlockParam[];
+    const told = result[0]!.content as string;
+    expect(told).toMatch(/^The service has ended/);
+    expect(told).toMatch(/undo it now/);
+    expect(told).not.toMatch(/not to change|Nothing yet/);
+    expect(told).toContain("Cancel busy forwarding on AT&T Phone: *91#");
+    // The carrier's own number in an undo step still reads as a number.
+    expect(replyOf(events)).toBe(line.label);
   });
 
   test("once voice is ready, the carrier's codes for the coverage mode, dialling AYA's number", () => {

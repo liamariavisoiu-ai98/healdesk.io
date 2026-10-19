@@ -481,8 +481,11 @@ export function SafetyNetCard({ view }: { view: SettingsView }) {
         <div className="py-3">
           <p className="font-semibold">How to undo call forwarding</p>
           <p className="text-muted mt-1 text-sm">
-            Follow the steps for your carrier and kind of line, with no call to us. Dial each code
-            from the practice&rsquo;s own line.
+            Follow the steps for your carrier and kind of line, with no call to us.
+            {/* A cloud phone system's one step is a rule to remove, with nothing to dial. */}
+            {safety.undo.some((u) => u.steps.some((s) => s.dial !== ""))
+              ? " Dial each code from the practice\u2019s own line."
+              : null}
           </p>
           <div className="mt-2 grid gap-2">
             {safety.undo.map((u) => (

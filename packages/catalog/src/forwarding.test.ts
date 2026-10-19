@@ -128,9 +128,12 @@ describe("Verizon", () => {
 
   test("all-call forwarding on a home phone starts once the call Verizon places is answered, and then the clinic hangs up", () => {
     for (const mode of ["all_calls", "after_hours_only"] as const) {
-      expect(forward("verizon", mode).steps[0]!.label, mode).toMatch(
+      const step = forward("verizon", mode).steps[0]!;
+      expect(step.label, mode).toMatch(
         /stay on the line until your assistant answers, which is when forwarding starts, then hang up:$/,
       );
+      // The one all-call step serves both kinds of line, so it speaks to each.
+      expect(step.label, mode).toMatch(/On a Verizon mobile line, dial the code as shown\./);
     }
   });
 
@@ -164,6 +167,9 @@ describe("AT&T", () => {
     expect(voicemail.label).toMatch(/^On AT&T Phone, those codes don't bring back AT&T voicemail/);
     expect(voicemail.label).toMatch(/Voicemail Settings/);
     expect(voicemail.label).toMatch(/Forward to Voice Mail/);
+    // Only AT&T's business help gives that online path (KM1181691); its home page does not.
+    expect(voicemail.label).toMatch(/on AT&T Phone for Business, sign in/);
+    expect(voicemail.label).toMatch(/on AT&T Phone at home, ask AT&T/);
     expect(voicemail.dial).toBe("");
   });
 

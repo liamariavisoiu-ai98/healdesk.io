@@ -334,7 +334,7 @@ nothing; they only change whose account holds them. Synthflow's own docs call th
 or after hours) **to a landing number you own in your own Twilio account.** Usually
 `*61*<number>#` on a landline, or a routing rule on a cloud phone system.
 
-Forwarding is reversible in one step. That single fact is the biggest objection-killer in the
+Forwarding is reversible by the clinic itself. That single fact is the biggest objection-killer in the
 sales conversation — you are not asking them to change their number, port anything, or trust
 you with their front door permanently.
 

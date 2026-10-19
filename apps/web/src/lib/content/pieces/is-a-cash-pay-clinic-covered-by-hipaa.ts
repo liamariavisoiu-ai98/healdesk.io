@@ -5,7 +5,7 @@ export const piece: Piece = {
   family: "guides",
   title: "Is a cash-pay clinic covered by HIPAA?",
   description:
-    "HIPAA covers a provider that sends health information electronically in a standard transaction. What that means for a practice that bills no insurer.",
+    "HIPAA covers a provider that sends health information electronically in a transaction type HHS has standardised. What it means for a practice that bills no insurer.",
   answer:
     "A clinic is a HIPAA covered entity only if it, or an entity acting for it, sends health information electronically in a transaction HHS has standardised. Those transactions include insurance claims and eligibility checks, so a practice paid only by its patients may sit outside HIPAA, while state consumer health data laws and the FTC Act can still reach it.",
   stage: "draft",
@@ -19,13 +19,13 @@ export const piece: Piece = {
       blocks: [
         {
           kind: "p",
-          text: "HIPAA’s rules apply to health plans, health care clearinghouses and a defined group of health care providers, which the regulations call covered entities. Under [45 CFR 160.103](https://www.law.cornell.edu/cfr/text/45/160.103), a provider is covered when it “transmits any health information in electronic form in connection with a transaction covered by this subchapter”. The same section defines a health care provider to include any person or organisation that “furnishes, bills, or is paid for health care in the normal course of business”. HHS lists doctors, clinics, dentists and others as covered entities “but only if” they send information electronically in a transaction for which HHS has adopted a standard.",
-          cite: ["cfr-160-103", "hhs-covered-entities"],
+          text: "HIPAA’s rules apply to health plans, health care clearinghouses and a defined group of health care providers, which the regulations call covered entities. Under [45 CFR 160.103](https://www.law.cornell.edu/cfr/text/45/160.103), a provider is covered when it “transmits any health information in electronic form in connection with a transaction covered by this subchapter”. The same section defines a health care provider to include any person or organisation that “furnishes, bills, or is paid for health care in the normal course of business”.",
+          cite: ["cfr-160-103"],
         },
         {
           kind: "p",
-          text: "An organisation that meets neither the covered-entity definition nor the business-associate definition “does not have to comply with the HIPAA Rules”, in the words of HHS’s own summary. Neither definition turns on a practice’s specialty, its size or whether patients pay in cash. CMS’s page for providers puts the test in one line: “Providers who submit HIPAA transactions, like claims, electronically are covered.”",
-          cite: ["hhs-covered-entities", "cfr-160-103", "cms-covered-entities"],
+          text: "Neither the covered-entity definition nor the business-associate definition turns on a practice’s specialty, its size or whether patients pay in cash. CMS’s page for providers puts the test in one line: “Providers who submit HIPAA transactions, like claims, electronically are covered.”",
+          cite: ["cfr-160-103", "cms-covered-entities"],
         },
       ],
     },
@@ -35,7 +35,7 @@ export const piece: Piece = {
       blocks: [
         {
           kind: "p",
-          text: "The transactions that count are those for which HHS has adopted a standard, set out in [45 CFR Part 162](https://www.law.cornell.edu/cfr/text/45/part-162). Section 160.103 defines a transaction as an exchange between two parties “to carry out financial or administrative activities related to health care”, and lists the types below. A claim is a provider’s request to a health plan for payment for health care. An eligibility transaction is a provider’s inquiry to a health plan about a patient’s eligibility, coverage or benefits, together with the plan’s response.",
+          text: "The transactions that count are those for which HHS has adopted a standard, set out in [45 CFR Part 162](https://www.law.cornell.edu/cfr/text/45/part-162). Section 160.103 defines a transaction as the transmission of information between two parties “to carry out financial or administrative activities related to health care”, and lists the types below. Part 162 adopts no standard for first report of injury, and its claims attachments standard applies from 26 May 2028. A claim is a provider’s request to a health plan for payment for health care. An eligibility transaction is either a provider’s inquiry to a health plan about an enrollee’s eligibility, coverage or benefits, or the plan’s response.",
           cite: ["cfr-160-103", "cfr-part-162", "cfr-162-1101", "cfr-162-1201"],
         },
         {
@@ -54,7 +54,7 @@ export const piece: Piece = {
             "Health care electronic funds transfers (EFT) and remittance advice",
             "Other transactions that the Secretary may prescribe by regulation",
           ],
-          cite: ["cfr-160-103"],
+          cite: ["cfr-160-103", "cfr-part-162"],
         },
       ],
     },
@@ -69,7 +69,7 @@ export const piece: Piece = {
         },
         {
           kind: "p",
-          text: "The tool also counts transactions that someone else sends for the provider. Its endnote says that if a provider uses another entity, such as a clearinghouse, to conduct covered transactions on its behalf, “the health care provider is considered to be conducting the transaction in electronic form”. Section 162.923 of the regulations lets a covered entity use a business associate, including a clearinghouse, to conduct a standard transaction. On the tool’s reading, a billing company that submits electronic claims for a practice makes the practice the one conducting them, even if its own staff never handle a claim.",
+          text: "The tool also counts transactions that someone else sends for the provider. Its endnote says that if a provider uses another entity, such as a clearinghouse, to conduct covered transactions on its behalf, “the health care provider is considered to be conducting the transaction in electronic form”. Section 162.923 of the regulations lets a covered entity use a business associate, including a clearinghouse, to conduct a transaction covered by Part 162. On the tool’s reading, a billing company that submits electronic claims for a practice makes the practice the one conducting them, even if its own staff never handle a claim.",
           cite: ["cms-decision-tool", "cfr-162-923"],
         },
       ],
@@ -96,7 +96,7 @@ export const piece: Piece = {
         },
         {
           kind: "p",
-          text: "The business associate definition is framed “with respect to a covered entity”, and each duty above runs from a covered entity to the vendor acting on its behalf. A subcontractor that handles protected health information for a business associate is itself a business associate under the same definition. Where a practice is not a covered entity, privacy terms between it and a vendor come from their contract and from any state law that applies.",
+          text: "The business associate definition is framed “with respect to a covered entity”, and each duty above runs from a covered entity to the vendor acting on its behalf. A subcontractor that handles protected health information for a business associate is itself a business associate under the same definition. Where a practice is not a covered entity, privacy terms between it and a vendor come from their contract and from any state or federal law that applies.",
           cite: ["cfr-160-103", "cfr-164-502"],
         },
         {
@@ -107,34 +107,23 @@ export const piece: Piece = {
       ],
     },
     {
-      id: "hipaa-certification",
-      heading: "Is there such a thing as HIPAA certification?",
-      blocks: [
-        {
-          kind: "p",
-          text: "HHS answers this in a Security Rule FAQ last reviewed in July 2013: no standard “requires a covered entity to ‘certify’ compliance”. The same answer says HHS “does not endorse or otherwise recognize private organizations’ ‘certifications’ regarding the Security Rule”, and that such certifications do not relieve a covered entity of its obligations. A certificate from an outside firm, the FAQ adds, does not prevent HHS from later finding a security violation. The FTC’s guidance on consumer health information warns businesses against false or misleading claims that they are certified under HIPAA.",
-          cite: ["hhs-faq-certify", "ftc-health-guidance"],
-        },
-      ],
-    },
-    {
       id: "laws-outside-hipaa",
       heading: "Which laws reach health data outside HIPAA?",
       blocks: [
         {
           kind: "p",
-          text: "Several laws reach health data that HIPAA does not. Washington’s legislature found in 2023 that HIPAA “only covers health data collected by specific health care entities”, and that data collected by others “are not afforded the same protections”. Nevada and Connecticut enacted consumer health data provisions the same year, and the FTC Act applies whether or not a business is covered by HIPAA. Each law has its own exemptions, and those exemptions decide whether it reaches a given practice.",
+          text: "Several laws reach health data that HIPAA does not. Washington’s legislature found in 2023 that HIPAA “only covers health data collected by specific health care entities”, and that data collected by others “are not afforded the same protections”. Nevada and Connecticut enacted consumer health data provisions the same year, and the FTC says its Act applies whether or not a business is covered by HIPAA. Each law has its own scope and exemptions, and those decide whether it reaches a given practice.",
           cite: ["rcw-19-373", "nrs-603a", "ct-743jj-2026", "ftc-health-guidance"],
         },
         { kind: "h3", text: "Washington: the My Health My Data Act" },
         {
           kind: "p",
-          text: "Washington’s [My Health My Data Act](https://app.leg.wa.gov/RCW/default.aspx?cite=19.373&full=true) defines consumer health data as personal information linked or reasonably linkable to a consumer that identifies their “past, present, or future physical or mental health status”. Its examples include “health-related surgeries or procedures” and “data that identifies a consumer seeking health care services”. Since 31 March 2024, a regulated entity may collect such data only with consent for a specified purpose, or as necessary to provide a product or service the consumer requested. A violation is an unfair or deceptive act for the purpose of the state’s Consumer Protection Act, chapter 19.86 RCW.",
+          text: "Washington’s [My Health My Data Act](https://app.leg.wa.gov/RCW/default.aspx?cite=19.373&full=true) defines consumer health data as personal information linked or reasonably linkable to a consumer that identifies their “past, present, or future physical or mental health status”. Its examples include “health-related surgeries or procedures” and “data that identifies a consumer seeking health care services”. Since 31 March 2024, a regulated entity may collect such data only with consent for a specified purpose, or as necessary to provide a product or service the consumer requested. For a small business, as the Act defines one, that rule applied from 30 June 2024. A violation is an unfair or deceptive act for the purpose of the state’s Consumer Protection Act, chapter 19.86 RCW.",
           cite: ["rcw-19-373"],
         },
         {
           kind: "p",
-          text: "The Act exempts protected health information under HIPAA, and it separately exempts “health care information collected, used, or disclosed in accordance with chapter 70.02 RCW”. That chapter governs medical records and health care information, and it defines a health care provider as a person licensed, certified, registered or otherwise authorised by Washington law to provide health care. Its definition does not depend on electronic transactions, so the two exemptions are drawn on different lines. Which of them, if either, covers a particular practice’s records depends on how that practice is licensed and how it handles the records.",
+          text: "The Act exempts protected health information under HIPAA, and it separately exempts “health care information collected, used, or disclosed in accordance with chapter 70.02 RCW”. That chapter governs medical records and health care information, and it defines a health care provider as a person licensed, certified, registered or otherwise authorised by Washington law to provide health care. Its definition does not depend on electronic transactions, and the Act does not say how its two exemptions apply to a licensed provider that HIPAA does not cover.",
           cite: ["rcw-19-373", "rcw-70-02-010"],
         },
         { kind: "h3", text: "Nevada: NRS 603A.400 to 603A.550" },
@@ -147,23 +136,23 @@ export const piece: Piece = {
         {
           kind: "p",
           text: "Connecticut added consumer health data to its [data privacy chapter](https://www.cga.ct.gov/2026/sup/chap_743jj.htm) in 2023, through Public Act 23-56. Since 1 July 2026, the chapter defines consumer health data as personal data a controller uses to identify a consumer’s “physical or mental health condition, diagnosis or status”, and lists it as sensitive data. The chapter’s general duties now also reach persons that “control or process consumers’ sensitive data”, and section 42-520 conditions their processing of sensitive data on, among other things, the consumer’s consent. Section 42-526 bars any person doing business in the state from selling consumer health data without consent, and limits who may be given access to it.",
-          cite: ["ct-743jj-2026", "ct-743jj"],
+          cite: ["ct-743jj-2026", "ct-743jj", "ct-ag-ctdpa"],
         },
         {
           kind: "p",
-          text: "Section 42-526 applies “notwithstanding” the chapter’s usual applicability thresholds, so it does not depend on how many consumers a business serves. Both the general duties and section 42-526 exempt a “covered entity or business associate, as defined in 45 CFR 160.103”. A practice outside HIPAA does not fall within that exemption, and whether the other provisions reach it depends on where it does business and whom it serves.",
-          cite: ["ct-743jj", "ct-743jj-2026"],
+          text: "The Attorney General’s office says the consumer health data provisions have no revenue or processing thresholds. Its list of entities exempt from the Act includes “Entities subject to the Health Insurance Portability and Accountability Act”. A practice outside HIPAA does not fall within that exemption, and whether the other provisions reach it depends on where it does business and whom it serves.",
+          cite: ["ct-ag-ctdpa"],
         },
         { kind: "h3", text: "Federal: the FTC Act" },
         {
           kind: "p",
-          text: "Section 5 of the [FTC Act](https://www.law.cornell.edu/uscode/text/15/45) declares “unfair or deceptive acts or practices in or affecting commerce” unlawful. The FTC’s health guidance says the Act also applies to “companies that collect, use, or share health information that aren’t required to comply with HIPAA”. The same guidance tells businesses not to mislead consumers about what happens to their health information, and not to bury key facts in a privacy policy or terms of use.",
+          text: "Section 5 of the [FTC Act](https://www.law.cornell.edu/uscode/text/15/45) declares “unfair or deceptive acts or practices in or affecting commerce” unlawful. The FTC’s health guidance says the Act also applies to “companies that collect, use, or share health information that aren’t required to comply with HIPAA”. The same guidance tells businesses not to mislead consumers about what happens to their health information, and not to bury key facts in a privacy policy or terms of use. It also warns against false or misleading claims to be “HIPAA Certified” or the like.",
           cite: ["usc-15-45", "ftc-health-guidance"],
         },
         { kind: "h3", text: "Federal: the Health Breach Notification Rule" },
         {
           kind: "p",
-          text: "The FTC’s [Health Breach Notification Rule](https://www.law.cornell.edu/cfr/text/16/318.1), 16 CFR Part 318, applies to vendors of personal health records, PHR related entities and third party service providers. It “does not apply to HIPAA-covered entities”, or to an entity acting as a business associate of one. A personal health record, in the rule’s definition, is an electronic record that can draw information from multiple sources and is “managed, shared, and controlled by or primarily for the individual”. Whether the rule reaches a practice turns on whether it offers or maintains such a record, or is a PHR related entity or a third party service provider.",
+          text: "The FTC’s [Health Breach Notification Rule](https://www.law.cornell.edu/cfr/text/16/318.1), 16 CFR Part 318, applies to vendors of personal health records, PHR related entities and third party service providers. It “does not apply to HIPAA-covered entities”, or to any other entity “to the extent that it engages in activities as a business associate” of one. A personal health record, in the rule’s definition, is an electronic record that can draw information from multiple sources and is “managed, shared, and controlled by or primarily for the individual”. Whether the rule reaches a practice turns on whether it offers or maintains such a record, or is a PHR related entity or a third party service provider.",
           cite: ["cfr-318-1", "cfr-318-2", "ftc-health-guidance"],
         },
       ],
@@ -174,7 +163,7 @@ export const piece: Piece = {
       blocks: [
         {
           kind: "p",
-          text: "Whether a cash-pay practice is covered by HIPAA, and which other laws reach its patient data, turns on facts that differ from one practice to the next. The texts above make the facts listed below decisive. Two practices offering the same treatments can reach different answers, and one practice’s answer can change when its billing or its vendors change.",
+          text: "Whether a cash-pay practice is covered by HIPAA, and which other laws reach its patient data, turns on facts that differ from one practice to the next. On the texts above, the facts listed below are among those that bear on the answer, and two practices offering the same treatments can reach different answers.",
         },
         {
           kind: "list",
@@ -193,7 +182,7 @@ export const piece: Piece = {
     },
   ],
   aya: [
-    "AYA is built to handle patient data under a business associate agreement: healdesk signs one and handles patient data under it.",
+    "healdesk signs a business associate agreement with a practice at checkout, and AYA is built to handle patient data only under it.",
     "A data protection agreement for practices that HIPAA does not cover is drafted but not yet released.",
   ],
   sources: [
@@ -238,14 +227,6 @@ export const piece: Piece = {
       checked: "2026-10-19",
     },
     {
-      id: "hhs-covered-entities",
-      title: "Covered Entities and Business Associates",
-      publisher: "U.S. Department of Health and Human Services",
-      url: "https://www.hhs.gov/hipaa/for-professionals/covered-entities/index.html",
-      kind: "government",
-      checked: "2026-10-19",
-    },
-    {
       id: "cms-covered-entities",
       title: "Are You a Covered Entity?",
       publisher: "Centers for Medicare & Medicaid Services",
@@ -275,14 +256,6 @@ export const piece: Piece = {
       publisher: "Legal Information Institute, Cornell Law School (text of the Code of Federal Regulations)",
       url: "https://www.law.cornell.edu/cfr/text/45/164.504",
       kind: "regulation",
-      checked: "2026-10-19",
-    },
-    {
-      id: "hhs-faq-certify",
-      title: "Are we required to “certify” our organization’s compliance with the standards of the Security Rule?",
-      publisher: "U.S. Department of Health and Human Services",
-      url: "https://www.hhs.gov/hipaa/for-professionals/faq/2003/are-we-required-to-certify-our-organizations-compliance-with-the-standards/index.html",
-      kind: "government",
       checked: "2026-10-19",
     },
     {
@@ -340,6 +313,14 @@ export const piece: Piece = {
       publisher: "Connecticut General Assembly",
       url: "https://www.cga.ct.gov/current/pub/chap_743jj.htm#sec_42-526",
       kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "ct-ag-ctdpa",
+      title: "The Connecticut Data Privacy Act",
+      publisher: "Connecticut Office of the Attorney General",
+      url: "https://portal.ct.gov/ag/sections/privacy/the-connecticut-data-privacy-act",
+      kind: "government",
       checked: "2026-10-19",
     },
     {

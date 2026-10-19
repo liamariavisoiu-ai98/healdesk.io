@@ -21,8 +21,9 @@ export const piece: Piece = {
   description:
     "Where the 88 percent phone-booking claim, unanswered-call rates and no-show figures come from, with each source's publisher and method.",
   answer:
-    "The phone-booking figure repeated most often, that 88 percent of appointments are made by telephone, traces to vendor material from 2017 that gives no source or method. " +
-    "Peer-reviewed studies in which researchers posed as patients found that most calls did not end with an appointment or scheduling information, but none found covers cash-pay elective practices.",
+    "The earliest source found for the claim that 88 percent of appointments are made by telephone is vendor material from 2017 that names no source or method for it. " +
+    "Peer-reviewed studies in which researchers posed as patients found that most calls did not end with an appointment or scheduling information, but none found covers cash-pay elective practices. " +
+    "A 2018 systematic review of 105 studies put the average no-show rate across medical specialties and countries at about 23 percent.",
   stage: "draft",
   legal: false,
   published: "2026-10-19",
@@ -30,14 +31,14 @@ export const piece: Piece = {
   sections: [
     {
       id: "where-does-88-percent-come-from",
-      heading: "Where does the statistic that 88% of appointments are booked by phone come from?",
+      heading: "Where does the statistic that 88 percent of appointments are booked by phone come from?",
       blocks: [
         {
           kind: "p",
           text:
             "The claim that 88 percent of appointments are still made by telephone appears on vendor pages and in trade coverage. " +
-            "The earliest source found is an April 2017 commentary on the trade site Healthcare Innovation by Jamie Gier, chief marketing officer of SCI Solutions. " +
-            "SCI operated a cloud-based service that physician practices and hospitals used to schedule patients, obtain insurance authorisations and automate referrals. " +
+            "The earliest source found is an April 2017 commentary by Jamie Gier, chief marketing officer of SCI Solutions, on the trade site now called Healthcare Innovation. " +
+            "SCI operated a service that physician practices and hospitals used to schedule patients, obtain insurance authorisations and automate referrals. " +
             "The infographic published with the commentary says \"88% of appointments are still scheduled by phone\", and neither the infographic nor the text names a source or a method for it.",
           cite: ["hci-2017"],
         },
@@ -46,7 +47,7 @@ export const piece: Piece = {
           text:
             "A parallel chain of citations ends at a 2017 infographic by DialogTech, which on the same graphic recommends call tracking to healthcare marketers. " +
             "It says that \"a third study in 2016\" found 88 percent \"of doctors' appointments are scheduled by phone\", without naming the study. " +
-            "Its footer lists seven sources, from Google to Televox, but does not say which one supports which figure. " +
+            "Its footer lists seven sources, from Google to Televox, but does not say which of them, if any, is the 2016 study. " +
             "No 2016 study stating the figure could be opened for this page, so the 2017 commentary remains the earliest source found.",
           cite: ["dialogtech-2017"],
         },
@@ -75,9 +76,10 @@ export const piece: Piece = {
           kind: "p",
           text:
             "Invoca, a call-tracking vendor, published benchmarks in July 2026 drawn from over 70 million phone calls tracked on its platform across ten industries. " +
-            "In this vendor data, 54 percent of all inbound calls to its healthcare customers were answered by a person, rising to 65 percent for calls longer than 15 seconds. " +
+            "In this vendor data, 54 percent of the calls it tracked for its healthcare customers were answered by a person, rising to 65 percent for calls longer than 15 seconds. " +
             "The healthcare figures cover behavioural health and rehab, dental, eye care, hearing, hospitals and physical therapy. " +
-            "Invoca presents every figure as an average across its customer base and does not state the period or the number of healthcare calls.",
+            "Invoca presents every figure as an average across its customer base and does not state the period or the number of healthcare calls. " +
+            "Its healthcare report names AI voice and SMS agents, which Invoca also sells, as \"the single biggest lever for improving answer rates\".",
           cite: ["invoca-2026-healthcare", "invoca-2026-blog"],
         },
         {
@@ -92,23 +94,23 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "A figure often quoted beside these, that nearly three in four consumers would switch providers after a poor contact-centre experience, comes from CallMiner's 2020 US Churn Index. " +
-            "CallMiner sells speech and conversation analytics, and the survey was carried out for it by 3Gem Research & Insights. " +
+            "Another figure, that nearly three in four consumers would switch providers after a poor contact-centre experience, comes from CallMiner's 2020 US Churn Index. " +
+            "CallMiner sells speech and conversation analytics, and this vendor survey was carried out for it by 3Gem Research & Insights. " +
             "It asked 2,000 US adults who had contacted a provider in the previous 12 months, online in March 2020, and recorded what they said they would do. " +
             "It covered providers in general and named banks and broadband providers as the industries with the highest churn. " +
-            "A bullet in the same release says 7 percent were likely to switch after a negative call, and the release does not reconcile that with its headline.",
+            "A bullet in the same release says 7 percent were likely to switch after a negative call-centre experience, and the release does not reconcile that with its headline.",
           cite: ["callminer-2020"],
         },
       ],
     },
     {
       id: "how-often-do-callers-get-through",
-      heading: "How often do patients who call a medical practice get through?",
+      heading: "How often do patients who call a clinic get an appointment?",
       blocks: [
         {
           kind: "p",
           text:
-            "Studies in which researchers pose as patients measure access by phone directly, and the peer-reviewed ones found cover other kinds of care. " +
+            "Studies in which researchers pose as patients measure access by phone directly, and the peer-reviewed ones found cover cancer clinics and psychiatrists, not cash-pay elective practices. " +
             "In a 2024 study in JAMA Network Open, trained callers posing as new patients with colon, lung or thyroid cancer rang 479 clinic numbers at 143 hospitals in 12 states. " +
             "Between November 2021 and March 2023 they were given an appointment date or scheduling information in 409 of 985 calls, or 41.5 percent. " +
             "The rate was 61.4 percent for calls in English, 36.4 percent in Spanish and 19.0 percent in Mandarin.",
@@ -141,7 +143,7 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "The nearest setting found is one academic plastic-surgery clinic in Huntington, West Virginia, whose services range from aesthetic procedures to reconstruction. " +
+            "The setting found nearest to a cash-pay elective practice is one academic plastic-surgery clinic in Huntington, West Virginia, whose services range from aesthetic procedures to reconstruction. " +
             "A 2025 study in Cureus counted 277 missed appointments among 2,002 between October 2022 and October 2024, a no-show rate of 13.8 percent. " +
             "The authors note the retrospective design and small sample as limitations. " +
             "The paper's statements about self-pay patients conflict between its abstract and its results, and its counts by insurance type do not match its totals, so this page does not use them.",
@@ -164,7 +166,7 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "Each figure was followed back through the pages that repeat it to the earliest page found that states it, and every page cited here was opened on 19 October 2026. " +
+            "Each figure was followed back through the pages that repeat it to the earliest page found that states it, and every source cited here was read on 19 October 2026. " +
             "Peer-reviewed findings are stated plainly, and figures drawn from a company's own customers or surveys are labelled as vendor data. " +
             "A figure whose source could not be opened is not used, which is why a 2016 study behind the 88 percent, dated only by the DialogTech infographic, does not appear.",
         },
@@ -177,9 +179,9 @@ export const piece: Piece = {
             ["88%, attributed to \"a third study in 2016\"", "DialogTech infographic, 2017", "Vendor", "No; seven sources listed, none matched to the figure"],
             ["$150 billion a year in missed appointments", "Healthcare Innovation commentary, April 2017", "Vendor", "No; two inputs named, no calculation shown"],
             ["Nearly three in four would switch after a poor contact-centre experience", "CallMiner 2020 US Churn Index, May 2020", "Vendor survey", "Yes: online survey of 2,000 US adults, March 2020"],
-            ["54% of inbound healthcare calls answered by a person", "Invoca benchmarks, July 2026", "Vendor data", "Partly: averages across its customers; no period or healthcare sample size"],
+            ["54% of healthcare calls tracked by Invoca answered by a person", "Invoca benchmarks, July 2026", "Vendor data", "Partly: averages across its customers; no period or healthcare sample size"],
             ["29% of healthcare calls unanswered", "Invoca infographic citing its 2021 customer data", "Vendor data", "No definition of an unanswered call"],
-            ["41.5% of simulated calls reached cancer care", "JAMA Network Open, 2024", "Peer-reviewed", "Yes"],
+            ["41.5% of simulated new-patient calls given an appointment date or scheduling information", "JAMA Network Open, 2024", "Peer-reviewed", "Yes"],
             ["119 of 360 psychiatrists reached in a first round", "Psychiatric Services, 2015", "Peer-reviewed", "Yes"],
             ["Average no-show rate of about 23%", "Health Policy systematic review, 2018", "Peer-reviewed", "Yes"],
             ["13.8% no-show rate at one plastic-surgery clinic", "Cureus, 2025", "Peer-reviewed", "Yes; one clinic, retrospective"],
@@ -201,7 +203,7 @@ export const piece: Piece = {
   ],
   aya: [
     "AYA is built to answer the calls a clinic forwards to it, in the coverage mode the clinic picks.",
-    "Its reports are designed to count the conversations it handled and the appointments it booked.",
+    "The clinic portal and the daily summary email are designed to count the conversations AYA handled and the appointments booked from them.",
   ],
   sources: [
     {

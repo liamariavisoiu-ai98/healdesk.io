@@ -205,7 +205,7 @@ export function TalkCard({ view }: { view: SettingsView }) {
         slug={view.slug}
         settingKey="languages"
         legend="Languages"
-        line="AYA answers in the language each person uses, and stays in it."
+        line="AYA answers in the language each person uses, and stays in it, on the phone and the website chat. Instagram, Messenger and WhatsApp answer in English."
         applies={view.applies.languages}
         options={talk.languageOptions}
         initial={talk.languages}

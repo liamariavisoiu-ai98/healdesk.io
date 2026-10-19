@@ -5,7 +5,10 @@ import {
   wizardFinished,
   wizardScreens,
 } from "@/lib/setup/screens";
+import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
 import type { SetupState } from "@/lib/setup/state";
+import { PRACTICE_SECTION_WORDS } from "@/lib/engine/practice/sections";
+import { practiceDoubleChecking, type PracticeState } from "@/lib/engine/practice/state";
 import { joinWords } from "@/lib/setup/tracker";
 
 import { isBuiltSection, sectionPath, type PortalSection } from "./nav";
@@ -21,9 +24,17 @@ import { isBuiltSection, sectionPath, type PortalSection } from "./nav";
  * more come from facts already on hand and cost the clinic dearly if missed:
  * an address that bounces (Annex X3: "We can't email {address}", the one
  * address every email goes to), a payment that failed, and a sign-in with no
- * device that can open patient details. The rest of the plan's list (a
- * calendar that stopped working, a quiet channel) needs the calendar backend
- * and go-live (M6), and joins here then.
+ * device that can open patient details. After go-live, a calendar that
+ * stopped working: bookings quietly become requests the desk must confirm,
+ * which is worth a line once patients are booking, and not before, when the
+ * calendar step of setup says it already. A quiet channel waits for the
+ * claims function (WP4).
+ *
+ * After go-live, a change the practice questions did not pass (lib/engine/
+ * practice: failed on the clinic's own data, or in review with our team)
+ * shows "We're double-checking your change to Prices" (plan Part F1, F3),
+ * linking to the section, while AYA keeps answering as she was. Before
+ * go-live the build tracker says the same thing in its own stage.
  *
  * Pure: the page reads the facts, this decides what to say.
  */
@@ -37,7 +48,9 @@ export type AttentionId =
   | "passkey"
   | "backup"
   | "payment_account"
-  | "website_changes";
+  | "website_changes"
+  | "calendar_disconnected"
+  | "double_checking";
 
 export type AttentionItem = {
   id: AttentionId;
@@ -55,8 +68,14 @@ export type AttentionFacts = {
   addressUndeliverable: boolean;
   /** The clinic's Stripe account was disconnected and nothing is connected now. */
   paymentAccountDisconnected?: boolean;
+  /** The clinic's Google Calendar connection as the calendar session reads it. */
+  calendar?: CalendarConnectionView;
   /** Website changes the drift check found and nobody has confirmed or ignored (M7). */
   websiteChanges?: number;
+  /** Where the practice questions stand (lib/engine/practice). */
+  practice?: PracticeState;
+  /** Whether any channel has gone live: before then, the tracker shows the practice questions. */
+  live?: boolean;
 };
 
 export function needsAttention(facts: AttentionFacts): AttentionItem[] {
@@ -153,6 +172,14 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
     });
   }
 
+  if (facts.live && facts.calendar && calendarStoppedWorking(facts.calendar)) {
+    items.push({
+      id: "calendar_disconnected",
+      text: "Your calendar stopped working, so bookings arrive as requests your team confirms.",
+      action: screenLink(slug, "settings", "#calendar", "Reconnect it in Settings"),
+    });
+  }
+
   const changes = facts.websiteChanges ?? 0;
   if (changes > 0) {
     items.push({
@@ -165,7 +192,32 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
     });
   }
 
+  if (facts.live && facts.practice && practiceDoubleChecking(facts.practice)) {
+    const latest = facts.practice.latest!;
+    const section = latest.failedSection ?? latest.triggerSection;
+    const words = section ? PRACTICE_SECTION_WORDS[section] : null;
+    const [screen, hash] = words ? (words.path.split("#") as [string, string]) : ["knowledge", ""];
+    items.push({
+      id: "double_checking",
+      text: words ? `We're double-checking your change to ${words.name}.` : "We're double-checking your latest change.",
+      action: screenLink(slug, screen === "settings" ? "settings" : "knowledge", hash ? `#${hash}` : "", words ? `Open ${words.name}` : "Open Knowledge"),
+    });
+  }
+
   return items;
+}
+
+/**
+ * Whether the calendar a clinic connected has stopped working: the
+ * connection is broken (`error`, or a break on record), or Google told us its
+ * access was removed. Never for a calendar that was never connected or that
+ * the clinic disconnected itself: those are choices, and Settings shows them.
+ * A connection Google merely could not reach this time (`degraded`) is not a
+ * stop: the calendar watch probes again, and marks it broken if it stays so.
+ */
+export function calendarStoppedWorking(view: CalendarConnectionView): boolean {
+  if (view.status === "not_connected") return view.accessRemovedAt !== null;
+  return view.status === "error" || view.brokenAt !== null;
 }
 
 /**

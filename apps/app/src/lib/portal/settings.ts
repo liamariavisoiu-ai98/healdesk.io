@@ -11,6 +11,8 @@ import { eq } from "drizzle-orm";
 
 import { clinics, type DepositUncollectable } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { requestPracticeQuestions } from "@/lib/engine/practice/store";
+import type { PracticeSection } from "@/lib/engine/practice/types";
 import { DepositSettingsError, setDepositSettings } from "@/lib/billing/deposits";
 import { DIRECT_LINE_NEEDED_WHILE_LIVE, voiceIsLive } from "@/lib/billing/settings";
 import {
@@ -18,6 +20,7 @@ import {
   META_PLATFORM_NAMES,
   setMetaPlatformEnabled,
 } from "@/lib/channels/meta-platforms";
+import { noteChannelSwitchedOff } from "@/lib/channels/pause";
 import { ChannelSwitchError, setChannelEnabled } from "@/lib/channels/switch";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { formatPhone } from "@/lib/setup/help";
@@ -120,7 +123,9 @@ export const SETTING_CHANNELS: Readonly<Record<SettingKey, readonly Channel[]>> 
   tone: ["web", "meta", "voice"],
   phone_greeting: ["voice"],
   chat_greeting: ["web", "meta"],
-  languages: ["web", "meta", "voice"],
+  // Instagram, Messenger and WhatsApp answer in English only: the Meta front
+  // door's reply guard reads English, so its language is not a choice.
+  languages: ["web", "voice"],
   // The signed agreement bars add-ons and promotions on the Meta channels.
   suggest_add_ons: ["web", "voice"],
   mention_promotions: ["web", "voice"],
@@ -135,6 +140,23 @@ export const SETTING_CHANNELS: Readonly<Record<SettingKey, readonly Channel[]>> 
   daily_summary: ["web", "meta", "voice"],
   transfer_live_calls: ["voice"],
   transfer_number: ["voice"],
+};
+
+/**
+ * The settings the practice questions read (lib/engine/practice): how AYA
+ * talks, and the numbers the urgent line gives. Changing one asks for the
+ * questions to run again, two minutes after the last change.
+ */
+const PRACTICE_SETTINGS: Partial<Record<SettingKey, PracticeSection>> = {
+  tone: "how_aya_talks",
+  phone_greeting: "how_aya_talks",
+  chat_greeting: "how_aya_talks",
+  languages: "how_aya_talks",
+  suggest_add_ons: "how_aya_talks",
+  mention_promotions: "promotions",
+  direct_line: "safety_net",
+  urgent_help: "safety_net",
+  vet_referral: "safety_net",
 };
 
 export type SettingContext = {
@@ -193,6 +215,8 @@ export async function saveSetting(
         throw new Refusal("key", "That setting isn't part of your plan.");
       }
       const consequence = await write(tx, state, ctx, key, value, now);
+      const section = PRACTICE_SETTINGS[key];
+      if (section) await requestPracticeQuestions(tx, { reason: "settings", section, now });
       const applies = appliesWhen(state.channels, SETTING_CHANNELS[key]);
       return applies ? `${consequence} ${applies}` : consequence;
     });
@@ -235,7 +259,9 @@ async function write(
     case "channel_voice": {
       const channel = key.slice("channel_".length) as Channel;
       const on = requireBoolean(value, key);
-      await setChannelEnabled(tx, channel, on, label, now);
+      const { changed } = await setChannelEnabled(tx, channel, on, label, now);
+      // L15: a live channel switched Off counts as a pause with no end there.
+      if (changed && !on) await noteChannelSwitchedOff(tx, { channel, actorLabel: label, now });
       return channelToast(channel, on, state.settings.directLineE164);
     }
 
@@ -252,7 +278,10 @@ async function write(
           `${META_PLATFORM_NAMES[platform]} isn't connected yet. Its switch appears here once it is.`,
         );
       }
-      await setMetaPlatformEnabled(tx, platform, on, label, now);
+      const { changed } = await setMetaPlatformEnabled(tx, platform, on, label, now);
+      if (changed && !on) {
+        await noteChannelSwitchedOff(tx, { channel: "meta", platform, actorLabel: label, now });
+      }
       return metaPlatformToast(platform, on);
     }
 

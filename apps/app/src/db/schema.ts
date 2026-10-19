@@ -60,6 +60,19 @@ import type { OpeningHours } from "../lib/clinic/opening-hours";
 import type { SealedPayload } from "../lib/crypto/envelope";
 import { LEDGER_DIRECT_KINDS } from "../lib/email/direct-kinds";
 import { NOTICE_KINDS, PACKAGE_NOTICE_KINDS, type NoticeKind } from "../lib/email/kinds";
+import {
+  AUDIT_REVIEW_STATUSES,
+  PRACTICE_RESULT_STATUSES,
+  PRACTICE_RUN_REASONS,
+  PRACTICE_RUN_STATUSES,
+  PRACTICE_SECTIONS,
+  type AuditReviewStatus,
+  type PracticeCaseResult,
+  type PracticeResultStatus,
+  type PracticeRunReason,
+  type PracticeRunStatus,
+  type PracticeSection,
+} from "../lib/engine/practice/types";
 import { DEVICE_LABEL_MAX } from "../lib/factors/device";
 import {
   SETTINGS_HISTORY_FIELDS,
@@ -5167,6 +5180,209 @@ export const clinicProviderServices = pgTable(
   ],
 );
 
+// -----------------------------------------------------------------------------
+// The practice questions (plan Part G; spec, "The pre-launch audit")
+// -----------------------------------------------------------------------------
+
+/**
+ * One run of a clinic's practice questions: the spec's nine cases, and the
+ * disclosure line, templated from its own profile and asked of every channel
+ * it bought, through the brain each channel answers with
+ * (lib/engine/practice). A run is asked for by a change to what the cases
+ * read and waits two minutes without another (`run_after`, moved on by each
+ * change while it is queued); the job claims it under a lease, one at a time
+ * per clinic, which the two partial unique indexes hold.
+ *
+ * `agent_version` is agent_configs.version as the run read it, and a pass
+ * approves that version and no other; `input_version` the hash of
+ * everything the cases read (the knowledge, the settings, the case set),
+ * which tells a run whose inputs changed while it ran (`superseded`).
+ * `failed_section` and `failed_count` are what O9 names when a case failed
+ * on the clinic's own data. `override_label` is an operator's approval of
+ * the script recorded as a passed run (ops approveAgentConfig), the path
+ * that stays as an override.
+ *
+ * Synthetic: no patient is in any run, and nothing here is PHI. Tenant RLS,
+ * forced; the runtime role may read, add and move a run on, never delete
+ * one. Kept at destruction, beside agent_configs: the record of what
+ * approved the words AYA said for the clinic.
+ */
+export const practiceQuestionRuns = pgTable(
+  "practice_question_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    status: text("status").$type<PracticeRunStatus>().notNull().default("queued"),
+    reason: text("reason").$type<PracticeRunReason>().notNull(),
+    /** The Knowledge section whose save asked for it, when one did: what Home's "double-checking" line names. */
+    triggerSection: text("trigger_section").$type<PracticeSection>(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Not before: two minutes after the last change that asked for it. */
+    runAfter: timestamp("run_after", { withTimezone: true }).notNull().defaultNow(),
+    /** While running: the job's lease, after which another run of the job may take it over. */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    agentVersion: integer("agent_version"),
+    casesVersion: text("cases_version"),
+    inputVersion: text("input_version"),
+    failedSection: text("failed_section").$type<PracticeSection>(),
+    failedCount: integer("failed_count"),
+    /** The agent_configs version this pass approved; null when it approved nothing new. */
+    approvedVersion: integer("approved_version"),
+    overrideLabel: text("override_label"),
+    /** Why the last attempt could not finish: a category, never the model's words. */
+    lastError: text("last_error"),
+  },
+  (t) => [
+    uniqueIndex("practice_question_runs_queued_idx").on(t.clinicId).where(sql`${t.status} = 'queued'`),
+    uniqueIndex("practice_question_runs_running_idx").on(t.clinicId).where(sql`${t.status} = 'running'`),
+    // The target of the results' and reviews' composite foreign keys, so a
+    // result or a review can only belong to a run of its own clinic.
+    unique("practice_question_runs_clinic_run_key").on(t.clinicId, t.id),
+    index("practice_question_runs_clinic_idx").on(t.clinicId, t.requestedAt),
+    check("practice_question_runs_status_check", sql`${t.status} in (${sqlList(PRACTICE_RUN_STATUSES)})`),
+    check("practice_question_runs_reason_check", sql`${t.reason} in (${sqlList(PRACTICE_RUN_REASONS)})`),
+    check(
+      "practice_question_runs_trigger_section_check",
+      sql`${t.triggerSection} is null or ${t.triggerSection} in (${sqlList(PRACTICE_SECTIONS)})`,
+    ),
+    check(
+      "practice_question_runs_failed_section_check",
+      sql`${t.failedSection} is null or ${t.failedSection} in (${sqlList(PRACTICE_SECTIONS)})`,
+    ),
+    check("practice_question_runs_attempts_check", sql`${t.attempts} >= 0`),
+    check("practice_question_runs_failed_count_check", sql`${t.failedCount} is null or ${t.failedCount} >= 0`),
+    check(
+      "practice_question_runs_input_version_check",
+      sql`${t.inputVersion} is null or ${t.inputVersion} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "practice_question_runs_cases_version_check",
+      sql`${t.casesVersion} is null or ${t.casesVersion} ~ '^[a-z0-9.-]{1,32}$'`,
+    ),
+    check("practice_question_runs_last_error_check", sql`${t.lastError} is null or ${t.lastError} ~ '^[a-z0-9_]{1,64}$'`),
+    check(
+      "practice_question_runs_override_check",
+      sql`${t.overrideLabel} is null or (${t.reason} = 'override' and ${t.status} = 'passed' and char_length(${t.overrideLabel}) between 1 and 200)`,
+    ),
+  ],
+);
+
+export type PracticeQuestionRun = typeof practiceQuestionRuns.$inferSelect;
+
+/**
+ * One channel's result within a run, at the input version that channel read:
+ * the cases, what the synthetic person said, what AYA answered on that
+ * channel, and what the checks and the judge made of it. Kept per channel
+ * and per audit-input version (plan Part G), so a later run whose inputs for
+ * a channel are unchanged reuses that channel's pass instead of asking the
+ * model again (`reused`).
+ *
+ * Synthetic, so no PHI. Tenant RLS, forced; the runtime role adds a result
+ * and moves its status on once a review decides it, and changes nothing else.
+ */
+export const practiceQuestionResults = pgTable(
+  "practice_question_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").notNull(),
+    channel: text("channel").$type<Channel>().notNull(),
+    inputVersion: text("input_version").notNull(),
+    status: text("status").$type<PracticeResultStatus>().notNull(),
+    cases: jsonb("cases").$type<PracticeCaseResult[]>().notNull(),
+    /** Copied from an earlier pass at the same input version, so the model was not asked again. */
+    reused: boolean("reused").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("practice_question_results_run_channel_idx").on(t.runId, t.channel),
+    index("practice_question_results_version_idx").on(t.clinicId, t.channel, t.inputVersion),
+    foreignKey({
+      name: "practice_question_results_run_fk",
+      columns: [t.clinicId, t.runId],
+      foreignColumns: [practiceQuestionRuns.clinicId, practiceQuestionRuns.id],
+    }).onDelete("cascade"),
+    check("practice_question_results_channel_check", sql`${t.channel} in (${sqlList(CHANNELS)})`),
+    check(
+      "practice_question_results_status_check",
+      sql`${t.status} in (${sqlList(PRACTICE_RESULT_STATUSES)})`,
+    ),
+    check(
+      "practice_question_results_input_version_check",
+      sql`${t.inputVersion} ~ '^[0-9a-f]{64}$'`,
+    ),
+  ],
+);
+
+export type PracticeQuestionResult = typeof practiceQuestionResults.$inferSelect;
+
+/**
+ * The audit review queue (plan Part G, Part K): a run whose judge failed a
+ * case, or whose check failed on our side, waits here for a person at
+ * healdesk, who decides it by `due_on`, the next business day, which is the
+ * date the clinic's tracker shows ("Being checked by our team; ready by …").
+ * A decision passes the run (and approves its script) or fails it; a later
+ * run supersedes an open one. A review still open after `due_at` raises
+ * `practice_question_review_past_due` once (`past_due_alerted_at`).
+ *
+ * Ops-only: read and decided through the ops envelope (/admin/reviews), never
+ * by the portal. No PHI: the cases are synthetic. Tenant RLS, forced; never
+ * deleted, kept at destruction with its run.
+ */
+export const auditReviewQueue = pgTable(
+  "audit_review_queue",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").notNull(),
+    status: text("status").$type<AuditReviewStatus>().notNull().default("open"),
+    /** The day promised to the clinic, in New York: the next business day after the review opened. */
+    dueOn: date("due_on", { mode: "string" }).notNull(),
+    /** The end of `due_on` in New York: past it, an open review alerts ops. */
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    pastDueAlertedAt: timestamp("past_due_alerted_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** The operator's address, as the ops envelope's environment names them. */
+    decidedByLabel: text("decided_by_label"),
+    /** A failed review that is the clinic's to fix: the section O9 named. */
+    section: text("section").$type<PracticeSection>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("audit_review_queue_run_idx").on(t.runId),
+    index("audit_review_queue_open_idx").on(t.clinicId, t.dueAt).where(sql`${t.status} = 'open'`),
+    foreignKey({
+      name: "audit_review_queue_run_fk",
+      columns: [t.clinicId, t.runId],
+      foreignColumns: [practiceQuestionRuns.clinicId, practiceQuestionRuns.id],
+    }).onDelete("cascade"),
+    check("audit_review_queue_status_check", sql`${t.status} in (${sqlList(AUDIT_REVIEW_STATUSES)})`),
+    check(
+      "audit_review_queue_section_check",
+      sql`${t.section} is null or (${t.status} = 'failed' and ${t.section} in (${sqlList(PRACTICE_SECTIONS)}))`,
+    ),
+    check(
+      "audit_review_queue_decided_check",
+      sql`(${t.status} in ('open', 'superseded')) = (${t.decidedAt} is null) and (${t.decidedAt} is null) = (${t.decidedByLabel} is null)`,
+    ),
+    check(
+      "audit_review_queue_decided_by_check",
+      sql`${t.decidedByLabel} is null or char_length(${t.decidedByLabel}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type AuditReviewRow = typeof auditReviewQueue.$inferSelect;
+
 /** Tables carrying a clinic_id, and therefore requiring RLS. Asserted by tests. */
 export const TENANT_SCOPED_TABLES = [
   "clinic_memberships",
@@ -5211,6 +5427,9 @@ export const TENANT_SCOPED_TABLES = [
   "clinic_settings_history",
   "erasure_requests",
   "record_amendments",
+  "practice_question_runs",
+  "practice_question_results",
+  "audit_review_queue",
 ] as const;
 
 // -----------------------------------------------------------------------------

@@ -105,13 +105,26 @@ export const JOB_INCIDENT_DEADLINES = "incident-deadlines";
  */
 export const JOB_TRANSCRIPT_EMAILS = "transcript-emails";
 /**
- * L8, "Request still open" (package F), seeded off by drizzle/0080. Hourly
+ * L8, "Request still open" (package F), seeded off by drizzle/0081. Hourly
  * from the tick: at a clinic's opening hour, only while its daily summary is
  * off, one email counting the booking requests still waiting for the desk
  * (lib/scheduler/requests-still-open.ts). The owner switches it on with the
  * live alerts, once the sender's own switch is on.
  */
 export const JOB_REQUESTS_STILL_OPEN = "requests-still-open";
+/**
+ * The practice questions (lib/engine/practice, plan Part G), seeded off by
+ * the practice_questions migration. Every minute from its own
+ * `practice-questions` queue: each clinic's due run, one at a time per
+ * clinic, two minutes after the last change that asked for it; and hourly
+ * from the tick, a run for any clinic whose inputs changed with nothing
+ * asked, O8 for a tracker complete, and the review-past-due alert. Off,
+ * nothing is asked of the model, so nothing is approved automatically and
+ * the operator's approval is the only way through. Each run spends real
+ * tokens, so the owner switches it on, with ANTHROPIC_API_KEY set, once
+ * the engine's key is in place (docs/blockers-runbook.md §3).
+ */
+export const JOB_PRACTICE_QUESTIONS = "practice-questions";
 /**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.

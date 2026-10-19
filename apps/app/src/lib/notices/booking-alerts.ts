@@ -45,11 +45,9 @@ export type BookingAlertKind =
  * message and sends it in-process right after commit
  * (deliverCriticalAfterCommit), with /api/health red if it is still unsent
  * ten minutes later. The fixed urgent reply says "I've told the team" only
- * while this is true (@healdesk/catalog, fixedUrgentReply), and the wizard's
- * urgent screen says AYA "tells your team at once".
- *
- * Package A (pkg/engine-hardening) declares it false beside its readers;
- * whichever of the two merges second keeps this value.
+ * while this is true (@healdesk/catalog, fixedUrgentReply), so the line never
+ * promises an alert that was not sent, and the wizard's urgent screen says
+ * AYA "tells your team at once".
  */
 export const URGENT_ALERT_DELIVERED = true;
 

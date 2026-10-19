@@ -37,7 +37,7 @@ export const renderUrgent: EmailTemplate<BookingAlertPayload> = (payload, ctx) =
       blocks: [
         {
           type: "paragraph",
-          text: `Someone described a complication or an urgent symptom ${wherePhrase(payload.channel)} ${practiceOf(ctx)}. AYA gave them the fixed urgent reply, which sends them to emergency help first and then gives your urgent-help number. Please check on them now.`,
+          text: `Someone described a complication or an urgent symptom ${wherePhrase(payload.channel)} ${practiceOf(ctx)}. AYA gave them the fixed urgent reply, which sends them to emergency help first and then to your practice. Please check on them now.`,
         },
         ...openBlocks(payload, ctx),
       ],

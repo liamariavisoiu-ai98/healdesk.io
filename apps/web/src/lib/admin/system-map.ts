@@ -649,6 +649,9 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_KMS_KEY_ID: "Names the key in the key safe; not the key.",
   HEALDESK_LOCAL_KEK: "Development only: production refuses it and uses the key safe.",
   HEALDESK_DIRECT_BOOKING_ENABLED: "Your switch for AYA booking by herself rather than asking the clinic.",
+  // Read by name through MODEL_CONFIG in apps/app's lib/assistant/responder.ts.
+  HEALDESK_CHAT_MODEL: "Which model answers website chat: one of PATIENT_MODEL_IDS (@healdesk/catalog model-retention.ts); any other value is ignored with a warning, because the agreements state the provider's retention for those models only.",
+  HEALDESK_VOICE_MODEL: "Which model answers calls: one of PATIENT_MODEL_IDS (@healdesk/catalog model-retention.ts); any other value is ignored with a warning, because the agreements state the provider's retention for those models only.",
   HEALDESK_PHASE_TWO_ATTRIBUTION: "The phase-two switch, off in v1.",
 };
 
@@ -1123,8 +1126,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "resend",
     title: "Everyday clinic email goes out",
-    carries: "Welcome, sign-in links, \"you have a new booking request\"",
-    example: "\"You have a new booking request: open the portal.\" A pointer only, never a patient's name, number or time.",
+    carries: "Welcome, sign-in links, and the alerts: an urgent message (sent at once), someone asking for a person, a new booking request, a deposit to collect, a booking to check in the calendar",
+    example: "\"Urgent: AYA heard something urgent on a call. Open in healdesk.\" A pointer only, never a patient's name, number, time or words.",
     keys: ["aws.RESEND_API_KEY", "aws.HEALDESK_EMAIL_FROM"],
     phi: false,
     build: "built",

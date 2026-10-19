@@ -1309,7 +1309,7 @@ export type FrontDoorAnswer = {
   guard: string | null;
   /** Set when the screen answered the message, so the model never saw it. */
   screened: "clinical" | "urgent" | "language" | null;
-  /** "requested" when this message completed a booking request and the desk was told. */
+  /** "requested" when this message completed a booking request and the clinic's alert (L7) was queued. */
   booking: "none" | "collecting" | "requested";
   /** The reply opens with metaChannelGreeting(): it is the first of its conversation. */
   greeted: boolean;

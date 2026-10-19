@@ -2232,7 +2232,7 @@ export type OnboardingView = {
      */
     platforms: Record<MetaPlatform, boolean>;
     channels: { platform: MetaPlatform; externalId: string; label: string | null; status: string }[];
-    /** Last 30 days, counts only; the requests live behind the desk's single-use link. */
+    /** Last 30 days, counts only; the requests open in the clinic's portal, behind sign-in. */
     bookingRequests: { waiting: number; accepted: number; confirmed: number; declined: number };
   };
   forwarding: ForwardingInstruction | null;

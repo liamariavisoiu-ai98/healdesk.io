@@ -45,6 +45,8 @@ surface belongs in.
 > - Single-use links: `/booking/[token]` (staff decide a booking request), `/setup/[token]`
 >   (from the 23 September design) and `/connect/[token]` (the credential handover for
 >   phase-two POS read-back). The portal replaces the first two as the way a clinic acts.
+>   No email carries a `/booking/` link since 19 October 2026: the clinic's booking alert
+>   (L7) is a pointer into the portal, and the page goes with the Bookings screen.
 > - The ops API behind `/admin`, provisioning, Stripe billing events, and the worker.
 >
 > `apps/web` (audited 2026-09-12) runs the route handlers, the `/admin` **operator**

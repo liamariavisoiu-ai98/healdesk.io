@@ -1570,8 +1570,9 @@ export const clinicTouches = pgTable(
  * thread, and the assistant did not book it — because the clinic runs manual
  * booking mode, or (v1, not built yet) has "Auto-confirm bookings" off, or
  * its calendar connection is broken. The request is written here (the PHI
- * side), the practice's desk is emailed a single-use link with no patient in
- * it, and a human decides. On a Meta thread the person may hear back on the
+ * side), the clinic is alerted with a pointer into its portal and no patient
+ * in it (L7, lib/notices/booking-alerts.ts), and a human decides. On a Meta
+ * thread the person may hear back on the
  * channel they used, inside Meta's 24-hour window only — that the practice
  * has their request, never a time.
  *

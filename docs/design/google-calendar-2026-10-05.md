@@ -700,6 +700,11 @@ it, and a booking that lands is labelled "confirmed after the call", which is wh
 back see. Staff confirming a deposit reservation get its service's own deposit, with no second
 L10. The Meta front door and the Synthflow post-call record keep `notifyDesk` until M5.
 
+As built, 19 October 2026: `notifyDesk` is gone. The Meta front door, the website chat and the
+Retell post-call record queue the same L7 through `notifyBookingAlert`, in the transaction that
+creates the request, and the alerts above are no longer a no-op: each is a pointer email through
+the outbox (`lib/notices/booking-alerts.ts`, templates in `lib/email/templates/`).
+
 ## 7. Dropped from this build: C4 and C16
 
 The funnel's M2 owns checkout: the "Where do bookings live today?" picker, the manual-booking
@@ -823,8 +828,10 @@ stood on 6 and 7 October. Each is to be settled with the other session before th
     switch. Whether checkout should read the switch from apps/app instead is for the owner and the
     coordinator.
 11. **Desk emails and the desk page (C12 and C13, with the funnel).** `notifyBookingAlert` (on main,
-    a no-op until the funnel's M5) replaces `notifyDesk`: its emails carry ids only and point into
-    Bookings, and a booking the assistant made raises none unless a deposit is owed (L10); the daily
+    a no-op until the funnel's M5; queueing in the outbox since 19 October 2026, when `notifyDesk`
+    was deleted) replaces `notifyDesk`: its emails carry ids only and point into the portal
+    (Conversations until the Bookings screen ships, then Bookings, both decided in
+    `alertPortalPath`), and a booking the assistant made raises none unless a deposit is owed (L10); the daily
     summary lists it. In M5 the funnel also makes `/booking/[token]` a pointer with no patient
     fields and no actions, and moves decisions behind sign-in and the passkey step-up, through
     `decideBookingRequest`'s core refactored to `(clinicId, requestId)` (funnel plan F5). Today the

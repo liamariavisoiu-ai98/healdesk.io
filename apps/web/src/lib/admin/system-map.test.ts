@@ -180,8 +180,18 @@ describe("the registry", () => {
     ];
     expect(unseen, "add it to KEYS in system-map.ts, or to NOT_KEYS with the reason it is not a key").toEqual([]);
 
-    // A setting nothing reads any more comes off the list, so it stays short and true.
-    const stale = Object.keys(NOT_KEYS).filter((n) => !web.has(n) && !app.has(n));
+    // A setting nothing reads any more comes off the list, so it stays short
+    // and true. A name held in a constant and read through it, as responder.ts
+    // reads HEALDESK_CHAT_MODEL and HEALDESK_VOICE_MODEL by MODEL_CONFIG's
+    // `modelEnv`, counts as read while the code still quotes it.
+    const quoted = [WEB_SRC, join(REPO, "apps", "app", "src")]
+      .flatMap((dir) => walk(dir))
+      .filter((file) => !file.endsWith(join("admin", "system-map.ts")))
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n");
+    const stale = Object.keys(NOT_KEYS).filter(
+      (n) => !web.has(n) && !app.has(n) && !quoted.includes(`"${n}"`),
+    );
     expect(stale, "no longer read by either app: remove from NOT_KEYS").toEqual([]);
   });
 

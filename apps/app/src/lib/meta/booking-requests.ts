@@ -588,8 +588,8 @@ export type ResolvedBookingRequest = {
    * (record_amendments, lib/patient-rights/amendments.ts): a count, never
    * their words. Clause 14(b) of the agreement in force (BAA 1.5.0, unchanged
    * since 1.3.0) has every screen of healdesk's that shows the request carry
-   * them, but this view opens with the emailed
-   * token alone, no passkey, and the plan has /booking/<token> show no
+   * them, but this view opens with the token
+   * alone, no passkey, and the plan has /booking/<token> show no
    * patient fields, so it says that the request was amended and where the
    * words are, and nothing they say (review of 12 October 2026).
    */

@@ -129,12 +129,18 @@ export const ERASURE_DEADLINE_BUSINESS_DAYS = 10;
  * The subcontractors that can hold a person's information, each deleted in
  * the vendor's own console by the operator and stamped here. Retell holds the
  * person's calls and transcripts (no call audio is kept). Anthropic is not a
- * step: what it keeps it keeps under the exception clause 4(c) names (the
- * Subcontractors clause's abuse-detection and legal retention), and AWS holds
- * only the database and its backups, which this deletion and the backup
- * window reach. Meta is the practice's own service, not ours. A new
- * subcontractor that holds patient data is a new entry here and in the
- * erasure_requests_vendor_steps_check constraint.
+ * step: what it keeps it keeps under the exception clause 4(c) names, which
+ * is whatever the Subcontractors clause says a subcontractor may keep. In BAA
+ * 1.3.0 to 1.5.0 that is its 30 days "for abuse detection and security" and
+ * what a law requires; in the 1.6.0 draft and the DPA, whose 4(c) excepts
+ * what that clause states "for the periods that clause states", it is its
+ * standard retention of no more than 30 days, flagged content up to two
+ * years, and what the law requires for as long as the law requires
+ * (packages/catalog model-retention.ts). AWS holds only the database and its
+ * backups, which this deletion and the backup window reach. Meta is the
+ * practice's own service, not ours. A new subcontractor that holds patient
+ * data is a new entry here and in the erasure_requests_vendor_steps_check
+ * constraint.
  */
 export const ERASURE_VENDOR_STEPS = [
   {

@@ -189,7 +189,7 @@ export type RecordAmendment = typeof recordAmendments.$inferSelect;
 /**
  * How many amendments a record carries, without reading what they say: for
  * a view that may show that a record was amended but not the words, such as
- * the desk's emailed link (/booking/<token>), which opens without a passkey.
+ * the desk's page at /booking/<token>, which opens without a passkey.
  */
 export async function amendmentCount(tx: TenantTx, target: AmendmentTarget): Promise<number> {
   const [row] = await tx.db

@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 
 import { collectedFieldRows, metaEligible, resolveBookingRequirements } from "@healdesk/catalog";
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
+
+// The desk's token, where createBookingRequest mints it: no email carries it
+// since the clinic's booking alert became a pointer into the portal.
+vi.mock("@/lib/meta/booking-requests", async (importOriginal) =>
+  (await import("./setup/minted-tokens")).recordingMints(await importOriginal()),
+);
 
 import { __setMetaRuntimeForTests, POST } from "@/app/api/webhooks/meta/route";
 import type { AssistantResponder } from "@/lib/assistant/turn";
@@ -47,6 +53,7 @@ import {
   seedEntitled,
   setWeekdayHours,
 } from "./setup/factories";
+import { lastMintedToken } from "./setup/minted-tokens";
 
 /**
  * A veterinary booking's animal name and species (owner, 6 October 2026; the
@@ -70,13 +77,6 @@ class FakeTransport implements EmailTransport {
   async send(target: DeliveryTarget, message: OutgoingEmail): Promise<DeliveryResult> {
     this.sent.push({ target, message });
     return { status: "sent", messageId: `ses-${randomUUID()}` };
-  }
-  deskToken(): string {
-    const token = this.sent
-      .map((s) => s.message.text.match(/\/booking\/([A-Za-z0-9_-]{43})/)?.[1])
-      .find(Boolean);
-    if (!token) throw new Error("no desk email carried a link");
-    return token;
   }
 }
 
@@ -314,10 +314,15 @@ describeDb("collected on a call and in a chat, refused on Meta, shown to the des
       { field: "new_or_existing", reason: "not_required" },
     ]);
 
-    // The desk's email is a pointer, and the page it opens names the animal.
+    // The clinic's alert is a pointer, and the desk's page names the animal.
     const desk = transport.sent.filter((s) => s.message.phiClass !== "may-carry-phi");
     expect(JSON.stringify(desk.map((s) => s.message))).not.toMatch(/Biscuit|ferret/);
-    const req = (await resolveBookingRequest(transport.deskToken()))!;
+    const { rows: alerts } = await inTenant(clinic.clinicId, (client) =>
+      client.query<{ payload: Record<string, unknown> }>(`select payload from billing_notices where kind = 'booking_request'`),
+    );
+    expect(alerts).toHaveLength(1);
+    expect(JSON.stringify(alerts)).not.toMatch(/Biscuit|ferret|Okafor/);
+    const req = (await resolveBookingRequest(lastMintedToken()))!;
     expect(req.audience).toBe("clients");
     expect(collectedFieldRows(req.collectedFields, req.audience)).toEqual([
       { id: "last_name", label: "Last name", value: "Okafor" },

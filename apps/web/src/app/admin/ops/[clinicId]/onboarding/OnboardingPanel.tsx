@@ -739,9 +739,9 @@ function MetaFrontDoor({
         waiting · {m.bookingRequests.confirmed} confirmed · {m.bookingRequests.accepted} accepted (the desk calls) ·{" "}
         {m.bookingRequests.declined} declined. Meta conversations always take requests. Calls take requests too: a call can
         book only at healdesk&rsquo;s demo clinic, and only while the booking mode below allows live booking. For a request
-        the agent takes a name, a number and a preferred window, emails the desk a single-use link, and the desk confirms a
-        slot, calls them or declines there. healdesk itself contacts no one about a request. The requests themselves are not
-        shown here.
+        the agent takes a name, a number and a preferred window, and the clinic&rsquo;s address gets an alert that points
+        into its portal, where the request opens behind sign-in; the desk calls them to settle a time. healdesk itself
+        contacts no one about a request. The requests themselves are not shown here.
       </p>
       <form
         onSubmit={(event) => {

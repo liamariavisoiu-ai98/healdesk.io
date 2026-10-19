@@ -15,9 +15,24 @@ import {
 import type { ActorContext, AuditEntry } from "@/lib/audit";
 import { hasPlanStarted } from "@/lib/billing/entitlements";
 import { startPlan, stepUpPackage } from "@/lib/billing/requests";
+import {
+  platformMissingAll,
+  readPlatformCompliance,
+  type PlatformMissing,
+} from "@/lib/compliance/platform";
 import { describeError, log } from "@/lib/log";
 import { queueChannelReady } from "@/lib/notices/channel-ready";
 import { enqueuePlanNotice } from "@/lib/notices/plan-notices";
+import {
+  goLiveCodes,
+  goLivePreconditions,
+  markClinicProduction,
+  readGoLiveFacts,
+  type GoLiveChannelGate,
+  type GoLiveCheck,
+  type GoLiveCode,
+  type GoLiveVia,
+} from "@/lib/onboarding/go-live";
 import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { helpContacts } from "@/lib/setup/help";
@@ -55,9 +70,18 @@ import { connectedMetaPlatforms } from "./meta-platforms";
  * the website, the Meta login.
  *
  * **Live** needs everything ready needs, plus:
- *   - **the operator's go-live**: the clinic is in production
- *     (app_mark_clinic_production, which only the operator's go-live calls
- *     until WP2 makes it automatic). That is the ops-attested readiness;
+ *   - **go-live**: the clinic is in production (app_mark_clinic_production).
+ *     Automatic since WP2: when a synthetic clinic's channel has every input
+ *     but go-live, this writer asks lib/onboarding/go-live.ts whether the
+ *     clinic may go live (its agreement, its covered status, the platform's
+ *     attestations, Gate B) and, when it may, flips it in the same
+ *     transaction, then takes the channel live. The practice questions'
+ *     pass is the usual last input (lib/engine/practice/store.ts, afterPass).
+ *     A refusal leaves the clinic as it is, tells ops once per reason
+ *     (go_live_held) and is on the clinic's tracker;
+ *   - **the platform's attestations** (`platform`): what every channel needs
+ *     attested in platform_compliance, and the channel's own (Retell and
+ *     phone's tests; the other channels' runtimes), lib/compliance;
  *   - **the clinic's step, evidenced**: for phone, a forwarding-test call
  *     observed with the caller's number intact (never the onboarding stamp
  *     alone, which an operator can set by hand); for website chat, an
@@ -121,6 +145,7 @@ export type LiveInput =
   | "prices_checked"
   | "covered_status"
   | "clinic_step"
+  | "platform"
   | "go_live";
 
 export const LIVE_INPUTS: readonly LiveInput[] = [
@@ -134,6 +159,7 @@ export const LIVE_INPUTS: readonly LiveInput[] = [
   "prices_checked",
   "covered_status",
   "clinic_step",
+  "platform",
   "go_live",
 ];
 
@@ -159,7 +185,9 @@ export type ChannelInputs = {
   coveredStatus: boolean;
   /** The clinic's half, evidenced: phone, a forwarding test observed; website chat, its line confirmed on the site; Meta, a platform connected. */
   clinicStepDone: boolean;
-  /** Ops-attested readiness: the operator's go-live put the clinic in production. */
+  /** platform_compliance: what every channel needs attested, and this channel's own (lib/compliance/subjects.ts). */
+  platform: boolean;
+  /** Go-live put the clinic in production: automatically, once everything go-live asks holds. */
   opsReady: boolean;
 };
 
@@ -199,7 +227,12 @@ export function decideChannel(inputs: ChannelInputs): ChannelDecision {
   if (!inputs.pricesChecked) theirs.push("prices_checked");
   if (!inputs.coveredStatus) theirs.push("covered_status");
   if (!inputs.clinicStepDone) theirs.push("clinic_step");
-  const missing = [...ours, ...theirs, ...(inputs.opsReady ? [] : (["go_live"] as const))];
+  const missing = [
+    ...ours,
+    ...theirs,
+    ...(inputs.platform ? [] : (["platform"] as const)),
+    ...(inputs.opsReady ? [] : (["go_live"] as const)),
+  ];
   const ready = ours.length === 0;
   const live = missing.length === 0;
   const next = theirs[0];
@@ -236,6 +269,8 @@ export type ReadinessFacts = {
   forwardingObserved: boolean;
   auditPassed: ReadonlySet<Channel>;
   runtimeSeen: ReadonlySet<Channel>;
+  /** What every channel, and each channel, still needs attested (platform_compliance). */
+  platform: PlatformMissing;
 };
 
 /** The inputs for one channel, from the clinic's facts. */
@@ -262,8 +297,37 @@ export function channelInputs(channel: Channel, facts: ReadinessFacts): ChannelI
         : channel === "meta"
           ? facts.metaConnected
           : facts.runtimeSeen.has("web"),
+    platform: facts.platform.clinic.length === 0 && facts.platform.channel[channel].length === 0,
     opsReady: facts.opsReady,
   };
+}
+
+/**
+ * Each channel against Gate B, as go-live asks it (lib/onboarding/go-live.ts):
+ * every input its own `live` reads but the clinic's go-live, with only its
+ * own attestations as `platform`; the ones every channel shares are
+ * go-live's `platform`, asked once. app_channel_gate_b_ok (drizzle/0090) is
+ * the SQL.
+ */
+export function channelGates(
+  rows: readonly { channel: Channel; liveAt: Date | null }[],
+  facts: ReadinessFacts,
+): GoLiveChannelGate[] {
+  return rows.map((row) => {
+    const own = facts.platform.channel[row.channel];
+    const decision = decideChannel({
+      ...channelInputs(row.channel, facts),
+      platform: own.length === 0,
+      opsReady: true,
+    });
+    return {
+      channel: row.channel,
+      live: row.liveAt !== null,
+      met: decision.live,
+      missing: decision.missing.filter((m) => m !== "platform"),
+      platform: own,
+    };
+  });
 }
 
 async function channelsWithEvent(
@@ -282,6 +346,7 @@ async function channelsWithEvent(
 export async function readReadinessFacts(
   tx: TenantTx,
   bought: readonly Channel[],
+  now: Date = new Date(),
 ): Promise<ReadinessFacts | null> {
   const [clinic] = await tx.db
     .select({
@@ -353,6 +418,7 @@ export async function readReadinessFacts(
     forwardingObserved: observed?.callerIdPreserved === true,
     auditPassed: await channelsWithEvent(tx, "audit_passed"),
     runtimeSeen: await channelsWithEvent(tx, "runtime_seen"),
+    platform: platformMissingAll(await readPlatformCompliance(tx.db, now)),
   };
 }
 
@@ -422,7 +488,7 @@ async function definerFlag(tx: TenantTx, query: ReturnType<typeof sql>): Promise
  */
 export async function evaluateChannels(
   tx: TenantTx,
-  options: { only?: Channel; now?: Date; actor?: string } = {},
+  options: EvaluateOptions = {},
 ): Promise<ChannelTransition[]> {
   return evaluate(tx, options, (entry) => tx.audit.record(entry));
 }
@@ -435,7 +501,7 @@ export async function evaluateChannels(
  */
 export async function evaluateChannelsSafely(
   tx: TenantTx,
-  options: { only?: Channel; now?: Date; actor?: string } = {},
+  options: EvaluateOptions = {},
 ): Promise<ChannelTransition[]> {
   const audits: AuditEntry[] = [];
   try {
@@ -456,7 +522,7 @@ export async function evaluateChannelsSafely(
 
 async function evaluate(
   tx: TenantTx,
-  options: { only?: Channel; now?: Date; actor?: string },
+  options: EvaluateOptions,
   audit: (entry: AuditEntry) => void,
 ): Promise<ChannelTransition[]> {
   const now = options.now ?? new Date();
@@ -476,11 +542,18 @@ async function evaluate(
   }
 
   const rows = await lockChannelRows(tx);
-  const facts = await readReadinessFacts(
+  let facts = await readReadinessFacts(
     tx,
     rows.map((r) => r.channel),
+    now,
   );
   if (!facts) return [];
+  // Go-live, automatic (WP2): a synthetic clinic whose channel has every
+  // input but go-live is taken to production here, when everything go-live
+  // asks holds, so the channel goes live below in this same transaction.
+  if (!facts.opsReady && (await goLiveIfReady(tx, rows, facts, options))) {
+    facts = { ...facts, opsReady: true };
+  }
   const anyFirstAnswer = rows.some((r) => r.firstAnswerAt !== null);
 
   const out: ChannelTransition[] = [];
@@ -583,6 +656,104 @@ async function evaluate(
     });
   }
   return out;
+}
+
+export type EvaluateOptions = {
+  /** Look at one channel only; go-live, when it happens, is the clinic's and asks every channel. */
+  only?: Channel;
+  now?: Date;
+  /** On the event rows: 'system', 'ops', or the label of the device whose passkey did it. */
+  actor?: string;
+  /** What set an automatic go-live off, for its security event. A channel input, unless the caller says. */
+  goLiveVia?: GoLiveVia;
+};
+
+/** The agreement's refusals: the practice's to put right, with our help, whatever else is ready. */
+const AGREEMENT_CODES: ReadonlySet<GoLiveCode> = new Set([
+  "no_agreement",
+  "agreement_version",
+  "agreement_kind_mismatch",
+  "agreement_insufficient",
+]);
+
+/**
+ * Take the clinic to production if go-live's preconditions all hold
+ * (lib/onboarding/go-live.ts), inside the caller's transaction, which holds
+ * the clinic's channel rows. True when it did. Asked only once a channel
+ * has every input its `live` reads but the platform's attestations and
+ * go-live itself (the clinic's part done), or when the agreement is what
+ * stands in the way, which the practice cannot put right alone.
+ *
+ * A refusal leaves the clinic as it is: logged, and ops told once per
+ * clinic and reason (go_live_held), when the clinic's part is done or the
+ * agreement is the problem. Never a demo clinic's, never a leaving one's.
+ */
+async function goLiveIfReady(
+  tx: TenantTx,
+  rows: readonly ChannelRow[],
+  facts: ReadinessFacts,
+  options: EvaluateOptions,
+): Promise<boolean> {
+  const gates = channelGates(rows, facts);
+  const clinicSideDone = gates.some((g) => g.missing.length === 0);
+  const goLive = await readGoLiveFacts(tx, { channels: gates, platform: facts.platform.clinic });
+  if (!goLive) return false;
+  if (goLive.production) return true;
+  const check = goLivePreconditions(goLive);
+  if (!check.ok) {
+    const codes = goLiveCodes(check);
+    if (codes.includes("leaving") || codes.includes("demo")) return false;
+    const agreement = codes.find((c) => AGREEMENT_CODES.has(c));
+    if (clinicSideDone || agreement) {
+      await notifyOpsOnce("go_live_held", {
+        clinicId: tx.clinicId,
+        code: agreement ?? codes[0]!,
+        count: codes.length,
+      });
+    }
+    return false;
+  }
+  const result = await markClinicProduction(tx, {
+    via: options.goLiveVia ?? "channel_event",
+    clinicSlug: facts.slug,
+  });
+  if (result.status === "live") {
+    log.info("clinic went live", { clinicId: tx.clinicId, source: options.goLiveVia ?? "channel_event" });
+    return true;
+  }
+  // The preconditions held here and the database's own check refused: the
+  // two disagree, which tests/go-live.test.ts exists to prevent.
+  log.error("go-live refused by the database", { clinicId: tx.clinicId, reason: result.reason });
+  await notifyOpsOnce("go_live_held", { clinicId: tx.clinicId, code: "database" });
+  return false;
+}
+
+/**
+ * Where go-live stands for the tenant's clinic, read without a lock: for the
+ * operator's go-live view and "Check go-live now" (lib/ops/api.ts) and Home's
+ * tracker (lib/portal/home.ts). Null when there is no such clinic.
+ */
+export async function readGoLiveCheck(
+  tx: TenantTx,
+  now: Date = new Date(),
+): Promise<{ production: boolean; check: GoLiveCheck } | null> {
+  const rows = await tx.db
+    .select(ROW)
+    .from(clinicChannels)
+    .where(eq(clinicChannels.clinicId, tx.clinicId))
+    .orderBy(asc(clinicChannels.channel));
+  const facts = await readReadinessFacts(
+    tx,
+    rows.map((r) => r.channel),
+    now,
+  );
+  if (!facts) return null;
+  const goLive = await readGoLiveFacts(tx, {
+    channels: channelGates(rows, facts),
+    platform: facts.platform.clinic,
+  });
+  if (!goLive) return null;
+  return { production: goLive.production, check: goLivePreconditions(goLive) };
 }
 
 /** The clinic's own plan has started (a billing clinic's row; a location has none it can read). */
@@ -919,7 +1090,7 @@ export async function sweepChannelStates(
   for (const clinicId of ids) {
     try {
       const moved = await withTenant({ clinicId, actor: SWEEP_ACTOR }, (tx) =>
-        evaluateChannels(tx, { now }),
+        evaluateChannels(tx, { now, goLiveVia: "sweep" }),
       );
       summary.readied += moved.filter((m) => m.readied).length;
       summary.live += moved.filter((m) => m.wentLive).length;

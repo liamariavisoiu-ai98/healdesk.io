@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 
+import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import type { ForwardingView } from "@/lib/setup/forwarding";
 
 import { sendPhoneStepsAction } from "../../steps-actions";
@@ -179,6 +180,7 @@ function Snippet({ snippet }: { snippet: string }) {
         Paste it once, just before <code>&lt;/body&gt;</code>, on every page of your website, or
         send it to whoever looks after your site. AYA starts answering there once it&rsquo;s in.
       </p>
+      <p>{WEB_CHAT_COUNTS_LINE}</p>
       <p>
         <CopyButton text={snippet} label="Copy the line" targetId={id} />
       </p>

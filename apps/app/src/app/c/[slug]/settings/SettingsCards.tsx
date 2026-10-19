@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import type { SettingsView } from "@/lib/portal/settings-view";
+import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 
 import { SendStepsForm } from "../SendStepsForm";
 
@@ -115,7 +116,7 @@ export function ChannelsCard({
       {view.bought.web ? (
         <p className="text-muted py-3 text-sm">
           The line to paste on your website appears here when website chat is ready, with a button
-          to send it to whoever looks after your site.
+          to send it to whoever looks after your site. {WEB_CHAT_COUNTS_LINE}
         </p>
       ) : null}
       {!view.bought.meta && isBuiltSection("billing") ? (

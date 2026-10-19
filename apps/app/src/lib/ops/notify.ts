@@ -143,6 +143,11 @@ export const OPS_EVENTS = [
   // step-up beside it, so billing for that channel has not begun; once an
   // hour per clinic and channel, until a later conversation records it.
   "first_answer_not_recorded",
+  // Automatic go-live (lib/channels/events.ts, lib/onboarding/go-live.ts):
+  // a synthetic clinic whose part is done, or whose agreement is the
+  // problem, cannot go live, so it stays as it is. Once per clinic and
+  // reason (`code`, the first of go-live's codes), with how many there are.
+  "go_live_held",
   // Website chat's widget opened from the clinic's own website while the
   // channel waits on its line there: an operator looks at the site and
   // confirms it, because an Origin header proves nothing. Once per clinic.

@@ -607,6 +607,9 @@ export async function afterPass(
  * channel, and move the clinic's channels on as far as their inputs now
  * allow (lib/channels/events.ts), in a savepoint, so a channel that cannot
  * move yet never undoes the run's own record; the hourly sweep tries again.
+ * This is the audit-pass event that fires go-live (plan Part G, "Automatic
+ * go-live"): when the pass is the last thing a clinic waited on, the same
+ * call takes it to production and the channel live, with no operator step.
  */
 async function recordAuditInputs(
   tx: TenantTx,
@@ -616,7 +619,11 @@ async function recordAuditInputs(
 ): Promise<void> {
   for (const channel of channels) await recordAuditPassed(tx, channel, { via });
   if (channels.length > 0) {
-    await evaluateChannelsSafely(tx, { now, actor: via === "ops_attested" ? "ops" : "system" });
+    await evaluateChannelsSafely(tx, {
+      now,
+      actor: via === "ops_attested" ? "ops" : "system",
+      goLiveVia: via === "ops_attested" ? "operator" : "practice_questions",
+    });
   }
 }
 

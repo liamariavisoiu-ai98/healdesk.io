@@ -69,7 +69,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
   const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts, live, calendar });
   const bookingsHref = isBuiltSection("bookings") ? sectionPath(portal.clinicSlug, "bookings") : null;
   const week = facts.week ? claimLines(claimsPayload(facts.week)) : [];
-  const tracker = buildTracker(state, calendar, facts.practice);
+  const tracker = buildTracker(state, calendar, facts.practice, facts.goLive ?? undefined);
   const finished = wizardFinished(state.screens, state.progress);
   const plan = state.billing ? getPlan(state.billing.boughtPlanId) : undefined;
   const one = audienceSingular(shell.audience);

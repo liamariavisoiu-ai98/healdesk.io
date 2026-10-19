@@ -126,3 +126,15 @@ export function setupSentence(channel: Channel, step: ChannelNextStep): string {
   const line = setupLine(channel, step).slice(`${CHANNEL_NAMES[channel]}: `.length);
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
+
+/**
+ * Said wherever the website-chat line is shown (the wizard's channels step,
+ * Settings' Channels card). Go-live is automatic (lib/onboarding/go-live.ts),
+ * so once the line is on the clinic's live site and the channel is live,
+ * staff trying the chat there are AYA's first answer, which starts the plan,
+ * and every chat counts toward its allowance: only a page on the clinic's own
+ * machine (localhost) is left out (lib/channels/events.ts,
+ * firstAnswerExclusion). Names no one, so no audienceFor.
+ */
+export const WEB_CHAT_COUNTS_LINE =
+  "Once it’s on your site, every chat there is a real one and counts toward your plan. To try AYA first, use Talk to your AYA in healdesk.";

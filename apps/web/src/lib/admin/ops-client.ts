@@ -296,7 +296,14 @@ type OperatorOp =
   // whose website says they accept insurance, decided by recording the
   // practice's answer, which setCoveredEntity carries out.
   | "listAgreementReviews"
-  | "decideAgreementReview";
+  | "decideAgreementReview"
+  // The platform's attestations (WP2; /admin/compliance): the vendors'
+  // business associate agreements and Gate B's readiness flags, which
+  // automatic go-live reads. Each write is sent only after the operator's
+  // fresh TOTP (lib/admin/platform-compliance.ts).
+  | "listPlatformCompliance"
+  | "attestPlatformCompliance"
+  | "withdrawPlatformCompliance";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -1863,7 +1870,12 @@ export type OnboardingView = {
     approvedAt: string | null;
     approvedByLabel: string | null;
   } | null;
-  goLive: { ok: true } | { ok: false; missing: string[] };
+  /**
+   * Go-live, automatic since WP2: nothing left, or what it still waits on in
+   * the console's words; and what Gate B names but does not ask, because it
+   * is not built (empty from an apps/app older than WP2).
+   */
+  goLive: { ok: true; notBuilt: string[] } | { ok: false; missing: string[]; notBuilt: string[] };
   /** The booking requirement set: resolved ids, who settled it, and the catalogue to edit it with. */
   requirements: {
     fields: string[];
@@ -1906,6 +1918,7 @@ export type ChannelLiveInput =
   | "prices_checked"
   | "covered_status"
   | "clinic_step"
+  | "platform"
   | "go_live";
 const CHANNEL_LIVE_INPUTS: readonly ChannelLiveInput[] = [
   "leaving",
@@ -1918,6 +1931,7 @@ const CHANNEL_LIVE_INPUTS: readonly ChannelLiveInput[] = [
   "prices_checked",
   "covered_status",
   "clinic_step",
+  "platform",
   "go_live",
 ];
 
@@ -2156,9 +2170,16 @@ function readOnboardingView(value: unknown): OnboardingView {
           approvedByLabel: optionalString(agent.approvedByLabel),
         }
       : null,
-    goLive: goLiveRaw.ok === true
-      ? { ok: true }
-      : { ok: false, missing: list(goLiveRaw.missing, "goLive.missing").map((m) => text(m, "goLive.missing")) },
+    goLive: (() => {
+      const notBuilt = list(goLiveRaw.notBuilt ?? [], "goLive.notBuilt").map((m) => text(m, "goLive.notBuilt"));
+      return goLiveRaw.ok === true
+        ? { ok: true as const, notBuilt }
+        : {
+            ok: false as const,
+            missing: list(goLiveRaw.missing, "goLive.missing").map((m) => text(m, "goLive.missing")),
+            notBuilt,
+          };
+    })(),
     requirements: (() => {
       const r = object(data.requirements ?? {}, "getOnboarding.requirements");
       const src = optionalString(r.source);
@@ -4832,6 +4853,8 @@ const TRACKER_STAGES = [
   "calendar",
   "built",
   "practice_questions",
+  // Home's "Going live" (apps/app lib/setup/tracker.ts); the cards are built without it today.
+  "go_live",
 ] as const;
 const TRACKER_STATES = ["done", "not_done", "info"] as const;
 
@@ -4913,4 +4936,143 @@ export function fetchSiteReadFailures(): Promise<
       }),
     };
   });
+}
+
+// -----------------------------------------------------------------------------
+// The platform's attestations (WP2; plan Part K; apps/app lib/ops/compliance-ops.ts)
+// -----------------------------------------------------------------------------
+
+export const PLATFORM_SUBJECT_IDS = [
+  "anthropic",
+  "database_host",
+  "aws",
+  "retell",
+  "launch_promises",
+  "runtime_web",
+  "runtime_meta",
+  "runtime_voice",
+  "voice_pass_through",
+] as const;
+export type PlatformSubjectId = (typeof PLATFORM_SUBJECT_IDS)[number];
+
+export type PlatformEntryView = {
+  action: "attested" | "withdrawn";
+  documentRef: string;
+  effectiveOn: string;
+  expiresOn: string | null;
+  actorLabel: string;
+  recordedAt: string;
+};
+
+export type PlatformComplianceView = {
+  today: string;
+  subjects: {
+    subject: PlatformSubjectId;
+    kind: "vendor" | "readiness";
+    label: string;
+    attests: string;
+    needs: string;
+    channels: "all" | ChannelId[];
+    attested: boolean;
+    lapsed: boolean;
+    latest: PlatformEntryView | null;
+  }[];
+  history: (PlatformEntryView & { subject: PlatformSubjectId })[];
+  gateB: { id: string; label: string; built: boolean; checked: boolean; detail: string }[];
+};
+
+function platformEntry(value: unknown, at: string): PlatformEntryView {
+  const entry = object(value, at);
+  const expires = entry.expiresOn;
+  return {
+    action: literal(entry.action, ["attested", "withdrawn"] as const, `${at}.action`),
+    documentRef: text(entry.documentRef, `${at}.documentRef`),
+    effectiveOn: date(entry.effectiveOn, `${at}.effectiveOn`),
+    expiresOn: expires === null || expires === undefined ? null : date(expires, `${at}.expiresOn`),
+    actorLabel: text(entry.actorLabel, `${at}.actorLabel`),
+    recordedAt: isoInstant(entry.recordedAt, `${at}.recordedAt`),
+  };
+}
+
+export function fetchPlatformCompliance(): Promise<OpsResult<PlatformComplianceView>> {
+  return callOps("listPlatformCompliance", "read", {}, (value) => {
+    const data = object(value, "listPlatformCompliance");
+    return {
+      today: date(data.today, "listPlatformCompliance.today"),
+      subjects: list(data.subjects, "listPlatformCompliance.subjects").map((entry) => {
+        const row = object(entry, "subject");
+        const channels = row.channels === "all"
+          ? ("all" as const)
+          : list(row.channels, "subject.channels").map((c) => literal(c, CHANNEL_IDS, "subject.channel"));
+        return {
+          subject: literal(row.subject, PLATFORM_SUBJECT_IDS, "subject.subject"),
+          kind: literal(row.kind, ["vendor", "readiness"] as const, "subject.kind"),
+          label: text(row.label, "subject.label"),
+          attests: text(row.attests, "subject.attests"),
+          needs: text(row.needs, "subject.needs"),
+          channels,
+          attested: bool(row.attested, "subject.attested"),
+          lapsed: bool(row.lapsed, "subject.lapsed"),
+          latest: row.latest ? platformEntry(row.latest, "subject.latest") : null,
+        };
+      }),
+      history: list(data.history, "listPlatformCompliance.history").map((entry) => {
+        const row = object(entry, "history");
+        return {
+          subject: literal(row.subject, PLATFORM_SUBJECT_IDS, "history.subject"),
+          ...platformEntry(row, "history"),
+        };
+      }),
+      gateB: list(data.gateB, "listPlatformCompliance.gateB").map((entry) => {
+        const row = object(entry, "gateB");
+        return {
+          id: text(row.id, "gateB.id"),
+          label: text(row.label, "gateB.label"),
+          built: bool(row.built, "gateB.built"),
+          checked: bool(row.checked, "gateB.checked"),
+          detail: text(row.detail, "gateB.detail"),
+        };
+      }),
+    };
+  });
+}
+
+export type PlatformAttestationOutcome =
+  | { status: "recorded"; subject: PlatformSubjectId; attested: boolean; auditRecorded: boolean }
+  | { status: "refused"; message: string };
+
+export type PlatformAttestationInput = {
+  subject: PlatformSubjectId;
+  documentRef: string;
+  effectiveOn: string;
+  expiresOn?: string;
+  /** For the launch promises: the ids of the items that block go-live and are not on. */
+  openLaunchPromises?: string[];
+};
+
+function readAttestation(op: "attestPlatformCompliance" | "withdrawPlatformCompliance") {
+  return (value: unknown): PlatformAttestationOutcome => {
+    const data = object(value, op);
+    if (state(data, op) !== "recorded") return refusal(data, op);
+    return {
+      status: "recorded",
+      subject: literal(data.subject, PLATFORM_SUBJECT_IDS, `${op}.subject`),
+      attested: bool(data.attested, `${op}.attested`),
+      auditRecorded: bool(data.auditRecorded, `${op}.auditRecorded`),
+    };
+  };
+}
+
+/** Sent only after the operator's fresh code (lib/admin/platform-compliance.ts). */
+export function attestPlatformCompliance(
+  input: PlatformAttestationInput,
+): Promise<OpsResult<PlatformAttestationOutcome>> {
+  return callOps("attestPlatformCompliance", "write", { ...input }, readAttestation("attestPlatformCompliance"));
+}
+
+/** Sent only after the operator's fresh code (lib/admin/platform-compliance.ts). */
+export function withdrawPlatformCompliance(
+  input: Omit<PlatformAttestationInput, "expiresOn" | "openLaunchPromises">,
+): Promise<OpsResult<PlatformAttestationOutcome>> {
+  return callOps("withdrawPlatformCompliance", "write", { ...input }, readAttestation("withdrawPlatformCompliance"));
 }

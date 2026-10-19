@@ -6,9 +6,12 @@
  * on before it is switched on (phrased as design where a page describes
  * behaviour, "AYA is designed to ..."), never the other way round, and this
  * list is how the gap is tracked. No clinic goes live while an item here that
- * blocks go-live is open. /admin/seo shows it; update an item in the commit
- * that changes what it describes, and move it to `on` only when the code
- * does it in production.
+ * blocks go-live is open: go-live is automatic (WP2) and waits on the
+ * platform's `launch_promises` attestation, which /admin/compliance refuses
+ * to enter while one is open (lib/admin/platform-compliance.ts), and which
+ * should be withdrawn there when an item that blocks go-live is added.
+ * /admin/seo shows it; update an item in the commit that changes what it
+ * describes, and move it to `on` only when the code does it in production.
  *
  * Pure data: client components import it.
  */

@@ -35,8 +35,8 @@ export function PatientRequestsCard(props: {
             className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3"
           >
             <span>
-              A {one} asked healdesk about their information here. Please open it and mark it
-              received by {portalDay(request.replyBy, props.timeZone, props.now)}.
+              A {one} asked healdesk about their information here. Please mark it received by{" "}
+              {portalDay(request.replyBy, props.timeZone, props.now)}.
             </span>
             <a
               href={patientRequestPath(props.slug, request.id)}

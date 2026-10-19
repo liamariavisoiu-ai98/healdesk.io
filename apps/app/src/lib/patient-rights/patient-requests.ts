@@ -4,6 +4,7 @@ import { unsafeDb } from "@/db";
 import { clinics, contacts, patientRequests, type PatientRequestKind } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { clinicLocalDate } from "@/lib/clinic/closures";
+import { hostCoversPatientData } from "@/lib/compliance/vendor-coverage";
 import { addBusinessDays } from "@/lib/incidents/reporting-rules";
 import { describeError, log } from "@/lib/log";
 import { enqueuePlanNotice } from "@/lib/notices/plan-notices";
@@ -113,6 +114,19 @@ export function replyByFor(receivedAt: Date, timeZone: string): string {
   return businessDaysAfter(clinicLocalDate(receivedAt, timeZone), PASS_ON_BUSINESS_DAYS);
 }
 
+/**
+ * AWS's or the database host's own business associate agreement is not in
+ * force (platform_compliance; lib/compliance/vendor-coverage.ts), so nothing
+ * new is kept where patient data lives, as the answer gate's
+ * `host_agreement_lapsed` has it: the request is passed on by telephone.
+ */
+export class PatientRequestHostLapsed extends Error {
+  constructor() {
+    super("The host's business associate agreement is not in force: nothing new is kept.");
+    this.name = "PatientRequestHostLapsed";
+  }
+}
+
 /** The contact named is not one of this clinic's. */
 export class PatientRequestContactNotFound extends Error {
   constructor() {
@@ -165,8 +179,11 @@ async function clinicOf(tx: TenantTx): Promise<{ slug: string; timezone: string 
  * Record a patient's request and queue L32, in the clinic's own tenant
  * transaction. The contact, when named, must be this clinic's; the received
  * time is held to the database's clock. Writes the audit row (ids and the
- * kind only). The BAA gate refuses the insert for a production clinic
- * without an agreement in effect, or one that has started to leave.
+ * kind only). Refused, with nothing written: for a production clinic while
+ * the host's own agreement has lapsed (PatientRequestHostLapsed, checked
+ * first, as `patientDataRefused` refuses every write of patient data then);
+ * and by the BAA gate for a production clinic without an agreement in effect,
+ * or one that has started to leave.
  */
 export async function recordPatientRequest(
   tx: TenantTx,
@@ -177,6 +194,7 @@ export async function recordPatientRequest(
     recordedBy: string;
   },
 ): Promise<RecordedPatientRequest> {
+  if (!(await hostCoversPatientData(tx))) throw new PatientRequestHostLapsed();
   const clinic = await clinicOf(tx);
   const contactId = input.contactId ?? null;
   if (contactId) {
@@ -216,7 +234,8 @@ export async function recordPatientRequest(
     action: "create",
     resourceType: "patient_request",
     resourceId: row.id,
-    metadata: { kind: input.kind, contactNamed: contactId !== null, replyBy },
+    // No reply-by day: an ISO date is digits enough for the audit's number check.
+    metadata: { kind: input.kind, contactNamed: contactId !== null },
   });
   return { id: row.id, replyBy, contactNamed: contactId !== null, linked: portalUrl !== null };
 }

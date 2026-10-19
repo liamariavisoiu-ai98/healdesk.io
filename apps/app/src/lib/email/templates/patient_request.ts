@@ -49,7 +49,7 @@ const ASKED: Record<PatientRequestKind, string> = {
 
 function openAction(url: string | null): Block {
   return url
-    ? { type: "action", label: "Open the request", url }
+    ? { type: "action", label: "See the request", url }
     : { type: "paragraph", text: "Sign in to healdesk: Home links to it." };
 }
 
@@ -73,7 +73,7 @@ export const renderPatientRequest: EmailTemplate<PatientRequestPayload> = (paylo
       subject: payload.isReminder
         ? `Reminder: a request from a ${one} is waiting`
         : `A request from a ${one} for your team`,
-      preheader: `Open it in healdesk and mark it received by ${by}.`,
+      preheader: `Mark it received in healdesk by ${by}.`,
       blocks: [
         {
           type: "paragraph",

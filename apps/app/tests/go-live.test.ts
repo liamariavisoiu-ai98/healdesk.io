@@ -378,6 +378,11 @@ describe("Gate B in code", () => {
     expect(pendingLiveSet().map((p) => p.annex)).toEqual(
       expect.arrayContaining(["L17", "L18", "L21"]),
     );
+    // L32, a patient's request, left the list when its template shipped
+    // (drizzle/0091): what still holds Gate B's live set is the runtime's.
+    expect(pendingLiveSet().map((p) => p.annex)).not.toContain("L32");
+    expect(live.detail).not.toMatch(/L32|patient_request/);
+    expect(pendingLiveSet().every((p) => p.package === "runtime")).toBe(true);
   });
 });
 

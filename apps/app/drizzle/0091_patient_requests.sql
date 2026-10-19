@@ -59,6 +59,9 @@ ALTER TABLE "contacts" ADD CONSTRAINT "contacts_clinic_id_unique" UNIQUE("clinic
 --     makes recorded_at and acknowledged_at the database's clock, refuses any
 --     other change to a row from any role, save the foreign key's own
 --     clearing of contact_id, and lets the acknowledgement be added once.
+--     Like the erasure and amendment guards, a data-only restore turns it
+--     off by name for the load (docs/handover.md, "Restoring"), or it would
+--     restamp recorded_at and refuse every request already marked received.
 --   * app_open_patient_requests() lists the requests no one has marked
 --     received, ids only, across clinics, for the hourly sweep's reminders
 --     and ops alerts (lib/patient-rights/patient-requests.ts).

@@ -25,6 +25,7 @@ import {
   isPatientRequestKind,
   PATIENT_REQUEST_KIND_LABELS,
   PatientRequestContactNotFound,
+  PatientRequestHostLapsed,
   recordPatientRequest,
   type PatientRequestKind,
 } from "@/lib/patient-rights/patient-requests";
@@ -477,6 +478,11 @@ export async function recordPatientRequestFromShell(input: {
     );
   } catch (thrown) {
     if (thrown instanceof PatientRequestContactNotFound) return error(thrown.message);
+    if (thrown instanceof PatientRequestHostLapsed) {
+      return error(
+        `AWS's or the database host's business associate agreement is not in force (see /admin/compliance), so nothing new is kept where patient data lives, and nothing is recorded. ${byTelephone}`,
+      );
+    }
     if (baaGateRefused(thrown)) {
       return error(
         `This clinic takes no new patient data: it is production without an agreement in effect that covers its data, or it has started to leave. Nothing is recorded. ${byTelephone}`,

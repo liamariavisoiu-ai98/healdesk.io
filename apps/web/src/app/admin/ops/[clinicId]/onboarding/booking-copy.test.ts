@@ -134,7 +134,7 @@ function page(
     },
     forwarding: null,
     agent: null,
-    goLive: { ok: false, missing: [] },
+    goLive: { ok: false, missing: [], notBuilt: [] },
     requirements: {
       fields: [],
       confirmedAt: null,

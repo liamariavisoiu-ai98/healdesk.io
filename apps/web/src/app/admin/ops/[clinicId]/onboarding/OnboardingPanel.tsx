@@ -491,20 +491,42 @@ function ApproveForm({ agent, onApprove }: { agent: OnboardingView["agent"]; onA
 function GoLiveControl({ view, onGoLive }: { view: OnboardingView; onGoLive: Actions["goLive"] }) {
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
+  const notBuilt = view.goLive.notBuilt;
+  const named =
+    notBuilt.length > 0 ? (
+      <div className="mt-3">
+        <p className="text-muted text-sm">Gate B names these, and go-live doesn&rsquo;t ask them, because they aren&rsquo;t built:</p>
+        <ul className="text-muted list-disc pl-5 text-sm">
+          {notBuilt.map((m, i) => (
+            <li key={i}>{m}</li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
   if (view.clinic.dataClassification === "production") {
-    return <p className="text-sm">Live. Patient data is accepted under the bound agreement.</p>;
+    return (
+      <div>
+        <p className="text-sm">Live. Patient data is accepted under the bound agreement.</p>
+        {named}
+      </div>
+    );
   }
   return (
     <div>
+      <p className="text-sm">
+        Go-live is automatic: the clinic goes to production by itself, and its first ready channel live,
+        once nothing below is left. Nobody presses a button for it.
+      </p>
       {view.goLive.ok ? (
-        <p className="text-sm">Everything is confirmed. Going live flips the clinic to production and stamps the agreement date.</p>
+        <p className="mt-2 text-sm">Nothing is left: it goes live at its next check, within the hour.</p>
       ) : (
-        <ul className="list-disc pl-5 text-sm">
+        <ul className="mt-2 list-disc pl-5 text-sm">
           {view.goLive.missing.map((m, i) => (
             <li key={i}>{m}</li>
           ))}
         </ul>
       )}
+      {named}
       <button
         type="button"
         disabled={pending || !view.goLive.ok}
@@ -514,14 +536,14 @@ function GoLiveControl({ view, onGoLive }: { view: OnboardingView; onGoLive: Act
             if (!result.ok) return setMessage(result.message);
             setMessage(
               result.data.status === "live"
-                ? `Live. BAA signed ${result.data.baaSignedOn}.`
+                ? `Live. Agreement signed ${result.data.baaSignedOn}.`
                 : `${result.data.message} ${result.data.missing.join(" ")}`,
             );
           })
         }
         className="bg-ink mt-3 rounded-full px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
       >
-        Go live
+        Check go-live now
       </button>
       {message ? <p className="mt-2 text-sm">{message}</p> : null}
     </div>
@@ -563,8 +585,10 @@ function needWords(channel: ChannelId, input: ChannelLiveInput): string {
         : channel === "web"
           ? "Nobody has confirmed the chat is on the clinic's website. Open the site, check the chat is there and answers, then confirm below."
           : "No Instagram, Messenger or WhatsApp account is connected.";
+    case "platform":
+      return "Its attestations aren't all in place: see what is missing on /admin/compliance.";
     case "go_live":
-      return "Go live first (above).";
+      return "The clinic isn't live yet: go-live is automatic, and above says what it waits on.";
   }
 }
 

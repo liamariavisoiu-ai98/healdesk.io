@@ -96,7 +96,8 @@ export const metadata: Metadata = {
 /**
  * The surfaces this console has, in the order somebody uses them: what
  * changed, what is running, the practice questions waiting for review, the
- * incidents to decide and the notices we send practices by hand, how every
+ * incidents to decide, the platform's attestations automatic go-live reads,
+ * and the notices we send practices by hand, how every
  * tool links up and which keys are in place, whether the AWS host is on, who
  * asked to be set up, whose website could not be read at checkout, who is in
  * the funnel, the personalised demos built for them, and what has been signed.
@@ -106,6 +107,7 @@ const SECTIONS = [
   { href: "/admin/ops", label: "Ops" },
   { href: "/admin/reviews", label: "Reviews" },
   { href: "/admin/incidents", label: "Incidents" },
+  { href: "/admin/compliance", label: "Compliance" },
   { href: "/admin/notices", label: "Notices" },
   { href: "/admin/map", label: "Map" },
   { href: "/admin/host", label: "Host" },

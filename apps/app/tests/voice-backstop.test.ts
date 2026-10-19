@@ -19,6 +19,8 @@ vi.mock("@/lib/voice/backstop", async (importOriginal) => {
 
 import { POST as retellWebhook } from "@/app/api/webhooks/retell/[clinicId]/route";
 import { disclosureFor } from "@/lib/compliance/disclosure";
+import { raiseHandover } from "@/lib/handovers/record";
+import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { assertNoPhiInPayload, QUEUE_VOICE_CALL_BACKSTOP, QUEUES } from "@/lib/queue/boss";
 import { addRecipient } from "@/lib/reporting/recipients";
 import { withTenant } from "@/lib/tenant";
@@ -34,12 +36,13 @@ import {
   turnsFromRetell,
   type RetellCall,
 } from "@/lib/voice/backstop";
+import { TROUBLE_TRANSFER_LINE } from "@/lib/voice/retell";
 import { verifyRetellSignature } from "@/lib/voice/retell-signature";
 import { createVoiceServer } from "@/voice/server";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { markDemo } from "./setup/calendar-db";
-import { inTenant, seedClinic } from "./setup/factories";
+import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The backstop for a voice call the live socket never recorded
@@ -237,6 +240,25 @@ describe("the backstop's queue and mapping", () => {
       { speaker: "assistant", text: "I can't take card numbers on a call." },
       { speaker: "person", text: "Call me on 415 555 0192" },
     ]);
+  });
+
+  test("a card number read across two utterances is cut when the recogniser ends the first with a full stop", () => {
+    const turns = turnsFromRetell([
+      { role: "agent", content: "How can I help?" },
+      { role: "user", content: "My card is 4242 4242." },
+      { role: "user", content: "4242 4242, can I pay a deposit?" },
+    ]);
+    expect(turns[1]).toEqual({ speaker: "person", text: "My card is [card number removed], can I pay a deposit?" });
+  });
+
+  test("an urgent alert or a handover the live session raised on the call marks it as the session would have", () => {
+    const clinic = { clinicId: CLINIC, callId: "call_1", assistantNumber: ASSISTANT };
+    const urgent = callEventFromRetell(retellCall({ call_id: "call_1" }), { ...clinic, raised: { urgent: true, handover: false } });
+    expect("event" in urgent && { urgent: urgent.event.urgent, outcome: urgent.event.outcome }).toEqual({ urgent: true, outcome: "escalated_to_human" });
+    const handover = callEventFromRetell(retellCall({ call_id: "call_1" }), { ...clinic, raised: { urgent: false, handover: true } });
+    expect("event" in handover && { urgent: handover.event.urgent, outcome: handover.event.outcome }).toEqual({ urgent: false, outcome: "escalated_to_human" });
+    const neither = callEventFromRetell(retellCall({ call_id: "call_1" }), { ...clinic, raised: { urgent: false, handover: false } });
+    expect("event" in neither && { urgent: neither.event.urgent, outcome: neither.event.outcome }).toEqual({ urgent: false, outcome: undefined });
   });
 
   test("a card number said in its own utterance beside a phone number is still cut", () => {
@@ -460,5 +482,79 @@ describeDb("the backstop against the database", () => {
 
     await expect(runCallBackstop({ clinicId: clinic.clinicId, callId: "call_nokey" }, { apiKey: null, realCalls: true, transport })).rejects.toThrow(/HEALDESK_RETELL_API_KEY/);
     expect(await counts(clinic.clinicId)).toMatchObject({ conversations: 0, requests: 0, transcripts: 0, usage: 0 });
+  });
+
+  async function stored(clinicId: string, callId: string) {
+    const { rows } = await inTenant(clinicId, (client) =>
+      client.query<{ urgent: boolean; outcome: string | null; recovery_reason: string | null; disclosure_played_at: Date | null }>(
+        `select urgent, outcome, recovery_reason, disclosure_played_at from conversations where external_call_id = $1`,
+        [callId],
+      ),
+    );
+    return rows[0];
+  }
+
+  test("a call whose urgent alert went out is recorded urgent, so the URGENT email's link finds it marked", async () => {
+    const clinic = await clinicWithNumber("backstop-urgent");
+    const actor = { type: "agent" as const, serviceName: "retell-voice" };
+    // What the live session queued when the urgent screen matched, before its task died.
+    await withTenant({ clinicId: clinic.clinicId, actor }, (tx) => notifyBookingAlert(tx, "urgent", { callId: "call_urgent", channel: "voice" }));
+    await withTenant({ clinicId: clinic.clinicId, actor }, (tx) => raiseHandover(tx, { channel: "voice", callId: "call_handover" }));
+    const fetchCall = async (callId: string) => retellCall({ call_id: callId });
+
+    for (const callId of ["call_urgent", "call_handover", "call_plain"]) {
+      const outcome = await runCallBackstop({ clinicId: clinic.clinicId, callId }, { apiKey: KEY, realCalls: true, fetchCall, transport });
+      expect(outcome.status, callId).toBe("recorded");
+    }
+    expect(await stored(clinic.clinicId, "call_urgent")).toMatchObject({ urgent: true, outcome: "escalated_to_human" });
+    expect(await stored(clinic.clinicId, "call_handover")).toMatchObject({ urgent: false, outcome: "escalated_to_human" });
+    expect(await stored(clinic.clinicId, "call_plain")).toMatchObject({ urgent: false, outcome: null });
+  });
+
+  test("a call AYA never spoke on, put through by the fall-through, is recorded but neither billed nor counted as answered", async () => {
+    const clinic = await clinicWithNumber("backstop-trouble");
+    await seedEntitled(clinic.clinicId);
+    const fetchCall = async (callId: string) =>
+      callId === "call_trouble"
+        ? retellCall({
+            call_id: callId,
+            duration_ms: 40_000,
+            transcript_object: [
+              { role: "user", content: "Hello?" },
+              { role: "agent", content: TROUBLE_TRANSFER_LINE },
+            ],
+          })
+        : retellCall({ call_id: callId });
+
+    const answered = await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_answered" }, { apiKey: KEY, realCalls: true, fetchCall, transport });
+    expect(answered.status === "recorded" && answered.result.recoveryReason).not.toBeNull();
+    expect(await counts(clinic.clinicId)).toMatchObject({ conversations: 1, usage: 1 });
+
+    const trouble = await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_trouble" }, { apiKey: KEY, realCalls: true, fetchCall, transport });
+    expect(trouble.status).toBe("recorded");
+    expect(trouble.status === "recorded" && trouble.result.recoveryReason).toBeNull();
+    expect(await stored(clinic.clinicId, "call_trouble")).toMatchObject({ recovery_reason: null, disclosure_played_at: null });
+    // Recorded, its words emailed, and no minutes.
+    expect(await counts(clinic.clinicId)).toMatchObject({ conversations: 2, transcripts: 2, usage: 1 });
+  });
+
+  test("a card number read out around an agent turn is cut before the transcript is sealed and emailed", async () => {
+    const clinic = await clinicWithNumber("backstop-split-card");
+    const fetchCall = async (callId: string) =>
+      retellCall({
+        call_id: callId,
+        transcript_object: [
+          { role: "agent", content: opening("Backstop Clinic") },
+          { role: "user", content: "Can I pay the deposit? My card is 4242 4242." },
+          { role: "agent", content: "Please don't read me card numbers." },
+          { role: "user", content: "4242 4242, expiry 12/28." },
+        ],
+      });
+    expect((await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_split" }, { apiKey: KEY, realCalls: true, fetchCall, transport })).status).toBe("recorded");
+    const transcripts = transport.sent.filter((s) => s.message.phiClass === "may-carry-phi");
+    expect(transcripts).toHaveLength(1);
+    expect(transcripts[0]!.message.text).not.toContain("4242");
+    expect(transcripts[0]!.message.text).toContain("Caller: Can I pay the deposit? My card is [card number removed].");
+    expect(transcripts[0]!.message.text).toContain("Caller: [card number removed], expiry 12/28.");
   });
 });

@@ -1,7 +1,7 @@
 import { toE164 } from "@healdesk/connectors";
 import { and, eq } from "drizzle-orm";
 
-import { clinics, conversations } from "@/db/schema";
+import { billingNotices, clinics, conversations, handovers } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { cardNumberIn } from "@/lib/assistant/guard";
 import { isDemoClinic } from "@/lib/booking/terms";
@@ -9,6 +9,7 @@ import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { disclosureFor } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { describeError, log } from "@/lib/log";
+import { dedupeKey } from "@/lib/notices/booking-alerts";
 import { enqueue, getBoss, QUEUE_VOICE_CALL_BACKSTOP } from "@/lib/queue/boss";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
@@ -56,10 +57,17 @@ import { voiceRealCallsAllowed } from "./test-calls";
  * What the caller asked for is not reconstructed: the capture was the
  * session's, and guessing a time from the words would put a request in
  * front of the desk nobody made. The clinic reads the request in the
- * transcript. For the same reason the outcome is left unset, the call is
- * not evidence of a first answer (the gate's decision is unknown), and
- * `urgent` stays false; an urgent caller's alert was raised in the call
- * itself, when it was heard.
+ * transcript. For the same reason the call is not evidence of a first
+ * answer (the gate's decision is unknown). What the session raised while
+ * the call was up is read back by the call's id instead of guessed: an
+ * urgent alert (L12, whose dedupe key names the call) marks the call
+ * `urgent`, as the session would have, so the URGENT email's link to
+ * Conversations finds it marked; that or a handover row for the call sets
+ * the outcome to `escalated_to_human`. Otherwise the outcome is left unset.
+ *
+ * A call AYA never spoke on (no opening line: put through to the clinic or
+ * closed by the pass-through or by a start that failed) is recorded, with no
+ * disclosure, and the ingest bills it nothing and the claims leave it out.
  *
  * It covers a call that was never recorded, not one recorded in part. The
  * session asks Retell to reconnect a dropped socket (lib/voice/retell.ts);
@@ -157,8 +165,10 @@ export async function fetchRetellCall(callId: string, apiKey: string, fetchImpl:
  * the caller's words since the agent last spoke are joined into one turn,
  * as the live session joins them (latestCallerWords), and every card
  * number is cut from it as answerTurn cuts it on the live path: a number
- * read out across two utterances is caught whole, and the clinic is never
- * emailed one (CLAUDE.md, "Card numbers are never taken").
+ * read out across two utterances is caught whole. One read out around an
+ * agent turn is cut where the transcript is queued, which sees the turns
+ * together (cutCardNumbersAcrossTurns), so the clinic is never emailed one
+ * (CLAUDE.md, "Card numbers are never taken").
  */
 export function turnsFromRetell(transcript: unknown): TranscriptTurn[] {
   if (!Array.isArray(transcript)) return [];
@@ -219,8 +229,10 @@ export type BackstopRefusal =
   | "outbound"
   /**
    * No agent turn: our endpoint never spoke on the call (the socket never
-   * opened, or was refused). AYA did not answer it, so it is not recorded as
-   * a call she answered, counted as recovered or billed as minutes. A call
+   * opened, or was refused), so there is nothing of ours to record. A call
+   * with an agent turn but not the opening line (put through or closed by
+   * the fall-through) is recorded, and with no disclosure the ingest neither
+   * bills it nor counts it as recovered, and the claims leave it out. A call
    * whose task died mid-call always has the opening line.
    */
   | "never_answered"
@@ -235,7 +247,13 @@ export type BackstopRefusal =
  */
 export function callEventFromRetell(
   call: RetellCall,
-  clinic: { clinicId: string; callId: string; assistantNumber: string | null },
+  clinic: {
+    clinicId: string;
+    callId: string;
+    assistantNumber: string | null;
+    /** What the live session raised on the call, read back by its id (runCallBackstop). */
+    raised?: { urgent: boolean; handover: boolean };
+  },
 ): { event: VoiceCallEvent } | { refused: BackstopRefusal } {
   if (call.call_id !== clinic.callId) return { refused: "wrong_call" };
   if (call.call_status !== "ended") return { refused: "not_ended" };
@@ -263,7 +281,8 @@ export function callEventFromRetell(
       durationSeconds,
       isCallback: false,
       answeredByAssistant: false,
-      urgent: false,
+      urgent: clinic.raised?.urgent ?? false,
+      ...(clinic.raised?.urgent || clinic.raised?.handover ? { outcome: "escalated_to_human" as const } : {}),
       disclosurePlayedAt: openedWithDisclosure(turns) ? startedAt : undefined,
       transcriptTurns: turns.some((t) => t.speaker === "person") ? turns : undefined,
     },
@@ -316,7 +335,19 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
       .where(and(eq(conversations.clinicId, clinicId), eq(conversations.externalCallId, callId)))
       .limit(1);
     if (existing) return { status: "already_recorded" as const };
-    return { status: "open" as const, assistantNumber: clinic.assistantNumber };
+    // What the session raised while the call was up, by the call's id: its
+    // urgent alert, queued under a key naming the call, and its handover.
+    const [urgentAlert] = await tx.db
+      .select({ id: billingNotices.id })
+      .from(billingNotices)
+      .where(and(eq(billingNotices.clinicId, clinicId), eq(billingNotices.kind, "urgent"), eq(billingNotices.dedupeKey, dedupeKey("urgent", { callId }))))
+      .limit(1);
+    const [handover] = await tx.db
+      .select({ id: handovers.id })
+      .from(handovers)
+      .where(and(eq(handovers.clinicId, clinicId), eq(handovers.channel, "voice"), eq(handovers.externalCallId, callId)))
+      .limit(1);
+    return { status: "open" as const, assistantNumber: clinic.assistantNumber, raised: { urgent: Boolean(urgentAlert), handover: Boolean(handover) } };
   });
   if (state.status !== "open") return state;
 
@@ -324,7 +355,7 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
   if (!apiKey) throw new Error("HEALDESK_RETELL_API_KEY is unset: the call cannot be read back from Retell");
   const call = await (deps.fetchCall ?? fetchRetellCall)(callId, apiKey);
 
-  const mapped = callEventFromRetell(call, { clinicId, callId, assistantNumber: state.assistantNumber });
+  const mapped = callEventFromRetell(call, { clinicId, callId, assistantNumber: state.assistantNumber, raised: state.raised });
   if ("refused" in mapped) {
     // Retell still has it as ongoing: a long call outlived the delay. Retry later.
     if (mapped.refused === "not_ended" && (call.call_status === "ongoing" || call.call_status === "registered")) {

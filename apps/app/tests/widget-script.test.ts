@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -337,7 +338,7 @@ describe("the bubble on a clinic's page", () => {
       q<HTMLFormElement>(root, ".compose").dispatchEvent(new Event("submit", { cancelable: true }));
       await vi.advanceTimersByTimeAsync(89_000);
       expect(q<HTMLButtonElement>(root, ".send").disabled).toBe(true);
-      expect(q(root, ".status").textContent).toMatch(/Replying/);
+      expect(q(root, ".status").textContent).toBe("Replying");
       await vi.advanceTimersByTimeAsync(1_000);
     } finally {
       vi.useRealTimers();
@@ -570,6 +571,35 @@ describe("when the chat is not answering", () => {
     expect(messages(root)[0]).toBe(`Assistant: ${OPENING}`);
   });
 
+  test("a dropped connection keeps what was typed in the form; a second shows the way to call", async () => {
+    answer("start", { status: 200, body: { mode: "contact_form", reason: "paused", form: { takesMessages: true, times: TIMES } } });
+    answer("contact", "network", { status: 503, body: { error: "unavailable" } });
+    const root = await load();
+    await open(root);
+    q<HTMLInputElement>(root, "#first").value = "Jamie";
+    q<HTMLInputElement>(root, "#phone").value = "415 555 0199";
+    q<HTMLFormElement>(root, ".form").dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(q<HTMLInputElement>(root, "#first").value).toBe("Jamie");
+    expect(q(root, ".status").textContent).toMatch(/didn't send/);
+    q<HTMLFormElement>(root, ".form").dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(root.querySelector(".form")).toBeNull();
+    expect(q(root, ".call").textContent).toContain("Please call the practice");
+  });
+
+  test("a slow first open leaves focus on the clinic's page if the visitor went back there", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    const root = await load();
+    const search = document.createElement("input");
+    document.body.appendChild(search);
+    q<HTMLButtonElement>(root, ".launcher").click();
+    search.focus();
+    await settle();
+    expect(messages(root)).toEqual([`Assistant: ${OPENING}`]);
+    expect(document.activeElement).toBe(search);
+  });
+
   test("a message the form can no longer take says to call the practice", async () => {
     answer("start", { status: 200, body: { mode: "contact_form", reason: "paused", form: { takesMessages: true, times: TIMES } } });
     answer("contact", { status: 409, body: { mode: "closed" } });
@@ -610,7 +640,8 @@ describe("the script's source", () => {
   });
 
   test("is small and depends on nothing", () => {
-    expect(Buffer.byteLength(SOURCE)).toBeLessThan(32_000);
+    // Served as written, comments and all: what crosses the wire is gzipped.
+    expect(gzipSync(SOURCE).byteLength).toBeLessThan(12_000);
     expect(CODE).not.toMatch(/\bimport\b|\brequire\(/);
   });
 

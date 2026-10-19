@@ -193,11 +193,16 @@
       started = start();
       started.then(function (ok) {
         if (ok === "retry") started = null;
-        focusFirst();
+        if (focusIsOurs()) focusFirst();
       });
     } else {
       focusFirst();
     }
+  }
+
+  /** Focus is in the bubble or nowhere: never pull it back from the clinic's own page. */
+  function focusIsOurs() {
+    return !!root.activeElement || doc.activeElement === doc.body || doc.activeElement === host || !doc.activeElement;
   }
 
   function focusFirst() {
@@ -283,7 +288,7 @@
     input.value = "";
     grow();
     var bubble = say("person", text);
-    setStatus("Replying…", true);
+    setStatus("Replying", true);
     // The engine ends a chat after thirty quiet minutes or 120 turns and
     // would quietly open the next one: open it here, so its opening line is
     // on screen.
@@ -313,7 +318,7 @@
         if (view === "chat") endButton.hidden = !talking;
         // Never pull focus back from the clinic's own page, where the visitor
         // may have gone while the reply was on its way.
-        if (root.activeElement || doc.activeElement === doc.body || doc.activeElement === host) {
+        if (focusIsOurs()) {
           if (view === "chat") input.focus();
           else focusFirst();
         }
@@ -448,6 +453,7 @@
     form.appendChild(group);
     form.appendChild(el("p", { class: "fine" }, "If it's an emergency, call 911."));
     var submit = el("button", { class: "primary", type: "submit" }, "Send");
+    var misses = 0; // sends in a row that did not reach the engine
     form.appendChild(submit);
     contactArea.appendChild(form);
 
@@ -475,7 +481,12 @@
           mark(res.data.fields);
         } else if (res.status === 429) {
           setStatus("That's a lot of messages at once. Please wait a little, then try again.");
+        } else if (transient(res) && ++misses < 2) {
+          // As with a chat message: once may be a dropped connection, and
+          // what they typed stays in the form.
+          setStatus("That didn't send. Please try again.");
         } else {
+          if (transient(res)) started = null;
           showCall();
           focusFirst();
         }

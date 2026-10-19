@@ -187,25 +187,6 @@ export async function appendAmendment(
 export type RecordAmendment = typeof recordAmendments.$inferSelect;
 
 /**
- * How many amendments a record carries, without reading what they say: for
- * a view that may show that a record was amended but not the words, such as
- * the desk's page at /booking/<token>, which opens without a passkey.
- */
-export async function amendmentCount(tx: TenantTx, target: AmendmentTarget): Promise<number> {
-  const [row] = await tx.db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(recordAmendments)
-    .where(
-      and(
-        eq(recordAmendments.clinicId, tx.clinicId),
-        eq(recordAmendments.targetKind, target.kind),
-        eq(columnOf(target.kind), target.id),
-      ),
-    );
-  return row?.n ?? 0;
-}
-
-/**
  * The amendments of the given records of one kind, oldest first, by the id
  * of the record each amends. What an export, or a screen that shows the
  * record, puts beside it.

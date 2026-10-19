@@ -126,13 +126,17 @@ sign-in and the passkey step-up. They never carry a name, a number, a time, a se
 any words from a conversation, so they go on Resend with `phiClass: "none"`: the sender
 refuses any other class on Resend (`apps/app/src/lib/email/send.ts`), and every payload
 passes the allowlist and the link scanner at send time (`apps/app/src/lib/email/lint.ts`:
-ids, a channel id, a flag and a link to our public origin, never `HEALDESK_APP_URL` and
-never a single-use token). They are queued in the outbox in the transaction that records
+ids, a channel id, a Meta platform's name, a flag and a link to our public origin, never
+`HEALDESK_APP_URL` and never a single-use token). They are queued in the outbox in the transaction that records
 what they report (`apps/app/src/lib/notices/booking-alerts.ts`) and go to the clinic's one
-address; the urgent alert is sent the moment that transaction commits. Where healdesk holds
-no name or number (an Instagram, Messenger or WhatsApp message with no request, or a website
-visitor who left none), the email says so and where to look instead: the clinic's own inbox
-on those channels, or the chat's transcript, which goes over SES as above. The minimum-PHI
+address; the urgent alert is sent the moment that transaction commits, each urgent
+conversation in its own email, never capped or combined. Where healdesk holds no name or
+number (an Instagram, Messenger or WhatsApp message with no request, or a website visitor
+who left none), the email says so and where to look instead: the clinic's own inbox on
+Instagram and Messenger, or the chat's transcript, which goes over SES as above. A WhatsApp
+number is on the Cloud API alone and has no inbox, so its email says nobody can reply there,
+and a request for a person on WhatsApp is always answered with the fixed line that sends the
+person to the practice's phone. The minimum-PHI
 variant over SES was not chosen. The email that replaced them, the desk's link to
 `/booking/<token>` (a page whose link is its only key), is no longer sent. The daily
 summary will follow the same rule. The spec's "Text or email address" option for these

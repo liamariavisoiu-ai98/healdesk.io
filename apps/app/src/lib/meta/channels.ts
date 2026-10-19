@@ -2,13 +2,11 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { bookingRequests, clinics } from "@/db/schema";
-import type { ActorContext } from "@/lib/audit";
-import { assistantMayAnswer } from "@/lib/billing/answering";
 import { evaluateChannels } from "@/lib/channels/events";
-import { metaPlatformOn, syncMetaChannelSwitch } from "@/lib/channels/meta-platforms";
+import { syncMetaChannelSwitch } from "@/lib/channels/meta-platforms";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { saveConnection, withCredentials } from "@/lib/connections/store";
-import { withTenant, type TenantTx } from "@/lib/tenant";
+import type { TenantTx } from "@/lib/tenant";
 
 import type { MetaPlatform } from "./front-door";
 import { GRAPH_VERSION } from "./graph";
@@ -27,7 +25,7 @@ import { META_PROVIDERS } from "./providers";
  * reject `messaging_type: "RESPONSE"` outside it and we use no message tags.
  * So `sendMetaReply` drops the send rather than calling Graph when the
  * thread's last inbound message is more than a day old, whatever the model
- * or the caller asked for, and the desk is told to call.
+ * or the caller asked for.
  *
  * There is no other way out. v1 is inbound only, so there is no message tag,
  * no HUMAN_AGENT send and no WhatsApp template: the out-of-window template
@@ -37,11 +35,11 @@ import { META_PROVIDERS } from "./providers";
  * The second rule is the practice's switches (BAA 1.3.0 clause 16: Practice
  * "may switch them off at any time"). A reply that answers the message just
  * received is sent only after the webhook has found the front door and the
- * platform's switch on and the answer gate open. A reply sent later, on the
- * desk's decision (the follow-up and the reschedule line), takes an owner
- * resolved by `resolveFollowUpOwner` just before it, through the same three
- * checks, and an owner they refused is never sent for: `sendMetaReply` drops
- * it and records why, as it records a send outside the window.
+ * platform's switch on and the answer gate open, and an owner they refused
+ * is never sent for: `sendMetaReply` drops it and records why, as it records
+ * a send outside the window. Nothing is sent later, on a staff decision or
+ * otherwise: v1 sends nothing after the conversation (the fixed line that
+ * once followed a desk decision went on 19 October 2026).
  */
 export { META_PROVIDERS };
 
@@ -165,60 +163,13 @@ export type MetaChannelOwner = {
   clinicId: string;
   connectionId: string;
   platform: MetaPlatform;
-  /** The operator's front door is on (and, for a follow-up, the answer gate is open). */
+  /** The operator's front door is on. */
   enabled: boolean;
   /** The clinic's own switch for this platform is on. */
   platformEnabled: boolean;
-  /** Why a follow-up owner is refused: `front_door_off`, `platform_off`, or the answer gate's reason. */
+  /** Why the owner is refused, when the caller already knows: recorded by sendMetaReply as it drops the send. */
   withheld?: string;
 };
-
-/**
- * The owner for a reply that does not answer the message just received: the
- * desk's follow-up and the reschedule line. Resolved outside any transaction,
- * because the answer gate opens its own (lib/billing/answering.ts, R1), just
- * before the decision's transaction that sends it. Enabled only while the
- * operator's Meta front door is on (`clinics.meta_front_door_enabled`), the
- * clinic's own switch for the platform the request came in on is on
- * (lib/channels/meta-platforms.ts), both of which the webhook obeys, and the
- * answer gate would answer on Meta now: no pause, the channel bought, on and
- * live, billing in good standing (not suspended or cancelled), and an
- * agreement in effect. The follow-up belongs to a conversation already had,
- * so it is not a new one for the allowance cap, and asking raises no
- * allowance notice.
- */
-export async function resolveFollowUpOwner(input: {
-  clinicId: string;
-  connectionId: string;
-  platform: MetaPlatform;
-  actor: ActorContext;
-  now?: Date;
-}): Promise<MetaChannelOwner> {
-  const base = { clinicId: input.clinicId, connectionId: input.connectionId, platform: input.platform };
-  const switches = await withTenant({ clinicId: input.clinicId, actor: input.actor }, async (tx) => {
-    const [row] = await tx.db
-      .select({ enabled: clinics.metaFrontDoorEnabled })
-      .from(clinics)
-      .where(eq(clinics.id, tx.clinicId))
-      .limit(1);
-    return { frontDoor: row?.enabled === true, platform: await metaPlatformOn(tx, input.platform) };
-  });
-  if (!switches.frontDoor) {
-    return { ...base, enabled: false, platformEnabled: switches.platform, withheld: "front_door_off" };
-  }
-  if (!switches.platform) return { ...base, enabled: true, platformEnabled: false, withheld: "platform_off" };
-  const decision = await assistantMayAnswer({
-    clinicId: input.clinicId,
-    channel: "meta",
-    continuing: true,
-    now: input.now,
-    actor: input.actor,
-  });
-  if (decision.decision === "pass_through") {
-    return { ...base, enabled: false, platformEnabled: true, withheld: decision.reason };
-  }
-  return { ...base, enabled: true, platformEnabled: true };
-}
 
 /** Which clinic owns this page / account / number. Ids and the two switches only; see 0036 and 0061. */
 export async function resolveMetaChannel(externalId: string): Promise<MetaChannelOwner | null> {

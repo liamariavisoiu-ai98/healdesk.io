@@ -321,25 +321,27 @@ describeDb("the web chat", () => {
     }
   });
 
-  test(`urgent chats past ${ALERT_BURST_AFTER} in an hour share one email, so a flood of chats cannot flood the clinic`, async () => {
+  test(`urgent chats are never capped: past ${ALERT_BURST_AFTER} in an hour, each still goes to the clinic at once as its own email`, async () => {
     const clinic = await liveWebClinic("chat-urgent-flood");
     const { responder } = scripted(() => ({ reply: "model" }));
     const ops = await opsUser();
     await setJobEnabled(JOB_BILLING_NOTICES, true, ops);
     const transport = new FakeTransport();
+    const chats = ALERT_BURST_AFTER + 3;
     try {
-      for (let i = 0; i < 10; i += 1) {
+      for (let i = 0; i < chats; i += 1) {
         const start = await startWebChat(clinic);
         if (start.mode !== "chat") throw new Error("no chat");
         const answer = await sendWebChatMessage(clinic, start.token, "I'm having a bad reaction to the filler", { responder, transport });
         expect(answer.mode === "chat" && answer.reply).toMatch(/call 911/);
       }
+      // The spec: urgent messages reach the clinic immediately. One email a
+      // chat, each sent as its chat committed, each opening its own chat.
       const mail = transport.sent.filter((s) => s.message.phiClass === "none");
-      expect(mail.length).toBeLessThanOrEqual(ALERT_BURST_AFTER + 1);
-      expect(mail.at(-1)!.message.subject).toBe("Urgent: more urgent messages in your website chat this hour");
-      // Each chat is still marked urgent in Conversations.
+      expect(mail).toHaveLength(chats);
+      expect(new Set(mail.map((m) => m.message.subject))).toEqual(new Set(["Urgent: someone wrote something urgent in your website chat"]));
       const { rows } = await inTenant(clinic.clinicId, (client) => client.query<{ n: number }>(`select count(*)::int as n from conversations where urgent`));
-      expect(rows[0]!.n).toBe(10);
+      expect(rows[0]!.n).toBe(chats);
     } finally {
       await setJobEnabled(JOB_BILLING_NOTICES, false, ops);
     }

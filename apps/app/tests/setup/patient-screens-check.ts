@@ -57,6 +57,10 @@ export const SANCTIONED: Readonly<Record<string, string>> = {
     "the shell's business data (the practice, its setup, its locations), no patient",
   "src/app/c/[slug]/keep-open.ts#patientPageStatus": "the guard's question about the step-up",
   "src/app/c/[slug]/keep-open.ts#keepPatientPageOpen": "the guard's Keep open: a touch",
+  "src/lib/meta/booking-requests.ts#decideBookingRequest":
+    "a staff decision on a request (Bookings), called only after withPatientPage has written the request's access row; it opens its own transactions, as the device, because it asks Google with none open, and returns an outcome and ids, no patient",
+  "src/lib/meta/booking-requests.ts#deskFreeTimes":
+    "the practice's free times from Google for a request already read and logged in withPatientPage: business data, no patient",
 };
 
 const REQUIRE_PATIENT_PAGE = "src/lib/portal/patient-page.ts#requirePatientPage";

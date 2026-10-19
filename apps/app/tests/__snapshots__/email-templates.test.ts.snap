@@ -1906,7 +1906,7 @@ exports[`each template's output > handover, for clients: the snapshot 1`] = `
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Open healdesk to see whether they left a name and number.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Someone asked to speak to a person in the website chat of Radiance Med Spa. AYA told them your team will get back to them.</p>
+<p style="margin:0 0 16px;">Someone asked to speak to a person in the website chat of Radiance Med Spa.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/conversations/5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open in healdesk</a></p>
 <p style="margin:0 0 16px;">If they left a name and number, they open in healdesk once you sign in and confirm it&#39;s you. The chat&#39;s transcript, emailed to you when the chat ends, has everything they wrote. This email carries no client details on purpose.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -1919,7 +1919,7 @@ exports[`each template's output > handover, for clients: the snapshot 1`] = `
 </html>",
   "preheader": "Open healdesk to see whether they left a name and number.",
   "subject": "Someone asked to speak to a person",
-  "text": "Someone asked to speak to a person in the website chat of Radiance Med Spa. AYA told them your team will get back to them.
+  "text": "Someone asked to speak to a person in the website chat of Radiance Med Spa.
 
 Open in healdesk: https://app.healdesk.test/c/radiance-med-spa/conversations/5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d
 
@@ -1954,7 +1954,7 @@ exports[`each template's output > handover, for patients: the snapshot 1`] = `
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Open healdesk to see whether they left a name and number.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Someone asked to speak to a person in the website chat of Radiance Med Spa. AYA told them your team will get back to them.</p>
+<p style="margin:0 0 16px;">Someone asked to speak to a person in the website chat of Radiance Med Spa.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/conversations/5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open in healdesk</a></p>
 <p style="margin:0 0 16px;">If they left a name and number, they open in healdesk once you sign in and confirm it&#39;s you. The chat&#39;s transcript, emailed to you when the chat ends, has everything they wrote. This email carries no patient details on purpose.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -1967,7 +1967,7 @@ exports[`each template's output > handover, for patients: the snapshot 1`] = `
 </html>",
   "preheader": "Open healdesk to see whether they left a name and number.",
   "subject": "Someone asked to speak to a person",
-  "text": "Someone asked to speak to a person in the website chat of Radiance Med Spa. AYA told them your team will get back to them.
+  "text": "Someone asked to speak to a person in the website chat of Radiance Med Spa.
 
 Open in healdesk: https://app.healdesk.test/c/radiance-med-spa/conversations/5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d
 

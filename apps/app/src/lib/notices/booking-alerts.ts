@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import type { Channel } from "@healdesk/catalog";
-import { and, eq, gt, like, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, like, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { appointments, billingNotices, bookingRequests, clinics } from "@/db/schema";
-import type { BookingAlertPayload } from "@/lib/email/templates/booking-alert-copy";
+import type { BookingAlertPayload, MetaAlertPlatform } from "@/lib/email/templates/booking-alert-copy";
 import { describeError, log } from "@/lib/log";
 import { sectionPath } from "@/lib/portal/nav";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
@@ -68,6 +68,12 @@ export type BookingAlertRef = {
   conversationId?: string;
   /** The channel it came in on, in the catalog's ids. Read from the request when absent. */
   channel?: Channel;
+  /**
+   * On the Meta channel, which platform: the email tells staff to answer an
+   * Instagram or Messenger message in the clinic's own inbox, and says a
+   * WhatsApp number has none. Ignored on any other channel.
+   */
+  platform?: MetaAlertPlatform;
   /**
    * The call's Retell id, for an alert raised while the call is up: its
    * conversation row is written only when the call ends (lib/voice/ingest.ts),
@@ -137,31 +143,56 @@ function dedupeKeyFor(
 }
 
 /**
- * How many urgent alerts, and how many handovers, one channel of one clinic
- * sends one by one in an hour. The urgent screen is a fixed matcher and every
- * new website chat is a new conversation, so anyone who can load a clinic's
- * widget could otherwise turn messages into emails without end: flooding the
- * clinic's inbox, and spending the Resend quota that every clinic's alerts
- * and sign-in links share. Past this many in the last hour, or while a burst
- * of the last hour stands, further ones on that channel go into one email
- * for the UTC hour that says more came in and to open Conversations, where
- * each conversation is still marked.
+ * How many requests for a person one clinic's calls, or its website chat,
+ * send one by one in an hour. Every new website chat is a new conversation,
+ * so anyone who can load a clinic's widget could otherwise turn "can I speak
+ * to a person?" into emails without end: flooding the clinic's inbox, and
+ * spending the Resend quota that every clinic's alerts and sign-in links
+ * share. Past this many in the last hour on that channel, further handovers
+ * share an email (burstKeyFor), which opens Conversations, where each one is
+ * marked. The cap re-arms: once a shared email has gone, the next handover
+ * starts another, so none is left without one.
+ *
+ * Urgent alerts are never capped or combined: the spec sends a complication
+ * or an urgent symptom to the clinic "immediately", so each urgent
+ * conversation (or call) is its own email, however many come. The website
+ * chat's per-address rate limit (lib/chat/widget-http.ts) is what bounds
+ * them, and once Resend refuses the day's quota the urgent reply stops
+ * saying the team was told (urgentAlertLive). Nor are Meta's handovers
+ * capped: each thread is one person's account, Conversations does not mark
+ * a thread's request for a person, and what staff can do differs by platform,
+ * so a shared email could not say it truthfully.
  */
 export const ALERT_BURST_AFTER = 3;
 
+/** Whether a handover on this channel counts towards the cap: a call's or a website chat's. */
+function cappedChannel(channel: Channel | null): boolean {
+  return channel === "web" || channel === "voice";
+}
+
 /**
- * The burst key an urgent alert or a handover goes under, or null when it is
- * sent on its own: it already has its own row (a second message in the same
+ * The key a handover on a capped channel goes under (cappedChannel), or null when it is sent on
+ * its own: it already has its own row (a second message in the same
  * conversation, or the ingest's backstop for a call), or fewer than
- * ALERT_BURST_AFTER went on this channel in the last hour and no burst did.
+ * ALERT_BURST_AFTER went on this channel in the last hour and no shared
+ * email did.
+ *
+ * Past the cap it joins the shared email still waiting to be sent, if there
+ * is one nobody has started to send (attempts 0, sent_at null), and locks
+ * that row until this transaction commits: the sender's claim (a
+ * conditional UPDATE, lib/email/outbox.ts) waits for the lock, so the email
+ * it then sends comes after this handover, never before. The writers that
+ * raise a handover hold their transaction only for a few writes after this,
+ * never across a model or an HTTP call. Otherwise, the shared email before
+ * it already claimed or gone, it starts a new one: the cap re-arms, and no
+ * handover is left without an email.
  */
 async function burstKeyFor(
   db: Transaction,
   clinicId: string,
-  kind: "urgent" | "handover",
+  kind: "handover",
   channel: Channel | null,
   ownKey: string,
-  now: Date,
 ): Promise<string | null> {
   const mine = and(eq(billingNotices.clinicId, clinicId), eq(billingNotices.kind, kind));
   const [own] = await db
@@ -171,37 +202,54 @@ async function burstKeyFor(
     .limit(1);
   if (own) return null;
   const prefix = `${kind}:${channel ?? "unknown"}:`;
+  const burstPrefix = `${prefix}burst:`;
   const recent = await db
     .select({ dedupeKey: billingNotices.dedupeKey })
     .from(billingNotices)
     .where(and(mine, like(billingNotices.dedupeKey, `${prefix}%`), gt(billingNotices.createdAt, sql`now() - interval '1 hour'`)));
-  const bursting = recent.some((r) => r.dedupeKey.startsWith(`${prefix}burst:`));
-  const single = recent.filter((r) => !r.dedupeKey.startsWith(`${prefix}burst:`)).length;
+  const bursting = recent.some((r) => r.dedupeKey.startsWith(burstPrefix));
+  const single = recent.filter((r) => !r.dedupeKey.startsWith(burstPrefix)).length;
   if (!bursting && single < ALERT_BURST_AFTER) return null;
-  return `${prefix}burst:${now.toISOString().slice(0, 13)}`;
+  const [open] = await db
+    .select({ dedupeKey: billingNotices.dedupeKey })
+    .from(billingNotices)
+    .where(
+      and(
+        mine,
+        like(billingNotices.dedupeKey, `${burstPrefix}%`),
+        isNull(billingNotices.sentAt),
+        eq(billingNotices.attempts, 0),
+      ),
+    )
+    .orderBy(desc(billingNotices.createdAt))
+    .limit(1)
+    .for("update");
+  return open?.dedupeKey ?? `${burstPrefix}${randomUUID()}`;
 }
 
 /**
- * The conversation and channel a ref leads to: the ref's own, else the
- * request's (a website chat's or a finished call's request names its
- * conversation; a Meta request names a thread, which the caller passes), else
- * the appointment's.
+ * The conversation, channel and Meta platform a ref leads to: the ref's own,
+ * else the request's (a website chat's or a finished call's request names
+ * its conversation; a Meta request names a thread, which the caller passes,
+ * and its platform), else the appointment's.
  */
 async function targetOf(
   db: Transaction,
   clinicId: string,
   ref: BookingAlertRef,
-): Promise<{ channel: Channel | null; conversationId: string | null }> {
+): Promise<{ channel: Channel | null; platform: MetaAlertPlatform | null; conversationId: string | null }> {
   let channel: Channel | null = ref.channel ?? null;
+  let platform: MetaAlertPlatform | null = ref.platform ?? null;
   let conversationId: string | null = ref.conversationId ?? null;
-  if (ref.bookingRequestId && (!channel || !conversationId)) {
+  if (ref.bookingRequestId && (!channel || !conversationId || !platform)) {
     const [request] = await db
-      .select({ channel: bookingRequests.channel, conversationId: bookingRequests.conversationId })
+      .select({ channel: bookingRequests.channel, platform: bookingRequests.platform, conversationId: bookingRequests.conversationId })
       .from(bookingRequests)
       .where(and(eq(bookingRequests.id, ref.bookingRequestId), eq(bookingRequests.clinicId, clinicId)))
       .limit(1);
     if (request) {
       channel ??= channelOfRequest(request.channel);
+      platform ??= request.platform;
       conversationId ??= request.conversationId;
     }
   }
@@ -213,7 +261,8 @@ async function targetOf(
       .limit(1);
     conversationId = appointment?.conversationId ?? null;
   }
-  return { channel, conversationId };
+  // A platform means something on the Meta channel only.
+  return { channel, platform: channel === "meta" ? platform : null, conversationId };
 }
 
 /**
@@ -231,11 +280,10 @@ async function targetOf(
  *
  * Returns whether the alert is queued: true when the row is in the outbox
  * (written now, or already there under the same key), false when it could
- * not be. The urgent reply says "I've told the team" only on true. Past
- * ALERT_BURST_AFTER urgent alerts or handovers on one channel in an hour,
- * further ones share one email for the hour (burstKeyFor); one that comes
- * after that email has gone is false, since nothing more will tell the
- * clinic about it.
+ * not be. The urgent reply says "I've told the team" only on true. An
+ * urgent alert is always its own email; past ALERT_BURST_AFTER handovers on
+ * a call or in the website chat in an hour, further ones share an email
+ * that is sent after them (burstKeyFor).
  *
  * It never throws, and it never breaks the caller's transaction: the insert
  * runs in a savepoint, so a failure here rolls back only itself, is logged
@@ -264,21 +312,19 @@ export async function notifyBookingAlert(
         .where(eq(clinics.id, tx.clinicId))
         .limit(1);
       if (!clinic) return false;
-      const { channel, conversationId } = await targetOf(savepoint, tx.clinicId, ref);
+      const { channel, platform, conversationId } = await targetOf(savepoint, tx.clinicId, ref);
       const own = dedupeKeyFor(kind, channel, ref, conversationId);
       if (!own) {
         log.error("booking alert not queued: nothing to key it on", { clinicId: tx.clinicId, kind });
         return false;
       }
-      const burst =
-        kind === "urgent" || kind === "handover"
-          ? await burstKeyFor(savepoint, tx.clinicId, kind, channel, own, new Date())
-          : null;
+      const burst = kind === "handover" && cappedChannel(channel) ? await burstKeyFor(savepoint, tx.clinicId, kind, channel, own) : null;
       const key = burst ?? own;
-      // A burst's email is about the channel, not one conversation: it opens Conversations.
+      // A shared email is about the channel, not one conversation: it opens Conversations.
       const pointsAt = burst ? null : conversationId;
       const payload: BookingAlertPayload = {
         channel,
+        platform,
         conversationId: pointsAt,
         bookingRequestId: ref.bookingRequestId ?? null,
         appointmentId: ref.appointmentId ?? null,
@@ -288,21 +334,9 @@ export async function notifyBookingAlert(
           alertPortalPath(clinic.slug, kind, { conversationId: pointsAt, bookingRequestId: ref.bookingRequestId ?? null }),
         ),
       };
-      const inserted = await enqueuePlanNotice(savepoint, tx.clinicId, kind, key, payload);
-      if (inserted || !burst) return true;
-      // This hour's burst email was queued already. It covers this message
-      // only while it has still to go: once sent, it told the clinic about
-      // the ones before, and this one is in Conversations alone, so the reply
-      // must not say the team was told.
-      const [standing] = await savepoint
-        .select({ sentAt: billingNotices.sentAt })
-        .from(billingNotices)
-        .where(and(eq(billingNotices.clinicId, tx.clinicId), eq(billingNotices.kind, kind), eq(billingNotices.dedupeKey, key)))
-        .limit(1);
-      if (standing?.sentAt) {
-        log.warn("booking alert not queued: this hour's burst email has gone", { clinicId: tx.clinicId, kind });
-        return false;
-      }
+      // Inserted now, or already there under its key: this conversation's
+      // own row, or the shared email burstKeyFor holds locked until commit.
+      await enqueuePlanNotice(savepoint, tx.clinicId, kind, key, payload);
       return true;
     });
   } catch (error) {

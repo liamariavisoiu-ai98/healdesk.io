@@ -51,23 +51,29 @@ export async function loadPortalPage(
 /**
  * Which patient screens the menu links to: each once a channel has gone
  * live, or once there is something for it to show. Conversations: a call,
- * a web chat or a Meta thread. Whether one exists, never what it says.
+ * a web chat or a Meta thread. Bookings: a booking request or an
+ * appointment. Whether one exists, never what it says.
  */
 export async function openPatientScreens(
   clinicId: string,
   actor: ActorContext,
   state: Pick<SetupState, "channels">,
 ): Promise<PortalSection[]> {
-  if (state.channels.some((c) => c.liveAt !== null)) return ["conversations"];
-  const any = await withTenant({ clinicId, actor }, async (tx) => {
-    const found = await tx.db.execute<{ any: boolean }>(
+  if (state.channels.some((c) => c.liveAt !== null)) return ["conversations", "bookings"];
+  const found = await withTenant({ clinicId, actor }, async (tx) => {
+    const result = await tx.db.execute<{ conversations: boolean; bookings: boolean }>(
       sql`select exists (select 1 from conversations where clinic_id = ${clinicId}::uuid)
               or exists (select 1 from chat_threads where clinic_id = ${clinicId}::uuid
-                           and channel in ('messenger', 'instagram', 'whatsapp')) as any`,
+                           and channel in ('messenger', 'instagram', 'whatsapp')) as conversations,
+                 exists (select 1 from booking_requests where clinic_id = ${clinicId}::uuid)
+              or exists (select 1 from appointments where clinic_id = ${clinicId}::uuid) as bookings`,
     );
-    return found.rows[0]?.any === true;
+    return result.rows[0];
   });
-  return any ? ["conversations"] : [];
+  return [
+    ...(found?.conversations === true ? (["conversations"] as const) : []),
+    ...(found?.bookings === true ? (["bookings"] as const) : []),
+  ];
 }
 
 /** The shell's props for a screen, from what loadPortalPage read. */

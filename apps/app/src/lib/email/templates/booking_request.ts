@@ -23,7 +23,7 @@ export const renderBookingRequest: EmailTemplate<BookingAlertPayload> = (payload
       blocks: [
         {
           type: "paragraph",
-          text: `AYA took a booking request ${wherePhrase(payload.channel)} ${practiceOf(ctx)}. Nothing is booked yet: they were told your team will be in touch to confirm a time.`,
+          text: `AYA took a booking request ${wherePhrase(payload)} ${practiceOf(ctx)}. Nothing is booked yet: they were told your team will be in touch to confirm a time.`,
         },
         ...openBlocks(payload, ctx),
       ],

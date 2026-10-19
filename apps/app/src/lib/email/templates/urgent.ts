@@ -1,5 +1,5 @@
 import { compose } from "./compose";
-import { alertFixture, findThemShort, openBlocks, practiceOf, wherePhrase, type BookingAlertPayload } from "./booking-alert-copy";
+import { alertFixture, findThem, findThemShort, openBlocks, practiceOf, wherePhrase, type BookingAlertPayload } from "./booking-alert-copy";
 import type { TemplateEntry } from "./registry";
 import type { EmailTemplate } from "./types";
 
@@ -13,23 +13,12 @@ import type { EmailTemplate } from "./types";
  *
  * A pointer like the other alerts (booking-alert-copy.ts): that someone
  * reported something urgent, where, and that AYA gave the fixed urgent
- * reply, never what they said. Past the hour's cap on one channel
- * (isBurst), one email says more came in and opens Conversations.
+ * reply, never what they said. Each urgent conversation is its own email,
+ * never folded into another (the spec: urgent messages go "immediately"),
+ * so there is no burst wording here.
  */
 
 function subjectFor(payload: BookingAlertPayload): string {
-  if (payload.isBurst === true) {
-    switch (payload.channel) {
-      case "voice":
-        return "Urgent: more urgent calls this hour";
-      case "web":
-        return "Urgent: more urgent messages in your website chat this hour";
-      case "meta":
-        return "Urgent: more urgent messages to AYA this hour";
-      default:
-        return "Urgent: more urgent messages this hour";
-    }
-  }
   switch (payload.channel) {
     case "voice":
       return "Urgent: AYA heard something urgent on a call";
@@ -42,18 +31,24 @@ function subjectFor(payload: BookingAlertPayload): string {
   }
 }
 
+/**
+ * What staff are asked to do. On WhatsApp there is no inbox and no number to
+ * reach them on (findThem "whatsapp"), so the email never asks staff to check
+ * on them: the fixed reply gave them the practice's number, and they may call.
+ */
+function askOf(payload: BookingAlertPayload): string {
+  return findThem(payload) === "whatsapp" ? "They may call you." : "Please check on them now.";
+}
+
 export const renderUrgent: EmailTemplate<BookingAlertPayload> = (payload, ctx) =>
   compose(
     {
       subject: subjectFor(payload),
-      preheader: `Please check on them now. ${findThemShort(payload)}`,
+      preheader: `${askOf(payload)} ${findThemShort(payload)}`,
       blocks: [
         {
           type: "paragraph",
-          text:
-            payload.isBurst === true
-              ? `More people described a complication or an urgent symptom ${wherePhrase(payload.channel)} ${practiceOf(ctx)} in the last hour than healdesk emails one by one. AYA gave each of them the fixed urgent reply, which sends them to emergency help first and then to your practice. Please check on them now.`
-              : `Someone described a complication or an urgent symptom ${wherePhrase(payload.channel)} ${practiceOf(ctx)}. AYA gave them the fixed urgent reply, which sends them to emergency help first and then to your practice. Please check on them now.`,
+          text: `Someone described a complication or an urgent symptom ${wherePhrase(payload)} ${practiceOf(ctx)}. AYA gave them the fixed urgent reply, which sends them to emergency help first and then to your practice. ${askOf(payload)}`,
         },
         ...openBlocks(payload, ctx),
       ],

@@ -28,8 +28,10 @@ export const runtime = "nodejs";
  * clinic whose front door is switched off, or which has switched the
  * message's platform Off in Settings (Instagram, Messenger and WhatsApp each
  * have their own switch, lib/channels/meta-platforms.ts), is silently
- * skipped: nothing is claimed, counted or answered, and the message waits for
- * the clinic's team in the app. The reply is
+ * skipped: nothing is claimed, counted or answered. On Instagram and
+ * Messenger the message waits for the clinic's team in the app; a WhatsApp
+ * number is on the Cloud API alone, with no app or inbox, so there nobody
+ * sees it (lib/meta/front-door.ts, staffCanReplyOn). The reply is
  * produced by the narrow agent in lib/meta/front-door.ts and sent with the
  * clinic's sealed token, opened inside the tenant transaction. A message
  * that completes a booking request also queues the clinic's alert (L7, a
@@ -37,8 +39,10 @@ export const runtime = "nodejs";
  * transaction; the sender id travels into the request so the desk's decision
  * can be relayed back to the person — inside Meta's 24-hour window only,
  * which lib/meta/channels.ts enforces. A request for a person queues the
- * handover alert (L11) the same way. An urgent message's alert (L12) is
- * sent the moment the answer commits, before the reply goes.
+ * handover alert (L11) the same way; on WhatsApp, where nobody at the
+ * practice can answer the thread, its reply is always the fixed line that
+ * sends the person to the phone. An urgent message's alert (L12) is sent the
+ * moment the answer commits, before the reply goes.
  *
  * Each message, in order (BD24, R18):
  *
@@ -48,8 +52,9 @@ export const runtime = "nodejs";
  *      belongs to (lib/chat/threads.ts);
  *   3. the answer gate, outside any transaction (lib/billing/answering.ts).
  *      A refusal means no model call and no reply, only an audit row with
- *      `source: "withheld"` and the reason: staff see the message in their
- *      own inbox, which is the Meta fallback;
+ *      `source: "withheld"` and the reason: on Instagram and Messenger
+ *      staff see the message in their own inbox, which is the Meta
+ *      fallback; a WhatsApp number has none, so there it reaches nobody;
  *   4. an allowed message counts its conversation (recordUsage, idempotent
  *      on the conversation's reference, so every allowed message may call it
  *      and the conversation is counted once, from the first message the

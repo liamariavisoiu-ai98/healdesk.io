@@ -180,10 +180,10 @@ describe("the screen, before any model", () => {
       deferredRequirements: [],
       neverSay: [],
     };
-    expect(buildFrontDoorPrompt(facts)).toContain("Plain, warm and friendly.");
-    expect(buildFrontDoorPrompt({ ...facts, tone: "clinical" })).toContain("Plain, calm and precise.");
-    expect(buildFrontDoorPrompt({ ...facts, tone: "clinical" })).not.toContain("warm and friendly");
-    expect(buildFrontDoorPrompt(facts)).toContain("Always write in English, whatever language the message is in");
+    expect(buildFrontDoorPrompt(facts, "messenger")).toContain("Plain, warm and friendly.");
+    expect(buildFrontDoorPrompt({ ...facts, tone: "clinical" }, "messenger")).toContain("Plain, calm and precise.");
+    expect(buildFrontDoorPrompt({ ...facts, tone: "clinical" }, "messenger")).not.toContain("warm and friendly");
+    expect(buildFrontDoorPrompt(facts, "messenger")).toContain("Always write in English, whatever language the message is in");
   });
 
   test("an everyday skin or hair condition is clinical here, never urgent; a front desk's question still passes", () => {

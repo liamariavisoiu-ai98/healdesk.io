@@ -662,13 +662,21 @@ describe("the live alerts: L7, L10, L11, L12 and L34", () => {
   test("every channel's wording keeps to the subject rules and the copy lint, and names nobody", () => {
     for (const kind of ALERTS) {
       const entry = templateFor(kind)!;
-      for (const channel of ["voice", "web", "meta", null] as const) {
+      for (const [channel, platform] of [
+        ["voice", null],
+        ["web", null],
+        ["meta", null],
+        ["meta", "instagram"],
+        ["meta", "messenger"],
+        ["meta", "whatsapp"],
+        [null, null],
+      ] as const) {
         for (const [conversationId, isBurst] of [
           ["5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d", false],
           [null, false],
           [null, true],
         ] as const) {
-          const payload = alertFixture({ channel, conversationId, isBurst });
+          const payload = alertFixture({ channel, platform, conversationId, isBurst });
           expect(() => assertPayloadAllowed(payload, kind), kind).not.toThrow();
           const r = entry.render(payload, contextFor(kind));
           expect(subjectProblems(r.subject), `${kind} ${channel}`).toEqual([]);
@@ -687,39 +695,87 @@ describe("the live alerts: L7, L10, L11, L12 and L34", () => {
     const portal = /Who it is and how to reach them open in healdesk/;
     // A call: the caller's number came with it.
     expect(renderUrgent(alertFixture({ channel: "voice" }), ctx).text).toMatch(portal);
-    // Instagram, Messenger or WhatsApp with no request: no name or number to show, so the clinic's own inbox.
-    const meta = renderUrgent(alertFixture({ channel: "meta" }), ctx);
-    expect(meta.text).not.toMatch(portal);
-    expect(meta.preheader).toBe("Please check on them now. Reply to them in your Instagram, Messenger or WhatsApp inbox.");
-    expect(meta.text).toContain("Reply to them in your Instagram, Messenger or WhatsApp inbox.");
-    expect(meta.text).toContain("this link stops opening");
+    // Instagram or Messenger with no request: no name or number to show, so the clinic's own inbox there.
+    const instagram = renderUrgent(alertFixture({ channel: "meta", platform: "instagram" }), ctx);
+    expect(instagram.text).not.toMatch(portal);
+    expect(instagram.subject).toBe("Urgent: someone sent AYA an urgent message");
+    expect(instagram.preheader).toBe("Please check on them now. Reply to them in your Instagram inbox.");
+    expect(instagram.text).toContain("in an Instagram message to");
+    expect(instagram.text).toContain("Reply to them in your Instagram inbox.");
+    expect(instagram.text).toContain("this link stops opening");
+    const messenger = renderUrgent(alertFixture({ channel: "meta", platform: "messenger" }), ctx);
+    expect(messenger.preheader).toBe("Please check on them now. Reply to them in your Facebook Page's inbox.");
+    expect(messenger.text).toContain("in a Messenger message to");
+    // WhatsApp: the number is on the Cloud API alone, so there is no inbox,
+    // and staff are never asked to do what they cannot.
+    const whatsapp = renderUrgent(alertFixture({ channel: "meta", platform: "whatsapp" }), ctx);
+    expect(whatsapp.text).not.toMatch(portal);
+    expect(whatsapp.text).toContain("in a WhatsApp message to");
+    expect(whatsapp.preheader).toBe("They may call you. There is no WhatsApp inbox to reply to them from.");
+    expect(whatsapp.text).toContain("There is no WhatsApp inbox to reply to them from: AYA alone answers your WhatsApp number.");
+    for (const r of [whatsapp]) {
+      expect(r.text).not.toMatch(/reply to them in|check on them|inbox\.|get back to them/i);
+    }
+    // A payload that names no platform says only what holds on all three.
+    const unnamed = renderUrgent(alertFixture({ channel: "meta" }), ctx);
+    expect(unnamed.text).toContain("If they wrote on Instagram or Messenger, reply to them in that inbox; a WhatsApp message has no inbox to reply from.");
+    // No Meta alert anywhere tells staff to reply in a WhatsApp inbox.
+    for (const kind of ALERTS) {
+      for (const platform of [null, "instagram", "messenger", "whatsapp"] as const) {
+        const r = templateFor(kind)!.render(alertFixture({ channel: "meta", platform }), contextFor(kind));
+        expect(r.text, `${kind} ${platform}`).not.toMatch(/WhatsApp inbox(?! to reply)/);
+      }
+    }
     // A website chat with no request: only what the visitor left, and the transcript.
     const web = renderUrgent(alertFixture({ channel: "web" }), ctx);
     expect(web.text).not.toMatch(portal);
     expect(web.text).toContain("If they left a name and number, they open in healdesk");
     expect(web.text).toContain("The chat's transcript, emailed to you when the chat ends, has everything they wrote.");
-    // A request from either: its name and number are in healdesk.
+    // A request from any of them: its name and number are in healdesk.
     const request = { bookingRequestId: "8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f" };
-    for (const channel of ["web", "meta"] as const) {
-      const r = templateFor("booking_request")!.render(alertFixture({ channel, ...request }), contextFor("booking_request"));
+    for (const [channel, platform] of [["web", null], ["meta", "messenger"], ["meta", "whatsapp"]] as const) {
+      const r = templateFor("booking_request")!.render(alertFixture({ channel, platform, ...request }), contextFor("booking_request"));
       expect(r.text, channel).toMatch(portal);
       expect(r.preheader).toBe("Someone asked to book. Open healdesk to see who, and when suits them.");
     }
-    // A handover on Meta: answer them in the inbox.
-    const handover = templateFor("handover")!.render(alertFixture({ channel: "meta" }), contextFor("handover"));
-    expect(handover.preheader).toBe("Reply to them in your Instagram, Messenger or WhatsApp inbox.");
+    // A handover on Instagram or Messenger: answer them in that inbox.
+    const handover = templateFor("handover")!.render(alertFixture({ channel: "meta", platform: "instagram" }), contextFor("handover"));
+    expect(handover.preheader).toBe("Reply to them in your Instagram inbox.");
   });
 
-  test("past the hour's cap, one email says more came in and opens Conversations", () => {
+  test("a handover says only what is always true: never what AYA told them, except on WhatsApp, where the reply is fixed", () => {
+    const render = templateFor("handover")!.render;
+    for (const [channel, platform] of [["voice", null], ["web", null], ["meta", "instagram"], ["meta", "messenger"], ["meta", null]] as const) {
+      const r = render(alertFixture({ channel, platform }), contextFor("handover"));
+      // The model's words when the guard passes them, a fixed line when it
+      // does not: the email cannot know which, so it says neither.
+      expect(r.text, `${channel} ${platform}`).not.toMatch(/AYA (told|tells|answers|asked)|get back to them\./);
+      expect(r.text).toMatch(/^Someone asked to speak to a person /m);
+    }
+    // WhatsApp: answerFrontDoor always sends the fixed line asking them to call.
+    const whatsapp = render(alertFixture({ channel: "meta", platform: "whatsapp" }), contextFor("handover"));
+    expect(whatsapp.text).toContain("Someone asked to speak to a person in a WhatsApp message to");
+    expect(whatsapp.text).toContain("AYA answers a request for a person on WhatsApp by asking them to call your practice.");
+    expect(whatsapp.text).toContain("There is no WhatsApp inbox to reply to them from");
+    expect(whatsapp.preheader).toBe("There is no WhatsApp inbox to reply to them from.");
+    expect(whatsapp.text).not.toMatch(/reply to them in|get back to them/i);
+  });
+
+  test("past the hour's cap on handovers, one email says more asked and opens Conversations; an urgent alert has no such email", () => {
     const burst = alertFixture({ channel: "web", conversationId: null, isBurst: true });
-    const urgent = renderUrgent(burst, contextFor("urgent"));
-    expect(urgent.subject).toBe("Urgent: more urgent messages in your website chat this hour");
-    expect(urgent.text).toContain("in the last hour than healdesk emails one by one");
-    expect(urgent.text).toContain("Each one opens in Conversations");
-    expect(urgent.preheader).toBe("Please check on them now. Open Conversations in healdesk to see each one.");
     const handover = templateFor("handover")!.render(burst, contextFor("handover"));
     expect(handover.subject).toBe("More people asked to speak to a person this hour");
-    expect(() => assertPayloadAllowed(burst, "urgent")).not.toThrow();
+    expect(handover.text).toContain("in the last hour than healdesk emails one by one");
+    expect(handover.text).toContain("Each one opens in Conversations once you sign in and confirm it's you, marked as a request for a person.");
+    expect(handover.preheader).toBe("Open Conversations in healdesk to see each one.");
+    expect(handover.text).not.toMatch(/AYA told/);
+    expect(() => assertPayloadAllowed(burst, "handover")).not.toThrow();
+    // Each urgent conversation is its own email: no subject or body speaks of more.
+    for (const channel of ["voice", "web", "meta", null] as const) {
+      const urgent = renderUrgent(alertFixture({ channel }), contextFor("urgent"));
+      expect(urgent.subject, `${channel}`).not.toMatch(/more|this hour/i);
+      expect(urgent.text).not.toContain("one by one");
+    }
   });
 
   test("a call still going on says it shows in Conversations once it ends", () => {
@@ -752,6 +808,7 @@ describe("the live alerts: L7, L10, L11, L12 and L34", () => {
     ["the time they asked for", { preferredWindow: "Thursday afternoon" }],
     ["a treatment", { service: "lip filler" }],
     ["what they said", { text: "my lips are swelling" }],
+    ["a sentence where the platform goes", { platform: "my lips are swelling" }],
   ];
   for (const [what, extra] of refused) {
     test(`the payload allowlist refuses ${what}, for good, at send time`, () => {

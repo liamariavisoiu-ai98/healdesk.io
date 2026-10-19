@@ -111,6 +111,10 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   "phoneSystem",
   "routing",
   "waitingOn",
+  // L7, L11 and L12 from Meta: which of its platforms ("instagram",
+  // "messenger", "whatsapp"), since staff can answer the first two in the
+  // clinic's own inbox and a WhatsApp number has none.
+  "platform",
   // O3: what happened to a device (added, removed, locked).
   "change",
   // B1: the Terms version accepted at checkout ("2026-10-07.1").

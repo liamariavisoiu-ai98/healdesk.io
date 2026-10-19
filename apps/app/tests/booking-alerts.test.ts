@@ -133,6 +133,7 @@ describeDb("the live alerts", () => {
     const conversation = `${ORIGIN}/c/${c.slug}/conversations/${conversationId}`;
     expect(byKind.urgent!.payload).toEqual({
       channel: "web",
+      platform: null,
       conversationId,
       bookingRequestId: null,
       appointmentId: null,
@@ -285,43 +286,127 @@ describeDb("the live alerts", () => {
     expect(await urgentAlertLive()).toBe(false);
   });
 
-  test("past the hour's cap on one channel, urgent alerts share one email; a later one is not claimed once it has gone", async () => {
-    const c = await seedClinic("alerts-burst");
+  test("an urgent alert is never capped or combined: every urgent conversation past any count is its own email, at once", async () => {
+    const c = await seedClinic("alerts-urgent-uncapped");
     const chats = await Promise.all(
       Array.from({ length: ALERT_BURST_AFTER + 3 }, async () => (await seedConversation(c.clinicId, { startedAt: new Date() })).conversationId),
     );
-    const raise = (conversationId: string, kind: "urgent" | "handover" = "urgent", channel: "web" | "voice" = "web") =>
-      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => notifyBookingAlert(tx, kind, { channel, conversationId }));
+    const raise = (conversationId: string) =>
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => notifyBookingAlert(tx, "urgent", { channel: "web", conversationId }));
+    await setJobEnabled(JOB_BILLING_NOTICES, true, opsUser);
+    const transport = new FakeTransport();
+    // Half before a send, half after it: a sent email never swallows a later one.
+    const results: boolean[] = [];
+    for (const conversationId of chats.slice(0, ALERT_BURST_AFTER + 1)) results.push(await raise(conversationId));
+    await sendCriticalNotices(c.clinicId, { transport });
+    for (const conversationId of chats.slice(ALERT_BURST_AFTER + 1)) results.push(await raise(conversationId));
+    await sendCriticalNotices(c.clinicId, { transport });
+    expect(results.every(Boolean)).toBe(true);
+    const rows = (await alerts(c.clinicId)).filter((r) => r.kind === "urgent");
+    expect(rows.map((r) => r.dedupe_key).sort()).toEqual(chats.map((id) => `urgent:web:${id}`).sort());
+    expect(rows.every((r) => r.payload.isBurst === false && r.sent_at !== null)).toBe(true);
+    // One email each, each opening its own conversation.
+    expect(transport.sent).toHaveLength(chats.length);
+    for (const id of chats) expect(transport.sent.some((s) => s.message.text.includes(`/conversations/${id}`))).toBe(true);
+    expect(new Set(transport.sent.map((s) => s.message.subject))).toEqual(new Set(["Urgent: someone wrote something urgent in your website chat"]));
+  });
 
+  test("past the hour's cap, handovers on a call or in the website chat share an email that is sent after them, and the cap re-arms once it has gone", async () => {
+    const c = await seedClinic("alerts-burst");
+    const chats = await Promise.all(
+      Array.from({ length: ALERT_BURST_AFTER + 5 }, async () => (await seedConversation(c.clinicId, { startedAt: new Date() })).conversationId),
+    );
+    const raise = (conversationId: string, channel: "web" | "meta" = "web") =>
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        notifyBookingAlert(tx, "handover", { channel, conversationId, ...(channel === "meta" ? { platform: "messenger" as const } : {}) }),
+      );
+    const bursts = async () =>
+      (await alerts(c.clinicId)).filter((r) => r.kind === "handover" && r.dedupe_key.startsWith("handover:web:burst:"));
+
+    // Three on their own, then two that share one email still to go.
     const results: boolean[] = [];
     for (const conversationId of chats.slice(0, ALERT_BURST_AFTER + 2)) results.push(await raise(conversationId));
     expect(results.every(Boolean)).toBe(true);
-    const hour = new Date().toISOString().slice(0, 13);
-    let rows = (await alerts(c.clinicId)).filter((r) => r.kind === "urgent");
-    expect(rows.map((r) => r.dedupe_key)).toEqual([
-      ...chats.slice(0, ALERT_BURST_AFTER).map((id) => `urgent:web:${id}`),
-      `urgent:web:burst:${hour}`,
-    ]);
-    // The burst names no conversation: it opens Conversations.
-    expect(rows.at(-1)!.payload).toMatchObject({ isBurst: true, conversationId: null, portalUrl: `${ORIGIN}/c/${c.slug}/conversations` });
-    // A second message in a chat already alerted is that chat's own row, as before.
-    expect(await raise(chats[0]!)).toBe(true);
-    // Another channel and another kind count on their own.
-    expect(await raise(chats[0]!, "handover")).toBe(true);
-    expect(await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => notifyBookingAlert(tx, "urgent", { channel: "voice", callId: "call_burst_1" }))).toBe(true);
-    rows = await alerts(c.clinicId);
-    expect(rows.map((r) => r.dedupe_key)).toEqual(
-      expect.arrayContaining([`handover:web:${chats[0]}`, "urgent:voice:call_burst_1"]),
+    let rows = (await alerts(c.clinicId)).filter((r) => r.kind === "handover");
+    expect(rows.filter((r) => !r.dedupe_key.includes(":burst:")).map((r) => r.dedupe_key).sort()).toEqual(
+      chats.slice(0, ALERT_BURST_AFTER).map((id) => `handover:web:${id}`).sort(),
     );
+    expect(await bursts()).toHaveLength(1);
+    // The shared email names no conversation: it opens Conversations.
+    expect((await bursts())[0]!.payload).toMatchObject({ isBurst: true, conversationId: null, portalUrl: `${ORIGIN}/c/${c.slug}/conversations` });
+    // A second request in a chat already alerted is that chat's own row, as before.
+    expect(await raise(chats[0]!)).toBe(true);
+    // Meta's handovers are never capped: each thread is its own email.
+    const threads = Array.from({ length: ALERT_BURST_AFTER + 1 }, () => randomUUID());
+    for (const id of threads) expect(await raise(id, "meta")).toBe(true);
+    rows = await alerts(c.clinicId);
+    expect(rows.filter((r) => r.dedupe_key.startsWith("handover:meta:")).map((r) => r.dedupe_key).sort()).toEqual(
+      threads.map((id) => `handover:meta:${id}`).sort(),
+    );
+    // Urgent alerts and other channels count on their own.
+    expect(await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => notifyBookingAlert(tx, "urgent", { channel: "voice", callId: "call_burst_1" }))).toBe(true);
+    expect((await alerts(c.clinicId)).map((r) => r.dedupe_key)).toContain("urgent:voice:call_burst_1");
 
-    // Sent, the burst covers the messages before it, not one after it.
+    // Sent, the shared email covers the handovers before it.
     await setJobEnabled(JOB_BILLING_NOTICES, true, opsUser);
     const transport = new FakeTransport();
-    await sendCriticalNotices(c.clinicId, { transport });
-    expect(transport.sent.map((s) => s.message.subject)).toContain("Urgent: more urgent messages in your website chat this hour");
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(await raise(chats.at(-1)!)).toBe(false);
-    expect((await alerts(c.clinicId)).filter((r) => r.kind === "urgent" && r.dedupe_key.startsWith("urgent:web:"))).toHaveLength(ALERT_BURST_AFTER + 1);
+    await sendPendingNotices({ clinicId: c.clinicId, transport });
+    const shared = () => transport.sent.filter((s) => s.message.subject === "More people asked to speak to a person this hour");
+    expect(shared()).toHaveLength(1);
+
+    // The cap re-arms: a handover after that email has gone starts another,
+    // and that one is sent too. Nothing is left without an email.
+    expect(await raise(chats[ALERT_BURST_AFTER + 2]!)).toBe(true);
+    expect(await bursts()).toHaveLength(2);
+    // A shared email the sender has already claimed (its attempt counted,
+    // not yet sent) is never joined: the next handover starts its own.
+    await inTenant(c.clinicId, (client) =>
+      client.query(`update billing_notices set attempts = 1 where sent_at is null and dedupe_key like 'handover:web:burst:%'`),
+    );
+    expect(await raise(chats[ALERT_BURST_AFTER + 3]!)).toBe(true);
+    expect(await bursts()).toHaveLength(3);
+    await inTenant(c.clinicId, (client) =>
+      client.query(`update billing_notices set attempts = 0 where sent_at is null and dedupe_key like 'handover:web:burst:%'`),
+    );
+    await sendPendingNotices({ clinicId: c.clinicId, transport });
+    expect(shared()).toHaveLength(3);
+    expect((await bursts()).every((r) => r.sent_at !== null)).toBe(true);
+  });
+
+  test("a handover that joins a shared email holds it until it commits: the sender's claim waits, so the email goes after it", async () => {
+    const c = await seedClinic("alerts-burst-lock");
+    const chats = await Promise.all(
+      Array.from({ length: ALERT_BURST_AFTER + 2 }, async () => (await seedConversation(c.clinicId, { startedAt: new Date() })).conversationId),
+    );
+    const raise = (tx: Parameters<Parameters<typeof withTenant>[1]>[0], conversationId: string) =>
+      notifyBookingAlert(tx, "handover", { channel: "web", conversationId });
+    for (const conversationId of chats.slice(0, ALERT_BURST_AFTER + 1)) {
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => raise(tx, conversationId));
+    }
+    await setJobEnabled(JOB_BILLING_NOTICES, true, opsUser);
+    const transport = new FakeTransport();
+
+    let joined!: () => void;
+    const hasJoined = new Promise<void>((resolve) => (joined = resolve));
+    let commit!: () => void;
+    const mayCommit = new Promise<void>((resolve) => (commit = resolve));
+    const writer = withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      const queued = await raise(tx, chats.at(-1)!);
+      joined();
+      await mayCommit;
+      return queued;
+    });
+    await hasJoined;
+    // The writer holds the shared row: the sender cannot claim it yet.
+    const sending = sendPendingNotices({ clinicId: c.clinicId, transport });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(transport.sent.filter((s) => s.message.subject === "More people asked to speak to a person this hour")).toHaveLength(0);
+    commit();
+    expect(await writer).toBe(true);
+    await sending;
+    // One shared email, sent once the handover that joined it had committed.
+    expect(transport.sent.filter((s) => s.message.subject === "More people asked to speak to a person this hour")).toHaveLength(1);
+    expect((await alerts(c.clinicId)).filter((r) => r.dedupe_key.startsWith("handover:web:burst:"))).toHaveLength(1);
   });
 
   test("Resend refusing the day's quota takes the urgent reply's promise away until the day ends", async () => {

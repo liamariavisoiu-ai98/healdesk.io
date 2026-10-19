@@ -16,7 +16,7 @@ import type { EmailTemplate } from "./types";
  */
 
 export const renderDepositToCollect: EmailTemplate<BookingAlertPayload> = (payload, ctx) => {
-  const where = `${wherePhrase(payload.channel)} ${practiceOf(ctx)}`;
+  const where = `${wherePhrase(payload)} ${practiceOf(ctx)}`;
   const blocks: Block[] = [
     {
       type: "paragraph",

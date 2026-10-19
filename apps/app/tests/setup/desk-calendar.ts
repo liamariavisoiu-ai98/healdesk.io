@@ -11,11 +11,12 @@ import {
 } from "@healdesk/connectors";
 import { vi } from "vitest";
 
-import { createBookingRequest } from "@/lib/meta/booking-requests";
+import { createBookingRequest, type DeskRef } from "@/lib/meta/booking-requests";
 import { updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { withTenant } from "@/lib/tenant";
 
 import { getMigratorPool } from "./db";
+import { deskRef } from "./desk-view";
 import {
   inTenant,
   seedCalendarTerms,
@@ -153,11 +154,11 @@ export async function deskLocation(
   };
 }
 
-/** A phone request at the location, for `service`, and the desk's token. */
+/** A phone request at the location, for `service`, and the reference staff decide it by. */
 export async function phoneRequest(
   clinicId: string,
   options: { service?: string; phone?: string } = {},
-): Promise<{ token: string; requestId: string; contactId: string }> {
+): Promise<{ desk: DeskRef; requestId: string; contactId: string }> {
   const contactId = await seedContact(
     clinicId,
     options.phone ?? `+1555010${String(Math.floor(Math.random() * 9000) + 1000)}`,
@@ -173,7 +174,7 @@ export async function phoneRequest(
       alternativeWindows: ["Friday morning"],
     }),
   );
-  return { token: created.token, requestId: created.id, contactId };
+  return { desk: deskRef(clinicId, created.id), requestId: created.id, contactId };
 }
 
 /** A whole hour `days` ahead, at `hour` on the clinic's clock (New York). */

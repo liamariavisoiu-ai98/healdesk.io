@@ -17,6 +17,7 @@ vi.mock("@/lib/notices/booking-alerts", async (importOriginal) => {
 import { __setMetaRuntimeForTests, POST } from "@/app/api/webhooks/meta/route";
 import { bookingModeFor } from "@/lib/booking/mode";
 import { metaChannelGreeting } from "@/lib/compliance/disclosure";
+import { sendPendingNotices } from "@/lib/email/outbox";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
   cleanAlternatives,
@@ -28,7 +29,16 @@ import {
   resolveBookingRequest,
   windowIsClean,
 } from "@/lib/meta/booking-requests";
-import { buildFrontDoorPrompt, collectingLine, guardReply, parseModelReply, probeVerdict, type MetaPlatform } from "@/lib/meta/front-door";
+import {
+  buildFrontDoorPrompt,
+  collectingLine,
+  guardReply,
+  handoffLine,
+  parseModelReply,
+  probeVerdict,
+  whatsAppPersonLine,
+  type MetaPlatform,
+} from "@/lib/meta/front-door";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { signMetaBody } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -75,19 +85,26 @@ describe("what the model may hand over", () => {
     expect(parseModelReply('{"reply":"The practice team will get back to you here.","handoff":true}').handoff).toBe(true);
     expect(parseModelReply('{"reply":"I\'m an automated assistant.","handoff":"yes"}').handoff).toBe(false);
     expect(parseModelReply('{"reply":"We\'re open 9 to 5."}').handoff).toBe(false);
-    const prompt = buildFrontDoorPrompt({
-      clinicName: "Radiance",
-      phone: null,
-      websiteHint: null,
-      services: [],
-      notes: null,
-      escalationHours: null,
-      requirements: [],
-      deferredRequirements: [],
-      neverSay: [],
-    });
-    expect(prompt).toContain('set "handoff" to true');
-    expect(prompt).toContain("Asking whether you are a person is not that");
+    for (const platform of ["messenger", "instagram", "whatsapp"] as const) {
+      const prompt = buildFrontDoorPrompt(
+        {
+          clinicName: "Radiance",
+          phone: null,
+          websiteHint: null,
+          services: [],
+          notes: null,
+          escalationHours: null,
+          requirements: [],
+          deferredRequirements: [],
+          neverSay: [],
+        },
+        platform,
+      );
+      expect(prompt, platform).toContain('set "handoff" to true');
+      expect(prompt, platform).toContain("Asking whether you are a person is not that");
+      // Only where the team can answer the thread does the prompt promise they will.
+      expect(prompt.includes("will get back to them here"), platform).toBe(platform !== "whatsapp");
+    }
   });
 
   test("JSON, fenced or bare, is parsed: strings or null, alternatives and the fields — and a consent classifier is not read", () => {
@@ -662,6 +679,7 @@ describeDb("the booking hand-off, end to end", () => {
         dedupe_key: `urgent:meta:${threads[0]!.conversation_id}`,
         payload: {
           channel: "meta",
+          platform: "messenger",
           conversationId: threads[0]!.conversation_id,
           bookingRequestId: null,
           appointmentId: null,
@@ -714,7 +732,8 @@ describeDb("the booking hand-off, end to end", () => {
       expect(notices).toHaveLength(1);
       expect(notices[0]!.sent_at).not.toBeNull();
       expect(mailed.map((m) => m.target.to)).toEqual([c.staffEmail]);
-      expect(mailed[0]!.message.text).toContain("Reply to them in your Instagram, Messenger or WhatsApp inbox.");
+      expect(mailed[0]!.message.text).toContain("in a Messenger message to");
+      expect(mailed[0]!.message.text).toContain("Reply to them in your Facebook Page's inbox.");
       expect(JSON.stringify(mailed[0]!.message)).not.toMatch(/reaction|filler/i);
     } finally {
       await done();
@@ -783,7 +802,7 @@ describeDb("the booking hand-off, end to end", () => {
     expect(rows).toEqual([
       {
         dedupe_key: `handover:meta:${threads[0]!.conversation_id}`,
-        payload: expect.objectContaining({ channel: "meta", conversationId: threads[0]!.conversation_id, bookingRequestId: null }),
+        payload: expect.objectContaining({ channel: "meta", platform: "messenger", conversationId: threads[0]!.conversation_id, bookingRequestId: null }),
       },
     ]);
     expect(JSON.stringify(rows)).not.toMatch(/someone|person please/i);
@@ -791,6 +810,68 @@ describeDb("the booking hand-off, end to end", () => {
     __setMetaRuntimeForTests(async () => JSON.stringify({ reply: "I'm an automated assistant for the practice.", handoff: false, booking: {} }), sender, transport);
     await post(inbound("Are you a real person?", "user-not-handover", externalId));
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from billing_notices where kind = 'handover'`))).rows).toHaveLength(1);
+  });
+
+  test("a request for a person on WhatsApp, which has no inbox: the fixed line sends them to the phone, never a reply in the chat, and the email says so", async () => {
+    const externalId = "555000333";
+    const c = await liveClinic("meta-handover-wa", externalId, "whatsapp");
+    const done = await alertsLive();
+    try {
+      // The model flags the handoff and promises a reply in the chat anyway.
+      __setMetaRuntimeForTests(async () => JSON.stringify({ reply: "The practice team will get back to you here.", handoff: true, booking: {} }), sender, transport);
+      await post(inboundWa("Can I talk to someone at the clinic please?", "15550100333", externalId));
+      const greeting = metaChannelGreeting({ clinicName: "meta-handover-wa Clinic", channel: "whatsapp" });
+      expect(sent.at(-1)!.text).toBe(`${greeting} ${whatsAppPersonLine({ clinicName: "meta-handover-wa Clinic", phone: "+14155550199" })}`);
+      expect(sent.at(-1)!.text).not.toMatch(/get back to you/);
+      const { rows } = await inTenant(c.clinicId, (client) =>
+        client.query<{ payload: Record<string, unknown> }>(`select payload from billing_notices where kind = 'handover'`),
+      );
+      expect(rows.map((r) => r.payload)).toEqual([expect.objectContaining({ channel: "meta", platform: "whatsapp" })]);
+      // A reply that promises an answer in the chat, with no handoff flagged, is refused too.
+      __setMetaRuntimeForTests(async () => json("Someone from the team will reply here shortly."), sender, transport);
+      await post(inboundWa("Will someone answer me on here?", "15550100333", externalId));
+      expect(sent.at(-1)!.text).toBe(handoffLine({ clinicName: "meta-handover-wa Clinic", phone: "+14155550199" }));
+      const guarded = await inTenant(c.clinicId, (client) =>
+        client.query<{ guarded: string | null }>(
+          `select metadata->>'guarded' as guarded from audit_log where resource_type = 'meta_front_door_reply' order by occurred_at`,
+        ),
+      );
+      // The first reply's promise was refused as well, and the person line went in its place.
+      expect(guarded.rows.map((r) => r.guarded)).toEqual(["a reply promised in a chat nobody answers", "a reply promised in a chat nobody answers"]);
+      // The email: nobody can reply on WhatsApp, and they were asked to call.
+      await sendPendingNotices({ clinicId: c.clinicId, transport });
+      const email = mailed.find((m) => m.message.subject === "Someone asked to speak to a person")!;
+      expect(email.target.to).toBe(c.staffEmail);
+      expect(email.message.text).toContain("in a WhatsApp message to");
+      expect(email.message.text).toContain("AYA answers a request for a person on WhatsApp by asking them to call your practice.");
+      expect(email.message.text).toContain("There is no WhatsApp inbox to reply to them from");
+      expect(email.message.text).not.toMatch(/Reply to them in|get back to them/);
+    } finally {
+      await done();
+    }
+  });
+
+  test("on Messenger a handoff whose reply the guard refused still alerts, and the email never says what the person was told", async () => {
+    const externalId = "753456789012345";
+    const c = await liveClinic("meta-handover-guarded", externalId);
+    const done = await alertsLive();
+    try {
+      // A reply the guard refuses: the person gets the fixed hand-off line.
+      __setMetaRuntimeForTests(
+        async () => JSON.stringify({ reply: "Sorry to hear about your acne, the team will get back to you here.", handoff: true, booking: {} }),
+        sender,
+        transport,
+      );
+      await post(inbound("I want to talk to a real person", "user-handover-guarded", externalId));
+      expect(sent.at(-1)!.text).toContain(handoffLine({ clinicName: "meta-handover-guarded Clinic", phone: "+14155550199" }));
+      await sendPendingNotices({ clinicId: c.clinicId, transport });
+      const email = mailed.find((m) => m.message.subject === "Someone asked to speak to a person")!;
+      expect(email.message.text).toContain("Someone asked to speak to a person in a Messenger message to");
+      expect(email.message.text).toContain("Reply to them in your Facebook Page's inbox.");
+      expect(email.message.text).not.toMatch(/AYA told|get back to them/);
+    } finally {
+      await done();
+    }
   });
 
   test("a stop word on a thread is a message like any other: nothing is suppressed, because nothing is ever sent outside the conversation", async () => {

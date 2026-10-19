@@ -20,9 +20,19 @@ import type { TemplateContext } from "./types";
  * payload: a channel id, opaque ids, one flag and our own URL.
  */
 
+/** Which of Meta's three platforms a Meta alert came in on: what staff can do differs (findThem). */
+export type MetaAlertPlatform = "instagram" | "messenger" | "whatsapp";
+
 export type BookingAlertPayload = {
   /** The channel it came in on, as the catalog names it, or null when the writer did not say. */
   channel: Channel | null;
+  /**
+   * On the Meta channel, which platform: staff answer an Instagram or
+   * Messenger message in the clinic's own inbox there, and a WhatsApp number
+   * has none (lib/meta/front-door.ts, staffCanReplyOn). Absent or null
+   * elsewhere, and on a Meta payload queued before it was carried.
+   */
+  platform?: MetaAlertPlatform | null;
   /** The conversation it came from, when there is one to open yet. */
   conversationId: string | null;
   bookingRequestId: string | null;
@@ -34,25 +44,35 @@ export type BookingAlertPayload = {
    */
   isPossiblyPaid: boolean;
   /**
-   * L11 and L12 only: one email for the rest of an hour's alerts on this
-   * channel, past the per-clinic cap (ALERT_BURST_AFTER,
+   * L11 only: one email for several requests for a person on a call or in
+   * the website chat, past the per-clinic cap (ALERT_BURST_AFTER,
    * lib/notices/booking-alerts.ts). It names no conversation and opens
-   * Conversations. Absent on a payload queued before the cap, read as false.
+   * Conversations, where each is marked. An urgent alert never carries it:
+   * each one is its own email. Absent, read as false.
    */
   isBurst?: boolean;
   /** Where it opens in the clinic portal (alertPortalPath, lib/notices/booking-alerts.ts). */
   portalUrl: string;
 };
 
-/** "on a call to", "in the website chat of", "in a message to": where it happened, before the practice's name. */
-export function wherePhrase(channel: Channel | null): string {
-  switch (channel) {
+/** Each Meta platform as staff know it. */
+const PLATFORM_NAMES: Record<MetaAlertPlatform, string> = {
+  instagram: "an Instagram",
+  messenger: "a Messenger",
+  whatsapp: "a WhatsApp",
+};
+
+/** "on a call to", "in the website chat of", "in a WhatsApp message to": where it happened, before the practice's name. */
+export function wherePhrase(payload: Pick<BookingAlertPayload, "channel" | "platform">): string {
+  switch (payload.channel) {
     case "voice":
       return "on a call to";
     case "web":
       return "in the website chat of";
     case "meta":
-      return "in an Instagram, Messenger or WhatsApp message to";
+      return payload.platform
+        ? `in ${PLATFORM_NAMES[payload.platform]} message to`
+        : "in an Instagram, Messenger or WhatsApp message to";
     default:
       return "in a conversation with";
   }
@@ -69,23 +89,40 @@ export function practiceOf(ctx: TemplateContext): string {
  *   - "portal": a call, or anything with a booking request or an
  *     appointment. healdesk holds a name and number for it, which open in the
  *     portal behind sign-in and the passkey step-up.
- *   - "meta_inbox": an Instagram, Messenger or WhatsApp message with no
- *     request. Those channels share no name or number with healdesk and it
- *     keeps none of their messages, so the portal cannot say who it is: staff
- *     answer in the clinic's own inbox there, the Meta fallback.
+ *   - "meta_inbox": an Instagram or Messenger message with no request. Those
+ *     channels share no name or number with healdesk and it keeps none of
+ *     their messages, so the portal cannot say who it is: staff answer in the
+ *     clinic's own inbox there, the Meta fallback.
+ *   - "whatsapp": a WhatsApp message with no request. The same, except that
+ *     there is no inbox: the number is on the Cloud API alone, and v1 has no
+ *     staff inbox of its own, so nobody can answer the thread
+ *     (lib/meta/front-door.ts, staffCanReplyOn).
  *   - "web_maybe": a website chat with no request. A name and number open in
  *     the portal only if the visitor left them; the chat's transcript, emailed
  *     to the clinic when the chat ends, has everything they wrote.
  *   - "burst": one email for several (isBurst), which opens Conversations.
  */
-export type FindThem = "portal" | "meta_inbox" | "web_maybe" | "burst";
+export type FindThem = "portal" | "meta_inbox" | "whatsapp" | "web_maybe" | "burst";
 
 export function findThem(payload: BookingAlertPayload): FindThem {
   if (payload.isBurst === true) return "burst";
   if (payload.bookingRequestId || payload.appointmentId) return "portal";
-  if (payload.channel === "meta") return "meta_inbox";
+  if (payload.channel === "meta") return payload.platform === "whatsapp" ? "whatsapp" : "meta_inbox";
   if (payload.channel === "web") return "web_maybe";
   return "portal";
+}
+
+/** Where to answer an Instagram or Messenger message, by its platform when the payload says. */
+function inboxReply(payload: BookingAlertPayload): string {
+  switch (payload.platform) {
+    case "instagram":
+      return "Reply to them in your Instagram inbox.";
+    case "messenger":
+      return "Reply to them in your Facebook Page's inbox.";
+    default:
+      // A payload that names no platform: only what holds on all three.
+      return "If they wrote on Instagram or Messenger, reply to them in that inbox; a WhatsApp message has no inbox to reply from.";
+  }
 }
 
 /** The preheader's last sentence: where to look, as findThem decides. */
@@ -94,7 +131,9 @@ export function findThemShort(payload: BookingAlertPayload): string {
     case "burst":
       return "Open Conversations in healdesk to see each one.";
     case "meta_inbox":
-      return "Reply to them in your Instagram, Messenger or WhatsApp inbox.";
+      return inboxReply(payload);
+    case "whatsapp":
+      return "There is no WhatsApp inbox to reply to them from.";
     case "web_maybe":
       return "Open healdesk to see whether they left a name and number.";
     case "portal":
@@ -102,13 +141,19 @@ export function findThemShort(payload: BookingAlertPayload): string {
   }
 }
 
+/** Why the link shows so little for a Meta message: what healdesk does not have. */
+const META_HOLDS_NOTHING =
+  "Instagram, Messenger and WhatsApp share no name or number with healdesk, and it keeps none of their messages, so the link shows only when they wrote.";
+
 /** The body's sentence on who it is, as findThem decides. */
 function findThemLine(payload: BookingAlertPayload): string {
   switch (findThem(payload)) {
     case "burst":
-      return "Each one opens in Conversations once you sign in and confirm it's you; urgent conversations and requests for a person are marked there.";
+      return "Each one opens in Conversations once you sign in and confirm it's you, marked as a request for a person.";
     case "meta_inbox":
-      return "Reply to them in your Instagram, Messenger or WhatsApp inbox. These channels share no name or number with healdesk, and it keeps none of their messages, so the link shows only when they wrote.";
+      return `${inboxReply(payload)} ${META_HOLDS_NOTHING}`;
+    case "whatsapp":
+      return `There is no WhatsApp inbox to reply to them from: AYA alone answers your WhatsApp number. ${META_HOLDS_NOTHING}`;
     case "web_maybe":
       return "If they left a name and number, they open in healdesk once you sign in and confirm it's you. The chat's transcript, emailed to you when the chat ends, has everything they wrote.";
     case "portal":
@@ -150,6 +195,7 @@ export function alertFixture(overrides: Partial<BookingAlertPayload> = {}): Book
   const conversationId = overrides.conversationId === undefined ? "5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d" : overrides.conversationId;
   return {
     channel: "web",
+    platform: null,
     conversationId,
     bookingRequestId: null,
     appointmentId: null,

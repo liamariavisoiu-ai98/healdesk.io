@@ -13,10 +13,12 @@ import {
   clinicOwnWords,
   guardAssistantReply,
   guardedLine,
+  guardGreeting,
   NEVER_SAY_PROTECTED,
   neverSayBlocksDisclosure,
   neverSayIn,
 } from "@/lib/assistant/guard";
+import { openingLine } from "@/lib/assistant/opening";
 import { assistantTurnContext, buildAssistantPrompt, priceText } from "@/lib/assistant/prompt";
 import { assistantModel, MODEL_CONFIG, modelRequest, readModelResponse } from "@/lib/assistant/responder";
 import {
@@ -28,6 +30,7 @@ import {
   parseModelAnswer,
   languageTerms,
   refusalLine,
+  SCREENED_TURN,
   type AssistantResponder,
 } from "@/lib/assistant/turn";
 import { requestReceivedLine } from "@/lib/meta/booking-requests";
@@ -99,6 +102,51 @@ describe("the guard", () => {
     expect(guardAssistantReply("About 600 dollars.", FACTS)).toEqual({ ok: false, reason: "price" });
     expect(guardAssistantReply("It's $1.5k.", FACTS)).toEqual({ ok: false, reason: "price" });
     expect(amountsIn("$1,200.50 and 99 dollars")).toEqual([120050, 9900]);
+  });
+
+  // The 19 October audit: the voice prompt asks for numbers as a person says
+  // them aloud, and the guard read only digits, so a spoken off-menu price
+  // ("two hundred dollars", "a hundred and fifty") went out unchecked.
+  test("a price said in words is read like any other: on the menu it passes, off it is refused", () => {
+    for (const text of [
+      "A consultation is a hundred and fifty dollars.",
+      "A consultation is one hundred and fifty.",
+      "The consultation is one fifty dollars.",
+      "Botox is twelve dollars a unit, with a fifty dollar deposit.",
+      "Botox is twelve dollars a unit.",
+    ]) {
+      expect(guardAssistantReply(text, FACTS), text).toEqual({ ok: true });
+    }
+    // A listed figure by the unit with no currency word is read as a price,
+    // and passes that check; the dosing screen still refuses the wording.
+    expect(amountsIn("Botox is twelve a unit.")).toEqual([1200]);
+    expect(guardAssistantReply("Botox is twelve a unit.", FACTS)).toEqual({ ok: false, reason: "clinical" });
+    for (const text of [
+      "Lip filler is two hundred dollars.",
+      "Lip filler is six hundred and fifty.",
+      "Lip filler is a hundred and fifty to two hundred, depending on the area.",
+      "A consultation is a hundred and twenty dollars.",
+      "Botox is ten dollars a unit.",
+      "Botox is fourteen a unit.",
+      "Botox is 10 per unit.",
+      "Lip filler is two ninety-nine dollars.",
+      "El relleno cuesta seiscientos dólares.",
+    ]) {
+      expect(guardAssistantReply(text, FACTS), text).toEqual({ ok: false, reason: "price" });
+    }
+    // Numbers that are not prices are not read as one.
+    for (const text of [
+      "We have over a hundred five-star reviews.",
+      "We serve about two hundred clients a month.",
+      "We're in suite two hundred.",
+      "We close at seventeen hundred on Fridays.",
+      "We've been open since two thousand ten.",
+      "We open at nine and close at five thirty.",
+    ]) {
+      expect(guardAssistantReply(text, FACTS), text).toEqual({ ok: true });
+    }
+    expect(amountsIn("Two hundred dollars, or a hundred and fifty for the consultation.")).toEqual([20000, 15000]);
+    expect(amountsIn("twelve dollars and fifty cents, ciento cincuenta dólares")).toEqual([1250, 15000]);
   });
 
   test("the never-say list, whatever the case, quotes or dashes", () => {
@@ -262,7 +310,6 @@ describe("the guard", () => {
     "Sí, tenemos citas el sábado a las 10.",
     "Claro, ¿le viene bien el martes a las 3?",
     "Merci for the message! We're open until 6.",
-    "Your booking is confirmed for Mon 3pm.",
     "The consultation is free and lasts about 30 minutes.",
     "Bring your ID and arrive about 10 min early.",
     "You can park on level 2, it's free for 2 hours.",
@@ -276,6 +323,51 @@ describe("the guard", () => {
     "It won't hurt to ask the team!",
   ])("third review: an ordinary reply passes: %j", (text) => {
     expect(guardAssistantReply(text, GLOW)).toEqual({ ok: true });
+  });
+
+  // The 19 October audit: the brain holds no slot and writes nothing, so a
+  // reply saying a booking is made is false, and the rule rested on the
+  // prompt alone. "Your booking is confirmed for Mon 3pm." was on the list of
+  // ordinary replies above.
+  test.each([
+    "Your booking is confirmed for Mon 3pm.",
+    "You're booked!",
+    "You're booked in for Tuesday at 3pm.",
+    "Great, confirmed for Tuesday afternoon.",
+    "Thanks Dana, you're all set for Thursday.",
+    "I've booked you in for Thursday at 2.",
+    "I've put you down for 3pm on Friday.",
+    "I'll book you in for Tuesday.",
+    "Your appointment has been scheduled for next Monday.",
+    "It's booked. See you then!",
+    "Your confirmation number is 4821.",
+    "Su cita está confirmada para el martes.",
+    "Le he reservado el jueves a las 3.",
+  ])("a booking said to be made is refused while the brain has no booking tools: %j", (text) => {
+    expect(guardAssistantReply(text, GLOW)).toEqual({ ok: false, reason: "booking_confirmation" });
+  });
+
+  test.each([
+    "I can pass on a request for Tuesday at 3pm. The team will confirm it within a day.",
+    "Thanks Dana, the team will confirm Thursday afternoon within a day.",
+    "Would you like me to pass on a request to be booked for Tuesday?",
+    "Once it's confirmed, the team will let you know.",
+    "Your appointment will be confirmed for you by the team within a day.",
+    "It isn't booked yet: the team confirms every booking.",
+    "Your appointment is at 2pm; please arrive 10 minutes early.",
+    "Let me confirm your number: is it 415 555 0192?",
+    "Booking takes about 2 minutes online.",
+    "¿Le viene bien el martes a las 3?",
+  ])("a request, a question or a confirmation still to come passes: %j", (text) => {
+    expect(guardAssistantReply(text, GLOW)).toEqual({ ok: true });
+  });
+
+  test("a confirmation passes only on a turn where the tool layer wrote a booking, and becomes a line that passes the request on", () => {
+    expect(guardAssistantReply("You're booked for Tuesday at 3pm.", GLOW, { bookingWritten: true })).toEqual({ ok: true });
+    const line = guardedLine("booking_confirmation", GLOW.clinicName);
+    expect(line).toMatch(/can't confirm appointments myself/);
+    expect(line).toContain(GLOW.clinicName);
+    expect(guardAssistantReply(line, GLOW)).toEqual({ ok: true });
   });
 
   test("third review: a reply in a language no list knows is never sent", () => {
@@ -436,6 +528,45 @@ describe("the guard", () => {
   test("a card number is cut; a phone number is not", () => {
     expect(cardNumberIn("card 4242-4242-4242-4242 thanks")).toEqual({ text: "card [card number removed] thanks", found: true });
     expect(cardNumberIn("call me on 415 555 0192")).toEqual({ text: "call me on 415 555 0192", found: false });
+  });
+});
+
+// The 19 October audit: the locked AI line always came first, but the
+// clinic's greeting after it was screened only for clinical content, and
+// was said on every call unguarded.
+describe("the clinic's greeting", () => {
+  test.each([
+    ["I'm Sarah, a real person.", "undoes_disclosure"],
+    ["Hi, this is the front desk at Radiance.", "undoes_disclosure"],
+    ["You're talking to a real person, not a bot.", "undoes_disclosure"],
+    ["Thanks for calling! Lip filler is just $400 this month.", "price"],
+    ["Thanks for calling. Our results are guaranteed results!", "never_say"],
+    ["Welcome! We're HIPAA compliant.", "hipaa_claim"],
+    ["Bienvenue chez nous, comment puis-je vous aider ?", "language"],
+  ])("gets the same guard as any reply: %j is refused", (greeting, reason) => {
+    expect(guardGreeting(greeting, FACTS)).toEqual({ ok: false, reason });
+  });
+
+  test.each([
+    "Thanks for calling Radiance Med Spa. How can I help you today?",
+    "How can I help you today?",
+    "Thanks for calling. If you'd rather talk to a real person, just ask.",
+    "Thanks for calling! A consultation is $150, and I can help you book one.",
+  ])("an ordinary greeting passes: %j", (greeting) => {
+    expect(guardGreeting(greeting, FACTS)).toEqual({ ok: true });
+  });
+
+  test("a refused greeting is never said: the default follows the AI line instead", () => {
+    const sarah = { ...FACTS, greeting: { phone: "I'm Sarah, a real person.", chat: "We're HIPAA compliant!" } };
+    const call = openingLine(sarah, "voice");
+    expect(call).toMatch(/^Hi, I'm an AI assistant for Radiance Med Spa/);
+    expect(call).not.toContain("Sarah");
+    expect(call.endsWith("Thanks for calling Radiance Med Spa. How can I help you today?")).toBe(true);
+    const chat = openingLine(sarah, "web_chat");
+    expect(chat).not.toContain("HIPAA");
+    expect(chat.endsWith("How can I help you today?")).toBe(true);
+    // A greeting that passes is said as written.
+    expect(openingLine(FACTS, "voice").endsWith("Thanks for calling.")).toBe(true);
   });
 });
 
@@ -817,6 +948,19 @@ describe("answerTurn", () => {
     expect(seen[0]!.system.turn).toBe(assistantTurnContext(FACTS, OPEN, "Hi, I'm an AI assistant."));
   });
 
+  test("a model that says the booking is made is refused: the brain wrote nothing, and the request still counts", async () => {
+    const result = await answerTurn({
+      facts: FACTS,
+      channel: "voice",
+      history: [],
+      text: "I'm Dana, can I come in Tuesday at 3?",
+      responder: reply("Perfect, Dana, you're booked for Tuesday at 3pm.", { booking: { wants: true, first_name: "Dana", window: "Tuesday at 3" } }),
+    });
+    expect(result).toMatchObject({ source: "guard", guard: "booking_confirmation" });
+    expect(result.reply).toBe(guardedLine("booking_confirmation", FACTS.clinicName));
+    expect(result.capture).toMatchObject({ wants: true, firstName: "Dana", window: "Tuesday at 3" });
+  });
+
   test("a refused reply becomes a fixed line, and the capture still counts", async () => {
     const result = await answerTurn({
       facts: FACTS,
@@ -849,6 +993,44 @@ describe("answerTurn", () => {
     const first = mergeCapture(EMPTY_CAPTURE, { wants: true, firstName: "Dana", window: "Thursday" });
     const second = mergeCapture(first, { firstName: null, phone: "415 555 0192" });
     expect(second).toMatchObject({ wants: true, firstName: "Dana", window: "Thursday", phone: "415 555 0192" });
+  });
+
+  // The 19 October audit: the screens short-circuited only the turn a
+  // message came in on. Both adapters keep every turn in the history, the
+  // urgent one included, and the whole history went to the model on every
+  // later turn.
+  test("an urgent message, or one in a language no screen reads, never reaches the model on a later turn either", async () => {
+    for (const [said, answered] of [
+      ["my lips are swelling and it's getting hard to breathe", "urgent"],
+      ["Je n'arrive pas à respirer", "language"],
+    ] as const) {
+      const first = await answerTurn({ facts: FACTS, channel: "voice", history: [], text: said, responder: null });
+      expect(first.source, said).toBe(answered);
+      const history = [
+        { speaker: "assistant" as const, text: "Hi, I'm an AI assistant." },
+        { speaker: "person" as const, text: first.personText },
+        { speaker: "assistant" as const, text: first.reply },
+      ];
+      const seen: Parameters<AssistantResponder>[0][] = [];
+      const next = await answerTurn({
+        facts: FACTS,
+        channel: "voice",
+        history,
+        text: "When are you open?",
+        responder: async (request) => {
+          seen.push(request);
+          return JSON.stringify({ reply: "Weekdays nine to five." });
+        },
+      });
+      expect(next.source).toBe("model");
+      const sent = JSON.stringify(seen[0]!.messages);
+      expect(sent, said).not.toContain(said);
+      expect(seen[0]!.messages).toEqual([
+        { role: "user", content: SCREENED_TURN },
+        { role: "assistant", content: first.reply },
+        { role: "user", content: "When are you open?" },
+      ]);
+    }
   });
 
   test("the model sees alternating turns, starting with the person", () => {

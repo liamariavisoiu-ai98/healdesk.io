@@ -1,4 +1,5 @@
 import {
+  ASSISTANT_LANGUAGE_NAMES,
   isScreenedLanguage,
   SCREENED_LANGUAGES,
   ASSISTANT_TONES,
@@ -18,13 +19,15 @@ import {
   type CoverageModeId,
   type TranscriptRetentionDays,
 } from "@healdesk/catalog";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
-import { clinics, clinicSettings, clinicSettingsHistory } from "@/db/schema";
+import { clinicProviders, clinics, clinicSettings, clinicSettingsHistory } from "@/db/schema";
+import { guardGreeting, type GreetingRefusal } from "@/lib/assistant/guard";
 import { normaliseE164, updateClinicSettings } from "@/lib/billing/settings";
 import { notifySettingChanged } from "@/lib/notices/setting-changed";
 import { completeStep } from "@/lib/onboarding/steps";
+import { neverSayWithDefaults, readKnowledge } from "@/lib/setup/knowledge";
 import type { SettingsHistoryField } from "@/lib/setup/screen-ids";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -46,7 +49,11 @@ import type { TenantTx } from "@/lib/tenant";
  * clinic_settings_history, in the same transaction, and a change to the
  * direct line or the transfer number after it was first set emails the
  * clinic (O4, lib/notices/setting-changed.ts). Free text (the greetings) is
- * screened with findClinicalContent before it is stored.
+ * screened with findClinicalContent before it is stored, and then with the
+ * guard every reply passes (lib/assistant/guard.ts, guardGreeting) against
+ * the clinic's menu and never-say list: a greeting that says AYA is a
+ * person, names a price off the menu, says something on the never-say list
+ * or claims "HIPAA compliant" is refused with the reason.
  */
 
 export type SetupSettings = {
@@ -189,6 +196,7 @@ export async function saveSetupSettings(
   now: Date = new Date(),
 ): Promise<SetupSettings> {
   const wanted = validate(patch);
+  await screenGreetings(tx, wanted);
   const current = await readSetupSettings(tx.db, tx.clinicId);
 
   // The booking system decides Auto-confirm while the clinic has not chosen
@@ -492,6 +500,67 @@ function greeting(field: "phoneGreeting" | "chatGreeting", raw: unknown): string
     );
   }
   return text;
+}
+
+/** What the clinic is told when the guard refuses its greeting, by the guard's reason. */
+const GREETING_REFUSED: Record<GreetingRefusal, string> = {
+  undoes_disclosure:
+    "The greeting can't say AYA is a person or not an AI: it comes right after the line that says she's an AI assistant.",
+  never_say:
+    "The greeting says something on your never-say list. Take it out, or change the list in Knowledge.",
+  price:
+    "The greeting names a price that isn't one of your listed prices or deposits. AYA quotes prices from Knowledge, exactly as listed.",
+  payment_details:
+    "The greeting can't ask for card or bank details. The practice takes payment itself.",
+  hipaa_claim: 'The greeting can\'t call the practice "HIPAA compliant".',
+  clinical:
+    "The greeting can't give clinical advice or promise results. AYA passes those questions to your team; say that instead.",
+  language: `Write the greeting in ${SCREENED_LANGUAGES.map((l) => ASSISTANT_LANGUAGE_NAMES[l]).join(" or ")}, the languages AYA's safety checks read.`,
+  booking_confirmation:
+    "The greeting can't say an appointment is booked: the team confirms every booking.",
+  empty: "Write the greeting as text.",
+};
+
+/**
+ * Each greeting in the patch through the guard every reply passes, with the
+ * clinic's menu, never-say list, name, address and providers. The channel
+ * asks it again each time it opens (lib/assistant/opening.ts), since the
+ * menu and the list can change after the greeting is saved.
+ */
+async function screenGreetings(tx: TenantTx, wanted: Partial<SetupSettings>): Promise<void> {
+  const fields = (["phoneGreeting", "chatGreeting"] as const).filter(
+    (field) => typeof wanted[field] === "string",
+  );
+  if (fields.length === 0) return;
+  const [clinic] = await tx.db
+    .select({ name: clinics.name, address: clinics.address })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  const knowledge = await readKnowledge(tx.db, tx.clinicId);
+  const providers = await tx.db
+    .select({ name: clinicProviders.displayName })
+    .from(clinicProviders)
+    .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)));
+  const facts = {
+    clinicName: clinic?.name ?? "",
+    address: clinic?.address ?? null,
+    services: knowledge.services.map((s) => ({
+      name: s.name,
+      priceFromUsd: s.priceFromUsd,
+      priceToUsd: s.priceToUsd,
+      priceKind: s.priceKind ?? null,
+      unit: s.unit ?? null,
+      durationMinutes: s.durationMinutes,
+      depositUsd: s.depositUsd ?? null,
+    })),
+    neverSay: neverSayWithDefaults(knowledge.neverSay),
+    providerNames: providers.map((p) => p.name),
+  };
+  for (const field of fields) {
+    const verdict = guardGreeting(wanted[field] as string, facts);
+    if (!verdict.ok) throw new SetupSettingsError(field, GREETING_REFUSED[verdict.reason]);
+  }
 }
 
 function phone(field: string, raw: unknown): string | null {

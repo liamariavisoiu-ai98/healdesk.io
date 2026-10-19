@@ -694,6 +694,7 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   // Public addresses and names.
   NEXT_PUBLIC_SITE_URL: "healdesk.io's public address.",
   NEXT_PUBLIC_PORTAL_URL: "The clinic portal's public sign-in address.",
+  HEALDESK_WEB_URL: "healdesk.io's public address, which the engine calls to read a clinic's website again (the signed re-read).",
   HEALDESK_REPO: "Which GitHub repository the Changes tab reads: a name.",
   HEALDESK_GITHUB_REPO: "Which GitHub repository the AWS on/off switch runs in: a name.",
   HEALDESK_APP_PUBLIC_URL: "The engine's public address, given to a Stripe set-up script on your computer.",

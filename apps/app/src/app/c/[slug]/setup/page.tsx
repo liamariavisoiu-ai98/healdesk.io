@@ -36,6 +36,7 @@ import {
   waitsOnDirectLine,
   type ForwardingFacts,
 } from "@/lib/setup/forwarding";
+import { readForwardingTest } from "@/lib/setup/forwarding-test-view";
 import { formatPhone, helpContacts } from "@/lib/setup/help";
 import { serviceInputOf } from "@/lib/setup/knowledge";
 import {
@@ -543,6 +544,10 @@ async function ChannelsStep({
     assistantNumberE164: state.clinic.assistantNumberE164,
     directLineE164: state.settings.directLineE164,
   };
+  // "Test it now" and what it saw, beside the forwarding steps.
+  const forwardingTest = voiceForwardingReady(facts)
+    ? await withTenant({ clinicId: state.clinic.id, actor }, (tx) => readForwardingTest(tx))
+    : null;
   return (
     <ChannelsScreen
       slug={slug}
@@ -589,6 +594,7 @@ async function ChannelsStep({
                     phoneSystemType: state.clinic.phoneSystemType,
                     coverageMode: state.settings.coverageMode,
                   }),
+                  forwardingTest,
                 }
               : {
                   ...row,

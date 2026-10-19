@@ -6,6 +6,7 @@ import { isImplemented } from "@healdesk/connectors";
 import { POST as providerWebhook } from "@/app/api/webhooks/[provider]/[clinicId]/route";
 import { COMMON_WEEKDAY_HOURS } from "@/lib/clinic/opening-hours";
 import { createBookingRequest } from "@/lib/meta/booking-requests";
+import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import type { EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 import {
@@ -466,4 +467,49 @@ describeDb("the post-call ingest", () => {
     ]);
     expect(JSON.stringify(alerts)).not.toMatch(/Dana|0177|Thursday|Consultation|\/booking\//);
   });
+
+  test("an urgent call and a request for a person are alerted at the latest when the call ends, once per call", async () => {
+    const c = await seedClinic("voice-alert-backstop");
+    const actor = { type: "service", serviceName: "test" } as const;
+    const alerts = async () =>
+      (
+        await inTenant(c.clinicId, (client) =>
+          client.query<{ kind: string; dedupe_key: string; payload: Record<string, unknown> }>(
+            `select kind, dedupe_key, payload from billing_notices where kind in ('urgent', 'handover') order by kind, dedupe_key`,
+          ),
+        )
+      ).rows;
+    const ended = (externalCallId: string): VoiceCallEvent => ({
+      externalCallId,
+      clinicId: c.clinicId,
+      callerPhone: "+15550100140",
+      startedAt: new Date(Date.now() - 120_000),
+      endedAt: new Date(),
+      durationSeconds: 120,
+      outcome: "escalated_to_human",
+      urgent: true,
+      handover: true,
+    });
+
+    // The call's own alerts could not be queued while it was up: the ingest
+    // queues both, keyed on the call, now pointing at the call itself.
+    const missed = await ingestCall(ended("call_backstop_1"));
+    expect(await alerts()).toEqual([
+      expect.objectContaining({ kind: "handover", dedupe_key: "handover:voice:call_backstop_1", payload: expect.objectContaining({ conversationId: missed.conversationId }) }),
+      expect.objectContaining({ kind: "urgent", dedupe_key: "urgent:voice:call_backstop_1", payload: expect.objectContaining({ conversationId: missed.conversationId }) }),
+    ]);
+
+    // Queued while the call was up (no conversation yet): the ingest adds nothing.
+    await withTenant({ clinicId: c.clinicId, actor }, async (tx) => {
+      expect(await notifyBookingAlert(tx, "urgent", { channel: "voice", callId: "call_backstop_2" })).toBe(true);
+      expect(await notifyBookingAlert(tx, "handover", { channel: "voice", callId: "call_backstop_2" })).toBe(true);
+    });
+    await ingestCall(ended("call_backstop_2"));
+    const after = await alerts();
+    expect(after.map((a) => a.dedupe_key).sort()).toEqual(
+      ["handover:voice:call_backstop_1", "handover:voice:call_backstop_2", "urgent:voice:call_backstop_1", "urgent:voice:call_backstop_2"].sort(),
+    );
+    expect(after.find((a) => a.dedupe_key === "urgent:voice:call_backstop_2")!.payload.conversationId).toBeNull();
+  });
 });
+

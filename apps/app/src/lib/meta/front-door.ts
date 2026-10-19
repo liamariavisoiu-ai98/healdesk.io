@@ -372,6 +372,7 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     "2. Answer PUBLIC questions from the facts below: hours, location, parking, and whether the practice offers something the person asks about and its published price, without ever naming it.",
     `3. Move the person to a secure channel to discuss anything personal: the phone${facts.phone ? ` (${facts.phone})` : ""}${facts.websiteHint ? ` or the website (${facts.websiteHint})` : ""}.`,
     `4. If the person wants to book, take a BOOKING REQUEST for the practice to confirm by phone. Ask only for: their first name, a phone number the practice can call, a preferred day or time, and — once you have that — up to two other times that could also work. ${requiredMetaFieldsLine(facts.requirements)}. Ask for whichever are still missing, one message at a time. Never ask why they are visiting or which treatment they want, and never repeat their phone number back.`,
+    "5. If the person asks to speak to, or hear from, a person at the practice, set \"handoff\" to true and say the practice team will get back to them here. Asking whether you are a person is not that: answer it, with \"handoff\" false.",
     "",
     "You must NEVER:",
     "- Acknowledge, repeat, or respond to any health condition, symptom, treatment history or reason for visiting that the person mentions. Do not say 'sorry to hear', do not name the condition back, do not say whether a treatment suits it. Redirect instead.",
@@ -398,7 +399,7 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     "Always write in English, whatever language the message is in: this channel answers in English only.",
     "",
     "ANSWER FORMAT — respond with JSON only, no prose around it:",
-    '{"reply": "<what to send the person>", "booking": {"wants": <true if they want to book>, "first_name": <string or null>, "phone": <string or null>, "window": <their preferred day or time as they said it, or null>, "alt_windows": [<other times they named, as they said them, up to two>], "fields": {}}}',
+    '{"reply": "<what to send the person>", "handoff": <true if they asked to speak to a person at the practice>, "booking": {"wants": <true if they want to book>, "first_name": <string or null>, "phone": <string or null>, "window": <their preferred day or time as they said it, or null>, "alt_windows": [<other times they named, as they said them, up to two>], "fields": {}}}',
     "Fill the booking fields only with what the person actually wrote in THIS message; leave the rest null or empty. Put nothing about their health in any window.",
     "",
     "FACTS YOU MAY STATE:",
@@ -1176,6 +1177,8 @@ export function openWithGreeting(greeting: string, reply: { text: string; source
 /** The model's structured answer. Anything that is not the expected JSON is read as a plain reply. */
 export type ModelReply = {
   reply: string;
+  /** The person asked to speak to a person at the practice: the clinic's handover alert (L11). */
+  handoff: boolean;
   booking: {
     wants: boolean;
     first_name: string | null;
@@ -1192,10 +1195,10 @@ export function parseModelReply(raw: string): ModelReply {
   const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
-  if (start === -1 || end <= start) return { reply: raw.trim(), booking: { ...NO_BOOKING } };
+  if (start === -1 || end <= start) return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
   try {
-    const parsed = JSON.parse(trimmed.slice(start, end + 1)) as { reply?: unknown; booking?: Record<string, unknown> };
-    if (typeof parsed.reply !== "string") return { reply: raw.trim(), booking: { ...NO_BOOKING } };
+    const parsed = JSON.parse(trimmed.slice(start, end + 1)) as { reply?: unknown; handoff?: unknown; booking?: Record<string, unknown> };
+    if (typeof parsed.reply !== "string") return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
     const b = parsed.booking ?? {};
     const s = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
     const alt_windows = Array.isArray(b.alt_windows) ? b.alt_windows.map(s).filter((v): v is string => v !== null).slice(0, 2) : [];
@@ -1208,10 +1211,11 @@ export function parseModelReply(raw: string): ModelReply {
     }
     return {
       reply: parsed.reply.trim(),
+      handoff: parsed.handoff === true,
       booking: { wants: b.wants === true, first_name: s(b.first_name), phone: s(b.phone), window: s(b.window), alt_windows, fields },
     };
   } catch {
-    return { reply: raw.trim(), booking: { ...NO_BOOKING } };
+    return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
   }
 }
 
@@ -1335,6 +1339,17 @@ export type FrontDoorAnswer = {
 /** An answer while it is being written: the greeting's record and the urgent alert are settled last. */
 type Draft = Omit<FrontDoorAnswer, "greetingToRecord" | "urgentQueued">;
 
+/**
+ * What answerFrontDoor leaves for its caller in case its transaction fails:
+ * for an urgent message, the channel's greeting and the fixed urgent line,
+ * worked out from the facts before anything is written and without "I've
+ * told the team" (the alert would roll back with the rest). The webhook
+ * sends it if the answer cannot be recorded, so a person who reported a
+ * complication is never left with no reply: the message id is already
+ * claimed, and Meta will not deliver it again.
+ */
+export type FrontDoorFallback = { urgentLine?: string };
+
 type ThreadInput = BookingThread & { connectionId: string | null };
 
 /**
@@ -1353,6 +1368,8 @@ export async function answerFrontDoor(
     responder: FrontDoorResponder | null;
     thread?: ThreadInput;
     now?: Date;
+    /** Filled for the caller to fall back on if this transaction fails (FrontDoorFallback). */
+    fallback?: FrontDoorFallback;
   },
 ): Promise<FrontDoorAnswer | null> {
   const facts = await frontDoorFacts(tx);
@@ -1374,6 +1391,7 @@ export async function answerFrontDoor(
   let urgentFinding: (Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">>) | null = null;
   let urgentQueued = false;
   let wants = false;
+  let handoff = false;
   const screened = screenInbound(input.text, facts.specialty, facts.clinicName);
   if (screened === "urgent") {
     // Before the model, and instead of it: the fixed line, and (below, with
@@ -1381,6 +1399,14 @@ export async function answerFrontDoor(
     const finding = findUrgentContent(input.text, facts.specialty, { clinicName: facts.clinicName }) ?? { emergency: "911" as const };
     urgentFinding = finding;
     answer = { text: urgentLine(facts, finding, now), source: "urgent", guard: null, screened, booking: "none", greeted: false };
+    if (input.fallback) {
+      // Greeted, since whether it would be the conversation's first reply is
+      // known only from the writes that failed: a second greeting is
+      // harmless, a first reply without one is not (gate 20).
+      const greeting = metaChannelGreeting({ clinicName: facts.clinicName, channel: DISCLOSURE_CHANNEL[input.platform] });
+      const line = urgentLine({ ...facts, urgentAlertLive: false }, finding, now);
+      input.fallback.urgentLine = openWithGreeting(greeting, { text: line, source: "urgent" }, facts.clinicName);
+    }
   } else if (screened === "language") {
     answer = { text: languageLine(facts), source: "handoff", guard: null, screened, booking: "none", greeted: false };
   } else if (screened === "clinical") {
@@ -1406,6 +1432,8 @@ export async function answerFrontDoor(
           ? { text: parsed.reply, source: "model", guard: null, screened: null, booking: "none", greeted: false }
           : { text: fallback, source: "handoff", guard: verdict.reason, screened: null, booking: "none", greeted: false };
         wants = parsed.booking.wants;
+        // Asked for a person, whatever then becomes of the reply's wording.
+        handoff = parsed.handoff;
         extracted = cleanBookingFields(parsed.booking);
       }
     } catch (error) {
@@ -1430,6 +1458,12 @@ export async function answerFrontDoor(
     if (!urgentQueued && facts.urgentAlertLive && urgentFinding) {
       answer = { ...answer, text: urgentLine({ ...facts, urgentAlertLive: false }, urgentFinding, now) };
     }
+  }
+  if (handoff) {
+    // The clinic's handover alert (L11), keyed on the conversation: the
+    // channel and ids, never the message. Staff answer in the clinic's own
+    // inbox, which the email says. Sent from the minute queue.
+    await notifyBookingAlert(tx, "handover", { channel: "meta", conversationId: conversation?.conversationId });
   }
 
   // Only the model extracts booking fields, so a screened message never
@@ -1479,11 +1513,11 @@ export async function answerFrontDoor(
     greetingToRecord = conversation;
   }
 
-  recordAnswer(tx, input.platform, answer);
+  recordAnswer(tx, input.platform, answer, handoff);
   return { ...answer, greetingToRecord, urgentQueued };
 }
 
-function recordAnswer(tx: TenantTx, platform: MetaPlatform, answer: Draft): void {
+function recordAnswer(tx: TenantTx, platform: MetaPlatform, answer: Draft, handoff = false): void {
   tx.audit.record({
     action: "create",
     resourceType: "meta_front_door_reply",
@@ -1496,6 +1530,7 @@ function recordAnswer(tx: TenantTx, platform: MetaPlatform, answer: Draft): void
       screened: answer.screened ?? undefined,
       greeted: answer.greeted || undefined,
       booking: answer.booking === "none" ? undefined : answer.booking,
+      handoff: handoff || undefined,
     },
   });
 }

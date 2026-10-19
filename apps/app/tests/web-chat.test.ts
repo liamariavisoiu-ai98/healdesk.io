@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { URGENT_TEAM_TOLD_LINE } from "@healdesk/catalog";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { POST as messagePost, __setWebChatDepsForTests } from "@/app/api/widget/v1/[slug]/message/route";
 import { OPTIONS as startOptions, POST as startPost } from "@/app/api/widget/v1/[slug]/start/route";
@@ -9,6 +10,7 @@ import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-co
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { addRecipient } from "@/lib/reporting/recipients";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
+import { ALERT_BURST_AFTER } from "@/lib/notices/booking-alerts";
 import { JOB_BILLING_NOTICES, setJobEnabled } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
@@ -87,6 +89,41 @@ async function alertRows(clinicId: string) {
     ),
   );
   return rows;
+}
+
+/** An operator who can flip the sender's switch. */
+async function opsUser(): Promise<string> {
+  const ops = `usr_ops_${crypto.randomUUID().slice(0, 8)}`;
+  await getMigratorPool().query(
+    `insert into "user" (id, name, email, email_verified, created_at, updated_at) values ($1, 'Ops', $2, true, now(), now())`,
+    [ops, `${ops}@healdesk.test`],
+  );
+  return ops;
+}
+
+/**
+ * A deployment that sends: Resend configured, and no quota refusal left over
+ * from another file (it lasts the UTC day), so the urgent reply may say the
+ * team was told.
+ */
+async function resendConfigured(): Promise<void> {
+  vi.stubEnv("HEALDESK_EMAIL_TRANSPORT", "resend");
+  vi.stubEnv("RESEND_API_KEY", "re_test_key");
+  vi.stubEnv("HEALDESK_EMAIL_FROM", "healdesk <hello@healdesk.io>");
+  await getMigratorPool().query(`truncate email_daily_quota`);
+}
+
+/**
+ * Make every insert into `table` for this clinic fail, as a pool timeout or
+ * a deadlock would, until the returned function is called.
+ */
+async function failInserts(table: "conversations", clinicId: string): Promise<() => Promise<void>> {
+  const pool = getMigratorPool();
+  await pool.query(`create or replace function test_refuse_insert() returns trigger language plpgsql as $$ begin raise exception 'test: this write fails'; end $$`);
+  await pool.query(`create trigger test_refuse_insert before insert on ${table} for each row when (new.clinic_id = '${clinicId}'::uuid) execute function test_refuse_insert()`);
+  return async () => {
+    await pool.query(`drop trigger if exists test_refuse_insert on ${table}`);
+  };
 }
 
 async function transcriptRow(clinicId: string, conversationId: string) {
@@ -224,6 +261,112 @@ describeDb("the web chat", () => {
     } finally {
       await setJobEnabled(JOB_BILLING_NOTICES, false, ops);
     }
+  });
+
+  test("live, the urgent reply says the team was told, and the alert reaches the clinic's one address", async () => {
+    const clinic = await liveWebClinic("chat-urgent-live");
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("no chat");
+    const { responder } = scripted(() => ({ reply: "model" }));
+    const ops = await opsUser();
+    await resendConfigured();
+    await setJobEnabled(JOB_BILLING_NOTICES, true, ops);
+    const transport = new FakeTransport();
+    try {
+      const answer = await sendWebChatMessage(clinic, start.token, "I'm having a bad reaction to the filler", { responder, transport });
+      if (answer.mode !== "chat") throw new Error("no chat");
+      expect(answer.reply).toMatch(/call 911/);
+      expect(answer.reply).toContain(URGENT_TEAM_TOLD_LINE);
+      const alerts = await alertRows(clinic.clinicId);
+      expect(alerts).toMatchObject([{ kind: "urgent" }]);
+      expect(alerts[0]!.sent_at).not.toBeNull();
+      const mail = transport.sent.filter((s) => s.message.phiClass === "none");
+      expect(mail.map((m) => m.target.to)).toEqual(["chat-urgent-live@example-clinic.test"]);
+    } finally {
+      vi.unstubAllEnvs();
+      await setJobEnabled(JOB_BILLING_NOTICES, false, ops);
+    }
+  });
+
+  test("an urgent message whose record fails still gets the fixed urgent reply, without saying the team was told", async () => {
+    const clinic = await liveWebClinic("chat-urgent-failed");
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("no chat");
+    const { responder } = scripted(() => ({ reply: "model" }));
+    const ops = await opsUser();
+    await resendConfigured();
+    await setJobEnabled(JOB_BILLING_NOTICES, true, ops);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const restore = await failInserts("conversations", clinic.clinicId);
+    try {
+      const answer = await sendWebChatMessage(clinic, start.token, "I'm having a bad reaction to the filler", { responder });
+      if (answer.mode !== "chat") throw new Error("no chat");
+      expect(answer.reply).toMatch(/call 911/);
+      expect(answer.reply).toMatch(/Otherwise, please call chat-urgent-failed Clinic on \S/);
+      expect(answer.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
+      expect(answer.reply).not.toMatch(/trouble on my end/);
+      // Nothing was recorded, the alert included.
+      expect(await alertRows(clinic.clinicId)).toEqual([]);
+      expect(error.mock.calls.map((c) => String(c[0]))).toEqual(
+        expect.arrayContaining([expect.stringContaining("web chat urgent message not recorded")]),
+      );
+      // An ordinary message still gets the failure line.
+      const plain = await sendWebChatMessage(clinic, start.token, "When are you open?", { responder });
+      expect(plain.mode === "chat" && plain.reply).toMatch(/trouble on my end/);
+    } finally {
+      await restore();
+      error.mockRestore();
+      vi.unstubAllEnvs();
+      await setJobEnabled(JOB_BILLING_NOTICES, false, ops);
+    }
+  });
+
+  test(`urgent chats past ${ALERT_BURST_AFTER} in an hour share one email, so a flood of chats cannot flood the clinic`, async () => {
+    const clinic = await liveWebClinic("chat-urgent-flood");
+    const { responder } = scripted(() => ({ reply: "model" }));
+    const ops = await opsUser();
+    await setJobEnabled(JOB_BILLING_NOTICES, true, ops);
+    const transport = new FakeTransport();
+    try {
+      for (let i = 0; i < 10; i += 1) {
+        const start = await startWebChat(clinic);
+        if (start.mode !== "chat") throw new Error("no chat");
+        const answer = await sendWebChatMessage(clinic, start.token, "I'm having a bad reaction to the filler", { responder, transport });
+        expect(answer.mode === "chat" && answer.reply).toMatch(/call 911/);
+      }
+      const mail = transport.sent.filter((s) => s.message.phiClass === "none");
+      expect(mail.length).toBeLessThanOrEqual(ALERT_BURST_AFTER + 1);
+      expect(mail.at(-1)!.message.subject).toBe("Urgent: more urgent messages in your website chat this hour");
+      // Each chat is still marked urgent in Conversations.
+      const { rows } = await inTenant(clinic.clinicId, (client) => client.query<{ n: number }>(`select count(*)::int as n from conversations where urgent`));
+      expect(rows[0]!.n).toBe(10);
+    } finally {
+      await setJobEnabled(JOB_BILLING_NOTICES, false, ops);
+    }
+  });
+
+  test("a request for a person with a name and a number: the conversation names them, so the alert's link shows who", async () => {
+    const clinic = await liveWebClinic("chat-handover-contact");
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("no chat");
+    const { responder } = scripted(() => ({
+      reply: "Thanks Ana, the team will get back to you within a day.",
+      handoff: true,
+      booking: { first_name: "Ana", phone: "415 555 0101" },
+    }));
+    const answer = await sendWebChatMessage(clinic, start.token, "Can I speak to a real person? I'm Ana, 415 555 0101", { responder });
+    if (answer.mode !== "chat") throw new Error("no chat");
+    const conversationId = readToken(answer.token, clinic.clinicId)!.conversationId!;
+    const { rows } = await inTenant(clinic.clinicId, (client) =>
+      client.query<{ phone: string; full_name: string | null; outcome: string }>(
+        `select c.phone, c.full_name, v.outcome from conversations v join contacts c on c.id = v.contact_id where v.id = $1`,
+        [conversationId],
+      ),
+    );
+    expect(rows).toEqual([{ phone: "+14155550101", full_name: "Ana", outcome: "escalated_to_human" }]);
+    // No booking request: no time was given.
+    expect((await inTenant(clinic.clinicId, (client) => client.query(`select 1 from booking_requests`))).rows).toHaveLength(0);
+    expect(await alertRows(clinic.clinicId)).toMatchObject([{ kind: "handover", payload: { conversationId } }]);
   });
 
   test("a request for a person alerts the clinic once, and the chat stays escalated after an ordinary message", async () => {

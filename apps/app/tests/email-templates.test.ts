@@ -663,8 +663,12 @@ describe("the live alerts: L7, L10, L11, L12 and L34", () => {
     for (const kind of ALERTS) {
       const entry = templateFor(kind)!;
       for (const channel of ["voice", "web", "meta", null] as const) {
-        for (const conversationId of ["5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d", null]) {
-          const payload = alertFixture({ channel, conversationId });
+        for (const [conversationId, isBurst] of [
+          ["5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d", false],
+          [null, false],
+          [null, true],
+        ] as const) {
+          const payload = alertFixture({ channel, conversationId, isBurst });
           expect(() => assertPayloadAllowed(payload, kind), kind).not.toThrow();
           const r = entry.render(payload, contextFor(kind));
           expect(subjectProblems(r.subject), `${kind} ${channel}`).toEqual([]);
@@ -676,6 +680,46 @@ describe("the live alerts: L7, L10, L11, L12 and L34", () => {
         }
       }
     }
+  });
+
+  test("where to find who it is follows what the alert points at, and only a call or a request says healdesk shows it", () => {
+    const ctx = contextFor("urgent");
+    const portal = /Who it is and how to reach them open in healdesk/;
+    // A call: the caller's number came with it.
+    expect(renderUrgent(alertFixture({ channel: "voice" }), ctx).text).toMatch(portal);
+    // Instagram, Messenger or WhatsApp with no request: no name or number to show, so the clinic's own inbox.
+    const meta = renderUrgent(alertFixture({ channel: "meta" }), ctx);
+    expect(meta.text).not.toMatch(portal);
+    expect(meta.preheader).toBe("Please check on them now. Reply to them in your Instagram, Messenger or WhatsApp inbox.");
+    expect(meta.text).toContain("Reply to them in your Instagram, Messenger or WhatsApp inbox.");
+    expect(meta.text).toContain("this link stops opening");
+    // A website chat with no request: only what the visitor left, and the transcript.
+    const web = renderUrgent(alertFixture({ channel: "web" }), ctx);
+    expect(web.text).not.toMatch(portal);
+    expect(web.text).toContain("If they left a name and number, they open in healdesk");
+    expect(web.text).toContain("The chat's transcript, emailed to you when the chat ends, has everything they wrote.");
+    // A request from either: its name and number are in healdesk.
+    const request = { bookingRequestId: "8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f" };
+    for (const channel of ["web", "meta"] as const) {
+      const r = templateFor("booking_request")!.render(alertFixture({ channel, ...request }), contextFor("booking_request"));
+      expect(r.text, channel).toMatch(portal);
+      expect(r.preheader).toBe("Someone asked to book. Open healdesk to see who, and when suits them.");
+    }
+    // A handover on Meta: answer them in the inbox.
+    const handover = templateFor("handover")!.render(alertFixture({ channel: "meta" }), contextFor("handover"));
+    expect(handover.preheader).toBe("Reply to them in your Instagram, Messenger or WhatsApp inbox.");
+  });
+
+  test("past the hour's cap, one email says more came in and opens Conversations", () => {
+    const burst = alertFixture({ channel: "web", conversationId: null, isBurst: true });
+    const urgent = renderUrgent(burst, contextFor("urgent"));
+    expect(urgent.subject).toBe("Urgent: more urgent messages in your website chat this hour");
+    expect(urgent.text).toContain("in the last hour than healdesk emails one by one");
+    expect(urgent.text).toContain("Each one opens in Conversations");
+    expect(urgent.preheader).toBe("Please check on them now. Open Conversations in healdesk to see each one.");
+    const handover = templateFor("handover")!.render(burst, contextFor("handover"));
+    expect(handover.subject).toBe("More people asked to speak to a person this hour");
+    expect(() => assertPayloadAllowed(burst, "urgent")).not.toThrow();
   });
 
   test("a call still going on says it shows in Conversations once it ends", () => {

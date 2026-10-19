@@ -1435,6 +1435,14 @@ export const emailDailyQuota = pgTable(
     observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
     /** When notifyOps was told the count reached 70. Set once per day. */
     alertedAt: timestamp("alerted_at", { withTimezone: true }),
+    /**
+     * When a send first came back daily_quota_exceeded this day: nothing more
+     * goes through Resend until midnight UTC, urgent alerts included, so the
+     * urgent reply stops saying the team was told (urgentAlertLive). A
+     * refusal seen, not a count reached: the plan's limit is not ours to
+     * know (drizzle/0081).
+     */
+    exhaustedAt: timestamp("exhausted_at", { withTimezone: true }),
   },
   (t) => [check("email_daily_quota_used_check", sql`${t.used} >= 0`)],
 );

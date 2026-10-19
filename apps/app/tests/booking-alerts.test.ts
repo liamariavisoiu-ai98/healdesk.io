@@ -6,9 +6,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 import { contacts } from "@/db/schema";
 import { flagForFrontDesk } from "@/lib/billing/deposits";
 import { assertPayloadAllowed } from "@/lib/email/lint";
-import { sendCriticalNotices, sendPendingNotices } from "@/lib/email/outbox";
+import { lateCriticalNotices, sendCriticalNotices, sendPendingNotices } from "@/lib/email/outbox";
+import { quotaExhausted } from "@/lib/email/quota";
 import { createBookingRequest } from "@/lib/meta/booking-requests";
-import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { ALERT_BURST_AFTER, notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { urgentAlertLive } from "@/lib/notices/urgent-alert-live";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { addRecipient } from "@/lib/reporting/recipients";
@@ -40,6 +41,14 @@ class FakeTransport implements EmailTransport {
   }
 }
 
+/** Resend's answer once the account's day is used up. */
+class QuotaTransport implements EmailTransport {
+  readonly name = "quota";
+  async send(): Promise<DeliveryResult> {
+    return { status: "failed", reason: "You have reached your daily email sending quota.", statusCode: 429, errorName: "daily_quota_exceeded" };
+  }
+}
+
 type NoticeRow = { kind: string; dedupe_key: string; payload: Record<string, unknown>; sent_at: Date | null };
 
 async function alerts(clinicId: string): Promise<NoticeRow[]> {
@@ -62,6 +71,7 @@ describeDb("the live alerts", () => {
 
   beforeEach(async () => {
     await truncateAll();
+    await getMigratorPool().query(`truncate email_daily_quota`);
     vi.stubEnv("BETTER_AUTH_URL", ORIGIN);
     opsUser = `usr_ops_${randomUUID().slice(0, 8)}`;
     await getMigratorPool().query(
@@ -74,6 +84,8 @@ describeDb("the live alerts", () => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     await setJobEnabled(JOB_BILLING_NOTICES, false, opsUser);
+    // The quota refusal lasts the UTC day: leave none behind for the next file.
+    await getMigratorPool().query(`truncate email_daily_quota`);
   });
 
   afterAll(async () => {
@@ -125,6 +137,7 @@ describeDb("the live alerts", () => {
       bookingRequestId: null,
       appointmentId: null,
       isPossiblyPaid: false,
+      isBurst: false,
       portalUrl: conversation,
     });
     // A call still going on has no conversation yet: Conversations itself.
@@ -271,4 +284,98 @@ describeDb("the live alerts", () => {
     vi.stubEnv("BETTER_AUTH_URL", "app.healdesk.io");
     expect(await urgentAlertLive()).toBe(false);
   });
+
+  test("past the hour's cap on one channel, urgent alerts share one email; a later one is not claimed once it has gone", async () => {
+    const c = await seedClinic("alerts-burst");
+    const chats = await Promise.all(
+      Array.from({ length: ALERT_BURST_AFTER + 3 }, async () => (await seedConversation(c.clinicId, { startedAt: new Date() })).conversationId),
+    );
+    const raise = (conversationId: string, kind: "urgent" | "handover" = "urgent", channel: "web" | "voice" = "web") =>
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => notifyBookingAlert(tx, kind, { channel, conversationId }));
+
+    const results: boolean[] = [];
+    for (const conversationId of chats.slice(0, ALERT_BURST_AFTER + 2)) results.push(await raise(conversationId));
+    expect(results.every(Boolean)).toBe(true);
+    const hour = new Date().toISOString().slice(0, 13);
+    let rows = (await alerts(c.clinicId)).filter((r) => r.kind === "urgent");
+    expect(rows.map((r) => r.dedupe_key)).toEqual([
+      ...chats.slice(0, ALERT_BURST_AFTER).map((id) => `urgent:web:${id}`),
+      `urgent:web:burst:${hour}`,
+    ]);
+    // The burst names no conversation: it opens Conversations.
+    expect(rows.at(-1)!.payload).toMatchObject({ isBurst: true, conversationId: null, portalUrl: `${ORIGIN}/c/${c.slug}/conversations` });
+    // A second message in a chat already alerted is that chat's own row, as before.
+    expect(await raise(chats[0]!)).toBe(true);
+    // Another channel and another kind count on their own.
+    expect(await raise(chats[0]!, "handover")).toBe(true);
+    expect(await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => notifyBookingAlert(tx, "urgent", { channel: "voice", callId: "call_burst_1" }))).toBe(true);
+    rows = await alerts(c.clinicId);
+    expect(rows.map((r) => r.dedupe_key)).toEqual(
+      expect.arrayContaining([`handover:web:${chats[0]}`, "urgent:voice:call_burst_1"]),
+    );
+
+    // Sent, the burst covers the messages before it, not one after it.
+    await setJobEnabled(JOB_BILLING_NOTICES, true, opsUser);
+    const transport = new FakeTransport();
+    await sendCriticalNotices(c.clinicId, { transport });
+    expect(transport.sent.map((s) => s.message.subject)).toContain("Urgent: more urgent messages in your website chat this hour");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await raise(chats.at(-1)!)).toBe(false);
+    expect((await alerts(c.clinicId)).filter((r) => r.kind === "urgent" && r.dedupe_key.startsWith("urgent:web:"))).toHaveLength(ALERT_BURST_AFTER + 1);
+  });
+
+  test("Resend refusing the day's quota takes the urgent reply's promise away until the day ends", async () => {
+    vi.stubEnv("HEALDESK_EMAIL_TRANSPORT", "resend");
+    vi.stubEnv("RESEND_API_KEY", "re_test_key");
+    vi.stubEnv("HEALDESK_EMAIL_FROM", "healdesk <hello@healdesk.io>");
+    await setJobEnabled(JOB_BILLING_NOTICES, true, opsUser);
+    expect(await urgentAlertLive()).toBe(true);
+
+    const c = await seedClinic("alerts-quota");
+    const { conversationId } = await seedConversation(c.clinicId, { startedAt: new Date() });
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => notifyBookingAlert(tx, "urgent", { channel: "web", conversationId }));
+    await sendCriticalNotices(c.clinicId, { transport: new QuotaTransport() });
+    expect(await quotaExhausted()).toBe(true);
+    expect(await urgentAlertLive()).toBe(false);
+    expect(await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => urgentAlertLive(tx.db))).toBe(false);
+    // Tomorrow, UTC, is a new quota day.
+    expect(await quotaExhausted(undefined, new Date(Date.now() + 24 * 60 * 60 * 1000))).toBe(false);
+    // The alert waits for the reset, unsent.
+    expect((await alerts(c.clinicId))[0]!.sent_at).toBeNull();
+  });
+
+  test("while the sender is off nothing is late; turned on, a day-old urgent alert closes unsent and a fresh one goes", async () => {
+    const c = await seedClinic("alerts-backlog");
+    const fresh = (await seedConversation(c.clinicId, { startedAt: new Date() })).conversationId;
+    const old = (await seedConversation(c.clinicId, { startedAt: new Date() })).conversationId;
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await notifyBookingAlert(tx, "urgent", { channel: "web", conversationId: fresh });
+      await notifyBookingAlert(tx, "urgent", { channel: "web", conversationId: old });
+    });
+    await inTenant(c.clinicId, (client) =>
+      client.query(
+        `update billing_notices set created_at = now() - interval '25 hours', send_after = now() - interval '25 hours' where dedupe_key = $1`,
+        [`urgent:web:${old}`],
+      ),
+    );
+    // The seeded state of a new deployment: no red health, no ops alert.
+    expect(await lateCriticalNotices()).toEqual([]);
+
+    await setJobEnabled(JOB_BILLING_NOTICES, true, opsUser);
+    expect((await lateCriticalNotices()).map((n) => n.kind)).toEqual(["urgent"]);
+    const transport = new FakeTransport();
+    await sendCriticalNotices(c.clinicId, { transport });
+    expect(transport.sent).toHaveLength(1);
+    expect(transport.sent[0]!.message.text).toContain(`/conversations/${fresh}`);
+    const { rows } = await inTenant(c.clinicId, (client) =>
+      client.query<{ dedupe_key: string; sent_at: Date | null; recipients_count: number | null; last_error: string | null }>(
+        `select dedupe_key, sent_at, recipients_count, last_error from billing_notices where dedupe_key = $1`,
+        [`urgent:web:${old}`],
+      ),
+    );
+    expect(rows[0]).toMatchObject({ recipients_count: 0, last_error: "not sent: a day old; the conversation is marked in Conversations" });
+    expect(rows[0]!.sent_at).not.toBeNull();
+    expect(await lateCriticalNotices()).toEqual([]);
+  });
 });
+

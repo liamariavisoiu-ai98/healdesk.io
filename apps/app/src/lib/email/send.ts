@@ -11,7 +11,7 @@ import { PhiRoutingError, ResendTransport } from "@/lib/reporting/resend-transpo
 
 import { KIND_SHAPE } from "./kind-rules";
 import { assertLinksAllowed } from "./lint";
-import { recordDailyQuota } from "./quota";
+import { recordDailyQuota, recordQuotaExhausted } from "./quota";
 
 /**
  * sendEmail(): the one door every email apps/app sends goes through (Annex X3
@@ -158,6 +158,11 @@ export async function sendEmail(
 
   if (result.status !== "skipped" && result.quota !== undefined) {
     await recordDailyQuota(result.quota, options.now ?? new Date());
+  }
+  // The account's day is over: every send waits for midnight UTC, and the
+  // urgent reply stops saying the team was told (urgentAlertLive).
+  if (result.status === "failed" && result.errorName === "daily_quota_exceeded") {
+    await recordQuotaExhausted(options.now ?? new Date());
   }
   return result;
 }

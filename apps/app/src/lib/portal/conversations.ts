@@ -605,7 +605,7 @@ export type ConversationDetail = {
   callerPhone: string | null;
   /** The contact a per-person export is made for, when the records name one. */
   contactId: string | null;
-  request: { id: string; status: string; createdAt: string } | null;
+  request: ShownRequest | null;
   /** A Meta thread: how many conversations this person has had on the channel. */
   conversationsCount: number | null;
   /** The transcript's delivery: calls and web chats only, and only when one was queued. */
@@ -615,7 +615,49 @@ export type ConversationDetail = {
   amendments: ShownAmendment[];
 };
 
+/**
+ * The booking request a conversation produced, as staff need it to act: when
+ * the person would like to come, the other times they gave and the service
+ * they named (a Meta request names none). The booking alert (L7) opens here
+ * until the Bookings screen does, so this is where staff read it.
+ */
+export type ShownRequest = {
+  id: string;
+  status: string;
+  createdAt: string;
+  preferredWindow: string;
+  alternativeWindows: string[];
+  service: string | null;
+};
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** One request's times and service, read by id inside the page's transaction. */
+async function shownRequest(
+  tx: TenantTx,
+  request: { id: string; status: string; createdAt: Date },
+): Promise<ShownRequest> {
+  const [row] = await tx.db
+    .select({
+      preferredWindow: bookingRequests.preferredWindow,
+      alternativeWindows: bookingRequests.alternativeWindows,
+      treatment: bookingRequests.treatment,
+      collectedFields: bookingRequests.collectedFields,
+    })
+    .from(bookingRequests)
+    .where(and(eq(bookingRequests.clinicId, tx.clinicId), eq(bookingRequests.id, request.id)))
+    .limit(1);
+  return {
+    id: request.id,
+    status: request.status,
+    createdAt: iso(request.createdAt),
+    preferredWindow: row?.preferredWindow ?? "",
+    alternativeWindows: row?.alternativeWindows ?? [],
+    // `treatment` is frozen at creation; a service collected later lands in
+    // collected_fields (the column's own note in db/schema.ts).
+    service: row?.treatment ?? row?.collectedFields?.service ?? null,
+  };
+}
 
 export function isConversationId(value: unknown): value is string {
   return typeof value === "string" && UUID.test(value);
@@ -637,7 +679,7 @@ async function readCallOrChat(tx: TenantTx, id: string): Promise<ConversationDet
     contactId: row.contactId,
     request:
       row.requestId && row.requestStatus && row.requestCreatedAt
-        ? { id: row.requestId, status: row.requestStatus, createdAt: iso(row.requestCreatedAt) }
+        ? await shownRequest(tx, { id: row.requestId, status: row.requestStatus, createdAt: row.requestCreatedAt })
         : null,
     conversationsCount: null,
     receipt,
@@ -661,9 +703,7 @@ async function readThread(tx: TenantTx, id: string): Promise<ConversationDetail 
     callerName: item.callerName,
     callerPhone: item.callerPhone,
     contactId: request?.contactId ?? null,
-    request: request
-      ? { id: request.id, status: request.status, createdAt: iso(request.createdAt) }
-      : null,
+    request: request ? await shownRequest(tx, request) : null,
     conversationsCount: thread.conversationsCount,
     receipt: null,
     canSendAgain: false,

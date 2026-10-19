@@ -51,6 +51,9 @@ import { upsertCallerContact } from "@/lib/voice/ingest";
  *            (lib/assistant/turn.ts: card numbers cut, urgent content
  *            answered with a fixed line before the model, the guard after it)
  *            and the sealed copy is rewritten with the new turns.
+ *   contact  once the visitor has given a number, it is the conversation's
+ *            contact (with their first name, if given), so the portal can
+ *            say who it is.
  *   request  once the visitor has given a first name, a number and a time,
  *            one booking request is written for the desk (channel web_chat)
  *            and the clinic is alerted (L7, lib/notices/booking-alerts.ts):
@@ -225,6 +228,25 @@ type Deps = {
   origin?: string | null;
 };
 
+/**
+ * Who the visitor said they are, as soon as they have given a number that is
+ * a number (and a first name, if they gave one): written as the
+ * conversation's contact in the message's transaction, so a request for a
+ * person or an urgent chat opens in Conversations on a name and number
+ * behind the step-up, not only once a booking request is complete. The
+ * prompt asks for both on a handover (lib/assistant/prompt.ts), and the
+ * urgent reply asks the visitor to leave a number.
+ */
+async function linkContact(tx: TenantTx, facts: AssistantFacts, conversationId: string, capture: BookingCapture): Promise<void> {
+  const phone = capture.phone ? toE164(capture.phone) : null;
+  if (!phone) return;
+  const contactId = await upsertCallerContact(tx.db, { clinicId: tx.clinicId, phone, name: capture.firstName, clinicTimezone: facts.timeZone });
+  await tx.db
+    .update(conversations)
+    .set({ contactId })
+    .where(and(eq(conversations.id, conversationId), eq(conversations.clinicId, tx.clinicId)));
+}
+
 /** A complete request: a first name, a number that is a number, and a time. */
 function requestReady(capture: BookingCapture): { firstName: string; phone: string; window: string } | null {
   if (!capture.wants || !capture.firstName || !capture.window || !capture.phone) return null;
@@ -337,6 +359,8 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
         now,
       );
       const next: ChatState = { ...state, capture: turn.capture, handedOver: Boolean(state.handedOver) || turn.handoff };
+      // Who it is, before the alerts that send staff to look.
+      await linkContact(tx, facts, conversationId, turn.capture);
       // The alerts, in this transaction, so they go only if the message is
       // recorded. Each is keyed on the conversation, so asking again on a
       // later message queues nothing new, and a queue that failed is tried
@@ -379,7 +403,12 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
       return sendWebChatMessage(clinic, signToken({ ...token, conversationId: null, issuedAt: now.getTime() }), text, deps);
     }
     log.error("web chat message not recorded", { clinicId: clinic.clinicId, error: describeError(error) });
-    return { mode: "chat", reply: FAILURE_LINE, token: signToken({ ...token, issuedAt: token.issuedAt }), ended: false };
+    // An urgent message still gets its fixed reply, which needs nothing from
+    // the database: 911, then the clinic's number. Without "I've told the
+    // team", because its alert rolled back with the message.
+    const reply = turn.urgent ? settleUrgentReply(turn, facts, "web_chat", false, now).reply : FAILURE_LINE;
+    if (turn.urgent) log.error("web chat urgent message not recorded: no alert went", { clinicId: clinic.clinicId });
+    return { mode: "chat", reply, token: signToken({ ...token, issuedAt: token.issuedAt }), ended: false };
   }
 
   // The urgent alert is critical: it goes now that its row has committed,

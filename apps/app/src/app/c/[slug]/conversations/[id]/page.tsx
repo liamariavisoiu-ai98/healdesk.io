@@ -28,8 +28,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * One conversation, opened (plan Part F4): its channel, when, its outcome,
- * who as the clinic's records name them, the booking request it produced,
- * any amendment the practice directed, and the transcript's delivery
+ * who as the clinic's records name them, the booking request it produced
+ * with the times and the service it names, any amendment the practice directed, and the transcript's delivery
  * receipt with "Send again" until delivery is confirmed. Never a word of the
  * conversation: none is kept. A patient page: requirePatientPage first, and
  * the open writes its access rows (the conversation, its receipt, its
@@ -136,6 +136,27 @@ export default async function ConversationPage({
                 )}
               </dd>
             </div>
+            {detail.request ? (
+              // What the booking alert (L7) sends staff here for: when the
+              // person would like to come, as they said it, and what for.
+              <>
+                <div>
+                  <dt className="text-muted text-sm">When suits them</dt>
+                  <dd className="mt-1">
+                    {detail.request.preferredWindow || "Not given"}
+                    {detail.request.alternativeWindows.length > 0
+                      ? `, or ${detail.request.alternativeWindows.join(", or ")}`
+                      : null}
+                  </dd>
+                </div>
+                {detail.request.service ? (
+                  <div>
+                    <dt className="text-muted text-sm">Asked about</dt>
+                    <dd className="mt-1">{detail.request.service}</dd>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
           </dl>
 
           <section aria-labelledby="transcript-heading" className="mt-10">

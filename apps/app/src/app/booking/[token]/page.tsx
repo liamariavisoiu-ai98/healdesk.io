@@ -12,14 +12,18 @@ import { DecideForm } from "./DecideForm";
 /**
  * The desk's view of one booking request, and the one place it is decided.
  *
- * When an agent — on the phone or on a Meta thread — has taken a booking
- * request, the desk is emailed a link to this page; the token in the path is
- * the whole of the authentication, exactly as it is for /connect/[token].
- * Expired, unknown and malformed tokens are one redirect to /booking/invalid,
- * so a stale URL confirms nothing about which requests exist. TODO(v1): the
- * clinic portal's Bookings screen (signed in, second factor before patient
- * details) is where this queue belongs; it is not built yet, and until it is
- * this emailed link is the desk's only way in.
+ * Until 19 October 2026 the desk was emailed a link to this page whenever
+ * an agent, on the phone or on a Meta thread, took a booking request. No
+ * email carries it any more: the clinic's booking alert (L7,
+ * lib/notices/booking-alerts.ts) is a pointer into the signed-in portal,
+ * because the token in the path is the whole of the authentication here,
+ * exactly as it is for /connect/[token], and the portal rule puts the
+ * passkey step-up before any booking opens. Expired, unknown and malformed
+ * tokens are one redirect to /booking/invalid, so a stale URL confirms
+ * nothing about which requests exist. TODO(v1): the clinic portal's Bookings
+ * screen is where this queue belongs, and it retires this page; until it is
+ * built a request is read on its conversation in Conversations and confirmed
+ * in the clinic's own system.
  *
  * This is the manual booking path: what happens when the assistant did not
  * book directly (manual booking mode, Auto-confirm off, a broken calendar,
@@ -36,7 +40,7 @@ import { DecideForm } from "./DecideForm";
  * asked for, what the assistant collected, and on a phone request the
  * service asked for — because that is what the desk needs in order to call. It lives
  * in apps/app, the PHI side, is served over the BAA-covered host, and is
- * never indexed. The email that carried the link named none of it.
+ * never indexed. The email that used to carry the link named none of it.
  *
  * A decided request still renders, read-only, with its outcome: a second
  * click on the same email should show what happened, not a dead end. An

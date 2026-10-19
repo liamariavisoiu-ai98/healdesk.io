@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { unsafeDb, type Queryable, type Transaction } from "@/db";
 import { scheduledJobs } from "@/db/schema";
+import { quotaExhausted } from "@/lib/email/quota";
 import { describeError, log } from "@/lib/log";
 import { publicOriginProblem } from "@/lib/public-url";
 import { JOB_BILLING_NOTICES } from "@/lib/scheduler/jobs";
@@ -12,7 +13,7 @@ import { JOB_BILLING_NOTICES } from "@/lib/scheduler/jobs";
  * fixedUrgentReply), and the wizard "tells your team at once", only while it
  * does, so neither promises an alert nobody sends.
  *
- * Three things, all read at the moment of asking:
+ * Four things, all read at the moment of asking:
  *
  *   - the outbox's sender is switched on: the `billing-notices` job row,
  *     seeded off (drizzle/0043) and turned on by an operator, is the one
@@ -20,7 +21,10 @@ import { JOB_BILLING_NOTICES } from "@/lib/scheduler/jobs";
  *   - this deployment sends through Resend, with a key and a sender address
  *     (lib/email/send.ts, platformTransport): the console stub that stands in
  *     elsewhere sends nothing;
- *   - a link into the portal can be built (BETTER_AUTH_URL).
+ *   - a link into the portal can be built (BETTER_AUTH_URL);
+ *   - Resend has not refused a send for the day's quota (quotaExhausted,
+ *     lib/email/quota.ts): past it every email waits for midnight UTC, so an
+ *     alert queued now would not reach anyone for hours.
  *
  * The adapter then decides per message: a reply says the team was told only
  * when this is true AND notifyBookingAlert queued that conversation's alert.
@@ -36,16 +40,15 @@ export async function urgentAlertLive(tx?: Transaction): Promise<boolean> {
     if (publicOriginProblem()) return false;
     if (process.env.HEALDESK_EMAIL_TRANSPORT !== "resend") return false;
     if (!process.env.RESEND_API_KEY?.trim() || !process.env.HEALDESK_EMAIL_FROM?.trim()) return false;
-    const read = async (db: Queryable) =>
-      (
-        await db
-          .select({ enabled: scheduledJobs.enabled })
-          .from(scheduledJobs)
-          .where(eq(scheduledJobs.name, JOB_BILLING_NOTICES))
-          .limit(1)
-      )[0];
-    const job = tx ? await tx.transaction((savepoint) => read(savepoint)) : await read(unsafeDb);
-    return job?.enabled === true;
+    const read = async (db: Queryable) => {
+      const [job] = await db
+        .select({ enabled: scheduledJobs.enabled })
+        .from(scheduledJobs)
+        .where(eq(scheduledJobs.name, JOB_BILLING_NOTICES))
+        .limit(1);
+      return job?.enabled === true && !(await quotaExhausted(db));
+    };
+    return tx ? await tx.transaction((savepoint) => read(savepoint)) : await read(unsafeDb);
   } catch (error) {
     try {
       log.error("urgent alert state not read", { error: describeError(error) });

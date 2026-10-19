@@ -49,7 +49,12 @@ The fifth, `billing-notices`, is the email platform's sender (drizzle/0046,
 from the tick, and its job row is its switch: off, no clinic email is sent. Each notice
 is leased for two minutes while it sends and retried at 1, 5, 30, 120 and 360 minutes;
 the job's note counts what was sent, failed, waiting and held (a kind with no template
-yet). `npm run queue:install` must be re-run in each environment for the `notices`
+yet). While it is off the urgent reply never says the team was told, and no urgent
+alert counts as late (`/api/health` stays green); notices queued meanwhile go when it is
+switched on, except urgent alerts and handovers more than a day old, which close unsent
+(`lib/email/superseded.ts`). Look at the backlog before switching it on: it releases
+queued billing emails too. Once Resend refuses a send for the day's quota, the urgent
+reply stops saying the team was told until midnight UTC (`email_daily_quota.exhausted_at`). `npm run queue:install` must be re-run in each environment for the `notices`
 queue, or the worker will not start, and for pg-boss's own cron queue
 (`__pgboss__send-it`), without which no schedule fires: neither this minute clock nor
 the hourly tick. A worker whose job rows never show a `last_run_at` is the symptom.

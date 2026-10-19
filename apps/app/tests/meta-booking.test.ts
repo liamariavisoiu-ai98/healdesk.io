@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { URGENT_TEAM_TOLD_LINE } from "@healdesk/catalog";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 // The desk's token, where createBookingRequest mints it: no email carries it
@@ -7,6 +8,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vite
 vi.mock("@/lib/meta/booking-requests", async (importOriginal) =>
   (await import("./setup/minted-tokens")).recordingMints(await importOriginal()),
 );
+// The real alert, wrapped so one test can make it fail to queue.
+vi.mock("@/lib/notices/booking-alerts", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/notices/booking-alerts")>();
+  return { ...real, notifyBookingAlert: vi.fn(real.notifyBookingAlert) };
+});
 
 import { __setMetaRuntimeForTests, POST } from "@/app/api/webhooks/meta/route";
 import { bookingModeFor } from "@/lib/booking/mode";
@@ -22,11 +28,13 @@ import {
   resolveBookingRequest,
   windowIsClean,
 } from "@/lib/meta/booking-requests";
-import { collectingLine, guardReply, parseModelReply, probeVerdict, type MetaPlatform } from "@/lib/meta/front-door";
+import { buildFrontDoorPrompt, collectingLine, guardReply, parseModelReply, probeVerdict, type MetaPlatform } from "@/lib/meta/front-door";
+import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { signMetaBody } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
+import { JOB_BILLING_NOTICES, setJobEnabled } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -58,8 +66,28 @@ describe("what the model may hand over", () => {
   test("a plain reply is read as a reply with no booking", () => {
     expect(parseModelReply("We're open 9 to 5. Call the practice to book.")).toEqual({
       reply: "We're open 9 to 5. Call the practice to book.",
+      handoff: false,
       booking: { wants: false, first_name: null, phone: null, window: null, alt_windows: [], fields: {} },
     });
+  });
+
+  test("a request for a person is the model's handoff flag, and only a true one counts", () => {
+    expect(parseModelReply('{"reply":"The practice team will get back to you here.","handoff":true}').handoff).toBe(true);
+    expect(parseModelReply('{"reply":"I\'m an automated assistant.","handoff":"yes"}').handoff).toBe(false);
+    expect(parseModelReply('{"reply":"We\'re open 9 to 5."}').handoff).toBe(false);
+    const prompt = buildFrontDoorPrompt({
+      clinicName: "Radiance",
+      phone: null,
+      websiteHint: null,
+      services: [],
+      notes: null,
+      escalationHours: null,
+      requirements: [],
+      deferredRequirements: [],
+      neverSay: [],
+    });
+    expect(prompt).toContain('set "handoff" to true');
+    expect(prompt).toContain("Asking whether you are a person is not that");
   });
 
   test("JSON, fenced or bare, is parsed: strings or null, alternatives and the fields — and a consent classifier is not read", () => {
@@ -638,11 +666,131 @@ describeDb("the booking hand-off, end to end", () => {
           bookingRequestId: null,
           appointmentId: null,
           isPossiblyPaid: false,
+          isBurst: false,
           portalUrl: `https://app.healdesk.test/c/${c.slug}/conversations/${threads[0]!.conversation_id}`,
         },
       },
     ]);
     expect(JSON.stringify(rows)).not.toMatch(/reaction|filler|lip/i);
+  });
+
+  /** An operator, the sender switched on, and Resend configured: the urgent alert is live. */
+  async function alertsLive(): Promise<() => Promise<void>> {
+    const ops = `usr_ops_${randomUUID().slice(0, 8)}`;
+    await getMigratorPool().query(
+      `insert into "user" (id, name, email, email_verified, created_at, updated_at) values ($1, 'Ops', $2, true, now(), now())`,
+      [ops, `${ops}@healdesk.test`],
+    );
+    vi.stubEnv("HEALDESK_EMAIL_TRANSPORT", "resend");
+    vi.stubEnv("RESEND_API_KEY", "re_test_key");
+    vi.stubEnv("HEALDESK_EMAIL_FROM", "healdesk <hello@healdesk.io>");
+    // No quota refusal left over from another file (it lasts the UTC day).
+    await getMigratorPool().query(`truncate email_daily_quota`);
+    await setJobEnabled(JOB_BILLING_NOTICES, true, ops);
+    return async () => {
+      vi.unstubAllEnvs();
+      await setJobEnabled(JOB_BILLING_NOTICES, false, ops);
+    };
+  }
+
+  async function urgentNotices(clinicId: string) {
+    const { rows } = await inTenant(clinicId, (client) =>
+      client.query<{ dedupe_key: string; sent_at: Date | null }>(`select dedupe_key, sent_at from billing_notices where kind = 'urgent'`),
+    );
+    return rows;
+  }
+
+  test("live, an urgent message's alert is sent once the answer commits, to the clinic's one address, and the line says the team was told", async () => {
+    const externalId = "713456789012345";
+    const c = await liveClinic("meta-urgent-live", externalId);
+    const done = await alertsLive();
+    try {
+      __setMetaRuntimeForTests(async () => json("model"), sender, transport);
+      const res = await post(inbound("I'm having a severe reaction to my lip filler", "user-urgent-live", externalId));
+      expect(await res.json()).toEqual({ received: true, answered: 1, skipped: 0 });
+      expect(sent.at(-1)!.text).toMatch(/call 911/);
+      expect(sent.at(-1)!.text).toContain(URGENT_TEAM_TOLD_LINE);
+      const notices = await urgentNotices(c.clinicId);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]!.sent_at).not.toBeNull();
+      expect(mailed.map((m) => m.target.to)).toEqual([c.staffEmail]);
+      expect(mailed[0]!.message.text).toContain("Reply to them in your Instagram, Messenger or WhatsApp inbox.");
+      expect(JSON.stringify(mailed[0]!.message)).not.toMatch(/reaction|filler/i);
+    } finally {
+      await done();
+    }
+  });
+
+  test("live, an urgent alert that could not be queued: the line does not say the team was told", async () => {
+    const externalId = "763456789012345";
+    const c = await liveClinic("meta-urgent-unqueued", externalId);
+    const done = await alertsLive();
+    try {
+      vi.mocked(notifyBookingAlert).mockResolvedValueOnce(false);
+      __setMetaRuntimeForTests(async () => json("model"), sender, transport);
+      await post(inbound("I'm having a severe reaction to my lip filler", "user-urgent-unqueued", externalId));
+      expect(sent.at(-1)!.text).toMatch(/call 911/);
+      expect(sent.at(-1)!.text).not.toContain(URGENT_TEAM_TOLD_LINE);
+      expect(await urgentNotices(c.clinicId)).toEqual([]);
+      expect(mailed).toHaveLength(0);
+    } finally {
+      await done();
+    }
+  });
+
+  test("an urgent message whose answer cannot be recorded still gets the greeted fixed line, without saying the team was told", async () => {
+    const externalId = "733456789012345";
+    const c = await liveClinic("meta-urgent-failed", externalId);
+    const done = await alertsLive();
+    const pool = getMigratorPool();
+    // The answer's own write fails at commit, as a deadlock or a pool timeout would.
+    await pool.query(`create or replace function test_refuse_insert() returns trigger language plpgsql as $$ begin raise exception 'test: this write fails'; end $$`);
+    await pool.query(
+      `create trigger test_refuse_insert before insert on audit_log for each row
+         when (new.clinic_id = '${c.clinicId}'::uuid and new.resource_type = 'meta_front_door_reply') execute function test_refuse_insert()`,
+    );
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      __setMetaRuntimeForTests(async () => json("model"), sender, transport);
+      const res = await post(inbound("I'm having a severe reaction to my lip filler", "user-urgent-failed", externalId));
+      expect(await res.json()).toEqual({ received: true, answered: 1, skipped: 0 });
+      const line = sent.at(-1)!.text;
+      expect(line.startsWith(metaChannelGreeting({ clinicName: "meta-urgent-failed Clinic", channel: "messenger" }))).toBe(true);
+      expect(line).toMatch(/call 911/);
+      expect(line).not.toContain(URGENT_TEAM_TOLD_LINE);
+      expect(await urgentNotices(c.clinicId)).toEqual([]);
+      expect(error.mock.calls.map((call) => String(call[0]))).toEqual(
+        expect.arrayContaining([expect.stringContaining("meta urgent message not recorded")]),
+      );
+    } finally {
+      await pool.query(`drop trigger if exists test_refuse_insert on audit_log`);
+      error.mockRestore();
+      await done();
+    }
+  });
+
+  test("a request for a person on a Meta channel alerts the clinic once per conversation, with ids only", async () => {
+    const externalId = "743456789012345";
+    const c = await liveClinic("meta-handover", externalId);
+    __setMetaRuntimeForTests(async () => JSON.stringify({ reply: "The practice team will get back to you here.", handoff: true, booking: {} }), sender, transport);
+    await post(inbound("Can I talk to someone at the clinic please?", "user-handover", externalId));
+    await post(inbound("A real person please", "user-handover", externalId));
+    expect(sent.at(-1)!.text).toContain("The practice team will get back to you here.");
+    const { rows } = await inTenant(c.clinicId, (client) =>
+      client.query<{ dedupe_key: string; payload: Record<string, unknown> }>(`select dedupe_key, payload from billing_notices where kind = 'handover'`),
+    );
+    const { rows: threads } = await inTenant(c.clinicId, (client) => client.query<{ conversation_id: string }>(`select conversation_id from chat_threads`));
+    expect(rows).toEqual([
+      {
+        dedupe_key: `handover:meta:${threads[0]!.conversation_id}`,
+        payload: expect.objectContaining({ channel: "meta", conversationId: threads[0]!.conversation_id, bookingRequestId: null }),
+      },
+    ]);
+    expect(JSON.stringify(rows)).not.toMatch(/someone|person please/i);
+    // Asking what it is talking to is not a request for a person.
+    __setMetaRuntimeForTests(async () => JSON.stringify({ reply: "I'm an automated assistant for the practice.", handoff: false, booking: {} }), sender, transport);
+    await post(inbound("Are you a real person?", "user-not-handover", externalId));
+    expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from billing_notices where kind = 'handover'`))).rows).toHaveLength(1);
   });
 
   test("a stop word on a thread is a message like any other: nothing is suppressed, because nothing is ever sent outside the conversation", async () => {

@@ -9,7 +9,7 @@ import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { resolveMetaChannel, sendMetaReply, type MetaSender } from "@/lib/meta/channels";
-import { anthropicResponder, answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
+import { anthropicResponder, answerFrontDoor, type FrontDoorAnswer, type FrontDoorFallback, type FrontDoorResponder } from "@/lib/meta/front-door";
 import { recordGreeting } from "@/lib/meta/greeting";
 import { claimMetaMessage } from "@/lib/meta/inbound";
 import { parseMetaEvents, verifyMetaSignature } from "@/lib/meta/webhook";
@@ -36,8 +36,9 @@ export const runtime = "nodejs";
  * pointer into the portal, lib/notices/booking-alerts.ts) in the answer's
  * transaction; the sender id travels into the request so the desk's decision
  * can be relayed back to the person — inside Meta's 24-hour window only,
- * which lib/meta/channels.ts enforces. An urgent message's alert (L12) is
- * sent the moment the answer commits.
+ * which lib/meta/channels.ts enforces. A request for a person queues the
+ * handover alert (L11) the same way. An urgent message's alert (L12) is
+ * sent the moment the answer commits, before the reply goes.
  *
  * Each message, in order (BD24, R18):
  *
@@ -195,51 +196,77 @@ export async function POST(request: Request): Promise<Response> {
       // 5: the answer, committed before anything is sent: a booking request
       // it created survives a send that fails, which would otherwise roll it
       // back after the message id was claimed, so a redelivery could never
-      // make it again.
-      const answer = await withTenant({ clinicId: owner.clinicId, actor }, (tx) =>
-        answerFrontDoor(tx, {
-          platform: message.platform,
-          text: message.text,
-          responder,
-          thread: { platform: message.platform, externalId: message.externalId, senderId: message.senderId, connectionId: owner.connectionId },
-          now: sentAt,
-        }),
-      );
+      // make it again. An urgent message whose answer cannot be recorded
+      // still gets its fixed line (FrontDoorFallback), without "I've told the
+      // team": its alert rolled back too.
+      const fallback: FrontDoorFallback = {};
+      let answer: FrontDoorAnswer | null;
+      try {
+        answer = await withTenant({ clinicId: owner.clinicId, actor }, (tx) =>
+          answerFrontDoor(tx, {
+            platform: message.platform,
+            text: message.text,
+            responder,
+            thread: { platform: message.platform, externalId: message.externalId, senderId: message.senderId, connectionId: owner.connectionId },
+            now: sentAt,
+            fallback,
+          }),
+        );
+      } catch (error) {
+        if (!fallback.urgentLine) throw error;
+        log.error("meta urgent message not recorded: no alert went", { clinicId, channel: message.platform, error: describeError(error) });
+        answer = {
+          text: fallback.urgentLine,
+          source: "urgent",
+          guard: null,
+          screened: "urgent",
+          booking: "none",
+          greeted: false,
+          greetingToRecord: null,
+          urgentQueued: false,
+        };
+      }
       if (!answer) {
         skipped += 1;
         continue;
       }
-      try {
-        // 6: the reply. Replying to the message just received: the thread
-        // may hold no request yet, so the instant is passed in. sendMetaReply
-        // still drops the reply if that instant is more than 24 hours old.
-        await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
-          const outcome = await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send, { lastInboundAt: sentAt, now });
-          // The greeting is given once the reply carrying it has gone out. A
-          // reply dropped outside the window (a backlog Meta delivers a day
-          // late) leaves it owed, so the first reply the person does get
-          // opens with it (lib/meta/greeting.ts).
-          if (outcome.status === "sent" && answer.greetingToRecord) await recordGreeting(tx, answer.greetingToRecord);
-          // A reply that reached the person, past the gate: the Meta
-          // channel's first answer, if it is one, with its plan start or
-          // step-up (lib/channels/events.ts). It never undoes the send's record.
-          if (outcome.status === "sent") {
-            await recordFirstAnswer(
-              tx,
-              { channel: "meta", source: "runtime", gateAnswered: true, personAnswered: true, conversationId: thread.conversationId },
-              now,
-            );
-          }
-        });
-        answered += 1;
-      } finally {
-        // 7: the urgent alert, now that the answer that queued it has
-        // committed, and whether or not the reply went out. A booking
-        // request's alert went into the outbox with the request and goes from
-        // the minute queue. After the response (after()), so Meta is not kept
-        // waiting on the mail; it never rejects.
-        if (answer.urgentQueued) await deliverCriticalAfterCommit(owner.clinicId, { after, transport: transportForTests });
+      const reply = answer;
+      // 6: the urgent alert, now that the answer that queued it has
+      // committed, started before the reply is sent so it waits on neither
+      // the Graph API nor the rest of the batch. after() keeps the request
+      // alive until it is done without holding up Meta's response; outside a
+      // request scope it throws, and the alert is awaited here instead. It
+      // never rejects, and the minute queue sends whatever it misses.
+      if (reply.urgentQueued) {
+        const critical = deliverCriticalAfterCommit(owner.clinicId, { transport: transportForTests });
+        try {
+          after(() => critical);
+        } catch {
+          await critical;
+        }
       }
+      // 7: the reply. Replying to the message just received: the thread
+      // may hold no request yet, so the instant is passed in. sendMetaReply
+      // still drops the reply if that instant is more than 24 hours old.
+      await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
+        const outcome = await sendMetaReply(tx, owner, message.externalId, message.senderId, reply.text, send, { lastInboundAt: sentAt, now });
+        // The greeting is given once the reply carrying it has gone out. A
+        // reply dropped outside the window (a backlog Meta delivers a day
+        // late) leaves it owed, so the first reply the person does get
+        // opens with it (lib/meta/greeting.ts).
+        if (outcome.status === "sent" && reply.greetingToRecord) await recordGreeting(tx, reply.greetingToRecord);
+        // A reply that reached the person, past the gate: the Meta
+        // channel's first answer, if it is one, with its plan start or
+        // step-up (lib/channels/events.ts). It never undoes the send's record.
+        if (outcome.status === "sent") {
+          await recordFirstAnswer(
+            tx,
+            { channel: "meta", source: "runtime", gateAnswered: true, personAnswered: true, conversationId: thread.conversationId },
+            now,
+          );
+        }
+      });
+      answered += 1;
     } catch (error) {
       skipped += 1;
       // `channel`, never `platform`: lib/log.ts throws on a key off its

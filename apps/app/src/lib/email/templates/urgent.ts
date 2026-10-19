@@ -1,5 +1,5 @@
 import { compose } from "./compose";
-import { alertFixture, openBlocks, practiceOf, wherePhrase, type BookingAlertPayload } from "./booking-alert-copy";
+import { alertFixture, findThemShort, openBlocks, practiceOf, wherePhrase, type BookingAlertPayload } from "./booking-alert-copy";
 import type { TemplateEntry } from "./registry";
 import type { EmailTemplate } from "./types";
 
@@ -13,10 +13,23 @@ import type { EmailTemplate } from "./types";
  *
  * A pointer like the other alerts (booking-alert-copy.ts): that someone
  * reported something urgent, where, and that AYA gave the fixed urgent
- * reply, never what they said.
+ * reply, never what they said. Past the hour's cap on one channel
+ * (isBurst), one email says more came in and opens Conversations.
  */
 
 function subjectFor(payload: BookingAlertPayload): string {
+  if (payload.isBurst === true) {
+    switch (payload.channel) {
+      case "voice":
+        return "Urgent: more urgent calls this hour";
+      case "web":
+        return "Urgent: more urgent messages in your website chat this hour";
+      case "meta":
+        return "Urgent: more urgent messages to AYA this hour";
+      default:
+        return "Urgent: more urgent messages this hour";
+    }
+  }
   switch (payload.channel) {
     case "voice":
       return "Urgent: AYA heard something urgent on a call";
@@ -33,11 +46,14 @@ export const renderUrgent: EmailTemplate<BookingAlertPayload> = (payload, ctx) =
   compose(
     {
       subject: subjectFor(payload),
-      preheader: "Please check on them now. Open healdesk to see who it is.",
+      preheader: `Please check on them now. ${findThemShort(payload)}`,
       blocks: [
         {
           type: "paragraph",
-          text: `Someone described a complication or an urgent symptom ${wherePhrase(payload.channel)} ${practiceOf(ctx)}. AYA gave them the fixed urgent reply, which sends them to emergency help first and then to your practice. Please check on them now.`,
+          text:
+            payload.isBurst === true
+              ? `More people described a complication or an urgent symptom ${wherePhrase(payload.channel)} ${practiceOf(ctx)} in the last hour than healdesk emails one by one. AYA gave each of them the fixed urgent reply, which sends them to emergency help first and then to your practice. Please check on them now.`
+              : `Someone described a complication or an urgent symptom ${wherePhrase(payload.channel)} ${practiceOf(ctx)}. AYA gave them the fixed urgent reply, which sends them to emergency help first and then to your practice. Please check on them now.`,
         },
         ...openBlocks(payload, ctx),
       ],

@@ -46,9 +46,11 @@ import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
  *                   (L11). Each once per call.
  *   close           the call is over: the post-call ingest (lib/voice/ingest.ts)
  *                   records the conversation, turns what the caller asked for
- *                   into one booking request for the desk, counts the minutes
- *                   and queues the transcript for the clinic, all idempotent on
- *                   the call id.
+ *                   into one booking request for the desk, queues the urgent
+ *                   and handover alerts again under the call's key (a no-op
+ *                   for one already queued, the backstop for one that was
+ *                   not), counts the minutes and queues the transcript for
+ *                   the clinic, all idempotent on the call id.
  *
  * Booking stays with the desk: the assistant takes a request and books
  * nothing itself; direct booking through the booking engine
@@ -345,6 +347,7 @@ export class RetellCallSession {
       isCallback: this.outbound,
       answeredByAssistant: this.gateAnswered && this.answered,
       urgent: this.urgent,
+      handover: this.handoff,
       disclosurePlayedAt: this.disclosurePlayedAt ?? undefined,
       transcriptTurns: this.turns.some((t) => t.speaker === "person") ? this.turns : undefined,
       ...this.requestFor(),

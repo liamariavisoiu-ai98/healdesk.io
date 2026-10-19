@@ -129,7 +129,10 @@ passes the allowlist and the link scanner at send time (`apps/app/src/lib/email/
 ids, a channel id, a flag and a link to our public origin, never `HEALDESK_APP_URL` and
 never a single-use token). They are queued in the outbox in the transaction that records
 what they report (`apps/app/src/lib/notices/booking-alerts.ts`) and go to the clinic's one
-address; the urgent alert is sent the moment that transaction commits. The minimum-PHI
+address; the urgent alert is sent the moment that transaction commits. Where healdesk holds
+no name or number (an Instagram, Messenger or WhatsApp message with no request, or a website
+visitor who left none), the email says so and where to look instead: the clinic's own inbox
+on those channels, or the chat's transcript, which goes over SES as above. The minimum-PHI
 variant over SES was not chosen. The email that replaced them, the desk's link to
 `/booking/<token>` (a page whose link is its only key), is no longer sent. The daily
 summary will follow the same rule. The spec's "Text or email address" option for these

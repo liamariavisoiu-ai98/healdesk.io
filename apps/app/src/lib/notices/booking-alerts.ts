@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import type { Channel } from "@healdesk/catalog";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, like, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
-import { appointments, bookingRequests, clinics } from "@/db/schema";
+import { appointments, billingNotices, bookingRequests, clinics } from "@/db/schema";
 import type { BookingAlertPayload } from "@/lib/email/templates/booking-alert-copy";
 import { describeError, log } from "@/lib/log";
 import { sectionPath } from "@/lib/portal/nav";
@@ -109,10 +109,12 @@ export function alertPortalPath(
 
 /**
  * The key that makes an alert once: per request for L7 and L34, per
- * appointment (else request, else conversation) for L10, per conversation or
- * call for L11 and L12. Null when the ref names nothing to key on, except
- * that an urgent alert or a handover is never dropped for want of one: it is
- * keyed on a fresh id, so each one alerts.
+ * appointment (else request, else conversation) for L10, per call or
+ * conversation for L11 and L12. A call is keyed on its Retell id whether the
+ * alert is raised while it is up or by the ingest when it ends, so the
+ * ingest's backstop never sends a call's alert twice. Null when the ref names
+ * nothing to key on, except that an urgent alert or a handover is never
+ * dropped for want of one: it is keyed on a fresh id, so each one alerts.
  */
 function dedupeKeyFor(
   kind: SentAlertKind,
@@ -130,8 +132,53 @@ function dedupeKeyFor(
     }
     case "handover":
     case "urgent":
-      return `${kind}:${channel ?? "unknown"}:${conversationId ?? ref.callId ?? randomUUID()}`;
+      return `${kind}:${channel ?? "unknown"}:${ref.callId ?? conversationId ?? randomUUID()}`;
   }
+}
+
+/**
+ * How many urgent alerts, and how many handovers, one channel of one clinic
+ * sends one by one in an hour. The urgent screen is a fixed matcher and every
+ * new website chat is a new conversation, so anyone who can load a clinic's
+ * widget could otherwise turn messages into emails without end: flooding the
+ * clinic's inbox, and spending the Resend quota that every clinic's alerts
+ * and sign-in links share. Past this many in the last hour, or while a burst
+ * of the last hour stands, further ones on that channel go into one email
+ * for the UTC hour that says more came in and to open Conversations, where
+ * each conversation is still marked.
+ */
+export const ALERT_BURST_AFTER = 3;
+
+/**
+ * The burst key an urgent alert or a handover goes under, or null when it is
+ * sent on its own: it already has its own row (a second message in the same
+ * conversation, or the ingest's backstop for a call), or fewer than
+ * ALERT_BURST_AFTER went on this channel in the last hour and no burst did.
+ */
+async function burstKeyFor(
+  db: Transaction,
+  clinicId: string,
+  kind: "urgent" | "handover",
+  channel: Channel | null,
+  ownKey: string,
+  now: Date,
+): Promise<string | null> {
+  const mine = and(eq(billingNotices.clinicId, clinicId), eq(billingNotices.kind, kind));
+  const [own] = await db
+    .select({ id: billingNotices.id })
+    .from(billingNotices)
+    .where(and(mine, eq(billingNotices.dedupeKey, ownKey)))
+    .limit(1);
+  if (own) return null;
+  const prefix = `${kind}:${channel ?? "unknown"}:`;
+  const recent = await db
+    .select({ dedupeKey: billingNotices.dedupeKey })
+    .from(billingNotices)
+    .where(and(mine, like(billingNotices.dedupeKey, `${prefix}%`), gt(billingNotices.createdAt, sql`now() - interval '1 hour'`)));
+  const bursting = recent.some((r) => r.dedupeKey.startsWith(`${prefix}burst:`));
+  const single = recent.filter((r) => !r.dedupeKey.startsWith(`${prefix}burst:`)).length;
+  if (!bursting && single < ALERT_BURST_AFTER) return null;
+  return `${prefix}burst:${now.toISOString().slice(0, 13)}`;
 }
 
 /**
@@ -184,7 +231,11 @@ async function targetOf(
  *
  * Returns whether the alert is queued: true when the row is in the outbox
  * (written now, or already there under the same key), false when it could
- * not be. The urgent reply says "I've told the team" only on true.
+ * not be. The urgent reply says "I've told the team" only on true. Past
+ * ALERT_BURST_AFTER urgent alerts or handovers on one channel in an hour,
+ * further ones share one email for the hour (burstKeyFor); one that comes
+ * after that email has gone is false, since nothing more will tell the
+ * clinic about it.
  *
  * It never throws, and it never breaks the caller's transaction: the insert
  * runs in a savepoint, so a failure here rolls back only itself, is logged
@@ -214,22 +265,44 @@ export async function notifyBookingAlert(
         .limit(1);
       if (!clinic) return false;
       const { channel, conversationId } = await targetOf(savepoint, tx.clinicId, ref);
-      const key = dedupeKeyFor(kind, channel, ref, conversationId);
-      if (!key) {
+      const own = dedupeKeyFor(kind, channel, ref, conversationId);
+      if (!own) {
         log.error("booking alert not queued: nothing to key it on", { clinicId: tx.clinicId, kind });
         return false;
       }
+      const burst =
+        kind === "urgent" || kind === "handover"
+          ? await burstKeyFor(savepoint, tx.clinicId, kind, channel, own, new Date())
+          : null;
+      const key = burst ?? own;
+      // A burst's email is about the channel, not one conversation: it opens Conversations.
+      const pointsAt = burst ? null : conversationId;
       const payload: BookingAlertPayload = {
         channel,
-        conversationId,
+        conversationId: pointsAt,
         bookingRequestId: ref.bookingRequestId ?? null,
         appointmentId: ref.appointmentId ?? null,
         isPossiblyPaid: kind === "deposit_to_collect" && ref.mayBePaid === true,
+        isBurst: burst !== null,
         portalUrl: publicUrl(
-          alertPortalPath(clinic.slug, kind, { conversationId, bookingRequestId: ref.bookingRequestId ?? null }),
+          alertPortalPath(clinic.slug, kind, { conversationId: pointsAt, bookingRequestId: ref.bookingRequestId ?? null }),
         ),
       };
-      await enqueuePlanNotice(savepoint, tx.clinicId, kind, key, payload);
+      const inserted = await enqueuePlanNotice(savepoint, tx.clinicId, kind, key, payload);
+      if (inserted || !burst) return true;
+      // This hour's burst email was queued already. It covers this message
+      // only while it has still to go: once sent, it told the clinic about
+      // the ones before, and this one is in Conversations alone, so the reply
+      // must not say the team was told.
+      const [standing] = await savepoint
+        .select({ sentAt: billingNotices.sentAt })
+        .from(billingNotices)
+        .where(and(eq(billingNotices.clinicId, tx.clinicId), eq(billingNotices.kind, kind), eq(billingNotices.dedupeKey, key)))
+        .limit(1);
+      if (standing?.sentAt) {
+        log.warn("booking alert not queued: this hour's burst email has gone", { clinicId: tx.clinicId, kind });
+        return false;
+      }
       return true;
     });
   } catch (error) {

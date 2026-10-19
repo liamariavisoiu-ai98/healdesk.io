@@ -237,9 +237,11 @@ describe("the guard", () => {
     expect(greetingLines).toEqual([
       '1. Start your reply with the substance. Never greet the person (no "Hi", "Hello" or "Hey"), and never introduce yourself or say what you are unless they ask: the code puts the channel\'s opening line in front of your reply wherever one is owed, and that line already greets them and says you are an AI assistant.',
     ]);
-    // The rest of the list stands as it was: rule 1 changed, 2 to 4 did not.
+    // The rest of the list stands as it was: rule 1 changed, 2 to 4 did not,
+    // and 5 asks the model to flag a request for a person (the handover alert, L11).
     const rules = prompt.split("\n").filter((line) => /^\d\. /.test(line));
-    expect(rules.map((line) => line.slice(0, 3))).toEqual(["1. ", "2. ", "3. ", "4. "]);
+    expect(rules.map((line) => line.slice(0, 3))).toEqual(["1. ", "2. ", "3. ", "4. ", "5. "]);
+    expect(rules[4]).toBe('5. If the person asks to speak to, or hear from, a person at the practice, set "handoff" to true and say the practice team will get back to them here. Asking whether you are a person is not that: answer it, with "handoff" false.');
     expect(rules[1]).toBe("2. Answer PUBLIC questions from the facts below: hours, location, parking, and whether the practice offers something the person asks about and its published price, without ever naming it.");
     expect(rules[2]).toBe("3. Move the person to a secure channel to discuss anything personal: the phone (+1 415 555 0199) or the website (radiance.example).");
     expect(prompt).toContain("- Claim to be human. If asked, say you are an automated assistant.");

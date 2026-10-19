@@ -455,6 +455,21 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Someone reported a complication or an urgent symptom, and the clinic's urgent alert could not be queued, so the clinic has not been emailed about it. They were given the fixed urgent reply (emergency services, then the clinic's own number), or, where the message could not be recorded at all, asked to contact the practice directly. Phone the clinic now: tell them an urgent message came in on the channel below at about the time this alert was raised; if its conversation was recorded, its transcript reaches their address when it ends. Then read apps/app's error lines for the failure, usually the database.",
   },
+  access_requests_capped: {
+    title: "Sign-in help reached today's cap for emails to hello@",
+    action:
+      "The I can't get in page has sent hello@ as many access requests today as it may, so the rest go unmailed until midnight UTC: the cap keeps the form from spending the day's emails that sign-in links and urgent alerts need. Read today's sign_in_help_unmatched alerts and the security log's sign-in help rows for the clinics that asked, and look for a flood from one place.",
+  },
+  email_refused: {
+    title: "An email was refused before it was sent",
+    action:
+      "apps/app refused an email of the kind below for the clinic below before sending it: something it was to carry is outside the payload allowlist, or a link in it is not one an email may carry. The clinic has not received it. Read apps/app's error lines for the kind, fix what it was given, and send the clinic what it needed by hand meanwhile.",
+  },
+  agreement_copy_withheld: {
+    title: "A signer's copy of the agreement was held back",
+    action:
+      "Someone signed at the checkout, and the copy of the agreement was not emailed to the address they gave: a copy already went to that address today, or the names on it carry something that is not safe to mail to an address nobody confirmed. The signature is on record under the agreement id below. If the signer is genuine, send them the copy by hand from hello@.",
+  },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
     action:

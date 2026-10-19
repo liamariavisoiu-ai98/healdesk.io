@@ -94,6 +94,8 @@ async function main(): Promise<number> {
           text: rendered.text,
           html: rendered.html,
           phiClass: "none",
+          // A direct kind goes with the payload it rendered from (send.ts).
+          payload: entry.fixture,
           ...(ctx.unsubscribeUrl ? { headers: unsubscribeHeaders(ctx.unsubscribeUrl) } : {}),
         });
         const detail = result.status === "sent" ? result.messageId : result.reason;

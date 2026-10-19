@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import { user } from "@/db/auth-schema";
 import { clinics, userFactors } from "@/db/schema";
+import { isAllowedDeviceName } from "@/lib/email/lint";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import { ACCOUNT_REASON } from "@/lib/email/templates/context";
 import {
@@ -75,7 +76,10 @@ export async function notifyDeviceChange(
         .from(userFactors)
         .where(and(eq(userFactors.id, change.factorId), eq(userFactors.userId, change.userId)))
         .limit(1);
-      deviceName = factor?.label ?? undefined;
+      // The label is staff's own words, checked only for what the database
+      // can hold: one the allowlist would refuse (an address, a link, a
+      // number) is left out, so the email still goes, naming no device.
+      deviceName = isAllowedDeviceName(factor?.label) ? factor.label : undefined;
     }
 
     const now = options.now ?? new Date();
@@ -83,15 +87,16 @@ export async function notifyDeviceChange(
       change.kind === "locked" && change.lockedUntil
         ? Math.max(1, Math.round((change.lockedUntil.getTime() - now.getTime()) / 60_000))
         : undefined;
+    const payload = {
+      change: change.kind,
+      ...(deviceName ? { deviceName } : {}),
+      changedAt: now.toISOString(),
+      ...(lockedMinutes ? { lockedMinutes } : {}),
+      ...(change.kind === "signed_out" ? { removedCount: change.removedCount ?? 0 } : {}),
+      ...(change.source ? { source: change.source } : {}),
+    };
     const rendered = renderDeviceChanged(
-      {
-        change: change.kind,
-        ...(deviceName ? { deviceName } : {}),
-        changedAt: now.toISOString(),
-        ...(lockedMinutes ? { lockedMinutes } : {}),
-        ...(change.kind === "signed_out" ? { removedCount: change.removedCount ?? 0 } : {}),
-        ...(change.source ? { source: change.source } : {}),
-      },
+      payload,
       {
         clinicName: null,
         audience: "patients",
@@ -113,6 +118,7 @@ export async function notifyDeviceChange(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         idempotencyKey: `hd-device_changed-${keyed}-${change.kind}`,
       },
       options,

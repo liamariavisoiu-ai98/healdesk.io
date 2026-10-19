@@ -979,6 +979,9 @@ describeDb("the portal's way into the calendar", () => {
       const demo = await seedLegacyDemoClinic("cp-owner-only");
       const manager = await seedPortalUser(demo.clinicId, "admin");
       const stranger = await seedClinic("cp-owner-only-other");
+      // Seeding signs the demo clinic's agreement, and its copy has gone
+      // through sendEmail since 19 October 2026: only what follows counts.
+      mocks.sent.length = 0;
       const narrowing = {
         bookingSystem: "mindbody",
         calendarAccount: "workspace_no_baa",

@@ -90,8 +90,8 @@ export const renderAddressChanging: EmailTemplate<AddressChangingPayload> = (pay
 };
 
 /** Why the new address receives the operator's notice: it is not the clinic's address yet. */
-export function addressMovingReason(clinicName: string): string {
-  return `You're receiving this because ${clinicName} is moving its healdesk address to this one.`;
+export function addressMovingReason(clinicName: string | null): string {
+  return `You're receiving this because ${clinicName ?? "a practice"} is moving its healdesk address to this one.`;
 }
 
 export const ADDRESS_CHANGING_ENTRY: TemplateEntry<AddressChangingPayload> = {

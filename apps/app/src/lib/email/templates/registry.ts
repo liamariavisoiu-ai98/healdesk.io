@@ -1,7 +1,9 @@
 import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
+import { ACCESS_REQUEST_ENTRY } from "./access_request";
 import { ADDRESS_CHANGE_CONFIRM_ENTRY } from "./address_change_confirm";
+import { AGREEMENT_COPY_ENTRY } from "./agreement_copy";
 import { AGREEMENT_TO_SIGN_ENTRY } from "./agreement_to_sign";
 import { ADDRESS_CHANGING_ENTRY } from "./address_changing";
 import { AI_PAUSED_ENTRY } from "./ai_paused";
@@ -209,6 +211,12 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // Wave 2, R4 (plan Part D3): O16, the human route's link for a clinic that
   // lost every device, mailed only to the clinic's address on file.
   device_recovery_link: DEVICE_RECOVERY_LINK_ENTRY,
+  // P6 from apps/app (19 October 2026): an operator's resend of the agreement
+  // copy, in the catalog's words, which apps/web sends at signature.
+  agreement_copy: AGREEMENT_COPY_ENTRY,
+  // I3's access request (19 October 2026): an unmatched /sign-in/help request,
+  // to hello@ with structured fields, as plan Part D5 has it.
+  access_request: ACCESS_REQUEST_ENTRY,
 };
 
 /**
@@ -324,6 +332,8 @@ export const PENDING_TEMPLATES: Record<
     | "flag_alert"
     | "patient_request"
     | "device_recovery_link"
+    | "agreement_copy"
+    | "access_request"
     | BillingTemplatedKind
   >,
   PendingTemplate

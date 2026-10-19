@@ -1,12 +1,11 @@
-import { agreementCopyFilename, renderAgreementCopy } from "@healdesk/catalog";
+import { agreementCopyFilename, isSafeTypedText, renderAgreementCopy } from "@healdesk/catalog";
 
-import {
-  getTransport,
-  type DeliveryTarget,
-  type EmailTransport,
-  type OutgoingEmail,
-} from "@/lib/reporting/deliver";
+import type { EmailTransport } from "@/lib/reporting/deliver";
 import { log } from "@/lib/log";
+
+import { isAllowedClinicName } from "./lint";
+import { sendEmail } from "./send";
+import { renderAgreementCopyEmail, type AgreementCopyPayload } from "./templates/agreement_copy";
 
 // The words and the file name are the catalog's since 14 October 2026, so that
 // apps/web, which mails the copy at signature, and this module, which mails it
@@ -36,13 +35,18 @@ export { renderAgreementCopy };
  * than the document is to have sent. A file in a mailbox is the thing the other
  * party can actually produce years later.
  *
- * ## Why it reuses the report transport
+ * ## Through the email platform, since 19 October 2026
  *
- * Same reason invite.ts and connect-link.ts do: one SES account, one
- * configuration set, one `TlsPolicy: REQUIRE`. It matters most on this message
- * of all of them. The attached document contains healdesk's own promise not to
- * transmit over a channel that cannot negotiate encryption — mailing THAT over
- * opportunistic TLS would refute itself in the act of delivery.
+ * It used to call a transport itself (getTransport), so an operator's resend
+ * went with no tags, no idempotency key and no link scan, and Resend's events
+ * for it, untagged, were handled by apps/web as its own marketing mail: a
+ * bounce marked a lead. It goes through sendEmail now, like every other email
+ * apps/app sends (Annex X3), as the direct kind `agreement_copy`: the `app`,
+ * `kind` and `delivery` tags (the acceptance's id), a key per acceptance and
+ * minute, so an operator's double click sends once and a resend a minute
+ * later sends again, the link scanner, and the payload allowlist at send
+ * time. Resend's enforced TLS covers it as it covers all of healdesk.io's
+ * mail (Annex X2).
  *
  * ## Why the PDF arrives as bytes
  *
@@ -70,9 +74,10 @@ export { renderAgreementCopy };
  * a practice and a signatory: no patient data, so not a breach under the rule.
  * It is still wrong, so the email says plainly what to do about it.
  *
- * No CAN-SPAM footer, for the reason connect-link.ts sets out: this is a
- * transactional message sent once because the recipient signed a contract and
- * is entitled to a copy. There is nothing here to unsubscribe from.
+ * No opt-out, for the reason connect-link.ts sets out: this is a
+ * transactional message sent because the recipient signed a contract and is
+ * entitled to a copy. There is nothing here to unsubscribe from. It carries
+ * the footer every email does (X1.9), which the catalog's renderer writes.
  */
 
 /**
@@ -84,6 +89,8 @@ export { renderAgreementCopy };
  * can ask for less than it is given.
  */
 export type AgreementCopyRequest = {
+  /** The acceptance's id: the `delivery` tag and the idempotency key, never in the email. */
+  agreementId: string;
   /** The signer's frozen address. Unverified: they typed it. */
   to: string;
   /** Frozen at acceptance. */
@@ -101,10 +108,29 @@ export type AgreementCopyRequest = {
   filename?: string;
 };
 
-/** Injected in tests. Defaults to the configured transport. */
+/** Injected in tests. Defaults to the transport the environment names (sendEmail). */
 export type AgreementCopyContext = {
   transport?: EmailTransport;
+  now?: Date;
 };
+
+/**
+ * What the allowlist will let the email print, from the frozen acceptance: a
+ * name it would refuse (a legal name past 120 characters, a signer's name with
+ * a link or a number in it) is left out, so the copy still goes, saying "your
+ * practice" or "Signed on …". The PDF attached is the document itself.
+ */
+export function agreementCopyPayload(acceptance: AgreementCopyRequest): AgreementCopyPayload {
+  const clinicName = acceptance.clinicName.trim();
+  const signatoryName = acceptance.signatoryName.trim();
+  return {
+    clinicName: isAllowedClinicName(clinicName) ? clinicName : null,
+    signatoryName: isSafeTypedText(signatoryName, 120) ? signatoryName : null,
+    documentVersion: acceptance.version,
+    documentHash: acceptance.documentHash,
+    acceptedAt: acceptance.acceptedAt.toISOString(),
+  };
+}
 
 /**
  * `sent` is the question every caller actually has; `status` keeps the
@@ -160,45 +186,59 @@ export async function sendAgreementCopy(
     return failed(acceptance, "The acceptance has no usable signature date.");
   }
 
-  const message: OutgoingEmail = {
-    ...renderAgreementCopy(acceptance),
-    /**
-     * No PHI, so this may go over a transport with no BAA behind it.
-     *
-     * The body is fixed copy plus four facts — the practice's name, who signed,
-     * the template version and when, and the document hash — and the attachment
-     * is the agreement itself: a contract between healdesk and the clinic, not
-     * anything about a patient. The clinic is the counterparty here, not a
-     * subject of the data.
-     *
-     * This is the message where the class most needs stating out loud, because
-     * it is the one carrying a file: the attachment is the one part of an email
-     * no PHI guard can read inside. Anything that ever changes what is attached
-     * has to revisit this line.
-     */
-    phiClass: "none",
-    attachments: [
-      {
-        filename: acceptance.filename ?? agreementCopyFilename(acceptance),
-        contentType: "application/pdf",
-        content: acceptance.pdf,
-      },
-    ],
-  };
-
-  const target: DeliveryTarget = {
-    to,
-    // No clinic exists yet: the agreement is signed before payment, so this is
-    // the identity plane and there is nothing with a clinic id. The transport
-    // uses these for its own logging only.
-    clinicId: "",
-    clinicName: acceptance.clinicName,
-  };
+  // One key per acceptance and minute (X1.4): a double click inside Resend's
+  // window sends once, a deliberate resend a minute later sends again. The
+  // body renders only from the frozen row, so a retry repeats it exactly.
+  const minute = Math.floor((ctx.now ?? new Date()).getTime() / 60_000);
 
   try {
-    const result = await (
-      ctx.transport ?? getTransport(message.phiClass)
-    ).send(target, message);
+    const payload = agreementCopyPayload(acceptance);
+    // The catalog's words, footer and all: the context is not read.
+    const rendered = renderAgreementCopyEmail(payload, {
+      clinicName: payload.clinicName,
+      audience: "patients",
+      reason: "",
+      raisedAt: acceptance.acceptedAt,
+      timeZone: "UTC",
+    });
+    const result = await sendEmail(
+      {
+        to,
+        kind: "agreement_copy",
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
+        /**
+         * No PHI, so this may go over a transport with no BAA behind it.
+         *
+         * The body is fixed copy plus four facts — the practice's name, who
+         * signed, the template version and when, and the document hash — and
+         * the attachment is the agreement itself: a contract between healdesk
+         * and the clinic, not anything about a patient. The clinic is the
+         * counterparty here, not a subject of the data.
+         *
+         * This is the message where the class most needs stating out loud,
+         * because it is the one carrying a file: the attachment is the one part
+         * of an email no PHI guard can read inside. Anything that ever changes
+         * what is attached has to revisit this line.
+         */
+        phiClass: "none",
+        payload,
+        clinicName: payload.clinicName,
+        // No clinic exists before payment: no clinic tag, the acceptance's id
+        // as the delivery tag.
+        deliveryId: acceptance.agreementId,
+        idempotencyKey: `hd-agreement_copy-${acceptance.agreementId}-1-${minute}`,
+        attachments: [
+          {
+            filename: acceptance.filename ?? agreementCopyFilename(acceptance),
+            contentType: "application/pdf",
+            content: acceptance.pdf,
+          },
+        ],
+      },
+      { transport: ctx.transport, now: ctx.now },
+    );
     if (result.status === "sent") return { sent: true, status: "sent" };
     if (result.status === "skipped") {
       return outcome(acceptance, "skipped", result.reason);

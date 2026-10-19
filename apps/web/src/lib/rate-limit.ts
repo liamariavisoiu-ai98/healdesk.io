@@ -79,6 +79,9 @@ export type RateLimitResult = {
  * the same reason. `site-read:signed:day` (19 October 2026) caps the signed
  * re-reads apps/app asks for (a missing profile, a corrected website, the
  * monthly drift check), each a model call like the checkout's.
+ * `voice-followup:day` (19 October 2026) bounds the emails AYA's demo calls
+ * may send in a day (api/voice-demo/follow-up), which bounds the inbox and a
+ * stranger's, and is no bound at all if each warm instance counts its own.
  */
 export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
   "chat:global:day",
@@ -88,6 +91,7 @@ export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
   "webcall:global:day",
   "voice-demo-webcall:global:day",
   "own-demo:global:day",
+  "voice-followup:day",
 ]);
 
 /**
@@ -102,7 +106,16 @@ export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
  * through it too, so a clinic's reads a day are four, not four per warm
  * instance; the key after the prefix is the clinic's id.
  */
-export const SHARED_KEY_PREFIXES: readonly string[] = ["contact-ack:", "site-read:clinic:"];
+export const SHARED_KEY_PREFIXES: readonly string[] = [
+  "contact-ack:",
+  "site-read:clinic:",
+  // The signer's copy of the agreement (P6) to an address no setup link
+  // confirmed: once per address per day, keyed on a digest of the address
+  // (lib/email/agreement-copy.ts).
+  "agreement-copy:",
+  // Ops is told once per mailbox and day that a copy was held back (P6).
+  "agreement-copy-withheld:",
+];
 
 export function isGlobalCapKey(key: string): boolean {
   return GLOBAL_CAP_KEYS.has(key) || SHARED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
@@ -265,7 +278,30 @@ function resultFrom(state: Shared, limit: number, now: number): RateLimitResult 
   return { ok: true, remaining: limit - state.count, retryAfter };
 }
 
+/**
+ * One shared key's reads and writes at a time in this process. Without it,
+ * two calls for the same key that overlap both read the row before either
+ * has counted, and both pass a limit of one: a per-address limit (P6, P8) is
+ * exactly the case where two requests arrive together.
+ */
+const keyLocks = new Map<string, Promise<unknown>>();
+
+async function withKeyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const before = keyLocks.get(key) ?? Promise.resolve();
+  const run = before.catch(() => undefined).then(fn);
+  keyLocks.set(key, run);
+  try {
+    return await run;
+  } finally {
+    if (keyLocks.get(key) === run) keyLocks.delete(key);
+  }
+}
+
 async function rateLimitShared(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+  return withKeyLock(key, () => rateLimitSharedUnlocked(key, limit, windowMs));
+}
+
+async function rateLimitSharedUnlocked(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
   const client = await counters();
   const now = Date.now();
   const state = await currentShared(client, key, windowMs, now);
@@ -329,6 +365,32 @@ export async function isOverLimit(key: string, limit: number): Promise<boolean> 
 }
 
 /**
+ * Give back one count a caller took with `rateLimit` and did not use: a
+ * per-address limit spent before an email, so that parallel requests cannot
+ * both pass, and refunded when the email did not go. Best effort, and never
+ * below zero; on the shared path another instance's cached count may still
+ * hold the spent one until it re-reads the row, within REFRESH_MS.
+ */
+export async function releaseRateLimit(key: string): Promise<void> {
+  const local = windows.get(key);
+  if (local && local.resetAt > Date.now() && local.count > 0) local.count -= 1;
+  if (!isGlobalCapKey(key) || !hasSharedStore()) return;
+  try {
+    await withKeyLock(key, async () => {
+      const client = await counters();
+      const now = Date.now();
+      const state = await currentShared(client, key, 0, now);
+      if (state.count <= 0 || state.windowStart + state.windowMs <= now) return;
+      state.count -= 1;
+      windows.set(key, { count: state.count, resetAt: state.windowStart + state.windowMs });
+      await writeShared(client, key, state);
+    });
+  } catch (error) {
+    logStoreError("release failed", error);
+  }
+}
+
+/**
  * Best-effort client IP. Behind Vercel/most proxies `x-forwarded-for` is set and
  * its first entry is the client. Falls back to a shared bucket, which fails
  * closed-ish: unidentifiable clients share one limit rather than getting none.
@@ -346,6 +408,7 @@ export function clientKey(headers: Headers): string {
 export function __resetRateLimiterForTests(): void {
   windows.clear();
   shared.clear();
+  keyLocks.clear();
   warnedNoStore = false;
   lastErrorLogAt = 0;
 }

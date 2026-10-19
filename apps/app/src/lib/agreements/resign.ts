@@ -48,7 +48,7 @@ import { isDemoClinic } from "@/lib/booking/terms";
 import { updateClinicSettingsRecordingPause } from "@/lib/channels/pause";
 import { AGREEMENT_PAUSE_LABEL, PAUSE_LINE_ORDER } from "@/lib/channels/pause-words";
 import { isPaused } from "@/lib/channels/state";
-import { assertPayloadAllowed } from "@/lib/email/lint";
+import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import {
   renderAgreementToSign,
@@ -656,10 +656,12 @@ export async function sendAgreementToSign(
         : {}),
     };
     assertPayloadAllowed(payload, "agreement_to_sign");
+    // The name as the email may print it, or none (lib/email/lint.ts).
+    const printed = printableClinicName(claim.clinic.name);
     const rendered = renderAgreementToSign(payload, {
-      clinicName: claim.clinic.name,
+      clinicName: printed,
       audience: audienceFor(claim.clinic.specialty),
-      reason: clinicReason(claim.clinic.name),
+      reason: clinicReason(printed),
       raisedAt: now,
       timeZone: claim.clinic.timezone,
     });
@@ -671,6 +673,8 @@ export async function sendAgreementToSign(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
+        clinicName: printed,
         clinicId: input.clinicId,
         deliveryId,
         // A fresh key per attempt (X1.5): a retry carries a fresh link, so it

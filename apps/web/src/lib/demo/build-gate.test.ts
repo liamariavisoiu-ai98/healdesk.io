@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { unsubscribeUrl } from "@/lib/email";
+import { findLeadByEmail, leadForCommercialEmail, markUnsubscribed } from "@/lib/leads";
 import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
 import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
 
@@ -185,5 +187,57 @@ describe("the handoff gate", () => {
     expect(handoffBlocker(released!)).toBeNull();
     expect(send).toHaveBeenCalledTimes(1);
     expect(await releaseHeldDemo(demo.slug, "founder")).toBeNull(); // no longer held
+  });
+
+  /**
+   * The demo-ready email can carry the demo's setup offer, so it is
+   * commercial (Annex X1.10): until 19 October 2026 it had no opt-out, no
+   * X1.9 footer and no idempotency key, and an operator could mail an
+   * address that had asked us to stop.
+   */
+  it("mails the demo with the lead's one-click opt-out, keyed by the demo, never the address", async () => {
+    auditDemo.mockImplementation(async (input) => report(88, input));
+    const demo = await newDemo();
+    await runDemoBuild(demo.slug);
+    const message = send.mock.calls[0]![0] as {
+      to: string;
+      text: string;
+      tag: string;
+      unsubscribeUrl: string;
+      idempotencyKey: string;
+    };
+    const lead = await findLeadByEmail("owner@smith.com");
+    expect(lead).not.toBeNull();
+    // A row opened for the opt-out records no consent: nurture never starts from it.
+    expect(lead!.marketingConsent).toBe(false);
+    expect(message.unsubscribeUrl).toBe(unsubscribeUrl(lead!.id));
+    expect(message.text).toContain(`Stop these emails: ${message.unsubscribeUrl}`);
+    expect(message.text).toContain("healdesk is a service of Viixi FZC");
+    expect(message.text).toContain("Wilmington, DE 19801");
+    expect(message.tag).toBe("demo-ready");
+    expect(message.idempotencyKey).toBe(`hd-demo-ready-${demo.id}-1`);
+    expect(message.idempotencyKey).not.toContain("smith.com");
+  });
+
+  it("never mails an address that unsubscribed or bounced, whoever presses Email", async () => {
+    auditDemo.mockImplementation(async (input) => report(88, input));
+    const demo = await newDemo(false);
+    const done = await runDemoBuild(demo.slug);
+    expect(send).not.toHaveBeenCalled();
+    // The address opted out of an earlier email: the lead row says so.
+    const lead = await leadForCommercialEmail("owner@smith.com", "test");
+    await markUnsubscribed(lead!.id, "link");
+    const result = await sendDemoEmail(done!);
+    expect(result).toEqual({ status: "skipped", reason: "the address is unsubscribed" });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("does not send without a lead row to keep its opt-out on", async () => {
+    auditDemo.mockImplementation(async (input) => report(88, input));
+    const demo = await newDemo(false);
+    const done = await runDemoBuild(demo.slug);
+    __setSheetsClientForTests(null);
+    expect((await sendDemoEmail(done!)).status).toBe("skipped");
+    expect(send).not.toHaveBeenCalled();
   });
 });

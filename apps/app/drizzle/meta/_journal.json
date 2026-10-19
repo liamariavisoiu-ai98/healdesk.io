@@ -694,6 +694,13 @@
       "when": 1792435338816,
       "tag": "0098_agreements_r11",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1792435494227,
+      "tag": "0099_email_events",
+      "breakpoints": true
     }
   ]
 }

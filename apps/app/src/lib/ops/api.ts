@@ -130,6 +130,7 @@ import {
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
 import { hostStandbyCheck } from "@/lib/ops/host-standby";
+import { notifyOps } from "@/lib/ops/notify";
 import {
   opListSupportRequests,
   opMarkSupportReplied,
@@ -553,6 +554,13 @@ const OPERATIONS = [
   // escalations and their reply days for /admin/support; markSupportReplied
   // is the operator's mark that hello@ replied, a security event.
   "setupRepliesPastDue",
+  // The signer's copy of the agreement (P6) that apps/web held back for an
+  // address no setup link confirmed (19 October 2026): before payment there
+  // is no account and no queue, so the agreement's id and the reason's code
+  // raise one ops alert, and a person sends the copy. Machine to machine,
+  // like setupRepliesPastDue, and apps/web relays it at most once per address
+  // and day; it writes the ops log only, so it is not in MUTATING_OPERATIONS.
+  "agreementCopyWithheld",
   "listSupportRequests",
   "markSupportReplied",
   // The misclassification signal (WP9, plan Part L; lib/agreements/
@@ -1300,6 +1308,8 @@ export async function runOperation(
       return opListSiteReadFailures(operator);
     case "setupRepliesPastDue":
       return opSetupRepliesPastDue(args);
+    case "agreementCopyWithheld":
+      return opAgreementCopyWithheld(args);
     case "listSupportRequests":
       return opListSupportRequests();
     case "markSupportReplied":
@@ -4185,12 +4195,22 @@ async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> 
   const clinic = stringArg(args, "clinic", 64);
   const delivery = stringArg(args, "delivery", 64);
   const kind = stringArg(args, "kind", 64);
+  // apps/web's own mail, relayed to be counted for the digest (19 October
+  // 2026). An apps/web older than that sends neither field.
+  const app = stringArg(args, "app", 8);
+  const eventId = stringArg(args, "eventId", 128);
   if (
     (clinic && !UUID_SHAPED.test(clinic)) ||
     (delivery && !UUID_SHAPED.test(delivery)) ||
-    (kind && !KIND_SHAPE.test(kind))
+    (kind && !KIND_SHAPE.test(kind)) ||
+    (app && app !== "web") ||
+    (eventId && !/^[A-Za-z0-9_.-]{1,128}$/.test(eventId))
   ) {
     return opsProblem("The event's tags are not ids.", 400, "invalid_args");
+  }
+  // A web event names no clinic and no ledger row of ours.
+  if (app === "web" && (clinic || delivery)) {
+    return opsProblem("apps/web's mail has no clinic or delivery of ours.", 400, "invalid_args");
   }
   const result = await applyEmailEvent({
     type,
@@ -4198,8 +4218,28 @@ async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> 
     ...(clinic ? { clinic } : {}),
     ...(delivery ? { delivery } : {}),
     ...(kind ? { kind } : {}),
+    ...(app === "web" ? { app: "web" as const } : {}),
+    ...(eventId ? { eventId } : {}),
   });
   return ok(result);
+}
+
+/** Why apps/web held a signer's copy back (apps/web/src/lib/email/agreement-copy.ts). */
+const COPY_WITHHELD_CODES: ReadonlySet<string> = new Set(["already_sent_today", "unsafe_text"]);
+
+/**
+ * A signer's copy of the agreement apps/web held back: one ops alert, with the
+ * agreement's id and the reason's code and nothing else, so a person sends
+ * the copy (before payment there is no account, and no queue to show it in).
+ */
+async function opAgreementCopyWithheld(args: Record<string, unknown>): Promise<OpsOutcome> {
+  const agreementId = stringArg(args, "agreementId", 64);
+  const code = stringArg(args, "code", 32);
+  if (!agreementId || !UUID_SHAPED.test(agreementId) || !code || !COPY_WITHHELD_CODES.has(code)) {
+    return opsProblem("An agreement id and a withheld code are required.", 400, "invalid_args");
+  }
+  await notifyOps("agreement_copy_withheld", { agreementId, code });
+  return ok({ raised: true });
 }
 
 /** The most a day's count can honestly be: far above any plan's daily sending. */

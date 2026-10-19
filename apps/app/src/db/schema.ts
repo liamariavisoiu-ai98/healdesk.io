@@ -1568,6 +1568,57 @@ export const emailDailyQuota = pgTable(
   (t) => [check("email_daily_quota_used_check", sql`${t.used} >= 0`)],
 );
 
+/** Which app sent an email the ops digest counts: this one, or the marketing site. */
+export const EMAIL_EVENT_APPS = ["app", "web"] as const;
+
+/** What an email_events row says happened: a send's answer here, or what Resend reported later. */
+export const EMAIL_EVENT_STATUSES = ["sent", "failed", "bounced", "complained", "suppressed"] as const;
+export type EmailEventStatus = (typeof EMAIL_EVENT_STATUSES)[number];
+
+/**
+ * The email the ledgers do not hold, counted for the 07:00 ops digest (I2):
+ * Annex X5 asks it for email health per kind, and X8's bounce and complaint
+ * targets are the whole Resend account's, since Resend pauses the account,
+ * not one app. report_deliveries holds every send about a clinic; these rows
+ * hold the rest. One per send of a direct kind with no ledger row (sign-in
+ * links, B3, O3, O6, the calendar's two, I3, P6's resend, I2), written by
+ * sendEmail, and one per bounce, complaint or suppression Resend reports for
+ * one of them, written by the webhook relay; and for apps/web's mail, whose
+ * sends apps/app never sees, one per event Resend reports and apps/web's
+ * webhook relays (sent, bounced, complained, suppressed).
+ *
+ * A kind, a status and a time, and no more: no address, no clinic, no
+ * message id, nothing a person could be found by. `event_id` is the
+ * webhook's own id, so a redelivered event counts once. Ours, not a
+ * tenant's: no clinic_id and no row-level security. The digest deletes rows
+ * past 30 days, which nothing reads.
+ */
+export const emailEvents = pgTable(
+  "email_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    app: text("app").notNull(),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    /** When it happened: the send's answer, or the event's own timestamp. */
+    at: timestamp("at", { withTimezone: true }).notNull(),
+    /** The webhook delivery's id (svix-id), for a relayed event. */
+    eventId: text("event_id"),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("email_events_app_check", sql`${t.app} in (${sqlList(EMAIL_EVENT_APPS)})`),
+    check("email_events_kind_check", sql`${t.kind} ~ '^[a-z0-9_]{1,64}$'`),
+    check("email_events_status_check", sql`${t.status} in (${sqlList(EMAIL_EVENT_STATUSES)})`),
+    check(
+      "email_events_event_id_check",
+      sql`${t.eventId} is null or ${t.eventId} ~ '^[A-Za-z0-9_.-]{1,128}$'`,
+    ),
+    uniqueIndex("email_events_event_id_key").on(t.eventId),
+    index("email_events_at_idx").on(t.at),
+  ],
+);
+
 // -----------------------------------------------------------------------------
 // Incidents — the BAA's two clocks, as rows with deadlines
 // -----------------------------------------------------------------------------

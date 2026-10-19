@@ -18,7 +18,7 @@ import { agreementInEffect } from "@/lib/agreements/in-effect";
 import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/lib/audit";
 import { stripeCustomerOf, updateStripeCustomerEmail } from "@/lib/billing/customer-email";
 import { stripeConfigured } from "@/lib/billing/stripe-client";
-import { assertPayloadAllowed } from "@/lib/email/lint";
+import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import {
   addressConfirmReason,
@@ -853,7 +853,8 @@ function isUniqueViolation(error: unknown): boolean {
 // The emails
 // -----------------------------------------------------------------------------
 
-type ClinicFacts = { name: string; slug: string; specialty: string; timezone: string };
+/** `name` is the clinic's name as an email may print it, or null (printableClinicName). */
+type ClinicFacts = { name: string | null; slug: string; specialty: string; timezone: string };
 
 async function clinicFacts(clinicId: string): Promise<ClinicFacts | null> {
   return withTenant({ clinicId, actor: JOB_ACTOR }, async (tx) => {
@@ -867,7 +868,8 @@ async function clinicFacts(clinicId: string): Promise<ClinicFacts | null> {
       .from(clinics)
       .where(eq(clinics.id, tx.clinicId))
       .limit(1);
-    return row ?? null;
+    // The name as the email may print it, or none (lib/email/lint.ts).
+    return row ? { ...row, name: printableClinicName(row.name) } : null;
   });
 }
 
@@ -893,6 +895,8 @@ async function sendConfirmLink(
       kind: "address_change_confirm",
       to: change.newEmail,
       recipientNumber: 1,
+      payload,
+      clinicName: clinic.name,
       render: () => {
         assertPayloadAllowed(payload, "address_change_confirm");
         return renderAddressChangeConfirm(payload, {
@@ -935,6 +939,8 @@ async function sendChangingNotices(
         kind: "address_changing",
         to: which === "old" ? change.oldEmail : change.newEmail,
         recipientNumber: which === "old" ? 1 : 2,
+        payload,
+        clinicName: clinic.name,
         render: () => {
           assertPayloadAllowed(payload, "address_changing");
           return renderAddressChanging(payload, {
@@ -965,6 +971,9 @@ async function sendOnLedger(
     kind: "address_change_confirm" | "address_changing";
     to: string;
     recipientNumber: number;
+    /** The payload `render` renders from, for the sender's allowlist. */
+    payload: Readonly<Record<string, unknown>>;
+    clinicName: string | null;
     render: () => { subject: string; text: string; html: string };
   },
   options: SendEmailOptions,
@@ -988,6 +997,8 @@ async function sendOnLedger(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload: input.payload,
+        clinicName: input.clinicName,
         clinicId: input.clinicId,
         deliveryId,
         idempotencyKey: `hd-${input.kind}-${deliveryId}-${input.recipientNumber}`,

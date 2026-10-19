@@ -18,8 +18,10 @@ export function audienceFor(specialty: string | null | undefined): EmailAudience
  * Why a clinic's address receives a clinic email (the footer's X1.9 line).
  * Every clinic email goes to its one address, which is also its sign-in.
  */
-export function clinicReason(clinicName: string): string {
-  return `You're receiving this because this is the address on ${clinicName}'s healdesk account.`;
+export function clinicReason(clinicName: string | null): string {
+  return clinicName
+    ? `You're receiving this because this is the address on ${clinicName}'s healdesk account.`
+    : "You're receiving this because this is the address on your practice's healdesk account.";
 }
 
 /**

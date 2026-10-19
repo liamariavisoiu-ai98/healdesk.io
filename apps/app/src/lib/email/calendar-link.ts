@@ -2,6 +2,7 @@ import type { BookingSystemId, CalendarAccount, CalendarTermsKind } from "@heald
 
 import { describeError, log } from "@/lib/log";
 
+import { printableClinicName } from "./lint";
 import { sendEmail, type SendEmailOptions } from "./send";
 import { renderCalendarElectionRecorded } from "./templates/calendar_election_recorded";
 import { renderCalendarLink, type CalendarLinkPurpose } from "./templates/calendar_link";
@@ -36,12 +37,19 @@ export async function mailCalendarLink(
   },
   options: SendEmailOptions = {},
 ): Promise<CalendarMailDelivery> {
+  // The name as the email may print it, or none (lib/email/lint.ts).
+  const printed = printableClinicName(input.clinicName);
+  const payload = {
+    linkUrl: input.url,
+    expiresAt: input.expiresAt.toISOString(),
+    purpose: input.purpose,
+  };
   const rendered = renderCalendarLink(
-    { linkUrl: input.url, expiresAt: input.expiresAt.toISOString(), purpose: input.purpose },
+    payload,
     {
-      clinicName: input.clinicName,
+      clinicName: printed,
       audience: audienceFor(input.specialty),
-      reason: clinicReason(input.clinicName),
+      reason: clinicReason(printed),
       raisedAt: options.now ?? new Date(),
       timeZone: input.timeZone,
     },
@@ -55,8 +63,9 @@ export async function mailCalendarLink(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         clinicId: input.clinicId,
-        clinicName: input.clinicName,
+        clinicName: printed,
         deliveryId: input.linkId,
         idempotencyKey: `hd-calendar_link-${input.linkId}-${n}`,
       },
@@ -86,20 +95,23 @@ export async function mailCalendarElectionCopy(
   },
   options: SendEmailOptions = {},
 ): Promise<CalendarMailDelivery> {
+  // The name as the email may print it, or none (lib/email/lint.ts).
+  const printed = printableClinicName(input.clinicName);
+  const payload = {
+    electionId: input.electionId,
+    kind: input.kind,
+    type: input.calendarAccount,
+    provider: input.bookingSystem,
+    electedAt: input.electedAt.toISOString(),
+  };
   let rendered: ReturnType<typeof renderCalendarElectionRecorded>;
   try {
     rendered = renderCalendarElectionRecorded(
+      payload,
       {
-        electionId: input.electionId,
-        kind: input.kind,
-        type: input.calendarAccount,
-        provider: input.bookingSystem,
-        electedAt: input.electedAt.toISOString(),
-      },
-      {
-        clinicName: input.clinicName,
+        clinicName: printed,
         audience: audienceFor(input.specialty),
-        reason: clinicReason(input.clinicName),
+        reason: clinicReason(printed),
         raisedAt: options.now ?? new Date(),
         timeZone: input.timeZone,
       },
@@ -120,8 +132,9 @@ export async function mailCalendarElectionCopy(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         clinicId: input.clinicId,
-        clinicName: input.clinicName,
+        clinicName: printed,
         deliveryId: input.electionId,
         idempotencyKey: `hd-calendar_election_recorded-${input.electionId}-${n}`,
       },

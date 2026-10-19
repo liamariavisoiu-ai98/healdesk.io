@@ -496,6 +496,21 @@ describeDb("the setup wizard", () => {
   });
 
   describe("the welcome email (B1)", () => {
+    test("a clinic whose name the email rule refuses still gets B1, without the name", async () => {
+      const clinic = await purchaseAndProvision();
+      await getMigratorPool().query(`update clinics set name = $1 where id = $2`, [
+        "Glow @ Main Street Med Spa",
+        clinic.clinicId,
+      ]);
+      const transport = new FakeTransport();
+      expect(await sendWelcomeEmail(clinic.clinicId, { transport })).toBe("sent");
+      const { message } = transport.sent[0]!;
+      for (const body of [message.subject, message.text, message.html]) {
+        expect(body).not.toContain("@ Main Street");
+      }
+      expect(message.text).toContain("your practice's healdesk account");
+    });
+
     test("goes once per clinic, with the order's terms, its receipt and a 72-hour link into setup", async () => {
       const clinic = await purchaseAndProvision();
       // Provisioning recorded it as owed and the route tried it after commit,

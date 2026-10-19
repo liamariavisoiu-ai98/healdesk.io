@@ -9,6 +9,7 @@ import {
   clientKey,
   isOverLimit,
   rateLimit,
+  releaseRateLimit,
 } from "./rate-limit";
 
 /**
@@ -95,7 +96,7 @@ describe("rateLimit (per-instance keys)", () => {
 });
 
 describe("rateLimit (the global daily caps)", () => {
-  it("names exactly the seven spend caps the routes use", () => {
+  it("names exactly the eight daily caps the routes use", () => {
     expect([...GLOBAL_CAP_KEYS].sort()).toEqual([
       "callback:global:day",
       "chat:global:day",
@@ -103,6 +104,8 @@ describe("rateLimit (the global daily caps)", () => {
       "site-read:global:day",
       "site-read:signed:day",
       "voice-demo-webcall:global:day",
+      // The emails AYA's demo calls may send in a day (19 October 2026).
+      "voice-followup:day",
       "webcall:global:day",
     ]);
   });
@@ -111,10 +114,32 @@ describe("rateLimit (the global daily caps)", () => {
     expect(isGlobalCapKey("contact-ack:0123456789abcdef")).toBe(true);
     // The signed re-reads' per-clinic limit: apps/app's, never a visitor's.
     expect(isGlobalCapKey("site-read:clinic:0c1d2e3f-0000-4000-8000-000000000000")).toBe(true);
+    // The signer's copy of the agreement, once per unconfirmed address a day (P6).
+    expect(isGlobalCapKey("agreement-copy:0123456789abcdef")).toBe(true);
+    expect(isGlobalCapKey("agreement:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("site-read:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("contact:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("setup-request:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("admin-sign-in:10.0.0.1")).toBe(false);
+  });
+
+  it("serialises one key's calls, so two at once cannot both pass a limit of one, and gives a count back", async () => {
+    const sheets = new FakeSheets();
+    __setSheetsClientForTests(sheets);
+    const k = "agreement-copy:0123456789abcdef";
+    const [a, b] = await Promise.all([rateLimit(k, 1, DAY), rateLimit(k, 1, DAY)]);
+    expect([a.ok, b.ok].sort()).toEqual([false, true]);
+    // Both are given back: the one that passed and the one past the limit.
+    await releaseRateLimit(k);
+    await releaseRateLimit(k);
+    __resetRateLimiterForTests();
+    expect((await rateLimit(k, 1, DAY)).ok).toBe(true);
+    expect(sheets.records("counters")[0]!.count).toBe(1);
+    // Never below zero.
+    await releaseRateLimit(k);
+    await releaseRateLimit(k);
+    __resetRateLimiterForTests();
+    expect(sheets.records("counters")[0]!.count).toBe(0);
   });
 
   it("goes through the counters tab and survives a fresh instance", async () => {

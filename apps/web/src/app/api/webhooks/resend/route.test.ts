@@ -152,6 +152,7 @@ describe("the relay to apps/app", () => {
         clinic: CLINIC,
         delivery: DELIVERY,
         kind: "payment_failed",
+        eventId: "msg_1",
       },
     });
     // No browser behind it, so no context, and nothing of Resend's payload.
@@ -196,6 +197,7 @@ describe("the relay to apps/app", () => {
       at: "2026-10-06T15:00:00.000Z",
       delivery: DELIVERY,
       kind: "ops_alert",
+      eventId: "msg_1",
     });
   });
 
@@ -211,15 +213,57 @@ describe("the relay to apps/app", () => {
     expect(response.status).toBe(503);
   });
 
-  test("this site's own mail is handled here and never relayed", async () => {
+  /**
+   * The ops digest's email health is read in apps/app, which never sends this
+   * site's mail, so until 19 October 2026 it left out nurture, the setup links
+   * and P2 to P9, while Resend pauses the whole account at 0.08% complaints.
+   */
+  test("this site's own mail is handled here, then counted in apps/app: type, time, kind and the delivery's id only", async () => {
     const response = await POST(
       delivery({
         type: "email.complained",
-        data: { to: ["lead@clinic.test"], tags: { app: "web", kind: "nurture" } },
+        created_at: "2026-10-06T15:00:00.000Z",
+        data: {
+          to: ["lead@clinic.test"],
+          subject: "Still thinking it over?",
+          tags: { app: "web", kind: "setup-link" },
+        },
       }),
     );
     expect(response.status).toBe(200);
-    expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.markDeliveryFailure).toHaveBeenCalledWith("lead@clinic.test", "complaint");
+    const body = relayed();
+    expect(body).toEqual({
+      op: "emailEvent",
+      args: {
+        type: "complained",
+        at: "2026-10-06T15:00:00.000Z",
+        kind: "setup_link",
+        app: "web",
+        eventId: "msg_1",
+      },
+    });
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("lead@clinic.test");
+    expect(raw).not.toContain("Still thinking");
+  });
+
+  test("a count apps/app cannot take never fails the delivery: the lead is already marked", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchMock.mockResolvedValue(new Response("{}", { status: 503 }));
+    const response = await POST(
+      delivery({ type: "email.bounced", data: { to: ["lead@clinic.test"], tags: { app: "web", kind: "nurture" } } }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.markDeliveryFailure).toHaveBeenCalledWith("lead@clinic.test", "bounce");
+  });
+
+  test("only what the digest counts is handed on: a delivery or an open is not, and untagged mail is counted as untagged", async () => {
+    for (const type of ["email.delivered", "email.opened", "email.delivery_delayed"]) {
+      await POST(delivery({ type, data: { to: ["lead@clinic.test"], tags: { app: "web", kind: "nurture" } } }));
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    await POST(delivery({ type: "email.sent", data: { to: ["lead@clinic.test"] } }));
+    expect((relayed().args as Record<string, unknown>).kind).toBe("untagged");
   });
 });

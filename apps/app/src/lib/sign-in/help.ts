@@ -1,19 +1,29 @@
-import { sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+
+import { SENDER_IDENTITY } from "@healdesk/catalog";
+import { and, count, eq, gte, lt, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { user } from "@/db/auth-schema";
+import { emailEvents } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/lib/audit";
 import { billingDetailMatches, type BillingDetail } from "@/lib/billing/billing-detail";
 import { stripeCustomerOf } from "@/lib/billing/customer-email";
 import { stripeConfigured } from "@/lib/billing/stripe-client";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
+import {
+  renderAccessRequest,
+  type AccessRequestCode,
+  type AccessRequestPayload,
+} from "@/lib/email/templates/access_request";
 import { renderSignInHelpLink, SIGN_IN_HELP_REASON } from "@/lib/email/templates/sign_in_help_link";
+import { SUPPORT_REASON } from "@/lib/email/templates/support_escalation";
 import { describeError, log } from "@/lib/log";
-import { notifyOps } from "@/lib/ops/notify";
+import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import { portalGrants } from "@/lib/portal/access";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 
-import { issueSignInLink, SIGN_IN_LINK_TTL_MS } from "./links";
+import { issueSignInLink, maskEmail, SIGN_IN_LINK_TTL_MS } from "./links";
 import { looksLikeEmail, normaliseSignInEmail } from "./request";
 
 /**
@@ -25,10 +35,17 @@ import { looksLikeEmail, normaliseSignInEmail } from "./request";
  * (lib/billing/billing-detail.ts). On a match, O6 sends a sign-in link to the
  * address already on the account, and only there; it never adds a device,
  * and patient pages still need a passkey. Anything else sends no link and
- * tells ops through notifyOps, with structured fields only (a code, the
- * clinic's id when the address is one, and whether the name typed matched),
- * never what was typed. notifyOps keeps that to one email an hour per
- * clinic, so the form cannot be used to flood the inbox.
+ * tells ops through notifyOps, one alert an hour per clinic and code, with
+ * structured fields only. When the address is an account's, hello@ also gets
+ * I3's access request (plan D5: "Anything else emails hello@ with structured
+ * fields"; Annex X5's I3): a code, the clinic's id, whether the name typed
+ * matched, which kind of billing detail was offered and the address masked,
+ * never what was typed, with the account's address as reply-to. It goes at
+ * most once a day per clinic and code, and ACCESS_REQUEST_DAILY_CAP times a
+ * day in all, counted in the database, because the form is unauthenticated
+ * and its own limits are per process: an address with no account sends
+ * hello@ nothing, so made-up addresses cannot spend the day's 100 emails that
+ * sign-in links and urgent alerts need.
  *
  * The page answers every well-formed request the same way, at once, and this
  * runs after the answer has gone (the action hands it to after()), so
@@ -137,8 +154,14 @@ export async function runSignInHelp(
 ): Promise<SignInHelpOutcome> {
   const trace = { ipAddress: context.ipAddress ?? null, userAgent: context.userAgent ?? null };
   const unmatched = async (
-    code: Exclude<SignInHelpOutcome, "sent" | "failed">,
-    fields: { userId?: string | null; clinicId?: string | null; clinicNamed?: boolean } = {},
+    code: AccessRequestCode,
+    fields: {
+      userId?: string | null;
+      clinicId?: string | null;
+      clinicNamed?: boolean;
+      /** The account's own address, when the address typed is one: the I3 email's reply-to. */
+      accountEmail?: string | null;
+    } = {},
   ): Promise<SignInHelpOutcome> => {
     const signal =
       fields.clinicNamed === undefined
@@ -162,6 +185,23 @@ export async function runSignInHelp(
       clinicId: fields.clinicId ?? null,
       signal,
     });
+    // I3 to hello@ only for an address that is an account's: an address with
+    // none is anyone's to type, and ops' hourly alert above is all it gets.
+    if (fields.clinicId) {
+      await sendAccessRequest(
+        {
+          requestId: randomUUID(),
+          code,
+          clinicId: fields.clinicId,
+          signal,
+          detail: request.detail.kind,
+          addressMasked: maskEmail(request.email),
+          hasReplyAddress: Boolean(fields.accountEmail),
+        },
+        fields.accountEmail ?? null,
+        options,
+      );
+    }
     return code;
   };
 
@@ -181,13 +221,14 @@ export async function runSignInHelp(
     if (customer) customers.add(customer);
   }
   if (customers.size === 0) {
-    return unmatched("no_billing", { userId: account.id, clinicId: firstClinic, clinicNamed });
+    return unmatched("no_billing", { userId: account.id, clinicId: firstClinic, clinicNamed, accountEmail: account.email });
   }
   if (!stripeConfigured()) {
     return unmatched("billing_unavailable", {
       userId: account.id,
       clinicId: firstClinic,
       clinicNamed,
+      accountEmail: account.email,
     });
   }
 
@@ -205,10 +246,11 @@ export async function runSignInHelp(
       userId: account.id,
       clinicId: firstClinic,
       clinicNamed,
+      accountEmail: account.email,
     });
   }
   if (!matched) {
-    return unmatched("no_match", { userId: account.id, clinicId: firstClinic, clinicNamed });
+    return unmatched("no_match", { userId: account.id, clinicId: firstClinic, clinicNamed, accountEmail: account.email });
   }
 
   const originProblem = publicOriginProblem();
@@ -223,11 +265,12 @@ export async function runSignInHelp(
   });
   if (!link) throw new Error("A sign-in link without a source cannot already exist.");
 
+  const payload = {
+    signInUrl: publicUrl(`/link/${link.token}`),
+    validMinutes: Math.round(SIGN_IN_LINK_TTL_MS.sign_in / 60_000),
+  };
   const rendered = renderSignInHelpLink(
-    {
-      signInUrl: publicUrl(`/link/${link.token}`),
-      validMinutes: Math.round(SIGN_IN_LINK_TTL_MS.sign_in / 60_000),
-    },
+    payload,
     {
       clinicName: null,
       audience: "patients",
@@ -246,6 +289,7 @@ export async function runSignInHelp(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         deliveryId: link.id,
         idempotencyKey: `hd-sign_in_help_link-${link.id}-1`,
       },
@@ -266,6 +310,147 @@ export async function runSignInHelp(
   } catch (error) {
     log.error("sign-in help link not sent", { deliveryId: link.id, error: describeError(error) });
     return "failed";
+  }
+}
+
+/** Where an access request goes: hello@, the support inbox (I3), as the support chat's escalation does. */
+const ACCESS_REQUEST_INBOX = SENDER_IDENTITY.replyTo;
+
+/**
+ * The most I3 access requests hello@ gets in a UTC day, all clinics
+ * together. Resend's free plan stops every email at 100 a day, sign-in links
+ * and urgent alerts included, and the form is unauthenticated: its limits
+ * (three a window per inbox, ten per IP) are per process and in memory, so
+ * without a cap of its own the form could spend the day's sending.
+ */
+export const ACCESS_REQUEST_DAILY_CAP = 10;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Claim today's one I3 email for this clinic and code, under the day's cap.
+ * The claim is the email_events row the digest counts (status `sent`), keyed
+ * by its event id `i3.<clinic>.<code>.<UTC day>`, so a second request about
+ * the same clinic and code that day finds it and sends nothing, and the cap
+ * is a count of the day's claims. Serialised by an advisory lock, so two
+ * processes cannot both take the last place.
+ */
+async function claimAccessRequest(
+  clinicId: string,
+  code: AccessRequestCode,
+  now: Date,
+): Promise<{ claimId: string } | "duplicate" | "capped"> {
+  const day = now.toISOString().slice(0, 10);
+  const dayStart = new Date(`${day}T00:00:00.000Z`);
+  return unsafeDb.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended('access_request', 0))`);
+    const [taken] = await tx
+      .select({ n: count() })
+      .from(emailEvents)
+      .where(
+        and(
+          eq(emailEvents.kind, "access_request"),
+          eq(emailEvents.status, "sent"),
+          gte(emailEvents.at, dayStart),
+          lt(emailEvents.at, new Date(dayStart.getTime() + DAY_MS)),
+        ),
+      );
+    const [claimed] = await tx
+      .insert(emailEvents)
+      .values({
+        app: "app",
+        kind: "access_request",
+        status: "sent",
+        at: now,
+        eventId: `i3.${clinicId}.${code}.${day}`,
+      })
+      .onConflictDoNothing()
+      .returning({ id: emailEvents.id });
+    if (!claimed) return "duplicate";
+    if ((taken?.n ?? 0) >= ACCESS_REQUEST_DAILY_CAP) {
+      // Over the cap: the claim goes again, so the day's count stays the cap.
+      await tx.delete(emailEvents).where(eq(emailEvents.id, claimed.id));
+      return "capped";
+    }
+    return { claimId: claimed.id };
+  });
+}
+
+/**
+ * A send that did not go gives its claim back, so a later request that day
+ * can try again, and is counted as the failure it was. Never throws.
+ */
+async function releaseAccessRequest(claimId: string, now: Date): Promise<void> {
+  try {
+    await unsafeDb.delete(emailEvents).where(eq(emailEvents.id, claimId));
+    await unsafeDb
+      .insert(emailEvents)
+      .values({ app: "app", kind: "access_request", status: "failed", at: now });
+  } catch (error) {
+    log.warn("sign-in help access request claim not released", { error: describeError(error) });
+  }
+}
+
+/**
+ * I3, an access request: the unmatched request about an account, to hello@,
+ * structured fields only (templates/access_request.ts). At most one a day
+ * per clinic and code, and ACCESS_REQUEST_DAILY_CAP a day in all; past the
+ * cap, ops is told once that day instead. Never throws: the person has
+ * already been answered, and ops has been told.
+ */
+async function sendAccessRequest(
+  payload: AccessRequestPayload & { clinicId: string },
+  replyTo: string | null,
+  options: SendEmailOptions,
+): Promise<void> {
+  const now = options.now ?? new Date();
+  let claimId: string | null = null;
+  try {
+    const claim = await claimAccessRequest(payload.clinicId, payload.code, now);
+    if (claim === "duplicate") return;
+    if (claim === "capped") {
+      await notifyOpsOnce("access_requests_capped", {
+        count: ACCESS_REQUEST_DAILY_CAP,
+        windowStart: now.toISOString().slice(0, 10),
+      });
+      return;
+    }
+    claimId = claim.claimId;
+    const rendered = renderAccessRequest(payload, {
+      clinicName: null,
+      audience: "patients",
+      reason: SUPPORT_REASON,
+      raisedAt: now,
+      timeZone: "America/New_York",
+    });
+    const result = await sendEmail(
+      {
+        to: ACCESS_REQUEST_INBOX,
+        kind: "access_request",
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
+        phiClass: "none",
+        payload,
+        deliveryId: payload.requestId,
+        idempotencyKey: `hd-access_request-${payload.requestId}-1`,
+        ...(replyTo ? { replyTo } : {}),
+      },
+      options,
+    );
+    if (result.status === "failed") {
+      await releaseAccessRequest(claimId, now);
+      log.warn("sign-in help access request not delivered", {
+        deliveryId: payload.requestId,
+        reason: result.reason,
+      });
+    }
+  } catch (error) {
+    if (claimId) await releaseAccessRequest(claimId, now);
+    log.error("sign-in help access request not sent", {
+      deliveryId: payload.requestId,
+      error: describeError(error),
+    });
   }
 }
 

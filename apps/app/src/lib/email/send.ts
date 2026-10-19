@@ -3,14 +3,23 @@ import { SENDER_IDENTITY } from "@healdesk/catalog";
 import {
   ConsoleTransport,
   type DeliveryResult,
+  type EmailAttachment,
   type EmailTransport,
   type OutgoingEmail,
   type PhiClass,
 } from "@/lib/reporting/deliver";
+import { notifyOpsOnce } from "@/lib/ops/notify";
 import { PhiRoutingError, ResendTransport } from "@/lib/reporting/resend-transport";
 
-import { KIND_SHAPE } from "./kind-rules";
-import { assertLinksAllowed } from "./lint";
+import { countsAtSend, holdsNoLedgerRow, recordEmailEvent } from "./health";
+import { isDirectKind, isEmailKind, KIND_SHAPE } from "./kind-rules";
+import {
+  assertLinksAllowed,
+  assertPayloadAllowed,
+  isAllowedClinicName,
+  LinkNotAllowedError,
+  PayloadNotAllowedError,
+} from "./lint";
 import { recordDailyQuota } from "./quota";
 
 /**
@@ -35,8 +44,17 @@ import { recordDailyQuota } from "./quota";
  *     hello@healdesk.io unless the caller names another address;
  *   - the LINK SCANNER, over the subject, both bodies and the headers: https,
  *     public origins only, never HEALDESK_APP_URL, tokens only in link emails;
+ *   - the PAYLOAD ALLOWLIST, for a direct kind (lib/email/direct-kinds.ts):
+ *     the payload its template rendered from is required and checked here, at
+ *     send time, as the outbox checks its stored payloads, and so is the
+ *     clinic's name the template printed. Until 19 October 2026 a direct
+ *     kind's sender checked or not as it chose: O3 printed a device's label,
+ *     and B3 a clinic's name typed at checkout, unchecked;
  *   - the DAILY COUNT. Resend's x-resend-daily-quota header is recorded on
- *     every answer, and notifyOps fires once when it reaches 70.
+ *     every answer, and notifyOps fires once when it reaches 70;
+ *   - the EMAIL HEALTH of a direct kind with no ledger row (lib/email/health.ts):
+ *     each send's answer, sent or failed, so the ops digest counts the mail
+ *     no ledger holds.
  */
 
 export type EmailToSend = {
@@ -51,8 +69,20 @@ export type EmailToSend = {
   phiClass: PhiClass;
   /** The `clinic` tag. Absent for mail with no clinic (ops alerts, sign-in links). */
   clinicId?: string | null;
-  /** For the log line a development send writes. Never sent anywhere. */
+  /**
+   * The clinic's name the template printed (its context's `clinicName`), or
+   * null. For a direct kind it is held to the allowlist's rule for a clinic's
+   * name; otherwise it is only for the log line a development send writes.
+   */
   clinicName?: string | null;
+  /**
+   * The payload the template rendered from. Required for a direct kind, and
+   * checked against the payload allowlist (lib/email/lint.ts) before anything
+   * is sent; an outbox kind's is checked by the outbox before it renders.
+   */
+  payload?: Readonly<Record<string, unknown>>;
+  /** Files sent with it (P6, the agreement copy). No PHI guard can read inside one: see deliver.ts. */
+  attachments?: EmailAttachment[];
   /** The `delivery` tag: the ledger row (or, for a kind with no clinic, its own state row). */
   deliveryId?: string | null;
   /** `hd-<kind>-<row id>-<recipient n>` (X1.4). Never an address. */
@@ -77,6 +107,33 @@ export class EmailEnvelopeError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "EmailEnvelopeError";
+  }
+}
+
+/**
+ * A direct kind refused before sending would otherwise be a log line in its
+ * caller, and the clinic simply never hears: so it is counted as failed for
+ * the digest (lib/email/health.ts) and ops is told once per kind and clinic.
+ * Not for I1 itself, whose refusal notifyOps would answer with another I1.
+ * Never throws.
+ */
+async function refused(email: EmailToSend, error: unknown, now: Date): Promise<void> {
+  if (!isDirectKind(email.kind) || email.kind === "ops_alert") return;
+  if (
+    !(error instanceof PayloadNotAllowedError) &&
+    !(error instanceof LinkNotAllowedError) &&
+    !(error instanceof EmailEnvelopeError)
+  ) {
+    return;
+  }
+  try {
+    if (holdsNoLedgerRow(email.kind)) {
+      await recordEmailEvent({ app: "app", kind: email.kind, status: "failed", at: now });
+    }
+    const clinicId = email.clinicId && TAG_VALUE.test(email.clinicId) ? email.clinicId : null;
+    await notifyOpsOnce("email_refused", { kind: email.kind, clinicId });
+  } catch {
+    // The refusal itself is what the caller hears about.
   }
 }
 
@@ -133,11 +190,32 @@ export async function sendEmail(
       "Refusing to send: the idempotency key is not hd- followed by ids. It is kept in Resend's logs.",
     );
   }
-  const tags = tagsFor(email);
-  assertLinksAllowed(
-    { subject: email.subject, text: email.text, html: email.html, headers: email.headers },
-    email.kind,
-  );
+  let tags: ReturnType<typeof tagsFor>;
+  try {
+    if (isDirectKind(email.kind)) {
+      if (!email.payload) {
+        throw new EmailEnvelopeError(
+          "Refusing to send: a direct kind goes with the payload it was rendered from, for the allowlist.",
+        );
+      }
+      assertPayloadAllowed(email.payload, email.kind);
+      // The backstop: every direct sender prints the clinic's name through
+      // printableClinicName, which leaves out a name this would refuse.
+      if (email.clinicName != null && !isAllowedClinicName(email.clinicName)) {
+        throw new PayloadNotAllowedError("(clinic name)", "must be a clinic's name.");
+      }
+    } else if (email.payload) {
+      assertPayloadAllowed(email.payload, isEmailKind(email.kind) ? email.kind : undefined);
+    }
+    tags = tagsFor(email);
+    assertLinksAllowed(
+      { subject: email.subject, text: email.text, html: email.html, headers: email.headers },
+      email.kind,
+    );
+  } catch (error) {
+    await refused(email, error, options.now ?? new Date());
+    throw error;
+  }
 
   const message: OutgoingEmail = {
     subject: email.subject,
@@ -149,6 +227,7 @@ export async function sendEmail(
     ...(email.from ? { from: email.from } : {}),
     ...(email.headers ? { headers: email.headers } : {}),
     ...(email.idempotencyKey ? { idempotencyKey: email.idempotencyKey } : {}),
+    ...(email.attachments?.length ? { attachments: email.attachments } : {}),
   };
   const transport = options.transport ?? platformTransport();
   const result = await transport.send(
@@ -158,6 +237,14 @@ export async function sendEmail(
 
   if (result.status !== "skipped" && result.quota !== undefined) {
     await recordDailyQuota(result.quota, options.now ?? new Date());
+  }
+  if (result.status !== "skipped" && countsAtSend(email.kind)) {
+    await recordEmailEvent({
+      app: "app",
+      kind: email.kind,
+      status: result.status,
+      at: options.now ?? new Date(),
+    });
   }
   return result;
 }

@@ -266,4 +266,85 @@ describeDb("the emailEvent relay", () => {
     });
     expect(outcome).toEqual({ status: 200, body: { data: { recorded: true } } });
   });
+
+  /** email_events, as the digest reads it: a kind, a status, a time and nothing else. */
+  async function counted(): Promise<{ app: string; kind: string; status: string; event_id: string | null }[]> {
+    const { rows } = await getMigratorPool().query<{
+      app: string;
+      kind: string;
+      status: string;
+      event_id: string | null;
+    }>(`select app, kind, status, event_id from email_events order by recorded_at, kind`);
+    return rows;
+  }
+
+  /**
+   * The I2 digest's email health read only the ledgers and the ops log: the
+   * clinic-less kinds' bounces were only logged here, and apps/web's mail
+   * never reached apps/app at all (19 October 2026).
+   */
+  test("a bounce on a kind no ledger holds is counted for the digest, once per webhook delivery", async () => {
+    await getMigratorPool().query(`truncate email_events`);
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    for (let i = 0; i < 2; i += 1) {
+      await relay({
+        type: "bounced",
+        at: "2026-10-06T15:00:00Z",
+        delivery: crypto.randomUUID(),
+        kind: "sign_in_link",
+        eventId: "msg_bounce_1",
+      });
+    }
+    // A delivery is not something the digest counts; a ledger kind's bounce is the ledger's.
+    await relay({ type: "delivered", at: "2026-10-06T15:00:00Z", kind: "device_changed" });
+    await relay({ type: "bounced", at: "2026-10-06T15:00:00Z", kind: "ops_alert" });
+    expect(await counted()).toEqual([
+      { app: "app", kind: "sign_in_link", status: "bounced", event_id: "msg_bounce_1" },
+    ]);
+  });
+
+  test("apps/web's own mail is counted and nothing else: no ledger, no alert, once per delivery", async () => {
+    await getMigratorPool().query(`truncate email_events`);
+    for (const [type, kind, eventId] of [
+      ["sent", "nurture_1", "msg_w1"],
+      ["complained", "nurture_1", "msg_w2"],
+      ["complained", "nurture_1", "msg_w2"],
+      ["delivered", "nurture_1", "msg_w3"],
+    ] as const) {
+      const outcome = await relay({ type, at: "2026-10-06T15:00:00Z", kind, app: "web", eventId });
+      expect(outcome).toMatchObject({ status: 200 });
+    }
+    expect(await counted()).toEqual([
+      { app: "web", kind: "nurture_1", status: "sent", event_id: "msg_w1" },
+      { app: "web", kind: "nurture_1", status: "complained", event_id: "msg_w2" },
+    ]);
+    expect(await alerts("clinic_address_complained")).toEqual([]);
+    // A web event names no clinic or delivery of ours, and no other app.
+    expect(
+      await relay({ type: "sent", at: "2026-10-06T15:00:00Z", kind: "nurture_1", app: "web", clinic: crypto.randomUUID() }),
+    ).toMatchObject({ status: 400 });
+    expect(
+      await relay({ type: "sent", at: "2026-10-06T15:00:00Z", kind: "nurture_1", app: "leadgen" }),
+    ).toMatchObject({ status: 400 });
+  });
+
+  /** P6 withheld on apps/web, before payment: no account, no queue, so ops is told. */
+  test("a copy apps/web held back raises one ops alert, with the agreement's id and the code only", async () => {
+    const agreementId = crypto.randomUUID();
+    const run = async (args: Record<string, unknown>) => {
+      const parsed = parseEnvelope(JSON.stringify({ op: "agreementCopyWithheld", args }));
+      if (!parsed.ok) return parsed.outcome;
+      return runOperation(parsed.envelope.op, parsed.envelope.args, OPERATOR);
+    };
+    expect(await run({ agreementId, code: "already_sent_today" })).toEqual({
+      status: 200,
+      body: { data: { raised: true } },
+    });
+    expect(await alerts("agreement_copy_withheld")).toEqual([
+      { agreementId, code: "already_sent_today" },
+    ]);
+    expect(await run({ agreementId, code: "owner@radiance.test" })).toMatchObject({ status: 400 });
+    expect(await run({ agreementId: "not-an-id", code: "unsafe_text" })).toMatchObject({ status: 400 });
+  });
 });
+

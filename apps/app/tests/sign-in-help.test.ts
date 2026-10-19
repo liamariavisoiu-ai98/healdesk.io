@@ -1,9 +1,16 @@
+import { randomUUID } from "node:crypto";
+
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { withinSignInHelpLimit } from "@/lib/connections/attempt-limit";
 import type { DeliveryResult, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
-import { parseSignInHelp, runSignInHelp, sameName } from "@/lib/sign-in/help";
+import {
+  ACCESS_REQUEST_DAILY_CAP,
+  parseSignInHelp,
+  runSignInHelp,
+  sameName,
+} from "@/lib/sign-in/help";
 import { consumeSignInLink } from "@/lib/sign-in/links";
 
 import {
@@ -273,7 +280,9 @@ describeDb("/sign-in/help", () => {
         { transport },
       ),
     ).toBe("no_match");
-    expect(sent).toEqual([]);
+    // No link, to anyone: the one email is I3's, to hello@.
+    expect(sent.map((s) => s.to)).toEqual(["hello@healdesk.io"]);
+    expect(sent[0]!.message.text).not.toMatch(/\/link\//);
     const alerts = await opsAlerts();
     expect(alerts).toEqual([
       { code: "no_match", clinicId: clinic.clinicId, signal: "clinic_not_named" },
@@ -290,6 +299,111 @@ describeDb("/sign-in/help", () => {
       clinicId: clinic.clinicId,
       signal: "clinic_not_named",
     });
+  });
+
+  /**
+   * Plan Part D5: "Anything else emails hello@ with structured fields" (Annex
+   * X5's I3, access requests). Until 19 October 2026 an unmatched request
+   * reached only HEALDESK_OPS_EMAIL, through notifyOps, and hello@, where a
+   * person answers access requests, never heard.
+   */
+  test("an unmatched request emails hello@ the structured fields, never what was typed, replying to the account", async () => {
+    const { stripe } = fakeStripe({
+      cards: [{ id: "pm_2", card: { last4: "1111", exp_month: 4, exp_year: 2028 } }],
+    });
+    __setStripeForTests(stripe);
+    const { sent, transport } = fakeTransport();
+    await runSignInHelp(
+      { email: clinic.staffEmail, clinic: "Somewhere Else Entirely", detail: { kind: "card", last4: "9876", expMonth: 7, expYear: 2029 } },
+      {},
+      { transport },
+    );
+    expect(sent).toHaveLength(1);
+    const [{ to, message }] = sent as [Sent];
+    expect(to).toBe("hello@healdesk.io");
+    expect(message.subject).toBe("Sign-in help: no link was sent");
+    expect(message.replyTo).toBe(clinic.staffEmail);
+    expect(message.tags).toEqual([
+      { name: "app", value: "app" },
+      { name: "kind", value: "access_request" },
+      { name: "delivery", value: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+    ]);
+    expect(message.idempotencyKey).toMatch(/^hd-access_request-[0-9a-f-]{36}-1$/);
+    expect(message.text).toContain("the billing detail matched nothing on the account");
+    expect(message.text).toContain(clinic.clinicId);
+    expect(message.text).toContain("did not match the account's");
+    expect(message.text).toContain("a card");
+    for (const body of [message.text, message.html]) {
+      expect(body).not.toContain("Somewhere");
+      expect(body).not.toContain("9876");
+      expect(body).not.toContain(clinic.staffEmail);
+    }
+    // Ops still hears, once an hour per clinic and code.
+    expect((await opsAlerts()).map((a) => a.code)).toEqual(["no_match"]);
+  });
+
+  /**
+   * The review of 19 October 2026: every unmatched request mailed hello@, an
+   * address with no account included, under a fresh key and limits held only
+   * in each process's memory, so made-up addresses from one IP could spend
+   * Resend's 100 a day, which sign-in links and urgent alerts need.
+   */
+  test("a flood of made-up addresses mails hello@ nothing: ops' hourly alert is all they get", async () => {
+    const { transport, sent } = fakeTransport();
+    for (let i = 0; i < 15; i += 1) {
+      expect(
+        await runSignInHelp(
+          { email: `nobody${i}@nowhere.test`, clinic: "Nowhere", detail: card },
+          {},
+          { transport },
+        ),
+      ).toBe("no_account");
+    }
+    expect(sent).toEqual([]);
+    expect((await opsAlerts()).map((a) => a.code)).toEqual(["no_account"]);
+  });
+
+  test("the same account twice in a day mails hello@ once, and a send that failed gives its place back", async () => {
+    const { stripe } = fakeStripe({
+      cards: [{ id: "pm_2", card: { last4: "1111", exp_month: 4, exp_year: 2028 } }],
+    });
+    __setStripeForTests(stripe);
+    const failing = fakeTransport({ status: "failed", reason: "resend 500" });
+    const ask = (transport: EmailTransport) =>
+      runSignInHelp({ email: clinic.staffEmail, clinic: "help", detail: card }, {}, { transport });
+    await ask(failing.transport);
+    expect(failing.sent).toHaveLength(1);
+    const { transport, sent } = fakeTransport();
+    await ask(transport);
+    await ask(transport);
+    expect(sent.map((s) => s.to)).toEqual(["hello@healdesk.io"]);
+    const { rows } = await getMigratorPool().query<{ status: string }>(
+      `select status from email_events where kind = 'access_request' order by recorded_at`,
+    );
+    expect(rows.map((r) => r.status)).toEqual(["failed", "sent"]);
+  });
+
+  test("past the day's cap hello@ gets nothing more, and ops hears once", async () => {
+    const { stripe } = fakeStripe({
+      cards: [{ id: "pm_2", card: { last4: "1111", exp_month: 4, exp_year: 2028 } }],
+    });
+    __setStripeForTests(stripe);
+    const today = new Date().toISOString().slice(0, 10);
+    for (let i = 0; i < ACCESS_REQUEST_DAILY_CAP; i += 1) {
+      await getMigratorPool().query(
+        `insert into email_events (app, kind, status, at, event_id) values ('app', 'access_request', 'sent', now(), $1)`,
+        [`i3.${randomUUID()}.no_match.${today}`],
+      );
+    }
+    const { transport, sent } = fakeTransport();
+    for (const code of ["help", "Elsewhere"]) {
+      await runSignInHelp({ email: clinic.staffEmail, clinic: code, detail: card }, {}, { transport });
+    }
+    expect(sent).toEqual([]);
+    const { rows } = await getMigratorPool().query(
+      `select fields from ops_alerts where event = 'access_requests_capped'`,
+    );
+    expect(rows).toHaveLength(1);
   });
 
   test("an address with no account, and Stripe unreachable: no link either way", async () => {

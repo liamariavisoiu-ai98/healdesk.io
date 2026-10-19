@@ -5,6 +5,7 @@ import { log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
+import { holdsNoLedgerRow, recordEmailEvent } from "./health";
 import { locksOutClinic, toSomeoneNamed } from "./kind-rules";
 
 /**
@@ -32,6 +33,16 @@ import { locksOutClinic, toSomeoneNamed } from "./kind-rules";
  * The steps a clinic sends on (O11) go to someone it named, not to its
  * address: their row is updated like any other, but a bounce from that
  * person's inbox says nothing about the clinic's, so ops is not called.
+ *
+ * ## Counted for the digest (19 October 2026)
+ *
+ * A bounce, complaint or suppression on a kind no ledger row holds (the
+ * clinic-less kinds, and the calendar's two) is recorded in email_events
+ * (lib/email/health.ts), so the ops digest's email health and its rates see
+ * it. So is every event apps/web's webhook relays about apps/web's own mail
+ * (`app: "web"`), which apps/app never sends and so cannot count otherwise:
+ * those change no ledger, call no one, and are recorded once by the
+ * webhook's own id.
  */
 
 export type RelayedEmailEvent = {
@@ -42,7 +53,19 @@ export type RelayedEmailEvent = {
   clinic?: string;
   delivery?: string;
   kind?: string;
+  /** "web" for apps/web's own mail, relayed only to be counted. Absent for apps/app's. */
+  app?: "web";
+  /** The webhook delivery's id (svix-id): a redelivered event counts once. */
+  eventId?: string;
 };
+
+/** The statuses the digest counts, of the ones the relay carries. */
+const COUNTED: ReadonlySet<DeliveryStatus> = new Set<DeliveryStatus>([
+  "sent",
+  "bounced",
+  "complained",
+  "suppressed",
+]);
 
 export function isDeliveryStatus(value: string): value is DeliveryStatus {
   return (DELIVERY_STATUSES as readonly string[]).includes(value);
@@ -74,6 +97,31 @@ const ACTOR = { type: "service", serviceName: "resend-webhook-relay" } as const;
 
 export async function applyEmailEvent(event: RelayedEmailEvent): Promise<{ recorded: boolean }> {
   const undeliverable = UNDELIVERABLE.has(event.type);
+
+  // apps/web's own mail: counted, and nothing else. Its leads are its own.
+  if (event.app === "web") {
+    if (!event.kind || !COUNTED.has(event.type)) return { recorded: false };
+    const recorded = await recordEmailEvent({
+      app: "web",
+      kind: event.kind,
+      status: event.type as "sent" | "bounced" | "complained" | "suppressed",
+      at: event.at,
+      eventId: event.eventId ?? null,
+    });
+    return { recorded };
+  }
+
+  // A kind no ledger row holds: its sends are counted at send time, and an
+  // undeliverable event is counted here, with or without a clinic.
+  if (undeliverable && event.kind && holdsNoLedgerRow(event.kind)) {
+    await recordEmailEvent({
+      app: "app",
+      kind: event.kind,
+      status: event.type as "bounced" | "complained" | "suppressed",
+      at: event.at,
+      eventId: event.eventId ?? null,
+    });
+  }
 
   if (!event.clinic) {
     log.info("email event for mail with no clinic", {

@@ -350,7 +350,9 @@ type RelayOp =
   | "bookingSwitch"
   | "emailQuota"
   // The daily cron's setup requests past their promised reply (WP5).
-  | "setupRepliesPastDue";
+  | "setupRepliesPastDue"
+  // A signer's copy of the agreement held back (P6), for a person to send.
+  | "agreementCopyWithheld";
 
 type OpName = OperatorOp | RelayOp;
 
@@ -814,6 +816,8 @@ export type EmailEventRelay = {
   clinic?: string;
   delivery?: string;
   kind?: string;
+  /** The webhook delivery's id (svix-id), so a retried delivery is counted once. */
+  eventId?: string;
 };
 
 /**
@@ -829,12 +833,67 @@ export function relayEmailEvent(
   if (event.clinic) args.clinic = event.clinic;
   if (event.delivery) args.delivery = event.delivery;
   if (event.kind) args.kind = event.kind;
+  if (event.eventId) args.eventId = event.eventId;
   return send(
     "emailEvent",
     "write",
     (value) => ({ recorded: bool(object(value, "emailEvent").recorded, "emailEvent.recorded") }),
     args,
     { context: false },
+  );
+}
+
+/**
+ * Hand apps/app one delivery event about THIS site's own mail, only so the
+ * 07:00 ops digest can count it (Annex X5's email health per kind, X8's
+ * targets, which are the whole Resend account's): its type, its timestamp,
+ * the kind tag this site put on it, and the webhook delivery's id, which
+ * apps/app records once. Never the address, the subject or anything else in
+ * Resend's payload. A short timeout, because the host may be in standby and
+ * the lead handling has already happened; an apps/app older than 19 October
+ * 2026 reads it as an event with no clinic, logs it and answers
+ * `recorded: false`.
+ */
+export function relayWebEmailEvent(event: {
+  type: "sent" | "bounced" | "complained" | "suppressed";
+  at: string;
+  kind: string;
+  eventId?: string;
+}): Promise<OpsResult<{ recorded: boolean }>> {
+  return send(
+    "emailEvent",
+    "write",
+    (value) => ({ recorded: bool(object(value, "emailEvent").recorded, "emailEvent.recorded") }),
+    {
+      type: event.type,
+      at: event.at,
+      kind: event.kind,
+      app: "web",
+      ...(event.eventId ? { eventId: event.eventId } : {}),
+    },
+    { context: false, timeoutMs: EMAIL_QUOTA_TIMEOUT_MS },
+  );
+}
+
+/**
+ * Tell apps/app that the signer's copy of an agreement was held back (P6:
+ * one already went to the mailbox today, or the names on it are not safe to
+ * mail), so ops is alerted and a person sends it: before payment there is no
+ * account and no queue to show it in. The agreement's id and the code only.
+ * A relay op with a short timeout, like emailQuota: the signature has been
+ * recorded, and an apps/app in standby, or one older than 19 October 2026
+ * that does not know the op, costs the alert, never the buyer's answer.
+ */
+export function relayAgreementCopyWithheld(
+  agreementId: string,
+  code: "already_sent_today" | "unsafe_text",
+): Promise<OpsResult<{ raised: boolean }>> {
+  return send(
+    "agreementCopyWithheld",
+    "write",
+    (value) => ({ raised: bool(object(value, "agreementCopyWithheld").raised, "agreementCopyWithheld.raised") }),
+    { agreementId, code },
+    { context: false, timeoutMs: EMAIL_QUOTA_TIMEOUT_MS },
   );
 }
 

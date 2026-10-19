@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { SENDER_IDENTITY } from "@healdesk/catalog";
 
 import type { ActorContext } from "@/lib/audit";
-import { assertPayloadAllowed } from "@/lib/email/lint";
+import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import {
   renderSupportEscalation,
@@ -135,6 +135,9 @@ async function sendEscalation(
     now: Date;
   },
 ): Promise<boolean> {
+  // The name as the email may print it, or "A practice" (lib/email/lint.ts):
+  // the account's id below finds it in the console either way.
+  const printed = printableClinicName(account.clinicName);
   const payload: SupportEscalationPayload = {
     requestId: options.requestId,
     topic: fields.topic,
@@ -145,13 +148,13 @@ async function sendEscalation(
     channel: fields.channel,
     replyByOn: options.replyByOn,
     hasReplyAddress: options.replyTo !== null,
-    accountRows: [account],
+    accountRows: [{ ...account, clinicName: printed ?? "A practice" }],
   };
   // The allowlist runs before rendering, as the outbox's does: the payload is
   // ids, categories, dates, flags and the clinic's own numbers, or nothing goes.
   assertPayloadAllowed(payload, "support_escalation");
   const rendered = renderSupportEscalation(payload, {
-    clinicName: account.clinicName,
+    clinicName: printed,
     audience: "patients",
     reason: SUPPORT_REASON,
     raisedAt: options.now,
@@ -165,6 +168,8 @@ async function sendEscalation(
       text: rendered.text,
       html: rendered.html,
       phiClass: "none",
+      payload,
+      clinicName: printed,
       deliveryId: options.requestId,
       idempotencyKey: `hd-support_escalation-${options.requestId}-1`,
       ...(options.replyTo ? { replyTo: options.replyTo } : {}),

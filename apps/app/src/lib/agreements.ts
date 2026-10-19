@@ -548,6 +548,8 @@ export async function deliverSignedCopy(
     const pdf = await renderAgreementPdf(row);
 
     const result = await sendAgreementCopy({
+      // The delivery tag and the idempotency key; never in the email.
+      agreementId: row.id,
       to: row.acceptedByEmail,
       signatoryName: row.acceptedByName,
       clinicName,

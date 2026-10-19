@@ -135,6 +135,7 @@ export async function sendFlagAlert(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         deliveryId: alertId,
         idempotencyKey: `hd-flag_alert-${alertId}-1`,
       },

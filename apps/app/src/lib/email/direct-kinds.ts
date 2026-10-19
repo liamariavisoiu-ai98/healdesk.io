@@ -13,7 +13,10 @@ import type { NoticeClass, NoticeOwner } from "./kinds";
  *
  * Every direct kind apps/app sends is listed, built or not: I1, the three the
  * relay must recognise, and (since 14 October 2026) I2 and I4, so the
- * packages that build them find their names here. P6 is apps/web's. A link
+ * packages that build them find their names here. P6 is apps/web's at
+ * signature; apps/app sends it again on an operator's resend, as
+ * `agreement_copy` (since 19 October 2026, when the resend stopped calling a
+ * transport directly). A link
  * email (X1.5) mints its single-use token at send time and never stores it,
  * which is also why none of these can be an outbox row: the outbox stores its
  * payloads.
@@ -176,6 +179,21 @@ export const DIRECT_KIND_REGISTRY = {
    * bounce from it says nothing about the clinic's address.
    */
   support_escalation: direct("I3", "transactional", "plan", { linkEmail: false, locksOut: false }),
+  /**
+   * P6, the signer's copy of the agreement, with the PDF attached: sent again
+   * on an operator's resend from the console, and at signature for apps/app's
+   * own demo clinic (lib/email/agreement-copy.ts). Before payment there is no
+   * clinic, so it carries no `clinic` tag; its `delivery` tag is the
+   * acceptance's id, the row whose copy_sent_at records it.
+   */
+  agreement_copy: direct("P6", "transactional", "plan", { linkEmail: false, locksOut: false }),
+  /**
+   * I3's access request: a /sign-in/help request that sent no link, to hello@
+   * with structured fields only (plan Part D5; lib/sign-in/help.ts), and the
+   * account's address as reply-to when the address typed is one. No `clinic`
+   * tag: it goes to our own inbox, as the support escalation does.
+   */
+  access_request: direct("I3", "transactional", "plan", { linkEmail: false, locksOut: false }),
 } as const;
 
 export type DirectKind = keyof typeof DIRECT_KIND_REGISTRY;

@@ -683,6 +683,22 @@ describeDb("the human route", () => {
     });
   });
 
+  /**
+   * Clinic names are capped when typed but never held to the email rule for
+   * a clinic's name, which refuses an "@". Before 19 October 2026's fix the
+   * send-time check refused O16 for good, a lockout, and the console was told
+   * to try again in a minute.
+   */
+  test("a clinic whose name the email rule refuses still gets its link, without the name", async () => {
+    const clinic = await seedClinic("rissue-at");
+    await sql(`update clinics set name = $1 where id = $2`, ["Glow @ Main Street Med Spa", clinic.clinicId]);
+    const issued = await op("issueDeviceRecovery", { clinicId: clinic.clinicId, calledBack: true });
+    expect(issued).toMatchObject({ status: "issued", emailed: true });
+    expect(mocks.sent.map((m) => [m.to, m.kind])).toEqual([[clinic.staffEmail, "device_recovery_link"]]);
+    expect(mocks.sent[0]!.text).not.toContain("@ Main Street");
+    expect(mocks.sent[0]!.text).toContain("your practice");
+  });
+
   test("a second link replaces the first, which then works no more", async () => {
     const clinic = await seedClinic("rreplace");
     const first = await issue(clinic);

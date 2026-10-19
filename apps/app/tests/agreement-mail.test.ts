@@ -431,6 +431,7 @@ class StubTransport implements EmailTransport {
 }
 
 const ACCEPTANCE = {
+  agreementId: "3b7e1c2a-5d4f-4a6b-9c8d-7e6f5a4b3c2d",
   to: "owner@radiance.test",
   signatoryName: "Alex Chen",
   clinicName: "Radiance Med Spa",
@@ -452,6 +453,50 @@ describe("sendAgreementCopy", () => {
     expect(attachment!.content).toBe(PDF);
     expect(attachment!.contentType).toBe("application/pdf");
     expect(attachment!.filename).toBe(ACCEPTANCE.filename);
+  });
+
+  /**
+   * The operator's resend used to call a transport directly: no tags, no
+   * idempotency key, no link scan, and Resend's events for it, untagged,
+   * were handled by apps/web as its own marketing mail.
+   */
+  test("goes through the email platform, as the direct kind P6, keyed by the acceptance and the minute", async () => {
+    const transport = new StubTransport({ status: "sent", messageId: "m-1" });
+    const now = new Date("2026-10-19T12:00:30Z");
+    await sendAgreementCopy(ACCEPTANCE, { transport, now });
+    const { message } = transport.sent[0]!;
+    expect(message.tags).toEqual([
+      { name: "app", value: "app" },
+      { name: "kind", value: "agreement_copy" },
+      { name: "delivery", value: ACCEPTANCE.agreementId },
+    ]);
+    expect(message.idempotencyKey).toBe(
+      `hd-agreement_copy-${ACCEPTANCE.agreementId}-1-${Math.floor(now.getTime() / 60_000)}`,
+    );
+    expect(message.replyTo).toBe("hello@healdesk.io");
+    expect(message.text).toContain("Replies reach the healdesk team. Please leave out patient details.");
+    expect(message.text).toContain("healdesk is a service of Viixi FZC");
+    // The id finds the row; it is never in the words.
+    expect(message.text).not.toContain(ACCEPTANCE.agreementId);
+    expect(message.html).not.toMatch(/href=/);
+  });
+
+  test("a name the allowlist would refuse is left out of the words, and the copy still goes", async () => {
+    const transport = new StubTransport({ status: "sent", messageId: "m-1" });
+    const result = await sendAgreementCopy(
+      {
+        ...ACCEPTANCE,
+        signatoryName: "Call 5125550100 to claim",
+        clinicName: `Radiance ${"Aesthetic and Wellness ".repeat(8)}Med Spa LLC`,
+      },
+      { transport },
+    );
+    expect(result.sent).toBe(true);
+    const { message } = transport.sent[0]!;
+    expect(message.text).not.toContain("5125550100");
+    expect(message.text).toContain("Signed on 18 August 2026");
+    expect(message.subject).toBe("Your signed business associate agreement for your practice");
+    expect(message.attachments).toHaveLength(1);
   });
 
   test("never throws, whatever the transport does", async () => {

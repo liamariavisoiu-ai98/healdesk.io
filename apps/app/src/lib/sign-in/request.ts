@@ -74,11 +74,12 @@ export async function sendSignInLink(
   // No sourceRef, so nothing can have minted this link before.
   if (!link) throw new Error("A sign-in link without a source cannot already exist.");
 
+  const payload = {
+    signInUrl: publicUrl(`/link/${link.token}`),
+    validMinutes: Math.round(SIGN_IN_LINK_TTL_MS.sign_in / 60_000),
+  };
   const rendered = renderSignInLink(
-    {
-      signInUrl: publicUrl(`/link/${link.token}`),
-      validMinutes: Math.round(SIGN_IN_LINK_TTL_MS.sign_in / 60_000),
-    },
+    payload,
     {
       clinicName: null,
       audience: "patients",
@@ -97,6 +98,7 @@ export async function sendSignInLink(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         deliveryId: link.id,
         // Every send mints its own link row, so the row id already tells one
         // attempt from the next (X1.4).

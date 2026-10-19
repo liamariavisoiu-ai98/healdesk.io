@@ -234,6 +234,21 @@ export const OPS_EVENTS = [
   // lib/notices/booking-alerts.ts (urgentAlertNotQueued), with the clinic,
   // the channel and the conversation when it has one. Ids only.
   "urgent_alert_not_queued",
+  // /sign-in/help's I3 access requests to hello@ reached the day's cap
+  // (lib/sign-in/help.ts ACCESS_REQUEST_DAILY_CAP): once a UTC day, with the
+  // cap as `count` and the day as `windowStart`; the requests past it are in
+  // the security log and in sign_in_help_unmatched.
+  "access_requests_capped",
+  // sendEmail refused a direct kind before sending it (lib/email/send.ts):
+  // its payload or the clinic name it printed is outside the allowlist, or a
+  // link in it is not one an email may carry. Once per kind and clinic, so a
+  // refusal that would otherwise only be a log line reaches a person.
+  "email_refused",
+  // The signer's copy of the agreement (P6) was withheld by apps/web's rules
+  // for an address no setup link confirmed: one already went to the address
+  // that day, or the names on it are not safe to mail. Relayed by apps/web,
+  // once per address and day, with the agreement's id and the code.
+  "agreement_copy_withheld",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 
@@ -466,6 +481,7 @@ async function mail(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         deliveryId: alertId,
         idempotencyKey: `hd-ops_alert-${alertId}-1`,
       });

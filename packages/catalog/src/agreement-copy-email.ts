@@ -1,4 +1,6 @@
 import { agreementKindOfVersion, DPA_VERSION_PREFIX, type AgreementKind } from "./agreement-kind";
+import { emailHtmlDocument } from "./email-html";
+import { SENDER_IDENTITY } from "./sender-identity";
 
 /**
  * The words of the email that carries the signer's copy of the agreement,
@@ -17,9 +19,61 @@ import { agreementKindOfVersion, DPA_VERSION_PREFIX, type AgreementKind } from "
  * document hash. The acceptance id is deliberately NOT in it: a database key
  * mailed to an unverified address is where entitlement bugs come from, and
  * the hash names the document for a human without opening anything.
+ *
+ * Since 19 October 2026 it ends with the footer every healdesk email carries
+ * (Annex X1.9): why it came, that replies reach the team and should leave out
+ * patient details, and the sender's identity with the US mailing address. Its
+ * subject is held to 70 characters (X4), the practice's name cut to fit, and
+ * its HTML is the one-column, system-font document of email-html.ts, with no
+ * link in it: the address to write to is printed, not a mailto: link, since
+ * an email links only to a public https page of ours (X1.6).
  */
 
-const CONTACT = "hello@healdesk.io";
+const CONTACT = SENDER_IDENTITY.replyTo;
+
+/** The most a subject may be (Annex X4); the inbox cuts a longer one mid-word. */
+export const AGREEMENT_COPY_SUBJECT_MAX = 70;
+
+/**
+ * Why the reader gets this email, the first line of its footer (Annex X1.9),
+ * in the words apps/app's footers use ("You're receiving this because"),
+ * since both apps send it. The address is the one typed beside the
+ * signature, which nobody confirmed.
+ */
+export const AGREEMENT_COPY_REASON =
+  "You're receiving this because this address was given for the signatory when an agreement with healdesk was signed.";
+
+/**
+ * The footer's reply line (X1.9), as every healdesk email words it, so hello@
+ * stays free of patient details; a DPA's, for a practice HIPAA does not reach,
+ * names its clients instead, as the rest of a DPA's copy does.
+ */
+const REPLY_LINE: Readonly<Record<AgreementKind, string>> = {
+  baa: "Replies reach the healdesk team. Please leave out patient details.",
+  dpa: "Replies reach the healdesk team. Please leave out your clients' details.",
+};
+
+/**
+ * The footer, as lines: why the email came, who reads a reply, and who sent
+ * it (the operating entity and the US mailing address, as on the site). No
+ * opt-out: this is a transactional message, the copy of a contract the reader
+ * signed, sent once.
+ */
+export function agreementCopyFooter(kind: AgreementKind = "baa"): readonly string[] {
+  return [
+    AGREEMENT_COPY_REASON,
+    REPLY_LINE[kind],
+    SENDER_IDENTITY.entityLine,
+    `${SENDER_IDENTITY.postalAddressLabel}: ${SENDER_IDENTITY.postalAddress}`,
+  ];
+}
+
+/** The practice's name cut, with an ellipsis, to fit `room` characters of a subject. */
+function nameForSubject(name: string, room: number): string {
+  const clean = name.replace(/\s+/g, " ").trim();
+  const chars = [...clean];
+  return chars.length <= room ? clean : `${chars.slice(0, Math.max(1, room - 1)).join("").trimEnd()}…`;
+}
 
 /**
  * The words that name the document, by kind. The BAA's are the strings this
@@ -58,7 +112,11 @@ const DOCUMENT_WORDS: Readonly<
 };
 
 export function renderAgreementCopy(copy: {
-  signatoryName: string;
+  /**
+   * Who signed, as typed. Null leaves the name out ("Signed on …"): apps/app
+   * does that for a name its payload allowlist will not put in an email.
+   */
+  signatoryName: string | null;
   clinicName: string;
   version: string;
   documentHash: string;
@@ -66,14 +124,17 @@ export function renderAgreementCopy(copy: {
 }): { subject: string; text: string; html: string } {
   const when = formatSignedAt(copy.acceptedAt);
   const words = DOCUMENT_WORDS[agreementKindOfVersion(copy.version)];
-  const subject = `Your signed ${words.noun} for ${copy.clinicName}`;
+  const opening = `Your signed ${words.noun} for `;
+  const subject = `${opening}${nameForSubject(copy.clinicName, AGREEMENT_COPY_SUBJECT_MAX - opening.length)}`;
+  const signed = copy.signatoryName ? `Signed by ${copy.signatoryName} on ${when}.` : `Signed on ${when}.`;
+  const footer = agreementCopyFooter(agreementKindOfVersion(copy.version));
 
   const text = [
     `Attached, as a PDF, is the ${words.noun} you signed for`,
     `${copy.clinicName}. It is the document we recorded at signature, word for`,
     `word — the same text that was on your screen.`,
     ``,
-    `Signed by ${copy.signatoryName} on ${when}.`,
+    signed,
     `Agreement version ${copy.version}.`,
     ``,
     ...words.keepText,
@@ -87,23 +148,34 @@ export function renderAgreementCopy(copy: {
     `If you did not sign anything, someone has typed this address by mistake.`,
     `You can ignore this email; if you would rather tell us, ${CONTACT}`,
     `reaches a person.`,
+    ``,
+    `--`,
+    ...footer,
   ].join("\n");
 
-  const html = [
+  const body = [
     `<p>Attached, as a PDF, is the ${words.noun} you signed for `,
     `<strong>${escapeHtml(copy.clinicName)}</strong>. It is the document we recorded `,
     `at signature, word for word — the same text that was on your screen.</p>`,
-    `<p>Signed by ${escapeHtml(copy.signatoryName)} on ${escapeHtml(when)}.<br>`,
+    `<p>${escapeHtml(signed)}<br>`,
     `Agreement version ${escapeHtml(copy.version)}.</p>`,
     words.keepHtml,
     `<p>Our reference for it is the SHA-256 of the agreement text:<br>`,
     `<code style="word-break:break-all">${escapeHtml(copy.documentHash)}</code></p>`,
+    // The address as text, not a mailto: link. An email links only to a
+    // public https page of ours (X1.6), and a reply already reaches it.
     `<p>If you need another copy, or this reached the wrong address, email `,
-    `<a href="mailto:${CONTACT}">${CONTACT}</a> and a person will deal with it.</p>`,
+    `${CONTACT} and a person will deal with it.</p>`,
     `<p>If you did not sign anything, someone has typed this address by mistake. `,
     `You can ignore this email; if you would rather tell us, `,
-    `<a href="mailto:${CONTACT}">${CONTACT}</a> reaches a person.</p>`,
+    `${CONTACT} reaches a person.</p>`,
+    `<hr style="border:0;border-top:1px solid #d0d7de;margin:24px 0 12px;">`,
+    ...footer.map(
+      (line) =>
+        `<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">${escapeHtml(line)}</p>`,
+    ),
   ].join("");
+  const html = emailHtmlDocument(subject, body);
 
   return { subject, text, html };
 }

@@ -10,7 +10,7 @@ import {
   stepsReason,
   type StepsSentPayload,
 } from "@/lib/email/templates/steps_sent";
-import { assertPayloadAllowed } from "@/lib/email/lint";
+import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
 import { audienceFor } from "@/lib/email/templates/context";
 import { unsubscribeHeaders, stepsStopUrl } from "@/lib/email/unsubscribe";
 import { describeError, log } from "@/lib/log";
@@ -219,10 +219,12 @@ export async function sendStepsOn(
           };
     assertPayloadAllowed(payload, KIND);
     const stopUrl = stepsStopUrl(input.clinicId, deliveryId);
+    // The name as the email may print it, or none (lib/email/lint.ts).
+    const printed = printableClinicName(clinic.name);
     const rendered = renderStepsSent(payload, {
-      clinicName: clinic.name,
+      clinicName: printed,
       audience: audienceFor(clinic.specialty),
-      reason: stepsReason(clinic.name),
+      reason: stepsReason(printed),
       unsubscribeUrl: stopUrl,
       raisedAt: now,
       timeZone: clinic.timezone,
@@ -235,8 +237,9 @@ export async function sendStepsOn(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         clinicId: input.clinicId,
-        clinicName: clinic.name,
+        clinicName: printed,
         deliveryId,
         idempotencyKey: `hd-${KIND}-${deliveryId}-1`,
         headers: unsubscribeHeaders(stopUrl),

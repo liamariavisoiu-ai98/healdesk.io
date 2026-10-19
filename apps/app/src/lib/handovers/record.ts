@@ -1,7 +1,7 @@
 import { toE164 } from "@healdesk/connectors";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
-import { contacts, conversations, handovers, type HandoverPlatform } from "@/db/schema";
+import { conversations, handovers, type HandoverPlatform } from "@/db/schema";
 import type { BookingCapture } from "@/lib/assistant/turn";
 import { describeError, log } from "@/lib/log";
 import { cleanFirstName } from "@/lib/meta/booking-requests";
@@ -16,7 +16,7 @@ import type { TenantTx } from "@/lib/tenant";
  *
  * The row holds no words (drizzle/0085): only which conversation it was
  * asked in, through which the person is reached, kept and erased, and for a
- * web chat the number the visitor gave (attachHandoverCaller). A call's
+ * web chat the number the visitor gave for the call back (attachHandoverCaller). A call's
  * conversation is written when the call ends, so a call's handover carries
  * the call id and the database links it then.
  *
@@ -104,51 +104,35 @@ async function callConversation(db: TenantTx["db"], clinicId: string, callId: st
  * number (toE164) and a name that passes the first-name screen; nothing else
  * of the chat.
  *
- * Kept as a contact of the handover's own, never on the conversation and
- * never an existing contact found by the number (review of 19 October 2026):
- * the number is whatever the visitor typed, so reusing a patient's contact
- * would show their name on a stranger's handover and put the stranger's
- * conversation in that patient's export and erasure; and a conversation a
- * later request's appointment points at could not go with this person's
- * erasure. The contact takes the handover with it when it goes (erasure by
- * the number, the record clock). Called each message while the chat has an
- * open handover; a no-op once the handover has its contact. Never throws.
+ * Held on the handover itself, never as a contact and never on the
+ * conversation (reviews of 19 October 2026): the number is whatever the
+ * visitor typed, so a contact would be found by every later lookup by that
+ * number (a patient's next call, booking or request) and could carry the
+ * stranger's name onto it; and a conversation a later request in the chat
+ * ties to someone else could not go with this person's erasure. Erasure by
+ * the number deletes it (lib/patient-rights/erasure.ts). Called each message
+ * while the chat has an open handover; a no-op once it has its number.
+ * Never throws.
  */
 export async function attachHandoverCaller(
   tx: TenantTx,
-  input: { conversationId: string; capture: Pick<BookingCapture, "firstName" | "phone">; timeZone: string },
+  input: { conversationId: string; capture: Pick<BookingCapture, "firstName" | "phone"> },
 ): Promise<void> {
   const phone = typeof input.capture.phone === "string" && input.capture.phone.length <= 32 ? toE164(input.capture.phone) : null;
   if (!phone) return;
   try {
     await tx.db.transaction(async (savepoint) => {
-      const [open] = await savepoint
-        .select({ id: handovers.id })
-        .from(handovers)
+      await savepoint
+        .update(handovers)
+        .set({ callbackPhone: phone, callbackFirstName: cleanFirstName(input.capture.firstName) })
         .where(
           and(
             eq(handovers.clinicId, tx.clinicId),
             eq(handovers.channel, "web_chat"),
             eq(handovers.conversationId, input.conversationId),
-            isNull(handovers.contactId),
+            isNull(handovers.callbackPhone),
           ),
-        )
-        .limit(1);
-      if (!open) return;
-      const [contact] = await savepoint
-        .insert(contacts)
-        .values({
-          clinicId: tx.clinicId,
-          phone,
-          fullName: cleanFirstName(input.capture.firstName),
-          timezone: input.timeZone,
-          updatedAt: new Date(),
-        })
-        .returning({ id: contacts.id });
-      await savepoint
-        .update(handovers)
-        .set({ contactId: contact!.id })
-        .where(and(eq(handovers.clinicId, tx.clinicId), eq(handovers.id, open.id), isNull(handovers.contactId)));
+        );
     });
   } catch (error) {
     try {
@@ -157,4 +141,31 @@ export async function attachHandoverCaller(
       // As above.
     }
   }
+}
+
+/**
+ * Link each call's handover to the call's conversation where the database's
+ * own link missed it: a handover raised in the instant the call's row was
+ * written sees neither the row nor is seen by its trigger (drizzle/0085). Run
+ * before anything that relies on the link to reach a handover through its
+ * conversation: a person's erasure and export, and the retention purge.
+ * Returns how many it linked.
+ */
+export async function linkCallHandovers(tx: TenantTx): Promise<number> {
+  const call = sql`(select v.id from ${conversations} v
+                     where v.clinic_id = ${handovers.clinicId}
+                       and v.external_call_id = ${handovers.externalCallId})`;
+  const linked = await tx.db
+    .update(handovers)
+    .set({ conversationId: sql`${call}` })
+    .where(
+      and(
+        eq(handovers.clinicId, tx.clinicId),
+        eq(handovers.channel, "voice"),
+        isNull(handovers.conversationId),
+        sql`exists ${call}`,
+      ),
+    )
+    .returning({ id: handovers.id });
+  return linked.length;
 }

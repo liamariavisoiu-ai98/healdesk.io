@@ -20,6 +20,7 @@ import {
 } from "@/db/schema";
 import { CHAT_THREAD_IDLE_RETENTION_DAYS } from "@/lib/billing/housekeeping";
 import { DRAFT_TTL_HOURS } from "@/lib/meta/booking-requests";
+import { linkCallHandovers } from "@/lib/handovers/record";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -307,6 +308,9 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   const transcriptDays = Math.min(clinic.mediaDays, settings?.transcriptDays ?? clinic.mediaDays);
   const mediaBefore = periodCutoff(now, transcriptDays);
   const recordBefore = periodCutoff(now, clinic.recordDays);
+  // A call's handover the database missed linking goes with its
+  // conversation from here (drizzle/0085).
+  await linkCallHandovers(tx);
 
   // 1. Media references.
   const cleared = await tx.db
@@ -489,7 +493,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   // A handover goes with its conversation or thread (the foreign keys'
   // cascades), and in any case at the record clock after it was asked: a
   // call whose conversation was never written leaves one pointing at
-  // nothing (drizzle/0085).
+  // nothing (drizzle/0085). One the database missed linking to its call's
+  // conversation is linked first (linkCallHandovers), so it went with it.
   const oldHandovers = await tx.db
     .delete(handovers)
     .where(and(eq(handovers.clinicId, tx.clinicId), lt(handovers.createdAt, recordBefore)))

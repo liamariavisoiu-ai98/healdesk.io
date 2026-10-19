@@ -1,5 +1,5 @@
 import { BACKUP_RETENTION_DAYS } from "@healdesk/catalog";
-import { and, asc, eq, inArray, isNotNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 
 import {
   bookingRequests,
@@ -7,13 +7,16 @@ import {
   consentRecords,
   contactAttempts,
   contacts,
+  conversations,
   erasureRequests,
+  handovers,
   metaBookingDrafts,
   suppressions,
   webhookEvents,
   type ErasureVendorStamp,
 } from "@/db/schema";
 import { clearHoldsForErasure } from "@/lib/booking/holds";
+import { linkCallHandovers } from "@/lib/handovers/record";
 import { identifierRef } from "@/lib/identifier-ref";
 import { addBusinessDays } from "@/lib/incidents/incidents";
 import { describeError, log } from "@/lib/log";
@@ -633,8 +636,48 @@ async function eraseSurveyed(
   // The people, by every number and address the survey made theirs (not
   // only the ones asked), with their own requests whatever thread they came
   // from: every contact carrying one of them goes whole.
+  // A call's handover the database missed linking is linked first, so it
+  // goes with its conversation below (drizzle/0085).
+  await linkCallHandovers(tx);
   for (const phone of s.phones)
     add(counts, await eraseContact(tx, { phone, requestedBy, before }));
+
+  // A web chat's handover holds the number the visitor gave for the call
+  // back, on the handover and on no contact, so the contacts above never
+  // reach it: it goes by the number, and so does its chat, with its queued
+  // transcript, where nothing of anyone else's holds the conversation (a
+  // contact, a booking request, an appointment or an amendment).
+  if (s.phones.length) {
+    const asked = await tx.db
+      .delete(handovers)
+      .where(
+        and(
+          eq(handovers.clinicId, tx.clinicId),
+          inArray(handovers.callbackPhone, s.phones),
+          lte(handovers.createdAt, before),
+        ),
+      )
+      .returning({ conversationId: handovers.conversationId });
+    const chats = asked.map((h) => h.conversationId).filter((id): id is string => id !== null);
+    if (chats.length) {
+      const gone = await tx.db
+        .delete(conversations)
+        .where(
+          and(
+            eq(conversations.clinicId, tx.clinicId),
+            inArray(conversations.id, chats),
+            eq(conversations.channel, "web_chat"),
+            isNull(conversations.contactId),
+            lte(conversations.startedAt, before),
+            sql`not exists (select 1 from booking_requests r where r.conversation_id = ${conversations.id})`,
+            sql`not exists (select 1 from appointments a where a.conversation_id = ${conversations.id})`,
+            sql`not exists (select 1 from record_amendments ra where ra.conversation_id = ${conversations.id})`,
+          ),
+        )
+        .returning({ id: conversations.id });
+      counts.conversations += gone.length;
+    }
+  }
   for (const email of s.emails)
     add(counts, await eraseContact(tx, { email, requestedBy, before }));
 

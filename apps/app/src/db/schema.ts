@@ -5743,8 +5743,8 @@ export type HandoverPlatform = "instagram" | "messenger" | "whatsapp";
  *
  * It holds no words and no identity of its own: only which conversation it
  * was asked in, so the person is reached, kept and erased through that
- * conversation, and for a web chat the contact for the number the visitor
- * gave for the call back, which takes the handover with it. A call or web chat points at its conversation and goes with
+ * conversation, and for a web chat the number the visitor gave for the call
+ * back. A call or web chat points at its conversation and goes with
  * it by the foreign key's cascade (a call's row is written when the call
  * ends, so a call's handover carries the vendor's call id until then and
  * the database links it, drizzle/0085). A Meta thread points at its
@@ -5772,13 +5772,16 @@ export const handovers = pgTable(
     /** Meta only: the thread's conversation (chat_threads.conversation_id), once per which. */
     metaConversationId: uuid("meta_conversation_id"),
     /**
-     * Web chat only: the contact for the number the visitor gave so the desk
-     * can call back, set once. On the handover, never on the conversation:
-     * a request later in the same chat may name someone else, and a
-     * conversation another person's appointment points at cannot go with
-     * this person's erasure. Goes with the contact.
+     * Web chat only: the number the visitor gave so the desk can call back
+     * (E.164), and the first name with it, set once. ⚠️ PHI. On the handover,
+     * never as a contact: the number is whatever was typed, so a contact
+     * would be found by every later lookup by that number and could take a
+     * patient's call or booking; and never on the conversation, which a later
+     * request in the chat may tie to someone else. Erasure by the number
+     * deletes it (lib/patient-rights/erasure.ts).
      */
-    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "cascade" }),
+    callbackPhone: text("callback_phone"),
+    callbackFirstName: text("callback_first_name"),
     /** When they asked: the database's clock at the insert. */
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
     /** The desk marked it handled: the database's clock, once. */
@@ -5799,7 +5802,7 @@ export const handovers = pgTable(
       .on(t.clinicId, t.metaConversationId)
       .where(sql`${t.metaConversationId} is not null`),
     index("handovers_thread_idx").on(t.clinicId, t.platform, t.partyRef),
-    index("handovers_contact_idx").on(t.clinicId, t.contactId),
+    index("handovers_callback_idx").on(t.clinicId, t.callbackPhone).where(sql`${t.callbackPhone} is not null`),
     foreignKey({
       name: "handovers_conversation_fk",
       columns: [t.clinicId, t.conversationId],
@@ -5812,9 +5815,13 @@ export const handovers = pgTable(
     }).onDelete("cascade"),
     check(
       "handovers_shape_check",
-      sql`(${t.channel} = 'voice' and ${t.externalCallId} is not null and ${t.platform} is null and ${t.partyRef} is null and ${t.metaConversationId} is null and ${t.contactId} is null)
+      sql`(${t.channel} = 'voice' and ${t.externalCallId} is not null and ${t.platform} is null and ${t.partyRef} is null and ${t.metaConversationId} is null and ${t.callbackPhone} is null)
         or (${t.channel} = 'web_chat' and ${t.conversationId} is not null and ${t.externalCallId} is null and ${t.platform} is null and ${t.partyRef} is null and ${t.metaConversationId} is null)
-        or (${t.channel} = 'meta' and ${t.platform} in ('instagram', 'messenger', 'whatsapp') and ${t.partyRef} is not null and ${t.metaConversationId} is not null and ${t.conversationId} is null and ${t.externalCallId} is null and ${t.contactId} is null)`,
+        or (${t.channel} = 'meta' and ${t.platform} in ('instagram', 'messenger', 'whatsapp') and ${t.partyRef} is not null and ${t.metaConversationId} is not null and ${t.conversationId} is null and ${t.externalCallId} is null and ${t.callbackPhone} is null)`,
+    ),
+    check(
+      "handovers_callback_check",
+      sql`(${t.callbackPhone} is null or ${t.callbackPhone} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.callbackFirstName} is null or (${t.callbackPhone} is not null and char_length(${t.callbackFirstName}) between 1 and 40))`,
     ),
     check(
       "handovers_call_id_check",

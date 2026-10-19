@@ -363,7 +363,7 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
         next.handoverAlerted = true;
       }
       if (next.handoverAlerted) {
-        await attachHandoverCaller(tx, { conversationId, capture: turn.capture, timeZone: facts.timeZone });
+        await attachHandoverCaller(tx, { conversationId, capture: turn.capture });
       }
       if (!next.requestId) {
         next.requestId = await takeRequest(tx, facts, conversationId, turn.capture);

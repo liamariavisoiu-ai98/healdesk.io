@@ -45,5 +45,8 @@ export async function markHandover(
     return { status: "failed", message: "Your portal is read-only while your account closes, so nothing was changed." };
   }
   revalidatePath(bookingsPath(String(slug)));
-  redirect(`${bookingsPath(String(slug))}?handled=${result.changed ? "marked" : "already"}`, RedirectType.replace);
+  // The handover's id makes each result its own URL, so a second card marked
+  // is announced again.
+  const params = new URLSearchParams({ handled: result.changed ? "marked" : "already", h: handoverId });
+  redirect(`${bookingsPath(String(slug))}?${params.toString()}`, RedirectType.replace);
 }

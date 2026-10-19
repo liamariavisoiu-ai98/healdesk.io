@@ -9,12 +9,15 @@ import type { AssistantResponder } from "@/lib/assistant/turn";
 import { auth } from "@/lib/auth";
 import { sendWebChatMessage, startWebChat, webChatClinic, type WebChatClinic } from "@/lib/chat/web-chat";
 import { hashSessionToken } from "@/lib/factors/step-ups";
-import { attachHandoverCaller, raiseHandover } from "@/lib/handovers/record";
+import { contacts } from "@/db/schema";
+import { attachHandoverCaller, linkCallHandovers, raiseHandover } from "@/lib/handovers/record";
+import { createBookingRequest } from "@/lib/meta/booking-requests";
 import { attachMetaChannel, setMetaFrontDoor } from "@/lib/meta/channels";
 import { answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
+import { erasePerson } from "@/lib/patient-rights/erasure";
 import { exportClinic, exportPatient } from "@/lib/patient-rights/export";
 import { purgeClinic } from "@/lib/retention/purge";
 import { withTenant } from "@/lib/tenant";
@@ -101,14 +104,15 @@ type HandoverRow = {
   handled_at: Date | null;
   handled_by_label: string | null;
   handled_by_user_id: string | null;
-  contact_id: string | null;
+  callback_phone: string | null;
+  callback_first_name: string | null;
 };
 
 async function handoverRows(clinicId: string): Promise<HandoverRow[]> {
   return inTenant(clinicId, async (client) => {
     const { rows } = await client.query<HandoverRow>(
       `select id, channel, platform, external_call_id, conversation_id, party_ref, meta_conversation_id,
-              handled_at, handled_by_label, handled_by_user_id, contact_id
+              handled_at, handled_by_label, handled_by_user_id, callback_phone, callback_first_name
          from handovers order by created_at, id`,
     );
     return rows;
@@ -254,36 +258,53 @@ describeDb("handovers: the table", () => {
     await expect(inTenant(a.clinicId, (q) => q.query(`update handovers set created_at = now() - interval '1 day' where id = $1`, [row!.id]))).rejects.toThrow(/never rewritten/);
   });
 
-  test("a web chat handover's contact takes it with the person's erasure, the conversation stays; and both exports carry it", async () => {
+  test("erasure by the number the visitor gave takes the handover and its chat, not a chat someone else's request holds; both exports carry it", async () => {
     const c = await seedClinic("handover-erase");
-    const conversationId = await conversationRow(c.clinicId, { channel: "web_chat" });
-    await raise(c.clinicId, { channel: "web_chat", conversationId });
-    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      attachHandoverCaller(tx, { conversationId, capture: { firstName: "Dana", phone: "415 555 0161" }, timeZone: "America/New_York" }),
-    );
-    const [row] = await handoverRows(c.clinicId);
-    expect(row!.contact_id).not.toBeNull();
-    // Someone else's request in the same chat, with its own contact.
-    const other = await inTenant(c.clinicId, async (q) =>
-      (await q.query<{ id: string }>(`insert into contacts (clinic_id, phone) values ($1, '+14155550162') returning id`, [c.clinicId])).rows[0]!.id,
-    );
-    expect(other).toBeTruthy();
+    const alone = await conversationRow(c.clinicId, { channel: "web_chat" });
+    const shared = await conversationRow(c.clinicId, { channel: "web_chat" });
+    for (const conversationId of [alone, shared]) {
+      await raise(c.clinicId, { channel: "web_chat", conversationId });
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        attachHandoverCaller(tx, { conversationId, capture: { firstName: "Dana", phone: "415 555 0161" } }),
+      );
+    }
+    // Someone else's request in the second chat, under their own number.
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      const [other] = await tx.db.insert(contacts).values({ clinicId: c.clinicId, phone: "+14155550162", timezone: "America/New_York", updatedAt: new Date() }).returning({ id: contacts.id });
+      await createBookingRequest(tx, { channel: "web_chat", contactId: other!.id, conversationId: shared, preferredWindow: "Friday morning", treatment: null });
+    });
+    expect((await handoverRows(c.clinicId)).map((h) => h.callback_phone)).toEqual(["+14155550161", "+14155550161"]);
 
     const person = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      exportPatient(tx, { contactId: row!.contact_id!, requestedBy: "practice" }),
+      exportPatient(tx, { phone: "+14155550161", requestedBy: "practice" }),
     );
-    expect(person.handovers.map((h) => h.id)).toEqual([row!.id]);
+    expect(person.handovers).toHaveLength(2);
     const clinic = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "practice", "portal_download"));
-    expect(clinic.handovers.map((h) => h.id)).toEqual([row!.id]);
+    expect(clinic.handovers).toHaveLength(2);
 
-    const left = await asApp(c.clinicId, async (q) => {
-      await q(`select * from app_erase_contacts(array[$1]::uuid[])`, [row!.contact_id]);
-      return {
-        handovers: (await q(`select id from handovers`)).rows.length,
-        conversations: (await q(`select id from conversations where id = $1`, [conversationId])).rows.length,
-      };
-    });
-    expect(left).toEqual({ handovers: 0, conversations: 1 });
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      erasePerson(tx, { phone: "+14155550161", requestedBy: "practice" }),
+    );
+    expect(await handoverRows(c.clinicId)).toEqual([]);
+    const left = await inTenant(c.clinicId, async (q) => (await q.query<{ id: string }>(`select id from conversations order by id`)).rows.map((r) => r.id));
+    expect(left).toEqual([shared]);
+  });
+
+  test("a call's handover the database missed linking is linked before anything relies on it", async () => {
+    const c = await seedClinic("handover-heal");
+    await raise(c.clinicId, { channel: "voice", callId: "call_missed_link" });
+    // The race: the conversation lands without its trigger seeing the handover.
+    const pool = getMigratorPool();
+    await pool.query(`alter table conversations disable trigger conversations_link_handover`);
+    let conversationId: string;
+    try {
+      conversationId = await conversationRow(c.clinicId, { channel: "voice", callId: "call_missed_link" });
+    } finally {
+      await pool.query(`alter table conversations enable trigger conversations_link_handover`);
+    }
+    expect((await handoverRows(c.clinicId))[0]!.conversation_id).toBeNull();
+    expect(await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => linkCallHandovers(tx))).toBe(1);
+    expect((await handoverRows(c.clinicId))[0]!.conversation_id).toBe(conversationId);
   });
 
   test("a restore loads handled rows as they were with the guard off, as docs/handover.md says, and not with it on", async () => {
@@ -391,7 +412,7 @@ describeDb("handovers: each channel records its own", () => {
     await closePools();
   });
 
-  test("web chat: asked once, with the number the visitor then gives on a contact of the handover's own", async () => {
+  test("web chat: asked once, with the number the visitor then gives held on the handover, never as a contact", async () => {
     const clinic = await liveWebClinic("handover-chat");
     const responder: AssistantResponder = async ({ messages }) => {
       const last = messages[messages.length - 1]!.content;
@@ -412,13 +433,15 @@ describeDb("handovers: each channel records its own", () => {
     expect(await handoverRows(clinic.clinicId)).toHaveLength(1);
     expect(await queuedNotices(clinic.clinicId, ["handover"])).toHaveLength(1);
     const { rows } = await inTenant(clinic.clinicId, (client) =>
-      client.query<{ phone: string; full_name: string | null; conversation_contact: string | null }>(
-        `select p.phone, p.full_name, v.contact_id as conversation_contact
-           from handovers h join contacts p on p.id = h.contact_id join conversations v on v.id = h.conversation_id`,
+      client.query<{ callback_phone: string; callback_first_name: string | null; conversation_contact: string | null; contacts: number }>(
+        `select h.callback_phone, h.callback_first_name, v.contact_id as conversation_contact,
+                (select count(*)::int from contacts) as contacts
+           from handovers h join conversations v on v.id = h.conversation_id`,
       ),
     );
-    // Never on the conversation, which a later request may tie to someone else.
-    expect(rows).toEqual([{ phone: "+14155550192", full_name: "Dana", conversation_contact: null }]);
+    // Never a contact a later lookup by the number could find, and never on
+    // the conversation, which a later request may tie to someone else.
+    expect(rows).toEqual([{ callback_phone: "+14155550192", callback_first_name: "Dana", conversation_contact: null, contacts: 0 }]);
   }, 60_000);
 
   test("web chat: a handover after an urgent alert keeps nothing, and the urgent alert stands", async () => {
@@ -644,7 +667,7 @@ describeDb("handovers on Bookings", () => {
 
     const { factorId, stepUpId } = await stepUpWithPasskey(link);
     await expect(markHandover(a.clinicSlug, { status: "idle" }, form({ handoverId: row!.id }))).rejects.toMatchObject({
-      url: `/c/${a.clinicSlug}/bookings?handled=marked`,
+      url: `/c/${a.clinicSlug}/bookings?handled=marked&h=${row!.id}`,
     });
     const [handled] = await handoverRows(a.clinicId);
     expect(handled).toMatchObject({ handled_by_label: "Front desk Mac", handled_by_user_id: a.userId });
@@ -654,7 +677,7 @@ describeDb("handovers on Bookings", () => {
     expect(updates[0]!.metadata).toMatchObject({ outcome: "handled", passkeyId: factorId, stepUpId });
 
     await expect(markHandover(a.clinicSlug, { status: "idle" }, form({ handoverId: row!.id }))).rejects.toMatchObject({
-      url: `/c/${a.clinicSlug}/bookings?handled=already`,
+      url: `/c/${a.clinicSlug}/bookings?handled=already&h=${row!.id}`,
     });
     expect((await auditRows(a.clinicId)).filter((r) => r.action === "update" && r.resource_type === "handover")).toHaveLength(1);
     const page = text(await renderBookings(a.clinicSlug, { handled: "marked" }));

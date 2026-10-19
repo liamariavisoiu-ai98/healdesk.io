@@ -490,14 +490,12 @@ export async function markAppointmentOutcome(
 export const MAX_OPEN_HANDOVERS = 100;
 
 /**
- * The open handovers, oldest first, with the name and number of the
- * conversation's contact where it has one (a call's caller, or the number a
- * web chat visitor gave). A Meta handover has neither: the desk answers it in
+ * The open handovers, oldest first, with a name and number to call: the one
+ * a web chat visitor gave for the call back, or a call's caller. A Meta handover has neither: the desk answers it in
  * the platform's own inbox. A call's conversation is written when the call
  * ends, so one still going has none yet.
  */
 async function readOpenHandovers(tx: TenantTx): Promise<HandoverView[]> {
-  const own = alias(contacts, "handover_contact");
   // A call's handover is linked to its conversation by the database when
   // the call's row is written; one raised in the same instant may miss the
   // link, so a call is also found by its call id.
@@ -509,11 +507,10 @@ async function readOpenHandovers(tx: TenantTx): Promise<HandoverView[]> {
       platform: handovers.platform,
       askedAt: handovers.createdAt,
       conversationId: sql<string | null>`coalesce(${handovers.conversationId}, ${call.id})`,
-      firstName: sql<string | null>`coalesce(${own.fullName}, ${contacts.fullName})`,
-      phone: sql<string | null>`coalesce(${own.phone}, ${contacts.phone})`,
+      firstName: sql<string | null>`coalesce(${handovers.callbackFirstName}, ${contacts.fullName})`,
+      phone: sql<string | null>`coalesce(${handovers.callbackPhone}, ${contacts.phone})`,
     })
     .from(handovers)
-    .leftJoin(own, and(eq(own.clinicId, handovers.clinicId), eq(own.id, handovers.contactId)))
     .leftJoin(
       call,
       and(

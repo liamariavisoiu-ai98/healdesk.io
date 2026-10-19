@@ -17,6 +17,7 @@ import {
   transactions,
   webhookEvents,
 } from "@/db/schema";
+import { linkCallHandovers } from "@/lib/handovers/record";
 import type { TenantTx } from "@/lib/tenant";
 
 import { amendmentsFor, withAmendments, type RecordAmendment } from "./amendments";
@@ -86,7 +87,7 @@ export type PatientBundle = {
   depositPayments: DepositRecord[];
   /**
    * The times they asked AYA for a person in one of these conversations, or
-   * leaving one of these numbers (drizzle/0085): the channel, when, and when
+   * leaving one of these numbers for the call back (drizzle/0085): the channel, when, and when
    * the desk marked it handled.
    * The clinic's bundle carries every one, Meta's by their thread's keyed reference.
    */
@@ -120,7 +121,8 @@ const HANDOVER_COLUMNS = {
   conversationId: handovers.conversationId,
   partyRef: handovers.partyRef,
   metaConversationId: handovers.metaConversationId,
-  contactId: handovers.contactId,
+  callbackPhone: handovers.callbackPhone,
+  callbackFirstName: handovers.callbackFirstName,
   createdAt: handovers.createdAt,
   handledAt: handovers.handledAt,
   handledByLabel: handovers.handledByLabel,
@@ -324,8 +326,11 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
         .from(depositPayments)
         .where(and(eq(depositPayments.clinicId, tx.clinicId), inArray(depositPayments.appointmentId, appts.map((a) => a.id))))
     : [];
+  // A call's handover the database missed linking is linked first, so it is
+  // found through its conversation like the rest.
+  await linkCallHandovers(tx);
   const asked =
-    convos.length || ids.length
+    convos.length || phones.length
       ? await tx.db
           .select(HANDOVER_COLUMNS)
           .from(handovers)
@@ -334,7 +339,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
               eq(handovers.clinicId, tx.clinicId),
               or(
                 convos.length ? inArray(handovers.conversationId, convos.map((v) => v.id)) : sql`false`,
-                ids.length ? inArray(handovers.contactId, ids) : sql`false`,
+                phones.length ? inArray(handovers.callbackPhone, phones) : sql`false`,
               ),
             ),
           )

@@ -7,20 +7,21 @@ CREATE TABLE "handovers" (
 	"conversation_id" uuid,
 	"party_ref" text,
 	"meta_conversation_id" uuid,
-	"contact_id" uuid,
+	"callback_phone" text,
+	"callback_first_name" text,
 	"created_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
 	"handled_at" timestamp with time zone,
 	"handled_by_label" text,
 	"handled_by_user_id" text,
-	CONSTRAINT "handovers_shape_check" CHECK (("handovers"."channel" = 'voice' and "handovers"."external_call_id" is not null and "handovers"."platform" is null and "handovers"."party_ref" is null and "handovers"."meta_conversation_id" is null and "handovers"."contact_id" is null)
+	CONSTRAINT "handovers_shape_check" CHECK (("handovers"."channel" = 'voice' and "handovers"."external_call_id" is not null and "handovers"."platform" is null and "handovers"."party_ref" is null and "handovers"."meta_conversation_id" is null and "handovers"."callback_phone" is null)
         or ("handovers"."channel" = 'web_chat' and "handovers"."conversation_id" is not null and "handovers"."external_call_id" is null and "handovers"."platform" is null and "handovers"."party_ref" is null and "handovers"."meta_conversation_id" is null)
-        or ("handovers"."channel" = 'meta' and "handovers"."platform" in ('instagram', 'messenger', 'whatsapp') and "handovers"."party_ref" is not null and "handovers"."meta_conversation_id" is not null and "handovers"."conversation_id" is null and "handovers"."external_call_id" is null and "handovers"."contact_id" is null)),
+        or ("handovers"."channel" = 'meta' and "handovers"."platform" in ('instagram', 'messenger', 'whatsapp') and "handovers"."party_ref" is not null and "handovers"."meta_conversation_id" is not null and "handovers"."conversation_id" is null and "handovers"."external_call_id" is null and "handovers"."callback_phone" is null)),
+	CONSTRAINT "handovers_callback_check" CHECK (("handovers"."callback_phone" is null or "handovers"."callback_phone" ~ '^\+[1-9][0-9]{6,14}$') and ("handovers"."callback_first_name" is null or ("handovers"."callback_phone" is not null and char_length("handovers"."callback_first_name") between 1 and 40))),
 	CONSTRAINT "handovers_call_id_check" CHECK ("handovers"."external_call_id" is null or char_length("handovers"."external_call_id") between 1 and 200),
 	CONSTRAINT "handovers_handled_check" CHECK (("handovers"."handled_at" is null) = ("handovers"."handled_by_label" is null) and ("handovers"."handled_at" is null) = ("handovers"."handled_by_user_id" is null) and ("handovers"."handled_by_label" is null or char_length("handovers"."handled_by_label") between 1 and 200))
 );
 --> statement-breakpoint
 ALTER TABLE "handovers" ADD CONSTRAINT "handovers_clinic_id_clinics_id_fk" FOREIGN KEY ("clinic_id") REFERENCES "public"."clinics"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "handovers" ADD CONSTRAINT "handovers_contact_id_contacts_id_fk" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "handovers" ADD CONSTRAINT "handovers_conversation_fk" FOREIGN KEY ("clinic_id","conversation_id") REFERENCES "public"."conversations"("clinic_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "handovers" ADD CONSTRAINT "handovers_thread_fk" FOREIGN KEY ("clinic_id","platform","party_ref") REFERENCES "public"."chat_threads"("clinic_id","channel","party_ref") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "handovers_clinic_idx" ON "handovers" USING btree ("clinic_id","created_at");--> statement-breakpoint
@@ -28,7 +29,7 @@ CREATE UNIQUE INDEX "handovers_call_idx" ON "handovers" USING btree ("clinic_id"
 CREATE UNIQUE INDEX "handovers_conversation_idx" ON "handovers" USING btree ("clinic_id","conversation_id") WHERE "handovers"."conversation_id" is not null;--> statement-breakpoint
 CREATE UNIQUE INDEX "handovers_meta_conversation_idx" ON "handovers" USING btree ("clinic_id","meta_conversation_id") WHERE "handovers"."meta_conversation_id" is not null;--> statement-breakpoint
 CREATE INDEX "handovers_thread_idx" ON "handovers" USING btree ("clinic_id","platform","party_ref");--> statement-breakpoint
-CREATE INDEX "handovers_contact_idx" ON "handovers" USING btree ("clinic_id","contact_id");--> statement-breakpoint
+CREATE INDEX "handovers_callback_idx" ON "handovers" USING btree ("clinic_id","callback_phone") WHERE "handovers"."callback_phone" is not null;--> statement-breakpoint
 -- =============================================================================
 -- Handovers (19 October 2026). The statements above were generated from
 -- schema.ts; everything below is the part drizzle cannot express.
@@ -41,12 +42,14 @@ CREATE INDEX "handovers_contact_idx" ON "handovers" USING btree ("clinic_id","co
 -- under Needs you behind the passkey step-up, and marked handled by the desk.
 --
 -- It holds no words and no identity of its own. A call or web chat points at
--- its conversation and goes with it (the foreign key's cascade), and a web
--- chat's handover holds the contact for the number the visitor gave for the
--- call back, and goes with that contact too. The contact is on the handover,
--- never on the conversation: a request later in the same chat may name
--- someone else, whose appointment would then point at a conversation this
--- person's erasure must delete (review of 19 October 2026); a Meta
+-- its conversation and goes with it (the foreign key's cascade). A web chat's
+-- handover also holds the number the visitor gave for the call back, and the
+-- first name with it: on the handover, never as a contact, which every later
+-- lookup by that typed number would find and could hand a patient's call or
+-- booking, and never on the conversation, which a later request in the chat
+-- may tie to someone else (reviews of 19 October 2026). Erasure by that
+-- number deletes the handover, and its chat where nothing else holds it
+-- (lib/patient-rights/erasure.ts); a Meta
 -- thread points at its chat_threads row, the keyed hash of who wrote, and
 -- goes with that. So the person's erasure, the record clock and the thread's
 -- thirty days reach it without a line of their own, and the purge deletes on
@@ -64,8 +67,8 @@ CREATE INDEX "handovers_contact_idx" ON "handovers" USING btree ("clinic_id","co
 --     every table that points at a caller;
 --   * when it was asked is the database's clock, and it is asked open;
 --   * a handover is marked handled once, at the database's clock, and never
---     reopened or rewritten; a call's conversation and a web chat's contact
---     are each set once, and the contact is the clinic's own;
+--     reopened or rewritten; a call's conversation and a web chat's
+--     call-back number are each set once;
 --   * a restore loads rows as they were, so it disables handovers_guard for
 --     the load, as it does the other guards (docs/handover.md, "Restoring"). The runtime
 --     role may UPDATE only those columns, and the trigger holds the owner to
@@ -86,7 +89,7 @@ CREATE POLICY handovers_tenant_isolation ON handovers
   FOR ALL USING (clinic_id = app_current_clinic_id()) WITH CHECK (clinic_id = app_current_clinic_id());--> statement-breakpoint
 REVOKE ALL ON handovers FROM healdesk_app;--> statement-breakpoint
 GRANT SELECT, INSERT, DELETE ON handovers TO healdesk_app;--> statement-breakpoint
-GRANT UPDATE (conversation_id, contact_id, handled_at, handled_by_label, handled_by_user_id) ON handovers TO healdesk_app;--> statement-breakpoint
+GRANT UPDATE (conversation_id, callback_phone, callback_first_name, handled_at, handled_by_label, handled_by_user_id) ON handovers TO healdesk_app;--> statement-breakpoint
 
 CREATE TRIGGER handovers_baa_gate
   BEFORE INSERT OR UPDATE ON handovers
@@ -119,18 +122,12 @@ BEGIN
       RAISE EXCEPTION 'handovers: a handover''s conversation is set once'
         USING ERRCODE = '42501';
     END IF;
-    IF OLD.contact_id IS NOT NULL AND NEW.contact_id IS DISTINCT FROM OLD.contact_id THEN
-      RAISE EXCEPTION 'handovers: a handover''s contact is set once'
+    IF OLD.callback_phone IS NOT NULL
+       AND (NEW.callback_phone IS DISTINCT FROM OLD.callback_phone
+            OR NEW.callback_first_name IS DISTINCT FROM OLD.callback_first_name) THEN
+      RAISE EXCEPTION 'handovers: a handover''s call-back number is set once'
         USING ERRCODE = '42501';
     END IF;
-  END IF;
-  -- The contact is one of this clinic's: read under the caller's tenant, so
-  -- another clinic's contact is not there to find.
-  IF NEW.contact_id IS NOT NULL
-     AND (TG_OP = 'INSERT' OR NEW.contact_id IS DISTINCT FROM OLD.contact_id)
-     AND NOT EXISTS (SELECT 1 FROM contacts p WHERE p.id = NEW.contact_id AND p.clinic_id = NEW.clinic_id) THEN
-    RAISE EXCEPTION 'handovers: the contact is not one of this clinic''s'
-      USING ERRCODE = '42501';
   END IF;
   IF TG_OP = 'INSERT' THEN
     RETURN NEW;

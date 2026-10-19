@@ -27,7 +27,7 @@ import { inTenant, seedClinic, seedPortalUser } from "./setup/factories";
  * "keeping only the signed agreement and the billing records the law
  * requires", and the Terms promise the same; destruction took only the
  * patient rows, and nothing ever deleted the account, its sign-in or its
- * setup. app_close_clinic_account() (drizzle/0091) does, once the data is
+ * setup. app_close_clinic_account() (drizzle/0092) does, once the data is
  * destroyed and the pass-through has ended, and these tests hold it to
  * that: what goes, what stays, when, and that no other clinic is touched.
  */

@@ -608,7 +608,7 @@ export const clinics = pgTable(
      * the billing records and the records the agreements and the law need
      * (the keep-list there). The database's to stamp, like destroyed_at:
      * app_close_clinic_account() writes it, the runtime role has no UPDATE on
-     * it, and a new clinic cannot carry it (drizzle/0091).
+     * it, and a new clinic cannot carry it (drizzle/0092).
      */
     accountClosedAt: timestamp("account_closed_at", { withTimezone: true }),
 
@@ -4595,7 +4595,7 @@ export type AddressChangeStopper = (typeof ADDRESS_CHANGE_STOPPERS)[number];
  * does the account's closure, which deletes the sign-in itself: the row
  * outlives it, with `user_id` null, because a notice the agreement still owes
  * after termination (a breach report while backups hold the practice's data)
- * goes to the last address the practice gave (drizzle/0091).
+ * goes to the last address the practice gave (drizzle/0092).
  */
 export const signInAddressChanges = pgTable(
   "sign_in_address_changes",

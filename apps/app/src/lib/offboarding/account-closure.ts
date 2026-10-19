@@ -67,7 +67,7 @@ export const KEPT_FOR_GOOD: Readonly<Record<string, string>> = {
   agreement_resigns:
     "which agreement covered the practice, and from when: the record of each re-sign from the DPA to the BAA (0088), contract metadata, no patient",
   sign_in_address_changes:
-    "the written record of each notice address the practice gave (the agreements' Notices clause): a notice the BAA still owes after termination, a breach report while backups hold the practice's data, goes to the last one; business contact data, its user_id nulled when the sign-in goes (0091)",
+    "the written record of each notice address the practice gave (the agreements' Notices clause): a notice the BAA still owes after termination, a breach report while backups hold the practice's data, goes to the last one; business contact data, its user_id nulled when the sign-in goes (0092)",
   incidents:
     "the record of each security incident and of the notice given for it: a breach notice the business associate must be able to prove (45 CFR 164.414(b)), kept six years (164.316(b)(2))",
 

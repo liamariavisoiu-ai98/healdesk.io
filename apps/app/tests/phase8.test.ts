@@ -13,6 +13,7 @@ import { updateAgentConfig } from "@/lib/onboarding/agent-config";
 import {
   FORWARDING_TEST_WINDOW_MS,
   evaluateForwardingCall,
+  isForwardingActivationCall,
   startForwardingTest,
 } from "@/lib/onboarding/forwarding-test";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
@@ -91,6 +92,26 @@ describe("forwarding test — the rule", () => {
   test("a call with no caller number at all is not a pass", () => {
     const v = evaluateForwardingCall(clinic, call("c", { startedAt: inWindow, callerPhone: undefined }), "conv");
     expect(v.observation?.callerIdPreserved).toBe(false);
+  });
+
+  test("the carrier's activation call, from the clinic's own line with nobody speaking, is never the test", () => {
+    // A Verizon home phone and a traditional AT&T landline start all-call
+    // forwarding only once the call the carrier places is answered.
+    const activation = call("c", { startedAt: inWindow, callerPhone: CLINIC_NUMBER, outcome: "abandoned" });
+    const v = evaluateForwardingCall(clinic, activation, "conv");
+    expect(v).toMatchObject({ isTest: false, callerIsClinic: true, activationCall: true, observation: null });
+    expect(isForwardingActivationCall(clinic, activation)).toBe(true);
+
+    // Someone spoke, or a stranger's number: an ordinary call, judged as before.
+    const spoke = call("c", {
+      startedAt: inWindow,
+      callerPhone: CLINIC_NUMBER,
+      outcome: "abandoned",
+      transcriptTurns: [{ speaker: "person", text: "Hello?" }],
+    });
+    expect(evaluateForwardingCall(clinic, spoke, "conv").observation?.callerIdPreserved).toBe(false);
+    expect(isForwardingActivationCall(clinic, call("c", { callerPhone: CLINIC_NUMBER, outcome: "qualified_no_booking" }))).toBe(false);
+    expect(isForwardingActivationCall(clinic, call("c", { outcome: "abandoned" }))).toBe(false);
   });
 
   test("outside the window it is not the test", () => {
@@ -176,6 +197,34 @@ describeDb("phase 8, against the database", () => {
     expect(state.test_call_passed).toBeNull();
     const overview = (await listClinics()).find((x) => x.id === c.clinicId)!;
     expect(overview.forwardingTestObserved?.callerIdPreserved).toBe(false);
+  });
+
+  test("the carrier's activation call leaves the test window open, never reopens the step, and is no recovered call", async () => {
+    // A Verizon home phone or a traditional AT&T landline: the clinic dials
+    // *72 and AYA's number, stays on until AYA answers, and hangs up.
+    const c = await seedClinic("fwd-activation");
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await setPhoneSettings(tx, { assistantNumberE164: "+14155550100", publishedPhoneE164: CLINIC_NUMBER });
+      await startForwardingTest(tx);
+    });
+    const activation = () => call(c.clinicId, { callerPhone: CLINIC_NUMBER, rangAtClinicFirst: undefined, outcome: "abandoned" });
+
+    const first = await ingestCall(activation(), ACTOR);
+    expect(first.recoveryReason).toBeNull();
+    let overview = (await listClinics()).find((x) => x.id === c.clinicId)!;
+    expect(overview.forwardingTestUntil).not.toBeNull(); // still open for the real test call
+    expect(overview.forwardingTestObserved).toBeNull();
+
+    await ingestCall(call(c.clinicId), ACTOR);
+    let state = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => readOnboarding(tx));
+    expect(state.test_call_passed).not.toBeNull();
+    overview = (await listClinics()).find((x) => x.id === c.clinicId)!;
+    expect(overview.forwardingTestObserved?.callerIdPreserved).toBe(true);
+
+    // Each evening under After hours only, the same call again: the step stays stamped.
+    await ingestCall(activation(), ACTOR);
+    state = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => readOnboarding(tx));
+    expect(state.test_call_passed).not.toBeNull();
   });
 
   test("the operation refuses to start without the two numbers", async () => {

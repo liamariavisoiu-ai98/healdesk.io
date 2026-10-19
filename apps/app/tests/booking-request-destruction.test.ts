@@ -193,7 +193,7 @@ async function backdateOffboarding(clinicId: string, days: number): Promise<void
  * ways. Destruction deletes the patient rows (destroyClinicData), and
  * app_mark_clinic_destroyed() refuses to record it while any is left. The
  * account's closure, once the pass-through has ended, deletes the sign-in,
- * the setup and our notes (app_close_clinic_account, drizzle/0091). Every
+ * the setup and our notes (app_close_clinic_account, drizzle/0092). Every
  * other table is KEPT_FOR_GOOD (lib/offboarding/account-closure.ts), each
  * for a reason the agreements or the law give: the spec keeps "only the
  * signed agreement and the billing records the law requires". Until 19

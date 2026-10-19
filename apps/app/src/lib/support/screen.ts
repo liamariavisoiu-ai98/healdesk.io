@@ -9,10 +9,14 @@ import { META_TREATMENT_VOCABULARY, TREATMENT_NAMES } from "@healdesk/catalog";
  *   - IDENTIFIERS. A phone-shaped run of seven or more digits becomes
  *     "[number hidden]" and an email address "[email hidden]", unless it is
  *     the clinic's own number, healdesk's own support line, the signed-in
- *     user's own address or one of healdesk's. Staff paste a caller's number
- *     into a support chat to ask "why didn't AYA book this one?"; the digit
- *     rule catches a card number, a date of birth written as digits or a
- *     record number on the way.
+ *     user's own address or one of healdesk's. In the model's reply only,
+ *     and only once get_forwarding_steps has run, AYA's number and the
+ *     carrier service numbers the steps print (the catalog's
+ *     CARRIER_SERVICE_NUMBERS) may stay too (lib/support/chat.ts); never in
+ *     the person's own message. Staff paste a caller's number into a
+ *     support chat to ask "why didn't AYA book this one?"; the digit rule
+ *     catches a card number, a date of birth written as digits or a record
+ *     number on the way.
  *   - TREATMENT NAMES. Every word of the catalog's treatment vocabulary
  *     (META_TREATMENT_VOCABULARY, the Meta reply guard's list, and
  *     TREATMENT_NAMES, the email copy lint's), and the clinic's own menu,
@@ -38,7 +42,11 @@ export const NUMBER_MASK = "[number hidden]";
 export const TREATMENT_NOTICE = "We hide treatment names here.";
 
 export type ScreenAllow = {
-  /** Numbers that may stay, in any form: the clinic's own, and healdesk's support line. */
+  /**
+   * Numbers that may stay, in any form: the clinic's own, and healdesk's
+   * support line; in the reply, once the forwarding steps have been read,
+   * AYA's number and the carrier service numbers they print as well.
+   */
   numbers: readonly (string | null | undefined)[];
   /** Addresses that may stay: the signed-in user's own. healdesk's are always allowed. */
   emails: readonly (string | null | undefined)[];

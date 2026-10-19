@@ -394,12 +394,17 @@ function lowerFirst(text: string): string {
 }
 
 /**
- * "How to undo call forwarding" (plan Part F2): the codes for the clinic's
- * own carrier when we know it, otherwise for each carrier, matching how the
- * clinic's coverage mode forwards its calls: all-call forwarding for All
- * calls and for After hours only (which switches it on at closing), the busy
- * and no-answer pair for Overflow and after hours. Undoing needs no number,
- * so these are right whatever AYA's number is. Exported for its test.
+ * "How to undo call forwarding" (plan Part F2): the catalog's undo steps for
+ * the clinic's own carrier when we know it, otherwise for each carrier,
+ * matching how the clinic's coverage mode forwards its calls: all-call
+ * forwarding's cancel for All calls and for After hours only (which switches
+ * it on at closing), and for Overflow and after hours the cancel for each
+ * condition it set, busy, no-answer and, where the line has them, not
+ * reachable and AT&T's Safe Call Forwarding. A carrier that sells more than
+ * one kind of line gets a step per kind, and a step with nothing to dial
+ * (call or ask the carrier, a setting on the phone) has an empty `dial`.
+ * Undoing needs no number, so these are right whatever AYA's number is.
+ * Exported for its test.
  */
 export function undoSteps(
   carrier: Carrier | null,

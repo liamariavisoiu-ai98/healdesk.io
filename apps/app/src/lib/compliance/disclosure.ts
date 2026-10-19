@@ -190,7 +190,8 @@ export function channelMayCarryPhi(channel: Channel): boolean {
  * The Meta front door puts this list into its system prompt word for word,
  * and its reply guard checks every entry it can without the model's help,
  * the clinic's own service names and promotional wording included
- * (lib/meta/front-door.ts).
+ * (lib/meta/front-door.ts). The clinic's never-say list goes in beside it,
+ * after it, and adds to it: neither replaces nor reorders anything here.
  */
 export const META_CHANNEL_PROHIBITIONS = [
   "Confirming the person is, was, or will be a patient",

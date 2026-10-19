@@ -32,9 +32,9 @@ export const piece: Piece = {
           text:
             "A Pew Research Center survey of 3,488 US adults, published in August 2026, found that most want to be told when a healthcare provider uses AI in their care. " +
             "Pew reports that 72% of US adults say it is extremely or very important that a doctor or other healthcare provider tells them if they are using AI in their healthcare. " +
-            "Asked about specific tasks, 56% said a provider or its office should tell them when AI schedules a medical appointment, the lowest share of any task, and 33% said it should not. " +
+            "On specific tasks, 56% said a provider or its office should tell them when AI schedules a medical appointment, the lowest share of any task, while 33% said they do not need to be told. " +
             "Several states also have disclosure rules that can reach an assistant answering a clinic's phone or chat, which the [guide to AI disclosure laws](/guides/does-an-ai-receptionist-have-to-say-it-is-an-ai) sets out. " +
-            "What a caller must be told about transcription is covered in the [guide to call-transcription consent](/guides/ai-call-transcription-consent-by-state).",
+            "What the call-recording statutes say about transcription, and what they leave open, is covered in the [guide to call-transcription consent](/guides/ai-call-transcription-consent-by-state).",
           cite: ["pew-2026"],
         },
         { kind: "h3", text: "What a complete answer includes" },
@@ -237,7 +237,7 @@ export const piece: Piece = {
   ],
   aya: [
     "AYA's monthly prices and setup fees are on the [pricing](/pricing) page, so the price question is answered before any sales call.",
-    "AYA has not yet answered a real patient, but it is built to say it is an AI assistant in its first line on every channel and to contact no patient first.",
+    "AYA is designed to say it is an AI assistant in its first line on every channel, and to contact no patient first.",
     "We sign a business associate agreement and handle patient data under it.",
   ],
   sources: [

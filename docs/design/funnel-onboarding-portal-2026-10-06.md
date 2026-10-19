@@ -678,7 +678,7 @@ Part I's job is ownership. This plan builds the email platform (X1–X4) and eve
 - **one calendar clause** from the calendar selector
 - safeguards: the same as under HIPAA
 - minimum and disclosure, by category
-- subprocessors (**24 hours' notice** by email before a new one that handles client data, with the right to object; Anthropic's 30-day retention); incidents (5 days); requests; confidentiality (plus a vet paragraph); prohibited; assistance and audit
+- subprocessors (**24 hours' notice** by email before a new one that handles client data, with the right to object; Anthropic's 30-day retention, *annotated 19 October 2026: no more than 30 days under standard retention, two years for flagged content alone, law-required content for as long as the law requires, as the DPA now says; agreement-changes.md § 16*); incidents (5 days); requests; confidentiality (plus a vet paragraph); prohibited; assistance and audit
 - term, written from the **real** offboarding clock (or the code changes first; the same gap is flagged for the next BAA)
 - liability; notices and law (Delaware)
 

@@ -749,10 +749,20 @@ describe("undoing call forwarding", () => {
       const { text } = render(
         variant("suspended", "suspended", { kind: "grace_expired", hostedInvoiceUrl: null, amountDueCents: null, ...facts }),
       );
-      const [cancel] = catalogUndo(facts);
-      expect(cancel, carrier).toMatch(/^Cancel all-call forwarding: [*#]/);
-      expect(text, carrier).toContain(`- ${cancel}`);
-      expect(text, carrier).toContain("dial this ");
+      // After hours only switches all-call forwarding on at closing, so its
+      // undo is All calls' undo: an all-call cancel code for each kind of
+      // line the carrier sells (one for most, three for AT&T), never the
+      // codes that cancel busy and no-answer forwarding.
+      const undo = catalogUndo(facts);
+      expect(undo, carrier).toEqual(catalogUndo({ ...facts, routing: "all_calls" }));
+      for (const step of undo) {
+        expect(step, carrier).toMatch(/^(?:Cancel all-call forwarding|Turn off forwarding)[^:]*: [*#]{1,2}\d{2}#?$/);
+        expect(text, carrier).toContain(`- ${step}`);
+      }
+      expect(text, carrier).toContain(
+        undo.length === 1 ? "dial this " : "dialling each code from the clinic's own line:",
+      );
+      expect(text, carrier).not.toContain("We don't have your carrier's codes on file");
       expect(text, carrier).not.toContain("on your carrier's schedule");
     }
   });
@@ -803,9 +813,44 @@ describe("undoing call forwarding", () => {
         routing: "overflow_after_hours",
       }),
     );
-    expect(text).toContain("dial these T-Mobile codes:\n\n- Cancel busy forwarding: ##67#");
-    expect(text).toContain("- Cancel no-answer forwarding: ##61#");
+    // More than one step, and some of them alternatives, so they are steps
+    // to follow rather than codes to dial one after another.
+    expect(text).toContain(
+      "Follow these T-Mobile steps, dialling each code from the clinic's own line:\n\n- Return T-Mobile's busy, no-answer and not-reachable forwarding to its default in one code: ##004#",
+    );
+    expect(text).toContain("- Or cancel busy forwarding on its own: ##67#");
+    expect(text).toContain("- Or cancel no-answer forwarding on its own: ##61#");
     expect(text).not.toContain("##21#");
+
+    // One code alone is one to dial.
+    const single = render(
+      variant("suspended", "suspended", {
+        kind: "grace_expired",
+        hostedInvoiceUrl: null,
+        amountDueCents: null,
+        carrier: "verizon",
+        phoneSystem: "landline",
+        routing: "all_calls",
+      }),
+    ).text;
+    expect(single).toContain("From the clinic's own line, dial this Verizon code:\n\n- Cancel all-call forwarding: *73");
+  });
+
+  test("a step with nothing to dial prints as its words alone, after a lead that does not call it a code", () => {
+    const { text } = render(
+      variant("suspended", "suspended", {
+        kind: "grace_expired",
+        hostedInvoiceUrl: null,
+        amountDueCents: null,
+        carrier: "att",
+        phoneSystem: "landline",
+        routing: "overflow_after_hours",
+      }),
+    );
+    expect(text).toContain("Follow these AT&T steps, dialling each code from the clinic's own line:");
+    expect(text).not.toMatch(/dial th(?:is|ese) AT&T codes?/);
+    expect(text).toContain("- Cancel busy forwarding on AT&T Phone: *91#");
+    expect(text).toMatch(/^- On a traditional AT&T landline, call AT&T on 800\.288\.2020 to remove busy and no-answer forwarding[^\n]*\.$/m);
   });
 
   test("the end-of-service email prints undo steps only for a clinic that bought the phone", () => {
@@ -815,7 +860,8 @@ describe("undoing call forwarding", () => {
       ...base,
       payload: { ...base.payload, channels: ["web"] },
     }).text;
-    expect(withVoice).toContain("Cancel all-call forwarding: *73");
+    expect(withVoice).toContain("- Cancel all-call forwarding on AT&T Phone: *73#");
+    expect(withVoice).toContain("- Cancel all-call forwarding on a traditional AT&T landline: *73");
     expect(withVoice).toContain("pass straight through to your direct line");
     expect(chatOnly).not.toMatch(/forward/i);
     expect(chatOnly).toContain("Until you remove the healdesk snippet from your website, it asks visitors to call your practice instead.");
@@ -824,7 +870,8 @@ describe("undoing call forwarding", () => {
   test("a plan change prints undo steps only when it dropped the phone", () => {
     const dropped = VARIANTS.find((v) => v.name === "plan changed, the phone dropped")!;
     expect(render(dropped).text).toContain("Phone isn't part of your new plan");
-    expect(render(dropped).text).toContain("- Cancel busy forwarding: *91");
+    expect(render(dropped).text).toContain("- On Spectrum Voice, cancel forwarding (*73 turns off both kinds): *73");
+    expect(render(dropped).text).toContain("- On Spectrum Business Voice, ask Spectrum Business to remove the forwarding.");
     const kept = VARIANTS.find((v) => v.kind === "plan_changed")!;
     expect(render(kept).text).not.toMatch(/forward/i);
   });

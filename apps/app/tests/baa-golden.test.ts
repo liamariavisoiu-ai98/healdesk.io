@@ -10,7 +10,9 @@ import {
   getBaaTemplate,
   hashCalendarElection,
   hashDirectBookingAddendum,
+  isBaaVersionAcceptable,
   MIN_ACCEPTABLE_BAA_VERSION,
+  MODEL_RETENTION_AGREEMENT,
   prepareBaa,
   renderCalendarElection,
   renderDirectBookingAddendum,
@@ -20,6 +22,7 @@ import {
   type BaaVariables,
   type CalendarElectionVariables,
 } from "@healdesk/catalog";
+import { AgreementError, signableTemplate } from "@healdesk/catalog/agreement-signing";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -43,7 +46,9 @@ import { describe, expect, test } from "vitest";
  *   test and copy the "received" value for the NEW version only.
  *
  * 1.5.1 was released on 2026-10-19 and is what clinics sign; its hashes are
- * the record from that day on (docs/counsel/agreement-changes.md §16). 1.5.0
+ * the record from that day on (docs/counsel/agreement-changes.md §16). 1.6.0
+ * was drafted on 2026-10-19 and is not released (§17): its hashes below move
+ * with the draft until the owner releases it, and never after. 1.5.0
  * was released on 2026-10-14 and replaced outright by 1.5.1 on 2026-10-19,
  * before any clinic signed it; its hashes have been the record since its own
  * release (§15) and never move. 1.4.0
@@ -100,6 +105,20 @@ const VARIANTS: Record<string, Partial<BaaVariables>> = {
 
 /** version → variant → sha256 of the assembled text. Append-only. */
 const GOLDEN: Record<string, Record<string, string>> = {
+  // Drafted on 2026-10-19, NOT released (agreement-changes.md §17): 1.5.1
+  // with Anthropic's retention as Anthropic's documentation states it for
+  // the models the product calls, and the state-law and Term clauses'
+  // references to it naming no purpose. A draft's hashes may move until its
+  // release; from then on they are the record. No covered_verified_boulevard,
+  // as in 1.3.0 to 1.5.1: it refuses verified reporting.
+  "1.6.0": {
+    covered_estimated: "93bb381e707af83c815dde22b9923e2d5a0d42a7b3aa9e532b8075b7689bf73c",
+    notcovered_estimated: "32049affb67872fa9860aecf2c59ccb33005e7bf8e045baf352fda72d7385edb",
+    unknown_estimated: "093161040651eee93a8db8722831b759be1ec93f58ce4a24059d56579c50f90a",
+    // Identical to covered_estimated by design, as in 1.2.x to 1.5.1: no
+    // clause reads outboundMessaging.
+    covered_outbound: "93bb381e707af83c815dde22b9923e2d5a0d42a7b3aa9e532b8075b7689bf73c",
+  },
   // Released on 2026-10-19 and offered from that day (agreement-changes.md
   // §16): 1.5.0 with the optional booking details asked in a website chat as
   // well as on a call. Frozen from the release: these are the bytes clinics
@@ -248,11 +267,11 @@ describe("BAA template freeze", () => {
   test("the variants genuinely differ — the predicates are live, not decorative", () => {
     // One coincidence is by design and is asserted as such: outboundMessaging
     // selects nothing since 1.2.0, so covered_outbound IS covered_estimated.
-    // Every other variant is a distinct document. 1.5.1, the current
-    // version, 1.5.0, 1.4.0 and 1.3.0 have no covered_verified_boulevard
-    // (they refuse verified reporting), so this reads them and 1.2.2, which
-    // has all five.
-    for (const version of [CURRENT_BAA_VERSION, "1.5.0", "1.4.0", "1.3.0", "1.2.2"]) {
+    // Every other variant is a distinct document. The 1.6.0 draft, 1.5.1,
+    // the current version, 1.5.0, 1.4.0 and 1.3.0 have no
+    // covered_verified_boulevard (they refuse verified reporting), so this
+    // reads them and 1.2.2, which has all five.
+    for (const version of ["1.6.0", CURRENT_BAA_VERSION, "1.5.0", "1.4.0", "1.3.0", "1.2.2"]) {
       const golden = GOLDEN[version]!;
       expect(golden.covered_outbound, version).toBe(golden.covered_estimated);
       const distinct = Object.entries(golden)
@@ -417,13 +436,14 @@ describe("1.2.2: the agreement offered until 1.3.0's release", () => {
 
   test("was released, is replaced outright by 1.3.0, and is no longer signable", () => {
     // 1.3.0 was replaced in turn by 1.4.0 (13 October 2026), 1.4.0 by 1.5.0
-    // (14 October 2026), and 1.5.0 by 1.5.1 (19 October 2026), so 1.2.2 sits
-    // fifth.
+    // (14 October 2026), and 1.5.0 by 1.5.1 (19 October 2026), and the 1.6.0
+    // draft follows 1.5.1 (19 October 2026), so 1.2.2 sits sixth.
     expect(CURRENT_BAA_VERSION).toBe("1.5.1");
-    expect(BAA_TEMPLATES[1]!.version).toBe("1.5.0");
-    expect(BAA_TEMPLATES[2]!.version).toBe("1.4.0");
-    expect(BAA_TEMPLATES[3]!.version).toBe("1.3.0");
-    expect(BAA_TEMPLATES[4]).toBe(v122());
+    expect(BAA_TEMPLATES[1]!.version).toBe("1.6.0");
+    expect(BAA_TEMPLATES[2]!.version).toBe("1.5.0");
+    expect(BAA_TEMPLATES[3]!.version).toBe("1.4.0");
+    expect(BAA_TEMPLATES[4]!.version).toBe("1.3.0");
+    expect(BAA_TEMPLATES[5]).toBe(v122());
     expect(v122().approvedByCounsel).toBe(true);
     expect(v122().publishedOn).toBe("2026-10-09");
     // No overlap: no clinic had signed it, and the owner decided on 12
@@ -767,8 +787,9 @@ describe("1.3.0: the calendar-dependent agreement", () => {
   }
 
   test("was released by the owner, replaced 1.2.2 outright, and was replaced outright by 1.4.0", () => {
-    expect(BAA_TEMPLATES[3]!.version).toBe(V130);
-    expect(BAA_TEMPLATES[4]!.version).toBe("1.2.2");
+    // Behind 1.5.1, the 1.6.0 draft, 1.5.0 and 1.4.0.
+    expect(BAA_TEMPLATES[4]!.version).toBe(V130);
+    expect(BAA_TEMPLATES[5]!.version).toBe("1.2.2");
     expect(v130().approvedByCounsel).toBe(true);
     expect(v130().publishedOn).toBe("2026-10-12");
     // No overlap, and the go-live floor passed it to 1.4.0 the next day: no
@@ -1353,8 +1374,10 @@ describe("1.4.0: the transcript emailed, not kept", () => {
   }
 
   test("was released by the owner, replaced 1.3.0 outright, and was replaced outright by 1.5.0", () => {
-    expect(BAA_TEMPLATES[2]!.version).toBe(V140);
-    expect(BAA_TEMPLATES[3]).toBe(v130());
+    // Behind 1.5.1, the 1.6.0 draft, which follows the release it revises,
+    // and 1.5.0.
+    expect(BAA_TEMPLATES[3]!.version).toBe(V140);
+    expect(BAA_TEMPLATES[4]).toBe(v130());
     expect(v140().approvedByCounsel).toBe(true);
     expect(v140().publishedOn).toBe("2026-10-13");
     // No overlap, and the go-live floor passed it to 1.5.0 the next day: no
@@ -1582,8 +1605,9 @@ describe("1.5.0: the transcript's copy deleted once delivery is confirmed", () =
   }
 
   test("was released by the owner, replaced 1.4.0 outright, and was replaced outright by 1.5.1", () => {
-    expect(BAA_TEMPLATES[1]!.version).toBe(V150);
-    expect(BAA_TEMPLATES[2]).toBe(v140());
+    // Behind 1.5.1 and the 1.6.0 draft, which follows the release it revises.
+    expect(BAA_TEMPLATES[2]!.version).toBe(V150);
+    expect(BAA_TEMPLATES[3]).toBe(v140());
     expect(v150().approvedByCounsel).toBe(true);
     expect(v150().publishedOn).toBe("2026-10-14");
     // No overlap, and the go-live floor passed it to 1.5.1 on 19 October
@@ -1789,7 +1813,9 @@ describe("1.5.1: the optional booking details asked in a website chat too", () =
   test("is the current template, released by the owner, and replaced 1.5.0 outright", () => {
     expect(BAA_TEMPLATES[0]!.version).toBe(CURRENT_BAA_VERSION);
     expect(CURRENT_BAA_VERSION).toBe(V151);
-    expect(BAA_TEMPLATES[1]).toBe(v150());
+    // The 1.6.0 draft follows it until the owner releases the draft.
+    expect(BAA_TEMPLATES[1]!.version).toBe("1.6.0");
+    expect(BAA_TEMPLATES[2]).toBe(v150());
     expect(v151().approvedByCounsel).toBe(true);
     expect(v151().publishedOn).toBe("2026-10-19");
     // No overlap, and the go-live floor is 1.5.1: no clinic had signed 1.5.0,
@@ -1925,6 +1951,224 @@ describe("1.5.1: the optional booking details asked in a website chat too", () =
 });
 
 /**
+ * 1.6.0, DRAFTED on 19 October 2026 and not released: 1.5.1 with the
+ * Subcontractors clause's paragraph on Anthropic said as Anthropic's own
+ * documentation says it for claude-opus-5-5 and claude-sonnet-5-5, the
+ * models the product calls (packages/catalog model-retention.ts; baa.ts,
+ * above SUBCONTRACTORS_1_6; agreement-changes.md §17). 1.5.1, like 1.3.0 to
+ * 1.5.0, says 30 days "for abuse detection and security", two years for
+ * law-required content and "cannot run with shorter retention", none of
+ * which Anthropic says of those models. The state-law clause's two
+ * exceptions to deletion and the Term clause's sentence on Anthropic's
+ * copies point at that paragraph, and 1.5.1's name the purpose it no longer
+ * states, so they change with it. These pin that 1.6.0 changes those three
+ * clauses and nothing else, that no sentence of any 1.6.0 document gives
+ * Anthropic's retention a purpose, and that it cannot be signed or go live
+ * until the owner releases it. The draft was first written on 1.5.0, the
+ * version current that morning, and rebuilt on 1.5.1 when 1.5.1 was released
+ * the same day, so it says what 1.5.1 says about the website chat.
+ */
+const V160 = "1.6.0";
+
+/** variant → sha256, for 1.6.0, over 1.3.0's own variants. A draft's: they move with it until its release. */
+const GOLDEN_1_6: Record<string, string> = {
+  uncovered_nobaa: "a4345bec22c83bcdb7900e0a8da8ae221b16b725f8138d515336e0cf8958d776",
+  uncovered_personal: "33f50e123695e2da2a89f85d024eaf80b9b767c38fb5d5f3f504fb1557d79711",
+  notused_mindbody: "74a073fa9786ea19017bc7cf9cdd9cc8cae6a64adbf31a2de25d80f2d2096551",
+  notused_other: "0670bb3da1c674956221536a23f4447455e9b719b0fb70a083a8e0118c51d9c4",
+  live_calcom: "eb9211d48652aadc8f71147c89cb03cbf17c65f0a146e0190e4752e4e048e5f8",
+  live_highlevel_personal: "fd57d28d5d014b5aa79388a287ce35f64112827c84d6adf8e0443cdd759d1e19",
+  live_calendly_nobaa: "4eab63861059254438c8817a96403d154eb8793ae9e916c37ed1c62a21a17122",
+};
+
+describe("1.6.0: Anthropic's retention as Anthropic documents it (a draft)", () => {
+  const v151 = () => getBaaTemplate(V151)!;
+  const v160 = () => getBaaTemplate(V160)!;
+  const render = (overrides: Partial<BaaVariables>) =>
+    prepareBaa(v160(), { ...BASE, ...overrides });
+  const body = (version: string, id: string) =>
+    getBaaTemplate(version)!
+      .clauses.find((c) => c.id === id)!
+      .body(BASE);
+  /** As 1.5.1's: every selection any version reads, except verified reporting, which 1.6.0 refuses too. */
+  const everyVariant = (): Partial<BaaVariables>[] => [
+    ...Object.values(VARIANTS).filter((overrides) => overrides.attributionMode !== "verified"),
+    ...Object.values(VARIANTS_1_3),
+    ...Object.values(VARIANTS_1_1),
+    { outboundMessaging: true, isCoveredEntity: null },
+    {
+      isCoveredEntity: false,
+      bookingSystem: "boulevard",
+      connectedPlatform: "Boulevard",
+      calendarAccount: "personal",
+    },
+  ];
+
+  for (const [name, hash] of Object.entries(GOLDEN_1_6)) {
+    test(`${V160} / ${name} still renders the bytes drafted`, () => {
+      expect(render(VARIANTS_1_3[name]!).hash).toBe(hash);
+    });
+  }
+
+  test("is a draft: registered after 1.5.1, not offered, not signable and refused at go-live", () => {
+    expect(BAA_TEMPLATES[1]).toBe(v160());
+    expect(v160().approvedByCounsel).toBe(false);
+    expect(v160().publishedOn).toBe("2026-10-19");
+    expect(CURRENT_BAA_VERSION).toBe(V151);
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(V151);
+    expect(isBaaVersionAcceptable(V160)).toBe(false);
+    expect(BAA_RELEASE_OVERLAP).not.toHaveProperty(V160);
+    expect(() => signableTemplate(V160)).toThrow(AgreementError);
+    const text = render({}).text;
+    expect(text).toContain("Version 1.6.0 — executed electronically");
+  });
+
+  /** The clauses 1.6.0 changes: Anthropic's paragraph, and the two that point at it. */
+  const CHANGED = ["subcontractors", "state-law", "term"];
+
+  test("every clause but those three is 1.5.1's own object, in the same order", () => {
+    expect(v160().clauses.map((c) => c.id)).toEqual(v151().clauses.map((c) => c.id));
+    v160().clauses.forEach((clause, i) => {
+      if (CHANGED.includes(clause.id)) expect(clause, clause.id).not.toBe(v151().clauses[i]);
+      else expect(clause, clause.id).toBe(v151().clauses[i]);
+    });
+    // 1.5.1's Minimum necessary clause, the one 1.5.1 changed, is carried as
+    // its own object: 1.6.0 says what 1.5.1 says about the website chat.
+    expect(v160().clauses.find((c) => c.id === "minimum-necessary")).toBe(
+      v151().clauses.find((c) => c.id === "minimum-necessary"),
+    );
+    for (const overrides of everyVariant()) {
+      expect(render(overrides).clauseIds, JSON.stringify(overrides)).toEqual(
+        prepareBaa(v151(), { ...BASE, ...overrides }).clauseIds,
+      );
+    }
+  });
+
+  test("inside the Subcontractors clause and the preamble, everything but Anthropic's paragraph is 1.5.1's, word for word", () => {
+    expect(v160().preamble(BASE)).toBe(
+      v151().preamble(BASE).replace("Version 1.5.1 —", "Version 1.6.0 —"),
+    );
+    const sub151 = body(V151, "subcontractors").split("\n\n");
+    const sub160 = body(V160, "subcontractors").split("\n\n");
+    expect(sub160).toHaveLength(3);
+    expect(sub151).toHaveLength(3);
+    expect(sub160[0]).toBe(sub151[0]);
+    expect(sub160[1]).not.toBe(sub151[1]);
+    expect(sub160[2]).toBe(sub151[2]);
+    // The rest of the document is 1.5.1's, line for line, on every variant,
+    // once the three changed clauses are taken out of both.
+    for (const overrides of everyVariant()) {
+      const label = JSON.stringify(overrides);
+      const variables = { ...BASE, ...overrides };
+      const strip = (text: string, version: string) =>
+        CHANGED.reduce(
+          (flat, id) => {
+            const clause = getBaaTemplate(version)!.clauses.find((c) => c.id === id)!;
+            return flat.replace(unwrap(clause.body(variables)), id.toUpperCase());
+          },
+          unwrap(text).replace(`Version ${version} —`, "Version —"),
+        );
+      expect(strip(render(overrides).text, V160), label).toBe(
+        strip(prepareBaa(v151(), variables).text, V151),
+      );
+    }
+    expect(() => render(VARIANTS.covered_verified_boulevard!)).toThrow(
+      /Version 1\.6\.0 has no verified-reporting clause/,
+    );
+  });
+
+  test("states Anthropic's retention as Anthropic documents it, and keeps the promise about when its agreement is signed", () => {
+    const paragraph = unwrap(body(V160, "subcontractors").split("\n\n")[1]!).trim();
+    expect(paragraph).toBe(
+      "Language models are used to understand a patient and answer them during a conversation. " +
+        "healdesk's language-model provider is Anthropic. Anthropic receives the content of each " +
+        "conversation, to generate the assistant's replies, only under a business associate " +
+        "agreement with healdesk signed before any patient's information reaches it. " +
+        `${MODEL_RETENTION_AGREEMENT} healdesk may not use PHI to train, fine-tune or evaluate any ` +
+        "model, its own or a third party's.",
+    );
+    expect(paragraph).toContain("for no more than the 30 days of its standard retention");
+    expect(paragraph).toContain("which it may keep for up to two years");
+    expect(paragraph).toContain("which it may keep for as long as the law requires");
+    expect(paragraph).not.toMatch(/abuse detection|cannot run with|law requires it to keep, which it may retain for up to two years|never trains/);
+    // 1.5.1 is frozen and keeps what it said.
+    expect(unwrap(body(V151, "subcontractors"))).toContain(
+      "Anthropic retains conversation content for 30 days, for abuse detection and security",
+    );
+  });
+
+  test("the state-law and Term clauses point at that paragraph without giving it a purpose", () => {
+    // 1.5.1's state-law clause excepts what the Subcontractors clause "says a
+    // subcontractor may keep for abuse detection and security, or because a
+    // law requires it", and its Term clause lets Anthropic keep copies "only
+    // for the purposes and periods that clause states". 1.6.0's paragraph
+    // states no purpose, so both point at its periods; the state-law clause
+    // is the one the DPA shares (stateLawClauseBody160).
+    for (const overrides of everyVariant()) {
+      const variables = { ...BASE, ...overrides };
+      const label = JSON.stringify(overrides);
+      const stateLaw = (version: string) =>
+        unwrap(getBaaTemplate(version)!.clauses.find((c) => c.id === "state-law")!.body(variables));
+      const term = (version: string) =>
+        unwrap(getBaaTemplate(version)!.clauses.find((c) => c.id === "term")!.body(variables));
+      expect(stateLaw(V160), label).toContain(
+        'The only exception is what the clause headed "Subcontractors" says a subcontractor may ' +
+          "keep, for the periods that clause states, and that is kept for those periods only.",
+      );
+      expect(stateLaw(V160), label).toContain(
+        "The only exception to a subcontractor's duty to delete is what that clause says it may " +
+          "keep, for the periods that clause states.",
+      );
+      expect(term(V160), label).toContain(
+        "Anthropic may keep what the Subcontractors clause describes, only for the periods that clause states.",
+      );
+      expect(term(V160).replace("only for the periods", "only for the purposes and periods"), label).toBe(
+        term(V151),
+      );
+      // 1.5.1 is frozen and keeps what it said.
+      expect(stateLaw(V151), label).toContain("may keep for abuse detection and security");
+      expect(term(V151), label).toContain("only for the purposes and periods that clause states");
+    }
+  });
+
+  test("no 1.6.0 document gives Anthropic's retention a purpose its documentation does not state", () => {
+    // Checked on the whole rendered text of every variant, not the
+    // Subcontractors paragraph alone: until 19 October 2026 the paragraph was
+    // corrected and the two clauses pointing at it still said "for abuse
+    // detection and security", which only the paragraph's check could not see.
+    for (const overrides of everyVariant()) {
+      const text = unwrap(render(overrides).text);
+      expect(text, JSON.stringify(overrides)).not.toMatch(
+        /abuse detection|purposes and periods|for that purpose and period|cannot run with|never trains/,
+      );
+    }
+  });
+
+  test("the variants are distinct documents, and none is a released document", () => {
+    const hashes = [...Object.values(GOLDEN[V160]!), ...Object.values(GOLDEN_1_6)];
+    expect(GOLDEN[V160]!.covered_outbound).toBe(GOLDEN[V160]!.covered_estimated);
+    expect(new Set(hashes).size).toBe(hashes.length - 1);
+    const released = new Set([
+      ...Object.values(GOLDEN[V151]!),
+      ...Object.values(GOLDEN_1_5_1),
+      ...Object.values(GOLDEN[V150]!),
+      ...Object.values(GOLDEN_1_5),
+    ]);
+    for (const hash of hashes) expect(released.has(hash), hash).toBe(false);
+  });
+
+  test("every line fits in 78 columns, the party lines included", () => {
+    for (const overrides of everyVariant()) {
+      const text = render({
+        ...overrides,
+        clinicLegalName: "The Very Long Legal Name Of A Practice That Keeps Going LLC",
+      }).text;
+      for (const line of text.split("\n")) expect(line.length, line).toBeLessThanOrEqual(78);
+    }
+  });
+});
+
+/**
  * The direct-booking addendum is the document a practice actually accepts
  * (on its setup link, once counsel approves it); the clause in 1.1.0-draft is
  * the same text. Its hash is stored on the clinic row, so it is frozen here
@@ -2014,10 +2258,10 @@ describe("calendar election freeze", () => {
     expect(election).toContain(selected.body);
     expect(agreement.text).toContain(selected.body);
     expect(unwrap(election)).not.toContain(unwrap(CALENDAR_LOCATION_PARAGRAPH));
-    // 1.4.0, 1.5.0 and 1.5.1 carry 1.3.0's calendar clauses as the same
-    // objects, so an election takes the place of their clause word for word
-    // too.
-    for (const version of [V140, V150, V151]) {
+    // 1.4.0, 1.5.0, 1.5.1 and the 1.6.0 draft carry 1.3.0's calendar
+    // clauses as the same objects, so an election takes the place of their
+    // clause word for word too.
+    for (const version of [V140, V150, V151, V160]) {
       const later = prepareBaa(getBaaTemplate(version)!, { ...BASE, calendarAccount: "personal" });
       expect(later.clauseIds, version).toContain(selected.clauseId);
       expect(later.text, version).toContain(selected.body);

@@ -569,7 +569,10 @@ describe("after cancellation (E3 to E6)", () => {
       );
       expect(subject).toBe("Calls stop passing through on 6 December");
       expect(text).not.toMatch(/tomorrow/i);
-      expect(text).toContain("From the clinic's own line, dial");
+      // AT&T's undo is a step per kind of line, some with nothing to dial, so
+      // it is steps to follow, each code dialled from the clinic's own line.
+      expect(text).toContain("Follow these AT&T steps, dialling each code from the clinic's own line:");
+      expect(text).toContain("- Cancel busy forwarding on AT&T Phone: *91#");
     }
   });
 });

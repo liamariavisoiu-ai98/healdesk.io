@@ -10,6 +10,7 @@ import {
   readContactFields,
 } from "@/lib/chat/contact-form";
 import { webChatClinic } from "@/lib/chat/web-chat";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { readBookingRequestViews } from "@/lib/meta/booking-requests";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -35,6 +36,7 @@ import {
   setWeekdayHours,
   type SeededClinic,
 } from "./setup/factories";
+import { attestPlatform, withdrawPlatform } from "./setup/platform";
 
 /**
  * L20's source (package F): the website's contact form, what the chat widget
@@ -106,6 +108,8 @@ describeDb("a message left on the website", () => {
   beforeEach(async () => {
     await truncateAll();
     __resetContactLimitsForTests();
+    // The vendors' agreements in force, as a launched platform holds them.
+    await attestPlatform(COVERAGE_VENDORS);
   });
 
   afterAll(async () => {
@@ -246,6 +250,40 @@ describeDb("a message left on the website", () => {
       ["contact_form", "Dana", "Mornings"],
     ]);
     expect(requestWords(open[0]!).headline).toBe("left a message while AYA was off");
+  });
+
+  test("a lapsed vendor's agreement: the model provider's leaves the form taking messages, the host's keeps nothing", async () => {
+    const c = await liveWeb("msg-vendors");
+
+    // The model provider's: AYA stops, the form still takes a message, as
+    // no model is in it and the host covers what it keeps.
+    await withdrawPlatform(["anthropic"]);
+    const modelLapsed = await (await post(start, c.slug, "start", {})).json();
+    expect(modelLapsed).toEqual({
+      mode: "contact_form",
+      reason: "vendor_agreement_lapsed",
+      form: { takesMessages: true, times: CONTACT_TIMES },
+    });
+    expect((await post(contact, c.slug, "contact", GOOD)).status).toBe(200);
+    expect(await requests(c)).toHaveLength(1);
+
+    // The database host's: nothing new is kept where patient data lives.
+    await attestPlatform(["anthropic"]);
+    await withdrawPlatform(["database_host"]);
+    const hostLapsed = await (await post(start, c.slug, "start", {})).json();
+    expect(hostLapsed).toMatchObject({
+      mode: "contact_form",
+      reason: "host_agreement_lapsed",
+      form: { takesMessages: false },
+    });
+    const refused = await post(contact, c.slug, "contact", { ...GOOD, firstName: "Sam" }, "203.0.113.8");
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ mode: "closed" });
+    expect(await requests(c)).toHaveLength(1);
+
+    // A renewal recorded: AYA answers again.
+    await attestPlatform(["database_host"]);
+    expect((await (await post(start, c.slug, "start", {})).json()).mode).not.toBe("contact_form");
   });
 
   test("switched Off, or answering when the widget's chat failed: the form takes a message too", async () => {

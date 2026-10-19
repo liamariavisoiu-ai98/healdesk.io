@@ -26,6 +26,7 @@ import { autoConfirmView, rightNowLine } from "@/lib/setup/calendar";
 import {
   actionLine,
   channelNextStep,
+  channelStatusLabel,
   channelStatusWord,
   isClinicAction,
   setupLine,
@@ -207,6 +208,33 @@ describe("each channel's next step", () => {
     expect(actionLine("voice", "forwarding")).toBe("Set call forwarding on your main line");
     expect(channelStatusWord("setting_up")).toBe("Being prepared");
     expect(channelStatusWord("waiting")).toBe("Waiting on you");
+  });
+
+  test("step 4's status carries its time: live since when, paused until when", () => {
+    const now = new Date("2026-10-19T16:00:00Z");
+    const zone = "America/New_York";
+    const live = { status: "live" as const, liveAt: new Date("2026-10-14T15:00:00Z"), pausedUntil: null };
+    expect(channelStatusLabel(live, zone, now)).toBe("Live since 14 October");
+    // The day is the clinic's: 02:00 UTC on the 15th is still the 14th in New York.
+    expect(
+      channelStatusLabel({ ...live, liveAt: new Date("2026-10-15T02:00:00Z") }, zone, now),
+    ).toBe("Live since 14 October");
+    expect(
+      channelStatusLabel(
+        { status: "paused", liveAt: live.liveAt, pausedUntil: new Date("2026-10-20T18:00:00Z") },
+        zone,
+        now,
+      ),
+    ).toBe("Paused until 2 pm EDT on Tuesday 20 October");
+    expect(
+      channelStatusLabel({ status: "paused", liveAt: live.liveAt, pausedUntil: null }, zone, now),
+    ).toBe("Paused until you switch AYA back on");
+    // A channel that has not opened has no time to show: never an opening date.
+    for (const status of ["waiting", "setting_up", "off"] as const) {
+      expect(channelStatusLabel({ status, liveAt: null, pausedUntil: null }, zone, now)).toBe(
+        channelStatusWord(status),
+      );
+    }
   });
 
   test("phone never asks for forwarding before voice is ready", () => {

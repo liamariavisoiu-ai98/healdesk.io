@@ -2,6 +2,7 @@ import { CHANNEL_NAMES, type Channel } from "@healdesk/catalog";
 
 import type { ChannelWaitingOn } from "@/db/schema";
 import type { ChannelState, ChannelStatus } from "@/lib/channels/state";
+import { portalDay, portalMoment } from "@/lib/portal/format";
 
 /**
  * What each bought channel is waiting for, in words a clinic acts on (plan
@@ -9,11 +10,15 @@ import type { ChannelState, ChannelStatus } from "@/lib/channels/state";
  * shared by the wizard, the clinic's page and the emails, so a channel is
  * never "waiting on you" on one screen and "being prepared" in an email.
  *
- * Never a date (owner, 6 October 2026: a channel is sold only once it is
- * ready, so there are no opening dates), and never a channel shown as live
- * before it is (spec, "What the clinic sees at the end").
+ * Never an opening date (owner, 6 October 2026: a channel is sold only once
+ * it is ready, so there is no date a channel will open), and never a channel
+ * shown as live before it is (spec, "What the clinic sees at the end"). The
+ * one time a status carries is one that has happened or that the clinic
+ * chose: when a live channel went live, and when its pause ends
+ * (channelStatusLabel).
  *
- * Pure: no database, no clock. lib/channels/state.ts reads the rows.
+ * Pure: no database, and the clock is the caller's. lib/channels/state.ts
+ * reads the rows.
  */
 
 /**
@@ -47,7 +52,7 @@ export function isClinicAction(step: ChannelNextStep): boolean {
   return step !== "preparing" && step !== "none";
 }
 
-/** The status word (plan Part E step 4), without a date. */
+/** The status word alone (plan Part E step 4), where there is no room for its time. */
 export function channelStatusWord(status: ChannelStatus): string {
   switch (status) {
     case "off":
@@ -61,6 +66,29 @@ export function channelStatusWord(status: ChannelStatus): string {
     case "setting_up":
       return "Being prepared";
   }
+}
+
+/**
+ * The status as the wizard's step 4 shows it (plan Part E): "Live since 14
+ * October", "Paused until 2 pm EDT on Tuesday 20 October", or, for a pause
+ * with no end, "Paused until you switch AYA back on"; every other status is
+ * its word alone, since a channel that has not opened has no time to show.
+ * In the clinic's own time zone, as the rest of the portal writes a moment.
+ */
+export function channelStatusLabel(
+  state: Pick<ChannelState, "status" | "liveAt" | "pausedUntil">,
+  timeZone: string,
+  now: Date,
+): string {
+  if (state.status === "live" && state.liveAt) {
+    return `Live since ${portalDay(state.liveAt, timeZone, now, { weekday: false })}`;
+  }
+  if (state.status === "paused") {
+    return state.pausedUntil
+      ? `Paused until ${portalMoment(state.pausedUntil, timeZone, now)}`
+      : "Paused until you switch AYA back on";
+  }
+  return channelStatusWord(state.status);
 }
 
 /**

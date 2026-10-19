@@ -10,8 +10,8 @@ import { ScreenShell } from "../ScreenShell";
 
 /**
  * Step 4 · Your channels (plan Part E): each bought channel with its status
- * word and what it needs, never a date, and, where the channel is ready for
- * it, the one step itself:
+ * ("Live since …", "Paused until …") and what it needs, never an opening
+ * date, and, where the channel is ready for it, the one step itself:
  *
  *   - Website chat: the line to paste, once the channel is open (ready on our
  *     side), with a Copy button (lib/setup/snippet.ts);
@@ -31,7 +31,7 @@ import { ScreenShell } from "../ScreenShell";
 export type ChannelRow = {
   channel: "web" | "meta" | "voice";
   name: string;
-  /** The status word, without a date. */
+  /** The status, with its time where it has one (lib/setup/channels.ts, channelStatusLabel). */
   status: string;
   /** What happens next, in one or two sentences. */
   line: string;
@@ -84,7 +84,8 @@ export function ChannelsScreen(props: {
               <li key={row.channel} className="border-line rounded-xl border bg-white px-4 py-3">
                 <p className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold">{row.name}</span>
-                  <span className="bg-paper-2 shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold">
+                  {/* Wraps rather than overflows: "Paused until …" carries a whole moment. */}
+                  <span className="bg-paper-2 max-w-full rounded-full px-3 py-1 text-xs font-semibold">
                     {row.status}
                   </span>
                 </p>

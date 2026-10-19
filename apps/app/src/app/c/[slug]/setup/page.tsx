@@ -28,7 +28,7 @@ import {
   requestedScreen,
   type CalendarNotice,
 } from "@/lib/setup/calendar";
-import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
+import { channelNextStep, channelStatusLabel, setupSentence } from "@/lib/setup/channels";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import {
   forwardingView,
@@ -556,7 +556,7 @@ async function ChannelsStep({
         const row = {
           channel: c.channel,
           name: CHANNEL_NAMES[c.channel],
-          status: channelStatusWord(c.status),
+          status: channelStatusLabel(c, state.clinic.timezone, new Date()),
           line: setupSentence(c.channel, step),
         };
         // A step shown below the row is the one the row names, whatever

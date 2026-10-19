@@ -309,6 +309,37 @@ describeDb("the setup wizard's pages", () => {
       }
     });
 
+    test("a live channel says since when, and a paused one until when (plan Part E step 4)", async () => {
+      // Until 19 October 2026 the words were a bare "Live" and "Paused".
+      as(voiceWeb);
+      // Inside the tenant: the tables force row-level security, the migrator's included.
+      const pause = (set: string) =>
+        inTenant(voiceWeb.clinicId, (c) =>
+          c.query(`update clinic_settings set ${set} where clinic_id = $1`, [voiceWeb.clinicId]),
+        );
+      await setChannel(
+        voiceWeb,
+        "web",
+        `ready_at = '2026-10-14T15:00:00Z', live_at = '2026-10-14T15:00:00Z'`,
+      );
+      try {
+        expect(text(await wizard({ s: "channels" }))).toMatch(
+          /Website chat Live since 14 October(?: 2026)? /,
+        );
+        await pause(`ai_paused_at = now(), ai_paused_until = '2099-03-02T19:00:00Z'`);
+        expect(text(await wizard({ s: "channels" }))).toMatch(
+          /Website chat Paused until \d{1,2}(?::\d{2})? [ap]m [A-Z]{2,5} on Monday 2 March 2099 /,
+        );
+        await pause(`ai_paused_until = null`);
+        expect(text(await wizard({ s: "channels" }))).toContain(
+          "Website chat Paused until you switch AYA back on",
+        );
+      } finally {
+        await pause(`ai_paused_at = null, ai_paused_until = null`);
+        await setChannel(voiceWeb, "web", `ready_at = null, live_at = null, waiting_on = null`);
+      }
+    });
+
     test("phone ready but no direct line: no number yet, and the way to set the line", async () => {
       as(voiceWeb);
       await voiceReady(voiceWeb, { directLine: false });

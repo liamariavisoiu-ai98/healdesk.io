@@ -89,6 +89,8 @@ Its own long-lived Node process from the same image (`node --import tsx src/voic
   conversation, the worker reads it back from Retell, checks it reached the clinic's own Retell
   number, and ingests it, idempotent on the call id: the conversation, the transcript and the minutes,
   but no booking request, since the caller's request was the dead session's (`lib/voice/backstop.ts`).
+  It covers a call never recorded, not one recorded in part: if Retell reconnects the call to another
+  task, that session records from the reconnect on and the first half stays unrecorded.
 - **The per-process rate limit** is per task: with several web tasks the limit is that many times
   higher.
 - **Meta-style screening on the web chat**: the web chat may carry clinical words (it is BAA-covered),

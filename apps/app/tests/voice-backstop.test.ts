@@ -203,7 +203,7 @@ describe("the backstop's queue and mapping", () => {
 
   test("refuses an outbound call, and a call our endpoint never spoke on; no disclosure claimed without the locked line", () => {
     const clinic = { clinicId: CLINIC, callId: "call_1", assistantNumber: ASSISTANT };
-    expect(callEventFromRetell(retellCall({ call_id: "call_1", direction: "outbound" }), clinic)).toEqual({ refused: "outbound" });
+    expect(callEventFromRetell(retellCall({ call_id: "call_1", direction: "outbound", from_number: ASSISTANT, to_number: "+14155550192" }), clinic)).toEqual({ refused: "outbound" });
     // The socket never opened (Retell's error_llm_websocket_open): only the caller is in the transcript.
     expect(callEventFromRetell(retellCall({ call_id: "call_1", transcript_object: [{ role: "user", content: "Hello?" }] }), clinic)).toEqual({ refused: "never_answered" });
     expect(callEventFromRetell(retellCall({ call_id: "call_1", transcript_object: [] }), clinic)).toEqual({ refused: "never_answered" });
@@ -219,6 +219,23 @@ describe("the backstop's queue and mapping", () => {
     expect("event" in silent && silent.event.transcriptTurns).toBeUndefined();
     expect(openedWithDisclosure(turnsFromRetell([{ role: "user", content: "hi" }]))).toBe(false);
     expect(turnsFromRetell([{ role: "transfer_target", content: "x" }, { role: "user", content: "  " }, null, "x"])).toEqual([]);
+  });
+
+  test("the caller's words are joined between agent turns, and a card number is cut, even read out across two", () => {
+    // 4242 4242 4242 4242 passes the Luhn check.
+    const turns = turnsFromRetell([
+      { role: "agent", content: "How can I help?" },
+      { role: "user", content: "My card is 4242 4242" },
+      { role: "user", content: "4242 4242, can I pay a deposit?" },
+      { role: "agent", content: "I can't take card numbers on a call." },
+      { role: "user", content: "Call me on 415 555 0192" },
+    ]);
+    expect(turns).toEqual([
+      { speaker: "assistant", text: "How can I help?" },
+      { speaker: "person", text: "My card is [card number removed], can I pay a deposit?" },
+      { speaker: "assistant", text: "I can't take card numbers on a call." },
+      { speaker: "person", text: "Call me on 415 555 0192" },
+    ]);
   });
 
   test("reads the call from Retell with the key, and throws on a failure so the job retries", async () => {
@@ -401,7 +418,7 @@ describeDb("the backstop against the database", () => {
     const ingest = vi.fn();
     const outbound = await runCallBackstop(
       { clinicId: clinic.clinicId, callId: "call_out" },
-      { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, direction: "outbound" }), ingest, transport },
+      { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, direction: "outbound", from_number: ASSISTANT, to_number: "+14155550192" }), ingest, transport },
     );
     expect(outbound).toEqual({ status: "refused", reason: "outbound" });
     expect(ingest).not.toHaveBeenCalled();

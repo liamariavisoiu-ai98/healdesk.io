@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 
 import { clinics, conversations } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { cardNumberIn } from "@/lib/assistant/guard";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { disclosureFor } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
@@ -58,6 +59,12 @@ import { ingestCall, VoiceIngestError, type IngestResult, type VoiceCallEvent } 
  * `urgent` stays false; an urgent caller's alert was raised in the call
  * itself, when it was heard.
  *
+ * It covers a call that was never recorded, not one recorded in part. The
+ * session asks Retell to reconnect a dropped socket (lib/voice/retell.ts);
+ * if Retell reconnects a crashed task's call to another task, that task's
+ * session records the call from the reconnect on, and the backstop, seeing
+ * a conversation, leaves the first half unrecorded.
+ *
  * It needs Retell to have kept the call's transcript. An agent set to opt
  * out of Retell storing sensitive data leaves the backstop the call's times
  * and minutes but no words, and no transcript is emailed.
@@ -102,7 +109,7 @@ export async function scheduleCallBackstop(
     startAfter: BACKSTOP_DELAY_SECONDS,
     singletonKey: `${payload.clinicId}:${payload.callId}`,
     // Retell's API down for a while is the likely failure. pg-boss doubles
-    // the delay each time, with jitter: about one to two hours in all.
+    // the delay each time, with jitter: about half an hour to an hour in all.
     retryLimit: 5,
     retryDelay: 60,
     retryBackoff: true,
@@ -142,17 +149,36 @@ export async function fetchRetellCall(callId: string, apiKey: string, fetchImpl:
   return body as RetellCall;
 }
 
-/** The turns, as the transcript email takes them. Retell's agent turns are the text this engine sent; its user turns are the recogniser's. */
+/**
+ * The turns, as the transcript email takes them. Retell's agent turns are
+ * the text this engine sent; its user turns are the recogniser's, raw. So
+ * the caller's words since the agent last spoke are joined into one turn,
+ * as the live session joins them (latestCallerWords), and every card
+ * number is cut from it as answerTurn cuts it on the live path: a number
+ * read out across two utterances is caught whole, and the clinic is never
+ * emailed one (CLAUDE.md, "Card numbers are never taken").
+ */
 export function turnsFromRetell(transcript: unknown): TranscriptTurn[] {
   if (!Array.isArray(transcript)) return [];
   const turns: TranscriptTurn[] = [];
+  let caller: string[] = [];
+  const flushCaller = () => {
+    if (caller.length === 0) return;
+    turns.push({ speaker: "person", text: cardNumberIn(caller.join(" ")).text.slice(0, MAX_TURN_CHARS) });
+    caller = [];
+  };
   for (const entry of transcript.slice(0, MAX_TURNS) as { role?: unknown; content?: unknown }[]) {
     if (!entry || typeof entry.content !== "string") continue;
     const text = entry.content.trim().slice(0, MAX_TURN_CHARS);
     if (!text) continue;
-    if (entry.role === "agent") turns.push({ speaker: "assistant", text });
-    else if (entry.role === "user") turns.push({ speaker: "person", text });
+    if (entry.role === "user") {
+      caller.push(text);
+    } else if (entry.role === "agent") {
+      flushCaller();
+      turns.push({ speaker: "assistant", text });
+    }
   }
+  flushCaller();
   return turns;
 }
 
@@ -208,10 +234,11 @@ export function callEventFromRetell(
   if (call.call_id !== clinic.callId) return { refused: "wrong_call" };
   if (call.call_status !== "ended") return { refused: "not_ended" };
   if (call.call_type !== "phone_call") return { refused: "not_a_phone_call" };
+  // Before the number: on an outbound call to_number is the party dialled.
+  if (call.direction === "outbound") return { refused: "outbound" };
   const to = typeof call.to_number === "string" ? (toE164(call.to_number) ?? call.to_number.trim()) : null;
   const ours = clinic.assistantNumber ? (toE164(clinic.assistantNumber) ?? clinic.assistantNumber.trim()) : null;
   if (!to || !ours || to !== ours) return { refused: "not_this_clinic" };
-  if (call.direction === "outbound") return { refused: "outbound" };
   const startedAt = timestamp(call.start_timestamp);
   if (!startedAt) return { refused: "no_start" };
   const endedAt = timestamp(call.end_timestamp) ?? undefined;

@@ -238,6 +238,16 @@ describe("the backstop's queue and mapping", () => {
     ]);
   });
 
+  test("a card number said in its own utterance beside a phone number is still cut", () => {
+    // Joined, "415 555 0192 4242 4242 4242 4242" is one run of digits that fails the Luhn check.
+    const turns = turnsFromRetell([
+      { role: "agent", content: "How can I help?" },
+      { role: "user", content: "Call 415 555 0192" },
+      { role: "user", content: "4242 4242 4242 4242" },
+    ]);
+    expect(turns[1]).toEqual({ speaker: "person", text: "Call 415 555 0192 [card number removed]" });
+  });
+
   test("reads the call from Retell with the key, and throws on a failure so the job retries", async () => {
     const seen: { url: string; auth: string | null }[] = [];
     const ok = (async (url: string, init: RequestInit) => {

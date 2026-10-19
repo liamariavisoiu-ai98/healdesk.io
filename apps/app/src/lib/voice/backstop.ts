@@ -169,11 +169,15 @@ export function turnsFromRetell(transcript: unknown): TranscriptTurn[] {
   };
   for (const entry of transcript.slice(0, MAX_TURNS) as { role?: unknown; content?: unknown }[]) {
     if (!entry || typeof entry.content !== "string") continue;
-    const text = entry.content.trim().slice(0, MAX_TURN_CHARS);
-    if (!text) continue;
     if (entry.role === "user") {
-      caller.push(text);
+      // Cut alone before joining too, then sliced: a number beside other
+      // digits in the joined text (a phone number said just before it)
+      // can fail the joined match that it passes on its own.
+      const text = cardNumberIn(entry.content.trim()).text.slice(0, MAX_TURN_CHARS);
+      if (text) caller.push(text);
     } else if (entry.role === "agent") {
+      const text = entry.content.trim().slice(0, MAX_TURN_CHARS);
+      if (!text) continue;
       flushCaller();
       turns.push({ speaker: "assistant", text });
     }

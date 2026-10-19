@@ -73,13 +73,11 @@ const RETELL_KEY = "key_0123456789abcdefTEST";
 const LINE_PASSWORD = "a".repeat(64);
 
 describe("put-external-secrets.sh and the test exception", () => {
-  test("takes the Retell API key on `test`, for the demo clinic's backstop and fall-through checks", () => {
+  test("keeps the Retell API key on `test`: the owner's exception names the line password alone", () => {
     const run = paste("HEALDESK_RETELL_API_KEY", ["test", RETELL_KEY]);
     expect(run.status, run.stderr).toBe(0);
-    expect(run.puts).toBe(`/healdesk/production/app/HEALDESK_RETELL_API_KEY=${RETELL_KEY}\n`);
-    expect(run.stderr).toMatch(/HEALDESK_RETELL_API_KEY: test\. This allows the backstop and the fall-through/);
-    expect(run.stderr).toMatch(/must hold no real clinic's agent or number until Retell's agreement is signed/);
-    expect(run.stderr).toMatch(/HEALDESK_RETELL_API_KEY\s+pasted, for a test on the demo clinic only/);
+    expect(run.puts).toBe("");
+    expect(run.stderr).toMatch(/HEALDESK_RETELL_API_KEY\s+kept \(__unset__\)/);
   });
 
   test("takes the Retell API key on `yes`, and keeps it on any other answer", () => {

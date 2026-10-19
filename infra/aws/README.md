@@ -190,7 +190,7 @@ would land in the state at the next plan.) The real values are written inside AW
 | `app/STRIPE_CONNECT_WEBHOOK_SECRET` | The owner, from doorbell B (Stripe's Connect endpoint at `https://app.healdesk.io/api/webhooks/stripe-connect`) | web |
 | `app/META_APP_SECRET`, `app/META_VERIFY_TOKEN`, `app/ANTHROPIC_API_KEY` | The owner, only once the BAA chain allows ("What still blocks real patient data") | web |
 | `app/HEALDESK_RETELL_LLM_SECRET` | The owner, before turning `enable_voice` on: a random value, at least 32 characters (letters, digits, `-` and `_` only, since it is a URL path segment: `openssl rand -hex 32`); the same value goes into each clinic's Retell agent URL ("The voice endpoint", below). It may be pasted before the agreements for a test call on the demo clinic only, which the voice process enforces until `voice_real_calls` is on ("Turning it on"). Unset (`__unset__`), the voice process refuses every call | voice (and web, which gets every `app/` parameter) |
-| `app/HEALDESK_RETELL_API_KEY` | The owner, with `HEALDESK_RETELL_LLM_SECRET` and under the same answer: `test` before the agreements, for the backstop and fall-through checks on the demo clinic ("Turning it on", steps 6 and 7), while `voice_real_calls` keeps the backstop to the demo clinic's calls and the workspace holds no real clinic's agent or number; `yes` once every agreement is signed. It is the `key_...` API key of the Retell workspace the clinics' agents are in, the one with the webhook badge (never the marketing site's `RETELL_API_KEY`). That workspace is the one under Retell's BAA and holds no agent of the marketing site's demo line: a key reads every call in its workspace, and the demo line's keys sit on Vercel, which handles no patient data. It verifies Retell's call-ended webhook (`/api/webhooks/retell/<clinic id>`) and lets the worker read a call back (`GET https://api.retellai.com/v2/get-call/<id>`), the backstop for a call the voice task never recorded; it keeps each clinic's AYA number's fallback on its direct line, hourly, and lets the voice endpoint read that line back while the database is down (`docs/on-call.md`, "Voice: where a call goes when something fails"). Unset, the webhook answers 503 and nothing is backstopped, the sync reports `skipped`, and outage mode has no direct lines to send calls to | web (the webhook), worker (the backstop job and the sync), voice (the fallback line) |
+| `app/HEALDESK_RETELL_API_KEY` | The owner, once Retell's agreement is signed: the script takes it on `yes` only, because it reads every call in its workspace and the owner's test-call exception names the line password alone. It is the `key_...` API key of the Retell workspace the clinics' agents are in, the one with the webhook badge (never the marketing site's `RETELL_API_KEY`). That workspace is the one under Retell's BAA and holds no agent of the marketing site's demo line: a key reads every call in its workspace, and the demo line's keys sit on Vercel, which handles no patient data. It verifies Retell's call-ended webhook (`/api/webhooks/retell/<clinic id>`) and lets the worker read a call back (`GET https://api.retellai.com/v2/get-call/<id>`), the backstop for a call the voice task never recorded; it keeps each clinic's AYA number's fallback on its direct line, hourly, and lets the voice endpoint read that line back while the database is down (`docs/on-call.md`, "Voice: where a call goes when something fails"). Unset, the webhook answers 503 and nothing is backstopped, the sync reports `skipped`, and outage mode has no direct lines to send calls to | web (the webhook), worker (the backstop job and the sync), voice (the fallback line) |
 | `ci/CLOUDFLARE_API_TOKEN` (not Terraform's) | The owner, before the first plan, under the bootstrap stack's key | `infra.yml` and `host.yml`, after they assume the Terraform role |
 | RDS master secret (Secrets Manager, managed by RDS, rotated every 7 days) | RDS | db-bootstrap only, through the execution role |
 
@@ -1216,11 +1216,10 @@ calls drop and the other answers the next.
    fixed fallback lines; that is enough to check Retell's protocol fields.
 6. **The backstop.** Paste the engine's Retell key, `bash put-external-secrets.sh
    HEALDESK_RETELL_API_KEY` (the key with the webhook badge, in the workspace the clinics' agents
-   are in: their own, under Retell's BAA, never the demo's, whose keys are on Vercel), and restart.
-   The script asks for the same answer as the line password: `test` while the agreements are not
-   signed, which allows this step and the next on the demo clinic only. The key can read every
-   call in its workspace, so until Retell's agreement is signed that workspace holds the demo
-   clinic's agent and number and nothing else. In each clinic's Retell agent set the agent's own webhook URL to
+   are in: their own, under Retell's BAA, never the marketing site's demo line's, whose keys are on Vercel), and restart.
+   The script takes it on `yes` only, once Retell's agreement is signed: the key reads every call
+   in its workspace, and the test-call exception covers the line password alone. So this step and
+   the next wait for that agreement; the test call on the demo clinic (step 5) needs neither. In each clinic's Retell agent set the agent's own webhook URL to
    `https://app.healdesk.io/api/webhooks/retell/<clinic id>` (the same lower-case UUID as the
    socket's path), and make sure the clinic row's `assistant_number_e164` is the agent's Retell
    number: the backstop records nothing for a call to any other number. Retell sends
@@ -1325,9 +1324,8 @@ to call. The one exception is the voice line, for a test call on the demo clinic
 19 October 2026): `HEALDESK_RETELL_LLM_SECRET` may be pasted with the answer `test` and
 `enable_voice` turned on before the chain is complete, because while `voice_real_calls` is off
 the voice endpoint itself answers no clinic but the demo clinic and records nothing of any other
-call ("The voice endpoint", "Turning it on"); `HEALDESK_RETELL_API_KEY` goes in with it, also on
-`test`, for the backstop, which then reads back no call but the demo clinic's, and the
-fall-through. Retell still carries whatever reaches it, so only the
+call ("The voice endpoint", "Turning it on"); `HEALDESK_RETELL_API_KEY` is not part of that
+exception and waits for Retell's agreement. Retell still carries whatever reaches it, so only the
 demo clinic's agent may hold the address until Retell's agreement is signed. With the secret unset, it refuses every call. (The
 Synthflow routes' two secrets were retired on 14 October 2026, `ssm.tf`.)
 

@@ -89,16 +89,9 @@ hint_for() {
 # enforces that itself: until Terraform's voice_real_calls is on, it answers
 # only the demo clinic (apps/app/src/lib/voice/test-calls.ts).
 # HEALDESK_RETELL_API_KEY is workspace-wide at Retell: it reads those calls
-# back, words included, and sets each AYA number's fallback. It goes in with
-# the line password, under the same exception, because the runbook's backstop
-# and fall-through checks (infra/aws/README.md, "Turning it on", steps 6 and
-# 7) run on the demo clinic before the agreements. The code holds that too:
-# until voice_real_calls is on, the worker's backstop asks Retell for no call
-# but the demo clinic's (apps/app/src/lib/voice/backstop.ts), and the hourly
-# sync sends Retell only each clinic's direct line, business contact data.
-# The key itself can still read any call in its workspace, so that workspace
-# may hold no real clinic's agent or number until Retell's agreement is
-# signed, which the test answer says.
+# back, words included, and sets each AYA number's fallback. The owner's
+# exception names the line password alone, so this key waits for `yes`, once
+# Retell's agreement is signed: it can read any call in its workspace.
 patient_facing() {
   case "$1" in
     META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_RETELL_LLM_SECRET | HEALDESK_RETELL_API_KEY) return 0 ;;
@@ -109,7 +102,7 @@ patient_facing() {
 # Keys that may be pasted for a test on made-up data before the agreements.
 test_allowed() {
   case "$1" in
-    HEALDESK_RETELL_LLM_SECRET | HEALDESK_RETELL_API_KEY) return 0 ;;
+    HEALDESK_RETELL_LLM_SECRET) return 0 ;;
   esac
   return 1
 }
@@ -118,7 +111,6 @@ test_allowed() {
 test_allows() {
   case "$1" in
     HEALDESK_RETELL_LLM_SECRET) echo "This allows a test call on the made-up demo clinic (scripts/demo-clinic.ts) and nothing else: keep voice_real_calls = false, and the voice endpoint answers no other clinic. A call for a real clinic is put through to its direct line, or refused, and nothing of it is kept. Put this address only in the demo clinic's Retell agent." ;;
-    HEALDESK_RETELL_API_KEY) echo "This allows the backstop and the fall-through to be tried on the made-up demo clinic (scripts/demo-clinic.ts) and nothing else: keep voice_real_calls = false, and the backstop asks Retell for no other clinic's call. The key itself reads every call in its Retell workspace, so that workspace must hold no real clinic's agent or number until Retell's agreement is signed." ;;
   esac
 }
 

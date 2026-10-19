@@ -5758,7 +5758,10 @@ export const auditReviewQueue = pgTable(
 
 export type AuditReviewRow = typeof auditReviewQueue.$inferSelect;
 
-/** Tables carrying a clinic_id, and therefore requiring RLS. Asserted by tests. */
+/**
+ * Tables carrying a clinic_id, and therefore requiring RLS. Held to the catalog
+ * by tests/rls-drift.test.ts, which fails on a table on one side only.
+ */
 export const TENANT_SCOPED_TABLES = [
   "clinic_memberships",
   "provider_connections",
@@ -5809,6 +5812,7 @@ export const TENANT_SCOPED_TABLES = [
   "agreement_resigns",
   "site_rereads",
   "website_changes",
+  "transcript_emails",
 ] as const;
 
 // -----------------------------------------------------------------------------

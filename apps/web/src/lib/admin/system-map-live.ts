@@ -77,6 +77,14 @@ async function host(): Promise<HostReach> {
         message:
           "most often the two copies of HEALDESK_PROVISION_SECRET (Vercel and AWS) differ, or a clock is badly off; the exact reason is in the logs.",
       };
+    case "failed":
+      // The engine answers 503 before anything runs when its own copy of
+      // HEALDESK_PROVISION_SECRET or HEALDESK_ADMIN_EMAIL is missing; the
+      // ops client cannot tell that from a 503 the load balancer gives.
+      return {
+        state: "silent",
+        message: "it answered with a server error; if the host is on, check that it has HEALDESK_PROVISION_SECRET and HEALDESK_ADMIN_EMAIL",
+      };
     case "timeout":
       return { state: "silent", message: "no answer in time" };
     case "unreachable":

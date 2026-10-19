@@ -146,30 +146,33 @@ describe("the registry", () => {
   });
 
   /**
-   * The other way round: every variable either app reads is a key on the map
-   * or a setting NOT_KEYS names, so a new secret cannot be added to the code
-   * and stay off the map. A read is `process.env.NAME`, `process.env["NAME"]`,
-   * or one of the helpers that take a name (apps/app's `optional` and
-   * `required`, apps/web's `pastedSetting`); a name held in a constant and
-   * read through it is not seen, which is why those few are on the map by
-   * hand and the forward test above holds them.
+   * The other way round: every variable either app reads, in its code or in
+   * the scripts beside it (run on your computer, or as one-off jobs inside
+   * AWS), is a key on the map or a setting NOT_KEYS names, so a new secret
+   * cannot be added to the code and stay off the map. A read is
+   * `process.env.NAME`, `process.env["NAME"]`, one of the helpers that take a
+   * name (apps/app's `optional` and `required`, apps/web's `pastedSetting`),
+   * or a name held in a `…_VARIABLE` constant (lib/host/github.ts). A name
+   * reached any other way is not seen, which is why the forward tests above
+   * hold the map's own names to the code.
    */
   test("every variable either app reads is on the map or named as a setting", () => {
     const READS = [
       /process\.env\.([A-Z][A-Z0-9_]+)/g,
       /process\.env\[\s*["'`]([A-Z][A-Z0-9_]+)["'`]\s*\]/g,
       /\b(?:optional|required|pastedSetting)\(\s*["']([A-Z][A-Z0-9_]+)["']/g,
+      /\b[A-Z][A-Z0-9_]*_VARIABLE\s*=\s*["']([A-Z][A-Z0-9_]+)["']/g,
     ];
-    const readsIn = (dir: string) => {
+    const readsIn = (...dirs: string[]) => {
       const names = new Set<string>();
-      for (const file of walk(dir)) {
+      for (const file of dirs.flatMap((dir) => walk(dir))) {
         const text = readFileSync(file, "utf8");
         for (const re of READS) for (const m of text.matchAll(re)) names.add(m[1]!);
       }
       return names;
     };
-    const web = readsIn(WEB_SRC);
-    const app = readsIn(join(REPO, "apps", "app", "src"));
+    const web = readsIn(WEB_SRC, join(REPO, "apps", "web", "scripts"));
+    const app = readsIn(join(REPO, "apps", "app", "src"), join(REPO, "apps", "app", "scripts"));
     const onMap = (homes: string[]) => new Set(KEYS.filter((k) => homes.includes(k.home)).map((k) => k.env));
 
     const webKeys = onMap(["vercel"]);
@@ -191,6 +194,14 @@ describe("the registry", () => {
     const example = readFileSync(join(REPO, ".env.example"), "utf8");
     for (const k of KEYS.filter((k) => k.home === "aws-ci")) expect(paste.includes(k.env!) || ssm.includes(k.env!), k.id).toBe(true);
     for (const k of KEYS.filter((k) => k.home === "computer")) expect(example).toContain(`${k.env}=`);
+  });
+
+  test("GitHub's keys are the repository variables the AWS workflows read", () => {
+    const workflows = join(REPO, ".github", "workflows");
+    const text = readdirSync(workflows)
+      .map((name) => readFileSync(join(workflows, name), "utf8"))
+      .join("\n");
+    for (const k of KEYS.filter((k) => k.home === "github")) expect(text, k.id).toContain(`vars.${k.env}`);
   });
 });
 
@@ -254,6 +265,32 @@ describe("assess", () => {
     expect(bridge(view, "patients-retell").status).toBe("off");
     expect(view.todos.some((t) => t.kind === "add-key" && t.key === "aws.META_APP_SECRET")).toBe(false);
     expect(view.todos.some((t) => t.kind === "waiting" && t.key === "aws.META_APP_SECRET")).toBe(true);
+  });
+
+  test("a pasted voice secret alone is not voice: the line stays off until enable_voice is on", () => {
+    const live = allGood();
+    (live.host as Extract<HostReach, { state: "answered" }>).present.HEALDESK_VOICE_ENABLED = false;
+    const view = assess(live);
+
+    expect(key(view, "aws.HEALDESK_RETELL_LLM_SECRET").state).toBe("in-place");
+    expect(bridge(view, "retell-app").status).toBe("off");
+    expect(bridge(view, "retell-app").statusText).toContain("enable_voice");
+    expect(bridge(view, "patients-retell").status).toBe("off");
+    expect(bridge(view, "retell-clinic").status).toBe("off");
+  });
+
+  test("checkout waits on the Sheet it seals purchases into, and on the seal", () => {
+    expect(bridge(assess(allGood({ proofs: { ...allGood().proofs, sheet: { ok: false, detail: "no access" } } })), "web-stripe").status).toBe("off");
+
+    const live = allGood();
+    live.vercel.HEALDESK_PROVISION_SECRET = false;
+    expect(bridge(assess(live), "web-stripe").status).toBe("needs-key");
+  });
+
+  test("GitHub's repository variables are named but never checked from here", () => {
+    const view = assess(allGood());
+    for (const k of view.keys.filter((k) => k.home === "github")) expect(k.state, k.id).toBe("not-checked");
+    expect(bridge(view, "github-app").status).toBe("not-checked");
   });
 
   test("a required key that is missing names itself and where to add it", () => {

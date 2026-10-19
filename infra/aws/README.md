@@ -243,9 +243,11 @@ same conversation code.
   `HEALDESK_CALL_BOOKING_URL`); the web tier adds `PORT=3001`, `HOSTNAME=0.0.0.0`,
   `KEEP_ALIVE_TIMEOUT` (idle timeout + 5 s, so 125000) and, when filled in `production.tfvars`,
   `META_APP_ID`, `META_LOGIN_CONFIG_ID`, `META_WHATSAPP_CONFIG_ID` and `STRIPE_CONNECT_CLIENT_ID`
-  (the worker gets the Connect client id too: offboarding revokes Connect access with it); the
-  voice task (`enable_voice`) adds only `PORT=3001` and `HOSTNAME=0.0.0.0`. An empty variable is
-  left out, not set to `""`.
+  (the worker gets the Connect client id too: offboarding revokes Connect access with it), and,
+  with `enable_voice`, `HEALDESK_VOICE_ENABLED=1`, which tells `/admin/map` the voice endpoint
+  exists (the pasted secret cannot: the web tier holds every `app/` parameter); the voice task
+  (`enable_voice`) adds only `PORT=3001` and `HOSTNAME=0.0.0.0`. An empty variable is left out,
+  not set to `""`.
 - **Never set on web, worker or voice**, enforced by preconditions that fail the plan and by the
   deploy workflow's shape check: `MIGRATION_DATABASE_URL`, `HEALDESK_LOCAL_KEK`,
   `HEALDESK_DIRECT_BOOKING_ENABLED`, `HEALDESK_PHASE_TWO_ATTRIBUTION`, `BETTER_AUTH_SECRETS`. The

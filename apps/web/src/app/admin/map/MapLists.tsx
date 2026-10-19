@@ -24,7 +24,7 @@ const TODO: Record<TodoKind, { title: string; blurb: string; icon: AnyIcon; tint
 };
 
 const TODO_ORDER: readonly TodoKind[] = ["fix", "add-key", "rotate", "build", "check", "waiting"];
-const HOME_ORDER: readonly KeyHome[] = ["vercel", "aws", "aws-ci", "computer", "clinic"];
+const HOME_ORDER: readonly KeyHome[] = ["vercel", "aws", "aws-ci", "github", "computer", "clinic"];
 
 type Tab = "left" | "keys" | "all";
 

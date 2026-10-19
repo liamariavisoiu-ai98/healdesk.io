@@ -11,6 +11,7 @@ import { readSettingsView } from "@/lib/portal/settings-view";
 import { sessionBinding } from "@/lib/portal/step-up";
 import { loadOpenAddressChange } from "@/lib/sign-in/address-change";
 import { formatPhone } from "@/lib/setup/help";
+import { snippetOpen, widgetSnippet } from "@/lib/setup/snippet";
 import { withTenant } from "@/lib/tenant";
 
 import { PortalShell } from "../PortalShell";
@@ -86,6 +87,9 @@ export default async function SettingsPage({
   const ayaNumber = await withTenant({ clinicId: portal.clinicId, actor: page.actorContext }, (tx) =>
     readPhoneStepsNumber(tx.db, tx.clinicId),
   );
+  const webLine = snippetOpen(page.state.channels.find((c) => c.channel === "web"))
+    ? widgetSnippet(page.state.clinic.slug)
+    : null;
   const factors = await readSignInFactors(portal.userId, await sessionBinding(portal));
   const tz = page.state.clinic.timezone;
   const settingsPath = `/c/${portal.clinicSlug}/settings`;
@@ -109,6 +113,7 @@ export default async function SettingsPage({
           <ChannelsCard
             view={view}
             phoneSteps={ayaNumber ? { numberLabel: formatPhone(ayaNumber) } : null}
+            webLine={webLine}
           />
           <TalkCard view={view} />
           <CalendarCard card={calendarCard} timeZone={page.state.clinic.timezone} now={now} />

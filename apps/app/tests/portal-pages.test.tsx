@@ -223,6 +223,51 @@ describeDb("the portal's screens, before and after go-live", () => {
     expect(home).toContain("Going live");
   });
 
+  test("website chat open: Settings → Channels keeps its line with Copy and Email to my web person, and Home links there while it waits", async () => {
+    const web = (set: string) =>
+      inTenant(clinic.clinicId, (c) =>
+        c.query(`update clinic_channels set ${set} where clinic_id = $1 and channel = 'web'`, [
+          clinic.clinicId,
+        ]),
+      );
+    // Before the channel opens, the line is promised, never shown.
+    const before = text(await render("settings"));
+    expect(before).toContain(
+      "The line to paste on your website appears here when website chat is ready",
+    );
+    expect(before).not.toContain("data-clinic=");
+    expect(text(await render("home"))).not.toContain("Get the line");
+
+    await web(`ready_at = now(), waiting_on = 'snippet'`);
+    try {
+      const html = await render("settings");
+      const words = text(html);
+      expect(words).toContain(`/widget/v1.js" data-clinic="${clinic.clinicSlug}" async`);
+      expect(words).toContain("The line for your website");
+      expect(words).toContain("Copy the line");
+      expect(words).toContain("Email to my web person");
+      expect(words).toContain(WEB_CHAT_COUNTS_LINE);
+      expect(words).not.toContain("appears here when website chat is ready");
+      expect(html).toContain('id="website-line"');
+      expect(brokenLinks(html, portal.clinicSlug)).toEqual([]);
+      expect(await axeViolations(html, "settings")).toEqual([]);
+
+      const home = await render("home");
+      expect(text(home)).toContain(
+        "Website chat is ready: paste one line on your website and AYA starts answering there. Get the line",
+      );
+      expect(home).toContain(`href="/c/${portal.clinicSlug}/settings#website-line"`);
+      expect(brokenLinks(home, portal.clinicSlug)).toEqual([]);
+
+      // Seen on the site: Home stops asking, and the line stays in Settings for good.
+      await web(`waiting_on = null`);
+      expect(text(await render("home"))).not.toContain("Get the line");
+      expect(text(await render("settings"))).toContain("Email to my web person");
+    } finally {
+      await web(`ready_at = null, waiting_on = null`);
+    }
+  });
+
   describe("after go-live", () => {
     beforeAll(async () => {
       // Both channels live since yesterday, the plan started when AYA first

@@ -5,6 +5,7 @@ import type { SettingsView } from "@/lib/portal/settings-view";
 import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 
 import { SendStepsForm } from "../SendStepsForm";
+import { WebsiteLinePanel } from "../WebsiteLinePanel";
 
 import {
   ChecklistSetting,
@@ -49,10 +50,13 @@ export function Card(props: { id: string; title: string; intro?: ReactNode; chil
 export function ChannelsCard({
   view,
   phoneSteps = null,
+  webLine = null,
 }: {
   view: SettingsView;
   /** AYA's number as the page prints it, once phone is ready on our side; null until then. */
   phoneSteps?: { numberLabel: string } | null;
+  /** Website chat's line once the channel is open (lib/setup/snippet.ts); null until then. */
+  webLine?: string | null;
 }) {
   return (
     <Card id="channels" title="Channels" intro="Each channel you bought, on or off on its own.">
@@ -113,7 +117,13 @@ export function ChannelsCard({
       {view.bought.voice && phoneSteps ? (
         <SendStepsForm slug={view.slug} numberLabel={phoneSteps.numberLabel} />
       ) : null}
-      {view.bought.web ? (
+      {view.bought.web && webLine ? (
+        // The line stays here for good once it is open (spec: "available in
+        // the dashboard forever"), live or not: O10 and Home link here.
+        <div id="website-line" className="scroll-mt-6 pb-3">
+          <WebsiteLinePanel slug={view.slug} snippet={webLine} />
+        </div>
+      ) : view.bought.web ? (
         <p className="text-muted py-3 text-sm">
           The line to paste on your website appears here when website chat is ready, with a button
           to send it to whoever looks after your site. {WEB_CHAT_COUNTS_LINE}

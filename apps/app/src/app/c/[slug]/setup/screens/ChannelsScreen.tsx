@@ -2,10 +2,11 @@
 
 import { useId, useState } from "react";
 
-import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import type { ForwardingView } from "@/lib/setup/forwarding";
 
+import { CopyButton } from "../../CopyButton";
 import { sendPhoneStepsAction } from "../../steps-actions";
+import { WebsiteLinePanel } from "../../WebsiteLinePanel";
 import { ScreenShell } from "../ScreenShell";
 
 /**
@@ -14,7 +15,9 @@ import { ScreenShell } from "../ScreenShell";
  * it, the one step itself:
  *
  *   - Website chat: the line to paste, once the channel is open (ready on our
- *     side), with a Copy button (lib/setup/snippet.ts);
+ *     side), with a Copy button and "Email to my web person"
+ *     (lib/setup/snippet.ts), in the panel Settings → Channels shows too
+ *     (WebsiteLinePanel);
  *   - Instagram, Messenger & WhatsApp: "Connect with Facebook", the Meta
  *     login (/api/meta/login), until a platform is connected;
  *   - Phone: nothing about forwarding until voice is ready for the clinic
@@ -89,7 +92,7 @@ export function ChannelsScreen(props: {
                   </span>
                 </p>
                 <p className="text-muted mt-1 text-sm">{row.line}</p>
-                {row.snippet ? <Snippet snippet={row.snippet} /> : null}
+                {row.snippet ? <WebsiteLinePanel slug={props.slug} snippet={row.snippet} /> : null}
                 {row.meta ? <MetaConnect slug={props.slug} meta={row.meta} /> : null}
                 {row.forwarding ? (
                   <Forwarding
@@ -131,60 +134,6 @@ export function ChannelsScreen(props: {
       submitLabel="Done"
       payload={() => ({})}
     />
-  );
-}
-
-/** Copy to the clipboard, saying so politely; selecting the text is the fallback. */
-function CopyButton({ text, label, targetId }: { text: string; label: string; targetId: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <>
-      <button
-        type="button"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(text);
-            setCopied(true);
-          } catch {
-            const field = document.getElementById(targetId);
-            if (field instanceof HTMLTextAreaElement) field.select();
-            setCopied(false);
-          }
-        }}
-        className="border-line min-h-11 rounded-full border px-5 text-sm font-semibold"
-      >
-        {label}
-      </button>
-      <span role="status" aria-live="polite" className="text-muted ml-2 text-sm">
-        {copied ? "Copied" : ""}
-      </span>
-    </>
-  );
-}
-
-function Snippet({ snippet }: { snippet: string }) {
-  const id = useId();
-  return (
-    <div className="mt-3 grid gap-2 text-sm">
-      <label htmlFor={id} className="font-semibold">
-        The line for your website
-      </label>
-      <textarea
-        id={id}
-        readOnly
-        rows={2}
-        value={snippet}
-        className="border-line bg-paper-2 w-full rounded-xl border px-3 py-2 font-mono text-xs"
-      />
-      <p className="text-muted">
-        Paste it once, just before <code>&lt;/body&gt;</code>, on every page of your website, or
-        send it to whoever looks after your site. AYA starts answering there once it&rsquo;s in.
-      </p>
-      <p>{WEB_CHAT_COUNTS_LINE}</p>
-      <p>
-        <CopyButton text={snippet} label="Copy the line" targetId={id} />
-      </p>
-    </div>
   );
 }
 

@@ -13,6 +13,7 @@ import { evaluateChannels } from "@/lib/channels/events";
 import { describeError, log } from "@/lib/log";
 import { env } from "@/lib/env";
 import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
+import { getJob, JOB_BILLING_NOTICES } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
 /**
@@ -51,7 +52,22 @@ export async function readVoiceLine(clinicId: string): Promise<VoiceLine> {
 export const NO_DIRECT_LINE =
   "Phone has no direct line on file. Every call AYA can't answer goes there, so phone can't go live without one.";
 
-export function goLivePreconditions(clinic: ClinicOverview, voice?: VoiceLine): GoLiveCheck {
+/**
+ * Whether the email sender is on: the billing-notices job row, which every
+ * outbox email waits on, the clinic's live alerts included (lib/email/outbox.ts).
+ */
+export async function readAlertSender(): Promise<boolean> {
+  return (await getJob(JOB_BILLING_NOTICES))?.enabled === true;
+}
+
+/** The sender off: no alert would reach the clinic, while the urgent reply says the team was told. */
+export const ALERTS_OFF =
+  "The email sender (the billing-notices job, under Scheduled jobs) is off. No alert would reach the clinic, not even an urgent one, while AYA tells an urgent caller the team has been told. Switch it on first.";
+
+/**
+ * `alertsOn` is readAlertSender's answer; left out, the sender is not judged.
+ */
+export function goLivePreconditions(clinic: ClinicOverview, voice?: VoiceLine, alertsOn?: boolean): GoLiveCheck {
   // TODO(plan Part J "Go-live", with app_mark_clinic_production): ask whether
   // the agreement covers the clinic (agreementKindSufficient in
   // lib/agreements/kind.ts, over clinics.regulatory_regime and
@@ -79,6 +95,10 @@ export function goLivePreconditions(clinic: ClinicOverview, voice?: VoiceLine): 
   // to a direct clinic line. The wizard lets the line be skipped, and says
   // phone can't go live without it; this is where that holds.
   if (voice?.voiceBought && !voice.directLine) missing.push(NO_DIRECT_LINE);
+  // The fixed urgent reply says "I've told the team" (URGENT_ALERT_DELIVERED,
+  // lib/notices/booking-alerts.ts), and the alert it promises goes only while
+  // the sender is on: a real patient must not be told that while it is off.
+  if (alertsOn === false) missing.push(ALERTS_OFF);
   // Phase two: a booking-system connection is required only for verified
   // attribution, which v1 does not offer, so in v1 go-live never waits on it.
   const open: OnboardingStep[] = openRequiredSteps(clinic.onboarding, {
@@ -102,7 +122,7 @@ export async function goLive(
   if (clinic.dataClassification === "production") {
     return { status: "refused", reason: "Already in production.", missing: [] };
   }
-  const check = goLivePreconditions(clinic, await readVoiceLine(clinicId));
+  const check = goLivePreconditions(clinic, await readVoiceLine(clinicId), await readAlertSender());
   if (!check.ok) return { status: "refused", reason: "Not ready.", missing: check.missing };
 
   try {

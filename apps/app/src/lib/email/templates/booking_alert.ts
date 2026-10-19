@@ -226,7 +226,7 @@ export const renderHandover: EmailTemplate<BookingAlertPayload> = (payload, ctx)
       blocks: [
         {
           type: "paragraph",
-          text: `Someone asked to speak with a person at ${clinicOf(ctx)}${viaChannel(payload.channel)}. AYA took their details and told them your team would get back to them.`,
+          text: `Someone asked to speak with a person at ${clinicOf(ctx)}${viaChannel(payload.channel)}. AYA told them your team would get back to them, and asked for a name and number if she didn't have them.`,
         },
         ...whereTheDetailsAre(payload.channel),
         ...openAction(payload.portalUrl),
@@ -246,8 +246,8 @@ export const renderUrgent: EmailTemplate<BookingAlertPayload> = (payload, ctx) =
   // emergency referral clinic. Never what the person said.
   const reply =
     ctx.audience === "clients"
-      ? "which gives them the emergency referral clinic you set"
-      : "which tells them to call 911 in an emergency and gives them the urgent-help number you set";
+      ? "which sends them to the emergency referral clinic you set, or their nearest emergency vet"
+      : "which tells them to call 911 in an emergency and gives them the urgent-help number you set, or your main number";
   return compose(
     {
       subject: "URGENT: a complication or urgent symptom was reported",

@@ -26,6 +26,7 @@ const TIMES = [
   { id: "any_time", label: "Any time" },
   { id: "mornings", label: "Mornings" },
 ];
+const CALL_LINE = "To reach Radiance Clinic, please call the practice on (555) 123-4567.";
 
 type Answer = { status: number; body?: unknown } | "network" | "hang";
 type Call = { url: string; init: RequestInit; body: Record<string, unknown> };
@@ -513,14 +514,45 @@ describe("when the chat is not answering", () => {
     expect(root.activeElement).toBe(q(root, "#first"));
   });
 
-  test("a form that takes nothing says to call the practice, at the number on its own website", async () => {
-    answer("start", { status: 200, body: { mode: "contact_form", reason: "cancelled", form: { takesMessages: false, times: TIMES } } });
+  test("a form that takes nothing shows the practice's number the engine sends, as text", async () => {
+    // What contactFormOffer sends for a clinic that cancelled: the fixed line
+    // with its published number (lib/chat/contact-form.ts, callPracticeLine).
+    answer("start", { status: 200, body: { mode: "contact_form", reason: "cancelled", form: { takesMessages: false, times: TIMES, callLine: CALL_LINE } } });
     const root = await load();
     await open(root);
     expect(root.querySelector(".form")).toBeNull();
-    expect(q(root, ".call").textContent).toContain("Its phone number is on this website.");
+    expect(q(root, ".call").textContent).toContain(CALL_LINE);
+    expect(q(root, ".call").textContent).not.toContain("on this website");
     expect(q(root, ".call").textContent).toContain("If it's an emergency, call 911.");
     expect(root.querySelector(".call a")).toBeNull();
+  });
+
+  test("the engine's line is shown as text, never parsed as markup", async () => {
+    const line = 'To reach <b id="x">Radiance</b>, please call the practice on (555) 123-4567.';
+    answer("start", { status: 200, body: { mode: "contact_form", reason: "cancelled", form: { takesMessages: false, times: TIMES, callLine: line } } });
+    const root = await load();
+    await open(root);
+    expect(q(root, ".call .line").textContent).toBe(line);
+    expect(root.querySelector(".call b")).toBeNull();
+  });
+
+  test("with no line from the engine, or one naming no number, it points to the number on its own website", async () => {
+    answer("start", { status: 200, body: { mode: "contact_form", reason: "unavailable", form: { takesMessages: false, times: TIMES } } });
+    const root = await load();
+    await open(root);
+    expect(q(root, ".call").textContent).toContain("Its phone number is on this website.");
+    expect(root.querySelector(".call .line")).toBeNull();
+
+    window.dispatchEvent(new Event("pagehide"));
+    await settle();
+    document.body.replaceChildren();
+    delete (window as unknown as { __healdeskChat?: boolean }).__healdeskChat;
+    const directly = "To reach Radiance Clinic, please call the practice directly.";
+    answer("start", { status: 200, body: { mode: "contact_form", reason: "cancelled", form: { takesMessages: false, times: TIMES, callLine: directly } } });
+    const second = await load();
+    await open(second);
+    expect(q(second, ".call").textContent).toContain(directly);
+    expect(q(second, ".call").textContent).toContain("Its phone number is on this website.");
   });
 
   test("a start that could not reach the engine is asked again when the bubble is reopened", async () => {
@@ -644,7 +676,23 @@ describe("when the chat is not answering", () => {
     expect(document.activeElement).toBe(search);
   });
 
-  test("a message the form can no longer take says to call the practice", async () => {
+  test("a message the form can no longer take says to call the practice, on the number the engine's refusal carries", async () => {
+    answer("start", { status: 200, body: { mode: "contact_form", reason: "paused", form: { takesMessages: true, times: TIMES } } });
+    // The contact route's 409: leaveWebsiteMessage's closed reply, the same fixed line.
+    answer("contact", { status: 409, body: { mode: "closed", reply: CALL_LINE } });
+    const root = await load();
+    await open(root);
+    q<HTMLInputElement>(root, "#first").value = "Jamie";
+    q<HTMLInputElement>(root, "#phone").value = "415 555 0199";
+    q<HTMLFormElement>(root, ".form").dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(q(root, ".call").textContent).toContain("Please call the practice");
+    expect(q(root, ".call").textContent).toContain(CALL_LINE);
+    expect(q(root, ".call").textContent).not.toContain("on this website");
+    expect(root.querySelector(".form")).toBeNull();
+  });
+
+  test("a refusal with no line says to call the practice at the number on its own website", async () => {
     answer("start", { status: 200, body: { mode: "contact_form", reason: "paused", form: { takesMessages: true, times: TIMES } } });
     answer("contact", { status: 409, body: { mode: "closed" } });
     const root = await load();
@@ -653,8 +701,7 @@ describe("when the chat is not answering", () => {
     q<HTMLInputElement>(root, "#phone").value = "415 555 0199";
     q<HTMLFormElement>(root, ".form").dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
-    expect(q(root, ".call").textContent).toContain("Please call the practice");
-    expect(root.querySelector(".form")).toBeNull();
+    expect(q(root, ".call").textContent).toContain("Its phone number is on this website.");
   });
 
   test("a message the engine answers with the contact form switches to it", async () => {

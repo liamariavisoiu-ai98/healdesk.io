@@ -1,7 +1,8 @@
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { user } from "@/db/auth-schema";
 import { clinicMemberships, clinics, reportRecipients } from "@/db/schema";
+import type { NoticeKind } from "@/lib/email/kinds";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -25,11 +26,36 @@ import type { TenantTx } from "@/lib/tenant";
  *
  * And one for a closed account (lib/offboarding/account-closure.ts), which
  * has no live grant and no report recipient left: the agreement's notice
- * address the closure kept (clinics.notice_address), for as long as it is
- * kept, so a notice the agreement still owes after termination, a breach
- * report above all (BAA clauses 12, 17, 20), still reaches the practice in
- * writing through the outbox and its ledger.
+ * address the closure kept (clinics.notice_address), so a notice still owed
+ * after termination reaches the practice in writing through the outbox and
+ * its ledger. Only for the kinds on OWED_AFTER_CLOSURE, named by the caller,
+ * and only while the address is kept: its end (notice_address_until) is read
+ * by the database's clock here, so an expired address is never used even
+ * before the hourly job clears it. Any other kind, and a call that names
+ * none, finds no one for a closed account.
  */
+
+/**
+ * The notices still owed to a practice after its account has closed, and the
+ * only ones its kept notice address receives:
+ *   - incident_report: the BAA's breach and incident reports (clause 12),
+ *     which clause 17 keeps owing while backups and Anthropic's retained
+ *     copies hold the practice's information, sent to the notice address
+ *     clause 20 defines;
+ *   - refund_issued: a refund the Terms still owe after the end (sections 5
+ *     and 15, which survive termination), returned to the card it came from;
+ *   - receipt: a payment taken after the end, a final invoice settled late:
+ *     the billing record the Terms keep (section 7), told to the practice.
+ * Nothing else is owed after the end: the Terms' later changes take effect
+ * at a renewal a closed account never has (section 16), dunning and usage
+ * mail end with the service (sections 3 and 6 do not survive), and every
+ * product or marketing kind ended with the account.
+ */
+export const OWED_AFTER_CLOSURE: ReadonlySet<NoticeKind> = new Set<NoticeKind>([
+  "incident_report",
+  "refund_issued",
+  "receipt",
+]);
 
 export type BillingRecipient = {
   email: string;
@@ -38,7 +64,10 @@ export type BillingRecipient = {
   userId: string | null;
 };
 
-export async function billingRecipients(tx: TenantTx): Promise<BillingRecipient[]> {
+export async function billingRecipients(
+  tx: TenantTx,
+  kind?: NoticeKind,
+): Promise<BillingRecipient[]> {
   const rows = await tx.db
     .select({ email: user.email, role: clinicMemberships.role, userId: user.id })
     .from(clinicMemberships)
@@ -86,10 +115,17 @@ export async function billingRecipients(tx: TenantTx): Promise<BillingRecipient[
     }));
   }
 
+  if (!kind || !OWED_AFTER_CLOSURE.has(kind)) return [];
   const [closed] = await tx.db
     .select({ address: clinics.noticeAddress })
     .from(clinics)
-    .where(and(eq(clinics.id, tx.clinicId), isNotNull(clinics.accountClosedAt)))
+    .where(
+      and(
+        eq(clinics.id, tx.clinicId),
+        isNotNull(clinics.accountClosedAt),
+        gt(clinics.noticeAddressUntil, sql`clock_timestamp()`),
+      ),
+    )
     .limit(1);
   return closed?.address ? [{ email: closed.address, role: "owner" as const, userId: null }] : [];
 }

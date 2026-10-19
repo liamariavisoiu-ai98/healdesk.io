@@ -5,8 +5,11 @@ import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { acceptInvitationFor } from "@/lib/access";
-import { billingRecipients } from "@/lib/billing/recipients";
-import { NOTICE_KIND_REGISTRY } from "@/lib/email/kinds";
+import { billingRecipients, OWED_AFTER_CLOSURE } from "@/lib/billing/recipients";
+import { NOTICE_KIND_REGISTRY, NOTICE_KINDS } from "@/lib/email/kinds";
+import { deliverNotice } from "@/lib/email/outbox";
+import { compose } from "@/lib/email/templates/compose";
+import type { TemplateEntry } from "@/lib/email/templates/registry";
 import { stopOptionalEmail } from "@/lib/email/stop";
 import {
   closeAccountsDue,
@@ -444,9 +447,9 @@ describeDb("closing the account once the data is destroyed and nothing is left t
     expect(row.notice_address_until!.getTime()).toBe(sixYears.getTime());
 
     // A notice the agreement still owes goes to that address: the senders'
-    // one resolver finds it once no sign-in is left.
+    // one resolver finds it once no sign-in is left, for an owed kind only.
     const recipients = await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
-      billingRecipients(tx),
+      billingRecipients(tx, "incident_report"),
     );
     expect(recipients).toEqual([{ email: leaving.staffEmail, role: "owner", userId: null }]);
 
@@ -672,10 +675,19 @@ describeDb("closing the account once the data is destroyed and nothing is left t
         )
       ).rows[0]!.a;
     expect(await read()).toBe(c.staffEmail);
+    const owed = () =>
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        billingRecipients(tx, "incident_report"),
+      );
+    expect(await owed()).toEqual([{ email: c.staffEmail, role: "owner", userId: null }]);
     await getMigratorPool().query(
       `update clinics set notice_address_until = now() - interval '1 minute' where id = $1`,
       [c.clinicId],
     );
+    // Past its end, the address is never used, though the hourly job has not
+    // cleared it yet (healdesk-io-58's review).
+    expect(await read()).toBe(c.staffEmail);
+    expect(await owed()).toEqual([]);
     expect((await closeAccountsDue()).noticeAddressesExpired).toBeGreaterThanOrEqual(1);
     expect(await read()).toBeNull();
     // With nothing kept, the senders' resolver finds no address at all.
@@ -806,6 +818,74 @@ describeDb("closing the account once the data is destroyed and nothing is left t
       [[own, ...theirs]],
     );
     expect(rows.map((r) => r.identifier)).toEqual([...theirs].sort());
+  });
+
+  test("a closed account's notice address receives only the notices still owed after the end, through the outbox", async () => {
+    // healdesk-io-58's review: the fallback served every kind, so a product
+    // update, a recap or a dunning email queued for a closed account would
+    // have gone to the address kept for the agreement's notices.
+    const c = await seedClinic("close-owed-kinds");
+    await seedAccount(c.clinicId, c.staffUserId, c.staffEmail);
+    await leaveAndWait(c.clinicId);
+    await destroyDueClinics();
+    expect((await closeAccountsDue()).closed.map((x) => x.clinicId)).toContain(c.clinicId);
+
+    for (const kind of OWED_AFTER_CLOSURE) {
+      expect(
+        await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+          billingRecipients(tx, kind),
+        ),
+        kind,
+      ).toEqual([{ email: c.staffEmail, role: "owner", userId: null }]);
+    }
+    const notOwed = NOTICE_KINDS.filter((k) => !OWED_AFTER_CLOSURE.has(k));
+    expect(notOwed).toEqual(
+      expect.arrayContaining(["product_update", "weekly_recap", "payment_failed"]),
+    );
+    for (const kind of [undefined, ...notOwed]) {
+      expect(
+        await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+          billingRecipients(tx, kind),
+        ),
+        String(kind),
+      ).toEqual([]);
+    }
+
+    // And the send itself: the outbox resolves each notice's recipients by
+    // its own kind.
+    const sent: { to: string; kind: string }[] = [];
+    const ids = new Map<string, string>();
+    for (const kind of ["incident_report", "refund_issued", "product_update", "weekly_recap"]) {
+      const { rows } = await inTenant(c.clinicId, (q) =>
+        q.query<{ id: string }>(
+          `insert into billing_notices (clinic_id, kind, dedupe_key) values ($1, $2, $3) returning id`,
+          [c.clinicId, kind, `${kind}:closed:1`],
+        ),
+      );
+      ids.set(kind, rows[0]!.id);
+    }
+    const template: TemplateEntry = {
+      render: (_payload, ctx) =>
+        compose({ subject: "A notice", preheader: "A test notice.", blocks: [] }, ctx),
+      fixture: {},
+    };
+    for (const [kind, id] of ids) {
+      await deliverNotice(c.clinicId, id, {
+        now: new Date("2030-01-15T16:00:00Z"),
+        templates: () => template,
+        transport: {
+          name: "fake",
+          send: async (target) => {
+            sent.push({ to: target.to, kind });
+            return { status: "sent", messageId: `msg_${sent.length}` };
+          },
+        },
+      });
+    }
+    expect(sent.sort((a, b) => a.kind.localeCompare(b.kind))).toEqual([
+      { to: c.staffEmail, kind: "incident_report" },
+      { to: c.staffEmail, kind: "refund_issued" },
+    ]);
   });
 
   test("accepting an invitation for an organisation with a closed location completes, and grants the closed location nothing", async () => {

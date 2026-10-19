@@ -77,7 +77,7 @@ const { openIncident } = await import("@/lib/incidents/incidents");
 const { recordAffectedFromShell } = await import("@/lib/incidents/affected-entry");
 const { refusePatientDataInArgs, optionsFrom } = await import("@/lib/ops/patient-entry");
 const { runOperation } = await import("@/lib/ops/api");
-const { readAffectedList } = await import("@/lib/portal/incidents");
+const { affectedListWords, readAffectedList } = await import("@/lib/portal/incidents");
 const { requirePatientPage } = await import("@/lib/portal/patient-page");
 const { erasePersonFromShell } = await import("@/lib/ops/patient-entry");
 const { withTenant } = await import("@/lib/tenant");
@@ -474,6 +474,85 @@ describeDb("who an incident affected", () => {
     await steppedUp(elsewhere, `/c/${elsewhere.slug}/incidents/${incident.id}`);
     const theirs = await requirePatientPage(elsewhere.slug);
     expect(await readAffectedList(theirs, incident.id)).toBeNull();
+  });
+
+  test("the page counts those recorded, not only the rows still held: a list emptied by deletions never says it is still being established", async () => {
+    const clinic = await seedClinic("affectedgone");
+    await bindAgreementInEffect(clinic.clinicId, "1.5.1");
+    const incident = await open(clinic.clinicId);
+    const people = [
+      await seedContact(clinic.clinicId, "+15550190251"),
+      await seedContact(clinic.clinicId, "+15550190252"),
+      await seedContact(clinic.clinicId, "+15550190253"),
+    ];
+    const words = { person: "patient", people: "patients" };
+    await reported(clinic.clinicId, incident.id);
+    await steppedUp(clinic, `/c/${clinic.slug}/incidents/${incident.id}`);
+    const read = async () => readAffectedList(await requirePatientPage(clinic.slug), incident.id);
+
+    // No one recorded yet: the one case for "still establishing".
+    const none = await read();
+    expect(none).toMatchObject({ total: 0, recorded: 0 });
+    expect(affectedListWords(none!, words)).toMatchObject({
+      pending: expect.stringMatching(/still establishing who was affected/),
+      heading: null,
+      gone: null,
+    });
+
+    await recordAffectedFromShell({
+      clinicId: clinic.clinicId,
+      incidentId: incident.id,
+      contactIds: people.join(","),
+      operator: OPERATOR,
+    });
+    const all = await read();
+    expect(all).toMatchObject({ total: 3, recorded: 3 });
+    expect(affectedListWords(all!, words)).toEqual({
+      pending: null,
+      heading: "3 patients",
+      gone: null,
+    });
+
+    const erase = (contactId: string) =>
+      erasePersonFromShell({
+        clinicId: clinic.clinicId,
+        contactId,
+        requestedBy: "practice",
+        operator: OPERATOR,
+      });
+
+    // One erased: the list shows two and says a third was recorded.
+    expect((await erase(people[0]!)).status).toBe("erased");
+    const some = await read();
+    expect(some).toMatchObject({ total: 2, recorded: 3 });
+    expect(affectedListWords(some!, words)).toEqual({
+      pending: null,
+      heading: "2 patients",
+      gone: expect.stringMatching(
+        /^We recorded 3 as affected\. healdesk no longer holds the record of 1 of them: it was deleted after we recorded it/,
+      ),
+    });
+
+    // Every one gone (an erasure here; the record clock's purge empties it the same way).
+    expect((await erase(people[1]!)).status).toBe("erased");
+    expect((await erase(people[2]!)).status).toBe("erased");
+    const gone = await read();
+    expect(gone).toMatchObject({ total: 0, recorded: 3, people: [] });
+    const said = affectedListWords(gone!, words);
+    expect(said.pending).toBeNull();
+    expect(said.heading).toBeNull();
+    expect(said.gone).toMatch(
+      /^We recorded 3 patients as affected\. healdesk no longer holds their records: each was deleted after we recorded it/,
+    );
+    expect(JSON.stringify(said)).not.toMatch(/still establishing/);
+  });
+
+  test("the page's words for one person recorded and no longer held", () => {
+    expect(
+      affectedListWords({ total: 0, recorded: 1 }, { person: "client", people: "clients" }).gone,
+    ).toBe(
+      "We recorded 1 client as affected. healdesk no longer holds that record: it was deleted after we recorded it, at the end of the time records are kept, or at a client's request, so this page can't name them.",
+    );
   });
 
   test("without a passkey step-up the page sends the browser to step up, and reads nothing", async () => {

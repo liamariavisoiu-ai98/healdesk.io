@@ -34,7 +34,15 @@ export type AffectedListView = {
   class: "breach" | "security_incident" | "improper_use_or_disclosure";
   discoveredAt: string;
   reportedAt: string;
+  /** How many the list holds now. */
   total: number;
+  /**
+   * How many the operator recorded (incidents.affected_recorded), never fewer
+   * than `total`. The list's rows go with their contacts, by the record clock
+   * or an erasure, and the count recorded does not: a gap between the two is
+   * people recorded whose records healdesk no longer holds.
+   */
+  recorded: number;
   /** From 1. */
   page: number;
   pages: number;
@@ -62,6 +70,7 @@ export async function readAffectedList(
         class: incidents.class,
         discoveredAt: incidents.discoveredAt,
         reportedAt: incidents.reportedAt,
+        affectedRecorded: incidents.affectedRecorded,
       })
       .from(incidents)
       .where(
@@ -123,9 +132,60 @@ export async function readAffectedList(
       discoveredAt: incident.discoveredAt.toISOString(),
       reportedAt: incident.reportedAt.toISOString(),
       total,
+      recorded: Math.max(total, incident.affectedRecorded),
       page: shown,
       pages,
       people,
     };
   });
+}
+
+export type AffectedListWords = {
+  /** While no one has been recorded: the list is still being established. */
+  pending: string | null;
+  /** How many the list shows, as its heading, or null when it shows no one. */
+  heading: string | null;
+  /** When some of those recorded are no longer held, how many and why. */
+  gone: string | null;
+};
+
+/**
+ * What the page says about the list's size, from the count recorded as well
+ * as the rows held: "still establishing" only while no one has been recorded,
+ * never once the list has emptied because its contacts' records were deleted
+ * (the record clock, an erasure), and how many of those recorded it can no
+ * longer name.
+ */
+export function affectedListWords(
+  list: Pick<AffectedListView, "total" | "recorded">,
+  words: { person: string; people: string },
+): AffectedListWords {
+  const recorded = Math.max(list.recorded, list.total);
+  const count = (n: number) => (n === 1 ? `1 ${words.person}` : `${n} ${words.people}`);
+  if (recorded === 0) {
+    return {
+      pending:
+        "We're still establishing who was affected. The list appears here once we have it, " +
+        "and we'll tell you in an update to the report.",
+      heading: null,
+      gone: null,
+    };
+  }
+  const missing = recorded - list.total;
+  const why = "at the end of the time records are kept, or at a " + words.person + "'s request";
+  let gone: string | null = null;
+  if (missing > 0 && list.total === 0) {
+    gone =
+      `We recorded ${count(recorded)} as affected. healdesk no longer holds ` +
+      (recorded === 1
+        ? `that record: it was deleted after we recorded it, ${why}, so this page can't name them.`
+        : `their records: each was deleted after we recorded it, ${why}, so this page can't name them.`);
+  } else if (missing > 0) {
+    gone =
+      `We recorded ${recorded} as affected. healdesk no longer holds ` +
+      (missing === 1
+        ? `the record of 1 of them: it was deleted after we recorded it, ${why}, so the list can't name them.`
+        : `the records of ${missing} of them: each was deleted after we recorded it, ${why}, so the list can't name them.`);
+  }
+  return { pending: null, heading: list.total > 0 ? count(list.total) : null, gone };
 }

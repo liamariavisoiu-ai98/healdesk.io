@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { phoneText } from "@/lib/portal/conversation-words";
 import { portalDay } from "@/lib/portal/format";
-import { readAffectedList } from "@/lib/portal/incidents";
+import { affectedListWords, readAffectedList } from "@/lib/portal/incidents";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { patientGuardProps, requirePatientPage } from "@/lib/portal/patient-page";
 
@@ -51,6 +51,7 @@ export default async function IncidentPage({
   const person = shell.audience === "clients" ? "client" : "patient";
   const people = shell.audience === "clients" ? "clients" : "patients";
   const path = `/c/${page.portal.clinicSlug}/incidents/${list.incidentId}`;
+  const sizes = affectedListWords(list, { person, people });
 
   return (
     <PortalShell {...shell}>
@@ -67,16 +68,15 @@ export default async function IncidentPage({
           anywhere less protected than your own patient records.
         </p>
 
-        {list.total === 0 ? (
+        {sizes.pending || (sizes.gone && list.total === 0) ? (
           <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
-            We&rsquo;re still establishing who was affected. The list appears here once we have it,
-            and we&rsquo;ll tell you in an update to the report.
+            {sizes.pending ?? sizes.gone}
           </p>
-        ) : (
+        ) : null}
+        {list.total > 0 ? (
           <>
-            <p className="mt-6 font-semibold">
-              {list.total === 1 ? `1 ${person}` : `${list.total} ${people}`}
-            </p>
+            <p className="mt-6 font-semibold">{sizes.heading}</p>
+            {sizes.gone ? <p className="text-muted mt-2 text-sm">{sizes.gone}</p> : null}
             <div className="border-line mt-3 overflow-x-auto rounded-xl border bg-white">
               <table className="w-full text-left text-sm">
                 <thead className="text-muted border-line border-b">
@@ -133,7 +133,7 @@ export default async function IncidentPage({
               </nav>
             ) : null}
           </>
-        )}
+        ) : null}
 
         <p className="text-muted mt-8 text-sm">
           Questions about it: reply to the report, or write to hello@healdesk.io.

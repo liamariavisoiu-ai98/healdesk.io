@@ -10,7 +10,7 @@ import {
 import { BAA_ASSENT_LABEL } from "@healdesk/catalog";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { signAgreement } from "@/lib/agreements";
+import { getAgreement, signAgreement } from "@/lib/agreements";
 import {
   ProvisioningError,
   provisionClinic,
@@ -41,8 +41,8 @@ import {
  * longer accepts, and nothing else changes. And for the floor as it stood
  * before a release raised it: a version in `floor.restored` is one it accepts
  * again, so a test can provision a document from before that release. BAA
- * 1.5.0 is released (14 October 2026), accepted for real, and the floor:
- * 1.4.0, 1.3.0 and 1.2.2 are refused for real.
+ * 1.5.1 is released (19 October 2026), accepted for real, and the floor:
+ * 1.5.0, 1.4.0, 1.3.0 and 1.2.2 are refused for real.
  *
  * And for a booking system the catalogue reclassifies after a practice has
  * signed, as a vendor's written confirmation would (plan Q4): a system in
@@ -124,7 +124,7 @@ async function signFor(
     isCoveredEntity: false,
     attributionMode: "estimated",
     platform: "none",
-    // The current version (1.5.0, as 1.4.0 and 1.3.0 before it) reads both calendar answers.
+    // The current version (1.5.1, as 1.5.0, 1.4.0 and 1.3.0 before it) reads both calendar answers.
     bookingSystem: "none",
     calendarAccount: "workspace_no_baa",
     assentLabel: BAA_ASSENT_LABEL,
@@ -137,7 +137,8 @@ type SignedAnswers = {
   /**
    * A version other than the current one, signed as if it were current: how
    * 1.2.0 was signed before 1.2.1 replaced it, 1.2.1 before 1.2.2, 1.2.2
-   * before 1.3.0, 1.3.0 before 1.4.0, and 1.4.0 before 1.5.0 replaced it.
+   * before 1.3.0, 1.3.0 before 1.4.0, 1.4.0 before 1.5.0, and 1.5.0 before
+   * 1.5.1 replaced it.
    */
   version?: string;
   platform?: string;
@@ -733,18 +734,93 @@ describeDb("provisioning", () => {
     ).rejects.toThrow(/not a purchase/);
   });
 
-  test("two clinics cannot be provisioned onto one Stripe subscription", async () => {
-    await expect(
-      provisionClinic(
-        validRequest({
-          clinicName: "Second On Same Sub",
-          contactEmail: "dup@example.test",
-          agreementId: await signFor("Second On Same Sub", "dup@example.test"),
-          stripeCustomerId: "cus_other",
-          stripeSubscriptionId: "sub_provisioned",
-        }),
+  test("an existing clinic for the subscription or the customer is a replay: one practice, one clinic", async () => {
+    const customer = `cus_replay_${randomUUID().slice(0, 8)}`;
+    const subscription = `sub_replay_${randomUUID().slice(0, 8)}`;
+    const first = await provisionClinic(
+      validRequest({
+        clinicName: "Customer Replay Clinic",
+        contactEmail: "replay@customer.test",
+        agreementId: await signFor("Customer Replay Clinic", "replay@customer.test"),
+        idempotencyKey: subscription,
+        stripeCustomerId: customer,
+        stripeSubscriptionId: subscription,
+      }),
+    );
+    expect(first.replayed).toBe(false);
+    // clinics is not FORCEd, so its owner counts across tenants (entitlements is).
+    const clinics = async (name: string) =>
+      Number(
+        (
+          await getMigratorPool().query<{ n: number }>(
+            `select count(*)::int as n from clinics where name = $1`,
+            [name],
+          )
+        ).rows[0]!.n,
+      );
+
+    // The same subscription under another key (plan C1: the subscription is
+    // a replay, not a unique-index failure Stripe would retry for days).
+    const sameSubscription = await provisionClinic(
+      validRequest({
+        clinicName: "Customer Replay Clinic",
+        contactEmail: "replay@customer.test",
+        agreementId: await signFor("Customer Replay Clinic", "replay@customer.test"),
+        idempotencyKey: `other_key_${randomUUID()}`,
+        stripeCustomerId: customer,
+        stripeSubscriptionId: subscription,
+      }),
+    );
+    expect(sameSubscription).toEqual({
+      organizationId: first.organizationId,
+      clinicId: first.clinicId,
+      clinicSlug: first.clinicSlug,
+      replayed: true,
+    });
+
+    // A second subscription for the same customer: a replay, flagged, so the
+    // route tells ops; its agreement is never bound to anything.
+    const secondAgreement = await signFor("Customer Replay Clinic", "replay@customer.test");
+    const secondSubscription = await provisionClinic(
+      validRequest({
+        clinicName: "Customer Replay Clinic",
+        contactEmail: "replay@customer.test",
+        agreementId: secondAgreement,
+        idempotencyKey: `sub_second_${randomUUID().slice(0, 8)}`,
+        stripeCustomerId: customer,
+        stripeSubscriptionId: `sub_second_${randomUUID().slice(0, 8)}`,
+      }),
+    );
+    expect(secondSubscription).toEqual({
+      organizationId: first.organizationId,
+      clinicId: first.clinicId,
+      clinicSlug: first.clinicSlug,
+      replayed: true,
+      duplicateSubscription: true,
+    });
+    expect(await clinics("Customer Replay Clinic")).toBe(1);
+    expect((await getAgreement(secondAgreement))!.organizationId).toBeNull();
+
+    // Two deliveries racing past the read before the transaction still make
+    // one clinic: the lock and the second look inside it.
+    const racing = `cus_race_${randomUUID().slice(0, 8)}`;
+    const [a, b] = await Promise.all(
+      ["a", "b"].map(async (n) =>
+        provisionClinic(
+          validRequest({
+            clinicName: `Race Clinic ${n}`,
+            contactEmail: `race-${n}@customer.test`,
+            agreementId: await signFor(`Race Clinic ${n}`, `race-${n}@customer.test`),
+            idempotencyKey: `sub_race_${n}_${randomUUID().slice(0, 8)}`,
+            stripeCustomerId: racing,
+            stripeSubscriptionId: `sub_race_${n}_${randomUUID().slice(0, 8)}`,
+          }),
+        ),
       ),
-    ).rejects.toMatchObject({ cause: { code: "23505" } });
+    );
+    expect(a!.clinicId).toBe(b!.clinicId);
+    expect([a!.replayed, b!.replayed].sort()).toEqual([false, true]);
+    expect((await clinics("Race Clinic a")) + (await clinics("Race Clinic b"))).toBe(1);
   });
 
   /* ------------------------------------ what the signed acceptance decides (plan C15) */
@@ -803,8 +879,8 @@ describeDb("provisioning", () => {
       platform: "calcom",
       // 1.3.0, released on 12 October and replaced outright by 1.4.0 on 13
       // October before any clinic signed it, since it describes a stored
-      // transcript: below the floor 1.4.0 raised (and 1.5.0 after it),
-      // calendar terms and all.
+      // transcript: below the floor 1.4.0 raised (and 1.5.0 and 1.5.1 after
+      // it), calendar terms and all.
       agreementId: await signWith("Transcript Gate Clinic", transcriptEmail, {
         version: "1.3.0",
         bookingSystem: "calcom",
@@ -820,9 +896,26 @@ describeDb("provisioning", () => {
       // 1.4.0, released on 13 October and replaced outright by 1.5.0 on 14
       // October before any clinic signed it, since it promises a transcript
       // copy kept seven days after the email first goes: below the floor
-      // 1.5.0 raised, calendar terms and all.
+      // 1.5.0 raised (and 1.5.1 after it), calendar terms and all.
       agreementId: await signWith("Seven Days Gate Clinic", sevenDaysEmail, {
         version: "1.4.0",
+        bookingSystem: "calcom",
+        calendarAccount: "workspace_baa",
+      }),
+    });
+
+    const callOnlyEmail = "call-only@gate.test";
+    const callOnly = validRequest({
+      clinicName: "Call Only Gate Clinic",
+      contactEmail: callOnlyEmail,
+      platform: "calcom",
+      // 1.5.0, released on 14 October and replaced outright by 1.5.1 on 19
+      // October before any clinic signed it, since it says the optional
+      // booking details are asked only on a call, while the website chat asks
+      // for them and keeps them: below the floor 1.5.1 raised, calendar terms
+      // and all.
+      agreementId: await signWith("Call Only Gate Clinic", callOnlyEmail, {
+        version: "1.5.0",
         bookingSystem: "calcom",
         calendarAccount: "workspace_baa",
       }),
@@ -835,6 +928,7 @@ describeDb("provisioning", () => {
       [outright, "1.2.2"],
       [transcripts, "1.3.0"],
       [sevenDays, "1.4.0"],
+      [callOnly, "1.5.0"],
     ] as const) {
       // A refusal, not a 500: the row never changes, so a retry would only
       // meet it again, and a paid purchase belongs with ops.
@@ -849,8 +943,8 @@ describeDb("provisioning", () => {
       expect(await written(request), version).toEqual({ clinics: 0, claims: 0, bound: false });
     }
 
-    // The version's own standing is all the gate asks: 1.5.0, released,
-    // current and the floor since 14 October 2026, provisions, with its
+    // The version's own standing is all the gate asks: 1.5.1, released,
+    // current and the floor since 19 October 2026, provisions, with its
     // calendar terms.
     const releasedEmail = "released@gate.test";
     const released = validRequest({
@@ -966,7 +1060,7 @@ describeDb("provisioning", () => {
   });
 
   test("a signature from 1.3.0 on gives the location it sets up its first calendar terms: the agreement row, sequence 1, as signed", async () => {
-    // Signed as whatever is current: 1.5.0 since 14 October 2026, which
+    // Signed as whatever is current: 1.5.1 since 19 October 2026, which
     // carries 1.3.0's calendar clauses under the same ids.
     const email = "terms@calendar.test";
     const agreementId = await signWith("Covered Terms Clinic", email, {

@@ -222,9 +222,9 @@ describeDb("phase 8, against the database", () => {
 
     // The desk confirms a slot: now, and only now, the appointment exists,
     // carrying the clinic's deposit rule.
-    const { decideBookingRequest } = await import("@/lib/meta/booking-requests");
+    const { deskDecide } = await import("./setup/desk");
     const when = new Date(Date.now() + 4 * DAY);
-    const decided = await decideBookingRequest(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when });
+    const decided = await deskDecide(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when });
     expect(decided).toMatchObject({ outcome: "decided", followUp: null });
     expect(decided.appointmentId).not.toBeNull();
     const rows = await inTenant(c.clinicId, (client) =>

@@ -13,9 +13,9 @@ import {
   type UrgentFinding,
 } from "@healdesk/catalog";
 import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-import { agentConfigs, clinicChannels, clinics, clinicSettings } from "@/db/schema";
+import { agentConfigs, clinicChannels, clinicProviders, clinics, clinicSettings } from "@/db/schema";
 import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/responder";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
@@ -72,7 +72,7 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * the pre-v1 request taker until they do.
  *
  * Every message is screened before the model sees it, as clause 16 of the
- * agreement in force says (BAA 1.5.0, unchanged since 1.3.0: "healdesk checks
+ * agreement in force says (BAA 1.5.1, unchanged since 1.3.0: "healdesk checks
  * each message a person sends there for clinical content before the language
  * model sees it, and keeps no message there and no summary of one";
  * docs/counsel/agreement-changes.md §12.14, gate 4, PT-12). The screen, like
@@ -170,6 +170,8 @@ export type FrontDoorFacts = {
    * the reply guard reads English. Absent, warm.
    */
   tone?: AssistantTone;
+  /** The practice's providers, as it names them: words the language check reads as no language. */
+  providerNames?: string[];
   websiteHint: string | null;
   /** The approved menu. The model reads a name only to match what the person asked about, and never writes it back. */
   services: { name: string; priceFromUsd: number | null; priceToUsd: number | null }[];
@@ -269,12 +271,30 @@ export function screenInbound(
   text: string,
   specialty?: string | null,
   clinicName?: string | null,
+  knownTerms: readonly (string | null | undefined)[] = [],
 ): "urgent" | "clinical" | "language" | null {
   if (findUrgentContent(text, specialty, { clinicName })) return "urgent";
-  // A language no screen reads: the fixed line, never the model.
-  if (messageLanguage(text) === "other") return "language";
+  // A language no screen reads: the fixed line, never the model. The
+  // practice's own words (its menu, its people, its city) are no language.
+  if (messageLanguage(text, { knownTerms: [clinicName, ...knownTerms] }) === "other") return "language";
   if (findClinicalContent({ message: text }, { conditions: true }).length > 0) return "clinical";
   return null;
+}
+
+/**
+ * The practice's own words, for the language check: its name, address and
+ * city, every service it has configured and its providers.
+ */
+export function frontDoorTerms(
+  facts: Pick<FrontDoorFacts, "clinicName" | "services"> &
+    Partial<Pick<FrontDoorFacts, "serviceNames" | "address" | "providerNames">>,
+): string[] {
+  return [
+    facts.clinicName,
+    facts.address ?? "",
+    ...(facts.serviceNames ?? facts.services.map((s) => s.name)),
+    ...(facts.providerNames ?? []),
+  ].filter((term) => term.trim().length > 0);
 }
 
 /** The disclosure module's name for each platform. */
@@ -1162,8 +1182,17 @@ export function anthropicResponder(): FrontDoorResponder | null {
     callModel({ apiKey, channel: "meta", system: { stable: system, turn: "" }, messages: [{ role: "user", content: text }] });
 }
 
-/** Read the facts the front door may state, inside the tenant. */
-export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | null> {
+/**
+ * Read the facts the front door may state, inside the tenant. The practice
+ * questions (lib/engine/practice) read them as they would be once the script
+ * is approved and the front door switched on (`asApproved`, `ignoreSwitch`),
+ * since they check a channel before it answers anyone. Every message reads
+ * them without.
+ */
+export async function frontDoorFacts(
+  tx: TenantTx,
+  options: { asApproved?: boolean; ignoreSwitch?: boolean } = {},
+): Promise<FrontDoorFacts | null> {
   const [clinic] = await tx.db
     .select({
       name: clinics.name,
@@ -1178,12 +1207,13 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     .from(clinics)
     .where(eq(clinics.id, tx.clinicId))
     .limit(1);
-  if (!clinic || !clinic.enabled) return null;
+  if (!clinic || (!clinic.enabled && options.ignoreSwitch !== true)) return null;
   const [agent] = await tx.db
     .select({ services: agentConfigs.services, notes: agentConfigs.notes, escalationHours: agentConfigs.escalationHours, approvedAt: agentConfigs.approvedAt })
     .from(agentConfigs)
     .where(eq(agentConfigs.clinicId, tx.clinicId))
     .limit(1);
+  const approved = options.asApproved === true ? Boolean(agent) : Boolean(agent?.approvedAt);
   const resolved = resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements);
   const settings = await getClinicSettings(tx);
   // The urgent-help number as the wizard resolves it (lib/setup/urgent.ts):
@@ -1194,6 +1224,10 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     .where(eq(clinicSettings.clinicId, tx.clinicId))
     .limit(1);
   const bought = await tx.db.select({ channel: clinicChannels.channel }).from(clinicChannels).where(eq(clinicChannels.clinicId, tx.clinicId));
+  const providers = await tx.db
+    .select({ name: clinicProviders.displayName })
+    .from(clinicProviders)
+    .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)));
   const urgentPhone = urgentHelpNumber({
     channels: bought,
     settings: { urgentHelpE164: urgent?.urgentHelpE164 ?? null, directLineE164: settings.directLineE164 },
@@ -1208,13 +1242,14 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     openingHours: clinic.openingHours ?? null,
     timeZone: clinic.timeZone,
     tone: urgent?.tone ?? "warm",
+    providerNames: providers.map((p) => p.name),
     websiteHint: null,
     // Only an approved script's services are public facts. Refusing a name
     // needs no approval, so the guard gets every one configured.
-    services: agent?.approvedAt ? agent.services.map((s) => ({ name: s.name, priceFromUsd: s.priceFromUsd, priceToUsd: s.priceToUsd })) : [],
+    services: approved && agent ? agent.services.map((s) => ({ name: s.name, priceFromUsd: s.priceFromUsd, priceToUsd: s.priceToUsd })) : [],
     serviceNames: agent ? agent.services.map((s) => s.name) : [],
-    notes: agent?.approvedAt ? agent.notes : null,
-    escalationHours: agent?.approvedAt ? agent.escalationHours : null,
+    notes: approved && agent ? agent.notes : null,
+    escalationHours: approved && agent ? agent.escalationHours : null,
     requirements: metaEligible(resolved),
     deferredRequirements: resolved.filter((f) => !f.metaEligible),
     publishedTimes: publishedTimesOf(clinic.openingHours),
@@ -1255,6 +1290,74 @@ export type FrontDoorAnswer = {
 
 /** An answer while it is being written: the greeting's record and the desk's email are settled last. */
 type Draft = Omit<FrontDoorAnswer, "greetingToRecord" | "deskNotice">;
+export type FrontDoorDraftAnswer = Draft;
+
+/** What the front door makes of one message before anything is written: the screen, the model and the guard. */
+export type FrontDoorDraft = {
+  answer: Draft;
+  /** What the model gathered for a booking request, cleaned; null when the model did not answer. */
+  extracted: BookingFields | null;
+  wants: boolean;
+};
+
+/**
+ * The read half of answerFrontDoor: the inbound screen (urgent, a language
+ * other than English, then clinical), the model, the refusal, and the reply
+ * guard with its English-only check, writing nothing.
+ * answerFrontDoor makes its writes from it; the practice questions
+ * (lib/engine/practice) ask it exactly as a message would, and keep nothing.
+ */
+export async function draftFrontDoorAnswer(
+  facts: FrontDoorFacts,
+  input: { text: string; responder: FrontDoorResponder | null; now: Date; clinicId?: string },
+): Promise<FrontDoorDraft> {
+  const fallback = handoffLine(facts);
+  const screened = screenInbound(input.text, facts.specialty, facts.clinicName, frontDoorTerms(facts));
+  if (screened === "urgent") {
+    // Before the model, and instead of it: the fixed line, and (in
+    // answerFrontDoor, with the writes) the clinic's urgent alert.
+    const finding = findUrgentContent(input.text, facts.specialty, { clinicName: facts.clinicName }) ?? { emergency: "911" as const };
+    return {
+      answer: { text: urgentLine(facts, finding, input.now), source: "urgent", guard: null, screened, booking: "none", greeted: false },
+      extracted: null,
+      wants: false,
+    };
+  }
+  if (screened === "language") {
+    return { answer: { text: languageLine(facts), source: "handoff", guard: null, screened, booking: "none", greeted: false }, extracted: null, wants: false };
+  }
+  if (screened === "clinical") {
+    return { answer: { text: fallback, source: "handoff", guard: null, screened, booking: "none", greeted: false }, extracted: null, wants: false };
+  }
+  if (!input.responder) {
+    return { answer: { text: fallback, source: "handoff", guard: null, screened: null, booking: "none", greeted: false }, extracted: null, wants: false };
+  }
+  try {
+    const raw = await input.responder(buildFrontDoorPrompt(facts), input.text);
+    if (isModelRefusal(raw)) {
+      // The model declined: the hand-off line, recorded as a refusal, never
+      // as a reply the guard refused. Nothing is extracted.
+      return { answer: { text: fallback, source: "handoff", guard: "model refusal", screened: null, booking: "none", greeted: false }, extracted: null, wants: false };
+    }
+    const parsed = parseModelReply(raw);
+    // The guard reads English, so a reply in any other language is not
+    // sent, whatever it says (the prompt asks for English only).
+    const verdict: GuardVerdict =
+      messageLanguage(parsed.reply, { knownTerms: frontDoorTerms(facts) }) === "en"
+        ? guardReply(parsed.reply, { ...guardContextFor(facts), inbound: input.text })
+        : { ok: false, reason: "a reply not in English" };
+    return {
+      answer: verdict.ok
+        ? { text: parsed.reply, source: "model", guard: null, screened: null, booking: "none", greeted: false }
+        : { text: fallback, source: "handoff", guard: verdict.reason, screened: null, booking: "none", greeted: false },
+      extracted: cleanBookingFields(parsed.booking),
+      wants: parsed.booking.wants,
+    };
+  } catch (error) {
+    log.error("front door model call failed", { clinicId: input.clinicId, error: describeError(error) });
+    return { answer: { text: fallback, source: "handoff", guard: "model error", screened: null, booking: "none", greeted: false }, extracted: null, wants: false };
+  }
+}
 
 type ThreadInput = BookingThread & { connectionId: string | null };
 
@@ -1285,53 +1388,15 @@ export async function answerFrontDoor(
   // The clinic's switch for this platform (Settings). The webhook skips such
   // a message before it gets here; this holds for any other caller.
   if (!(await metaPlatformOn(tx, input.platform))) return null;
-  const fallback = handoffLine(facts);
   const now = input.now ?? new Date();
   const thread: ThreadInput | null = input.thread ? { platform: input.platform, externalId: input.thread.externalId, senderId: input.thread.senderId, connectionId: input.thread.connectionId } : null;
 
   // Everything up to the model's answer reads; nothing is written before it.
-  let answer: Draft;
-  let extracted: BookingFields | null = null;
+  const draft = await draftFrontDoorAnswer(facts, { text: input.text, responder: input.responder, now, clinicId: tx.clinicId });
+  let answer: Draft = draft.answer;
+  const { extracted, wants } = draft;
+  const screened = draft.answer.screened;
   let deskNotice: CreatedBookingRequest | null = null;
-  let wants = false;
-  const screened = screenInbound(input.text, facts.specialty, facts.clinicName);
-  if (screened === "urgent") {
-    // Before the model, and instead of it: the fixed line, and (below, with
-    // the writes) the clinic's urgent alert.
-    const finding = findUrgentContent(input.text, facts.specialty, { clinicName: facts.clinicName }) ?? { emergency: "911" as const };
-    answer = { text: urgentLine(facts, finding, now), source: "urgent", guard: null, screened, booking: "none", greeted: false };
-  } else if (screened === "language") {
-    answer = { text: languageLine(facts), source: "handoff", guard: null, screened, booking: "none", greeted: false };
-  } else if (screened === "clinical") {
-    answer = { text: fallback, source: "handoff", guard: null, screened, booking: "none", greeted: false };
-  } else if (!input.responder) {
-    answer = { text: fallback, source: "handoff", guard: null, screened: null, booking: "none", greeted: false };
-  } else {
-    try {
-      const raw = await input.responder(buildFrontDoorPrompt(facts), input.text);
-      if (isModelRefusal(raw)) {
-        // The model declined: the hand-off line, recorded as a refusal, never
-        // as a reply the guard refused. Nothing is extracted.
-        answer = { text: fallback, source: "handoff", guard: "model refusal", screened: null, booking: "none", greeted: false };
-      } else {
-        const parsed = parseModelReply(raw);
-        // The guard reads English, so a reply in any other language is not
-        // sent, whatever it says (the prompt asks for English only).
-        const verdict: GuardVerdict =
-          messageLanguage(parsed.reply) === "en"
-            ? guardReply(parsed.reply, { ...guardContextFor(facts), inbound: input.text })
-            : { ok: false, reason: "a reply not in English" };
-        answer = verdict.ok
-          ? { text: parsed.reply, source: "model", guard: null, screened: null, booking: "none", greeted: false }
-          : { text: fallback, source: "handoff", guard: verdict.reason, screened: null, booking: "none", greeted: false };
-        wants = parsed.booking.wants;
-        extracted = cleanBookingFields(parsed.booking);
-      }
-    } catch (error) {
-      log.error("front door model call failed", { clinicId: tx.clinicId, error: describeError(error) });
-      answer = { text: fallback, source: "handoff", guard: "model error", screened: null, booking: "none", greeted: false };
-    }
-  }
 
   // The writes, from here to the commit, with the clinic's row held
   // (clinicHasLeft, FOR SHARE): an offboarding that started while the model

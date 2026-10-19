@@ -1,7 +1,9 @@
 import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
+import { AI_PAUSED_ENTRY } from "./ai_paused";
 import { ALLOWANCE_FALLBACK_ENTRY } from "./allowance_fallback";
+import { ASSISTANT_READY_ENTRY } from "./assistant_ready";
 import { CALENDAR_RECONNECTED_ENTRY, CALENDAR_STOPPED_ENTRY } from "./calendar_state";
 import { CALENDAR_ELECTION_RECORDED_ENTRY } from "./calendar_election_recorded";
 import { CALENDAR_LINK_ENTRY } from "./calendar_link";
@@ -23,6 +25,7 @@ import { PAYMENT_ACTION_REQUIRED_ENTRY } from "./payment_action_required";
 import { PAYMENT_FAILED_ENTRY } from "./payment_failed";
 import { PLAN_CHANGED_ENTRY } from "./plan_changed";
 import { PLAN_STARTED_ENTRY } from "./plan_started";
+import { PRACTICE_QUESTIONS_FAILED_ENTRY } from "./practice_questions_failed";
 import { PRICE_STEPPED_UP_ENTRY } from "./price_stepped_up";
 import { RECEIPT_ENTRY } from "./receipt";
 import { REFUND_ISSUED_ENTRY } from "./refund_issued";
@@ -113,12 +116,17 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   steps_sent: STEPS_SENT_ENTRY,
   // Go-live (M6): L1, queued when a channel is recorded live.
   channel_live: CHANNEL_LIVE_ENTRY,
+  // The header's pause and a channel switched Off (M6): L15.
+  ai_paused: AI_PAUSED_ENTRY,
   // The calendar backend's two (plan §2.6, §4.1).
   calendar_link: CALENDAR_LINK_ENTRY,
   calendar_election_recorded: CALENDAR_ELECTION_RECORDED_ENTRY,
   // WP10, the support chat (M7): L25 to the clinic, I3 to hello@.
   support_request: SUPPORT_REQUEST_ENTRY,
   support_escalation: SUPPORT_ESCALATION_ENTRY,
+  // The practice questions (M4, package B): O8 and O9.
+  assistant_ready: ASSISTANT_READY_ENTRY,
+  practice_questions_failed: PRACTICE_QUESTIONS_FAILED_ENTRY,
 };
 
 /**
@@ -192,11 +200,14 @@ export const PENDING_TEMPLATES: Record<
     | "setting_changed"
     | "channel_ready"
     | "channel_live"
+    | "ai_paused"
     | "steps_sent"
     | "calendar_link"
     | "calendar_election_recorded"
     | "support_request"
     | "support_escalation"
+    | "assistant_ready"
+    | "practice_questions_failed"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -217,8 +228,6 @@ export const PENDING_TEMPLATES: Record<
   // WP4: the claims function's emails.
   daily_summary: { owner: "plan", package: "WP4", ships: "M6 (L13)" },
   weekly_recap: { owner: "plan", package: "WP4", ships: "M6 (L14, retargeted)" },
-  // WP3: the pause control.
-  ai_paused: { owner: "plan", package: "WP3", ships: "M6 (L15)" },
   // The runtime's routed/answered counter: blocked, owned by no package yet.
   outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
   outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },
@@ -241,9 +250,6 @@ export const PENDING_TEMPLATES: Record<
   export_ready: { owner: "plan", package: "WP6", ships: "M6 (E4)" },
   export_reminder: { owner: "plan", package: "WP6", ships: "M6 (E5)" },
   data_destroyed: { owner: "plan", package: "WP6", ships: "M6 (E6)" },
-  // B: the practice questions.
-  assistant_ready: { owner: "plan", package: "B", ships: "M4 (O8)" },
-  practice_questions_failed: { owner: "plan", package: "B", ships: "M4 (O9)" },
   // WP5: the ops digest and the internal alerts.
   ops_digest: { owner: "plan", package: "WP5", ships: "Gate A (I2)" },
   flag_alert: { owner: "plan", package: "WP5", ships: "Gate A (I4)" },

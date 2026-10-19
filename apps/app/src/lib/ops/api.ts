@@ -132,11 +132,10 @@ import { keyPresence } from "@/lib/ops/key-presence";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
-import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
 import { recordDailyQuota } from "@/lib/email/quota";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
-import { writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
+import { WRITABLE_APPOINTMENT_STATUSES, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import {
   listTranscriptDeliveries,
   resendTranscript,
@@ -180,6 +179,13 @@ import {
   type AgentConfigInput,
 } from "@/lib/onboarding/agent-config";
 import { goLive, goLivePreconditions, readVoiceLine } from "@/lib/onboarding/go-live";
+import {
+  decidePracticeReview,
+  listPracticeReviews,
+  rerunPracticeQuestions,
+} from "@/lib/engine/practice/review";
+import { recordOperatorOverride, requestPracticeQuestions } from "@/lib/engine/practice/store";
+import { PRACTICE_SECTIONS, type PracticeSection } from "@/lib/engine/practice/types";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { completeStep, reopenStep } from "@/lib/onboarding/steps";
 import { getJob, listJobs as listJobRecords, PHASE_TWO_JOBS } from "@/lib/scheduler/jobs";
@@ -322,6 +328,13 @@ const OPERATIONS = [
   "updateAgentConfig",
   "approveAgentConfig",
   "goLive",
+  // The practice questions (lib/engine/practice, plan Part G and K): the
+  // audit review queue, read and decided here, and a run asked for again
+  // after a fix on our side. Synthetic cases and AYA's answers to them, ids
+  // and dates; never a patient.
+  "listPracticeReviews",
+  "decidePracticeReview",
+  "rerunPracticeQuestions",
   // Care (lib/reporting, lib/incidents, lib/offboarding): who gets mail, what
   // was sent, what went wrong, and the end of the relationship. Never a
   // patient: the export that carries one is a script on the app host.
@@ -395,7 +408,6 @@ const OPERATIONS = [
   "setBookingRequirements",
   "setClinicTimezone",
   "setConnectionPhiBasis",
-  "issueSetupLink",
   "retryCalendarWrite",
   "listCalendarWrites",
   // The Google Calendar connection (plan §10): mail the location's calendar
@@ -473,6 +485,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "updateAgentConfig",
   "approveAgentConfig",
   "goLive",
+  "decidePracticeReview",
+  "rerunPracticeQuestions",
   "addReportRecipient",
   "removeReportRecipient",
   "openIncident",
@@ -511,7 +525,6 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "setBookingRequirements",
   "setClinicTimezone",
   "setConnectionPhiBasis",
-  "issueSetupLink",
   // Mutating because it moves the appointment's calendar columns and may
   // create a booking in the clinic's calendar.
   "retryCalendarWrite",
@@ -955,6 +968,12 @@ export async function runOperation(
       return opApproveAgentConfig(args, operator);
     case "goLive":
       return opGoLive(args, operator);
+    case "listPracticeReviews":
+      return opListPracticeReviews(operator);
+    case "decidePracticeReview":
+      return opDecidePracticeReview(args, operator);
+    case "rerunPracticeQuestions":
+      return opRerunPracticeQuestions(args, operator);
     case "getClinicCare":
       return opGetClinicCare(args, operator);
     case "addReportRecipient":
@@ -1035,8 +1054,6 @@ export async function runOperation(
       return opSetClinicTimezone(args, operator);
     case "setConnectionPhiBasis":
       return opSetConnectionPhiBasis(args, operator);
-    case "issueSetupLink":
-      return opIssueSetupLink(args, operator);
     case "retryCalendarWrite":
       return opRetryCalendarWrite(args, operator);
     case "listCalendarWrites":
@@ -2674,7 +2691,12 @@ async function opUpdateAgentConfig(
   try {
     const row = await withTenant(
       { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-      (tx) => updateAgentConfig(tx, input),
+      async (tx) => {
+        const updated = await updateAgentConfig(tx, input);
+        // The script changed, so the practice questions check it again.
+        await requestPracticeQuestions(tx, { reason: "ops", section: "prices" });
+        return updated;
+      },
     );
     const auditRecorded = await audit(operator, "agent_config_updated", {
       clinicSlug: clinic.slug,
@@ -2710,11 +2732,21 @@ async function opApproveAgentConfig(
   try {
     const row = await withTenant(
       { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-      (tx) => approveAgentConfig(tx, `${approvedBy} (recorded by ${operator.email})`),
+      async (tx) => {
+        const label = `${approvedBy} (recorded by ${operator.email})`;
+        const approved = await approveAgentConfig(tx, label);
+        // The operator's approval stays as an override of the practice
+        // questions (plan Part G: "a pass approves the agent script"): it is
+        // recorded as a passed run with the operator's label, so the tracker
+        // and the go-live gate read it, and the record says a person did it.
+        await recordOperatorOverride(tx, { label });
+        return approved;
+      },
     );
     const auditRecorded = await audit(operator, "agent_config_approved", {
       clinicSlug: clinic.slug,
       version: row.version,
+      override: "practice_questions",
     });
     return ok({
       status: "updated",
@@ -2728,6 +2760,64 @@ async function opApproveAgentConfig(
     }
     throw error;
   }
+}
+
+// -----------------------------------------------------------------------------
+// The practice questions' review queue (lib/engine/practice/review.ts)
+// -----------------------------------------------------------------------------
+
+async function opListPracticeReviews(operator: Operator): Promise<OpsOutcome> {
+  const reviews = await listPracticeReviews({ actor: actorFor(operator), request: operator.request });
+  return ok({ reviews });
+}
+
+export type PracticeReviewState =
+  | { status: "updated"; decision: "pass" | "fail"; auditRecorded: boolean }
+  | { status: "refused"; message: string };
+
+async function opDecidePracticeReview(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  const reviewId = stringArg(args, "reviewId");
+  const decision = args.decision;
+  if (!clinic || !reviewId || !UUID_SHAPED.test(reviewId)) {
+    return ok({ status: "refused", message: "No such review." } satisfies PracticeReviewState);
+  }
+  if (decision !== "pass" && decision !== "fail") {
+    return ok({ status: "refused", message: "Decide pass or fail." } satisfies PracticeReviewState);
+  }
+  const rawSection = args.section;
+  let section: PracticeSection | null = null;
+  if (rawSection !== undefined && rawSection !== null && rawSection !== "") {
+    if (decision !== "fail" || !(PRACTICE_SECTIONS as readonly unknown[]).includes(rawSection)) {
+      return ok({ status: "refused", message: "A section is named only for a failure the clinic must fix." } satisfies PracticeReviewState);
+    }
+    section = rawSection as PracticeSection;
+  }
+  const outcome = await decidePracticeReview({
+    clinicId: clinic.id,
+    reviewId,
+    decision,
+    section,
+    operatorLabel: operator.email,
+    actor: actorFor(operator),
+    request: operator.request,
+  });
+  if (outcome.status !== "updated") return ok(outcome satisfies PracticeReviewState);
+  const auditRecorded = await audit(operator, "practice_review_decided", {
+    clinicSlug: clinic.slug,
+    reviewId,
+    decision,
+    ...(section ? { section } : {}),
+  });
+  return ok({ status: "updated", decision, auditRecorded } satisfies PracticeReviewState);
+}
+
+async function opRerunPracticeQuestions(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "refused", message: "No such clinic." });
+  await rerunPracticeQuestions({ clinicId: clinic.id, actor: actorFor(operator), request: operator.request });
+  const auditRecorded = await audit(operator, "practice_questions_rerun", { clinicSlug: clinic.slug });
+  return ok({ status: "updated", auditRecorded });
 }
 
 export type GoLiveState =
@@ -3681,44 +3771,6 @@ async function opSetConnectionPhiBasis(
   return ok({ status: "updated", auditRecorded } satisfies SwitchState);
 }
 
-/** §H.2: resend (or issue for the first time) the setup link. Same shape and same care as the connect link. */
-async function opIssueSetupLink(
-  args: Record<string, unknown>,
-  operator: Operator,
-): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
-  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies IssueConnectLinkState);
-  const to = stringArg(args, "to", MAX_EMAIL_LENGTH)?.toLowerCase();
-  if (to !== undefined && !EMAIL_SHAPED.test(to)) {
-    return ok({ status: "error", message: "That doesn't look like an email address." } satisfies IssueConnectLinkState);
-  }
-  const originProblem = publicOriginProblem();
-  if (originProblem) return ok({ status: "error", message: originProblem } satisfies IssueConnectLinkState);
-  const { token, expiresAt } = await issueConnectionLink(
-    clinic.id,
-    { purpose: "setup" },
-    { actor: actorFor(operator), request: operator.request },
-  );
-  const url = publicUrl(`/setup/${token}`);
-  let delivery: ConnectLinkDelivery = { attempted: false };
-  if (to) {
-    const result = await sendSetupLink({ to, clinicId: clinic.id, clinicName: clinic.name, specialty: clinic.specialty, url, expiresAt });
-    delivery = result.status === "sent" ? { attempted: true, status: "sent" } : { attempted: true, status: result.status, reason: result.reason };
-  }
-  const auditRecorded = await audit(operator, "setup_link_issued", {
-    clinicId: clinic.id,
-    expiresInHours: Math.round((expiresAt.getTime() - Date.now()) / 3_600_000),
-    delivery: delivery.attempted ? delivery.status : "not_attempted",
-  });
-  return ok({
-    status: "issued",
-    url,
-    expiresAt: `${expiresAt.toISOString().replace("T", " ").slice(0, 16)} UTC`,
-    delivery,
-    auditRecorded,
-  } satisfies IssueConnectLinkState);
-}
-
 export type RetryCalendarWriteState =
   | { status: "retried"; outcome: CalendarWriteOutcome; auditRecorded: boolean }
   | { status: "error"; message: string };
@@ -3733,6 +3785,21 @@ async function opRetryCalendarWrite(
   const appointmentId = stringArg(args, "appointmentId");
   if (!appointmentId || !UUID_SHAPED.test(appointmentId)) {
     return ok({ status: "error", message: "That is not an appointment id." } satisfies RetryCalendarWriteState);
+  }
+  // A booking staff marked cancelled, showed or no-show on Bookings is never
+  // written: the retry would put a cancelled appointment on the clinic's
+  // calendar, blocking that time on every channel. writeToCalendar's claim
+  // refuses it too; this says why.
+  const [booking] = await withTenant({ clinicId: clinic.id, actor: actorFor(operator) }, (tx) =>
+    tx.db
+      .select({ status: appointments.status })
+      .from(appointments)
+      .where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)))
+      .limit(1),
+  );
+  if (!booking) return ok({ status: "error", message: "No such appointment." } satisfies RetryCalendarWriteState);
+  if (!(WRITABLE_APPOINTMENT_STATUSES as readonly string[]).includes(booking.status)) {
+    return ok({ status: "error", message: `That appointment is marked ${booking.status.replace("_", "-")}, so nothing is written to the calendar for it.` } satisfies RetryCalendarWriteState);
   }
   let outcome: CalendarWriteOutcome;
   try {

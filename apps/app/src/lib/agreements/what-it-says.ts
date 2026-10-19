@@ -77,14 +77,16 @@ export function agreementText(version: string): string {
  * promises no period for a booking request, an appointment or a contact.
  *
  * Each period is a list of the wordings that state it, any one of which
- * will do. Only the conversation's has two: BAA 1.4.0 and 1.5.0 and the DPA
- * keep "the record of each conversation, without what was said or written in
- * it", since no transcript is kept (owner, 13 October 2026), where 1.3.0 kept
- * "each conversation, with its transcript". Both are the period the purge
- * runs for a conversation row, so a 1.4.0 or 1.5.0 clinic is purged whatever
- * the switch says, as a 1.3.0 clinic is. 1.5.0's retention paragraph is
- * 1.4.0's word for word (it changes only how long the transcript's copy
- * waits, which the purge does not run).
+ * will do. Only the conversation's has two: BAA 1.4.0, 1.5.0 and 1.5.1 and
+ * the DPA keep "the record of each conversation, without what was said or
+ * written in it", since no transcript is kept (owner, 13 October 2026), where
+ * 1.3.0 kept "each conversation, with its transcript". Both are the period
+ * the purge runs for a conversation row, so a 1.4.0, 1.5.0 or 1.5.1 clinic is
+ * purged whatever the switch says, as a 1.3.0 clinic is. 1.5.0's retention
+ * paragraph is 1.4.0's word for word (it changes only how long the
+ * transcript's copy waits, which the purge does not run), and 1.5.1's is
+ * 1.5.0's (it changes only which channels ask for the optional booking
+ * details).
  */
 const PURGE_PERIODS: readonly (readonly string[])[] = [
   [

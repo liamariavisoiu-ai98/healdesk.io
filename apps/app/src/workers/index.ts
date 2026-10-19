@@ -9,6 +9,7 @@ import {
   QUEUE_BILLING_MINUTE,
   QUEUE_CALENDAR_WATCH,
   QUEUE_NOTICES,
+  QUEUE_PRACTICE_QUESTIONS,
   QUEUE_PROCESS_WEBHOOK,
   QUEUE_RECONCILE_CLINIC,
   QUEUE_SYNC_CONNECTION,
@@ -24,6 +25,7 @@ import {
   CALENDAR_WATCH_RETRY_LIMIT,
   runCalendarWatchJob,
 } from "@/lib/scheduler/calendar-watch";
+import { runPracticeQuestionsJob } from "@/lib/engine/practice/job";
 import { runTick } from "@/lib/scheduler/tick";
 import { syncConnection } from "@/lib/sync/run";
 import { processWebhookEvent } from "@/lib/sync/webhooks";
@@ -198,6 +200,22 @@ async function main(): Promise<void> {
       if (outcome.status === "failed") throw new Error(`calendar-watch: ${outcome.note}`);
     },
     { retryLimit: CALENDAR_WATCH_RETRY_LIMIT },
+  );
+
+  // The practice questions (lib/engine/practice/job.ts): every minute, each
+  // clinic's due run, one at a time per clinic, behind the practice-questions
+  // job row's switch, which ships off because every run asks the model.
+  // Guarded like the clocks above. Never retried at once: a run is leased on
+  // its own row, and the next minute's fire takes up whatever is still due.
+  await startGuardedClock(
+    boss,
+    QUEUE_PRACTICE_QUESTIONS,
+    "* * * * *",
+    async () => {
+      const outcome = await runPracticeQuestionsJob();
+      if (outcome.status === "failed") throw new Error(`practice-questions: ${outcome.note}`);
+    },
+    { retryLimit: 0 },
   );
 
   // No outbound clock. The call-back dialer of 23 September 2026 was removed

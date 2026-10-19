@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { channelEvents, clinicChannels } from "@/db/schema";
+import { practiceQuestionsGate } from "@/lib/engine/practice/store";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -10,42 +11,51 @@ import type { TenantTx } from "@/lib/tenant";
  * live (lib/channels/events.ts; spec, "No channel goes live before its audit
  * passes").
  *
- * THE SEAM. The audit is the practice questions (plan Part G; package B),
- * which do not exist yet. Until they do, only an operator can say a channel's
- * audit passed, through the signed ops envelope's `attestChannelAudit`
- * (lib/ops/api.ts), and it is recorded: a `channel_events` row of kind
- * `audit_passed`, actor `ops`, which only drizzle/0079's definer may insert
- * and nothing may rewrite or erase (drizzle/0044), plus the operator's own
- * audit row. It fails closed: no row, no pass. Nothing records one by
- * default, and no path but the ops operation calls `attestChannelAudit`.
+ * The audit is the practice questions (lib/engine/practice; plan Part G). A
+ * pass records it here, through `recordAuditPassed` with `via:
+ * "practice_questions"`, once per channel: a `channel_events` row of kind
+ * `audit_passed`, which only drizzle/0079's definer may insert (0080 widened
+ * its closed list of ways) and nothing may rewrite or erase (drizzle/0044).
+ * An operator can still attest a channel through the signed ops envelope's
+ * `attestChannelAudit`, and the operator's approval of the agent script
+ * (ops approveAgentConfig) records the same way, `via: "ops_attested"`.
  *
- * When the practice questions land, they replace `channelsWithAuditPassed`
- * with their own result per channel and audit-input version, and record
- * their pass through `recordAuditPassed` with `via: "practice_questions"`
- * (widening the definer's closed list of ways), so the record of every pass
- * stays in one place. An operator's attestation
- * made before then is the record of how that channel was cleared.
+ * What `live` reads (channelsWithAuditPassed) is stricter than the record,
+ * because the practice questions gate only a channel's first go-live: a
+ * channel the questions passed counts only while practiceQuestionsGate
+ * holds open for it, which a channel already live always does, and which a
+ * channel not yet live does only while the latest run passed with nothing
+ * changed since. A change that fails the questions before go-live holds the
+ * channel back until a later run passes; one after go-live never takes it
+ * offline. An operator's attestation counts for good. It fails closed: no
+ * row, no pass.
  *
  * Tenant plane, no patient data: a channel, a code and who did it.
  */
 
-/** How an `audit_passed` row was recorded. The practice questions add theirs. */
-export type AuditPassVia = "ops_attested";
+/** How an `audit_passed` row was recorded. */
+export type AuditPassVia = "ops_attested" | "practice_questions";
 
-/** The channels whose audit has passed, as `live` reads it. */
+/** The channels whose audit has passed, as `live` reads it (see the header). */
 export async function channelsWithAuditPassed(
   db: Transaction,
   clinicId: string,
 ): Promise<Set<Channel>> {
   const rows = await db
-    .selectDistinct({ channel: channelEvents.channel })
+    .select({ channel: channelEvents.channel, detail: channelEvents.detail })
     .from(channelEvents)
     .where(and(eq(channelEvents.clinicId, clinicId), eq(channelEvents.kind, "audit_passed")));
-  return new Set(
-    rows
-      .map((row) => row.channel)
-      .filter((c): c is Channel => c !== null && (CHANNELS as readonly string[]).includes(c)),
-  );
+  const passed = new Set<Channel>();
+  for (const row of rows) {
+    const channel = row.channel;
+    if (channel === null || !(CHANNELS as readonly string[]).includes(channel)) continue;
+    if (row.detail?.via === "practice_questions") {
+      if ((await practiceQuestionsGate({ db, clinicId }, channel)).open) passed.add(channel);
+    } else {
+      passed.add(channel);
+    }
+  }
+  return passed;
 }
 
 export class AuditSeamError extends Error {

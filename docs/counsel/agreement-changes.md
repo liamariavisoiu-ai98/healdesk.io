@@ -38,6 +38,16 @@
 > recommends that counsel review it. No clinic had signed 1.4.0, so 1.5.0
 > replaced it outright: 1.4.0 is no longer signable, and 1.5.0 is the
 > go-live floor.
+>
+> **Since 19 October 2026 the version offered is BAA 1.5.1** (§ 16,
+> `docs/baa-v1.5.1.txt`): 1.5.0 with items (b) and (c) of clause 11 saying
+> that the optional booking details (a last name, the service, new or
+> returning, consultation or treatment, a practitioner) are asked "on a call
+> or in a website chat", where 1.5.0 said "on a call", because the website
+> chat asks for them and keeps them. Released by the owner on the owner's
+> own instruction, without external counsel; § 16.5 recommends that counsel
+> review it. No clinic had signed 1.5.0, so 1.5.1 replaced it outright:
+> 1.5.0 is no longer signable, and 1.5.1 is the go-live floor.
 
 ## Contents
 
@@ -56,7 +66,8 @@
 13. [BAA 1.2.2: the list on request, one email address, the spec's breach wording](#13-baa-122-the-list-on-request-one-email-address-the-specs-breach-wording)
 14. [BAA 1.4.0: the transcript emailed, not kept](#14-baa-140-the-transcript-emailed-not-kept) (released 13 October 2026)
 15. [BAA 1.5.0: the transcript's copy deleted once delivery is confirmed](#15-baa-150-the-transcripts-copy-deleted-once-delivery-is-confirmed) (released 14 October 2026)
-16. [Review log](#review-log-2026-10-01)
+16. [BAA 1.5.1: the optional booking details asked in a website chat too](#16-baa-151-the-optional-booking-details-asked-in-a-website-chat-too) (released 19 October 2026)
+17. [Review log](#review-log-2026-10-01)
 
 ---
 
@@ -2677,6 +2688,164 @@ against 1.3.0; against 1.5.0, in `docs/baa-v1.5.0.txt`'s Appendix B,
 `595ed7f45fd4eb3510e021abbdf285fb9afd6a1b9869a34e2f11c6c2fd0f03dd`) and the
 Google Calendar disclosure. The DPA's other seven hashes moved with its
 sample (`packages/catalog/src/dpa.test.ts`).
+
+---
+
+## 16. BAA 1.5.1: the optional booking details asked in a website chat too
+
+> **Not legal advice.** The owner released BAA 1.5.1 on 19 October 2026, on
+> the owner's own instruction and **without external counsel**, the day the
+> owner decided that the agreement says what the website chat asks rather
+> than the website chat stop asking. The text was drafted by an AI assistant
+> from the code, as the rest of this folder was. **Recommended: counsel
+> reviews 1.5.1's two changed list items, with § 14.5, § 15.5 and the points
+> in § 16.5, before the first live clinic.** No clinic had signed 1.5.0, so
+> 1.5.1 replaces it outright: no overlap, and the go-live floor rises to
+> 1.5.1. The DPA, unreleased, needs no change: its Minimum necessary clause
+> lists the same details without naming a channel.
+
+### 16.1 What the owner decided (19 October 2026)
+
+1.5.0's Minimum necessary clause (clause 11) carried 1.3.0's list of what
+the assistant asks someone who wants to book (PT-02, § 12.14): (a) on every
+channel, a first name, a number Practice can call, a preferred time and one
+or two others; (b) "on a call", where Practice's settings or its
+specialty's defaults ask for them, a last name and the service asked about;
+and (c) "on a call, on the same condition", whether the person is new or
+returning, consultation or treatment, and any practitioner they would like
+to see. The call-only wording followed the booking-field catalogue, whose
+optional fields are marked `channels: ["voice"]`
+(`packages/catalog/src/booking-requirements.ts`), from before the website
+chat was built.
+
+The website chat, built on 13 October 2026, does what the call does: it asks
+for the optional details on the same condition and keeps them with the
+booking request it takes. So a practice signing 1.5.0 was told that those
+details are asked only on a call, while the website chat asks for them and
+keeps them for as long as the booking request is kept.
+
+The owner chose to change the wording in the next version rather than
+restrict the website chat. 1.5.1 says "on a call or in a website chat" in
+(b) and (c), where 1.5.0 says "on a call". Instagram, Messenger and WhatsApp
+are unchanged: they ask for and keep only the details in (a).
+
+### 16.2 What the code does, read 19 October 2026
+
+| Sentence (clause) | The code fact | Where |
+| --- | --- | --- |
+| "b. on a call or in a website chat, where Practice's settings or its specialty's defaults ask for them: a last name and the service asked about" (11) | The website chat's system prompt lists every field the practice's booking requirements resolve to (`resolveBookingRequirements(specialty, clinics.booking_requirements)`, not filtered by channel), the same list the call's prompt gets; only the phone line differs on a call, where the number is already known | `apps/app/src/lib/assistant/prompt.ts` (`buildAssistantPrompt`); `apps/app/src/lib/assistant/facts.ts` |
+| (the same details, kept) | `takeRequest` creates the website chat's booking request with the service asked about as its `treatment` and the other details collected as `collected_fields`, kept for the booking request's period in clause 11 | `apps/app/src/lib/chat/web-chat.ts` (`takeRequest`) |
+| "c. on a call or in a website chat, on the same condition: whether the person is a new or returning patient, whether the visit is a consultation or a treatment, and any practitioner they would like to see" (11) | As (b): `new_or_existing`, `consult_or_treatment` and `preferred_provider` are fields of the same catalogue, asked when the practice's settings or its specialty's defaults switch them on | `packages/catalog/src/booking-requirements.ts` |
+| "From those channels it keeps only the details in (a)" (11, unchanged) | `metaEligible` is exactly the locked four, and the Meta front door asks for no other field (`metaEligible(resolved)`), deferring the rest to staff | `booking-requirements.ts`; `apps/app/src/lib/meta/front-door.ts` |
+
+### 16.3 The text, against 1.5.0
+
+One clause changes, in two list items; every other clause is 1.5.0's own
+clause object, in 1.5.0's order, and the preamble differs only in its
+version line (`apps/app/tests/baa-golden.test.ts`, "1.5.1: the optional
+booking details asked in a website chat too", holds the whole rendered
+document, on every variant, to 1.5.0's with exactly these two items and the
+version line replaced).
+
+| Clause | 1.5.0 | 1.5.1 |
+| --- | --- | --- |
+| 11, Minimum necessary, item (b) (the other five paragraphs, and item (a), are 1.5.0's word for word) | "b. on a call, where Practice's settings or its specialty's defaults ask for them: a last name and the service asked about; and" | "b. on a call or in a website chat, where Practice's settings or its specialty's defaults ask for them: a last name and the service asked about; and" |
+| 11, Minimum necessary, item (c) | "c. on a call, on the same condition: whether the person is a new or returning patient, whether the visit is a consultation or a treatment, and any practitioner they would like to see." | "c. on a call or in a website chat, on the same condition: whether the person is a new or returning patient, whether the visit is a consultation or a treatment, and any practitioner they would like to see." |
+
+Nothing else in 1.5.0 ties the optional details to a call. The state-law
+clause names "the services and times they ask about, and the other booking
+details the clause headed "Minimum necessary" lists", which follows the
+list; the calendar clauses and the Google Calendar disclosure name the
+service on an appointment whatever the channel; the Payments clause's "on a
+call it sends none" is about payment links, not booking details; and clause
+11's "Anything else a person chooses to say or write on a call or in a
+website chat is kept only in the transcript" already named both.
+
+The DPA (unreleased) needs no change: its Minimum necessary clause says
+"The assistant asks a client for no more than Practice's front desk needs
+to place a booking: a name, a telephone number, the service asked about,
+the times that suit them, whether they have been to Practice before,
+whether the visit is a consultation or a treatment, and any practitioner
+they prefer", naming no channel. Its text, its hashes and
+`docs/dpa-v1.0.0.txt` are unchanged.
+
+### 16.4 What shipped
+
+| Change | Where |
+| --- | --- |
+| 1.5.1 is `BAA_TEMPLATES[0]`, `publishedOn` 2026-10-19, `approvedByCounsel: true`, which records the owner's release (the flag's doc comment); checkout offers it and signing takes it. Its clauses are `CLAUSES_1_5` with `MINIMUM_NECESSARY_1_5_1` in place of 1.5.0's; its preamble and render guard are 1.3.0's naming 1.5.1 | `packages/catalog/src/baa.ts` |
+| 1.5.0 is `BAA_TEMPLATES[1]`, frozen, and no longer signable: `BAA_RELEASE_OVERLAP` is empty | `packages/catalog/src/baa.ts`; `signableTemplate` in `apps/app/src/lib/agreements.ts` |
+| The go-live floor rises to 1.5.1: provisioning, the checkout's agreement check, go-live and a supersede refuse a 1.5.0 signature | `MIN_ACCEPTABLE_BAA_VERSION` |
+| `app_baa_version_acceptable()` accepts 1.5.1 and nothing else; `app_destruction_rule()` gives 1.5.1 the export rule 1.5.0 has (its Term clause is 1.3.0's own); a DO block asserts both lists and the election list as 0073 left it | `apps/app/drizzle/0081_baa_release_1_5_1.sql`; parity tests in `apps/app/tests/database-audit.test.ts` and `destruction-clock.test.ts` |
+| `DESTRUCTION_RULES` gives 1.5.1 the export rule; `PURGE_PERIODS` needs nothing, since 1.5.1's retention paragraph is 1.5.0's, so a 1.5.1 clinic is purged nightly whatever the switch | `apps/app/src/lib/offboarding/offboarding.ts`; `apps/app/src/lib/agreements/what-it-says.ts` |
+| The signing screen's note beside 1.5.1's clause 11 says the optional details are asked "on calls and in website chats", where 1.5.0's note says "on calls"; the note is otherwise 1.5.0's, and 1.5.1's other notes and its bullets are 1.3.0's own objects | `packages/catalog/src/baa-explainer.ts` |
+| The released review copy, with the variant clauses, the election and the disclosure in appendices | `docs/baa-v1.5.1.txt` |
+
+No public page changes. /terms, /privacy, /data-deletion and the homepage
+FAQ never say which channel asks which booking detail (the FAQ says only
+that the assistant "takes only what a receptionist would write on a callback
+slip"), and none names an agreement version as the one in force, so
+`LEGAL_VERSION` stays 2026-10-14.1.
+
+**The floor, and nobody signed.** 1.5.0 is below the floor from this
+release, as 1.4.0 was from 1.5.0's. No clinic has signed any version, the
+product has not launched, and `apps/app` has only ever held synthetic and
+seed data. 1.5.1 applies 1.3.0's calendar clauses under the same ids, so a
+1.5.1 signer's first location gets its terms exactly as before, and
+`calendar-election/1.0.0` takes the place of 1.5.1's calendar clause word
+for word. The tests that sign "the current version" now sign 1.5.1.
+
+### 16.5 For counsel, and the owner
+
+Counsel review of 1.5.1 is recommended before the first live clinic, with
+§ 14.5 and § 15.5, whose items this release does not change.
+
+1. **What the website chat keeps.** A website chat's booking request now
+   carries, under the agreement, a last name, the service asked about and
+   the other optional details where the practice's settings ask for them,
+   for the booking request's period in clause 11, as a call's does. Every
+   request that carries a visitor's words goes to `apps/app`, so these
+   details reach only healdesk and the subcontractors the Subcontractors
+   clause describes, as a call's do. (counsel)
+2. **The catalogue still says "voice".** The booking-field catalogue marks
+   the optional fields `channels: ["voice"]`, and the setup link and the
+   ops console label them "phone only" (`phoneOnly: !f.metaEligible`);
+   what the label means is "never on Instagram, Messenger or WhatsApp",
+   which stays true. The agreement now says the website chat asks for them;
+   the labels and the catalogue's channel list are worth bringing in line
+   so that a practice choosing fields on its setup link is not told they
+   are asked only by phone. Not changed here. (engineering)
+3. **Outside this change.** The spec (`docs/v1-product-spec.md`, an export)
+   is the owner's to check against 1.5.1's wording and re-export if it says
+   the optional details are asked on calls only.
+
+### 16.6 Golden hashes
+
+Frozen from the release (`apps/app/tests/baa-golden.test.ts`):
+
+| Document and variant | SHA-256 |
+| --- | --- |
+| 1.5.1 covered_estimated (the sample, and covered_outbound) | `e5b849c7bd30fc922bc597f4b08cea02b388ce9a2289e8945d2446cdeb91af69` |
+| 1.5.1 notcovered_estimated | `98413549c405846fbecd3981c3f8dc472ed86b421c662f1ee4219d9f5106bfb0` |
+| 1.5.1 unknown_estimated | `8d13db1a4751aac43807bd7ebacaae2a2896b49959a455e8fdac41d39d8b2b2b` |
+| 1.5.1 uncovered_nobaa | `f637d7c5aa9adec642dbae7ddff7481a7c908df3f376cb9f40fbb099e30e6a8c` |
+| 1.5.1 uncovered_personal | `8e38e7e165cec6bbf90a23dca3849a4ad43462ca6f717b1c454523325fd78031` |
+| 1.5.1 notused_mindbody | `02f8b009430d11accc7dd9d7c64c0583647dd39a12eb1308d96e945c5461501a` |
+| 1.5.1 notused_other | `88919a9f870e0fadaf823ba39b119957e07753bd850dcb8547ccd18b200b0f5b` |
+| 1.5.1 live_calcom | `b3c70e37eaa41081e9b97e05e11e956bd734f79d01a0c15a187c9545b10f7dbc` |
+| 1.5.1 live_highlevel_personal | `cad1d1741a29298a9bd42208a2460d5bb01057bdbba3b99609b4d0ec2ead8400` |
+| 1.5.1 live_calendly_nobaa | `23aa5529b7684a39d8bd90c5b8229594e3d25de7c73ac98b5b5d20e18dee3de8` |
+
+No released hash moved: 1.5.0 / covered_estimated is still
+`cc903fb5d31765ee0f084096ef47181e55737ad3a28816e3bab9a21f37e6f7e2`, 1.4.0's
+`090b15ed4e7c18484e478f9fd7513fe98fac7538970aff02966913d19d081f1c`, 1.3.0's
+`d9117482bba644006763a9d613d94ec0a38a3f8888a95b61ad6fbb6f3a68acb3`, and every
+older version reproduces as before; so do the election
+(`63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa`, rendered
+against 1.3.0; against 1.5.1, in `docs/baa-v1.5.1.txt`'s Appendix B,
+`940fd2f9ec867d8ead7689fd4bb2b0af9bfc70f574ea18a2960fead0d6d7380b`), the
+Google Calendar disclosure and the DPA's eight hashes, none of which this
+release touches.
 
 ---
 

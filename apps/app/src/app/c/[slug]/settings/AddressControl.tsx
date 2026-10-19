@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 
 import { useAnnounce } from "../feedback";
@@ -27,7 +26,6 @@ export type OpenAddressChange = {
 
 export function AddressControl(props: { slug: string; open: OpenAddressChange | null }) {
   const announce = useAnnounce();
-  const router = useRouter();
   const inputId = useId();
   const [editing, setEditing] = useState(false);
   const [working, setWorking] = useState(false);
@@ -39,7 +37,9 @@ export function AddressControl(props: { slug: string; open: OpenAddressChange | 
       const result = await action();
       if (result.ok) {
         announce({ text: result.toast, tone: "ok" });
-        router.refresh();
+        // As the other Settings controls do: the card is composed on the
+        // server, so the page is read again to show the change as it stands.
+        window.location.reload();
         return true;
       }
       announce({ text: result.message, tone: "problem", stepUpHref: result.stepUpHref });

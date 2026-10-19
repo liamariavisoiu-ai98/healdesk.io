@@ -72,10 +72,6 @@ vi.mock("@/lib/email/send", async (importOriginal) => {
       }),
   };
 });
-vi.mock("next/navigation", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("next/navigation")>();
-  return { ...actual, useRouter: () => ({ refresh: () => undefined }) };
-});
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ORIGIN = "https://app.healdesk.test";

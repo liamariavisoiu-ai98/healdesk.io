@@ -25,7 +25,8 @@ import {
 
 /**
  * What the re-sign screen renders the BAA from: the practice's own answers,
- * validated when it signed the DPA in force, and nothing the browser chose.
+ * validated when it signed the agreement in force (the DPA, or an older
+ * BAA), and nothing the browser chose.
  * The signatory's name and title are the screen's to type; the address is
  * the clinic's one address, which is its notice address.
  */
@@ -34,8 +35,12 @@ export type ResignDocument = {
   specialty: SpecialtyId;
   bookingSystem: BookingSystemId;
   calendarAccount: CalendarAccount;
-  /** true for "Yes", null for "Not sure", as the agreement records the answer. */
-  isCoveredEntity: true | null;
+  /**
+   * As the agreement records the answer: true for "Yes", null for "Not
+   * sure". From a DPA it is never false, since "No" is what the DPA covers;
+   * from an older BAA it is the clinic's record, "No" included.
+   */
+  isCoveredEntity: boolean | null;
   signatoryEmail: string;
   /** Who signed the DPA, to start the fields from; the screen may change them. */
   signatoryName: string;

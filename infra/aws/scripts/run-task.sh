@@ -16,6 +16,8 @@
 #                                                     a person's deletion or correction request
 #   bash infra/aws/scripts/run-task.sh patient-request <clinic id> <kind> <you@healdesk.io> [received at] [contact id]
 #                                                     a patient's own request, passed to the practice (L32)
+#   bash infra/aws/scripts/run-task.sh incident-affected <clinic id> <incident id> <contact ids> <you@healdesk.io> [add|remove]
+#                                                     who an incident affected, for the practice's page (L29)
 #   bash infra/aws/scripts/run-task.sh demo-clinic "<fictional practice>" "<your name>" <you@healdesk.io>
 #                                                     healdesk's one demo clinic (scripts/demo-clinic.ts)
 #   bash infra/aws/scripts/run-task.sh channels-link <clinic id> [meta|whatsapp] [days]
@@ -49,7 +51,11 @@
 # ops console first. patient-request (apps/app/scripts/ops-patient-request.ts)
 # takes the clinic's id, what was asked (access, amendment, accounting,
 # deletion or other), the operator's work address and, optionally, the day the
-# request came and a contact's id: nothing of the patient's. demo-clinic takes the fictional practice's name, the
+# request came and a contact's id: nothing of the patient's. incident-affected
+# (apps/app/scripts/ops-incident-affected.ts) takes the clinic's and the
+# incident's ids, the contacts' ids comma-separated, the operator's work
+# address and add or remove: ids only, at most 150 contacts a run, because
+# ECS takes no more than 8,192 characters of overrides. demo-clinic takes the fictional practice's name, the
 # operator's name and the operator's own address (the script refuses any
 # other), and channels-link the clinic's id, which channel and how many days
 # the link lasts: nothing of a patient's, and no secret. The bundle lands in the export bucket (infra/aws/exports.tf);
@@ -92,6 +98,7 @@ usage() {
   echo "       $0 amend-contact <clinic id> <contact id> <fields to clear, e.g. phone,email> <who asked> <you@healdesk.io>" >&2
   echo "       who asked: practice | person_via_practice | representative_via_practice" >&2
   echo "       $0 patient-request <clinic id> <access|amendment|accounting|deletion|other> <you@healdesk.io> [received at, e.g. 2026-10-12] [contact id]" >&2
+  echo "       $0 incident-affected <clinic id> <incident id> <contact ids, comma-separated, at most 150> <you@healdesk.io> [add|remove]" >&2
   echo "       $0 demo-clinic \"<fictional practice>\" \"<your name>\" <you@healdesk.io>" >&2
   echo "       $0 channels-link <clinic id> [meta|whatsapp] [days the link lasts, 1 to 30]" >&2
   exit 64
@@ -104,6 +111,7 @@ case "$1" in
   erase-person) [ "$#" -eq 5 ] || [ "$#" -eq 6 ] || usage ;;
   amend-contact) [ "$#" -eq 6 ] || usage ;;
   patient-request) [ "$#" -ge 4 ] && [ "$#" -le 6 ] || usage ;;
+  incident-affected) [ "$#" -eq 5 ] || [ "$#" -eq 6 ] || usage ;;
   demo-clinic) [ "$#" -eq 4 ] || usage ;;
   channels-link) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage ;;
   *) [ "$#" -eq 1 ] || usage ;;
@@ -139,6 +147,10 @@ case "$1" in
     ;;
   patient-request)
     family=healdesk-production-patient-request
+    container=app
+    ;;
+  incident-affected)
+    family=healdesk-production-incident-affected
     container=app
     ;;
   demo-clinic)
@@ -247,6 +259,31 @@ if [ "$1" = patient-request ]; then
     fi
   done
   overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[%s]}]}' "$request_env")
+fi
+# Who an incident affected (L29's list, read by the practice behind its
+# passkey): the clinic, the incident (from /admin/incidents), the contacts by
+# their uuids, the operator, and add (the default) or remove for a contact
+# named in error. Ids only; the script itself refuses anything else.
+if [ "$1" = incident-affected ]; then
+  is_uuid "$2" || fail "the clinic id must be the clinic's uuid (the ops console shows it)"
+  is_uuid "$3" || fail "the incident id must be the incident's uuid (/admin/incidents shows it)"
+  contacts=$(lower "$4")
+  count=0
+  IFS=',' read -r -a contact_list <<<"$contacts"
+  for contact in ${contact_list[@]+"${contact_list[@]}"}; do
+    is_uuid "$contact" || fail "the contacts are their uuids, comma-separated with no spaces; never a number, an address or a name"
+    count=$((count + 1))
+  done
+  [ "$count" -ge 1 ] || fail "name at least one contact, by its uuid"
+  [ "$count" -le 150 ] || fail "at most 150 contacts a run (ECS takes 8,192 characters of overrides); run it again for the rest"
+  check_operator "$5"
+  action=${6:-add}
+  case "$action" in
+    add | remove) ;;
+    *) fail "the last argument is add (the default) or remove, for a contact named in error" ;;
+  esac
+  overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_INCIDENT_CLINIC_ID","value":"%s"},{"name":"HEALDESK_INCIDENT_ID","value":"%s"},{"name":"HEALDESK_INCIDENT_CONTACT_IDS","value":"%s"},{"name":"HEALDESK_INCIDENT_ACTION","value":"%s"},{"name":"HEALDESK_OPS_OPERATOR","value":"%s"}]}]}' \
+    "$(lower "$2")" "$(lower "$3")" "$contacts" "$action" "$(lower "$5")")
 fi
 # A name for the demo clinic or its signatory: letters, digits, spaces and
 # the punctuation a practice's name has, nothing JSON would need escaped.
@@ -423,6 +460,9 @@ if [ "$1" = patient-export ]; then
 fi
 if [ "$1" = erase-person ] || [ "$1" = amend-contact ]; then
   say "its result (the request id, counts and any deadline: ids and numbers only) is in that log stream"
+fi
+if [ "$1" = incident-affected ]; then
+  say "its result (how many were added or removed, and how many are on the list now: counts only) is in that log stream"
 fi
 if [ "$1" = patient-request ]; then
   say "its result (the request's id, the day the practice is asked to mark it received by, and what is left to do by hand) is in that log stream"

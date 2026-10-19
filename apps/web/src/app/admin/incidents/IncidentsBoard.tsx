@@ -3,9 +3,13 @@
 import {
   INCIDENT_INFORMATION_TYPES,
   INCIDENT_MITIGATIONS,
+  INCIDENT_PATIENT_STEPS,
+  INCIDENT_RECOMMENDATIONS,
   INCIDENT_REPORT_EVENTS,
   type IncidentInformationType,
   type IncidentMitigation,
+  type IncidentPatientStep,
+  type IncidentRecommendation,
   type IncidentReportEvent,
 } from "@healdesk/catalog";
 import { useState, useTransition } from "react";
@@ -51,6 +55,49 @@ const INFO_TYPES = Object.entries(INCIDENT_INFORMATION_TYPES) as [
   { many: string },
 ][];
 const MITIGATIONS = Object.entries(INCIDENT_MITIGATIONS) as [IncidentMitigation, string][];
+const STEPS = Object.entries(INCIDENT_PATIENT_STEPS) as [IncidentPatientStep, string][];
+const RECOMMENDATIONS = Object.entries(INCIDENT_RECOMMENDATIONS) as [
+  IncidentRecommendation,
+  string,
+][];
+
+/**
+ * What the console says once a report is queued. An apps/app that predates
+ * the two lists (apps/web is live first) answers without their counts and
+ * ignores them, so a report sent with any went without them: the operator
+ * is told to send an update once apps/app is deployed.
+ */
+export function reportSentLine(
+  outcome: Extract<IncidentReportOutcome, { status: "sent" }>,
+  chose: { steps: number; recommendations: number },
+): string {
+  const which = outcome.report === 1 ? "Report" : `Update ${outcome.report - 1}`;
+  const dropped =
+    (outcome.steps === null || outcome.recommendations === null) &&
+    chose.steps + chose.recommendations > 0;
+  return (
+    `${which} queued: it goes to the practice's address now.` +
+    (dropped
+      ? " It went WITHOUT the steps and recommendations you chose: apps/app isn't deployed with them yet. Send an update with them once it is."
+      : "") +
+    (outcome.auditRecorded ? "" : " It is NOT in the audit log: record it by hand.")
+  );
+}
+
+/**
+ * The list of who an incident affected, as the console says it: a count,
+ * never who, and how it is recorded (from the app's own shell, by contact
+ * id; never here, since the list is patient information and this console
+ * is on the side without a business associate agreement).
+ */
+export function affectedLine(count: number | null): string {
+  if (count === null) return "Not known here until apps/app is deployed.";
+  const how =
+    "Record it by contact id with bash infra/aws/scripts/run-task.sh incident-affected (npm run ops:incident-affected on a development machine); the practice reads it on the incident's page in its portal, behind its passkey, once a report has gone. The report itself never names anyone.";
+  return count === 0
+    ? `No one recorded yet. ${how}`
+    : `${count} ${count === 1 ? "person" : "people"} recorded. ${how}`;
+}
 
 function describe(result: OpsResult<{ status: string; message?: string }>): string | null {
   if (!result.ok) return result.message;
@@ -87,8 +134,9 @@ export function IncidentsBoard({
         two deadlines: the one the practice&rsquo;s agreement promises, and our internal target,
         which is stricter and never a promise to anyone. Decide each one: send the report, built
         from fixed fields only, or record why it isn&rsquo;t reportable. Nothing reaches a practice
-        unless you send it here. The list of people affected is never emailed: it goes separately,
-        by secure transfer. Open, notify and resolve incidents on each practice&rsquo;s care page.
+        unless you send it here. The list of people affected is never emailed: the practice reads
+        it on the incident&rsquo;s page in its portal, behind its passkey, which a breach&rsquo;s
+        report links to. Open, notify and resolve incidents on each practice&rsquo;s care page.
       </p>
       <p className="text-muted mt-2 max-w-[72ch] text-sm">
         The agreements&rsquo; promise, word for word: notice &ldquo;without unreasonable delay and
@@ -188,6 +236,12 @@ function IncidentCard({
                   : "Waiting"}
           {incident.notifiedAt ? ` · practice told ${incident.notifiedAt}` : ""}
         </dd>
+        {incident.class !== "service_complaint" ? (
+          <>
+            <dt className="text-muted font-bold uppercase">Who it affected</dt>
+            <dd>{affectedLine(incident.affectedCount)}</dd>
+          </>
+        ) : null}
       </dl>
 
       {decidable ? (
@@ -269,6 +323,10 @@ function ReportForm({
           mitigations: MITIGATIONS.filter(([code]) => f.get(`done:${code}`) === "on").map(
             ([code]) => code,
           ),
+          steps: STEPS.filter(([code]) => f.get(`step:${code}`) === "on").map(([code]) => code),
+          recommendations: RECOMMENDATIONS.filter(
+            ([code]) => f.get(`advise:${code}`) === "on",
+          ).map(([code]) => code),
         };
         const kind = incident.reportsSent > 0 ? "this update" : "this report";
         if (
@@ -284,7 +342,10 @@ function ReportForm({
           if (message) onProblem(message);
           else if (result.ok && result.data.status === "sent") {
             onSent(
-              `${result.data.report === 1 ? "Report" : `Update ${result.data.report - 1}`} queued: it goes to the practice's address now.${result.data.auditRecorded ? "" : " It is NOT in the audit log: record it by hand."}`,
+              reportSentLine(result.data, {
+                steps: fields.steps.length,
+                recommendations: fields.recommendations.length,
+              }),
             );
           }
         });
@@ -350,10 +411,37 @@ function ReportForm({
           ))}
         </div>
       </fieldset>
+      <fieldset className="text-sm">
+        <legend className="text-muted text-xs font-bold uppercase">
+          What the people affected can do (a breach&rsquo;s report must give these, in writing)
+        </legend>
+        <div className="mt-2 grid gap-1">
+          {STEPS.map(([code, sentence]) => (
+            <label key={code} className="flex items-start gap-2">
+              <input name={`step:${code}`} type="checkbox" className="mt-1" />
+              <span>{sentence}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset className="text-sm">
+        <legend className="text-muted text-xs font-bold uppercase">
+          What we recommend the practice do
+        </legend>
+        <div className="mt-2 grid gap-1">
+          {RECOMMENDATIONS.map(([code, sentence]) => (
+            <label key={code} className="flex items-start gap-2">
+              <input name={`advise:${code}`} type="checkbox" className="mt-1" />
+              <span>{sentence}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <p className="text-muted text-xs">
-        The email names no one. For a breach it says the identification of each person affected
-        comes separately, by secure transfer. Its contact is a reply to the email, which reaches
-        hello@.
+        The email names no one. For a breach it links to the incident&rsquo;s page, where the
+        practice reads who it affected behind its passkey, and it says the people&rsquo;s steps
+        will follow in an update when none are chosen here. Its contact is a reply to the email,
+        which reaches hello@.
       </p>
       <div>
         <button

@@ -18,6 +18,7 @@ import {
   conversationFlags,
   conversations,
   handovers,
+  incidentAffectedContacts,
   metaBookingDrafts,
   metaInboundMessages,
   patientRequests,
@@ -583,11 +584,11 @@ export async function releaseNumberAfterPassThrough(tx: TenantTx): Promise<boole
  * included, the hashes of who messaged it, its closed days, its setup
  * progress, its providers, its suppressions, consent records and contact
  * attempts, the records of its deletion requests, the amendments Practice
- * directed, the flags staff put on its conversations, its deposits, and the
- * patients' requests passed to it (L32), gone. Audit, agreements, calendar
- * elections and billing stay, and so do AYA's number, the sign-in and the
- * setup until the pass-through has ended (then the account closes:
- * lib/offboarding/account-closure.ts).
+ * directed, the flags staff put on its conversations, its deposits, the
+ * patients' requests passed to it (L32), and the list of who an incident
+ * affected, gone. Audit, agreements, calendar elections and billing stay, and
+ * so do AYA's number, the sign-in and the setup until the pass-through has
+ * ended (then the account closes: lib/offboarding/account-closure.ts).
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -656,6 +657,10 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // contacts they name: a contact's delete would set each one's contact_id to
   // NULL first, a rewrite for nothing.
   await del("patient_requests", () => tx.db.delete(patientRequests).where(eq(patientRequests.clinicId, c)).returning({ id: patientRequests.id }));
+  // Who an incident affected (drizzle/0098), before the contacts it names:
+  // their cascade would take the list anyway; deleted here first so the
+  // count is in the record and the stamp's check names it.
+  await del("incident_affected_contacts", () => tx.db.delete(incidentAffectedContacts).where(eq(incidentAffectedContacts.clinicId, c)).returning({ id: incidentAffectedContacts.contactId }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
   // The records of the clinic's deletion requests (drizzle/0063): dates,

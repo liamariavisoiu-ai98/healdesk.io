@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { AGREEMENT_COPY } from "./agreement-copy";
 import {
   AgreementError,
+  agreementKindForRequest,
   effectiveDateOf,
   MAX_SIGNATORY_CHARS,
   prepareSigning,
@@ -78,6 +79,24 @@ describe("prepareSigning", () => {
     expect(storedVariables(prepared.documentVariables, prepared.answers, prepared.clauseIds, false)).toEqual(
       prepared.stored,
     );
+  });
+});
+
+describe("re-accepting a business associate agreement in force", () => {
+  test("a No practice signs the BAA again once the DPA is released, and a vet never signs one", () => {
+    // The decision on its own sends a "No" practice to the DPA once released.
+    expect(agreementKindForRequest(request(), { dpaReleased: true })).toBe("dpa");
+    // A re-sign of the BAA it already holds stays a BAA: never BAA→DPA.
+    expect(agreementKindForRequest(request(), { dpaReleased: true, reacceptsBaa: true })).toBe("baa");
+    const prepared = prepareSigning(request() as never, "2026-10-19", {
+      dpaReleased: true,
+      reacceptsBaa: true,
+    });
+    expect(prepared.kind).toBe("baa");
+    expect(refusal(request(), { dpaReleased: true, reacceptsBaa: true })).toBeUndefined();
+    expect(() =>
+      agreementKindForRequest({ specialty: "veterinary", isCoveredEntity: false }, { reacceptsBaa: true }),
+    ).toThrow(/no business associate agreement/);
   });
 });
 

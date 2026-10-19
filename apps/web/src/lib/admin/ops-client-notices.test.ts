@@ -25,6 +25,7 @@ import {
   sendProductUpdate,
   sendSubprocessorNotice,
   sendTermsNotice,
+  startBaaVersionResigns,
   suspendForCause,
 } from "@/lib/admin/ops-client";
 
@@ -104,6 +105,18 @@ describe("the incidents page", () => {
     });
   });
 
+  test("each incident's list of who it affected is read as a count, and an older apps/app's reply as unknown", async () => {
+    reply({ data: { incidents: [{ ...REGISTER_ROW, affectedCount: 4 }] } });
+    const now = await fetchIncidentRegister();
+    expect(now.ok && now.data[0]!.affectedCount).toBe(4);
+    // apps/web is live before apps/app is deployed: the reply without the count still reads.
+    reply({ data: { incidents: [REGISTER_ROW] } });
+    const before = await fetchIncidentRegister();
+    expect(before.ok && before.data[0]!.affectedCount).toBeNull();
+    reply({ data: { incidents: [{ ...REGISTER_ROW, affectedCount: -1 }] } });
+    expect((await fetchIncidentRegister()).ok).toBe(false);
+  });
+
   test("an incident without its internal target, or with a class it doesn't know, is not shown half-read", async () => {
     reply({ data: { incidents: [{ ...REGISTER_ROW, targetNotifyBy: undefined }] } });
     expect((await fetchIncidentRegister()).ok).toBe(false);
@@ -112,14 +125,21 @@ describe("the incidents page", () => {
   });
 
   test("Send report sends exactly the fixed fields: codes, counts and a date", async () => {
-    reply({ data: { status: "sent", report: 1, auditRecorded: true } });
+    reply({
+      data: { status: "sent", report: 1, steps: 1, recommendations: 1, auditRecorded: true },
+    });
     const result = await sendIncidentReport(CLINIC, INCIDENT, {
       event: "misdirected_email",
       occurredOn: "2026-10-04",
       info: [{ type: "phone_number", count: 3 }],
       mitigations: ["fault_fixed"],
+      steps: ["unexpected_contact"],
+      recommendations: ["assess_notice_duty"],
     });
-    expect(result).toEqual({ ok: true, data: { status: "sent", report: 1, auditRecorded: true } });
+    expect(result).toEqual({
+      ok: true,
+      data: { status: "sent", report: 1, steps: 1, recommendations: 1, auditRecorded: true },
+    });
     expect(sent).toEqual([
       {
         op: "sendIncidentReport",
@@ -130,9 +150,36 @@ describe("the incidents page", () => {
           occurredOn: "2026-10-04",
           info: [{ type: "phone_number", count: 3 }],
           mitigations: ["fault_fixed"],
+          steps: ["unexpected_contact"],
+          recommendations: ["assess_notice_duty"],
         },
       },
     ]);
+  });
+
+  test("an apps/app that predates the steps answers without their counts, read as unknown", async () => {
+    reply({ data: { status: "sent", report: 2, auditRecorded: true } });
+    const result = await sendIncidentReport(CLINIC, INCIDENT, {
+      event: "other",
+      info: [],
+      mitigations: [],
+      steps: ["tell_practice"],
+      recommendations: [],
+    });
+    expect(result).toEqual({
+      ok: true,
+      data: { status: "sent", report: 2, steps: null, recommendations: null, auditRecorded: true },
+    });
+    // A step off the list never leaves the console.
+    const offList = await sendIncidentReport(CLINIC, INCIDENT, {
+      event: "other",
+      info: [],
+      mitigations: [],
+      steps: ["call Jane back" as never],
+      recommendations: [],
+    });
+    expect(offList.ok).toBe(false);
+    expect(sent).toHaveLength(1);
   });
 
   test("a code off the catalog's lists, or a stray field, never leaves the console", async () => {
@@ -140,12 +187,16 @@ describe("the incidents page", () => {
       event: "the caller's name leaked" as never,
       info: [],
       mitigations: [],
+      steps: [],
+      recommendations: [],
     });
     expect(offList.ok).toBe(false);
     const withWords = await sendIncidentReport(CLINIC, INCIDENT, {
       event: "other",
       info: [],
       mitigations: ["we called Jane" as never],
+      steps: [],
+      recommendations: [],
     });
     expect(withWords.ok).toBe(false);
     expect(sent).toEqual([]);
@@ -156,6 +207,8 @@ describe("the incidents page", () => {
       event: "other",
       info: [{ type: "first_name", count: 1, value: "Jane" } as never],
       mitigations: [],
+      steps: [],
+      recommendations: [],
     });
     expect(sent[0]!.args.info).toEqual([{ type: "first_name", count: 1 }]);
     expect(JSON.stringify(sent)).not.toContain("Jane");
@@ -334,8 +387,49 @@ describe("the notices", () => {
     });
     expect(read.ok && read.data.notices[0]!.state).toBe("dead");
     expect(read.ok && read.data.openClaims[0]!.findingByOn).toBe("2026-11-26");
+    // That reply is an older apps/app's: it has no re-sign switch, read as none.
+    expect(read.ok && read.data.baaVersionResigns).toBeNull();
+
+    reply({
+      data: {
+        broadcasts: [],
+        notices: [],
+        openClaims: [],
+        baaVersionResigns: { ready: false, waiting: "Waits for the calendar fix." },
+      },
+    });
+    const off = await fetchOperatorNotices();
+    expect(off.ok && off.data.baaVersionResigns).toEqual({
+      ready: false,
+      waiting: "Waits for the calendar fix.",
+    });
 
     reply({ data: { broadcasts: [], notices: [{ state: "lost" }], openClaims: [] } });
     expect((await fetchOperatorNotices()).ok).toBe(false);
+  });
+
+  test("the re-sign broadcast sends nothing but its name, and reads its counts or its refusal", async () => {
+    const started = {
+      status: "started",
+      version: "1.6.0",
+      opened: 2,
+      emailed: 2,
+      alreadyOpen: 0,
+      failed: 0,
+      auditRecorded: true,
+    };
+    reply({ data: started });
+    expect(await startBaaVersionResigns()).toEqual({ ok: true, data: started });
+    expect(sent).toEqual([{ op: "startBaaVersionResigns", args: {} }]);
+
+    reply({ data: { status: "refused", message: "Version 1.6.0 isn't released for signing in the database yet." } });
+    expect(await startBaaVersionResigns()).toEqual({
+      ok: true,
+      data: { status: "refused", message: "Version 1.6.0 isn't released for signing in the database yet." },
+    });
+
+    // A count that is not one is a reply the console does not half-read.
+    reply({ data: { ...started, opened: "two" } });
+    expect((await startBaaVersionResigns()).ok).toBe(false);
   });
 });

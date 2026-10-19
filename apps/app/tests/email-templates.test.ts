@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { annualTotalUsd, getPlan, SENDER_IDENTITY } from "@healdesk/catalog";
+import { annualTotalUsd, CURRENT_BAA_VERSION, getPlan, SENDER_IDENTITY } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { DIRECT_KIND_REGISTRY, DIRECT_KINDS, LEDGER_DIRECT_KINDS } from "@/lib/email/direct-kinds";
@@ -470,6 +470,69 @@ describe("L22, sign your updated agreement", () => {
     expect(day7.text).toContain("still waiting to be signed, 7 days after we sent it");
     expect(day7.text).toContain("not sure whether Radiance Med Spa bills any health insurance");
     expect(copyProblems([day7.subject, day7.text].join("\n"))).toEqual([]);
+  });
+});
+
+describe("L22 for a newer business associate agreement (wave 2 R11)", () => {
+  const render = (
+    over: Partial<typeof AGREEMENT_TO_SIGN_ENTRY.fixture>,
+    audience: EmailAudience = "patients",
+  ) =>
+    AGREEMENT_TO_SIGN_ENTRY.render(
+      {
+        ...AGREEMENT_TO_SIGN_ENTRY.fixture,
+        kind: "baa_version",
+        version: "1.5.0",
+        isRequired: false,
+        ...over,
+      },
+      contextFor("agreement_to_sign", audience),
+    );
+
+  test("answering below the floor, a reminder, and a practice not answering yet: the snapshots", () => {
+    expect(render({ isRequired: true })).toMatchSnapshot();
+    expect(render({ waitingDays: 3 })).toMatchSnapshot();
+    expect(render({ channels: [], directLineE164: null, isRequired: true })).toMatchSnapshot();
+  });
+
+  test("names both versions, and says AYA keeps answering while it's unsigned, below the floor or not", () => {
+    // A BAA-version re-sign never pauses AYA (owner, 19 October 2026).
+    for (const isRequired of [true, false]) {
+      const email = render({ isRequired });
+      expect(email.text).toContain(
+        `version ${CURRENT_BAA_VERSION}, in place of version 1.5.0, which you signed`,
+      );
+      expect(email.text).toContain("An agreement only changes when you sign it");
+      expect(email.text).toContain("AYA keeps answering while you read it and sign it.");
+      expect(email.text).not.toContain("paused");
+      expect(email.text).not.toContain("answers again");
+      expect(email.text).not.toContain("direct line");
+      expect(email.preheader).toBe("AYA keeps answering while you sign it.");
+      // Never the DPA's words about insurance.
+      expect(email.text).not.toContain("insurance");
+      expect(email.text).not.toContain("data protection agreement");
+      expect(copyProblems([email.subject, email.text].join("\n"))).toEqual([]);
+      expect(linkProblems(email, "agreement_to_sign")).toEqual([]);
+    }
+  });
+
+  test("before anything answers, it says whether go-live waits on the signature", () => {
+    const waits = render({ channels: [], directLineE164: null, isRequired: true }, "clients");
+    expect(waits.text).toContain("AYA starts answering your clients only once it's signed.");
+    const free = render({ channels: [], directLineE164: null });
+    expect(free.text).toContain("Nothing else in your setup waits on it.");
+    expect(free.preheader).toBe(`Version ${CURRENT_BAA_VERSION} of your agreement, to sign.`);
+  });
+
+  test("its payload passes the allowlist, and one naming no version is refused", () => {
+    const payload = {
+      ...AGREEMENT_TO_SIGN_ENTRY.fixture,
+      kind: "baa_version" as const,
+      version: "1.5.0",
+      isRequired: true,
+    };
+    expect(() => assertPayloadAllowed(payload, "agreement_to_sign")).not.toThrow();
+    expect(() => render({ version: undefined })).toThrow(/names the version it replaces/);
   });
 });
 

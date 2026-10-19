@@ -3,12 +3,12 @@ import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
-  agreementResigns,
   channelEvents,
   clinicChannels,
   clinics,
   clinicSettings,
 } from "@/db/schema";
+import { openResignHoldsPause } from "@/lib/agreements/resign-pause";
 import type { ActorContext } from "@/lib/audit";
 import {
   getClinicSettings,
@@ -309,21 +309,19 @@ async function queuePauseEmails(
 // -----------------------------------------------------------------------------
 
 /**
- * While a practice owes its updated agreement (lib/agreements/resign.ts), AYA
- * stays paused and the header cannot move the pause: turning her back on,
- * or choosing a pause that ends by itself, would have her answer a covered
- * practice's patients with no business associate agreement in force, and
- * would make L22's "AYA is paused until it's signed" untrue. Signing it lifts
- * the pause. The console (lib/ops/billing.ts) can still move it: an
- * operator's override, never the header's.
+ * While a practice owes its business associate agreement in place of a DPA
+ * (lib/agreements/resign.ts; the rule is openResignHoldsPause's, read across
+ * the organisation, so a location's header holds to its account's re-sign),
+ * the header cannot move the pause: turning her back on, or choosing a pause
+ * that ends by itself, would have her answer a covered practice's patients
+ * with no business associate agreement in force, and would make L22's "AYA
+ * is paused until it's signed" untrue. Signing it lifts the pause. A re-sign
+ * of a newer BAA over an older one never pauses AYA (owner, 19 October
+ * 2026), and the header works as always. The console (lib/ops/billing.ts)
+ * can still move it: an operator's override, never the header's.
  */
 async function refuseWhileAgreementToSign(tx: TenantTx): Promise<void> {
-  const [open] = await tx.db
-    .select({ id: agreementResigns.id })
-    .from(agreementResigns)
-    .where(and(eq(agreementResigns.clinicId, tx.clinicId), eq(agreementResigns.status, "open")))
-    .limit(1);
-  if (open) {
+  if (await openResignHoldsPause(tx)) {
     throw new PauseError(
       "AYA stays paused until your updated agreement is signed. Sign it in Billing, under Your agreement.",
     );

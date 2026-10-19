@@ -5,6 +5,8 @@ import {
   GUARANTEE_FAILURES,
   INCIDENT_INFORMATION_TYPES,
   INCIDENT_MITIGATIONS,
+  INCIDENT_PATIENT_STEPS,
+  INCIDENT_RECOMMENDATIONS,
   INCIDENT_REPORT_EVENTS,
   PHI_SUBCONTRACTORS,
   PRODUCT_UPDATES,
@@ -117,6 +119,60 @@ describe("the incident report (L29)", () => {
     expect(breach).toContain("separately, by secure transfer");
     const incident = all(renderIncidentReport({ ...base, kind: "security_incident" }, CTX));
     expect(incident).not.toContain("secure transfer");
+  });
+
+  test("a breach's report since the incident's page points there for the list, behind the passkey, and names no one", () => {
+    const listUrl = `${ORIGIN}/c/radiance/incidents/5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a`;
+    const email = renderIncidentReport({ ...base, listUrl }, CTX);
+    const text = all(email);
+    expect(text).toContain("This email names no one.");
+    expect(text).toContain(
+      "The identification of each patient affected is on this incident's page in healdesk, behind your passkey",
+    );
+    expect(text).toContain("it's never emailed");
+    expect(text).toContain(`See who was affected: ${listUrl}`);
+    expect(text).not.toContain("secure transfer");
+    expect(linkProblems(email, "incident_report")).toEqual([]);
+    expect(() => assertPayloadAllowed({ ...base, listUrl }, "incident_report")).not.toThrow();
+    // A vet's clients, in its own word; and no other class carries the link.
+    expect(all(renderIncidentReport({ ...base, listUrl }, { ...CTX, audience: "clients" }))).toContain(
+      "each client affected",
+    );
+    expect(all(renderIncidentReport({ ...base, kind: "security_incident", listUrl }, CTX))).not.toContain(
+      "See who was affected",
+    );
+    expect(email).toMatchSnapshot();
+  });
+
+  test("gives, in writing, what the people affected can do and what we recommend, each from its fixed list", () => {
+    const text = all(renderIncidentReport(base, CTX));
+    expect(text).toContain("What the patients affected can do:");
+    expect(text).toContain(INCIDENT_PATIENT_STEPS.unexpected_contact);
+    expect(text).toContain("What we recommend you do:");
+    expect(text).toContain(INCIDENT_RECOMMENDATIONS.assess_notice_duty);
+    expect(all(renderIncidentReport(base, { ...CTX, audience: "clients" }))).toContain(
+      "What the clients affected can do:",
+    );
+    // A breach's report with none yet says they follow; a report queued before the lists
+    // (no stepRows at all) reads the same, and another class says nothing of them.
+    const { stepRows: _s, recommendationRows: _r, ...older } = base;
+    for (const payload of [{ ...base, stepRows: [], recommendationRows: [] }, older]) {
+      const breach = all(renderIncidentReport(payload, CTX));
+      expect(breach).toContain(
+        "We'll tell you in an update what the patients affected can do to protect themselves.",
+      );
+      expect(breach).not.toContain("What we recommend you do:");
+    }
+    expect(
+      all(renderIncidentReport({ ...older, kind: "security_incident" }, CTX)),
+    ).not.toContain("can do");
+    // Only the lists' own codes render.
+    expect(() =>
+      renderIncidentReport({ ...base, stepRows: [{ code: "call Jane" as never }] }, CTX),
+    ).toThrow(EmailCompositionError);
+    expect(() =>
+      renderIncidentReport({ ...base, recommendationRows: [{ code: "x" as never }] }, CTX),
+    ).toThrow(EmailCompositionError);
   });
 
   test("states no deadline, so no reporting promise of 24 hours or five days can reach a practice", () => {

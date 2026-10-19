@@ -829,6 +829,18 @@ recorded by CloudTrail. So on the AWS host: by contact id, through run-task.sh o
 - `ops:amend-record`, and a correction with new values, do not run on AWS: the words
   and the details are patient data. They wait for the M5 portal, which takes them from
   the practice behind step-up.
+- `ops:incident-affected` records who an incident affected, for the practice to read on
+  the incident's page in its portal behind its passkey step-up (L29: the list is never
+  emailed; `docs/incident-response.md`, step 5). Ids only, so it runs the same way
+  everywhere: `HEALDESK_INCIDENT_CLINIC_ID`, `HEALDESK_INCIDENT_ID`,
+  `HEALDESK_INCIDENT_CONTACT_IDS` (comma-separated, at most 1,000 a run), optionally
+  `HEALDESK_INCIDENT_ACTION=remove` for a contact named in error, and
+  `HEALDESK_OPS_OPERATOR`. On the AWS host it is the one-off task `incident-affected`
+  (`ops_script["incident-affected"]` in `infra/aws/ecs.tf`: the runtime `DATABASE_URL` as
+  its only secret, no task role), run with
+  `bash infra/aws/scripts/run-task.sh incident-affected <clinic id> <incident id> <contact ids> <you@healdesk.io> [add|remove]`,
+  at most 150 contacts a run there, because ECS takes 8,192 characters of overrides; run
+  it again for the rest. It needs an infra apply before the first deploy that registers it.
 
 **Open items.** run-task.sh runs `erase-person` and `amend-contact` as one-off tasks.
 The operator needs a contact's id without the person's details crossing any channel,

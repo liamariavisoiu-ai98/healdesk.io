@@ -14,6 +14,7 @@ import {
   websiteChanges,
   type SiteReread,
 } from "@/db/schema";
+import { flagInsuranceMismatch } from "@/lib/agreements/misclassification";
 import type { ActorContext } from "@/lib/audit";
 import { describeError, log } from "@/lib/log";
 import { enqueuePlanNotice } from "@/lib/notices/plan-notices";
@@ -348,6 +349,29 @@ export async function recordSiteReread(
     isSpecialtyId(clinic.specialty) ? clinic.specialty : null,
   );
   const baseline = clinic.siteProfile;
+
+  // Every read of the website asks the misclassification question of what it
+  // found (plan Part L; lib/agreements/misclassification.ts): a practice
+  // under the DPA that answered "No" whose site says it accepts insurance
+  // goes to ops' review queue, whether or not this read becomes the baseline.
+  const flagged = await flagInsuranceMismatch(tx, now, profile);
+
+  // The misclassification check reads for that alone: it leaves the
+  // baseline, the drift list and the clinic's email as they are.
+  if (
+    reread.reason === "insurance" &&
+    baseline !== null &&
+    cleanWebsite(baseline.website) === reread.website
+  ) {
+    await finish(tx, reread.id, { status: "read", failure: null, changes: 0 }, now);
+    tx.audit.record({
+      action: "update",
+      resourceType: "site_reread",
+      resourceId: reread.id,
+      metadata: { reason: reread.reason, status: "read", baseline: "kept", flagged },
+    });
+    return { status: "read", changes: 0, refilled: [], emailed: false };
+  }
   // The baseline is the purchase read of this website. With none, or one of
   // another website, this read takes its place; a drift read keeps it.
   const adopt =
@@ -395,6 +419,7 @@ export async function recordSiteReread(
       baseline: adopt ? "replaced" : "kept",
       changes: raised.length,
       refilled,
+      flagged,
     },
   });
   return { status: "read", changes: raised.length, refilled, emailed };
@@ -880,7 +905,7 @@ const ADOPT_TRIES = 3;
 export async function siteRereadOwed(
   tx: TenantTx,
   input: { now: Date; drift: boolean },
-): Promise<{ reason: "missing" | "corrected" | "drift"; website: string } | null> {
+): Promise<{ reason: "missing" | "corrected" | "drift" | "insurance"; website: string } | null> {
   const clinic = await clinicFacts(tx);
   if (!clinic || clinic.offboarding) return null;
   const website = cleanWebsite(clinic.website);
@@ -905,6 +930,19 @@ export async function siteRereadOwed(
     return { reason: baseline ? "corrected" : "missing", website };
   }
 
+  // The misclassification check (plan Part L): a practice under the DPA that
+  // answered "No" whose baseline says nothing about insurance, which a
+  // demo's read never does, is read once more for that alone, unless a read
+  // of this website has come back since, which asked it already. Behind
+  // `site-reads` like the reads above, not behind the drift switch: until it
+  // goes live a practice gets no drift check at all.
+  if (baseline.acceptsInsurance === "unknown" && (await answeredNo(tx))) {
+    const asked = reads.some(
+      (r) => r.website === website && (r.reason === "insurance" || r.status === "read"),
+    );
+    if (!asked) return { reason: "insurance", website };
+  }
+
   if (!input.drift || !clinic.live) return null;
   const checks = reads
     .filter((r) => r.reason === "drift" || r.reason === "ops")
@@ -912,6 +950,20 @@ export async function siteRereadOwed(
   const last = Math.max(Date.parse(baseline.readAt), ...checks);
   if (input.now.getTime() - last < DRIFT_INTERVAL_DAYS * DAY_MS) return null;
   return { reason: "drift", website };
+}
+
+/** Whether the clinic is a practice under the DPA that answered "No": the signal's own facts, but the site's. */
+async function answeredNo(tx: TenantTx): Promise<boolean> {
+  const [row] = await tx.db
+    .select({
+      regime: clinics.regulatoryRegime,
+      kind: clinics.agreementKind,
+      covered: clinics.isCoveredEntity,
+    })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  return row?.regime === "hipaa-if-covered" && row.kind === "dpa" && row.covered === false;
 }
 
 /** The drift list for the Knowledge screen, in its own tenant transaction. */

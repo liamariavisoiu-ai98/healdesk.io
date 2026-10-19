@@ -1,13 +1,19 @@
 import {
   INCIDENT_INFORMATION_TYPES,
   INCIDENT_MITIGATIONS,
+  INCIDENT_PATIENT_STEPS,
+  INCIDENT_RECOMMENDATIONS,
   INCIDENT_REPORT_EVENTS,
   isIncidentInformationType,
   isIncidentMitigation,
+  isIncidentPatientStep,
+  isIncidentRecommendation,
   isIncidentReportEvent,
   SENDER_IDENTITY,
   type IncidentInformationType,
   type IncidentMitigation,
+  type IncidentPatientStep,
+  type IncidentRecommendation,
   type IncidentReportEvent,
 } from "@healdesk/catalog";
 
@@ -32,12 +38,20 @@ import type { EmailTemplate } from "./types";
  *     event (or that it is not yet known) and of its discovery;
  *   - the types of information involved, each with a count;
  *   - what was done about it, from a closed list;
+ *   - what the people affected can do to protect themselves, and what
+ *     healdesk recommends the practice do, each from a closed list
+ *     (`stepRows`, `recommendationRows`, wave 2 R11): the Reporting clause
+ *     asks a breach report for the first, and the Notices clause makes the
+ *     written notice the notice, so neither goes by phone alone;
  *   - a contact: a reply to this email reaches healdesk's notice address.
  *
  * The identification of each person affected is never emailed (X5): Resend
  * carries this email and signs no business associate agreement. A breach
- * report says that list comes separately, by secure transfer, as the
- * agreement provides. Nor does the email state any deadline: the
+ * report points to the incident's page in the portal instead (`listUrl`,
+ * wave 2 R11), where the practice reads the list behind its passkey step-up
+ * (lib/portal/incidents.ts): the secure transfer the agreement's Safeguards
+ * clause provides. A report queued before that page existed carries no
+ * link and says the list comes by secure transfer, as it did. Nor does the email state any deadline: the
  * agreements' is "without unreasonable delay and in no case later than 60
  * calendar days", and healdesk's own 24-hour target is internal (owner,
  * 12 October 2026). A report is as complete as healdesk can make it when it
@@ -58,8 +72,18 @@ export type IncidentReportPayload = {
   infoRows: readonly { type: IncidentInformationType; count: number }[];
   /** What was done, from INCIDENT_MITIGATIONS. Empty while nothing is yet. */
   mitigationRows: readonly { code: IncidentMitigation }[];
+  /** What the people affected can do, from INCIDENT_PATIENT_STEPS. Absent on a report queued before the list. */
+  stepRows?: readonly { code: IncidentPatientStep }[];
+  /** What healdesk recommends the practice do, from INCIDENT_RECOMMENDATIONS. Absent likewise. */
+  recommendationRows?: readonly { code: IncidentRecommendation }[];
   /** An update to an earlier report about the same incident. */
   isUpdate: boolean;
+  /**
+   * A breach's: the incident's page in the portal, where the list of who it
+   * affected is read behind the passkey step-up. publicUrl of
+   * /c/<slug>/incidents/<id>; absent on a report queued before the page.
+   */
+  listUrl?: string;
 };
 
 const WHAT: Record<ReportableClass, { subject: string; noun: string }> = {
@@ -96,7 +120,20 @@ export const renderIncidentReport: EmailTemplate<IncidentReportPayload> = (paylo
     }
     return INCIDENT_MITIGATIONS[row.code];
   });
+  const steps = (payload.stepRows ?? []).map((row) => {
+    if (!isIncidentPatientStep(row.code)) {
+      throw new EmailCompositionError(`Unknown step "${String(row.code)}".`);
+    }
+    return INCIDENT_PATIENT_STEPS[row.code];
+  });
+  const advice = (payload.recommendationRows ?? []).map((row) => {
+    if (!isIncidentRecommendation(row.code)) {
+      throw new EmailCompositionError(`Unknown recommendation "${String(row.code)}".`);
+    }
+    return INCIDENT_RECOMMENDATIONS[row.code];
+  });
   const clinic = ctx.clinicName ?? "your practice";
+  const people = ctx.audience === "clients" ? "clients" : "patients";
 
   const blocks: Block[] = [
     {
@@ -140,14 +177,41 @@ export const renderIncidentReport: EmailTemplate<IncidentReportPayload> = (paylo
             text: "We'll tell you what we've done about it in an update.",
           },
         ] as const)),
-    ...(payload.kind === "breach"
+    ...(steps.length > 0
+      ? ([
+          { type: "paragraph", text: `What the ${people} affected can do:` },
+          { type: "list", items: steps },
+        ] as const)
+      : payload.kind === "breach"
+        ? ([
+            {
+              type: "paragraph",
+              text: `We'll tell you in an update what the ${people} affected can do to protect themselves.`,
+            },
+          ] as const)
+        : []),
+    ...(advice.length > 0
+      ? ([
+          { type: "paragraph", text: "What we recommend you do:" },
+          { type: "list", items: advice },
+        ] as const)
+      : []),
+    ...(payload.kind === "breach" && payload.listUrl
       ? ([
           {
             type: "paragraph",
-            text: "This email names no one. We'll give you the identification of each person affected separately, by secure transfer, as your agreement provides, along with anything else you need for notices of your own.",
+            text: `This email names no one. The identification of each ${ctx.audience === "clients" ? "client" : "patient"} affected is on this incident's page in healdesk, behind your passkey, as your agreement provides: it's never emailed. We'll tell you in an update if it isn't complete yet.`,
           },
+          { type: "action", label: "See who was affected", url: payload.listUrl },
         ] as const)
-      : []),
+      : payload.kind === "breach"
+        ? ([
+            {
+              type: "paragraph",
+              text: "This email names no one. We'll give you the identification of each person affected separately, by secure transfer, as your agreement provides, along with anything else you need for notices of your own.",
+            },
+          ] as const)
+        : []),
     {
       type: "paragraph",
       text: "This report is as complete as we can make it today, and we'll add to it as we learn more.",
@@ -183,6 +247,9 @@ export const INCIDENT_REPORT_ENTRY: TemplateEntry<IncidentReportPayload> = {
       { type: "conversation_transcript", count: 1 },
     ],
     mitigationRows: [{ code: "recipient_confirmed_deletion" }, { code: "fault_fixed" }],
+    stepRows: [{ code: "unexpected_contact" }, { code: "confirm_details_requests" }],
+    recommendationRows: [{ code: "assess_notice_duty" }, { code: "brief_front_desk" }],
     isUpdate: false,
   },
 };
+

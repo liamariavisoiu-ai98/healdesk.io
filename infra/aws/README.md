@@ -703,6 +703,7 @@ bash run-task.sh patient-export CLINIC_ID CONTACT_ID WHO_ASKED   # one person's 
 bash run-task.sh erase-person CLINIC_ID CONTACT_ID WHO_ASKED you@healdesk.io   # [RECEIVED_AT]
 bash run-task.sh amend-contact CLINIC_ID CONTACT_ID FIELDS_TO_CLEAR WHO_ASKED you@healdesk.io
 bash run-task.sh patient-request CLINIC_ID KIND you@healdesk.io   # [RECEIVED_AT] [CONTACT_ID]
+bash run-task.sh incident-affected CLINIC_ID INCIDENT_ID CONTACT_IDS you@healdesk.io   # [add|remove]
 bash run-task.sh demo-clinic "Fictional Practice" "Your Name" you@healdesk.io   # once, ever
 bash run-task.sh channels-link CLINIC_ID   # [meta|whatsapp] [days, 1 to 30]
 ```
@@ -765,6 +766,14 @@ a contact's id, nothing of the patient's. It has the runtime role's `DATABASE_UR
 `BETTER_AUTH_URL` for the link its email (L32) carries, and no task role. Its result (the
 request's id, the day the practice is asked to mark it received by, and what is left to do by
 hand) is in the task's log stream.
+`incident-affected` records who an incident affected, for the practice to read on the incident's
+page in its portal behind its passkey step-up; the list is never emailed (L29;
+`apps/app/scripts/ops-incident-affected.ts`; `docs/incident-response.md`, step 5). `run-task.sh`
+passes the clinic's and the incident's ids (`/admin/incidents` shows the incident's), the
+contacts' ids comma-separated, at most 150 a run because ECS takes 8,192 characters of overrides,
+the operator's work address, and `add` or, for a contact named in error, `remove`: ids only. It has
+the runtime role's `DATABASE_URL` and no task role, and sends nothing. Its result (how many were
+added or removed and how many are on the list now) is in the task's log stream.
 `reapply-erasures` takes no arguments: after a restore it deletes again every person whose
 deletion the restored database still remembers (`docs/handover.md`, "Restoring", step 5), with the
 runtime URL and `HEALDESK_IDENTIFIER_REF_KEY`, and exits 1 if any clinic could not be done.

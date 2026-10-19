@@ -1,3 +1,4 @@
+import { startBaaVersionResigns, type BaaVersionResignSummary } from "@/lib/agreements/baa-version";
 import { assertNoPhi, PhiInAuditError } from "@/lib/audit";
 import {
   broadcastProductUpdate,
@@ -70,7 +71,15 @@ export async function opListIncidentRegister(operator: Operator): Promise<OpsOut
 }
 
 export type SendIncidentReportOutcome =
-  { status: "sent"; report: number; auditRecorded: boolean } | Refused;
+  | {
+      status: "sent";
+      report: number;
+      /** What the console sent of the two lists, so it can tell an older apps/app that dropped them. */
+      steps: number;
+      recommendations: number;
+      auditRecorded: boolean;
+    }
+  | Refused;
 
 export async function opSendIncidentReport(
   args: Record<string, unknown>,
@@ -88,6 +97,8 @@ export async function opSendIncidentReport(
       occurredOn: args.occurredOn,
       info: args.info,
       mitigations: args.mitigations,
+      steps: args.steps,
+      recommendations: args.recommendations,
     },
     { actorLabel: operator.email },
   );
@@ -100,6 +111,8 @@ export async function opSendIncidentReport(
   return ok({
     status: "sent",
     report: result.report,
+    steps: result.steps,
+    recommendations: result.recommendations,
     auditRecorded,
   } satisfies SendIncidentReportOutcome);
 }
@@ -187,6 +200,26 @@ export async function opSendProductUpdate(
   const code = stringArg(args, "code", 64);
   const result = await broadcastProductUpdate({ code, actorLabel: operator.email });
   return broadcastOutcome(operator, "product_update_sent", result, { code });
+}
+
+// -----------------------------------------------------------------------------
+// L22 for every account on an older BAA (wave 2 R11)
+// -----------------------------------------------------------------------------
+
+export type BaaVersionResignOutcome = (BaaVersionResignSummary & { auditRecorded: boolean }) | Refused;
+
+export async function opStartBaaVersionResigns(operator: Operator): Promise<OpsOutcome> {
+  const result = await startBaaVersionResigns({ actorLabel: operator.email });
+  if (result.status !== "started") return ok(result);
+  // Counts only: the guard reads a version such as "1.6.0" beside a date as
+  // a number it must refuse, and the re-signs' own rows name the versions.
+  const auditRecorded = await audit(operator, "baa_version_resigns_started", {
+    opened: result.opened,
+    emailed: result.emailed,
+    alreadyOpen: result.alreadyOpen,
+    failed: result.failed,
+  });
+  return ok({ ...result, auditRecorded } satisfies BaaVersionResignOutcome);
 }
 
 // -----------------------------------------------------------------------------

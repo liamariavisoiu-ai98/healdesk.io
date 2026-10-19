@@ -987,7 +987,9 @@ export const contacts = pgTable(
       .where(sql`${t.externalContactId} is not null`),
     // The key a patient's request names its contact by, with the clinic
     // (patient_requests_contact_fk, drizzle/0094), so a request can only name
-    // a contact of its own clinic. id is unique already.
+    // a contact of its own clinic, and the list of people a breach affected
+    // names its contact by (incident_affected_contacts, drizzle/0098). id is
+    // unique already.
     unique("contacts_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
@@ -1685,6 +1687,14 @@ export const incidents = pgTable(
      */
     reportedAt: timestamp("reported_at", { withTimezone: true }),
     reportsSent: integer("reports_sent").notNull().default(0),
+    /**
+     * How many people the operator recorded as affected (wave 2 R11;
+     * lib/incidents/affected.ts), written with each change to the list. A
+     * count, never who, kept on the incident because the list's rows go with
+     * their contacts (an erasure, the record clock), and the record of how
+     * many a breach reached must not fall with them.
+     */
+    affectedRecorded: integer("affected_recorded").notNull().default(0),
     notReportableAt: timestamp("not_reportable_at", { withTimezone: true }),
     /** Operator prose, PHI-scanned on the way in like the summary. */
     notReportableReason: text("not_reportable_reason"),
@@ -1707,8 +1717,65 @@ export const incidents = pgTable(
           and (${t.reportedAt} is null) = (${t.reportsSent} = 0)
           and ${t.reportsSent} >= 0`,
     ),
+    check("incidents_affected_recorded_check", sql`${t.affectedRecorded} >= 0`),
+    // The key the list of people a breach affected names its incident by,
+    // with the clinic (incident_affected_contacts). id is unique already.
+    unique("incidents_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
+
+/**
+ * Who an incident affected (plan Annex X5, L29: "The list of individuals is
+ * never emailed. It sits on a page behind step-up"): one row per contact the
+ * operator named, from the app's own shell, by ids only
+ * (`npm run ops:incident-affected -w @healdesk/app`; lib/incidents/affected.ts).
+ * The practice reads it on the incident's page, behind the passkey step-up,
+ * which writes an access row naming every contact shown
+ * (app/c/[slug]/incidents/[id]). That page is the secure transfer the
+ * agreements' Safeguards clause promises the list travels by.
+ *
+ * ⚠️ PHI by what it says: that this person's information was involved in a
+ * breach at this practice. So tenant RLS, FORCEd, and the BAA gate
+ * (drizzle/0098). It holds no name, no number, no address and nothing typed:
+ * the person is the contact it names, read from `contacts` when the page
+ * opens, and the contact's own clock, erasure and destruction govern them.
+ * Both keys are composite with the clinic, so a row can name only an
+ * incident and a contact of its own clinic, and both cascade: when the
+ * contact goes, the list keeps no trace of them.
+ */
+export const incidentAffectedContacts = pgTable(
+  "incident_affected_contacts",
+  {
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    incidentId: uuid("incident_id").notNull(),
+    contactId: uuid("contact_id").notNull(),
+    /** The operator at the shell: their healdesk address. */
+    recordedBy: text("recorded_by").notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.incidentId, t.contactId] }),
+    index("incident_affected_contacts_clinic_idx").on(t.clinicId, t.incidentId),
+    foreignKey({
+      name: "incident_affected_contacts_incident_fk",
+      columns: [t.clinicId, t.incidentId],
+      foreignColumns: [incidents.clinicId, incidents.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "incident_affected_contacts_contact_fk",
+      columns: [t.clinicId, t.contactId],
+      foreignColumns: [contacts.clinicId, contacts.id],
+    }).onDelete("cascade"),
+    check(
+      "incident_affected_contacts_recorded_by_check",
+      sql`char_length(btrim(${t.recordedBy})) between 1 and 320`,
+    ),
+  ],
+);
+
+export type IncidentAffectedContact = typeof incidentAffectedContacts.$inferSelect;
 
 /**
  * Human touches on an account: the day-7 call, the first-win call, a note.
@@ -4846,12 +4913,22 @@ export type SignInAddressChange = typeof signInAddressChanges.$inferSelect;
 // The DPA→BAA re-sign (package WP9, plan Part L, Annex X5 L22; drizzle/0088)
 // -----------------------------------------------------------------------------
 
-/** Why a practice under the Data Protection Agreement now needs the BAA: its answer. */
-export const AGREEMENT_RESIGN_REASONS = ["now_covered", "not_sure"] as const;
+/**
+ * Why a practice signs again: under the Data Protection Agreement, its answer
+ * (`now_covered`, `not_sure`), which stops the DPA covering it; or, under a
+ * Business Associate Agreement, a newer version of it (`baa_version`,
+ * drizzle/0098): the version in force is older than the current one.
+ */
+export const AGREEMENT_RESIGN_REASONS = ["now_covered", "not_sure", "baa_version"] as const;
 export type AgreementResignReason = (typeof AGREEMENT_RESIGN_REASONS)[number];
 
-/** Who recorded the answer: ops (setCoveredEntity), or the practice from Billing. */
-export const AGREEMENT_RESIGN_SOURCES = ["operator", "portal"] as const;
+/**
+ * Who opened it: ops (setCoveredEntity, or the broadcast that starts every
+ * practice on an older BAA re-signing), the practice from Billing, or the
+ * hourly job (`release`), when a release has left the BAA in force below the
+ * floor go-live accepts (app_baa_version_acceptable).
+ */
+export const AGREEMENT_RESIGN_SOURCES = ["operator", "portal", "release"] as const;
 export type AgreementResignSource = (typeof AGREEMENT_RESIGN_SOURCES)[number];
 
 /**
@@ -4879,6 +4956,13 @@ export type AgreementResignStatus = (typeof AGREEMENT_RESIGN_STATUSES)[number];
  * signed" is true whatever the answer gate reads, and so signing lifts only
  * that pause and never one the practice set itself.
  *
+ * Since drizzle/0098 a practice under an older version of the BAA re-signs
+ * the current one through the same row, link, screen and reminders
+ * (`baa_version`). That re-sign never pauses AYA (owner, 19 October 2026):
+ * the version signed governs until the newer one is, so its `paused_at` is
+ * always NULL (agreement_resigns_baa_version_unpaused_check), and 0088's
+ * guard still fixes `paused_at` once a row is written.
+ *
  * Contract metadata, never a patient: no BAA gate. Tenant RLS on the clinic
  * that recorded the answer; the hourly job walks open rows through a SECURITY
  * DEFINER function that answers ids only (0088). Destruction keeps it: it is
@@ -4891,7 +4975,10 @@ export const agreementResigns = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
-    /** The DPA in force when the re-sign began, which the BAA is to replace. */
+    /**
+     * The agreement in force when the re-sign began, which the BAA is to
+     * replace: the DPA, or for `baa_version` the older BAA.
+     */
     fromAgreementId: uuid("from_agreement_id")
       .notNull()
       .references(() => baaAcceptances.id),
@@ -4942,6 +5029,11 @@ export const agreementResigns = pgTable(
     check(
       "agreement_resigns_signed_check",
       sql`(${t.status} = 'signed') = (${t.signedAt} is not null and ${t.supersedingAgreementId} is not null)`,
+    ),
+    // A newer BAA over an older one never pauses AYA (owner, 19 October 2026).
+    check(
+      "agreement_resigns_baa_version_unpaused_check",
+      sql`${t.reason} <> 'baa_version' or ${t.pausedAt} is null`,
     ),
   ],
 );
@@ -6101,6 +6193,7 @@ export const TENANT_SCOPED_TABLES = [
   "handovers",
   "conversation_flags",
   "patient_requests",
+  "incident_affected_contacts",
 ] as const;
 
 // -----------------------------------------------------------------------------

@@ -212,6 +212,8 @@ describeDb("the operator's notices and the incidents page (WP7)", () => {
         { type: "phone_number", count: 2 },
       ],
       mitigations: ["recipient_confirmed_deletion", "fault_fixed"],
+      steps: ["unexpected_contact", "unexpected_contact"],
+      recommendations: ["assess_notice_duty"],
     };
 
     test("queues a critical report from the fixed fields only, records the decision and that the practice was told", async () => {
@@ -232,7 +234,13 @@ describeDb("the operator's notices and the incidents page (WP7)", () => {
           OPERATOR,
         ),
       );
-      expect(sent).toMatchObject({ status: "sent", report: 1, auditRecorded: true });
+      expect(sent).toMatchObject({
+        status: "sent",
+        report: 1,
+        steps: 1,
+        recommendations: 1,
+        auditRecorded: true,
+      });
 
       const [row] = await notices(c.clinicId, "incident_report");
       expect(row!.dedupe_key).toBe(`incident_report:${i.id}:1`);
@@ -246,7 +254,14 @@ describeDb("the operator's notices and the incidents page (WP7)", () => {
           { type: "phone_number", count: 2 },
         ],
         mitigationRows: [{ code: "recipient_confirmed_deletion" }, { code: "fault_fixed" }],
+        // What the people affected can do, and what we recommend, in the
+        // written report itself (BAA Reporting and Notices clauses; wave 2 R11).
+        stepRows: [{ code: "unexpected_contact" }],
+        recommendationRows: [{ code: "assess_notice_duty" }],
         isUpdate: false,
+        // A breach's report points to the incident's page, where the list of
+        // who it affected is read behind the passkey (wave 2 R11).
+        listUrl: `${ORIGIN}/c/${c.slug}/incidents/${i.id}`,
       });
       expect(JSON.stringify(row!.payload)).not.toMatch(/Jane|555/);
 
@@ -320,6 +335,10 @@ describeDb("the operator's notices and the incidents page (WP7)", () => {
         /after it was discovered/,
       );
       expect((await tryIt({ mitigations: ["we called Jane"] })).status).toBe("refused");
+      expect((await tryIt({ steps: ["call Jane back"] })).message).toMatch(
+        /what the people affected can do/,
+      );
+      expect((await tryIt({ recommendations: "notify_people" })).status).toBe("refused");
 
       const complaint = await open(c.clinicId, "service_complaint");
       const r = data<{ status: string; message: string }>(
@@ -337,6 +356,23 @@ describeDb("the operator's notices and the incidents page (WP7)", () => {
       );
       expect((await tryIt({})).message).toMatch(/resolved/);
       expect(await notices(c.clinicId, "incident_report")).toEqual([]);
+    });
+
+    test("a console that predates the steps sends none, and the report says they follow in an update", async () => {
+      const c = await seedClinic("report-older-console");
+      await bindAgreementInEffect(c.clinicId, "1.5.0");
+      const i = await open(c.clinicId, "breach", new Date("2026-10-05T12:00:00Z"));
+      const { steps: _s, recommendations: _r, ...older } = FIELDS;
+      const sent = data<{ status: string; steps: number; recommendations: number }>(
+        await runOperation(
+          "sendIncidentReport",
+          { clinicId: c.clinicId, incidentId: i.id, ...older },
+          OPERATOR,
+        ),
+      );
+      expect(sent).toMatchObject({ status: "sent", steps: 0, recommendations: 0 });
+      const [row] = await notices(c.clinicId, "incident_report");
+      expect(row!.payload).toMatchObject({ stepRows: [], recommendationRows: [] });
     });
 
     test("a practice with no address to send to is refused before anything is queued", async () => {

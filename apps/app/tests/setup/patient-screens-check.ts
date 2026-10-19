@@ -11,8 +11,9 @@ import ts from "typescript";
  * comment, an arrow function, a directive without a semicolon or a helper in
  * another file does not get past it.
  *
- * For every file under a `conversations/`, `bookings/` or `patient-requests/`
- * directory (the last, L32's page off Home, a patient's own request):
+ * For every file under a `conversations/`, `bookings/`, `patient-requests/`
+ * or `incidents/` directory (the third, L32's page off Home, a patient's own
+ * request; the last, the incident's list of who it affected, L29):
  *
  * 1. **Entry points take the step-up.** A page's default export, a route's
  *    exported handlers and every export of a "use server" file call
@@ -96,6 +97,7 @@ export const PATIENT_SCREEN_DIRS: ReadonlySet<string> = new Set([
   "conversations",
   "bookings",
   "patient-requests",
+  "incidents",
 ]);
 
 /** Every .ts and .tsx file under a PATIENT_SCREEN_DIRS directory below `dir`. */

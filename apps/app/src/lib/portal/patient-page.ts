@@ -132,6 +132,8 @@ export const PATIENT_RECORD_TYPES = [
   "patient_bundle",
   /** A patient's own request to healdesk, passed to the practice (L32): its page off Home. */
   "patient_request",
+  /** Who an incident affected, as the incident's page shows them (L29), named by their contact ids. */
+  "incident_affected",
 ] as const;
 export type PatientRecordType = (typeof PATIENT_RECORD_TYPES)[number];
 

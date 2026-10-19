@@ -23,10 +23,23 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  * open per clinic, a run of the practice questions never supersedes it, and
  * it has no day promised to the clinic, which never hears of it.
  *
- * Raised where the site profile is written: at provisioning, after the setup
- * seed (lib/provisioning.ts), and by any later re-read that replaces
- * clinics.site_profile (WP11's), which calls `flagInsuranceMismatch` too.
- * Business data only: the site's own claim and the practice's answer.
+ * Raised wherever the site is read: at provisioning, after the setup seed
+ * (lib/provisioning.ts), from the purchase's read; and by every later read of
+ * the website (lib/website/store.ts, wave 2 R11), from what that read found,
+ * whether it replaces clinics.site_profile (a missing or corrected website)
+ * or leaves the baseline standing (the monthly drift check, an operator's
+ * read). A practice under the DPA that answered "No" whose baseline says
+ * nothing about insurance is read once more for this alone (the `insurance`
+ * read, lib/website/types.ts): the demo's read, which stands in for a failed
+ * checkout read, keeps no insurance answer at all (apps/web
+ * lib/demo/to-clinic-profile.ts says "unknown" because the demo row has no
+ * such field, not to hide one), so without that read nothing would look.
+ *
+ * Once ops has decided a review `passed` (it asked, and the practice said it
+ * bills no insurance electronically), the same site saying the same thing
+ * does not open another: the answer stands until the practice changes it,
+ * which the DPA's status clause obliges it to tell healdesk of. Business data
+ * only: the site's own claim and the practice's answer.
  */
 
 /** Whether a clinic's facts are the signal's: a DPA "No" practice whose site takes insurance. */
@@ -45,13 +58,16 @@ export function insuranceMismatch(clinic: {
 }
 
 /**
- * Open the clinic's agreement-kind review if its facts are the signal's and
- * none is open. Inside the tenant, in the caller's transaction. Returns
- * whether it opened one.
+ * Open the clinic's agreement-kind review if its facts are the signal's, none
+ * is open, and none has been decided `passed`. `observed` is what a read of
+ * the website found, when it is not the baseline in clinics.site_profile (a
+ * drift read keeps the baseline); without it the baseline is read. Inside the
+ * tenant, in the caller's transaction. Returns whether it opened one.
  */
 export async function flagInsuranceMismatch(
   tx: TenantTx,
   now: Date = new Date(),
+  observed?: Pick<ClinicProfile, "acceptsInsurance"> | null,
 ): Promise<boolean> {
   const [clinic] = await tx.db
     .select({
@@ -63,7 +79,22 @@ export async function flagInsuranceMismatch(
     .from(clinics)
     .where(eq(clinics.id, tx.clinicId))
     .limit(1);
-  if (!clinic || !insuranceMismatch(clinic)) return false;
+  if (!clinic) return false;
+  const facts = observed === undefined ? clinic : { ...clinic, siteProfile: observed };
+  if (!insuranceMismatch(facts)) return false;
+  // The practice's answer to this same signal stands.
+  const [decided] = await tx.db
+    .select({ id: auditReviewQueue.id })
+    .from(auditReviewQueue)
+    .where(
+      and(
+        eq(auditReviewQueue.clinicId, tx.clinicId),
+        eq(auditReviewQueue.kind, "agreement_kind"),
+        eq(auditReviewQueue.status, "passed"),
+      ),
+    )
+    .limit(1);
+  if (decided) return false;
   const dueOn = replyByDay(now);
   const opened = await tx.db
     .insert(auditReviewQueue)

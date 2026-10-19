@@ -22,6 +22,7 @@ import {
   NO_PLATFORM_ID,
   prepareBaa,
   prepareDpa,
+  regimeFor,
   supportsVerifiedAttribution,
   templateReadsCalendarAccount,
   type AgreementKind,
@@ -184,6 +185,16 @@ export type SignableOptions = {
    * passes nothing, and nothing is the v1 answer, no.
    */
   phaseTwoAttribution?: boolean;
+  /**
+   * The signature re-accepts a business associate agreement already in
+   * force: apps/app's re-sign of a newer BAA version over an older one
+   * (lib/agreements/resign.ts, `baa_version`). It is the BAA whatever the
+   * covered-entity answer, because a BAA is never replaced by a DPA
+   * (app_supersede_agreement() refuses it), so a practice that answered "No"
+   * and signed the BAA keeps it once the DPA is released. A practice HIPAA
+   * does not reach still never signs one.
+   */
+  reacceptsBaa?: boolean;
 };
 
 /**
@@ -207,8 +218,17 @@ export type SignableOptions = {
  */
 export function agreementKindForRequest(
   request: { specialty?: unknown; isCoveredEntity?: unknown },
-  options: { dpaReleased?: boolean } = {},
+  options: { dpaReleased?: boolean; reacceptsBaa?: boolean } = {},
 ): AgreementKind {
+  if (options.reacceptsBaa) {
+    if (typeof request.specialty !== "string" || !isSpecialtyId(request.specialty)) {
+      throw new AgreementError("Unknown specialty.", "specialty");
+    }
+    if (regimeFor(request.specialty) === "non-hipaa") {
+      throw new AgreementError("A veterinary practice has no business associate agreement.", "specialty");
+    }
+    return "baa";
+  }
   const choice = agreementKindFor({
     specialty: typeof request.specialty === "string" ? request.specialty : "",
     covered: coveredAnswerOf(request.isCoveredEntity),

@@ -82,6 +82,8 @@ import {
   GUARANTEE_OUTCOMES,
   INCIDENT_INFORMATION_TYPES,
   INCIDENT_MITIGATIONS,
+  INCIDENT_PATIENT_STEPS,
+  INCIDENT_RECOMMENDATIONS,
   INCIDENT_REPORT_EVENTS,
   PHI_SUBCONTRACTORS,
   PRODUCT_UPDATES,
@@ -97,6 +99,8 @@ import {
   type GuaranteeOutcome,
   type IncidentInformationType,
   type IncidentMitigation,
+  type IncidentPatientStep,
+  type IncidentRecommendation,
   type IncidentReportEvent,
   type PhiSubcontractor,
   type ProductUpdateCode,
@@ -285,6 +289,10 @@ type OperatorOp =
   | "sendGuaranteeFinding"
   | "suspendForCause"
   | "getOperatorNotices"
+  // The re-sign of a newer business associate agreement (wave 2 R11): every
+  // account on an older version opens its re-sign and is sent L22. No
+  // argument; counts back.
+  | "startBaaVersionResigns"
   // The account (plan Part K, D5 and L): the clinic's address and each
   // change of it; changeClinicEmail, sent only after the operator's fresh
   // TOTP (lib/admin/fresh-code.ts), and an objection's stop; the
@@ -4389,6 +4397,12 @@ export type IncidentRegisterRow = {
   decidedBy: string | null;
   resolvedAt: string | null;
   openedBy: string;
+  /**
+   * How many people the incident's list names (wave 2 R11): a count, never
+   * who. Null from an apps/app that predates the list, which is read as
+   * "not known here", never as zero.
+   */
+  affectedCount: number | null;
 };
 
 function readIncidentRegisterRow(entry: unknown): IncidentRegisterRow {
@@ -4422,6 +4436,11 @@ function readIncidentRegisterRow(entry: unknown): IncidentRegisterRow {
     decidedBy: optionalText(i.decidedBy, "incidentRegister.decidedBy"),
     resolvedAt: optionalInstant(i.resolvedAt, "incidentRegister.resolvedAt")?.at ?? null,
     openedBy: text(i.openedBy, "incidentRegister.openedBy"),
+    // apps/web goes live before apps/app does: an older reply has no count.
+    affectedCount:
+      i.affectedCount === undefined || i.affectedCount === null
+        ? null
+        : count(i.affectedCount, "incidentRegister.affectedCount"),
   };
 }
 
@@ -4440,10 +4459,25 @@ export type IncidentReportFields = {
   occurredOn?: string;
   info: { type: IncidentInformationType; count: number }[];
   mitigations: IncidentMitigation[];
+  /** What the people affected can do (wave 2 R11): codes from INCIDENT_PATIENT_STEPS. */
+  steps: IncidentPatientStep[];
+  /** What we recommend the practice do: codes from INCIDENT_RECOMMENDATIONS. */
+  recommendations: IncidentRecommendation[];
 };
 
 export type IncidentReportOutcome =
-  | { status: "sent"; report: number; auditRecorded: boolean }
+  | {
+      status: "sent";
+      report: number;
+      /**
+       * How many steps and recommendations the queued report carries, or null
+       * from an apps/app that predates them: it ignores the two lists, so a
+       * report sent with some went without them, and the console says so.
+       */
+      steps: number | null;
+      recommendations: number | null;
+      auditRecorded: boolean;
+    }
   | { status: "refused"; message: string };
 
 /**
@@ -4472,6 +4506,13 @@ export function sendIncidentReport(
       mitigations: list(fields.mitigations, "sendIncidentReport.mitigations").map((code) =>
         literal(code, keysOf(INCIDENT_MITIGATIONS), "sendIncidentReport.mitigations"),
       ),
+      steps: list(fields.steps, "sendIncidentReport.steps").map((code) =>
+        literal(code, keysOf(INCIDENT_PATIENT_STEPS), "sendIncidentReport.steps"),
+      ),
+      recommendations: list(fields.recommendations, "sendIncidentReport.recommendations").map(
+        (code) =>
+          literal(code, keysOf(INCIDENT_RECOMMENDATIONS), "sendIncidentReport.recommendations"),
+      ),
     }),
     (args) =>
       callOps("sendIncidentReport", "write", args, (value) => {
@@ -4480,6 +4521,15 @@ export function sendIncidentReport(
         return {
           status: "sent" as const,
           report: count(data.report, "sendIncidentReport.report"),
+          // apps/app before its deploy answers without them.
+          steps:
+            data.steps === undefined || data.steps === null
+              ? null
+              : count(data.steps, "sendIncidentReport.steps"),
+          recommendations:
+            data.recommendations === undefined || data.recommendations === null
+              ? null
+              : count(data.recommendations, "sendIncidentReport.recommendations"),
           auditRecorded: bool(data.auditRecorded, "sendIncidentReport.auditRecorded"),
         };
       }),
@@ -4560,6 +4610,38 @@ export function sendSubprocessorNotice(input: { provider: PhiSubcontractor; star
     provider: literal(input.provider, keysOf(PHI_SUBCONTRACTORS), "sendSubprocessorNotice.provider"),
     startsAt: isoInstant(input.startsAt, "sendSubprocessorNotice.startsAt"),
   }));
+}
+
+/** What the re-sign broadcast did: counts, and the version every re-sign signs. */
+export type BaaVersionResignOutcome =
+  | {
+      status: "started";
+      version: string;
+      opened: number;
+      emailed: number;
+      alreadyOpen: number;
+      failed: number;
+      auditRecorded: boolean;
+    }
+  | { status: "refused"; message: string };
+
+/** L22 to every account on an older version of the BAA, opening each one's re-sign. */
+export function startBaaVersionResigns(): Promise<OpsResult<BaaVersionResignOutcome>> {
+  return callOps("startBaaVersionResigns", "write", {}, (value) => {
+    const data = object(value, "startBaaVersionResigns");
+    if (state(data, "startBaaVersionResigns") !== "started") {
+      return refusal(data, "startBaaVersionResigns");
+    }
+    return {
+      status: "started" as const,
+      version: text(data.version, "startBaaVersionResigns.version"),
+      opened: count(data.opened, "startBaaVersionResigns.opened"),
+      emailed: count(data.emailed, "startBaaVersionResigns.emailed"),
+      alreadyOpen: count(data.alreadyOpen, "startBaaVersionResigns.alreadyOpen"),
+      failed: count(data.failed, "startBaaVersionResigns.failed"),
+      auditRecorded: bool(data.auditRecorded, "startBaaVersionResigns.auditRecorded"),
+    };
+  });
 }
 
 /** L33: a product update, to every practice still with us. */
@@ -4685,6 +4767,13 @@ export type OperatorNoticesView = {
     claimReceivedOn: string;
     findingByOn: string;
   }[];
+  /**
+   * Whether "Start the re-signs" may run (apps/app lib/agreements/
+   * baa-version-ready.ts), and while not, the line shown beside it. Null from
+   * an apps/app that predates it, which has no such operation: the button is
+   * then disabled too.
+   */
+  baaVersionResigns: { ready: boolean; waiting: string | null } | null;
 };
 
 export function fetchOperatorNotices(): Promise<OpsResult<OperatorNoticesView>> {
@@ -4725,6 +4814,17 @@ export function fetchOperatorNotices(): Promise<OpsResult<OperatorNoticesView>> 
           findingByOn: date(c.findingByOn, "getOperatorNotices.openClaim.findingByOn"),
         };
       }),
+      // apps/web is live before apps/app: an older reply has no switch.
+      baaVersionResigns:
+        data.baaVersionResigns === undefined || data.baaVersionResigns === null
+          ? null
+          : (() => {
+              const r = object(data.baaVersionResigns, "getOperatorNotices.baaVersionResigns");
+              return {
+                ready: bool(r.ready, "getOperatorNotices.baaVersionResigns.ready"),
+                waiting: optionalText(r.waiting, "getOperatorNotices.baaVersionResigns.waiting"),
+              };
+            })(),
     };
   });
 }

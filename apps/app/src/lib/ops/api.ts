@@ -149,6 +149,7 @@ import {
   opSendGuaranteeFinding,
   opSendIncidentReport,
   opSendProductUpdate,
+  opStartBaaVersionResigns,
   opSendSubprocessorNotice,
   opSendTermsNotice,
   opSuspendForCause,
@@ -525,6 +526,10 @@ const OPERATIONS = [
   "sendGuaranteeFinding",
   "suspendForCause",
   "getOperatorNotices",
+  // The re-sign of a newer business associate agreement (wave 2 R11,
+  // lib/agreements/baa-version.ts): every account on an older version opens
+  // its re-sign and is sent L22. No argument; the answer is counts.
+  "startBaaVersionResigns",
   // The account (plan Part K, D5 and L; lib/ops/account-ops.ts): the
   // clinic's one address and each change of it, and changeClinicEmail, the
   // human route when a clinic lost the address itself, entered with the
@@ -688,6 +693,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "recordGuaranteeClaim",
   "sendGuaranteeFinding",
   "suspendForCause",
+  // Mutating: re-signs opened, AYA paused where the floor says, L22 sent.
+  "startBaaVersionResigns",
   // Mutating: an address change entered or stopped, a covered-entity answer recorded.
   "changeClinicEmail",
   "stopClinicEmailChange",
@@ -1277,6 +1284,8 @@ export async function runOperation(
       return opSuspendForCause(args, operator);
     case "getOperatorNotices":
       return opGetOperatorNotices(operator);
+    case "startBaaVersionResigns":
+      return opStartBaaVersionResigns(operator);
     case "getClinicSignIn":
       return opGetClinicSignIn(args, operator);
     case "changeClinicEmail":

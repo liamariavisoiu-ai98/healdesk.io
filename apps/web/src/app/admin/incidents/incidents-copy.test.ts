@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 
 import type { IncidentRegisterRow, OpsResult } from "@/lib/admin/ops-client";
 
-import { IncidentsBoard } from "./IncidentsBoard";
+import { affectedLine, IncidentsBoard, reportSentLine } from "./IncidentsBoard";
 
 /**
  * What /admin/incidents tells the operator about each incident's clock (WP7):
@@ -52,6 +52,7 @@ const ROW: IncidentRegisterRow = {
   decidedBy: null,
   resolvedAt: null,
   openedBy: "ops@healdesk.test",
+  affectedCount: 0,
 };
 
 function board(rows: IncidentRegisterRow[], now = "2026-10-07T12:00:00.000Z"): string {
@@ -118,5 +119,43 @@ describe("the incidents page", () => {
     expect(board([{ ...ROW, agreementVersion: null }])).toContain(
       "(no agreement on file: the strictest rule)",
     );
+  });
+
+  test("who an incident affected is a count and where it is recorded, never who, and unknown before apps/app has it", () => {
+    const none = board([ROW]);
+    expect(none).toContain("Who it affected No one recorded yet.");
+    // The AWS host has no shell: its one-off task, as the runbook gives it.
+    expect(none).toContain("run-task.sh incident-affected");
+    expect(none).toContain("npm run ops:incident-affected");
+    expect(none).toContain("The report itself never names anyone.");
+    expect(board([{ ...ROW, affectedCount: 3 }])).toContain("3 people recorded.");
+    expect(affectedLine(1)).toMatch(/^1 person recorded\./);
+    // An apps/app before its deploy sends no count: said as unknown, never as none.
+    expect(board([{ ...ROW, affectedCount: null }])).toContain(
+      "Not known here until apps/app is deployed.",
+    );
+    // A service complaint affects no one an agreement reports.
+    expect(board([{ ...ROW, class: "service_complaint" }])).not.toContain("Who it affected");
+  });
+
+  test("a report's written steps for the people affected and our recommendations, and a reply from an older apps/app that dropped them", () => {
+    const sent = { status: "sent" as const, report: 1, auditRecorded: true };
+    expect(reportSentLine({ ...sent, steps: 2, recommendations: 1 }, { steps: 2, recommendations: 1 })).toBe(
+      "Report queued: it goes to the practice's address now.",
+    );
+    // apps/web is live before apps/app: the older reply has no counts and the lists were ignored.
+    expect(
+      reportSentLine({ ...sent, steps: null, recommendations: null }, { steps: 1, recommendations: 0 }),
+    ).toContain("It went WITHOUT the steps and recommendations you chose");
+    // Nothing chosen, nothing dropped.
+    expect(
+      reportSentLine({ ...sent, steps: null, recommendations: null }, { steps: 0, recommendations: 0 }),
+    ).toBe("Report queued: it goes to the practice's address now.");
+    expect(
+      reportSentLine({ ...sent, report: 3, steps: 0, recommendations: 0, auditRecorded: false }, {
+        steps: 0,
+        recommendations: 0,
+      }),
+    ).toBe("Update 2 queued: it goes to the practice's address now. It is NOT in the audit log: record it by hand.");
   });
 });

@@ -361,19 +361,20 @@ resource "aws_iam_role" "github_deploy" {
 # missing from this list would refuse that call.
 locals {
   task_families = {
-    web              = "${local.name}-web"
-    worker           = "${local.name}-worker"
-    voice            = "${local.name}-voice"
-    migrate          = "${local.name}-migrate"
-    db_bootstrap     = "${local.name}-db-bootstrap"
-    destroy_due      = "${local.name}-destroy-due"
-    patient_export   = local.export_task_family
-    erase_person     = "${local.name}-erase-person"
-    amend_contact    = "${local.name}-amend-contact"
-    patient_request  = "${local.name}-patient-request"
-    reapply_erasures = "${local.name}-reapply-erasures"
-    demo_clinic      = "${local.name}-demo-clinic"
-    channels_link    = "${local.name}-channels-link"
+    web               = "${local.name}-web"
+    worker            = "${local.name}-worker"
+    voice             = "${local.name}-voice"
+    migrate           = "${local.name}-migrate"
+    db_bootstrap      = "${local.name}-db-bootstrap"
+    destroy_due       = "${local.name}-destroy-due"
+    patient_export    = local.export_task_family
+    erase_person      = "${local.name}-erase-person"
+    amend_contact     = "${local.name}-amend-contact"
+    patient_request   = "${local.name}-patient-request"
+    incident_affected = "${local.name}-incident-affected"
+    reapply_erasures  = "${local.name}-reapply-erasures"
+    demo_clinic       = "${local.name}-demo-clinic"
+    channels_link     = "${local.name}-channels-link"
   }
 
   task_definition_arn_prefix = "arn:aws:ecs:${var.region}:${local.account_id}:task-definition"

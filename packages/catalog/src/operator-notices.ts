@@ -131,6 +131,48 @@ export const INCIDENT_MITIGATIONS = {
 
 export type IncidentMitigation = keyof typeof INCIDENT_MITIGATIONS;
 
+/**
+ * What the people affected can do to protect themselves (45 CFR
+ * 164.410(c)(1)(D); the BAA's Reporting clause lists "any steps individuals
+ * should take to protect themselves from potential harm resulting from the
+ * breach" among what a breach report gives, and its Notices clause makes the
+ * written notice the notice). Chosen by the operator on /admin/incidents for
+ * the incident at hand, never typed; each is a step a person can take
+ * whatever the information was, so none names anyone or anything clinical.
+ */
+export const INCIDENT_PATIENT_STEPS = {
+  unexpected_contact:
+    "Be wary of calls, texts and emails that mention their visit or say they come from your practice, and reach your practice through a number they already know before answering one.",
+  confirm_details_requests:
+    "Don't confirm personal details, a password or a payment to a message they weren't expecting.",
+  tell_practice:
+    "Tell your practice about any message that seems to come from it and that they didn't expect.",
+  no_card_involved:
+    "No card numbers were involved: AYA never takes them, so there's no card to cancel because of this.",
+  nothing_needed:
+    "As far as we know there's nothing they need to do: what was involved was deleted before anyone used it.",
+} as const;
+
+export type IncidentPatientStep = keyof typeof INCIDENT_PATIENT_STEPS;
+
+/** What healdesk recommends the practice do, chosen the same way (the incident response's "what we recommend the clinic do"). */
+export const INCIDENT_RECOMMENDATIONS = {
+  assess_notice_duty:
+    "Decide, with your own counsel if you have one, whether the law requires you to notify the people affected, and anyone else, and by when.",
+  notify_people:
+    "Notify the people affected, using the list of who it affected on this incident's page in healdesk.",
+  brief_front_desk:
+    "Let your front desk know to expect questions from the people affected, and how you'd like them answered.",
+  review_access:
+    "Check who on your team can open healdesk, and remove any device that no longer needs to.",
+  check_address:
+    "Check that your practice's address in healdesk is the inbox you intend, so reports like this reach the right people.",
+  keep_record:
+    "Keep this report with your own records of the incident.",
+} as const;
+
+export type IncidentRecommendation = keyof typeof INCIDENT_RECOMMENDATIONS;
+
 /** The most rows one report may carry of either list: one per code. */
 export const INCIDENT_REPORT_MAX_COUNT = 1_000_000;
 
@@ -318,6 +360,10 @@ export const isIncidentInformationType = (v: unknown): v is IncidentInformationT
   isKeyOf(INCIDENT_INFORMATION_TYPES, v);
 export const isIncidentMitigation = (v: unknown): v is IncidentMitigation =>
   isKeyOf(INCIDENT_MITIGATIONS, v);
+export const isIncidentPatientStep = (v: unknown): v is IncidentPatientStep =>
+  isKeyOf(INCIDENT_PATIENT_STEPS, v);
+export const isIncidentRecommendation = (v: unknown): v is IncidentRecommendation =>
+  isKeyOf(INCIDENT_RECOMMENDATIONS, v);
 export const isPhiSubcontractor = (v: unknown): v is PhiSubcontractor =>
   isKeyOf(PHI_SUBCONTRACTORS, v);
 export const isTermsChangeTopic = (v: unknown): v is TermsChangeTopic =>

@@ -21,9 +21,12 @@ import type { SiteRereadReason } from "./types";
  * Which reason a queued read keeps when it is asked for again: a corrected
  * website before a missing profile, either before an operator's ask, and
  * all of them before the monthly check, which a read for any of them does
- * anyway.
+ * anyway. The misclassification check is last of all: every other read
+ * raises the signal too (lib/website/store.ts), so it gives way to any of
+ * them.
  */
 const RANK: Readonly<Record<SiteRereadReason, number>> = {
+  insurance: -1,
   drift: 0,
   ops: 1,
   missing: 2,

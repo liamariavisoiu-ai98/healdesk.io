@@ -95,7 +95,7 @@ describe("rateLimit (per-instance keys)", () => {
 });
 
 describe("rateLimit (the global daily caps)", () => {
-  it("names exactly the seven spend caps the routes use", () => {
+  it("names exactly the eight daily caps the routes use", () => {
     expect([...GLOBAL_CAP_KEYS].sort()).toEqual([
       "callback:global:day",
       "chat:global:day",
@@ -103,6 +103,8 @@ describe("rateLimit (the global daily caps)", () => {
       "site-read:global:day",
       "site-read:signed:day",
       "voice-demo-webcall:global:day",
+      // The emails AYA's demo calls may send in a day (19 October 2026).
+      "voice-followup:day",
       "webcall:global:day",
     ]);
   });

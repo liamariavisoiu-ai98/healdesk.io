@@ -1,7 +1,18 @@
+import { createHash } from "node:crypto";
+
 import { allPlans, type Plan, PACKAGES } from "@healdesk/catalog";
 import { NextResponse } from "next/server";
 
+import { checkoutMode } from "@/lib/checkout-mode";
+import { emailKey, isEmailConfigured, sendSafely, unsubscribeUrl } from "@/lib/email";
+import {
+  voiceFollowUpInternal,
+  voiceSetupLinkEmail,
+  voiceSetupLinkSaid,
+  type VoiceSetupLink,
+} from "@/lib/email/voice-follow-up";
 import { isValidEmail } from "@/lib/gate";
+import { canEmail, leadForCommercialEmail } from "@/lib/leads";
 import { rateLimit } from "@/lib/rate-limit";
 import { verifyRetellSignature } from "@/lib/retell-signature";
 import { site } from "@/lib/site";
@@ -17,13 +28,22 @@ export const dynamic = "force-dynamic";
  *
  *   - topic "start": they said yes in the close. They are emailed the link to
  *     set up the package AYA recommended, which is the close itself, and the
- *     team is emailed the same summary.
+ *     team is emailed the same summary. While the purchase is by invitation
+ *     (lib/checkout-mode.ts), the link is to "Tell us about your clinic",
+ *     and the email says so: only a setup link minted in /admin opens the
+ *     purchase then (plan A2), so a link that claimed to would not.
  *   - anything else (pricing, terms, a session with the team): the request
  *     goes to the team inbox, and the team replies.
  *
- * Resend, the same transport the contact form uses, and nothing else: no
- * lead row, no list, no automated sequence. One message to them, at their
- * request, and only the one they agreed to on the call.
+ * Both go through this site's email platform (lib/email `send()`, since 19
+ * October 2026; until then a fetch of its own), so each carries an
+ * idempotency key, the `app` and `kind` tags and its HTML twin, and its
+ * answer feeds the day's email count. No list and no automated sequence:
+ * one message to them, at their request, and only the one they agreed to on
+ * the call. The owner's email is commercial (P4's equivalent, Annex X1.10),
+ * so it carries a one-click opt-out, kept on the address's lead row
+ * (leadForCommercialEmail): an address that opted out or bounced is never
+ * mailed, and with no row to keep the opt-out on, nothing is sent.
  *
  * Business contact data only. The person on this call is a clinic owner
  * talking about their own business, which is why it can live in apps/web.
@@ -49,7 +69,7 @@ const MAX = { name: 120, clinic: 160, topic: 40, preferredTime: 120, notes: 600,
 const PER_CALL_LIMIT = 3;
 const PER_CALL_WINDOW_MS = 60 * 60 * 1000;
 
-/** Bounds the inbox, not a person. Demo calls are capped upstream too. */
+/** Bounds the inbox, not a person. Demo calls are capped upstream too. Shared across instances (lib/rate-limit.ts). */
 const DAILY_LIMIT = 200;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -70,8 +90,10 @@ let plansByName: Map<string, Plan> | null = null;
  * package's: "AYA Voice + Meta Chat" links to `?plan=voice-metachat`, which
  * checkout opens at the default steps (lib/pricing.ts `checkoutStart`). If she
  * named a plan in full, "AYA Voice, 500 minutes", the link carries that plan.
+ * In pilot mode the same address shows "Tell us about your clinic" until a
+ * setup link opens the purchase.
  */
-function setupLink(packageName: string): { url: string; plan: string | null } {
+function setupLink(packageName: string): VoiceSetupLink {
   const wanted = packageName.toLowerCase();
   plansByName ??= new Map(allPlans().map((p) => [p.name.toLowerCase(), p]));
   const plan = plansByName.get(wanted);
@@ -80,29 +102,6 @@ function setupLink(packageName: string): { url: string; plan: string | null } {
   return pkg
     ? { url: `${site.url}/get-started?plan=${pkg.id}`, plan: pkg.name }
     : { url: `${site.url}/get-started`, plan: null };
-}
-
-async function send(
-  apiKey: string,
-  message: { from: string; to: string[]; reply_to: string; subject: string; text: string },
-): Promise<boolean> {
-  try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify(message),
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (response.ok) return true;
-    const detail = await response.text().catch(() => "");
-    console.error("[healdesk] resend rejected a voice follow-up", {
-      status: response.status,
-      detail: detail.slice(0, 400),
-    });
-  } catch (error) {
-    console.error("[healdesk] voice follow-up email threw", error);
-  }
-  return false;
 }
 
 type ToolCall = {
@@ -169,86 +168,73 @@ export async function POST(request: Request): Promise<NextResponse> {
     return reply(false, `Already sent for this call. If something changed, give them ${site.email}.`, 429);
   }
 
-  const apiKey = process.env.RESEND_API_KEY;
-  const sender = process.env.HEALDESK_EMAIL_FROM;
-  if (!apiKey || !sender) {
+  if (!isEmailConfigured()) {
     console.error("[healdesk] voice follow-up has no transport (RESEND_API_KEY, HEALDESK_EMAIL_FROM)");
     return reply(false, `Not sent. Give them ${site.email} instead.`, 503);
   }
 
+  const mode = checkoutMode();
   const practice = text(body.call?.retell_llm_dynamic_variables?.practice_type, 80);
   const link = setupLink(recommended);
-  const who = `${name || "unnamed"}${clinic ? ` (${clinic})` : ""}`;
-  const subject =
-    topic === "start"
-      ? `Demo call: ready to start, ${who}`
-      : topic === "sales_session"
-        ? `Demo call: session with the team, ${who}`
-        : `Demo call: ${topic} question, ${who}`;
+  // The request keeps no row of its own, so its digest stands for one in the
+  // email keys (X1.4), as the contact form's does: the call, the address and
+  // the topic, so a retried tool call sends once and a corrected address is a
+  // new email. Never the address itself.
+  const requestKey = createHash("sha256").update(JSON.stringify([callId, email, topic])).digest("hex").slice(0, 32);
 
   // The owner's own email first: on "start" it is the promise AYA makes, so
   // it must have gone before she is told it did.
   if (topic === "start") {
-    const sentToThem = await send(apiKey, {
-      from: sender,
-      to: [email],
-      reply_to: site.email,
-      subject: link.plan ? `Your healdesk setup link: ${link.plan}` : "Your healdesk setup link",
-      text: [
-        `Hi${name ? ` ${name.split(" ")[0]}` : ""},`,
-        "",
-        `As promised on the call with ${site.agent}, here is the link to set up ` +
-          `${link.plan ?? "healdesk"}${clinic ? ` for ${clinic}` : ""}:`,
-        "",
-        link.url,
-        "",
-        "It takes about fifteen minutes of your attention. Each channel goes live on its own: the phone once call forwarding is set.",
-        "",
-        "If you'd rather talk it through first, reply to this email and a person will answer.",
-        "",
-        "healdesk",
-      ].join("\n"),
+    const lead = await leadForCommercialEmail(email, "voice_follow_up");
+    if (!lead) return reply(false, `Not sent. Give them ${site.email} instead.`, 503);
+    const may = canEmail(lead, "relationship");
+    if (!may.ok) {
+      return reply(false, `Not sent: this address has asked us not to email it. Give them ${site.email} instead.`, 409);
+    }
+    const optOut = unsubscribeUrl(lead.id);
+    const theirs = voiceSetupLinkEmail({ name, clinic, link, mode, unsubscribeUrl: optOut });
+    const sentToThem = await sendSafely({
+      to: email,
+      subject: theirs.subject,
+      text: theirs.text,
+      unsubscribeUrl: optOut,
+      tag: "voice-setup-link",
+      idempotencyKey: emailKey("voice-setup-link", requestKey),
     });
-    if (!sentToThem) return reply(false, `Not sent. Give them ${site.email} instead.`, 502);
+    if (sentToThem.status !== "sent") {
+      console.error("[healdesk] voice follow-up not sent to the owner", {
+        callId,
+        status: sentToThem.status,
+        reason: sentToThem.reason.slice(0, 300),
+      });
+      return reply(false, `Not sent. Give them ${site.email} instead.`, 502);
+    }
   }
 
-  const sentToTeam = await send(apiKey, {
-    from: sender,
-    to: [site.email],
-    reply_to: email,
-    subject,
-    text: [
-      `Asked for:     ${topic.replace("_", " ")}`,
-      `Name:          ${name || "(not given)"}`,
-      `Clinic:        ${clinic || "(not given)"}`,
-      `Practice type: ${practice || "(not given)"}`,
-      `Email:         ${email}`,
-      `Good time:     ${preferredTime || "(not given)"}, in their words, time zone unconfirmed`,
-      `Recommended:   ${recommended || "(none)"}`,
-      topic === "start" ? `Sent them:     ${link.url}` : "",
-      "",
-      `What they want: ${notes || "(not given)"}`,
-      "",
-      `What they told AYA: ${summary || "(no summary)"}`,
-      "",
-      `They asked for this on AYA's demo call ${callId}, and agreed to be emailed about this request only.`,
-      topic === "start"
-        ? "They have been sent the setup link above and nothing else."
-        : "Nothing has been sent to them; the first message is ours to send, by email.",
-      "Do not phone them: the number on a demo call was given for that call only.",
-    ]
-      .filter((line, i, all) => line !== "" || all[i - 1] !== "")
-      .join("\n"),
+  const ours = voiceFollowUpInternal(
+    { topic, name, clinic, practice, email, preferredTime, recommended, notes, summary, callId },
+    topic === "start" ? { link, mode } : null,
+  );
+  const sentToTeam = await sendSafely({
+    to: site.email,
+    replyTo: email,
+    subject: ours.subject,
+    text: ours.text,
+    tag: "voice-follow-up",
+    idempotencyKey: emailKey("voice-follow-up", requestKey),
   });
 
   if (topic === "start") {
     // Their link is already in their inbox; a lost copy to us is ours to
     // chase, not a reason to tell them it failed.
-    if (!sentToTeam) console.error("[healdesk] setup link sent but the team copy failed", { callId });
+    if (sentToTeam.status !== "sent") console.error("[healdesk] setup link sent but the team copy failed", { callId });
     console.info("[healdesk] voice follow-up sent", { callId, topic });
-    return reply(true, `Sent. The setup link${link.plan ? ` for ${link.plan}` : ""} is in their inbox.`);
+    return reply(true, voiceSetupLinkSaid(link, mode));
   }
-  if (!sentToTeam) return reply(false, `Not sent. Give them ${site.email} instead.`, 502);
+  if (sentToTeam.status !== "sent") {
+    console.error("[healdesk] voice follow-up not sent to the team", { callId, status: sentToTeam.status });
+    return reply(false, `Not sent. Give them ${site.email} instead.`, 502);
+  }
 
   console.info("[healdesk] voice follow-up sent", {
     callId,

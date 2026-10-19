@@ -1,4 +1,4 @@
-import { TREATMENT_NAMES } from "@healdesk/catalog";
+import { renderAgreementCopy, TREATMENT_NAMES } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { Lead } from "@/lib/leads";
@@ -6,6 +6,9 @@ import { issueSetupToken, setupLinkUrl } from "@/lib/setup-link";
 import { site } from "@/lib/site";
 import type { SetupRequest } from "@/lib/sheets/schema";
 
+import type { DemoSession } from "@/lib/demo/sessions";
+
+import { demoEmail } from "./demo-ready";
 import { setupUnsubscribeUrl, unsubscribeUrl } from "./index";
 import { stillOpenEmail, TOUCHES } from "./nurture";
 import {
@@ -16,11 +19,16 @@ import {
   setupRequestInternal,
   SUBJECT_MAX,
 } from "./setup-emails";
+import { voiceFollowUpInternal, voiceSetupLinkEmail } from "./voice-follow-up";
 
 /**
  * Every email apps/web sends before a purchase, rendered and read the way
  * Annex X4 says apps/web's templates are tested: P1 (the four nurture
- * touches), P2, P3, P4, P5, P7 and P8.
+ * touches), P2, P3, P4, P5, P6 (the signer's copy of the agreement, which the
+ * catalog words for both apps), P7 and P8; and, since 19 October 2026, the
+ * demo-ready email and the two a demo call sends (the owner's setup link,
+ * worded for each checkout mode, and the request to hello@), which postdate
+ * the plan's list but follow its rules (X0).
  *
  * - A copy lint: no newness words, no "revenue", no "HIPAA compliant", no
  *   "live in two minutes", no "with every clinic", no "within one business
@@ -34,8 +42,8 @@ import {
  *   clinic's name (160 characters is the form's limit).
  * - The footer: every email to someone outside says who replies and to leave
  *   out patient details and names the sender as the site does; every
- *   commercial one (P1, P4, P5, P7) also carries the opt-out and the postal
- *   address (X1.9, X1.10).
+ *   commercial one (P1, P4, P5, P7, the demo-ready email and the demo call's
+ *   setup link) also carries the opt-out and the postal address (X1.9, X1.10).
  */
 
 const INTERNAL_APP_URL = "https://app-internal.healdesk.io";
@@ -174,6 +182,57 @@ function everyEmail(clinicName: string): Rendered[] {
   }
   const p8 = contactAck("info@radiancemedspa.com", "Thursday 15 October");
   out.push({ name: "P8", ...p8, commercial: false, external: true, setupLink: false });
+  for (const version of ["1.6.0", "dpa/1.0.0"]) {
+    const p6 = renderAgreementCopy({
+      signatoryName: "Alex Chen",
+      clinicName,
+      version,
+      documentHash: "a".repeat(64),
+      acceptedAt: new Date("2026-10-14T15:00:00Z"),
+    });
+    out.push({ name: `P6 ${version}`, subject: p6.subject, text: p6.text, commercial: false, external: true, setupLink: false });
+  }
+  const readyAt = new Date("2026-10-14T15:00:00Z");
+  const demo = {
+    id: ID,
+    slug: "radiance-med-spa-k7q2mz9xwa",
+    status: "ready",
+    clinicName,
+    brandName: null,
+    profile: null,
+    createdBy: "operator",
+    createdAt: readyAt,
+    readyAt,
+    expiresAt: new Date("2026-10-21T15:00:00Z"),
+  } as unknown as DemoSession;
+  for (const [when, now] of [
+    ["with the offer", readyAt.getTime()],
+    ["after the offer", readyAt.getTime() + 72 * 3_600_000],
+  ] as const) {
+    const ready = demoEmail(demo, now, { unsubscribeUrl: unsubscribeUrl(ID) });
+    out.push({ name: `Demo-ready ${when}`, ...ready, commercial: true, external: true, setupLink: false });
+  }
+  const voiceLink = { url: `${site.url}/get-started?plan=voice-webchat`, plan: "AYA Voice + Web Chat" };
+  for (const mode of ["pilot", "public"] as const) {
+    const voice = voiceSetupLinkEmail({ name: "Alex Chen", clinic: clinicName, link: voiceLink, mode, unsubscribeUrl: unsubscribeUrl(ID) });
+    out.push({ name: `Voice-setup-link ${mode}`, ...voice, commercial: true, external: true, setupLink: false });
+    const team = voiceFollowUpInternal(
+      {
+        topic: "start",
+        name: "Alex Chen",
+        clinic: clinicName,
+        practice: "Med Spas",
+        email: "alex.chen@radiancemedspa.com",
+        preferredTime: "",
+        recommended: "AYA Voice + Web Chat",
+        notes: "",
+        summary: "",
+        callId: "call_1",
+      },
+      { link: voiceLink, mode },
+    );
+    out.push({ name: `Voice-follow-up ${mode}`, ...team, commercial: false, external: false, setupLink: false });
+  }
   return out;
 }
 
@@ -204,9 +263,11 @@ const treatment = new RegExp(
 );
 
 describe("every apps/web email before a purchase", () => {
-  test("the set is the one Annex X5 lists: P1 to P5, P7 and P8", () => {
+  test("the set is the one Annex X5 lists, P1 to P8, and the three that postdate it", () => {
     const kinds = new Set(EMAILS.map((e) => e.name.split(/[ ,]/)[0]));
-    expect([...kinds].sort()).toEqual(["P1", "P2", "P3", "P4", "P5", "P7", "P8"]);
+    expect([...kinds].sort()).toEqual(
+      ["Demo-ready", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "Voice-follow-up", "Voice-setup-link"].sort(),
+    );
   });
 
   test.each(EMAILS.map((e) => [e.name, e] as const))("%s: the copy lint", (_name, email) => {

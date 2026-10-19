@@ -79,6 +79,9 @@ export type RateLimitResult = {
  * the same reason. `site-read:signed:day` (19 October 2026) caps the signed
  * re-reads apps/app asks for (a missing profile, a corrected website, the
  * monthly drift check), each a model call like the checkout's.
+ * `voice-followup:day` (19 October 2026) bounds the emails AYA's demo calls
+ * may send in a day (api/voice-demo/follow-up), which bounds the inbox and a
+ * stranger's, and is no bound at all if each warm instance counts its own.
  */
 export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
   "chat:global:day",
@@ -88,6 +91,7 @@ export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
   "webcall:global:day",
   "voice-demo-webcall:global:day",
   "own-demo:global:day",
+  "voice-followup:day",
 ]);
 
 /**

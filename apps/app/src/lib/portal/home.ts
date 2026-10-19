@@ -6,6 +6,7 @@ import { isUndeliverable } from "@/lib/email/events";
 import type { PracticeState } from "@/lib/engine/practice/state";
 import { readPracticeState } from "@/lib/engine/practice/store";
 import { withTenant } from "@/lib/tenant";
+import { countWebsiteChanges } from "@/lib/website/store";
 
 /**
  * The facts Home's "Needs attention" reads beyond the setup state, in one
@@ -17,7 +18,7 @@ import { withTenant } from "@/lib/tenant";
 export type HomeFacts = {
   addressUndeliverable: boolean;
   paymentAccountDisconnected: boolean;
-  /** The drift check's unconfirmed website changes (M7); always 0 until it exists. */
+  /** The drift list's changes nobody has confirmed or ignored (lib/website). */
   websiteChanges: number;
   /** Where the practice questions stand: the tracker's last two stages and "double-checking". */
   practice: PracticeState;
@@ -41,9 +42,9 @@ export async function readHomeFacts(input: {
     return {
       addressUndeliverable: undeliverable,
       paymentAccountDisconnected: Boolean(clinic && !clinic.accountId && clinic.disconnectedAt),
-      // M7 seam: the drift list (plan Part F3, "Changes on your website") is
-      // read here once it exists.
-      websiteChanges: 0,
+      // The drift list (plan Part F3, "Changes on your website"): the
+      // changes still waiting, each only while Knowledge does not say it.
+      websiteChanges: await countWebsiteChanges(tx),
       practice: await readPracticeState(tx),
     };
   });

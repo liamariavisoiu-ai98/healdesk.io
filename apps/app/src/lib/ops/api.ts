@@ -165,6 +165,7 @@ import {
   opSetOverageMode,
   opSetUsageAlerts,
 } from "@/lib/ops/billing";
+import { opRequestSiteReread } from "@/lib/ops/site-reads";
 import {
   blockersFor,
   listClinics as listClinicOverviews,
@@ -335,6 +336,11 @@ const OPERATIONS = [
   "listPracticeReviews",
   "decidePracticeReview",
   "rerunPracticeQuestions",
+  // The website re-reads (lib/website, plan Part B and K): a read of the
+  // clinic's own website asked for again, from the site-read failures view.
+  // Queued here and sent to apps/web's signed route by the site-reads job;
+  // the answer is a status and the read's id, never what the website says.
+  "requestSiteReread",
   // Care (lib/reporting, lib/incidents, lib/offboarding): who gets mail, what
   // was sent, what went wrong, and the end of the relationship. Never a
   // patient: the export that carries one is a script on the app host.
@@ -487,6 +493,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "goLive",
   "decidePracticeReview",
   "rerunPracticeQuestions",
+  "requestSiteReread",
   "addReportRecipient",
   "removeReportRecipient",
   "openIncident",
@@ -974,6 +981,8 @@ export async function runOperation(
       return opDecidePracticeReview(args, operator);
     case "rerunPracticeQuestions":
       return opRerunPracticeQuestions(args, operator);
+    case "requestSiteReread":
+      return opRequestSiteReread(args, operator);
     case "getClinicCare":
       return opGetClinicCare(args, operator);
     case "addReportRecipient":

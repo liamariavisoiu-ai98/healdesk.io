@@ -18,6 +18,7 @@ import { parseOpeningHours } from "@/lib/clinic/opening-hours";
 import { MAX_AGENT_SERVICES } from "@/lib/onboarding/agent-config";
 import { completeStep } from "@/lib/onboarding/steps";
 import type { TenantTx } from "@/lib/tenant";
+import { requestSiteReread } from "@/lib/website/queue";
 
 import { neverSayWithDefaults, serviceFromProfile } from "./knowledge";
 import { coverageModeForRouting, toE164 } from "./settings";
@@ -38,7 +39,9 @@ import { coverageModeForRouting, toE164 } from "./settings";
  *   the site's own questions and answers as quick answers, all screened again
  *   under the specialty the clinic bought; and the never-say list's clinical
  *   defaults for every clinic;
- * - the read itself, as the drift check's baseline;
+ * - the read itself, as the drift check's baseline, or, when the checkout
+ *   could not read the website, a read of it asked of apps/web again
+ *   (lib/website, `missing`);
  * - the booking-requirement set from the specialty's defaults, the setup
  *   link's old question, which the wizard no longer asks.
  *
@@ -136,6 +139,9 @@ export async function seedSetup(
     at: now,
     note: "specialty defaults, at provisioning",
   });
+  // A website the checkout could not read is read again, on apps/web, once
+  // the clinic exists (lib/website): setup then starts from what it says.
+  if (website && !profile) await requestSiteReread(tx, { reason: "missing", website, now });
 
   // Settings, from the funnel's answers.
   const system = seed.bookingSystem ?? null;

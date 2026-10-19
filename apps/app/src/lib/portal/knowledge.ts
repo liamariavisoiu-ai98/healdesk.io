@@ -99,7 +99,7 @@ export async function saveKnowledge(
         state.clinic.specialty,
         state.clinic.timezone,
         now,
-        await writeOptions(tx),
+        await knowledgeWriteOptions(tx),
       );
       await practiceQuestionsSeam(tx, section, now);
       const applies = appliesWhen(state.channels);
@@ -125,7 +125,7 @@ export async function saveKnowledge(
  * approval (lib/onboarding/go-live.ts), and one given before an edit must
  * not carry words nobody has checked into the first patient conversation.
  */
-async function writeOptions(tx: TenantTx): Promise<KnowledgeWriteOptions> {
+export async function knowledgeWriteOptions(tx: TenantTx): Promise<KnowledgeWriteOptions> {
   const [clinic] = await tx.db
     .select({ wentLiveAt: clinics.wentLiveAt })
     .from(clinics)

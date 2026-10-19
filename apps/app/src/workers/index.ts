@@ -11,6 +11,7 @@ import {
   QUEUE_NOTICES,
   QUEUE_PRACTICE_QUESTIONS,
   QUEUE_PROCESS_WEBHOOK,
+  QUEUE_SITE_READS,
   QUEUE_RECONCILE_CLINIC,
   QUEUE_SYNC_CONNECTION,
   QUEUE_TICK,
@@ -26,6 +27,7 @@ import {
   runCalendarWatchJob,
 } from "@/lib/scheduler/calendar-watch";
 import { runPracticeQuestionsJob } from "@/lib/engine/practice/job";
+import { runSiteReadsJob } from "@/lib/website/job";
 import { runTick } from "@/lib/scheduler/tick";
 import { syncConnection } from "@/lib/sync/run";
 import { processWebhookEvent } from "@/lib/sync/webhooks";
@@ -214,6 +216,23 @@ async function main(): Promise<void> {
     async () => {
       const outcome = await runPracticeQuestionsJob();
       if (outcome.status === "failed") throw new Error(`practice-questions: ${outcome.note}`);
+    },
+    { retryLimit: 0 },
+  );
+
+  // The website re-reads (lib/website/job.ts): every minute, each clinic's
+  // due read sent to apps/web's signed /api/clinic-site, one at a time per
+  // clinic, behind the site-reads job row's switch; nothing is read until
+  // HEALDESK_WEB_URL is set. Guarded like the clocks above. Never retried at
+  // once: a read is leased on its own row, and a failure worth another try
+  // is queued again with its own back-off.
+  await startGuardedClock(
+    boss,
+    QUEUE_SITE_READS,
+    "* * * * *",
+    async () => {
+      const outcome = await runSiteReadsJob();
+      if (outcome.status === "failed") throw new Error(`site-reads: ${outcome.note}`);
     },
     { retryLimit: 0 },
   );

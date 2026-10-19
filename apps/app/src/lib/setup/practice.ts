@@ -13,6 +13,7 @@ import {
 } from "@/lib/clinic/opening-hours";
 import { completeStep } from "@/lib/onboarding/steps";
 import type { TenantTx } from "@/lib/tenant";
+import { requestSiteReread } from "@/lib/website/queue";
 
 import { cleanText } from "./knowledge";
 import { toE164 } from "./settings";
@@ -131,7 +132,7 @@ export async function saveBasics(
   }
 
   const [before] = await tx.db
-    .select({ timezone: clinics.timezone })
+    .select({ timezone: clinics.timezone, website: clinics.website })
     .from(clinics)
     .where(eq(clinics.id, tx.clinicId))
     .limit(1);
@@ -148,6 +149,11 @@ export async function saveBasics(
     })
     .where(eq(clinics.id, tx.clinicId));
   if (before) await moveSetupDeadlineToZone(tx, before.timezone, timezone, now);
+  // A corrected website is read again, on apps/web, so setup and Knowledge
+  // start from what the right website says (lib/website).
+  if (website && before && website !== before.website) {
+    await requestSiteReread(tx, { reason: "corrected", website, now });
+  }
   tx.audit.record({
     action: "update",
     resourceType: "clinic_practice",

@@ -82,6 +82,20 @@ import {
   type SetupScreenId,
   type SetupScreenOutcome,
 } from "../lib/setup/screen-ids";
+import {
+  SITE_REREAD_FAILURES,
+  SITE_REREAD_REASONS,
+  SITE_REREAD_STATUSES,
+  WEBSITE_CHANGE_KINDS,
+  WEBSITE_CHANGE_SECTIONS,
+  WEBSITE_CHANGE_STATES,
+  type SiteRereadFailure,
+  type SiteRereadReason,
+  type SiteRereadStatus,
+  type WebsiteChangeKind,
+  type WebsiteChangeSection,
+  type WebsiteChangeState,
+} from "../lib/website/types";
 
 import { organization, user } from "./auth-schema";
 
@@ -5414,6 +5428,8 @@ export const TENANT_SCOPED_TABLES = [
   "practice_question_runs",
   "practice_question_results",
   "audit_review_queue",
+  "site_rereads",
+  "website_changes",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -5533,3 +5549,155 @@ export const transcriptEmails = pgTable(
     ),
   ],
 );
+
+// -----------------------------------------------------------------------------
+// The signed website re-reads and the drift list (plan Part B, "Re-reads";
+// Part F3, "Changes on your website")
+// -----------------------------------------------------------------------------
+
+/**
+ * One read of a clinic's website after purchase, asked of apps/web's signed
+ * route (/api/clinic-site), which fetches and extracts off the PHI host and
+ * stores nothing (lib/website). Asked for when a clinic has a website and no
+ * profile (`missing`), when it corrects its website (`corrected`), by the
+ * monthly drift check (`drift`), or by an operator (`ops`); claimed by the
+ * site-reads job under a lease, one at a time per clinic, which the two
+ * partial unique indexes hold. A queued read asked for again is moved on
+ * rather than doubled.
+ *
+ * `website` is the address read, the clinic's own public website; `changes`
+ * how many changes the read raised on the drift list. What came back is not
+ * kept here: a missing or corrected read becomes clinics.site_profile, the
+ * baseline, and a drift read leaves only its changes.
+ *
+ * Business data, never a patient's: no BAA gate. Tenant RLS, forced; the
+ * runtime role may read, add and move a read on, never delete one. Kept at
+ * destruction, beside agent_configs.
+ */
+export const siteRereads = pgTable(
+  "site_rereads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    reason: text("reason").$type<SiteRereadReason>().notNull(),
+    status: text("status").$type<SiteRereadStatus>().notNull().default("queued"),
+    /** The website read: host and path, without the scheme (catalog `cleanWebsite`). */
+    website: text("website").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Not before: now when asked for, later after a failure worth retrying. */
+    runAfter: timestamp("run_after", { withTimezone: true }).notNull().defaultNow(),
+    /** While running: the job's lease, after which another run of the job may take it over. */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** Why the last attempt brought no profile back: a category, never apps/web's words. */
+    failure: text("failure").$type<SiteRereadFailure>(),
+    /** How many changes the read raised on the drift list; null until it was read. */
+    changes: integer("changes"),
+  },
+  (t) => [
+    uniqueIndex("site_rereads_queued_idx").on(t.clinicId).where(sql`${t.status} = 'queued'`),
+    uniqueIndex("site_rereads_running_idx").on(t.clinicId).where(sql`${t.status} = 'running'`),
+    // The target of the changes' composite foreign key, so a change can only
+    // name a read of its own clinic.
+    unique("site_rereads_clinic_read_key").on(t.clinicId, t.id),
+    index("site_rereads_clinic_idx").on(t.clinicId, t.requestedAt),
+    check("site_rereads_reason_check", sql`${t.reason} in (${sqlList(SITE_REREAD_REASONS)})`),
+    check("site_rereads_status_check", sql`${t.status} in (${sqlList(SITE_REREAD_STATUSES)})`),
+    check(
+      "site_rereads_failure_check",
+      sql`${t.failure} is null or ${t.failure} in (${sqlList(SITE_REREAD_FAILURES)})`,
+    ),
+    check(
+      "site_rereads_website_check",
+      sql`char_length(${t.website}) between 4 and 200 and ${t.website} !~ '[[:space:][:cntrl:]]'`,
+    ),
+    check("site_rereads_attempts_check", sql`${t.attempts} >= 0`),
+    check("site_rereads_changes_check", sql`${t.changes} is null or ${t.changes} >= 0`),
+    // A finished read has its time, and only a finished read.
+    check(
+      "site_rereads_finished_check",
+      sql`(${t.status} in ('read', 'failed', 'superseded')) = (${t.finishedAt} is not null)`,
+    ),
+  ],
+);
+
+export type SiteReread = typeof siteRereads.$inferSelect;
+
+/**
+ * One change a re-read found on a clinic's website against its baseline,
+ * clinics.site_profile, the profile read at purchase (plan Part B): a
+ * service, an hour, a policy, a question and its answer, a provider, or the
+ * location's address or phone, per Knowledge section, that the website now
+ * lists, no longer lists, or states differently. Screened like the purchase
+ * read (screenClinicProfile), and raised only when Knowledge does not
+ * already say the same.
+ *
+ * The clinic confirms each one, which applies it into Knowledge through the
+ * knowledge writers, or ignores it. `fingerprint` is the hash of the section,
+ * the kind, the item and what the website now says, one row per clinic, so
+ * an ignored change is remembered and never raised again, and a later read
+ * that no longer finds a waiting one marks it `superseded` until it comes
+ * back. `before` and `after` are the item as the baseline and the new read
+ * have it: the clinic's own published business data, never a patient's.
+ *
+ * Tenant RLS, forced; the runtime role may read, add and move a change's
+ * state on, never delete one. Kept at destruction with its read.
+ */
+export const websiteChanges = pgTable(
+  "website_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** The read that last found it. */
+    rereadId: uuid("reread_id").notNull(),
+    section: text("section").$type<WebsiteChangeSection>().notNull(),
+    kind: text("kind").$type<WebsiteChangeKind>().notNull(),
+    /** Which item within the section: a service's or a provider's name, a question, a policy, "weekly", "address" or "phone", lower-cased. */
+    itemKey: text("item_key").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    before: jsonb("before").$type<Record<string, unknown>>(),
+    after: jsonb("after").$type<Record<string, unknown>>(),
+    state: text("state").$type<WebsiteChangeState>().notNull().default("new"),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** The device whose session decided it, as the portal labels the actor. */
+    decidedByLabel: text("decided_by_label"),
+  },
+  (t) => [
+    uniqueIndex("website_changes_fingerprint_idx").on(t.clinicId, t.fingerprint),
+    index("website_changes_new_idx").on(t.clinicId, t.detectedAt).where(sql`${t.state} = 'new'`),
+    foreignKey({
+      name: "website_changes_reread_fk",
+      columns: [t.clinicId, t.rereadId],
+      foreignColumns: [siteRereads.clinicId, siteRereads.id],
+    }).onDelete("cascade"),
+    check("website_changes_section_check", sql`${t.section} in (${sqlList(WEBSITE_CHANGE_SECTIONS)})`),
+    check("website_changes_kind_check", sql`${t.kind} in (${sqlList(WEBSITE_CHANGE_KINDS)})`),
+    check("website_changes_state_check", sql`${t.state} in (${sqlList(WEBSITE_CHANGE_STATES)})`),
+    check("website_changes_fingerprint_check", sql`${t.fingerprint} ~ '^[0-9a-f]{64}$'`),
+    check(
+      "website_changes_item_key_check",
+      sql`char_length(${t.itemKey}) between 1 and 300 and ${t.itemKey} !~ '[[:cntrl:]]'`,
+    ),
+    // What each kind carries: an addition has no before, a removal no after.
+    check(
+      "website_changes_values_check",
+      sql`(${t.kind} = 'added' and ${t.before} is null and ${t.after} is not null) or (${t.kind} = 'removed' and ${t.before} is not null and ${t.after} is null) or (${t.kind} = 'changed' and ${t.before} is not null and ${t.after} is not null)`,
+    ),
+    check(
+      "website_changes_decided_check",
+      sql`(${t.state} in ('confirmed', 'ignored')) = (${t.decidedAt} is not null) and (${t.decidedAt} is null) = (${t.decidedByLabel} is null)`,
+    ),
+    check(
+      "website_changes_decided_by_check",
+      sql`${t.decidedByLabel} is null or char_length(${t.decidedByLabel}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type WebsiteChangeRow = typeof websiteChanges.$inferSelect;

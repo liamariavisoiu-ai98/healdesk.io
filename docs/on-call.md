@@ -103,8 +103,20 @@ restart is not optional: the worker registers its clocks only when it starts, so
 worker started before the install has logged `queue clock not running` with
 `"job":"calendar-watch"`, and runs everything else without the watch until it restarts.
 
-v1 adds jobs that are not built yet: knowledge re-audits when a clinic's knowledge
-changes, the monthly re-scrape diff, the demo-sandbox purge (7 to 14 days), the 14-day
+The website re-reads (`lib/website`, the website_drift migration) are two rows. `site-reads`
+ships ON: every minute from its own `site-reads` queue (install it and restart the worker,
+as above), and hourly from the tick, it sends each clinic's due read to apps/web's signed
+`/api/clinic-site`, which fetches and extracts off this host and stores nothing: a website
+with no profile, a website the clinic corrected, the monthly check, or an operator's read
+(ops `requestSiteReread`). It reads nothing until `HEALDESK_WEB_URL` names apps/web
+(`https://healdesk.io`, a plain setting in `app_environment`), and its note then says so.
+A failed read is tried again after 30 minutes and after 6 hours, then left `failed` on its
+`site_rereads` row. `website-drift` ships OFF, and the owner switches it on before the
+first clinic's 30th live day: hourly, it asks for a read of each live clinic's website 30
+days after its last, compares it with the purchase-time baseline, puts what Knowledge does
+not say on the clinic's "Changes on your website" list, and queues L23.
+
+v1 adds jobs that are not built yet: the demo-sandbox purge (7 to 14 days), the 14-day
 zero-inbound flag for an active voice plan, the 48-hour zero-interaction flag, the
 48-hour channel-not-live reminder to the clinic, and the daily summary email to the
 clinic. None of these contacts a patient; v1 sends patients nothing after a conversation

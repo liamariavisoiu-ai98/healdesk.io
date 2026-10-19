@@ -178,6 +178,17 @@ export const env = {
     ),
 
   /**
+   * apps/web's public origin (https://healdesk.io), which this app calls for
+   * the signed website re-reads (lib/website/client.ts): fetching a URL a
+   * buyer typed belongs off the PHI host, so the read runs there and comes
+   * back as business data. Signed with HEALDESK_PROVISION_SECRET. Optional:
+   * unset means nothing is read again, and each read waits, queued. A plain
+   * public setting (infra/aws `app_environment`), never HEALDESK_APP_URL,
+   * which is the other direction.
+   */
+  webUrl: () => optional("HEALDESK_WEB_URL"),
+
+  /**
    * Key-encryption key for the credential vault.
    *
    * "local" wraps data keys with HEALDESK_LOCAL_KEK — development only, and

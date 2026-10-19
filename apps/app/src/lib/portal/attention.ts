@@ -19,8 +19,8 @@ import { isBuiltSection, sectionPath, type PortalSection } from "./nav";
  * patient; every item is the practice's own setup, sign-in or billing.
  *
  * Before go-live the plan names four: setup unfinished, the insurance
- * question, the backup factor and the website changes the drift check finds
- * (M7, whose list does not exist yet, so its count is always 0 here). Three
+ * question, the backup factor and the website changes a re-read finds
+ * (lib/website: the drift list on Knowledge, linked from here). Three
  * more come from facts already on hand and cost the clinic dearly if missed:
  * an address that bounces (Annex X3: "We can't email {address}", the one
  * address every email goes to), a payment that failed, and a sign-in with no
@@ -70,7 +70,7 @@ export type AttentionFacts = {
   paymentAccountDisconnected?: boolean;
   /** The clinic's Google Calendar connection as the calendar session reads it. */
   calendar?: CalendarConnectionView;
-  /** Website changes the drift check found and nobody has confirmed or ignored (M7). */
+  /** Website changes a re-read found and nobody has confirmed or ignored (lib/website). */
   websiteChanges?: number;
   /** Where the practice questions stand (lib/engine/practice). */
   practice?: PracticeState;

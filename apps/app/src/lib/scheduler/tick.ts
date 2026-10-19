@@ -14,6 +14,7 @@ import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 import { expireErasureRecords } from "@/lib/patient-rights/erasure";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
+import { runSiteReadsSweep, runWebsiteDriftJob } from "@/lib/website/job";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
@@ -152,6 +153,12 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
       note: `${r.clinics} clinics, ${r.resumed} resumed${r.failures ? `, ${r.failures} failed` : ""}`,
     };
   });
+  // The website re-reads (lib/website): behind site-reads, a read for each
+  // clinic with a website and no profile its own save did not ask for, and
+  // the due reads, as the minute queue's backstop; behind website-drift, off
+  // until the owner switches it on, the monthly check of each live clinic.
+  await record("site-reads", () => runSiteReadsSweep({ now: () => now }));
+  await record("website-drift", () => runWebsiteDriftJob({ now }));
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));

@@ -481,6 +481,11 @@ describeDb("delivery", () => {
           "channel-states",
           // The header's pause: a sweep that records a timed pause's end.
           "ai-pause",
+          // The website re-reads (the website_drift migration): the missing
+          // and corrected reads and the minute queue's backstop, behind
+          // site-reads; the monthly drift check, behind website-drift.
+          "site-reads",
+          "website-drift",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

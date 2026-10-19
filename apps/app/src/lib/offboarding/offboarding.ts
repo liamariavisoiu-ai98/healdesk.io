@@ -33,7 +33,7 @@ import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
 import { describeError, log } from "@/lib/log";
 import { revokeMetaAccess } from "@/lib/meta/revoke";
 import { listClinics } from "@/lib/ops/clinics";
-import { notifyOpsOnce } from "@/lib/ops/notify";
+import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import { queueSetupClosedEmail } from "@/lib/setup/closure-email";
 import type { TenantTx } from "@/lib/tenant";
 import { withTenant } from "@/lib/tenant";
@@ -794,8 +794,15 @@ export async function destroyDueClinics(
     }
     // The same for Meta: a Page or WhatsApp account still subscribed (Meta
     // refused every hourly try since the end) is taken off once more before
-    // the row and its token go (lib/meta/revoke.ts). Never throws.
-    await revokeMetaAccess([clinic.id], { actor });
+    // the row and its token go (lib/meta/revoke.ts). If Meta refuses this
+    // last try too, ops is told with the connection's ids, so a person has
+    // the practice remove the app, and the destruction goes ahead on the
+    // agreement's day: the token is a credential, not a reason to keep the
+    // practice's data. Never throws.
+    const meta = await revokeMetaAccess([clinic.id], { actor });
+    if (meta.failed > 0) {
+      await notifyOps("meta_revoke_failed", { clinicId: clinic.id, phase: "destruction", count: meta.failed });
+    }
     let result: DestructionResult;
     try {
       result = await withTenant({ clinicId: clinic.id, actor }, (tx) => destroyClinicData(tx));

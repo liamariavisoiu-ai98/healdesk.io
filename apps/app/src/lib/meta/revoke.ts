@@ -1,11 +1,13 @@
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 
+import { unsafeDb } from "@/db";
 import { providerConnections } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { eraseCredentials, withCredentials } from "@/lib/connections/store";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
+import { notifyOpsOnce } from "@/lib/ops/notify";
 import { withTenant } from "@/lib/tenant";
 
 import type { MetaPlatform } from "./front-door";
@@ -37,11 +39,34 @@ import { META_PROVIDERS } from "./providers";
  *
  * and then the token is erased (eraseCredentials: the row is marked revoked
  * and its ciphertext sealed over with nothing), so nothing of it remains to
- * use. Meta answering that the token is already dead (code 190: the clinic
- * removed the app, or Meta ended the grant) means the access is gone
- * already, and the token is erased all the same. Any other failure leaves
- * the connection as it is, to be tried again by the next hourly run
- * (lib/scheduler/tick.ts), and destruction deletes the row in any case.
+ * use. Each erasure is audited with what happened at Meta (MetaRevokeOutcome).
+ *
+ * ## A Page or account another clinic still uses
+ *
+ * The subscription belongs to the Page or the WhatsApp Business account, not
+ * to the clinic. Two locations can each have their own number on one
+ * WhatsApp Business account (the one-asset rule, drizzle/0066, is on the
+ * number), and a Page can come to serve another clinic too; unsubscribing it
+ * for the location that left would end the other's messages, with nothing to
+ * tell it. So before each call, app_meta_asset_in_service() asks whether the
+ * Page or account still serves a clinic that has not left. If it does, Meta is
+ * not asked, and only this clinic's token is erased (`shared_in_service`):
+ * the other clinic's own connection keeps the subscription it needs.
+ *
+ * ## When Meta refuses
+ *
+ * Meta answering that the token is already dead (code 190: the clinic removed
+ * the app, or Meta ended the grant) means the access is gone already, and the
+ * token is erased all the same. Any other refusal keeps the token for the
+ * next hourly run (lib/scheduler/tick.ts), counted on the row
+ * (transient_failures), and ops is told once a connection has failed
+ * META_REVOKE_ALERT_AFTER times. Destruction asks once more just before it
+ * deletes the rows and tells ops if Meta still refuses
+ * (lib/offboarding/offboarding.ts): the token goes with the data on the day
+ * the agreement sets, and a person has the Page or account remove the app.
+ * A connection with no Page or account on record (an operator's pasted
+ * token) has nothing healdesk can unsubscribe: its token is erased and the
+ * audit says so (`nothing_to_unsubscribe`), never that it was revoked at Meta.
  *
  * Graph is asked with no transaction open (lib/meta/graph.ts, rule 3): the
  * tokens are read in one tenant transaction, Meta is called, and the
@@ -62,18 +87,37 @@ const PLATFORM_OF: Record<string, MetaPlatform> = Object.fromEntries(
 );
 /** Meta's "this token is no good" (OAuthException 190): the access is gone already. */
 const TOKEN_INVALID = 190;
+/** Hourly refusals before ops is told about a connection: six hours of tries. */
+export const META_REVOKE_ALERT_AFTER = 6;
+
+/** What happened at Meta for one connection whose token was erased, as its audit row says. */
+export type MetaRevokeOutcome =
+  /** Meta took the app off the Page or account. */
+  | "revoked"
+  /** Meta said the token was already dead: the access was gone. */
+  | "already_gone"
+  /** No Page or account on record: nothing to unsubscribe, the token erased alone. */
+  | "nothing_to_unsubscribe"
+  /** The Page or account still serves a clinic in service: left subscribed, this token erased. */
+  | "shared_in_service";
 
 export type MetaRevokeResult = {
   /** Clinics looked at. */
   clinics: number;
-  /** Connections whose token was erased. */
+  /** Connections whose token was erased, whatever happened at Meta. */
   revoked: number;
   /** Connections left for the next run, Meta having refused or failed. */
   failed: number;
 };
 
 type Target = { kind: "page" | "waba"; id: string };
-type Held = { connectionId: string; provider: string; token: string | null; target: Target | null };
+type Held = {
+  connectionId: string;
+  provider: string;
+  token: string | null;
+  target: Target | null;
+  failures: number;
+};
 
 /** Where at Meta a connection's subscription lives: the Page for Messenger and Instagram, the account for WhatsApp. */
 export function revokeTargetOf(
@@ -133,6 +177,14 @@ export async function revokeMetaAccess(
   return result;
 }
 
+/** Whether the Page or account still serves a clinic, other than this one, that has not left. */
+async function inServiceElsewhere(target: Target, clinicId: string): Promise<boolean> {
+  const result = await unsafeDb.execute<{ used: boolean }>(
+    sql`select app_meta_asset_in_service(${target.kind}, ${target.id}, ${clinicId}::uuid) as used`,
+  );
+  return result.rows[0]?.used === true;
+}
+
 async function revokeFor(
   clinicId: string,
   options: { actor?: ActorContext; fetchImpl?: FetchLike },
@@ -148,6 +200,7 @@ async function revokeFor(
         id: providerConnections.id,
         provider: providerConnections.provider,
         metadata: providerConnections.metadata,
+        failures: providerConnections.transientFailures,
       })
       .from(providerConnections)
       .where(
@@ -172,6 +225,7 @@ async function revokeFor(
           row.provider,
           (row.metadata ?? null) as Record<string, unknown> | null,
         ),
+        failures: row.failures,
       });
     }
     return out;
@@ -179,19 +233,24 @@ async function revokeFor(
   if (held === null) return null;
   if (held.length === 0) return { revoked: 0, failed: 0 };
 
-  // 2. Meta, with no transaction open: each Page or account once.
-  const outcomes = new Map<string, "done" | "gone" | "failed">();
+  // 2. Meta, with no transaction open: each Page or account once, and never
+  //    one another clinic in service still uses.
+  const atMeta = new Map<string, "revoked" | "already_gone" | "shared_in_service" | "failed">();
   for (const h of held) {
     if (!h.target || !h.token) continue;
     const key = `${h.target.kind}:${h.target.id}`;
-    if (outcomes.get(key) === "done" || outcomes.get(key) === "gone") continue;
+    if (atMeta.has(key)) continue;
+    if (await inServiceElsewhere(h.target, clinicId)) {
+      atMeta.set(key, "shared_in_service");
+      continue;
+    }
     try {
       if (h.target.kind === "page") await unsubscribePage(fetchImpl, h.target.id, h.token);
       else await unsubscribeWaba(fetchImpl, h.target.id, h.token);
-      outcomes.set(key, "done");
+      atMeta.set(key, "revoked");
     } catch (error) {
       const gone = error instanceof GraphError && error.code === TOKEN_INVALID;
-      outcomes.set(key, gone ? "gone" : "failed");
+      atMeta.set(key, gone ? "already_gone" : "failed");
       if (!gone) {
         log.warn("Meta did not take the app off a clinic's account", {
           clinicId,
@@ -203,37 +262,48 @@ async function revokeFor(
     }
   }
 
-  // 3. The tokens erased, for every connection whose access Meta no longer
-  //    gives us: unsubscribed, already gone, or with no Page or account to
-  //    unsubscribe from (an operator-pasted token, or one with nothing left
-  //    to open), where the erasure is the whole of it.
-  const outcomeOf = (h: Held): "done" | "gone" | "failed" | "nothing_to_call" =>
+  // 3. The tokens erased for every connection Meta no longer needs one for,
+  //    each audited with what happened there; a refusal counted on its row.
+  const outcomeOf = (h: Held): MetaRevokeOutcome | "failed" =>
     !h.target || !h.token
-      ? "nothing_to_call"
-      : (outcomes.get(`${h.target.kind}:${h.target.id}`) ?? "failed");
-  const erasable = held.filter((h) => outcomeOf(h) !== "failed");
-  if (erasable.length > 0) {
-    await withTenant({ clinicId, actor }, async (tx) => {
-      for (const h of erasable) {
-        const erased = await eraseCredentials(tx.db, {
-          clinicId: tx.clinicId,
-          connectionId: h.connectionId,
-          reason: "service_ended",
-        });
-        if (!erased) continue;
-        tx.audit.record({
-          action: "update",
-          resourceType: "provider_connection",
-          resourceId: h.connectionId,
-          metadata: {
-            provider: h.provider,
-            outcome: "revoked",
-            reason: "service_ended",
-            meta: outcomeOf(h),
-          },
-        });
+      ? "nothing_to_unsubscribe"
+      : (atMeta.get(`${h.target.kind}:${h.target.id}`) ?? "failed");
+  const refused = held.filter((h) => outcomeOf(h) === "failed");
+  const alertFor: Held[] = [];
+  await withTenant({ clinicId, actor }, async (tx) => {
+    for (const h of held) {
+      const outcome = outcomeOf(h);
+      if (outcome === "failed") {
+        await tx.db
+          .update(providerConnections)
+          .set({
+            transientFailures: sql`least(${providerConnections.transientFailures} + 1, 32000)`,
+          })
+          .where(eq(providerConnections.id, h.connectionId));
+        if (h.failures + 1 >= META_REVOKE_ALERT_AFTER) alertFor.push(h);
+        continue;
       }
+      const erased = await eraseCredentials(tx.db, {
+        clinicId: tx.clinicId,
+        connectionId: h.connectionId,
+        reason: "service_ended",
+      });
+      if (!erased) continue;
+      tx.audit.record({
+        action: "update",
+        resourceType: "provider_connection",
+        resourceId: h.connectionId,
+        metadata: { provider: h.provider, outcome, reason: "service_ended" },
+      });
+    }
+  });
+  for (const h of alertFor) {
+    await notifyOpsOnce("meta_revoke_failed", {
+      clinicId,
+      connectionId: h.connectionId,
+      provider: h.provider,
+      phase: "retries",
     });
   }
-  return { revoked: erasable.length, failed: held.length - erasable.length };
+  return { revoked: held.length - refused.length, failed: refused.length };
 }

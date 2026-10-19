@@ -129,7 +129,7 @@ export const piece: Piece = {
         { kind: "h3", text: "Washington: the My Health My Data Act" },
         {
           kind: "p",
-          text: "The [Washington my health my data act](https://app.leg.wa.gov/RCW/default.aspx?cite=19.373&full=true), chapter 19.373 RCW, defines consumer health data as personal information linked or reasonably linkable to a consumer that identifies their “past, present, or future physical or mental health status”. Its examples include “health-related surgeries or procedures” and “data that identifies a consumer seeking health care services”. Since 31 March 2024, a regulated entity may collect such data only with consent for a specified purpose, or as necessary to provide a product or service the consumer requested. A violation is an unfair or deceptive act for the purpose of the state’s Consumer Protection Act, chapter 19.86 RCW.",
+          text: "Washington’s [My Health My Data Act](https://app.leg.wa.gov/RCW/default.aspx?cite=19.373&full=true) defines consumer health data as personal information linked or reasonably linkable to a consumer that identifies their “past, present, or future physical or mental health status”. Its examples include “health-related surgeries or procedures” and “data that identifies a consumer seeking health care services”. Since 31 March 2024, a regulated entity may collect such data only with consent for a specified purpose, or as necessary to provide a product or service the consumer requested. A violation is an unfair or deceptive act for the purpose of the state’s Consumer Protection Act, chapter 19.86 RCW.",
           cite: ["rcw-19-373"],
         },
         {

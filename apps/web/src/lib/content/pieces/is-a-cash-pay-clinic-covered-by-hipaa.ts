@@ -129,7 +129,7 @@ export const piece: Piece = {
         { kind: "h3", text: "Nevada: NRS 603A.400 to 603A.550" },
         {
           kind: "p",
-          text: "Nevada’s consumer health data law was enacted in 2023 as [Senate Bill 370](https://www.leg.state.nv.us/Session/82nd2023/Bills/SB/SB370_EN.pdf) and sits in [NRS 603A.400 to 603A.550](https://www.leg.state.nv.us/NRS/NRS-603A.html). A regulated entity may collect consumer health data only with “the affirmative, voluntary consent of the consumer”, or to the extent necessary to provide a product or service the consumer requested. Its HIPAA exemption names the entity rather than the data, since the provisions do not apply to “any person or entity that is subject to” HIPAA. A violation is a deceptive trade practice, and the statute states that it does not create a private right of action.",
+          text: "Nevada’s consumer health data law was enacted in 2023 as [Senate Bill 370](https://www.leg.state.nv.us/Session/82nd2023/Bills/SB/SB370_EN.pdf) and sits in [NRS 603A.400 to 603A.550](https://www.leg.state.nv.us/NRS/NRS-603A.html). A regulated entity may collect consumer health data only with “the affirmative, voluntary consent of the consumer”, or to the extent necessary to provide a product or service the consumer requested. The provisions do not apply to “any person or entity that is subject to” HIPAA, and they separately exempt personally identifiable information governed by HIPAA’s administrative simplification provisions. A violation is a deceptive trade practice, and the statute states that it does not create a private right of action.",
           cite: ["nv-sb370", "nrs-603a"],
         },
         { kind: "h3", text: "Connecticut: consumer health data in chapter 743jj" },

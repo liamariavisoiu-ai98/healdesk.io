@@ -35,7 +35,7 @@ export const piece: Piece = {
         },
         {
           kind: "table",
-          caption: "States whose statutes require every party’s consent or knowledge for at least some call recording",
+          caption: "States whose statutes, or courts reading them, require every party’s consent or knowledge for at least some call recording",
           head: ["State", "Statute", "What it requires", "Last checked"],
           rows: [
             [
@@ -53,7 +53,7 @@ export const piece: Piece = {
             [
               "Delaware",
               "[11 Del. C. § 1335(a)(4)](https://delcode.delaware.gov/title11/c005/sc07/index.html); [§ 2402(c)(4)](https://delcode.delaware.gov/title11/c024/sc01/index.html)",
-              "§ 1335 bars intercepting a private telephone message “without the consent of all parties thereto”; § 2402 permits interception where “one of the parties to the communication has given prior consent”",
+              "§ 1335 bars intercepting a message by telephone or other private means “without the consent of all parties thereto”; § 2402 permits interception where “one of the parties to the communication has given prior consent”",
               "19 October 2026",
             ],
             [
@@ -65,7 +65,7 @@ export const piece: Piece = {
             [
               "Illinois",
               "[720 ILCS 5/14-2](https://codes.findlaw.com/il/chapter-720-criminal-offenses/il-st-sect-720-5-14-2.html) (mirror)",
-              "No recording of a private conversation, and no interception, recording or transcription of a private electronic communication, “in a surreptitious manner” without the consent of all parties",
+              "Surreptitiously recording a private conversation needs every party’s consent, whether or not the recorder takes part; surreptitiously intercepting, recording or transcribing a private electronic communication is barred to a non-party without all parties’ consent",
               "19 October 2026 (FindLaw copy current to 1 January 2025)",
             ],
             [

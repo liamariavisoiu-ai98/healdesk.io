@@ -42,6 +42,7 @@ import {
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
 import { stepsReason } from "@/lib/email/templates/steps_sent";
+import { SUPPORT_REASON } from "@/lib/email/templates/support_escalation";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
 import { WELCOME_ENTRY } from "@/lib/email/templates/welcome";
 import {
@@ -106,7 +107,9 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
               ? ACCOUNT_REASON
               : kind === "steps_sent"
                 ? stepsReason("Radiance Med Spa")
-                : clinicReason("Radiance Med Spa"),
+                : kind === "support_escalation"
+                  ? SUPPORT_REASON
+                  : clinicReason("Radiance Med Spa"),
     ...(scope ? { unsubscribeUrl: unsubscribeUrl(CLINIC_ID, scope) } : {}),
     // O11 goes to someone the clinic named, with the link that stops any more
     // reaching that address, as lib/notices/steps-sent.ts sends it.
@@ -172,7 +175,6 @@ describe("the template registry", () => {
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
       WP9: ["agreement_to_sign"],
       WP11: ["website_changes"],
-      WP10: ["support_request"],
       // WP7's operator notices are templated; L32 is the one left.
       WP7: ["patient_request"],
       WP6: ["pass_through_ending", "export_ready", "export_reminder", "data_destroyed"],
@@ -181,7 +183,7 @@ describe("the template registry", () => {
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, and the operator's notices", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the operator's notices, and the support chat's L25 and I3", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -228,6 +230,8 @@ describe("the template registry", () => {
       "guarantee_finding",
       "suspended_for_cause",
       "product_update",
+      "support_request",
+      "support_escalation",
     ]);
   });
 

@@ -14,6 +14,7 @@ import type { SettingChangedPayload } from "@/lib/email/templates/setting_change
 import type { SetupClosedPayload } from "@/lib/email/templates/setup_closed";
 import type { SetupReminderPayload } from "@/lib/email/templates/setup_reminder";
 import type { SubprocessorNoticePayload } from "@/lib/email/templates/subprocessor_notice";
+import type { SupportRequestPayload } from "@/lib/email/templates/support_request";
 import type { SuspendedForCausePayload } from "@/lib/email/templates/suspended_for_cause";
 import type { TermsNoticePayload } from "@/lib/email/templates/terms_notice";
 
@@ -91,7 +92,8 @@ export type PlanNoticePayloads = {
   outage_ended: OwedPayload;
   guarantee_miss: OwedPayload;
   website_changes: OwedPayload;
-  support_request: OwedPayload;
+  /** Dedupe `support_request:<escalation id>`: once per escalation (lib/support/escalate.ts). */
+  support_request: SupportRequestPayload;
   patient_request: OwedPayload;
   pass_through_ending: OwedPayload;
   export_ready: OwedPayload;

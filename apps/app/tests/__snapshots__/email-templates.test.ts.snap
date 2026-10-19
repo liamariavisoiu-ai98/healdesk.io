@@ -4184,6 +4184,354 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`each template's output > support_escalation, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Support request: Call forwarding</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Radiance Med Spa asked for a person. Reply by Wednesday 7 October.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Radiance Med Spa asked for a person from the support chat in its portal, and was told we&#39;d reply by Wednesday 7 October. Replying to this email answers the practice: the reply goes to its address.</p>
+<p style="margin:0 0 4px;"><strong>Request:</strong> 6f1e2d3c-4b5a-4968-8776-655443322110</p>
+<p style="margin:0 0 4px;"><strong>Topic:</strong> Call forwarding</p>
+<p style="margin:0 0 4px;"><strong>What&#39;s wrong:</strong> Calls aren&#39;t reaching AYA</p>
+<p style="margin:0 0 4px;"><strong>Carrier:</strong> Verizon</p>
+<p style="margin:0 0 4px;"><strong>Phone system:</strong> Landline</p>
+<p style="margin:0 0 4px;"><strong>Which calls reach AYA:</strong> Overflow and after hours</p>
+<p style="margin:0 0 16px;">The account, as the chat read it. The chat&#39;s words are not included: healdesk doesn&#39;t keep them.</p>
+<p style="margin:0 0 4px;"><strong>Practice:</strong> Radiance Med Spa</p>
+<p style="margin:0 0 4px;"><strong>Practice id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
+<p style="margin:0 0 4px;"><strong>Setup:</strong> finished</p>
+<p style="margin:0 0 4px;"><strong>Setup must be finished by:</strong> 2026-11-05</p>
+<p style="margin:0 0 4px;"><strong>Build: Agreement signed:</strong> done</p>
+<p style="margin:0 0 4px;"><strong>Build: Payment:</strong> done</p>
+<p style="margin:0 0 4px;"><strong>Build: Your website read:</strong> done</p>
+<p style="margin:0 0 4px;"><strong>Build: Your answers set up:</strong> done</p>
+<p style="margin:0 0 4px;"><strong>Build: Calendar:</strong> done</p>
+<p style="margin:0 0 4px;"><strong>Build: Assistant built:</strong> not yet</p>
+<p style="margin:0 0 4px;"><strong>Build: Practice questions passed:</strong> not yet</p>
+<p style="margin:0 0 4px;"><strong>Channel: Website chat:</strong> ready on healdesk&#39;s side, waiting on the practice; next step for the practice: paste one line on its website</p>
+<p style="margin:0 0 4px;"><strong>Channel: Phone:</strong> ready on healdesk&#39;s side, waiting on the practice; next step for the practice: set call forwarding on its main line</p>
+<p style="margin:0 0 4px;"><strong>Which calls reach AYA:</strong> Overflow and after hours</p>
+<p style="margin:0 0 4px;"><strong>Phone carrier:</strong> Verizon</p>
+<p style="margin:0 0 4px;"><strong>Phone system:</strong> landline</p>
+<p style="margin:0 0 4px;"><strong>Direct line:</strong> (512) 555-0101</p>
+<p style="margin:0 0 4px;"><strong>Main phone number:</strong> (512) 555-0100</p>
+<p style="margin:0 0 4px;"><strong>Urgent-help number:</strong> set</p>
+<p style="margin:0 0 4px;"><strong>Transfer live calls:</strong> off</p>
+<p style="margin:0 0 4px;"><strong>Daily summary email:</strong> on</p>
+<p style="margin:0 0 4px;"><strong>Take deposits:</strong> off</p>
+<p style="margin:0 0 4px;"><strong>Google Calendar:</strong> connected and working</p>
+<p style="margin:0 0 4px;"><strong>Payment account (Stripe):</strong> not connected</p>
+<p style="margin:0 0 4px;"><strong>Package:</strong> AYA Voice + Web Chat, 500 minutes and 300 conversations</p>
+<p style="margin:0 0 4px;"><strong>Billing:</strong> monthly</p>
+<p style="margin:0 0 4px;"><strong>Subscription status:</strong> active</p>
+<p style="margin:0 0 4px;"><strong>Plan started:</strong> not yet: it starts the day AYA first answers a patient or client</p>
+<p style="margin:0 0 4px;"><strong>Auto-renew:</strong> on</p>
+<p style="margin:0 0 4px;"><strong>When the monthly allowance runs out:</strong> keep going and bill the extra in blocks of 100</p>
+<p style="margin:0 0 4px;"><strong>Usage alerts:</strong> on</p>
+<p style="margin:0 0 4px;"><strong>The practice&#39;s email address:</strong> deliverable</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is healdesk&#39;s support inbox.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Radiance Med Spa asked for a person. Reply by Wednesday 7 October.",
+  "subject": "Support request: Call forwarding",
+  "text": "Radiance Med Spa asked for a person from the support chat in its portal, and was told we'd reply by Wednesday 7 October. Replying to this email answers the practice: the reply goes to its address.
+
+Request: 6f1e2d3c-4b5a-4968-8776-655443322110
+Topic: Call forwarding
+What's wrong: Calls aren't reaching AYA
+Carrier: Verizon
+Phone system: Landline
+Which calls reach AYA: Overflow and after hours
+
+The account, as the chat read it. The chat's words are not included: healdesk doesn't keep them.
+
+Practice: Radiance Med Spa
+Practice id: 0c1d2e3f-0000-4000-8000-000000000000
+Setup: finished
+Setup must be finished by: 2026-11-05
+Build: Agreement signed: done
+Build: Payment: done
+Build: Your website read: done
+Build: Your answers set up: done
+Build: Calendar: done
+Build: Assistant built: not yet
+Build: Practice questions passed: not yet
+Channel: Website chat: ready on healdesk's side, waiting on the practice; next step for the practice: paste one line on its website
+Channel: Phone: ready on healdesk's side, waiting on the practice; next step for the practice: set call forwarding on its main line
+Which calls reach AYA: Overflow and after hours
+Phone carrier: Verizon
+Phone system: landline
+Direct line: (512) 555-0101
+Main phone number: (512) 555-0100
+Urgent-help number: set
+Transfer live calls: off
+Daily summary email: on
+Take deposits: off
+Google Calendar: connected and working
+Payment account (Stripe): not connected
+Package: AYA Voice + Web Chat, 500 minutes and 300 conversations
+Billing: monthly
+Subscription status: active
+Plan started: not yet: it starts the day AYA first answers a patient or client
+Auto-renew: on
+When the monthly allowance runs out: keep going and bill the extra in blocks of 100
+Usage alerts: on
+The practice's email address: deliverable
+
+—
+You're receiving this because this address is healdesk's support inbox.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > support_escalation, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Support request: Call forwarding</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Radiance Med Spa asked for a person. Reply by Wednesday 7 October.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Radiance Med Spa asked for a person from the support chat in its portal, and was told we&#39;d reply by Wednesday 7 October. Replying to this email answers the practice: the reply goes to its address.</p>
+<p style="margin:0 0 4px;"><strong>Request:</strong> 6f1e2d3c-4b5a-4968-8776-655443322110</p>
+<p style="margin:0 0 4px;"><strong>Topic:</strong> Call forwarding</p>
+<p style="margin:0 0 4px;"><strong>What&#39;s wrong:</strong> Calls aren&#39;t reaching AYA</p>
+<p style="margin:0 0 4px;"><strong>Carrier:</strong> Verizon</p>
+<p style="margin:0 0 4px;"><strong>Phone system:</strong> Landline</p>
+<p style="margin:0 0 4px;"><strong>Which calls reach AYA:</strong> Overflow and after hours</p>
+<p style="margin:0 0 16px;">The account, as the chat read it. The chat&#39;s words are not included: healdesk doesn&#39;t keep them.</p>
+<p style="margin:0 0 4px;"><strong>Practice:</strong> Radiance Med Spa</p>
+<p style="margin:0 0 4px;"><strong>Practice id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
+<p style="margin:0 0 4px;"><strong>Setup:</strong> finished</p>
+<p style="margin:0 0 4px;"><strong>Setup must be finished by:</strong> 2026-11-05</p>
+<p style="margin:0 0 4px;"><strong>Build: Agreement signed:</strong> done</p>
+<p style="margin:0 0 4px;"><strong>Build: Payment:</strong> done</p>
+<p style="margin:0 0 4px;"><strong>Build: Your website read:</strong> done</p>
+<p style="margin:0 0 4px;"><strong>Build: Your answers set up:</strong> done</p>
+<p style="margin:0 0 4px;"><strong>Build: Calendar:</strong> done</p>
+<p style="margin:0 0 4px;"><strong>Build: Assistant built:</strong> not yet</p>
+<p style="margin:0 0 4px;"><strong>Build: Practice questions passed:</strong> not yet</p>
+<p style="margin:0 0 4px;"><strong>Channel: Website chat:</strong> ready on healdesk&#39;s side, waiting on the practice; next step for the practice: paste one line on its website</p>
+<p style="margin:0 0 4px;"><strong>Channel: Phone:</strong> ready on healdesk&#39;s side, waiting on the practice; next step for the practice: set call forwarding on its main line</p>
+<p style="margin:0 0 4px;"><strong>Which calls reach AYA:</strong> Overflow and after hours</p>
+<p style="margin:0 0 4px;"><strong>Phone carrier:</strong> Verizon</p>
+<p style="margin:0 0 4px;"><strong>Phone system:</strong> landline</p>
+<p style="margin:0 0 4px;"><strong>Direct line:</strong> (512) 555-0101</p>
+<p style="margin:0 0 4px;"><strong>Main phone number:</strong> (512) 555-0100</p>
+<p style="margin:0 0 4px;"><strong>Urgent-help number:</strong> set</p>
+<p style="margin:0 0 4px;"><strong>Transfer live calls:</strong> off</p>
+<p style="margin:0 0 4px;"><strong>Daily summary email:</strong> on</p>
+<p style="margin:0 0 4px;"><strong>Take deposits:</strong> off</p>
+<p style="margin:0 0 4px;"><strong>Google Calendar:</strong> connected and working</p>
+<p style="margin:0 0 4px;"><strong>Payment account (Stripe):</strong> not connected</p>
+<p style="margin:0 0 4px;"><strong>Package:</strong> AYA Voice + Web Chat, 500 minutes and 300 conversations</p>
+<p style="margin:0 0 4px;"><strong>Billing:</strong> monthly</p>
+<p style="margin:0 0 4px;"><strong>Subscription status:</strong> active</p>
+<p style="margin:0 0 4px;"><strong>Plan started:</strong> not yet: it starts the day AYA first answers a patient or client</p>
+<p style="margin:0 0 4px;"><strong>Auto-renew:</strong> on</p>
+<p style="margin:0 0 4px;"><strong>When the monthly allowance runs out:</strong> keep going and bill the extra in blocks of 100</p>
+<p style="margin:0 0 4px;"><strong>Usage alerts:</strong> on</p>
+<p style="margin:0 0 4px;"><strong>The practice&#39;s email address:</strong> deliverable</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is healdesk&#39;s support inbox.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Radiance Med Spa asked for a person. Reply by Wednesday 7 October.",
+  "subject": "Support request: Call forwarding",
+  "text": "Radiance Med Spa asked for a person from the support chat in its portal, and was told we'd reply by Wednesday 7 October. Replying to this email answers the practice: the reply goes to its address.
+
+Request: 6f1e2d3c-4b5a-4968-8776-655443322110
+Topic: Call forwarding
+What's wrong: Calls aren't reaching AYA
+Carrier: Verizon
+Phone system: Landline
+Which calls reach AYA: Overflow and after hours
+
+The account, as the chat read it. The chat's words are not included: healdesk doesn't keep them.
+
+Practice: Radiance Med Spa
+Practice id: 0c1d2e3f-0000-4000-8000-000000000000
+Setup: finished
+Setup must be finished by: 2026-11-05
+Build: Agreement signed: done
+Build: Payment: done
+Build: Your website read: done
+Build: Your answers set up: done
+Build: Calendar: done
+Build: Assistant built: not yet
+Build: Practice questions passed: not yet
+Channel: Website chat: ready on healdesk's side, waiting on the practice; next step for the practice: paste one line on its website
+Channel: Phone: ready on healdesk's side, waiting on the practice; next step for the practice: set call forwarding on its main line
+Which calls reach AYA: Overflow and after hours
+Phone carrier: Verizon
+Phone system: landline
+Direct line: (512) 555-0101
+Main phone number: (512) 555-0100
+Urgent-help number: set
+Transfer live calls: off
+Daily summary email: on
+Take deposits: off
+Google Calendar: connected and working
+Payment account (Stripe): not connected
+Package: AYA Voice + Web Chat, 500 minutes and 300 conversations
+Billing: monthly
+Subscription status: active
+Plan started: not yet: it starts the day AYA first answers a patient or client
+Auto-renew: on
+When the monthly allowance runs out: keep going and bill the extra in blocks of 100
+Usage alerts: on
+The practice's email address: deliverable
+
+—
+You're receiving this because this address is healdesk's support inbox.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > support_request, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>We&#39;ve got your request</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">A person at healdesk will reply by Wednesday 7 October.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">We&#39;ve got the request you sent from the support chat in your portal. A person at healdesk will reply to this address by Wednesday 7 October.</p>
+<p style="margin:0 0 4px;"><strong>Topic:</strong> Call forwarding</p>
+<p style="margin:0 0 16px;">The request carried the topic and the details you picked, and your account&#39;s setup, channel and billing state. The chat&#39;s words were not sent, and healdesk doesn&#39;t keep them.</p>
+<p style="margin:0 0 16px;">To add anything, reply to this email or leave a message on (888) 688-9404. Please leave out client details.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "A person at healdesk will reply by Wednesday 7 October.",
+  "subject": "We've got your request",
+  "text": "We've got the request you sent from the support chat in your portal. A person at healdesk will reply to this address by Wednesday 7 October.
+
+Topic: Call forwarding
+
+The request carried the topic and the details you picked, and your account's setup, channel and billing state. The chat's words were not sent, and healdesk doesn't keep them.
+
+To add anything, reply to this email or leave a message on (888) 688-9404. Please leave out client details.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > support_request, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>We&#39;ve got your request</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">A person at healdesk will reply by Wednesday 7 October.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">We&#39;ve got the request you sent from the support chat in your portal. A person at healdesk will reply to this address by Wednesday 7 October.</p>
+<p style="margin:0 0 4px;"><strong>Topic:</strong> Call forwarding</p>
+<p style="margin:0 0 16px;">The request carried the topic and the details you picked, and your account&#39;s setup, channel and billing state. The chat&#39;s words were not sent, and healdesk doesn&#39;t keep them.</p>
+<p style="margin:0 0 16px;">To add anything, reply to this email or leave a message on (888) 688-9404. Please leave out patient details.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "A person at healdesk will reply by Wednesday 7 October.",
+  "subject": "We've got your request",
+  "text": "We've got the request you sent from the support chat in your portal. A person at healdesk will reply to this address by Wednesday 7 October.
+
+Topic: Call forwarding
+
+The request carried the topic and the details you picked, and your account's setup, channel and billing state. The chat's words were not sent, and healdesk doesn't keep them.
+
+To add anything, reply to this email or leave a message on (888) 688-9404. Please leave out patient details.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > suspended, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>

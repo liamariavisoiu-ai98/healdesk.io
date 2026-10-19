@@ -207,8 +207,8 @@ export const piece: Piece = {
   ],
   aya: [
     "AYA is designed to handle a practice’s patient data only under the agreement the practice signs at checkout, which is a business associate agreement where HIPAA covers the practice.",
-    "A practice HIPAA does not cover signs healdesk’s data protection agreement instead, and AYA is designed to handle its patients’ data exactly as protected health information.",
-    "A practice that is not sure which applies signs the business associate agreement.",
+    "For a med spa, hair restoration, massage or chiropractic practice that says it bills no insurance electronically, AYA is designed to work under healdesk’s data protection agreement instead, with HIPAA Security Rule safeguards.",
+    "A practice that is not sure, or whose specialty is plastic surgery, fertility, dental care or GLP-1 treatment, signs the business associate agreement.",
   ],
   sources: [
     {

@@ -71,7 +71,7 @@ export const piece: Piece = {
           text:
             "Two California laws signed in September 2026 take effect on 1 January 2027 under the state constitution's rule for statutes enacted at a regular session. " +
             "[AB 1979](https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1979) bars a health facility, clinic, physician's office or group practice from using AI to independently perform any clinical function that the law reserves for a licensed person. " +
-            'Its definition of a clinical decision support system leaves out "appointment management such as booking, canceling and rescheduling appointments". ' +
+            'Its definition of a clinical decision support system, a term it uses only for a separate duty to preserve a licensed provider\'s independent judgment, leaves out "appointment management such as booking, canceling and rescheduling appointments". ' +
             'That exclusion applies to the extent "the independent performance of these activities by the system does not require a professional license". ' +
             "AB 1979 contains no requirement to disclose the use of AI.",
           cite: ["ca-ab-1979", "ca-ab-1609", "ca-const-iv-8"],
@@ -235,8 +235,8 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "The [state tracker](/research/state-ai-disclosure-and-consent-tracker) lists these laws, and each state's rule on consent to record a call, with links to the statutes. " +
-            "What a caller must be told about transcription is set out in [AI call transcription consent by state](/guides/ai-call-transcription-consent-by-state). " +
+            "The [state tracker](/research/state-ai-disclosure-and-consent-tracker) lists these laws, and the rule on consent to record a call in 20 states, with links to the statutes. " +
+            "What the call-recording statutes say about transcription, and what they leave open, is set out in [AI call transcription consent by state](/guides/ai-call-transcription-consent-by-state). " +
             "Both pages carry the date each statute was last checked.",
         },
       ],

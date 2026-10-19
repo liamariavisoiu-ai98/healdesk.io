@@ -37,6 +37,9 @@ vi.mock("next/navigation", () => ({
     throw new Error("NEXT_NOT_FOUND");
   },
   RedirectType: { replace: "replace", push: "push" },
+  // The shell's Help carries the support chat (WP10), which reads the slug
+  // from the route; static markup has no router.
+  useParams: () => null,
 }));
 vi.mock("@/app/connect/[token]/request-context", () => ({
   connectRequestContext: async () => ({ ipAddress: null, userAgent: null }),

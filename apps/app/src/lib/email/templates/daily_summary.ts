@@ -142,6 +142,17 @@ export function weekBlocks(
       text: `Your week with AYA, ${dayLong(startOn, ctx)} to ${dayLong(endOn, ctx)}:`,
     },
     { type: "facts", rows: claimLines(claims).map((line) => [line.label, line.value] as const) },
+    // L14 (Annex X6): the recap asks for a flag rather than a reply, because
+    // a flag reaches the right fix faster than an email, and replies reach
+    // hello@, which is kept free of patient details.
+    ...(claims.handledCount > 0
+      ? [
+          {
+            type: "paragraph",
+            text: "Something look wrong? Open the conversation and use Flag this answer.",
+          } as const,
+        ]
+      : []),
   ];
 }
 

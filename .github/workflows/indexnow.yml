@@ -1,0 +1,37 @@
+name: IndexNow
+
+# After every successful production deployment of the marketing site, tell
+# the IndexNow engines (Bing, and through it Copilot's grounding, plus
+# Amazon, Naver, Seznam, Yandex and Yep) that the sitemap's URLs may have
+# changed, so new and edited pages are recrawled within hours rather than
+# whenever a crawler next calls. Google does not take IndexNow and reads the
+# sitemap's lastModified dates instead. See apps/web/src/lib/indexnow.ts.
+#
+# Vercel reports each deployment to GitHub as a deployment status. Only the
+# Production environment's success counts: a preview URL is not healdesk.io,
+# and submitting it would be refused as off-host anyway.
+
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    if: github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run indexnow -w @healdesk/web
+        env:
+          SITE_URL: https://healdesk.io

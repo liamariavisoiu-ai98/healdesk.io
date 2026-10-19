@@ -19,6 +19,9 @@ const SERVER_ONLY = [
   "@/lib/admin/system-map-live",
   "@/lib/admin/github-token",
   "@/lib/admin/key-rotations",
+  // /admin/seo's Sheet writes and its fetches of the live site.
+  "@/lib/admin/seo/store",
+  "@/lib/admin/seo/health",
 ];
 const ROOT = join(__dirname, "..", "..");
 

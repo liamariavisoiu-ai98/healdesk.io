@@ -4,6 +4,7 @@ import { FORWARDING_PASS_THROUGH_DAYS } from "@healdesk/catalog";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { acceptInvitationFor } from "@/lib/access";
 import { billingRecipients } from "@/lib/billing/recipients";
 import { NOTICE_KIND_REGISTRY } from "@/lib/email/kinds";
 import { stopOptionalEmail } from "@/lib/email/stop";
@@ -752,5 +753,60 @@ describeDb("closing the account once the data is destroyed and nothing is left t
     );
     expect(left).toEqual([named]);
     expect(left).not.toContain(loose);
+  });
+
+  test("accepting an invitation for an organisation with a closed location completes, and grants the closed location nothing", async () => {
+    // The review's N2: the grant loop inserts a membership into each clinic of
+    // the organisation, and the closed location's freeze would refuse one and
+    // roll back every live location's grant with it. The loop now passes over
+    // a closed location (lib/access.ts). As the runtime role, which is what
+    // the sign-up hook runs as, the loop's read of the organisation's clinics
+    // sees none at all (clinics_tenant_isolation, 0002, with no tenant set),
+    // so today it grants no location: v1 writes no invitation (one shared
+    // sign-in), and this pins that. Reviving the grant for the spec's
+    // deferred roles changes the clinicIds below, and must keep the closed
+    // location's count at zero.
+    const closed = await seedClinic("close-invite");
+    const { rows } = await getMigratorPool().query<{ id: string }>(
+      `insert into clinics (organization_id, slug, name, specialty) values ($1, $2, 'Live location', 'med-spa') returning id`,
+      [closed.organizationId, `close-invite-live-${randomUUID().slice(0, 6)}`],
+    );
+    const live = rows[0]!.id;
+    await leaveAndWait(closed.clinicId);
+    await destroyDueClinics();
+    expect((await closeAccountsDue()).closed.map((x) => x.clinicId)).toContain(closed.clinicId);
+
+    const inviter = await seedPortalUser(live, "owner", { label: "inviter" });
+    const suffix = randomUUID().slice(0, 8);
+    const invitee = { id: `usr_invitee_${suffix}`, email: `invitee-${suffix}@example-clinic.test` };
+    await getMigratorPool().query(
+      `insert into "user" (id, name, email, email_verified, created_at, updated_at)
+       values ($1, 'Invitee', $2, true, now(), now())`,
+      [invitee.id, invitee.email],
+    );
+    await getMigratorPool().query(
+      `insert into invitation (id, organization_id, email, role, status, expires_at, created_at, inviter_id)
+       values ($1, $2, $3, 'member', 'pending', now() + interval '1 day', now(), $4)`,
+      [`inv_${suffix}`, closed.organizationId, invitee.email, inviter.userId],
+    );
+
+    const accepted = await acceptInvitationFor(invitee.email, invitee.id);
+    expect(accepted).toEqual({ organizationId: closed.organizationId, clinicIds: [] });
+    const { rows: claimed } = await getMigratorPool().query<{ status: string }>(
+      `select status from invitation where id = $1`,
+      [`inv_${suffix}`],
+    );
+    expect(claimed).toEqual([{ status: "accepted" }]);
+    const grants = async (clinicId: string) =>
+      (
+        await inTenant(clinicId, (q) =>
+          q.query<{ n: number }>(
+            `select count(*)::int as n from clinic_memberships where clinic_id = $1 and user_id = $2`,
+            [clinicId, invitee.id],
+          ),
+        )
+      ).rows[0]!.n;
+    expect(await grants(closed.clinicId)).toBe(0);
+    expect(await grants(live)).toBe(0);
   });
 });

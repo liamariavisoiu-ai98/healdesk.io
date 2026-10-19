@@ -1,4 +1,4 @@
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { invitation, member } from "@/db/auth-schema";
@@ -69,11 +69,17 @@ export async function acceptInvitationFor(
       .onConflictDoNothing();
 
     // Every clinic under that organization. A single-site practice has one; a
-    // three-location group has three, and the owner needs all of them.
+    // three-location group has three, and the owner needs all of them. A
+    // location whose account has closed is not one of them: its memberships
+    // refuse a new grant (app_refuse_after_account_closure, drizzle/0096),
+    // and one refused insert would roll back the grants to every live
+    // location with it.
     const locations = await tx
       .select({ id: clinics.id })
       .from(clinics)
-      .where(eq(clinics.organizationId, invite.organizationId));
+      .where(
+        and(eq(clinics.organizationId, invite.organizationId), isNull(clinics.accountClosedAt)),
+      );
 
     for (const clinic of locations) {
       // clinic_memberships is FORCE RLS, so the tenant has to be declared

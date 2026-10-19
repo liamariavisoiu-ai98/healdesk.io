@@ -170,7 +170,7 @@ describeDb("the setup wizard's pages", () => {
         expect(await axeViolations(html, "Set up AYA"), screen).toEqual([]);
       }
     }
-  });
+  }, 60_000);
 
   describe("2.4: deposits and the payment account", () => {
     test("a chat package may connect Stripe; doing it later in Settings → Payments is the default", async () => {

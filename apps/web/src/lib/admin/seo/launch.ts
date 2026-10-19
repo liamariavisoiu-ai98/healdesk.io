@@ -77,9 +77,9 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     id: "failure-direct-line",
     promise: "Every failure ends with calls going to a direct clinic line",
     where: "Terms, portal behaviour screens, CLAUDE.md",
-    status: "building",
-    left: "Calls after a cancelled service, a settings failure and repeated model failures are being transferred to the direct line instead of closed.",
-    evidence: "apps/app/src/lib/voice/retell.ts",
+    status: "on",
+    left: "Endpoint or vendor failure is each clinic's Retell agent's own fallback transfer to the direct line, set when the agent is created.",
+    evidence: "apps/app/src/lib/voice/retell.ts (RetellCallSession.open), apps/app/src/lib/billing/answering.ts (patientDataRefused), apps/app/tests/retell-voice.test.ts",
     blocksGoLive: true,
   },
   {

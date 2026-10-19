@@ -18,6 +18,7 @@ import {
   conversations,
   metaBookingDrafts,
   metaInboundMessages,
+  patientRequests,
   providerConnections,
   reconciliationExceptions,
   securityEvents,
@@ -563,7 +564,7 @@ export async function releaseNumberAfterPassThrough(tx: TenantTx): Promise<boole
  * included, the hashes of who messaged it, its closed days, its setup
  * progress, its providers, its suppressions, consent records and contact
  * attempts, the records of its deletion requests, the amendments Practice
- * directed, and its deposits, gone. Audit, agreements, calendar elections and
+ * directed, its deposits, and the patients' requests passed to it (L32), gone. Audit, agreements, calendar elections and
  * billing stay, and so does AYA's number until the pass-through has ended.
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
@@ -620,6 +621,10 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // The half-collected drafts hold a phone number and nothing the record
   // needs, so they are deleted outright.
   await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));
+  // The patients' requests passed to the practice (drizzle/0091), before the
+  // contacts they name: a contact's delete would set each one's contact_id to
+  // NULL first, a rewrite for nothing.
+  await del("patient_requests", () => tx.db.delete(patientRequests).where(eq(patientRequests.clinicId, c)).returning({ id: patientRequests.id }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
   // The records of the clinic's deletion requests (drizzle/0063): dates,

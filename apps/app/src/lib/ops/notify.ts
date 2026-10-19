@@ -174,6 +174,13 @@ export const OPS_EVENTS = [
   // it (`refused`), or a week of hourly attempts passed (`expired`). The
   // address is cleared either way, so ops writes to the practice by hand.
   "destruction_notice_undelivered",
+  // L32, a patient's request passed to its practice (BAA 1.5.1 clause 14:
+  // within five business days), by the hourly sweep in
+  // lib/patient-rights/patient-requests.ts, once per request each: nobody at
+  // the practice has marked it received by the fourth business day, the day
+  // before its reply-by day; and the reply-by day has passed unmarked.
+  "patient_request_due_soon",
+  "patient_request_past_due",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

@@ -62,6 +62,8 @@ describeDb("the voice fall-through, with the database", () => {
       ingest: async () => ({}) as never,
     });
     await second.open();
+    // finish() is the hang-up: let the fall-through speak first.
+    await new Promise((resolve) => setTimeout(resolve, 150));
     await second.finish();
     expect(sent.filter((m) => m.response_type === "response")).toEqual([
       expect.objectContaining({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT }),

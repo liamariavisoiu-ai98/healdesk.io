@@ -24,7 +24,8 @@ without the database (`lib/voice/fallback-line.ts`): first from the process's me
 of the clinic's last call, then from the fallback number Retell holds for the
 clinic's AYA number. Each such call raises `voice_call_start_failed`, whose code says
 where it went (`transferred_memory`, `transferred_retell`, `transferred_gate`, or
-`closed` when no line was known and the caller heard the closing line). A start that
+`closed` when no line was known and the caller heard the closing line, or `hung_up` when
+the caller had gone before either). A start that
 was only slow, with no line known, has until five seconds past its deadline to answer
 normally first.
 That alert writes to the ops log before it emails, so while the database hangs rather

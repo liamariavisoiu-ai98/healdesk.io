@@ -86,6 +86,12 @@ function session(deps: Partial<ConstructorParameters<typeof RetellCallSession>[3
   return { s, sent, responses };
 }
 
+/** The call ends once the fall-through has spoken: finish() is the hang-up. */
+async function settled(s: RetellCallSession): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  await s.finish();
+}
+
 const details = (to: string | null) =>
   JSON.stringify({ interaction_type: "call_details", call: { from_number: "+15125550100", ...(to ? { to_number: to } : {}), direction: "inbound" } });
 
@@ -102,7 +108,7 @@ describe("a call that cannot read the database", () => {
     const { s, responses } = session({ fallbackLine: (input) => fallbackLineFor(input, { key: null }) });
     await s.open();
     await s.handle(details(AYA));
-    await s.finish();
+    await settled(s);
     expect(responses()).toEqual([
       expect.objectContaining({ response_id: 0, content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT, end_call: false }),
     ]);
@@ -114,7 +120,7 @@ describe("a call that cannot read the database", () => {
     const { s, responses } = session({ fallbackLine: (input) => fallbackLineFor(input, { key: KEY, fetch: retell.fetcher }) });
     await s.open();
     await s.handle(details(AYA));
-    await s.finish();
+    await settled(s);
     expect(retell.calls).toEqual([
       { url: "https://api.retellai.com/get-phone-number/%2B15125550142", method: "GET", body: null, auth: `Bearer ${KEY}` },
     ]);
@@ -128,7 +134,7 @@ describe("a call that cannot read the database", () => {
     const { s, responses } = session({ fallbackLine: (input) => fallbackLineFor(input, { key: KEY, fetch: retell.fetcher }) });
     await s.open();
     await s.handle(details(AYA));
-    await s.finish();
+    await settled(s);
     expect(responses()).toEqual([expect.objectContaining({ content: CLOSED_LINE, end_call: true })]);
     expect(responses()[0]).not.toHaveProperty("transfer_number");
   });
@@ -138,7 +144,7 @@ describe("a call that cannot read the database", () => {
     const { s, responses } = session({ fallbackLine: (input) => fallbackLineFor(input, { key: KEY, fetch: retell.fetcher }) });
     await s.open();
     await s.handle(details(AYA));
-    await s.finish();
+    await settled(s);
     expect(responses()).toEqual([expect.objectContaining({ content: CLOSED_LINE, end_call: true })]);
     expect(notified[0]!.fields.code).toBe("closed");
   });
@@ -147,7 +153,7 @@ describe("a call that cannot read the database", () => {
     rememberDirectLine(CLINIC, DIRECT);
     const { s, responses } = session({ fallbackLine: (input) => fallbackLineFor(input, { key: null }) });
     await s.open();
-    await s.finish();
+    await settled(s);
     expect(responses()[0]).toMatchObject({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT });
   });
 
@@ -156,7 +162,7 @@ describe("a call that cannot read the database", () => {
     const { s, responses } = session({ fallbackLine: (input) => fallbackLineFor(input, { key: null }) });
     await s.open();
     await s.handle(JSON.stringify({ interaction_type: "call_details", call: { to_number: AYA, direction: "outbound" } }));
-    await s.finish();
+    await settled(s);
     expect(responses()).toEqual([expect.objectContaining({ content: "", end_call: true })]);
   });
 
@@ -168,7 +174,7 @@ describe("a call that cannot read the database", () => {
       },
     });
     await s.open();
-    await s.finish();
+    await settled(s);
     expect(responses()).toEqual([expect.objectContaining({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT })]);
     expect(notified[0]!.fields.code).toBe("transferred_gate");
   });
@@ -179,7 +185,7 @@ describe("a call that cannot read the database", () => {
     const { s, responses } = session({ gate: hang, startDeadlineMs: 30, fallbackLine: (input) => fallbackLineFor(input, { key: null }) });
     await s.open();
     await s.handle(details(AYA));
-    await s.finish();
+    await settled(s);
     expect(responses()).toEqual([expect.objectContaining({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT })]);
   });
 
@@ -194,8 +200,26 @@ describe("a call that cannot read the database", () => {
     await s.handle(details(AYA));
     await new Promise((r) => setTimeout(r, 150));
     expect(responses()).toEqual([expect.objectContaining({ content: TRANSFER_LINE, transfer_number: DIRECT })]);
-    await s.finish();
+    await settled(s);
     expect(notified).toEqual([]);
+  });
+
+  test("a line the gate names after the deadline is still used when the facts never come", async () => {
+    let gateDone: (d: unknown) => void = () => {};
+    const { s, responses } = session({
+      startDeadlineMs: 20,
+      gate: () => new Promise((resolve) => (gateDone = resolve)) as never,
+      fallbackLine: async () => {
+        // The gate answers while the lookup runs; the facts read then fails.
+        gateDone({ decision: "pass_through", reason: "ai_paused", directLine: DIRECT });
+        return null;
+      },
+    });
+    await s.open();
+    await s.handle(details(AYA));
+    await settled(s);
+    expect(responses()).toEqual([expect.objectContaining({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT })]);
+    expect(notified[0]!.fields.code).toBe("transferred_gate");
   });
 
   test("a caller who hangs up during a slow start is recorded as having heard nothing", async () => {
@@ -236,7 +260,7 @@ describe("a call that cannot read the database", () => {
     expect(responses()).toEqual([expect.objectContaining({ response_id: 1, transfer_number: DIRECT })]);
     await s.handle(JSON.stringify({ interaction_type: "response_required", response_id: 2, transcript: [{ role: "user", content: "hello??" }] }));
     expect(responses()[1]).toMatchObject({ response_id: 2, content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT });
-    await s.finish();
+    await settled(s);
   });
 
   test("never remembers a line equal to the clinic's published number", async () => {
@@ -248,7 +272,7 @@ describe("a call that cannot read the database", () => {
     const { s, responses } = session({ fallbackLine: down });
     await s.open();
     await s.handle(details(AYA));
-    await s.finish();
+    await settled(s);
     expect(responses()).toEqual([expect.objectContaining({ content: CLOSED_LINE, end_call: true })]);
   });
 });

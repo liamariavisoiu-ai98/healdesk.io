@@ -241,9 +241,12 @@ export class RetellCallSession {
     } catch (error) {
       log.error("retell call could not start", { clinicId: this.clinicId, error: describeError(error) });
       this.closing = true;
-      // A gate that answered before the facts failed already named the line.
-      const decision = gated as AnswerDecision | null;
-      const known = decision?.decision === "pass_through" ? decision.directLine : null;
+      // A gate that answered before the facts failed, even after the
+      // deadline, names the line: read when the fall-through decides.
+      const known = () => {
+        const decision = gated as AnswerDecision | null;
+        return decision?.decision === "pass_through" ? decision.directLine : null;
+      };
       this.sending.push(this.fallThrough(known, error instanceof Deadline ? started : null));
       return;
     }
@@ -281,7 +284,7 @@ export class RetellCallSession {
    * chain rather than in it, because the number the call came in on arrives
    * as a message (call details) after this has begun. The record waits for it.
    */
-  private async fallThrough(known: string | null, late: Promise<Started> | null): Promise<void> {
+  private async fallThrough(known: () => string | null, late: Promise<Started> | null): Promise<void> {
     // Call details may already have said this is an outbound call, which
     // callDetails has ended (v1 is inbound only): nothing more is said.
     if (this.outbound) return;
@@ -289,7 +292,11 @@ export class RetellCallSession {
     // below, never after it: the caller is already waiting.
     const lateStart = late ? withDeadline(late, LATE_START_GRACE_MS) : null;
     lateStart?.catch(() => {});
-    let found: { line: string; source: string } | null = known ? { line: known, source: "gate" } : null;
+    const gateLine = () => {
+      const line = known();
+      return line ? { line, source: "gate" } : null;
+    };
+    let found: { line: string; source: string } | null = gateLine();
     if (!found) {
       await Promise.race([
         this.callDetailsArrived,
@@ -316,6 +323,12 @@ export class RetellCallSession {
       } catch {
         if (this.outbound) return;
       }
+      found = gateLine();
+    }
+    if (this.recording) {
+      // Hung up before anything was said: nothing to say, nowhere it went.
+      void notifyOps("voice_call_start_failed", { clinicId: this.clinicId, code: "hung_up" });
+      return;
     }
     // The latest request, if the caller has spoken while this was found.
     const responseId = Math.max(this.latestResponseId, 0);

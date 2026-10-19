@@ -27,6 +27,8 @@ import { CONNECT_CONNECTED_ENTRY } from "./connect_connected";
 import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
 import { GRACE_ENDING_ENTRY } from "./grace_ending";
+import { GUARANTEE_CLAIM_RECEIVED_ENTRY, GUARANTEE_FINDING_ENTRY } from "./guarantee_claim";
+import { INCIDENT_REPORT_ENTRY } from "./incident_report";
 import { LOCATION_ADDED_ENTRY } from "./location_added";
 import { OPS_ALERT_FIXTURE, renderOpsAlert } from "./ops_alert";
 import { ORDER_CONFIRMED_DELAYED_ENTRY } from "./order_confirmed_delayed";
@@ -37,6 +39,7 @@ import { PLAN_CHANGED_ENTRY } from "./plan_changed";
 import { PLAN_STARTED_ENTRY } from "./plan_started";
 import { PRACTICE_QUESTIONS_FAILED_ENTRY } from "./practice_questions_failed";
 import { PRICE_STEPPED_UP_ENTRY } from "./price_stepped_up";
+import { PRODUCT_UPDATE_ENTRY } from "./product_update";
 import { RECEIPT_ENTRY } from "./receipt";
 import { REFUND_ISSUED_ENTRY } from "./refund_issued";
 import { RENEWAL_UPCOMING_ENTRY } from "./renewal_upcoming";
@@ -47,9 +50,12 @@ import { SETUP_REMINDER_ENTRY } from "./setup_reminder";
 import { SIGN_IN_LINK_ENTRY } from "./sign_in_link";
 import { STEP_UP_REMINDER_ENTRY } from "./step_up_reminder";
 import { STEPS_SENT_ENTRY } from "./steps_sent";
+import { SUBPROCESSOR_NOTICE_ENTRY } from "./subprocessor_notice";
 import { SUPPORT_ESCALATION_ENTRY } from "./support_escalation";
 import { SUPPORT_REQUEST_ENTRY } from "./support_request";
 import { SUSPENDED_ENTRY } from "./suspended";
+import { SUSPENDED_FOR_CAUSE_ENTRY } from "./suspended_for_cause";
+import { TERMS_NOTICE_ENTRY } from "./terms_notice";
 import type { EmailTemplate } from "./types";
 import { USAGE_100_ENTRY, USAGE_80_ENTRY } from "./usage_alert";
 import { WELCOME_ENTRY } from "./welcome";
@@ -141,6 +147,15 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   urgent: URGENT_ENTRY,
   website_message: WEBSITE_MESSAGE_ENTRY,
   calendar_check: CALENDAR_CHECK_ENTRY,
+  // The operator's notices from /admin (WP7): L28, L29's two, L30's two,
+  // L31 and L33, each from fixed fields only.
+  terms_notice: TERMS_NOTICE_ENTRY,
+  subprocessor_notice: SUBPROCESSOR_NOTICE_ENTRY,
+  incident_report: INCIDENT_REPORT_ENTRY,
+  guarantee_claim_received: GUARANTEE_CLAIM_RECEIVED_ENTRY,
+  guarantee_finding: GUARANTEE_FINDING_ENTRY,
+  suspended_for_cause: SUSPENDED_FOR_CAUSE_ENTRY,
+  product_update: PRODUCT_UPDATE_ENTRY,
   // WP10, the support chat (M7): L25 to the clinic, I3 to hello@.
   support_request: SUPPORT_REQUEST_ENTRY,
   support_escalation: SUPPORT_ESCALATION_ENTRY,
@@ -213,6 +228,15 @@ type LiveAlertKind =
   | "urgent"
   | "website_message"
   | "calendar_check";
+/** The operator's notices templated above (WP7), kept out of the pending list's type. */
+type OperatorTemplatedKind =
+  | "terms_notice"
+  | "subprocessor_notice"
+  | "incident_report"
+  | "guarantee_claim_received"
+  | "guarantee_finding"
+  | "suspended_for_cause"
+  | "product_update";
 
 /** Every kind still waiting for its template, with the session that owes it. */
 export const PENDING_TEMPLATES: Record<
@@ -235,6 +259,7 @@ export const PENDING_TEMPLATES: Record<
     | "calendar_link"
     | "calendar_election_recorded"
     | LiveAlertKind
+    | OperatorTemplatedKind
     | "support_request"
     | "support_escalation"
     | "assistant_ready"
@@ -258,15 +283,10 @@ export const PENDING_TEMPLATES: Record<
   agreement_to_sign: { owner: "plan", package: "WP9", ships: "M2 (L22)" },
   // WP11: the drift list.
   website_changes: { owner: "plan", package: "WP11", ships: "M7 (L23)" },
-  // WP7: the operator's notices and incidents, from /admin.
-  terms_notice: { owner: "plan", package: "WP7", ships: "Gate A (L28)" },
-  subprocessor_notice: { owner: "plan", package: "WP7", ships: "Gate A (L29)" },
-  incident_report: { owner: "plan", package: "WP7", ships: "Gate A (L29)" },
-  guarantee_claim_received: { owner: "plan", package: "WP7", ships: "Gate A (L30)" },
-  guarantee_finding: { owner: "plan", package: "WP7", ships: "Gate A (L30)" },
-  suspended_for_cause: { owner: "plan", package: "WP7", ships: "Gate A (L31)" },
+  // L32, a patient's request recorded from a trusted shell: its own table
+  // (patient_requests, behind the BAA gate) and the Home pointer. Not part of
+  // WP7's operator notices, which are templated above.
   patient_request: { owner: "plan", package: "WP7", ships: "M5 (L32)" },
-  product_update: { owner: "plan", package: "WP7", ships: "M7 (L33)" },
   // WP6: after cancellation.
   pass_through_ending: { owner: "plan", package: "WP6", ships: "M6 (E3)" },
   export_ready: { owner: "plan", package: "WP6", ships: "M6 (E4)" },

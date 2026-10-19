@@ -1541,6 +1541,33 @@ export const incidents = pgTable(
      * kept; see lib/incidents/incidents.ts.
      */
     ftcNotifyBy: timestamp("ftc_notify_by", { withTimezone: true }),
+    /**
+     * The deadline the clinic's agreement itself promises, set when the
+     * incident is opened from the agreement in effect then
+     * (lib/incidents/reporting-rules.ts): 60 calendar days after discovery
+     * under BAA 1.2.2 on and the DPA; five calendar days for a breach and
+     * five business days for the rest under 1.2.1 and before, and for a
+     * clinic with no agreement or one the map does not know. Null for a
+     * service complaint, which no agreement clocks. `notify_by` is healdesk's
+     * own target, stricter, and never a promise (owner, 12 October 2026).
+     */
+    agreementNotifyBy: timestamp("agreement_notify_by", { withTimezone: true }),
+    /** The version that deadline was read from, or null when there was none (the strictest rule applied). */
+    agreementVersion: text("agreement_version"),
+    /**
+     * Ops' decision on an incident the agreement covers (plan Part J,
+     * "incidents"): a report sent (L29, from fixed fields only, through the
+     * outbox) or not reportable, with the reason. Nothing reaches a clinic
+     * unless ops sends it. `reports_sent` counts the reports and their
+     * updates, so each one has its own outbox dedupe key.
+     */
+    reportedAt: timestamp("reported_at", { withTimezone: true }),
+    reportsSent: integer("reports_sent").notNull().default(0),
+    notReportableAt: timestamp("not_reportable_at", { withTimezone: true }),
+    /** Operator prose, PHI-scanned on the way in like the summary. */
+    notReportableReason: text("not_reportable_reason"),
+    /** Who decided: the administrator's address (lib/ops/api.ts). */
+    decidedBy: text("decided_by"),
     openedBy: text("opened_by").notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolution: text("resolution"),
@@ -1550,6 +1577,14 @@ export const incidents = pgTable(
   (t) => [
     index("incidents_clinic_idx").on(t.clinicId, t.discoveredAt),
     index("incidents_open_idx").on(t.notifyBy).where(sql`${t.resolvedAt} is null`),
+    // One decision: a report sent, or not reportable with its reason, never both.
+    check(
+      "incidents_decision_check",
+      sql`not (${t.reportedAt} is not null and ${t.notReportableAt} is not null)
+          and (${t.notReportableAt} is null) = (${t.notReportableReason} is null)
+          and (${t.reportedAt} is null) = (${t.reportsSent} = 0)
+          and ${t.reportsSent} >= 0`,
+    ),
   ],
 );
 

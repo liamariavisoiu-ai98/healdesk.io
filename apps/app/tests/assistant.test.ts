@@ -2,7 +2,7 @@ import { URGENT_LEAVE_NUMBER_LINE, URGENT_TEAM_TOLD_LINE } from "@healdesk/catal
 import { describe, expect, test } from "vitest";
 
 import type { AssistantFacts } from "@/lib/assistant/facts";
-import { amountsIn, cardNumberIn, guardAssistantReply, guardedLine } from "@/lib/assistant/guard";
+import { amountsIn, cardNumberIn, guardAssistantReply, guardedLine, neverSayIn } from "@/lib/assistant/guard";
 import { assistantTurnContext, buildAssistantPrompt, priceText } from "@/lib/assistant/prompt";
 import { MODEL_CONFIG, modelRequest, readModelResponse } from "@/lib/assistant/responder";
 import {
@@ -15,6 +15,7 @@ import {
   refusalLine,
   type AssistantResponder,
 } from "@/lib/assistant/turn";
+import { guardContextFor, guardReply } from "@/lib/meta/front-door";
 import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
 import { spokenPhone } from "@/lib/voice/spoken";
 
@@ -272,6 +273,36 @@ describe("the guard", () => {
     expect(guardAssistantReply("Ofrecemos guaranteed results.", facts)).toEqual({ ok: false, reason: "never_say" });
     // The same promise in Spanish is the clinical screen's to catch.
     expect(guardAssistantReply("Resultados garantizados.", facts)).toEqual({ ok: false, reason: "clinical" });
+  });
+
+  test("the never-say matcher: case, curly quotes, dashes and line breaks normalised, an empty entry never matching", () => {
+    const list = ["guaranteed results", "you're a good candidate", "risk-free", "cheapest in town", "  "];
+    for (const reply of [
+      "GUARANTEED Results, every time.",
+      "You’re a good candidate.",
+      "It’s risk–free.",
+      "It's risk—free.",
+      "We're the cheapest\nin   town.",
+    ]) {
+      expect(neverSayIn(reply, list), reply).toBe(true);
+    }
+    expect(neverSayIn("We open at 9.", list)).toBe(false);
+    expect(neverSayIn("We open at 9.", [])).toBe(false);
+    expect(neverSayIn("We open at 9.", ["", "   "])).toBe(false);
+  });
+
+  test("one never-say matcher on every channel: a reply a call or a web chat refuses for the list, the Meta front door refuses too", () => {
+    // CLAUDE.md, "Guardrails": the list goes into every conversation on
+    // every channel, so the channels cannot disagree about what is on it.
+    const list = ["cheapest in town", "best-kept secret"];
+    const meta = guardContextFor({ clinicName: FACTS.clinicName, services: [], publishedTimes: [540, 1020], neverSay: list });
+    for (const reply of ["We're the CHEAPEST in town.", "We're the best–kept secret: call the practice.", "We're the cheapest\nin town, call the practice."]) {
+      expect(guardAssistantReply(reply, { ...FACTS, neverSay: list }), reply).toEqual({ ok: false, reason: "never_say" });
+      expect(guardReply(reply, meta), reply).toEqual({ ok: false, reason: "a never-say phrase" });
+    }
+    // And what neither list holds, neither refuses for it.
+    expect(guardAssistantReply("We're open weekdays 9 to 5.", { ...FACTS, neverSay: list })).toEqual({ ok: true });
+    expect(guardReply("We're open weekdays 9 to 5; call the practice to book.", meta)).toEqual({ ok: true });
   });
 
   test("a card number is cut; a phone number is not", () => {

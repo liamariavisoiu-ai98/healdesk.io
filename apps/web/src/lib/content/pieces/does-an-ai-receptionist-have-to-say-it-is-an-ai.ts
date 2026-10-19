@@ -7,17 +7,20 @@ import type { Piece } from "@/lib/content/types";
  * (downloads.leginfo.legislature.ca.gov), because leginfo's pages refused
  * automated access that day; the URLs below are the leginfo pages for the
  * same text. Texas was read on tcss.legis.texas.gov, the server that
- * statutes.capitol.texas.gov loads its documents from.
+ * statutes.capitol.texas.gov loads its documents from. Colorado's statutes
+ * and session laws were read on the General Assembly's own sites, and the
+ * order in X.AI LLC v. Weiser in CourtListener's RECAP copy of the court's
+ * filing; later filings in that case could not be checked.
  */
 export const piece: Piece = {
   slug: "does-an-ai-receptionist-have-to-say-it-is-an-ai",
   family: "guides",
   title: "Does an AI receptionist have to say it is an AI?",
   description:
-    "What California, Texas, Utah and Maine require of an AI answering a clinic's phone or chat, who carries the duty, and what the statutes leave open.",
+    "What California, Texas, Utah, Maine and Colorado require of an AI answering a clinic's phone or chat, who carries the duty, and what the statutes leave open.",
   answer:
     "Several states require an AI assistant to say it is an AI in some conversations, and the rules differ by state and by what the conversation covers. " +
-    "California, Texas, Utah and Maine have rules that can reach an assistant on a clinic's phone or website chat, while the FCC's 2024 ruling on AI voices addresses outbound calls.",
+    "California, Texas, Utah, Maine and Colorado have rules that can reach an assistant on a clinic's phone or website chat, while the FCC's 2024 ruling on AI voices addresses outbound calls.",
   stage: "draft",
   legal: true,
   published: "2026-10-19",
@@ -48,7 +51,8 @@ export const piece: Piece = {
           kind: "p",
           text:
             "California's bot law has applied since 1 July 2019 to anyone who uses a bot to communicate or interact with a person in California online. " +
-            "It bars using a bot with intent to mislead a person about its artificial identity, to knowingly deceive them about the content of the communication and so incentivize a purchase or sale. " +
+            'It bars using a bot with intent to mislead a person about its artificial identity "for the purpose of knowingly deceiving the person about the content of the communication". ' +
+            "That purpose must be to incentivize a purchase or sale of goods or services in a commercial transaction, or to influence a vote in an election. " +
             'Disclosing that it is a bot removes liability, and the disclosure must be "clear, conspicuous, and reasonably designed to inform" the people the bot interacts with ([Business and Professions Code § 17941](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=17941)). ' +
             "The law defines online as appearing on a public-facing website, web application or digital application, and its text does not mention telephone calls.",
           cite: ["ca-bpc-17940", "ca-bpc-17941", "ca-bpc-17943"],
@@ -56,10 +60,10 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "Since 1 January 2026, AB 489 has prohibited terms in the advertising or functionality of an AI system that indicate or imply its care or advice comes from a licensed human professional. " +
+            "Since 1 January 2026, AB 489 has prohibited terms in the advertising or functionality of an AI system that indicate or imply its care, advice, reports or assessments come from a licensed human professional. " +
             'Bans in the same division of the code on terms implying a health care licence can be enforced against "a person or entity who develops or deploys" an AI system using them. ' +
             "Each use of a prohibited term counts as a separate violation. " +
-            "Enforcement sits with the appropriate health care licensing board, which may seek an injunction ([Business and Professions Code § 4999.9](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=4999.9)).",
+            'A violation is subject to "the appropriate health care professional licensing board or enforcement agency", and the board may pursue "an injunction or restraining order" ([Business and Professions Code § 4999.9](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=4999.9)).',
           cite: ["ca-bpc-4999-9"],
         },
         {
@@ -67,11 +71,18 @@ export const piece: Piece = {
           text:
             "Two California laws signed in September 2026 take effect on 1 January 2027 under the state constitution's rule for statutes enacted at a regular session. " +
             "[AB 1979](https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1979) bars a health facility, clinic, physician's office or group practice from using AI to independently perform any clinical function that the law reserves for a licensed person. " +
-            'Its definition of a clinical decision support system leaves out "appointment management such as booking, canceling and rescheduling appointments" to the extent the system\'s doing so needs no professional licence. ' +
-            "It contains no requirement to disclose the use of AI. " +
-            "[AB 1609](https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1609) bars a business taking in more than $500 million a year nationally from representing a customer service chatbot as human. " +
-            "It also requires such a business to disclose the chatbot where a reasonable person is likely to be misled into believing they are interacting with a human.",
+            'Its definition of a clinical decision support system leaves out "appointment management such as booking, canceling and rescheduling appointments". ' +
+            'That exclusion applies to the extent "the independent performance of these activities by the system does not require a professional license". ' +
+            "AB 1979 contains no requirement to disclose the use of AI.",
           cite: ["ca-ab-1979", "ca-ab-1609", "ca-const-iv-8"],
+        },
+        {
+          kind: "p",
+          text:
+            "The second, [AB 1609](https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1609), bars a business with more than $500 million in gross annual revenue nationally from representing a customer service chatbot as human. " +
+            "It also requires such a business to disclose the chatbot clearly and conspicuously where a reasonable person is likely to be misled into believing they are interacting with a human. " +
+            "The disclosure is given in the medium in which the chatbot interacts with the customer.",
+          cite: ["ca-ab-1609"],
         },
       ],
     },
@@ -82,16 +93,23 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            'The Texas Responsible Artificial Intelligence Governance Act took effect on 1 January 2026, and its section 552.051 covers AI "used in relation to health care service or treatment". ' +
-            'The duty falls on "the provider of the service or treatment", who must give the disclosure to the recipient or their personal representative by the date the service is first provided. ' +
-            "In an emergency, the provider gives the disclosure as soon as reasonably possible. " +
-            'The disclosure must be clear and conspicuous and "written in plain language", may not use a dark pattern, and may be given through a hyperlink to a separate web page.',
+            "The Texas Responsible Artificial Intelligence Governance Act took effect on 1 January 2026, and its section 552.051 contains two disclosure rules. " +
+            "Subsection (b) requires a governmental agency that makes available an AI system intended to interact with consumers to disclose, before or at the time of interaction, that the consumer is interacting with AI. " +
+            'Where AI is "used in relation to health care service or treatment", subsection (f) says that "the provider of the service or treatment shall provide the disclosure under Subsection (b)". ' +
+            "The provider gives it to the recipient or their personal representative by the date the service is first provided, or as soon as reasonably possible in an emergency.",
           cite: ["tx-hb-149", "tx-bcc-552"],
         },
         {
           kind: "p",
           text:
-            "The same section defines health care services as services related to human health, or to diagnosing, preventing or treating disease, provided by a licensed, registered or certified individual. " +
+            'A disclosure under subsection (b) must be clear and conspicuous and "written in plain language", may not use a dark pattern, and may be given through a hyperlink to a separate web page. ' +
+            "It is required even where it would be obvious to a reasonable consumer that they are interacting with AI. " +
+            'The section defines health care services as services related to human health, or to the diagnosis, prevention or treatment of "a human disease or impairment", provided by a licensed, registered or certified individual.',
+          cite: ["tx-bcc-552"],
+        },
+        {
+          kind: "p",
+          text:
             "The attorney general has exclusive authority to enforce Chapter 552, except for the agency sanctions in section 552.106, and the chapter creates no private right of action. " +
             "Before suing, the attorney general must give written notice and wait 60 days. " +
             "It may not sue a person who, in that time, cures the violation and states in writing that it did so, provided supporting documentation of how and changed internal policies as necessary. " +
@@ -125,8 +143,15 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            'Chapter 77\'s safe harbour covers a person whose generative AI "clearly and conspicuously discloses", at the outset and throughout an interaction, that it is generative AI, is not human, or is "an artificial intelligence assistant". ' +
-            "The state's Division of Consumer Protection enforces the chapter and may impose an administrative fine of up to $2,500 for each violation. " +
+            'Chapter 77\'s safe harbour shields a person from "an enforcement action for violating Section 13-77-103" when the person\'s generative AI makes a qualifying disclosure. ' +
+            'To qualify, the AI discloses "clearly and conspicuously" that it is generative AI, is not human, or is "an artificial intelligence assistant". ' +
+            'It does so at the outset of any interaction "in connection with" a consumer transaction or the provision of regulated services, and throughout the interaction. ' +
+            "The state's Division of Consumer Protection enforces the chapter, and its director may impose an administrative fine of up to $2,500 for each violation.",
+          cite: ["ut-13-77"],
+        },
+        {
+          kind: "p",
+          text:
             "Utah's separate Artificial Intelligence Policy Act, Title 13, Chapter 72, is due to be repealed on 1 July 2027, a date set by two 2025 bills, SB 226 and SB 332. " +
             "Chapter 77 is not listed in either section of the Utah Code that sets repeal dates for Title 13, though it borrows its definition of artificial intelligence technology from Chapter 72.",
           cite: ["ut-13-77", "ut-63i-2-213", "ut-63i-1-213", "ut-sb-226", "ut-sb-332"],
@@ -140,7 +165,7 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "Maine bars using an AI chatbot or other computer technology in trade and commerce in a way that may lead a reasonable consumer to believe they are dealing with a human. " +
+            'Maine bars using an AI chatbot or other computer technology in trade and commerce in a way that "may mislead or deceive a reasonable consumer" into believing they are dealing with a human. ' +
             'The bar lifts if the consumer is notified "in a clear and conspicuous manner" that they are not engaging with a human being. ' +
             'A violation is a violation of the Maine Unfair Trade Practices Act, and the law\'s definition of a chatbot covers simulated conversation "through textual or aural communications". ' +
             "The law, Public Law 2025, chapter 294, was signed on 12 June 2025, took effect on 24 September 2025 and now sits at [10 M.R.S. § 1500-DD](https://legislature.maine.gov/statutes/10/title10sec1500-DD-1.html).",
@@ -154,19 +179,50 @@ export const piece: Piece = {
       ],
     },
     {
+      id: "colorado",
+      heading: "What does Colorado require?",
+      blocks: [
+        {
+          kind: "p",
+          text:
+            'Colorado\'s [C.R.S. § 6-1-1704](https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-06.pdf), enacted by SB 24-205, covers "a deployer or other developer" that makes available an AI system "intended to interact with consumers". ' +
+            "That deployer or developer must ensure that each consumer who interacts with the system is told it is an AI system, unless that would be obvious to a reasonable person. " +
+            "The section contains no exclusion for customer service. " +
+            "Part 17 defines a deployer as a person doing business in Colorado that deploys a high-risk AI system, and a developer as one that develops or intentionally and substantially modifies an AI system. " +
+            "The attorney general has exclusive authority to enforce Part 17, and a violation is an unfair trade practice.",
+          cite: ["co-crs-6"],
+        },
+        {
+          kind: "p",
+          text:
+            "[SB 25B-004](https://leg.colorado.gov/laws/session-laws/SB25B-004/3/download), approved on 28 August 2025, moved the start of the section's duty from 1 February 2026 to 30 June 2026. " +
+            "On 27 April 2026, in [X.AI LLC v. Weiser](https://storage.courtlistener.com/recap/gov.uscourts.cod.253513/gov.uscourts.cod.253513.24.0.pdf), a federal magistrate judge granted the parties' joint motion and stipulation to stay enforcement temporarily. " +
+            "The order bars the attorney general from initiating enforcement, including an investigation, for violations up to 14 days after the court rules on xAI's forthcoming motion for a preliminary injunction. " +
+            "It covers SB 24-205 and any legislation replacing or amending it enacted during that legislative session, and later filings in the case could not be checked for this page.",
+          cite: ["co-sb25b-004", "xai-weiser-ecf24"],
+        },
+        {
+          kind: "p",
+          text:
+            "[SB 26-189](https://leg.colorado.gov/bill_files/116489/download), signed on 14 May 2026, repeals and re-enacts Part 17 from 1 January 2027, and its notices concern automated decision-making technology used in consequential decisions. " +
+            "[HB 26-1263](https://leg.colorado.gov/laws/session-laws/HB26-1263/208/download), approved on 29 May 2026, requires operators of conversational AI services accessible to the general public to disclose clearly and conspicuously that the service is AI, from 1 January 2027. " +
+            "Its definition leaves out software primarily designed for commerce-related or transactional assistance, including customer service, and software used by or for a HIPAA covered entity or business associate. " +
+            "HB 26-1263 adds its duty to Part 17 as section 6-1-1708, while SB 26-189 re-enacts Part 17 with a different section 6-1-1708, and neither act refers to the other.",
+          cite: ["co-sb26-189", "co-sb26-189-act", "co-hb26-1263"],
+        },
+      ],
+    },
+    {
       id: "other-states",
       heading: "Do other states have chatbot disclosure laws?",
       blocks: [
         {
           kind: "p",
           text:
-            "Several chatbot laws passed in 2025 and 2026 require companion or conversational chatbots to disclose that they are AI, and each excludes some customer-service software. " +
+            "Several laws passed in 2025 and 2026 require companion chatbots to disclose that they are AI, and each excludes some customer-service software. " +
             "California's companion chatbot law excludes \"a bot that is used only for customer service\". " +
             "Oregon's 2026 law excludes software operating solely for customer service or support, or for assisting or supporting patient or resident care services in a facility. " +
-            "Washington's law, in force from 1 January 2027, excludes a bot used only for customer service if it does not sustain a relationship across multiple interactions and generate outputs likely to elicit emotional responses. " +
-            "Colorado's 2026 law requires operators of public conversational AI services to disclose that they are AI from 1 January 2027. " +
-            "It excludes software primarily designed for customer service, and software used by or for a HIPAA covered entity or its business associate. " +
-            "SB 26-189, approved on 14 May 2026, repeals and re-enacts the part of Colorado's statutes holding that law on 1 January 2027, with a different section 6-1-1708, and neither act refers to the other.",
+            "Washington's law, in force from 1 January 2027, excludes a bot used only for customer service if it does not sustain a relationship across multiple interactions and generate outputs likely to elicit emotional responses.",
           cite: [
             "ca-bpc-22601",
             "ca-bpc-22602",
@@ -174,8 +230,6 @@ export const piece: Piece = {
             "or-sb-1546-overview",
             "wa-hb-2225",
             "wa-hb-2225-sl",
-            "co-hb26-1263",
-            "co-sb26-189-act",
           ],
         },
         {
@@ -238,7 +292,8 @@ export const piece: Piece = {
             "The health-specific laws put the duty on the health facility, clinic or practice in California and on the provider of the service or treatment in Texas. " +
             "California's AB 489 reaches whoever develops or deploys the AI system. " +
             "The general bot laws in California and Maine apply to any person who uses a bot or chatbot in the ways they describe. " +
-            "Utah splits the duty between a supplier, who must answer when asked, and an individual in a regulated occupation, who must disclose in high-risk interactions.",
+            "Utah splits the duty between a supplier, who must answer when asked, and an individual in a regulated occupation, who must disclose in high-risk interactions. " +
+            "Colorado's section 6-1-1704 puts it on a deployer or other developer that makes the system available to consumers.",
           cite: [
             "ca-hsc-1339-75",
             "tx-bcc-552",
@@ -246,6 +301,7 @@ export const piece: Piece = {
             "ca-bpc-17941",
             "me-1500-dd",
             "ut-13-77",
+            "co-crs-6",
           ],
         },
         {
@@ -268,7 +324,7 @@ export const piece: Piece = {
             [
               "California SB 1001, [Business and Professions Code § 17941](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=17941)",
               "Any person using a bot",
-              "A bot used online to mislead about its artificial identity, knowingly deceiving a person to incentivize a purchase or sale",
+              "A bot used online with intent to mislead about its artificial identity, for the purpose of knowingly deceiving a person about the content of the communication to incentivize a purchase or sale or influence a vote",
               "1 July 2019",
             ],
             [
@@ -279,7 +335,7 @@ export const piece: Piece = {
             ],
             [
               "Texas TRAIGA, [Business and Commerce Code § 552.051(f)](https://tcss.legis.texas.gov/resources/BC/htm/BC.552.htm)",
-              "The provider of the health care service or treatment",
+              "The provider of the health care service or treatment, which subsection (f) directs to give the disclosure that subsection (b) requires of governmental agencies",
               "AI used in relation to health care service or treatment",
               "1 January 2026",
             ],
@@ -298,8 +354,14 @@ export const piece: Piece = {
             [
               "Maine, [10 M.R.S. § 1500-DD](https://legislature.maine.gov/statutes/10/title10sec1500-DD-1.html)",
               "A person using a chatbot in trade and commerce",
-              "A chatbot that may lead a reasonable consumer to believe it is human",
+              "A chatbot that may mislead or deceive a reasonable consumer into believing it is human",
               "24 September 2025",
+            ],
+            [
+              "Colorado SB 24-205, [C.R.S. § 6-1-1704](https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-06.pdf)",
+              "A deployer or other developer that makes available an AI system intended to interact with consumers",
+              "A consumer interacting with the system, unless it would be obvious to a reasonable person that it is AI",
+              "30 June 2026 (SB 25B-004), subject to the April 2026 order in X.AI LLC v. Weiser",
             ],
           ],
           cite: [
@@ -312,6 +374,9 @@ export const piece: Piece = {
             "me-1500-dd",
             "me-legislature",
             "me-ld-1727",
+            "co-crs-6",
+            "co-sb25b-004",
+            "xai-weiser-ecf24",
           ],
         },
       ],
@@ -331,12 +396,15 @@ export const piece: Piece = {
           kind: "list",
           items: [
             'Texas: whether booking a visit is AI "used in relation to health care service or treatment". The Act defines health care services by what they are and who provides them, and it does not mention scheduling, while California\'s AB 3030 excludes appointment scheduling in terms.',
+            'Texas: whether subsection (f) binds a provider that is not a governmental agency, since it requires "the disclosure under Subsection (b)" and subsection (b) is addressed to governmental agencies.',
             'Texas: whether a disclosure spoken at the start of a call meets the rule that the disclosure "must be written in plain language". A related question is whether a written notice is also needed by the date the service is first provided.',
             "California: where a booking conversation ends and patient clinical information begins, for example when a caller asks how long recovery takes after a treatment. AB 3030 defines that information only as information relating to a patient's health status.",
             'California: whether a telephone call can fall within the bot law\'s "online", which the statute defines as appearing on a public-facing website, web application or digital application.',
             'Utah: whether a clinic\'s front-desk assistant is used "in the provision of regulated services" by an individual in a regulated occupation. The text also does not say how a written disclosure comes before a written exchange when the patient sends the first message.',
             "Utah: how Chapter 77's borrowed definition of artificial intelligence technology reads after Chapter 72 is repealed on 1 July 2027, which neither chapter says.",
             "Maine: what clear and conspicuous notice requires on a voice call, which the statute does not specify.",
+            'Colorado: whether a clinic or its vendor is "a deployer or other developer" under section 6-1-1704, since Part 17 defines a deployer by its use of a high-risk AI system.',
+            "Colorado: how long the April 2026 order in X.AI LLC v. Weiser defers enforcement, since it runs to 14 days after a ruling on a motion that had not been filed when the order was entered.",
             "Colorado: how HB 26-1263's disclosure duty is codified from 1 January 2027, when SB 26-189 re-enacts the same part of the statutes with a different section 6-1-1708.",
             "Federal: whether the proceedings that Executive Order 14365 directs will produce a federal disclosure standard that displaces any of these state laws.",
           ],
@@ -347,6 +415,8 @@ export const piece: Piece = {
             "ut-13-77",
             "ut-63i-2-213",
             "me-1500-dd",
+            "co-crs-6",
+            "xai-weiser-ecf24",
             "co-hb26-1263",
             "co-sb26-189-act",
             "eo-14365",
@@ -356,9 +426,9 @@ export const piece: Piece = {
     },
   ],
   aya: [
-    "AYA is built to open its side of every call it holds by saying that it is an AI assistant, not a human, and that the call is transcribed with no audio recording kept.",
-    "Website chats are built to open with a line saying the visitor is chatting with an AI assistant, and the first reply on Instagram, Messenger and WhatsApp says the same.",
-    "The clinic cannot switch the line off or edit it out through its greeting.",
+    "AYA is designed to open each call it answers by saying that it is an AI assistant, not a human, and that the call is transcribed with no audio recording kept.",
+    "AYA is designed to open each website chat with a line saying the visitor is chatting with an AI assistant, and to say the same in its first reply on Instagram, Messenger and WhatsApp.",
+    "AYA is designed so that the clinic cannot switch these lines off or edit them out through its greeting.",
   ],
   sources: [
     {
@@ -605,6 +675,41 @@ export const piece: Piece = {
       publisher: "Colorado General Assembly",
       url: "https://leg.colorado.gov/bill_files/116489/download",
       kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "co-crs-6",
+      title:
+        "Colorado Revised Statutes 2024, Title 6, Part 17 (§§ 6-1-1701 to 6-1-1707)",
+      publisher:
+        "Colorado General Assembly, Office of Legislative Legal Services",
+      url: "https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-06.pdf",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "co-sb25b-004",
+      title: "Senate Bill 25B-004, session laws, chapter 3",
+      publisher: "Colorado General Assembly",
+      url: "https://leg.colorado.gov/laws/session-laws/SB25B-004/3/download",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "xai-weiser-ecf24",
+      title:
+        "X.AI LLC v. Weiser, No. 1:26-cv-01515 (D. Colo.), minute order of 27 April 2026, ECF No. 24 (RECAP copy)",
+      publisher: "US District Court for the District of Colorado, via CourtListener",
+      url: "https://storage.courtlistener.com/recap/gov.uscourts.cod.253513/gov.uscourts.cod.253513.24.0.pdf",
+      kind: "court",
+      checked: "2026-10-19",
+    },
+    {
+      id: "co-sb26-189",
+      title: "SB26-189, Automated Decision-Making Technology, bill page",
+      publisher: "Colorado General Assembly",
+      url: "https://leg.colorado.gov/bills/sb26-189",
+      kind: "government",
       checked: "2026-10-19",
     },
     {

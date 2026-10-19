@@ -212,14 +212,27 @@ export function clinicalIn(reply: string, facts: ScreenFacts): boolean {
   return PLAIN_CLINICAL.some((pattern) => pattern.test(text));
 }
 
+/**
+ * Whether a reply contains an entry of a never-say list: case, curly quotes,
+ * dashes and runs of whitespace (a line break among them) normalised on both
+ * sides, then matched as a substring. One function for every channel: the
+ * Meta front door's guard calls it too (lib/meta/front-door.ts, guardReply),
+ * so a phrase refused on a call is refused on Instagram, Messenger and
+ * WhatsApp, and the two cannot drift apart.
+ */
+export function neverSayIn(reply: string, list: readonly string[]): boolean {
+  const text = normalise(reply);
+  return list.some((phrase) => {
+    const p = normalise(phrase).trim();
+    return p !== "" && text.includes(p);
+  });
+}
+
 export function guardAssistantReply(reply: string, facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts): GuardVerdict {
   const text = normalise(reply);
   if (!text.trim()) return { ok: false, reason: "empty" };
   // English entries matched as written, in a reply in either language (see the file header).
-  for (const phrase of facts.neverSay) {
-    const p = normalise(phrase).trim();
-    if (p && text.includes(p)) return { ok: false, reason: "never_say" };
-  }
+  if (neverSayIn(reply, facts.neverSay)) return { ok: false, reason: "never_say" };
   const allowed = allowedAmounts(facts);
   for (const cents of amountsIn(reply)) {
     if (!allowed.has(cents)) return { ok: false, reason: "price" };

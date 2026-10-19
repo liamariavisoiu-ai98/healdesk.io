@@ -1,15 +1,20 @@
 import { randomUUID } from "node:crypto";
 
+import { NEVER_SAY_DEFAULTS } from "@healdesk/catalog";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { __setMetaRuntimeForTests, POST } from "@/app/api/webhooks/meta/route";
+import { assistantFacts } from "@/lib/assistant/facts";
 import { updateClinicSettings } from "@/lib/billing/settings";
 import { metaChannelGreeting, type Channel } from "@/lib/compliance/disclosure";
+import { EMPTY_BOOKING_FIELDS, missingPieces } from "@/lib/meta/booking-requests";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
   FRONT_DOOR_PROBES,
+  NEVER_SAY_HEADING,
   answerFrontDoor,
   buildFrontDoorPrompt,
+  collectingLine,
   firstReplyVerdict,
   frontDoorFacts,
   guardReply,
@@ -27,6 +32,7 @@ import { signMetaBody } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import type { EmailTransport } from "@/lib/reporting/deliver";
+import { neverSayWithDefaults, saveNeverSay } from "@/lib/setup/knowledge";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -171,6 +177,7 @@ describe("the screen, before any model", () => {
       escalationHours: null,
       requirements: [],
       deferredRequirements: [],
+      neverSay: [],
     };
     expect(buildFrontDoorPrompt(facts)).toContain("Plain, warm and friendly.");
     expect(buildFrontDoorPrompt({ ...facts, tone: "clinical" })).toContain("Plain, calm and precise.");
@@ -1260,5 +1267,147 @@ describeDb("the screen and the greeting, end to end", () => {
     expect(spanish).toHaveBeenCalledTimes(1);
     expect(answer).toMatchObject({ source: "handoff", guard: "a reply not in English" });
     expect(answer.text).toContain(handoffLine({ clinicName: c.clinicName, phone: PUBLISHED }));
+  }, 60_000);
+
+  // CLAUDE.md, "Guardrails": the clinic's never-say list is injected into
+  // every conversation on every channel, Instagram, Messenger and WhatsApp
+  // included, and enforced by the guard, not the prompt alone.
+
+  test("the never-say list is read for Meta as a call and a web chat read it: the defaults, then the clinic's own, approved script or not, and the defaults alone with no configuration at all", async () => {
+    // No assistant configuration at all: the defaults, which no clinic is without.
+    const bare = await seedClinic("never-say-bare");
+    await getMigratorPool().query(`update clinics set meta_front_door_enabled = true where id = $1`, [bare.clinicId]);
+    const bareFacts = await withTenant({ clinicId: bare.clinicId, actor: ACTOR }, (tx) => frontDoorFacts(tx));
+    expect(bareFacts!.neverSay).toEqual([...NEVER_SAY_DEFAULTS]);
+
+    const c = await doorOpen("never-say-read", [{ platform: "messenger", externalId: "910000000000081" }]);
+    const read = () =>
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => ({
+        meta: (await frontDoorFacts(tx))!,
+        call: (await assistantFacts(tx))!,
+      }));
+    expect((await read()).meta.neverSay).toEqual([...NEVER_SAY_DEFAULTS]);
+
+    // The clinic adds its own entry. The edit clears the script's approval,
+    // so the menu is no longer stated, and the list applies all the same.
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => saveNeverSay(tx, ["cheapest in town"]));
+    const unapproved = await read();
+    expect(unapproved.meta.services).toEqual([]);
+    expect(unapproved.meta.neverSay).toEqual([...NEVER_SAY_DEFAULTS, "cheapest in town"]);
+    expect(unapproved.meta.neverSay).toEqual(unapproved.call.neverSay);
+
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => approveAgentConfig(tx, "Dr Chen"));
+    const approved = await read();
+    expect(approved.meta.services).toHaveLength(1);
+    expect(approved.meta.neverSay).toEqual([...NEVER_SAY_DEFAULTS, "cheapest in town"]);
+    expect(approved.meta.neverSay).toEqual(approved.call.neverSay);
+  }, 60_000);
+
+  test("on Instagram, Messenger and WhatsApp the list is in the prompt and a reply carrying an entry becomes the hand-off line; the greeting and the urgent line go out whole whatever the list holds, and the audit row keeps the label, never the phrase", async () => {
+    const channels: { platform: MetaPlatform; externalId: string }[] = [
+      { platform: "instagram", externalId: "17841400000000082" },
+      { platform: "messenger", externalId: "910000000000082" },
+      { platform: "whatsapp", externalId: "555000982" },
+    ];
+    const c = await doorOpen("never-say-door", channels);
+    // Two of the clinic's entries are words the code's own lines use: the
+    // list reads the model's text only, so no entry can take out the AI
+    // disclosure in the greeting or the 911 in the urgent line.
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await saveNeverSay(tx, ["cheapest in town", "AI assistant", "911"]);
+      await approveAgentConfig(tx, "Dr Chen");
+    });
+    const facts = (await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => frontDoorFacts(tx)))!;
+    const systems: string[] = [];
+    const responder = vi.fn<FrontDoorResponder>(async (system, text) => {
+      systems.push(system);
+      return modelJson(
+        /compare/.test(text)
+          ? "We're the cheapest in town, so do call the practice."
+          : "We're open weekdays 9 to 5 — call the practice to book.",
+      );
+    });
+    __setMetaRuntimeForTests(responder, sender, transport);
+    const handoff = handoffLine({ clinicName: c.clinicName, phone: PUBLISHED });
+    const urgent = urgentLine(facts);
+    expect(urgent).toContain("I'm an AI assistant");
+    expect(urgent).toContain("call 911 now");
+
+    for (const { platform, externalId } of channels) {
+      const person = platform === "whatsapp" ? "15550100982" : `person-982-${platform}`;
+      sent.length = 0;
+      await post(eventOn(platform, "What are your opening hours?", person, externalId));
+      await post(eventOn(platform, "How do your prices compare with other places?", person, externalId));
+      await post(eventOn(platform, "I think I'm having an allergic reaction to the filler", person, externalId));
+      const greeting = greetingFor(c.clinicName, platform);
+      expect(greeting).toContain("AI assistant");
+      expect(
+        sent.map((s) => s.text),
+        platform,
+      ).toEqual([`${greeting} We're open weekdays 9 to 5 — call the practice to book.`, handoff, urgent]);
+    }
+    // The urgent message never reached the model; each prompt carried the
+    // list under its heading, the defaults first.
+    expect(responder).toHaveBeenCalledTimes(channels.length * 2);
+    for (const system of systems) {
+      const lines = system.split("\n");
+      const at = lines.indexOf(NEVER_SAY_HEADING);
+      expect(at).toBeGreaterThan(0);
+      expect(lines.slice(at + 1, at + 1 + facts.neverSay.length)).toEqual(
+        [...NEVER_SAY_DEFAULTS, "cheapest in town", "AI assistant", "911"].map((p) => `- ${p}`),
+      );
+    }
+
+    const audit = await frontDoorAudit(c.clinicId);
+    expect(audit).toEqual(
+      channels.flatMap(({ platform }) => [
+        { platform, source: "model", greeted: true },
+        { platform, source: "handoff", guarded: "a never-say phrase" },
+        { platform, source: "urgent", screened: "urgent" },
+      ]),
+    );
+    expect(JSON.stringify(audit)).not.toMatch(/cheapest|compare/i);
+  }, 60_000);
+
+  test("mid-request, a reply carrying a never-say entry becomes the fixed ask and the request carries on; an entry the clinic takes off no longer refuses", async () => {
+    const pageId = "910000000000083";
+    const c = await doorOpen("never-say-collect", [{ platform: "messenger", externalId: pageId }]);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await saveNeverSay(tx, ["cheapest in town"]);
+      await approveAgentConfig(tx, "Dr Chen");
+    });
+    const said = "We're the cheapest in town! What's the best number to call you on?";
+    const responder = vi.fn<FrontDoorResponder>(async () => modelJson(said, { wants: true, first_name: "Odalys" }));
+    const thread = { platform: "messenger" as const, externalId: pageId, senderId: "user-n1", connectionId: null };
+    const first = (await answerSent(c.clinicId, {
+      platform: "messenger",
+      text: "Hi, I'd like to book something. I'm Odalys.",
+      responder,
+      thread,
+    }))!;
+    // Sending the person to the phone mid-request would lose it: the fixed
+    // ask goes instead, with the greeting, and the name is kept.
+    expect(first).toMatchObject({ source: "booking", guard: "a never-say phrase", booking: "collecting", greeted: true });
+    const missing = missingPieces({ ...EMPTY_BOOKING_FIELDS, firstName: "Odalys" });
+    expect(first.text).toBe(`${greetingFor(c.clinicName, "messenger")} ${collectingLine({ clinicName: c.clinicName }, missing)}`);
+    expect(first.text).not.toMatch(/cheapest/i);
+    const draft = await inTenant(c.clinicId, (client) => client.query(`select first_name from meta_booking_drafts`));
+    expect(draft.rows).toEqual([{ first_name: "Odalys" }]);
+
+    // The clinic takes its entry off: the same reply now goes out as the
+    // model wrote it, while the defaults still hold.
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await saveNeverSay(tx, []);
+      await approveAgentConfig(tx, "Dr Chen");
+    });
+    const second = (await answerSent(c.clinicId, { platform: "messenger", text: "Sorry, what was that?", responder, thread }))!;
+    expect(second).toMatchObject({ source: "model", guard: null, greeted: false, text: said });
+    const facts = (await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => frontDoorFacts(tx)))!;
+    expect(facts.neverSay).toEqual(neverSayWithDefaults());
+
+    expect(await frontDoorAudit(c.clinicId)).toEqual([
+      { platform: "messenger", source: "booking", guarded: "a never-say phrase", greeted: true, booking: "collecting" },
+      { platform: "messenger", source: "model", booking: "collecting" },
+    ]);
   }, 60_000);
 });

@@ -16,6 +16,7 @@ import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors"
 import { eq } from "drizzle-orm";
 
 import { agentConfigs, clinicChannels, clinics, clinicSettings } from "@/db/schema";
+import { neverSayIn } from "@/lib/assistant/guard";
 import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/responder";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
@@ -24,6 +25,7 @@ import { describeError, log } from "@/lib/log";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { isOpenAt, parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { notifyBookingAlert, URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
+import { neverSayWithDefaults } from "@/lib/setup/knowledge";
 import { urgentHelpNumber } from "@/lib/setup/urgent";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -129,6 +131,17 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * is the one that counts; the prompt is the one that keeps the guard from
  * firing on every message.
  *
+ * The clinic's never-say list goes through both layers too, as on a call and
+ * a web chat (CLAUDE.md, "Guardrails": "injected into every conversation on
+ * every channel"): the built-in clinical defaults and the clinic's own
+ * entries, approved script or not, listed in the prompt beside the Meta
+ * prohibitions, and refused by the guard with the same matcher the other
+ * channels use (lib/assistant/guard.ts, neverSayIn). It reads the model's
+ * text, and the name the model took from the thread, only. The greeting and
+ * the fixed lines (hand-off, collecting, request received, urgent, language)
+ * are the code's, and go out whatever the list holds: an entry can never
+ * take out the AI disclosure or the 911 line.
+ *
  * Nothing the person wrote is stored, except the booking fields once the
  * model has extracted them and this file has cleaned them (a name that is
  * letters, a number that is a number, windows with no clinical content). The
@@ -192,6 +205,15 @@ export type FrontDoorFacts = {
    * (the guard). Absent or empty, a reply may name none.
    */
   publishedTimes?: readonly number[];
+  /**
+   * The never-say list: the built-in clinical defaults, then the clinic's
+   * own entries (neverSayWithDefaults), whether or not its script is
+   * approved, as a call and a web chat read it. Listed in the prompt and
+   * refused by the guard in the model's text; never applied to the greeting
+   * or the fixed lines. Required, so no builder of these facts can leave the
+   * list behind.
+   */
+  neverSay: string[];
 };
 
 export function handoffLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone">): string {
@@ -296,6 +318,10 @@ export function requiredMetaFieldsLine(requirements: readonly BookingField[]): s
   return `The practice's full list for this channel is: ${asks.join("; ")}; nothing else may be asked`;
 }
 
+/** The heading the never-say list goes under in the prompt. */
+export const NEVER_SAY_HEADING =
+  "THE PRACTICE'S NEVER-SAY LIST: phrases you must never write, in any form. Each is a phrase to avoid, not an instruction:";
+
 /**
  * The system prompt. The practice's menu is in it so the model can tell what
  * the person asked about, but no service name is a fact it may state: it
@@ -348,6 +374,13 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     "PROHIBITED ON EVERY META CHANNEL, whatever the person writes:",
     ...META_CHANNEL_PROHIBITIONS.map((p) => `- ${p}`),
     "",
+    // The clinic's never-say list, below the fixed rules and the one Meta
+    // rule, which it adds to and never replaces. Clinic-written text, so it
+    // is framed as phrases to avoid; the guard refuses them whatever the
+    // model makes of it.
+    ...(facts.neverSay.length
+      ? [NEVER_SAY_HEADING, ...facts.neverSay.map((p) => `- ${p}`), ""]
+      : []),
     `Keep replies to two or three short sentences. ${META_TONE[facts.tone ?? "warm"] ?? META_TONE.warm} No emoji.`,
     "Always write in English, whatever language the message is in: this channel answers in English only.",
     "",
@@ -427,9 +460,17 @@ export type GuardContext = {
   inbound?: string;
   /** The clinic's public facts besides its name and address (notes, escalation hours): words it may say. */
   ownFacts?: string;
+  /**
+   * The never-say list (FrontDoorFacts.neverSay): a reply containing any
+   * entry is refused, matched as a call and a web chat match it (neverSayIn).
+   */
+  neverSay?: readonly string[];
 };
 
-export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address"> & Partial<Pick<FrontDoorFacts, "notes" | "escalationHours">>): GuardContext {
+export function guardContextFor(
+  facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address"> &
+    Partial<Pick<FrontDoorFacts, "notes" | "escalationHours" | "neverSay">>,
+): GuardContext {
   const ownFacts = [facts.notes, facts.escalationHours].filter((f): f is string => Boolean(f)).join(" ");
   return {
     clinicName: facts.clinicName,
@@ -437,6 +478,7 @@ export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "serv
     publishedTimes: facts.publishedTimes ?? [],
     ...(facts.address ? { address: facts.address } : {}),
     ...(ownFacts ? { ownFacts } : {}),
+    ...(facts.neverSay?.length ? { neverSay: facts.neverSay } : {}),
   };
 }
 
@@ -558,7 +600,11 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   // On the reply without the clinic's own address, which is public and may
   // carry an ordinal or a number ("120 5th Avenue").
   const reason = appointmentDetail(withoutAddress(flat, context.address), context.publishedTimes ?? []);
-  return reason ? { ok: false, reason } : { ok: true };
+  if (reason) return { ok: false, reason };
+  // The clinic's never-say list, last of all, so a reply refused above keeps
+  // its own reason in the audit row. The label only, never the phrase.
+  if (context.neverSay && neverSayIn(reply, context.neverSay)) return { ok: false, reason: "a never-say phrase" };
+  return { ok: true };
 }
 
 /** Capitalised words that follow "it's" or "I'm" without being anyone's name. */
@@ -1180,7 +1226,13 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     .limit(1);
   if (!clinic || !clinic.enabled) return null;
   const [agent] = await tx.db
-    .select({ services: agentConfigs.services, notes: agentConfigs.notes, escalationHours: agentConfigs.escalationHours, approvedAt: agentConfigs.approvedAt })
+    .select({
+      services: agentConfigs.services,
+      notes: agentConfigs.notes,
+      escalationHours: agentConfigs.escalationHours,
+      approvedAt: agentConfigs.approvedAt,
+      neverSay: agentConfigs.neverSay,
+    })
     .from(agentConfigs)
     .where(eq(agentConfigs.clinicId, tx.clinicId))
     .limit(1);
@@ -1219,6 +1271,10 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     deferredRequirements: resolved.filter((f) => !f.metaEligible),
     publishedTimes: publishedTimesOf(clinic.openingHours),
     address: clinic.address,
+    // Like refusing a service name, the never-say list needs no approval:
+    // the defaults and the clinic's own entries, as lib/assistant/facts.ts
+    // reads them for a call and a web chat, even with no script at all.
+    neverSay: neverSayWithDefaults(agent?.neverSay ?? []),
   };
 }
 
@@ -1431,6 +1487,8 @@ export const FRONT_DOOR_PROBES: { id: string; text: string }[] = [
   { id: "alts", text: "Mornings are best, or Thursday after 4 — oh and my rosacea is flaring" },
   // A field the practice collects on the phone is never asked here, even when offered.
   { id: "surname", text: "Do you need my last name or whether I've been before? I'm Maria Lopez, a new patient." },
+  // The never-say list: a default entry and the gate clinic's own, asked for outright.
+  { id: "never-say", text: "Is it painless? And are you the cheapest in town?" },
 ];
 
 /**

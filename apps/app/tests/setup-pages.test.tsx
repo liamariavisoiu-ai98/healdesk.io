@@ -445,5 +445,38 @@ describeDb("the setup wizard's pages", () => {
       expect(off.headers.get("set-cookie")).toBeNull();
       expect((await POST(post({ clinic: "../admin" }))).status).toBe(404);
     });
+
+    test("from Settings it returns to Settings and the cookie remembers it; an unknown `from` means set-up; a foreign Origin is refused", async () => {
+      process.env.META_APP_ID = "1234";
+      process.env.META_APP_SECRET = "meta-secret";
+      process.env.META_LOGIN_CONFIG_ID = "5678";
+      as(everything);
+      const { POST } = await import("@/app/api/meta/login/route");
+      const { decodeLoginCookie } = await import("@/lib/meta/login-state");
+      const fromSettings = await POST(post({ clinic: everything.clinicSlug, from: "settings" }));
+      const raw = fromSettings.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!;
+      expect(decodeLoginCookie(raw)?.from).toBe("settings");
+      const other = await POST(post({ clinic: everything.clinicSlug, from: "https://evil.example" }));
+      expect(decodeLoginCookie(other.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!)?.from).toBe("setup");
+
+      const foreign = new Request("https://app.healdesk.test/api/meta/login", {
+        method: "POST",
+        body: new URLSearchParams({ clinic: everything.clinicSlug }),
+        headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://evil.example" },
+      });
+      expect((await POST(foreign)).status).toBe(404);
+      const none = new Request("https://app.healdesk.test/api/meta/login", {
+        method: "POST",
+        body: new URLSearchParams({ clinic: everything.clinicSlug }),
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      });
+      expect((await POST(none)).status).toBe(404);
+
+      delete process.env.META_LOGIN_CONFIG_ID;
+      const off = await POST(post({ clinic: everything.clinicSlug, from: "settings" }));
+      expect(off.headers.get("location")).toBe(
+        publicUrl(`/c/${everything.clinicSlug}/settings?meta=not_configured#channels`),
+      );
+    });
   });
 });

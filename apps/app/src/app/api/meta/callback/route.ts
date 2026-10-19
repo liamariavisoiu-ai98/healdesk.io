@@ -12,6 +12,10 @@ import {
   seeOther,
 } from "@/lib/meta/connect-http";
 import { portalReturnUrl } from "@/lib/meta/portal-return";
+import { replacesConnectedAsset, retireDroppedFacebookRows } from "@/lib/meta/reconnect";
+import { portalOrNull } from "@/lib/portal/access";
+import { portalActor } from "@/lib/portal/actor";
+import { stepUpPath } from "@/lib/portal/step-up";
 import { decodeLoginCookie, LOGIN_COOKIE, loginCookieHeader, readCookie, stateMatches } from "@/lib/meta/login-state";
 import { withTenant } from "@/lib/tenant";
 
@@ -58,13 +62,15 @@ export async function GET(request: Request): Promise<Response> {
       clear,
     );
 
-  const code = url.searchParams.get("code");
-  if (url.searchParams.get("error") || !code) return back("cancelled");
-
+  // Resolved before the cancelled answer, so a portal login that Facebook
+  // sent back without a code returns to the portal, not to the mailed page.
   const context = requestContextFrom(request);
   const link = await resolveConnectionLink(cookie.token, context, "meta");
   if (!link) return invalid();
   slug = link.clinicSlug;
+
+  const code = url.searchParams.get("code");
+  if (url.searchParams.get("error") || !code) return back("cancelled");
 
   const app = metaApp();
   if (!app) return back("not_configured");
@@ -78,11 +84,35 @@ export async function GET(request: Request): Promise<Response> {
     return back(outcome.problem);
   }
 
+  // A login the portal started, that would swap the clinic's connected Page or
+  // Instagram account for another, needs a live passkey step-up on the session
+  // that comes back (the Google Calendar rule for a different account); a
+  // first connect and a reconnect of the same Page need none. Without one the
+  // clinic is sent to step up and presses the button again. The write is then
+  // recorded under the device's name instead of the service's.
+  let actor: typeof META_CONNECT_ACTOR | { type: "user"; userId: string; label: string } = META_CONNECT_ACTOR;
+  if (cookie.from) {
+    const portal = await portalOrNull(link.clinicSlug);
+    const stepped = portal ? await portalActor(portal) : null;
+    if (portal && stepped) actor = { type: "user", userId: portal.userId, label: stepped.label };
+    const swaps = await withTenant({ clinicId: link.clinicId, actor: META_CONNECT_ACTOR, request: context }, (tx) =>
+      replacesConnectedAsset(tx.db, tx.clinicId, outcome.channels),
+    );
+    if (swaps && !stepped?.steppedUp) {
+      const next = cookie.from === "settings" ? `/c/${link.clinicSlug}/settings#channels` : `/c/${link.clinicSlug}/setup?s=channels`;
+      return seeOther(publicUrl(stepUpPath(link.clinicSlug, next)), clear);
+    }
+  }
+
   try {
-    await withTenant({ clinicId: link.clinicId, actor: META_CONNECT_ACTOR, request: context }, async (tx) => {
+    await withTenant({ clinicId: link.clinicId, actor, request: context }, async (tx) => {
       for (const channel of outcome.channels) {
         await attachMetaChannel(tx, { ...channel, via: "facebook_login" });
       }
+      // A Facebook login this one no longer returns (the Page has no linked
+      // Instagram any more) whose token Meta already dropped would stay
+      // marked, with a Reconnect nothing can clear. It is dead, so retire it.
+      await retireDroppedFacebookRows(tx, outcome.channels.map((c) => c.platform));
       const burned = await consumeConnectionLinkWithin(tx, cookie.token, context.ipAddress ?? null, "meta");
       if (!burned) throw new LinkAlreadySpentError();
     });

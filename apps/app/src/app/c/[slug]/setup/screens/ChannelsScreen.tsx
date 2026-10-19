@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 
-import { PORTAL_META_OUTCOMES } from "@/lib/meta/portal-return";
+import { portalMetaOutcome } from "@/lib/meta/portal-return";
 import type { MetaConnectView } from "@/lib/meta/reconnect";
 import type { ForwardingView } from "@/lib/setup/forwarding";
 
@@ -58,7 +58,7 @@ export function ChannelsScreen(props: {
   metaProblem?: string | null;
 }) {
   const phone = props.rows.find((row) => row.channel === "voice");
-  const metaOutcome = props.metaProblem ? PORTAL_META_OUTCOMES[props.metaProblem] : undefined;
+  const metaOutcome = portalMetaOutcome(props.metaProblem);
   return (
     <ScreenShell
       slug={props.slug}

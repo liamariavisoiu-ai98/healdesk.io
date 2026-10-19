@@ -55,7 +55,7 @@ export default async function PortalWhatsAppPage({
     <PortalShell {...shell}>
       <h1 className="text-2xl font-semibold">Connect WhatsApp</h1>
       <p className="text-muted mt-2 max-w-[58ch]">
-        WhatsApp is set up in a window from Meta. It takes two to five minutes if you have these to hand:
+        WhatsApp is set up in a window from Meta. Have these to hand:
       </p>
       <ul className="text-muted mt-3 list-disc space-y-1 pl-5">
         <li>The Facebook account that manages your business on Meta.</li>
@@ -71,11 +71,11 @@ export default async function PortalWhatsAppPage({
         connection.
       </p>
 
-      <h2 className="mt-8 text-base font-semibold">What AYA will do</h2>
+      <h2 className="mt-8 text-base font-semibold">What AYA is designed to do</h2>
       <ul className="text-muted mt-2 list-disc space-y-1 pl-5">
         <li>Reply to people who message your number, about your services, prices, hours and booking.</li>
-        <li>Reply only within 24 hours of their message. It sends no templates and never messages anyone first.</li>
-        <li>Not discuss medical conditions. Anyone who describes one is asked to call the clinic, and that message is not kept.</li>
+        <li>Reply only within 24 hours of their message, and never message anyone first.</li>
+        <li>Not discuss medical conditions: anyone who describes one is moved to a call, and that message is designed not to be kept.</li>
       </ul>
 
       {available && appId && configId ? (
@@ -94,7 +94,7 @@ export default async function PortalWhatsAppPage({
       )}
       <p className="mt-6 text-sm">
         <a href={back} className="font-semibold underline">
-          Back
+          {surface === "settings" ? "Back to Settings" : "Back to set-up"}
         </a>
       </p>
     </PortalShell>

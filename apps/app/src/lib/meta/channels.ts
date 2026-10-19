@@ -369,9 +369,10 @@ export async function sendMetaReply(
     });
   } catch (error) {
     // Meta says the login is dead: remember it, so Home and Settings offer
-    // Reconnect. Written in a transaction of its own, because the caller's is
-    // about to roll back on this throw, and the mark must survive it.
-    if (isTokenInvalid(error)) await markMetaConnectionBroken(tx.clinicId, owner.connectionId, "token_invalid");
+    // Reconnect. Written in a transaction of its own and not awaited here,
+    // because the caller's is about to roll back on this throw and the mark
+    // must survive it, and waiting would hold two pooled connections.
+    if (isTokenInvalid(error)) markMetaConnectionBroken(tx.clinicId, owner.connectionId, "token_invalid");
     throw error;
   }
   return { status: "sent" };

@@ -1,8 +1,9 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { providerConnections } from "@/db/schema";
 import { describeError, log } from "@/lib/log";
+import { eraseCredentials } from "@/lib/connections/store";
 import { env } from "@/lib/env";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -95,7 +96,13 @@ export async function readMetaConnectView(db: Transaction, clinicId: string): Pr
  * Idempotent: the first mark wins and writes the audit row, a repeat changes
  * nothing. `reason` is a short code, never Meta's text.
  */
-export async function markBrokenWithin(tx: TenantTx, connectionId: string, reason: string): Promise<boolean> {
+export async function markBrokenWithin(
+  tx: TenantTx,
+  connectionId: string,
+  reason: string,
+  /** When the mark came from a credential read earlier: a login saved since (a reconnect) is not marked. */
+  readAt?: Date,
+): Promise<boolean> {
   const [marked] = await tx.db
     .update(providerConnections)
     .set({ brokenAt: sql`now()`, lastError: reason, updatedAt: new Date() })
@@ -106,6 +113,7 @@ export async function markBrokenWithin(tx: TenantTx, connectionId: string, reaso
         inArray(providerConnections.provider, Object.values(META_PROVIDERS)),
         inArray(providerConnections.status, ["active", "pending"]),
         isNull(providerConnections.brokenAt),
+        ...(readAt ? [lte(providerConnections.updatedAt, readAt)] : []),
       ),
     )
     .returning({ provider: providerConnections.provider });
@@ -119,14 +127,81 @@ export async function markBrokenWithin(tx: TenantTx, connectionId: string, reaso
   return true;
 }
 
+const pendingMarks = new Set<Promise<void>>();
+
 /**
  * Mark from a send that Meta refused. Never throws: the caller is already
- * handling the send's own failure and must see that one.
+ * handling the send's own failure and must see that one. Not awaited by the
+ * caller: it runs in a transaction of its own, so waiting for it from inside
+ * the caller's transaction would hold two pooled connections at once, and a
+ * burst of refused sends could exhaust the pool. The caller's throw ends its
+ * transaction and frees its connection, then the mark proceeds.
+ * `settleMetaMarks` waits for the ones in flight (tests, shutdown).
  */
-export async function markMetaConnectionBroken(clinicId: string, connectionId: string, reason: string): Promise<void> {
-  try {
-    await withTenant({ clinicId, actor: WATCH_ACTOR }, (tx) => markBrokenWithin(tx, connectionId, reason));
-  } catch (error) {
-    log.warn("Could not mark a Meta connection as needing reconnect", { clinicId, error: describeError(error) });
+export function markMetaConnectionBroken(clinicId: string, connectionId: string, reason: string): void {
+  const run = withTenant({ clinicId, actor: WATCH_ACTOR }, (tx) => markBrokenWithin(tx, connectionId, reason))
+    .then(() => undefined)
+    .catch((error) => {
+      log.warn("Could not mark a Meta connection as needing reconnect", { clinicId, error: describeError(error) });
+    })
+    .finally(() => pendingMarks.delete(run));
+  pendingMarks.add(run);
+}
+
+export async function settleMetaMarks(): Promise<void> {
+  await Promise.all([...pendingMarks]);
+}
+
+/**
+ * Whether signing in would REPLACE a connected Page, Instagram account or
+ * WhatsApp number with a different one. A first connect, and a reconnect of
+ * the very same asset, are not replacements. Swapping the asset changes where
+ * the clinic's patients are answered, so it asks for a passkey step-up, as
+ * Google Calendar does for a different account.
+ */
+export async function replacesConnectedAsset(
+  db: Transaction,
+  clinicId: string,
+  incoming: readonly { platform: MetaPlatform; externalId: string }[],
+): Promise<boolean> {
+  const rows = await db
+    .select({ provider: providerConnections.provider, externalId: sql<string | null>`${providerConnections.metadata} ->> 'externalId'` })
+    .from(providerConnections)
+    .where(
+      and(
+        eq(providerConnections.clinicId, clinicId),
+        inArray(providerConnections.provider, incoming.map((i) => META_PROVIDERS[i.platform])),
+        inArray(providerConnections.status, ["active", "pending"]),
+      ),
+    );
+  return incoming.some((i) => {
+    const current = rows.find((r) => r.provider === META_PROVIDERS[i.platform]);
+    return current !== undefined && current.externalId !== i.externalId;
+  });
+}
+
+/**
+ * After a Facebook login: a Messenger or Instagram connection the login did
+ * not return, whose token Meta had already dropped (`broken_at`), is revoked.
+ * Without this a Page that lost its Instagram link leaves an Instagram row
+ * that no Reconnect can clear. A live one is left alone.
+ */
+export async function retireDroppedFacebookRows(tx: TenantTx, returned: readonly MetaPlatform[]): Promise<void> {
+  const absent = (["messenger", "instagram"] as const).filter((p) => !returned.includes(p));
+  if (absent.length === 0) return;
+  const rows = await tx.db
+    .select({ id: providerConnections.id })
+    .from(providerConnections)
+    .where(
+      and(
+        eq(providerConnections.clinicId, tx.clinicId),
+        inArray(providerConnections.provider, absent.map((p) => META_PROVIDERS[p])),
+        inArray(providerConnections.status, ["active", "pending"]),
+        isNotNull(providerConnections.brokenAt),
+      ),
+    );
+  for (const row of rows) {
+    await eraseCredentials(tx.db, { clinicId: tx.clinicId, connectionId: row.id, reason: "replaced_by_login" });
+    tx.audit.record({ action: "update", resourceType: "provider_connection", resourceId: row.id, metadata: { outcome: "retired", reason: "replaced_by_login" } });
   }
 }

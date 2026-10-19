@@ -1,6 +1,7 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
+import { providerConnections } from "@/db/schema";
 import { withCredentials } from "@/lib/connections/store";
 import { describeError, log } from "@/lib/log";
 import { withTenant } from "@/lib/tenant";
@@ -21,12 +22,14 @@ import { META_PROVIDERS } from "./providers";
  * so it could not tell us which clinic lost what.
  *
  * Only `invalid` marks. A timeout or an unexpected answer counts as nothing
- * and the next run asks again. Connections already marked are skipped.
+ * and the next run asks again. Connections already marked are skipped (read
+ * from the row, since the listing below does not carry it), and a mark is
+ * dropped if the login was saved again after the token was read.
  *
  * Read across tenants the way connection-health does, through
  * `app_connection_health()` (ids, provider and status, no credential), then
- * one tenant transaction per connection. The credential is opened inside it
- * and only a verdict leaves. No patient data is read or written.
+ * one short transaction to read the credential, Meta asked with none open,
+ * and one to mark. No patient data is read or written.
  */
 
 const WATCH_ACTOR = { type: "service" as const, serviceName: "meta-token-watch" };
@@ -53,15 +56,30 @@ export async function runMetaTokenWatch(options: { fetchImpl?: FetchLike } = {})
   for (const row of rows) {
     if (!META_PROVIDER_NAMES.has(row.provider) || (row.status !== "active" && row.status !== "pending")) continue;
     try {
-      const marked = await withTenant({ clinicId: row.clinic_id, actor: WATCH_ACTOR }, async (tx) => {
-        const verdict = await withCredentials(
+      // The credential is read in one transaction and Meta asked with none
+      // open (graph.ts, rule 3); the mark is a second one, guarded by when the
+      // row was read so a reconnect in between is not marked dead.
+      const read = await withTenant({ clinicId: row.clinic_id, actor: WATCH_ACTOR }, async (tx) => {
+        const [current] = await tx.db
+          .select({ brokenAt: providerConnections.brokenAt, updatedAt: providerConnections.updatedAt })
+          .from(providerConnections)
+          .where(eq(providerConnections.id, row.connection_id))
+          .limit(1);
+        if (!current || current.brokenAt !== null) return null;
+        const accessToken = await withCredentials(
           tx.db,
           { clinicId: tx.clinicId, connectionId: row.connection_id },
-          async (credentials) => (credentials.accessToken ? probeToken(fetchImpl, credentials.accessToken) : "unknown"),
+          async (credentials) => credentials.accessToken ?? null,
         );
-        out.checked += 1;
-        return verdict === "invalid" ? markBrokenWithin(tx, row.connection_id, "token_invalid") : false;
+        return accessToken ? { accessToken, readAt: current.updatedAt } : null;
       });
+      if (!read) continue;
+      const verdict = await probeToken(fetchImpl, read.accessToken);
+      out.checked += 1;
+      if (verdict !== "invalid") continue;
+      const marked = await withTenant({ clinicId: row.clinic_id, actor: WATCH_ACTOR }, (tx) =>
+        markBrokenWithin(tx, row.connection_id, "token_invalid", read.readAt),
+      );
       if (marked) out.marked += 1;
     } catch (error) {
       out.failures += 1;

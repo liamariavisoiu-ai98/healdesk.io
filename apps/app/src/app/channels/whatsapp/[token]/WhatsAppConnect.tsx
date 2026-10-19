@@ -94,7 +94,7 @@ export function WhatsAppConnect({
             : { token, code: code.current, wabaId, phoneNumberId },
         ),
       });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; number?: string | null };
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; number?: string | null; stepUpHref?: string };
       if (res.ok && body.ok) {
         if (returnTo) {
           window.location.assign(returnTo);
@@ -102,6 +102,10 @@ export function WhatsAppConnect({
         }
         const done = new URLSearchParams({ channel: "whatsapp", number: body.number ?? "" });
         window.location.assign(`/channels/done?${done.toString()}`);
+        return;
+      }
+      if (body.error === "needs_step_up" && body.stepUpHref?.startsWith("/c/")) {
+        window.location.assign(body.stepUpHref);
         return;
       }
       setMessage(ERRORS[body.error ?? ""] ?? ERRORS.meta_error!);

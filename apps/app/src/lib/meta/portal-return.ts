@@ -52,3 +52,8 @@ export const PORTAL_META_OUTCOMES: Record<string, { ok: boolean; text: string }>
     text: "That Instagram account is already connected to another practice on healdesk, so it can't be connected here too. Nothing was changed. Email hello@healdesk.io and we'll sort it out.",
   },
 };
+
+/** The outcome for a `?meta=` value, or undefined for anything not in the table (`constructor` included). */
+export function portalMetaOutcome(value: string | null | undefined): { ok: boolean; text: string } | undefined {
+  return value && Object.hasOwn(PORTAL_META_OUTCOMES, value) ? PORTAL_META_OUTCOMES[value] : undefined;
+}

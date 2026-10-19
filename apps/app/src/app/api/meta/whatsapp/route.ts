@@ -5,7 +5,9 @@ import { attachMetaChannel, MetaAssetTakenError } from "@/lib/meta/channels";
 import { prepareWhatsApp } from "@/lib/meta/connect";
 import { fromOwnPage, LinkAlreadySpentError, META_CONNECT_ACTOR, metaApp, requestContextFrom } from "@/lib/meta/connect-http";
 import { portalOrNull } from "@/lib/portal/access";
+import { replacesConnectedAsset } from "@/lib/meta/reconnect";
 import { portalActor } from "@/lib/portal/actor";
+import { stepUpPath } from "@/lib/portal/step-up";
 import { withTenant } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +37,9 @@ const MAX_BODY_BYTES = 4_096;
  * failed attempt is simply tried again. Starting asks for no passkey step-up,
  * as for the Facebook button and the calendar's first connect: a connection
  * sends nothing anywhere new, because the channel only ever answers people
- * who wrote in first. The request must come from our own page.
+ * who wrote in first. Replacing a connected number with a different one does
+ * need a live step-up (the Google Calendar rule for a different account), and
+ * the answer says where to get it. The request must come from our own page.
  */
 export async function POST(request: Request): Promise<Response> {
   const raw = await request.text();
@@ -125,6 +129,17 @@ async function fromPortal(
   }
 
   const actor = await portalActor(portal);
+  // Swapping the connected number for another needs a live step-up; a first
+  // connect and a reconnect of the same number do not.
+  const swaps = await withTenant({ clinicId: portal.clinicId, actor: { type: "user", userId: portal.userId, label: actor.label }, request: context }, (tx) =>
+    replacesConnectedAsset(tx.db, tx.clinicId, [{ platform: "whatsapp", externalId: outcome.channel.externalId }]),
+  );
+  if (swaps && !actor.steppedUp) {
+    return Response.json(
+      { ok: false, error: "needs_step_up", stepUpHref: stepUpPath(portal.clinicSlug, `/c/${portal.clinicSlug}/whatsapp`) },
+      { status: 403 },
+    );
+  }
   try {
     await withTenant(
       { clinicId: portal.clinicId, actor: { type: "user", userId: portal.userId, label: actor.label }, request: context },

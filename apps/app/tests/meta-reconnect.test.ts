@@ -6,7 +6,15 @@ import { attachMetaChannel, graphSend, sendMetaReply } from "@/lib/meta/channels
 import { GraphError, isTokenInvalid, probeToken, type FetchLike } from "@/lib/meta/graph";
 import { decodeLoginCookie, encodeLoginCookie } from "@/lib/meta/login-state";
 import { portalReturnUrl, surfaceOf } from "@/lib/meta/portal-return";
-import { markMetaConnectionBroken, metaConnectViewOf, readMetaConnectView } from "@/lib/meta/reconnect";
+import {
+  markBrokenWithin,
+  markMetaConnectionBroken,
+  metaConnectViewOf,
+  readMetaConnectView,
+  replacesConnectedAsset,
+  retireDroppedFacebookRows,
+  settleMetaMarks,
+} from "@/lib/meta/reconnect";
 import { runMetaTokenWatch } from "@/lib/meta/token-watch";
 import { needsAttention, type AttentionFacts } from "@/lib/portal/attention";
 import { readSettingsView } from "@/lib/portal/settings-view";
@@ -54,9 +62,9 @@ describe("the connection states the portal draws", () => {
 });
 
 describe("what counts as a dead token", () => {
-  test("only Meta's OAuth code 190 (or a 401), never the codes a send outside the window also uses", () => {
+  test("only Meta's OAuth code 190, never a bare 401 and never the codes a send outside the window also uses", () => {
     expect(isTokenInvalid(new GraphError("x", 400, 190))).toBe(true);
-    expect(isTokenInvalid(new GraphError("x", 401))).toBe(true);
+    expect(isTokenInvalid(new GraphError("x", 401))).toBe(false);
     expect(isTokenInvalid(new GraphError("x", 400, 10))).toBe(false);
     expect(isTokenInvalid(new GraphError("x", 400, 200))).toBe(false);
     expect(isTokenInvalid(new GraphError("x", 500))).toBe(false);
@@ -196,12 +204,14 @@ describeDb("a dropped Meta login", () => {
     const id = await connect(clinic, "messenger");
     expect((await view(clinic)).facebook.state).toBe("connected");
 
-    await markMetaConnectionBroken(clinic.clinicId, id, "token_invalid");
+    markMetaConnectionBroken(clinic.clinicId, id, "token_invalid");
+    await settleMetaMarks();
     expect((await view(clinic)).facebook.state).toBe("needs_reconnect");
     expect(await brokenRows(clinic)).toEqual([{ provider: "meta-messenger", broken: true, last_error: "token_invalid", status: "pending" }]);
 
     // A second mark is a no-op: one audit row, however many sends fail.
-    await markMetaConnectionBroken(clinic.clinicId, id, "token_invalid");
+    markMetaConnectionBroken(clinic.clinicId, id, "token_invalid");
+    await settleMetaMarks();
     const audits = await inTenant(clinic.clinicId, (c) =>
       c.query(`select 1 from audit_log where metadata->>'outcome' = 'needs_reconnect'`),
     );
@@ -224,6 +234,7 @@ describeDb("a dropped Meta login", () => {
         sendMetaReply(tx, owner, "page", "user", "Hello", dead, { lastInboundAt: new Date() }),
       ),
     ).rejects.toBeInstanceOf(GraphError);
+    await settleMetaMarks();
     expect((await view(clinic)).facebook.state).toBe("needs_reconnect");
   });
 
@@ -270,7 +281,8 @@ describeDb("a dropped Meta login", () => {
   test("Settings reads the same states: Meta not bought has no buttons, bought shows both", async () => {
     const clinic = await provisionPortalClinic("reconnect-settings", { plan: "voice-metachat-1000-1000" });
     const id = await connect(clinic, "instagram");
-    await markMetaConnectionBroken(clinic.clinicId, id, "token_invalid");
+    markMetaConnectionBroken(clinic.clinicId, id, "token_invalid");
+    await settleMetaMarks();
     const setup = (c: PortalClinic) =>
       withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => readSetupState(tx, { userId: c.userId }));
     const settings = await readSettingsView({ slug: clinic.clinicSlug, state: (await setup(clinic))!, actor: ACTOR });
@@ -281,5 +293,43 @@ describeDb("a dropped Meta login", () => {
     expect(
       (await readSettingsView({ slug: voiceOnly.clinicSlug, state: (await setup(voiceOnly))!, actor: ACTOR })).metaConnect,
     ).toBeNull();
+  });
+
+  test("a swap of the connected asset is a replacement; a first connect and the same asset are not", async () => {
+    const clinic = await provisionPortalClinic("reconnect-swap", { plan: "voice-metachat-1000-1000" });
+    const db = (fn: (db: Parameters<typeof replacesConnectedAsset>[0]) => Promise<boolean>) =>
+      withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) => fn(tx.db));
+    expect(await db((d) => replacesConnectedAsset(d, clinic.clinicId, [{ platform: "messenger", externalId: "111" }]))).toBe(false);
+    await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      attachMetaChannel(tx, { platform: "messenger", externalId: "111", accessToken: "EAAB-x", via: "facebook_login" }),
+    );
+    expect(await db((d) => replacesConnectedAsset(d, clinic.clinicId, [{ platform: "messenger", externalId: "111" }]))).toBe(false);
+    expect(await db((d) => replacesConnectedAsset(d, clinic.clinicId, [{ platform: "messenger", externalId: "222" }]))).toBe(true);
+    expect(await db((d) => replacesConnectedAsset(d, clinic.clinicId, [{ platform: "whatsapp", externalId: "333" }]))).toBe(false);
+  });
+
+  test("a login that no longer returns Instagram retires a dead Instagram row, and leaves a live one", async () => {
+    const clinic = await provisionPortalClinic("reconnect-retire", { plan: "voice-metachat-1000-1000" });
+    const ig = await connect(clinic, "instagram");
+    await connect(clinic, "messenger");
+    await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) => retireDroppedFacebookRows(tx, ["messenger"]));
+    expect((await view(clinic)).facebook.names).toEqual(["Messenger", "Instagram"]);
+
+    markMetaConnectionBroken(clinic.clinicId, ig, "token_invalid");
+    await settleMetaMarks();
+    await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) => retireDroppedFacebookRows(tx, ["messenger"]));
+    const after = await view(clinic);
+    expect(after.facebook).toEqual({ state: "connected", names: ["Messenger"] });
+  });
+
+  test("a mark based on a token read before a reconnect does not mark the fresh login", async () => {
+    const clinic = await provisionPortalClinic("reconnect-race", { plan: "voice-metachat-1000-1000" });
+    const id = await connect(clinic, "messenger");
+    const readAt = new Date(Date.now() - 60_000);
+    const marked = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      markBrokenWithin(tx, id, "token_invalid", readAt),
+    );
+    expect(marked).toBe(false);
+    expect((await view(clinic)).facebook.state).toBe("connected");
   });
 });

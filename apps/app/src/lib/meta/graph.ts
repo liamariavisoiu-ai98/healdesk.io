@@ -82,7 +82,7 @@ async function call<T>(fetchImpl: FetchLike, url: string, init: RequestInit = {}
 export const GRAPH_TOKEN_INVALID_CODE = 190;
 
 export function isTokenInvalid(error: unknown): boolean {
-  return error instanceof GraphError && (error.code === GRAPH_TOKEN_INVALID_CODE || error.status === 401);
+  return error instanceof GraphError && error.code === GRAPH_TOKEN_INVALID_CODE;
 }
 
 /**

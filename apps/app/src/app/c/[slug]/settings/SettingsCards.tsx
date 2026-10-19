@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import type { SettingsView } from "@/lib/portal/settings-view";
 
-import { PORTAL_META_OUTCOMES } from "@/lib/meta/portal-return";
+import { portalMetaOutcome } from "@/lib/meta/portal-return";
 
 import { MetaConnectButtons } from "../MetaConnectButtons";
 import { SendStepsForm } from "../SendStepsForm";
@@ -61,14 +61,14 @@ export function ChannelsCard({
 }) {
   return (
     <Card id="channels" title="Channels" intro="Each channel you bought, on or off on its own.">
-      {metaOutcome && PORTAL_META_OUTCOMES[metaOutcome] ? (
+      {portalMetaOutcome(metaOutcome) ? (
         <p
           role="status"
           className={`my-3 rounded-xl border px-4 py-3 text-sm ${
-            PORTAL_META_OUTCOMES[metaOutcome]!.ok ? "border-line bg-tint-mint" : "border-red-200 text-red-800"
+            portalMetaOutcome(metaOutcome)!.ok ? "border-line bg-tint-mint" : "border-red-200 text-red-800"
           }`}
         >
-          {PORTAL_META_OUTCOMES[metaOutcome]!.text}
+          {portalMetaOutcome(metaOutcome)!.text}
         </p>
       ) : null}
       {view.channels.map((c) =>
@@ -116,7 +116,7 @@ export function ChannelsCard({
       )}
       {view.metaConnect ? (
         <div id="meta-connections" className="py-3">
-          <p className="font-semibold">Instagram, Messenger &amp; WhatsApp logins</p>
+          <h3 className="font-semibold">Instagram, Messenger &amp; WhatsApp logins</h3>
           <MetaConnectButtons slug={view.slug} from="settings" view={view.metaConnect} />
         </div>
       ) : null}

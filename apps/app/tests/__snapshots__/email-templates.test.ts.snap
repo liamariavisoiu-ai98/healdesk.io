@@ -1865,7 +1865,7 @@ exports[`each template's output > canceled, for clients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">Your healdesk service ended on Friday 6 November, and AYA has stopped answering.</p>
 <p style="margin:0 0 16px;">For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. Follow these AT&amp;T steps, dialling each code from the clinic&#39;s own line:</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel all-call forwarding on AT&amp;T Phone: *73#</li><li>Cancel all-call forwarding on a traditional AT&amp;T landline: *73</li><li>Turn off forwarding on an AT&amp;T mobile line: #21#</li></ul>
-<p style="margin:0 0 16px;">Your website chat shows a contact form until you remove the healdesk snippet from your website.</p>
+<p style="margin:0 0 16px;">Your website chat no longer takes messages. Until you remove the healdesk snippet from your website, it asks visitors to call your practice instead.</p>
 <p style="margin:0 0 16px;">We&#39;ll email you when your export of conversation records and the booking log is ready. Download it by Sunday 6 December.</p>
 <p style="margin:0 0 16px;">We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -1886,7 +1886,7 @@ For 30 days, until Sunday 6 December, calls that still forward to us pass straig
 - Cancel all-call forwarding on a traditional AT&T landline: *73
 - Turn off forwarding on an AT&T mobile line: #21#
 
-Your website chat shows a contact form until you remove the healdesk snippet from your website.
+Your website chat no longer takes messages. Until you remove the healdesk snippet from your website, it asks visitors to call your practice instead.
 
 We'll email you when your export of conversation records and the booking log is ready. Download it by Sunday 6 December.
 
@@ -1924,7 +1924,7 @@ exports[`each template's output > canceled, for patients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">Your healdesk service ended on Friday 6 November, and AYA has stopped answering.</p>
 <p style="margin:0 0 16px;">For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. Follow these AT&amp;T steps, dialling each code from the clinic&#39;s own line:</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel all-call forwarding on AT&amp;T Phone: *73#</li><li>Cancel all-call forwarding on a traditional AT&amp;T landline: *73</li><li>Turn off forwarding on an AT&amp;T mobile line: #21#</li></ul>
-<p style="margin:0 0 16px;">Your website chat shows a contact form until you remove the healdesk snippet from your website.</p>
+<p style="margin:0 0 16px;">Your website chat no longer takes messages. Until you remove the healdesk snippet from your website, it asks visitors to call your practice instead.</p>
 <p style="margin:0 0 16px;">We&#39;ll email you when your export of conversation records and the booking log is ready. Download it by Sunday 6 December.</p>
 <p style="margin:0 0 16px;">We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -1945,7 +1945,7 @@ For 30 days, until Sunday 6 December, calls that still forward to us pass straig
 - Cancel all-call forwarding on a traditional AT&T landline: *73
 - Turn off forwarding on an AT&T mobile line: #21#
 
-Your website chat shows a contact form until you remove the healdesk snippet from your website.
+Your website chat no longer takes messages. Until you remove the healdesk snippet from your website, it asks visitors to call your practice instead.
 
 We'll email you when your export of conversation records and the booking log is ready. Download it by Sunday 6 December.
 
@@ -2708,9 +2708,10 @@ exports[`each template's output > data_destroyed, for clients: the snapshot 1`] 
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">We destroyed the client information we held for Radiance Med Spa on 5 December.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">On Saturday 5 December we destroyed the client information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits; the credentials you connected through healdesk; and your setup.</p>
+<p style="margin:0 0 16px;">On Saturday 5 December we destroyed the client information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits, and the credentials you connected through healdesk.</p>
+<p style="margin:0 0 16px;">Your healdesk account closes after Sunday 6 December, once calls still forwarded to us have stopped passing through to your direct line. Then we end your sign-in and take your address off it, and delete your setup: AYA&#39;s greeting, services, hours and prices, your settings, the addresses your email went to, and what we read from your website.</p>
 <p style="margin:0 0 16px;">What remains, and why:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Copies in our encrypted database backups, until Saturday 9 January 2027, when the last of them expires (within 35 days of the destruction). We use them only to restore our systems, and destroy your data again in anything we restore.</li><li>What our language-model provider, Anthropic, keeps under its agreement with us, as our Terms describe: conversation content for 30 days, and up to two years for content its automated trust-and-safety systems flag or the law requires it to keep.</li><li>The signed agreement and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a client&#39;s name or contact details.</li><li>Your billing history, as tax law requires.</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Copies in our encrypted database backups, until Saturday 9 January 2027, when the last of them expires (within 35 days of the destruction). We use them only to restore our systems, and destroy your data again in anything we restore.</li><li>What our language-model provider, Anthropic, keeps under its agreement with us, as our Terms describe: conversation content for 30 days, and up to two years for content its automated trust-and-safety systems flag or the law requires it to keep.</li><li>The signed agreement, with any calendar terms you recorded under it, and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a client&#39;s name or contact details.</li><li>Your billing history, as tax law requires.</li><li>What we must be able to show we did under the agreement and HIPAA: the notices we sent you and where, any security incident and its notice, the addresses you gave us for notices, and the log of how your data was handled and who could sign in, this destruction included. With them, Radiance Med Spa&#39;s name and published number, which they refer to. None of it names a client.</li><li>Your account&#39;s email address, for six years after your service ended, as the agreement&#39;s address for notices: only so that a notice the agreement still owes you reaches you.</li></ul>
 <p style="margin:0 0 16px;">No other client information of Radiance Med Spa&#39;s is kept. There is nothing you need to do.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -2722,14 +2723,18 @@ exports[`each template's output > data_destroyed, for clients: the snapshot 1`] 
 </html>",
   "preheader": "We destroyed the client information we held for Radiance Med Spa on 5 December.",
   "subject": "Your healdesk data has been destroyed",
-  "text": "On Saturday 5 December we destroyed the client information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits; the credentials you connected through healdesk; and your setup.
+  "text": "On Saturday 5 December we destroyed the client information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits, and the credentials you connected through healdesk.
+
+Your healdesk account closes after Sunday 6 December, once calls still forwarded to us have stopped passing through to your direct line. Then we end your sign-in and take your address off it, and delete your setup: AYA's greeting, services, hours and prices, your settings, the addresses your email went to, and what we read from your website.
 
 What remains, and why:
 
 - Copies in our encrypted database backups, until Saturday 9 January 2027, when the last of them expires (within 35 days of the destruction). We use them only to restore our systems, and destroy your data again in anything we restore.
 - What our language-model provider, Anthropic, keeps under its agreement with us, as our Terms describe: conversation content for 30 days, and up to two years for content its automated trust-and-safety systems flag or the law requires it to keep.
-- The signed agreement and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a client's name or contact details.
+- The signed agreement, with any calendar terms you recorded under it, and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a client's name or contact details.
 - Your billing history, as tax law requires.
+- What we must be able to show we did under the agreement and HIPAA: the notices we sent you and where, any security incident and its notice, the addresses you gave us for notices, and the log of how your data was handled and who could sign in, this destruction included. With them, Radiance Med Spa's name and published number, which they refer to. None of it names a client.
+- Your account's email address, for six years after your service ended, as the agreement's address for notices: only so that a notice the agreement still owes you reaches you.
 
 No other client information of Radiance Med Spa's is kept. There is nothing you need to do.
 
@@ -2762,9 +2767,10 @@ exports[`each template's output > data_destroyed, for patients: the snapshot 1`]
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">We destroyed the patient information we held for Radiance Med Spa on 5 December.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">On Saturday 5 December we destroyed the patient information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits; the credentials you connected through healdesk; and your setup.</p>
+<p style="margin:0 0 16px;">On Saturday 5 December we destroyed the patient information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits, and the credentials you connected through healdesk.</p>
+<p style="margin:0 0 16px;">Your healdesk account closes after Sunday 6 December, once calls still forwarded to us have stopped passing through to your direct line. Then we end your sign-in and take your address off it, and delete your setup: AYA&#39;s greeting, services, hours and prices, your settings, the addresses your email went to, and what we read from your website.</p>
 <p style="margin:0 0 16px;">What remains, and why:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Copies in our encrypted database backups, until Saturday 9 January 2027, when the last of them expires (within 35 days of the destruction). We use them only to restore our systems, and destroy your data again in anything we restore.</li><li>What our language-model provider, Anthropic, keeps under its agreement with us, as our Terms describe: conversation content for 30 days, and up to two years for content its automated trust-and-safety systems flag or the law requires it to keep.</li><li>The signed agreement and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a patient&#39;s name or contact details.</li><li>Your billing history, as tax law requires.</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Copies in our encrypted database backups, until Saturday 9 January 2027, when the last of them expires (within 35 days of the destruction). We use them only to restore our systems, and destroy your data again in anything we restore.</li><li>What our language-model provider, Anthropic, keeps under its agreement with us, as our Terms describe: conversation content for 30 days, and up to two years for content its automated trust-and-safety systems flag or the law requires it to keep.</li><li>The signed agreement, with any calendar terms you recorded under it, and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a patient&#39;s name or contact details.</li><li>Your billing history, as tax law requires.</li><li>What we must be able to show we did under the agreement and HIPAA: the notices we sent you and where, any security incident and its notice, the addresses you gave us for notices, and the log of how your data was handled and who could sign in, this destruction included. With them, Radiance Med Spa&#39;s name and published number, which they refer to. None of it names a patient.</li><li>Your account&#39;s email address, for six years after your service ended, as the agreement&#39;s address for notices: only so that a notice the agreement still owes you reaches you.</li></ul>
 <p style="margin:0 0 16px;">No other patient information of Radiance Med Spa&#39;s is kept. There is nothing you need to do.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -2776,14 +2782,18 @@ exports[`each template's output > data_destroyed, for patients: the snapshot 1`]
 </html>",
   "preheader": "We destroyed the patient information we held for Radiance Med Spa on 5 December.",
   "subject": "Your healdesk data has been destroyed",
-  "text": "On Saturday 5 December we destroyed the patient information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits; the credentials you connected through healdesk; and your setup.
+  "text": "On Saturday 5 December we destroyed the patient information healdesk held for Radiance Med Spa: every record of the people who called or messaged you, with their conversations, booking requests, appointments and deposits, and the credentials you connected through healdesk.
+
+Your healdesk account closes after Sunday 6 December, once calls still forwarded to us have stopped passing through to your direct line. Then we end your sign-in and take your address off it, and delete your setup: AYA's greeting, services, hours and prices, your settings, the addresses your email went to, and what we read from your website.
 
 What remains, and why:
 
 - Copies in our encrypted database backups, until Saturday 9 January 2027, when the last of them expires (within 35 days of the destruction). We use them only to restore our systems, and destroy your data again in anything we restore.
 - What our language-model provider, Anthropic, keeps under its agreement with us, as our Terms describe: conversation content for 30 days, and up to two years for content its automated trust-and-safety systems flag or the law requires it to keep.
-- The signed agreement and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a patient's name or contact details.
+- The signed agreement, with any calendar terms you recorded under it, and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a patient's name or contact details.
 - Your billing history, as tax law requires.
+- What we must be able to show we did under the agreement and HIPAA: the notices we sent you and where, any security incident and its notice, the addresses you gave us for notices, and the log of how your data was handled and who could sign in, this destruction included. With them, Radiance Med Spa's name and published number, which they refer to. None of it names a patient.
+- Your account's email address, for six years after your service ended, as the agreement's address for notices: only so that a notice the agreement still owes you reaches you.
 
 No other patient information of Radiance Med Spa's is kept. There is nothing you need to do.
 

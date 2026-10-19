@@ -162,9 +162,12 @@ describeDb("database audit (0031)", () => {
     // The BAA gate's two (0031), the agreement-kind gate's two (0051), the
     // offboarding and record-clock columns (0054), the client number every
     // sealed credential is labelled with (migration A, 0057), the export's
-    // delivery, which the destruction floor reads (0058), and the
-    // organisation, which the agreement gate reads (0066).
+    // delivery, which the destruction floor reads (0058), the
+    // organisation, which the agreement gate reads (0066), and the account's
+    // closure with the notice address it keeps, which only
+    // app_close_clinic_account and app_expire_notice_addresses write (0096).
     expect(locked).toEqual([
+      "account_closed_at",
       "agreement_kind",
       "baa_signed_at",
       "client_number",
@@ -172,6 +175,8 @@ describeDb("database audit (0031)", () => {
       "destroy_after",
       "destroyed_at",
       "export_delivered_at",
+      "notice_address",
+      "notice_address_until",
       "offboarding_started_at",
       "organization_id",
       "regulatory_regime",
@@ -853,10 +858,23 @@ describeDb("database audit (0031)", () => {
         "app_destroy_clinic_providers",
       ]),
     );
+    // A definer only other definers call, which reads across tenants, is
+    // granted to no one: those callers run as its owner. Each is named here
+    // with its reason, and held to having no grant, so a later GRANT is a
+    // widening this test sees.
+    const INTERNAL: Record<string, string> = {
+      app_account_closure_waiting_on:
+        "called only by app_close_clinic_account and app_accounts_to_close (0096); it reads any clinic's incidents, notices and security events",
+    };
     for (const fn of rows) {
+      const internal = fn.proname in INTERNAL;
       expect(fn.public_execute, `${fn.proname} is executable by PUBLIC`).toBe(false);
-      expect(fn.app_execute, `${fn.proname} is not executable by healdesk_app`).toBe(true);
+      expect(
+        fn.app_execute,
+        `${fn.proname} is ${internal ? "" : "not "}executable by healdesk_app`,
+      ).toBe(!internal);
     }
+    expect(Object.keys(INTERNAL).filter((name) => !rows.some((r) => r.proname === name))).toEqual([]);
   });
 
   test("0057's tables give the runtime role only the verbs their records need", async () => {

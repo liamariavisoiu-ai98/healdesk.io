@@ -476,7 +476,7 @@ export async function sendIncidentReport(
       if (!isReportableClass(row.class)) return refuse(DECISION_REFUSALS.not_reportable_class);
       const fields = readIncidentReportFields(input, isoDay(row.discoveredAt));
       if ("status" in fields) return fields;
-      if ((await billingRecipients(tx)).length === 0) {
+      if ((await billingRecipients(tx, "incident_report")).length === 0) {
         return refuse(
           "The practice has no address on its account to send the report to. Phone it now, then record how it was told on its care page.",
         );
@@ -606,7 +606,7 @@ export async function recordGuaranteeClaim(
   const billingClinicId = await withTenant({ clinicId, actor }, (tx) => resolveBillingClinicId(tx));
   const findingByOn = findingDueOn(receivedOn);
   const inserted = await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
-    if ((await billingRecipients(tx)).length === 0) return "no_address" as const;
+    if ((await billingRecipients(tx, "guarantee_claim_received")).length === 0) return "no_address" as const;
     const queued = await enqueuePlanNotice(
       tx.db,
       tx.clinicId,

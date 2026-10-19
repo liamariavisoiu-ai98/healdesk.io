@@ -500,21 +500,58 @@ the same rule as the database's floor):
 
 The destruction steps, in order:
 
-1. Switch the clinic's voice agent off at the vendor and send it the forwarding-removal
-   codes, so its calls fall through to its own line.
+1. Send the clinic the forwarding-removal codes, so its calls reach its own line again.
+   Leave its voice agent on at the vendor: until the pass-through ends (the end plus
+   `FORWARDING_PASS_THROUGH_DAYS`, 30) the agent is what carries a forwarded call to our
+   endpoint, which passes it straight through to the clinic's direct line. Its Meta access
+   is revoked without you: at the Stripe deletion, at an operator's "Start offboarding",
+   and by the hourly `meta-revoke` step after anything else (a termination, a refusal
+   from Meta), which takes the app off the clinic's Page and WhatsApp account with the
+   tokens we hold and erases the tokens (`apps/app/src/lib/meta/revoke.ts`), leaving
+   subscribed a Page or WhatsApp Business account another clinic in service still uses.
+   After six refusals for a connection, or a refusal on the last try before destruction,
+   ops gets a `meta_revoke_failed` alert: have the practice remove healdesk from the Page's
+   or WhatsApp account's connected apps. A `meta_revoke_by_hand` alert means healdesk
+   could not ask Meta at all: the connection has no Page or account id on record (an
+   operator pasted its token), or another clinic in service has such a connection, so the
+   Page or account was left subscribed in case it is theirs. Check which numbers or
+   Instagram accounts are on it in Meta Business Suite before anyone removes healdesk.
 2. Produce the return bundle with `npm run patient-export -w @healdesk/app -- --clinic
    <id> --all --requested-by "…"` (on the AWS host: `bash run-task.sh patient-export
    <clinic id>` in CloudShell, which stores it in the export bucket), hand it over, and record the handover on the care
    page. Producing it records nothing: the care page refuses the record until a bundle
    has been produced since offboarding started, and the stamp is the database's, at the
    moment of the record (`app_mark_export_delivered()`).
-3. Delete the clinic's calls and agent in Retell's console by the time its data is
-   destroyed here, and record it on the care page ("Record Retell deletion"). Nothing in
-   apps/app reaches Retell; the care page shows the step outstanding, with its deadline,
-   until it is recorded, after destruction too.
+3. Delete the clinic's calls in Retell's console by the time its data is destroyed here,
+   and record it on the care page ("Record Retell call deletion"). The calls are PHI, and
+   the BAA has every subcontractor delete it by the same time. Nothing in apps/app reaches
+   Retell; the care page shows the step outstanding, with its deadline, until it is
+   recorded, after destruction too.
 4. `offboarding-destroy` runs every hour and, on the day the rule gives, deletes every
    patient row, suppressions, consent records and contact attempts included, revokes the
    connections, and writes one security event and one `clinic data destroyed` log line.
+5. Once the pass-through has ended, and not before, release the clinic's agent and AYA's
+   number in Retell's console, delete every call Retell holds for the clinic since step 3
+   (each call passed through to the direct line is a new record there, with the caller's
+   number), and record it ("Record Retell agent release"; the care page refuses the record
+   until that day). Releasing them earlier cuts off the callers still forwarded to us.
+6. The same hourly job then closes the account (`apps/app/src/lib/offboarding/
+   account-closure.ts`, `app_close_clinic_account()` in drizzle/0096), once nothing is left
+   to finish: the data destroyed, the pass-through over, step 5 recorded for a clinic that
+   bought voice, no incident open, no critical notice still to go, and its Stripe Connect
+   link ended (`billing-reconcile` does that a day after the end). Ops gets an
+   `account_closure_waiting` alert naming the one thing left. The closure revokes the
+   memberships (kept as the access history), ends every way in for each person whose last
+   grant it was (sessions, factors, passkeys, sign-in links, organisation memberships) and
+   turns their user row into a tombstone the audit log still names, deletes the setup
+   (agent configuration, settings and their history, report recipients, practice
+   questions, website reads, the checkout it was bought through, the clinic row's setup
+   columns) and our notes, and keeps only what `KEPT_FOR_GOOD` lists, each with its
+   reason. It keeps the clinic's address as its notice address for six years after the
+   service ended, so an incident report the agreement still owes goes through the usual
+   sender. After it, the tables it emptied refuse new rows for the clinic. A closure that
+   fails raises `account_closure_failed` and fails the job; after a restore,
+   `npm run destroy-due` closes the accounts due again and exits non-zero if one fails.
 
 Export first, then destroy; the agreement's obligations persist until it is done.
 

@@ -45,9 +45,12 @@ const ACTIONS: Actions = {
   markErasureVendorDeleted: NOT_IN_A_RENDER,
 };
 
+type Vendor = NonNullable<CareView["clinic"]["voiceVendorDeletion"]>;
+
 function leaving(
   destruction: NonNullable<CareView["clinic"]["destruction"]>,
   exportDeliveredOn: string | null = null,
+  vendor: Partial<Vendor> = {},
 ): OpsResult<CareView> {
   return {
     ok: true,
@@ -69,6 +72,12 @@ function leaving(
           recordedAt: null,
           recordedBy: null,
           how: null,
+          agentNotBefore: "2026-12-01 15:00 UTC",
+          agentReleasable: false,
+          agentRecordedAt: null,
+          agentRecordedBy: null,
+          agentHow: null,
+          ...vendor,
         },
       },
       patientRights: { amendments: 0, corrections: 0 },
@@ -158,6 +167,94 @@ describe("the care page's rule under BAA 1.3.0 and the DPA", () => {
     expect(page).toContain(
       "Export delivered 2026-11-10. Destruction is due at 2026-11-30 15:00 UTC.",
     );
+  });
+});
+
+// The voice vendor (the audit's R8 item 4): the clinic's calls are PHI and go
+// by the destruction, which can be day 29; its agent is what passes forwarded
+// calls through to the direct line until the pass-through ends on day 30.
+// Until 19 October the page asked for "the calls and agent" by the
+// destruction date, and to switch the agent off at the start. The agent's
+// step also deletes the calls it took after the first deletion: each
+// passed-through call is a new record at Retell.
+describe("the care page's Retell steps", () => {
+  /** The page in plain text, with its typographic apostrophes as plain ones. */
+  const plain = (node: React.ReactElement) => text(node).replace(/\u2019/g, "'");
+
+  test("the calls by the destruction date, the agent not before the pass-through ends, and no switching it off at the start", () => {
+    const page = plain(h(CarePanel, { view: leaving(THIRTY_DAYS), actions: ACTIONS }));
+    expect(page).toContain(
+      "Outstanding: delete the clinic's calls in Retell's console by 2026-11-30 15:00 UTC, when its data is destroyed here, then record it. Leave its agent and number in place until the pass-through ends.",
+    );
+    expect(page).toContain(
+      "Not before 2026-12-01 15:00 UTC: release the clinic's agent and its number at Retell, and delete every call it took since its calls were first deleted. Until then the agent is what passes forwarded calls through to the clinic's direct line",
+    );
+    expect(page).toContain("Leave its agent on at the voice vendor");
+    expect(page).not.toMatch(/calls and agent/);
+    expect(page).not.toMatch(/Switch the agent off/);
+    expect(page).toContain("Record Retell call deletion");
+    expect(page).not.toContain("Record Retell agent release");
+  });
+
+  test("from an apps/app that does not split the steps yet, the page still reads: no agent date, no agent button, the calls step as before", () => {
+    // apps/web goes live when main moves, apps/app when the owner deploys
+    // (wave2-common): an older reply has no agent fields, and the client reads
+    // them as their safe defaults (ops-client.test.ts); the page then offers
+    // nothing the older apps/app could not record.
+    const page = plain(
+      h(CarePanel, {
+        view: leaving(THIRTY_DAYS, null, {
+          agentNotBefore: null,
+          agentReleasable: false,
+          agentRecordedAt: null,
+          agentRecordedBy: null,
+          agentHow: null,
+        }),
+        actions: ACTIONS,
+      }),
+    );
+    expect(page).toContain("Outstanding: delete the clinic's calls in Retell's console by 2026-11-30 15:00 UTC");
+    expect(page).toContain("Not before the pass-through ends: release the clinic's agent and its number at Retell");
+    expect(page).toContain("Record Retell call deletion");
+    expect(page).not.toContain("Record Retell agent release");
+    expect(page).not.toMatch(/null|undefined/);
+  });
+
+  test("once the pass-through has ended the release is owed and can be recorded; each record shows on its own", () => {
+    const due = plain(
+      h(CarePanel, {
+        view: leaving(THIRTY_DAYS, "2026-11-10", {
+          recordedAt: "2026-11-29 10:00 UTC",
+          recordedBy: "ops@healdesk.test",
+          how: "calls deleted",
+          agentReleasable: true,
+        }),
+        actions: ACTIONS,
+      }),
+    );
+    expect(due).toContain("Calls deleted at Retell: recorded 2026-11-29 10:00 UTC by ops@healdesk.test (calls deleted).");
+    expect(due).toContain(
+      "Outstanding: the pass-through ended 2026-12-01 15:00 UTC. Release the clinic's agent and its number in Retell's console, delete every call Retell holds for the clinic since its calls were first deleted (the calls passed through to its direct line), then record it.",
+    );
+    expect(due).toContain("Record Retell agent release");
+    expect(due).not.toContain("Record Retell call deletion");
+    const done = plain(
+      h(CarePanel, {
+        view: leaving(THIRTY_DAYS, "2026-11-10", {
+          recordedAt: "2026-11-29 10:00 UTC",
+          recordedBy: "ops@healdesk.test",
+          agentReleasable: true,
+          agentRecordedAt: "2026-12-02 09:00 UTC",
+          agentRecordedBy: "ops@healdesk.test",
+          agentHow: "agent and number released",
+        }),
+        actions: ACTIONS,
+      }),
+    );
+    expect(done).toContain(
+      "Agent and number released, and the calls since deleted, at Retell: recorded 2026-12-02 09:00 UTC by ops@healdesk.test (agent and number released).",
+    );
+    expect(done).not.toMatch(/Record Retell/);
   });
 });
 

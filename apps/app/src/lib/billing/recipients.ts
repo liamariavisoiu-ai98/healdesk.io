@@ -1,7 +1,8 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { user } from "@/db/auth-schema";
-import { clinicMemberships, reportRecipients } from "@/db/schema";
+import { clinicMemberships, clinics, reportRecipients } from "@/db/schema";
+import type { NoticeKind } from "@/lib/email/kinds";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -22,7 +23,61 @@ import type { TenantTx } from "@/lib/tenant";
  * the buyer the provisioning step seeded into report_recipients
  * (added_by 'provisioning'). That address IS the person who paid, which is
  * why it is the one exception; any other report recipient is not.
+ *
+ * And one for a closed account (lib/offboarding/account-closure.ts), which
+ * has no live grant and no report recipient left: the agreement's notice
+ * address the closure kept (clinics.notice_address), so a notice still owed
+ * after termination reaches the practice in writing through the outbox and
+ * its ledger. Only for the kinds on OWED_AFTER_CLOSURE, named by the caller,
+ * and only while the address is kept: its end (notice_address_until) is read
+ * by the database's clock here, so an expired address is never used even
+ * before the hourly job clears it. Any other kind, and a call that names
+ * none, finds no one for a closed account.
  */
+
+/**
+ * The notices still owed to a practice after its account has closed, and the
+ * only ones its kept notice address receives:
+ *   - incident_report: the BAA's breach and incident reports (clause 12),
+ *     which clause 17 keeps owing while backups and Anthropic's retained
+ *     copies hold the practice's information, sent to the notice address
+ *     clause 20 defines;
+ *   - refund_issued: a refund the Terms still owe after the end (sections 5
+ *     and 15, which survive termination), returned to the card it came from;
+ *   - receipt: a payment taken after the end, a final invoice settled late:
+ *     the billing record the Terms keep (section 7), told to the practice;
+ *   - overage_invoiced, payment_failed and payment_action_required: a final
+ *     invoice raised, declined or waiting on the practice after the end. The
+ *     annual overage's last window is invoiced at the run after it closes, a
+ *     failed window is retried until Stripe takes it, and a declined invoice
+ *     is left open, never voided (lib/billing/annual-overage.ts), so the
+ *     amount is still owed. One waiting on the card's own authentication can
+ *     be paid only through the link its notice carries; without that notice
+ *     it is a debt nobody can settle. Section 6's suspension and grace end
+ *     with the service; the amount owed does not, and section 7 keeps the
+ *     record of it (healdesk-io-58's review, 19 October 2026);
+ *   - guarantee_claim_received and guarantee_finding: the first-month
+ *     guarantee (Terms section 5, which section 15 keeps after termination).
+ *     A claim may come up to 30 days after the first month, so after a
+ *     first-month cancellation the claim, or the finding owed within 10
+ *     business days of it, can fall after the account has closed. A miss
+ *     (guarantee_miss) cannot: there is no service left to miss.
+ * Nothing else is owed after the end: the Terms' later changes take effect
+ * at a renewal a closed account never has (section 16); grace, suspension,
+ * renewal, plan, cancellation, card-expiry and Connect notices are states of
+ * a subscription or a connection that ended with the service; and every
+ * product or marketing kind ended with the account.
+ */
+export const OWED_AFTER_CLOSURE: ReadonlySet<NoticeKind> = new Set<NoticeKind>([
+  "incident_report",
+  "refund_issued",
+  "receipt",
+  "overage_invoiced",
+  "payment_failed",
+  "payment_action_required",
+  "guarantee_claim_received",
+  "guarantee_finding",
+]);
 
 export type BillingRecipient = {
   email: string;
@@ -31,7 +86,10 @@ export type BillingRecipient = {
   userId: string | null;
 };
 
-export async function billingRecipients(tx: TenantTx): Promise<BillingRecipient[]> {
+export async function billingRecipients(
+  tx: TenantTx,
+  kind?: NoticeKind,
+): Promise<BillingRecipient[]> {
   const rows = await tx.db
     .select({ email: user.email, role: clinicMemberships.role, userId: user.id })
     .from(clinicMemberships)
@@ -71,9 +129,25 @@ export async function billingRecipients(tx: TenantTx): Promise<BillingRecipient[
         isNull(reportRecipients.unsubscribedAt),
       ),
     );
-  return seeded.map((row) => ({
-    email: row.email.trim().toLowerCase(),
-    role: "owner" as const,
-    userId: null,
-  }));
+  if (seeded.length > 0) {
+    return seeded.map((row) => ({
+      email: row.email.trim().toLowerCase(),
+      role: "owner" as const,
+      userId: null,
+    }));
+  }
+
+  if (!kind || !OWED_AFTER_CLOSURE.has(kind)) return [];
+  const [closed] = await tx.db
+    .select({ address: clinics.noticeAddress })
+    .from(clinics)
+    .where(
+      and(
+        eq(clinics.id, tx.clinicId),
+        isNotNull(clinics.accountClosedAt),
+        gt(clinics.noticeAddressUntil, sql`clock_timestamp()`),
+      ),
+    )
+    .limit(1);
+  return closed?.address ? [{ email: closed.address, role: "owner" as const, userId: null }] : [];
 }

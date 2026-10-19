@@ -115,6 +115,13 @@ CREATE TRIGGER incident_affected_contacts_baa_gate
   BEFORE INSERT OR UPDATE ON incident_affected_contacts
   FOR EACH ROW EXECUTE FUNCTION app_enforce_baa_gate();--> statement-breakpoint
 
+-- Destruction empties it, so a closed account takes no new row of it either
+-- (0096's rule for every table destruction empties: an operator's script
+-- cannot rebuild part of a closed account).
+CREATE TRIGGER incident_affected_contacts_closed_account
+  BEFORE INSERT OR UPDATE ON incident_affected_contacts
+  FOR EACH ROW EXECUTE FUNCTION app_refuse_after_account_closure();--> statement-breakpoint
+
 -- recorded_at is the database's clock, whatever the writer sent; a service
 -- complaint is no agreement's to report, so it affects no one on this list;
 -- and no role rewrites a row. Invoker rights: the incident is read under the

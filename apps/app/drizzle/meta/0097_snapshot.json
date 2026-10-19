@@ -1,6 +1,6 @@
 {
-  "id": "51995c6a-dea0-4e69-912e-a3f5ad9f4073",
-  "prevId": "a4c6d705-c4c6-4f08-9780-fa9877685f41",
+  "id": "bf156744-39e8-4d48-b2ed-2b521de8319b",
+  "prevId": "6f157806-6698-4dc9-b37b-92d0a45f142b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4570,6 +4570,24 @@
           "primaryKey": false,
           "notNull": false
         },
+        "account_closed_at": {
+          "name": "account_closed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notice_address": {
+          "name": "notice_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notice_address_until": {
+          "name": "notice_address_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "billing_clinic_id": {
           "name": "billing_clinic_id",
           "type": "uuid",
@@ -4753,6 +4771,10 @@
         "clinics_destruction_notice_address_check": {
           "name": "clinics_destruction_notice_address_check",
           "value": "\"clinics\".\"destruction_notice_address\" is null or (\"clinics\".\"destroyed_at\" is not null and char_length(\"clinics\".\"destruction_notice_address\") between 3 and 254 and \"clinics\".\"destruction_notice_address\" ~ '^[^[:space:][:cntrl:]@]+@[^[:space:][:cntrl:]@]+$')"
+        },
+        "clinics_notice_address_check": {
+          "name": "clinics_notice_address_check",
+          "value": "\"clinics\".\"notice_address\" is null or (\"clinics\".\"account_closed_at\" is not null and \"clinics\".\"notice_address_until\" is not null and char_length(\"clinics\".\"notice_address\") between 3 and 254 and \"clinics\".\"notice_address\" ~ '^[^[:space:][:cntrl:]@]+@[^[:space:][:cntrl:]@]+$')"
         }
       },
       "isRLSEnabled": false

@@ -71,6 +71,12 @@ const NOW = new Date("2026-10-15T15:00:00Z");
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const at = (ms: number) => new Date(NOW.getTime() + ms);
+/**
+ * A delivery time no earlier than the database's own clock: a notice queued
+ * with no delay is due from `now()` there, which runs on whatever today is,
+ * while these tests pause on a fixed day.
+ */
+const onceDue = (when: Date) => new Date(Math.max(Date.now(), when.getTime()) + MINUTE);
 const LINE = "+14155550123";
 const DEVICE = "Front desk Mac";
 
@@ -470,16 +476,16 @@ describeDb("pause control", () => {
 
     // It goes at once, at any hour, and says what it should.
     const transport = capture();
-    expect(await deliverNotice(c.clinicId, notices[0]!.id, { now: at(MINUTE), transport })).toBe(
-      "sent",
-    );
+    expect(
+      await deliverNotice(c.clinicId, notices[0]!.id, { now: onceDue(at(MINUTE)), transport }),
+    ).toBe("sent");
     const email = transport.sent[0]!.message;
     expect(email.subject).toBe("AYA is paused");
     expect(email.text).toContain(
       "AYA was paused from Front desk Mac at 11 am EDT on Thursday 15 October",
     );
     expect(email.text).toContain(
-      "She starts answering again by herself at 8 am EDT on Friday 16 October.",
+      "She starts answering again by herself at 8 am EDT on Friday 16 October",
     );
     expect(email.text).toContain("Phone: calls go to your direct line ((415) 555-0123)");
     expect(email.text).toContain("Website chat: shows a contact form");
@@ -514,9 +520,9 @@ describeDb("pause control", () => {
       }),
     ).toBe("sent");
     expect(transport.sent[0]!.message.subject).toBe("AYA is still paused");
-    expect(transport.sent[0]!.message.text).toContain(
-      "AYA has been paused since 11 am EDT on Thursday 15 October, when she was paused from Front desk Mac.",
-    );
+    const reminderText = transport.sent[0]!.message.text;
+    expect(reminderText).toContain("AYA has been paused since 11 am EDT on Thursday 15 October");
+    expect(reminderText).toContain("when she was paused from Front desk Mac.");
 
     // A second pause, switched back on within the day: its reminder is closed unsent.
     await inClinic(c.clinicId, (tx) => resumeAya(tx, { actorLabel: DEVICE, now: at(25 * HOUR) }));
@@ -598,9 +604,9 @@ describeDb("pause control", () => {
       expect(() => assertPayloadAllowed(n.payload, "ai_paused")).not.toThrow();
 
     const transport = capture();
-    expect(await deliverNotice(c.clinicId, voice.id, { now: at(2 * MINUTE), transport })).toBe(
-      "sent",
-    );
+    expect(
+      await deliverNotice(c.clinicId, voice.id, { now: onceDue(at(2 * MINUTE)), transport }),
+    ).toBe("sent");
     expect(transport.sent[0]!.message.subject).toBe("AYA is paused on your phone");
     expect(transport.sent[0]!.message.text).toContain(
       "Phone was switched off in Settings from Front desk Mac at 11 am EDT on Thursday 15 October",

@@ -507,8 +507,11 @@ The destruction steps, in order:
    is revoked without you: at the Stripe deletion, at an operator's "Start offboarding",
    and by the hourly `meta-revoke` step after anything else (a termination, a refusal
    from Meta), which takes the app off the clinic's Page and WhatsApp account with the
-   tokens we hold and erases the tokens (`apps/app/src/lib/meta/revoke.ts`). A
-   `meta-revoke` run that keeps failing names what Meta refused in the logs.
+   tokens we hold and erases the tokens (`apps/app/src/lib/meta/revoke.ts`), leaving
+   subscribed a Page or WhatsApp Business account another clinic in service still uses.
+   After six refusals for a connection, or a refusal on the last try before destruction,
+   ops gets a `meta_revoke_failed` alert: have the practice remove healdesk from the Page's
+   or WhatsApp account's connected apps.
 2. Produce the return bundle with `npm run patient-export -w @healdesk/app -- --clinic
    <id> --all --requested-by "…"` (on the AWS host: `bash run-task.sh patient-export
    <clinic id>` in CloudShell, which stores it in the export bucket), hand it over, and record the handover on the care
@@ -524,19 +527,27 @@ The destruction steps, in order:
    patient row, suppressions, consent records and contact attempts included, revokes the
    connections, and writes one security event and one `clinic data destroyed` log line.
 5. Once the pass-through has ended, and not before, release the clinic's agent and AYA's
-   number in Retell's console and record it ("Record Retell agent release"; the care page
-   refuses the record until that day). Releasing them earlier cuts off the callers still
-   forwarded to us.
+   number in Retell's console, delete every call Retell holds for the clinic since step 3
+   (each call passed through to the direct line is a new record there, with the caller's
+   number), and record it ("Record Retell agent release"; the care page refuses the record
+   until that day). Releasing them earlier cuts off the callers still forwarded to us.
 6. The same hourly job then closes the account (`apps/app/src/lib/offboarding/
-   account-closure.ts`, `app_close_clinic_account()` in drizzle/0092): once the data is
-   destroyed and the pass-through has ended, it deletes the sign-in (memberships, and each
-   user whose last membership that was, with its sessions and factors), the setup (agent
-   configuration, settings and their history, report recipients, practice questions,
-   website reads, the clinic row's setup columns) and our notes, and keeps only what
-   `KEPT_FOR_GOOD` lists, each with its reason: the clinic row, the audit log, the
-   agreements, the billing records, the notices and their ledger, the incidents and the
-   record of the notice addresses. After a restore, `npm run destroy-due` closes the
-   accounts due again too.
+   account-closure.ts`, `app_close_clinic_account()` in drizzle/0092), once nothing is left
+   to finish: the data destroyed, the pass-through over, step 5 recorded for a clinic that
+   bought voice, no incident open, no critical notice still to go, and its Stripe Connect
+   link ended (`billing-reconcile` does that a day after the end). Ops gets an
+   `account_closure_waiting` alert naming the one thing left. The closure revokes the
+   memberships (kept as the access history), ends every way in for each person whose last
+   grant it was (sessions, factors, passkeys, sign-in links, organisation memberships) and
+   turns their user row into a tombstone the audit log still names, deletes the setup
+   (agent configuration, settings and their history, report recipients, practice
+   questions, website reads, the checkout it was bought through, the clinic row's setup
+   columns) and our notes, and keeps only what `KEPT_FOR_GOOD` lists, each with its
+   reason. It keeps the clinic's address as its notice address for six years after the
+   service ended, so an incident report the agreement still owes goes through the usual
+   sender. After it, the tables it emptied refuse new rows for the clinic. A closure that
+   fails raises `account_closure_failed` and fails the job; after a restore,
+   `npm run destroy-due` closes the accounts due again and exits non-zero if one fails.
 
 Export first, then destroy; the agreement's obligations persist until it is done.
 

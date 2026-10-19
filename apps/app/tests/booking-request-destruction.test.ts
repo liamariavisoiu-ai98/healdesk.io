@@ -1334,7 +1334,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     // Guard against any query matching nothing and the test passing vacuously.
     expect(tables.length).toBeGreaterThan(20);
     expect(checked).toContain("booking_requests");
-    expect(closed).toContain("clinic_memberships");
+    expect(closed).toContain("agent_configs");
 
     for (const list of [checked, closed, kept]) expect(list.filter((t) => !tables.includes(t))).toEqual([]);
     // One fate each: nothing destruction deletes is kept or left for the

@@ -30,10 +30,14 @@ import type { EmailTemplate } from "./types";
  *     handled; with the practice's name and published number, which they
  *     point at (lib/offboarding/account-closure.ts, KEPT_FOR_GOOD).
  *
- * Destruction takes the patient rows on the agreement's day; the sign-in and
- * the setup go when the account closes, once forwarded calls stop passing
- * through to the direct line the settings hold (`accountClosesAt`: the later
- * of the destruction and the pass-through's end). Until 19 October 2026 this
+ * Destruction takes the patient rows on the agreement's day; the sign-in
+ * ends and the setup goes when the account closes, no earlier than forwarded
+ * calls stop passing through to the direct line the settings hold
+ * (`accountClosesAt`: the later of the destruction and the pass-through's
+ * end), and later if the closure still waits on something (the agent's
+ * release at Retell, an open incident), so the email says "after", never
+ * "on". The address on the account stays, as the agreement's notice address,
+ * for six years. Until 19 October 2026 this
  * email said "your setup" had been destroyed with the data, when the
  * greeting, the services, the settings and the website reads were all kept
  * for good.
@@ -74,8 +78,8 @@ export const renderDataDestroyed: EmailTemplate<DataDestroyedPayload> = (payload
           type: "paragraph",
           text:
             Date.parse(payload.accountClosesAt) <= Date.parse(payload.destroyedAt)
-              ? `We closed your healdesk account with it, deleting your sign-in and your setup: AYA's greeting, services, hours and prices, your settings, the addresses your email went to, and what we read from your website.`
-              : `Your healdesk account closes on ${dayLong(payload.accountClosesAt, ctx)}, when calls still forwarded to us stop passing through to your direct line. Then we delete your sign-in and your setup: AYA's greeting, services, hours and prices, your settings, the addresses your email went to, and what we read from your website.`,
+              ? `Your healdesk account closes next. We end your sign-in and take your address off it, and delete your setup: AYA's greeting, services, hours and prices, your settings, the addresses your email went to, and what we read from your website.`
+              : `Your healdesk account closes after ${dayLong(payload.accountClosesAt, ctx)}, once calls still forwarded to us have stopped passing through to your direct line. Then we end your sign-in and take your address off it, and delete your setup: AYA's greeting, services, hours and prices, your settings, the addresses your email went to, and what we read from your website.`,
         },
         { type: "paragraph", text: "What remains, and why:" },
         {
@@ -87,7 +91,8 @@ export const renderDataDestroyed: EmailTemplate<DataDestroyedPayload> = (payload
               ? "The signed agreement, with any calendar terms you recorded under it, kept for at least six years, as it says."
               : `The signed agreement, with any calendar terms you recorded under it, and our record of disclosures, each kept for at least six years, as HIPAA requires. The record names records only by reference number, never a ${who}'s name or contact details.`,
             "Your billing history, as tax law requires.",
-            `What we must be able to show we did under the agreement${payload.isDataProtectionAgreement ? "" : " and HIPAA"}: the notices we sent you and where, any security incident and its notice, the addresses you gave us for notices, and the log of how your data was handled, this destruction included. With them, ${clinic}'s name and published number, which they refer to. None of it names a ${who}.`,
+            `What we must be able to show we did under the agreement${payload.isDataProtectionAgreement ? "" : " and HIPAA"}: the notices we sent you and where, any security incident and its notice, the addresses you gave us for notices, and the log of how your data was handled and who could sign in, this destruction included. With them, ${clinic}'s name and published number, which they refer to. None of it names a ${who}.`,
+            "Your account's email address, for six years after your service ended, as the agreement's address for notices: only so that a notice the agreement still owes you reaches you.",
           ],
         },
         {

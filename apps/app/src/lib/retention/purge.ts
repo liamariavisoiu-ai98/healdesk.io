@@ -224,7 +224,7 @@ export const PURGE_COVERAGE: Readonly<{
     audit_log: "append-only by grant: the record of how the data was handled, the purge's own runs included",
     sync_runs: "append-only by grant (phase two): what each sync ran, no patient; goes when the account closes",
     connection_links: "single-use links, no patient: go when the account closes",
-    clinic_memberships: "the account's sign-in, no patient: goes when the account closes",
+    clinic_memberships: "the access history, no patient: revoked when the account closes, and kept",
     agent_configs: "the clinic's setup, no patient: goes when the account closes",
     clinic_settings: "the clinic's switches, no patient: go when the account closes",
     clinic_settings_history: "append-only by grant, no patient: goes when the account closes",

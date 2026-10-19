@@ -538,19 +538,24 @@ describe("after cancellation (E3 to E6)", () => {
     );
     expect(baa.text).not.toMatch(/and your setup\./);
     expect(baa.text).toContain(
-      "Your healdesk account closes on Sunday 6 December, when calls still forwarded to us stop passing through to your direct line. Then we delete your sign-in and your setup:",
+      "Your healdesk account closes after Sunday 6 December, once calls still forwarded to us have stopped passing through to your direct line. Then we end your sign-in and take your address off it, and delete your setup:",
+    );
+    expect(baa.text).toContain(
+      "Your account's email address, for six years after your service ended, as the agreement's address for notices",
     );
     // And exactly what stays beyond the agreement and the billing.
     expect(baa.text).toContain(
-      "What we must be able to show we did under the agreement and HIPAA: the notices we sent you and where, any security incident and its notice, the addresses you gave us for notices, and the log of how your data was handled, this destruction included.",
+      "What we must be able to show we did under the agreement and HIPAA: the notices we sent you and where, any security incident and its notice, the addresses you gave us for notices, and the log of how your data was handled and who could sign in, this destruction included.",
     );
     // Destroyed after the pass-through had ended: the account closed with it.
     const late = entry.render(
       { ...entry.fixture, accountClosesAt: entry.fixture.destroyedAt },
       contextFor("data_destroyed"),
     );
-    expect(late.text).toContain("We closed your healdesk account with it, deleting your sign-in and your setup:");
-    expect(late.text).not.toContain("account closes on");
+    expect(late.text).toContain(
+      "Your healdesk account closes next. We end your sign-in and take your address off it, and delete your setup:",
+    );
+    expect(late.text).not.toContain("closes after");
     const dpa = entry.render(
       { ...entry.fixture, isDataProtectionAgreement: true },
       contextFor("data_destroyed", "clients"),

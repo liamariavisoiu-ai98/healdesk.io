@@ -4,10 +4,19 @@ import { FORWARDING_PASS_THROUGH_DAYS } from "@healdesk/catalog";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-import { closeAccountsDue, KEPT_FOR_GOOD, KEPT_IN_PART } from "@/lib/offboarding/account-closure";
+import { billingRecipients } from "@/lib/billing/recipients";
+import { NOTICE_KIND_REGISTRY } from "@/lib/email/kinds";
+import { stopOptionalEmail } from "@/lib/email/stop";
+import {
+  closeAccountsDue,
+  FROZEN_AT_CLOSURE,
+  KEPT_FOR_GOOD,
+  KEPT_IN_PART,
+} from "@/lib/offboarding/account-closure";
 import {
   destroyDueClinics,
   markExportDelivered,
+  recordVoiceVendorDeletion,
   startOffboarding,
 } from "@/lib/offboarding/offboarding";
 import { withTenant } from "@/lib/tenant";
@@ -20,16 +29,23 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedClinic, seedPortalUser } from "./setup/factories";
+import { inTenant, seedChannels, seedClinic, seedPortalUser } from "./setup/factories";
 
 /**
- * Closing the account (the audit's R8 item 1). The spec closes a clinic
- * "keeping only the signed agreement and the billing records the law
- * requires", and the Terms promise the same; destruction took only the
- * patient rows, and nothing ever deleted the account, its sign-in or its
- * setup. app_close_clinic_account() (drizzle/0092) does, once the data is
- * destroyed and the pass-through has ended, and these tests hold it to
- * that: what goes, what stays, when, and that no other clinic is touched.
+ * Closing the account (the audit's R8 item 1, and its review's fix round).
+ * The spec closes a clinic "keeping only the signed agreement and the billing
+ * records the law requires", and the Terms promise the same; destruction took
+ * only the patient rows, and nothing ever closed the account.
+ * app_close_clinic_account() (drizzle/0092) does, once nothing is left to
+ * finish, and these tests hold it to that: what goes, what stays, when, and
+ * that no other clinic is touched.
+ *
+ * The first version deleted the user row, and the review found that every
+ * real closure rolled back: the audit log names a portal user as the actor of
+ * each action, its foreign key nulls the id on a delete, and
+ * audit_log_actor_shape refuses a user actor with no id. Nothing here wrote a
+ * user-actor audit row, so the suite passed. Every account below now has
+ * them, written by the AuditRecorder as a portal action writes them.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -48,12 +64,12 @@ async function backdate(clinicId: string, days: number): Promise<void> {
 }
 
 /** One statement as the runtime role, inside the tenant, rolled back. */
-async function asApp<T>(clinicId: string, sql: string, values: unknown[] = []): Promise<T[]> {
+async function asApp<T>(clinicId: string, text: string, values: unknown[] = []): Promise<T[]> {
   const client = await getAppPool().connect();
   try {
     await client.query("begin");
     await client.query(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
-    return (await client.query(sql, values)).rows as T[];
+    return (await client.query(text, values)).rows as T[];
   } finally {
     await client.query("rollback").catch(() => {});
     client.release();
@@ -91,8 +107,19 @@ async function countIn(clinicId: string, table: string): Promise<number> {
   );
 }
 
+/** What a portal person leaves in the audit log: actions recorded as theirs, by the AuditRecorder. */
+async function portalActions(clinicId: string, userId: string): Promise<void> {
+  await withTenant(
+    { clinicId, actor: { type: "user", userId, label: "Practice owner" } },
+    async (tx) => {
+      tx.audit.record({ action: "update", resourceType: "clinic_settings", resourceId: clinicId });
+      tx.audit.record({ action: "read", resourceType: "conversation", resultCount: 1 });
+    },
+  );
+}
+
 /** A clinic's setup and business data, one row in each table the closure deletes, and a few it keeps. */
-async function seedAccount(clinicId: string, userId: string): Promise<void> {
+async function seedAccount(clinicId: string, userId: string, email: string): Promise<void> {
   await inTenant(clinicId, async (c) => {
     await c.query(
       `insert into agent_configs (clinic_id, greeting) values ($1, 'Thanks for calling.')`,
@@ -128,12 +155,12 @@ async function seedAccount(clinicId: string, userId: string): Promise<void> {
       [clinicId],
     );
     await c.query(
-      `insert into billing_notices (clinic_id, kind, dedupe_key) values ($1, 'canceled', 'canceled')`,
+      `insert into billing_notices (clinic_id, kind, dedupe_key, sent_at) values ($1, 'canceled', 'canceled', now())`,
       [clinicId],
     );
     await c.query(
-      `insert into report_deliveries (clinic_id, kind, period_key, recipient, status) values ($1, 'canceled', 'canceled', 'desk@example-clinic.test', 'sent')`,
-      [clinicId],
+      `insert into report_deliveries (clinic_id, kind, period_key, recipient, status) values ($1, 'canceled', 'canceled', $2, 'sent')`,
+      [clinicId, email],
     );
     // Kept: the record of the notice addresses the practice gave, one applied
     // and one still waiting, which the closure ends.
@@ -151,19 +178,51 @@ async function seedAccount(clinicId: string, userId: string): Promise<void> {
     );
     await c.query(
       `update clinics set website = 'example-clinic.test', site_profile = '{"services": []}'::jsonb,
-              onboarding = '{"basics": true}'::jsonb, published_phone_e164 = '+15550100002'
+              onboarding = '{"basics": true}'::jsonb, published_phone_e164 = '+15550100002',
+              carrier = 'att', booking_provider = 'mindbody', meta_front_door_enabled = true
         where id = $1`,
       [clinicId],
     );
   });
-  await getMigratorPool().query(
+  // The sign-in's ways in, and the checkout the clinic was bought through.
+  const pool = getMigratorPool();
+  await pool.query(
     `insert into session (id, expires_at, token, created_at, updated_at, user_id)
      values ($1, now() + interval '1 day', $2, now(), now(), $3)`,
     [`ses_${randomUUID().slice(0, 8)}`, randomUUID(), userId],
   );
+  await pool.query(
+    `insert into account (id, account_id, provider_id, user_id, created_at, updated_at)
+     values ($1, $2, 'credential', $2, now(), now())`,
+    [`acc_${randomUUID().slice(0, 8)}`, userId],
+  );
+  await pool.query(
+    `insert into verification (id, identifier, value, expires_at, created_at, updated_at)
+     values ($1, $2, 'token', now() + interval '1 hour', now(), now())`,
+    [`ver_${randomUUID().slice(0, 8)}`, email],
+  );
+  const agreement = randomUUID();
+  await pool.query(
+    `insert into checkout_intents (payload, agreement_id, contact_email, plan, billing_interval, expires_at, provisioned_clinic_id, profile, profile_status, consumed_at)
+     values ('{"clinicName": "x", "website": "example-clinic.test"}'::jsonb, $1, $2, 'voice-web', 'month', now() + interval '1 day', $3, '{"services": []}'::jsonb, 'read', now())`,
+    [agreement, email, clinicId],
+  );
+  await portalActions(clinicId, userId);
 }
 
-describeDb("closing the account once the data is destroyed and the pass-through has ended", () => {
+/** Offboard, deliver the export, and move the clock past the pass-through: due for destruction, then closure. */
+async function leaveAndWait(
+  clinicId: string,
+  days = FORWARDING_PASS_THROUGH_DAYS + 1,
+): Promise<void> {
+  await withTenant({ clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "operator"));
+  await withTenant({ clinicId, actor: ACTOR }, (tx) =>
+    markExportDelivered(tx, "bundle handed over"),
+  );
+  await backdate(clinicId, days);
+}
+
+describeDb("closing the account once the data is destroyed and nothing is left to finish", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
@@ -173,7 +232,7 @@ describeDb("closing the account once the data is destroyed and the pass-through 
     await closePools();
   });
 
-  test("the closure deletes the sign-in, the setup and our notes, keeps the agreement, the billing records and the notices, and no other clinic is touched", async () => {
+  test("the closure ends the sign-in but keeps the user the audit log names, revokes and keeps the grants, deletes the setup, and keeps the agreement, the billing and the notices; no other clinic is touched", async () => {
     const leaving = await seedClinic("close-leaving");
     const staying = await seedClinic("close-staying");
     // The same practice's other location, and a person with a grant on both.
@@ -189,41 +248,94 @@ describeDb("closing the account once the data is destroyed and the pass-through 
         [secondLocation, both.userId],
       ),
     );
-    await seedAccount(leaving.clinicId, leaving.staffUserId);
-    await seedAccount(staying.clinicId, staying.staffUserId);
+    await seedAccount(leaving.clinicId, leaving.staffUserId, leaving.staffEmail);
+    await seedAccount(staying.clinicId, staying.staffUserId, staying.staffEmail);
+    await portalActions(leaving.clinicId, both.userId);
 
-    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
-      startOffboarding(tx, "operator"),
-    );
-    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
-      markExportDelivered(tx, "bundle handed over"),
-    );
-    await backdate(leaving.clinicId, FORWARDING_PASS_THROUGH_DAYS + 1);
-    const destroyed = await destroyDueClinics();
-    expect(destroyed.map((d) => d.clinicId)).toContain(leaving.clinicId);
+    await leaveAndWait(leaving.clinicId);
+    expect((await destroyDueClinics()).map((d) => d.clinicId)).toContain(leaving.clinicId);
 
-    const closed = await closeAccountsDue();
-    expect(closed.map((c) => c.clinicId)).toEqual([leaving.clinicId]);
-    expect(closed[0]!.deleted).toMatchObject({
-      users: 1,
-      clinic_memberships: 2,
+    const run = await closeAccountsDue();
+    expect(run.failed).toEqual([]);
+    expect(run.closed.map((c) => c.clinicId)).toEqual([leaving.clinicId]);
+    expect(run.closed[0]!.closed).toMatchObject({
+      memberships_revoked: 2,
+      sign_ins_ended: 1,
       agent_configs: 1,
       clinic_settings: 1,
+      checkout_intents: 1,
     });
+
+    // The audit trail is whole: every user-actor row still names its user.
+    const actors = await inTenant(leaving.clinicId, async (c) =>
+      (
+        await c.query<{ actor_user_id: string | null }>(
+          `select actor_user_id from audit_log where actor_type = 'user'`,
+        )
+      ).rows.map((r) => r.actor_user_id),
+    );
+    expect(actors.length).toBe(4);
+    expect(actors.every((id) => id === leaving.staffUserId || id === both.userId)).toBe(true);
+
+    // The person whose only grant it was: still there for the log, as a
+    // tombstone, with every way in gone.
+    const pool = getMigratorPool();
+    const tomb = await pool.query<{ email: string; name: string; email_verified: boolean }>(
+      `select email, name, email_verified from "user" where id = $1`,
+      [leaving.staffUserId],
+    );
+    expect(tomb.rows[0]).toMatchObject({ name: "Closed account", email_verified: false });
+    expect(tomb.rows[0]!.email).toMatch(/^closed\+[0-9a-f]{32}@invalid$/);
+    for (const [table, column] of [
+      ["session", "user_id"],
+      ["account", "user_id"],
+      ["member", "user_id"],
+      ["user_factors", "user_id"],
+      ["sign_in_links", "user_id"],
+      ["step_ups", "user_id"],
+    ] as const) {
+      const left = await pool.query(`select 1 from ${table} where ${column} = $1`, [
+        leaving.staffUserId,
+      ]);
+      expect(left.rows, table).toHaveLength(0);
+    }
+    expect(
+      (await pool.query(`select 1 from verification where identifier = $1`, [leaving.staffEmail]))
+        .rows,
+    ).toHaveLength(0);
+    // The person with a grant on the other location keeps their sign-in.
+    const kept = await pool.query<{ email: string }>(`select email from "user" where id = $1`, [
+      both.userId,
+    ]);
+    expect(kept.rows[0]!.email).toBe(both.email);
+    expect(
+      (await pool.query(`select 1 from member where user_id = $1`, [both.userId])).rows,
+    ).toHaveLength(1);
+
+    // The grants are kept as access history, every one revoked; the other location's stands.
+    const grants = await inTenant(
+      leaving.clinicId,
+      async (c) =>
+        (await c.query<{ revoked_at: Date | null }>(`select revoked_at from clinic_memberships`))
+          .rows,
+    );
+    expect(grants).toHaveLength(2);
+    expect(grants.every((g) => g.revoked_at !== null)).toBe(true);
+    const other = await inTenant(
+      secondLocation,
+      async (c) =>
+        (await c.query<{ revoked_at: Date | null }>(`select revoked_at from clinic_memberships`))
+          .rows,
+    );
+    expect(other).toEqual([{ revoked_at: null }]);
 
     // Every table the closure lists is empty for the clinic that left, and untouched for the one that stayed.
     const tables = await deletedAtClosure();
     expect(tables).toEqual(
-      expect.arrayContaining([
-        "agent_configs",
-        "clinic_memberships",
-        "clinic_settings",
-        "report_recipients",
-      ]),
+      expect.arrayContaining(["agent_configs", "clinic_settings", "report_recipients"]),
     );
-    for (const table of tables) {
-      expect(await countIn(leaving.clinicId, table), table).toBe(0);
-    }
+    expect(tables).not.toContain("clinic_memberships");
+    for (const table of tables) expect(await countIn(leaving.clinicId, table), table).toBe(0);
     for (const table of [
       "agent_configs",
       "clinic_settings",
@@ -232,26 +344,29 @@ describeDb("closing the account once the data is destroyed and the pass-through 
       "clinic_touches",
       "site_rereads",
       "connection_links",
-      "clinic_memberships",
     ]) {
       expect(await countIn(staying.clinicId, table), table).toBeGreaterThan(0);
     }
-
-    // The sign-in: the person whose only grant it was is gone with their
-    // session; the person with a grant on the other location keeps it.
-    const users = await getMigratorPool().query<{ id: string }>(
-      `select id from "user" where id = any($1)`,
-      [[leaving.staffUserId, both.userId, staying.staffUserId]],
-    );
-    expect(users.rows.map((r) => r.id).sort()).toEqual([both.userId, staying.staffUserId].sort());
-    const sessions = await getMigratorPool().query(`select 1 from session where user_id = $1`, [
-      leaving.staffUserId,
-    ]);
-    expect(sessions.rows).toHaveLength(0);
-    expect(await countIn(secondLocation, "clinic_memberships")).toBe(1);
+    expect(
+      (
+        await pool.query(`select 1 from checkout_intents where provisioned_clinic_id = $1`, [
+          leaving.clinicId,
+        ])
+      ).rows,
+    ).toHaveLength(0);
+    expect(
+      (
+        await pool.query(`select 1 from checkout_intents where provisioned_clinic_id = $1`, [
+          staying.clinicId,
+        ])
+      ).rows,
+    ).toHaveLength(1);
+    expect(
+      (await pool.query(`select 1 from session where user_id = $1`, [staying.staffUserId])).rows,
+    ).toHaveLength(1);
 
     // Kept: the billing record, the notice and its ledger, and the record of
-    // the notice addresses, without the sign-in it named, the open one ended.
+    // the notice addresses, the open one ended.
     for (const table of ["entitlements", "billing_notices", "report_deliveries"]) {
       expect(await countIn(leaving.clinicId, table), table).toBe(1);
     }
@@ -259,38 +374,55 @@ describeDb("closing the account once the data is destroyed and the pass-through 
       leaving.clinicId,
       async (c) =>
         (
-          await c.query<{ user_id: string | null; status: string; new_email: string }>(
-            `select user_id, status, new_email from sign_in_address_changes order by created_at, new_email`,
+          await c.query<{ user_id: string; status: string }>(
+            `select user_id, status from sign_in_address_changes order by new_email`,
           )
         ).rows,
     );
-    expect(changes.map((r) => [r.user_id, r.status, r.new_email]).sort()).toEqual(
-      [
-        [null, "applied", "second@example-clinic.test"],
-        [null, "failed", "third@example-clinic.test"],
-      ].sort(),
-    );
+    expect(changes).toEqual([
+      { user_id: leaving.staffUserId, status: "applied" },
+      { user_id: leaving.staffUserId, status: "failed" },
+    ]);
 
-    // The clinic row stays as the anchor, with its setup columns cleared and the number the widget shows.
-    const clinic = await getMigratorPool().query<{
+    // The clinic row: the anchor, its setup columns cleared, the number the
+    // widget shows kept, and the agreement's notice address kept for six years.
+    const clinic = await pool.query<{
       account_closed_at: Date | null;
+      offboarding_started_at: Date;
+      notice_address: string | null;
+      notice_address_until: Date | null;
       website: string | null;
       site_profile: unknown;
       onboarding: unknown;
+      carrier: string | null;
+      booking_provider: string | null;
+      meta_front_door_enabled: boolean;
       name: string;
       published_phone_e164: string | null;
-    }>(
-      `select account_closed_at, website, site_profile, onboarding, name, published_phone_e164 from clinics where id = $1`,
-      [leaving.clinicId],
-    );
-    expect(clinic.rows[0]).toMatchObject({
+    }>(`select * from clinics where id = $1`, [leaving.clinicId]);
+    const row = clinic.rows[0]!;
+    expect(row).toMatchObject({
       website: null,
       site_profile: null,
       onboarding: {},
+      carrier: null,
+      booking_provider: null,
+      meta_front_door_enabled: false,
       name: "close-leaving Clinic",
       published_phone_e164: "+15550100002",
+      notice_address: leaving.staffEmail,
     });
-    expect(clinic.rows[0]!.account_closed_at).not.toBeNull();
+    expect(row.account_closed_at).not.toBeNull();
+    const sixYears = new Date(row.offboarding_started_at);
+    sixYears.setUTCFullYear(sixYears.getUTCFullYear() + 6);
+    expect(row.notice_address_until!.getTime()).toBe(sixYears.getTime());
+
+    // A notice the agreement still owes goes to that address: the senders'
+    // one resolver finds it once no sign-in is left.
+    const recipients = await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
+      billingRecipients(tx),
+    );
+    expect(recipients).toEqual([{ email: leaving.staffEmail, role: "owner", userId: null }]);
 
     // Recorded: an audit row with the counts, and the identity plane's event.
     const audit = await inTenant(
@@ -303,68 +435,244 @@ describeDb("closing the account once the data is destroyed and the pass-through 
         ).rows[0]!.n,
     );
     expect(audit).toBe(1);
-    const events = await getMigratorPool().query(
+    const events = await pool.query(
       `select 1 from security_events where event = 'clinic_account_closed' and metadata->>'clinicId' = $1`,
       [leaving.clinicId],
     );
     expect(events.rows).toHaveLength(1);
 
     // Once: nothing is due again, and a second call changes nothing.
-    expect(await closeAccountsDue()).toEqual([]);
+    expect((await closeAccountsDue()).closed).toEqual([]);
+    const again = await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
+      tx.db.execute<{ r: unknown }>(
+        sql`select app_close_clinic_account(${leaving.clinicId}::uuid, null) as r`,
+      ),
+    );
+    expect(again.rows[0]!.r).toBeNull();
+  });
+
+  test("a closed account takes no new grant, settings or setup row, an old stop link writes nothing, and the kept records stay writable", async () => {
+    const c = await seedClinic("close-frozen");
+    await seedAccount(c.clinicId, c.staffUserId, c.staffEmail);
+    await leaveAndWait(c.clinicId);
+    await destroyDueClinics();
+    expect((await closeAccountsDue()).closed.map((x) => x.clinicId)).toContain(c.clinicId);
+    const refused = (text: string, values: unknown[]) =>
+      expect(asApp(c.clinicId, text, values)).rejects.toMatchObject({
+        code: "23514",
+        message: expect.stringMatching(/account is closed/),
+      });
+
+    await refused(`insert into clinic_settings (clinic_id, daily_summary) values ($1, false)`, [
+      c.clinicId,
+    ]);
+    await refused(`insert into agent_configs (clinic_id, greeting) values ($1, 'Back again')`, [
+      c.clinicId,
+    ]);
+    await refused(
+      `insert into clinic_memberships (clinic_id, user_id, role) values ($1, $2, 'owner')`,
+      [c.clinicId, c.staffUserId],
+    );
+    await refused(`update clinic_memberships set revoked_at = null where clinic_id = $1`, [
+      c.clinicId,
+    ]);
+    await refused(
+      `insert into report_recipients (clinic_id, email, added_by) values ($1, 'back@example-clinic.test', 'ops')`,
+      [c.clinicId],
+    );
+
+    // The stop link in an old email answers as done and writes nothing.
+    expect(await stopOptionalEmail({ clinicId: c.clinicId, scope: "daily_summary" })).toMatchObject(
+      {
+        status: "stopped",
+      },
+    );
+    expect(await countIn(c.clinicId, "clinic_settings")).toBe(0);
+
+    // What the agreement still needs written after a closure is not frozen:
+    // an incident report's notice, its ledger row, the audit log.
+    await inTenant(c.clinicId, async (q) => {
+      await q.query(
+        `insert into billing_notices (clinic_id, kind, dedupe_key) values ($1, 'incident_report', 'incident_report:x:1')`,
+        [c.clinicId],
+      );
+      await q.query(
+        `insert into report_deliveries (clinic_id, kind, period_key, recipient, status) values ($1, 'incident_report', 'x', $2, 'sent')`,
+        [c.clinicId, c.staffEmail],
+      );
+    });
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      tx.audit.record({ action: "read", resourceType: "incident", resultCount: 0 });
+    });
+  });
+
+  test("the frozen tables are every one the destruction or the closure empties, and the kept access records; nothing else", async () => {
+    const { rows } = await getMigratorPool().query<{ relname: string; frozen: boolean }>(
+      `select c.relname,
+              exists (select 1 from pg_trigger t where t.tgrelid = c.oid and t.tgname = c.relname || '_closed_account') as frozen
+         from pg_class c
+         join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public'
+          and c.relkind in ('r', 'p')
+          and exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'clinic_id' and a.attnum > 0 and not a.attisdropped)`,
+    );
+    expect(rows.length).toBeGreaterThan(20);
+    const expected = rows
+      .map((r) => r.relname)
+      .filter((t) => !(t in KEPT_FOR_GOOD) || FROZEN_AT_CLOSURE.has(t))
+      .sort();
     expect(
+      rows
+        .filter((r) => r.frozen)
+        .map((r) => r.relname)
+        .sort(),
+    ).toEqual(expected);
+  });
+
+  test("the account waits for the agent's release at Retell, an open incident, a critical notice and the Stripe Connect link, telling ops once for each", async () => {
+    const c = await seedClinic("close-waits");
+    await seedChannels(c.clinicId, [{ channel: "voice" }]);
+    await getMigratorPool().query(
+      `update clinics set stripe_connect_account_id = 'acct_closewaits' where id = $1`,
+      [c.clinicId],
+    );
+    await inTenant(c.clinicId, async (q) => {
+      await q.query(
+        `insert into incidents (clinic_id, class, summary, discovered_at, notify_by, opened_by)
+         values ($1, 'security_incident', 'Notice 7f3a went to a second inbox.', now(), now() + interval '1 day', 'ops')`,
+        [c.clinicId],
+      );
+      await q.query(
+        `insert into billing_notices (clinic_id, kind, dedupe_key) values ($1, 'incident_report', 'incident_report:wait:1')`,
+        [c.clinicId],
+      );
+    });
+    await leaveAndWait(c.clinicId);
+    await destroyDueClinics();
+
+    const waitingOn = async () => {
+      const run = await closeAccountsDue();
+      expect(run.closed.map((x) => x.clinicId)).not.toContain(c.clinicId);
+      return run.waiting.find((w) => w.clinicId === c.clinicId)?.on ?? null;
+    };
+    const alerts = async () =>
       (
-        await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
-          tx.db.execute<{ r: unknown }>(
-            sql`select app_close_clinic_account(${leaving.clinicId}::uuid) as r`,
-          ),
+        await getMigratorPool().query<{ code: string }>(
+          `select fields->>'code' as code from ops_alerts where event = 'account_closure_waiting' and fields->>'clinicId' = $1 order by raised_at`,
+          [c.clinicId],
         )
-      ).rows[0]!.r,
-    ).toBeNull();
+      ).rows.map((r) => r.code);
+
+    expect(await waitingOn()).toBe("voice_agent");
+    await expect(
+      asApp(c.clinicId, `select app_close_clinic_account($1::uuid, null)`, [c.clinicId]),
+    ).rejects.toThrow(/cannot close yet: voice_agent/);
+    await recordVoiceVendorDeletion({
+      clinicId: c.clinicId,
+      clinicSlug: c.slug,
+      how: "released",
+      actorLabel: "ops@healdesk.test",
+      step: "agent",
+    });
+
+    expect(await waitingOn()).toBe("incident_open");
+    await inTenant(c.clinicId, (q) =>
+      q.query(
+        `update incidents set resolved_at = now(), resolution = 'contained' where clinic_id = $1`,
+        [c.clinicId],
+      ),
+    );
+    expect(await waitingOn()).toBe("critical_notice");
+    await inTenant(c.clinicId, (q) =>
+      q.query(`update billing_notices set attempts = 6 where clinic_id = $1`, [c.clinicId]),
+    );
+    expect(await waitingOn()).toBe("stripe_connect");
+    await getMigratorPool().query(
+      `update clinics set stripe_connect_account_id = null where id = $1`,
+      [c.clinicId],
+    );
+
+    expect((await closeAccountsDue()).closed.map((x) => x.clinicId)).toEqual([c.clinicId]);
+    // Ops heard once of each thing it waited on, in order.
+    expect(await alerts()).toEqual([
+      "voice_agent",
+      "incident_open",
+      "critical_notice",
+      "stripe_connect",
+    ]);
   });
 
   test("the account closes only after destruction, and only once forwarded calls stop passing through", async () => {
     const c = await seedClinic("close-timing");
-    await seedAccount(c.clinicId, c.staffUserId);
+    await seedAccount(c.clinicId, c.staffUserId, c.staffEmail);
     const refused = (text: RegExp) =>
       expect(
-        asApp(c.clinicId, `select app_close_clinic_account($1::uuid)`, [c.clinicId]),
+        asApp(c.clinicId, `select app_close_clinic_account($1::uuid, null)`, [c.clinicId]),
       ).rejects.toThrow(text);
 
-    // A customer, then a clinic whose service ended but whose data is held.
-    await refused(/not destroyed/);
+    await refused(/not_destroyed/);
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
       startOffboarding(tx, "operator"),
     );
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
       markExportDelivered(tx, "bundle handed over"),
     );
-    await refused(/not destroyed/);
+    await refused(/not_destroyed/);
 
     // Destroyed on day 29, a day before the pass-through ends: the direct line
     // and the clinic's address are still needed, so the account stays open.
     await backdate(c.clinicId, FORWARDING_PASS_THROUGH_DAYS - 0.5);
     expect((await destroyDueClinics()).map((d) => d.clinicId)).toContain(c.clinicId);
-    await refused(/still pass through/);
-    expect((await closeAccountsDue()).map((x) => x.clinicId)).not.toContain(c.clinicId);
+    await refused(/pass_through/);
+    expect((await closeAccountsDue()).closed.map((x) => x.clinicId)).not.toContain(c.clinicId);
     expect(await countIn(c.clinicId, "clinic_settings")).toBe(1);
 
     // The pass-through's last hour passes: the next hourly run closes it.
     await backdate(c.clinicId, 0.5 + 1 / 24);
-    expect((await closeAccountsDue()).map((x) => x.clinicId)).toEqual([c.clinicId]);
+    expect((await closeAccountsDue()).closed.map((x) => x.clinicId)).toEqual([c.clinicId]);
     expect(await countIn(c.clinicId, "clinic_settings")).toBe(0);
   });
 
-  test("another tenant's account cannot be closed, the runtime role cannot stamp a closure, and no clinic is born closed", async () => {
+  test("the kept notice address ends with its six years", async () => {
+    const c = await seedClinic("close-notice-expiry");
+    await leaveAndWait(c.clinicId);
+    await destroyDueClinics();
+    await closeAccountsDue();
+    const read = async () =>
+      (
+        await getMigratorPool().query<{ a: string | null }>(
+          `select notice_address as a from clinics where id = $1`,
+          [c.clinicId],
+        )
+      ).rows[0]!.a;
+    expect(await read()).toBe(c.staffEmail);
+    await getMigratorPool().query(
+      `update clinics set notice_address_until = now() - interval '1 minute' where id = $1`,
+      [c.clinicId],
+    );
+    expect((await closeAccountsDue()).noticeAddressesExpired).toBeGreaterThanOrEqual(1);
+    expect(await read()).toBeNull();
+    // With nothing kept, the senders' resolver finds no address at all.
+    expect(
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => billingRecipients(tx)),
+    ).toEqual([]);
+  });
+
+  test("another tenant's account cannot be closed, the runtime role cannot stamp a closure or a notice address, and no clinic is born closed", async () => {
     const mine = await seedClinic("close-mine");
     const theirs = await seedClinic("close-theirs");
     await expect(
-      asApp(mine.clinicId, `select app_close_clinic_account($1::uuid)`, [theirs.clinicId]),
+      asApp(mine.clinicId, `select app_close_clinic_account($1::uuid, null)`, [theirs.clinicId]),
     ).rejects.toMatchObject({ code: "42501" });
-    await expect(
-      asApp(mine.clinicId, `update clinics set account_closed_at = now() where id = $1`, [
-        mine.clinicId,
-      ]),
-    ).rejects.toMatchObject({ code: "42501" });
+    for (const column of [
+      "account_closed_at = now()",
+      "notice_address = 'x@example.test'",
+      "notice_address_until = now()",
+    ]) {
+      await expect(
+        asApp(mine.clinicId, `update clinics set ${column} where id = $1`, [mine.clinicId]),
+      ).rejects.toMatchObject({ code: "42501" });
+    }
     await expect(
       getAppPool().query(
         `insert into clinics (organization_id, slug, name, specialty, account_closed_at)
@@ -374,10 +682,24 @@ describeDb("closing the account once the data is destroyed and the pass-through 
     ).rejects.toMatchObject({ code: "42501" });
     // The pass-through the database counts is the catalog's.
     const { rows } = await getMigratorPool().query<{ prosrc: string }>(
-      `select prosrc from pg_proc where proname in ('app_close_clinic_account', 'app_accounts_to_close')`,
+      `select prosrc from pg_proc where proname = 'app_account_closure_waiting_on' or proname = 'app_accounts_to_close'`,
     );
+    expect(rows).toHaveLength(2);
     for (const row of rows)
       expect(row.prosrc).toContain(`make_interval(hours => ${24 * FORWARDING_PASS_THROUGH_DAYS})`);
+  });
+
+  test("the closure waits for exactly the registry's critical notice kinds", async () => {
+    const { rows } = await getMigratorPool().query<{ prosrc: string }>(
+      `select prosrc from pg_proc where proname = 'app_account_closure_waiting_on'`,
+    );
+    const list = /b\.kind IN \(([^)]*)\)/.exec(rows[0]!.prosrc)![1]!;
+    const inSql = [...list.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]!).sort();
+    const critical = Object.entries(NOTICE_KIND_REGISTRY)
+      .filter(([, a]) => a.priority === "critical")
+      .map(([k]) => k)
+      .sort();
+    expect(inSql).toEqual(critical);
   });
 
   test("KEPT_FOR_GOOD gives a reason for every table it keeps, and the closure deletes none of them, except in the part it names", async () => {
@@ -389,6 +711,7 @@ describeDb("closing the account once the data is destroyed and the pass-through 
     expect([...KEPT_IN_PART].filter((t) => !(t in KEPT_FOR_GOOD) || !closure.includes(t))).toEqual(
       [],
     );
+    expect([...FROZEN_AT_CLOSURE].filter((t) => !(t in KEPT_FOR_GOOD))).toEqual([]);
   });
 
   test("a connection link something still names outlives the closure, and every other link goes", async () => {
@@ -416,16 +739,10 @@ describeDb("closing the account once the data is destroyed and the pass-through 
        values ($1, $2, 'calendar_link', 'calendar_link', $3, $4, 'google-calendar-disclosure/1.0.0', $5, now(), now() + interval '10 minutes')`,
       [randomBytes(32), c.clinicId, named, randomBytes(32), randomBytes(32)],
     );
-    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      startOffboarding(tx, "operator"),
-    );
-    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      markExportDelivered(tx, "bundle handed over"),
-    );
-    await backdate(c.clinicId, FORWARDING_PASS_THROUGH_DAYS + 1);
+    await leaveAndWait(c.clinicId);
     await destroyDueClinics();
-    const closed = await closeAccountsDue();
-    expect(closed.find((x) => x.clinicId === c.clinicId)?.deleted.connection_links).toBe(1);
+    const run = await closeAccountsDue();
+    expect(run.closed.find((x) => x.clinicId === c.clinicId)?.closed.connection_links).toBe(1);
     const left = await inTenant(c.clinicId, async (q) =>
       (
         await q.query<{ id: string }>(`select id from connection_links where clinic_id = $1`, [

@@ -20,9 +20,12 @@ import { JOB_OFFBOARDING_DESTROY, runWideningJob } from "./jobs";
  *
  * After the destruction, every run closes the accounts that are due
  * (lib/offboarding/account-closure.ts): a destroyed clinic whose
- * pass-through has ended loses its sign-in and its setup, keeping only the
- * agreements, the billing records and the records the law needs. Whatever
- * the switch says, like the number's release: Terms §3 and §7 promise it.
+ * pass-through has ended, and that waits on nothing else, loses its sign-in
+ * and its setup, keeping only the agreements, the billing records and the
+ * records the law needs. Whatever the switch says, like the number's
+ * release: Terms §3 and §7 promise it. A closure that fails makes the run
+ * fail, with the destruction's note, so the console shows it as well as ops'
+ * alert.
  */
 export async function runOffboardingDestroyJob(options: { now?: Date } = {}) {
   const now = options.now ?? new Date();
@@ -30,20 +33,26 @@ export async function runOffboardingDestroyJob(options: { now?: Date } = {}) {
     JOB_OFFBOARDING_DESTROY,
     async (switchedOn) => {
       const results = await destroyDueClinics(now, { onlyPromised: !switchedOn });
-      const closed = await closeAccountsDue();
+      const closures = await closeAccountsDue();
       const rows = results.reduce(
         (a, r) => a + Object.values(r.deleted).reduce((x, y) => x + y, 0),
         0,
       );
-      return (
+      const note =
         (switchedOn
           ? ""
           : "Switched off: only the clinics whose agreement states the export rule (BAA 1.3.0, the DPA). ") +
         (results.length
           ? `Destroyed patient data for ${results.length} clinic(s), ${rows} rows.`
           : "Nothing due.") +
-        (closed.length ? ` Closed ${closed.length} account(s).` : "")
-      );
+        (closures.closed.length ? ` Closed ${closures.closed.length} account(s).` : "") +
+        (closures.waiting.length
+          ? ` ${closures.waiting.length} account(s) waiting to close (ops told).`
+          : "");
+      if (closures.failed.length) {
+        throw new Error(`${note} ${closures.failed.length} account closure(s) failed.`);
+      }
+      return note;
     },
     now,
   );

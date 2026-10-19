@@ -182,6 +182,19 @@ export const OPS_EVENTS = [
   // stops AYA where that vendor serves and asks for an incident.
   "vendor_agreement_expiring",
   "vendor_agreement_lapsed",
+  // Closing a leaving clinic's account (lib/offboarding/account-closure.ts):
+  // its data is destroyed and its pass-through over, but the closure waits on
+  // a person (`code`: voice_agent, incident_open, critical_notice or
+  // stripe_connect), once per clinic and code; or the closure threw, every
+  // hour it does.
+  "account_closure_waiting",
+  "account_closure_failed",
+  // Revoking a leaving clinic's Meta access (lib/meta/revoke.ts): Meta kept
+  // refusing to take the app off a Page or WhatsApp account (`phase`
+  // retries, once per connection after META_REVOKE_ALERT_AFTER tries), or
+  // still refused it on the last try before destruction deleted the token
+  // (`phase` destruction).
+  "meta_revoke_failed",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

@@ -1,5 +1,5 @@
 {
-  "id": "42511515-065d-4e93-9aa3-b857038c69d1",
+  "id": "2d10b9a6-0447-48e6-9df7-60ac20837c06",
   "prevId": "f8988f89-e04a-49b1-9449-875a413da99b",
   "version": "7",
   "dialect": "postgresql",
@@ -4576,6 +4576,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "notice_address": {
+          "name": "notice_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notice_address_until": {
+          "name": "notice_address_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "billing_clinic_id": {
           "name": "billing_clinic_id",
           "type": "uuid",
@@ -4759,6 +4771,10 @@
         "clinics_destruction_notice_address_check": {
           "name": "clinics_destruction_notice_address_check",
           "value": "\"clinics\".\"destruction_notice_address\" is null or (\"clinics\".\"destroyed_at\" is not null and char_length(\"clinics\".\"destruction_notice_address\") between 3 and 254 and \"clinics\".\"destruction_notice_address\" ~ '^[^[:space:][:cntrl:]@]+@[^[:space:][:cntrl:]@]+$')"
+        },
+        "clinics_notice_address_check": {
+          "name": "clinics_notice_address_check",
+          "value": "\"clinics\".\"notice_address\" is null or (\"clinics\".\"account_closed_at\" is not null and \"clinics\".\"notice_address_until\" is not null and char_length(\"clinics\".\"notice_address\") between 3 and 254 and \"clinics\".\"notice_address\" ~ '^[^[:space:][:cntrl:]@]+@[^[:space:][:cntrl:]@]+$')"
         }
       },
       "isRLSEnabled": false
@@ -8842,7 +8858,7 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "old_email": {
           "name": "old_email",
@@ -9019,7 +9035,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

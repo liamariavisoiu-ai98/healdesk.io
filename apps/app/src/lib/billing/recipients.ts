@@ -1,7 +1,7 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 
 import { user } from "@/db/auth-schema";
-import { clinicMemberships, reportRecipients } from "@/db/schema";
+import { clinicMemberships, clinics, reportRecipients } from "@/db/schema";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -22,6 +22,13 @@ import type { TenantTx } from "@/lib/tenant";
  * the buyer the provisioning step seeded into report_recipients
  * (added_by 'provisioning'). That address IS the person who paid, which is
  * why it is the one exception; any other report recipient is not.
+ *
+ * And one for a closed account (lib/offboarding/account-closure.ts), which
+ * has no live grant and no report recipient left: the agreement's notice
+ * address the closure kept (clinics.notice_address), for as long as it is
+ * kept, so a notice the agreement still owes after termination, a breach
+ * report above all (BAA clauses 12, 17, 20), still reaches the practice in
+ * writing through the outbox and its ledger.
  */
 
 export type BillingRecipient = {
@@ -71,9 +78,18 @@ export async function billingRecipients(tx: TenantTx): Promise<BillingRecipient[
         isNull(reportRecipients.unsubscribedAt),
       ),
     );
-  return seeded.map((row) => ({
-    email: row.email.trim().toLowerCase(),
-    role: "owner" as const,
-    userId: null,
-  }));
+  if (seeded.length > 0) {
+    return seeded.map((row) => ({
+      email: row.email.trim().toLowerCase(),
+      role: "owner" as const,
+      userId: null,
+    }));
+  }
+
+  const [closed] = await tx.db
+    .select({ address: clinics.noticeAddress })
+    .from(clinics)
+    .where(and(eq(clinics.id, tx.clinicId), isNotNull(clinics.accountClosedAt)))
+    .limit(1);
+  return closed?.address ? [{ email: closed.address, role: "owner" as const, userId: null }] : [];
 }

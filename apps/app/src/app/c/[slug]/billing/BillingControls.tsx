@@ -20,6 +20,7 @@ import {
   previewLocationAction,
   previewPlanAction,
   saveBillingSwitchAction,
+  startAgreementResignAction,
   type BillingActionResult,
   type PlanPreview,
 } from "./actions";
@@ -587,5 +588,89 @@ export function StripePortalButton(props: {
     >
       {working ? "Opening Stripe…" : props.label}
     </button>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// The agreement: a DPA practice that now bills insurance (plan Part L)
+// -----------------------------------------------------------------------------
+
+/**
+ * "We've started billing insurance electronically", and, once that re-sign is
+ * open, "Sign your updated agreement". The first asks once more before it
+ * acts, because it pauses AYA on every channel until the agreement is signed.
+ * Both need a passkey step-up, and both land on the agreement to sign.
+ */
+export function AgreementResignButton(props: { slug: string; open: boolean }) {
+  const say = useBillingAnnounce();
+  const [confirming, setConfirming] = useState(false);
+  const [working, setWorking] = useState(false);
+
+  async function go() {
+    setWorking(true);
+    let result: BillingActionResult;
+    try {
+      result = await startAgreementResignAction(props.slug);
+    } catch {
+      result = FAILED;
+    }
+    say(result);
+    if (result.ok && result.href) {
+      window.location.assign(result.href);
+      return;
+    }
+    setWorking(false);
+    setConfirming(false);
+  }
+
+  if (props.open) {
+    return (
+      <button
+        type="button"
+        disabled={working}
+        onClick={() => void go()}
+        className="bg-ink mt-3 min-h-11 rounded-full px-5 text-sm font-bold text-white disabled:opacity-50"
+      >
+        {working ? "Opening…" : "Sign your updated agreement"}
+      </button>
+    );
+  }
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="border-line mt-3 min-h-11 rounded-full border px-5 text-sm font-semibold"
+      >
+        We&rsquo;ve started billing insurance electronically
+      </button>
+    );
+  }
+  return (
+    <div className="border-line mt-3 rounded-xl border px-4 py-3 text-sm">
+      <p>
+        Your agreement becomes a business associate agreement, which you sign next. Until it&rsquo;s
+        signed, AYA is paused: calls go to your direct line, website chat shows a contact form, and
+        messages wait for your team.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={working}
+          onClick={() => void go()}
+          className="bg-ink min-h-11 rounded-full px-5 text-sm font-bold text-white disabled:opacity-50"
+        >
+          {working ? "Recording…" : "Yes, we bill insurance electronically"}
+        </button>
+        <button
+          type="button"
+          disabled={working}
+          onClick={() => setConfirming(false)}
+          className="border-line min-h-11 rounded-full border px-5 text-sm font-semibold"
+        >
+          Not now
+        </button>
+      </div>
+    </div>
   );
 }

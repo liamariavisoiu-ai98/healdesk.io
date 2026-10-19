@@ -3,12 +3,13 @@ import {
   AgreementError,
   prepareSigning,
   validateSignRequest as validateSignRequestWith,
+  type PreparedSigning,
   type SignAgreementRequest,
   type SignableOptions,
 } from "@healdesk/catalog/agreement-signing";
 import type { BaaVariables } from "@healdesk/catalog";
 
-import { unsafeDb } from "@/db";
+import { unsafeDb, type Queryable } from "@/db";
 import { baaAcceptances, securityEvents } from "@/db/schema";
 import { renderAgreementPdf } from "@/lib/agreements/pdf";
 import { sendAgreementCopy } from "@/lib/email/agreement-copy";
@@ -130,7 +131,6 @@ export async function signAgreement(
     new Date().toISOString().slice(0, 10),
     options,
   );
-  const email = prepared.signatoryEmail;
 
   /**
    * The screen and the record must agree, byte for byte.
@@ -151,48 +151,7 @@ export async function signAgreement(
     );
   }
 
-  // Raw SQL naming only the columns it writes: the runtime role may insert
-  // no organization_id, bound_at, terminated_at or termination_reason
-  // (column-scoped INSERT, drizzle/0066), and Drizzle's insert names every
-  // column, even the ones it leaves at their defaults. A signature is
-  // unbound until provisioning binds it through app_bind_agreement().
-  //
-  // The assent label is the full sentence beside the checkbox, re-derived
-  // from the validated clinic name rather than copied from the request.
-  // validateSignRequest has already proved the client displayed the
-  // published label.
-  const inserted = await unsafeDb.execute<{ id: string; accepted_at: Date | string }>(sql`
-    insert into baa_acceptances
-      (user_id, document_version, document_hash, rendered_text, variables, assent_label,
-       accepted_by_name, accepted_by_email, accepted_by_title, ip_address, user_agent)
-    values
-      (null, ${prepared.version}, ${prepared.hash}, ${prepared.text},
-       ${JSON.stringify(prepared.stored)}::jsonb, ${prepared.assentSentence},
-       ${prepared.signatoryName}, ${email}, ${prepared.signatoryTitle},
-       ${context.ipAddress ?? null}, ${context.userAgent ?? null})
-    returning id, accepted_at`);
-  const row = inserted.rows[0]
-    ? { id: inserted.rows[0].id, acceptedAt: new Date(inserted.rows[0].accepted_at) }
-    : undefined;
-
-  const acceptance = row!;
-
-  await recordSecurityEvent(unsafeDb, {
-    event: "baa_accepted",
-    actorLabel: email,
-    organizationId: null,
-    ipAddress: context.ipAddress ?? null,
-    userAgent: context.userAgent ?? null,
-    metadata: {
-      agreementId: acceptance.id,
-      // A DPA's version names its kind ("dpa/1.0.0"), so one event serves both.
-      version: prepared.version,
-      hash: prepared.hash,
-      approvedByCounsel: prepared.approvedByCounsel,
-      // Deliberately not the clinic name: security_events is the identity
-      // plane's log and the acceptance row already holds the detail.
-    },
-  });
+  const acceptance = await recordAcceptance(unsafeDb, prepared, context);
 
   /**
    * Only now, with the row committed, does anyone try to send anything.
@@ -229,6 +188,63 @@ export async function signAgreement(
     approvedByCounsel: prepared.approvedByCounsel,
     copy,
   };
+}
+
+/**
+ * Write one prepared signature as an unbound acceptance, with its
+ * `baa_accepted` security event: the row signAgreement writes, and the one the
+ * re-sign writes inside the transaction that puts it in force
+ * (lib/agreements/resign.ts), so the two cannot store a signature differently.
+ * `db` must be in service context (no tenant): the runtime role inserts an
+ * unbound row only there (baa_acceptances_scope, 0031).
+ */
+export async function recordAcceptance(
+  db: Queryable,
+  prepared: PreparedSigning,
+  context: RequestContext = {},
+): Promise<{ id: string; acceptedAt: Date }> {
+  // Raw SQL naming only the columns it writes: the runtime role may insert
+  // no organization_id, bound_at, terminated_at or termination_reason
+  // (column-scoped INSERT, drizzle/0066), and Drizzle's insert names every
+  // column, even the ones it leaves at their defaults. A signature is
+  // unbound until provisioning binds it through app_bind_agreement(), or a
+  // supersede through app_supersede_agreement().
+  //
+  // The assent label is the full sentence beside the checkbox, re-derived
+  // from the validated clinic name rather than copied from the request.
+  // validateSignRequest has already proved the client displayed the
+  // published label.
+  const inserted = await db.execute<{ id: string; accepted_at: Date | string }>(sql`
+    insert into baa_acceptances
+      (user_id, document_version, document_hash, rendered_text, variables, assent_label,
+       accepted_by_name, accepted_by_email, accepted_by_title, ip_address, user_agent)
+    values
+      (null, ${prepared.version}, ${prepared.hash}, ${prepared.text},
+       ${JSON.stringify(prepared.stored)}::jsonb, ${prepared.assentSentence},
+       ${prepared.signatoryName}, ${prepared.signatoryEmail}, ${prepared.signatoryTitle},
+       ${context.ipAddress ?? null}, ${context.userAgent ?? null})
+    returning id, accepted_at`);
+  const row = inserted.rows[0];
+  if (!row) throw new Error("The agreement's row was not written.");
+  const acceptance = { id: row.id, acceptedAt: new Date(row.accepted_at) };
+
+  await recordSecurityEvent(db, {
+    event: "baa_accepted",
+    actorLabel: prepared.signatoryEmail,
+    organizationId: null,
+    ipAddress: context.ipAddress ?? null,
+    userAgent: context.userAgent ?? null,
+    metadata: {
+      agreementId: acceptance.id,
+      // A DPA's version names its kind ("dpa/1.0.0"), so one event serves both.
+      version: prepared.version,
+      hash: prepared.hash,
+      approvedByCounsel: prepared.approvedByCounsel,
+      // Deliberately not the clinic name: security_events is the identity
+      // plane's log and the acceptance row already holds the detail.
+    },
+  });
+  return acceptance;
 }
 
 // -----------------------------------------------------------------------------
@@ -408,6 +424,19 @@ async function deliverSignedCopyWithin(
     // process is the difference between exiting and hanging.
     if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * The signer's copy of a signature just recorded, within the same budget
+ * signAgreement gives it: for the re-sign (lib/agreements/resign.ts), whose
+ * signature is committed with its supersede before anything is sent. Never
+ * throws.
+ */
+export function deliverSignatureCopy(
+  agreementId: string,
+  context: RequestContext = {},
+): Promise<SignedCopyDelivery> {
+  return deliverSignedCopyWithin(COPY_BUDGET_MS, agreementId, { kind: "signature" }, context);
 }
 
 /** Who asked for the copy, for the security-event trail. */

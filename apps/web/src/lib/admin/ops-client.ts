@@ -288,7 +288,12 @@ type OperatorOp =
   // Support replies (WP5; /admin/support): the support chat's escalations
   // with the day L25 promised a reply by, and the mark that one was replied to.
   | "listSupportRequests"
-  | "markSupportReplied";
+  | "markSupportReplied"
+  // The misclassification signal (plan Part L, WP9): DPA "No" practices
+  // whose website says they accept insurance, decided by recording the
+  // practice's answer, which setCoveredEntity carries out.
+  | "listAgreementReviews"
+  | "decideAgreementReview";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -4721,6 +4726,70 @@ export function setCoveredEntity(
       supersedeStarted: bool(data.supersedeStarted, "setCoveredEntity.supersedeStarted"),
       linkSent: bool(data.linkSent, "setCoveredEntity.linkSent"),
       auditRecorded: bool(data.auditRecorded, "setCoveredEntity.auditRecorded"),
+    };
+  });
+}
+
+/**
+ * One misclassification review (apps/app lib/agreements/misclassification.ts):
+ * a practice that signed the Data Protection Agreement as billing no insurance
+ * electronically, whose own website says it accepts insurance. Business data
+ * only: the practice, the signal and the decision.
+ */
+export type AgreementReview = {
+  id: string;
+  clinicId: string;
+  clinicSlug: string;
+  clinicName: string;
+  status: "open" | "passed" | "failed";
+  signal: "site_accepts_insurance";
+  createdAt: { on: string; at: string };
+  decidedAt: { on: string; at: string } | null;
+  decidedByLabel: string | null;
+};
+
+function readAgreementReview(value: unknown): AgreementReview {
+  const row = object(value, "agreementReview");
+  return {
+    id: id(row.id, "agreementReview.id"),
+    clinicId: id(row.clinicId, "agreementReview.clinicId"),
+    clinicSlug: text(row.clinicSlug, "agreementReview.clinicSlug"),
+    clinicName: text(row.clinicName, "agreementReview.clinicName"),
+    status: literal(row.status, ["open", "passed", "failed"] as const, "agreementReview.status"),
+    signal: literal(row.signal, ["site_accepts_insurance"] as const, "agreementReview.signal"),
+    createdAt: instant(row.createdAt, "agreementReview.createdAt"),
+    decidedAt: optionalInstant(row.decidedAt, "agreementReview.decidedAt"),
+    decidedByLabel: optionalText(row.decidedByLabel, "agreementReview.decidedByLabel"),
+  };
+}
+
+export function fetchAgreementReviews(): Promise<OpsResult<AgreementReview[]>> {
+  return callOps("listAgreementReviews", "read", {}, (value) =>
+    list(object(value, "listAgreementReviews").reviews, "listAgreementReviews.reviews").map(
+      readAgreementReview,
+    ),
+  );
+}
+
+/** The practice's answer, as the operator heard it: recorded through setCoveredEntity. */
+export function decideAgreementReview(
+  clinicId: string,
+  reviewId: string,
+  answer: CoveredAnswer,
+): Promise<OpsResult<SetCoveredEntityOutcome>> {
+  return callOps("decideAgreementReview", "write", { clinicId, reviewId, answer }, (value) => {
+    const data = object(value, "decideAgreementReview");
+    if (state(data, "decideAgreementReview") !== "recorded") {
+      return refusal(data, "decideAgreementReview");
+    }
+    return {
+      status: "recorded",
+      agreementKind: literal(data.agreementKind, ["baa", "dpa"] as const, "decideAgreementReview.agreementKind"),
+      isCoveredEntity: optionalBoolean(data.isCoveredEntity, "decideAgreementReview.isCoveredEntity"),
+      covered: bool(data.covered, "decideAgreementReview.covered"),
+      supersedeStarted: bool(data.supersedeStarted, "decideAgreementReview.supersedeStarted"),
+      linkSent: bool(data.linkSent, "decideAgreementReview.linkSent"),
+      auditRecorded: bool(data.auditRecorded, "decideAgreementReview.auditRecorded"),
     };
   });
 }

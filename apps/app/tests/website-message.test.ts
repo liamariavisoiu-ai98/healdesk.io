@@ -312,15 +312,47 @@ describeDb("a message left on the website", () => {
     expect(await requests(left)).toEqual([]);
 
     for (const c of [unsigned, notLive]) {
+      const line = `To reach ${c.slug.replace(/-[^-]+$/, "")} Clinic, please call the practice on (415) 555-0199.`;
       const opened = await (await post(start, c.slug, "start", {})).json();
       expect(opened.mode, c.slug).toBe("contact_form");
-      expect(opened.form, c.slug).toEqual({ takesMessages: false, times: CONTACT_TIMES });
+      expect(opened.form, c.slug).toEqual({ takesMessages: false, times: CONTACT_TIMES, callLine: line });
       const res = await post(contact, c.slug, "contact", GOOD);
       expect(res.status, c.slug).toBe(409);
-      expect(await res.json()).toEqual({ mode: "closed" });
+      expect(await res.json()).toEqual({ mode: "closed", reply: line });
       expect(await requests(c)).toEqual([]);
       expect(await queuedNotices(c.clinicId)).toEqual([]);
     }
+  });
+
+  test("a practice the PHI gate refuses (its re-sign to the BAA unsigned) takes no message and says to call, writing nothing", async () => {
+    const c = await liveWeb("msg-uncovered");
+    await pause(c);
+    // A DPA practice now covered: app_clinic_accepts_phi refuses its data
+    // until its BAA is signed (lib/agreements/resign.ts).
+    await getMigratorPool().query(
+      `update clinics set regulatory_regime = 'hipaa-if-covered', agreement_kind = 'dpa', is_covered_entity = true where id = $1`,
+      [c.clinicId],
+    );
+    const line = "To reach msg-uncovered Clinic, please call the practice on (415) 555-0199.";
+
+    const opened = await (await post(start, c.slug, "start", {})).json();
+    expect(opened.mode).toBe("contact_form");
+    expect(opened.form).toEqual({ takesMessages: false, times: CONTACT_TIMES, callLine: line });
+
+    // Sent anyway: refused with the line, before the database's trigger is
+    // reached, so nothing errors, nothing is kept and nothing is retried.
+    const res = await post(contact, c.slug, "contact", GOOD);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ mode: "closed", reply: line });
+    expect(await requests(c)).toEqual([]);
+    expect(await queuedNotices(c.clinicId)).toEqual([]);
+
+    // Covered again ("No" after all), it takes the message as before.
+    await getMigratorPool().query(`update clinics set is_covered_entity = false where id = $1`, [
+      c.clinicId,
+    ]);
+    expect((await post(contact, c.slug, "contact", GOOD, "203.0.113.90")).status).toBe(200);
+    expect(await requests(c)).toHaveLength(1);
   });
 
   test("rate-limited per address and clinic, and per clinic across addresses", async () => {

@@ -412,6 +412,10 @@ describeDb("delivery", () => {
           "channel-states",
           // The header's pause: a sweep that records a timed pause's end.
           "ai-pause",
+          // L22's reminders and the 7-day ops alert (WP9): a sweep, not a
+          // switched job, because the practice was told AYA is paused until
+          // it signs.
+          "agreement-resigns",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -428,6 +432,7 @@ describeDb("delivery", () => {
         if (job === "ai-pause") continue; // a sweep: records the end of a timed pause the clinic set
         if (job === "destruction-notices") continue; // a sweep: E6 to an address captured at destruction
         if (job === "after-cancellation") continue; // a sweep: queues E3–E5 for clinics whose service ended
+        if (job === "agreement-resigns") continue; // a sweep: L22's reminders for the open re-signs only
         expect(status, job).toBe("disabled");
       }
       expect(jobs["offboarding-destroy"]).toBe("ok");
@@ -439,6 +444,7 @@ describeDb("delivery", () => {
       expect(jobs["ai-pause"]).toBe("ok");
       expect(jobs["destruction-notices"]).toBe("ok");
       expect(jobs["after-cancellation"]).toBe("ok");
+      expect(jobs["agreement-resigns"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

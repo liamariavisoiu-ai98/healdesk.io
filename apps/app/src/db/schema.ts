@@ -62,11 +62,13 @@ import type { SealedPayload } from "../lib/crypto/envelope";
 import { LEDGER_DIRECT_KINDS } from "../lib/email/direct-kinds";
 import { NOTICE_KINDS, PACKAGE_NOTICE_KINDS, type NoticeKind } from "../lib/email/kinds";
 import {
+  AUDIT_REVIEW_KINDS,
   AUDIT_REVIEW_STATUSES,
   PRACTICE_RESULT_STATUSES,
   PRACTICE_RUN_REASONS,
   PRACTICE_RUN_STATUSES,
   PRACTICE_SECTIONS,
+  type AuditReviewKind,
   type AuditReviewStatus,
   type PracticeCaseResult,
   type PracticeResultStatus,
@@ -4655,6 +4657,112 @@ export const signInAddressChanges = pgTable(
 export type SignInAddressChange = typeof signInAddressChanges.$inferSelect;
 
 // -----------------------------------------------------------------------------
+// The DPA→BAA re-sign (package WP9, plan Part L, Annex X5 L22; drizzle/0088)
+// -----------------------------------------------------------------------------
+
+/** Why a practice under the Data Protection Agreement now needs the BAA: its answer. */
+export const AGREEMENT_RESIGN_REASONS = ["now_covered", "not_sure"] as const;
+export type AgreementResignReason = (typeof AGREEMENT_RESIGN_REASONS)[number];
+
+/** Who recorded the answer: ops (setCoveredEntity), or the practice from Billing. */
+export const AGREEMENT_RESIGN_SOURCES = ["operator", "portal"] as const;
+export type AgreementResignSource = (typeof AGREEMENT_RESIGN_SOURCES)[number];
+
+/**
+ * `open` until the practice signs the BAA (`signed`), or until ops records
+ * that it bills no insurance electronically after all (`withdrawn`), which
+ * leaves the DPA in force and covering it again.
+ */
+export const AGREEMENT_RESIGN_STATUSES = ["open", "signed", "withdrawn"] as const;
+export type AgreementResignStatus = (typeof AGREEMENT_RESIGN_STATUSES)[number];
+
+/**
+ * A practice's re-sign, from the Data Protection Agreement to the Business
+ * Associate Agreement (lib/agreements/resign.ts): opened the moment its
+ * covered-entity answer stops the DPA covering it, which is the moment the
+ * PHI gate starts refusing its data, and closed when the BAA it signs through
+ * L22's link is put in force by app_supersede_agreement().
+ *
+ * L22's link is signed and never stored: it names this row and its clinic,
+ * and works only while the row is open, so signing spends every link it was
+ * ever sent. The emails are on the ledger (report_deliveries), one period key
+ * each for L22 and its reminders at 3 and 7 days.
+ *
+ * `paused_at` is the header pause this re-sign put on AYA
+ * (clinic_settings.ai_paused_at), so that L22's "AYA is paused until it's
+ * signed" is true whatever the answer gate reads, and so signing lifts only
+ * that pause and never one the practice set itself.
+ *
+ * Contract metadata, never a patient: no BAA gate. Tenant RLS on the clinic
+ * that recorded the answer; the hourly job walks open rows through a SECURITY
+ * DEFINER function that answers ids only (0088). Destruction keeps it: it is
+ * part of the record of which agreement covered the practice, and when.
+ */
+export const agreementResigns = pgTable(
+  "agreement_resigns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** The DPA in force when the re-sign began, which the BAA is to replace. */
+    fromAgreementId: uuid("from_agreement_id")
+      .notNull()
+      .references(() => baaAcceptances.id),
+    reason: text("reason").$type<AgreementResignReason>().notNull(),
+    source: text("source").$type<AgreementResignSource>().notNull(),
+    /** The operator's address, or the device whose passkey stepped up. A snapshot. */
+    requestedBy: text("requested_by").notNull(),
+    status: text("status").$type<AgreementResignStatus>().notNull().default("open"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The pause this re-sign put on AYA, or null when she was already paused or nothing answered. */
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    signedAt: timestamp("signed_at", { withTimezone: true }),
+    supersedingAgreementId: uuid("superseding_agreement_id").references(() => baaAcceptances.id),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    /** Who closed it: the signatory's address, or the operator who withdrew it. */
+    resolvedBy: text("resolved_by"),
+  },
+  (t) => [
+    // One open re-sign per clinic: "Not sure" after "Yes" is the same re-sign.
+    uniqueIndex("agreement_resigns_open_idx")
+      .on(t.clinicId)
+      .where(sql`${t.status} = 'open'`),
+    index("agreement_resigns_clinic_idx").on(t.clinicId, t.startedAt),
+    check(
+      "agreement_resigns_status_check",
+      sql`${t.status} in (${sqlList(AGREEMENT_RESIGN_STATUSES)})`,
+    ),
+    check(
+      "agreement_resigns_reason_check",
+      sql`${t.reason} in (${sqlList(AGREEMENT_RESIGN_REASONS)})`,
+    ),
+    check(
+      "agreement_resigns_source_check",
+      sql`${t.source} in (${sqlList(AGREEMENT_RESIGN_SOURCES)})`,
+    ),
+    check(
+      "agreement_resigns_requested_by_check",
+      sql`char_length(${t.requestedBy}) between 1 and 200`,
+    ),
+    check(
+      "agreement_resigns_resolved_by_check",
+      sql`${t.resolvedBy} is null or char_length(${t.resolvedBy}) between 1 and 254`,
+    ),
+    check(
+      "agreement_resigns_resolved_check",
+      sql`(${t.status} = 'open') = (${t.resolvedAt} is null) and (${t.resolvedAt} is null) = (${t.resolvedBy} is null)`,
+    ),
+    check(
+      "agreement_resigns_signed_check",
+      sql`(${t.status} = 'signed') = (${t.signedAt} is not null and ${t.supersedingAgreementId} is not null)`,
+    ),
+  ],
+);
+
+export type AgreementResign = typeof agreementResigns.$inferSelect;
+
+// -----------------------------------------------------------------------------
 // The portal's second factors and step-up (drizzle/0047). Identity plane, like
 // sign_in_links: a factor belongs to the clinic's one sign-in, not to a clinic,
 // and is read before any tenant is known, so no clinic_id and no RLS.
@@ -5572,7 +5680,13 @@ export const auditReviewQueue = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
-    runId: uuid("run_id").notNull(),
+    /**
+     * What the review is about (AUDIT_REVIEW_KINDS): a practice-questions
+     * run, or the agreement-kind signal (WP9, drizzle/0088), which has no run.
+     */
+    kind: text("kind").$type<AuditReviewKind>().notNull().default("practice_questions"),
+    /** The run reviewed; null exactly when the review is not about one. */
+    runId: uuid("run_id"),
     status: text("status").$type<AuditReviewStatus>().notNull().default("open"),
     /** The day promised to the clinic, in New York: the next business day after the review opened. */
     dueOn: date("due_on", { mode: "string" }).notNull(),
@@ -5595,6 +5709,17 @@ export const auditReviewQueue = pgTable(
       foreignColumns: [practiceQuestionRuns.clinicId, practiceQuestionRuns.id],
     }).onDelete("cascade"),
     check("audit_review_queue_status_check", sql`${t.status} in (${sqlList(AUDIT_REVIEW_STATUSES)})`),
+    check("audit_review_queue_kind_check", sql`${t.kind} in (${sqlList(AUDIT_REVIEW_KINDS)})`),
+    // A practice-questions review names its run; the agreement-kind signal has none.
+    check(
+      "audit_review_queue_run_check",
+      sql`(${t.kind} = 'practice_questions') = (${t.runId} is not null)`,
+    ),
+    // One open agreement-kind review per clinic: the signal is about the
+    // practice, not about a run, so a second read of the same site adds nothing.
+    uniqueIndex("audit_review_queue_agreement_open_idx")
+      .on(t.clinicId)
+      .where(sql`${t.kind} = 'agreement_kind' and ${t.status} = 'open'`),
     check(
       "audit_review_queue_section_check",
       sql`${t.section} is null or (${t.status} = 'failed' and ${t.section} in (${sqlList(PRACTICE_SECTIONS)}))`,
@@ -5660,6 +5785,7 @@ export const TENANT_SCOPED_TABLES = [
   "practice_question_runs",
   "practice_question_results",
   "audit_review_queue",
+  "agreement_resigns",
 ] as const;
 
 // -----------------------------------------------------------------------------

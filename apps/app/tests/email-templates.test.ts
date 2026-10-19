@@ -40,6 +40,7 @@ import {
   SIGN_IN_REASON,
 } from "@/lib/email/templates/context";
 import { addressConfirmReason } from "@/lib/email/templates/address_change_confirm";
+import { AGREEMENT_TO_SIGN_ENTRY } from "@/lib/email/templates/agreement_to_sign";
 import {
   ADDRESS_CHANGING_ENTRY,
   addressMovingReason,
@@ -174,7 +175,6 @@ describe("the template registry", () => {
     }
     expect(byPackage).toEqual({
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
-      WP9: ["agreement_to_sign"],
       WP11: ["website_changes"],
       // WP7's operator notices are templated; L32 is the one left.
       WP7: ["patient_request"],
@@ -182,7 +182,7 @@ describe("the template registry", () => {
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, and the claims function's L13 and L14", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, and the DPA re-sign's L22", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -252,6 +252,7 @@ describe("the template registry", () => {
       "data_destroyed",
       "daily_summary",
       "weekly_recap",
+      "agreement_to_sign",
     ]);
   });
 
@@ -376,6 +377,50 @@ describe("O5 from ops' changeClinicEmail", () => {
     expect(ops(true).text).toContain(
       "You're receiving this because Radiance Med Spa is moving its healdesk address to this one.",
     );
+  });
+});
+
+describe("L22, sign your updated agreement", () => {
+  const render = (over: Partial<typeof AGREEMENT_TO_SIGN_ENTRY.fixture>, audience: EmailAudience = "patients") =>
+    AGREEMENT_TO_SIGN_ENTRY.render(
+      { ...AGREEMENT_TO_SIGN_ENTRY.fixture, ...over },
+      contextFor("agreement_to_sign", audience),
+    );
+
+  test("the reminders and an unsure practice with nothing answering yet: the snapshots", () => {
+    expect(render({ waitingDays: 3 })).toMatchSnapshot();
+    expect(render({ isUnsure: true, channels: [], directLineE164: null })).toMatchSnapshot();
+  });
+
+  test("says AYA is paused until it's signed and where each channel goes, with the link", () => {
+    const first = render({});
+    expect(first.subject).toBe("Sign your updated agreement");
+    expect(first.preheader).toBe("AYA is paused until it's signed.");
+    expect(first.text).toContain("now bills health insurance electronically");
+    expect(first.text).toContain("Until it's signed, AYA is paused:");
+    expect(first.text).toContain("Phone: calls go to your direct line ((415) 555-0100)");
+    expect(first.text).toContain("Website chat: shows a contact form");
+    expect(first.text).toContain("AYA answers again the moment it's signed");
+    expect(first.text).toContain("The link works for 14 days");
+    expect(linkProblems(first, "agreement_to_sign")).toEqual([]);
+    // A token in it is a single-use token, allowed only in a link email.
+    expect(linkProblems(first, "ai_paused").join(" ")).toContain("single-use token");
+  });
+
+  test("before anything answers, it says AYA starts once it's signed, and never that she answers again", () => {
+    const quiet = render({ channels: [], directLineE164: null }, "clients");
+    expect(quiet.preheader).toBe("AYA starts answering once it's signed.");
+    expect(quiet.text).toContain("AYA doesn't answer your clients until it's signed.");
+    expect(quiet.text).not.toContain("is paused:");
+    expect(quiet.text).not.toContain("answers again");
+  });
+
+  test("a reminder says how long it has waited, and an unsure practice is told why the BAA covers it", () => {
+    const day7 = render({ waitingDays: 7, isUnsure: true });
+    expect(day7.subject).toBe("Your updated agreement is waiting to be signed");
+    expect(day7.text).toContain("still waiting to be signed, 7 days after we sent it");
+    expect(day7.text).toContain("not sure whether Radiance Med Spa bills any health insurance");
+    expect(copyProblems([day7.subject, day7.text].join("\n"))).toEqual([]);
   });
 });
 

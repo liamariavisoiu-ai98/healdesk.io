@@ -14,8 +14,11 @@ export const runtime = "nodejs";
  *   200 {mode: "received", reply}   kept as a booking request; the clinic is
  *                                   alerted (L20); the reply is fixed text
  *   400 {error: "invalid", fields}  which fields to fix, never their values
- *   409 {mode: "closed"}            nothing may be kept for this clinic now:
- *                                   the widget shows the practice's number
+ *   409 {mode: "closed", reply}     nothing may be kept for this clinic now
+ *                                   (it has left, its website chat was never
+ *                                   live, or the PHI gate is closed): reply is
+ *                                   the fixed "please call the practice on
+ *                                   {number}" line, and nothing was written
  *   429 {error: "rate_limited"}     per address and clinic, or per clinic
  *
  * The widget's CORS, body limit and per-minute limit are widgetRequest's.
@@ -38,7 +41,11 @@ export async function POST(
       case "invalid":
         return json({ error: "invalid", fields: result.problems }, 400, req.origin);
       case "closed":
-        return json({ mode: "closed" }, 409, req.origin);
+        return json(
+          { mode: "closed", ...(result.reply ? { reply: result.reply } : {}) },
+          409,
+          req.origin,
+        );
       case "rate_limited":
         return json({ error: "rate_limited" }, 429, req.origin);
     }

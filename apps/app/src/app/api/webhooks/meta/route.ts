@@ -1,5 +1,6 @@
 import { after } from "next/server";
 
+import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
 import { recordFirstAnswer } from "@/lib/channels/events";
@@ -41,6 +42,10 @@ export const runtime = "nodejs";
  *
  * Each message, in order (BD24, R18):
  *
+ *   0. a clinic whose data the PHI gate refuses (app_clinic_accepts_phi:
+ *      its re-sign to the BAA unsigned, or its agreement no longer covering
+ *      it) keeps nothing: no claim, no thread, no model, no reply, one log
+ *      line by ids;
  *   1. a redelivery is skipped entirely: the message id is claimed in
  *      meta_inbound_messages, in a short transaction of its own with
  *   2. the person's chat thread, which says which conversation the message
@@ -140,6 +145,13 @@ export async function POST(request: Request): Promise<Response> {
       // even the keyed references (lib/clinic/leaving.ts).
       const thread = await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
         if (await clinicHasLeft(tx)) return "left" as const;
+        // The PHI gate (app_clinic_accepts_phi): a practice whose re-sign to
+        // the BAA is unsigned, or whose agreement no longer covers it, keeps
+        // nothing of the message, not even its claim or its thread, and
+        // nothing reaches the model or the person. Acknowledged to Meta with
+        // the rest of the batch, so it is not redelivered; it waits for the
+        // practice's team in the app, as the pause line says.
+        if (!(await clinicAcceptsPhi(tx.db, tx.clinicId))) return "uncovered" as const;
         if (message.messageId && !(await claimMetaMessage(tx, message.platform, message.messageId))) {
           return null;
         }
@@ -147,6 +159,14 @@ export async function POST(request: Request): Promise<Response> {
       });
       if (thread === "left") {
         log.warn("meta message refused: the clinic has left", { clinicId: owner.clinicId });
+        skipped += 1;
+        continue;
+      }
+      if (thread === "uncovered") {
+        log.warn("meta message not kept: no agreement covers the clinic's data", {
+          clinicId: owner.clinicId,
+          channel: message.platform,
+        });
         skipped += 1;
         continue;
       }

@@ -5,13 +5,17 @@ import { redirect } from "next/navigation";
 import { HostStandbyPage } from "@/components/admin/HostStandbyNotice";
 import { requireOperator } from "@/lib/admin/operator";
 import {
+  decideAgreementReview as decideAgreementUpstream,
   decidePracticeReview as decideUpstream,
+  fetchAgreementReviews,
   fetchPracticeReviews,
   rerunPracticeQuestions as rerunUpstream,
+  type CoveredAnswer,
   type PracticeSection,
 } from "@/lib/admin/ops-client";
 import { isHostUnreachable } from "@/lib/host/state";
 
+import { AgreementChecks } from "./AgreementChecks";
 import { ReviewQueue } from "./ReviewQueue";
 
 /**
@@ -21,6 +25,11 @@ import { ReviewQueue } from "./ReviewQueue";
  * tracker names ("Being checked by our team; ready by …"). Passing it passes
  * the run and approves the script it read; failing it keeps the run failed,
  * and naming a section sends the clinic O9.
+ *
+ * Below them, the agreement checks (plan Part L): a practice that signed the
+ * Data Protection Agreement as billing no insurance electronically, whose
+ * website says it accepts insurance, waits here until the operator asks it
+ * and records its answer, which setCoveredEntity carries out on apps/app.
  *
  * Read and decided through the ops envelope (lib/admin/ops-client.ts). What
  * crosses is synthetic: the cases are templated from the clinic's business
@@ -53,10 +62,18 @@ async function rerun(clinicId: string) {
   return result;
 }
 
+async function decideAgreement(clinicId: string, reviewId: string, answer: CoveredAnswer) {
+  "use server";
+  const result = await decideAgreementUpstream(clinicId, reviewId, answer);
+  revalidatePath(PATH);
+  return result;
+}
+
 export default async function ReviewsPage() {
   if (!(await requireOperator())) redirect("/admin/sign-in");
   const result = await fetchPracticeReviews();
   if (isHostUnreachable(result)) return <HostStandbyPage title="Reviews" />;
+  const agreements = await fetchAgreementReviews();
 
   return (
     <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
@@ -73,6 +90,21 @@ export default async function ReviewsPage() {
       ) : (
         <p role="status" className="text-red-deep mt-6 text-sm font-semibold">
           {result.message}
+        </p>
+      )}
+
+      <h2 className="font-display mt-14 text-[22.8px] leading-tight font-semibold">
+        Agreement checks
+      </h2>
+      <p className="text-muted mt-2 max-w-[70ch] text-[15.6px]">
+        Practices that signed the data protection agreement as billing no insurance electronically,
+        whose website says they accept insurance. Ask the practice, then record what it says.
+      </p>
+      {agreements.ok ? (
+        <AgreementChecks reviews={agreements.data} decide={decideAgreement} />
+      ) : (
+        <p role="status" className="text-red-deep mt-4 text-sm font-semibold">
+          {agreements.message}
         </p>
       )}
     </main>

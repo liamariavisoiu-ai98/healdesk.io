@@ -1,9 +1,10 @@
 import { isCoveredAnswer, type AgreementKind, type Channel } from "@healdesk/catalog";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { checkoutIntents, clinics, type AddressChangeStatus } from "@/db/schema";
+import { auditReviewQueue, checkoutIntents, clinics, type AddressChangeStatus } from "@/db/schema";
 import { setCoveredEntity } from "@/lib/agreements/covered-entity";
+import { listAgreementReviews } from "@/lib/agreements/misclassification";
 import type { ChannelStatus } from "@/lib/channels/state";
 import { getCalendarConnection } from "@/lib/connections/google-calendar";
 import { readSetupState } from "@/lib/setup/state";
@@ -201,7 +202,7 @@ export type SetCoveredEntityState =
       covered: boolean;
       /** A DPA practice now covered or not sure: the re-sign as a BAA has started. */
       supersedeStarted: boolean;
-      /** Whether the practice has its re-sign link yet (WP9 sends it). */
+      /** Whether L22, with the practice's re-sign link, went (lib/agreements/resign.ts). */
       linkSent: boolean;
       auditRecorded: boolean;
     }
@@ -250,6 +251,69 @@ export async function opSetCoveredEntity(
     linkSent: outcome.supersede?.linkSent ?? false,
     auditRecorded,
   } satisfies SetCoveredEntityState);
+}
+
+// -----------------------------------------------------------------------------
+// The misclassification signal's reviews (WP9, plan Part L)
+// -----------------------------------------------------------------------------
+
+/**
+ * listAgreementReviews: each DPA "No" practice whose website says it accepts
+ * insurance, open first (lib/agreements/misclassification.ts). Ids, names
+ * and dates; nothing but the practice's own business data.
+ */
+export async function opListAgreementReviews(operator: Operator): Promise<OpsOutcome> {
+  const reviews = await listAgreementReviews({
+    actor: actorFor(operator),
+    request: operator.request,
+  });
+  return ok({ reviews });
+}
+
+/**
+ * decideAgreementReview: the practice's answer, as ops heard it on a call,
+ * recorded through setCoveredEntity, which closes the review: "No" leaves
+ * the DPA in force, "Yes" or "Not sure" starts the re-sign to the BAA.
+ * The reply is setCoveredEntity's.
+ */
+export async function opDecideAgreementReview(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  const reviewId = stringArg(args, "reviewId") ?? "";
+  if (!clinic)
+    return ok({ status: "refused", message: "No such clinic." } satisfies SetCoveredEntityState);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reviewId)) {
+    return ok({ status: "refused", message: "No such review at this clinic." } satisfies SetCoveredEntityState);
+  }
+  if (!isCoveredAnswer(args.answer)) {
+    return ok({
+      status: "refused",
+      message: "The answer is yes, no or not_sure.",
+    } satisfies SetCoveredEntityState);
+  }
+  const open = await withTenant({ clinicId: clinic.id, actor: actorFor(operator) }, async (tx) => {
+    const [row] = await tx.db
+      .select({ status: auditReviewQueue.status })
+      .from(auditReviewQueue)
+      .where(
+        and(
+          eq(auditReviewQueue.id, reviewId),
+          eq(auditReviewQueue.clinicId, tx.clinicId),
+          eq(auditReviewQueue.kind, "agreement_kind"),
+        ),
+      )
+      .limit(1);
+    return row?.status ?? null;
+  });
+  if (open !== "open") {
+    return ok({
+      status: "refused",
+      message: open === null ? "No such review at this clinic." : "This review has been decided already.",
+    } satisfies SetCoveredEntityState);
+  }
+  return opSetCoveredEntity({ clinicId: clinic.id, answer: args.answer }, operator);
 }
 
 // -----------------------------------------------------------------------------

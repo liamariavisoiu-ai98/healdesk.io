@@ -128,11 +128,24 @@ export function fallbackLine(
  * passkey was live, the sign-in, or healdesk support), and every time is on
  * the clinic's clock, with the day named once it is not today.
  */
+/**
+ * The pause's label while a practice owes its updated agreement
+ * (lib/agreements/resign.ts), which clinic_settings.ai_paused_by_label holds:
+ * the banner then says healdesk paused AYA and that the pause ends when the
+ * agreement is signed, not when someone turns her back on. The header's
+ * switch is refused meanwhile by the open re-sign itself (lib/channels/
+ * pause.ts), never by this label.
+ */
+export const AGREEMENT_PAUSE_LABEL = "healdesk (agreement to sign)";
+
 export function pauseBanner(
   pause: { pausedAt: Date; byLabel: string | null; until: Date | null },
   timeZone: string,
   now: Date,
 ): string {
+  if (pause.byLabel === AGREEMENT_PAUSE_LABEL && pause.until === null) {
+    return `Paused by healdesk at ${pauseClock(pause.pausedAt, timeZone, now)}, until your updated agreement is signed.`;
+  }
   const from = pause.byLabel ? ` from ${pause.byLabel}` : "";
   const end = pause.until
     ? `until ${pauseClock(pause.until, timeZone, now)}`

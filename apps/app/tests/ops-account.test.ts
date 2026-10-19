@@ -81,12 +81,22 @@ async function acceptsPhi(clinicId: string): Promise<boolean> {
 }
 
 describe("the account operations are on the list", () => {
-  test("three writes and three reads", () => {
-    for (const name of ["changeClinicEmail", "stopClinicEmailChange", "setCoveredEntity"]) {
+  test("four writes and four reads, with the misclassification signal's two", () => {
+    for (const name of [
+      "changeClinicEmail",
+      "stopClinicEmailChange",
+      "setCoveredEntity",
+      "decideAgreementReview",
+    ]) {
       expect(isOpName(name), name).toBe(true);
       expect(isMutating(name as never), name).toBe(true);
     }
-    for (const name of ["getClinicSignIn", "listClinicCards", "listSiteReadFailures"]) {
+    for (const name of [
+      "getClinicSignIn",
+      "listClinicCards",
+      "listSiteReadFailures",
+      "listAgreementReviews",
+    ]) {
       expect(isOpName(name), name).toBe(true);
       expect(isMutating(name as never), name).toBe(false);
     }
@@ -230,7 +240,8 @@ describeDb("the account operations", () => {
       isCoveredEntity: true,
       covered: false,
       supersedeStarted: true,
-      linkSent: false,
+      // L22 went to the practice with its re-sign link (WP9, lib/agreements/resign.ts).
+      linkSent: true,
     });
     expect(await acceptsPhi(clinic.clinicId)).toBe(false);
     await expect(seedContact(clinic.clinicId, "+15550190102")).rejects.toMatchObject({

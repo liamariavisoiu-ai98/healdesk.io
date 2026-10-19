@@ -617,6 +617,13 @@
       "when": 1792401370887,
       "tag": "0087_claims_and_summary",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1792402206792,
+      "tag": "0088_agreement_resign",
+      "breakpoints": true
     }
   ]
 }

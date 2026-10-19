@@ -157,3 +157,16 @@ export type PracticeResultStatus = (typeof PRACTICE_RESULT_STATUSES)[number];
 /** A review: open until an operator decides it, or superseded by a later run. */
 export const AUDIT_REVIEW_STATUSES = ["open", "passed", "failed", "superseded"] as const;
 export type AuditReviewStatus = (typeof AUDIT_REVIEW_STATUSES)[number];
+
+/**
+ * What a review is about. `practice_questions`: a run of the practice
+ * questions, the queue's first use, whose `run_id` it names.
+ * `agreement_kind`: the misclassification signal (package WP9, plan Part L),
+ * a practice that signed the Data Protection Agreement as billing no
+ * insurance electronically while its own website says it accepts insurance;
+ * no run, and an operator decides it by recording the practice's answer
+ * (lib/agreements/misclassification.ts). Every reader of the practice
+ * questions' reviews filters on its own kind.
+ */
+export const AUDIT_REVIEW_KINDS = ["practice_questions", "agreement_kind"] as const;
+export type AuditReviewKind = (typeof AUDIT_REVIEW_KINDS)[number];

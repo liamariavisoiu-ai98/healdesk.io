@@ -838,9 +838,22 @@ describeDb("closing the account once the data is destroyed and nothing is left t
         kind,
       ).toEqual([{ email: c.staffEmail, role: "owner", userId: null }]);
     }
+    // A final invoice raised, declined or waiting on the practice is still
+    // owed after the end (healdesk-io-58's review); the states of a
+    // subscription that ended with the service are not.
+    expect([...OWED_AFTER_CLOSURE]).toEqual(
+      expect.arrayContaining(["overage_invoiced", "payment_failed", "payment_action_required"]),
+    );
     const notOwed = NOTICE_KINDS.filter((k) => !OWED_AFTER_CLOSURE.has(k));
     expect(notOwed).toEqual(
-      expect.arrayContaining(["product_update", "weekly_recap", "payment_failed"]),
+      expect.arrayContaining([
+        "product_update",
+        "weekly_recap",
+        "grace_ending",
+        "suspended",
+        "renewal_upcoming",
+        "card_expiring",
+      ]),
     );
     for (const kind of [undefined, ...notOwed]) {
       expect(

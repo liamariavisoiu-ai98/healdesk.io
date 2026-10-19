@@ -45,16 +45,30 @@ import type { TenantTx } from "@/lib/tenant";
  *   - refund_issued: a refund the Terms still owe after the end (sections 5
  *     and 15, which survive termination), returned to the card it came from;
  *   - receipt: a payment taken after the end, a final invoice settled late:
- *     the billing record the Terms keep (section 7), told to the practice.
+ *     the billing record the Terms keep (section 7), told to the practice;
+ *   - overage_invoiced, payment_failed and payment_action_required: a final
+ *     invoice raised, declined or waiting on the practice after the end. The
+ *     annual overage's last window is invoiced at the run after it closes, a
+ *     failed window is retried until Stripe takes it, and a declined invoice
+ *     is left open, never voided (lib/billing/annual-overage.ts), so the
+ *     amount is still owed. One waiting on the card's own authentication can
+ *     be paid only through the link its notice carries; without that notice
+ *     it is a debt nobody can settle. Section 6's suspension and grace end
+ *     with the service; the amount owed does not, and section 7 keeps the
+ *     record of it (healdesk-io-58's review, 19 October 2026).
  * Nothing else is owed after the end: the Terms' later changes take effect
- * at a renewal a closed account never has (section 16), dunning and usage
- * mail end with the service (sections 3 and 6 do not survive), and every
+ * at a renewal a closed account never has (section 16); grace, suspension,
+ * renewal, plan, cancellation, card-expiry and Connect notices are states of
+ * a subscription or a connection that ended with the service; and every
  * product or marketing kind ended with the account.
  */
 export const OWED_AFTER_CLOSURE: ReadonlySet<NoticeKind> = new Set<NoticeKind>([
   "incident_report",
   "refund_issued",
   "receipt",
+  "overage_invoiced",
+  "payment_failed",
+  "payment_action_required",
 ]);
 
 export type BillingRecipient = {

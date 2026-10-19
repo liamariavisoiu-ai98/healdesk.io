@@ -735,8 +735,9 @@ person, once; nothing contacts the patient.
    one-off task with `HEALDESK_PATIENT_REQUEST_CLINIC_ID`, `HEALDESK_PATIENT_REQUEST_KIND`,
    optionally `HEALDESK_PATIENT_REQUEST_CONTACT_ID` and
    `HEALDESK_PATIENT_REQUEST_RECEIVED_AT`, and `HEALDESK_OPS_OPERATOR` in its environment
-   (its task family and run-task.sh's `patient-request` are infra's to add). It prints
-   the request's id and the day the practice is asked to mark it received by.
+   set by `bash run-task.sh patient-request <clinic id> <kind> <you@healdesk.io>
+   [received at] [contact id]` in CloudShell. It prints the request's id and the day the
+   practice is asked to mark it received by.
 2. **What the practice gets.** L32 at its one address, a pointer naming the clinic, the
    kind of request and that day, linking to the request's own page in the portal, which
    opens behind the passkey step-up and shows the contact it names. Home points at it

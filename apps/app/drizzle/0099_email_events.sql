@@ -33,9 +33,7 @@ CREATE INDEX "email_events_at_idx" ON "email_events" USING btree ("at");--> stat
 -- direct kind with no ledger row; the webhook relay writes one per bounce,
 -- complaint or suppression Resend reports for one of them, and, for apps/web,
 -- one per event its webhook relays. event_id, the webhook delivery's id, makes
--- a redelivered event count once; I3's daily claim uses a digest of its
--- clinic, code and day there, never the clinic's id. Ours, not a tenant's:
--- no clinic_id, no RLS.
+-- a redelivered event count once. Ours, not a tenant's: no clinic_id, no RLS.
 --
 -- Grants. 0003's ALTER DEFAULT PRIVILEGES gives healdesk_app SELECT, INSERT,
 -- UPDATE and DELETE on every table the migrator creates. A row is written once
@@ -45,4 +43,4 @@ CREATE INDEX "email_events_at_idx" ON "email_events" USING btree ("at");--> stat
 REVOKE UPDATE ON email_events FROM healdesk_app;--> statement-breakpoint
 GRANT SELECT, INSERT, DELETE ON email_events TO healdesk_app;--> statement-breakpoint
 COMMENT ON TABLE email_events IS
-  'Email the ledgers do not hold, for the ops digest (I2): one row per send of a direct kind with no ledger row (sendEmail), per bounce, complaint or suppression Resend reports for one (the webhook relay), and per event apps/web''s webhook relays for its own mail. A kind, a status and a time; no address, no clinic. event_id dedupes a redelivered webhook, or holds I3''s daily claim as a digest of its clinic, code and day. Pruned after 30 days by the digest. Ours, not a tenant''s: no clinic_id, no RLS.';
+  'Email the ledgers do not hold, for the ops digest (I2): one row per send of a direct kind with no ledger row (sendEmail), per bounce, complaint or suppression Resend reports for one (the webhook relay), and per event apps/web''s webhook relays for its own mail. A kind, a status and a time; no address, no clinic. event_id dedupes a redelivered webhook. Pruned after 30 days by the digest. Ours, not a tenant''s: no clinic_id, no RLS.';

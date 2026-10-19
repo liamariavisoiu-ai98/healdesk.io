@@ -269,14 +269,7 @@ function checkValue(
       }
       return;
     case "clinicName":
-      if (
-        typeof value !== "string" ||
-        value.length === 0 ||
-        value.length > 120 ||
-        /[@\r\n]|:\/\/|\d{7,}/.test(value)
-      ) {
-        fail("must be a clinic's name.");
-      }
+      if (!isAllowedClinicName(value)) fail("must be a clinic's name.");
       return;
     case "deviceName":
       if (!isAllowedDeviceName(value)) fail("must be a device's name.");
@@ -299,6 +292,23 @@ function checkValue(
       if (typeof value !== "boolean") fail("must be true or false.");
       return;
   }
+}
+
+/**
+ * A clinic's name as an email may print it: in a payload under `clinicName`,
+ * or as the context's clinic name a direct kind renders with, which the
+ * sender checks the same way (lib/email/send.ts). Nothing that could be an
+ * address, a link or a number someone could call, and short enough for a
+ * sentence. A writer whose name fails this leaves it out rather than have the
+ * email refused for good (B3's buyer typed it at checkout).
+ */
+export function isAllowedClinicName(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 120 &&
+    !/[@\r\n]|:\/\/|\d{7,}/.test(value)
+  );
 }
 
 /**

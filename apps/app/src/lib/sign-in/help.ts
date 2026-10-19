@@ -223,11 +223,12 @@ export async function runSignInHelp(
   });
   if (!link) throw new Error("A sign-in link without a source cannot already exist.");
 
+  const payload = {
+    signInUrl: publicUrl(`/link/${link.token}`),
+    validMinutes: Math.round(SIGN_IN_LINK_TTL_MS.sign_in / 60_000),
+  };
   const rendered = renderSignInHelpLink(
-    {
-      signInUrl: publicUrl(`/link/${link.token}`),
-      validMinutes: Math.round(SIGN_IN_LINK_TTL_MS.sign_in / 60_000),
-    },
+    payload,
     {
       clinicName: null,
       audience: "patients",
@@ -246,6 +247,7 @@ export async function runSignInHelp(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         deliveryId: link.id,
         idempotencyKey: `hd-sign_in_help_link-${link.id}-1`,
       },

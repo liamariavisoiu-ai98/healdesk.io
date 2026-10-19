@@ -233,6 +233,7 @@ export async function sendWelcomeEmail(
           text: rendered.text,
           html: rendered.html,
           phiClass: "none",
+          payload,
           clinicId,
           clinicName: state.clinic.name,
           deliveryId,

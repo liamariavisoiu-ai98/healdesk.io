@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { LinkNotAllowedError } from "@/lib/email/lint";
+import { LinkNotAllowedError, PayloadNotAllowedError } from "@/lib/email/lint";
 import {
   EmailEnvelopeError,
   platformTransport,
@@ -124,6 +124,71 @@ describe("what sendEmail refuses before any transport is asked", () => {
   });
 });
 
+/**
+ * Annex X4's payload allowlist, at send time, for every direct kind: until 19
+ * October 2026 only the outbox checked its payloads, and a direct kind's
+ * sender checked or not as it chose (O3 printed a device's label unchecked,
+ * B3 a clinic's name typed at checkout).
+ */
+describe("a direct kind goes with its payload, and the payload is held to the allowlist", () => {
+  const SIGN_IN = {
+    kind: "sign_in_link",
+    clinicId: null,
+    deliveryId: DELIVERY,
+    idempotencyKey: `hd-sign_in_link-${DELIVERY}-1`,
+    text: "Sign in: https://app.healdesk.test/link/abc",
+    html: '<p><a href="https://app.healdesk.test/link/abc">Sign in</a></p>',
+  } as const;
+
+  test("with no payload it is refused before any transport is asked", async () => {
+    const transport = new FakeTransport();
+    await expect(sendEmail(email(SIGN_IN), { transport })).rejects.toBeInstanceOf(
+      EmailEnvelopeError,
+    );
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  test("a field outside the allowlist, or a value that is not its class, is refused", async () => {
+    const transport = new FakeTransport();
+    for (const payload of [
+      { signInUrl: "https://app.healdesk.test/link/abc", note: "Hello Maria" },
+      { change: "added", deviceName: "Call 5125550100", changedAt: "2026-10-06T18:32:00Z" },
+    ]) {
+      await expect(
+        sendEmail(email({ ...SIGN_IN, kind: "device_changed", idempotencyKey: `hd-device_changed-${DELIVERY}-added`, payload }), {
+          transport,
+        }),
+      ).rejects.toBeInstanceOf(PayloadNotAllowedError);
+    }
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  test("the clinic's name a direct kind printed is held to the clinic-name rule", async () => {
+    const transport = new FakeTransport();
+    const b3 = {
+      kind: "order_confirmed_delayed",
+      clinicId: null,
+      idempotencyKey: `hd-order_confirmed_delayed-${DELIVERY}-1`,
+      payload: { planId: "voice-500", interval: "month", replyByOn: "2026-10-07" },
+    } as const;
+    await expect(
+      sendEmail(email({ ...b3, clinicName: "Glow, call 5125550100" }), { transport }),
+    ).rejects.toBeInstanceOf(PayloadNotAllowedError);
+    expect(transport.calls).toHaveLength(0);
+    await sendEmail(email({ ...b3, clinicName: "Glow Med Spa" }), { transport });
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  test("a payload that passes goes, with a single-use token only in a link email's", async () => {
+    const transport = new FakeTransport();
+    await sendEmail(
+      email({ ...SIGN_IN, payload: { signInUrl: "https://app.healdesk.test/link/abc", validMinutes: 15 } }),
+      { transport },
+    );
+    expect(transport.calls).toHaveLength(1);
+  });
+});
+
 describe("what sendEmail adds", () => {
   test("app=app, the kind, the clinic and the ledger row as tags; replies to hello@", async () => {
     const transport = new FakeTransport();
@@ -145,9 +210,15 @@ describe("what sendEmail adds", () => {
 
   test("mail with no clinic carries no clinic tag; a caller may name another reply-to", async () => {
     const transport = new FakeTransport();
-    await sendEmail(email({ kind: "ops_alert", clinicId: null, replyTo: "ops@healdesk.test" }), {
-      transport,
-    });
+    await sendEmail(
+      email({
+        kind: "ops_alert",
+        clinicId: null,
+        replyTo: "ops@healdesk.test",
+        payload: { event: "provisioning_rejected" },
+      }),
+      { transport },
+    );
     const { message } = transport.calls[0]!;
     expect(message.tags?.map((t) => t.name)).toEqual(["app", "kind", "delivery"]);
     expect(message.replyTo).toBe("ops@healdesk.test");

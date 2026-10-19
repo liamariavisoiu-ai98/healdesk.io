@@ -161,6 +161,28 @@ describeDb("the device email (O3)", () => {
     );
   });
 
+  /**
+   * The label is staff's own words, checked only for what the database can
+   * hold. Until 19 October 2026 it went into the email unchecked, though the
+   * allowlist refuses an address, a link or a number in a device's name; the
+   * sender now asks first, and the sendEmail door checks the payload again.
+   */
+  test("a label the allowlist refuses is left out, and the email still goes", async () => {
+    const clinic = await seedClinic("glow");
+    const owner = await seedPortalUser(clinic.clinicId, "owner");
+    for (const label of ["Call 5125550100", "front@desk.example"]) {
+      const factorId = await seedPasskey(owner.userId, label);
+      const { sent, transport } = fakeTransport();
+      await notifyDeviceChange({ userId: owner.userId, kind: "added", factorId }, { transport, now: NOW });
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.message.subject).toBe("A device was added to your healdesk sign-in");
+      for (const body of [sent[0]!.message.text, sent[0]!.message.html]) {
+        expect(body).not.toContain("5125550100");
+        expect(body).not.toContain("front@desk.example");
+      }
+    }
+  });
+
   test("never throws, whatever the provider or the database does", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});

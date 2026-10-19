@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { CheckoutIntentPayload } from "@/db/schema";
+import { isAllowedClinicName } from "@/lib/email/lint";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import { audienceFor, ORDER_REASON } from "@/lib/email/templates/context";
 import { renderOrderConfirmedDelayed } from "@/lib/email/templates/order_confirmed_delayed";
@@ -29,14 +30,19 @@ export async function sendOrderConfirmedDelayed(
   // sign-in link does (source_ref).
   const deliveryId = createHash("sha256").update(intent.ref).digest("hex");
   try {
+    const notice = {
+      planId: payload.plan,
+      interval: payload.billingInterval,
+      replyByOn: replyByDay(failedAt),
+    };
+    // Typed at checkout by whoever paid, and never checked as a clinic's name
+    // (a refused provisioning may be why this email is going): one the
+    // allowlist would refuse is left out, and the email says "your account".
+    const clinicName = isAllowedClinicName(payload.clinicName) ? payload.clinicName : null;
     const rendered = renderOrderConfirmedDelayed(
+      notice,
       {
-        planId: payload.plan,
-        interval: payload.billingInterval,
-        replyByOn: replyByDay(failedAt),
-      },
-      {
-        clinicName: payload.clinicName,
+        clinicName,
         audience: audienceFor(payload.specialty),
         reason: ORDER_REASON,
         raisedAt: failedAt,
@@ -51,6 +57,8 @@ export async function sendOrderConfirmedDelayed(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload: notice,
+        clinicName,
         deliveryId,
         idempotencyKey: `hd-order_confirmed_delayed-${deliveryId}-1`,
       },

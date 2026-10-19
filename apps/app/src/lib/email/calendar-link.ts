@@ -36,8 +36,13 @@ export async function mailCalendarLink(
   },
   options: SendEmailOptions = {},
 ): Promise<CalendarMailDelivery> {
+  const payload = {
+    linkUrl: input.url,
+    expiresAt: input.expiresAt.toISOString(),
+    purpose: input.purpose,
+  };
   const rendered = renderCalendarLink(
-    { linkUrl: input.url, expiresAt: input.expiresAt.toISOString(), purpose: input.purpose },
+    payload,
     {
       clinicName: input.clinicName,
       audience: audienceFor(input.specialty),
@@ -55,6 +60,7 @@ export async function mailCalendarLink(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         clinicId: input.clinicId,
         clinicName: input.clinicName,
         deliveryId: input.linkId,
@@ -86,16 +92,17 @@ export async function mailCalendarElectionCopy(
   },
   options: SendEmailOptions = {},
 ): Promise<CalendarMailDelivery> {
+  const payload = {
+    electionId: input.electionId,
+    kind: input.kind,
+    type: input.calendarAccount,
+    provider: input.bookingSystem,
+    electedAt: input.electedAt.toISOString(),
+  };
   let rendered: ReturnType<typeof renderCalendarElectionRecorded>;
   try {
     rendered = renderCalendarElectionRecorded(
-      {
-        electionId: input.electionId,
-        kind: input.kind,
-        type: input.calendarAccount,
-        provider: input.bookingSystem,
-        electedAt: input.electedAt.toISOString(),
-      },
+      payload,
       {
         clinicName: input.clinicName,
         audience: audienceFor(input.specialty),
@@ -120,6 +127,7 @@ export async function mailCalendarElectionCopy(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         clinicId: input.clinicId,
         clinicName: input.clinicName,
         deliveryId: input.electionId,

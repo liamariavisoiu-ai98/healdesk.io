@@ -385,6 +385,8 @@ export async function sendAgreementToSign(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
+        clinicName: claim.clinic.name,
         clinicId: input.clinicId,
         deliveryId,
         // A fresh key per attempt (X1.5): a retry carries a fresh link, so it

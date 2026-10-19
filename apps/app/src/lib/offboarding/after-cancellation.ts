@@ -424,6 +424,7 @@ export async function sendDestructionNotice(
           text: rendered.text,
           html: rendered.html,
           phiClass: "none",
+          payload,
           clinicId,
           clinicName: clinic.name,
           deliveryId,

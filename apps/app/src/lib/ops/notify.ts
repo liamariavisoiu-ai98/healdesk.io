@@ -434,6 +434,7 @@ async function mail(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         deliveryId: alertId,
         idempotencyKey: `hd-ops_alert-${alertId}-1`,
       });

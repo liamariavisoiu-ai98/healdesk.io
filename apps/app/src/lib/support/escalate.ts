@@ -165,6 +165,8 @@ async function sendEscalation(
       text: rendered.text,
       html: rendered.html,
       phiClass: "none",
+      payload,
+      clinicName: account.clinicName,
       deliveryId: options.requestId,
       idempotencyKey: `hd-support_escalation-${options.requestId}-1`,
       ...(options.replyTo ? { replyTo: options.replyTo } : {}),

@@ -857,6 +857,8 @@ async function sendConfirmLink(
       kind: "address_change_confirm",
       to: change.newEmail,
       recipientNumber: 1,
+      payload,
+      clinicName: clinic.name,
       render: () => {
         assertPayloadAllowed(payload, "address_change_confirm");
         return renderAddressChangeConfirm(payload, {
@@ -899,6 +901,8 @@ async function sendChangingNotices(
         kind: "address_changing",
         to: which === "old" ? change.oldEmail : change.newEmail,
         recipientNumber: which === "old" ? 1 : 2,
+        payload,
+        clinicName: clinic.name,
         render: () => {
           assertPayloadAllowed(payload, "address_changing");
           return renderAddressChanging(payload, {
@@ -929,6 +933,9 @@ async function sendOnLedger(
     kind: "address_change_confirm" | "address_changing";
     to: string;
     recipientNumber: number;
+    /** The payload `render` renders from, for the sender's allowlist. */
+    payload: Readonly<Record<string, unknown>>;
+    clinicName: string | null;
     render: () => { subject: string; text: string; html: string };
   },
   options: SendEmailOptions,
@@ -952,6 +959,8 @@ async function sendOnLedger(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload: input.payload,
+        clinicName: input.clinicName,
         clinicId: input.clinicId,
         deliveryId,
         idempotencyKey: `hd-${input.kind}-${deliveryId}-${input.recipientNumber}`,

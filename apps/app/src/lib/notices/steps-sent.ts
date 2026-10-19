@@ -207,6 +207,7 @@ export async function sendStepsOn(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         clinicId: input.clinicId,
         clinicName: clinic.name,
         deliveryId,

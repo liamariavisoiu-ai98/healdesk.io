@@ -505,6 +505,7 @@ export async function sendOpsDigest(
         text: rendered.text,
         html: rendered.html,
         phiClass: "none",
+        payload,
         deliveryId: claim.id,
         idempotencyKey: `hd-ops_digest-${claim.id}-${claim.attempt}`,
       },

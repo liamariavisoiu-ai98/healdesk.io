@@ -101,15 +101,16 @@ export function servicesEnded(reason: PassThroughReason): boolean {
 }
 
 /**
- * The refusals after which the assistant may not answer even as the
- * fallback for a call with no direct line (R25's safe script): the Services
- * have ended, or the agreement in effect no longer covers the practice
- * (`agreement_insufficient`), when the database refuses its patient rows
- * (app_clinic_accepts_phi) and the assistant must not take them either. A
- * call with a direct line still goes to it, as every refused call does; with
- * none it is closed with the fixed line.
+ * The refusals after which nothing may take or keep a person's details on
+ * the practice's behalf: the Services have ended, or the agreement in effect
+ * no longer covers the practice (`agreement_insufficient`), when the
+ * database refuses its patient rows (app_clinic_accepts_phi). The assistant
+ * may not answer even as the fallback for a call with no direct line (R25's
+ * safe script), so that call is closed with the fixed line (a call with a
+ * direct line still goes to it, as every refused call does); and the
+ * website's contact form takes no message (lib/chat/contact-form.ts).
  */
-export function assistantMayNotFallBack(reason: PassThroughReason): boolean {
+export function patientDataRefused(reason: PassThroughReason): boolean {
   return servicesEnded(reason) || reason === "agreement_insufficient";
 }
 

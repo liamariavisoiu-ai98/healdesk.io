@@ -2,8 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 
 import {
   assistantMayAnswer,
-  assistantMayNotFallBack,
   coverageModeOf,
+  patientDataRefused,
   decideAnswer,
   servicesEnded,
   voiceAnswerDecision,
@@ -406,8 +406,9 @@ describe("decideAnswer: where a refusal goes", () => {
       fallback: "direct_line",
       directLine: LINE,
     });
-    // ...and with none it is closed, never answered by the safe script.
-    expect(assistantMayNotFallBack("agreement_insufficient")).toBe(true);
+    // ...and with none it is closed, never answered by the safe script, and
+    // the website's contact form keeps nothing.
+    expect(patientDataRefused("agreement_insufficient")).toBe(true);
     const fallsBack: PassThroughReason[] = [
       "unpaid",
       "not_active",
@@ -419,10 +420,10 @@ describe("decideAnswer: where a refusal goes", () => {
       "outside_coverage",
       "allowance_cap",
     ];
-    for (const reason of fallsBack) expect(assistantMayNotFallBack(reason), reason).toBe(false);
+    for (const reason of fallsBack) expect(patientDataRefused(reason), reason).toBe(false);
     for (const reason of ["no_agreement", "canceled", "cancel_before_start"] as const) {
       expect(servicesEnded(reason), reason).toBe(true);
-      expect(assistantMayNotFallBack(reason), reason).toBe(true);
+      expect(patientDataRefused(reason), reason).toBe(true);
     }
   });
 });

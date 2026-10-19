@@ -296,9 +296,16 @@ describeDb("a message left on the website", () => {
     expect(await queuedNotices(c.clinicId)).toEqual([]);
   });
 
-  test("nothing is kept where nothing may be: no agreement, website chat never live, or a clinic that has left", async () => {
+  test("nothing is kept where nothing may be: no agreement, one that no longer covers the clinic, website chat never live, or a clinic that has left", async () => {
     const unsigned = await liveWeb("msg-unsigned", { agreement: false });
     const notLive = await liveWeb("msg-not-live", { liveAt: null });
+    // A DPA practice now a covered entity: the database refuses its patient
+    // rows until it signs the BAA (app_clinic_accepts_phi).
+    const coveredDpa = await liveWeb("msg-covered-dpa");
+    await getMigratorPool().query(
+      `update clinics set regulatory_regime = 'hipaa-if-covered', agreement_kind = 'dpa', is_covered_entity = true where id = $1`,
+      [coveredDpa.clinicId],
+    );
     const left = await liveWeb("msg-left");
     await getMigratorPool().query(
       `update clinics set offboarding_started_at = now() where id = $1`,
@@ -311,7 +318,7 @@ describeDb("a message left on the website", () => {
     expect((await post(contact, left.slug, "contact", GOOD)).status).toBe(404);
     expect(await requests(left)).toEqual([]);
 
-    for (const c of [unsigned, notLive]) {
+    for (const c of [unsigned, notLive, coveredDpa]) {
       const opened = await (await post(start, c.slug, "start", {})).json();
       expect(opened.mode, c.slug).toBe("contact_form");
       expect(opened.form, c.slug).toEqual({ takesMessages: false, times: CONTACT_TIMES });

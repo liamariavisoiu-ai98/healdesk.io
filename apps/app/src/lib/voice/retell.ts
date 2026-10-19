@@ -5,7 +5,7 @@ import type { ActorContext } from "@/lib/audit";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
-import { assistantMayNotFallBack, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
+import { patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
@@ -189,7 +189,7 @@ export class RetellCallSession {
     // its agreement no longer covers it (agreement_insufficient): nothing may
     // process the caller, so the call is closed with the fixed line, never
     // answered by the safe script.
-    if (!this.facts || (decision.decision === "pass_through" && assistantMayNotFallBack(decision.reason))) {
+    if (!this.facts || (decision.decision === "pass_through" && patientDataRefused(decision.reason))) {
       this.closing = true;
       this.say(0, CLOSED_LINE, { endCall: true });
       return;

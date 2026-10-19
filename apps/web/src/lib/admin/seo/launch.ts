@@ -171,9 +171,10 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     id: "extra-locations",
     promise:
       "Each further location is added to the same plan from Billing, at the plan's price again plus its own setup fee, renewing on the same date",
-    where: "Pricing (Prices are per location), Get AYA's package step and Review and pay, terms (More than one location)",
+    where:
+      "Pricing (Prices are per location), Get AYA's package step and Review and pay, terms (More than one location), the portal's Billing (Add a location)",
     status: "building",
-    left: "healdesk-io-58's Package C: addLocation is written, but createLocationClinic is a stub and LOCATION_CLINICS_READY is false, so addLocation refuses, Billing's Add a location card asks the clinic to email hello@healdesk.io, and no path, the ops console's included, can add a location to a plan yet. It moves to On in the commit that flips the flag, once that release is deployed. One location works without it, so it does not hold go-live.",
+    left: "healdesk-io-58's Package C: addLocation is written, but createLocationClinic is a stub and LOCATION_CLINICS_READY is false, so addLocation refuses, and no path, the ops console's included, can add a location to a plan yet. Billing's Add a location card states the price and that locations are added from Billing, and offers its button only once the flag is on. It moves to On in the commit that flips the flag, once that release is deployed. One location works without it, so it does not hold go-live.",
     evidence:
       "apps/app/src/lib/location-clinic.ts (LOCATION_CLINICS_READY), apps/app/src/lib/billing/stripe-actions.ts (addLocation), apps/app/src/app/c/[slug]/billing/page.tsx",
     blocksGoLive: false,

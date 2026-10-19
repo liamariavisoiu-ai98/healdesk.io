@@ -51,6 +51,23 @@ describe("extra locations are promised as designed, and tracked until production
     );
   });
 
+  test("the portal's Billing states the same promise, names no inbox for it, and the item says where", () => {
+    // Until 19 October 2026 Billing's card asked the clinic to email
+    // hello@healdesk.io, which could not add a location either.
+    const billing = readFileSync(
+      join(REPO, "apps", "app", "src", "app", "c", "[slug]", "billing", "page.tsx"),
+      "utf8",
+    );
+    const card = billing.slice(billing.indexOf(">Add a location</h3>"));
+    const cardEnd = card.indexOf("</div>");
+    expect(cardEnd).toBeGreaterThan(0);
+    const words = card.slice(0, cardEnd).replace(/\s+/g, " ");
+    expect(words).toContain("Each further location is added to this plan from Billing");
+    expect(words).not.toMatch(/mailto:|hello@/);
+    expect(item!.where).toContain("the portal's Billing (Add a location)");
+    expect(item!.left).not.toMatch(/hello@/);
+  });
+
   test("while apps/app cannot add a location, the item is open and does not hold go-live", () => {
     // Once the flag flips, the item moves to On when that release is live in
     // production, which no test here can see.

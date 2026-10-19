@@ -7,7 +7,9 @@ import { __clearPriceCacheForTests } from "@/lib/billing/prices";
 import { __clearPortalConfigurationForTests } from "@/lib/billing/stripe-actions";
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { getBillingSummary } from "@/lib/billing/summary";
+import { copyProblems, visibleText } from "@/lib/email/lint";
 import { optionalEmailAllowed } from "@/lib/email/stop";
+import { LOCATION_CLINICS_READY } from "@/lib/location-clinic";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -198,6 +200,32 @@ describeDb("Billing", () => {
     expect(html).toMatch(/Business associate agreement, version [0-9.]+, signed by Laura Owner/);
     expect(html).toContain(`href="/c/${portal.clinicSlug}/billing/agreement"`);
     expect(brokenLinks(html, portal.clinicSlug)).toEqual([]);
+  });
+
+  test("Add a location states what a location costs and that it is added from Billing, and offers nothing that cannot add one", async () => {
+    // Until 19 October 2026 the card sent the clinic to hello@healdesk.io to
+    // "set it up with you", though nothing, the ops console included, can add
+    // a location to a plan yet. Under copy-first the card states the promise
+    // as designed, and LAUNCH_PROMISES' "extra-locations" tracks the gap.
+    const html = await render();
+    const plan = getPlan(BOUGHT)!;
+    const start = html.indexOf(">Add a location</h3>");
+    expect(start).toBeGreaterThan(-1);
+    const card = html.slice(start, html.indexOf('id="payment-method"'));
+    const words = visibleText(card).replace(/\s+/g, " ").trim();
+    expect(words).toContain(
+      `Each further location is added to this plan from Billing, at your plan’s price again: $${plan.monthlyUsd.toLocaleString("en-US")} a month plus a $${plan.setupFeeUsd.toLocaleString("en-US")} setup fee, charged once. It renews on the same date as your plan, and the allowances are pooled across your locations.`,
+    );
+    // No inbox that cannot add one, and no newness words or dates.
+    expect(card).not.toContain("mailto:");
+    expect(words).not.toMatch(/hello@|email|set it up with you/i);
+    expect(words).not.toMatch(/\b(soon|yet|shortly|coming|not available)\b/i);
+    expect(words).not.toMatch(/\b(20\d\d|January|February|March|April|May|June|July|August|September|October|November|December)\b/);
+    expect(copyProblems(words)).toEqual([]);
+    // The button only once a location's clinic can be made: before that it
+    // would ask Stripe for a price and then refuse.
+    expect(LOCATION_CLINICS_READY).toBe(false);
+    expect(card).not.toMatch(/<button[^>]*>[^<]*Add a location/);
   });
 
   test("the three switches need a step-up, and each changes what the rest of the system reads", async () => {

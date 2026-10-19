@@ -238,6 +238,9 @@ type OperatorOp =
   | "listPracticeReviews"
   | "decidePracticeReview"
   | "rerunPracticeQuestions"
+  // A clinic's website read again (apps/app lib/website): from the site-read
+  // failures view. A status and the read's id come back, never the website's words.
+  | "requestSiteReread"
   // The system map (/admin/map): which of the host's keys are in place, yes
   // or no per name, and a live seal-and-open with the credential key.
   | "keyPresence"
@@ -3890,6 +3893,31 @@ export function rerunPracticeQuestions(clinicId: string): Promise<OpsResult<{ st
     const data = object(value, "rerunPracticeQuestions");
     if (state(data, "rerunPracticeQuestions") !== "updated") return refusal(data, "rerunPracticeQuestions");
     return { status: "updated", auditRecorded: bool(data.auditRecorded, "rerunPracticeQuestions.auditRecorded") };
+  });
+}
+
+/**
+ * Ask apps/app to read a clinic's website again: queued there, and sent to
+ * this app's own /api/clinic-site as a signed re-read by its site-reads job.
+ * For the site-read failures view: a clinic whose checkout read failed gets
+ * its profile, and setup what its website says.
+ */
+export function requestSiteReread(
+  clinicId: string,
+): Promise<
+  OpsResult<
+    | { status: "queued"; rereadId: string; auditRecorded: boolean }
+    | { status: "refused"; message: string }
+  >
+> {
+  return callOps("requestSiteReread", "write", { clinicId }, (value) => {
+    const data = object(value, "requestSiteReread");
+    if (state(data, "requestSiteReread") !== "queued") return refusal(data, "requestSiteReread");
+    return {
+      status: "queued",
+      rereadId: id(data.rereadId, "requestSiteReread.rereadId"),
+      auditRecorded: bool(data.auditRecorded, "requestSiteReread.auditRecorded"),
+    };
   });
 }
 

@@ -41,6 +41,8 @@ import { SUBPROCESSORS } from "@/lib/subprocessors";
  * - "with every clinic". The claim is the spec's line, "We sign a business
  *   associate agreement and handle patient data under it": a practice HIPAA
  *   does not reach signs a data protection agreement instead (plan Part L).
+ * - "answers every call". AYA answers the calls a clinic forwards to it,
+ *   and the default mode forwards only overflow and after-hours calls.
  * - "live the same day" and its kin. No timing before purchase (the owner's
  *   rule of 6 October 2026): copy says how a channel goes live, never when.
  * - Access per role ("Your owner, manager and billing contact each get their
@@ -88,6 +90,14 @@ const BANNED: readonly { pattern: RegExp; label: string }[] = [
   },
   { pattern: /\bwith every clinic\b/i, label: "'with every clinic': not every practice signs the same agreement" },
   {
+    // AYA answers the calls a clinic forwards to it, in the mode the clinic
+    // picks, and the default forwards only overflow and after-hours calls
+    // (CLAUDE.md, "Voice coverage"). The site description said this until
+    // 19 October 2026.
+    pattern: /\banswers? every call\b|\bevery call (?:is )?answered\b/i,
+    label: "'answers every call': the default coverage forwards only overflow and after-hours calls",
+  },
+  {
     pattern:
       /\bowner, manager and billing contact\b|\beach (?:get|gets|have|has) (?:their|its) own (?:access|sign[\s-]?in|log[\s-]?in|login|account)\b/i,
     label: "access per role: v1 has one shared sign-in per clinic",
@@ -105,6 +115,11 @@ const BANNED: readonly { pattern: RegExp; label: string }[] = [
 
 /** Where a banned phrase is quoted, not claimed. Paths are relative to src/. */
 const QUOTED: readonly { file: string; text: string; why: string }[] = [
+  {
+    file: "app/terms/page.tsx",
+    text: "THE AGENT WILL ANSWER EVERY CALL OR BOOK EVERY APPOINTMENT",
+    why: "the disclaimer that says we do not warrant it",
+  },
   {
     file: "lib/demo-prompt.ts",
     text: "Never claim healdesk is 'HIPAA compliant'",

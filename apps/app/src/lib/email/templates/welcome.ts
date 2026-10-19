@@ -73,8 +73,7 @@ export type WelcomePayload = {
 export const renderWelcome: EmailTemplate<WelcomePayload> = (payload, ctx) => {
   const plan = getPlan(payload.planId);
   if (!plan) throw new EmailCompositionError(`There is no plan "${payload.planId}".`);
-  const clinic = ctx.clinicName ?? "your practice";
-  // Where the name opens a sentence (a name the email may not print is left out).
+  // It opens a sentence (a name the email may not print is left out).
   const clinicStart = ctx.clinicName ?? "Your practice";
   const audience = audienceSingular(ctx.audience);
   const usd = (amount: number) => `$${amount.toLocaleString("en-US")}`;

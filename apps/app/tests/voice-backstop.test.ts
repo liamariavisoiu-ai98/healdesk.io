@@ -341,7 +341,7 @@ describeDb("the backstop against the database", () => {
     const clinic = await clinicWithNumber("backstop-live");
     const SECRET = "test-retell-llm-secret-0123456789";
     const responder = async () => JSON.stringify({ reply: "Thanks Dana, I'll pass Thursday afternoon to the team.", booking: { wants: true, first_name: "Dana", window: "Thursday afternoon", service: "consultation" } });
-    const voice = createVoiceServer({ secret: SECRET, responder, transport });
+    const voice = createVoiceServer({ secret: SECRET, responder, transport, realCalls: true });
     await new Promise<void>((resolve) => voice.server.listen(0, "127.0.0.1", () => resolve()));
     const port = (voice.server.address() as AddressInfo).port;
     try {

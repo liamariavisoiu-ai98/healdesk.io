@@ -17,6 +17,7 @@ import {
   contacts,
   conversations,
   handovers,
+  incidentAffectedContacts,
   metaBookingDrafts,
   metaInboundMessages,
   providerConnections,
@@ -569,8 +570,9 @@ export async function releaseNumberAfterPassThrough(tx: TenantTx): Promise<boole
  * included, the hashes of who messaged it, its closed days, its setup
  * progress, its providers, its suppressions, consent records and contact
  * attempts, the records of its deletion requests, the amendments Practice
- * directed, and its deposits, gone. Audit, agreements, calendar elections and
- * billing stay, and so does AYA's number until the pass-through has ended.
+ * directed, its deposits, and the list of who an incident affected, gone.
+ * Audit, agreements, calendar elections and billing stay, and so does AYA's
+ * number until the pass-through has ended.
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -630,6 +632,10 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // The half-collected drafts hold a phone number and nothing the record
   // needs, so they are deleted outright.
   await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));
+  // Who an incident affected (drizzle/0097), before the contacts it names:
+  // their cascade would take the list anyway; deleted here first so the
+  // count is in the record and the stamp's check names it.
+  await del("incident_affected_contacts", () => tx.db.delete(incidentAffectedContacts).where(eq(incidentAffectedContacts.clinicId, c)).returning({ id: incidentAffectedContacts.contactId }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
   // The records of the clinic's deletion requests (drizzle/0063): dates,

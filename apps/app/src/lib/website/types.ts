@@ -16,9 +16,16 @@
  *   "Your practice");
  * - `drift`: the monthly check of a live clinic against its baseline;
  * - `ops`: an operator asked, from the console. Read as `missing` while the
- *   clinic has no profile, and as `drift` once it has one.
+ *   clinic has no profile, and as `drift` once it has one;
+ * - `insurance`: the misclassification check (plan Part L; drizzle/0097). A
+ *   practice under the Data Protection Agreement that answered "No" whose
+ *   baseline does not say whether it takes insurance (the demo's read, which
+ *   keeps no insurance answer, stood in for a failed checkout read, or the
+ *   site said nothing) is read once more, for that alone: the read raises
+ *   the signal if the site says it accepts insurance, and changes nothing
+ *   else (no baseline, no drift list, no email).
  */
-export const SITE_REREAD_REASONS = ["missing", "corrected", "drift", "ops"] as const;
+export const SITE_REREAD_REASONS = ["missing", "corrected", "drift", "ops", "insurance"] as const;
 export type SiteRereadReason = (typeof SITE_REREAD_REASONS)[number];
 
 /**

@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import { loadSetupState } from "@/lib/setup/state";
 import { publicUrl } from "@/lib/public-url";
 
@@ -295,6 +296,8 @@ describeDb("the setup wizard's pages", () => {
         const words = text(html);
         expect(words).toContain("Website chat Waiting on you Paste one line on your website.");
         expect(words).toContain("The line for your website");
+        // Go-live is automatic: a chat on the live site is a real one (WP2).
+        expect(words).toContain(WEB_CHAT_COUNTS_LINE);
         expect(words).toContain(
           `<script src="${publicUrl("/widget/v1.js")}" data-clinic="${voiceWeb.clinicSlug}" async></script>`,
         );

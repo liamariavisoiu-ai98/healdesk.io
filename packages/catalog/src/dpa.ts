@@ -1254,7 +1254,11 @@ export const DPA_TEMPLATES: readonly DpaTemplate[] = [
   // Newest released first, as BAA_TEMPLATES: CURRENT_DPA_VERSION and
   // currentDpaTemplate() read [0]. Drafted 6 October 2026; the owner releases
   // it at launch (Gate A) after reading docs/dpa-v1.0.0.txt, by setting
-  // approvedByCounsel to true here. Nothing else changes, and no hash moves.
+  // approvedByCounsel to true here, and, in the same commit, a migration
+  // adding its version to app_dpa_version_released() (apps/app drizzle/0090),
+  // go-live's copy of this flag: without it go-live refuses every DPA
+  // practice, and apps/app's tests/go-live.test.ts fails on the
+  // disagreement. No hash moves (docs/counsel/dpa.md, gap 11).
   {
     version: "dpa/1.0.0",
     publishedOn: "2026-10-06",

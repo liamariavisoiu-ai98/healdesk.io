@@ -58,6 +58,13 @@ import {
 } from "@healdesk/catalog";
 
 import type { OpeningHours } from "../lib/clinic/opening-hours";
+import {
+  DOCUMENT_REF_MAX,
+  PLATFORM_ACTIONS,
+  PLATFORM_SUBJECTS,
+  type PlatformAction,
+  type PlatformSubject,
+} from "../lib/compliance/subjects";
 import type { SealedPayload } from "../lib/crypto/envelope";
 import { LEDGER_DIRECT_KINDS } from "../lib/email/direct-kinds";
 import { NOTICE_KINDS, PACKAGE_NOTICE_KINDS, type NoticeKind } from "../lib/email/kinds";
@@ -6073,3 +6080,66 @@ export const websiteChanges = pgTable(
 );
 
 export type WebsiteChangeRow = typeof websiteChanges.$inferSelect;
+
+// -----------------------------------------------------------------------------
+// Platform compliance (WP2: automatic go-live; plan Part J, Part K and Gate B)
+// -----------------------------------------------------------------------------
+
+/**
+ * What an operator has attested about the platform: each vendor's business
+ * associate agreement in the chain (the model provider, the database host,
+ * AWS, and Retell for phone) and Gate B's readiness flags
+ * (lib/compliance/subjects.ts). Go-live, which is automatic, and each
+ * channel's `live` read the latest row per subject (drizzle/0090,
+ * app_platform_attested): a subject counts while its latest row attests it
+ * and has not lapsed (`expires_on`, a UTC date).
+ *
+ * Ops-only and platform-wide: no clinic_id, because nothing here is about a
+ * clinic, and no patient data, because nothing here is about a person but
+ * the operator who attested. Append-only for the runtime role, which reads
+ * and inserts and never rewrites: a withdrawal is a row of its own, so the
+ * record of what was attested, by whom, on what document and when, stays.
+ * Written only from the ops envelope, outside any tenant (a trigger refuses
+ * an insert made inside one), entered on /admin with the operator's fresh
+ * authenticator code (apps/web lib/admin/fresh-code.ts).
+ */
+export const platformCompliance = pgTable(
+  "platform_compliance",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    subject: text("subject").$type<PlatformSubject>().notNull(),
+    action: text("action").$type<PlatformAction>().notNull(),
+    /**
+     * Where the document is kept, or what the check was: "AWS BAA, AWS
+     * Artifact, account agreements"; never a copy of it. On a withdrawal,
+     * why.
+     */
+    documentRef: text("document_ref").notNull(),
+    /** The day the document took effect or the check was made (UTC). */
+    effectiveOn: date("effective_on", { mode: "string" }).notNull(),
+    /** The day the attestation lapses, if it does (UTC). Only on an attestation. */
+    expiresOn: date("expires_on", { mode: "string" }),
+    /** The operator, from the ops envelope's environment, never the request. */
+    actorLabel: text("actor_label").notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    index("platform_compliance_subject_idx").on(t.subject, t.recordedAt),
+    check("platform_compliance_subject_check", sql`${t.subject} in (${sqlList(PLATFORM_SUBJECTS)})`),
+    check("platform_compliance_action_check", sql`${t.action} in (${sqlList(PLATFORM_ACTIONS)})`),
+    check(
+      "platform_compliance_document_ref_check",
+      sql`char_length(${t.documentRef}) between 1 and ${sql.raw(String(DOCUMENT_REF_MAX))} and ${t.documentRef} !~ '[[:cntrl:]]'`,
+    ),
+    check(
+      "platform_compliance_expires_check",
+      sql`${t.expiresOn} is null or (${t.action} = 'attested' and ${t.expiresOn} >= ${t.effectiveOn})`,
+    ),
+    check(
+      "platform_compliance_actor_check",
+      sql`char_length(${t.actorLabel}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type PlatformComplianceRow = typeof platformCompliance.$inferSelect;

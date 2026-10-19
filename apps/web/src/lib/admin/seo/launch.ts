@@ -60,7 +60,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
   },
   {
     id: "web-chat-on-paste",
-    promise: "You paste one line on your website and AYA starts answering there",
+    promise: "You paste one line on your website, and AYA is designed to start answering there",
     where: "Set-up wizard and welcome email (website chat)",
     status: "building",
     left: "The line now loads the chat bubble, but website chat goes live only once an operator confirms in Ops that the line is on the clinic's site, and Ops is asked only when someone first opens the bubble there. Until then the bubble tells visitors to call the practice.",
@@ -99,7 +99,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "Every failure ends with calls going to a direct clinic line",
     where: "Terms, portal behaviour screens, CLAUDE.md",
     status: "owner",
-    left: "Inside our endpoint every failure transfers to the direct line wherever the line can be known, a database outage included, and never to a line that forwards back to AYA (the clinic's published or AYA number), which counts as none; with none known the caller hears a closing line. Left for you: paste the Retell key (HEALDESK_RETELL_API_KEY; answer test when the paste script asks, before the agreements), so the hourly sync gives each AYA number the clinic's direct line as Retell's fallback; confirm the plan has Retell's outage mode, the step for our endpoint being down, and make one test call on a made-up clinic with it on. Retell itself being down still means each clinic removing its forwarding by hand.",
+    left: "Inside our endpoint every failure transfers to the direct line wherever the line can be known, a database outage included, and never to a line that forwards back to AYA (the clinic's published or AYA number), which counts as none; with none known the caller hears a closing line. Left for you: paste the Retell key (HEALDESK_RETELL_API_KEY, once Retell's agreement is signed), so the hourly sync gives each AYA number the clinic's direct line as Retell's fallback; confirm the plan has Retell's outage mode, the step for our endpoint being down, and make one test call on a made-up clinic with it on. Retell itself being down still means each clinic removing its forwarding by hand.",
     evidence: "apps/app/src/lib/voice/retell.ts, apps/app/src/lib/voice/fallback-line.ts, apps/app/src/lib/voice/retell-fallback-sync.ts, apps/app/src/lib/billing/answering.ts (patientDataRefused), docs/on-call.md",
     blocksGoLive: true,
   },

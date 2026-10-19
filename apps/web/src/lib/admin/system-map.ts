@@ -545,9 +545,8 @@ export const KEYS: readonly KeyDef[] = [
     // sync, lib/voice/retell-fallback-sync.ts; the voice endpoint reads it
     // back when the database is down, fallback-line.ts). As "later" it would
     // show the whole voice line off while calls were being answered. Pasted
-    // with the line password and on the same answer (test before the
-    // agreements, while the workspace holds the demo clinic's agent and number
-    // alone; yes once every agreement is signed), from the clinics' own Retell workspace (under
+    // once Retell's agreement is signed (the paste script takes it on yes
+    // only: the test-call exception names the line password alone), from the clinics' own Retell workspace (under
     // Retell's agreement, never the demo line's, whose keys are on Vercel),
     // the key with the webhook badge; each clinic's agent webhook is
     // https://app.healdesk.io/api/webhooks/retell/<clinic id>.
@@ -1220,7 +1219,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "The engine serves the bubble the pasted line loads (/widget/v1.js): it shows the AI line first, ends a chat when the visitor ends it or leaves the page, and becomes the website contact form, or a line saying to call the practice, whenever AYA is not answering. Once a clinic's script is approved, by you or by a passing practice-question run, the set-up wizard hands it the line to paste, with a Copy button; Home, the welcome email and the reminder email ask for it too. Website chat still goes live only when you confirm in Ops that the line is on the clinic's site: the first chat opened from that site asks you to look, because a page's address proves nothing. Not yet tried on a real clinic's website.",
+      "The engine serves the bubble the pasted line loads (/widget/v1.js): it shows the AI line first, ends a chat when the visitor ends it or leaves the page, and becomes the website contact form, or the engine's line saying to call the practice on its published number (the website's own number where none is published or the engine cannot be reached), whenever AYA is not answering. Once a clinic's script is approved, by you or by a passing practice-question run, the set-up wizard hands it the line to paste, with a Copy button; Home, the welcome email and the reminder email ask for it too. Website chat still goes live only when you confirm in Ops that the line is on the clinic's site: the first chat opened from that site asks you to look, because a page's address proves nothing. Not yet tried on a real clinic's website.",
   },
   {
     id: "app-claude",
@@ -1285,7 +1284,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phiNote: META_SCOPE,
     build: "built",
     buildNote:
-      "The Connect WhatsApp button is on set-up's channels step and in Settings → Channels (Reconnect once connected, or when Meta drops the login: a refused send or the six-hourly check marks it). It opens /c/<slug>/whatsapp, which runs the same embedded sign-up as the emailed link. Replacing the connected number with a different one asks for the clinic's passkey step-up; a first connect or a reconnect of the same number does not. The clinic still adds its own payment method inside Meta's window. run-task.sh channels-link (choosing whatsapp) still works for operators.",
+      "The Connect WhatsApp button is on set-up's channels step and in Settings → Channels (Reconnect once connected, or when Meta drops the login: a refused send or the six-hourly check marks it). It opens /c/<slug>/whatsapp, which runs the same embedded sign-up as the emailed link. Replacing the connected number with a different one asks for the clinic's passkey step-up; a first connect or a reconnect of the same number does not. The step-up is asked before Meta is called, so a refused swap registers nothing, and a reconnect of the same number re-registers it with the two-step PIN sealed at its first connect, on the portal and on an emailed link alike. The clinic still adds its own payment method inside Meta's window. run-task.sh channels-link (choosing whatsapp) still works for operators.",
   },
   {
     id: "app-gcal",

@@ -13,12 +13,14 @@ import {
   type ConversationListItem,
   type ExportResult,
 } from "@/lib/portal/conversations";
+import { flagAnswer } from "@/lib/portal/flag-answer";
 import { requirePatientPage } from "@/lib/portal/patient-page";
 
 /**
- * Conversations' server actions (plan Part F4): the search and the day
- * chips, "Send again", the two exports, and a closed clinic's report that
- * its whole export arrived. Each calls requirePatientPage
+ * Conversations' server actions (plan Part F4): the search, the day chips
+ * and the Flagged filter, "Flag this answer" and its correction, "Send
+ * again", the two exports, and a closed clinic's report that its whole
+ * export arrived. Each calls requirePatientPage
  * itself, so each needs this session's live passkey step-up (without one,
  * Next follows the redirect to the step-up page), and each read, resend and
  * export writes its access-log row naming the passkey, in the transaction
@@ -34,7 +36,7 @@ export type FindResult =
 
 export async function findConversationsAction(
   slug: string,
-  input: { q?: unknown; day?: unknown },
+  input: { q?: unknown; day?: unknown; flagged?: unknown },
 ): Promise<FindResult> {
   const page = await requirePatientPage(String(slug));
   const search = parseSearch(input?.q);
@@ -45,8 +47,59 @@ export async function findConversationsAction(
     };
   }
   const day = isDayChip(input?.day) ? input.day : null;
-  const rows = await readConversationList(page, { search, day });
+  const rows = await readConversationList(page, { search, day, flagged: input?.flagged === true });
   return { ok: true, rows };
+}
+
+export type FlagActionResult = {
+  ok: boolean;
+  message: string;
+  /** A refused correction: which box, and the text without what was refused, when that passes. */
+  field?: string;
+  rewrite?: string;
+};
+
+/**
+ * "Flag this answer", with the correction staff typed or without one, or a
+ * correction added to a conversation flagged already. The ticket reaches ops
+ * once the flag is recorded (lib/portal/flag-answer.ts).
+ */
+export async function flagAnswerAction(
+  slug: string,
+  conversationId: string,
+  input: { question?: unknown; answer?: unknown },
+): Promise<FlagActionResult> {
+  const page = await requirePatientPage(String(slug));
+  const result = await flagAnswer(page, String(conversationId), {
+    question: input?.question,
+    answer: input?.answer,
+  });
+  switch (result.status) {
+    case "flagged":
+    case "corrected":
+      return { ok: true, message: result.toast };
+    case "already_flagged":
+      return {
+        ok: true,
+        message: "This conversation is already flagged, and healdesk has been told.",
+      };
+    case "already_corrected":
+      return {
+        ok: false,
+        message: "This flag's correction is already in Quick answers. Change it in Knowledge.",
+      };
+    case "refused":
+      return {
+        ok: false,
+        message: result.message,
+        field: result.field,
+        ...(result.rewrite ? { rewrite: result.rewrite } : {}),
+      };
+    case "closed":
+      return { ok: false, message: "This account has closed, so nothing can be flagged." };
+    case "not_found":
+      return { ok: false, message: "That conversation isn't here any more. Reload the page." };
+  }
 }
 
 export type SendAgainActionResult = { ok: boolean; message: string };

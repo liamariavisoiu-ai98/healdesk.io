@@ -867,6 +867,9 @@ describeDb("Conversations", () => {
       callerPhone: "+14155550177",
       bookingRequestId: requestId,
       amended: false,
+      // Not flagged, and it opens (Flag this answer, wave 2 R2).
+      flag: null,
+      openable: true,
     });
     expect(byId.get(quiet.conversationId)).toMatchObject({
       source: "meta_thread",

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import {
   CHANNEL_NAMES,
+  CORRECTION_WORDS,
   OUTCOME_NAMES,
   OUTCOME_STYLES,
   phoneText,
@@ -20,7 +21,7 @@ import { FeedbackProvider } from "../../feedback";
 import { PatientPageGuard } from "../../PatientPageGuard";
 import { PortalShell } from "../../PortalShell";
 
-import { PersonExport, SendAgain } from "./ConversationControls";
+import { FlagAnswer, PersonExport, SendAgain } from "./ConversationControls";
 
 export const metadata: Metadata = { title: "Conversation · healdesk", referrer: "no-referrer" };
 
@@ -29,9 +30,10 @@ export const dynamic = "force-dynamic";
 /**
  * One conversation, opened (plan Part F4): its channel, when, its outcome,
  * who as the clinic's records name them, the booking request it produced,
- * any amendment the practice directed, and the transcript's delivery
- * receipt with "Send again" until delivery is confirmed. Never a word of the
- * conversation: none is kept. A patient page: requirePatientPage first, and
+ * any amendment the practice directed, the transcript's delivery receipt
+ * with "Send again" until delivery is confirmed, and "Flag this answer"
+ * with its optional correction, or the flag and whether its correction is
+ * live. Never a word of the conversation: none is kept. A patient page: requirePatientPage first, and
  * the open writes its access rows (the conversation, its receipt, its
  * request) in the transaction that reads it. An id this clinic does not hold
  * is "not found".
@@ -169,6 +171,64 @@ export default async function ConversationPage({
                 ) : null}
               </div>
             )}
+          </section>
+
+          <section aria-labelledby="flag-heading" className="mt-10">
+            <h2 id="flag-heading" className="text-lg font-semibold">
+              Flag this answer
+            </h2>
+            {detail.flag ? (
+              <div className="border-line mt-3 rounded-xl border bg-white px-4 py-4">
+                <p>
+                  Flagged {when(detail.flag.flaggedAt)}. healdesk has been told.
+                </p>
+                <p className="mt-1">
+                  <span
+                    className={detail.flag.correction === "live" ? "text-green font-semibold" : "font-semibold"}
+                  >
+                    {CORRECTION_WORDS[detail.flag.correction]}
+                  </span>
+                  {detail.flag.correction !== "none" ? (
+                    <>
+                      {". "}
+                      <a
+                        href={`${sectionPath(clinicSlug, "knowledge")}#quick-answers`}
+                        className="font-semibold underline"
+                      >
+                        See it in Knowledge
+                      </a>
+                    </>
+                  ) : null}
+                </p>
+                {detail.flag.correction === "none" ? (
+                  <FlagAnswer
+                    slug={clinicSlug}
+                    conversationId={detail.id}
+                    flagged
+                    audience={shell.audience}
+                  />
+                ) : null}
+              </div>
+            ) : (
+              <>
+                <p className="text-muted mt-2">
+                  Did AYA get something wrong here? Flag it and healdesk is told at once. If you
+                  know the right answer, add it: AYA uses it from the next call or chat.
+                </p>
+                <FlagAnswer
+                  slug={clinicSlug}
+                  conversationId={detail.id}
+                  flagged={false}
+                  audience={shell.audience}
+                />
+              </>
+            )}
+            {meta ? (
+              <p className="text-muted mt-2 text-sm">
+                On {CHANNEL_NAMES[detail.channel]}, AYA doesn&rsquo;t use Quick answers, so a
+                correction is used on phone and website chat.
+              </p>
+            ) : null}
           </section>
 
           {detail.amendments.length > 0 ? (

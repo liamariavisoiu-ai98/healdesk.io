@@ -16,7 +16,6 @@ import {
   fetchOnboarding,
   goLive as goLiveUpstream,
   issueCalendarLink as calendarLinkUpstream,
-  issueSetupLink as setupLinkUpstream,
   reopenOnboardingStep as reopenUpstream,
   retryCalendarWrite as retryWriteUpstream,
   setAutoConfirm as autoConfirmUpstream,
@@ -140,12 +139,6 @@ export default async function OnboardingPage({
     revalidatePath(path);
     return result;
   }
-  async function resendSetupLink(to: string | null) {
-    "use server";
-    const result = await setupLinkUpstream(clinicId, to);
-    revalidatePath(path);
-    return result;
-  }
   async function confirmTimezone(timezone: string) {
     "use server";
     const result = await timezoneUpstream(clinicId, timezone);
@@ -201,7 +194,7 @@ export default async function OnboardingPage({
       view={view}
       actions={{
         completeStep, reopenStep, savePhone, saveAgent, approveAgent, goLive, startForwardingTest, attachMeta, setMeta, setMetaPlatform,
-        saveRequirements, resendSetupLink, confirmTimezone, retryCalendarWrite, setAutoConfirm, sendCalendarLink,
+        saveRequirements, confirmTimezone, retryCalendarWrite, setAutoConfirm, sendCalendarLink,
         disconnectCalendar, attestAudit, confirmWidget,
       }}
     />

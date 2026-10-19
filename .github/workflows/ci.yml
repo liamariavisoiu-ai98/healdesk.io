@@ -11,10 +11,17 @@ name: CI
 # the security model depends on, runs the migrations, and fails if the
 # database-backed tests do not actually execute.
 
+# check/** branches run the same job off the main line: an integration of
+# several packages is pushed there, checked here in about 13 minutes instead
+# of an hour on a loaded workstation, and only a green one moves to main.
+# workflow_dispatch reruns it on any branch. Nothing deploys from CI: the
+# deploy, host and infra workflows are manual, and apps/web/vercel.json keeps
+# Vercel from building check/** branches.
 on:
   push:
-    branches: [main]
+    branches: [main, "check/**"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:

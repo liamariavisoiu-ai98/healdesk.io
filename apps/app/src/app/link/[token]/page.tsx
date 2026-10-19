@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
@@ -12,6 +12,7 @@ import {
   maskEmail,
   type SignInLinkProblem,
 } from "@/lib/sign-in/links";
+import { markPayingBrowser } from "@/lib/sign-in/paying-browser";
 
 import { AutoSubmit } from "./AutoSubmit";
 
@@ -58,6 +59,10 @@ async function continueWithLink(formData: FormData): Promise<void> {
   // works by throwing, and a catch-all would swallow it.
   if (!consumed.ok) redirect(`/link/${encodeURIComponent(String(token ?? ""))}`);
   await auth.api.startLinkSession({ body: { userId: consumed.userId }, headers: h });
+  // The checkout link is spent only in the browser that paid (/welcome):
+  // mark it, so its first passkey sends no device email (O3) and every other
+  // browser's does (lib/sign-in/paying-browser.ts).
+  markPayingBrowser(consumed, await cookies());
   redirect(isSafeRedirect(consumed.redirectTo) ? consumed.redirectTo : "/");
 }
 

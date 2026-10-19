@@ -510,14 +510,14 @@ describe("link_to", () => {
   test("built from the public origin, never HEALDESK_APP_URL, to the card that holds the switch", () => {
     for (const target of LINK_TARGETS) {
       const link = linkTo("glow", target);
-      if (target === "bookings") {
-        // Not a screen in this build: no link that 404s.
-        expect(link).toBeNull();
-        continue;
-      }
       expect(link!.url.startsWith(`${ORIGIN}/c/glow`), target).toBe(true);
       expect(link!.url).not.toContain(INTERNAL);
     }
+    // Bookings is a screen of this build since package E, so the chat links it.
+    expect(linkTo("glow", "bookings")).toEqual({
+      label: "Bookings",
+      url: `${ORIGIN}/c/glow/bookings`,
+    });
     expect(linkTo("glow", "direct_line")).toEqual({
       label: "Settings → Safety net → Direct line",
       url: `${ORIGIN}/c/glow/settings#safety-net`,

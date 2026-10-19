@@ -21,8 +21,8 @@ import { inTenant, seedClinic, seedPortalUser } from "./setup/factories";
 
 /**
  * O3 (Annex X5): the sign-in's address hears about every device that can
- * open patient details, except the first one, added by the person reading
- * the inbox in the browser that paid, and about a lockout.
+ * open patient details, except the first one when it is added in the browser
+ * that paid, by the person reading the inbox, and about a lockout.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -104,10 +104,35 @@ describeDb("the device email (O3)", () => {
     const { sent, transport } = fakeTransport();
 
     await notifyDeviceChange(
-      { userId: owner.userId, kind: "added", factorId, first: true },
+      { userId: owner.userId, kind: "added", factorId, first: true, payingBrowser: true },
       { transport },
     );
     expect(sent).toEqual([]);
+  });
+
+  test("the first passkey from any other session is reported, like every later one", async () => {
+    // Before go-live a first passkey needs only a session (Part D3), so one
+    // added anywhere but the browser that paid is exactly what O3 is for.
+    const clinic = await seedClinic("glow");
+    const owner = await seedPortalUser(clinic.clinicId, "owner");
+    const factorId = await seedPasskey(owner.userId, "Reception PC");
+    const { sent, transport } = fakeTransport();
+
+    await notifyDeviceChange(
+      { userId: owner.userId, kind: "added", factorId, first: true, payingBrowser: false },
+      { transport, now: NOW },
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.target.to).toBe(owner.email);
+    expect(sent[0]!.message.text).toContain("“Reception PC” was added to your healdesk sign-in");
+
+    // A later device in the paying browser is reported too: only the first is skipped there.
+    const later = await seedPasskey(owner.userId, "Maria's iPhone");
+    await notifyDeviceChange(
+      { userId: owner.userId, kind: "added", factorId: later, first: false, payingBrowser: true },
+      { transport, now: NOW },
+    );
+    expect(sent).toHaveLength(2);
   });
 
   test("a removal and a lockout each say what happened", async () => {

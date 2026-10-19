@@ -43,6 +43,7 @@ import { recordSecurityEvent } from "./audit";
 import type { RequestContext } from "./audit";
 import { seedEntitlements } from "./billing/entitlements";
 import { replayParkedBillingEvents } from "./billing/events";
+import { clinicIdForStripe } from "./billing/resolve";
 import { setupDeadline } from "./clinic/setup-window";
 import { seedSetup, type SetupSeed } from "./setup/seed";
 import { recordWelcomeOwed } from "./setup/welcome-email";
@@ -181,6 +182,13 @@ export type ProvisionResult = {
    * days, so on this path "already done" happens routinely rather than rarely.
    */
   replayed: boolean;
+  /**
+   * A replay found by the Stripe customer alone: the clinic exists for this
+   * customer under another subscription, so a second subscription was paid
+   * for one practice. The caller tells ops (duplicate_subscription); nothing
+   * is made for it.
+   */
+  duplicateSubscription?: boolean;
 };
 
 export async function provisionClinic(
@@ -217,6 +225,15 @@ export async function provisionClinic(
     );
   }
 
+  // An existing clinic for the subscription or the customer is a replay too
+  // (plan C1). The key above is the subscription id on the Stripe path, but
+  // a second subscription for the same customer carries a new key, and
+  // without this it would make a second clinic for a practice that already
+  // has one. Checked again under a lock inside the transaction, for two
+  // deliveries racing past this read.
+  const existing = await clinicForStripe(request);
+  if (existing) return existing;
+
   // Which paper the clinic is under, and whether it may be provisioned
   // against it (plan Part L), decided before anything is written: the
   // approval gate on the signed row's own version, and where that row says
@@ -236,6 +253,10 @@ export async function provisionClinic(
     try {
       return await provisionOnce({ request, context, options, email, slug, agreement });
     } catch (error) {
+      if (error instanceof StripePurchaseProvisioned) {
+        const replay = await clinicForStripe(request);
+        if (replay) return replay;
+      }
       if (attempt < 4 && isSlugCollision(error)) continue;
       throw error;
     }
@@ -275,6 +296,23 @@ async function provisionOnce({
   const clinicId = randomUUID();
 
   await unsafeDb.transaction(async (tx) => {
+    // One provisioning at a time per Stripe customer, and the customer-level
+    // replay asked again under that lock (see clinicForStripe): two
+    // deliveries for two subscriptions of one customer would otherwise both
+    // pass the read before the transaction and make two clinics. Before the
+    // tenant is declared, because app_clinic_for_stripe looks across tenants
+    // only while none is (drizzle/0028).
+    if (request.stripeCustomerId || request.stripeSubscriptionId) {
+      const purchaseKey = request.stripeCustomerId ?? request.stripeSubscriptionId!;
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`provision:stripe:${purchaseKey}`}, 0))`,
+      );
+      const found = await tx.execute<{ clinic_id: string | null }>(
+        sql`select app_clinic_for_stripe(${request.stripeCustomerId ?? null}::text, ${request.stripeSubscriptionId ?? null}::text) as clinic_id`,
+      );
+      if (found.rows[0]?.clinic_id) throw new StripePurchaseProvisioned();
+    }
+
     // The claim goes FIRST, inside this transaction, with every id it will
     // report already decided above.
     //
@@ -883,6 +921,63 @@ function slugify(name: string): string {
       .replace(/^-+|-+$/g, "")
       .slice(0, 40) || "clinic"
   );
+}
+
+/** Thrown inside the transaction when the Stripe purchase already has its clinic: rolled back, then answered as a replay. */
+class StripePurchaseProvisioned extends Error {
+  constructor() {
+    super("A clinic already exists for this Stripe customer or subscription.");
+    this.name = "StripePurchaseProvisioned";
+  }
+}
+
+/**
+ * The clinic already made for this purchase's Stripe subscription or
+ * customer, as a replay, or null (plan C1: "an existing clinic for the
+ * subscription or customer is a replay").
+ *
+ * The subscription first, then the customer, through the definer lookup
+ * billing events use (lib/billing/resolve.ts): it returns one id and nothing
+ * else about the clinic. A clinic found only by the customer, while this
+ * request names a subscription, is a second subscription paid for one
+ * practice: still a replay, so nothing is made and nothing customer-visible
+ * happens again, but flagged so the route tells ops. The demo clinic has no
+ * Stripe ids and never reaches this.
+ */
+async function clinicForStripe(request: ProvisionRequest): Promise<ProvisionResult | null> {
+  const subscriptionId = request.stripeSubscriptionId ?? null;
+  const customerId = request.stripeCustomerId ?? null;
+  if (!subscriptionId && !customerId) return null;
+  const bySubscription = subscriptionId ? await clinicIdForStripe(null, subscriptionId) : null;
+  const clinicId = bySubscription ?? (customerId ? await clinicIdForStripe(customerId, null) : null);
+  if (!clinicId) return null;
+  const [row] = await unsafeDb
+    .select({
+      organizationId: provisioningAttempts.organizationId,
+      clinicSlug: provisioningAttempts.clinicSlug,
+    })
+    .from(provisioningAttempts)
+    .where(eq(provisioningAttempts.clinicId, clinicId))
+    .limit(1);
+  if (!row) {
+    // Every provisioned clinic has its ledger row; one without is not ours
+    // to answer for, and making a second clinic would be worse than asking.
+    throw new ProvisioningError(
+      "This Stripe customer already has a clinic that provisioning did not make. Ops must finish it by hand.",
+      "stripeCustomerId",
+    );
+  }
+  log.info("provisioning replayed for an existing Stripe purchase", {
+    clinicId,
+    reason: bySubscription ? "subscription" : "customer",
+  });
+  return {
+    organizationId: row.organizationId,
+    clinicId,
+    clinicSlug: row.clinicSlug,
+    replayed: true,
+    ...(bySubscription === null && subscriptionId ? { duplicateSubscription: true } : {}),
+  };
 }
 
 /**

@@ -469,6 +469,9 @@ describeDb("delivery", () => {
           // The transcript outbox's backstop (drizzle/0069): every minute from
           // the billing-minute queue, and hourly here, behind its switch.
           "transcript-emails",
+          // The practice questions' sweep (drizzle/0080), hourly behind the
+          // practice-questions switch; the runs go every minute from their queue.
+          "practice-questions-sweep",
           // The deletion records' own clock (drizzle/0063): a sweep, not a
           // switched job, because "no longer than it needs one" waits for no
           // switch.
@@ -476,6 +479,8 @@ describeDb("delivery", () => {
           // Channel events (drizzle/0076): a sweep, not a switched job, over
           // inputs the clinic and the operator set.
           "channel-states",
+          // The header's pause: a sweep that records a timed pause's end.
+          "ai-pause",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -488,6 +493,7 @@ describeDb("delivery", () => {
         if (job === "erasure-expiry") continue; // a sweep: empties and deletes only expired deletion records
         if (job === "offboarding-destroy") continue; // widening: runs for 1.3.0 and DPA clinics, switch or not
         if (job === "channel-states") continue; // a sweep: moves production clinics' channels on as their inputs allow
+        if (job === "ai-pause") continue; // a sweep: records the end of a timed pause the clinic set
         expect(status, job).toBe("disabled");
       }
       expect(jobs["offboarding-destroy"]).toBe("ok");
@@ -495,6 +501,7 @@ describeDb("delivery", () => {
       expect(jobs["welcome-email"]).toBe("ok");
       expect(jobs["erasure-expiry"]).toBe("ok");
       expect(jobs["channel-states"]).toBe("ok");
+      expect(jobs["ai-pause"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

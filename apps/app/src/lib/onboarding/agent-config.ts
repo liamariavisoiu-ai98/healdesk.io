@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import {
   findClinicalContent,
@@ -223,6 +223,32 @@ export async function updateAgentConfig(tx: TenantTx, input: AgentConfigInput): 
     metadata: { version: row!.version, services: input.services.length },
   });
   return row!;
+}
+
+/**
+ * The practice questions passed this version (lib/engine/practice): it is
+ * approved, as an operator's approval would approve it, and only if it is
+ * still the current version and not approved already. A version the clinic
+ * changed while the questions ran is never approved by them. True when this
+ * call approved it.
+ */
+export async function approveAgentConfigVersion(tx: TenantTx, version: number, approvedByLabel: string): Promise<boolean> {
+  const now = new Date();
+  const [row] = await tx.db
+    .update(agentConfigs)
+    .set({ approvedAt: now, approvedByLabel: approvedByLabel.slice(0, 200), updatedAt: now })
+    .where(and(eq(agentConfigs.clinicId, tx.clinicId), eq(agentConfigs.version, version), isNull(agentConfigs.approvedAt)))
+    .returning();
+  if (!row) return false;
+  await tx.db.update(clinics).set({ agentApprovedAt: now, updatedAt: now }).where(eq(clinics.id, tx.clinicId));
+  tx.audit.record({
+    action: "update",
+    resourceType: "agent_config",
+    resourceId: row.id,
+    metadata: { version: row.version, approved: true, by: "practice_questions" },
+  });
+  await completeStep(tx, "agent_script_approved", { at: now, note: `version ${row.version}, practice questions` });
+  return true;
 }
 
 /** The clinic approved the current version, via the operator on the call. */

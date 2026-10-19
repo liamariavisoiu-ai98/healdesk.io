@@ -7,12 +7,12 @@ import { unsafeDb } from "@/db";
 import { conversations } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
+import { openingLine as assistantOpeningLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
 import { noteWidgetLoaded, recordFirstAnswer } from "@/lib/channels/events";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
-import { disclosureFor } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import {
   openChatTranscript,
@@ -182,7 +182,7 @@ export function readToken(value: unknown, clinicId: string, now: Date = new Date
 // -----------------------------------------------------------------------------
 
 function openingLine(facts: Pick<AssistantFacts, "clinicName" | "greeting">): string {
-  return `${disclosureFor({ clinicName: facts.clinicName, channel: "web_chat" })} ${facts.greeting.chat}`;
+  return assistantOpeningLine(facts, "web_chat");
 }
 
 /**

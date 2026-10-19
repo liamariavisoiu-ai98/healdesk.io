@@ -56,15 +56,13 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
     address: state.address,
     actor: page.actorContext,
   });
-  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts });
-  const tracker = buildTracker(
-    state,
-    await getCalendarConnection(portal.clinicId, { actor: page.actorContext }),
-  );
+  const calendar = await getCalendarConnection(portal.clinicId, { actor: page.actorContext });
+  const live = shell.status.kind !== "not_yet";
+  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts, live, calendar });
+  const tracker = buildTracker(state, calendar, facts.practice);
   const finished = wizardFinished(state.screens, state.progress);
   const plan = state.billing ? getPlan(state.billing.boughtPlanId) : undefined;
   const one = audienceSingular(shell.audience);
-  const live = shell.status.kind !== "not_yet";
   const started = state.billing?.planStartedAt ?? null;
   const summary = started ? await getBillingSummary(portal.clinicId, { now }) : null;
 
@@ -121,21 +119,38 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
             ))}
           </ol>
           <div className="border-line mt-4 rounded-xl border bg-white px-4 py-4">
-            {/* Talk to your AYA is the engine's preview (M4). Until every
+            {/* Talk to your AYA, the preview (/c/[slug]/preview). Until every
                 blocking stage is done the button stays locked and names what
-                is left; it is never a link to a page that does not exist. */}
-            <button
-              type="button"
-              disabled
-              aria-describedby="preview-left"
-              className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white opacity-50"
-            >
-              Talk to your AYA
-            </button>
+                is left; once they are, it is a link to the preview, which
+                checks the same tracker again itself. */}
+            {tracker.previewUnlocked ? (
+              <a
+                href={`/c/${portal.clinicSlug}/preview`}
+                aria-describedby="preview-left"
+                className="bg-ink inline-flex min-h-11 items-center rounded-full px-6 py-3 text-sm font-bold text-white"
+              >
+                Talk to your AYA
+              </a>
+            ) : (
+              <button
+                type="button"
+                disabled
+                aria-describedby="preview-left"
+                className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white opacity-50"
+              >
+                Talk to your AYA
+              </button>
+            )}
             <p id="preview-left" className="text-muted mt-2 text-sm">
-              Opens when every stage above is done. Still to come:{" "}
-              {joinWords(tracker.left.map((l) => l.toLowerCase()))}. In the preview nothing reaches{" "}
-              {shell.audience}, and nothing is booked.
+              {tracker.previewUnlocked ? (
+                <>Every stage above is done: talk to her before anyone else does.</>
+              ) : (
+                <>
+                  Opens when every stage above is done. Still to come:{" "}
+                  {joinWords(tracker.left.map((l) => l.toLowerCase()))}.
+                </>
+              )}{" "}
+              In the preview nothing reaches {shell.audience}, and nothing is booked.
             </p>
           </div>
         </section>

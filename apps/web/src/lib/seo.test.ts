@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
-import { CRAWL_DISALLOW } from "./seo";
+import { livePieces, piecePath } from "@/lib/content/registry";
+import { CRAWL_DISALLOW, PUBLIC_ROUTES } from "./seo";
 
 /**
  * The two files are generated from one list precisely so these properties
@@ -25,8 +26,12 @@ describe("robots()", () => {
 });
 
 describe("sitemap()", () => {
-  it("lists exactly the public pages, as absolute URLs", () => {
-    expect(sitemap().map((entry) => entry.url)).toEqual([
+  it("lists the fixed public pages first, as absolute URLs", () => {
+    expect(
+      sitemap()
+        .map((entry) => entry.url)
+        .slice(0, 10),
+    ).toEqual([
       "https://healdesk.io/",
       "https://healdesk.io/pricing",
       "https://healdesk.io/contact",
@@ -34,7 +39,16 @@ describe("sitemap()", () => {
       "https://healdesk.io/terms",
       "https://healdesk.io/why-wait",
       "https://healdesk.io/data-deletion",
+      "https://healdesk.io/guides",
+      "https://healdesk.io/about",
+      "https://healdesk.io/glossary",
     ]);
+  });
+
+  it("lists every live article and nothing else from the registry", () => {
+    const urls = sitemap().map((entry) => entry.url);
+    for (const piece of livePieces()) expect(urls).toContain(`https://healdesk.io${piecePath(piece)}`);
+    expect(urls).toHaveLength(PUBLIC_ROUTES.length + livePieces().length);
   });
 
   it("never lists a URL that robots.txt disallows", () => {
@@ -46,9 +60,12 @@ describe("sitemap()", () => {
     }
   });
 
-  it("carries no lastModified, so a deploy does not claim every page changed", () => {
-    for (const entry of sitemap()) {
-      expect(entry.lastModified).toBeUndefined();
+  it("dates every URL with a fixed calendar date, never the build time", () => {
+    const first = sitemap();
+    const second = sitemap();
+    expect(second).toEqual(first);
+    for (const entry of first) {
+      expect(entry.lastModified).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
   });
 });

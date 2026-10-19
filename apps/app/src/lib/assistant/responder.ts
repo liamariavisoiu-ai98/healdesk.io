@@ -1,49 +1,180 @@
+import type Anthropic from "@anthropic-ai/sdk";
+
+import { log } from "@/lib/log";
+
 import type { AssistantChannel } from "./facts";
-import type { AssistantResponder } from "./turn";
 
 /**
- * The model behind calls and web chats: Anthropic's API under healdesk's own
- * key (ANTHROPIC_API_KEY, the patient-data organisation's), no tools, no
- * search, nothing stored by healdesk. Null when the key is not set, and the
- * assistant then gives the fixed failure line (turn.ts).
+ * The one model client behind every patient conversation: calls, web chats
+ * and the Meta front door (plan Part G, "one client on the patient-
+ * organisation key"). Anthropic's API under healdesk's own key
+ * (ANTHROPIC_API_KEY, the patient-data organisation's), no tools, no search,
+ * nothing stored by healdesk. Null when the key is not set, and each caller
+ * then gives its fixed failure line.
  *
- * The model is set per channel, because a call cannot wait: the web chat
- * uses HEALDESK_CHAT_MODEL (default claude-opus-5-5), the call
- * HEALDESK_VOICE_MODEL (default claude-sonnet-5-5), each with low effort and
- * a hard timeout, after which the caller hears the failure line instead of
- * silence.
+ * Per channel (MODEL_CONFIG), because a call cannot wait:
+ *   - the web chat: HEALDESK_CHAT_MODEL, default claude-opus-5-5, 800 output
+ *     tokens, 30 seconds, one retry;
+ *   - the call: HEALDESK_VOICE_MODEL, default claude-sonnet-5-5, 400 tokens,
+ *     8 seconds and no retry, after which the caller hears the failure line
+ *     instead of silence;
+ *   - the Meta front door: claude-opus-5-5, 800 tokens, adaptive thinking,
+ *     the SDK's own timeout and retries, as it always had.
+ * Every channel runs at low effort. Opus 5.5 and Sonnet 5.5 think adaptively
+ * whether or not the request says so, and low effort keeps that short; the
+ * Meta channel asks for it explicitly, as it did on its own client. No
+ * streaming: the guard reads the whole reply before anyone sees it.
+ *
+ * The system prompt arrives in two parts (prompt.ts): a stable prefix, sent
+ * with a cache breakpoint so every turn after the first reads it from the
+ * cache, and the turn's own context after it, uncached. A changing byte
+ * ahead of the breakpoint would make every turn pay for the whole prefix.
+ *
+ * A refusal (stop_reason "refusal") is its own outcome, returned as a
+ * ModelRefusal rather than as empty text, so no caller can mistake it for a
+ * reply the guard refused: the call and the web chat answer it with a fixed
+ * line and the clinic's number (turn.ts), the Meta channels with their
+ * hand-off line. It is logged here, with its category and never the text.
+ *
+ * No server-side refusal fallback ("fallbacks", a beta): it would re-run a
+ * patient's words on another model through a feature whose eligibility under
+ * Anthropic's BAA nobody has confirmed (docs/blockers-runbook.md §3 lists
+ * what is excluded, and asks Anthropic in writing which features are
+ * eligible). A refusal ends the turn with the fixed line instead.
  */
 
-const DEFAULT_MODEL: Record<AssistantChannel, string> = {
-  web_chat: "claude-opus-5-5",
-  voice: "claude-sonnet-5-5",
-};
+export type AssistantMessage = { role: "user" | "assistant"; content: string };
 
-const TIMEOUT_MS: Record<AssistantChannel, number> = { web_chat: 30_000, voice: 8_000 };
+/** The system prompt: the cached prefix, then the turn's own context (prompt.ts). */
+export type AssistantPrompt = { stable: string; turn: string };
 
-export function assistantModel(channel: AssistantChannel): string {
-  const configured = channel === "voice" ? process.env.HEALDESK_VOICE_MODEL : process.env.HEALDESK_CHAT_MODEL;
-  return configured?.trim() || DEFAULT_MODEL[channel];
+/** The model declined to answer. `category` is the API's refusal category, when it gives one. */
+export type ModelRefusal = { refused: true; category: string | null };
+
+export function isModelRefusal(value: unknown): value is ModelRefusal {
+  return typeof value === "object" && value !== null && (value as { refused?: unknown }).refused === true;
 }
 
+/** The model behind a call or a web chat: a system prompt and the conversation so far, the last message the person's. */
+export type AssistantResponder = (request: {
+  system: AssistantPrompt;
+  messages: AssistantMessage[];
+  channel: AssistantChannel;
+}) => Promise<string | ModelRefusal>;
+
+/** Every channel the client serves: the assistant's two, and the Meta front door. */
+export type ModelChannel = AssistantChannel | "meta";
+
+type ChannelConfig = {
+  /** The environment variable that may name another model; null when the model is fixed. */
+  modelEnv: string | null;
+  model: string;
+  maxTokens: number;
+  /** Milliseconds; undefined keeps the SDK's default. */
+  timeoutMs: number | undefined;
+  /** Undefined keeps the SDK's default. */
+  maxRetries: number | undefined;
+  /** "adaptive" asks for adaptive thinking; null leaves the model's own default. */
+  thinking: "adaptive" | null;
+  /** The longest message passed on, in characters. */
+  maxMessageChars: number;
+};
+
+export const MODEL_CONFIG: Readonly<Record<ModelChannel, ChannelConfig>> = {
+  web_chat: {
+    modelEnv: "HEALDESK_CHAT_MODEL",
+    model: "claude-opus-5-5",
+    maxTokens: 800,
+    timeoutMs: 30_000,
+    maxRetries: 1,
+    thinking: null,
+    maxMessageChars: 4_000,
+  },
+  voice: {
+    modelEnv: "HEALDESK_VOICE_MODEL",
+    model: "claude-sonnet-5-5",
+    maxTokens: 400,
+    timeoutMs: 8_000,
+    maxRetries: 0,
+    thinking: null,
+    maxMessageChars: 4_000,
+  },
+  meta: {
+    modelEnv: null,
+    model: "claude-opus-5-5",
+    maxTokens: 800,
+    timeoutMs: undefined,
+    maxRetries: undefined,
+    thinking: "adaptive",
+    maxMessageChars: 2_000,
+  },
+};
+
+export function assistantModel(channel: ModelChannel): string {
+  const config = MODEL_CONFIG[channel];
+  const configured = config.modelEnv ? process.env[config.modelEnv] : undefined;
+  return configured?.trim() || config.model;
+}
+
+/**
+ * The request for one turn, as the API receives it. Exported so the tests can
+ * hold the cache breakpoint on the stable prefix, and nothing after it.
+ */
+export function modelRequest(input: {
+  channel: ModelChannel;
+  system: AssistantPrompt;
+  messages: AssistantMessage[];
+}): Anthropic.MessageCreateParamsNonStreaming {
+  const config = MODEL_CONFIG[input.channel];
+  const system: Anthropic.TextBlockParam[] = [
+    { type: "text", text: input.system.stable, cache_control: { type: "ephemeral" } },
+  ];
+  if (input.system.turn.trim()) system.push({ type: "text", text: input.system.turn });
+  return {
+    model: assistantModel(input.channel),
+    max_tokens: config.maxTokens,
+    ...(config.thinking ? { thinking: { type: config.thinking } } : {}),
+    output_config: { effort: "low" },
+    system,
+    messages: input.messages.map((m) => ({ role: m.role, content: m.content.slice(0, config.maxMessageChars) })),
+  };
+}
+
+/** The reply's text, or the refusal. Throws what the SDK throws (a timeout, an API error). */
+export function readModelResponse(channel: ModelChannel, response: Anthropic.Message): string | ModelRefusal {
+  if (response.stop_reason === "refusal") {
+    const category = response.stop_details?.category ?? null;
+    log.warn("model declined to answer", { channel, kind: category ?? "none" });
+    return { refused: true, category };
+  }
+  return response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join(" ")
+    .trim();
+}
+
+/** One turn on the shared client. */
+export async function callModel(input: {
+  apiKey: string;
+  channel: ModelChannel;
+  system: AssistantPrompt;
+  messages: AssistantMessage[];
+}): Promise<string | ModelRefusal> {
+  const config = MODEL_CONFIG[input.channel];
+  const { default: AnthropicClient } = await import("@anthropic-ai/sdk");
+  const client = new AnthropicClient({
+    apiKey: input.apiKey,
+    ...(config.timeoutMs !== undefined ? { timeout: config.timeoutMs } : {}),
+    ...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
+  });
+  const response = await client.messages.create(modelRequest(input));
+  return readModelResponse(input.channel, response);
+}
+
+/** The responder for calls and web chats. */
 export function anthropicAssistantResponder(): AssistantResponder | null {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
-  return async ({ system, messages, channel }) => {
-    const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const client = new Anthropic({ apiKey, timeout: TIMEOUT_MS[channel], maxRetries: channel === "voice" ? 0 : 1 });
-    const response = await client.messages.create({
-      model: assistantModel(channel),
-      max_tokens: channel === "voice" ? 400 : 800,
-      output_config: { effort: "low" },
-      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      messages: messages.map((m) => ({ role: m.role, content: m.content.slice(0, 4_000) })),
-    });
-    if (response.stop_reason === "refusal") return "";
-    return response.content
-      .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
-      .map((b) => b.text)
-      .join(" ")
-      .trim();
-  };
+  return ({ system, messages, channel }) => callModel({ apiKey, channel, system, messages });
 }

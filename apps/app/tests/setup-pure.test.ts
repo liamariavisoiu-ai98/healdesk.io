@@ -64,6 +64,7 @@ import {
 } from "@/lib/setup/settings";
 import { skipCost } from "@/lib/setup/skip-costs";
 import type { SetupState } from "@/lib/setup/state";
+import type { PracticeState } from "@/lib/engine/practice/state";
 import { answersMissing, buildTracker, joinWords } from "@/lib/setup/tracker";
 import { urgentHelpField, urgentHelpNumber } from "@/lib/setup/urgent";
 
@@ -510,6 +511,9 @@ function setupState(overrides: Partial<SetupState> = {}): SetupState {
       address: null,
       website: "glowmedspa.com",
       publishedPhoneE164: null,
+      assistantNumberE164: null,
+      carrier: null,
+      phoneSystemType: null,
       openingHours: null,
       siteProfile: null,
       regulatoryRegime: "hipaa-if-covered",
@@ -616,6 +620,67 @@ describe("the build tracker", () => {
     expect(tracker.stages.find((s) => s.id === "website")!.state).toBe("done");
     expect(tracker.stages.find((s) => s.id === "answers")!.state).toBe("done");
     expect(tracker.left).toEqual(["Assistant built", "Practice questions passed"]);
+  });
+
+  test("the engine's two stages read the practice questions: built once a run has, passed only with nothing changed since", () => {
+    const answered = setupState({
+      clinic: {
+        ...setupState().clinic,
+        openingHours: { sun: [], mon: [["09:00", "17:00"]], tue: [], wed: [], thu: [], fri: [], sat: [] },
+        onboarding: { hours_confirmed: at.toISOString() },
+      },
+      knowledge: {
+        services: [{ name: "Facial", priceFromUsd: 120, priceToUsd: 120, durationMinutes: 60 }],
+        policies: [],
+        quickAnswers: [],
+        mostAsked: { question: "Parking?", answer: "Behind the building." },
+        neverSay: [],
+        promotions: null,
+      },
+      progress: new Map([["services", { outcome: "done", at }]]),
+    });
+    const run = (over: Partial<NonNullable<PracticeState["latest"]>> = {}, pending = false): PracticeState => ({
+      pending,
+      latest: {
+        id: "11111111-2222-4333-8444-555555555555",
+        status: "passed",
+        finishedAt: at,
+        failedSection: null,
+        failedCount: null,
+        triggerSection: null,
+        overridden: false,
+        reviewDueOn: null,
+        ...over,
+      },
+    });
+    const engine = (practice: PracticeState, state = answered) =>
+      buildTracker(state, NOT_CONNECTED, practice)
+        .stages.filter((s) => s.id === "built" || s.id === "practice_questions")
+        .map((s) => [s.state, s.detail]);
+
+    const passed = buildTracker(answered, NOT_CONNECTED, run());
+    expect(passed.left).toEqual([]);
+    expect(passed.previewUnlocked).toBe(true);
+    expect(engine(run())[1]).toEqual(["done", "AYA answered her practice questions about your practice, and got them right."]);
+    expect(engine(run({ overridden: true }))[1]![1]).toBe("Our team checked AYA's answers with you and approved them.");
+    // A change since the pass: checked again before the stage is done.
+    expect(engine(run({}, true))).toEqual([
+      ["done", "AYA is built from your answers, with your prices, your hours and what she must never say."],
+      ["not_done", "AYA is answering her practice questions again, with your latest change."],
+    ]);
+    expect(engine({ pending: true, latest: null })).toEqual([
+      ["not_done", "We're building AYA from your answers."],
+      ["not_done", "AYA is answering her practice questions about your practice."],
+    ]);
+    expect(engine(run({ status: "in_review", reviewDueOn: "2026-10-07" }))[1]).toEqual([
+      "not_done",
+      "Being checked by our team; ready by Wednesday 7 October.",
+    ]);
+    expect(engine(run({ status: "failed", failedSection: "prices", failedCount: 2 }))[1]![1]).toBe(
+      "One thing to fix: 2 prices in Knowledge → Prices. Fix it there and she answers them again.",
+    );
+    // Answers no longer set up: neither stage is done, whatever an earlier run said.
+    expect(engine(run(), setupState()).map(([state]) => state)).toEqual(["not_done", "not_done"]);
   });
 
   test("names what is missing in words", () => {

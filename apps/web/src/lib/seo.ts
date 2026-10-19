@@ -31,20 +31,33 @@ import { site } from "@/lib/site";
  * Paths are absolute so the same list builds URLs from every base.
  */
 export const PUBLIC_ROUTES = [
-  { path: "/", changeFrequency: "weekly", priority: 1 },
+  { path: "/", changeFrequency: "weekly", priority: 1, lastModified: "2026-10-19" },
   // Back on 13 October 2026, with the step pricing (app/pricing/page.tsx).
-  { path: "/pricing", changeFrequency: "monthly", priority: 0.8 },
-  { path: "/contact", changeFrequency: "monthly", priority: 0.7 },
-  { path: "/privacy", changeFrequency: "yearly", priority: 0.3 },
-  { path: "/terms", changeFrequency: "yearly", priority: 0.3 },
-  { path: "/why-wait", changeFrequency: "monthly", priority: 0.8 },
+  { path: "/pricing", changeFrequency: "monthly", priority: 0.8, lastModified: "2026-10-19" },
+  { path: "/contact", changeFrequency: "monthly", priority: 0.7, lastModified: "2026-10-12" },
+  { path: "/privacy", changeFrequency: "yearly", priority: 0.3, lastModified: "2026-10-14" },
+  { path: "/terms", changeFrequency: "yearly", priority: 0.3, lastModified: "2026-10-14" },
+  { path: "/why-wait", changeFrequency: "monthly", priority: 0.8, lastModified: "2026-10-12" },
   // The deletion instructions Meta's App Review asks for, linked from the
   // footer and from privacy § 13.
-  { path: "/data-deletion", changeFrequency: "yearly", priority: 0.3 },
+  { path: "/data-deletion", changeFrequency: "yearly", priority: 0.3, lastModified: "2026-10-14" },
+  // The editorial library (strategy of 14 October 2026): the hub, the About
+  // page every article's byline links to, and the glossary. The articles
+  // themselves are listed from the content registry by app/sitemap.ts, each
+  // with its own last-reviewed date.
+  { path: "/guides", changeFrequency: "weekly", priority: 0.7, lastModified: "2026-10-19" },
+  { path: "/about", changeFrequency: "monthly", priority: 0.5, lastModified: "2026-10-19" },
+  { path: "/glossary", changeFrequency: "monthly", priority: 0.5, lastModified: "2026-10-19" },
 ] as const satisfies ReadonlyArray<{
   path: `/${string}`;
   changeFrequency: "weekly" | "monthly" | "yearly";
   priority: number;
+  /**
+   * The date the page's content last changed, by hand, never the build time:
+   * stamping every URL with "now" tells crawlers the whole site changed on
+   * every deploy. Bump it in the commit that changes what the page says.
+   */
+  lastModified: `${number}-${number}-${number}`;
 }>;
 
 export const CRAWL_DISALLOW = ["/admin", "/api", "/get-started", "/claim", "/demo"] as const;

@@ -15,6 +15,7 @@
     "qa:gate": "tsx --env-file-if-exists=.env.local scripts/qa-gate.ts",
     "demo:calibrate": "tsx --env-file-if-exists=.env.local scripts/demo-audit-calibrate.ts",
     "sheets:init": "tsx --env-file-if-exists=.env.local scripts/sheets-init.ts",
+    "indexnow": "tsx scripts/indexnow.ts",
     "retell:demo": "tsx --env-file-if-exists=.env.local scripts/retell-demo-agent.ts",
     "retell:clinic-demo": "tsx --env-file-if-exists=.env.local scripts/retell-clinic-demo-agent.ts",
     "admin:totp": "tsx --env-file-if-exists=.env.local scripts/set-admin-totp.ts"

@@ -98,8 +98,8 @@ export const metadata: Metadata = {
  * changed, what is running, the practice questions waiting for review, the
  * incidents to decide and the notices we send practices by hand, how every
  * tool links up and which keys are in place, whether the AWS host is on, who
- * asked to be set up, who is in the funnel, the personalised demos built for
- * them, and what has been signed.
+ * asked to be set up, whose website could not be read at checkout, who is in
+ * the funnel, the personalised demos built for them, and what has been signed.
  */
 const SECTIONS = [
   { href: "/admin", label: "Changes" },
@@ -110,6 +110,7 @@ const SECTIONS = [
   { href: "/admin/map", label: "Map" },
   { href: "/admin/host", label: "Host" },
   { href: "/admin/setup", label: "Setup" },
+  { href: "/admin/site-reads", label: "Site reads" },
   { href: "/admin/crm", label: "CRM" },
   { href: "/admin/demos", label: "Demos" },
   { href: "/admin/agreements", label: "Agreements" },

@@ -41,11 +41,11 @@ export default async function SignInPage({
       </p>
       <SignInForm next={next} linkMinutes={Math.round(SIGN_IN_LINK_TTL_MS.sign_in / 60_000)} />
       <p className="text-muted mt-10 text-sm">
-        Can&apos;t get into that inbox? Email{" "}
-        <a href="mailto:hello@healdesk.io" className="underline underline-offset-2">
-          hello@healdesk.io
-        </a>{" "}
-        from any address and we&apos;ll help.
+        Link expired, or nobody checks that inbox any more?{" "}
+        <a href="/sign-in/help" className="underline underline-offset-2">
+          Get help signing in
+        </a>
+        .
       </p>
     </main>
   );

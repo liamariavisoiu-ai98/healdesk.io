@@ -6,6 +6,8 @@ import { FirstWeeks } from "./FirstWeeks";
 
 import type {
   CareOutcome,
+  ClinicCards,
+  ClinicCardView,
   ClinicHealth,
   ConnectionState,
   ConnectLinkDelivery,
@@ -72,11 +74,18 @@ export function OpsConsole({
   clinics,
   jobs,
   health,
+  cards,
   actions,
 }: {
   clinics: OpsResult<OpsClinics>;
   jobs: OpsResult<OpsJob[]>;
   health: OpsResult<ClinicHealth[]>;
+  /**
+   * Each card's channel states, build tracker and agreement label
+   * (listClinicCards), read on its own: a card it could not read shows the
+   * rest of the card without them.
+   */
+  cards?: OpsResult<ClinicCards>;
   actions: OpsConsoleActions;
 }) {
   /**
@@ -111,7 +120,7 @@ export function OpsConsole({
 
       <FirstWeeks health={health} onTouch={actions.recordTouch} />
       <JobsSection jobs={jobs} onToggle={actions.toggleJob} />
-      <ClinicsSection clinics={clinics} onIssue={actions.issueConnectLink} />
+      <ClinicsSection clinics={clinics} cards={cards} onIssue={actions.issueConnectLink} />
     </main>
   );
 }
@@ -267,12 +276,15 @@ function JobCard({
 
 function ClinicsSection({
   clinics,
+  cards,
   onIssue,
 }: {
   clinics: OpsResult<OpsClinics>;
+  cards?: OpsResult<ClinicCards>;
   onIssue: OpsConsoleActions["issueConnectLink"];
 }) {
   const rows = clinics.ok ? clinics.data.clinics : [];
+  const cardById = new Map((cards?.ok ? cards.data.cards : []).map((card) => [card.id, card]));
   const needsLink = rows.filter((clinic) => clinic.connection === "none");
   const unchecked = rows.filter((clinic) => clinic.connection === "unknown");
 
@@ -318,7 +330,7 @@ function ClinicsSection({
             <ul className="mt-4 grid gap-3">
               {rows.map((clinic) => (
                 <li key={clinic.id}>
-                  <ClinicCard clinic={clinic} onIssue={onIssue} />
+                  <ClinicCard clinic={clinic} card={cardById.get(clinic.id)} onIssue={onIssue} />
                 </li>
               ))}
             </ul>
@@ -341,9 +353,11 @@ function ClinicsSection({
 
 function ClinicCard({
   clinic,
+  card,
   onIssue,
 }: {
   clinic: OpsClinic;
+  card?: ClinicCardView;
   onIssue: OpsConsoleActions["issueConnectLink"];
 }) {
   const worst = clinic.blockers.find((blocker) => blocker.level === "blocked");
@@ -389,6 +403,8 @@ function ClinicCard({
         <p className="text-muted mt-3 text-sm">{first.message}</p>
       ) : null}
 
+      {card ? <CardState card={card} /> : null}
+
       <a
         href={`/admin/ops/${clinic.id}/onboarding`}
         className="mt-3 inline-block text-sm font-semibold underline underline-offset-2"
@@ -401,8 +417,60 @@ function ClinicCard({
       >
         Report recipients, deliveries, incidents, offboarding →
       </a>
+      <a
+        href={`/admin/ops/${clinic.id}/account`}
+        className="mt-1 ml-4 inline-block text-sm font-semibold underline underline-offset-2"
+      >
+        Address, covered entity →
+      </a>
 
       <ConnectLinkControl clinic={clinic} onIssue={onIssue} />
+    </div>
+  );
+}
+
+/** The channel names the portal uses (the catalog's CHANNEL_NAMES), kept here for a client bundle. */
+const CHANNEL_LABELS: Record<ClinicCardView["channels"][number]["channel"], string> = {
+  web: "Website chat",
+  meta: "Instagram, Messenger & WhatsApp",
+  voice: "Phone",
+};
+
+const CHANNEL_STATUS_WORDS: Record<ClinicCardView["channels"][number]["status"], string> = {
+  off: "off",
+  paused: "paused",
+  live: "live",
+  waiting: "waiting on the clinic",
+  setting_up: "setting up",
+};
+
+/**
+ * What listClinicCards adds to a card: the agreement it is under, where each
+ * bought channel stands, and the build tracker the clinic sees on Home, by
+ * stage and state only.
+ */
+function CardState({ card }: { card: ClinicCardView }) {
+  return (
+    <div className="border-line mt-3 grid gap-1.5 border-t pt-3 text-sm">
+      <p>
+        <Tag tone={card.agreementKind ? "ok" : "warn"}>{card.agreementLabel}</Tag>
+      </p>
+      <p className="text-muted">
+        {card.channels.length === 0
+          ? "No channels bought."
+          : card.channels
+              .map((c) => `${CHANNEL_LABELS[c.channel]}: ${CHANNEL_STATUS_WORDS[c.status]}`)
+              .join(" · ")}
+      </p>
+      <p className="text-muted">
+        Build:{" "}
+        {card.tracker
+          .map((s) => `${s.state === "done" ? "✓" : s.state === "info" ? "–" : "·"} ${s.label}`)
+          .join("  ")}
+      </p>
+      {card.trackerLeft.length > 0 ? (
+        <p className="text-muted">Still to do: {card.trackerLeft.join(", ")}.</p>
+      ) : null}
     </div>
   );
 }

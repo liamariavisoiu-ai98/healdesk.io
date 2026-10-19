@@ -273,6 +273,21 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The transcript of the conversation below did not reach the clinic, and healdesk keeps no copy, so it is gone. The reason says why: SES refused the address, the clinic's mail server would not accept it over TLS, or SES is not set up on apps/app (HEALDESK_SES_CONFIGURATION_SET). Fix the cause so the next one arrives, and tell the clinic that one conversation's transcript was lost; its time and outcome are still on the conversation. Never ask the clinic to read the transcript to you.",
   },
+  address_change_stalled: {
+    title: "An address change is waiting on Stripe",
+    action:
+      "A clinic's change of address is due, and Stripe would not take the new email, so nothing has moved yet. It is retried every hour. Check the Stripe key and the customer, then check the clinic's sign-in page in the console.",
+  },
+  address_change_failed: {
+    title: "An address change was closed without effect",
+    action:
+      "A clinic's change of address could not take effect: the new address already signs in to healdesk, or the sign-in's address moved some other way. Call the clinic on its published number and agree the address.",
+  },
+  sign_in_help_unmatched: {
+    title: "A request for sign-in help sent no link",
+    action:
+      "Someone used I can't get in, and no link went: the code says why. Where a clinic is named, call it on its published number before changing anything; never send a link anywhere but the address on the account.",
+  },
   retention_purge_failed: {
     title: "The retention purge failed",
     action:

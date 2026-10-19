@@ -1,6 +1,8 @@
 import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
+import { ADDRESS_CHANGE_CONFIRM_ENTRY } from "./address_change_confirm";
+import { ADDRESS_CHANGING_ENTRY } from "./address_changing";
 import { AI_PAUSED_ENTRY } from "./ai_paused";
 import { ALLOWANCE_FALLBACK_ENTRY } from "./allowance_fallback";
 import { ASSISTANT_READY_ENTRY } from "./assistant_ready";
@@ -47,6 +49,7 @@ import { RESTORED_ENTRY } from "./restored";
 import { SETTING_CHANGED_ENTRY } from "./setting_changed";
 import { SETUP_CLOSED_ENTRY } from "./setup_closed";
 import { SETUP_REMINDER_ENTRY } from "./setup_reminder";
+import { SIGN_IN_HELP_LINK_ENTRY } from "./sign_in_help_link";
 import { SIGN_IN_LINK_ENTRY } from "./sign_in_link";
 import { STEP_UP_REMINDER_ENTRY } from "./step_up_reminder";
 import { STEPS_SENT_ENTRY } from "./steps_sent";
@@ -156,6 +159,11 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   guarantee_finding: GUARANTEE_FINDING_ENTRY,
   suspended_for_cause: SUSPENDED_FOR_CAUSE_ENTRY,
   product_update: PRODUCT_UPDATE_ENTRY,
+  // WP8 (plan Part D5): O6 from /sign-in/help, and O5's confirmation link and
+  // notice for a change of the clinic's one address.
+  sign_in_help_link: SIGN_IN_HELP_LINK_ENTRY,
+  address_change_confirm: ADDRESS_CHANGE_CONFIRM_ENTRY,
+  address_changing: ADDRESS_CHANGING_ENTRY,
   // WP10, the support chat (M7): L25 to the clinic, I3 to hello@.
   support_request: SUPPORT_REQUEST_ENTRY,
   support_escalation: SUPPORT_ESCALATION_ENTRY,
@@ -178,7 +186,6 @@ export type OwingPackage =
   | "WP5"
   | "WP6"
   | "WP7"
-  | "WP8"
   | "WP9"
   | "WP10"
   | "WP11"
@@ -260,6 +267,9 @@ export const PENDING_TEMPLATES: Record<
     | "calendar_election_recorded"
     | LiveAlertKind
     | OperatorTemplatedKind
+    | "sign_in_help_link"
+    | "address_change_confirm"
+    | "address_changing"
     | "support_request"
     | "support_escalation"
     | "assistant_ready"
@@ -268,10 +278,6 @@ export const PENDING_TEMPLATES: Record<
   >,
   PendingTemplate
 > = {
-  // WP8: /sign-in/help (D5), and the sign-in address change.
-  sign_in_help_link: { owner: "plan", package: "WP8", ships: "M2, sign-in (O6)" },
-  address_change_confirm: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
-  address_changing: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
   // WP4: the claims function's emails.
   daily_summary: { owner: "plan", package: "WP4", ships: "M6 (L13)" },
   weekly_recap: { owner: "plan", package: "WP4", ships: "M6 (L14, retargeted)" },

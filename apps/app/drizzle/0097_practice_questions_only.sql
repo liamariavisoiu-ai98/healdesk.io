@@ -40,7 +40,13 @@
 --      index keeps one record per channel (0079), so a channel holding one
 --      could never record the questions' pass beside it and would wait
 --      forever; read this way, it goes live once the questions pass it;
---   3. app_channel_record_input records `audit_passed` only by the practice
+--   3. app_channel_ours_ok, which app_channel_mark_ready asks before a
+--      channel is ready on our side (and ready is what queues O10), asked for
+--      any `audit_passed` row; it asks app_channel_audit_ok now, as
+--      decideChannel's `ready` asks channelsWithAuditPassed
+--      (lib/channels/events.ts), so a retired attestation's row readies
+--      nothing;
+--   4. app_channel_record_input records `audit_passed` only by the practice
 --      questions: 'ops_attested' leaves its closed list of ways.
 --
 -- Nothing is deleted: channel_events is append-only (0044), and the runs and
@@ -91,6 +97,25 @@ AS $$
   SELECT EXISTS (SELECT 1 FROM channel_events e
                   WHERE e.clinic_id = p_clinic AND e.channel = p_channel AND e.kind = 'audit_passed')
      AND app_practice_gate_open(p_clinic, p_channel)
+$$;--> statement-breakpoint
+
+-- 0079's body, with the audit asked as `live` asks it.
+CREATE OR REPLACE FUNCTION app_channel_ours_ok(p_clinic uuid, p_channel text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+           SELECT 1 FROM clinics k
+            WHERE k.id = p_clinic
+              AND k.offboarding_started_at IS NULL
+              AND k.destroyed_at IS NULL
+              AND (p_channel = 'web'
+                   OR (p_channel = 'voice' AND k.assistant_number_e164 IS NOT NULL)
+                   OR (p_channel = 'meta' AND k.meta_front_door_enabled)))
+     AND EXISTS (SELECT 1 FROM clinic_channels cc WHERE cc.clinic_id = p_clinic AND cc.channel = p_channel)
+     AND app_channel_audit_ok(p_clinic, p_channel)
 $$;--> statement-breakpoint
 
 -- 0080's body, with 'ops_attested' gone from the closed list of ways.

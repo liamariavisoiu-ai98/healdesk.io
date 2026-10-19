@@ -756,6 +756,46 @@ describeDb("channel events against the database", () => {
     expect((await evaluate(c.clinicId, "voice"))[0]).toMatchObject({ readied: true });
   });
 
+  test("ready on our side asks the audit as live does: a retired attestation's row readies nothing, in the database either (0097)", async () => {
+    const c = await boughtClinic("ev-ours", { channels: [{ channel: "voice" }] });
+    await setPhoneRuntime(c.clinicId);
+    await inTenant(c.clinicId, (cl) =>
+      cl.query(
+        `insert into channel_events (clinic_id, channel, kind, actor, detail) values ($1, 'voice', 'audit_passed', 'ops', '{"via":"ops_attested"}')`,
+        [c.clinicId],
+      ),
+    );
+    const sqlSays = async () =>
+      (
+        await inTenant(c.clinicId, (cl) =>
+          cl.query<{ ours: boolean; audit: boolean }>(
+            `select app_channel_ours_ok($1, 'voice') as ours, app_channel_audit_ok($1, 'voice') as audit`,
+            [c.clinicId],
+          ),
+        )
+      ).rows[0];
+    expect(await sqlSays()).toEqual({ ours: false, audit: false });
+    // The definer that readies a channel, asked by the runtime role, refuses.
+    const client = await getAppPool().connect();
+    try {
+      await client.query("begin");
+      await client.query(`select set_config('app.clinic_id', $1, true)`, [c.clinicId]);
+      const { rows } = await client.query<{ ok: boolean }>(
+        `select app_channel_mark_ready('voice', now(), 'probe') as ok`,
+      );
+      expect(rows[0]!.ok).toBe(false);
+      await client.query("commit");
+    } finally {
+      client.release();
+    }
+    expect((await channelRow(c.clinicId, "voice")).ready_at).toBeNull();
+    expect(await noticesOf(c.clinicId, "channel_ready")).toEqual([]);
+    // Once the questions pass it, both say ready, and so does the evaluation.
+    await passAudit(c.clinicId, "voice");
+    expect(await sqlSays()).toEqual({ ours: true, audit: true });
+    expect((await evaluate(c.clinicId, "voice"))[0]).toMatchObject({ readied: true });
+  });
+
   test("P2 (R3): the runtime role cannot write a channel's lifecycle or live's inputs, and the definers check what they record", async () => {
     const c = await boughtClinic("ev-role", {
       channels: [{ channel: "voice" }, { channel: "web" }],

@@ -70,7 +70,7 @@ async function host(): Promise<HostReach> {
       // An engine deployed before this check existed does not know the
       // question. That is not a broken seal, and saying so would send the
       // owner to rotate a secret that is fine.
-      return { state: "silent", message: "it runs an older version without this check: deploy the engine (deploy-app.yml) to see its keys" };
+      return { state: "silent", cause: "outdated", message: "it runs an older version without this check: deploy the engine (deploy-app.yml) to see its keys" };
     case "refused":
       return {
         state: "refused",
@@ -83,14 +83,15 @@ async function host(): Promise<HostReach> {
       // ops client cannot tell that from a 503 the load balancer gives.
       return {
         state: "silent",
-        message: "it answered with a server error; if the host is on, check that it has HEALDESK_PROVISION_SECRET and HEALDESK_ADMIN_EMAIL",
+        cause: "server-error",
+        message: "if the host is on, check that it has HEALDESK_PROVISION_SECRET and HEALDESK_ADMIN_EMAIL",
       };
     case "timeout":
-      return { state: "silent", message: "no answer in time" };
+      return { state: "silent", cause: "no-answer", message: "no answer in time" };
     case "unreachable":
-      return { state: "silent", message: "nothing answered at its address" };
+      return { state: "silent", cause: "no-answer", message: "nothing answered at its address" };
     default:
-      return { state: "silent", message: "it answered with an error" };
+      return { state: "silent", cause: "server-error", message: "it answered with an error the console could not read" };
   }
 }
 

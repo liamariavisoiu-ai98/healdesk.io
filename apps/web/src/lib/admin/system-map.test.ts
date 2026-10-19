@@ -343,6 +343,25 @@ describe("assess", () => {
     expect(bridge(view, "prospects-retell-demo").statusText).not.toContain("every key it needs is in place");
   });
 
+  test("a demo-line follow-up without its webhook key is part-off, since calls fall back to the API key", () => {
+    const live = allGood();
+    live.vercel.RETELL_WEBHOOK_KEY = false;
+    const view = assess(live);
+    expect(bridge(view, "retell-demo-web").status).toBe("working");
+    expect(bridge(view, "retell-demo-web").statusText).toContain("not added, so that part is off");
+  });
+
+  test("an engine too old to answer, or answering with an error, is never guessed to be in standby", () => {
+    for (const cause of ["outdated", "server-error"] as const) {
+      const view = assess(allGood({ host: { state: "silent", cause, message: "it said so" }, proofs: {} }));
+      for (const id of ["console-app", "app-gcal", "web-app", "app-kms"]) expect(bridge(view, id).statusText, `${cause} ${id}`).not.toContain("standby");
+      expect(view.host.text, cause).not.toContain("standby");
+      const check = view.todos.find((t) => t.kind === "check")!;
+      expect(check.text, cause).not.toContain("standby");
+      if (cause === "outdated") expect(check.text).toContain("deploy-app.yml");
+    }
+  });
+
   test("an engine that is up but refuses is not called 'in standby'", () => {
     const view = assess(allGood({ host: { state: "refused", message: "the two copies differ" }, proofs: {} }));
     expect(bridge(view, "console-app").status).toBe("unknown");

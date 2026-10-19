@@ -728,7 +728,9 @@ prints the object's key and the next steps, in CloudShell:
 ```bash
 KEY='the clinic-....json key run-task.sh printed'
 aws s3 cp "s3://healdesk-production-exports-865780386982/$KEY" .
-# Actions > Download file, hand it over by the route the handover names, then delete both copies:
+# Actions > Download file, hand it to the clinic over its own channel for patient data
+# (docs/incident-response.md, "Patient rights requests", step 3; never a plain email attachment),
+# then delete both copies here:
 aws s3 rm "s3://healdesk-production-exports-865780386982/$KEY"
 rm -f "$KEY"
 # ...and the file you downloaded, from your own computer, once it is handed over.

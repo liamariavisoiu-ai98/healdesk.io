@@ -525,7 +525,7 @@ export const KEYS: readonly KeyDef[] = [
     label: "The password in each clinic's Retell line address",
     need: "later",
     waitsFor:
-      "every business associate agreement in the chain is signed, Retell's included, which the paste script asks you to confirm. Only a test call on a made-up clinic may come first: paste it, turn enable_voice on (production.tfvars, an infra.yml apply, then a full deploy-app.yml), put the line address in that clinic's Retell agent, and call",
+      "every business associate agreement in the chain is signed, Retell's included, which the paste script asks you to confirm before it takes this. Then paste it, turn enable_voice on (production.tfvars, merged, an infra.yml apply, then a full deploy-app.yml), put the line address in a made-up clinic's Retell agent, and make a test call before any real one",
     rotation: {
       kind: "every",
       days: 180,
@@ -543,7 +543,7 @@ export const KEYS: readonly KeyDef[] = [
     label: "The voice endpoint's switch (enable_voice)",
     need: "later",
     waitsFor:
-      "enable_voice is turned on, after the Retell line password (HEALDESK_RETELL_LLM_SECRET) is pasted: set it in production.tfvars, run an infra.yml apply and a full deploy-app.yml, put the line address in a made-up clinic's Retell agent, and make a test call. Real calls wait until every business associate agreement in the chain is signed, Retell's included",
+      "enable_voice is turned on, once every business associate agreement in the chain is signed (Retell's included) and the Retell line password (HEALDESK_RETELL_LLM_SECRET) is pasted: set it in production.tfvars, merge, run an infra.yml apply and a full deploy-app.yml, put the line address in a made-up clinic's Retell agent, and make a test call before any real one",
     rotation: { kind: "public" },
   },
   {
@@ -929,7 +929,9 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "Retell passes on demo follow-ups",
     carries: "\"Please email me\" requests and calls to the demo line",
     example: "On the demo call the owner says \"have someone email me\". Retell sends that request to us, signed, and we email them.",
-    keys: ["vercel.RETELL_WEBHOOK_KEY"],
+    // Calls to the demo line check Retell's signature with the API key when
+    // the webhook key is not added; only the follow-up needs the webhook key.
+    keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_WEBHOOK_KEY"],
     phi: false,
     build: "built",
   },
@@ -1470,14 +1472,15 @@ export const BRIDGES: readonly BridgeDef[] = [
     theme: "running",
     from: "exports",
     to: "you",
-    title: "You download a leaving clinic's export",
+    title: "You download a clinic's or a patient's export",
     carries: "The bundle, to hand over and then delete",
-    example: "You copy it into CloudShell, download it, hand it over by the route the handover names, and delete both copies.",
+    example:
+      "You copy it into CloudShell, download it, hand it over by the clinic's own channel for patient data (never a plain email attachment), and delete all three copies: the bucket's, CloudShell's and your download.",
     keys: [],
     keyless: "Your AWS administrator sign-in, in CloudShell.",
     phi: true,
     phiNote:
-      "Patient data reaches your own computer here, on purpose: a leaving clinic's bundle, or one person's for a patient-rights request, downloaded only to hand over by the route the handover names. Then delete all three copies: the bucket's, CloudShell's and your download (infra/aws/README.md, patient-export).",
+      "Patient data reaches your own computer here, on purpose: a leaving clinic's bundle, or one person's for a patient-rights request, downloaded only to hand it to the clinic over its own channel for patient data, a portal upload or an encrypted message, never a plain email attachment (docs/incident-response.md, Patient rights requests, step 3). Then delete all three copies: the bucket's, CloudShell's and your download (infra/aws/README.md, patient-export).",
     build: "built",
   },
 ];
@@ -1550,8 +1553,12 @@ export type HostReach =
   | { state: "answered"; present: Record<string, boolean>; stripeMode: "test" | "live" | null }
   /** The shop window is missing the seal or the address, so nothing was sent. */
   | { state: "unconfigured" }
-  /** No usable answer: the host is in standby, switching, or down. */
-  | { state: "silent"; message: string }
+  /**
+   * No usable answer. `cause` says which kind: nothing answered (standby,
+   * switching, or down), an engine too old to know the question, or a
+   * server error; left out, it means nothing answered.
+   */
+  | { state: "silent"; message: string; cause?: "no-answer" | "outdated" | "server-error" }
   /** It answered and refused: most often the two seals differ. */
   | { state: "refused"; message: string };
 
@@ -1642,7 +1649,7 @@ export type BridgeView = Omit<BridgeDef, "proof"> & {
 export const STATUS_WORDS: Record<BridgeStatus, string> = {
   working: "Connected",
   "needs-key": "Needs a key",
-  off: "Off on purpose",
+  off: "Switched off",
   broken: "Broken",
   unknown: "Can't check now",
   "to-build": "Still to build",
@@ -1667,7 +1674,7 @@ export type MapView = {
   todos: Todo[];
   counts: Record<BridgeStatus, number>;
   rotationsDue: number;
-  host: { state: HostReach["state"]; text: string };
+  host: { state: HostReach["state"]; cause: "no-answer" | "outdated" | "server-error" | null; text: string };
   rotationLog: LiveInputs["rotationLog"];
   checkedAt: string;
 };
@@ -1867,8 +1874,12 @@ function hostUnread(live: LiveInputs): string {
       return "Can't check right now: the engine is up but refused this page's signed call (see the line from the shop window to the engine).";
     case "unconfigured":
       return "Can't check: this deployment is missing the seal or the engine's address, so the engine was not asked.";
-    default:
+    case "silent":
+      if (live.host.cause === "outdated") return "Can't check: the engine is up but runs an older version that does not report its keys. Deploy it (deploy-app.yml).";
+      if (live.host.cause === "server-error") return `Can't check right now: the engine answered with a server error (${live.host.message}).`;
       return "Can't check right now: the AWS host could not be read. It may be in standby (see Host).";
+    default:
+      return "Can't check right now: the AWS host could not be read.";
   }
 }
 
@@ -1877,7 +1888,7 @@ function bridgeStatus(bridge: BridgeDef, keys: KeyView[], live: LiveInputs): { s
   if (bridge.build === "not-built") return { status: "to-build", text: bridge.buildNote ?? "Not built yet." };
 
   if (bridge.proof === "kms" && live.host.state !== "answered") {
-    return { status: "unknown", text: "Can't check right now: the AWS host could not be read, and only it can reach the key safe." };
+    return { status: "unknown", text: `${hostUnread(live)} Only the engine can reach the key safe.` };
   }
 
   // A keyless connection that runs on the engine (a one-off job, an export)
@@ -2041,7 +2052,13 @@ export function assess(live: LiveInputs): MapView {
     }
   }
   if (live.host.state === "silent") {
-    todos.push({ kind: "check", text: "The AWS host could not be read, so its keys could not be checked. If it is in standby, turn it on from Host to see them.", bridge: "web-app", key: null });
+    const text =
+      live.host.cause === "outdated"
+        ? "The engine is up but runs an older version that does not know this page's check. Deploy it (deploy-app.yml) to see its keys."
+        : live.host.cause === "server-error"
+          ? `The engine answered with a server error, so its keys could not be checked: ${live.host.message}.`
+          : "The AWS host could not be read, so its keys could not be checked. If it is in standby, turn it on from Host to see them.";
+    todos.push({ kind: "check", text, bridge: "web-app", key: null });
   }
   if (live.host.state === "answered" && keys.some((key) => key.home === "aws" && key.state === "unknown")) {
     todos.push({
@@ -2079,7 +2096,7 @@ export function assess(live: LiveInputs): MapView {
     todos,
     counts,
     rotationsDue: keys.filter((key) => key.rotation.state === "overdue" || key.rotation.state === "due-soon").length,
-    host: { state: live.host.state, text: hostText(live.host) },
+    host: { state: live.host.state, cause: live.host.state === "silent" ? (live.host.cause ?? "no-answer") : null, text: hostText(live.host) },
     rotationLog: live.rotationLog,
     checkedAt: live.now.toISOString(),
   };
@@ -2092,6 +2109,8 @@ function hostText(host: HostReach): string {
     case "unconfigured":
       return "This deployment is missing the seal or the engine's address, so the AWS host was not asked.";
     case "silent":
+      if (host.cause === "outdated") return `The AWS host answered, but ${host.message}, so its keys show as "can't check".`;
+      if (host.cause === "server-error") return `The AWS host answered with a server error (${host.message}), so its keys show as "can't check".`;
       return `The AWS host could not be read (${host.message}), so its keys show as "can't check". It may be in standby: see Host.`;
     case "refused":
       return `The AWS host refused the signed call: ${host.message}`;

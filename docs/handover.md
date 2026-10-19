@@ -733,10 +733,11 @@ recorded by CloudTrail. So on the AWS host: by contact id, through run-task.sh o
   conversation (the address of that conversation in the practice's portal), or the
   handover's own id, goes where a contact's id is asked for, here and in
   `patient-export`'s `HEALDESK_EXPORT_CONTACT_ID`. Named so, the request reaches that
-  handover and its chat (unless a contact, a booking request, an appointment or an
-  amendment holds the chat, when it stays) and nothing else: the number was typed by the visitor and may
-  be someone else's, so nothing is followed by it. If the person also has a contact,
-  name that contact as well, in its own request.
+  handover and its chat and nothing else: the number was typed by the visitor and may
+  be someone else's, so nothing is followed by it. When the chat also holds a booking
+  request or a contact, both refuse: the person has a contact, so name that contact
+  instead. Erasing a contact takes the website chats its booking requests were made
+  in, with any handover asked there, whatever number was left for the call back.
 - `ops:amend-contact` runs as one only to clear fields, with `HEALDESK_AMEND_CLINIC_ID`,
   `HEALDESK_AMEND_CONTACT_ID`, `HEALDESK_AMEND_CLEAR`, `HEALDESK_AMEND_REQUESTED_BY` and
   `HEALDESK_OPS_OPERATOR`.

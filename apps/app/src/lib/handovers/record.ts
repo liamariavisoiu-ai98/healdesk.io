@@ -171,10 +171,27 @@ export async function linkCallHandovers(tx: TenantTx): Promise<number> {
 }
 
 /**
+ * Thrown when a named handover's chat is held by a record of its own (a
+ * booking request, an appointment, an amendment, or a contact on the chat):
+ * erasing the handover alone would keep that chat, and erasing its contact
+ * afterwards could never reach it. The person has a contact, so the operator
+ * names that contact instead: erasure takes the chats a contact's booking
+ * requests were made in, with any handover in them (reviews of 19 October
+ * 2026).
+ */
+export class HandoverChatHeldError extends Error {
+  constructor() {
+    super("That chat also holds a booking or a contact. Name the person by that contact's id instead: the chats their bookings were made in go with them, with this handover.");
+    this.name = "HandoverChatHeldError";
+  }
+}
+
+/**
  * The web chat handover an id names, by the handover's own id or its chat's
  * conversation id (the address the practice sees in its portal): how an
  * erasure or an export names someone who only asked for a person and left a
- * number, whom no contact holds. Null for any other id.
+ * number, whom no contact holds. Null for any other id; throws
+ * HandoverChatHeldError when a record of its own holds the chat.
  *
  * Named this way, the request reaches that one handover and its chat and
  * nothing found by the number: the number is whatever the visitor typed, so
@@ -183,7 +200,7 @@ export async function linkCallHandovers(tx: TenantTx): Promise<number> {
  */
 export async function namedHandover(tx: TenantTx, id: string): Promise<{ handoverId: string } | null> {
   const [row] = await tx.db
-    .select({ id: handovers.id })
+    .select({ id: handovers.id, conversationId: handovers.conversationId })
     .from(handovers)
     .where(
       and(
@@ -194,5 +211,21 @@ export async function namedHandover(tx: TenantTx, id: string): Promise<{ handove
       ),
     )
     .limit(1);
-  return row ? { handoverId: row.id } : null;
+  if (!row) return null;
+  // The chat, by its id as a bound value: a column inside a select-list
+  // expression loses its table name in a one-table query, and a bare
+  // conversation_id inside these subqueries would be their own.
+  const chat = row.conversationId;
+  if (chat) {
+    const [held] = await tx.db
+      .select({
+        held: sql<boolean>`exists (select 1 from conversations v where v.id = ${chat}::uuid and v.contact_id is not null)
+          or exists (select 1 from booking_requests r where r.conversation_id = ${chat}::uuid)
+          or exists (select 1 from appointments a where a.conversation_id = ${chat}::uuid)
+          or exists (select 1 from record_amendments ra where ra.conversation_id = ${chat}::uuid)`,
+      })
+      .from(sql`(select 1) as once`);
+    if (held?.held) throw new HandoverChatHeldError();
+  }
+  return { handoverId: row.id };
 }

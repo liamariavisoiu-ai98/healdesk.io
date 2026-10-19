@@ -10,7 +10,7 @@ import { auth } from "@/lib/auth";
 import { sendWebChatMessage, startWebChat, webChatClinic, type WebChatClinic } from "@/lib/chat/web-chat";
 import { hashSessionToken } from "@/lib/factors/step-ups";
 import { contacts } from "@/db/schema";
-import { attachHandoverCaller, linkCallHandovers, raiseHandover } from "@/lib/handovers/record";
+import { attachHandoverCaller, HandoverChatHeldError, linkCallHandovers, raiseHandover } from "@/lib/handovers/record";
 import { createBookingRequest } from "@/lib/meta/booking-requests";
 import { attachMetaChannel, setMetaFrontDoor } from "@/lib/meta/channels";
 import { answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
@@ -352,6 +352,12 @@ describeDb("handovers: the table", () => {
       );
     }
     const mine = (await handoverRows(c.clinicId)).find((h) => h.conversation_id === theirs)!;
+    // Someone else's booking on another chat in the same clinic holds nothing of these.
+    const elsewhere = await conversationRow(c.clinicId, { channel: "web_chat" });
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      const [booker] = await tx.db.insert(contacts).values({ clinicId: c.clinicId, phone: "+14155550189", timezone: "America/New_York", updatedAt: new Date() }).returning({ id: contacts.id });
+      await createBookingRequest(tx, { channel: "web_chat", contactId: booker!.id, conversationId: elsewhere, preferredWindow: "Tuesday", treatment: null });
+    });
 
     const bundle = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
       exportPatient(tx, { contactId: theirs, requestedBy: "practice" }),
@@ -369,7 +375,32 @@ describeDb("handovers: the table", () => {
       contacts: (await q.query(`select id from contacts`)).rows.length,
       chats: (await q.query(`select id from conversations order by id`)).rows.length,
     }));
-    expect(left).toEqual({ contacts: 1, chats: 1 });
+    expect(left).toEqual({ contacts: 2, chats: 2 });
+  });
+
+  test("a named handover whose chat holds the visitor's own booking is refused; their contact takes the handover and the chat", async () => {
+    const c = await seedClinic("handover-chat-held");
+    const chat = await conversationRow(c.clinicId, { channel: "web_chat" });
+    await raise(c.clinicId, { channel: "web_chat", conversationId: chat });
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      // The call-back number and the booking's number differ.
+      await attachHandoverCaller(tx, { conversationId: chat, capture: { firstName: "Lee", phone: "415 555 0191" } });
+      const [contact] = await tx.db.insert(contacts).values({ clinicId: c.clinicId, phone: "+14155550192", timezone: "America/New_York", updatedAt: new Date() }).returning({ id: contacts.id });
+      await createBookingRequest(tx, { channel: "web_chat", contactId: contact!.id, conversationId: chat, preferredWindow: "Monday", treatment: null });
+    });
+    await expect(
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => erasePerson(tx, { contactId: chat, requestedBy: "practice" })),
+    ).rejects.toBeInstanceOf(HandoverChatHeldError);
+    await expect(
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportPatient(tx, { contactId: chat, requestedBy: "practice" })),
+    ).rejects.toBeInstanceOf(HandoverChatHeldError);
+    const contactId = await inTenant(c.clinicId, async (q) => (await q.query<{ id: string }>(`select id from contacts where phone = '+14155550192'`)).rows[0]!.id);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => erasePerson(tx, { contactId, requestedBy: "practice" }));
+    const left = await inTenant(c.clinicId, async (q) => ({
+      handovers: (await q.query(`select id from handovers`)).rows.length,
+      chats: (await q.query(`select id from conversations`)).rows.length,
+    }));
+    expect(left).toEqual({ handovers: 0, chats: 0 });
   });
 
   test("a call's handover the database missed linking is linked before anything relies on it", async () => {

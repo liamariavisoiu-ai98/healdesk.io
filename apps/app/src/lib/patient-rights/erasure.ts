@@ -682,6 +682,27 @@ async function eraseSurveyed(
   // A call's handover the database missed linking is linked first, so it
   // goes with its conversation below (drizzle/0085).
   await linkCallHandovers(tx);
+  // The web chats their booking requests were made in, read before the
+  // requests go: a web chat carries no contact, so nothing below would reach
+  // one, and its handover (asked under any number) goes with it (drizzle/0085).
+  const requestChats = s.contactIds.length
+    ? (
+        await tx.db
+          .select({ conversationId: bookingRequests.conversationId })
+          .from(bookingRequests)
+          .where(
+            and(
+              eq(bookingRequests.clinicId, tx.clinicId),
+              eq(bookingRequests.channel, "web_chat"),
+              inArray(bookingRequests.contactId, s.contactIds),
+              isNotNull(bookingRequests.conversationId),
+              lte(bookingRequests.createdAt, before),
+            ),
+          )
+      )
+        .map((r) => r.conversationId)
+        .filter((id): id is string => id !== null)
+    : [];
   for (const phone of s.phones)
     add(counts, await eraseContact(tx, { phone, requestedBy, before }));
 
@@ -698,6 +719,9 @@ async function eraseSurveyed(
   }
   if (s.handovers.length) {
     await eraseHandovers(tx, counts, inArray(handovers.id, s.handovers), before);
+  }
+  if (requestChats.length) {
+    await eraseHandovers(tx, counts, inArray(handovers.conversationId, [...new Set(requestChats)]), before);
   }
 
   // A call with no caller ID: no contact led to its conversation, but its

@@ -1,6 +1,7 @@
 import type { Transaction } from "@/db";
 import { billingNotices } from "@/db/schema";
 import { PLAN_NOTICE_KINDS, type PlanNoticeKind } from "@/lib/email/kinds";
+import type { BookingAlertPayload } from "@/lib/email/templates/booking-alert-copy";
 import type { CalendarStatePayload } from "@/lib/email/templates/calendar_state";
 import type { ChannelLivePayload } from "@/lib/email/templates/channel_live";
 import type { ChannelReadyPayload } from "@/lib/email/templates/channel_ready";
@@ -51,15 +52,23 @@ export type PlanNoticePayloads = {
   /** Dedupe `channel_live:<channel>`: once per channel, which goes live once. */
   channel_live: ChannelLivePayload;
 
+  // The live alerts, queued by notifyBookingAlert (lib/notices/booking-alerts.ts),
+  // which names each one's dedupe key: pointers into the portal, ids only.
+  /** Dedupe `booking_request:<request id>`. */
+  booking_request: BookingAlertPayload;
+  /** Dedupe `deposit_to_collect:<appointment, request or conversation id>`. */
+  deposit_to_collect: BookingAlertPayload;
+  /** Dedupe `handover:<channel>:<conversation id, or the call's id while it is up>`. */
+  handover: BookingAlertPayload;
+  /** Dedupe `urgent:<channel>:<conversation id, or the call's id while it is up>`. */
+  urgent: BookingAlertPayload;
+  /** Dedupe `calendar_check:<request id>`. */
+  calendar_check: BookingAlertPayload;
+
   // Registered ahead of their packages; each package names its payload here.
-  booking_request: OwedPayload;
   request_still_open: OwedPayload;
   request_missed: OwedPayload;
-  deposit_to_collect: OwedPayload;
-  handover: OwedPayload;
-  urgent: OwedPayload;
   website_message: OwedPayload;
-  calendar_check: OwedPayload;
   daily_summary: OwedPayload;
   weekly_recap: OwedPayload;
   ai_paused: OwedPayload;

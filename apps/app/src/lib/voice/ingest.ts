@@ -12,8 +12,14 @@ import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { queueTranscriptEmail, sendQueuedTranscriptNow } from "@/lib/conversations/transcript-outbox";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
-import { cleanAlternatives, cleanCollectedFields, createBookingRequest, notifyDesk } from "@/lib/meta/booking-requests";
-import { evaluateForwardingCall, inForwardingTestWindow, observeForwardingCall } from "@/lib/onboarding/forwarding-test";
+import { cleanAlternatives, cleanCollectedFields, createBookingRequest } from "@/lib/meta/booking-requests";
+import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import {
+  evaluateForwardingCall,
+  inForwardingTestWindow,
+  isForwardingActivationCall,
+  observeForwardingCall,
+} from "@/lib/onboarding/forwarding-test";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -480,11 +486,16 @@ export async function ingestCall(
     if (!clinic) throw new VoiceIngestError("Unknown clinic.");
     const coverageMode = clinic.coverageMode ?? DEFAULT_COVERAGE_MODE;
 
-    const recoveryReason = classifyRecovery(event, {
-      coverageMode,
-      openingHours: clinic.openingHours,
-      timezone: clinic.timezone,
-    });
+    // The carrier's activation call is the clinic switching its forwarding
+    // on, not a caller it would have missed, so it never counts as a call
+    // that would have rung out (isForwardingActivationCall).
+    const recoveryReason = isForwardingActivationCall(clinic, event)
+      ? null
+      : classifyRecovery(event, {
+          coverageMode,
+          openingHours: clinic.openingHours,
+          timezone: clinic.timezone,
+        });
 
     const contactId = event.callerPhone
       ? await upsertCallerContact(tx.db, { clinicId: event.clinicId, phone: event.callerPhone, name: event.callerName, clinicTimezone: clinic.timezone })
@@ -610,7 +621,9 @@ export async function ingestCall(
           collectedFields: request.collectedFields,
         });
         bookingRequestId = created.id;
-        await notifyDesk(tx, created, { channel: "voice", platform: null }, { transport: deps.transport });
+        // The clinic's alert (L7), queued with the request: a pointer to this
+        // call in Conversations, sent from the outbox once this commits.
+        await notifyBookingAlert(tx, "booking_request", { bookingRequestId: created.id, conversationId: row.id, channel: "voice" });
       }
     }
 

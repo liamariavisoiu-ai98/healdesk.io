@@ -1,12 +1,13 @@
 import type { ActorContext } from "@/lib/audit";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
-import { answerTurn, EMPTY_CAPTURE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
+import { answerTurn, EMPTY_CAPTURE, settleUrgentReply, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { servicesEnded, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { voiceDisclosure } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
+import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { describeError, log } from "@/lib/log";
-import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { notifyBookingAlert, type BookingAlertKind } from "@/lib/notices/booking-alerts";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
@@ -37,7 +38,12 @@ import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
  *                   answered with a fixed line before the model, the guard
  *                   after it), and the reply is sent whole, never streamed,
  *                   because the guard reads all of it first. A newer request
- *                   supersedes an older one still being answered.
+ *                   supersedes an older one still being answered. An
+ *                   urgent message queues the urgent alert (L12) before the
+ *                   reply is said, keyed on the call, and it is sent the
+ *                   moment that transaction commits, without holding up the
+ *                   reply; a request for a person queues the handover alert
+ *                   (L11). Each once per call.
  *   close           the call is over: the post-call ingest (lib/voice/ingest.ts)
  *                   records the conversation, turns what the caller asked for
  *                   into one booking request for the desk, counts the minutes
@@ -85,6 +91,8 @@ export type RetellSessionDeps = {
   now?: () => Date;
   gate?: (clinicId: string, now: Date) => Promise<AnswerDecision>;
   ingest?: (event: VoiceCallEvent) => Promise<IngestResult>;
+  /** Sends a clinic's queued critical alerts, after the commit that queued them. deliverCriticalAfterCommit by default. */
+  deliverCritical?: (clinicId: string) => Promise<void>;
 };
 
 /** The caller's words since the agent last spoke, from Retell's transcript. */
@@ -111,6 +119,9 @@ export class RetellCallSession {
   private outbound = false;
   private urgent = false;
   private handoff = false;
+  /** The urgent alert (L12) and the handover alert (L11) are queued for this call. */
+  private urgentQueued = false;
+  private handoverQueued = false;
   private failures = 0;
   private latestResponseId = -1;
   private directLine: string | null = null;
@@ -232,7 +243,8 @@ export class RetellCallSession {
     if (!words) return;
 
     const facts = this.facts;
-    const turn = await answerTurn({ facts, channel: "voice", history: this.turns, text: words, capture: this.capture, responder: this.deps.responder, now: this.now() });
+    const now = this.now();
+    const turn = await answerTurn({ facts, channel: "voice", history: this.turns, text: words, capture: this.capture, responder: this.deps.responder, now });
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.
     if (responseId !== this.latestResponseId || this.closing) return;
@@ -241,14 +253,21 @@ export class RetellCallSession {
     this.capture = turn.capture;
     this.handoff ||= turn.handoff;
 
-    if (turn.urgent && !this.urgent) {
+    // The reply as it is said: an urgent one keeps "I've told the team"
+    // only once its alert is queued.
+    let said = turn;
+    if (turn.urgent) {
       this.urgent = true;
-      try {
-        await withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) => notifyBookingAlert(tx, "urgent", {}));
-      } catch (error) {
-        log.error("retell urgent alert not raised", { clinicId: this.clinicId, error: describeError(error) });
+      if (!this.urgentQueued) {
+        this.urgentQueued = await this.raise("urgent");
+        // Committed: the alert goes now, and the caller is not kept waiting
+        // for it (deliverCriticalAfterCommit never rejects; the minute queue
+        // sends whatever it misses).
+        if (this.urgentQueued) void this.deliverCritical();
       }
+      said = settleUrgentReply(turn, facts, "voice", this.urgentQueued, now);
     }
+    if (turn.handoff && !this.handoverQueued) this.handoverQueued = await this.raise("handover");
 
     if (turn.source !== "fallback") this.answered = true;
     if (turn.source === "fallback") {
@@ -262,7 +281,32 @@ export class RetellCallSession {
       this.failures = 0;
     }
     if (turn.end) this.closing = true;
-    this.say(responseId, turn.reply, { endCall: turn.end });
+    this.say(responseId, said.reply, { endCall: turn.end });
+  }
+
+  /**
+   * Queue one of this call's alerts in a transaction of its own, keyed on the
+   * call: its conversation row is written only when the call ends. True once
+   * it is queued; a failure is logged and the call goes on.
+   */
+  private async raise(kind: Extract<BookingAlertKind, "urgent" | "handover">): Promise<boolean> {
+    try {
+      return await withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
+        notifyBookingAlert(tx, kind, { channel: "voice", callId: this.callId }),
+      );
+    } catch (error) {
+      log.error("retell alert not raised", { clinicId: this.clinicId, kind, error: describeError(error) });
+      return false;
+    }
+  }
+
+  /** The urgent alert, sent once its transaction has committed. Never rejects. */
+  private async deliverCritical(): Promise<void> {
+    try {
+      await (this.deps.deliverCritical ?? ((id: string) => deliverCriticalAfterCommit(id, { transport: this.deps.transport })))(this.clinicId);
+    } catch (error) {
+      log.error("retell urgent alert not sent", { clinicId: this.clinicId, error: describeError(error) });
+    }
   }
 
   /** What the caller asked the desk for, as the ingest reads it. */

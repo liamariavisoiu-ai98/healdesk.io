@@ -7,7 +7,7 @@ import { unsafeDb } from "@/db";
 import { conversations } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
-import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
+import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, settleUrgentReply, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
 import { noteWidgetLoaded, recordFirstAnswer } from "@/lib/channels/events";
@@ -21,10 +21,11 @@ import {
   updateOpenChat,
   type OpenChatState,
 } from "@/lib/conversations/transcript-outbox";
+import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { env } from "@/lib/env";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
-import { createBookingRequest, notifyDesk } from "@/lib/meta/booking-requests";
+import { createBookingRequest } from "@/lib/meta/booking-requests";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
@@ -52,7 +53,12 @@ import { upsertCallerContact } from "@/lib/voice/ingest";
  *            and the sealed copy is rewritten with the new turns.
  *   request  once the visitor has given a first name, a number and a time,
  *            one booking request is written for the desk (channel web_chat)
- *            and the desk is emailed a link, never the details.
+ *            and the clinic is alerted (L7, lib/notices/booking-alerts.ts):
+ *            a pointer into the portal, never the details.
+ *   alerts   an urgent message queues the urgent alert (L12) in the
+ *            message's own transaction, sent the moment it commits; a
+ *            request for a person queues the handover alert (L11). Each is
+ *            once per chat, and the chat stays escalated from then on.
  *   end      when the visitor ends the chat, or after thirty quiet minutes,
  *            the transcript goes to the clinic by email, and healdesk deletes
  *            its sealed copy the moment the clinic's mail server confirms
@@ -68,8 +74,13 @@ export type WebChatClinic = { clinicId: string; name: string; website: string | 
 
 export type WebChatToken = { clinicId: string; conversationId: string | null; sessionId: string; issuedAt: number };
 
-/** What the chat keeps between messages, sealed with the transcript. */
-type ChatState = { capture: BookingCapture; requestId: string | null; urgentAlerted: boolean; openedAt: string };
+/**
+ * What the chat keeps between messages, sealed with the transcript.
+ * `urgentAlerted` says an urgent message came in (the name predates the
+ * alert; a chat open across a deploy still carries it), `handedOver` that
+ * someone asked for a person. Either keeps the chat escalated to the end.
+ */
+type ChatState = { capture: BookingCapture; requestId: string | null; urgentAlerted: boolean; handedOver?: boolean; openedAt: string };
 
 export type WebChatReply =
   | { mode: "chat"; reply: string; token: string; ended: boolean }
@@ -205,6 +216,11 @@ type Deps = {
   responder: AssistantResponder | null;
   transport?: EmailTransport;
   now?: Date;
+  /**
+   * The route's after() (next/server), so the urgent alert goes once the
+   * response is on its way; without it the alert is sent before this returns.
+   */
+  after?: (task: () => Promise<void>) => void;
   /** The page's origin, as the route saw it: a local page's chat is never website chat's first answer. */
   origin?: string | null;
 };
@@ -217,7 +233,7 @@ function requestReady(capture: BookingCapture): { firstName: string; phone: stri
   return { firstName: capture.firstName, phone, window: capture.window };
 }
 
-async function takeRequest(tx: TenantTx, facts: AssistantFacts, conversationId: string, capture: BookingCapture, transport?: EmailTransport): Promise<string | null> {
+async function takeRequest(tx: TenantTx, facts: AssistantFacts, conversationId: string, capture: BookingCapture): Promise<string | null> {
   const ready = requestReady(capture);
   if (!ready) return null;
   const contactId = await upsertCallerContact(tx.db, { clinicId: tx.clinicId, phone: ready.phone, name: ready.firstName, clinicTimezone: facts.timeZone });
@@ -230,7 +246,8 @@ async function takeRequest(tx: TenantTx, facts: AssistantFacts, conversationId: 
     alternativeWindows: capture.altWindows,
     collectedFields: capture.fields,
   });
-  await notifyDesk(tx, created, { channel: "web_chat", platform: null }, { transport });
+  // In the request's own transaction: the alert goes only if the request commits.
+  await notifyBookingAlert(tx, "booking_request", { bookingRequestId: created.id, conversationId, channel: "web" });
   return created.id;
 }
 
@@ -282,8 +299,11 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
   const history: TranscriptTurn[] = continuing ? existing!.payload.turns : [{ speaker: "assistant", text: openingLine(facts) }];
 
   const turn = await answerTurn({ facts, channel: "web_chat", history, text, capture: state.capture, responder: deps.responder, now });
-  const turns: TranscriptTurn[] = [...history, { speaker: "person", text: turn.personText }, { speaker: "assistant", text: turn.reply }];
   const ended = turn.end;
+  // The reply as it is finally said: an urgent one keeps "I've told the
+  // team" only once its alert is queued, which is decided in the transaction.
+  let said = turn;
+  let urgentQueued = false;
 
   let written: { transcriptId: string } | null = null;
   try {
@@ -316,23 +336,31 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
         },
         now,
       );
-      const next: ChatState = { ...state, capture: turn.capture };
-      if (turn.urgent && !state.urgentAlerted) {
-        await notifyBookingAlert(tx, "urgent", {});
+      const next: ChatState = { ...state, capture: turn.capture, handedOver: Boolean(state.handedOver) || turn.handoff };
+      // The alerts, in this transaction, so they go only if the message is
+      // recorded. Each is keyed on the conversation, so asking again on a
+      // later message queues nothing new, and a queue that failed is tried
+      // again by the next urgent message or the next request for a person.
+      if (turn.urgent) {
+        urgentQueued = await notifyBookingAlert(tx, "urgent", { channel: "web", conversationId });
+        said = settleUrgentReply(turn, facts, "web_chat", urgentQueued, now);
         next.urgentAlerted = true;
       }
+      if (turn.handoff) await notifyBookingAlert(tx, "handover", { channel: "web", conversationId });
       if (!next.requestId) {
-        next.requestId = await takeRequest(tx, facts, conversationId, turn.capture, deps.transport);
+        next.requestId = await takeRequest(tx, facts, conversationId, turn.capture);
       }
       await tx.db
         .update(conversations)
         .set({
           endedAt: now,
-          outcome: next.urgentAlerted || turn.handoff ? "escalated_to_human" : next.requestId ? "booked" : "qualified_no_booking",
+          // Escalated stays escalated: a later ordinary message does not undo an urgent hit or a handover.
+          outcome: next.urgentAlerted || next.handedOver ? "escalated_to_human" : next.requestId ? "booked" : "qualified_no_booking",
           // What tells an urgent hit from a handover (drizzle/0078).
           urgent: next.urgentAlerted,
         })
         .where(and(eq(conversations.id, conversationId), eq(conversations.clinicId, tx.clinicId)));
+      const turns: TranscriptTurn[] = [...history, { speaker: "person", text: said.personText }, { speaker: "assistant", text: said.reply }];
       const payload: OpenChatState<ChatState> = { channel: "web_chat", startedAt: state.openedAt, turns, state: next };
       if (continuing) {
         const ok = await updateOpenChat(tx, existing!.id, payload, { now, end: ended });
@@ -354,11 +382,14 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
     return { mode: "chat", reply: FAILURE_LINE, token: signToken({ ...token, issuedAt: token.issuedAt }), ended: false };
   }
 
+  // The urgent alert is critical: it goes now that its row has committed,
+  // and the minute queue sends whatever this misses. It never rejects.
+  if (urgentQueued) await deliverCriticalAfterCommit(clinic.clinicId, { after: deps.after, transport: deps.transport });
   if (ended && written) await sendQueuedTranscriptNow(clinic.clinicId, written.transcriptId, { transport: deps.transport, now });
   log.info("web chat message", { clinicId: clinic.clinicId, conversationId, source: turn.source, status: ended ? "ended" : "open" });
   return {
     mode: "chat",
-    reply: turn.reply,
+    reply: said.reply,
     token: signToken({ clinicId: clinic.clinicId, conversationId: ended ? null : conversationId, sessionId: token.sessionId, issuedAt: ended ? now.getTime() : token.issuedAt }),
     ended,
   };

@@ -142,8 +142,9 @@ export const DPA_CLAUSE_EXPLAINERS: Readonly<Record<string, BaaExplainerTerm>> =
   subcontractors: {
     plain:
       "Every vendor that handles client information agrees in writing to terms as protective " +
-      "before it does. The language model is Anthropic's, in the account healdesk uses under its " +
-      "business associate agreement: it keeps conversation content for no more than the 30 days " +
+      "before it does. The language model is Anthropic's: it receives conversation content only " +
+      "under a business associate agreement with healdesk, signed before any client's " +
+      "information reaches it, keeps that content for no more than the 30 days " +
       "of its standard retention, then deletes it (content its safety systems flag may be held " +
       "for up to two years, and content the law requires it to keep for as long as the law " +
       "requires), and doesn't train on it without healdesk's permission, which healdesk won't " +

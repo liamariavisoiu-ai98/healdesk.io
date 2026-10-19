@@ -96,7 +96,15 @@ describe.each([
       expect(text).not.toMatch(/Anthropic|Claude/);
       expect(text).toContain("without our permission, which we do not give");
     } else {
-      expect(text).toMatch(/^Under that agreement Anthropic keeps/);
+      // The 30 days are Anthropic's standard retention, not a term of a
+      // business associate agreement nobody at healdesk has read, and the
+      // agreement says why the window exists (the spec's duty) without
+      // claiming what Anthropic says only of its Covered Models.
+      expect(text).toMatch(/^Anthropic keeps conversation content/);
+      expect(text).not.toMatch(/Under that agreement/);
+      expect(text).toContain(
+        "Anthropic offers its service under a business associate agreement only with that standard retention, which healdesk does not control.",
+      );
       expect(text).toContain("without healdesk's permission, which healdesk will not give");
     }
   });

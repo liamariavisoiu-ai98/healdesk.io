@@ -39,9 +39,12 @@ import {
   ORDER_REASON,
   SIGN_IN_REASON,
 } from "@/lib/email/templates/context";
+import { alertFixture } from "@/lib/email/templates/booking-alert-copy";
+import { DEPOSIT_DECLINED_FIXTURE } from "@/lib/email/templates/deposit_to_collect";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
 import { stepsReason } from "@/lib/email/templates/steps_sent";
+import { renderUrgent } from "@/lib/email/templates/urgent";
 import { SUPPORT_REASON } from "@/lib/email/templates/support_escalation";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
 import { WELCOME_ENTRY } from "@/lib/email/templates/welcome";
@@ -160,16 +163,7 @@ describe("the template registry", () => {
     }
     expect(byPackage).toEqual({
       WP8: ["sign_in_help_link", "address_change_confirm", "address_changing"],
-      F: [
-        "booking_request",
-        "request_still_open",
-        "request_missed",
-        "deposit_to_collect",
-        "handover",
-        "urgent",
-        "website_message",
-        "calendar_check",
-      ],
+      F: ["request_still_open", "request_missed", "website_message"],
       WP4: ["daily_summary", "weekly_recap"],
       WP3: ["ai_paused"],
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
@@ -191,7 +185,7 @@ describe("the template registry", () => {
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, and the support chat's L25 and I3", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the support chat's L25 and I3, and the live alerts L7, L10, L11, L12 and L34", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -233,6 +227,11 @@ describe("the template registry", () => {
       "calendar_election_recorded",
       "support_request",
       "support_escalation",
+      "booking_request",
+      "deposit_to_collect",
+      "handover",
+      "urgent",
+      "calendar_check",
     ]);
   });
 
@@ -654,6 +653,78 @@ describe("the link scanner", () => {
     expect(
       linkProblems({ ...body, subject: "See https://app.healdesk.test/x" }, "payment_failed"),
     ).toContain("a link in the subject");
+  });
+});
+
+describe("the live alerts: L7, L10, L11, L12 and L34", () => {
+  const ALERTS = ["booking_request", "deposit_to_collect", "handover", "urgent", "calendar_check"] as const;
+
+  test("every channel's wording keeps to the subject rules and the copy lint, and names nobody", () => {
+    for (const kind of ALERTS) {
+      const entry = templateFor(kind)!;
+      for (const channel of ["voice", "web", "meta", null] as const) {
+        for (const conversationId of ["5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d", null]) {
+          const payload = alertFixture({ channel, conversationId });
+          expect(() => assertPayloadAllowed(payload, kind), kind).not.toThrow();
+          const r = entry.render(payload, contextFor(kind));
+          expect(subjectProblems(r.subject), `${kind} ${channel}`).toEqual([]);
+          expect(copyProblems([r.subject, r.preheader, r.text, visibleText(r.html)].join("\n")), kind).toEqual([]);
+          expect(linkProblems(r, kind), kind).toEqual([]);
+          expect(r.text).toContain(payload.portalUrl);
+          expect(r.text).not.toContain("/booking/");
+          expect(r.text).toMatch(/carries no patient details on purpose/);
+        }
+      }
+    }
+  });
+
+  test("a call still going on says it shows in Conversations once it ends", () => {
+    const going = renderUrgent(alertFixture({ channel: "voice", conversationId: null }), contextFor("urgent"));
+    expect(going.text).toContain("The call shows in Conversations once it ends.");
+    const ended = renderUrgent(alertFixture({ channel: "voice" }), contextFor("urgent"));
+    expect(ended.text).not.toContain("once it ends");
+  });
+
+  test("a deposit: booked and left to the team, possibly paid already, or not booked for want of one", () => {
+    const render = templateFor("deposit_to_collect")!.render;
+    const booked = render(alertFixture({ appointmentId: CLINIC_ID }), contextFor("deposit_to_collect"));
+    expect(booked.text).toContain("left the deposit for your team to collect");
+    expect(booked.text).not.toContain("Stripe");
+    const maybePaid = render(alertFixture({ appointmentId: CLINIC_ID, isPossiblyPaid: true }), contextFor("deposit_to_collect"));
+    expect(maybePaid.text).toContain("Check the payment in your Stripe account before you ask for it again.");
+    const declined = render(DEPOSIT_DECLINED_FIXTURE(), contextFor("deposit_to_collect", "clients"));
+    expect(declined.text).toContain("AYA did not book an appointment on a call to");
+    expect(declined.text).toContain("carries no client details");
+    for (const r of [booked, maybePaid, declined]) {
+      expect(copyProblems([r.subject, r.preheader, r.text].join("\n"))).toEqual([]);
+    }
+  });
+
+  const refused: [string, Record<string, unknown>][] = [
+    ["Package D's own name for the flag", { mayBePaid: true }],
+    ["the website chat's database name", { channel: "web_chat" }],
+    ["a caller's number", { phone: "+15551234567" }],
+    ["a caller's name", { firstName: "Dana" }],
+    ["the time they asked for", { preferredWindow: "Thursday afternoon" }],
+    ["a treatment", { service: "lip filler" }],
+    ["what they said", { text: "my lips are swelling" }],
+  ];
+  for (const [what, extra] of refused) {
+    test(`the payload allowlist refuses ${what}, for good, at send time`, () => {
+      expect(() => assertPayloadAllowed({ ...alertFixture(), ...extra }, "urgent")).toThrow(PayloadNotAllowedError);
+    });
+  }
+
+  test("the link opens the portal on the public origin: never a desk token, never HEALDESK_APP_URL", () => {
+    expect(linkProblem(alertFixture().portalUrl, "booking_request")).toBeNull();
+    expect(linkProblem(`${ORIGIN}/booking/${TOKEN}`, "booking_request")).toMatch(/not a link email/);
+    process.env.HEALDESK_APP_URL = "https://internal.healdesk.test";
+    expect(() =>
+      assertPayloadAllowed(
+        { ...alertFixture(), portalUrl: "https://internal.healdesk.test/c/radiance-med-spa/conversations" },
+        "urgent",
+      ),
+    ).toThrow(PayloadNotAllowedError);
   });
 });
 

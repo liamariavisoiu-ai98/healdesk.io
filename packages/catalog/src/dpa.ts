@@ -7,7 +7,7 @@ import {
   PAYMENTS_CLAUSE_HEADING,
   STATE_LAW_CLAUSE_HEADING,
   TRANSCRIPT_RETENTION_DAYS,
-  stateLawClauseBody140,
+  stateLawClauseBody160,
 } from "./baa";
 import {
   bookingSyncFor,
@@ -61,10 +61,13 @@ import { wrap } from "./wrap";
  * shared one so that nothing here can move a BAA golden hash; what the two
  * documents share is quoted from one place:
  *
- *   - the state-law processor clause is `stateLawClauseBody140` in this
+ *   - the state-law processor clause is `stateLawClauseBody160` in this
  *     document's words (subject "Client Information"): the fuller clause BAA
  *     1.3.0 carries, with BAA 1.4.0's two transcript sentences (emailed to
- *     Practice, not kept; 13 October 2026), as the funnel and the BAA's pre-release redraft agreed on
+ *     Practice, not kept; 13 October 2026) and BAA 1.6.0's two exceptions to
+ *     deletion (what the Subcontractors clause says a subcontractor may keep,
+ *     for the periods it states, where 1.4.0's named "abuse detection and
+ *     security", a purpose Anthropic does not state; 19 October 2026), as the funnel and the BAA's pre-release redraft agreed on
  *     6 October 2026, with no PHI and no patient in it, this document's
  *     headings for the clauses it names, the CMIA sentence, and its calendar
  *     purposes and data following the booking sync. The Payments clause is
@@ -90,13 +93,17 @@ import { wrap } from "./wrap";
  *   - Anthropic's retention is MODEL_RETENTION_AGREEMENT
  *     (model-retention.ts), the sentences BAA 1.6.0's Subcontractors clause
  *     states, word for word: no more than the 30 days of its standard
- *     retention, two years for flagged content alone, the law's own period
- *     for what the law requires, and no training without healdesk's
- *     permission. Until 19 October 2026 it was 1.2.1's sentence, which gave
- *     law-required content two years, the 30 days a purpose and the service
- *     "cannot run with shorter retention", none of which Anthropic says of
- *     the models the product calls (agreement-changes.md §16); the DPA was
- *     unreleased, so it was corrected in place and its hashes regenerated;
+ *     retention, the only retention under which Anthropic offers its service
+ *     under a business associate agreement, two years for flagged content
+ *     alone, the law's own period for what the law requires, and no training
+ *     without healdesk's permission. Until 19 October 2026 it was 1.2.1's
+ *     sentence, which gave law-required content two years, the 30 days a
+ *     purpose and the service "cannot run with shorter retention", none of
+ *     which Anthropic says of the models the product calls
+ *     (agreement-changes.md §16), and said Anthropic's agreement was in
+ *     place; it is now, as in the BAA, signed before any client's
+ *     information reaches Anthropic. The DPA was unreleased, so it was
+ *     corrected in place and its hashes regenerated;
  *   - the party, its notice address and Delaware law are `AGREEMENT_PARTY`,
  *     as BAA 1.2.2 prints them: hello@healdesk.io is the notice email.
  *
@@ -461,16 +468,19 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       ),
   },
 
-  // BAA 1.4.0's state-law clause, in this document's words (the subject
+  // BAA 1.6.0's state-law clause, in this document's words (the subject
   // chooses them), its calendar text following the booking sync as there:
   // 1.3.0's but for purpose e and the data involved, which since 13 October
-  // 2026 say that a transcript is emailed to Practice rather than kept.
+  // 2026 say that a transcript is emailed to Practice rather than kept, and
+  // for the two exceptions to deletion, which since 19 October 2026 are what
+  // the Subcontractors clause says a subcontractor may keep, for the periods
+  // it states, and no longer name a purpose Anthropic does not state.
   {
     id: "state-law",
     heading: STATE_LAW_CLAUSE_HEADING,
     appliesWhen: ALWAYS,
     body: (v) =>
-      stateLawClauseBody140({
+      stateLawClauseBody160({
         subject: "Client Information",
         sync: bookingSyncFor(v.bookingSystem),
       }),
@@ -676,7 +686,10 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * since 19 October 2026; 1.2.1's before), and the list on request and the
    * notice, which are the shared sentence (24 hours' notice of a new
    * subcontractor). Client Information reaches Anthropic in the
-   * same HIPAA-ready account as PHI does, which is why the BAA is named.
+   * same HIPAA-ready account as PHI does, which is why the BAA is named, and
+   * since 19 October 2026 named as BAA 1.3.0 on names it: an agreement
+   * "signed before any client's information reaches it", a promise about
+   * when it is signed (release gate 17), never one already in force.
    */
   {
     id: "subcontractors",
@@ -697,8 +710,9 @@ const CLAUSES_1_0: readonly DpaClause[] = [
         `Language models are used to understand a client and answer them during a ` +
           `conversation. healdesk's language-model provider is Anthropic, which receives the ` +
           `content of each conversation to generate the assistant's replies, in the same account ` +
-          `healdesk uses for the practices HIPAA covers, under a business associate agreement ` +
-          `with healdesk. ${MODEL_RETENTION_AGREEMENT} healdesk may not use Client Information ` +
+          `healdesk uses for the practices HIPAA covers, only under a business associate ` +
+          `agreement with healdesk signed before any client's information reaches it. ` +
+          `${MODEL_RETENTION_AGREEMENT} healdesk may not use Client Information ` +
           `to train, fine-tune or evaluate any model, its own or a third party's.`,
       ) +
       "\n\n" +

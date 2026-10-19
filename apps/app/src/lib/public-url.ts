@@ -16,8 +16,8 @@
  *
  * A throw is only safe where nothing else rides on it, so every caller must
  * decide what it costs. Inside a transaction that has written a patient's
- * records (notifyDesk), catch it and report a failed send: the record must
- * survive the missing email. Before minting a single-use credential, ask
+ * records (notifyBookingAlert), ask `publicOriginProblem()` or catch it, and
+ * report a failed send: the record must survive the missing email. Before minting a single-use credential, ask
  * `publicOriginProblem()` first, so no live link is committed that nobody
  * can be sent.
  *

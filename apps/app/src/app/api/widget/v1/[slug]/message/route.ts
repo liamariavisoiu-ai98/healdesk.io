@@ -1,3 +1,5 @@
+import { after } from "next/server";
+
 import { anthropicAssistantResponder } from "@/lib/assistant/responder";
 import type { AssistantResponder } from "@/lib/assistant/turn";
 import { json, preflight, widgetRequest } from "@/lib/chat/widget-http";
@@ -9,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 let depsForTests: { responder?: AssistantResponder | null; transport?: EmailTransport; now?: Date } | undefined;
-/** Test seam: the model, the desk's mail and the clock. Undefined restores the real ones. */
+/** Test seam: the model, the mail transport and the clock. Undefined restores the real ones. */
 export function __setWebChatDepsForTests(deps: typeof depsForTests): void {
   depsForTests = deps;
 }
@@ -17,7 +19,8 @@ export function __setWebChatDepsForTests(deps: typeof depsForTests): void {
 /**
  * POST /api/widget/v1/<slug>/message {token, text}: one visitor message,
  * answered (lib/chat/web-chat.ts). The reply carries a new token; the old
- * one still names the same conversation until it ends.
+ * one still names the same conversation until it ends. An urgent message's
+ * alert to the clinic goes after the response, through after().
  */
 export async function POST(request: Request, { params }: { params: Promise<{ slug: string }> }): Promise<Response> {
   const { slug } = await params;
@@ -30,6 +33,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       transport: depsForTests?.transport,
       now: depsForTests?.now,
       origin: req.origin,
+      after,
     });
     if (answer.mode === "invalid") return json({ error: answer.reason }, 400, req.origin);
     return json(answer, 200, req.origin);

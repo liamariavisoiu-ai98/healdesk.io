@@ -291,8 +291,9 @@ export function UrgentScreen(
     audience: "patients" | "clients";
     address: string | null;
     /**
-     * Whether the urgent alert reaches the clinic today (URGENT_ALERT_DELIVERED):
-     * the screen says AYA tells the team only when it does.
+     * Whether the urgent alert reaches the clinic today (urgentAlertLive,
+     * lib/notices/urgent-alert-live.ts): the screen says AYA tells the team
+     * only when it does.
      */
     teamAlerted?: boolean;
   },

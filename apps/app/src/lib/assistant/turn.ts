@@ -9,7 +9,6 @@ import {
 
 import { isOpenAt } from "@/lib/clinic/opening-hours";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
-import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
 import { formatPhone } from "@/lib/setup/help";
 import { spokenPhone } from "@/lib/voice/spoken";
 
@@ -31,7 +30,10 @@ export type { AssistantMessage, AssistantPrompt, AssistantResponder, ModelRefusa
  *      (findUrgentContent, with the practice's own set: people's, or an
  *      animal's at a veterinary practice) and answered with the catalog's
  *      fixed line (fixedUrgentReply): 911, or the emergency vet, then the
- *      clinic's own number. The adapter escalates (an alert to the clinic).
+ *      clinic's own number. The adapter escalates: it queues the urgent
+ *      alert to the clinic (notifyBookingAlert, L12) and settles the reply
+ *      with settleUrgentReply, which keeps "I've told the team" only when
+ *      the alert was queued.
  *   3. A message in a language the screens do not read (messageLanguage:
  *      neither English nor Spanish) gets a fixed line in English and
  *      Spanish, with 911 and the clinic's number, and never the model.
@@ -71,6 +73,8 @@ export type AssistantTurnResult = {
   handoff: boolean;
   end: boolean;
   urgent: boolean;
+  /** What the urgent screen found, for an urgent turn: the adapter rebuilds the reply from it (settleUrgentReply). */
+  urgentFinding?: Pick<UrgentFinding, "emergency" | "language">;
   guard?: GuardRefusal;
 };
 
@@ -117,11 +121,12 @@ function openNow(facts: Pick<AssistantFacts, "openingHours" | "timeZone">, now: 
  * clinic's numbers written for the channel (personNumber), in the language
  * the person wrote in, and at a veterinary practice the emergency referral
  * clinic, with the practice's own number only while it is open. "I've told
- * the team" only once the urgent alert reaches the clinic
- * (URGENT_ALERT_DELIVERED).
+ * the team" only while the urgent alert reaches the clinic
+ * (facts.urgentAlertLive); the adapter takes it out again when the alert
+ * could not be queued (settleUrgentReply).
  */
 export function urgentReply(
-  facts: ReplyFacts & Partial<Pick<AssistantFacts, "specialty">>,
+  facts: ReplyFacts & Partial<Pick<AssistantFacts, "specialty" | "urgentAlertLive">>,
   channel: AssistantChannel,
   finding: Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">>,
   now: Date,
@@ -135,8 +140,25 @@ export function urgentReply(
     clinicNumber: personNumber(facts, channel),
     referralNumber: numberFor(channel, facts.vetReferralPhone),
     clinicOpen: openNow(facts, now),
-    teamAlerted: URGENT_ALERT_DELIVERED,
+    teamAlerted: facts.urgentAlertLive === true,
   });
+}
+
+/**
+ * The urgent turn as it is finally said, once the adapter knows whether its
+ * alert (L12) is queued: unchanged when it is, and otherwise rebuilt without
+ * "I've told the team", so the person is never told the team knows when no
+ * alert is on its way. Any other turn is returned as it is.
+ */
+export function settleUrgentReply(
+  turn: AssistantTurnResult,
+  facts: ReplyFacts & Partial<Pick<AssistantFacts, "specialty" | "urgentAlertLive">>,
+  channel: AssistantChannel,
+  queued: boolean,
+  now: Date,
+): AssistantTurnResult {
+  if (!turn.urgent || !turn.urgentFinding || queued || facts.urgentAlertLive !== true) return turn;
+  return { ...turn, reply: urgentReply({ ...facts, urgentAlertLive: false }, channel, turn.urgentFinding, now) };
 }
 
 /**
@@ -263,7 +285,8 @@ export async function answerTurn(input: {
   const now = input.now ?? new Date();
   const finding = findUrgentContent(personText, facts.specialty, { clinicName: facts.clinicName });
   if (finding) {
-    return { ...base, reply: urgentReply(facts, channel, finding, now), source: "urgent", urgent: true };
+    const urgentFinding = { emergency: finding.emergency, language: finding.language };
+    return { ...base, reply: urgentReply(facts, channel, finding, now), source: "urgent", urgent: true, urgentFinding };
   }
   if (card.found) {
     return { ...base, reply: CARD_LINE, source: "card" };

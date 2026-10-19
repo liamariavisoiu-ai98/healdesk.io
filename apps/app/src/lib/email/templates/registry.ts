@@ -2,6 +2,8 @@ import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
 import { ALLOWANCE_FALLBACK_ENTRY } from "./allowance_fallback";
+import { BOOKING_REQUEST_ENTRY } from "./booking_request";
+import { CALENDAR_CHECK_ENTRY } from "./calendar_check";
 import { CALENDAR_RECONNECTED_ENTRY, CALENDAR_STOPPED_ENTRY } from "./calendar_state";
 import { CALENDAR_ELECTION_RECORDED_ENTRY } from "./calendar_election_recorded";
 import { CALENDAR_LINK_ENTRY } from "./calendar_link";
@@ -13,8 +15,10 @@ import { CHANNEL_LIVE_ENTRY } from "./channel_live";
 import { CHANNEL_READY_ENTRY } from "./channel_ready";
 import { CONNECT_CONNECTED_ENTRY } from "./connect_connected";
 import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
+import { DEPOSIT_TO_COLLECT_ENTRY } from "./deposit_to_collect";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
 import { GRACE_ENDING_ENTRY } from "./grace_ending";
+import { HANDOVER_ENTRY } from "./handover";
 import { LOCATION_ADDED_ENTRY } from "./location_added";
 import { OPS_ALERT_FIXTURE, renderOpsAlert } from "./ops_alert";
 import { ORDER_CONFIRMED_DELAYED_ENTRY } from "./order_confirmed_delayed";
@@ -38,6 +42,7 @@ import { SUPPORT_ESCALATION_ENTRY } from "./support_escalation";
 import { SUPPORT_REQUEST_ENTRY } from "./support_request";
 import { SUSPENDED_ENTRY } from "./suspended";
 import type { EmailTemplate } from "./types";
+import { URGENT_ENTRY } from "./urgent";
 import { USAGE_100_ENTRY, USAGE_80_ENTRY } from "./usage_alert";
 import { WELCOME_ENTRY } from "./welcome";
 
@@ -119,6 +124,13 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // WP10, the support chat (M7): L25 to the clinic, I3 to hello@.
   support_request: SUPPORT_REQUEST_ENTRY,
   support_escalation: SUPPORT_ESCALATION_ENTRY,
+  // The live alerts (package F, M5): L7, L10, L11, L12 and L34, pointers
+  // into the portal queued by notifyBookingAlert (lib/notices/booking-alerts.ts).
+  booking_request: BOOKING_REQUEST_ENTRY,
+  deposit_to_collect: DEPOSIT_TO_COLLECT_ENTRY,
+  handover: HANDOVER_ENTRY,
+  urgent: URGENT_ENTRY,
+  calendar_check: CALENDAR_CHECK_ENTRY,
 };
 
 /**
@@ -197,6 +209,11 @@ export const PENDING_TEMPLATES: Record<
     | "calendar_election_recorded"
     | "support_request"
     | "support_escalation"
+    | "booking_request"
+    | "deposit_to_collect"
+    | "handover"
+    | "urgent"
+    | "calendar_check"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -205,15 +222,11 @@ export const PENDING_TEMPLATES: Record<
   sign_in_help_link: { owner: "plan", package: "WP8", ships: "M2, sign-in (O6)" },
   address_change_confirm: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
   address_changing: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
-  // F: the live alerts, through notifyBookingAlert.
-  booking_request: { owner: "plan", package: "F", ships: "M5 (L7)" },
+  // F: the live alerts still to build, through notifyBookingAlert. L7, L10,
+  // L11, L12 and L34 are templated above.
   request_still_open: { owner: "plan", package: "F", ships: "M5 (L8)" },
   request_missed: { owner: "plan", package: "F", ships: "M5 (L9)" },
-  deposit_to_collect: { owner: "plan", package: "F", ships: "M5 (L10)" },
-  handover: { owner: "plan", package: "F", ships: "M5 (L11)" },
-  urgent: { owner: "plan", package: "F", ships: "M5 (L12)" },
   website_message: { owner: "plan", package: "F", ships: "M5 (L20)" },
-  calendar_check: { owner: "plan", package: "F", ships: "M5 (L34)" },
   // WP4: the claims function's emails.
   daily_summary: { owner: "plan", package: "WP4", ships: "M6 (L13)" },
   weekly_recap: { owner: "plan", package: "WP4", ships: "M6 (L14, retargeted)" },

@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
+// The desk's token, where createBookingRequest mints it: no email carries it
+// since the booking alert became a pointer into the portal.
+vi.mock("@/lib/meta/booking-requests", async (importOriginal) =>
+  (await import("./setup/minted-tokens")).recordingMints(await importOriginal()),
+);
+
 import {
   CONNECT_STATE_TTL_MS,
   completeConnect,
@@ -13,6 +19,7 @@ import { updateAgentConfig } from "@/lib/onboarding/agent-config";
 import {
   FORWARDING_TEST_WINDOW_MS,
   evaluateForwardingCall,
+  isForwardingActivationCall,
   startForwardingTest,
 } from "@/lib/onboarding/forwarding-test";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
@@ -20,7 +27,6 @@ import { readOnboarding } from "@/lib/onboarding/steps";
 import { listClinics } from "@/lib/ops/clinics";
 import { clinicHealth, recordTouch } from "@/lib/ops/health";
 import { runOperation, type Operator } from "@/lib/ops/api";
-import { sendLiveAlert } from "@/lib/reporting/alerts";
 import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { addRecipient } from "@/lib/reporting/recipients";
 import { withTenant } from "@/lib/tenant";
@@ -28,6 +34,7 @@ import { ingestCall, type VoiceCallEvent } from "@/lib/voice/ingest";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { bindAgreementInEffect, inTenant, seedClinic, seedConversation } from "./setup/factories";
+import { lastMintedToken } from "./setup/minted-tokens";
 import { createStripeFake } from "./setup/stripe-fake";
 
 /**
@@ -92,6 +99,26 @@ describe("forwarding test — the rule", () => {
   test("a call with no caller number at all is not a pass", () => {
     const v = evaluateForwardingCall(clinic, call("c", { startedAt: inWindow, callerPhone: undefined }), "conv");
     expect(v.observation?.callerIdPreserved).toBe(false);
+  });
+
+  test("the carrier's activation call, from the clinic's own line with nobody speaking, is never the test", () => {
+    // A Verizon home phone and a traditional AT&T landline start all-call
+    // forwarding only once the call the carrier places is answered.
+    const activation = call("c", { startedAt: inWindow, callerPhone: CLINIC_NUMBER, outcome: "abandoned" });
+    const v = evaluateForwardingCall(clinic, activation, "conv");
+    expect(v).toMatchObject({ isTest: false, callerIsClinic: true, activationCall: true, observation: null });
+    expect(isForwardingActivationCall(clinic, activation)).toBe(true);
+
+    // Someone spoke, or a stranger's number: an ordinary call, judged as before.
+    const spoke = call("c", {
+      startedAt: inWindow,
+      callerPhone: CLINIC_NUMBER,
+      outcome: "abandoned",
+      transcriptTurns: [{ speaker: "person", text: "Hello?" }],
+    });
+    expect(evaluateForwardingCall(clinic, spoke, "conv").observation?.callerIdPreserved).toBe(false);
+    expect(isForwardingActivationCall(clinic, call("c", { callerPhone: CLINIC_NUMBER, outcome: "qualified_no_booking" }))).toBe(false);
+    expect(isForwardingActivationCall(clinic, call("c", { outcome: "abandoned" }))).toBe(false);
   });
 
   test("outside the window it is not the test", () => {
@@ -179,6 +206,34 @@ describeDb("phase 8, against the database", () => {
     expect(overview.forwardingTestObserved?.callerIdPreserved).toBe(false);
   });
 
+  test("the carrier's activation call leaves the test window open, never reopens the step, and is no recovered call", async () => {
+    // A Verizon home phone or a traditional AT&T landline: the clinic dials
+    // *72 and AYA's number, stays on until AYA answers, and hangs up.
+    const c = await seedClinic("fwd-activation");
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await setPhoneSettings(tx, { assistantNumberE164: "+14155550100", publishedPhoneE164: CLINIC_NUMBER });
+      await startForwardingTest(tx);
+    });
+    const activation = () => call(c.clinicId, { callerPhone: CLINIC_NUMBER, rangAtClinicFirst: undefined, outcome: "abandoned" });
+
+    const first = await ingestCall(activation(), ACTOR);
+    expect(first.recoveryReason).toBeNull();
+    let overview = (await listClinics()).find((x) => x.id === c.clinicId)!;
+    expect(overview.forwardingTestUntil).not.toBeNull(); // still open for the real test call
+    expect(overview.forwardingTestObserved).toBeNull();
+
+    await ingestCall(call(c.clinicId), ACTOR);
+    let state = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => readOnboarding(tx));
+    expect(state.test_call_passed).not.toBeNull();
+    overview = (await listClinics()).find((x) => x.id === c.clinicId)!;
+    expect(overview.forwardingTestObserved?.callerIdPreserved).toBe(true);
+
+    // Each evening under After hours only, the same call again: the step stays stamped.
+    await ingestCall(activation(), ACTOR);
+    state = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => readOnboarding(tx));
+    expect(state.test_call_passed).not.toBeNull();
+  });
+
   test("the operation refuses to start without the two numbers", async () => {
     const c = await seedClinic("fwd-op");
     const refused = await runOperation("startForwardingTest", { clinicId: c.clinicId }, OPERATOR);
@@ -205,8 +260,9 @@ describeDb("phase 8, against the database", () => {
       await addRecipient(tx, { email: "desk@example-clinic.test", addedBy: "test" });
     });
     // The agent semi-confirms only (21 September 2026): no appointment row
-    // from the call, a request for the desk instead, and the desk is emailed
-    // a link that names nobody.
+    // from the call, a request for the desk instead, and the clinic's alert
+    // (L7) queued with it: a pointer to the call in Conversations, naming
+    // nobody. Nothing is mailed to the report recipients.
     const deskMail = new FakeTransport();
     const booked = await ingestCall(
       call(c.clinicId, { outcome: "booked", booking: { scheduledFor: new Date(Date.now() + 3 * DAY), treatment: "Consultation" } }),
@@ -215,10 +271,19 @@ describeDb("phase 8, against the database", () => {
     );
     expect(booked.bookingRequestId).not.toBeNull();
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from appointments`))).rows).toHaveLength(0);
-    expect(deskMail.sent).toHaveLength(1);
-    expect(deskMail.sent[0]!.message.subject).toMatch(/via a phone call/);
-    expect(deskMail.sent[0]!.message.text).not.toMatch(/\+1555|Consultation/);
-    const token = deskMail.sent[0]!.message.text.match(/\/booking\/([A-Za-z0-9_-]{43})/)![1]!;
+    expect(deskMail.sent).toHaveLength(0);
+    const alerts = await inTenant(c.clinicId, (client) =>
+      client.query<{ kind: string; dedupe_key: string; payload: Record<string, unknown> }>(`select kind, dedupe_key, payload from billing_notices where kind in ('booking_request', 'deposit_to_collect', 'handover', 'urgent', 'calendar_check')`),
+    );
+    expect(alerts.rows).toEqual([
+      {
+        kind: "booking_request",
+        dedupe_key: `booking_request:${booked.bookingRequestId}`,
+        payload: expect.objectContaining({ channel: "voice", conversationId: booked.conversationId, bookingRequestId: booked.bookingRequestId }),
+      },
+    ]);
+    expect(JSON.stringify(alerts.rows)).not.toMatch(/\+1555|Consultation|\/booking\//);
+    const token = lastMintedToken();
 
     // The desk confirms a slot: now, and only now, the appointment exists,
     // carrying the clinic's deposit rule.
@@ -233,22 +298,18 @@ describeDb("phase 8, against the database", () => {
       ),
     );
     expect(rows.rows).toEqual([{ deposit_status: "pending_front_desk", deposit_usd: "50.00", treatment: "Consultation", conversation_id: booked.conversationId }]);
-
-    const transport = new FakeTransport();
-    expect(await sendLiveAlert(c.clinicId, "booked", booked.conversationId, transport)).toBe("sent");
-    expect(transport.sent[0]!.message.text).toMatch(/deposit is due/);
-    expect(transport.sent[0]!.message.text).not.toMatch(/\+1555|Consultation/);
   });
 
-  test("a bad BETTER_AUTH_URL costs the desk its email, never the caller's request", async () => {
+  test("a bad BETTER_AUTH_URL costs the clinic its alert, never the caller's request", async () => {
     const c = await seedClinic("bad-origin");
     await makeProduction(c.clinicId, new Date(Date.now() - 10 * DAY));
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
       addRecipient(tx, { email: "desk@example-clinic.test", addedBy: "test" }),
     );
-    // No scheme: publicUrl() refuses to build the desk's link in any
+    // No scheme: publicUrl() refuses to build the alert's link in any
     // environment. The throw used to escape notifyDesk inside ingestCall's
-    // transaction and roll back the conversation and the request with it.
+    // transaction and roll back the conversation and the request with it;
+    // notifyBookingAlert asks first and queues nothing.
     vi.stubEnv("BETTER_AUTH_URL", "app.healdesk.io");
     try {
       const deskMail = new FakeTransport();
@@ -259,10 +320,11 @@ describeDb("phase 8, against the database", () => {
       );
       expect(booked.bookingRequestId).not.toBeNull();
       expect(deskMail.sent).toHaveLength(0);
-      const kept = await inTenant(c.clinicId, (client) =>
-        client.query<{ desk_notified_at: Date | null }>(`select desk_notified_at from booking_requests`),
-      );
-      expect(kept.rows).toEqual([{ desk_notified_at: null }]);
+      const kept = await inTenant(c.clinicId, async (client) => ({
+        requests: (await client.query(`select 1 from booking_requests`)).rows.length,
+        notices: (await client.query(`select 1 from billing_notices where kind = 'booking_request'`)).rows.length,
+      }));
+      expect(kept).toEqual({ requests: 1, notices: 0 });
       expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from conversations`))).rows).toHaveLength(1);
     } finally {
       vi.unstubAllEnvs();

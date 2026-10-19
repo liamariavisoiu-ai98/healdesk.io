@@ -24,7 +24,8 @@ import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting, type Channel } from "@/
 import { describeError, log } from "@/lib/log";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { isOpenAt, parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
-import { notifyBookingAlert, URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
+import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { urgentAlertLive } from "@/lib/notices/urgent-alert-live";
 import { neverSayWithDefaults } from "@/lib/setup/knowledge";
 import { urgentHelpNumber } from "@/lib/setup/urgent";
 import type { TenantTx } from "@/lib/tenant";
@@ -39,7 +40,6 @@ import {
   requestReceivedLine,
   type BookingFields,
   type BookingThread,
-  type CreatedBookingRequest,
 } from "./booking-requests";
 import { touchMetaThread } from "./channels";
 import { openMetaConversation, type MetaConversation } from "./greeting";
@@ -85,7 +85,9 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * A complication or an urgent symptom (the catalog's findUrgentContent, with
  * the practice's own set: people's, or an animal's at a veterinary practice)
  * gets the fixed urgent line the phone and the website chat give too: 911,
- * or the emergency vet, then the clinic's own number. Anything else
+ * or the emergency vet, then the clinic's own number, and queues the urgent
+ * alert to the clinic (L12): the channel and the conversation's id, never
+ * the message, which is not kept. Anything else
  * clinical (findClinicalContent, the vocabulary that guards everything else
  * the product stores) gets the fixed hand-off line, which moves the person to
  * a call and says why in one sentence. Here, and nowhere off Meta, that
@@ -181,6 +183,12 @@ export type FrontDoorFacts = {
   openingHours?: OpeningHours | null;
   timeZone?: string | null;
   /**
+   * Whether an urgent alert queued now reaches the clinic (urgentAlertLive,
+   * lib/notices/urgent-alert-live.ts): the urgent line says the team was told
+   * only while it does. Absent, it does not.
+   */
+  urgentAlertLive?: boolean;
+  /**
    * The clinic's tone, which applies here as on every channel (the spec,
    * "Tone"). Its languages do not: this channel answers in English, because
    * the reply guard reads English. Absent, warm.
@@ -233,13 +241,15 @@ export function handoffLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone">)
  * is also why the person is being moved; 911, or at a veterinary practice
  * the emergency vet it refers to; then the clinic's urgent-help number as
  * lib/setup/urgent.ts resolves it, or its published one. It says the team
- * has been told only once the urgent alert it raises (L12) reaches the
- * clinic (URGENT_ALERT_DELIVERED): the line must not promise what has not
- * happened. It never asks for a number, which a Meta channel must not carry.
+ * has been told only while the urgent alert it raises (L12) reaches the
+ * clinic (facts.urgentAlertLive), and answerFrontDoor takes it out again
+ * when the alert could not be queued: the line must not promise what has
+ * not happened. It never asks for a number, which a Meta channel must not
+ * carry.
  */
 export function urgentLine(
   facts: Pick<FrontDoorFacts, "clinicName" | "phone" | "urgentPhone"> &
-    Partial<Pick<FrontDoorFacts, "vetReferralPhone" | "openingHours" | "timeZone" | "specialty">>,
+    Partial<Pick<FrontDoorFacts, "vetReferralPhone" | "openingHours" | "timeZone" | "specialty" | "urgentAlertLive">>,
   finding: Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">> = { emergency: "911" },
   now: Date = new Date(),
 ): string {
@@ -258,7 +268,7 @@ export function urgentLine(
     clinicNumber: facts.urgentPhone ?? facts.phone,
     referralNumber: facts.vetReferralPhone ?? null,
     clinicOpen: open,
-    teamAlerted: URGENT_ALERT_DELIVERED,
+    teamAlerted: facts.urgentAlertLive === true,
   });
 }
 
@@ -1288,6 +1298,7 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     // the defaults and the clinic's own entries, as lib/assistant/facts.ts
     // reads them for a call and a web chat, even with no script at all.
     neverSay: neverSayWithDefaults(agent?.neverSay ?? []),
+    urgentAlertLive: await urgentAlertLive(tx.db),
   };
 }
 
@@ -1312,18 +1323,17 @@ export type FrontDoorAnswer = {
    */
   greetingToRecord: MetaConversation | null;
   /**
-   * The booking request this message created, for the caller to email the
-   * desk about with notifyDeskAfterCommit (lib/meta/booking-requests.ts)
-   * once the transaction that created it has committed. Null when no request
-   * came of it. Emailed any sooner, a send that failed afterwards rolled the
-   * request back with the email already gone, and the claimed message id
-   * kept a redelivery from making it again: the request was lost.
+   * This message queued the urgent alert (L12), for the caller to send with
+   * deliverCriticalAfterCommit (lib/email/outbox.ts) once the answer's
+   * transaction has committed. A booking request's alert (L7) is queued in
+   * the same transaction and goes from the outbox's minute queue, so it
+   * survives a reply that fails to send.
    */
-  deskNotice: CreatedBookingRequest | null;
+  urgentQueued: boolean;
 };
 
-/** An answer while it is being written: the greeting's record and the desk's email are settled last. */
-type Draft = Omit<FrontDoorAnswer, "greetingToRecord" | "deskNotice">;
+/** An answer while it is being written: the greeting's record and the urgent alert are settled last. */
+type Draft = Omit<FrontDoorAnswer, "greetingToRecord" | "urgentQueued">;
 
 type ThreadInput = BookingThread & { connectionId: string | null };
 
@@ -1361,13 +1371,15 @@ export async function answerFrontDoor(
   // Everything up to the model's answer reads; nothing is written before it.
   let answer: Draft;
   let extracted: BookingFields | null = null;
-  let deskNotice: CreatedBookingRequest | null = null;
+  let urgentFinding: (Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">>) | null = null;
+  let urgentQueued = false;
   let wants = false;
   const screened = screenInbound(input.text, facts.specialty, facts.clinicName);
   if (screened === "urgent") {
     // Before the model, and instead of it: the fixed line, and (below, with
     // the writes) the clinic's urgent alert.
     const finding = findUrgentContent(input.text, facts.specialty, { clinicName: facts.clinicName }) ?? { emergency: "911" as const };
+    urgentFinding = finding;
     answer = { text: urgentLine(facts, finding, now), source: "urgent", guard: null, screened, booking: "none", greeted: false };
   } else if (screened === "language") {
     answer = { text: languageLine(facts), source: "handoff", guard: null, screened, booking: "none", greeted: false };
@@ -1410,7 +1422,15 @@ export async function answerFrontDoor(
   if (thread) await touchMetaThread(tx, thread.platform, thread.senderId, now);
   // Which conversation this message belongs to, and whether its reply is the first.
   const conversation: MetaConversation | null = thread ? await openMetaConversation(tx, { platform: thread.platform, senderId: thread.senderId, sentAt: now }) : null;
-  if (screened === "urgent") await notifyBookingAlert(tx, "urgent", {});
+  if (screened === "urgent") {
+    // The clinic's urgent alert, in this transaction, keyed on the
+    // conversation: the channel and ids, never the message. Not queued, the
+    // line drops "I've told the team".
+    urgentQueued = await notifyBookingAlert(tx, "urgent", { channel: "meta", conversationId: conversation?.conversationId });
+    if (!urgentQueued && facts.urgentAlertLive && urgentFinding) {
+      answer = { ...answer, text: urgentLine({ ...facts, urgentAlertLive: false }, urgentFinding, now) };
+    }
+  }
 
   // Only the model extracts booking fields, so a screened message never
   // reaches the draft or a request.
@@ -1428,9 +1448,10 @@ export async function answerFrontDoor(
         fields: merged,
         lastInboundAt: now,
       });
-      // The desk is emailed by the caller, after this transaction commits
-      // (FrontDoorAnswer.deskNotice), never from inside it.
-      deskNotice = created;
+      // The clinic's alert (L7), queued with the request: a pointer to this
+      // conversation in the portal, sent from the outbox once this commits,
+      // whatever then becomes of the reply.
+      await notifyBookingAlert(tx, "booking_request", { bookingRequestId: created.id, conversationId: conversation?.conversationId, channel: "meta" });
       // The name goes back only through the reply guard; refused, the line
       // goes without it.
       const named = requestReceivedLine(facts.clinicName, merged.firstName);
@@ -1459,7 +1480,7 @@ export async function answerFrontDoor(
   }
 
   recordAnswer(tx, input.platform, answer);
-  return { ...answer, greetingToRecord, deskNotice };
+  return { ...answer, greetingToRecord, urgentQueued };
 }
 
 function recordAnswer(tx: TenantTx, platform: MetaPlatform, answer: Draft): void {

@@ -340,6 +340,16 @@ describeDb("the post-call ingest", () => {
     };
   }
 
+  /** The clinic's booking alerts (L7) in the outbox. */
+  async function bookingAlerts(clinicId: string) {
+    const { rows } = await inTenant(clinicId, (client) =>
+      client.query<{ dedupe_key: string; payload: Record<string, unknown> }>(
+        `select dedupe_key, payload from billing_notices where kind = 'booking_request' order by created_at`,
+      ),
+    );
+    return rows;
+  }
+
   const booked = (clinicId: string, externalCallId: string): VoiceCallEvent => ({
     externalCallId,
     clinicId,
@@ -379,14 +389,22 @@ describeDb("the post-call ingest", () => {
     // A retried hand-over answers with the same request.
     const again = await ingestCall(booked(c.clinicId, "call_rt_1"), undefined, { transport });
     expect(again).toMatchObject({ duplicate: true, conversationId: retell.conversationId, bookingRequestId: first });
-    // Every engine alert was raised when the request was committed: nothing is mailed for that call.
+    // Every engine alert was raised when the request was committed: nothing
+    // is queued or mailed for that call.
     expect(mailed).toEqual([]);
+    expect(await bookingAlerts(c.clinicId)).toEqual([]);
     // The control: a call the engine logged nothing on is the ingest's to
-    // deliver, and it does mail this clinic's desk.
+    // alert the clinic about (L7), queued in the outbox with the request; it
+    // mails no one directly, the report recipients least of all.
     const unkeyed = await ingestCall(booked(c.clinicId, "call_desk_1"), undefined, { transport });
     expect(unkeyed.bookingRequestId).not.toBeNull();
-    expect(mailed).toHaveLength(1);
-    expect(mailed[0]!.subject).toMatch(/^New booking request via /);
+    expect(mailed).toEqual([]);
+    expect(await bookingAlerts(c.clinicId)).toEqual([
+      {
+        dedupe_key: `booking_request:${unkeyed.bookingRequestId}`,
+        payload: expect.objectContaining({ channel: "voice", conversationId: unkeyed.conversationId, bookingRequestId: unkeyed.bookingRequestId }),
+      },
+    ]);
 
     const rows = await inTenant(c.clinicId, async (client) => ({
       requests: (await client.query<{ id: string; conversation_id: string | null }>(`select id, conversation_id from booking_requests`)).rows,
@@ -410,7 +428,7 @@ describeDb("the post-call ingest", () => {
     );
   });
 
-  test("a synthetic clinic in setup: a booked call becomes one request for the desk, unkeyed, and the desk is mailed", async () => {
+  test("a synthetic clinic in setup: a booked call becomes one request for the desk, unkeyed, and the clinic is alerted", async () => {
     // Every paying clinic is synthetic until ops put it live; its calls still
     // reach its desk as requests.
     const synthetic = await seedClinic("voice-synthetic");
@@ -436,13 +454,16 @@ describeDb("the post-call ingest", () => {
     );
     expect(ingested.bookingRequestId).not.toBeNull();
     const stored = await inTenant(synthetic.clinicId, (client) =>
-      client.query<{ status: string; vendor_call_id: string | null; preferred_window: string; desk_notified_at: Date | null }>(
-        `select status, vendor_call_id, preferred_window, desk_notified_at from booking_requests`,
+      client.query<{ status: string; vendor_call_id: string | null; preferred_window: string }>(
+        `select status, vendor_call_id, preferred_window from booking_requests`,
       ),
     );
     expect(stored.rows).toEqual([expect.objectContaining({ status: "requested", vendor_call_id: null, preferred_window: "Thursday afternoon" })]);
-    expect(stored.rows[0]!.desk_notified_at).not.toBeNull();
-    expect(mailed).toHaveLength(1);
-    expect(mailed[0]!.subject).toMatch(/^New booking request via /);
+    expect(mailed).toEqual([]);
+    const alerts = await bookingAlerts(synthetic.clinicId);
+    expect(alerts).toEqual([
+      { dedupe_key: `booking_request:${ingested.bookingRequestId}`, payload: expect.objectContaining({ channel: "voice", conversationId: ingested.conversationId }) },
+    ]);
+    expect(JSON.stringify(alerts)).not.toMatch(/Dana|0177|Thursday|Consultation|\/booking\//);
   });
 });

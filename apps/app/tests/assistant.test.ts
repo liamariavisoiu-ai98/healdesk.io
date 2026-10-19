@@ -27,11 +27,11 @@ import {
   messagesFor,
   parseModelAnswer,
   refusalLine,
+  settleUrgentReply,
   type AssistantResponder,
 } from "@/lib/assistant/turn";
 import { requestReceivedLine } from "@/lib/meta/booking-requests";
-import { guardContextFor, guardReply } from "@/lib/meta/front-door";
-import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
+import { guardContextFor, guardReply, urgentLine } from "@/lib/meta/front-door";
 import { neverSayWithDefaults } from "@/lib/setup/knowledge";
 import { spokenPhone } from "@/lib/voice/spoken";
 
@@ -70,6 +70,7 @@ const FACTS: AssistantFacts = {
   tone: "warm",
   languages: ["en"],
   suggestAddOns: false,
+  urgentAlertLive: false,
 };
 
 /** A veterinary practice: its urgent set is an animal's, and its urgent line gives the emergency vet. */
@@ -626,11 +627,41 @@ describe("answerTurn", () => {
     expect(result.reply).toContain(URGENT_LEAVE_NUMBER_LINE);
   });
 
-  test("the urgent line says the team was told only once the urgent alert reaches it", async () => {
-    // notifyBookingAlert only logs until package F sends L12 through the outbox.
-    expect(URGENT_ALERT_DELIVERED).toBe(false);
-    const result = await answerTurn({ facts: FACTS, channel: "web_chat", history: [], text: "it won't stop bleeding", responder: null });
-    expect(result.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
+  test("the urgent line says the team was told only while the alert reaches it, and only once it is queued", async () => {
+    // Not live (the outbox's sender off, no mail transport, no public origin): never said.
+    const off = await answerTurn({ facts: FACTS, channel: "web_chat", history: [], text: "it won't stop bleeding", responder: null });
+    expect(off.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
+    expect(settleUrgentReply(off, FACTS, "web_chat", true, new Date()).reply).not.toContain(URGENT_TEAM_TOLD_LINE);
+
+    // Live: said once the adapter has queued the alert, and taken out when it could not.
+    const live = { ...FACTS, urgentAlertLive: true };
+    for (const channel of ["web_chat", "voice"] as const) {
+      const now = new Date();
+      const turn = await answerTurn({ facts: live, channel, history: [], text: "it won't stop bleeding", responder: null, now });
+      expect(turn.reply, channel).toContain(URGENT_TEAM_TOLD_LINE);
+      expect(settleUrgentReply(turn, live, channel, true, now).reply, channel).toBe(turn.reply);
+      const unqueued = settleUrgentReply(turn, live, channel, false, now);
+      expect(unqueued.reply, channel).not.toContain(URGENT_TEAM_TOLD_LINE);
+      // Only the line goes: 911 and the number stay.
+      expect(unqueued.reply, channel).toMatch(/911/);
+    }
+
+    // The same in Spanish.
+    const es = await answerTurn({ facts: live, channel: "web_chat", history: [], text: "mi esposo no puede respirar", responder: null });
+    expect(es.source).toBe("urgent");
+    expect(es.reply).toContain("Ya avisé al equipo.");
+    expect(settleUrgentReply(es, live, "web_chat", false, new Date()).reply).not.toContain("Ya avisé al equipo.");
+
+    // A turn that is not urgent is left as it is.
+    const plain = await answerTurn({ facts: live, channel: "web_chat", history: [], text: "When are you open?", responder: reply("Weekdays.") });
+    expect(settleUrgentReply(plain, live, "web_chat", false, new Date())).toBe(plain);
+  });
+
+  test("the Meta urgent line follows the same fact", () => {
+    const facts = { clinicName: "Radiance Med Spa", phone: "+14155550199", urgentPhone: "+14155550123" };
+    expect(urgentLine(facts)).not.toContain(URGENT_TEAM_TOLD_LINE);
+    expect(urgentLine({ ...facts, urgentAlertLive: false })).not.toContain(URGENT_TEAM_TOLD_LINE);
+    expect(urgentLine({ ...facts, urgentAlertLive: true })).toContain(URGENT_TEAM_TOLD_LINE);
   });
 
   test("a veterinary practice: an animal's emergency gets the emergency vet, never 911, and its own number only while open", async () => {

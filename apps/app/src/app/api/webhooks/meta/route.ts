@@ -1,13 +1,15 @@
+import { after } from "next/server";
+
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
 import { recordFirstAnswer } from "@/lib/channels/events";
 import { touchChatThread } from "@/lib/chat/threads";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
+import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { resolveMetaChannel, sendMetaReply, type MetaSender } from "@/lib/meta/channels";
 import { anthropicResponder, answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
-import { notifyDeskAfterCommit } from "@/lib/meta/booking-requests";
 import { recordGreeting } from "@/lib/meta/greeting";
 import { claimMetaMessage } from "@/lib/meta/inbound";
 import { parseMetaEvents, verifyMetaSignature } from "@/lib/meta/webhook";
@@ -30,10 +32,12 @@ export const runtime = "nodejs";
  * the clinic's team in the app. The reply is
  * produced by the narrow agent in lib/meta/front-door.ts and sent with the
  * clinic's sealed token, opened inside the tenant transaction. A message
- * that completes a booking request also emails the clinic's desk a
- * single-use link (lib/meta/booking-requests.ts); the sender id travels
- * into that flow so the desk's decision can be relayed back to the person —
- * inside Meta's 24-hour window only, which lib/meta/channels.ts enforces.
+ * that completes a booking request also queues the clinic's alert (L7, a
+ * pointer into the portal, lib/notices/booking-alerts.ts) in the answer's
+ * transaction; the sender id travels into the request so the desk's decision
+ * can be relayed back to the person — inside Meta's 24-hour window only,
+ * which lib/meta/channels.ts enforces. An urgent message's alert (L12) is
+ * sent the moment the answer commits.
  *
  * Each message, in order (BD24, R18):
  *
@@ -64,8 +68,8 @@ let senderForTests: MetaSender | undefined;
 let transportForTests: EmailTransport | undefined;
 let nowForTests: Date | undefined;
 /**
- * Test seam: swap the model, the Graph API, the desk's email transport and
- * the clock. Undefined restores the real ones.
+ * Test seam: swap the model, the Graph API, the email transport the urgent
+ * alert goes through, and the clock. Undefined restores the real ones.
  */
 export function __setMetaRuntimeForTests(
   responder: FrontDoorResponder | null | undefined,
@@ -229,12 +233,12 @@ export async function POST(request: Request): Promise<Response> {
         });
         answered += 1;
       } finally {
-        // 7: the desk's email, only now that the request it links to has
-        // committed, and whether or not the reply went out: the desk calls
-        // either way. It never throws.
-        if (answer.deskNotice) {
-          await notifyDeskAfterCommit(owner.clinicId, answer.deskNotice, { channel: "meta", platform: message.platform }, { transport: transportForTests, actor });
-        }
+        // 7: the urgent alert, now that the answer that queued it has
+        // committed, and whether or not the reply went out. A booking
+        // request's alert went into the outbox with the request and goes from
+        // the minute queue. After the response (after()), so Meta is not kept
+        // waiting on the mail; it never rejects.
+        if (answer.urgentQueued) await deliverCriticalAfterCommit(owner.clinicId, { after, transport: transportForTests });
       }
     } catch (error) {
       skipped += 1;

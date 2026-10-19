@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { agentConfigs, clinicChannels, clinics, type AgentService, type KnowledgeAnswer } from "@/db/schema";
 import { DAY_KEYS, DAY_LABELS, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
+import { urgentAlertLive } from "@/lib/notices/urgent-alert-live";
 import { neverSayWithDefaults, readKnowledge } from "@/lib/setup/knowledge";
 import { readSetupSettings } from "@/lib/setup/settings";
 import { urgentHelpNumber } from "@/lib/setup/urgent";
@@ -80,6 +81,12 @@ export type AssistantFacts = {
   languages: ScreenedLanguage[];
   /** "Suggest add-on treatments": on lets AYA suggest a complementary service during a booking. */
   suggestAddOns: boolean;
+  /**
+   * Whether an urgent alert queued now reaches the clinic (urgentAlertLive,
+   * lib/notices/urgent-alert-live.ts): the urgent reply says the team was
+   * told only while it does, and only once the adapter has queued the alert.
+   */
+  urgentAlertLive: boolean;
 };
 
 function screenedLanguages(chosen: readonly string[]): ScreenedLanguage[] {
@@ -163,5 +170,6 @@ export async function assistantFacts(tx: TenantTx): Promise<AssistantFacts | nul
     tone: settings.tone,
     languages: screenedLanguages(settings.languages),
     suggestAddOns: settings.suggestAddOns,
+    urgentAlertLive: await urgentAlertLive(tx.db),
   };
 }

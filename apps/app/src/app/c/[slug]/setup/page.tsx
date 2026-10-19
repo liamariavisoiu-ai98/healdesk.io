@@ -13,7 +13,7 @@ import { notFound, redirect } from "next/navigation";
 import type { ActorContext } from "@/lib/audit";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { disclosureFor } from "@/lib/compliance/disclosure";
-import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
+import { urgentAlertLive } from "@/lib/notices/urgent-alert-live";
 import { MAX_PROVIDERS } from "@/lib/connections/google-calendar";
 import { readPhoneStepsNumber } from "@/lib/channels/state";
 import { requirePortal } from "@/lib/portal/access";
@@ -137,6 +137,9 @@ export default async function SetupPage({
           readPhoneStepsNumber(tx.db, tx.clinicId),
         )
       : null;
+  // Whether the urgent alert reaches the clinic today: the urgent screen says
+  // AYA tells the team only while it does.
+  const teamAlerted = screen === "urgent" ? await urgentAlertLive() : false;
 
   return (
     <main className="mx-auto min-h-screen max-w-xl px-4 py-10">
@@ -156,6 +159,7 @@ export default async function SetupPage({
           steppedUp: actor.steppedUp,
           notice: screen === "calendar" ? notice : null,
           phoneSteps: ayaNumber ? { numberLabel: formatPhone(ayaNumber) } : null,
+          teamAlerted,
         })}
       </section>
       <HelpPanel audience={audience} />
@@ -258,6 +262,8 @@ type Nav = {
   notice: CalendarNotice | null;
   /** AYA's number as printed, once phone is ready on our side: the channel screen only. */
   phoneSteps: { numberLabel: string } | null;
+  /** The urgent alert reaches the clinic today (urgentAlertLive): the urgent screen only. */
+  teamAlerted: boolean;
 };
 
 function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
@@ -421,7 +427,7 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
           vetReferral={settings.vetReferralE164 ? formatPhone(settings.vetReferralE164) : ""}
           audience={audience}
           address={state.address}
-          teamAlerted={URGENT_ALERT_DELIVERED}
+          teamAlerted={nav.teamAlerted}
         />
       );
     }

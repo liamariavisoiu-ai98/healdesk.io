@@ -115,8 +115,23 @@ export const MODEL_RETENTION_PUBLIC =
  * associate agreement it receives content under: BAA 1.6.0's Subcontractors
  * clause and the DPA's. The caller adds healdesk's own covenant not to train
  * on the information, in its own document's word for it.
+ *
+ * The retention is Anthropic's standard retention, not a term of its business
+ * associate agreement: nobody at healdesk has read that agreement yet (it is
+ * signed in the HIPAA-ready organisation's Console, agreement-changes.md
+ * § 16.5), and the sources describe the organisation, not the agreement's
+ * text. Until 19 October 2026 the sentence began "Under that agreement
+ * Anthropic keeps", which made the 30 days read as a promise in a contract
+ * healdesk had not seen. The second sentence is why the window exists, which
+ * the spec asks the clinic-facing agreement to say: the HIPAA-ready
+ * organisation operates with standard retention and cannot also have zero
+ * data retention (support article 15455031), and healdesk does not control
+ * it. It says so of Anthropic's offering, never "cannot run with shorter
+ * retention", which Anthropic says only of its Covered Models.
  */
 export const MODEL_RETENTION_AGREEMENT =
-  `Under that agreement Anthropic keeps conversation content ${STANDARD}. ${MODEL_RETENTION_EXCEPTIONS} ` +
+  `Anthropic keeps conversation content ${STANDARD}. Anthropic offers its service under a ` +
+  `business associate agreement only with that standard retention, which healdesk does not ` +
+  `control. ${MODEL_RETENTION_EXCEPTIONS} ` +
   `Anthropic does not use that content to train its models without healdesk's permission, which ` +
   `healdesk will not give.`;

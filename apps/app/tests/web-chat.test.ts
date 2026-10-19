@@ -9,6 +9,7 @@ import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-co
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { addRecipient } from "@/lib/reporting/recipients";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
+import { JOB_BILLING_NOTICES, setJobEnabled } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -74,6 +75,18 @@ async function liveWebClinic(label: string, website: string | null = "radiance-c
   const clinic = await webChatClinic(c.slug);
   if (!clinic) throw new Error("no clinic");
   return clinic;
+}
+
+/** The clinic's alerts in the outbox (lib/notices/booking-alerts.ts). */
+async function alertRows(clinicId: string) {
+  const { rows } = await inTenant(clinicId, (client) =>
+    client.query<{ kind: string; dedupe_key: string; payload: Record<string, unknown>; sent_at: Date | null }>(
+      `select kind, dedupe_key, payload, sent_at from billing_notices
+        where kind in ('booking_request', 'deposit_to_collect', 'handover', 'urgent', 'calendar_check')
+        order by created_at`,
+    ),
+  );
+  return rows;
 }
 
 async function transcriptRow(clinicId: string, conversationId: string) {
@@ -168,19 +181,73 @@ describeDb("the web chat", () => {
     expect(transport.transcripts()).toHaveLength(0);
   });
 
-  test("an urgent message gets the fixed line, and the model never sees it", async () => {
+  test("an urgent message gets the fixed line, the model never sees it, and the clinic is alerted at once", async () => {
     const clinic = await liveWebClinic("chat-urgent");
     const start = await startWebChat(clinic);
     if (start.mode !== "chat") throw new Error("no chat");
     const { responder, seen } = scripted(() => ({ reply: "model" }));
-    const answer = await sendWebChatMessage(clinic, start.token, "I'm having a bad reaction to the filler", { responder });
-    expect(answer.mode === "chat" && answer.reply).toMatch(/call 911/);
-    expect(seen).toHaveLength(0);
-    // Recorded as urgent, not only as escalated, so Conversations can tell it from a handover.
+    const ops = `usr_ops_${crypto.randomUUID().slice(0, 8)}`;
+    await getMigratorPool().query(
+      `insert into "user" (id, name, email, email_verified, created_at, updated_at) values ($1, 'Ops', $2, true, now(), now())`,
+      [ops, `${ops}@healdesk.test`],
+    );
+    await setJobEnabled(JOB_BILLING_NOTICES, true, ops);
+    const transport = new FakeTransport();
+    try {
+      const answer = await sendWebChatMessage(clinic, start.token, "I'm having a bad reaction to the filler", { responder, transport });
+      if (answer.mode !== "chat") throw new Error("no chat");
+      expect(answer.reply).toMatch(/call 911/);
+      // This deployment sends no mail (no Resend), so the reply does not say the team was told.
+      expect(answer.reply).not.toContain("I've told the team");
+      expect(seen).toHaveLength(0);
+      // Recorded as urgent, not only as escalated, so Conversations can tell it from a handover.
+      const { rows } = await inTenant(clinic.clinicId, (client) =>
+        client.query<{ id: string; outcome: string; urgent: boolean }>(`select id, outcome, urgent from conversations`),
+      );
+      expect(rows.map(({ outcome, urgent }) => ({ outcome, urgent }))).toEqual([{ outcome: "escalated_to_human", urgent: true }]);
+
+      // One urgent alert, keyed on the chat, sent the moment the message committed.
+      let alerts = await alertRows(clinic.clinicId);
+      expect(alerts).toMatchObject([{ kind: "urgent", dedupe_key: `urgent:web:${rows[0]!.id}` }]);
+      expect(alerts[0]!.sent_at).not.toBeNull();
+      const mail = transport.sent.filter((s) => s.message.phiClass === "none");
+      expect(mail).toHaveLength(1);
+      expect(mail[0]!.message.subject).toMatch(/^Urgent: /);
+      expect(JSON.stringify(mail[0]!.message)).not.toMatch(/reaction|filler/);
+      expect(mail[0]!.message.text).toContain(`/conversations/${rows[0]!.id}`);
+
+      // A second urgent message in the same chat queues and sends nothing more.
+      await sendWebChatMessage(clinic, answer.token, "It's getting worse, my lips are swelling", { responder, transport });
+      alerts = await alertRows(clinic.clinicId);
+      expect(alerts).toHaveLength(1);
+      expect(transport.sent.filter((s) => s.message.phiClass === "none")).toHaveLength(1);
+    } finally {
+      await setJobEnabled(JOB_BILLING_NOTICES, false, ops);
+    }
+  });
+
+  test("a request for a person alerts the clinic once, and the chat stays escalated after an ordinary message", async () => {
+    const clinic = await liveWebClinic("chat-handover");
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("no chat");
+    const { responder } = scripted((last) =>
+      last.includes("person") ? { reply: "Of course: the team will get back to you.", handoff: true } : { reply: "We're open weekdays." },
+    );
+    const first = await sendWebChatMessage(clinic, start.token, "Can I talk to a real person?", { responder });
+    if (first.mode !== "chat") throw new Error("no chat");
+    const second = await sendWebChatMessage(clinic, first.token, "A person please", { responder });
+    if (second.mode !== "chat") throw new Error("no chat");
+    await sendWebChatMessage(clinic, second.token, "And when are you open?", { responder });
+
+    const conversationId = readToken(first.token, clinic.clinicId)!.conversationId!;
+    const alerts = await alertRows(clinic.clinicId);
+    expect(alerts).toMatchObject([
+      { kind: "handover", dedupe_key: `handover:web:${conversationId}`, payload: { channel: "web", conversationId } },
+    ]);
     const { rows } = await inTenant(clinic.clinicId, (client) =>
       client.query<{ outcome: string; urgent: boolean }>(`select outcome, urgent from conversations`),
     );
-    expect(rows).toEqual([{ outcome: "escalated_to_human", urgent: true }]);
+    expect(rows).toEqual([{ outcome: "escalated_to_human", urgent: false }]);
   });
 
   test("a card number is cut from the transcript and never reaches the model", async () => {
@@ -230,7 +297,7 @@ describeDb("the web chat", () => {
     expect(b.mode === "chat" && b.reply).not.toMatch(/completely safe|painless/i);
   });
 
-  test("a complete request becomes one booking request on the web chat channel, and the desk gets a link", async () => {
+  test("a complete request becomes one booking request on the web chat channel, and the clinic one pointer to it", async () => {
     const clinic = await liveWebClinic("chat-request");
     const start = await startWebChat(clinic);
     if (start.mode !== "chat") throw new Error("no chat");
@@ -244,9 +311,14 @@ describeDb("the web chat", () => {
       client.query<{ channel: string; preferred_window: string; platform: string | null }>(`select channel, preferred_window, platform from booking_requests`),
     );
     expect(rows).toEqual([{ channel: "web_chat", preferred_window: "Thursday afternoon", platform: null }]);
-    const deskMail = transport.sent.filter((s) => s.message.phiClass !== "may-carry-phi");
-    expect(deskMail.length).toBeGreaterThanOrEqual(1);
-    expect(JSON.stringify(deskMail[0]!.message)).not.toContain("Dana");
+    // The clinic's alert (L7) is queued with the request, for the outbox to
+    // send to the clinic's one address: nothing is mailed to the report
+    // recipients, and no link to the single-use /booking/ page goes anywhere.
+    expect(transport.sent.filter((s) => s.message.phiClass !== "may-carry-phi")).toEqual([]);
+    const conversationId = readToken(first.token, clinic.clinicId)!.conversationId!;
+    const alerts = await alertRows(clinic.clinicId);
+    expect(alerts).toMatchObject([{ kind: "booking_request", payload: { channel: "web", conversationId } }]);
+    expect(JSON.stringify(alerts)).not.toMatch(/Dana|0192|Thursday|Consultation|\/booking\//);
   });
 
   test("ending the chat sends the transcript to the clinic, and the next message starts a new conversation", async () => {

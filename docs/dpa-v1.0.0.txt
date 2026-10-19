@@ -22,7 +22,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 88d592a2db0ac50faa80a819a1d6bd1dc0558d9fa31aaad14807a0a8eda43cc0).
+(SHA-256 b4246144e9915532193c7d25be8dee92a8a9e398c499c0441d77a46cdc4e3a08).
 The clauses that render only for some practices follow in Appendix A, numbered
 as they render; nothing else in the text varies. Appendix B is the calendar
 election that names this agreement, which its Definitions clause and its
@@ -227,11 +227,10 @@ EFFECTIVE 6 October 2026
        days after that. healdesk will have each subcontractor that holds the
        information delete it in time for Practice to meet the deadline the law
        sets. The only exception is what the clause headed "Subcontractors"
-       says a subcontractor may keep for abuse detection and security, or
-       because a law requires it. That is kept for that purpose and period
-       only, and used for nothing else. healdesk keeps only a record of the
-       request, for no longer than it needs one to make sure the information
-       stays deleted, and uses it for nothing else;
+       says a subcontractor may keep, for the periods that clause states, and
+       that is kept for those periods only. healdesk keeps only a record of
+       the request, for no longer than it needs one to make sure the
+       information stays deleted, and uses it for nothing else;
     d. give Practice the information it holds that Practice needs for any risk
        assessment, data protection or impact assessment, or cybersecurity
        audit those laws require of Practice, and misrepresent no fact relevant
@@ -265,16 +264,16 @@ EFFECTIVE 6 October 2026
   handles Client Information, by the written agreement that clause requires,
   to meet the obligations this clause places on healdesk for that information.
   The only exception to a subcontractor's duty to delete is what that clause
-  says it may keep for abuse detection and security, or because a law requires
-  it. Practice's payment processor and its Instagram, Messenger and WhatsApp
-  accounts are Practice's own services, which Practice connects, where it uses
-  them, under its own accounts with their providers. So is any Google Calendar
-  that a calendar election connects. They are not healdesk's subcontractors.
-  healdesk sends Client Information to them only to create the payment links
-  the clause headed "Payments" describes; to reply on Instagram, Messenger or
-  WhatsApp inside a conversation the person started there; and, where a
-  calendar election for a location provides for it, to add appointments to
-  that location's calendar.
+  says it may keep, for the periods that clause states. Practice's payment
+  processor and its Instagram, Messenger and WhatsApp accounts are Practice's
+  own services, which Practice connects, where it uses them, under its own
+  accounts with their providers. So is any Google Calendar that a calendar
+  election connects. They are not healdesk's subcontractors. healdesk sends
+  Client Information to them only to create the payment links the clause
+  headed "Payments" describes; to reply on Instagram, Messenger or WhatsApp
+  inside a conversation the person started there; and, where a calendar
+  election for a location provides for it, to add appointments to that
+  location's calendar.
 
   Where Practice is a provider of health care under California's
   Confidentiality of Medical Information Act, healdesk receives medical
@@ -428,15 +427,18 @@ EFFECTIVE 6 October 2026
   conversation. healdesk's language-model provider is Anthropic, which
   receives the content of each conversation to generate the assistant's
   replies, in the same account healdesk uses for the practices HIPAA covers,
-  under a business associate agreement with healdesk. Under that agreement
-  Anthropic keeps conversation content for no more than the 30 days of its
-  standard retention, and then deletes it. Two exceptions apply even then:
-  content its automated trust-and-safety systems flag as violating its usage
-  policy, which it may keep for up to two years, and content the law requires
-  it to keep, which it may keep for as long as the law requires. Anthropic
-  does not use that content to train its models without healdesk's permission,
-  which healdesk will not give. healdesk may not use Client Information to
-  train, fine-tune or evaluate any model, its own or a third party's.
+  only under a business associate agreement with healdesk signed before any
+  client's information reaches it. Anthropic keeps conversation content for no
+  more than the 30 days of its standard retention, and then deletes it.
+  Anthropic offers its service under a business associate agreement only with
+  that standard retention, which healdesk does not control. Two exceptions
+  apply even then: content its automated trust-and-safety systems flag as
+  violating its usage policy, which it may keep for up to two years, and
+  content the law requires it to keep, which it may keep for as long as the
+  law requires. Anthropic does not use that content to train its models
+  without healdesk's permission, which healdesk will not give. healdesk may
+  not use Client Information to train, fine-tune or evaluate any model, its
+  own or a third party's.
 
   healdesk will give Practice its current list of its subcontractors on
   Practice's written request to healdesk's email address in the Notices
@@ -922,11 +924,10 @@ Google account (replaces clause 5):
        days after that. healdesk will have each subcontractor that holds the
        information delete it in time for Practice to meet the deadline the law
        sets. The only exception is what the clause headed "Subcontractors"
-       says a subcontractor may keep for abuse detection and security, or
-       because a law requires it. That is kept for that purpose and period
-       only, and used for nothing else. healdesk keeps only a record of the
-       request, for no longer than it needs one to make sure the information
-       stays deleted, and uses it for nothing else;
+       says a subcontractor may keep, for the periods that clause states, and
+       that is kept for those periods only. healdesk keeps only a record of
+       the request, for no longer than it needs one to make sure the
+       information stays deleted, and uses it for nothing else;
     d. give Practice the information it holds that Practice needs for any risk
        assessment, data protection or impact assessment, or cybersecurity
        audit those laws require of Practice, and misrepresent no fact relevant
@@ -960,16 +961,15 @@ Google account (replaces clause 5):
   handles Client Information, by the written agreement that clause requires,
   to meet the obligations this clause places on healdesk for that information.
   The only exception to a subcontractor's duty to delete is what that clause
-  says it may keep for abuse detection and security, or because a law requires
-  it. Practice's Google Calendar, its payment processor and its Instagram,
-  Messenger and WhatsApp accounts are Practice's own services, which Practice
-  connects, where it uses them, under its own accounts with their providers.
-  They are not healdesk's subcontractors. healdesk sends Client Information to
-  them only to add appointments to the calendar as the clause headed "Google
-  Calendar", or a calendar election that takes its place, provides; to create
-  the payment links the clause headed "Payments" describes; and to reply on
-  Instagram, Messenger or WhatsApp inside a conversation the person started
-  there.
+  says it may keep, for the periods that clause states. Practice's Google
+  Calendar, its payment processor and its Instagram, Messenger and WhatsApp
+  accounts are Practice's own services, which Practice connects, where it uses
+  them, under its own accounts with their providers. They are not healdesk's
+  subcontractors. healdesk sends Client Information to them only to add
+  appointments to the calendar as the clause headed "Google Calendar", or a
+  calendar election that takes its place, provides; to create the payment
+  links the clause headed "Payments" describes; and to reply on Instagram,
+  Messenger or WhatsApp inside a conversation the person started there.
 
   Where Practice is a provider of health care under California's
   Confidentiality of Medical Information Act, healdesk receives medical

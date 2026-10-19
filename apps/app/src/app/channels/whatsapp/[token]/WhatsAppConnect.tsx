@@ -46,9 +46,10 @@ function fromMeta(origin: string): boolean {
 const ERRORS: Record<string, string> = {
   invalid_link: "This link has already been used or has expired. Ask us for a new one.",
   throttled: "That was tried several times in a short space of time. Wait a few minutes and try again.",
+  signed_out: "You've been signed out. Sign in again, then connect WhatsApp.",
   not_configured: "Connecting WhatsApp isn't switched on yet.",
   bad_request: "Meta's window didn't send everything we need. Please try again.",
-  meta_error: "Meta didn't finish setting up the number. Nothing was saved, and your link still works. Try again in a minute.",
+  meta_error: "Meta didn't finish setting up the number. Nothing was saved, and you can try again in a minute.",
   number_taken:
     "That WhatsApp number is already connected to another practice on healdesk, so it can't be connected here too. Nothing was saved. Disconnect it there first, or reply to your setup email and we'll sort it out.",
 };
@@ -57,11 +58,16 @@ type Phase = "loading" | "ready" | "working" | "failed";
 
 export function WhatsAppConnect({
   token,
+  clinic,
+  returnTo,
   appId,
   configId,
   graphVersion,
 }: {
-  token: string;
+  /** A mailed link's token; the portal's page sends `clinic` (its slug) and `returnTo` instead. */
+  token?: string;
+  clinic?: string;
+  returnTo?: string;
   appId: string;
   configId: string;
   graphVersion: string;
@@ -82,10 +88,18 @@ export function WhatsAppConnect({
       const res = await fetch("/api/meta/whatsapp", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token, code: code.current, wabaId, phoneNumberId }),
+        body: JSON.stringify(
+          clinic
+            ? { clinic, code: code.current, wabaId, phoneNumberId }
+            : { token, code: code.current, wabaId, phoneNumberId },
+        ),
       });
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; number?: string | null };
       if (res.ok && body.ok) {
+        if (returnTo) {
+          window.location.assign(returnTo);
+          return;
+        }
         const done = new URLSearchParams({ channel: "whatsapp", number: body.number ?? "" });
         window.location.assign(`/channels/done?${done.toString()}`);
         return;
@@ -120,7 +134,7 @@ export function WhatsAppConnect({
         void submitWhenComplete();
       } else if (data.event === "CANCEL" || data.event === "ERROR") {
         setPhase("ready");
-        setMessage("WhatsApp setup was closed before it finished. Nothing was saved, and your link still works.");
+        setMessage("WhatsApp setup was closed before it finished. Nothing was saved, and you can try again.");
       }
     }
     window.addEventListener("message", onMessage);
@@ -159,7 +173,7 @@ export function WhatsAppConnect({
           void submitWhenComplete();
         } else if (!submitted.current) {
           setPhase("ready");
-          setMessage("WhatsApp setup was closed before it finished. Nothing was saved, and your link still works.");
+          setMessage("WhatsApp setup was closed before it finished. Nothing was saved, and you can try again.");
         }
       },
       {

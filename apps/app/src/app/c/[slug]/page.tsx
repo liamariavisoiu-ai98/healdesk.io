@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { getBillingSummary } from "@/lib/billing/summary";
 import { setupLastDay } from "@/lib/clinic/setup-window";
 import { getCalendarConnection } from "@/lib/connections/google-calendar";
+import { readMetaConnectView } from "@/lib/meta/reconnect";
 import { requirePortal } from "@/lib/portal/access";
 import { needsAttention } from "@/lib/portal/attention";
 import { portalDay } from "@/lib/portal/format";
@@ -14,6 +15,7 @@ import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
 import { wizardFinished } from "@/lib/setup/screens";
 import { buildTracker, joinWords } from "@/lib/setup/tracker";
+import { withTenant } from "@/lib/tenant";
 
 import { PortalShell } from "./PortalShell";
 
@@ -58,7 +60,12 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
   });
   const calendar = await getCalendarConnection(portal.clinicId, { actor: page.actorContext });
   const live = shell.status.kind !== "not_yet";
-  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts, live, calendar });
+  const meta = state.channels.some((c) => c.channel === "meta")
+    ? await withTenant({ clinicId: portal.clinicId, actor: page.actorContext }, (tx) =>
+        readMetaConnectView(tx.db, tx.clinicId),
+      )
+    : null;
+  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts, live, calendar, meta });
   const tracker = buildTracker(state, calendar, facts.practice);
   const finished = wizardFinished(state.screens, state.progress);
   const plan = state.billing ? getPlan(state.billing.boughtPlanId) : undefined;

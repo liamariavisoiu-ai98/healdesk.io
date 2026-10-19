@@ -3,6 +3,9 @@ import type { ReactNode } from "react";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import type { SettingsView } from "@/lib/portal/settings-view";
 
+import { PORTAL_META_OUTCOMES } from "@/lib/meta/portal-return";
+
+import { MetaConnectButtons } from "../MetaConnectButtons";
 import { SendStepsForm } from "../SendStepsForm";
 
 import {
@@ -48,13 +51,26 @@ export function Card(props: { id: string; title: string; intro?: ReactNode; chil
 export function ChannelsCard({
   view,
   phoneSteps = null,
+  metaOutcome = null,
 }: {
   view: SettingsView;
+  /** `?meta=` from a Facebook login or WhatsApp sign-up that just returned here. */
+  metaOutcome?: string | null;
   /** AYA's number as the page prints it, once phone is ready on our side; null until then. */
   phoneSteps?: { numberLabel: string } | null;
 }) {
   return (
     <Card id="channels" title="Channels" intro="Each channel you bought, on or off on its own.">
+      {metaOutcome && PORTAL_META_OUTCOMES[metaOutcome] ? (
+        <p
+          role="status"
+          className={`my-3 rounded-xl border px-4 py-3 text-sm ${
+            PORTAL_META_OUTCOMES[metaOutcome]!.ok ? "border-line bg-tint-mint" : "border-red-200 text-red-800"
+          }`}
+        >
+          {PORTAL_META_OUTCOMES[metaOutcome]!.text}
+        </p>
+      ) : null}
       {view.channels.map((c) =>
         c.key ? (
           <div key={c.channel}>
@@ -98,6 +114,12 @@ export function ChannelsCard({
           </div>
         ),
       )}
+      {view.metaConnect ? (
+        <div id="meta-connections" className="py-3">
+          <p className="font-semibold">Instagram, Messenger &amp; WhatsApp logins</p>
+          <MetaConnectButtons slug={view.slug} from="settings" view={view.metaConnect} />
+        </div>
+      ) : null}
       {view.bought.voice ? (
         <ChoiceSetting
           slug={view.slug}

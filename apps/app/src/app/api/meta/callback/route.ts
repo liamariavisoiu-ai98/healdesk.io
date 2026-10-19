@@ -11,6 +11,7 @@ import {
   requestContextFrom,
   seeOther,
 } from "@/lib/meta/connect-http";
+import { portalReturnUrl } from "@/lib/meta/portal-return";
 import { decodeLoginCookie, LOGIN_COOKIE, loginCookieHeader, readCookie, stateMatches } from "@/lib/meta/login-state";
 import { withTenant } from "@/lib/tenant";
 
@@ -44,8 +45,18 @@ export async function GET(request: Request): Promise<Response> {
   const cookie = decodeLoginCookie(readCookie(request.headers.get("cookie"), LOGIN_COOKIE));
   if (!cookie || !stateMatches(url.searchParams.get("state"), cookie.nonce)) return invalid();
 
+  // A login the portal's button started returns to the portal screen it was
+  // pressed on (cookie.from, set only by /api/meta/login's portal branch);
+  // a mailed link's returns to its own page. The slug comes from the link,
+  // never the browser.
+  let slug: string | null = null;
   const back = (problem: string) =>
-    seeOther(publicUrl(`/channels/meta/${encodeURIComponent(cookie.token)}?problem=${problem}`), clear);
+    seeOther(
+      cookie.from && slug
+        ? portalReturnUrl(slug, cookie.from, problem)
+        : publicUrl(`/channels/meta/${encodeURIComponent(cookie.token)}?problem=${problem}`),
+      clear,
+    );
 
   const code = url.searchParams.get("code");
   if (url.searchParams.get("error") || !code) return back("cancelled");
@@ -53,6 +64,7 @@ export async function GET(request: Request): Promise<Response> {
   const context = requestContextFrom(request);
   const link = await resolveConnectionLink(cookie.token, context, "meta");
   if (!link) return invalid();
+  slug = link.clinicSlug;
 
   const app = metaApp();
   if (!app) return back("not_configured");
@@ -83,6 +95,8 @@ export async function GET(request: Request): Promise<Response> {
     log.error("Storing a clinic's Meta channels failed", { clinicId: link.clinicId, error: describeError(error) });
     return back("meta_error");
   }
+
+  if (cookie.from) return seeOther(portalReturnUrl(link.clinicSlug, cookie.from, "connected"), clear);
 
   const done = new URLSearchParams({ channel: "meta", page: outcome.page.name });
   if (outcome.instagram) done.set("instagram", outcome.instagram.username ?? "");

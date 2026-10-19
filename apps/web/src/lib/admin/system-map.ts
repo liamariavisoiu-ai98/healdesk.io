@@ -541,7 +541,7 @@ export const KEYS: readonly KeyDef[] = [
     label: "Retell key (engine): signs call-ended messages and reads a call back",
     need: "later",
     waitsFor:
-      "every business associate agreement in the chain is signed, Retell's included, which the paste script asks you to confirm before it takes this. Paste the key of the Retell workspace the clinics' agents are in, the one with the webhook badge, and set each clinic's agent webhook to https://app.healdesk.io/api/webhooks/retell/<clinic id>",
+      "every business associate agreement in the chain is signed, Retell's included, which the paste script asks you to confirm before it takes this. Paste the key of the Retell workspace the clinics' agents are in (their own, under Retell's agreement, never the demo line's, whose keys are on Vercel), the one with the webhook badge, and set each clinic's agent webhook to https://app.healdesk.io/api/webhooks/retell/<clinic id>",
     rotation: {
       kind: "every",
       days: 180,

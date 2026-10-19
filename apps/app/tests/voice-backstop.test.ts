@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import type { AddressInfo } from "node:net";
 
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import WebSocket from "ws";
 
@@ -26,6 +27,7 @@ import {
   BACKSTOP_DELAY_SECONDS,
   callEventFromRetell,
   fetchRetellCall,
+  handleCallBackstopJob,
   openedWithDisclosure,
   retellApiKey,
   runCallBackstop,
@@ -344,6 +346,21 @@ describeDb("the backstop against the database", () => {
     expect(recorded).toHaveLength(1);
     expect(await counts(clinic.clinicId)).toMatchObject({ conversations: 1, requests: 0, transcripts: 1 });
     expect(transport.sent.filter((s) => s.message.phiClass === "may-carry-phi")).toHaveLength(1);
+  });
+
+  test("a failed job is retried with a described error, never the original, which pg-boss would store", async () => {
+    const clinic = await clinicWithNumber("backstop-leak");
+    // What drizzle throws when a statement fails: the parameters, the caller's number and name, in its message and on itself.
+    const leaky = new DrizzleQueryError("insert into contacts (phone, full_name) values ($1, $2)", ["+14155550192", "Dana"], Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" }));
+    const thrown = await handleCallBackstopJob(
+      { clinicId: clinic.clinicId, callId: "call_leak" },
+      { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id }), ingest: async () => { throw leaky; }, transport },
+    ).catch((e: unknown) => e);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).not.toBe(leaky);
+    expect(Object.keys(thrown as object)).toEqual([]);
+    expect((thrown as Error).message).not.toContain("4155550192");
+    expect((thrown as Error).message).not.toContain("Dana");
   });
 
   test("a call to another number is not this clinic's; a call still in progress is retried; an outbound call is refused once", async () => {

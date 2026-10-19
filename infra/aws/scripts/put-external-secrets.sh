@@ -75,7 +75,7 @@ hint_for() {
     META_VERIFY_TOKEN) echo "the webhook verify token set in Meta's dashboard" ;;
     ANTHROPIC_API_KEY) echo "a key of the HIPAA-enabled Anthropic organisation, never the marketing one" ;;
     HEALDESK_RETELL_LLM_SECRET) echo "the secret in every clinic's Retell agent URL (wss://app.healdesk.io/llm-websocket/<this>/<clinic id>): 32 to 200 random letters, digits, - or _, such as the output of openssl rand -hex 32; the same value goes into each agent" ;;
-    HEALDESK_RETELL_API_KEY) echo "the API key of the Retell workspace the clinics' agents are in, the one with the webhook badge (Settings, API Keys): it signs the call-ended webhook and reads a call back" ;;
+    HEALDESK_RETELL_API_KEY) echo "the API key of the Retell workspace the clinics' agents are in, the one with the webhook badge (Settings, API Keys): it signs the call-ended webhook and reads a call back. That workspace is the clinics' own, under Retell's BAA, never the demo line's" ;;
     CLOUDFLARE_API_TOKEN) echo "Cloudflare API token (Edit zone DNS, healdesk.io), read by infra.yml and host.yml only" ;;
   esac
 }

@@ -289,7 +289,11 @@ export async function handleCallBackstopJob(payload: CallBackstopPayload, deps: 
       log.warn("voice call backstop refused", { clinicId: payload.clinicId, status: outcome.status === "refused" ? outcome.reason : outcome.status });
     }
   } catch (error) {
-    log.error("voice call backstop failed", { clinicId: payload.clinicId, error: describeError(error) });
-    throw error;
+    // Rethrown described, never as it was: pg-boss stores a failed job's
+    // error in its own tables, which have no RLS, and a query error carries
+    // its parameters, the caller's number among them.
+    const described = describeError(error);
+    log.error("voice call backstop failed", { clinicId: payload.clinicId, error: described });
+    throw new Error(described);
   }
 }

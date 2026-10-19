@@ -190,7 +190,7 @@ would land in the state at the next plan.) The real values are written inside AW
 | `app/STRIPE_CONNECT_WEBHOOK_SECRET` | The owner, from doorbell B (Stripe's Connect endpoint at `https://app.healdesk.io/api/webhooks/stripe-connect`) | web |
 | `app/META_APP_SECRET`, `app/META_VERIFY_TOKEN`, `app/ANTHROPIC_API_KEY` | The owner, only once the BAA chain allows ("What still blocks real patient data") | web |
 | `app/HEALDESK_RETELL_LLM_SECRET` | The owner, before turning `enable_voice` on: a random value, at least 32 characters (letters, digits, `-` and `_` only, since it is a URL path segment: `openssl rand -hex 32`); the same value goes into each clinic's Retell agent URL ("The voice endpoint", below). Until then leave it `__unset__`, and the voice process refuses every call | voice (and web, which gets every `app/` parameter) |
-| `app/HEALDESK_RETELL_API_KEY` | The owner, with `HEALDESK_RETELL_LLM_SECRET`: the API key of the Retell workspace the clinics' agents are in, the one with the webhook badge. It verifies Retell's call-ended webhook (`/api/webhooks/retell/<clinic id>`) and lets the worker read a call back (`GET https://api.retellai.com/v2/get-call/<id>`), the backstop for a call the voice task never recorded ("The voice endpoint", below). Unset, the webhook answers 503 and nothing is backstopped | web (the webhook), worker (the backstop job) |
+| `app/HEALDESK_RETELL_API_KEY` | The owner, with `HEALDESK_RETELL_LLM_SECRET`: the API key of the Retell workspace the clinics' agents are in, the one with the webhook badge. That workspace is the one under Retell's BAA and holds no demo agent: a key reads every call in its workspace, and the demo's keys sit on Vercel, which handles no patient data. It verifies Retell's call-ended webhook (`/api/webhooks/retell/<clinic id>`) and lets the worker read a call back (`GET https://api.retellai.com/v2/get-call/<id>`), the backstop for a call the voice task never recorded ("The voice endpoint", below). Unset, the webhook answers 503 and nothing is backstopped | web (the webhook), worker (the backstop job) |
 | `ci/CLOUDFLARE_API_TOKEN` (not Terraform's) | The owner, before the first plan, under the bootstrap stack's key | `infra.yml` and `host.yml`, after they assume the Terraform role |
 | RDS master secret (Secrets Manager, managed by RDS, rotated every 7 days) | RDS | db-bootstrap only, through the execution role |
 
@@ -1197,7 +1197,7 @@ calls drop and the other answers the next.
    unset).
 6. **The backstop.** Paste the engine's Retell key, `bash put-external-secrets.sh
    HEALDESK_RETELL_API_KEY` (the key with the webhook badge, in the workspace the clinics' agents
-   are in), and restart. In each clinic's Retell agent set the agent's own webhook URL to
+   are in: their own, under Retell's BAA, never the demo's, whose keys are on Vercel), and restart. In each clinic's Retell agent set the agent's own webhook URL to
    `https://app.healdesk.io/api/webhooks/retell/<clinic id>` (the same lower-case UUID as the
    socket's path), and make sure the clinic row's `assistant_number_e164` is the agent's Retell
    number: the backstop records nothing for a call to any other number. Retell sends

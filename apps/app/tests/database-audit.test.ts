@@ -782,7 +782,8 @@ describeDb("database audit (0031)", () => {
     // (a time tied to a call and a contact) and the named providers with
     // their services (whose patient someone is, beside a booking); 0064 the
     // amendments Practice directs to a request or a conversation; 0069 the
-    // transcript outbox's sealed copies (on INSERT only: see the migration).
+    // transcript outbox's sealed copies (on INSERT only: see the migration);
+    // 0092 the flags staff put on conversations.
     const expected = [
       "appointments",
       "booking_requests",
@@ -791,6 +792,7 @@ describeDb("database audit (0031)", () => {
       "consent_records",
       "contact_attempts",
       "contacts",
+      "conversation_flags",
       "conversations",
       "deposit_payments",
       "meta_booking_drafts",

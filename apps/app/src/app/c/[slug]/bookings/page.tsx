@@ -58,7 +58,7 @@ export const dynamic = "force-dynamic";
  * it. The query carries an id and status words, never anything of the
  * person.
  */
-type Query = { request?: string; followup?: string; calendar?: string };
+type Query = { request?: string; followup?: string; calendar?: string; handled?: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -105,6 +105,13 @@ export default async function BookingsPage({
 
         <div role="status" aria-live="polite">
           {focus ? <FocusNote view={focus} query={query} decided={decided} now={now} /> : null}
+          {query.handled === "marked" || query.handled === "already" ? (
+            <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
+              {query.handled === "marked"
+                ? "Marked handled."
+                : "Someone on your team already marked that handled."}
+            </p>
+          ) : null}
         </div>
 
         <section aria-labelledby="needs-you" className="mt-8">

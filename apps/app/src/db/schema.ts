@@ -5743,7 +5743,8 @@ export type HandoverPlatform = "instagram" | "messenger" | "whatsapp";
  *
  * It holds no words and no identity of its own: only which conversation it
  * was asked in, so the person is reached, kept and erased through that
- * conversation. A call or web chat points at its conversation and goes with
+ * conversation, and for a web chat the contact for the number the visitor
+ * gave for the call back, which takes the handover with it. A call or web chat points at its conversation and goes with
  * it by the foreign key's cascade (a call's row is written when the call
  * ends, so a call's handover carries the vendor's call id until then and
  * the database links it, drizzle/0085). A Meta thread points at its
@@ -5770,6 +5771,14 @@ export const handovers = pgTable(
     partyRef: text("party_ref"),
     /** Meta only: the thread's conversation (chat_threads.conversation_id), once per which. */
     metaConversationId: uuid("meta_conversation_id"),
+    /**
+     * Web chat only: the contact for the number the visitor gave so the desk
+     * can call back, set once. On the handover, never on the conversation:
+     * a request later in the same chat may name someone else, and a
+     * conversation another person's appointment points at cannot go with
+     * this person's erasure. Goes with the contact.
+     */
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "cascade" }),
     /** When they asked: the database's clock at the insert. */
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
     /** The desk marked it handled: the database's clock, once. */
@@ -5790,6 +5799,7 @@ export const handovers = pgTable(
       .on(t.clinicId, t.metaConversationId)
       .where(sql`${t.metaConversationId} is not null`),
     index("handovers_thread_idx").on(t.clinicId, t.platform, t.partyRef),
+    index("handovers_contact_idx").on(t.clinicId, t.contactId),
     foreignKey({
       name: "handovers_conversation_fk",
       columns: [t.clinicId, t.conversationId],
@@ -5802,9 +5812,9 @@ export const handovers = pgTable(
     }).onDelete("cascade"),
     check(
       "handovers_shape_check",
-      sql`(${t.channel} = 'voice' and ${t.externalCallId} is not null and ${t.platform} is null and ${t.partyRef} is null and ${t.metaConversationId} is null)
+      sql`(${t.channel} = 'voice' and ${t.externalCallId} is not null and ${t.platform} is null and ${t.partyRef} is null and ${t.metaConversationId} is null and ${t.contactId} is null)
         or (${t.channel} = 'web_chat' and ${t.conversationId} is not null and ${t.externalCallId} is null and ${t.platform} is null and ${t.partyRef} is null and ${t.metaConversationId} is null)
-        or (${t.channel} = 'meta' and ${t.platform} in ('instagram', 'messenger', 'whatsapp') and ${t.partyRef} is not null and ${t.metaConversationId} is not null and ${t.conversationId} is null and ${t.externalCallId} is null)`,
+        or (${t.channel} = 'meta' and ${t.platform} in ('instagram', 'messenger', 'whatsapp') and ${t.partyRef} is not null and ${t.metaConversationId} is not null and ${t.conversationId} is null and ${t.externalCallId} is null and ${t.contactId} is null)`,
     ),
     check(
       "handovers_call_id_check",

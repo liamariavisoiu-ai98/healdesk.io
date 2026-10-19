@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import {
   appointments,
@@ -496,20 +497,37 @@ export const MAX_OPEN_HANDOVERS = 100;
  * ends, so one still going has none yet.
  */
 async function readOpenHandovers(tx: TenantTx): Promise<HandoverView[]> {
+  const own = alias(contacts, "handover_contact");
+  // A call's handover is linked to its conversation by the database when
+  // the call's row is written; one raised in the same instant may miss the
+  // link, so a call is also found by its call id.
+  const call = alias(conversations, "handover_call");
   const rows = await tx.db
     .select({
       id: handovers.id,
       channel: handovers.channel,
       platform: handovers.platform,
       askedAt: handovers.createdAt,
-      conversationId: handovers.conversationId,
-      firstName: contacts.fullName,
-      phone: contacts.phone,
+      conversationId: sql<string | null>`coalesce(${handovers.conversationId}, ${call.id})`,
+      firstName: sql<string | null>`coalesce(${own.fullName}, ${contacts.fullName})`,
+      phone: sql<string | null>`coalesce(${own.phone}, ${contacts.phone})`,
     })
     .from(handovers)
+    .leftJoin(own, and(eq(own.clinicId, handovers.clinicId), eq(own.id, handovers.contactId)))
+    .leftJoin(
+      call,
+      and(
+        isNull(handovers.conversationId),
+        eq(call.clinicId, handovers.clinicId),
+        eq(call.externalCallId, handovers.externalCallId),
+      ),
+    )
     .leftJoin(
       conversations,
-      and(eq(conversations.clinicId, handovers.clinicId), eq(conversations.id, handovers.conversationId)),
+      and(
+        eq(conversations.clinicId, handovers.clinicId),
+        eq(conversations.id, sql`coalesce(${handovers.conversationId}, ${call.id})`),
+      ),
     )
     .leftJoin(
       contacts,
@@ -551,12 +569,14 @@ export function handoverWords(view: Pick<HandoverView, "channel" | "platform" | 
         ? null
         : view.conversationId
           ? "The caller's number wasn't shown. Their call is in Conversations."
-          : "The call was still going. Its record and the caller's number appear here when it ends.",
+          : "The caller's number appears here once the call's record is written, when it ends.",
     };
   }
   return {
     via: "in your website chat",
-    reach: view.phone ? null : "They didn't leave a number. The chat's transcript was emailed to you.",
+    reach: view.phone
+      ? null
+      : "They haven't left a number. The chat's transcript is emailed to you when it ends.",
   };
 }
 
@@ -568,7 +588,10 @@ export class HandoverNotFoundError extends Error {
   }
 }
 
-export type HandoverResult = { ok: true; changed: boolean; handledAt: Date };
+export type HandoverResult =
+  | { ok: true; changed: boolean }
+  /** The clinic is closing: its portal is read-only (the page hides the button; this holds for a hand-made post). */
+  | { ok: false; reason: "read_only" };
 
 /**
  * The desk has dealt with a handover: marked once, by the device whose
@@ -576,7 +599,8 @@ export type HandoverResult = { ok: true; changed: boolean; handledAt: Date };
  * with an access row for the handover it read and an update row for the
  * change, each naming the passkey. The database stamps the time and never
  * reopens it (drizzle/0085), so marking one already handled changes
- * nothing. An id that is not one of this clinic's handovers throws
+ * nothing. A clinic whose offboarding has started is read-only, and nothing
+ * is written. An id that is not one of this clinic's handovers throws
  * HandoverNotFoundError, so the transaction rolls back and leaves no row.
  */
 export async function markHandoverHandled(tx: PatientTx, handoverId: string): Promise<HandoverResult> {
@@ -589,13 +613,18 @@ export async function markHandoverHandled(tx: PatientTx, handoverId: string): Pr
     .limit(1);
   if (!row) throw new HandoverNotFoundError();
   await logPatientAccess(tx, { action: "read", resourceType: "handover", resourceId: handoverId });
-  if (row.handledAt) return { ok: true, changed: false, handledAt: row.handledAt };
+  const [clinic] = await tx.db
+    .select({ offboardingStartedAt: clinics.offboardingStartedAt })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  if (clinic?.offboardingStartedAt) return { ok: false, reason: "read_only" };
+  if (row.handledAt) return { ok: true, changed: false };
   const label = tx.page.stepUp.deviceLabel.trim().slice(0, 200) || "Your team";
-  const [updated] = await tx.db
+  await tx.db
     .update(handovers)
     .set({ handledAt: sql`clock_timestamp()`, handledByLabel: label, handledByUserId: tx.page.portal.userId })
-    .where(and(eq(handovers.id, handoverId), eq(handovers.clinicId, tx.clinicId), isNull(handovers.handledAt)))
-    .returning({ handledAt: handovers.handledAt });
+    .where(and(eq(handovers.id, handoverId), eq(handovers.clinicId, tx.clinicId), isNull(handovers.handledAt)));
   tx.audit.record({
     action: "update",
     resourceType: "handover",
@@ -606,5 +635,5 @@ export async function markHandoverHandled(tx: PatientTx, handoverId: string): Pr
       stepUpId: tx.page.stepUp.stepUpId,
     },
   });
-  return { ok: true, changed: true, handledAt: updated?.handledAt ?? new Date() };
+  return { ok: true, changed: true };
 }

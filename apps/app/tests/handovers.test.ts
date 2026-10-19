@@ -9,12 +9,13 @@ import type { AssistantResponder } from "@/lib/assistant/turn";
 import { auth } from "@/lib/auth";
 import { sendWebChatMessage, startWebChat, webChatClinic, type WebChatClinic } from "@/lib/chat/web-chat";
 import { hashSessionToken } from "@/lib/factors/step-ups";
-import { raiseHandover } from "@/lib/handovers/record";
+import { attachHandoverCaller, raiseHandover } from "@/lib/handovers/record";
 import { attachMetaChannel, setMetaFrontDoor } from "@/lib/meta/channels";
 import { answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
+import { exportClinic, exportPatient } from "@/lib/patient-rights/export";
 import { purgeClinic } from "@/lib/retention/purge";
 import { withTenant } from "@/lib/tenant";
 import { createVoiceServer } from "@/voice/server";
@@ -100,13 +101,14 @@ type HandoverRow = {
   handled_at: Date | null;
   handled_by_label: string | null;
   handled_by_user_id: string | null;
+  contact_id: string | null;
 };
 
 async function handoverRows(clinicId: string): Promise<HandoverRow[]> {
   return inTenant(clinicId, async (client) => {
     const { rows } = await client.query<HandoverRow>(
       `select id, channel, platform, external_call_id, conversation_id, party_ref, meta_conversation_id,
-              handled_at, handled_by_label, handled_by_user_id
+              handled_at, handled_by_label, handled_by_user_id, contact_id
          from handovers order by created_at, id`,
     );
     return rows;
@@ -252,6 +254,66 @@ describeDb("handovers: the table", () => {
     await expect(inTenant(a.clinicId, (q) => q.query(`update handovers set created_at = now() - interval '1 day' where id = $1`, [row!.id]))).rejects.toThrow(/never rewritten/);
   });
 
+  test("a web chat handover's contact takes it with the person's erasure, the conversation stays; and both exports carry it", async () => {
+    const c = await seedClinic("handover-erase");
+    const conversationId = await conversationRow(c.clinicId, { channel: "web_chat" });
+    await raise(c.clinicId, { channel: "web_chat", conversationId });
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      attachHandoverCaller(tx, { conversationId, capture: { firstName: "Dana", phone: "415 555 0161" }, timeZone: "America/New_York" }),
+    );
+    const [row] = await handoverRows(c.clinicId);
+    expect(row!.contact_id).not.toBeNull();
+    // Someone else's request in the same chat, with its own contact.
+    const other = await inTenant(c.clinicId, async (q) =>
+      (await q.query<{ id: string }>(`insert into contacts (clinic_id, phone) values ($1, '+14155550162') returning id`, [c.clinicId])).rows[0]!.id,
+    );
+    expect(other).toBeTruthy();
+
+    const person = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      exportPatient(tx, { contactId: row!.contact_id!, requestedBy: "practice" }),
+    );
+    expect(person.handovers.map((h) => h.id)).toEqual([row!.id]);
+    const clinic = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "practice", "portal_download"));
+    expect(clinic.handovers.map((h) => h.id)).toEqual([row!.id]);
+
+    const left = await asApp(c.clinicId, async (q) => {
+      await q(`select * from app_erase_contacts(array[$1]::uuid[])`, [row!.contact_id]);
+      return {
+        handovers: (await q(`select id from handovers`)).rows.length,
+        conversations: (await q(`select id from conversations where id = $1`, [conversationId])).rows.length,
+      };
+    });
+    expect(left).toEqual({ handovers: 0, conversations: 1 });
+  });
+
+  test("a restore loads handled rows as they were with the guard off, as docs/handover.md says, and not with it on", async () => {
+    const c = await seedClinic("handover-restore");
+    const conversationId = await conversationRow(c.clinicId, { channel: "web_chat" });
+    const pool = getMigratorPool();
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+      await client.query(`select set_config('app.clinic_id', $1, true)`, [c.clinicId]);
+      const load = () =>
+        client.query(
+          `insert into handovers (clinic_id, channel, conversation_id, created_at, handled_at, handled_by_label, handled_by_user_id)
+           values ($1, 'web_chat', $2, '2026-10-01T10:00:00Z', '2026-10-01T11:00:00Z', 'Front desk', 'u1')`,
+          [c.clinicId, conversationId],
+        );
+      await client.query("savepoint plain");
+      await expect(load()).rejects.toThrow(/recorded open/);
+      await client.query("rollback to savepoint plain");
+      await client.query(`alter table handovers disable trigger handovers_guard`);
+      await load();
+      await client.query(`alter table handovers enable trigger handovers_guard`);
+      const { rows } = await client.query<{ created_at: Date }>(`select created_at from handovers`);
+      expect(rows[0]!.created_at.toISOString()).toBe("2026-10-01T10:00:00.000Z");
+    } finally {
+      await client.query("rollback").catch(() => {});
+      client.release();
+    }
+  });
+
   test("the record clock deletes a handover its conversation did not take with it", async () => {
     const c = await seedClinic("handover-purge");
     await raise(c.clinicId, { channel: "voice", callId: "call_never_written" });
@@ -329,7 +391,7 @@ describeDb("handovers: each channel records its own", () => {
     await closePools();
   });
 
-  test("web chat: asked once, with the number the visitor then gives on the conversation's contact", async () => {
+  test("web chat: asked once, with the number the visitor then gives on a contact of the handover's own", async () => {
     const clinic = await liveWebClinic("handover-chat");
     const responder: AssistantResponder = async ({ messages }) => {
       const last = messages[messages.length - 1]!.content;
@@ -350,12 +412,25 @@ describeDb("handovers: each channel records its own", () => {
     expect(await handoverRows(clinic.clinicId)).toHaveLength(1);
     expect(await queuedNotices(clinic.clinicId, ["handover"])).toHaveLength(1);
     const { rows } = await inTenant(clinic.clinicId, (client) =>
-      client.query<{ phone: string; full_name: string | null }>(
-        `select p.phone, p.full_name from conversations v join contacts p on p.id = v.contact_id where v.id = $1`,
-        [row!.conversation_id],
+      client.query<{ phone: string; full_name: string | null; conversation_contact: string | null }>(
+        `select p.phone, p.full_name, v.contact_id as conversation_contact
+           from handovers h join contacts p on p.id = h.contact_id join conversations v on v.id = h.conversation_id`,
       ),
     );
-    expect(rows).toEqual([{ phone: "+14155550192", full_name: "Dana" }]);
+    // Never on the conversation, which a later request may tie to someone else.
+    expect(rows).toEqual([{ phone: "+14155550192", full_name: "Dana", conversation_contact: null }]);
+  }, 60_000);
+
+  test("web chat: a handover after an urgent alert keeps nothing, and the urgent alert stands", async () => {
+    const clinic = await liveWebClinic("handover-chat-urgent");
+    const responder: AssistantResponder = async () => JSON.stringify({ reply: "A person will help.", handoff: true });
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("chat did not start");
+    const first = await sendWebChatMessage(clinic, start.token, "I'm having a severe reaction to my filler", { responder, transport: new FakeTransport() });
+    if (first.mode !== "chat") throw new Error("not answered");
+    await sendWebChatMessage(clinic, first.token, "Can I speak to a person?", { responder, transport: new FakeTransport() });
+    expect(await handoverRows(clinic.clinicId)).toEqual([]);
+    expect(await queuedNotices(clinic.clinicId, ["urgent"])).toHaveLength(1);
   }, 60_000);
 
   test("Meta: the model's handoff keeps one by the thread's reference; a message the screen refused keeps nothing", async () => {
@@ -477,8 +552,8 @@ function text(html: string): string {
   return html.replace(/<[^>]+>/g, " ").replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 }
 
-async function renderBookings(slug: string): Promise<string> {
-  return renderToStaticMarkup(await BookingsPage({ params: Promise.resolve({ slug }), searchParams: Promise.resolve({}) }));
+async function renderBookings(slug: string, query: Record<string, string> = {}): Promise<string> {
+  return renderToStaticMarkup(await BookingsPage({ params: Promise.resolve({ slug }), searchParams: Promise.resolve(query) }));
 }
 
 function form(fields: Record<string, string>): FormData {
@@ -535,9 +610,9 @@ describeDb("handovers on Bookings", () => {
     expect(page).toContain("Asked for a person");
     expect(page).toContain("Maria asked for a person on the phone");
     expect(page).toContain("Call Maria");
-    expect(page).toContain("The call was still going.");
+    expect(page).toContain("The caller's number appears here once the call's record is written, when it ends.");
     expect(page).toContain("Someone asked for a person in your website chat");
-    expect(page).toContain("They didn't leave a number. The chat's transcript was emailed to you.");
+    expect(page).toContain("They haven't left a number. The chat's transcript is emailed to you when it ends.");
     expect(page).toContain("Someone asked for a person on Instagram");
     expect(page).toContain("Reply to them in your Instagram inbox. Nothing they wrote is kept here.");
     expect(page.match(/Mark handled/g)).toHaveLength(4);
@@ -568,7 +643,9 @@ describeDb("handovers on Bookings", () => {
     expect((await handoverRows(a.clinicId))[0]!.handled_at).toBeNull();
 
     const { factorId, stepUpId } = await stepUpWithPasskey(link);
-    expect(await markHandover(a.clinicSlug, { status: "idle" }, form({ handoverId: row!.id }))).toEqual({ status: "saved", message: "Marked handled." });
+    await expect(markHandover(a.clinicSlug, { status: "idle" }, form({ handoverId: row!.id }))).rejects.toMatchObject({
+      url: `/c/${a.clinicSlug}/bookings?handled=marked`,
+    });
     const [handled] = await handoverRows(a.clinicId);
     expect(handled).toMatchObject({ handled_by_label: "Front desk Mac", handled_by_user_id: a.userId });
     expect(handled!.handled_at).not.toBeNull();
@@ -576,19 +653,35 @@ describeDb("handovers on Bookings", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0]!.metadata).toMatchObject({ outcome: "handled", passkeyId: factorId, stepUpId });
 
-    expect(await markHandover(a.clinicSlug, { status: "idle" }, form({ handoverId: row!.id }))).toEqual({
-      status: "saved",
-      message: "Someone on your team already marked this handled.",
+    await expect(markHandover(a.clinicSlug, { status: "idle" }, form({ handoverId: row!.id }))).rejects.toMatchObject({
+      url: `/c/${a.clinicSlug}/bookings?handled=already`,
     });
     expect((await auditRows(a.clinicId)).filter((r) => r.action === "update" && r.resource_type === "handover")).toHaveLength(1);
-    const page = text(await renderBookings(a.clinicSlug));
+    const page = text(await renderBookings(a.clinicSlug, { handled: "marked" }));
     expect(page).not.toContain("Asked for a person");
     expect(page).toContain("Nothing needs you right now.");
+    // Said in the page's own status region, since the card has gone.
+    expect(await renderBookings(a.clinicSlug, { handled: "marked" })).toMatch(/role="status"[^>]*>[^]*Marked handled\./);
 
     const before = (await auditRows(a.clinicId)).length;
     await expect(markHandover(a.clinicSlug, { status: "idle" }, form({ handoverId: other!.id }))).rejects.toThrow("NEXT_NOT_FOUND");
     await expect(markHandover(a.clinicSlug, { status: "idle" }, form({ handoverId: "not-a-uuid" }))).rejects.toThrow("NEXT_NOT_FOUND");
     expect((await auditRows(a.clinicId)).length).toBe(before);
     expect((await handoverRows(b.clinicId))[0]!.handled_at).toBeNull();
+  }, 60_000);
+
+  test("while the clinic closes, Bookings is read-only: no button, and a hand-made post changes nothing", async () => {
+    const chat = await conversationRow(a.clinicId, { channel: "web_chat" });
+    await raise(a.clinicId, { channel: "web_chat", conversationId: chat });
+    const [row] = await handoverRows(a.clinicId);
+    await getMigratorPool().query(`update clinics set offboarding_started_at = now() where id = $1`, [a.clinicId]);
+    const link = await signIn(a.userId);
+    browse(link, `/c/${a.clinicSlug}/bookings`);
+    await stepUpWithPasskey(link);
+    const page = text(await renderBookings(a.clinicSlug));
+    expect(page).toContain("Someone asked for a person in your website chat");
+    expect(page).not.toContain("Mark handled");
+    expect(await markHandover(a.clinicSlug, { status: "idle" }, form({ handoverId: row!.id }))).toMatchObject({ status: "failed" });
+    expect((await handoverRows(a.clinicId))[0]!.handled_at).toBeNull();
   }, 60_000);
 });

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { notFound } from "next/navigation";
+import { notFound, redirect, RedirectType } from "next/navigation";
 
 import {
   bookingsPath,
@@ -17,11 +17,13 @@ import { requirePatientPage, withPatientPage } from "@/lib/portal/patient-page";
  * sent; an id that is not this clinic's handover is "not found".
  */
 
-export type HandoverFormState =
-  | { status: "idle" }
-  | { status: "saved"; message: string }
-  | { status: "failed"; message: string };
+export type HandoverFormState = { status: "idle" } | { status: "failed"; message: string };
 
+/**
+ * Marked, or already marked by a colleague: Bookings is read again without
+ * it and says so in its page-level status region (`?handled=`), since the
+ * card, and anything said inside it, goes with the re-read.
+ */
 export async function markHandover(
   slug: string,
   _previous: HandoverFormState,
@@ -32,16 +34,16 @@ export async function markHandover(
   if (typeof handoverId !== "string") {
     return { status: "failed", message: "That didn't go through. Reload Bookings and try again." };
   }
-  let changed: boolean;
+  let result: Awaited<ReturnType<typeof markHandoverHandled>>;
   try {
-    changed = (await withPatientPage(page, (tx) => markHandoverHandled(tx, handoverId))).changed;
+    result = await withPatientPage(page, (tx) => markHandoverHandled(tx, handoverId));
   } catch (error) {
     if (error instanceof HandoverNotFoundError) notFound();
     throw error;
   }
+  if (!result.ok) {
+    return { status: "failed", message: "Your portal is read-only while your account closes, so nothing was changed." };
+  }
   revalidatePath(bookingsPath(String(slug)));
-  return {
-    status: "saved",
-    message: changed ? "Marked handled." : "Someone on your team already marked this handled.",
-  };
+  redirect(`${bookingsPath(String(slug))}?handled=${result.changed ? "marked" : "already"}`, RedirectType.replace);
 }

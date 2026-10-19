@@ -758,8 +758,9 @@ every booking request whose key is already there, which is all of them, since
 `erased_at` with the moment of the load, which would keep its restore references longer
 than the backup window and move the line `reapply-erasures` draws between what the
 person gave before the deletion and after it; 0064's `record_amendments_guard` likewise
-restamps every amendment's `recorded_at`. For such a load the owner disables all four
-by name, loads every table, `booking_request_keys` included, and enables them again, in
+restamps every amendment's `recorded_at`; and 0085's `handovers_guard` refuses every
+handover already marked handled and restamps every handover's `created_at`, which would
+restart its record clock. For such a load the owner disables all five by name, loads every table, `booking_request_keys` included, and enables them again, in
 one transaction:
 
 ```sql
@@ -768,11 +769,13 @@ ALTER TABLE clinics DISABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests DISABLE TRIGGER booking_requests_keys_once;
 ALTER TABLE erasure_requests DISABLE TRIGGER erasure_requests_guard;
 ALTER TABLE record_amendments DISABLE TRIGGER record_amendments_guard;
+ALTER TABLE handovers DISABLE TRIGGER handovers_guard;
 -- the data-only load
 ALTER TABLE clinics ENABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests ENABLE TRIGGER booking_requests_keys_once;
 ALTER TABLE erasure_requests ENABLE TRIGGER erasure_requests_guard;
 ALTER TABLE record_amendments ENABLE TRIGGER record_amendments_guard;
+ALTER TABLE handovers ENABLE TRIGGER handovers_guard;
 COMMIT;
 ```
 

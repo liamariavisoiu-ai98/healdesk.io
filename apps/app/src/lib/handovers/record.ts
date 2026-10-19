@@ -1,13 +1,12 @@
 import { toE164 } from "@healdesk/connectors";
 import { and, eq, isNull } from "drizzle-orm";
 
-import { conversations, handovers, type HandoverPlatform } from "@/db/schema";
+import { contacts, conversations, handovers, type HandoverPlatform } from "@/db/schema";
 import type { BookingCapture } from "@/lib/assistant/turn";
 import { describeError, log } from "@/lib/log";
 import { cleanFirstName } from "@/lib/meta/booking-requests";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import type { TenantTx } from "@/lib/tenant";
-import { upsertCallerContact } from "@/lib/voice/ingest";
 
 /**
  * Someone asked AYA for a person (L11): the handover row Bookings lists
@@ -15,10 +14,11 @@ import { upsertCallerContact } from "@/lib/voice/ingest";
  * handovers"), and the alert, in the caller's transaction, once per call,
  * web chat or Meta conversation.
  *
- * The row holds no words and no identity (drizzle/0085): only which
- * conversation it was asked in, through which the person is reached, kept
- * and erased. A call's conversation is written when the call ends, so a
- * call's handover carries the call id and the database links it then.
+ * The row holds no words (drizzle/0085): only which conversation it was
+ * asked in, through which the person is reached, kept and erased, and for a
+ * web chat the number the visitor gave (attachHandoverCaller). A call's
+ * conversation is written when the call ends, so a call's handover carries
+ * the call id and the database links it then.
  *
  * Meta: only the front door's model answer raises one, and the model never
  * sees a message the inbound screen refused (lib/meta/front-door.ts), so
@@ -100,12 +100,19 @@ async function callConversation(db: TenantTx["db"], clinicId: string, callId: st
 /**
  * A web chat's handover, once the visitor has given a number: the desk needs
  * one to call them back, and AYA asks for a first name and a number when
- * someone wants a person (lib/assistant/prompt.ts). The number goes on the
- * conversation's contact, as a call's caller does, so the person is reached,
- * kept and erased through that contact like any caller. Only a number that is
- * a number (toE164) and a name that passes the first-name screen; nothing else
- * of the chat. Called each message while the chat has an open handover, and
- * a no-op once the conversation has its contact. Never throws.
+ * someone wants a person (lib/assistant/prompt.ts). Only a number that is a
+ * number (toE164) and a name that passes the first-name screen; nothing else
+ * of the chat.
+ *
+ * Kept as a contact of the handover's own, never on the conversation and
+ * never an existing contact found by the number (review of 19 October 2026):
+ * the number is whatever the visitor typed, so reusing a patient's contact
+ * would show their name on a stranger's handover and put the stranger's
+ * conversation in that patient's export and erasure; and a conversation a
+ * later request's appointment points at could not go with this person's
+ * erasure. The contact takes the handover with it when it goes (erasure by
+ * the number, the record clock). Called each message while the chat has an
+ * open handover; a no-op once the handover has its contact. Never throws.
  */
 export async function attachHandoverCaller(
   tx: TenantTx,
@@ -118,35 +125,30 @@ export async function attachHandoverCaller(
       const [open] = await savepoint
         .select({ id: handovers.id })
         .from(handovers)
-        .innerJoin(
-          conversations,
-          and(eq(conversations.clinicId, handovers.clinicId), eq(conversations.id, handovers.conversationId)),
-        )
         .where(
           and(
             eq(handovers.clinicId, tx.clinicId),
+            eq(handovers.channel, "web_chat"),
             eq(handovers.conversationId, input.conversationId),
-            isNull(conversations.contactId),
+            isNull(handovers.contactId),
           ),
         )
         .limit(1);
       if (!open) return;
-      const contactId = await upsertCallerContact(savepoint, {
-        clinicId: tx.clinicId,
-        phone,
-        name: cleanFirstName(input.capture.firstName),
-        clinicTimezone: input.timeZone,
-      });
+      const [contact] = await savepoint
+        .insert(contacts)
+        .values({
+          clinicId: tx.clinicId,
+          phone,
+          fullName: cleanFirstName(input.capture.firstName),
+          timezone: input.timeZone,
+          updatedAt: new Date(),
+        })
+        .returning({ id: contacts.id });
       await savepoint
-        .update(conversations)
-        .set({ contactId })
-        .where(
-          and(
-            eq(conversations.clinicId, tx.clinicId),
-            eq(conversations.id, input.conversationId),
-            isNull(conversations.contactId),
-          ),
-        );
+        .update(handovers)
+        .set({ contactId: contact!.id })
+        .where(and(eq(handovers.clinicId, tx.clinicId), eq(handovers.id, open.id), isNull(handovers.contactId)));
     });
   } catch (error) {
     try {

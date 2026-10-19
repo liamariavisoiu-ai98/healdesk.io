@@ -1,5 +1,5 @@
 {
-  "id": "521d4d20-cdb4-4179-9eed-16da4694125e",
+  "id": "89769771-ec5c-49c0-a321-9c2c8e8e82cd",
   "prevId": "44dc2ef0-6aca-4c20-b01c-840d165c5a1d",
   "version": "7",
   "dialect": "postgresql",
@@ -6261,6 +6261,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6401,6 +6407,27 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "handovers_contact_idx": {
+          "name": "handovers_contact_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "contact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -6410,6 +6437,19 @@
           "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "handovers_contact_id_contacts_id_fk": {
+          "name": "handovers_contact_id_contacts_id_fk",
+          "tableFrom": "handovers",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
           ],
           "columnsTo": [
             "id"
@@ -6456,7 +6496,7 @@
       "checkConstraints": {
         "handovers_shape_check": {
           "name": "handovers_shape_check",
-          "value": "(\"handovers\".\"channel\" = 'voice' and \"handovers\".\"external_call_id\" is not null and \"handovers\".\"platform\" is null and \"handovers\".\"party_ref\" is null and \"handovers\".\"meta_conversation_id\" is null)\n        or (\"handovers\".\"channel\" = 'web_chat' and \"handovers\".\"conversation_id\" is not null and \"handovers\".\"external_call_id\" is null and \"handovers\".\"platform\" is null and \"handovers\".\"party_ref\" is null and \"handovers\".\"meta_conversation_id\" is null)\n        or (\"handovers\".\"channel\" = 'meta' and \"handovers\".\"platform\" in ('instagram', 'messenger', 'whatsapp') and \"handovers\".\"party_ref\" is not null and \"handovers\".\"meta_conversation_id\" is not null and \"handovers\".\"conversation_id\" is null and \"handovers\".\"external_call_id\" is null)"
+          "value": "(\"handovers\".\"channel\" = 'voice' and \"handovers\".\"external_call_id\" is not null and \"handovers\".\"platform\" is null and \"handovers\".\"party_ref\" is null and \"handovers\".\"meta_conversation_id\" is null and \"handovers\".\"contact_id\" is null)\n        or (\"handovers\".\"channel\" = 'web_chat' and \"handovers\".\"conversation_id\" is not null and \"handovers\".\"external_call_id\" is null and \"handovers\".\"platform\" is null and \"handovers\".\"party_ref\" is null and \"handovers\".\"meta_conversation_id\" is null)\n        or (\"handovers\".\"channel\" = 'meta' and \"handovers\".\"platform\" in ('instagram', 'messenger', 'whatsapp') and \"handovers\".\"party_ref\" is not null and \"handovers\".\"meta_conversation_id\" is not null and \"handovers\".\"conversation_id\" is null and \"handovers\".\"external_call_id\" is null and \"handovers\".\"contact_id\" is null)"
         },
         "handovers_call_id_check": {
           "name": "handovers_call_id_check",

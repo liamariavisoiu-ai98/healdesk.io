@@ -1202,7 +1202,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     phiNote: META_SCOPE,
     build: "built",
-    buildNote: "Each clinic also stays silent until you switch its Meta front door on in Ops, and the clinic's own switch for that platform is on.",
+    buildNote: "Each clinic also stays silent until you switch its Meta front door on in Ops, and the clinic's own switch for that platform is on. Someone who asks for a person is pointed to the clinic's phone and listed on Bookings, by a scrambled fingerprint of who wrote and never their words.",
   },
   {
     id: "app-meta",
@@ -1396,7 +1396,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "All six screens are built: Home, Settings, Knowledge, Conversations, Bookings and Billing, with the set-up wizard, the support chat, Talk to your AYA (once the build tracker is complete) and, once a channel is live, the AYA is answering switch at the top of every screen. Conversations and Bookings open only behind a passkey. Bookings lists, under Needs you, everyone who asked AYA for a person, on the phone, in website chat or on Instagram, Messenger or WhatsApp, until the desk marks them handled, and each message left on the website's contact form while AYA was off or paused.",
+      "All six screens are built: Home, Settings, Knowledge, Conversations, Bookings and Billing, with the set-up wizard, the support chat, Talk to your AYA (once the build tracker is complete) and, once a channel is live, the AYA is answering switch at the top of every screen. Conversations and Bookings open only behind a passkey. Bookings lists, under Needs you, each person who asked AYA for a person, on the phone, in website chat or on Instagram, Messenger or WhatsApp (not after an urgent alert, which already has the clinic looking), until the desk marks it handled, and each message left on the website's contact form while AYA was off or paused.",
   },
   {
     id: "connectors-app",

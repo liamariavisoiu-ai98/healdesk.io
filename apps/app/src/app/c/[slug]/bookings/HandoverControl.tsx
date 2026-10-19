@@ -6,8 +6,9 @@ import { markHandover, type HandoverFormState } from "./handover-actions";
 
 /**
  * "Mark handled" on a handover under Needs you: one button, once the desk
- * has spoken to the person. It cannot be undone, and the result is said in a
- * polite status region (plan Part F8) while Bookings is read again without it.
+ * has spoken to the person. It cannot be undone. Done, Bookings is read again
+ * without the card and says so in its page-level status region (plan Part
+ * F8); a refusal is said here.
  */
 export function HandoverControl(props: { slug: string; handoverId: string }) {
   const [state, action, pending] = useActionState<HandoverFormState, FormData>(
@@ -20,7 +21,7 @@ export function HandoverControl(props: { slug: string; handoverId: string }) {
         <input type="hidden" name="handoverId" value={props.handoverId} />
         <button
           type="submit"
-          disabled={pending || state.status === "saved"}
+          disabled={pending}
           aria-describedby={`handover-${props.handoverId}-name`}
           className="border-line min-h-11 rounded-full border bg-white px-4 text-sm font-semibold disabled:opacity-50"
         >

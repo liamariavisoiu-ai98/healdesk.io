@@ -26,7 +26,7 @@ const TIMES = [
   { id: "mornings", label: "Mornings" },
 ];
 
-type Answer = { status: number; body?: unknown } | "network";
+type Answer = { status: number; body?: unknown } | "network" | "hang";
 type Call = { url: string; init: RequestInit; body: Record<string, unknown> };
 
 let calls: Call[];
@@ -98,6 +98,11 @@ beforeEach(async () => {
     const path = url.replace(API, "");
     const next = answers[path]?.shift() ?? { status: 500, body: {} };
     if (next === "network") throw new TypeError("Failed to fetch");
+    if (next === "hang") {
+      return new Promise<Response>((_resolve, reject) =>
+        init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
+      );
+    }
     return new Response(JSON.stringify(next.body ?? {}), { status: next.status, headers: { "content-type": "application/json" } });
   });
   Object.defineProperty(navigator, "sendBeacon", {
@@ -221,7 +226,7 @@ describe("the bubble on a clinic's page", () => {
     await type(root, "One more");
     expect(calls.slice(-2).map((c) => c.url.replace(API, ""))).toEqual(["start", "message"]);
     expect(calls.at(-1)!.body).toEqual({ token: "n0", text: "One more" });
-    expect(messages(root).slice(-4)).toEqual([`Assistant: ${OPENING}`, "Assistant: Sure.", `Assistant: ${OPENING}`, "You: One more", "Assistant: Again."].slice(-4));
+    expect(messages(root)).toEqual([`Assistant: ${OPENING}`, "You: Hello", "Assistant: Sure.", `Assistant: ${OPENING}`, "You: One more", "Assistant: Again."]);
     expect(messages(root).filter((m) => m === `Assistant: ${OPENING}`)).toHaveLength(2);
 
     window.dispatchEvent(new Event("pagehide"));
@@ -321,19 +326,19 @@ describe("the bubble on a clinic's page", () => {
     expect(calls.at(-1)!.url).toBe(`${API}message`);
   });
 
-  test("a request that never answers is given up on after a minute, and the words kept", async () => {
+  test("a request that never answers is given up on after ninety seconds, and the words kept", async () => {
     answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
     const root = await load();
     await open(root);
+    answer("message", "hang");
     vi.useFakeTimers();
     try {
-      vi.stubGlobal("fetch", (_url: string, init: RequestInit) =>
-        new Promise((_resolve, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))),
-      );
       q<HTMLTextAreaElement>(root, "textarea").value = "Hello?";
       q<HTMLFormElement>(root, ".compose").dispatchEvent(new Event("submit", { cancelable: true }));
+      await vi.advanceTimersByTimeAsync(89_000);
       expect(q<HTMLButtonElement>(root, ".send").disabled).toBe(true);
-      await vi.advanceTimersByTimeAsync(60_000);
+      expect(q(root, ".status").textContent).toMatch(/Replying/);
+      await vi.advanceTimersByTimeAsync(1_000);
     } finally {
       vi.useRealTimers();
     }
@@ -352,7 +357,7 @@ describe("the bubble on a clinic's page", () => {
     await open(root);
     await type(root, "Hello");
     const now = Date.now();
-    const clock = vi.spyOn(Date, "now").mockReturnValue(now + 30 * 60 * 1000);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now + 29 * 60 * 1000 + 1000);
     try {
       await type(root, "Back again");
     } finally {
@@ -361,6 +366,35 @@ describe("the bubble on a clinic's page", () => {
     expect(calls.slice(-2).map((c) => c.url.replace(API, ""))).toEqual(["start", "message"]);
     expect(calls.at(-1)!.body).toEqual({ token: "n0", text: "Back again" });
     expect(messages(root).slice(-3)).toEqual([`Assistant: ${OPENING}`, "You: Back again", "Assistant: Welcome back."]);
+  });
+
+  test("after 59 answers the next message opens a new chat, before the engine's turn limit would", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    for (let i = 0; i < 59; i++) answer("message", { status: 200, body: { mode: "chat", reply: `Reply ${i}`, token: `t${i + 1}`, ended: false } });
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "n0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Fresh.", token: "n1", ended: false } });
+    const root = await load();
+    await open(root);
+    for (let i = 0; i < 59; i++) await type(root, `Message ${i}`);
+    expect(calls.filter((c) => c.url.endsWith("/start"))).toHaveLength(1);
+    await type(root, "Number sixty");
+    expect(calls.slice(-2).map((c) => c.url.replace(API, ""))).toEqual(["start", "message"]);
+    expect(messages(root).slice(-3)).toEqual([`Assistant: ${OPENING}`, "You: Number sixty", "Assistant: Fresh."]);
+  });
+
+  test("a reply that lands while the visitor is on the clinic's page leaves focus there", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Sure.", token: "t1", ended: false } });
+    const root = await load();
+    await open(root);
+    const search = document.createElement("input");
+    document.body.appendChild(search);
+    q<HTMLTextAreaElement>(root, "textarea").value = "Hello";
+    q<HTMLFormElement>(root, ".compose").dispatchEvent(new Event("submit", { cancelable: true }));
+    search.focus();
+    await settle();
+    expect(messages(root).at(-1)).toBe("Assistant: Sure.");
+    expect(document.activeElement).toBe(search);
   });
 
   test("a new chat that cannot be opened keeps the words, and asks again next time", async () => {

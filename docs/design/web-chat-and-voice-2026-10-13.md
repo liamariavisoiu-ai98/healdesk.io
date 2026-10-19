@@ -74,7 +74,7 @@ runs under a strict CSP and Trusted Types once the page allows the script and co
   `apps/app` would hide it, and the engine's origin check would have to allow for that. The script is
   served only by `apps/app`: while the host is in standby or down, a visitor whose browser cached it in
   the last day sees a bubble that says to call the practice, and anyone else sees no bubble, only the
-  clinic's own page and number. A message whose reply never came (a minute's wait) or was lost can be
+  clinic's own page and number. A message whose reply never came (ninety seconds' wait) or was lost can be
   sent again, and the engine may then record it twice. Going live waits for an operator, who is asked only
   once someone opens the bubble from the clinic's site (`LAUNCH_PROMISES`, `web-chat-on-paste`).
 

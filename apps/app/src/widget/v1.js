@@ -310,23 +310,26 @@
           if (!input.value) input.value = text;
           grow();
         }
-        if (view === "chat") {
-          endButton.hidden = !talking;
-          input.focus();
-        } else {
-          focusFirst();
+        if (view === "chat") endButton.hidden = !talking;
+        // Never pull focus back from the clinic's own page, where the visitor
+        // may have gone while the reply was on its way.
+        if (root.activeElement || doc.activeElement === doc.body || doc.activeElement === host) {
+          if (view === "chat") input.focus();
+          else focusFirst();
         }
       });
   }
 
   /** One message: "sent", "limited", "unsent", "unreachable" (each to try again), or "fallback" (the view changed). */
   function deliver(text, bubble, mayRestart) {
+    // The engine's quiet time runs from when the message reaches it.
+    var sentAt = Date.now();
     return post("message", { token: token, text: text }).then(function (res) {
       var data = res.data;
       if (res.ok && data.mode === "chat" && typeof data.reply === "string") {
         failures = 0;
         turns += 1;
-        lastAnswer = Date.now();
+        lastAnswer = sentAt;
         setStatus("");
         if (typeof data.token === "string") token = data.token;
         say("assistant", data.reply);
@@ -518,10 +521,11 @@
    * route checks the page's origin itself and reads the body as JSON.
    */
   function post(path, payload, keepalive) {
-    // Longer than the engine's own model deadline, so only a request that
-    // will never answer (a phone changing networks) is given up on.
+    // Longer than the engine's worst turn (two 30-second model attempts,
+    // then the write), so only a request that will never answer, such as a
+    // phone changing networks, is given up on.
     var abort = !keepalive && typeof AbortController === "function" ? new AbortController() : null;
-    var timer = abort ? setTimeout(function () { abort.abort(); }, 60000) : null;
+    var timer = abort ? setTimeout(function () { abort.abort(); }, 90000) : null;
     var done = function (result) {
       if (timer) clearTimeout(timer);
       return result;

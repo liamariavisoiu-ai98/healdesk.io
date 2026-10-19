@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { LinkNotAllowedError, PayloadNotAllowedError } from "@/lib/email/lint";
 import {
@@ -9,6 +9,8 @@ import {
 } from "@/lib/email/send";
 import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { PhiRoutingError } from "@/lib/reporting/resend-transport";
+
+import { closePools, getMigratorPool, hasTestDatabase, runMigrations } from "./setup/db";
 
 /**
  * sendEmail(), the one door (lib/email/send.ts): the class gate, the tags, the
@@ -75,6 +77,15 @@ afterEach(() => {
     if (value === undefined) delete (process.env as Record<string, string | undefined>)[key];
     else (process.env as Record<string, string>)[key] = value;
   }
+});
+
+// One test below reads the ops log and email_events, so the schema must be in place.
+beforeAll(async () => {
+  if (hasTestDatabase) await runMigrations();
+}, 180_000);
+
+afterAll(async () => {
+  if (hasTestDatabase) await closePools();
 });
 
 describe("what sendEmail refuses before any transport is asked", () => {
@@ -178,6 +189,41 @@ describe("a direct kind goes with its payload, and the payload is held to the al
     await sendEmail(email({ ...b3, clinicName: "Glow Med Spa" }), { transport });
     expect(transport.calls).toHaveLength(1);
   });
+
+  /**
+   * The review of 19 October 2026: a refusal here was a log line in the
+   * caller, and the clinic simply never heard. The digest counts it as
+   * failed, and ops is told once per kind and clinic.
+   */
+  test.runIf(hasTestDatabase)(
+    "a refusal that remains is counted as failed and told to ops, once per kind and clinic",
+    async () => {
+      await getMigratorPool().query(`truncate ops_alerts, email_events`);
+      const transport = new FakeTransport();
+      const b3 = {
+        kind: "order_confirmed_delayed",
+        clinicId: null,
+        idempotencyKey: `hd-order_confirmed_delayed-${DELIVERY}-1`,
+        payload: { planId: "voice-500", interval: "month", replyByOn: "2026-10-07" },
+        clinicName: "Glow @ Main Street",
+      } as const;
+      for (let i = 0; i < 2; i += 1) {
+        await expect(sendEmail(email(b3), { transport })).rejects.toBeInstanceOf(
+          PayloadNotAllowedError,
+        );
+      }
+      const { rows: alerts } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
+        `select fields from ops_alerts where event = 'email_refused'`,
+      );
+      expect(alerts.map((a) => a.fields)).toEqual([
+        { kind: "order_confirmed_delayed", clinicId: null },
+      ]);
+      const { rows: counted } = await getMigratorPool().query<{ status: string }>(
+        `select status from email_events where kind = 'order_confirmed_delayed'`,
+      );
+      expect(counted.map((r) => r.status)).toEqual(["failed", "failed"]);
+    },
+  );
 
   test("a payload that passes goes, with a single-use token only in a link email's", async () => {
     const transport = new FakeTransport();

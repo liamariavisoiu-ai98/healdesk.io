@@ -345,6 +345,20 @@ export function isAllowedClinicName(value: unknown): value is string {
 }
 
 /**
+ * The clinic's name as a direct kind may print it, or null when the rule
+ * above would refuse it: every direct sender builds its render context and
+ * the clinic name it declares to sendEmail from this one value, so a name
+ * nobody checked when it was typed ("Glow @ Main Street", "Suite 1234567")
+ * is left out of the email, which says "your practice", instead of the email
+ * being refused for good. Names are capped at 120 characters when entered
+ * but never held to this rule there.
+ */
+export function printableClinicName(name: string | null | undefined): string | null {
+  const trimmed = typeof name === "string" ? name.trim() : "";
+  return trimmed && isAllowedClinicName(trimmed) ? trimmed : null;
+}
+
+/**
  * What staff called one of their own devices ("Front desk Mac"), the one
  * free-text field O3 and O4 carry: the user_factors CHECK's rules, and
  * nothing that could be an address, a link or a number someone could call.

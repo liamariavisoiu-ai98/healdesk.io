@@ -6,7 +6,7 @@ import { unsafeDb } from "@/db";
 import { user } from "@/db/auth-schema";
 import { clinics, deviceRecoveries } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/lib/audit";
-import { assertPayloadAllowed } from "@/lib/email/lint";
+import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import { audienceFor, clinicReason } from "@/lib/email/templates/context";
 import {
@@ -255,10 +255,12 @@ async function sendRecoveryLink(
       validHours: DEVICE_RECOVERY_TTL_HOURS,
     };
     assertPayloadAllowed(payload, "device_recovery_link");
+    // The name as the email may print it, or none (lib/email/lint.ts).
+    const printed = printableClinicName(input.clinic.name);
     const rendered = renderDeviceRecoveryLink(payload, {
-      clinicName: input.clinic.name,
+      clinicName: printed,
       audience: audienceFor(input.clinic.specialty),
-      reason: clinicReason(input.clinic.name),
+      reason: clinicReason(printed),
       raisedAt: options.now ?? new Date(),
       timeZone: input.clinic.timezone,
     });
@@ -272,7 +274,7 @@ async function sendRecoveryLink(
         html: rendered.html,
         phiClass: "none",
         payload,
-        clinicName: input.clinic.name,
+        clinicName: printed,
         deliveryId: input.recoveryId,
         // One row, one link, one send: the row's id tells one from the next.
         idempotencyKey: `hd-device_recovery_link-${input.recoveryId}-1`,

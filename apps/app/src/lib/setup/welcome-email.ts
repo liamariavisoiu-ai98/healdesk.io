@@ -5,7 +5,7 @@ import { unsafeDb } from "@/db";
 import { checkoutIntents, reportDeliveries, type CheckoutIntentPayload } from "@/db/schema";
 import { billingRecipients } from "@/lib/billing/recipients";
 import { setupLastDay } from "@/lib/clinic/setup-window";
-import { assertPayloadAllowed } from "@/lib/email/lint";
+import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import { audienceFor, clinicReason } from "@/lib/email/templates/context";
 import { renderWelcome, type WelcomePayload } from "@/lib/email/templates/welcome";
@@ -215,10 +215,12 @@ export async function sendWelcomeEmail(
       agreementUrl: publicUrl(`/c/${state.clinic.slug}/billing/agreement`),
     };
     assertPayloadAllowed(payload, "welcome");
+    // The name as the email may print it, or none (lib/email/lint.ts).
+    const printed = printableClinicName(state.clinic.name);
     const rendered = renderWelcome(payload, {
-      clinicName: state.clinic.name,
+      clinicName: printed,
       audience: audienceFor(state.clinic.specialty),
-      reason: clinicReason(state.clinic.name),
+      reason: clinicReason(printed),
       raisedAt: now,
       timeZone: state.clinic.timezone,
     });
@@ -235,7 +237,7 @@ export async function sendWelcomeEmail(
           phiClass: "none",
           payload,
           clinicId,
-          clinicName: state.clinic.name,
+          clinicName: printed,
           deliveryId,
           // Each attempt mints its own link row, so the row id tells one
           // attempt from the next (X1.4).

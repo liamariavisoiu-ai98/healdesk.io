@@ -59,8 +59,8 @@ export const renderAddressChangeConfirm: EmailTemplate<AddressChangeConfirmPaylo
 };
 
 /** Why the new address receives it: it is not the clinic's address yet. */
-export function addressConfirmReason(clinicName: string): string {
-  return `You're receiving this because someone at ${clinicName} asked to make this address its healdesk address.`;
+export function addressConfirmReason(clinicName: string | null): string {
+  return `You're receiving this because someone at ${clinicName ?? "a practice"} asked to make this address its healdesk address.`;
 }
 
 /** Token-shaped and never issued: what the snapshot tests and the seed script render. */

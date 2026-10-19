@@ -201,6 +201,21 @@ describeDb("a change of the clinic's address", () => {
     expect(await events("sign_in_address_change_requested")).toHaveLength(1);
   });
 
+  test("a clinic whose name the email rule refuses still gets O5's link, without the name", async () => {
+    await getMigratorPool().query(`update clinics set name = $1 where id = $2`, [
+      "Glow @ Main Street Med Spa",
+      clinic.clinicId,
+    ]);
+    const { sent, transport } = fakeTransport();
+    const outcome = await ask("front@radiance.test", transport);
+    expect(outcome).toMatchObject({ status: "requested", emailed: true });
+    expect(sent).toHaveLength(1);
+    for (const body of [sent[0]!.message.text, sent[0]!.message.html]) {
+      expect(body).not.toContain("@ Main Street");
+    }
+    expect(sent[0]!.message.text).toContain("someone at a practice asked");
+  });
+
   test("refuses a malformed address, the current one, another sign-in's, and a second open change", async () => {
     const { transport } = fakeTransport();
     expect(await ask("not an address", transport)).toMatchObject({ status: "refused" });

@@ -233,6 +233,11 @@ export const OPS_EVENTS = [
   // cap as `count` and the day as `windowStart`; the requests past it are in
   // the security log and in sign_in_help_unmatched.
   "access_requests_capped",
+  // sendEmail refused a direct kind before sending it (lib/email/send.ts):
+  // its payload or the clinic name it printed is outside the allowlist, or a
+  // link in it is not one an email may carry. Once per kind and clinic, so a
+  // refusal that would otherwise only be a log line reaches a person.
+  "email_refused",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

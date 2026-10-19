@@ -6,7 +6,7 @@ import { clinicChannels, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { readCoverageMode } from "@/lib/billing/answering";
 import type { ForwardingFacts } from "@/lib/billing/notices";
-import { assertPayloadAllowed } from "@/lib/email/lint";
+import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
 import { verdictOf } from "@/lib/email/outbox";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import { audienceFor, clinicReason } from "@/lib/email/templates/context";
@@ -424,10 +424,12 @@ export async function sendDestructionNotice(
     let result;
     try {
       assertPayloadAllowed(payload, "data_destroyed");
+      // The name as the email may print it, or none (lib/email/lint.ts).
+      const printed = printableClinicName(clinic.name);
       const rendered = renderDataDestroyed(payload, {
-        clinicName: clinic.name,
+        clinicName: printed,
         audience: audienceFor(clinic.specialty),
-        reason: clinicReason(clinic.name),
+        reason: clinicReason(printed),
         // The destruction's own moment, never the clock: a retry renders the same bytes.
         raisedAt: clinic.destroyedAt,
         timeZone: clinic.timezone,
@@ -442,7 +444,7 @@ export async function sendDestructionNotice(
           phiClass: "none",
           payload,
           clinicId,
-          clinicName: clinic.name,
+          clinicName: printed,
           deliveryId,
           idempotencyKey: `hd-data_destroyed-${deliveryId}-1`,
         },

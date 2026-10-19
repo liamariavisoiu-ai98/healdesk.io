@@ -8,14 +8,16 @@ import {
   type OutgoingEmail,
   type PhiClass,
 } from "@/lib/reporting/deliver";
+import { notifyOpsOnce } from "@/lib/ops/notify";
 import { PhiRoutingError, ResendTransport } from "@/lib/reporting/resend-transport";
 
-import { countsAtSend, recordEmailEvent } from "./health";
+import { countsAtSend, holdsNoLedgerRow, recordEmailEvent } from "./health";
 import { isDirectKind, isEmailKind, KIND_SHAPE } from "./kind-rules";
 import {
   assertLinksAllowed,
   assertPayloadAllowed,
   isAllowedClinicName,
+  LinkNotAllowedError,
   PayloadNotAllowedError,
 } from "./lint";
 import { recordDailyQuota } from "./quota";
@@ -108,6 +110,33 @@ export class EmailEnvelopeError extends Error {
   }
 }
 
+/**
+ * A direct kind refused before sending would otherwise be a log line in its
+ * caller, and the clinic simply never hears: so it is counted as failed for
+ * the digest (lib/email/health.ts) and ops is told once per kind and clinic.
+ * Not for I1 itself, whose refusal notifyOps would answer with another I1.
+ * Never throws.
+ */
+async function refused(email: EmailToSend, error: unknown, now: Date): Promise<void> {
+  if (!isDirectKind(email.kind) || email.kind === "ops_alert") return;
+  if (
+    !(error instanceof PayloadNotAllowedError) &&
+    !(error instanceof LinkNotAllowedError) &&
+    !(error instanceof EmailEnvelopeError)
+  ) {
+    return;
+  }
+  try {
+    if (holdsNoLedgerRow(email.kind)) {
+      await recordEmailEvent({ app: "app", kind: email.kind, status: "failed", at: now });
+    }
+    const clinicId = email.clinicId && TAG_VALUE.test(email.clinicId) ? email.clinicId : null;
+    await notifyOpsOnce("email_refused", { kind: email.kind, clinicId });
+  } catch {
+    // The refusal itself is what the caller hears about.
+  }
+}
+
 /** The transport this environment sends with. Read at call time, never at module scope. */
 export function platformTransport(): EmailTransport {
   return process.env.HEALDESK_EMAIL_TRANSPORT === "resend"
@@ -161,24 +190,32 @@ export async function sendEmail(
       "Refusing to send: the idempotency key is not hd- followed by ids. It is kept in Resend's logs.",
     );
   }
-  if (isDirectKind(email.kind)) {
-    if (!email.payload) {
-      throw new EmailEnvelopeError(
-        "Refusing to send: a direct kind goes with the payload it was rendered from, for the allowlist.",
-      );
+  let tags: ReturnType<typeof tagsFor>;
+  try {
+    if (isDirectKind(email.kind)) {
+      if (!email.payload) {
+        throw new EmailEnvelopeError(
+          "Refusing to send: a direct kind goes with the payload it was rendered from, for the allowlist.",
+        );
+      }
+      assertPayloadAllowed(email.payload, email.kind);
+      // The backstop: every direct sender prints the clinic's name through
+      // printableClinicName, which leaves out a name this would refuse.
+      if (email.clinicName != null && !isAllowedClinicName(email.clinicName)) {
+        throw new PayloadNotAllowedError("(clinic name)", "must be a clinic's name.");
+      }
+    } else if (email.payload) {
+      assertPayloadAllowed(email.payload, isEmailKind(email.kind) ? email.kind : undefined);
     }
-    assertPayloadAllowed(email.payload, email.kind);
-    if (email.clinicName != null && !isAllowedClinicName(email.clinicName)) {
-      throw new PayloadNotAllowedError("(clinic name)", "must be a clinic's name.");
-    }
-  } else if (email.payload) {
-    assertPayloadAllowed(email.payload, isEmailKind(email.kind) ? email.kind : undefined);
+    tags = tagsFor(email);
+    assertLinksAllowed(
+      { subject: email.subject, text: email.text, html: email.html, headers: email.headers },
+      email.kind,
+    );
+  } catch (error) {
+    await refused(email, error, options.now ?? new Date());
+    throw error;
   }
-  const tags = tagsFor(email);
-  assertLinksAllowed(
-    { subject: email.subject, text: email.text, html: email.html, headers: email.headers },
-    email.kind,
-  );
 
   const message: OutgoingEmail = {
     subject: email.subject,

@@ -91,8 +91,8 @@ function renderWebLine(
 }
 
 /** The footer's line: who asked for it (Annex X5, O11). */
-export function stepsReason(clinicName: string): string {
-  return `You're receiving this because someone at ${clinicName} asked us to send it to this address.`;
+export function stepsReason(clinicName: string | null): string {
+  return `You're receiving this because someone at ${clinicName ?? "a practice"} asked us to send it to this address.`;
 }
 
 export const STEPS_SENT_ENTRY: TemplateEntry<StepsSentPayload> = {

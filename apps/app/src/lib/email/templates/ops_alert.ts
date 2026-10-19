@@ -450,6 +450,11 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The I can't get in page has sent hello@ as many access requests today as it may, so the rest go unmailed until midnight UTC: the cap keeps the form from spending the day's emails that sign-in links and urgent alerts need. Read today's sign_in_help_unmatched alerts and the security log's sign-in help rows for the clinics that asked, and look for a flood from one place.",
   },
+  email_refused: {
+    title: "An email was refused before it was sent",
+    action:
+      "apps/app refused an email of the kind below for the clinic below before sending it: something it was to carry is outside the payload allowlist, or a link in it is not one an email may carry. The clinic has not received it. Read apps/app's error lines for the kind, fix what it was given, and send the clinic what it needed by hand meanwhile.",
+  },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
     action:

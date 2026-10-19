@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 
 import type { IncidentRegisterRow, OpsResult } from "@/lib/admin/ops-client";
 
-import { affectedLine, IncidentsBoard } from "./IncidentsBoard";
+import { affectedLine, IncidentsBoard, reportSentLine } from "./IncidentsBoard";
 
 /**
  * What /admin/incidents tells the operator about each incident's clock (WP7):
@@ -136,5 +136,26 @@ describe("the incidents page", () => {
     );
     // A service complaint affects no one an agreement reports.
     expect(board([{ ...ROW, class: "service_complaint" }])).not.toContain("Who it affected");
+  });
+
+  test("a report's written steps for the people affected and our recommendations, and a reply from an older apps/app that dropped them", () => {
+    const sent = { status: "sent" as const, report: 1, auditRecorded: true };
+    expect(reportSentLine({ ...sent, steps: 2, recommendations: 1 }, { steps: 2, recommendations: 1 })).toBe(
+      "Report queued: it goes to the practice's address now.",
+    );
+    // apps/web is live before apps/app: the older reply has no counts and the lists were ignored.
+    expect(
+      reportSentLine({ ...sent, steps: null, recommendations: null }, { steps: 1, recommendations: 0 }),
+    ).toContain("It went WITHOUT the steps and recommendations you chose");
+    // Nothing chosen, nothing dropped.
+    expect(
+      reportSentLine({ ...sent, steps: null, recommendations: null }, { steps: 0, recommendations: 0 }),
+    ).toBe("Report queued: it goes to the practice's address now.");
+    expect(
+      reportSentLine({ ...sent, report: 3, steps: 0, recommendations: 0, auditRecorded: false }, {
+        steps: 0,
+        recommendations: 0,
+      }),
+    ).toBe("Update 2 queued: it goes to the practice's address now. It is NOT in the audit log: record it by hand.");
   });
 });

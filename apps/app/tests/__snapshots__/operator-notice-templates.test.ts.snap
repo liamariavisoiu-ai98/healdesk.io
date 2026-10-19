@@ -28,6 +28,10 @@ exports[`the incident report (L29) > a breach's report since the incident's page
 <ul style="margin:0 0 16px;padding-left:20px;"><li>3 first names</li><li>3 phone numbers</li><li>1 conversation transcript</li></ul>
 <p style="margin:0 0 16px;">What we&#39;ve done:</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>We asked the recipient to delete what they received, and they confirmed that they have.</li><li>We fixed the fault that caused it.</li></ul>
+<p style="margin:0 0 16px;">What the patients affected can do:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Be wary of calls, texts and emails that mention their visit or say they come from your practice, and reach your practice through a number they already know before answering one.</li><li>Don&#39;t confirm personal details, a password or a payment to a message they weren&#39;t expecting.</li></ul>
+<p style="margin:0 0 16px;">What we recommend you do:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Decide, with your own counsel if you have one, whether the law requires you to notify the people affected, and anyone else, and by when.</li><li>Let your front desk know to expect questions from the people affected, and how you&#39;d like them answered.</li></ul>
 <p style="margin:0 0 16px;">This email names no one. The identification of each patient affected is on this incident&#39;s page in healdesk, behind your passkey, as your agreement provides: it&#39;s never emailed. We&#39;ll tell you in an update if it isn&#39;t complete yet.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance/incidents/5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">See who was affected</a></p>
 <p style="margin:0 0 16px;">This report is as complete as we can make it today, and we&#39;ll add to it as we learn more.</p>
@@ -59,6 +63,16 @@ What we've done:
 
 - We asked the recipient to delete what they received, and they confirmed that they have.
 - We fixed the fault that caused it.
+
+What the patients affected can do:
+
+- Be wary of calls, texts and emails that mention their visit or say they come from your practice, and reach your practice through a number they already know before answering one.
+- Don't confirm personal details, a password or a payment to a message they weren't expecting.
+
+What we recommend you do:
+
+- Decide, with your own counsel if you have one, whether the law requires you to notify the people affected, and anyone else, and by when.
+- Let your front desk know to expect questions from the people affected, and how you'd like them answered.
 
 This email names no one. The identification of each patient affected is on this incident's page in healdesk, behind your passkey, as your agreement provides: it's never emailed. We'll tell you in an update if it isn't complete yet.
 

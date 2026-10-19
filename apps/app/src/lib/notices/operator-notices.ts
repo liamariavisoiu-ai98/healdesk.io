@@ -6,6 +6,8 @@ import {
   isGuaranteeOutcome,
   isIncidentInformationType,
   isIncidentMitigation,
+  isIncidentPatientStep,
+  isIncidentRecommendation,
   isIncidentReportEvent,
   isPhiSubcontractor,
   isProductUpdateCode,
@@ -17,6 +19,8 @@ import {
   type GuaranteeOutcome,
   type IncidentInformationType,
   type IncidentMitigation,
+  type IncidentPatientStep,
+  type IncidentRecommendation,
   type IncidentReportEvent,
   type PhiSubcontractor,
   type ProductUpdateCode,
@@ -35,7 +39,7 @@ import { canTransition, transition } from "@/lib/billing/state-machine";
 import { isDemoClinic } from "@/lib/booking/terms";
 import type { NoticeKind, PlanNoticeKind } from "@/lib/email/kinds";
 import { deliverCriticalAfterCommit, MAX_NOTICE_ATTEMPTS } from "@/lib/email/outbox";
-import { countAffected, incidentPagePath } from "@/lib/incidents/affected";
+import { incidentPagePath } from "@/lib/incidents/affected";
 import {
   incidentForDecision,
   recordNotReportable,
@@ -386,6 +390,10 @@ export type IncidentReportInput = {
   info: unknown;
   /** Codes from INCIDENT_MITIGATIONS. */
   mitigations: unknown;
+  /** Codes from INCIDENT_PATIENT_STEPS: what the people affected can do. Absent from an older console. */
+  steps?: unknown;
+  /** Codes from INCIDENT_RECOMMENDATIONS: what we recommend the practice do. */
+  recommendations?: unknown;
 };
 
 const DECISION_REFUSALS: Record<IncidentDecisionRefusal, string> = {
@@ -407,6 +415,8 @@ export function readIncidentReportFields(
       occurredOn: string | null;
       infoRows: { type: IncidentInformationType; count: number }[];
       mitigationRows: { code: IncidentMitigation }[];
+      stepRows: { code: IncidentPatientStep }[];
+      recommendationRows: { code: IncidentRecommendation }[];
     }
   | OperatorNoticeRefusal {
   if (!isIncidentReportEvent(input.event)) return refuse("Pick what happened from the list.");
@@ -443,7 +453,30 @@ export function readIncidentReportFields(
   const rawDone = Array.isArray(input.mitigations) ? input.mitigations : [];
   if (!rawDone.every(isIncidentMitigation)) return refuse("Pick what was done from the list.");
   const mitigationRows = [...new Set(rawDone as IncidentMitigation[])].map((code) => ({ code }));
-  return { event: input.event, occurredOn, infoRows, mitigationRows };
+  // An older console sends neither list: absent is empty, never a refusal.
+  const rawSteps = input.steps === undefined || input.steps === null ? [] : input.steps;
+  if (!Array.isArray(rawSteps) || !rawSteps.every(isIncidentPatientStep)) {
+    return refuse("Pick what the people affected can do from the list.");
+  }
+  const stepRows = [...new Set(rawSteps as IncidentPatientStep[])].map((code) => ({ code }));
+  const rawAdvice =
+    input.recommendations === undefined || input.recommendations === null
+      ? []
+      : input.recommendations;
+  if (!Array.isArray(rawAdvice) || !rawAdvice.every(isIncidentRecommendation)) {
+    return refuse("Pick what we recommend from the list.");
+  }
+  const recommendationRows = [...new Set(rawAdvice as IncidentRecommendation[])].map((code) => ({
+    code,
+  }));
+  return {
+    event: input.event,
+    occurredOn,
+    infoRows,
+    mitigationRows,
+    stepRows,
+    recommendationRows,
+  };
 }
 
 export type IncidentReportSent = {
@@ -451,6 +484,9 @@ export type IncidentReportSent = {
   /** The report's number: 1, then each update. */
   report: number;
   noticeId: string;
+  /** How many steps for the people affected, and recommendations, it carries. */
+  steps: number;
+  recommendations: number;
 };
 
 /**
@@ -495,6 +531,8 @@ export async function sendIncidentReport(
         discoveredOn: isoDay(row.discoveredAt),
         infoRows: fields.infoRows,
         mitigationRows: fields.mitigationRows,
+        stepRows: fields.stepRows,
+        recommendationRows: fields.recommendationRows,
         isUpdate: n > 1,
         ...(listUrl ? { listUrl } : {}),
       });
@@ -504,7 +542,13 @@ export async function sendIncidentReport(
         decidedBy: options.actorLabel,
         now,
       });
-      return { status: "sent", report, noticeId };
+      return {
+        status: "sent",
+        report,
+        noticeId,
+        steps: fields.stepRows.length,
+        recommendations: fields.recommendationRows.length,
+      };
     },
   );
   if (outcome.status === "sent") await deliverCriticalAfterCommit(clinicId);
@@ -925,9 +969,10 @@ export type IncidentRegisterRow = {
   resolvedAt: string | null;
   openedBy: string;
   /**
-   * How many people the incident's list names (lib/incidents/affected.ts): a
-   * count, never who. The practice reads them on the incident's page once a
-   * report has gone; the operator records them from the app's shell.
+   * How many people the operator recorded as affected (lib/incidents/
+   * affected.ts; incidents.affected_recorded): a count, never who, and the
+   * count as recorded, which an erasure of one of them does not lower. The
+   * practice reads them on the incident's page once a report has gone.
    */
   affectedCount: number;
 };
@@ -962,10 +1007,7 @@ export async function incidentRegister(
           metadata: { purpose: "incident_register" },
         });
       }
-      const counted = await Promise.all(
-        shown.map(async (i) => ({ ...i, affectedCount: await countAffected(tx, i.id) })),
-      );
-      return counted;
+      return shown;
     });
     for (const i of rows) {
       out.push({
@@ -990,7 +1032,7 @@ export async function incidentRegister(
         decidedBy: i.decidedBy,
         resolvedAt: i.resolvedAt?.toISOString() ?? null,
         openedBy: i.openedBy,
-        affectedCount: i.affectedCount,
+        affectedCount: i.affectedRecorded,
       });
     }
   }

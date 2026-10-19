@@ -124,6 +124,16 @@ export async function changeAffectedContacts(
   }
   const total = await countAffected(tx, incident.id);
   const changed = Math.abs(added);
+  // The count as recorded, on the incident, moved only by the operator's own
+  // additions and removals: the list's rows go with their contacts (an
+  // erasure, the record clock), and a person counted once stays counted.
+  await tx.db
+    .update(incidents)
+    .set({
+      affectedRecorded: sql`greatest(0, ${incidents.affectedRecorded} + ${added})`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(incidents.id, incident.id), eq(incidents.clinicId, tx.clinicId)));
   tx.audit.record({
     action: input.action === "add" ? "create" : "delete",
     resourceType: "incident_affected_contacts",

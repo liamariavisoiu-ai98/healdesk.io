@@ -5,7 +5,11 @@ import {
   GUARANTEE_OUTCOMES,
   INCIDENT_INFORMATION_TYPES,
   INCIDENT_MITIGATIONS,
+  INCIDENT_PATIENT_STEPS,
+  INCIDENT_RECOMMENDATIONS,
   INCIDENT_REPORT_EVENTS,
+  isIncidentPatientStep,
+  isIncidentRecommendation,
   isIncidentReportEvent,
   isProductUpdateCode,
   PHI_SUBCONTRACTORS,
@@ -27,6 +31,8 @@ const TABLES = {
   INCIDENT_REPORT_EVENTS,
   INCIDENT_INFORMATION_TYPES,
   INCIDENT_MITIGATIONS,
+  INCIDENT_PATIENT_STEPS,
+  INCIDENT_RECOMMENDATIONS,
   PHI_SUBCONTRACTORS,
   TERMS_CHANGE_TOPICS,
   SUSPENSION_CAUSES,
@@ -49,6 +55,8 @@ describe("the operator notices' codes", () => {
     for (const value of ["constructor", "__proto__", "toString", "", 1, null, undefined]) {
       expect(isIncidentReportEvent(value)).toBe(false);
       expect(isProductUpdateCode(value)).toBe(false);
+      expect(isIncidentPatientStep(value)).toBe(false);
+      expect(isIncidentRecommendation(value)).toBe(false);
     }
   });
 

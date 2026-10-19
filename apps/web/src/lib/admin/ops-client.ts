@@ -82,6 +82,8 @@ import {
   GUARANTEE_OUTCOMES,
   INCIDENT_INFORMATION_TYPES,
   INCIDENT_MITIGATIONS,
+  INCIDENT_PATIENT_STEPS,
+  INCIDENT_RECOMMENDATIONS,
   INCIDENT_REPORT_EVENTS,
   PHI_SUBCONTRACTORS,
   PRODUCT_UPDATES,
@@ -97,6 +99,8 @@ import {
   type GuaranteeOutcome,
   type IncidentInformationType,
   type IncidentMitigation,
+  type IncidentPatientStep,
+  type IncidentRecommendation,
   type IncidentReportEvent,
   type PhiSubcontractor,
   type ProductUpdateCode,
@@ -4467,10 +4471,25 @@ export type IncidentReportFields = {
   occurredOn?: string;
   info: { type: IncidentInformationType; count: number }[];
   mitigations: IncidentMitigation[];
+  /** What the people affected can do (wave 2 R11): codes from INCIDENT_PATIENT_STEPS. */
+  steps: IncidentPatientStep[];
+  /** What we recommend the practice do: codes from INCIDENT_RECOMMENDATIONS. */
+  recommendations: IncidentRecommendation[];
 };
 
 export type IncidentReportOutcome =
-  | { status: "sent"; report: number; auditRecorded: boolean }
+  | {
+      status: "sent";
+      report: number;
+      /**
+       * How many steps and recommendations the queued report carries, or null
+       * from an apps/app that predates them: it ignores the two lists, so a
+       * report sent with some went without them, and the console says so.
+       */
+      steps: number | null;
+      recommendations: number | null;
+      auditRecorded: boolean;
+    }
   | { status: "refused"; message: string };
 
 /**
@@ -4499,6 +4518,13 @@ export function sendIncidentReport(
       mitigations: list(fields.mitigations, "sendIncidentReport.mitigations").map((code) =>
         literal(code, keysOf(INCIDENT_MITIGATIONS), "sendIncidentReport.mitigations"),
       ),
+      steps: list(fields.steps, "sendIncidentReport.steps").map((code) =>
+        literal(code, keysOf(INCIDENT_PATIENT_STEPS), "sendIncidentReport.steps"),
+      ),
+      recommendations: list(fields.recommendations, "sendIncidentReport.recommendations").map(
+        (code) =>
+          literal(code, keysOf(INCIDENT_RECOMMENDATIONS), "sendIncidentReport.recommendations"),
+      ),
     }),
     (args) =>
       callOps("sendIncidentReport", "write", args, (value) => {
@@ -4507,6 +4533,15 @@ export function sendIncidentReport(
         return {
           status: "sent" as const,
           report: count(data.report, "sendIncidentReport.report"),
+          // apps/app before its deploy answers without them.
+          steps:
+            data.steps === undefined || data.steps === null
+              ? null
+              : count(data.steps, "sendIncidentReport.steps"),
+          recommendations:
+            data.recommendations === undefined || data.recommendations === null
+              ? null
+              : count(data.recommendations, "sendIncidentReport.recommendations"),
           auditRecorded: bool(data.auditRecorded, "sendIncidentReport.auditRecorded"),
         };
       }),

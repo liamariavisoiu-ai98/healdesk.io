@@ -507,4 +507,56 @@ describeDb("who an incident affected", () => {
     expect(body).not.toContain("5550190231");
     expect(body).not.toContain("Synthetic Patient");
   });
+
+  test("the count recorded stays on the incident when a person on the list is erased; the list itself keeps no trace of them", async () => {
+    const clinic = await seedClinic("affectedkept");
+    const incident = await open(clinic.clinicId);
+    const people = [
+      await seedContact(clinic.clinicId, "+15550190241"),
+      await seedContact(clinic.clinicId, "+15550190242"),
+    ];
+    await recordAffectedFromShell({
+      clinicId: clinic.clinicId,
+      incidentId: incident.id,
+      contactIds: people.join(","),
+      operator: OPERATOR,
+    });
+    const erased = await erasePersonFromShell({
+      clinicId: clinic.clinicId,
+      contactId: people[0]!,
+      requestedBy: "practice",
+      operator: OPERATOR,
+    });
+    expect(erased.status).toBe("erased");
+    expect(await listed(clinic.clinicId, incident.id)).toEqual([people[1]]);
+    const outcome = await runOperation(
+      "listIncidentRegister",
+      {},
+      { email: "ops@healdesk.test", request: {} },
+    );
+    const row = (
+      outcome.body as { data: { incidents: { id: string; affectedCount: number }[] } }
+    ).data.incidents.find((i) => i.id === incident.id);
+    // Recorded as two; the erasure does not make it one.
+    expect(row?.affectedCount).toBe(2);
+    // The operator's own correction moves it, by what it removes: the erased
+    // person stays counted.
+    await recordAffectedFromShell({
+      clinicId: clinic.clinicId,
+      incidentId: incident.id,
+      contactIds: people[1]!,
+      action: "remove",
+      operator: OPERATOR,
+    });
+    const after = await runOperation(
+      "listIncidentRegister",
+      {},
+      { email: "ops@healdesk.test", request: {} },
+    );
+    expect(
+      (
+        after.body as { data: { incidents: { id: string; affectedCount: number }[] } }
+      ).data.incidents.find((i) => i.id === incident.id)?.affectedCount,
+    ).toBe(1);
+  });
 });

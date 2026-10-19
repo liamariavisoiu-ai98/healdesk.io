@@ -104,12 +104,19 @@ categories; never paste patient data into it.
    (/admin/incidents, since 14 October 2026): **Send report** emails the
    clinic's address an L29 report built from fixed fields only (what
    happened, from a fixed list; the dates of the event and of its discovery;
-   each type of information with a count; what we did; and the reply address
-   as the contact), records `notified_at`, and can be sent again as an update.
-   The email never names anyone and states no deadline. A breach's report
-   links to the incident's page, where the patients' list is read as above;
-   the patients' own steps and our recommendations go by phone. The incidents
-   page counts how many people each list names, never who. If the incident owes the clinic no report (a
+   each type of information with a count; what we did; what the affected
+   patients can do to protect themselves and what we recommend the clinic do,
+   each picked from a fixed list; and the reply address as the contact),
+   records `notified_at`, and can be sent again as an update. The patients'
+   steps and our recommendations are in the written report because the BAA's
+   Reporting clause asks a breach report for the steps and its Notices clause
+   makes the written notice the notice; the phone call repeats them, it does
+   not replace them. A breach's report sent with no steps yet says they will
+   follow in an update, which must then carry them. The email never names
+   anyone and states no deadline. A breach's report links to the incident's
+   page, where the patients' list is read as above. The incidents page counts
+   how many people each list names as recorded, never who; the count stays
+   when one of them is later erased. If the incident owes the clinic no report (a
    routine unsuccessful attempt the agreement already reports once, say),
    record that with **Not reportable** and the reason instead. Nothing
    reaches a clinic unless it is sent from that page.

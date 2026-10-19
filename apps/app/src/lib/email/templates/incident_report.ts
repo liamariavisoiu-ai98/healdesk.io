@@ -1,13 +1,19 @@
 import {
   INCIDENT_INFORMATION_TYPES,
   INCIDENT_MITIGATIONS,
+  INCIDENT_PATIENT_STEPS,
+  INCIDENT_RECOMMENDATIONS,
   INCIDENT_REPORT_EVENTS,
   isIncidentInformationType,
   isIncidentMitigation,
+  isIncidentPatientStep,
+  isIncidentRecommendation,
   isIncidentReportEvent,
   SENDER_IDENTITY,
   type IncidentInformationType,
   type IncidentMitigation,
+  type IncidentPatientStep,
+  type IncidentRecommendation,
   type IncidentReportEvent,
 } from "@healdesk/catalog";
 
@@ -32,6 +38,11 @@ import type { EmailTemplate } from "./types";
  *     event (or that it is not yet known) and of its discovery;
  *   - the types of information involved, each with a count;
  *   - what was done about it, from a closed list;
+ *   - what the people affected can do to protect themselves, and what
+ *     healdesk recommends the practice do, each from a closed list
+ *     (`stepRows`, `recommendationRows`, wave 2 R11): the Reporting clause
+ *     asks a breach report for the first, and the Notices clause makes the
+ *     written notice the notice, so neither goes by phone alone;
  *   - a contact: a reply to this email reaches healdesk's notice address.
  *
  * The identification of each person affected is never emailed (X5): Resend
@@ -61,6 +72,10 @@ export type IncidentReportPayload = {
   infoRows: readonly { type: IncidentInformationType; count: number }[];
   /** What was done, from INCIDENT_MITIGATIONS. Empty while nothing is yet. */
   mitigationRows: readonly { code: IncidentMitigation }[];
+  /** What the people affected can do, from INCIDENT_PATIENT_STEPS. Absent on a report queued before the list. */
+  stepRows?: readonly { code: IncidentPatientStep }[];
+  /** What healdesk recommends the practice do, from INCIDENT_RECOMMENDATIONS. Absent likewise. */
+  recommendationRows?: readonly { code: IncidentRecommendation }[];
   /** An update to an earlier report about the same incident. */
   isUpdate: boolean;
   /**
@@ -105,7 +120,20 @@ export const renderIncidentReport: EmailTemplate<IncidentReportPayload> = (paylo
     }
     return INCIDENT_MITIGATIONS[row.code];
   });
+  const steps = (payload.stepRows ?? []).map((row) => {
+    if (!isIncidentPatientStep(row.code)) {
+      throw new EmailCompositionError(`Unknown step "${String(row.code)}".`);
+    }
+    return INCIDENT_PATIENT_STEPS[row.code];
+  });
+  const advice = (payload.recommendationRows ?? []).map((row) => {
+    if (!isIncidentRecommendation(row.code)) {
+      throw new EmailCompositionError(`Unknown recommendation "${String(row.code)}".`);
+    }
+    return INCIDENT_RECOMMENDATIONS[row.code];
+  });
   const clinic = ctx.clinicName ?? "your practice";
+  const people = ctx.audience === "clients" ? "clients" : "patients";
 
   const blocks: Block[] = [
     {
@@ -149,6 +177,25 @@ export const renderIncidentReport: EmailTemplate<IncidentReportPayload> = (paylo
             text: "We'll tell you what we've done about it in an update.",
           },
         ] as const)),
+    ...(steps.length > 0
+      ? ([
+          { type: "paragraph", text: `What the ${people} affected can do:` },
+          { type: "list", items: steps },
+        ] as const)
+      : payload.kind === "breach"
+        ? ([
+            {
+              type: "paragraph",
+              text: `We'll tell you in an update what the ${people} affected can do to protect themselves.`,
+            },
+          ] as const)
+        : []),
+    ...(advice.length > 0
+      ? ([
+          { type: "paragraph", text: "What we recommend you do:" },
+          { type: "list", items: advice },
+        ] as const)
+      : []),
     ...(payload.kind === "breach" && payload.listUrl
       ? ([
           {
@@ -200,6 +247,8 @@ export const INCIDENT_REPORT_ENTRY: TemplateEntry<IncidentReportPayload> = {
       { type: "conversation_transcript", count: 1 },
     ],
     mitigationRows: [{ code: "recipient_confirmed_deletion" }, { code: "fault_fixed" }],
+    stepRows: [{ code: "unexpected_contact" }, { code: "confirm_details_requests" }],
+    recommendationRows: [{ code: "assess_notice_duty" }, { code: "brief_front_desk" }],
     isUpdate: false,
   },
 };

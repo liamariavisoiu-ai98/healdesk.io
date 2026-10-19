@@ -5,6 +5,8 @@ import {
   GUARANTEE_FAILURES,
   INCIDENT_INFORMATION_TYPES,
   INCIDENT_MITIGATIONS,
+  INCIDENT_PATIENT_STEPS,
+  INCIDENT_RECOMMENDATIONS,
   INCIDENT_REPORT_EVENTS,
   PHI_SUBCONTRACTORS,
   PRODUCT_UPDATES,
@@ -140,6 +142,37 @@ describe("the incident report (L29)", () => {
       "See who was affected",
     );
     expect(email).toMatchSnapshot();
+  });
+
+  test("gives, in writing, what the people affected can do and what we recommend, each from its fixed list", () => {
+    const text = all(renderIncidentReport(base, CTX));
+    expect(text).toContain("What the patients affected can do:");
+    expect(text).toContain(INCIDENT_PATIENT_STEPS.unexpected_contact);
+    expect(text).toContain("What we recommend you do:");
+    expect(text).toContain(INCIDENT_RECOMMENDATIONS.assess_notice_duty);
+    expect(all(renderIncidentReport(base, { ...CTX, audience: "clients" }))).toContain(
+      "What the clients affected can do:",
+    );
+    // A breach's report with none yet says they follow; a report queued before the lists
+    // (no stepRows at all) reads the same, and another class says nothing of them.
+    const { stepRows: _s, recommendationRows: _r, ...older } = base;
+    for (const payload of [{ ...base, stepRows: [], recommendationRows: [] }, older]) {
+      const breach = all(renderIncidentReport(payload, CTX));
+      expect(breach).toContain(
+        "We'll tell you in an update what the patients affected can do to protect themselves.",
+      );
+      expect(breach).not.toContain("What we recommend you do:");
+    }
+    expect(
+      all(renderIncidentReport({ ...older, kind: "security_incident" }, CTX)),
+    ).not.toContain("can do");
+    // Only the lists' own codes render.
+    expect(() =>
+      renderIncidentReport({ ...base, stepRows: [{ code: "call Jane" as never }] }, CTX),
+    ).toThrow(EmailCompositionError);
+    expect(() =>
+      renderIncidentReport({ ...base, recommendationRows: [{ code: "x" as never }] }, CTX),
+    ).toThrow(EmailCompositionError);
   });
 
   test("states no deadline, so no reporting promise of 24 hours or five days can reach a practice", () => {

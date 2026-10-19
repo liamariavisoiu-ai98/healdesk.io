@@ -125,14 +125,21 @@ describe("the incidents page", () => {
   });
 
   test("Send report sends exactly the fixed fields: codes, counts and a date", async () => {
-    reply({ data: { status: "sent", report: 1, auditRecorded: true } });
+    reply({
+      data: { status: "sent", report: 1, steps: 1, recommendations: 1, auditRecorded: true },
+    });
     const result = await sendIncidentReport(CLINIC, INCIDENT, {
       event: "misdirected_email",
       occurredOn: "2026-10-04",
       info: [{ type: "phone_number", count: 3 }],
       mitigations: ["fault_fixed"],
+      steps: ["unexpected_contact"],
+      recommendations: ["assess_notice_duty"],
     });
-    expect(result).toEqual({ ok: true, data: { status: "sent", report: 1, auditRecorded: true } });
+    expect(result).toEqual({
+      ok: true,
+      data: { status: "sent", report: 1, steps: 1, recommendations: 1, auditRecorded: true },
+    });
     expect(sent).toEqual([
       {
         op: "sendIncidentReport",
@@ -143,9 +150,36 @@ describe("the incidents page", () => {
           occurredOn: "2026-10-04",
           info: [{ type: "phone_number", count: 3 }],
           mitigations: ["fault_fixed"],
+          steps: ["unexpected_contact"],
+          recommendations: ["assess_notice_duty"],
         },
       },
     ]);
+  });
+
+  test("an apps/app that predates the steps answers without their counts, read as unknown", async () => {
+    reply({ data: { status: "sent", report: 2, auditRecorded: true } });
+    const result = await sendIncidentReport(CLINIC, INCIDENT, {
+      event: "other",
+      info: [],
+      mitigations: [],
+      steps: ["tell_practice"],
+      recommendations: [],
+    });
+    expect(result).toEqual({
+      ok: true,
+      data: { status: "sent", report: 2, steps: null, recommendations: null, auditRecorded: true },
+    });
+    // A step off the list never leaves the console.
+    const offList = await sendIncidentReport(CLINIC, INCIDENT, {
+      event: "other",
+      info: [],
+      mitigations: [],
+      steps: ["call Jane back" as never],
+      recommendations: [],
+    });
+    expect(offList.ok).toBe(false);
+    expect(sent).toHaveLength(1);
   });
 
   test("a code off the catalog's lists, or a stray field, never leaves the console", async () => {
@@ -153,12 +187,16 @@ describe("the incidents page", () => {
       event: "the caller's name leaked" as never,
       info: [],
       mitigations: [],
+      steps: [],
+      recommendations: [],
     });
     expect(offList.ok).toBe(false);
     const withWords = await sendIncidentReport(CLINIC, INCIDENT, {
       event: "other",
       info: [],
       mitigations: ["we called Jane" as never],
+      steps: [],
+      recommendations: [],
     });
     expect(withWords.ok).toBe(false);
     expect(sent).toEqual([]);
@@ -169,6 +207,8 @@ describe("the incidents page", () => {
       event: "other",
       info: [{ type: "first_name", count: 1, value: "Jane" } as never],
       mitigations: [],
+      steps: [],
+      recommendations: [],
     });
     expect(sent[0]!.args.info).toEqual([{ type: "first_name", count: 1 }]);
     expect(JSON.stringify(sent)).not.toContain("Jane");

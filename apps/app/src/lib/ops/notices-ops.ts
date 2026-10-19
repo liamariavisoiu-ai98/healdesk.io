@@ -71,7 +71,15 @@ export async function opListIncidentRegister(operator: Operator): Promise<OpsOut
 }
 
 export type SendIncidentReportOutcome =
-  { status: "sent"; report: number; auditRecorded: boolean } | Refused;
+  | {
+      status: "sent";
+      report: number;
+      /** What the console sent of the two lists, so it can tell an older apps/app that dropped them. */
+      steps: number;
+      recommendations: number;
+      auditRecorded: boolean;
+    }
+  | Refused;
 
 export async function opSendIncidentReport(
   args: Record<string, unknown>,
@@ -89,6 +97,8 @@ export async function opSendIncidentReport(
       occurredOn: args.occurredOn,
       info: args.info,
       mitigations: args.mitigations,
+      steps: args.steps,
+      recommendations: args.recommendations,
     },
     { actorLabel: operator.email },
   );
@@ -101,6 +111,8 @@ export async function opSendIncidentReport(
   return ok({
     status: "sent",
     report: result.report,
+    steps: result.steps,
+    recommendations: result.recommendations,
     auditRecorded,
   } satisfies SendIncidentReportOutcome);
 }

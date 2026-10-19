@@ -330,11 +330,12 @@ describeDb("the setup wizard's pages", () => {
         expect(words).not.toContain("Don't change your call forwarding");
         expect(words).toContain("Forward your main line’s calls to AYA");
         expect(words).toContain("(512) 555-0142");
-        // AT&T, overflow and after hours (the default): busy and no-answer forwarding.
-        expect(words).toContain("*905125550142");
-        expect(words).toContain("*925125550142");
+        // AT&T, overflow and after hours (the default): busy and no-answer
+        // forwarding, which AT&T Phone ends with #, and its undo.
+        expect(words).toContain("*905125550142#");
+        expect(words).toContain("*925125550142#");
         expect(words).toContain("To undo it at any time");
-        expect(words).toMatch(/\*91/);
+        expect(words).toContain("*91#");
         expect(html).toMatch(/<option value="att" selected="">AT&amp;T<\/option>/);
         expect(words).toContain("Email these to my office manager");
         expect(html).toMatch(

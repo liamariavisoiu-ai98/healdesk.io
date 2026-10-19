@@ -375,8 +375,8 @@ you own in your own Twilio account.**
    describe it as marketing. Approval is not instant and blocks all US SMS
 4. **Clinic onboarding**: conditional forwarding (busy / no-answer / after-hours) from their
    published number to your landing number. Usually `*61*<number>#` for no-answer,
-   `*67*<number>#` for busy, or a routing rule on a VoIP PBX. Forwarding is reversible in
-   one step — that's the biggest objection-killer in the sales conversation. **Verify the
+   `*67*<number>#` for busy, or a routing rule on a VoIP PBX. Forwarding is reversible by
+   the clinic itself — that's the biggest objection-killer in the sales conversation. **Verify the
    original caller's CLI survives the hop** before go-live
 5. **Later, when a clinic wants to text from its published number**: Twilio Console → Phone
    Numbers → Manage → **Hosted Numbers**, with an electronic LOA from the clinic's

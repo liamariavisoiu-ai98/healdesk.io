@@ -69,7 +69,13 @@ const ACTOR = { type: "service", serviceName: "test" } as const;
  * say "within thirty days", and 1.0.0 and 0.1.0-draft "on termination".
  */
 const THIRTY_DAY_VERSIONS = ["1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft"];
-const EXPORT_RULE_VERSIONS = ["1.5.1", "1.5.0", "1.4.0", "1.3.0", "dpa/1.0.0"];
+/**
+ * Every version whose Term clause is 1.3.0's, and the DPA. 1.6.0 is a draft
+ * (BAA 1.5.1 with Anthropic's retention corrected, agreement-changes.md §17):
+ * no clinic can sign it before the owner releases it, but its rule is its
+ * text's, so it is held to the same clock.
+ */
+const EXPORT_RULE_VERSIONS = ["1.6.0", "1.5.1", "1.5.0", "1.4.0", "1.3.0", "dpa/1.0.0"];
 /**
  * A word for each version, for the labels clinics are seeded under. A label
  * of digits can give a slug the audit's PHI scan reads as a telephone number
@@ -82,6 +88,7 @@ const WORD: Record<string, string> = {
   "1.4.0": "latest",
   "1.5.0": "newest",
   "1.5.1": "current",
+  "1.6.0": "drafted",
   "dpa/1.0.0": "dpa",
 };
 
@@ -1117,7 +1124,7 @@ describeDb("the destruction clock in the database", () => {
       .map((t) => t.version)
       .filter((v) => exportRuleIsPromised(v))
       .sort();
-    expect(promising).toEqual(["1.3.0", "1.4.0", "1.5.0", "1.5.1", "dpa/1.0.0"]);
+    expect(promising).toEqual(["1.3.0", "1.4.0", "1.5.0", "1.5.1", "1.6.0", "dpa/1.0.0"]);
     // No text, no promise: an unknown version waits for the switch.
     expect(exportRuleIsPromised("9.9.9")).toBe(false);
     expect(exportRuleIsPromised(null)).toBe(false);

@@ -93,6 +93,7 @@ function frontDoor(specialty: string) {
     escalationHours: null,
     requirements: metaEligible(resolved),
     deferredRequirements: resolved.filter((f) => !f.metaEligible),
+    neverSay: [],
   });
 }
 

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { deleteRows, normalizeEmail, recordLeadEvent } from "@/lib/leads";
+import { replyByDay, replyByPassed } from "@/lib/reply-by";
 import { CHANNEL_IDS, type ChannelId } from "@/lib/setup-channels";
 import { isMarketingStoreConfigured, sheetsClient, type Cell, type SheetsClient } from "@/lib/sheets/client";
 import {
@@ -203,6 +204,34 @@ export async function setupRequestsDueReminder(now: Date = new Date()): Promise<
         now.getTime() >= r.linkExpiresAt.getTime() - REMINDER_BEFORE_EXPIRY_MS &&
         now.getTime() < r.linkExpiresAt.getTime(),
     );
+}
+
+/** How far back the past-due check looks. Each request is raised once, ever, on apps/app. */
+export const PAST_REPLY_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Requests still unanswered after the day P2 promised a reply by
+ * ("We'll reply to {email} by {day}", the next business day in New York from
+ * when it was made): still `new`, so no setup link was minted and nobody
+ * declined it, the whole of that day passed in New York, and the requester
+ * has not asked us to stop writing. Ids for the ops alert
+ * (app/api/cron/setup-replies); nothing else leaves this module.
+ */
+export function pastReply(requests: readonly SetupRequest[], now: Date = new Date()): SetupRequest[] {
+  return requests.filter(
+    (r) =>
+      r.status === "new" &&
+      r.unsubscribedAt === null &&
+      now.getTime() - r.createdAt.getTime() < PAST_REPLY_LOOKBACK_MS &&
+      replyByPassed(replyByDay(r.createdAt), now),
+  );
+}
+
+/** pastReply over the Sheet's requests. */
+export async function setupRequestsPastReply(now: Date = new Date()): Promise<SetupRequest[]> {
+  if (!isMarketingStoreConfigured()) return [];
+  const client = await store();
+  return pastReply((await readAll(client)).map((r) => r.value), now);
 }
 
 /**

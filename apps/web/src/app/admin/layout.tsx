@@ -106,6 +106,7 @@ const SECTIONS = [
   { href: "/admin/map", label: "Map" },
   { href: "/admin/host", label: "Host" },
   { href: "/admin/setup", label: "Setup" },
+  { href: "/admin/support", label: "Support" },
   { href: "/admin/crm", label: "CRM" },
   { href: "/admin/demos", label: "Demos" },
   { href: "/admin/agreements", label: "Agreements" },

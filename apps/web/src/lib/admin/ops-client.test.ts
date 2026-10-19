@@ -1356,3 +1356,48 @@ describe("the practice questions' review queue (/admin/reviews)", () => {
     expect(sent[2]).toEqual({ op: "rerunPracticeQuestions", args: { clinicId: CLINIC } });
   });
 });
+
+describe("dated promises (WP5): the setup-replies relay and the support marks", () => {
+  const REQUEST = "5b4a3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
+
+  test("the cron's relay sends only ids, with no browser context, and reads the count", async () => {
+    reply({ data: { raised: 1 } });
+    expect(await opsClient.relaySetupRepliesPastDue([REQUEST])).toEqual({ ok: true, data: { raised: 1 } });
+    expect(sent).toEqual([{ op: "setupRepliesPastDue", args: { requestIds: [REQUEST] } }]);
+    const init = vi.mocked(fetch).mock.calls[0]![1] as { body: string };
+    expect(JSON.parse(init.body)).not.toHaveProperty("context");
+  });
+
+  test("the support list is read field by field, and a bad field is malformed rather than shown", async () => {
+    const row = {
+      clinicId: CLINIC,
+      clinicSlug: "radiance",
+      requestId: REQUEST,
+      topic: "billing",
+      replyByOn: "2026-10-15",
+      askedAt: "2026-10-14T13:05:00.000Z",
+      repliedAt: null,
+      pastDue: true,
+    };
+    reply({ data: { requests: [row], unreadClinics: 0 } });
+    expect(await opsClient.fetchSupportRequests()).toEqual({
+      ok: true,
+      data: { requests: [row], unreadClinics: 0 },
+    });
+    reply({ data: { requests: [{ ...row, topic: "Billing, and the words they typed" }], unreadClinics: 0 } });
+    expect(await opsClient.fetchSupportRequests()).toMatchObject({ ok: false, code: "malformed" });
+  });
+
+  test("the mark says marked, already or not found, and nothing else", async () => {
+    reply({ data: { status: "marked" } });
+    expect(await opsClient.markSupportReplied(CLINIC, REQUEST)).toEqual({ ok: true, data: { status: "marked" } });
+    expect(sent.at(-1)).toEqual({ op: "markSupportReplied", args: { clinicId: CLINIC, requestId: REQUEST } });
+    reply({ data: { status: "already", repliedAt: "2026-10-15T10:00:00.000Z" } });
+    expect(await opsClient.markSupportReplied(CLINIC, REQUEST)).toEqual({
+      ok: true,
+      data: { status: "already", repliedAt: "2026-10-15T10:00:00.000Z" },
+    });
+    reply({ data: { status: "done" } });
+    expect(await opsClient.markSupportReplied(CLINIC, REQUEST)).toMatchObject({ ok: false, code: "malformed" });
+  });
+});

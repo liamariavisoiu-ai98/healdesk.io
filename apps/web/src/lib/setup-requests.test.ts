@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { purgeStaleLeads, recordDemoUnlock } from "./leads";
-import { createSetupRequest, purgeStaleSetupRequests } from "./setup-requests";
+import { createSetupRequest, purgeStaleSetupRequests, setupRequestsPastReply, updateSetupRequest } from "./setup-requests";
 import { FakeSheets, __setSheetsClientForTests } from "./sheets/client";
 import { __resetSheetSchemaForTests } from "./sheets/schema";
 
@@ -57,5 +57,27 @@ describe("setup request retention", () => {
 
     expect(await purgeStaleLeads(12)).toBe(1);
     expect(sheets.records("setup_requests")[0]!.lead_id).toBe("");
+  });
+});
+
+describe("setup requests past the reply day P2 promised", () => {
+  test("a new request whose day has passed in New York is owed; one replied to, declined, unsubscribed or still on its day is not", async () => {
+    // Tuesday 6 October 2026, 11:00 in New York: P2 promised Wednesday 7 October.
+    const asked = new Date("2026-10-06T15:00:00Z");
+    const owed = await request("owed@clinic.com", null, asked);
+    const invited = await request("invited@clinic.com", null, asked);
+    const declined = await request("declined@clinic.com", null, asked);
+    const unsubscribed = await request("unsubscribed@clinic.com", null, asked);
+    await updateSetupRequest(invited.id, { status: "invited", invitedAt: asked });
+    await updateSetupRequest(declined.id, { status: "declined" });
+    await updateSetupRequest(unsubscribed.id, { unsubscribedAt: asked });
+
+    // 22:00 on the 7th in New York: still the promised day.
+    expect(await setupRequestsPastReply(new Date("2026-10-08T02:00:00Z"))).toEqual([]);
+    // 09:07 on the 8th, when the cron runs.
+    const due = await setupRequestsPastReply(new Date("2026-10-08T13:07:00Z"));
+    expect(due.map((r) => r.id)).toEqual([owed.id]);
+    // A month on, it has long been raised once; the check stops looking.
+    expect(await setupRequestsPastReply(new Date("2026-11-08T13:07:00Z"))).toEqual([]);
   });
 });

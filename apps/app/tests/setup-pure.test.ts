@@ -675,7 +675,23 @@ describe("the build tracker", () => {
     const passed = buildTracker(answered, NOT_CONNECTED, run());
     expect(passed.left).toEqual([]);
     expect(passed.previewUnlocked).toBe(true);
-    expect(engine(run())[1]).toEqual(["done", "AYA answered her practice questions about your practice, and got them right."]);
+    // Round 2 of the 19 October guardrails: the booking and deposit cases
+    // cannot be asked until AYA has booking tools, so a pass names what was
+    // asked and never says she got them all right.
+    expect(engine(run())[1]).toEqual([
+      "done",
+      "AYA passed the practice questions she can be asked: the line she opens with, a price on your menu, one that isn't, a clinical question, an urgent message from a patient, an off-topic patient and a question your answers don't cover. The ones about booking and deposits wait for her booking tools.",
+    ]);
+    expect(engine(run())[1]![1]).not.toMatch(/got them right/);
+    const vetSpanish = setupState({
+      ...answered,
+      clinic: { ...answered.clinic, specialty: "veterinary" },
+      settings: { ...answered.settings, languages: ["en", "es"] },
+    });
+    expect(engine(run(), vetSpanish)[1]![1]).toContain(
+      "an urgent message from a client, an off-topic client, a question your answers don't cover and a conversation in Spanish.",
+    );
+    expect(engine(run(), vetSpanish)[1]![1]).not.toMatch(/patient/);
     expect(engine(run({ overridden: true }))[1]![1]).toBe("Our team checked AYA's answers with you and approved them.");
     // A change since the pass: checked again before the stage is done.
     expect(engine(run({}, true))).toEqual([

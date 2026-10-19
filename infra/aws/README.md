@@ -190,7 +190,7 @@ would land in the state at the next plan.) The real values are written inside AW
 | `app/STRIPE_CONNECT_WEBHOOK_SECRET` | The owner, from doorbell B (Stripe's Connect endpoint at `https://app.healdesk.io/api/webhooks/stripe-connect`) | web |
 | `app/META_APP_SECRET`, `app/META_VERIFY_TOKEN`, `app/ANTHROPIC_API_KEY` | The owner, only once the BAA chain allows ("What still blocks real patient data") | web |
 | `app/HEALDESK_RETELL_LLM_SECRET` | The owner, before turning `enable_voice` on: a random value, at least 32 characters (letters, digits, `-` and `_` only, since it is a URL path segment: `openssl rand -hex 32`); the same value goes into each clinic's Retell agent URL ("The voice endpoint", below). It may be pasted before the agreements for a test call on the demo clinic only, which the voice process enforces until `voice_real_calls` is on ("Turning it on"). Unset (`__unset__`), the voice process refuses every call | voice (and web, which gets every `app/` parameter) |
-| `app/HEALDESK_RETELL_API_KEY` | The owner, with `HEALDESK_RETELL_LLM_SECRET`: the `key_...` API key of the Retell workspace the clinics' agents are in, the one with the webhook badge (never the marketing site's `RETELL_API_KEY`). That workspace is the one under Retell's BAA and holds no demo agent: a key reads every call in its workspace, and the demo's keys sit on Vercel, which handles no patient data. It verifies Retell's call-ended webhook (`/api/webhooks/retell/<clinic id>`) and lets the worker read a call back (`GET https://api.retellai.com/v2/get-call/<id>`), the backstop for a call the voice task never recorded; it keeps each clinic's AYA number's fallback on its direct line, hourly, and lets the voice endpoint read that line back while the database is down (`docs/on-call.md`, "Voice: where a call goes when something fails"). Unset, the webhook answers 503 and nothing is backstopped, the sync reports `skipped`, and outage mode has no direct lines to send calls to | web (the webhook), worker (the backstop job and the sync), voice (the fallback line) |
+| `app/HEALDESK_RETELL_API_KEY` | The owner, with `HEALDESK_RETELL_LLM_SECRET` and under the same answer: `test` before the agreements, for the backstop and fall-through checks on the demo clinic ("Turning it on", steps 6 and 7), while `voice_real_calls` keeps the backstop to the demo clinic's calls and the workspace holds no real clinic's agent or number; `yes` once every agreement is signed. It is the `key_...` API key of the Retell workspace the clinics' agents are in, the one with the webhook badge (never the marketing site's `RETELL_API_KEY`). That workspace is the one under Retell's BAA and holds no agent of the marketing site's demo line: a key reads every call in its workspace, and the demo line's keys sit on Vercel, which handles no patient data. It verifies Retell's call-ended webhook (`/api/webhooks/retell/<clinic id>`) and lets the worker read a call back (`GET https://api.retellai.com/v2/get-call/<id>`), the backstop for a call the voice task never recorded; it keeps each clinic's AYA number's fallback on its direct line, hourly, and lets the voice endpoint read that line back while the database is down (`docs/on-call.md`, "Voice: where a call goes when something fails"). Unset, the webhook answers 503 and nothing is backstopped, the sync reports `skipped`, and outage mode has no direct lines to send calls to | web (the webhook), worker (the backstop job and the sync), voice (the fallback line) |
 | `ci/CLOUDFLARE_API_TOKEN` (not Terraform's) | The owner, before the first plan, under the bootstrap stack's key | `infra.yml` and `host.yml`, after they assume the Terraform role |
 | RDS master secret (Secrets Manager, managed by RDS, rotated every 7 days) | RDS | db-bootstrap only, through the execution role |
 
@@ -248,10 +248,11 @@ same conversation code.
   with `enable_voice`, `HEALDESK_VOICE_ENABLED=1`, which tells `/admin/map` the voice endpoint
   exists (the pasted secret cannot: the web tier holds every `app/` parameter; like any task
   change, it reaches the running web tasks with the next full deploy); the voice task
-  (`enable_voice`) adds only `PORT=3001` and `HOSTNAME=0.0.0.0`. With `voice_real_calls`, both
-  the web and the voice task get `HEALDESK_VOICE_REAL_CALLS=1`: the voice process answers real
-  patients only with it, and `/admin/map` reads it from the web tier. An empty variable is left out,
-  not set to `""`.
+  (`enable_voice`) adds only `PORT=3001` and `HOSTNAME=0.0.0.0`. With `voice_real_calls`, the
+  web, the worker and the voice task get `HEALDESK_VOICE_REAL_CALLS=1`: the voice process answers
+  real patients only with it, the worker's backstop for a call the voice task never recorded
+  records a real clinic's call only with it (in either `worker_placement`), and `/admin/map` reads
+  it from the web tier. An empty variable is left out, not set to `""`.
 - **Never set on web, worker or voice**, enforced by preconditions that fail the plan and by the
   deploy workflow's shape check: `MIGRATION_DATABASE_URL`, `HEALDESK_LOCAL_KEK`,
   `HEALDESK_DIRECT_BOOKING_ENABLED`, `HEALDESK_PHASE_TWO_ATTRIBUTION`, `BETTER_AUTH_SECRETS`. The
@@ -1215,7 +1216,11 @@ calls drop and the other answers the next.
    fixed fallback lines; that is enough to check Retell's protocol fields.
 6. **The backstop.** Paste the engine's Retell key, `bash put-external-secrets.sh
    HEALDESK_RETELL_API_KEY` (the key with the webhook badge, in the workspace the clinics' agents
-   are in: their own, under Retell's BAA, never the demo's, whose keys are on Vercel), and restart. In each clinic's Retell agent set the agent's own webhook URL to
+   are in: their own, under Retell's BAA, never the demo's, whose keys are on Vercel), and restart.
+   The script asks for the same answer as the line password: `test` while the agreements are not
+   signed, which allows this step and the next on the demo clinic only. The key can read every
+   call in its workspace, so until Retell's agreement is signed that workspace holds the demo
+   clinic's agent and number and nothing else. In each clinic's Retell agent set the agent's own webhook URL to
    `https://app.healdesk.io/api/webhooks/retell/<clinic id>` (the same lower-case UUID as the
    socket's path), and make sure the clinic row's `assistant_number_e164` is the agent's Retell
    number: the backstop records nothing for a call to any other number. Retell sends
@@ -1226,31 +1231,37 @@ calls drop and the other answers the next.
    the transcript and counts the minutes, with no booking request, since what the caller asked for
    was in the dead task's memory; the clinic reads it in the transcript. It reads the words from
    Retell's own copy, so an agent that opts out of Retell storing sensitive data gets a backstop
-   with no transcript. Until `HEALDESK_VOICE_REAL_CALLS` is exactly `1` the backstop, like the
-   voice line, records calls for the demo clinic alone and drops every other clinic's without
-   asking Retell. Check on the test call: the web log shows no `retell webhook signature did
+   with no transcript. Until `HEALDESK_VOICE_REAL_CALLS` is exactly `1` in the worker, which
+   `voice_real_calls` sets there as on the voice task, the backstop, like the voice line, records
+   calls for the demo clinic alone and drops every other clinic's without asking Retell. Check on the test call: the web log shows no `retell webhook signature did
    not verify`, and ten minutes later the worker log shows `voice call backstop found the call
    recorded` (the live line got there first), never `voice call recorded by the backstop`.
-7. **The fall-through.** With the key from step 6 pasted and the tasks restarted, within the hour the worker's `retell-fallback`
-   job sets each clinic's AYA number's fallback in Retell to the clinic's direct line; the job
-   list shows its count. Retell drops a call whose endpoint it cannot reach, so this fallback,
+7. **The fall-through.** With the key from step 6 pasted and the tasks restarted, within the hour the worker's hourly tick
+   sets each clinic's AYA number's fallback in Retell to the clinic's direct line. It is not a row
+   in the ops console's job list: the worker's `tick` log line (`/healdesk/production/worker`)
+   shows `retell-fallback=ok` (`skipped` while the key is unset; `failed` comes with a
+   `retell_fallback_unsynced` ops alert naming the clinic, or the key), and Retell's dashboard
+   shows the clinic's direct line as the number's fallback. Retell drops a call whose endpoint it cannot reach, so this fallback,
    with outage mode turned on in Retell's dashboard, is how calls reach the clinic while our
    endpoint is down. Outage mode is described in Retell's support material, not in its API
    reference, and has not been tried here, so this step is also its first test (`docs/on-call.md`, "Voice endpoint down"). Make one test call to a made-up
    clinic with outage mode on, and check it rings that clinic's direct line.
 8. Real calls, only once every agreement in the chain is signed: `voice_real_calls = true` in
    `production.tfvars`, merge, run `infra.yml` with `apply`, then a full `deploy-app.yml` (not
-   `restart_only`: the flag is in the task definition). Then each real clinic's agent may get the
-   address. Turning it back off is the same three steps with `false`.
+   `restart_only`: the flag is in the web, worker and voice task definitions, and the worker's
+   backstop reads it as the voice line does). Then each real clinic's agent may get the address.
+   Turning it back off is the same three steps with `false`.
 
 **Rotating the secret**: paste a new value, run `restart_only`, then update every agent's URL;
 calls to an agent not yet updated are refused in between, so do it in a quiet hour.
 
 **Turning it off**: point each clinic's forwarding back to its own line, set `enable_voice = false`
-and apply. The apply waits while the voice tasks drain, up to an hour (the service's delete
+and, if real calls were on, `voice_real_calls = false` in the same change (the plan refuses
+`voice_real_calls` without `enable_voice`), and apply. The apply waits while the voice tasks drain, up to an hour (the service's delete
 timeout is 65 minutes, inside `infra.yml`'s 90), so do it in a quiet hour. Then run a full
 `deploy-app.yml` (not `restart_only`): the web tasks keep the revision the last deploy registered,
-so until then they still carry `HEALDESK_VOICE_ENABLED` and `/admin/map` still shows voice as on.
+so until then they still carry `HEALDESK_VOICE_ENABLED` (and, with the worker, any
+`HEALDESK_VOICE_REAL_CALLS`) and `/admin/map` still shows voice as on.
 The log group and its logs stay.
 
 **Cost**, on Fargate ARM64 in us-east-1 at $0.03238 per vCPU-hour and $0.00356 per GB-hour, 730
@@ -1314,7 +1325,9 @@ to call. The one exception is the voice line, for a test call on the demo clinic
 19 October 2026): `HEALDESK_RETELL_LLM_SECRET` may be pasted with the answer `test` and
 `enable_voice` turned on before the chain is complete, because while `voice_real_calls` is off
 the voice endpoint itself answers no clinic but the demo clinic and records nothing of any other
-call ("The voice endpoint", "Turning it on"). Retell still carries whatever reaches it, so only the
+call ("The voice endpoint", "Turning it on"); `HEALDESK_RETELL_API_KEY` goes in with it, also on
+`test`, for the backstop, which then reads back no call but the demo clinic's, and the
+fall-through. Retell still carries whatever reaches it, so only the
 demo clinic's agent may hold the address until Retell's agreement is signed. With the secret unset, it refuses every call. (The
 Synthflow routes' two secrets were retired on 14 October 2026, `ssm.tf`.)
 

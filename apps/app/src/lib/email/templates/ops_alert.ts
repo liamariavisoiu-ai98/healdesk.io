@@ -163,7 +163,7 @@ const WORDING: Record<OpsEvent, Wording> = {
   retell_fallback_unsynced: {
     title: "A Retell fallback is not the direct line",
     action:
-      "The hourly sync could not set the fallback number of the clinic's AYA number in Retell to its direct line. The code says why: missing (Retell has no such number), rejected or unreachable. Until it is fixed, outage mode and a voice task started during a database outage cannot send that clinic's calls to its direct line. Check the number in Retell's dashboard and HEALDESK_RETELL_API_KEY.",
+      "The hourly sync could not set the fallback number of the clinic's AYA number in Retell to its direct line. The code says why: duplicate (two clinics name the same AYA number; fix the wrong one in Ops), missing (Retell has no such number), rejected, unreachable or database. Until it is fixed, outage mode and a voice task started during a database outage cannot send that clinic's calls to its direct line. Check the number in Retell's dashboard and HEALDESK_RETELL_API_KEY.",
   },
   plan_start_after_cancel: {
     title: "A plan started on a subscription set to cancel",

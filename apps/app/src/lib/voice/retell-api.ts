@@ -83,12 +83,19 @@ export async function getRetellPhoneNumber(number: string, options: RetellApiOpt
   const response = await request(numberPath("get-phone-number", number), { method: "GET" }, options);
   if (response.status === 404) return null;
   if (!response.ok) throw new RetellApiError(response.status);
-  return parse(await response.json());
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    // A parse error quotes the body; this says only what failed.
+    throw new Error("Retell answered with a body that is not JSON");
+  }
+  return parse(body);
 }
 
-/** Point the number's fallback at `fallback`. Throws unless Retell accepted it. */
-export async function setRetellFallbackNumber(number: string, fallback: string, options: RetellApiOptions = {}): Promise<void> {
-  if (!isE164(fallback) || fallback === number) throw new Error("not a usable fallback number");
+/** Point the number's fallback at `fallback`, or clear it with null. Throws unless Retell accepted it. */
+export async function setRetellFallbackNumber(number: string, fallback: string | null, options: RetellApiOptions = {}): Promise<void> {
+  if (fallback !== null && (!isE164(fallback) || fallback === number)) throw new Error("not a usable fallback number");
   const response = await request(
     numberPath("update-phone-number", number),
     { method: "PATCH", body: JSON.stringify({ fallback_number: fallback }) },

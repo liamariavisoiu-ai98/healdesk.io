@@ -217,6 +217,9 @@ export class RetellCallSession {
    * as a message (call details) after this has begun. The record waits for it.
    */
   private async fallThrough(known: string | null): Promise<void> {
+    // Call details may already have said this is an outbound call, which
+    // callDetails has ended (v1 is inbound only): nothing more is said.
+    if (this.outbound) return;
     let found: { line: string; source: string } | null = known ? { line: known, source: "gate" } : null;
     if (!found) {
       await Promise.race([
@@ -229,6 +232,7 @@ export class RetellCallSession {
         found = null;
       }
     }
+    if (this.outbound) return;
     if (found && found.line !== this.calledNumber) {
       this.say(0, TROUBLE_TRANSFER_LINE, { transferTo: found.line });
     } else {

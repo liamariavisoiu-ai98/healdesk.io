@@ -30,12 +30,20 @@ import {
  *     clinic: it reads this fallback back (fallback-line.ts).
  *
  * Hourly from the tick, so the fallback trails a changed direct line by up to
- * an hour; set by our code, never by hand, and never cleared: a clinic that
- * removes its direct line keeps the last one at Retell, which is still a line
- * the clinic gave us and better than a dropped call, and the answer gate
- * already raises voice_fallback_no_direct_line for it. A direct line equal to
- * the AYA number or the published number (which forwards to AYA) is never
- * set: it would send the caller back to us. Not a switched job: it sends
+ * an hour, and set by our code, never by hand. A fallback is only safe while
+ * it is known to be this clinic's line now, so a number whose clinic has no
+ * usable direct line has its fallback cleared: a line left over from a
+ * previous holder of the number would put one clinic's callers through to
+ * another's desk. (A clinic cannot clear a direct line once set,
+ * lib/billing/settings.ts, so this clears only a line that was never its.) (The answer gate already
+ * raises voice_fallback_no_direct_line for such a clinic.) A direct line
+ * equal to the AYA number or the published number (which forwards to AYA) is
+ * never set: it would send the caller back to us. A number two clinics both
+ * name is left alone and reported (code `duplicate`): whichever clinic it
+ * belonged to, the other's callers would reach the wrong desk. Offboarding
+ * forgets a clinic's AYA number, so this cannot clear that number's fallback:
+ * release or clear the number in Retell when a clinic leaves
+ * (docs/on-call.md). Not a switched job: it sends
  * only business contact data, and it does nothing until
  * HEALDESK_RETELL_API_KEY is set.
  */
@@ -92,15 +100,21 @@ export async function syncRetellFallbacks(
 
   const clinics = await (options.list ?? clinicsWithNumbers)();
   summary.clinics = clinics.length;
+  const holders = new Map<string, number>();
+  for (const c of clinics) if (c.assistantNumber) holders.set(c.assistantNumber, (holders.get(c.assistantNumber) ?? 0) + 1);
   for (const clinic of clinics) {
     let code = "database";
     try {
-      const wanted = wantedFallback({ ...clinic, directLine: await directLineOf(clinic.id) });
-      code = "unreachable";
-      if (!wanted || !clinic.assistantNumber) {
+      if (!clinic.assistantNumber) {
         summary.unchanged += 1;
         continue;
       }
+      if ((holders.get(clinic.assistantNumber) ?? 0) > 1) {
+        code = "duplicate";
+        throw new Error("more than one clinic names this AYA number");
+      }
+      const wanted = wantedFallback({ ...clinic, directLine: await directLineOf(clinic.id) });
+      code = "unreachable";
       const number = await getRetellPhoneNumber(clinic.assistantNumber, { ...options, key });
       if (!number) {
         code = "missing";

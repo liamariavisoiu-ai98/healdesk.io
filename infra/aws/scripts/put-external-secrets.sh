@@ -84,9 +84,11 @@ hint_for() {
 # them only once the business associate agreements behind that path are in
 # place, so the script asks too. HEALDESK_RETELL_LLM_SECRET opens the voice
 # endpoint to Retell's calls (enable_voice), and may stay __unset__ until then.
+# HEALDESK_RETELL_API_KEY is workspace-wide at Retell, so it can read that
+# workspace's calls even though our code uses it only for numbers.
 patient_facing() {
   case "$1" in
-    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_RETELL_LLM_SECRET) return 0 ;;
+    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_RETELL_LLM_SECRET | HEALDESK_RETELL_API_KEY) return 0 ;;
   esac
   return 1
 }

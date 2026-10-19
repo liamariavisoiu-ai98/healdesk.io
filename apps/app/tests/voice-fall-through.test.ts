@@ -141,6 +141,15 @@ describe("a call that cannot read the database", () => {
     expect(responses()[0]).toMatchObject({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT });
   });
 
+  test("an outbound call is ended, never put through", async () => {
+    rememberDirectLine(CLINIC, DIRECT);
+    const { s, responses } = session({ fallbackLine: (input) => fallbackLineFor(input, { key: null }) });
+    await s.open();
+    await s.handle(JSON.stringify({ interaction_type: "call_details", call: { to_number: AYA, direction: "outbound" } }));
+    await s.finish();
+    expect(responses()).toEqual([expect.objectContaining({ content: "", end_call: true })]);
+  });
+
   test("a lookup that throws closes the call rather than leaving it silent", async () => {
     const { s, responses } = session({ fallbackLine: down });
     await s.open();
@@ -209,14 +218,25 @@ describe("the hourly fallback sync", () => {
     expect(await syncRetellFallbacks(opts)).toMatchObject({ status: "ok", set: 0, unchanged: 1 });
   });
 
-  test("never sets a line that forwards back to us, and never clears one", async () => {
+  test("never sets a line that forwards back to us, and clears one that cannot be this clinic's", async () => {
     expect(wantedFallback({ assistantNumber: AYA, publishedPhone: "+15125550100", directLine: "+15125550100" })).toBeNull();
     expect(wantedFallback({ assistantNumber: AYA, publishedPhone: null, directLine: AYA })).toBeNull();
     expect(wantedFallback({ assistantNumber: AYA, publishedPhone: null, directLine: null })).toBeNull();
+    // A previous holder's line, on a number whose clinic has none yet.
     const retell = fakeRetell({ [AYA]: { fallback_number: DIRECT } });
-    const result = await syncRetellFallbacks({ key: KEY, fetch: retell.fetcher, list: async () => [clinic], directLineOf: async () => null });
-    expect(result).toMatchObject({ status: "ok", unchanged: 1 });
+    const opts = { key: KEY, fetch: retell.fetcher, list: async () => [clinic], directLineOf: async () => null };
+    expect(await syncRetellFallbacks(opts)).toMatchObject({ status: "ok", set: 1 });
+    expect(JSON.parse(retell.calls[1]!.body!)).toEqual({ fallback_number: null });
+    expect(await syncRetellFallbacks(opts)).toMatchObject({ status: "ok", set: 0, unchanged: 1 });
+  });
+
+  test("leaves alone a number two clinics name, and says so", async () => {
+    const retell = fakeRetell({ [AYA]: { fallback_number: null } });
+    const other = { ...clinic, id: "0c1d2e3f-0000-4000-8000-00000000f412" };
+    const result = await syncRetellFallbacks({ key: KEY, fetch: retell.fetcher, list: async () => [clinic, other], directLineOf: async () => DIRECT });
+    expect(result).toMatchObject({ status: "failed", failures: 2, set: 0 });
     expect(retell.calls).toEqual([]);
+    expect(notified.map((n) => n.fields.code)).toEqual(["duplicate", "duplicate"]);
   });
 
   test("a number Retell does not have, or a refused key, tells ops by clinic and reason", async () => {

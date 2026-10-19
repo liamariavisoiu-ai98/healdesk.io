@@ -28,9 +28,13 @@ where it went (`transferred_memory`, `transferred_retell`, `transferred_gate`, o
 The worker keeps that Retell fallback number equal to each clinic's direct line every
 hour (`lib/voice/retell-fallback-sync.ts`, tick job `retell-fallback`), through
 `HEALDESK_RETELL_API_KEY`. It never sets a line equal to the AYA number or the
-clinic's published number, and never clears one. `retell_fallback_unsynced` names a
-clinic whose number it could not set (`missing`, `rejected`, `unreachable`,
-`database`). Until the key is pasted the job reports `skipped` and none of what
+clinic's published number. It clears the fallback of a number whose clinic has no
+usable direct line, since a line left there could only be a previous holder's, and it
+leaves alone a number two clinics both name. `retell_fallback_unsynced` names a clinic
+whose number it could not set (`duplicate`, `missing`, `rejected`, `unreachable`,
+`database`). Offboarding forgets a clinic's AYA number, so the sync cannot clear that
+number's fallback: release the number in Retell, or clear its fallback, when a clinic
+leaves. Until the key is pasted the job reports `skipped` and none of what
 follows in this section works.
 
 **Voice endpoint down** (the voice alarm, or no `retell call recorded` lines while

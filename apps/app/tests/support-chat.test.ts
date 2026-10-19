@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { CARRIERS, CARRIER_SERVICE_NUMBERS, COVERAGE_MODES, PATIENT_MODEL_IDS } from "@healdesk/catalog";
 import { SETTING_KEYS } from "@/lib/portal/settings";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -13,7 +14,7 @@ import {
   screenAllowFor,
   type SupportChatContext,
 } from "@/lib/support/chat";
-import { forwardingStepsFrom, type ForwardingFacts } from "@/lib/support/forwarding";
+import { forwardingAnswerFrom, forwardingStepsFrom, type ForwardingFacts } from "@/lib/support/forwarding";
 import { HELP_TEXT } from "@/lib/support/help-text";
 import { SUPPORT_LIMITS, SupportLimiter } from "@/lib/support/limits";
 import { SUPPORT_MODEL, supportRequest, type SupportModelClient } from "@/lib/support/model";
@@ -216,6 +217,9 @@ describe("the request", () => {
     });
     const request = supportRequest({ system, messages: [{ role: "user", content: "Hi" }] });
     expect(request.model).toBe("claude-opus-5-5");
+    // On the patient-data key, so one of the models whose retention the terms
+    // and agreements describe; never a Covered Model (model-retention.ts).
+    expect(PATIENT_MODEL_IDS).toContain(SUPPORT_MODEL);
     expect(request.output_config).toEqual({ effort: "low" });
     expect(request.tool_choice).toEqual({ type: "auto" });
     const blocks = request.system as Anthropic.TextBlockParam[];
@@ -473,12 +477,50 @@ describe("get_forwarding_steps", () => {
     expect(forwardingStepsFrom({ ...ready, isClosed: true })).toBeNull();
   });
 
+  test("a closed account gets the undo steps alone, which need no number", () => {
+    // The cancellation email asks the clinic to undo forwarding before the
+    // pass-through days end, and Settings shows a closed account nothing.
+    for (const facts of [{ ...ready, isClosed: true }, { ...ready, isClosed: true, phoneStepsNumberE164: null }]) {
+      const answer = forwardingAnswerFrom(facts)!;
+      expect(answer).toMatchObject({ closed: true, carrier: "Verizon" });
+      expect(answer.undo.map((s) => s.dial)).toEqual(["*43", "", "*73"]);
+      expect(JSON.stringify(answer)).not.toContain("5125550142");
+    }
+    expect(forwardingAnswerFrom(ready)).toEqual(forwardingStepsFrom(ready));
+  });
+
+  test("through the chat, a closed account is told to undo forwarding now, never to leave it", async () => {
+    const answer = forwardingAnswerFrom({ ...ready, carrier: "att", isClosed: true })!;
+    const line = answer.undo.find((s) => s.label.includes("800.288.2020"))!;
+    const model = fakeModel([
+      { tools: [{ name: "get_forwarding_steps", input: {} }] },
+      { text: [line.label] },
+    ]);
+    const { events } = await chat(
+      context(model, { readForwarding: async () => answer }),
+      "How do I undo call forwarding?",
+    );
+    const result = model.requests[1]!.messages.at(-1)!.content as Anthropic.ToolResultBlockParam[];
+    const told = result[0]!.content as string;
+    expect(told).toMatch(/^The service has ended/);
+    expect(told).toMatch(/undo it now/);
+    expect(told).not.toMatch(/not to change|Nothing yet/);
+    expect(told).toContain("Cancel busy forwarding on AT&T Phone: *91#");
+    // The carrier's own number in an undo step still reads as a number.
+    expect(replyOf(events)).toBe(line.label);
+  });
+
   test("once voice is ready, the carrier's codes for the coverage mode, dialling AYA's number", () => {
     const steps = forwardingStepsFrom(ready)!;
     expect(steps.carrier).toBe("Verizon");
     expect(steps.mode).toBe("Overflow and after hours");
-    expect(steps.steps.map((s) => s.dial)).toEqual(["*905125550142", "*925125550142"]);
-    expect(steps.undo.map((s) => s.dial)).toEqual(["*91", "*93"]);
+    // Verizon's home phone (*42, or *41 if the test call fails) and its
+    // mobile line (*71); the two steps after them have nothing to dial: the
+    // warning about a machine answering first, and the test call.
+    expect(steps.steps.map((s) => s.dial)).toEqual(["*425125550142", "*715125550142", "", ""]);
+    expect(steps.steps.at(-1)!.label).toMatch(/^Then test it/);
+    // *43 on the home phone, the service-order step with nothing to dial, *73 on the mobile line.
+    expect(steps.undo.map((s) => s.dial)).toEqual(["*43", "", "*73"]);
   });
 
   test("through the chat: before voice is ready the model is told there is nothing, and makes up no code", async () => {
@@ -497,12 +539,60 @@ describe("get_forwarding_steps", () => {
       { tools: [{ name: "get_forwarding_steps", input: {} }] },
       {
         text: [
-          "Dial *90 512-555-0142 from the main line, then *92 512-555-0142. Undo with *91 and *93.",
+          "From the main line, dial *42 512-555-0142, and if a test call doesn't reach AYA, dial *43, then *41 512-555-0142. Undo with *43.",
         ],
       },
     ]);
     const { events } = await chat(context(model, { readForwarding: async () => steps }), "Codes?");
-    expect(replyOf(events)).toContain("*90 512-555-0142");
+    expect(replyOf(events)).toContain("*42 512-555-0142");
+    expect(replyOf(events)).toContain("*41 512-555-0142");
+  });
+
+  test("a carrier's service number in the steps passes the screen: a traditional AT&T landline is set up by calling AT&T", async () => {
+    const steps = forwardingStepsFrom({ ...ready, carrier: "att" })!;
+    const line = steps.steps.find((s) => s.label.includes("800.288.2020"))!;
+    expect(line.label).toMatch(/^On a traditional AT&T landline/);
+    const model = fakeModel([
+      { tools: [{ name: "get_forwarding_steps", input: {} }] },
+      { text: [`${line.label} ${line.dial}`] },
+    ]);
+    const { events } = await chat(context(model, { readForwarding: async () => steps }), "Codes?");
+    expect(replyOf(events)).toBe(`${line.label} ${line.dial}`);
+    expect(replyOf(events)).not.toContain("[number hidden]");
+  });
+
+  test("every number the steps print passes the screen, for every carrier, phone system and coverage mode", async () => {
+    // Whatever the chat repeats from get_forwarding_steps reads as the
+    // steps do: no carrier service number or AYA's number comes out hidden.
+    expect(CARRIER_SERVICE_NUMBERS.length).toBeGreaterThan(0);
+    for (const carrier of [...CARRIERS.map((c) => c.id), null]) {
+      for (const phoneSystem of ["landline", "voip", "unknown"] as const) {
+        for (const mode of COVERAGE_MODES) {
+          const steps = forwardingStepsFrom({ ...ready, carrier, phoneSystem, mode })!;
+          const said = [...steps.steps, ...steps.undo]
+            .map((s) => (s.dial ? `${s.label} ${s.dial}` : s.label))
+            .concat(steps.notes)
+            .join("\n");
+          const model = fakeModel([
+            { tools: [{ name: "get_forwarding_steps", input: {} }] },
+            { text: [said] },
+          ]);
+          const { events } = await chat(
+            context(model, { readForwarding: async () => steps }),
+            "Codes?",
+          );
+          expect(replyOf(events), `${carrier} ${phoneSystem} ${mode}`).toBe(said);
+        }
+      }
+    }
+  });
+
+  test("a carrier service number is let through only once the steps have given it", async () => {
+    // The steps are why the number is in the reply; a reply that names it
+    // without reading them is screened like any other number.
+    const model = fakeModel([{ text: ["Call 800.288.2020 about it."] }]);
+    const { events } = await chat(context(model), "Who do I call?");
+    expect(replyOf(events)).toBe("Call [number hidden] about it.");
   });
 });
 

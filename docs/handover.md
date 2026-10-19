@@ -108,7 +108,7 @@ reaches `apps/app` until every link is done.
 |---|---|
 | Clinic to Healdesk | Built: accepted inline at checkout |
 | Healdesk to Retell | Not done. Self-sign the BAA and DPA in Retell's click-agreements portal, confirm the executed text names the services in use, then set per-agent retention and PII controls |
-| Healdesk to Anthropic | Not done. The primary owner signs and activates. Patient traffic needs its **own** organisation: the HIPAA setting is organisation-wide and one-way, so enabling it on the marketing org would bind the demo's key too. The marketing key in `apps/web/.env.local` is already from a separate, non-PHI organisation. Covered models require 30-day retention; do not also request zero data retention |
+| Healdesk to Anthropic | Not done. The primary owner signs and activates. Patient traffic needs its **own** organisation: the HIPAA setting is organisation-wide and one-way, so enabling it on the marketing org would bind the demo's key too. The marketing key in `apps/web/.env.local` is already from a separate, non-PHI organisation. The HIPAA-ready organisation runs under standard retention and cannot also have zero data retention. The product's models, `claude-opus-5-5` and `claude-sonnet-5-5` (`PATIENT_MODEL_IDS` in `packages/catalog/src/model-retention.ts`), are not Covered Models: they keep content no more than 30 days, flagged content up to two years, law-required content as long as the law requires. Only Covered Models (Fable, Mythos) require 30 days, and the responder refuses an override onto one. Check the executed BAA against `docs/counsel/agreement-changes.md` § 17 when it is signed |
 | Healdesk to the database provider | AWS RDS under the agreement above, the owner's choice of 7 October 2026 over Neon; defined in `infra/aws`, not yet applied |
 | Healdesk to AWS | Done (above) |
 | Clinic to Google | The calendar is the clinic's own, under its agreement with Google. Confirm per clinic |
@@ -729,7 +729,7 @@ recorded by CloudTrail. So on the AWS host: by contact id, through run-task.sh o
   `HEALDESK_ERASURE_CONTACT_ID`, `HEALDESK_ERASURE_REQUESTED_BY`, optionally
   `HEALDESK_ERASURE_RECEIVED_AT`, and `HEALDESK_OPS_OPERATOR`.
   Someone who only asked AYA for a person in website chat and left a number has no
-  contact: the number is on their handover (drizzle/0091), and the id of their chat's
+  contact: the number is on their handover (drizzle/0092), and the id of their chat's
   conversation (the address of that conversation in the practice's portal), or the
   handover's own id, goes where a contact's id is asked for, here and in
   `patient-export`'s `HEALDESK_EXPORT_CONTACT_ID`. Named so, the request reaches that
@@ -771,7 +771,7 @@ every booking request whose key is already there, which is all of them, since
 `erased_at` with the moment of the load, which would keep its restore references longer
 than the backup window and move the line `reapply-erasures` draws between what the
 person gave before the deletion and after it; 0064's `record_amendments_guard` likewise
-restamps every amendment's `recorded_at`; and 0091's `handovers_guard` refuses every
+restamps every amendment's `recorded_at`; and 0092's `handovers_guard` refuses every
 handover already marked handled and restamps every handover's `created_at`, which would
 restart its record clock. For such a load the owner disables all five by name, loads every table, `booking_request_keys` included, and enables them again, in
 one transaction:

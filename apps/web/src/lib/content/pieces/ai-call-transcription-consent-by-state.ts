@@ -1,5 +1,20 @@
 import type { Piece } from "@/lib/content/types";
 
+/**
+ * Guide on call-transcription consent. Every statement was read against its
+ * source on 19 October 2026. California's code sections, SB 690 and Article IV,
+ * section 8 of the constitution were read in the Legislature's own bulk
+ * database (downloads.leginfo.legislature.ca.gov, pubinfo_2025.zip), because
+ * leginfo's pages refused automated access that day; the URLs below are the
+ * leginfo pages for the same text. The Illinois and Connecticut sites send an
+ * incomplete certificate chain; they were read directly once the issuer's
+ * published intermediate certificate was supplied, with verification left on.
+ * Sullivan v. Gray and Lane v. Allstate were read in the Caselaw Access
+ * Project's copies (static.case.law), since CourtListener's opinion pages
+ * challenged automated loads. The Ambriz docket was read in CourtListener's
+ * docket feed, which can lag PACER.
+ */
+
 export const piece: Piece = {
   slug: "ai-call-transcription-consent-by-state",
   family: "guides",
@@ -8,8 +23,9 @@ export const piece: Piece = {
     "Federal law needs one party’s consent to record a call; several states need every party’s. What the statutes and AI vendor cases say about transcription.",
   answer:
     "Federal law requires one party’s consent to record or intercept a call, while several states, including California, Florida, Illinois and Washington, require every party’s consent or knowledge for at least some calls. For an AI that transcribes calls, two open questions are whether live transcription with no audio kept counts as recording, and whether the AI vendor is a third party to the call.",
-  stage: "draft",
+  stage: "live",
   legal: true,
+  review: "Every statement was checked against the primary texts on 19 October 2026 by an independent AI review, not by a lawyer.",
   published: "2026-10-19",
   lastReviewed: "2026-10-19",
   sections: [
@@ -46,14 +62,14 @@ export const piece: Piece = {
             ],
             [
               "Connecticut",
-              "[Gen. Stat. § 52-570d](https://codes.findlaw.com/ct/title-52-civil-actions/ct-gen-st-sect-52-570d.html) (mirror)",
+              "[Gen. Stat. § 52-570d](https://www.cga.ct.gov/current/pub/chap_925.htm#sec_52-570d)",
               "A civil rule for recording private telephone calls: prior consent of all parties, a “verbal notification which is recorded at the beginning”, or a warning tone about every fifteen seconds",
-              "19 October 2026 (FindLaw copy current to 1 January 2025)",
+              "19 October 2026",
             ],
             [
               "Delaware",
               "[11 Del. C. § 1335(a)(4)](https://delcode.delaware.gov/title11/c005/sc07/index.html); [§ 2402(c)(4)](https://delcode.delaware.gov/title11/c024/sc01/index.html)",
-              "§ 1335 bars intercepting a message by telephone or other private means “without the consent of all parties thereto”; § 2402 permits interception where “one of the parties to the communication has given prior consent”",
+              "§ 1335 bars intercepting a message by telephone or other “means of communicating privately” “without the consent of all parties thereto”; § 2402 permits interception where “one of the parties to the communication has given prior consent”",
               "19 October 2026",
             ],
             [
@@ -64,9 +80,9 @@ export const piece: Piece = {
             ],
             [
               "Illinois",
-              "[720 ILCS 5/14-2](https://codes.findlaw.com/il/chapter-720-criminal-offenses/il-st-sect-720-5-14-2.html) (mirror)",
+              "[720 ILCS 5/14-2](https://www.ilga.gov/Documents/legislation/ilcs/documents/072000050K14-2.htm)",
               "Surreptitiously recording a private conversation needs every party’s consent, whether or not the recorder takes part; surreptitiously intercepting, recording or transcribing a private electronic communication is barred to a non-party without all parties’ consent",
-              "19 October 2026 (FindLaw copy current to 1 January 2025)",
+              "19 October 2026",
             ],
             [
               "Maryland",
@@ -151,8 +167,8 @@ export const piece: Piece = {
       blocks: [
         {
           kind: "p",
-          text: "California’s Invasion of Privacy Act has several provisions that reach telephone calls, including these three. [Section 632](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=632) bars eavesdropping on or recording a “confidential communication” without “the consent of all parties”, where the circumstances “may reasonably indicate” that a party wants the call “confined to the parties thereto”. [Section 631](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=631) bars reading or learning the contents of a communication in transit “without the consent of all parties”, and [section 632.7](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=632.7) covers recording calls on cellular and cordless phones. [Section 637.2](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=637.2) lets an injured person sue for $5,000 per violation or three times actual damages, whichever is greater. [SB 690](https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260SB690) amends section 637.2 from 1 January 2027. It keeps those amounts, and reserves to the Attorney General claims against private actors under section 638.51 over conduct on websites and apps.",
-          cite: ["ca-pen-632", "ca-pen-631", "ca-pen-632-7", "ca-pen-637-2", "ca-sb-690"],
+          text: "California’s Invasion of Privacy Act has several provisions that reach telephone calls, including these three. [Section 632](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=632) bars eavesdropping on or recording a “confidential communication” without “the consent of all parties”, where the circumstances “may reasonably indicate” that a party wants the call “confined to the parties thereto”. [Section 631](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=631) bars reading or learning the contents of a communication in transit “without the consent of all parties”, and [section 632.7](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=632.7) covers recording calls on cellular and cordless phones. [Section 637.2](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=637.2) lets an injured person sue for $5,000 per violation or three times actual damages, whichever is greater. [SB 690](https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260SB690), approved on 30 September 2026, amends section 637.2 from 1 January 2027, under the effective-date rule in [article IV, section 8(c)(1)](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CONS&sectionNum=SEC.%208.&article=IV) of the state constitution. It keeps those amounts, and reserves to the Attorney General claims against private actors under section 638.51 over conduct on websites and apps.",
+          cite: ["ca-pen-632", "ca-pen-631", "ca-pen-632-7", "ca-pen-637-2", "ca-sb-690", "ca-const-iv-8"],
         },
         {
           kind: "p",
@@ -172,7 +188,7 @@ export const piece: Piece = {
         },
         {
           kind: "p",
-          text: "Google pointed to its terms, under which it would not use customer data to train or fine-tune models without the business’s permission. The court held that whether a business gave permission was “irrelevant to the question of its capabilities”, because Google did not dispute that it was technologically able to use the data. The order noted that courts are split, some requiring an allegation that the vendor actually used the data, and called the capability test “the better application of the statute”. It decided only that the claims could proceed, and made no finding that Google had broken the law. The case was later consolidated with other suits, and Google’s motions to dismiss the third amended complaint and to compel arbitration were set for hearing on 13 October 2026. No ruling on them appeared in CourtListener’s copy of the docket on 19 October 2026.",
+          text: "Google pointed to its terms, under which it would not use customer data to train or fine-tune models without the business’s permission. The court held that whether a business gave permission was “irrelevant to the question of its capabilities”, because Google did not dispute that it was technologically able to use the data. The order noted that courts are split, some requiring an allegation that the vendor actually used the data, and called the capability test “the better application of the statute”. It decided only that the claims could proceed, and made no finding that Google had broken the law. The case was later consolidated with other suits, and Google’s motions to dismiss the third amended complaint and to compel arbitration were heard on 13 October 2026. As of 19 October 2026, CourtListener’s copy of the docket showed no ruling on them.",
           cite: ["ambriz", "ambriz-questions", "ambriz-docket"],
         },
         {
@@ -188,7 +204,7 @@ export const piece: Piece = {
       blocks: [
         {
           kind: "p",
-          text: "Illinois’ eavesdropping statute, [720 ILCS 5/14-2](https://codes.findlaw.com/il/chapter-720-criminal-offenses/il-st-sect-720-5-14-2.html) (mirror), names transcription among the acts it forbids. It reaches anyone who “intercepts, records, or transcribes, in a surreptitious manner” a private electronic communication to which they are not a party, unless all parties consent. The statute defines surreptitious as “obtained or made by stealth or deception, or executed through secrecy or concealment”. Separate clauses require all parties’ consent before a private conversation is recorded surreptitiously, whether or not the person recording takes part in it.",
+          text: "Illinois’ eavesdropping statute, [720 ILCS 5/14-2](https://www.ilga.gov/Documents/legislation/ilcs/documents/072000050K14-2.htm), names transcription among the acts it forbids. It reaches anyone who “intercepts, records, or transcribes, in a surreptitious manner” a private electronic communication to which they are not a party, unless all parties consent. The statute defines surreptitious as “obtained or made by stealth or deception, or executed through secrecy or concealment”. Separate clauses require all parties’ consent before a private conversation is recorded surreptitiously, whether or not the person recording takes part in it.",
           cite: ["il-14-2", "il-14-1"],
         },
         {
@@ -198,7 +214,7 @@ export const piece: Piece = {
         },
         {
           kind: "p",
-          text: "Connecticut’s [section 52-570d](https://codes.findlaw.com/ct/title-52-civil-actions/ct-gen-st-sect-52-570d.html) (mirror) is a civil statute on recording private telephone calls. It permits recording with all parties’ prior consent, given in writing or as “part of, and obtained at the start of, the recording”. It also permits recording after a “verbal notification which is recorded at the beginning and is part of the communication”, or with an automatic warning tone repeated about every fifteen seconds. A person aggrieved by a violation may sue for damages, costs and a reasonable attorney’s fee. The consent and notification methods are both worded in terms of a recording.",
+          text: "Connecticut’s [section 52-570d](https://www.cga.ct.gov/current/pub/chap_925.htm#sec_52-570d) is a civil statute on recording private telephone calls. It permits recording with all parties’ prior consent, given in writing or as “part of, and obtained at the start of, the recording”. It also permits recording after a “verbal notification which is recorded at the beginning and is part of the communication”, or with an automatic warning tone repeated about every fifteen seconds. A person aggrieved by a violation may sue for damages, costs and a reasonable attorney’s fee. The consent and notification methods are both worded in terms of a recording.",
           cite: ["ct-52-570d"],
         },
       ],
@@ -220,7 +236,7 @@ export const piece: Piece = {
         { kind: "h3", text: "Is the AI vendor a third party to the call?" },
         {
           kind: "p",
-          text: "In California, Michigan and Illinois, the statutes or the courts distinguish a party to a call from an outsider. Michigan’s Court of Appeals held in [Sullivan v. Gray](https://www.courtlistener.com/opinion/1579962/sullivan-v-gray/) (1982) that its statute contemplates an eavesdropper who is “a third party not otherwise involved in the conversation”. Under the capability test applied in Ambriz and Taylor, a vendor able to use call data for its own purposes is a third party. In Ambriz, contract terms limiting that use did not defeat the claim at the pleading stage. Other courts apply an extension test, which asks whether the vendor actually used the data for its own purpose and treats one that did not as an extension of its client. In August 2026, in In re Otter.ai Privacy Litigation, the same district court let a section 631 claim proceed against an AI notetaker alleged to keep meeting conversations to train its own models.",
+          text: "In California, Michigan and Illinois, the statutes or the courts distinguish a party to a call from an outsider. Michigan’s Court of Appeals held in [Sullivan v. Gray](https://static.case.law/mich-app/117/html/0476-01.html) (1982) that its statute contemplates an eavesdropper who is “a third party not otherwise involved in the conversation”. Under the capability test applied in Ambriz and Taylor, a vendor able to use call data for its own purposes is a third party. In Ambriz, contract terms limiting that use did not defeat the claim at the pleading stage. Other courts apply an extension test, which asks whether the vendor actually used the data for its own purpose and treats one that did not as an extension of its client. In August 2026, in In re Otter.ai Privacy Litigation, the same district court let a section 631 claim proceed against an AI notetaker alleged to keep meeting conversations to train its own models.",
           cite: ["sullivan", "ambriz", "taylor", "otter"],
         },
         { kind: "h3", text: "Is a transcript line the recorded announcement?" },
@@ -237,17 +253,16 @@ export const piece: Piece = {
       blocks: [
         {
           kind: "p",
-          text: "The table above lists only the states whose statutes require more than one party’s consent or knowledge for at least some calls. The rules of 20 states, one-party states included, are set out with their statutes in the [state AI disclosure and consent tracker](/research/state-ai-disclosure-and-consent-tracker). Which state’s law governs a call between a caller in one state and a practice in another is a separate question. Kearney applied California law to calls alleged to be recorded in Georgia, but only to an injunction, not to damages for past calls. Whether the assistant must also say it is an AI is a different rule again, covered in [Does an AI receptionist have to say it is an AI?](/guides/does-an-ai-receptionist-have-to-say-it-is-an-ai)",
+          text: "The table above lists only the states whose statutes require more than one party’s consent or knowledge for at least some calls. The rules of 20 states, one-party states included, are set out with their statutes in the [state AI disclosure and consent tracker](/research/state-ai-disclosure-and-consent-tracker). Which state’s law governs a call between a caller in one state and a practice in another is a separate question. Kearney applied California law to calls alleged to be recorded in Georgia, but only to an injunction, not to damages for past calls. Whether the assistant must also say it is an AI is a different rule again, covered in the [guide to AI disclosure rules](/guides/does-an-ai-receptionist-have-to-say-it-is-an-ai).",
           cite: ["kearney"],
         },
       ],
     },
   ],
   aya: [
-    "Before it takes any request on a call, AYA is built to say it is an AI assistant, not a human, and the clinic cannot edit that line out.",
+    "AYA is designed to open each call it answers by saying it is an AI assistant, not a human, in a line the clinic cannot edit out.",
     "The same line says: “This call is transcribed by an automated system run by our service providers; no audio recording is kept.”",
-    "Each transcript is built to be emailed to the clinic when the call ends, with healdesk’s copy deleted once delivery is confirmed and never kept past 30 days.",
-    "The voice provider’s recording and retention settings are still to be confirmed on each clinic’s voice agent before it answers a patient.",
+    "AYA is designed to email each transcript to the clinic when the call ends, deleting healdesk’s copy once delivery is confirmed and never keeping it past 30 days.",
   ],
   sources: [
     {
@@ -295,6 +310,14 @@ export const piece: Piece = {
       title: "SB 690, Crimes: invasion of privacy (Statutes of 2026, chapter 976)",
       publisher: "California Legislature",
       url: "https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260SB690",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "ca-const-iv-8",
+      title: "California Constitution, Article IV, § 8(c), effective date of statutes",
+      publisher: "California Legislature",
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CONS&sectionNum=SEC.%208.&article=IV",
       kind: "statute",
       checked: "2026-10-19",
     },
@@ -357,9 +380,9 @@ export const piece: Piece = {
     },
     {
       id: "ct-52-570d",
-      title: "Connecticut General Statutes § 52-570d (mirror; FindLaw's copy, current as of 1 January 2025, read because the General Assembly's site refused the connection on 19 October 2026)",
-      publisher: "FindLaw",
-      url: "https://codes.findlaw.com/ct/title-52-civil-actions/ct-gen-st-sect-52-570d.html",
+      title: "Connecticut General Statutes § 52-570d, Action for illegal recording of private telephonic communications",
+      publisher: "Connecticut General Assembly",
+      url: "https://www.cga.ct.gov/current/pub/chap_925.htm#sec_52-570d",
       kind: "statute",
       checked: "2026-10-19",
     },
@@ -389,17 +412,17 @@ export const piece: Piece = {
     },
     {
       id: "il-14-2",
-      title: "720 ILCS 5/14-2, Elements of the offense; affirmative defense (mirror; FindLaw's copy, current as of 1 January 2025, read because the General Assembly's site refused the connection on 19 October 2026)",
-      publisher: "FindLaw",
-      url: "https://codes.findlaw.com/il/chapter-720-criminal-offenses/il-st-sect-720-5-14-2.html",
+      title: "720 ILCS 5/14-2, Elements of the offense; affirmative defense",
+      publisher: "Illinois General Assembly",
+      url: "https://www.ilga.gov/Documents/legislation/ilcs/documents/072000050K14-2.htm",
       kind: "statute",
       checked: "2026-10-19",
     },
     {
       id: "il-14-1",
-      title: "720 ILCS 5/14-1, Definitions (mirror; FindLaw's copy, current as of 1 January 2025, read because the General Assembly's site refused the connection on 19 October 2026)",
-      publisher: "FindLaw",
-      url: "https://codes.findlaw.com/il/chapter-720-criminal-offenses/il-st-sect-720-5-14-1.html",
+      title: "720 ILCS 5/14-1, Definitions",
+      publisher: "Illinois General Assembly",
+      url: "https://www.ilga.gov/Documents/legislation/ilcs/documents/072000050K14-1.htm",
       kind: "statute",
       checked: "2026-10-19",
     },
@@ -438,8 +461,8 @@ export const piece: Piece = {
     {
       id: "sullivan",
       title: "Sullivan v. Gray, 117 Mich. App. 476 (1982)",
-      publisher: "Michigan Court of Appeals (opinion text at CourtListener)",
-      url: "https://www.courtlistener.com/opinion/1579962/sullivan-v-gray/",
+      publisher: "Michigan Court of Appeals (Caselaw Access Project copy)",
+      url: "https://static.case.law/mich-app/117/html/0476-01.html",
       kind: "court",
       checked: "2026-10-19",
     },
@@ -462,8 +485,8 @@ export const piece: Piece = {
     {
       id: "lane",
       title: "Lane v. Allstate Insurance Co., 114 Nev. 1176 (1998)",
-      publisher: "Supreme Court of Nevada (opinion text at CourtListener)",
-      url: "https://www.courtlistener.com/opinion/1405143/lane-v-allstate-insurance/",
+      publisher: "Supreme Court of Nevada (Caselaw Access Project copy)",
+      url: "https://static.case.law/nev/114-2/html/1176-01.html",
       kind: "court",
       checked: "2026-10-19",
     },

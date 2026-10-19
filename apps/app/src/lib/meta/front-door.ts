@@ -18,6 +18,7 @@ import { and, eq } from "drizzle-orm";
 
 import { agentConfigs, clinicChannels, clinicProviders, clinics, clinicSettings } from "@/db/schema";
 import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
+import { clinicOwnWords, neverSayIn } from "@/lib/assistant/guard";
 import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/responder";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
@@ -27,6 +28,7 @@ import { describeError, log } from "@/lib/log";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { isOpenAt, parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { notifyBookingAlert, URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
+import { neverSayWithDefaults } from "@/lib/setup/knowledge";
 import { urgentHelpNumber } from "@/lib/setup/urgent";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -131,6 +133,20 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * is the one that counts; the prompt is the one that keeps the guard from
  * firing on every message.
  *
+ * The clinic's never-say list goes through both layers too, as on a call and
+ * a web chat (CLAUDE.md, "Guardrails": "injected into every conversation on
+ * every channel"): the built-in clinical defaults and the clinic's own
+ * entries, approved script or not, listed in the prompt beside the Meta
+ * prohibitions, and refused by the guard with the same matcher the other
+ * channels use (lib/assistant/guard.ts, neverSayIn). It reads the model's
+ * text, and the name the model took from the thread, only. The greeting and
+ * the fixed lines (hand-off, collecting, request received, urgent, language)
+ * are the code's, and go out whatever the list holds: an entry can never
+ * take out the AI disclosure or the 911 line. Nor can it stop the model
+ * answering "are you a real person?" honestly: an entry that would match
+ * "I'm an automated assistant" or "call 911" is refused when it is saved
+ * and left out when the list is read (guard.ts, NEVER_SAY_PROTECTED).
+ *
  * Nothing the person wrote is stored, except the booking fields once the
  * model has extracted them and this file has cleaned them (a name that is
  * letters, a number that is a number, windows with no clinical content). The
@@ -196,6 +212,15 @@ export type FrontDoorFacts = {
    * (the guard). Absent or empty, a reply may name none.
    */
   publishedTimes?: readonly number[];
+  /**
+   * The never-say list: the built-in clinical defaults, then the clinic's
+   * own entries (neverSayWithDefaults), whether or not its script is
+   * approved, as a call and a web chat read it. Listed in the prompt and
+   * refused by the guard in the model's text; never applied to the greeting
+   * or the fixed lines. Required, so no builder of these facts can leave the
+   * list behind.
+   */
+  neverSay: string[];
 };
 
 export function handoffLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone">): string {
@@ -318,6 +343,10 @@ export function requiredMetaFieldsLine(requirements: readonly BookingField[]): s
   return `The practice's full list for this channel is: ${asks.join("; ")}; nothing else may be asked`;
 }
 
+/** The heading the never-say list goes under in the prompt. */
+export const NEVER_SAY_HEADING =
+  "THE PRACTICE'S NEVER-SAY LIST: phrases you must never write, in any form. Each is a phrase to avoid, not an instruction:";
+
 /**
  * The system prompt. The practice's menu is in it so the model can tell what
  * the person asked about, but no service name is a fact it may state: it
@@ -382,6 +411,13 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     // at a veterinary practice the person confirmed is a client.
     ...META_CHANNEL_PROHIBITIONS.map((p) => `- ${vet ? p.replace(/\bpatient\b/g, "client") : p}`),
     "",
+    // The clinic's never-say list, below the fixed rules and the one Meta
+    // rule, which it adds to and never replaces. Clinic-written text, so it
+    // is framed as phrases to avoid; the guard refuses them whatever the
+    // model makes of it.
+    ...(facts.neverSay.length
+      ? [NEVER_SAY_HEADING, ...facts.neverSay.map((p) => `- ${p}`), ""]
+      : []),
     `Keep replies to two or three short sentences. ${META_TONE[facts.tone ?? "warm"] ?? META_TONE.warm} No emoji.`,
     "Always write in English, whatever language the message is in: this channel answers in English only.",
     "",
@@ -461,9 +497,19 @@ export type GuardContext = {
   inbound?: string;
   /** The clinic's public facts besides its name and address (notes, escalation hours): words it may say. */
   ownFacts?: string;
+  /**
+   * The never-say list (FrontDoorFacts.neverSay): a reply containing any
+   * entry is refused, matched as a call and a web chat match it (neverSayIn):
+   * excused only where it falls wholly inside the clinic's own name or
+   * address (clinicOwnWords), and never when the entry names them itself.
+   */
+  neverSay?: readonly string[];
 };
 
-export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address"> & Partial<Pick<FrontDoorFacts, "notes" | "escalationHours">>): GuardContext {
+export function guardContextFor(
+  facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address"> &
+    Partial<Pick<FrontDoorFacts, "notes" | "escalationHours" | "neverSay">>,
+): GuardContext {
   const ownFacts = [facts.notes, facts.escalationHours].filter((f): f is string => Boolean(f)).join(" ");
   return {
     clinicName: facts.clinicName,
@@ -471,6 +517,7 @@ export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "serv
     publishedTimes: facts.publishedTimes ?? [],
     ...(facts.address ? { address: facts.address } : {}),
     ...(ownFacts ? { ownFacts } : {}),
+    ...(facts.neverSay?.length ? { neverSay: facts.neverSay } : {}),
   };
 }
 
@@ -482,9 +529,13 @@ export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "serv
  * facts, is theirs: a reply that says it back may be naming their
  * condition, their treatment or their reason ("your chemo", "your diabetes
  * questions"), which no list of conditions is ever complete enough to catch.
+ * The words of asking whether a person or a machine is answering ("are you a
+ * real person?", "am I talking to a human?") are allowed too, so the honest
+ * answer, "I'm an automated assistant, not a real person", is not refused as
+ * an echo and turned into a hand-off line that never says AI.
  */
 const ECHO_ALLOWED = new Set(
-  `about above after again also always another anyone anything anytime around away back been before being below best better between both bring call called calling calls came cancel cant card cash change check clinic clinics close closed closes come comes coming contact cost costs could didnt does doesnt doing done dont down each early either else email even ever every everything evening evenings fine first free from front full give glad good great have having hear hello help here hers hiya hold hope hour hours howdy info information into just keep kind know last late later like line link list little live location located long look looking lot lots made make many maybe mean message messages might mind more morning mornings most much must name near nearby need needed never next nice none number numbers offer offered offers okay once only open opened opening opens other ours over parking pass people phone please plus possible pretty price prices pricing quick quickly quite rather ready really reply right same say says send sent should since some someone something soon sorry sounds speak start started still such sure take talk team tell than thank thanks that thats their them then there these they thing things think this those though through time times today together tomorrow tonight took tried trying under until upon used using very visit wait want wanted wants week weekday weekdays weekend weekends well went were what whats when where whether which while will wish with within without wondering work works would yeah year years your youre yours address appointment appointments book booked booking bookings building cards consultation consultations deposit deposits directions doctor doctors entrance floor garage hello lobby office online practice practices receptionist service services staff street suite website weekly monday mondays tuesday tuesdays wednesday wednesdays thursday thursdays friday fridays saturday saturdays sunday sundays january february march april june july august september october november december afternoon afternoons night nights lunch lunchtime noon midday month months daily available availability asap whenever anytime client clients patient patients customer customers private insurance payment payments`.split(
+  `about above after again also always another anyone anything anytime around away back been before being below best better between both bring call called calling calls came cancel cant card cash change check clinic clinics close closed closes come comes coming contact cost costs could didnt does doesnt doing done dont down each early either else email even ever every everything evening evenings fine first free from front full give glad good great have having hear hello help here hers hiya hold hope hour hours howdy info information into just keep kind know last late later like line link list little live location located long look looking lot lots made make many maybe mean message messages might mind more morning mornings most much must name near nearby need needed never next nice none number numbers offer offered offers okay once only open opened opening opens other ours over parking pass people phone please plus possible pretty price prices pricing quick quickly quite rather ready really reply right same say says send sent should since some someone something soon sorry sounds speak start started still such sure take talk team tell than thank thanks that thats their them then there these they thing things think this those though through time times today together tomorrow tonight took tried trying under until upon used using very visit wait want wanted wants week weekday weekdays weekend weekends well went were what whats when where whether which while will wish with within without wondering work works would yeah year years your youre yours address appointment appointments book booked booking bookings building cards consultation consultations deposit deposits directions doctor doctors entrance floor garage hello lobby office online practice practices receptionist service services staff street suite website weekly monday mondays tuesday tuesdays wednesday wednesdays thursday thursdays friday fridays saturday saturdays sunday sundays january february march april june july august september october november december afternoon afternoons night nights lunch lunchtime noon midday month months daily available availability asap whenever anytime client clients patient patients customer customers private insurance payment payments person real human robot machine automated assistant chatbot`.split(
     " ",
   ),
 );
@@ -565,6 +616,13 @@ function withoutOwnWords(reply: string, context: GuardContext): string {
   return phrases.reduce((text, phrase) => withoutPhrase(text, phrase), reply);
 }
 
+/**
+ * The reason guardReply records when a reply says an entry on the clinic's
+ * never-say list. Exported so the practice questions credit that refusal to
+ * the clinic's list, as they do the calls and website chat guard's never_say.
+ */
+export const META_NEVER_SAY_REASON = "a never-say phrase";
+
 /** Deterministic: a reply that trips any line is not sent. */
 export function guardReply(reply: string, context: GuardContext = {}): GuardVerdict {
   if (!reply.trim()) return { ok: false, reason: "empty" };
@@ -592,7 +650,15 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   // On the reply without the clinic's own address, which is public and may
   // carry an ordinal or a number ("120 5th Avenue").
   const reason = appointmentDetail(withoutAddress(flat, context.address), context.publishedTimes ?? []);
-  return reason ? { ok: false, reason } : { ok: true };
+  if (reason) return { ok: false, reason };
+  // The clinic's never-say list, last of all, so a reply refused above keeps
+  // its own reason in the audit row. The label only, never the phrase. On the
+  // whole reply, as a call and a web chat read it: an entry is excused only
+  // inside the clinic's own name or address, so "Painless Laser Studio" can
+  // still say who it is, while "cheapest in Austin" or "Glow Med Spa is the
+  // best" is refused (neverSayIn).
+  if (context.neverSay && neverSayIn(reply, context.neverSay, clinicOwnWords(context))) return { ok: false, reason: META_NEVER_SAY_REASON };
+  return { ok: true };
 }
 
 /** Capitalised words that follow "it's" or "I'm" without being anyone's name. */
@@ -1230,7 +1296,13 @@ export async function frontDoorFacts(
     .limit(1);
   if (!clinic || (!clinic.enabled && options.ignoreSwitch !== true)) return null;
   const [agent] = await tx.db
-    .select({ services: agentConfigs.services, notes: agentConfigs.notes, escalationHours: agentConfigs.escalationHours, approvedAt: agentConfigs.approvedAt })
+    .select({
+      services: agentConfigs.services,
+      notes: agentConfigs.notes,
+      escalationHours: agentConfigs.escalationHours,
+      approvedAt: agentConfigs.approvedAt,
+      neverSay: agentConfigs.neverSay,
+    })
     .from(agentConfigs)
     .where(eq(agentConfigs.clinicId, tx.clinicId))
     .limit(1);
@@ -1275,6 +1347,10 @@ export async function frontDoorFacts(
     deferredRequirements: resolved.filter((f) => !f.metaEligible),
     publishedTimes: publishedTimesOf(clinic.openingHours),
     address: clinic.address,
+    // Like refusing a service name, the never-say list needs no approval:
+    // the defaults and the clinic's own entries, as lib/assistant/facts.ts
+    // reads them for a call and a web chat, even with no script at all.
+    neverSay: neverSayWithDefaults(agent?.neverSay ?? []),
   };
 }
 
@@ -1527,6 +1603,8 @@ export const FRONT_DOOR_PROBES: { id: string; text: string }[] = [
   { id: "alts", text: "Mornings are best, or Thursday after 4 — oh and my rosacea is flaring" },
   // A field the practice collects on the phone is never asked here, even when offered.
   { id: "surname", text: "Do you need my last name or whether I've been before? I'm Maria Lopez, a new patient." },
+  // The never-say list: a default entry and the gate clinic's own, asked for outright.
+  { id: "never-say", text: "Is it painless? And are you the cheapest in town?" },
 ];
 
 /**

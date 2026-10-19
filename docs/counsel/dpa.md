@@ -133,13 +133,13 @@ destruction, and adds the processor terms state law asks for.
 | 2 | Practice's status | Replaces practice-status. Veterinary: animals are outside HIPAA. Otherwise: the practice warrants it sends no covered transaction, must say before that changes, and from that notice the assistant pauses until the BAA replaces the DPA, with forwarded calls passing through to the direct line |
 | 3 | Practice's instructions | Reconciled with clause 5 (§ 5, item 10): what the instructions are, and the notices and consents, are clause 5's; this clause keeps the unlawful-instruction notice, a client's limits and withdrawn permissions, and the lawful-instruction promise |
 | 4 | Permitted uses | 1.0.0's permitted-uses, narrowed to providing the Services, security and the law. **No aggregation permission** (see § 5) |
-| 5 | Where Practice is not a covered entity | BAA 1.3.0's state-law clause, `stateLawClauseBody` in this document's words |
+| 5 | Where Practice is not a covered entity | BAA 1.3.0's state-law clause, `stateLawClauseBody` in this document's words; BAA 1.4.0's (`stateLawClauseBody140`) from 13 October 2026, and BAA 1.6.0's (`stateLawClauseBody160`) since 19 October 2026, whose two exceptions to deletion are what the Subcontractors clause says a subcontractor may keep, for the periods it states, where 1.4.0's named "abuse detection and security" (agreement-changes.md § 17.3) |
 | 6 | Payments | BAA 1.3.0's, verbatim |
 | 7 | What healdesk reads | BAA 1.3.0's data-sources clause in client words; calendar access only as the calendar clause, or a calendar election, gives it |
 | 8 | Google Calendar | BAA 1.3.0's chosen clause (see § 2) |
 | 9 | Safeguards | The Security Rule applied as if Client Information were ePHI; 1.2.1's second and third paragraphs (A4's email sentence included) |
 | 10 | Minimum necessary, and who receives Client Information | The booking catalogue as a ceiling (not 1.2.1's list: see § 6, gap 4), the animal's name and species for a vet, the opening-line disclosure, no call audio; then disclosure by category, the calendar as its clause or an election describes |
-| 11 | Subcontractors | 1.2.1's flow-down, without the HIPAA citations; Anthropic's retention in 1.2.1's words; the current list given on Practice's written request (no public page, since 9 October 2026) and the 24-hour notice |
+| 11 | Subcontractors | 1.2.1's flow-down, without the HIPAA citations; Anthropic's retention in BAA 1.6.0's words since 19 October 2026 (1.2.1's before: agreement-changes.md § 17), after an agreement with Anthropic "signed before any client's information reaches it" (risk 13); the current list given on Practice's written request (no public page, since 9 October 2026) and the 24-hour notice |
 | 12 | Reporting incidents and breaches | BAA 1.3.0's one rule, without its HIPAA citations: without unreasonable delay and in no case later than 60 calendar days after discovery, for all three (the spec's wording, owner, 9 October 2026; immediately and within 24 hours before that); the law-enforcement delay; each notice itself the written report, added to promptly, with what Practice needs for its own notices |
 | 13 | Clients' requests | Reconciled with clause 5: the ten-business-day help with any client's request stays, deletion is clause 5's item c, and a request made to healdesk itself, any request, is answered only in healdesk's reply (1.3.0, PT-24); a correction is made in healdesk's copy where the record can be changed, and otherwise appended and linked, as in 1.3.0's clause 14(b) (PT-17) |
 | 14 | Confidentiality | New; a veterinary paragraph |
@@ -172,7 +172,7 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
 | An email that cannot negotiate encryption "is failed, not sent" (9) | SES configuration set with `TlsPolicy=REQUIRE` | `apps/app/src/lib/reporting/deliver.ts` |
 | The notice address is "also the address of Practice's healdesk account" (19) | The checkout intent requires the agreement's signer to be the buying address; provisioning makes that address the clinic's one sign-in | `apps/app/src/lib/checkout/intents.ts` (`checkIntentAgreement`); `apps/app/src/lib/provisioning.ts` (`ensureOwner`) |
 | From the covered notice, the assistant is paused until the BAA replaces the DPA (2) | The database refuses a DPA clinic's client data from the write that records `is_covered_entity` as anything but false (`app_clinic_accepts_phi`, drizzle/0051); `app_supersede_agreement` puts the BAA in force; the pause itself is `clinic_settings.ai_paused_at` | `apps/app/drizzle/0051_agreement_kinds.sql`; `apps/app/src/db/schema.ts` |
-| Anthropic's 30 days, two years when flagged, no training (11) | BAA 1.2.1's sentence, from Anthropic's own pages read 1 October 2026 (agreement-changes.md § 4); pinned by a test against the 1.2.1 rendering | `packages/catalog/src/baa.ts` |
+| Anthropic's retention: no more than 30 days under standard retention, the only retention under which Anthropic offers its service under a business associate agreement, two years for flagged content, the law's own period for what the law requires, no training without healdesk's permission (11) | `MODEL_RETENTION_AGREEMENT`, the sentences BAA 1.6.0 states, from Anthropic's own pages read 19 October 2026 (agreement-changes.md § 17; 1.2.1's sentence, read 1 October, until then). The models the product calls are pinned to `PATIENT_MODEL_IDS`, none a Covered Model; pinned by a test against the 1.6.0 rendering | `packages/catalog/src/model-retention.ts`; `packages/catalog/src/baa.ts`; `apps/app/src/lib/assistant/responder.ts` |
 | 24 hours' notice by email, with the right to object (11) | `SUBPROCESSOR_NOTICE_HOURS = 24` | `packages/catalog/src/subprocessor-notice.ts` |
 | The current list of subcontractors "on Practice's written request to healdesk's email address in the Notices clause" (11) | No code: an operator answers from the internal register, the subprocessor table in `docs/hipaa-compliance.md`; the public page was removed on 9 October 2026 | `docs/hipaa-compliance.md`; `docs/policies/security-official.md` |
 
@@ -496,8 +496,14 @@ above:
     depend on Retell's region and recording settings, which are unconfirmed
     (agreement-changes.md R6), exactly as in 1.2.1.
 13. **The Anthropic sentence describes a business associate agreement that is
-    not yet signed** (brief.md risk 2). Gate A's `platform_compliance`
-    attestation is what makes it true before the first DPA is signed.
+    not yet signed** (brief.md risk 2). Since 19 October 2026 it says so: as
+    in BAA 1.3.0 on, Anthropic receives content "only under a business
+    associate agreement with healdesk signed before any client's information
+    reaches it", a promise about when it is signed rather than one already in
+    force, and its retention is Anthropic's standard retention rather than a
+    term of that agreement (agreement-changes.md § 17.3). Gate A's
+    `platform_compliance` attestation is what makes the promise kept before
+    the first DPA is signed.
 14. **The public notice period.** `/subprocessors` and `/trust` promised every
     customer fifteen days (`POLICY.subprocessorNoticeDays`); the DPA gives
     24 hours, as BAA 1.3.0 does (agreement-changes.md § 12.11, item 10). The

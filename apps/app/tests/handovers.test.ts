@@ -8,6 +8,7 @@ import WebSocket from "ws";
 import type { AssistantResponder } from "@/lib/assistant/turn";
 import { auth } from "@/lib/auth";
 import { sendWebChatMessage, startWebChat, webChatClinic, type WebChatClinic } from "@/lib/chat/web-chat";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 import { hashSessionToken } from "@/lib/factors/step-ups";
 import { contacts } from "@/db/schema";
 import { attachHandoverCaller, HandoverChatHeldError, linkCallHandovers, raiseHandover } from "@/lib/handovers/record";
@@ -26,10 +27,11 @@ import { createVoiceServer } from "@/voice/server";
 
 import { closePools, getAppPool, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { bindAgreementInEffect, inTenant, queuedNotices, seedClinic, seedEntitled, setWeekdayHours } from "./setup/factories";
+import { attestPlatform } from "./setup/platform";
 import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic";
 
 /**
- * Handovers (drizzle/0091, lib/handovers/record.ts): someone who asked AYA
+ * Handovers (drizzle/0092, lib/handovers/record.ts): someone who asked AYA
  * for a person, on any channel, is kept for Bookings' Needs you until the
  * desk marks it handled, and the clinic is alerted (L11).
  *
@@ -555,6 +557,9 @@ describeDb("handovers: each channel records its own", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // The answer gate asks the vendors' agreements on the call's path
+    // (lib/compliance/vendor-coverage.ts): attested, as before any real call.
+    await attestPlatform(COVERAGE_VENDORS);
     server = createVoiceServer({ secret: SECRET, responder: voiceResponder, transport: new FakeTransport(), realCalls: true });
     await new Promise<void>((resolve) => server.server.listen(0, "127.0.0.1", () => resolve()));
     port = (server.server.address() as AddressInfo).port;

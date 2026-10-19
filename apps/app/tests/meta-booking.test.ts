@@ -22,10 +22,12 @@ import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/report
 import { sendPendingNotices } from "@/lib/email/outbox";
 import { JOB_BILLING_NOTICES, setJobEnabled } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { deskDecide, deskView } from "./setup/desk";
 import { bindAgreementInEffect, inTenant, mintDeskToken, queuedNotices, seedClinic, seedEntitled } from "./setup/factories";
+import { attestPlatform } from "./setup/platform";
 
 /**
  * The booking hand-off (decisions of 21 and 23 September 2026, narrowed by
@@ -187,6 +189,9 @@ describeDb("the booking hand-off, end to end", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // The vendors' agreements in force, as a launched platform holds them
+    // (the answer gate reads them, lib/compliance/vendor-coverage.ts).
+    await attestPlatform(COVERAGE_VENDORS);
     process.env.META_APP_SECRET = APP_SECRET;
     process.env.META_VERIFY_TOKEN = "verify-me";
     process.env.BETTER_AUTH_URL = "https://app.healdesk.test";

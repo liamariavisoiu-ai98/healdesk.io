@@ -357,10 +357,16 @@ export function cancelOnline(options: { beforeStart?: boolean } = {}): Block {
  *
  * The clinic's coverage mode goes to the catalog as it is, so each mode gets
  * its own undo: After hours only is all-call forwarding switched on at
- * closing, so its undo is the carrier's all-call cancel code; a
- * cloud phone system is a rule in its admin whatever the mode. The
+ * closing, so its undo is the carrier's all-call cancel, a code per kind of
+ * line; a cloud phone system is a rule in its admin whatever the mode. The
  * destination number only fills the set-up steps, which an undo never
  * prints, so none is passed.
+ *
+ * Only a single code is introduced as one to dial. Most undo lists hold more
+ * than codes: a step per kind of line the carrier sells, an alternative
+ * ("Or cancel…"), or a step with nothing to dial (call AT&T, ask Verizon to
+ * reverse a service order, a setting on the phone or online), so they are
+ * introduced as steps, with the codes dialled from the clinic's own line.
  *
  * `lead` is the email's own sentence saying why; the list follows it.
  */
@@ -372,13 +378,15 @@ export function undoForwarding(facts: ForwardingFacts, lead: string): Block[] {
     destinationE164: "",
   });
   const carrier = CARRIERS.find((c) => c.id === facts.carrier)?.name;
-  const codes = instructions.undo.length === 1 ? `this ${carrier} code` : `these ${carrier} codes`;
+  const [only] = instructions.undo;
   const how =
     facts.phoneSystem === "voip"
       ? "Your line forwards by a rule in your phone system's admin:"
       : instructions.needsCarrierHelp || !carrier
         ? "We don't have your carrier's codes on file, so:"
-        : `From the clinic's own line, dial ${codes}:`;
+        : instructions.undo.length === 1 && only?.dial
+          ? `From the clinic's own line, dial this ${carrier} code:`
+          : `Follow these ${carrier} steps, dialling each code from the clinic's own line:`;
   return [
     { type: "paragraph", text: `${lead} ${how}` },
     {

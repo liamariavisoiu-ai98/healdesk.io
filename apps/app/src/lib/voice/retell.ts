@@ -5,7 +5,7 @@ import type { ActorContext } from "@/lib/audit";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
-import { patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
+import { assistantFallbackRefused, patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
@@ -215,6 +215,14 @@ export class RetellCallSession {
    * closing is answered with it again.
    */
   private final: { content: string; endCall: boolean; transferTo: string | null } | null = null;
+  /**
+   * The gate refused with a reason after which nothing may be kept
+   * (patientDataRefused: the Services ended, the agreement no longer covers
+   * the practice, the host's agreement lapsed): the call is put through or
+   * closed, and not recorded at hang-up. Set as soon as the gate says so,
+   * even when the start then fails and the fall-through takes the call.
+   */
+  private keepsNothing = false;
   private finished: Promise<IngestResult | null> | null = null;
 
   constructor(
@@ -253,11 +261,14 @@ export class RetellCallSession {
     this.send({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
     const now = this.now();
     let gated: AnswerDecision | null = null;
-    // Nothing here writes the session: a start that finishes after its
-    // deadline changes nothing unless the fall-through hands it back.
+    // Nothing here writes the session but keepsNothing: a start that finishes
+    // after its deadline changes nothing else unless the fall-through hands
+    // it back.
     const started: Promise<Started> = (async () => {
       const decision = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
       gated = decision;
+      // The one write before the deadline: it only ever keeps less.
+      if (decision.decision === "pass_through" && patientDataRefused(decision.reason)) this.keepsNothing = true;
       const facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
       return { decision, facts };
     })();
@@ -298,11 +309,11 @@ export class RetellCallSession {
       this.say(responseId, TRANSFER_LINE, { transferTo: decision.directLine });
       return;
     }
-    // No direct line, and the clinic has left, its Services have ended, or
-    // its agreement no longer covers it (agreement_insufficient): nothing may
-    // process the caller, so the call is closed with the fixed line, never
-    // answered by the safe script.
-    if (!facts || (decision.decision === "pass_through" && patientDataRefused(decision.reason))) {
+    // No direct line, and the clinic has left, its Services have ended, its
+    // agreement no longer covers it, or a vendor's agreement on the call's
+    // path has lapsed: the call is closed with the fixed line, never
+    // answered by the safe script, which is AYA herself.
+    if (!facts || (decision.decision === "pass_through" && assistantFallbackRefused(decision.reason))) {
       this.closing = true;
       this.say(responseId, CLOSED_LINE, { endCall: true });
       return;
@@ -627,6 +638,12 @@ export class RetellCallSession {
       return null;
     }
     await Promise.all(this.sending);
+    if (this.keepsNothing) {
+      // Nothing may be kept for this call: no conversation, no minutes, no transcript.
+      log.info("retell call not recorded: nothing may be kept", { clinicId: this.clinicId });
+      this.turns = [];
+      return null;
+    }
     const endedAt = this.now();
     const startedAt = this.startedAt ?? this.openedAt;
     const event: VoiceCallEvent = {

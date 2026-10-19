@@ -783,7 +783,7 @@ describeDb("database audit (0031)", () => {
     // their services (whose patient someone is, beside a booking); 0064 the
     // amendments Practice directs to a request or a conversation; 0069 the
     // transcript outbox's sealed copies (on INSERT only: see the migration);
-    // 0091 the handovers, which point at a caller's conversation or thread.
+    // 0092 the handovers, which point at a caller's conversation or thread.
     const expected = [
       "appointments",
       "booking_requests",

@@ -29,16 +29,25 @@ const ACTOR = { type: "service", serviceName: "test" } as const;
 describe("forwarding instructions", () => {
   test("conditional routing on a known carrier gives busy and no-answer codes, never *72", () => {
     const f = forwardingInstructions({ carrier: "verizon", phoneSystemType: "landline", routing: "conditional", destinationE164: "+14155550100" });
-    expect(f.steps.map((s) => s.dial)).toEqual(["*904155550100", "*924155550100"]);
-    expect(f.undo.map((s) => s.dial)).toEqual(["*91", "*93"]);
+    // A Verizon home phone's busy and no-answer code (*42, which the label
+    // says may be *41 instead) and a Verizon mobile line's (*71); then the
+    // warning about a machine answering first and the test call, which have
+    // nothing to dial.
+    expect(f.steps.map((s) => s.dial)).toEqual(["*424155550100", "*714155550100", "", ""]);
+    expect(f.undo.map((s) => s.dial)).toEqual(["*43", "", "*73"]);
     expect(JSON.stringify(f)).not.toContain("*72");
     expect(f.needsCarrierHelp).toBe(false);
   });
 
   test("always routing is the only place unconditional forwarding appears, with its warning", () => {
     const f = forwardingInstructions({ carrier: "att", phoneSystemType: "landline", routing: "always", destinationE164: "+14155550100" });
-    expect(f.steps[0]!.dial).toBe("*724155550100");
+    // AT&T Phone ends the number with #; a traditional AT&T landline takes
+    // *72 and the number; an AT&T mobile line is set in the phone's own
+    // settings, to AYA's number as it is; then the test call.
+    expect(f.steps.map((s) => s.dial)).toEqual(["*724155550100#", "*724155550100", "+14155550100", ""]);
     expect(f.notes.join(" ")).toMatch(/Only after-hours calls count/);
+    const conditional = forwardingInstructions({ carrier: "att", phoneSystemType: "landline", routing: "conditional", destinationE164: "+14155550100" });
+    expect(JSON.stringify(conditional)).not.toContain("*72");
   });
 
   test("an unknown carrier refuses to guess", () => {
@@ -55,10 +64,16 @@ describe("forwarding instructions", () => {
       undoSteps("verizon", "landline", mode).map((row) => [row.carrier, row.steps.map((s) => s.dial)]);
     expect(dialsFor("after_hours_only")).toEqual([["Verizon", ["*73"]]]);
     expect(dialsFor("all_calls")).toEqual([["Verizon", ["*73"]]]);
-    expect(dialsFor("overflow_after_hours")).toEqual([["Verizon", ["*91", "*93"]]]);
-    // With no carrier on file, every carrier's, each for the mode.
-    for (const row of undoSteps(null, "landline", "after_hours_only")) {
-      expect(JSON.stringify(row.steps), row.carrier).not.toMatch(/\*91|\*93|##67#|##61#/);
+    // *43 on a home phone, the service-order step with nothing to dial, and *73 on a mobile line.
+    expect(dialsFor("overflow_after_hours")).toEqual([["Verizon", ["*43", "", "*73"]]]);
+    // With no carrier on file, every carrier's, each for the mode: After
+    // hours only gets exactly All calls' undo, and none of the codes that
+    // cancel busy, no-answer or not-reachable forwarding.
+    const allCalls = undoSteps(null, "landline", "all_calls");
+    const afterHours = undoSteps(null, "landline", "after_hours_only");
+    expect(afterHours).toEqual(allCalls);
+    for (const row of afterHours) {
+      expect(JSON.stringify(row.steps), row.carrier).not.toMatch(/\*43|\*91|\*93|\*373|##004#|##67#|##61#|##62#/);
     }
   });
 

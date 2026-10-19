@@ -10,7 +10,7 @@ import {
   PAYMENTS_CLAUSE_HEADING,
   prepareBaa,
   STATE_LAW_CLAUSE_HEADING,
-  stateLawClauseBody140,
+  stateLawClauseBody160,
   TRANSCRIPT_RETENTION_DAYS,
   type BaaVariables,
 } from "./baa";
@@ -28,7 +28,6 @@ import {
   selectCalendarClause,
 } from "./calendar-terms";
 import {
-  ANTHROPIC_RETENTION,
   applicableDpaClauses,
   CALENDAR_EVENT_FALLBACK_QUOTED,
   CALENDAR_PERSON_NOUNS,
@@ -48,6 +47,7 @@ import {
   type DpaVariables,
 } from "./dpa";
 import { dpaReviewDocument } from "./dpa-review";
+import { MODEL_RETENTION_AGREEMENT } from "./model-retention";
 import { PACKAGES, PRODUCTS } from "./plans";
 import { regimeFor, specialties, type SpecialtyId } from "./specialties";
 import { SUBPROCESSOR_NOTICE_HOURS, subprocessorNoticeClauseBody } from "./subprocessor-notice";
@@ -103,17 +103,24 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
  * 1.4.0's clauses 4, 11 and 14 in this document's words; the sample was
  * 7b4a1a97…bc49), and on 14 October 2026 for the copy deleted once delivery
  * is confirmed (BAA 1.5.0's clauses 11 and 14 in this document's words; the
- * sample was 97058d2d…ad05).
+ * sample was 97058d2d…ad05), and on 19 October 2026 for Anthropic's retention
+ * as Anthropic's documentation states it for the models the product calls
+ * (BAA 1.6.0's Subcontractors paragraph; agreement-changes.md §17; the sample
+ * was a84117ed…9e55), and again that day for the review of that change: the
+ * retention attributed to Anthropic's standard retention with the reason for
+ * it, Anthropic's agreement signed before any client's information reaches
+ * it, and the state-law clause's two exceptions to deletion as BAA 1.6.0
+ * states them (stateLawClauseBody160; the sample was 88d592a2…3cc0).
  */
 const GOLDEN: Record<string, string> = {
-  sample: "a84117ed3b31091e8c8d02dd9744262e7bfb29aa72b60ec19b24ddfc08ff9e55",
-  notcovered_live_covered: "9899ed5ed0e9472b1180e069c95f0e543be2595f6e860ee440f34a4f54b803ca",
-  notcovered_live_uncovered: "5e0746a939a62cd462f50be61c0917506006b0e9fbb08e1feafa66f125936076",
-  notcovered_live_personal: "16bdacc4dbb55598aabda80fad1cdcab7e7546bfbd720218d2a998e77d581602",
-  notcovered_notused_other: "dfe6e78e51f61d97dcd5fd52c417735b7ecefec16b65670e1368dd6d997f0689",
-  vet_live_covered: "af2fd0de688e26aa33ee86a209690f91b42b4e049cbf82e4dee723d3ec9f365a",
-  vet_live_personal: "1c3d6a007536bc3da6523864ec2a4e0fa63527d4159d6052ea5c7d9968bf0639",
-  vet_notused_mindbody: "97ecb8b05091a813feddc2bf65463d49e0ddf9ee6913977aad3c9bdd304ab0e6",
+  sample: "b4246144e9915532193c7d25be8dee92a8a9e398c499c0441d77a46cdc4e3a08",
+  notcovered_live_covered: "0d87f4aa71f05a76f8f3090e2bff552ab450fa72a17d7853ac63793aa6b41e02",
+  notcovered_live_uncovered: "5cf3aa2a5d61013ced0f9d7285545214bd1b0974e5ab86092b9baff166d4f521",
+  notcovered_live_personal: "76903e405a470e113f66240dcfe861504f590fb17dd8f69238755414f7afd67d",
+  notcovered_notused_other: "0113fd7d7a8d8244a3a606728de7a96395a9094d6cb66957de50e7cb32909e51",
+  vet_live_covered: "0b6caea0c7fa9427150ea7a8aa22a1dfc8ebbb1a20dba79c79d07bf1f628a8f0",
+  vet_live_personal: "7fd8a2691e64ce08cd1076b87129d9ee6270945ca725eded09dd75e0ac71650a",
+  vet_notused_mindbody: "d9fbd69e354eaf6d92a2fb0c40abf76fd7c86d3c389f697523164a3b7f24c54b",
 };
 
 const template = () => currentDpaTemplate();
@@ -410,9 +417,16 @@ describe("what the DPA says", () => {
     }
   });
 
-  test("Anthropic's 30-day retention is stated as BAA 1.2.1 states it", () => {
-    const baa121 = unwrap(
-      prepareBaa(getBaaTemplate("1.2.1")!, {
+  test("Anthropic's retention is stated as BAA 1.6.0 states it, from Anthropic's own documentation", () => {
+    // MODEL_RETENTION_AGREEMENT (model-retention.ts): no more than the 30
+    // days of its standard retention, two years for flagged content alone,
+    // the law's own period for what the law requires. Until 19 October 2026
+    // this was BAA 1.2.1's sentence, which gave law-required content two
+    // years and the service "cannot run with shorter retention"
+    // (agreement-changes.md §17); 1.2.1 to 1.5.1 are frozen, so the DPA now
+    // reads as the 1.6.0 draft does.
+    const baa160 = unwrap(
+      prepareBaa(getBaaTemplate("1.6.0")!, {
         clinicLegalName: "Golden Clinic LLC",
         specialty: "med-spa",
         signatoryName: "Alex Chen",
@@ -422,23 +436,55 @@ describe("what the DPA says", () => {
         connectedPlatform: null,
         outboundMessaging: false,
         effectiveDate: "2026-09-13",
+        bookingSystem: "none",
+        calendarAccount: "workspace_baa",
       } satisfies BaaVariables).text,
     );
-    expect(baa121).toContain(`Anthropic ${ANTHROPIC_RETENTION}`);
-    expect(unwrap(render({}).text)).toContain(`Anthropic ${ANTHROPIC_RETENTION}`);
+    expect(baa160).toContain(MODEL_RETENTION_AGREEMENT);
+    for (const overrides of Object.values(VARIANTS)) {
+      const subcontractors = unwrap(section(render(overrides).text, "Subcontractors"));
+      expect(subcontractors).toContain(MODEL_RETENTION_AGREEMENT);
+      expect(subcontractors).not.toMatch(/abuse detection|cannot run with|law requires it to keep, which it may retain for up to two years/);
+      // Anthropic's agreement is a promise about when it is signed (release
+      // gate 17), as in BAA 1.3.0 on, never one already in force.
+      expect(subcontractors).toContain(
+        "only under a business associate agreement with healdesk signed before any client's information reaches it.",
+      );
+    }
   });
+
+  test("no clause gives Anthropic's retention a purpose its documentation does not state", () => {
+    // The Subcontractors paragraph gives Anthropic's retention no purpose, so
+    // nothing that points at it may give one either: until 19 October 2026
+    // the shared state-law clause excepted what that clause "says it may keep
+    // for abuse detection and security", in two places, and only the
+    // Subcontractors clause was checked. Every answer, the whole text.
+    for (const answers of everyAnswer()) {
+      const text = unwrap(render(answers).text);
+      const label = JSON.stringify(answers);
+      expect(text, label).not.toMatch(/abuse detection|for that purpose and period|security, or because/);
+      expect(text, label).toContain(
+        'The only exception is what the clause headed "Subcontractors" says a subcontractor may keep, for the periods that clause states, and that is kept for those periods only.',
+      );
+      expect(text, label).toContain(
+        "The only exception to a subcontractor's duty to delete is what that clause says it may keep, for the periods that clause states.",
+      );
+    }
+  }, 60_000);
 
   test("the state-law clause is baa.ts's shared function in this document's words, and Payments its constant", () => {
     // The fuller clause BAA 1.3.0 carries, agreed between the funnel and the
     // BAA's pre-release redraft on 6 October 2026, in BAA 1.4.0's words since
-    // 13 October (the transcript emailed, not kept): stateLawClauseBody140
-    // with the subject "Client Information", its calendar text following the
-    // booking sync, word for word.
+    // 13 October (the transcript emailed, not kept), and in BAA 1.6.0's since
+    // 19 October (its exceptions to deletion name no purpose Anthropic does
+    // not state): stateLawClauseBody160 with the subject "Client
+    // Information", its calendar text following the booking sync, word for
+    // word.
     for (const answers of Object.values(VARIANTS)) {
       const variables = { ...SAMPLE, ...answers };
       const text = render(answers).text;
       const label = JSON.stringify(answers);
-      const body = stateLawClauseBody140({
+      const body = stateLawClauseBody160({
         subject: "Client Information",
         sync: bookingSyncFor(variables.bookingSystem),
       });

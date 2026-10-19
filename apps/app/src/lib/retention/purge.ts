@@ -108,7 +108,7 @@ import type { TenantTx } from "@/lib/tenant";
  *   - a deposit: with its appointment, or, once its appointment is gone, the
  *     record clock after it was made (app_purge_deposit_payments, 0067).
  *
- * A handover (someone asked for a person, drizzle/0091) is part of the
+ * A handover (someone asked for a person, drizzle/0092) is part of the
  * record of the conversation it was asked in, and holds nothing of its own:
  * it goes with that conversation, or with its messaging thread, and in any
  * case the record clock after it was asked.
@@ -194,7 +194,7 @@ export type PurgeResult = {
   slotHoldsDeleted: number;
   /** Deposits whose appointment the record clock took (drizzle/0067). */
   depositsDeleted: number;
-  /** Handovers past the record clock that their conversation or thread did not take with it (drizzle/0091). */
+  /** Handovers past the record clock that their conversation or thread did not take with it (drizzle/0092). */
   handoversDeleted: number;
 };
 
@@ -309,7 +309,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   const mediaBefore = periodCutoff(now, transcriptDays);
   const recordBefore = periodCutoff(now, clinic.recordDays);
   // A call's handover the database missed linking goes with its
-  // conversation from here (drizzle/0091).
+  // conversation from here (drizzle/0092).
   await linkCallHandovers(tx);
 
   // 1. Media references.
@@ -493,7 +493,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   // A handover goes with its conversation or thread (the foreign keys'
   // cascades), and in any case at the record clock after it was asked: a
   // call whose conversation was never written leaves one pointing at
-  // nothing (drizzle/0091). One the database missed linking to its call's
+  // nothing (drizzle/0092). One the database missed linking to its call's
   // conversation is linked first (linkCallHandovers), so it went with it.
   const oldHandovers = await tx.db
     .delete(handovers)

@@ -36,6 +36,7 @@ import { saveSetting } from "@/lib/portal/settings";
 import type { DeliveryResult, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 import { RetellCallSession, TRANSFER_LINE, type RetellOutbound } from "@/lib/voice/retell";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 
 import {
   closePools,
@@ -51,6 +52,7 @@ import {
   seedEntitled,
   setWeekdayHours,
 } from "./setup/factories";
+import { attestPlatform } from "./setup/platform";
 
 /**
  * Pause AI and L15 (plan Part F0, Annex X5; spec, "Every switch in the
@@ -194,6 +196,9 @@ describeDb("pause control", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // The vendors' agreements in force, as a launched platform holds them
+    // (the answer gate reads them, lib/compliance/vendor-coverage.ts).
+    await attestPlatform(COVERAGE_VENDORS);
     for (const key of ["BETTER_AUTH_URL", "META_APP_SECRET"]) SAVED_ENV[key] = process.env[key];
     process.env.BETTER_AUTH_URL = "https://app.healdesk.test";
     process.env.META_APP_SECRET = APP_SECRET;

@@ -53,7 +53,7 @@ import { logPatientAccess, type PatientPage, type PatientTx } from "./patient-pa
  * shown, one for the appointments. A message left on the website while AYA
  * was off is a request (source 'contact_form', package F) and sits in Needs
  * you with the rest, worded by `requestWords`. Someone who asked AYA for a
- * person (L11) is a handover (drizzle/0091, lib/handovers/record.ts): open
+ * person (L11) is a handover (drizzle/0092, lib/handovers/record.ts): open
  * ones sit in Needs you, with an access row of their own, until the desk
  * marks one handled (markHandoverHandled).
  *
@@ -652,7 +652,7 @@ export type HandoverResult =
  * passkey is live, in the action's patient transaction (withPatientPage),
  * with an access row for the handover it read and an update row for the
  * change, each naming the passkey. The database stamps the time and never
- * reopens it (drizzle/0091), so marking one already handled changes
+ * reopens it (drizzle/0092), so marking one already handled changes
  * nothing. A clinic whose offboarding has started is read-only, and nothing
  * is written. An id that is not one of this clinic's handovers throws
  * HandoverNotFoundError, so the transaction rolls back and leaves no row.

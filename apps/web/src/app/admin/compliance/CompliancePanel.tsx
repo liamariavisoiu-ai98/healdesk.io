@@ -62,8 +62,11 @@ export function CompliancePanel({
       <p className="text-muted mt-2 max-w-[70ch] text-sm">
         Go-live is automatic: a clinic goes to production by itself once its own part is done and
         everything below that its channel needs is attested and built. A withdrawal never takes a
-        live channel offline; it holds back what has not gone live yet. Each entry needs a fresh
-        code from your authenticator. Days are UTC; today is {v.today}.
+        live channel offline; it holds back what has not gone live yet. A business associate
+        agreement withdrawn, or past its expiry with no renewal, also stops AYA answering where that
+        vendor serves (every channel for the model provider, AWS and the database host; phone for
+        Retell): calls go to each clinic&apos;s direct line until a renewal is recorded here. Each
+        entry needs a fresh code from your authenticator. Days are UTC; today is {v.today}.
       </p>
 
       <Section title="Business associate agreements in the chain">

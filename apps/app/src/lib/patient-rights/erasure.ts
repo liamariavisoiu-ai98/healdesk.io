@@ -191,7 +191,7 @@ export type ErasureCounts = {
   holds: number;
   /** Deposits of their appointments, with the Connect events that last touched them (drizzle/0067). */
   deposits: number;
-  /** Their requests for a person, found by the call-back number they gave (drizzle/0091). */
+  /** Their requests for a person, found by the call-back number they gave (drizzle/0092). */
   handovers: number;
 };
 
@@ -244,7 +244,7 @@ type Asked = {
   phones: string[];
   emails: string[];
   threads: string[];
-  /** Web chat handovers named by id: each with its chat, and nothing by its number (drizzle/0091). */
+  /** Web chat handovers named by id: each with its chat, and nothing by its number (drizzle/0092). */
   handovers?: string[];
 };
 
@@ -693,11 +693,11 @@ async function eraseSurveyed(
   // only the ones asked), with their own requests whatever thread they came
   // from: every contact carrying one of them goes whole.
   // A call's handover the database missed linking is linked first, so it
-  // goes with its conversation below (drizzle/0091).
+  // goes with its conversation below (drizzle/0092).
   await linkCallHandovers(tx);
   // The web chats their booking requests were made in, read before the
   // requests go: a web chat carries no contact, so nothing below would reach
-  // one, and its handover (asked under any number) goes with it (drizzle/0091).
+  // one, and its handover (asked under any number) goes with it (drizzle/0092).
   const requestChats = s.contactIds.length
     ? (
         await tx.db
@@ -725,7 +725,7 @@ async function eraseSurveyed(
   // back, on the handover and on no contact, so the contacts above never
   // reach it: it goes by the number, and so does its chat, with its queued
   // transcript, where nothing of anyone else's holds the conversation. A
-  // handover named by its id goes the same way, alone (drizzle/0091).
+  // handover named by its id goes the same way, alone (drizzle/0092).
   if (s.phones.length) {
     await eraseHandovers(tx, counts, inArray(handovers.callbackPhone, s.phones), before);
   }
@@ -939,7 +939,7 @@ export async function erasePerson(
     // Someone who only asked for a person in web chat has no contact: their
     // handover is named by its id or its chat's in the same place, and only
     // it and its chat go, never anything found by the number they typed
-    // (namedHandover; drizzle/0091). Ids are UUIDs, so one cannot be the
+    // (namedHandover; drizzle/0092). Ids are UUIDs, so one cannot be the
     // other's.
     named = contact ? null : await namedHandover(tx, input.contactId);
     if (!contact && !named) throw new ErasureContactNotFound();
@@ -1209,7 +1209,7 @@ async function recover(tx: TenantTx, refs: ReadonlySet<string>, before: Date): P
       )),
   ];
   for (const r of evidence) candidatePhones.add(r.phone);
-  // A web chat visitor's call-back number, which no contact holds (drizzle/0091).
+  // A web chat visitor's call-back number, which no contact holds (drizzle/0092).
   for (const r of await tx.db
     .select({ phone: handovers.callbackPhone })
     .from(handovers)

@@ -14,7 +14,7 @@ import type { TenantTx } from "@/lib/tenant";
  * handovers"), and the alert, in the caller's transaction, once per call,
  * web chat or Meta conversation.
  *
- * The row holds no words (drizzle/0091): only which conversation it was
+ * The row holds no words (drizzle/0092): only which conversation it was
  * asked in, through which the person is reached, kept and erased, and for a
  * web chat the number the visitor gave for the call back (attachHandoverCaller). A call's
  * conversation is written when the call ends, so a call's handover carries
@@ -146,7 +146,7 @@ export async function attachHandoverCaller(
 /**
  * Link each call's handover to the call's conversation where the database's
  * own link missed it: a handover raised in the instant the call's row was
- * written sees neither the row nor is seen by its trigger (drizzle/0091). Run
+ * written sees neither the row nor is seen by its trigger (drizzle/0092). Run
  * before anything that relies on the link to reach a handover through its
  * conversation: a person's erasure and export, and the retention purge.
  * Returns how many it linked.

@@ -1,15 +1,28 @@
 import type { Piece } from "@/lib/content/types";
 
+/**
+ * Every statement was read against its primary text on 19 October 2026.
+ * California's Civil Code sections and AB 1979 (chaptered text) were read in
+ * the Legislature's own bulk database (downloads.leginfo.legislature.ca.gov,
+ * pubinfo_2025.zip, by range requests), because leginfo's pages refuse
+ * automated loads; the URLs below are the leginfo pages for the same text.
+ * The Connecticut General Assembly's site sends an incomplete certificate
+ * chain; it was read once the issuer's published intermediate certificate
+ * was supplied, with verification left on. The FTC page refused plain
+ * automated loads and was read through a page fetcher.
+ */
+
 export const piece: Piece = {
   slug: "is-a-cash-pay-clinic-covered-by-hipaa",
   family: "guides",
   title: "Is a cash-pay clinic covered by HIPAA?",
   description:
-    "HIPAA covers a provider that sends health information electronically in a transaction type HHS has standardised. What it means for a practice that bills no insurer.",
+    "HIPAA covers a provider that sends health information electronically in a type of transaction HHS has adopted a standard for. What that means for cash-pay practices.",
   answer:
-    "A clinic is a HIPAA covered entity only if it, or an entity acting for it, sends health information electronically in a transaction HHS has standardised. Those transactions include insurance claims and eligibility checks, so a practice paid only by its patients may sit outside HIPAA, while state consumer health data laws and the FTC Act can still reach it.",
-  stage: "draft",
+    "A clinic is a HIPAA covered entity only if it, or an entity acting for it, sends health information electronically in connection with a type of transaction for which HHS has adopted a standard. Those types include insurance claims and eligibility checks, so a practice paid only by its patients may sit outside HIPAA, while state health privacy laws and the FTC Act can still reach it.",
+  stage: "live",
   legal: true,
+  review: "Every statement was checked against the primary texts on 19 October 2026 by an independent AI review, not by a lawyer.",
   published: "2026-10-19",
   lastReviewed: "2026-10-19",
   sections: [
@@ -112,8 +125,8 @@ export const piece: Piece = {
       blocks: [
         {
           kind: "p",
-          text: "Several laws reach health data that HIPAA does not. Washington’s legislature found in 2023 that HIPAA “only covers health data collected by specific health care entities”, and that data collected by others “are not afforded the same protections”. Nevada and Connecticut enacted consumer health data provisions the same year, and the FTC says its Act applies whether or not a business is covered by HIPAA. Each law has its own scope and exemptions, and those decide whether it reaches a given practice.",
-          cite: ["rcw-19-373", "nrs-603a", "ct-743jj-2026", "ftc-health-guidance"],
+          text: "Several laws reach health data that HIPAA does not. Washington’s legislature found in 2023 that HIPAA “only covers health data collected by specific health care entities, including most health care providers”, and that data collected by others “are not afforded the same protections”. Nevada and Connecticut enacted consumer health data provisions the same year, and California’s medical privacy act defines the providers it binds by licence. The FTC says its Act applies whether or not a business is covered by HIPAA, and each law has its own scope and exemptions, and those decide whether it reaches a given practice.",
+          cite: ["rcw-19-373", "nrs-603a", "ct-743jj-2026", "ca-civ-56-05", "ftc-health-guidance"],
         },
         { kind: "h3", text: "Washington: the My Health My Data Act" },
         {
@@ -129,19 +142,30 @@ export const piece: Piece = {
         { kind: "h3", text: "Nevada: NRS 603A.400 to 603A.550" },
         {
           kind: "p",
-          text: "Nevada’s consumer health data law was enacted in 2023 as [Senate Bill 370](https://www.leg.state.nv.us/Session/82nd2023/Bills/SB/SB370_EN.pdf) and sits in [NRS 603A.400 to 603A.550](https://www.leg.state.nv.us/NRS/NRS-603A.html). A regulated entity may collect consumer health data only with “the affirmative, voluntary consent of the consumer”, or to the extent necessary to provide a product or service the consumer requested. The provisions do not apply to “any person or entity that is subject to” HIPAA, and they separately exempt personally identifiable information governed by HIPAA’s administrative simplification provisions. A violation is a deceptive trade practice, and the statute states that it does not create a private right of action.",
+          text: "Nevada’s consumer health data law was enacted in 2023 as [Senate Bill 370](https://www.leg.state.nv.us/Session/82nd2023/Bills/SB/SB370_EN.pdf) and sits in [NRS 603A.400 to 603A.550](https://www.leg.state.nv.us/NRS/NRS-603A.html). A regulated entity may collect consumer health data only with “the affirmative, voluntary consent of the consumer”, or to the extent necessary to provide a product or service the consumer requested. The provisions do not apply to “any person or entity that is subject to” HIPAA. They separately exempt personally identifiable information governed by Part C of Title XI of the Social Security Act and collected, used or disclosed pursuant to it. Except as the statute provides for processors, a violation is a deceptive trade practice, and the statute states that the provisions do not create a private right of action.",
           cite: ["nv-sb370", "nrs-603a"],
         },
         { kind: "h3", text: "Connecticut: consumer health data in chapter 743jj" },
         {
           kind: "p",
-          text: "Connecticut added consumer health data to its [data privacy chapter](https://www.cga.ct.gov/2026/sup/chap_743jj.htm) in 2023, through Public Act 23-56. Since 1 July 2026, the chapter defines consumer health data as personal data a controller uses to identify a consumer’s “physical or mental health condition, diagnosis or status”, and lists it as sensitive data. The chapter’s general duties now also reach persons that “control or process consumers’ sensitive data”, and section 42-520 conditions their processing of sensitive data on, among other things, the consumer’s consent. Section 42-526 bars any person doing business in the state from selling consumer health data without consent, and limits who may be given access to it.",
-          cite: ["ct-743jj-2026", "ct-743jj", "ct-ag-ctdpa"],
+          text: "Connecticut added consumer health data to its [data privacy chapter](https://www.cga.ct.gov/2026/sup/chap_743jj.htm) in 2023, through Public Act 23-56. Since 1 July 2026, the chapter defines consumer health data as personal data a controller uses to identify a consumer’s “physical or mental health condition, diagnosis or status”, and lists it as sensitive data. The chapter’s general duties now also reach persons that “control or process consumers’ sensitive data, excluding personal data controlled or processed solely for the purposes of completing a payment transaction”. Section 42-520 conditions their processing of sensitive data on, among other things, the consumer’s consent. [Public Act 26-64](https://www.cga.ct.gov/2026/ACT/PA/PDF/2026PA-00064-R00SB-00004-PA.PDF), in force since 1 October 2026, amended both sections again and kept that definition and that consent condition. Section 42-526 bars a person from selling consumer health data without consent, and limits who may be given access to it.",
+          cite: ["ct-743jj-2026", "ct-pa-26-64", "ct-743jj"],
         },
         {
           kind: "p",
-          text: "The Attorney General’s office says the consumer health data provisions have no revenue or processing thresholds. Its list of entities exempt from the Act includes “Entities subject to the Health Insurance Portability and Accountability Act”. A practice outside HIPAA does not fall within that exemption, and whether the other provisions reach it depends on where it does business and whom it serves.",
-          cite: ["ct-ag-ctdpa"],
+          text: "The Attorney General’s office says the consumer health data provisions have no revenue or processing thresholds, and it lists “Entities subject to the Health Insurance Portability and Accountability Act” among exempt entities. In the statute, sections 42-517 and 42-526 each exempt a “covered entity or business associate, as defined in 45 CFR 160.103”. A practice that is neither does not come within those words. Section 42-526 applies the consumer health data provisions to persons that do business in the state or target products or services at its residents.",
+          cite: ["ct-ag-ctdpa", "ct-743jj-2026", "ct-743jj"],
+        },
+        { kind: "h3", text: "California: the Confidentiality of Medical Information Act" },
+        {
+          kind: "p",
+          text: "California’s [Confidentiality of Medical Information Act](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CIV&sectionNum=56.05) defines a provider of health care by licence, including a person licensed or certified under Division 2 of the Business and Professions Code. The definition does not turn on electronic transactions or on how patients pay. [Section 56.10](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CIV&sectionNum=56.10) bars such a provider from disclosing a patient’s medical information “without first obtaining an authorization”, except as that section provides.",
+          cite: ["ca-civ-56-05", "ca-civ-56-10"],
+        },
+        {
+          kind: "p",
+          text: "From 1 January 2027, [AB 1979](https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1979) (Statutes of 2026, chapter 854) deems a business that offers a “health care chatbot” to a consumer a provider of health care subject to the Act’s requirements. That applies where the chatbot is offered so the individual can manage their information, or for the diagnosis, treatment or management of a medical condition. Under the amended section 56.05, such a chatbot is a generative artificial intelligence system with a natural language interface that gives adaptive, human-like responses and is marketed as facilitating or supporting health services. It must also use information about a consumer’s physical or mental health or wellness to facilitate or support health services. The chaptered text does not say whether an assistant that answers a clinic’s phone or chat to book visits is offered for those purposes.",
+          cite: ["ca-ab-1979"],
         },
         { kind: "h3", text: "Federal: the FTC Act" },
         {
@@ -169,21 +193,23 @@ export const piece: Piece = {
           kind: "list",
           ordered: true,
           items: [
-            "Whether the practice sends any standard transaction electronically, such as a claim for one insured patient or an eligibility inquiry to a health plan.",
+            "Whether the practice electronically sends any transaction of a type HHS has adopted a standard for, such as a claim for one insured patient or an eligibility inquiry to a health plan.",
             "Whether a billing company, clearinghouse or other entity sends such transactions on the practice’s behalf, which CMS’s decision tool counts as the practice’s own.",
             "Where its patients live and where their data is collected, since the Washington, Nevada and Connecticut laws define their reach by residence, collection in the state or business done there.",
+            "Whether the practice or its clinicians hold a California licence that makes them a provider of health care under the Confidentiality of Medical Information Act.",
             "Whether the practice falls within one of those laws’ exemptions, which name HIPAA-covered entities, HIPAA-protected information or, in Washington, information handled under chapter 70.02 RCW.",
             "Whether the practice offers or maintains a personal health record in the FTC rule’s sense.",
             "What its contracts with vendors say about health data, where no business associate agreement is required.",
           ],
-          cite: ["cms-decision-tool", "cfr-160-103", "rcw-19-373", "nrs-603a", "ct-743jj", "cfr-318-2"],
+          cite: ["cms-decision-tool", "cfr-160-103", "rcw-19-373", "nrs-603a", "ct-743jj", "ca-civ-56-05", "cfr-318-2"],
         },
       ],
     },
   ],
   aya: [
-    "healdesk signs a business associate agreement with a practice at checkout, and AYA is built to handle patient data only under it.",
-    "A data protection agreement for practices that HIPAA does not cover is drafted but not yet released.",
+    "AYA is designed to handle a practice’s patient data only under the agreement the practice signs at checkout, which is a business associate agreement where HIPAA covers the practice.",
+    "For a med spa, hair restoration, massage or chiropractic practice that says it bills no insurance electronically, AYA is designed to work under healdesk’s data protection agreement instead, with HIPAA Security Rule safeguards.",
+    "A practice that is not sure, or whose specialty is plastic surgery, fertility, dental care or GLP-1 treatment, signs the business associate agreement.",
   ],
   sources: [
     {
@@ -230,7 +256,7 @@ export const piece: Piece = {
       id: "cms-covered-entities",
       title: "Are You a Covered Entity?",
       publisher: "Centers for Medicare & Medicaid Services",
-      url: "https://www.cms.gov/about-cms/what-we-do/administrative-simplification/hipaa/covered-entities",
+      url: "https://www.cms.gov/priorities/key-initiatives/burden-reduction/administrative-simplification/hipaa/covered-entities",
       kind: "government",
       checked: "2026-10-19",
     },
@@ -312,6 +338,38 @@ export const piece: Piece = {
       title: "Connecticut General Statutes, chapter 743jj, § 42-526",
       publisher: "Connecticut General Assembly",
       url: "https://www.cga.ct.gov/current/pub/chap_743jj.htm#sec_42-526",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "ct-pa-26-64",
+      title: "Public Act No. 26-64 (Substitute Senate Bill No. 4), An Act Concerning Consumer Privacy and Protection",
+      publisher: "Connecticut General Assembly",
+      url: "https://www.cga.ct.gov/2026/ACT/PA/PDF/2026PA-00064-R00SB-00004-PA.PDF",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "ca-civ-56-05",
+      title: "California Civil Code § 56.05, Confidentiality of Medical Information Act definitions",
+      publisher: "California Legislature",
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CIV&sectionNum=56.05",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "ca-civ-56-10",
+      title: "California Civil Code § 56.10",
+      publisher: "California Legislature",
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CIV&sectionNum=56.10",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "ca-ab-1979",
+      title: "AB 1979, Health care services: artificial intelligence (Statutes of 2026, chapter 854)",
+      publisher: "California Legislature",
+      url: "https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1979",
       kind: "statute",
       checked: "2026-10-19",
     },

@@ -38,6 +38,7 @@ import {
   serviceFromProfile,
   serviceInputOf,
   validateAnswer,
+  validateNeverSay,
   validateServices,
 } from "@/lib/setup/knowledge";
 import {
@@ -381,6 +382,19 @@ describe("knowledge", () => {
     expect(list.slice(0, NEVER_SAY_DEFAULTS.length)).toEqual([...NEVER_SAY_DEFAULTS]);
     expect(list.at(-1)).toBe("cheapest in town");
     expect(list.filter((p) => p.toLowerCase() === "painless")).toHaveLength(1);
+  });
+
+  test("never-say refuses an entry that would stop AYA saying it is an AI assistant, or pointing to 911, by name, and a list saved before that is read without it", () => {
+    for (const entry of ["automated assistant", "AI", "not a person", "911"]) {
+      expect(() => validateNeverSay(["cheapest in town", entry]), entry).toThrow(KnowledgeError);
+      expect(() => validateNeverSay([entry]), entry).toThrow(`"${entry}" can't go on the list`);
+    }
+    expect(validateNeverSay(["cheapest in town", "best-kept secret"])).toEqual(["cheapest in town", "best-kept secret"]);
+    // Saved before the check: left out of what every conversation reads.
+    expect(neverSayWithDefaults(["automated assistant", "cheapest in town", "call 911"])).toEqual([
+      ...NEVER_SAY_DEFAULTS,
+      "cheapest in town",
+    ]);
   });
 });
 

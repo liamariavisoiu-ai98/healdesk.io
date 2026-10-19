@@ -87,7 +87,7 @@ export type PatientBundle = {
   depositPayments: DepositRecord[];
   /**
    * The times they asked AYA for a person in one of these conversations, or
-   * leaving one of these numbers for the call back (drizzle/0091): the channel, when, and when
+   * leaving one of these numbers for the call back (drizzle/0092): the channel, when, and when
    * the desk marked it handled.
    * The clinic's bundle carries every one, Meta's by their thread's keyed reference.
    */
@@ -270,7 +270,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
     // A handover's id, or its chat's, names someone who only left a
     // call-back number in web chat, which no contact holds: that handover and
     // its chat, as erasure takes them, and nothing found by the number they
-    // typed (namedHandover; drizzle/0091).
+    // typed (namedHandover; drizzle/0092).
     callback = contact ? null : await namedHandover(tx, contactId);
     if (!contact && !callback) throw new ExportContactNotFound();
     phone = contact?.phone ?? undefined;

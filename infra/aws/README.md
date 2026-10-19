@@ -1185,7 +1185,10 @@ calls drop and the other answers the next.
    `app_clinic_is_demo()` names (entitlements `demo`, no Stripe ids, synthetic data). A call for
    any other clinic is put through to that clinic's direct line, or closed with a fixed line where
    it has none, before the assistant says a word, and nothing of it is recorded
-   (`apps/app/src/lib/voice/test-calls.ts`). Real patients' calls wait for every link of the BAA
+   (`apps/app/src/lib/voice/test-calls.ts`); Retell is not asked for the caller's number. That
+   protects healdesk's side only: Retell still carries any call its agent is given, and has no
+   agreement yet, so no real clinic's Retell agent or call forwarding may point at Retell before
+   its agreement is signed. Real patients' calls wait for every link of the BAA
    chain, Retell's included ("What still blocks real patient data"), and then step 6.
 2. Generate the secret and paste it, in CloudShell: `openssl rand -hex 32`, then
    `bash put-external-secrets.sh HEALDESK_RETELL_LLM_SECRET`. The script asks for a typed answer:
@@ -1284,7 +1287,8 @@ to call. The one exception is the voice line, for a test call on the demo clinic
 19 October 2026): `HEALDESK_RETELL_LLM_SECRET` may be pasted with the answer `test` and
 `enable_voice` turned on before the chain is complete, because while `voice_real_calls` is off
 the voice endpoint itself answers no clinic but the demo clinic and records nothing of any other
-call ("The voice endpoint", "Turning it on"). With the secret unset, it refuses every call. (The
+call ("The voice endpoint", "Turning it on"). Retell still carries whatever reaches it, so only the
+demo clinic's agent may hold the address until Retell's agreement is signed. With the secret unset, it refuses every call. (The
 Synthflow routes' two secrets were retired on 14 October 2026, `ssm.tf`.)
 
 Records and drills still open (the compliance map's §4): this module's first apply and deploy;

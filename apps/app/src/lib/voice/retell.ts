@@ -136,7 +136,11 @@ export class RetellCallSession {
   /** AYA gave the caller a real answer at least once, not only the failure line. */
   private answered = false;
   private closing = false;
-  /** Refused in test mode: a real clinic's caller, of whom nothing is kept. */
+  /**
+   * Refused in test mode: a real clinic's caller, of whom nothing is kept.
+   * Set from the start of the check, so a drain that records the call
+   * before the check answers keeps nothing either.
+   */
   private unrecorded = false;
   private finished: Promise<IngestResult | null> | null = null;
 
@@ -165,11 +169,15 @@ export class RetellCallSession {
     });
   }
 
-  /** The connection is up: configure, ask the gate, and speak first. */
+  /**
+   * The connection is up: configure, ask the gate, and speak first. In test
+   * mode the clinic is screened before the config, which asks Retell for the
+   * caller's number only once the clinic is known to be made up.
+   */
   async open(): Promise<void> {
+    if (!(this.deps.realCalls ?? voiceRealCallsAllowed()) && !(await this.madeUpClinic())) return;
     this.send({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
     const now = this.now();
-    if (!(this.deps.realCalls ?? voiceRealCallsAllowed()) && !(await this.madeUpClinic())) return;
     let decision: AnswerDecision;
     try {
       decision = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
@@ -204,16 +212,21 @@ export class RetellCallSession {
    * the call is marked to be forgotten. A failed check fails closed.
    */
   private async madeUpClinic(): Promise<boolean> {
+    this.unrecorded = true;
     let screen: TestCallScreen = { madeUp: false, directLine: null };
     try {
       screen = await (this.deps.screen ?? screenTestCall)(this.clinicId);
     } catch (error) {
       log.error("retell test-call check failed", { clinicId: this.clinicId, error: describeError(error) });
     }
-    if (screen.madeUp) return true;
+    if (screen.madeUp && !this.closing) {
+      this.unrecorded = false;
+      return true;
+    }
+    if (screen.madeUp) return false;
     log.warn("retell call refused: real calls are off and the clinic is not made up", { clinicId: this.clinicId });
-    this.unrecorded = true;
     this.closing = true;
+    this.send({ response_type: "config", config: { auto_reconnect: true, call_details: false } });
     if (screen.directLine) this.say(0, TRANSFER_LINE, { transferTo: screen.directLine });
     else this.say(0, CLOSED_LINE, { endCall: true });
     return false;
@@ -255,6 +268,8 @@ export class RetellCallSession {
       // record the refusal as a security event.
       this.outbound = true;
       this.closing = true;
+      // A refused test call is not ingested, so its security event is this line.
+      if (this.unrecorded) log.error("retell outbound call refused", { clinicId: this.clinicId });
       this.send({ response_type: "response", response_id: Math.max(this.latestResponseId, 0), content: "", content_complete: true, end_call: true });
     }
   }

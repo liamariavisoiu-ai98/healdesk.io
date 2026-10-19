@@ -48,7 +48,7 @@ describe("voiceRealCallsAllowed", () => {
 
 describe("a call in test mode", () => {
   test("for a real clinic with a direct line: put through to it, unanswered, ungated and unrecorded", async () => {
-    const { s, calls, responses } = session({ realCalls: false, screen: async () => ({ madeUp: false, directLine: "+14155550123" }) });
+    const { s, said, calls, responses } = session({ realCalls: false, screen: async () => ({ madeUp: false, directLine: "+14155550123" }) });
     await s.open();
     await s.handle(JSON.stringify({ interaction_type: "call_details", call: { from_number: "+14155550199", direction: "inbound" } }));
     await s.handle(JSON.stringify({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "Hello?" }] }));
@@ -57,6 +57,9 @@ describe("a call in test mode", () => {
       { response_type: "response", response_id: 0, content: TRANSFER_LINE, content_complete: true, end_call: false, transfer_number: "+14155550123" },
     ]);
     expect(calls).toEqual({ gate: 0, ingest: 0, model: 0 });
+    // Retell is never asked for the caller's number.
+    expect(said[0]).toEqual({ response_type: "config", config: { auto_reconnect: true, call_details: false } });
+    expect(JSON.stringify(said)).not.toContain('"call_details":true');
   });
 
   test("for a real clinic with no direct line: refused politely, and the call ends", async () => {
@@ -78,6 +81,19 @@ describe("a call in test mode", () => {
     expect(await s.finish()).toBeNull();
     expect(responses().map((r) => [r.content, r.end_call])).toEqual([[CLOSED_LINE, true]]);
     expect(calls).toEqual({ gate: 0, ingest: 0, model: 0 });
+  });
+
+  test("a drain that records the call while the check is still out keeps nothing, whatever the check says", async () => {
+    for (const madeUp of [false, true]) {
+      let answer!: (screen: { madeUp: boolean; directLine: string | null }) => void;
+      const { s, calls } = session({ realCalls: false, screen: () => new Promise((resolve) => (answer = resolve)) });
+      const opening = s.open();
+      await Promise.resolve();
+      expect(await s.finish()).toBeNull();
+      answer({ madeUp, directLine: null });
+      await opening;
+      expect(calls).toEqual({ gate: 0, ingest: 0, model: 0 });
+    }
   });
 
   test("unset, the switch reads the environment, and the environment says test mode", async () => {

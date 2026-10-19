@@ -260,6 +260,7 @@ describeDb("the Retell voice endpoint", () => {
       c.send({ interaction_type: "call_details", call: { call_id: "call_test_real", from_number: "+14155550193", direction: "inbound" } });
       c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "Could I book a consultation?" }] });
       await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(c.received[0]).toEqual({ response_type: "config", config: { auto_reconnect: true, call_details: false } });
       expect(responses(c.received)).toEqual([
         { response_type: "response", response_id: 0, content: TRANSFER_LINE, content_complete: true, end_call: false, transfer_number: "+14155550124" },
       ]);
@@ -285,6 +286,7 @@ describeDb("the Retell voice endpoint", () => {
       modelAnswer = () => ({ reply: "We're open weekdays nine to five." });
       const c = await call(testPort, `/llm-websocket/${SECRET}/${demo.clinicId}/call_test_demo`);
       await c.waitFor((r) => responses(r).length >= 1);
+      expect(c.received[0]).toEqual({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
       expect(String(responses(c.received)[0]!.content)).toMatch(/^Hi, I'm an AI assistant for .* — not a human\. This call is transcribed/);
       c.send({ interaction_type: "call_details", call: { call_id: "call_test_demo", from_number: "+14155550194", direction: "inbound" } });
       c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "When are you open?" }] });

@@ -66,6 +66,13 @@ export type DailySummaryPayload = {
   /** Every request still open that was taken before the period, oldest first, up to the row cap. */
   openRows: SummaryRow[];
   moreOpenCount: number;
+  /**
+   * Messages left on the website's contact form while AYA was not answering
+   * (package F's L20): since the last summary, or from before and still
+   * waiting. Not requests AYA took, so counted on their own line, never in
+   * the rows or the claims.
+   */
+  websiteMessageCount: number;
   /** publicUrl("/c/<slug>/bookings"). */
   bookingsUrl: string;
   /** The week's first summary: last week's recap. Null on every other day. */
@@ -175,6 +182,20 @@ export const renderDailySummary: EmailTemplate<DailySummaryPayload> = (payload, 
     blocks.push({ type: "paragraph", text: `No bookings or booking requests ${since}.` });
   }
 
+  if (payload.websiteMessageCount > 0) {
+    const n = payload.websiteMessageCount;
+    blocks.push({
+      type: "links",
+      items: [
+        {
+          text: `${n === 1 ? "1 person" : `${n.toLocaleString("en-US")} people`} left a message on your website`,
+          label: "Open in healdesk",
+          url: payload.bookingsUrl,
+        },
+      ],
+    });
+  }
+
   if (payload.openRows.length > 0) {
     blocks.push(
       {
@@ -269,6 +290,7 @@ export const DAILY_SUMMARY_ENTRY: TemplateEntry<DailySummaryPayload> = {
       moreNewCount: 0,
       openRows: [{ channel: "web", status: "waiting", linkUrl: requestUrl(REQUEST_IDS[3]) }],
       moreOpenCount: 0,
+      websiteMessageCount: 1,
       bookingsUrl: publicUrl("/c/radiance-med-spa/bookings"),
       weekClaims: null,
       weekStartOn: null,

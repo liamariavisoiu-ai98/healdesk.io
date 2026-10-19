@@ -12,10 +12,10 @@ import {
   clinics,
   contacts,
   metaBookingDrafts,
-  reportRecipients,
   slotHolds,
   type AgentService,
   type BookedVia,
+  type BookingRequestSource,
   type BookingOrigin,
   type CalendarWriteStatus,
   type ProposedSlot,
@@ -30,13 +30,12 @@ import { ANSWERED_AS_REQUEST, lockClinicCalendar } from "@/lib/booking/holds";
 import { calendarTermsFor } from "@/lib/booking/terms";
 import { calendarBreakOf, googleCalendarConnection, isTokenBreak, markCalendarBroken } from "@/lib/connections/google-calendar";
 import { planRescheduleOutreach, type RescheduleOutreach } from "@/lib/booking/reschedule";
-import { PublicUrlError, publicUrl } from "@/lib/public-url";
+import { publicUrl } from "@/lib/public-url";
 import { describeError, log } from "@/lib/log";
 import { listedPrice } from "@/lib/setup/prices";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { listClinics } from "@/lib/ops/clinics";
 import { amendmentsFor } from "@/lib/patient-rights/amendments";
-import { getTransport, type EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { META_WINDOW_MS, resolveFollowUpOwner, sendMetaReply, type MetaChannelOwner, type MetaSender } from "./channels";
@@ -90,22 +89,24 @@ import type { MetaPlatform } from "./front-door";
  * or upserted by phone (Meta), so the person the desk rings is one contact
  * either way. Each request has a token, stored as SHA-256(token) and never
  * as itself (drizzle/0024, 0037, 0039), for the link the desk's email
- * carries. Since M5 that link is a pointer and nothing more: /booking/<token>
- * shows no patient field and takes no decision, and sends the browser
- * through sign-in and the step-up to the request on Bookings
+ * carried until the live alerts replaced that email (package F): nothing
+ * mails a new one, and a link already sent is a pointer and nothing more.
+ * /booking/<token> shows no patient field and takes no decision, and sends
+ * the browser through sign-in and the step-up to the request on Bookings
  * (`resolveBookingPointer`).
  *
  * ## What never leaves the tenant
  *
- * The email to the desk names the clinic and the channel and carries a link.
- * No name, no number, no window, no service: it may travel over a transport
- * with no BAA behind it (`phiClass: "none"`), and the details are on the
- * Bookings screen behind the passkey. The audit rows say a request was made
- * and decided, and by which sign-in and passkey, never for whom, and for a
- * `rescheduling` decision how many slots — never when.
+ * The desk's email is the live alert (L7, lib/notices/booking-alerts.ts): the
+ * clinic, the channel and a link into Bookings, through the outbox to the
+ * clinic's one address. No name, no number, no window, no service: it may
+ * travel over a transport with no BAA behind it (`phiClass: "none"`), and the
+ * details are on the Bookings screen behind the passkey. The audit rows say a
+ * request was made and decided, and by which sign-in and passkey, never for
+ * whom, and for a `rescheduling` decision how many slots — never when.
  */
 
-/** How long the desk's link stays good. A weekend plus a slow Monday. */
+/** How long a request stays open before it lapses as missed (L9). A weekend plus a slow Monday. */
 export const BOOKING_REQUEST_TTL_DAYS = 7;
 /** A draft nobody finished in a day is abandoned, and its phone number goes with it. */
 export const DRAFT_TTL_HOURS = 24;
@@ -428,13 +429,20 @@ export type CreateBookingRequestInput =
       vendorCallId?: string;
       /** `agent_direct` when the assistant is attempting the booking itself. Frozen at insert. */
       bookedVia?: BookedVia;
+      /**
+       * `contact_form` for a message left on the website's contact form
+       * (lib/chat/contact-form.ts): web chat only, with no conversation.
+       * Frozen at insert. AYA's own requests leave it out.
+       */
+      source?: BookingRequestSource;
     };
 
 /**
- * The request row and the desk's token — returned once, to be put into
- * exactly one email. A Meta request also upserts its contact by phone and
- * deletes its draft, in the same transaction. No consent of any kind is
- * asked for or recorded: healdesk contacts no one about a request.
+ * The request row and the desk's token — returned once, and emailed nowhere
+ * since the live alerts replaced the desk's link email. A Meta request also
+ * upserts its contact by phone and deletes its draft, in the same
+ * transaction. No consent of any kind is asked for or recorded: healdesk
+ * contacts no one about a request.
  */
 export async function createBookingRequest(tx: TenantTx, input: CreateBookingRequestInput): Promise<CreatedBookingRequest> {
   const [clinic] = await tx.db
@@ -498,6 +506,7 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
       collectedFields,
       vendorCallId: input.channel !== "meta" ? (input.vendorCallId ?? null) : null,
       bookedVia: input.channel !== "meta" ? (input.bookedVia ?? "desk") : "desk",
+      source: input.channel === "web_chat" ? (input.source ?? "assistant") : "assistant",
       tokenHash: hashToken(token),
       expiresAt: sql`now() + make_interval(days => ${BOOKING_REQUEST_TTL_DAYS})`,
       lastInboundAt: input.channel === "meta" ? (input.lastInboundAt ?? now) : null,
@@ -519,6 +528,7 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
       platform: input.channel === "meta" ? input.thread.platform : undefined,
       expiresInDays: BOOKING_REQUEST_TTL_DAYS,
       alternatives: alternativeWindows.length,
+      ...(input.channel === "web_chat" && input.source === "contact_form" ? { source: "contact_form" } : {}),
     },
   });
   return { id: row.id, token, expiresAt: row.expiresAt };
@@ -540,146 +550,14 @@ export function bookingRequestUrl(token: string): string {
 // -----------------------------------------------------------------------------
 // Telling the desk
 // -----------------------------------------------------------------------------
-
-export type DeskNoticeVariant = "new" | "fyi_direct";
-
-/**
- * Tell the desk. One email per report recipient, carrying the link and
- * nothing about the person; "none" because there is nothing in it a BAA
- * would need to cover. A clinic with no recipient is logged, not failed —
- * the request still exists and the care view shows it waiting.
- *
- * `fyi_direct` (§E.5) is the notice for an appointment the assistant booked
- * itself where the practice elected direct booking: nothing is asked of the
- * desk, and the deposit line is added only when the booked appointment's
- * deposit was left for the desk to collect.
- */
-export async function notifyDesk(
-  tx: TenantTx,
-  created: { id: string; token: string },
-  via: { channel: BookingChannel; platform: MetaPlatform | null },
-  deps: { transport?: EmailTransport; variant?: DeskNoticeVariant } = {},
-): Promise<{ status: "sent" | "no-recipients" | "failed"; recipients: number }> {
-  const variant = deps.variant ?? "new";
-  const [clinic] = await tx.db.select({ name: clinics.name }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
-  const clinicName = clinic?.name ?? "your practice";
-  const recipients = await deskRecipients(tx);
-  if (recipients.length === 0) {
-    log.warn("booking request has no desk to notify", { clinicId: tx.clinicId, requestId: created.id });
-    return { status: "no-recipients", recipients: 0 };
-  }
-  const transport = deps.transport ?? getTransport("none");
-  // notifyDesk runs inside the caller's tenant transaction, after the booking
-  // request (and, on a call, the conversation) is written. A misconfigured
-  // BETTER_AUTH_URL must cost the desk its email, not the patient their
-  // request: a throw here would roll all of it back. So it is a failed send,
-  // logged, and the request stays where the care view and the console see it.
-  let url: string;
-  try {
-    url = bookingRequestUrl(created.token);
-  } catch (error) {
-    if (!(error instanceof PublicUrlError)) throw error;
-    log.error("booking request notice not sent: no public origin to link to", {
-      clinicId: tx.clinicId,
-      requestId: created.id,
-      error: describeError(error),
-    });
-    return { status: "failed", recipients: recipients.length };
-  }
-  const label = channelLabel(via.channel, via.platform);
-
-  let subject: string;
-  let paragraphs: string[];
-  if (variant === "fyi_direct") {
-    // The deposit sentence reads the appointment the assistant booked, never
-    // the clinic's policy: whether a deposit was flagged is decided per
-    // booking (lib/billing/deposits.ts depositDecision), so only an
-    // appointment left `pending_front_desk` has one for the desk to collect.
-    const [booked] = await tx.db
-      .select({ depositStatus: appointments.depositStatus })
-      .from(bookingRequests)
-      .innerJoin(appointments, eq(appointments.id, bookingRequests.appointmentId))
-      .where(and(eq(bookingRequests.id, created.id), eq(bookingRequests.clinicId, tx.clinicId)))
-      .limit(1);
-    const deposit = booked?.depositStatus === "pending_front_desk" ? " The assistant said a deposit is due and that you will call to collect it." : "";
-    subject = `The assistant booked an appointment — ${clinicName}`;
-    paragraphs = [
-      `Your assistant booked a caller directly into your calendar, as you elected. Open the link to see who and when. Nothing further is needed unless you want to change it, which you do in your calendar.${deposit}`,
-      url,
-      `The link works for ${BOOKING_REQUEST_TTL_DAYS} days and is for your front desk only. This email carries no patient details on purpose.`,
-    ];
-  } else {
-    subject = `New booking request via ${label} — ${clinicName}`;
-    paragraphs = [
-      `Someone contacted ${clinicName} through ${label} asking to book.`,
-      "Open the request to see who, their number and the times they'd like (a first choice and up to two backups), then confirm a time, propose other times, call them back, or decline:",
-      url,
-      `The link works for ${BOOKING_REQUEST_TTL_DAYS} days and is for your front desk only. This email carries no patient details on purpose. Nothing is booked until you confirm it, and the person has only been told that you will call to confirm.`,
-    ];
-  }
-  const text = paragraphs.join("\n\n");
-  const html = paragraphs.map((p) => (p === url ? `<p><a href="${url}">${url}</a></p>` : `<p>${escapeHtml(p)}</p>`)).join("");
-
-  const sent = await deliverToDesk(tx, transport, recipients, { subject, text, html }, { clinicName, requestId: created.id });
-  if (sent === 0) return { status: "failed", recipients: recipients.length };
-  await tx.db.update(bookingRequests).set({ deskNotifiedAt: new Date() }).where(and(eq(bookingRequests.id, created.id), eq(bookingRequests.clinicId, tx.clinicId)));
-  tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: created.id, metadata: { outcome: "desk_notified", recipients: sent, variant } });
-  return { status: "sent", recipients: sent };
-}
-
-/**
- * notifyDesk for a request whose transaction has committed, in a transaction
- * of its own: the Meta front door's way to email the desk (the webhook calls
- * it after the answer's transaction, whatever became of the reply), so the
- * email never goes for a request that then rolls back. Never throws: an email
- * that fails here is logged and leaves `desk_notified_at` unset, and the
- * request stays as it is, open and counted in the operator's care view, until
- * the desk acts on it or it expires. Nothing sends the notice again: no job
- * has read `desk_notified_at` since C13 removed the sweep, and the daily
- * summary that would list open requests is not built yet.
- */
-export async function notifyDeskAfterCommit(
-  clinicId: string,
-  created: { id: string; token: string },
-  via: { channel: BookingChannel; platform: MetaPlatform | null },
-  deps: { transport?: EmailTransport; actor?: ActorContext } = {},
-): Promise<void> {
-  const actor = deps.actor ?? DESK_NOTICE_ACTOR;
-  try {
-    await withTenant({ clinicId, actor }, (tx) => notifyDesk(tx, created, via, { transport: deps.transport }));
-  } catch (error) {
-    log.error("booking request notice not sent after commit", { clinicId, requestId: created.id, error: describeError(error) });
-  }
-}
-
-const DESK_NOTICE_ACTOR: ActorContext = { type: "agent", serviceName: "meta-front-door" };
-
-async function deskRecipients(tx: TenantTx): Promise<{ email: string }[]> {
-  return tx.db
-    .select({ email: reportRecipients.email })
-    .from(reportRecipients)
-    .where(and(eq(reportRecipients.clinicId, tx.clinicId), sql`${reportRecipients.unsubscribedAt} is null`));
-}
-
-async function deliverToDesk(
-  tx: TenantTx,
-  transport: EmailTransport,
-  recipients: { email: string }[],
-  message: { subject: string; text: string; html: string },
-  about: { clinicName: string; requestId: string },
-): Promise<number> {
-  let sent = 0;
-  for (const r of recipients) {
-    try {
-      const result = await transport.send({ to: r.email, clinicId: tx.clinicId, clinicName: about.clinicName }, { ...message, phiClass: "none" });
-      if (result.status !== "failed") sent += 1;
-      else log.error("booking request notice failed", { clinicId: tx.clinicId, requestId: about.requestId, reason: result.reason });
-    } catch (error) {
-      log.error("booking request notice threw", { clinicId: tx.clinicId, requestId: about.requestId, error: describeError(error) });
-    }
-  }
-  return sent;
-}
+//
+// The desk hears about a request through the live alerts: whoever creates
+// one queues L7 (notifyBookingAlert(tx, "booking_request", ...),
+// lib/notices/booking-alerts.ts) in the transaction that creates it, and the
+// outbox emails the clinic's one address a pointer into Bookings after
+// commit. notifyDesk, which emailed this module's single-use link to every
+// report recipient directly, was retired with package F: a pointer names no
+// one, and the details open behind sign-in and step-up.
 
 /**
  * What the person is told once the request exists. Fixed text; a name, never
@@ -805,6 +683,8 @@ export type BookingRequestView = {
   proposedSlots: ProposedSlot[];
   rescheduleExpiresAt: Date | null;
   bookedVia: BookedVia;
+  /** AYA took it, or the website's contact form did while AYA was not answering (L20). */
+  source: BookingRequestSource;
   lastInboundAt: Date | null;
   /**
    * Open in name but past its link's expiry, or its alternatives' deadline:
@@ -880,6 +760,7 @@ export async function readBookingRequestViews(
       proposedSlots: bookingRequests.proposedSlots,
       rescheduleExpiresAt: bookingRequests.rescheduleExpiresAt,
       bookedVia: bookingRequests.bookedVia,
+      source: bookingRequests.source,
       lastInboundAt: bookingRequests.lastInboundAt,
       lapsed,
       specialty: clinics.specialty,
@@ -935,6 +816,7 @@ export async function readBookingRequestViews(
     proposedSlots: row.proposedSlots,
     rescheduleExpiresAt: row.rescheduleExpiresAt,
     bookedVia: row.bookedVia,
+    source: row.source,
     lastInboundAt: row.lastInboundAt,
     lapsed: row.lapsed,
     calendar: null,
@@ -1709,7 +1591,7 @@ async function insertAppointment(tx: TenantTx, input: AppointmentInput): Promise
     .limit(1);
   const depositPolicy = input.deposit ? null : (agent?.depositPolicy ?? null);
   // The clinic's listed price for the service booked, as its list says it
-  // now, kept on the booking (drizzle/0082): booked value multiplies by
+  // now, kept on the booking (drizzle/0085): booked value multiplies by
   // this, so a later edit to Prices never rewrites what was booked. The
   // service is matched as the calendar matches it (serviceDuration).
   const services = agent?.services ?? [];
@@ -1770,8 +1652,9 @@ function codeOf(error: unknown): string | undefined {
 /**
  * Lapse what has lapsed, every clinic: a `rescheduling` request past its
  * reschedule deadline and an open request past its link's expiry become
- * `expired`. A pure function of the clock over rows that already exist; the
- * hourly tick runs it (lib/scheduler/tick.ts).
+ * `expired`, and the clinic is told of each (L9, "Missed: they were told
+ * you'd call") in the same transaction. A pure function of the clock over
+ * rows that already exist; the hourly tick runs it (lib/scheduler/tick.ts).
  */
 export async function expireLapsedRequests(now: Date): Promise<{ expired: number }> {
   let expired = 0;
@@ -1790,6 +1673,9 @@ export async function expireLapsedRequests(now: Date): Promise<{ expired: number
         .returning({ id: bookingRequests.id, wasRescheduling: sql<boolean>`${bookingRequests.rescheduleExpiresAt} is not null` });
       for (const r of lapsed) {
         tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: r.id, metadata: { outcome: "decided", decision: "expired", reason: r.wasRescheduling ? "alternatives_lapsed" : "link_expired" } });
+        // L9, "Missed: they were told you'd call", in the transaction that
+        // lapses it: once per request, and never for one that rolls back.
+        await notifyBookingAlert(tx, "request_missed", { bookingRequestId: r.id });
       }
       return lapsed.length;
     });
@@ -1825,10 +1711,6 @@ function hashIfWellFormed(token: unknown): Buffer | null {
 async function clinicForTokenHash(hash: Buffer): Promise<string | null> {
   const result = await unsafeDb.execute<{ clinic_id: string | null }>(sql`select app_booking_request_clinic(${hash}::bytea) as clinic_id`);
   return result.rows[0]?.clinic_id ?? null;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
 export type { ProposedSlot } from "@/db/schema";

@@ -144,6 +144,29 @@ export async function request(
   return created.id;
 }
 
+/**
+ * A message left on the website's contact form while AYA was not answering
+ * (package F's L20): a request on Bookings, `source` `contact_form`, that AYA
+ * did not take.
+ */
+export async function websiteMessage(
+  clinicId: string,
+  person: { name: string; phone: string },
+): Promise<string> {
+  const contactId = await contact(clinicId, person.name, person.phone);
+  const created = await withTenant({ clinicId, actor: ACTOR }, (tx) =>
+    createBookingRequest(tx, {
+      channel: "web_chat",
+      contactId,
+      conversationId: null,
+      preferredWindow: "This afternoon",
+      treatment: null,
+      source: "contact_form",
+    }),
+  );
+  return created.id;
+}
+
 /** Move a request's creation, as the owner with the no-rewrite trigger off. */
 export async function backdate(
   clinicId: string,

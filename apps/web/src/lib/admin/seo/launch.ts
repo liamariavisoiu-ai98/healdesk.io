@@ -59,9 +59,9 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     id: "urgent-alert",
     promise: "An urgent message goes at once to the contact the clinic names",
     where: "Terms section 2",
-    status: "building",
-    left: "The fixed urgent reply is live; the alert to the clinic's named contact is being sent instead of only recorded.",
-    evidence: "apps/app/src/lib/notices/booking-alerts.ts",
+    status: "on",
+    left: "Sent in-process the moment the urgent screen fires, on calls, website chat and Meta. Like every email it needs the host's email key, and a failed first send is retried only once the billing-notices job is switched on.",
+    evidence: "apps/app/src/lib/notices/booking-alerts.ts, apps/app/src/lib/email/outbox.ts (deliverCriticalAfterCommit), apps/app/tests/live-alerts.test.ts",
     blocksGoLive: true,
   },
   {
@@ -125,7 +125,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     where: "Settings → Alerts, the setup wizard, the spec's Daily summary switch",
     status: "owner",
     left: "Built: the summary (L13) and the recap (L14) are queued through the outbox. Switch on the daily-summary and weekly-recap jobs in /admin, with billing-notices (the sender), before the first clinic goes live: while they are off, a clinic with the summary on hears about a waiting request only when it is taken and when it expires.",
-    evidence: "apps/app/src/lib/scheduler/daily-summary.ts, apps/app/src/lib/scheduler/weekly-recap.ts, apps/app/drizzle/0082_claims_and_summary.sql",
+    evidence: "apps/app/src/lib/scheduler/daily-summary.ts, apps/app/src/lib/scheduler/weekly-recap.ts, apps/app/drizzle/0085_claims_and_summary.sql",
     blocksGoLive: true,
   },
   {

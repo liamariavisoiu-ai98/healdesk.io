@@ -59,7 +59,7 @@ export function priceKindOf(
 
 /**
  * A service's listed price as a booking snapshots it (appointments.
- * listed_price_cents and listed_price_kind, drizzle/0082), for booked value
+ * listed_price_cents and listed_price_kind, drizzle/0085), for booked value
  * (lib/reporting/claims.ts): the low end, in cents, and how the menu states
  * it. An exact price is itself; a "from" price and a range are their start,
  * the least the clinic's own list says the booking is worth; a per-unit

@@ -1,5 +1,5 @@
 {
-  "id": "babd6453-814e-4e83-b749-ed7010a651ff",
+  "id": "7d4ab586-6587-4f08-8532-52d447d56b79",
   "prevId": "fd69b6a1-46cc-403b-bb6b-c144df0e149b",
   "version": "7",
   "dialect": "postgresql",
@@ -317,18 +317,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "listed_price_cents": {
-          "name": "listed_price_cents",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "listed_price_kind": {
-          "name": "listed_price_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -492,10 +480,6 @@
       },
       "policies": {},
       "checkConstraints": {
-        "appointments_listed_price_check": {
-          "name": "appointments_listed_price_check",
-          "value": "(\"appointments\".\"listed_price_cents\" is null and \"appointments\".\"listed_price_kind\" is null) or (\"appointments\".\"listed_price_cents\" >= 0 and \"appointments\".\"listed_price_kind\" in ('exact', 'from', 'range', 'per_unit'))"
-        },
         "appointments_duration_check": {
           "name": "appointments_duration_check",
           "value": "\"appointments\".\"duration_minutes\" is null or \"appointments\".\"duration_minutes\" between 5 and 480"
@@ -1976,6 +1960,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'assistant'"
+        },
         "last_inbound_at": {
           "name": "last_inbound_at",
           "type": "timestamp with time zone",
@@ -2156,7 +2147,16 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "booking_requests_source_known": {
+          "name": "booking_requests_source_known",
+          "value": "\"booking_requests\".\"source\" in ('assistant', 'contact_form')"
+        },
+        "booking_requests_source_shape": {
+          "name": "booking_requests_source_shape",
+          "value": "\"booking_requests\".\"source\" = 'assistant' or (\"booking_requests\".\"channel\" = 'web_chat' and \"booking_requests\".\"conversation_id\" is null and \"booking_requests\".\"vendor_call_id\" is null)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.calendar_elections": {

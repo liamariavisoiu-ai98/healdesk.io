@@ -51,7 +51,7 @@ import {
  * on by default; the same switch F's L8 reads, which goes only while this is
  * off).
  *
- * Hourly from the tick, behind its own job switch (seeded off, drizzle/0082).
+ * Hourly from the tick, behind its own job switch (seeded off, drizzle/0085).
  * For each clinic the first run on a working day at or after that day's
  * first opening time, and before 20:00 its time, queues the day's summary,
  * once (`daily_summary:<local date>`). A day with no hours in the weekly
@@ -69,6 +69,9 @@ import {
  *     each with its channel, where it stands and its link: requests taken in
  *     the period, and bookings made in it on older requests;
  *   - every request still open that was taken before the period;
+ *   - how many people left a message on the website's contact form (F's
+ *     L20), in the period or still waiting from before, on a line of their
+ *     own: those are the practice's to answer, not requests AYA took;
  *   - on the clinic's first working day of the week, last week's recap,
  *     unless L14 already went alone for that week.
  *
@@ -190,6 +193,7 @@ export async function queueDailySummaryFor(
       moreNewCount: Math.max(0, rows.fresh.length - SUMMARY_ROW_CAP),
       openRows: rows.open.slice(0, SUMMARY_ROW_CAP),
       moreOpenCount: Math.max(0, rows.open.length - SUMMARY_ROW_CAP),
+      websiteMessageCount: rows.websiteMessages,
       bookingsUrl: publicUrl(bookingsPath(clinic.slug)),
       weekClaims,
       weekStartOn: weekClaims ? week.startOn : null,
@@ -326,17 +330,23 @@ async function summaryEarlierThisWeek(
 }
 
 /**
- * The summary's two lists: every booking and booking request since `from`
- * (taken in the period, or booked in it on an older request), and every
- * request still open taken before it. Ids, channels and statuses only:
+ * The summary's two lists: every booking and booking request AYA took since
+ * `from` (taken in the period, or booked in it on an older request), and
+ * every one still open taken before it. Ids, channels and statuses only:
  * nothing of the person is read.
+ *
+ * A message left on the website's contact form while AYA was not answering
+ * (`source` `contact_form`, package F's L20) is a request on Bookings but not
+ * one AYA took, so it is no row here: the summary counts them on a line of
+ * their own, those left in the period and those from before still waiting
+ * for the team, with the link to Bookings.
  */
 async function summaryRows(
   tx: TenantTx,
   slug: string,
   from: Date,
   to: Date,
-): Promise<{ fresh: SummaryRow[]; open: SummaryRow[] }> {
+): Promise<{ fresh: SummaryRow[]; open: SummaryRow[]; websiteMessages: number }> {
   const status = sql<SummaryRowStatus>`case
       when ${appointments.bookingOrigin} = 'assistant' then 'booked'
       when ${bookingRequests.status} = 'confirmed' then 'confirmed'
@@ -354,6 +364,7 @@ async function summaryRows(
     .where(
       and(
         eq(bookingRequests.clinicId, tx.clinicId),
+        eq(bookingRequests.source, "assistant"),
         or(
           and(gte(bookingRequests.createdAt, from), lt(bookingRequests.createdAt, to)),
           and(gte(appointments.createdAt, from), lt(appointments.createdAt, to)),
@@ -368,12 +379,26 @@ async function summaryRows(
     .where(
       and(
         eq(bookingRequests.clinicId, tx.clinicId),
+        eq(bookingRequests.source, "assistant"),
         openRequestCondition(),
         lt(bookingRequests.createdAt, from),
       ),
     )
     .orderBy(asc(bookingRequests.createdAt), asc(bookingRequests.id))
     .limit(500);
+  const [messages] = await tx.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(bookingRequests)
+    .where(
+      and(
+        eq(bookingRequests.clinicId, tx.clinicId),
+        eq(bookingRequests.source, "contact_form"),
+        or(
+          and(gte(bookingRequests.createdAt, from), lt(bookingRequests.createdAt, to)),
+          and(lt(bookingRequests.createdAt, from), openRequestCondition()),
+        ),
+      ),
+    );
   const row = (id: string, channel: BookingChannel, s: SummaryRowStatus): SummaryRow => ({
     channel: CHANNEL_OF[channel],
     status: s,
@@ -382,5 +407,6 @@ async function summaryRows(
   return {
     fresh: fresh.map((r) => row(r.id, r.channel, r.status)),
     open: open.map((r) => row(r.id, r.channel, "waiting")),
+    websiteMessages: messages?.n ?? 0,
   };
 }

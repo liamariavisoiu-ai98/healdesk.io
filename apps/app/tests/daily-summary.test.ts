@@ -60,6 +60,7 @@ import {
   notices,
   request,
   setServices,
+  websiteMessage,
   WEEKDAY,
   ZONE,
 } from "./setup/summary-fixtures";
@@ -249,6 +250,9 @@ describe("L13 and L14 templates", () => {
     );
     expect(r.text).toContain("- Website chat · Waiting for you: ");
     expect(r.text).toContain("Booking requests from before that are still waiting for your team:");
+    expect(r.text).toContain(
+      "- 1 person left a message on your website: https://app.healdesk.test/c/radiance-med-spa/bookings",
+    );
     expect(r.html).toContain(
       '<a href="https://app.healdesk.test/c/radiance-med-spa/bookings?request=5d0c1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b">Open in healdesk</a>',
     );
@@ -440,8 +444,18 @@ describeDb("the summaries, against the database", () => {
         ],
       ),
     );
-    // Since then: a phone request waiting, a website chat request confirmed.
+    // A message left on the website before then, still waiting.
+    const oldMessage = await websiteMessage(c.clinicId, {
+      name: "Zoe Hart",
+      phone: "+14155550109",
+    });
+    await backdate(c.clinicId, oldMessage, `created_at = $2`, [
+      new Date(lastSummaryEnd.getTime() - DAY),
+    ]);
+    // Since then: a phone request waiting, a website chat request confirmed,
+    // and another message left on the website.
     const waiting = await request(c.clinicId, { name: "Ben Ortiz", phone: "+14155550177" });
+    await websiteMessage(c.clinicId, { name: "Ida Moss", phone: "+14155550108" });
     const confirmed = await request(
       c.clinicId,
       { name: "Cleo Park", phone: "+14155550199" },
@@ -476,6 +490,9 @@ describeDb("the summaries, against the database", () => {
       { channel: "web", status: "confirmed", linkUrl: link(confirmed) },
     ]);
     expect(p.openRows).toEqual([{ channel: "voice", status: "waiting", linkUrl: link(stillOpen) }]);
+    // The two website messages, the new one and the one still waiting, are
+    // their own line: never rows, never requests AYA took.
+    expect(p.websiteMessageCount).toBe(2);
     expect(p.dayClaims).toMatchObject({
       handledCount: 1,
       voiceCount: 1,
@@ -490,7 +507,9 @@ describeDb("the summaries, against the database", () => {
     );
     expect(p.weekClaims).toBeNull();
     expect(() => assertPayloadAllowed(p, "daily_summary")).not.toThrow();
-    expect(JSON.stringify(p)).not.toMatch(/Maria|Ben|Cleo|Lopez|4155550|Consultation/);
+    expect(JSON.stringify(p)).not.toMatch(
+      /Maria|Ben|Cleo|Zoe|Ida|Lopez|Hart|Moss|4155550|Consultation/,
+    );
 
     // Delivered through the outbox to the clinic's one address, never to a
     // report recipient, with the stop link, and nothing of anyone.
@@ -508,9 +527,12 @@ describeDb("the summaries, against the database", () => {
     const email = transport.sent[0]!.message;
     expect(email.subject).toMatch(/^Your daily summary/);
     expect(email.text).toContain(`- Phone call · Waiting for you: ${link(waiting)}`);
+    expect(email.text).toContain(
+      `- 2 people left a message on your website: ${publicUrl(`/c/${c.clinicSlug}/bookings`)}`,
+    );
     expect(email.text).toContain("Stop these emails: ");
     expect(email.text).not.toMatch(
-      /Maria|Ben|Cleo|Lopez|Ortiz|Park|4155550|Consultation|Thursday afternoon/,
+      /Maria|Ben|Cleo|Zoe|Ida|Lopez|Ortiz|Park|Hart|Moss|4155550|Consultation|Thursday afternoon|This afternoon/,
     );
   });
 

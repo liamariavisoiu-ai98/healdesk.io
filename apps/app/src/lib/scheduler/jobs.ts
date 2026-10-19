@@ -33,7 +33,7 @@ export const JOB_ANNUAL_RENEWAL_REMINDER = "annual-renewal-reminder";
 export const JOB_WEEKLY_RECAP = "weekly-recap";
 /**
  * The daily summary (L13, lib/scheduler/daily-summary.ts), seeded off by
- * drizzle/0082: hourly from the tick, at each live clinic's opening time on
+ * drizzle/0085: hourly from the tick, at each live clinic's opening time on
  * its working days, while its Daily summary switch is on. The owner switches
  * it on with the email launch set, once the sender's own switch is on.
  */
@@ -116,6 +116,14 @@ export const JOB_INCIDENT_DEADLINES = "incident-deadlines";
  * and the deletion runs even with it off; it leases its own rows.
  */
 export const JOB_TRANSCRIPT_EMAILS = "transcript-emails";
+/**
+ * L8, "Request still open" (package F), seeded off by drizzle/0082. Hourly
+ * from the tick: at a clinic's opening hour, only while its daily summary is
+ * off, one email counting the booking requests still waiting for the desk
+ * (lib/scheduler/requests-still-open.ts). The owner switches it on with the
+ * live alerts, once the sender's own switch is on.
+ */
+export const JOB_REQUESTS_STILL_OPEN = "requests-still-open";
 /**
  * The practice questions (lib/engine/practice, plan Part G), seeded off by
  * the practice_questions migration. Every minute from its own

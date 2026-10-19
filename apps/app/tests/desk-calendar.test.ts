@@ -32,7 +32,7 @@ import {
   type DeskLocation,
 } from "./setup/desk-calendar";
 import { deskDecide, deskView } from "./setup/desk";
-import { inTenant, seedGoogleConnection } from "./setup/factories";
+import { inTenant, queuedNotices, seedGoogleConnection } from "./setup/factories";
 
 /**
  * The desk path against Google (plan §7.10-7.12, C12) and migration B
@@ -873,6 +873,20 @@ describeDb("the desk path and the Google write (C12)", () => {
         ),
       );
       expect(released.rows).toHaveLength(1);
+      // The clinic is told to look for a duplicate (L34, calendar_check), once,
+      // in the transaction that let the hold go: queued in the outbox, a
+      // pointer to the first request and nothing about either person.
+      const alerts = await queuedNotices(f.clinicId, ["calendar_check"]);
+      expect(alerts.map((a) => [a.dedupe_key, a.payload.bookingRequestId])).toEqual([
+        [`calendar_check:request:${first.requestId}`, first.requestId],
+      ]);
+      expect(Object.keys(alerts[0]!.payload).sort()).toEqual([
+        "appointmentId",
+        "bookingRequestId",
+        "channel",
+        "conversationId",
+        "portalUrl",
+      ]);
       // Nothing was deleted from the calendar.
       expect(google.event(f.sub, googleEventIdFor(`hold:${holdId}`))).toBeDefined();
     },

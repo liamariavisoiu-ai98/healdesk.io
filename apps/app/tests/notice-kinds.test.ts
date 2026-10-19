@@ -60,7 +60,9 @@ const REGISTERED_AHEAD: Record<
   website_changes: ["L23", "normal", null, "daytime"],
   support_request: ["L25", "normal", null, "any_hour"],
   terms_notice: ["L28", "normal", null, "daytime"],
-  subprocessor_notice: ["L29", "normal", null, "any_hour"],
+  // Critical once sent, like the incident report (WP7): its notice period
+  // runs from it, so a late one turns /api/health red.
+  subprocessor_notice: ["L29", "critical", null, "any_hour"],
   incident_report: ["L29", "critical", null, "any_hour"],
   guarantee_claim_received: ["L30", "normal", null, "any_hour"],
   guarantee_finding: ["L30", "normal", null, "any_hour"],
@@ -166,6 +168,7 @@ describe("the notice kind registry", () => {
       "incident_report",
       "outage_ended",
       "outage_started",
+      "subprocessor_notice",
       "suspended_for_cause",
       "urgent",
     ]);

@@ -46,8 +46,10 @@ import type { ClaimsPayload } from "./claim-words";
  *     places no calls. Null, "unavailable", for a clinic without phone,
  *     rather than a zero that would claim we looked.
  *   - **Booking requests taken, and confirmed by the team; appointments booked
- *     by AYA.** The cohort is the booking requests taken in the period: those
- *     AYA booked herself (their appointment's `booking_origin` is
+ *     by AYA.** The cohort is the booking requests AYA took in the period
+ *     (`source` `assistant`; a message left on the website's contact form
+ *     while she was not answering is the practice's, not hers, and is
+ *     never counted here): those AYA booked herself (their appointment's `booking_origin` is
  *     `assistant`) are "booked by AYA"; every other one is a request taken,
  *     and "confirmed" counts those of them the team has confirmed so far, so
  *     it never exceeds the requests it is out of. `bookingMode` says which
@@ -55,7 +57,7 @@ import type { ClaimsPayload } from "./claim-words";
  *     (lib/booking/mode.ts), "direct" once AYA books.
  *   - **Booked value**: every appointment that cohort produced, at the
  *     clinic's listed price snapshotted when it was booked
- *     (appointments.listed_price_*, drizzle/0082). Exact prices as they are,
+ *     (appointments.listed_price_*, drizzle/0085). Exact prices as they are,
  *     "from" and range prices at their low end; a per-unit price is counted
  *     apart and never multiplied into the total; a booking with no listed
  *     price is counted apart too. Never called revenue.
@@ -196,6 +198,7 @@ export async function readClaims(
     .where(
       and(
         eq(bookingRequests.clinicId, c),
+        eq(bookingRequests.source, "assistant"),
         gte(bookingRequests.createdAt, from),
         lt(bookingRequests.createdAt, to),
       ),

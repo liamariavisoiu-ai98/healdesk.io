@@ -15,13 +15,7 @@ import {
 import { listedPrice } from "@/lib/setup/prices";
 import { withTenant } from "@/lib/tenant";
 
-import {
-  closePools,
-  getAppPool,
-  hasTestDatabase,
-  runMigrations,
-  truncateAll,
-} from "./setup/db";
+import { closePools, getAppPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { deskDecideById } from "./setup/desk";
 import { inTenant } from "./setup/factories";
 import { provisionPortalClinic } from "./setup/portal-clinic";
@@ -34,6 +28,7 @@ import {
   MINUTE,
   request,
   setServices,
+  websiteMessage,
 } from "./setup/summary-fixtures";
 
 /**
@@ -41,7 +36,7 @@ import {
  * (claim-words.ts), which Home's week, the daily summary and the weekly
  * recap share; Home's "Waiting for you" counts and a quiet channel in Needs
  * attention; and the listed-price snapshot booked value multiplies by
- * (drizzle/0082). The summaries themselves: tests/daily-summary.test.ts.
+ * (drizzle/0085). The summaries themselves: tests/daily-summary.test.ts.
  *
  * The claims rules are the spec's ("What v1 can prove, and what it cannot")
  * and CLAUDE.md's: never revenue, "collected" only in "deposits collected",
@@ -418,6 +413,9 @@ describeDb("the claims, against the database", () => {
     // Requests: one waiting, one confirmed at an exact price, one at a
     // per-unit price, one with no listed price, and one AYA booked herself.
     await request(c.clinicId, { name: "Ana Diaz", phone: "+14155550101" });
+    // A message left on the website's contact form is the practice's to
+    // answer, not a request AYA took: never counted.
+    await websiteMessage(c.clinicId, { name: "Zoe Hart", phone: "+14155550109" });
     for (const [treatment, days] of [
       ["Consultation", 3],
       ["Toxin", 4],

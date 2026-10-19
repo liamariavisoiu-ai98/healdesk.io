@@ -12,6 +12,7 @@ import {
 import type { ActorContext } from "@/lib/audit";
 import { writableConnection } from "@/lib/booking/calendar";
 import {
+  channelLabel,
   deskFreeTimes,
   openRequestCondition,
   readBookingRequestViews,
@@ -44,9 +45,11 @@ import { logPatientAccess, type PatientPage, type PatientTx } from "./patient-pa
  * under app/c/[slug]/bookings calls requirePatientPage and then
  * withPatientPage itself, and each reader writes its access-log row naming
  * the passkey (logPatientAccess) in that transaction: one for the requests
- * shown, one for the appointments. A handover and a message left while AYA
- * was off have no record yet to list (packages F and WP3 give them one), so
- * Needs you has nothing to say about either.
+ * shown, one for the appointments. A message left on the website while AYA
+ * was off is a request (source 'contact_form', package F) and sits in Needs
+ * you with the rest, worded by `requestWords`. A handover has no record of
+ * its own to list: its alert (L11) and the conversation's transcript carry
+ * it.
  *
  * Server only.
  */
@@ -64,6 +67,34 @@ export type AppointmentStatus =
   "scheduled" | "confirmed" | "showed" | "no_show" | "cancelled" | "rescheduled";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * How Bookings words a request: one AYA took in a conversation, or a message
+ * left on the website's contact form while AYA was not answering (L20). The
+ * person left only a name, a number and a time to call, and was told the
+ * practice would call them back.
+ */
+export function requestWords(view: Pick<BookingRequestView, "source" | "channel" | "platform">): {
+  /** Follows the person's first name: "Maria would like to book". */
+  headline: string;
+  /** "through Messenger", "on your website's contact form". */
+  via: string;
+  /** The row label for the time they gave. */
+  timeLabel: string;
+} {
+  if (view.source === "contact_form") {
+    return {
+      headline: "left a message while AYA was off",
+      via: "on your website's contact form",
+      timeLabel: "Best time to call",
+    };
+  }
+  return {
+    headline: "would like to book",
+    via: `through ${channelLabel(view.channel, view.platform)}`,
+    timeLabel: "First choice",
+  };
+}
 
 export { bookingRequestPath, bookingsPath } from "./booking-paths";
 

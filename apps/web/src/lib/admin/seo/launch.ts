@@ -59,9 +59,9 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     id: "urgent-alert",
     promise: "An urgent message goes at once to the contact the clinic names",
     where: "Terms section 2",
-    status: "building",
-    left: "The fixed urgent reply is live; the alert to the clinic's named contact is being sent instead of only recorded.",
-    evidence: "apps/app/src/lib/notices/booking-alerts.ts",
+    status: "on",
+    left: "Nothing in the code; like every email, it goes once the notices sender's switch (the billing-notices job) is on in production.",
+    evidence: "apps/app/src/lib/notices/booking-alerts.ts, apps/app/src/lib/email/outbox.ts (deliverCriticalAfterCommit), apps/app/tests/live-alerts.test.ts",
     blocksGoLive: true,
   },
   {

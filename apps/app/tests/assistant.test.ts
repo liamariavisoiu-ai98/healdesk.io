@@ -404,11 +404,12 @@ describe("answerTurn", () => {
     expect(result.reply).toContain(URGENT_LEAVE_NUMBER_LINE);
   });
 
-  test("the urgent line says the team was told only once the urgent alert reaches it", async () => {
-    // notifyBookingAlert only logs until package F sends L12 through the outbox.
-    expect(URGENT_ALERT_DELIVERED).toBe(false);
+  test("the urgent line says the team was told, now that the urgent alert reaches it", async () => {
+    // Package F sends L12 through the outbox, in-process after commit, from
+    // voice, web chat and Meta (tests/live-alerts.test.ts).
+    expect(URGENT_ALERT_DELIVERED).toBe(true);
     const result = await answerTurn({ facts: FACTS, channel: "web_chat", history: [], text: "it won't stop bleeding", responder: null });
-    expect(result.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
+    expect(result.reply).toContain(URGENT_TEAM_TOLD_LINE);
   });
 
   test("a veterinary practice: an animal's emergency gets the emergency vet, never 911, and its own number only while open", async () => {
@@ -475,7 +476,7 @@ describe("answerTurn", () => {
     expect(asked).toBe(false);
     expect(result).toMatchObject({ source: "urgent", urgent: true });
     expect(result.reply).toBe(
-      "Soy un asistente de IA, así que no puedo ayudar con nada urgente aquí. Si es una emergencia, llame al 911 ahora. Si no, llame a Radiance Med Spa al (415) 555-0123. Deje un número para que la clínica le llame.",
+      "Soy un asistente de IA, así que no puedo ayudar con nada urgente aquí. Si es una emergencia, llame al 911 ahora. Si no, llame a Radiance Med Spa al (415) 555-0123. Ya avisé al equipo. Deje un número para que la clínica le llame.",
     );
   });
 

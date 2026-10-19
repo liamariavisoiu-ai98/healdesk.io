@@ -55,6 +55,8 @@ import {
  *     captured in its own transaction (clinics.destruction_notice_address,
  *     drizzle/0086), which is cleared once E6 is sent, once it fails for
  *     good, and in any case DESTRUCTION_NOTICE_DAYS after the destruction.
+ *     It says when the account closes (accountClosesAt), since the sign-in
+ *     and the setup outlive the data until the pass-through ends.
  *
  * ## How the export is triggered on this host
  *
@@ -142,6 +144,18 @@ export function exportReminderDue(
 /** The day the last backup that could hold the destroyed data expires. */
 export function backupsExpireOn(destroyedAt: Date): string {
   return isoDay(new Date(destroyedAt.getTime() + BACKUP_RETENTION_DAYS * DAY_MS));
+}
+
+/**
+ * When the account closes (lib/offboarding/account-closure.ts): the later of
+ * the destruction and the pass-through's end, which is when
+ * app_accounts_to_close() lists it. From the two stamps alone, so a retry of
+ * E6 renders the same bytes.
+ */
+export function accountClosesAt(destroyedAt: Date, endedAt: Date | string | null): Date {
+  if (!endedAt) return destroyedAt;
+  const passThroughEnds = passThroughEndsAt(new Date(endedAt));
+  return passThroughEnds.getTime() > destroyedAt.getTime() ? passThroughEnds : destroyedAt;
 }
 
 /** Whether E6's captured address has waited past its bound. */
@@ -356,6 +370,7 @@ export async function sendDestructionNotice(
           timezone: clinics.timezone,
           specialty: clinics.specialty,
           destroyedAt: clinics.destroyedAt,
+          endedAt: clinics.offboardingStartedAt,
           address: clinics.destructionNoticeAddress,
           agreementVersion: sql<
             string | null
@@ -398,6 +413,7 @@ export async function sendDestructionNotice(
       isDataProtectionAgreement:
         clinic.agreementVersion !== null &&
         agreementKindOfVersion(clinic.agreementVersion) === "dpa",
+      accountClosesAt: accountClosesAt(clinic.destroyedAt, clinic.endedAt).toISOString(),
     };
     const finish = (result: Parameters<typeof recordDelivery>[2], clear: boolean): Promise<void> =>
       withTenant({ clinicId, actor: ACTOR }, async (tx) => {

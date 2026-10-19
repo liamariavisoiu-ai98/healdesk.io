@@ -528,14 +528,36 @@ describe("after cancellation (E3 to E6)", () => {
     expect(baa.text).toContain("On Saturday 5 December we destroyed the patient information");
     expect(baa.text).toContain("until Saturday 9 January 2027");
     expect(baa.text).toContain("Anthropic");
-    expect(baa.text).toContain("The signed agreement and our record of disclosures");
+    expect(baa.text).toContain("The signed agreement, with any calendar terms you recorded under it, and our record of disclosures");
     expect(baa.text).toContain("Your billing history, as tax law requires.");
+    // Exactly what went: the patient records and the credentials. The setup
+    // is not among them (until 19 October it was said to be, while it was
+    // kept for good); it goes when the account closes, and E6 says when.
+    expect(baa.text).toContain(
+      "with their conversations, booking requests, appointments and deposits, and the credentials you connected through healdesk.",
+    );
+    expect(baa.text).not.toMatch(/and your setup\./);
+    expect(baa.text).toContain(
+      "Your healdesk account closes on Sunday 6 December, when calls still forwarded to us stop passing through to your direct line. Then we delete your sign-in and your setup:",
+    );
+    // And exactly what stays beyond the agreement and the billing.
+    expect(baa.text).toContain(
+      "What we must be able to show we did under the agreement and HIPAA: the notices we sent you and where, any security incident and its notice, the addresses you gave us for notices, and the log of how your data was handled, this destruction included.",
+    );
+    // Destroyed after the pass-through had ended: the account closed with it.
+    const late = entry.render(
+      { ...entry.fixture, accountClosesAt: entry.fixture.destroyedAt },
+      contextFor("data_destroyed"),
+    );
+    expect(late.text).toContain("We closed your healdesk account with it, deleting your sign-in and your setup:");
+    expect(late.text).not.toContain("account closes on");
     const dpa = entry.render(
       { ...entry.fixture, isDataProtectionAgreement: true },
       contextFor("data_destroyed", "clients"),
     );
     expect(dpa.text).toContain("we destroyed the client information");
     expect(dpa.text).not.toContain("record of disclosures");
+    expect(dpa.text).not.toContain("HIPAA");
   });
 
   test("E3 prints the date, never 'tomorrow', and the undo codes for the clinic's carrier", () => {

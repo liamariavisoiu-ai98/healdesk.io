@@ -1874,14 +1874,18 @@ run "standby" {
     error_message = "Standby keeps the network, the security groups and the database's subnet and parameter groups, so everything comes back where it was."
   }
 
+  # GuardDuty by its `enable` attribute, not length(): the detector's object
+  # carries a sensitive mark, and Terraform 1.16.5 panics rendering it when
+  # this condition fails ("value has marks, so it cannot be serialized as
+  # JSON"), which hid the failure itself.
   assert {
     condition = (
-      aws_cloudtrail.main.name == "healdesk-production" && length(aws_guardduty_detector.main) == 1 &&
+      aws_cloudtrail.main.name == "healdesk-production" && aws_guardduty_detector.main[0].enable &&
       aws_config_configuration_recorder.main.name == "healdesk-production" &&
       aws_s3_bucket.exports.bucket == "healdesk-production-exports-865780386982" &&
       aws_sns_topic.alarms.name == "healdesk-production-alarms" && aws_sns_topic_subscription.alarm_email.protocol == "email" &&
       length(aws_sesv2_email_identity.main) == 1 && length(aws_sns_topic.ses_events) == 1 &&
-      length(aws_cloudwatch_log_group.app) == 13 && aws_cloudwatch_log_group.rds_postgresql.name == "/aws/rds/instance/healdesk-production/postgresql" &&
+      length(aws_cloudwatch_log_group.app) == 14 && aws_cloudwatch_log_group.rds_postgresql.name == "/aws/rds/instance/healdesk-production/postgresql" &&
       aws_budgets_budget.monthly.limit_amount == "250"
     )
     error_message = "Standby keeps the trail, Config, GuardDuty, the buckets, the alarm topic and its subscription, SES's identity and events topic, every log group and the budget."

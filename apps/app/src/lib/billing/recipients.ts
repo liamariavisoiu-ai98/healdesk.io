@@ -55,7 +55,13 @@ import type { TenantTx } from "@/lib/tenant";
  *     be paid only through the link its notice carries; without that notice
  *     it is a debt nobody can settle. Section 6's suspension and grace end
  *     with the service; the amount owed does not, and section 7 keeps the
- *     record of it (healdesk-io-58's review, 19 October 2026).
+ *     record of it (healdesk-io-58's review, 19 October 2026);
+ *   - guarantee_claim_received and guarantee_finding: the first-month
+ *     guarantee (Terms section 5, which section 15 keeps after termination).
+ *     A claim may come up to 30 days after the first month, so after a
+ *     first-month cancellation the claim, or the finding owed within 10
+ *     business days of it, can fall after the account has closed. A miss
+ *     (guarantee_miss) cannot: there is no service left to miss.
  * Nothing else is owed after the end: the Terms' later changes take effect
  * at a renewal a closed account never has (section 16); grace, suspension,
  * renewal, plan, cancellation, card-expiry and Connect notices are states of
@@ -69,6 +75,8 @@ export const OWED_AFTER_CLOSURE: ReadonlySet<NoticeKind> = new Set<NoticeKind>([
   "overage_invoiced",
   "payment_failed",
   "payment_action_required",
+  "guarantee_claim_received",
+  "guarantee_finding",
 ]);
 
 export type BillingRecipient = {

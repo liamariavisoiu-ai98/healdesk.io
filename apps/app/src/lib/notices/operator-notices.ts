@@ -577,7 +577,7 @@ export async function recordGuaranteeClaim(
   const billingClinicId = await withTenant({ clinicId, actor }, (tx) => resolveBillingClinicId(tx));
   const findingByOn = findingDueOn(receivedOn);
   const inserted = await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
-    if ((await billingRecipients(tx)).length === 0) return "no_address" as const;
+    if ((await billingRecipients(tx, "guarantee_claim_received")).length === 0) return "no_address" as const;
     const queued = await enqueuePlanNotice(
       tx.db,
       tx.clinicId,

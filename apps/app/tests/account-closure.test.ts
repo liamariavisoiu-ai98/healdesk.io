@@ -11,6 +11,7 @@ import { deliverNotice } from "@/lib/email/outbox";
 import { compose } from "@/lib/email/templates/compose";
 import type { TemplateEntry } from "@/lib/email/templates/registry";
 import { stopOptionalEmail } from "@/lib/email/stop";
+import { recordGuaranteeClaim } from "@/lib/notices/operator-notices";
 import {
   closeAccountsDue,
   FROZEN_AT_CLOSURE,
@@ -842,7 +843,14 @@ describeDb("closing the account once the data is destroyed and nothing is left t
     // owed after the end (healdesk-io-58's review); the states of a
     // subscription that ended with the service are not.
     expect([...OWED_AFTER_CLOSURE]).toEqual(
-      expect.arrayContaining(["overage_invoiced", "payment_failed", "payment_action_required"]),
+      expect.arrayContaining([
+        "overage_invoiced",
+        "payment_failed",
+        "payment_action_required",
+        // The first-month guarantee survives termination (Terms section 15).
+        "guarantee_claim_received",
+        "guarantee_finding",
+      ]),
     );
     const notOwed = NOTICE_KINDS.filter((k) => !OWED_AFTER_CLOSURE.has(k));
     expect(notOwed).toEqual(
@@ -899,6 +907,22 @@ describeDb("closing the account once the data is destroyed and nothing is left t
       { to: c.staffEmail, kind: "incident_report" },
       { to: c.staffEmail, kind: "refund_issued" },
     ]);
+
+    // The first-month guarantee survives termination (Terms section 15): a
+    // claim can come up to 30 days after the first month, so after a
+    // first-month cancellation it can reach us after the account closed. Its
+    // acknowledgement is queued rather than refused for want of an address,
+    // and goes to the address kept for the agreement's notices.
+    const claim = await recordGuaranteeClaim(c.clinicId, {
+      claimReceivedOn: new Date().toISOString().slice(0, 10),
+      actorLabel: "ops@healdesk.test",
+    });
+    expect(claim).toMatchObject({ status: "queued" });
+    expect(
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        billingRecipients(tx, "guarantee_finding"),
+      ),
+    ).toEqual([{ email: c.staffEmail, role: "owner", userId: null }]);
   });
 
   test("accepting an invitation for an organisation with a closed location completes, and grants the closed location nothing", async () => {

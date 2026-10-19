@@ -285,6 +285,27 @@ describeDb("a dropped Meta login", () => {
     expect((await view(clinic)).facebook.state).toBe("needs_reconnect");
   });
 
+  test("a send Meta refuses on the old token does not mark a login reconnected while it was on its way", async () => {
+    const clinic = await provisionPortalClinic("reconnect-send-race", { plan: "voice-metachat-1000-1000" });
+    const connectionId = await connect(clinic, "messenger");
+    const owner = { clinicId: clinic.clinicId, connectionId, platform: "messenger" as const, enabled: true, platformEnabled: true };
+    const refusedMeanwhile = vi.fn(async () => {
+      // The clinic presses Reconnect, and its login commits on the same row,
+      // while Meta is refusing the token this send read.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(await connect(clinic, "messenger")).toBe(connectionId);
+      throw new GraphError("Graph API 400", 400, 190);
+    });
+    await expect(
+      withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+        sendMetaReply(tx, owner, "page", "user", "Hello", refusedMeanwhile, { lastInboundAt: new Date() }),
+      ),
+    ).rejects.toBeInstanceOf(GraphError);
+    await settleMetaMarks();
+    expect(refusedMeanwhile).toHaveBeenCalledOnce();
+    expect((await view(clinic)).facebook.state).toBe("connected");
+  });
+
   test("a send that fails for any other reason leaves the login alone", async () => {
     const clinic = await provisionPortalClinic("reconnect-other", { plan: "voice-metachat-1000-1000" });
     const connectionId = await connect(clinic, "messenger");

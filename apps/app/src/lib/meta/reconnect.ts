@@ -137,9 +137,11 @@ const pendingMarks = new Set<Promise<void>>();
  * burst of refused sends could exhaust the pool. The caller's throw ends its
  * transaction and frees its connection, then the mark proceeds.
  * `settleMetaMarks` waits for the ones in flight (tests, shutdown).
+ * `readAt` is the row's `updated_at` as read before the token the send
+ * used: a reconnect saved since is a different login, and is not marked.
  */
-export function markMetaConnectionBroken(clinicId: string, connectionId: string, reason: string): void {
-  const run = withTenant({ clinicId, actor: WATCH_ACTOR }, (tx) => markBrokenWithin(tx, connectionId, reason))
+export function markMetaConnectionBroken(clinicId: string, connectionId: string, reason: string, readAt?: Date): void {
+  const run = withTenant({ clinicId, actor: WATCH_ACTOR }, (tx) => markBrokenWithin(tx, connectionId, reason, readAt))
     .then(() => undefined)
     .catch((error) => {
       log.warn("Could not mark a Meta connection as needing reconnect", { clinicId, error: describeError(error) });

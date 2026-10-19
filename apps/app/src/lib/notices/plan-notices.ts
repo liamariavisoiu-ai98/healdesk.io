@@ -6,6 +6,9 @@ import type { AiPausedPayload } from "@/lib/email/templates/ai_paused";
 import type { CalendarStatePayload } from "@/lib/email/templates/calendar_state";
 import type { ChannelLivePayload } from "@/lib/email/templates/channel_live";
 import type { ChannelReadyPayload } from "@/lib/email/templates/channel_ready";
+import type { ExportReadyPayload } from "@/lib/email/templates/export_ready";
+import type { ExportReminderPayload } from "@/lib/email/templates/export_reminder";
+import type { PassThroughEndingPayload } from "@/lib/email/templates/pass_through_ending";
 import type { PracticeQuestionsFailedPayload } from "@/lib/email/templates/practice_questions_failed";
 import type { SettingChangedPayload } from "@/lib/email/templates/setting_changed";
 import type { SetupClosedPayload } from "@/lib/email/templates/setup_closed";
@@ -89,9 +92,15 @@ export type PlanNoticePayloads = {
   suspended_for_cause: OwedPayload;
   patient_request: OwedPayload;
   product_update: OwedPayload;
-  pass_through_ending: OwedPayload;
-  export_ready: OwedPayload;
-  export_reminder: OwedPayload;
+  /**
+   * After cancellation (lib/offboarding/after-cancellation.ts). Dedupe
+   * `pass_through_ending:<7|1>`: once a week ahead and once a day ahead.
+   */
+  pass_through_ending: PassThroughEndingPayload;
+  /** Dedupe `export_ready`: once per clinic, when its service has ended. */
+  export_ready: ExportReadyPayload;
+  /** Dedupe `export_reminder`: once, a week before the data goes undownloaded. */
+  export_reminder: ExportReminderPayload;
 };
 
 // The payload map and the registry's plan kinds name the same kinds: adding a

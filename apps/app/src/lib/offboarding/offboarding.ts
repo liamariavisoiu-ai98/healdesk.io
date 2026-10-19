@@ -23,6 +23,7 @@ import {
 } from "@/db/schema";
 import { agreementStatesTheExportRule } from "@/lib/agreements/what-it-says";
 import { recordSecurityEvent } from "@/lib/audit";
+import { billingRecipients } from "@/lib/billing/recipients";
 import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
@@ -50,8 +51,10 @@ import { withTenant } from "@/lib/tenant";
  * --all`) and handed over, and only a record of its reaching the practice
  * stamps `export_delivered_at` (`markExportDelivered`): the operator's record
  * of the handover, or the practice's own download of the complete export
- * from the portal's Conversations screen (lib/portal/conversations.ts), so
- * producing an export never counts as delivering it; and the clinic's calls and agent are
+ * from the portal's Conversations screen, once its browser reports the whole
+ * file arrived (lib/portal/conversations.ts), so producing an export never
+ * counts as delivering it; E2 to E6 tell the practice each step
+ * (lib/offboarding/after-cancellation.ts); and the clinic's calls and agent are
  * deleted at the voice vendor, Retell, and recorded on the care page
  * (`recordVoiceVendorDeletion`), which shows the step outstanding, with its
  * deadline, until it is.
@@ -178,6 +181,12 @@ import { withTenant } from "@/lib/tenant";
  * deleted in the vendor's console by the operator and recorded as a
  * voice_vendor_data_deleted security event; this job cannot reach it and does
  * not claim to.
+ *
+ * The clinic's one address is read before anything is deleted and written
+ * beside the destroyed stamp (clinics.destruction_notice_address, 0082), so
+ * E6, "Your data has been destroyed", goes to the address the account had
+ * when its data went, whatever becomes of the sign-in after
+ * (lib/offboarding/after-cancellation.ts sends it and clears the address).
  */
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -472,8 +481,9 @@ export async function alertIfOffboardingStartedLate(
 /**
  * The export reached the practice. `how` is the operator's record of the
  * handover (the channel, and to whom by role), or the portal's own words for
- * the practice's download of the complete export, which reaches it in that
- * response (lib/portal/conversations.ts). The stamp is the database's
+ * the practice's download of the complete export, once the browser has
+ * reported, with the file's digest, that the whole of it arrived
+ * (confirmClinicExport in lib/portal/conversations.ts). The stamp is the database's
  * (app_mark_export_delivered): this moment, once, and only while the clinic
  * is offboarding and not yet destroyed. Never call it when an export is
  * merely produced: `exportClinic` and the patient-export script produce one
@@ -501,6 +511,8 @@ export type DestructionResult = { clinicId: string; deleted: Record<string, numb
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
   const deleted: Record<string, number> = {};
+  // E6's address, read first: nothing below may take it before it is kept.
+  const noticeTo = destructionNoticeAddressOf(await billingRecipients(tx));
   const del = async (name: string, run: () => Promise<{ id: string }[]>) => {
     deleted[name] = (await run()).length;
   };
@@ -601,6 +613,11 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // row deleted above (see the header).
   await tx.db.update(clinics).set({ assistantNumberE164: null }).where(eq(clinics.id, c));
   await tx.db.execute(sql`select app_mark_clinic_destroyed(${c}::uuid)`);
+  // Beside the stamp, which the column's CHECK requires: only a destroyed
+  // clinic holds one, and E6's sender clears it.
+  if (noticeTo) {
+    await tx.db.update(clinics).set({ destructionNoticeAddress: noticeTo }).where(eq(clinics.id, c));
+  }
   const total = Object.values(deleted).reduce((a, b) => a + b, 0);
   tx.audit.record({
     action: "delete",
@@ -610,6 +627,22 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
     metadata: { ...Object.fromEntries(Object.entries(deleted).map(([k, v]) => [k, v])), stripe_connect_events: connectEvents },
   });
   return { clinicId: c, deleted };
+}
+
+/** What clinics_destruction_notice_address_check takes: one bare address. */
+const NOTICE_ADDRESS = /^[^\s@\p{Cc}]+@[^\s@\p{Cc}]+$/u;
+
+/**
+ * The address E6 goes to: the clinic's one address (the first of its
+ * billing recipients, owner first), or null when it has none the column's
+ * CHECK would take. Never a throw: an address the database would refuse must
+ * not roll the destruction back, so E6 is lost instead (and the destruction
+ * still logged and recorded).
+ */
+function destructionNoticeAddressOf(recipients: readonly { email: string }[]): string | null {
+  const email = recipients[0]?.email.trim().toLowerCase() ?? "";
+  if (email.length >= 3 && email.length <= 254 && NOTICE_ADDRESS.test(email)) return email;
+  return null;
 }
 
 /**

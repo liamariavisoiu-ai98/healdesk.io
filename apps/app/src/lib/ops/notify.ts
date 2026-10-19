@@ -147,6 +147,12 @@ export const OPS_EVENTS = [
   // channel waits on its line there: an operator looks at the site and
   // confirms it, because an Origin header proves nothing. Once per clinic.
   "web_widget_to_confirm",
+  // E6, "Your data has been destroyed", could not reach the address
+  // captured at destruction (lib/offboarding/after-cancellation.ts): the
+  // mail provider refused it (`phase` rejected), this side refused to send
+  // it (`refused`), or a week of hourly attempts passed (`expired`). The
+  // address is cleared either way, so ops writes to the practice by hand.
+  "destruction_notice_undelivered",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

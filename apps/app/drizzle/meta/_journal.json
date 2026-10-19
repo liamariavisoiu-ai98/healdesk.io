@@ -575,6 +575,13 @@
       "when": 1792396052868,
       "tag": "0081_baa_release_1_5_1",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1792397765627,
+      "tag": "0082_after_cancellation",
+      "breakpoints": true
     }
   ]
 }

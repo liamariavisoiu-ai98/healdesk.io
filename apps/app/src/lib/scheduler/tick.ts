@@ -10,6 +10,10 @@ import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
 import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
+import {
+  queueAfterCancellationNotices,
+  runDestructionNotices,
+} from "@/lib/offboarding/after-cancellation";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 import { expireErasureRecords } from "@/lib/patient-rights/erasure";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
@@ -112,6 +116,30 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // at day 89, and the next hourly run destroys it (lib/offboarding, "Which
   // rule, and why").
   await record("offboarding-destroy", () => runOffboardingDestroyJob({ now }));
+  // E6 (lib/offboarding/after-cancellation.ts), right after the destruction
+  // it reports, to the address captured in the destruction's transaction,
+  // and every hour after until it goes or DESTRUCTION_NOTICE_DAYS pass. Not
+  // a switched job: the captured address must not outlive its bound because
+  // a switch was off.
+  await record("destruction-notices", async () => {
+    const r = await runDestructionNotices({ now });
+    return {
+      status: r.retrying || r.givenUp ? "failed" : "ok",
+      note: `${r.owed} owed, ${r.sent} sent, ${r.retrying} retrying, ${r.givenUp} given up`,
+    };
+  });
+  // E3, E4 and E5 for every clinic whose service has ended, each once: the
+  // export is ready, the pass-through is ending, the export is about to go
+  // undownloaded. Not a switched job, for the reason the channel sweep is not:
+  // a pure function of rows that already exist, and the outbox that sends
+  // them has its own switch.
+  await record("after-cancellation", async () => {
+    const r = await queueAfterCancellationNotices(now);
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.clinics} clinics, ${r.queued} queued${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
   // Every hour: an incident past our internal 24-hour notice target with no
   // notice recorded raises one ops alert, ever (BAA 1.3.0 release gate 5;
   // the agreements' own limit is 60 calendar days).

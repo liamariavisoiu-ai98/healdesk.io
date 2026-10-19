@@ -15,12 +15,16 @@ import { CHANNEL_LIVE_ENTRY } from "./channel_live";
 import { CHANNEL_READY_ENTRY } from "./channel_ready";
 import { CONNECT_CONNECTED_ENTRY } from "./connect_connected";
 import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
+import { DATA_DESTROYED_ENTRY } from "./data_destroyed";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
+import { EXPORT_READY_ENTRY } from "./export_ready";
+import { EXPORT_REMINDER_ENTRY } from "./export_reminder";
 import { GRACE_ENDING_ENTRY } from "./grace_ending";
 import { LOCATION_ADDED_ENTRY } from "./location_added";
 import { OPS_ALERT_FIXTURE, renderOpsAlert } from "./ops_alert";
 import { ORDER_CONFIRMED_DELAYED_ENTRY } from "./order_confirmed_delayed";
 import { OVERAGE_INVOICED_ENTRY } from "./overage_invoiced";
+import { PASS_THROUGH_ENDING_ENTRY } from "./pass_through_ending";
 import { PAYMENT_ACTION_REQUIRED_ENTRY } from "./payment_action_required";
 import { PAYMENT_FAILED_ENTRY } from "./payment_failed";
 import { PLAN_CHANGED_ENTRY } from "./plan_changed";
@@ -127,6 +131,12 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // The practice questions (M4, package B): O8 and O9.
   assistant_ready: ASSISTANT_READY_ENTRY,
   practice_questions_failed: PRACTICE_QUESTIONS_FAILED_ENTRY,
+  // WP6, after cancellation (M6): E3, E4 and E5 from the outbox, E6 straight
+  // to the address captured at destruction (lib/offboarding/after-cancellation.ts).
+  pass_through_ending: PASS_THROUGH_ENDING_ENTRY,
+  export_ready: EXPORT_READY_ENTRY,
+  export_reminder: EXPORT_REMINDER_ENTRY,
+  data_destroyed: DATA_DESTROYED_ENTRY,
 };
 
 /**
@@ -208,6 +218,10 @@ export const PENDING_TEMPLATES: Record<
     | "support_escalation"
     | "assistant_ready"
     | "practice_questions_failed"
+    | "pass_through_ending"
+    | "export_ready"
+    | "export_reminder"
+    | "data_destroyed"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -245,11 +259,6 @@ export const PENDING_TEMPLATES: Record<
   suspended_for_cause: { owner: "plan", package: "WP7", ships: "Gate A (L31)" },
   patient_request: { owner: "plan", package: "WP7", ships: "M5 (L32)" },
   product_update: { owner: "plan", package: "WP7", ships: "M7 (L33)" },
-  // WP6: after cancellation.
-  pass_through_ending: { owner: "plan", package: "WP6", ships: "M6 (E3)" },
-  export_ready: { owner: "plan", package: "WP6", ships: "M6 (E4)" },
-  export_reminder: { owner: "plan", package: "WP6", ships: "M6 (E5)" },
-  data_destroyed: { owner: "plan", package: "WP6", ships: "M6 (E6)" },
   // WP5: the ops digest and the internal alerts.
   ops_digest: { owner: "plan", package: "WP5", ships: "Gate A (I2)" },
   flag_alert: { owner: "plan", package: "WP5", ships: "Gate A (I4)" },

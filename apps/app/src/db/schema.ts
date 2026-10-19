@@ -566,6 +566,17 @@ export const clinics = pgTable(
     destroyAfter: timestamp("destroy_after", { withTimezone: true }),
     /** The destruction ran. The clinic row and its audit trail remain; nothing else does. */
     destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
+    /**
+     * Where E6, "Your data has been destroyed", goes: the clinic's one
+     * address, read in the destruction's own transaction before anything is
+     * deleted and written beside the destroyed stamp
+     * (lib/offboarding/after-cancellation.ts), so the email never depends on
+     * a sign-in that may not outlive the destruction. Only a destroyed clinic
+     * holds one (a CHECK). Business contact data, never a patient's. It is
+     * the clinic row's, which destruction keeps, and it goes itself once E6
+     * is sent, or once DESTRUCTION_NOTICE_DAYS have passed without a send.
+     */
+    destructionNoticeAddress: text("destruction_notice_address"),
 
     // --- Billing across locations and the deposit account (0043). ---
     /**
@@ -651,6 +662,11 @@ export const clinics = pgTable(
     check(
       "clinics_website_check",
       sql`${t.website} is null or (char_length(${t.website}) between 4 and 200 and ${t.website} !~ '[[:space:][:cntrl:]]')`,
+    ),
+    // Held only by a clinic already destroyed, and only an address.
+    check(
+      "clinics_destruction_notice_address_check",
+      sql`${t.destructionNoticeAddress} is null or (${t.destroyedAt} is not null and char_length(${t.destructionNoticeAddress}) between 3 and 254 and ${t.destructionNoticeAddress} ~ '^[^[:space:][:cntrl:]@]+@[^[:space:][:cntrl:]@]+$')`,
     ),
   ],
 );

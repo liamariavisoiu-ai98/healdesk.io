@@ -184,12 +184,11 @@ describe("the template registry", () => {
         "patient_request",
         "product_update",
       ],
-      WP6: ["pass_through_ending", "export_ready", "export_reminder", "data_destroyed"],
       WP5: ["ops_digest", "flag_alert"],
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the support chat's L25 and I3, and the practice questions' O8 and O9", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the support chat's L25 and I3, the practice questions' O8 and O9, and after cancellation E3 to E6", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -234,6 +233,10 @@ describe("the template registry", () => {
       "support_escalation",
       "assistant_ready",
       "practice_questions_failed",
+      "pass_through_ending",
+      "export_ready",
+      "export_reminder",
+      "data_destroyed",
     ]);
   });
 
@@ -399,6 +402,61 @@ describe("the welcome email (B1)", () => {
     );
     expect(unset.text).toContain("Questions? Reply to this email, or write to hello@healdesk.io.");
     expect(unset.text).not.toMatch(/leave a message|five-minute call|\/help\/call/);
+  });
+});
+
+describe("after cancellation (E3 to E6)", () => {
+  // Annex X5: E4 links to the read-only portal behind the sign-in and the
+  // step-up, and never attaches the export; E5 says the same; E6 links
+  // nowhere, since the portal holds nothing of the clinic's patients by then.
+  test("E4 and E5 point at the export on Conversations, and never carry it", () => {
+    for (const kind of ["export_ready", "export_reminder"] as const) {
+      const entry = templateFor(kind)!;
+      const { text, html } = entry.render(entry.fixture, contextFor(kind));
+      expect(findLinks(text), kind).toEqual([`${ORIGIN}/c/radiance-med-spa/conversations#export`]);
+      expect(html, kind).toContain(`href="${ORIGIN}/c/radiance-med-spa/conversations#export"`);
+      expect(text, kind).toContain("It isn't attached to this email");
+      expect(text, kind).toContain("confirm it's you with Face ID or your screen lock");
+    }
+  });
+
+  test("E4's dates are E2's: the day to download by, and the day the data is gone at the latest", () => {
+    const entry = templateFor("export_ready")!;
+    const { text } = entry.render(entry.fixture, contextFor("export_ready"));
+    expect(text).toContain("Download it by Friday 4 December.");
+    expect(text).toContain(
+      "We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest.",
+    );
+  });
+
+  test("E6 says what was destroyed and when, what remains and why, and links nowhere", () => {
+    const entry = templateFor("data_destroyed")!;
+    const baa = entry.render(entry.fixture, contextFor("data_destroyed"));
+    expect(findLinks(baa.text)).toEqual([]);
+    expect(baa.text).toContain("On Saturday 5 December we destroyed the patient information");
+    expect(baa.text).toContain("until Saturday 9 January 2027");
+    expect(baa.text).toContain("Anthropic");
+    expect(baa.text).toContain("The signed agreement and our record of disclosures");
+    expect(baa.text).toContain("Your billing history, as tax law requires.");
+    const dpa = entry.render(
+      { ...entry.fixture, isDataProtectionAgreement: true },
+      contextFor("data_destroyed", "clients"),
+    );
+    expect(dpa.text).toContain("we destroyed the client information");
+    expect(dpa.text).not.toContain("record of disclosures");
+  });
+
+  test("E3 prints the date, never 'tomorrow', and the undo codes for the clinic's carrier", () => {
+    const entry = templateFor("pass_through_ending")!;
+    for (const noticeDays of [7, 1] as const) {
+      const { subject, text } = entry.render(
+        { ...entry.fixture, noticeDays },
+        contextFor("pass_through_ending"),
+      );
+      expect(subject).toBe("Calls stop passing through on 6 December");
+      expect(text).not.toMatch(/tomorrow/i);
+      expect(text).toContain("From the clinic's own line, dial");
+    }
   });
 });
 

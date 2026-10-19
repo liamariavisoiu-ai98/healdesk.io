@@ -268,6 +268,11 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The clinic below has website chat waiting on its line, and the chat was opened from what claims to be its website. A claim is not proof, so website chat stays off until you look: open the clinic's website, check the chat is there and answers, then press \"The line is on their website\" on the clinic's onboarding page in the console.",
   },
+  destruction_notice_undelivered: {
+    title: "A practice was not told its data was destroyed",
+    action:
+      "The clinic below has had its data destroyed, and the email saying so (E6) could not be sent to the address on its account when it was destroyed: the mail provider refused it, this side refused to send it, or it kept failing for a week. healdesk no longer holds that address for the email, so write to the practice by hand from its account in the console: when its data was destroyed, that backups expire within 35 days, what Anthropic keeps under its agreement, and that the signed agreement and billing records are kept.",
+  },
   transcript_undelivered: {
     title: "A transcript could not be emailed",
     action:

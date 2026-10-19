@@ -4199,11 +4199,26 @@ export function decidePracticeReview(
   });
 }
 
-export function rerunPracticeQuestions(clinicId: string): Promise<OpsResult<{ status: "updated"; auditRecorded: boolean } | { status: "refused"; message: string }>> {
+/**
+ * The practice questions asked again: queued by apps/app, which refuses
+ * while a run of theirs waits in Reviews. `jobEnabled` is whether the
+ * practice-questions job is on, without which the run only waits; null from
+ * an apps/app that predates it (19 October 2026), which the console says it
+ * cannot tell.
+ */
+export type RerunPracticeOutcome =
+  | { status: "updated"; auditRecorded: boolean; jobEnabled: boolean | null }
+  | { status: "refused"; message: string };
+
+export function rerunPracticeQuestions(clinicId: string): Promise<OpsResult<RerunPracticeOutcome>> {
   return callOps("rerunPracticeQuestions", "write", { clinicId }, (value) => {
     const data = object(value, "rerunPracticeQuestions");
     if (state(data, "rerunPracticeQuestions") !== "updated") return refusal(data, "rerunPracticeQuestions");
-    return { status: "updated", auditRecorded: bool(data.auditRecorded, "rerunPracticeQuestions.auditRecorded") };
+    return {
+      status: "updated",
+      auditRecorded: bool(data.auditRecorded, "rerunPracticeQuestions.auditRecorded"),
+      jobEnabled: optionalBool(data.jobEnabled, "rerunPracticeQuestions.jobEnabled"),
+    };
   });
 }
 

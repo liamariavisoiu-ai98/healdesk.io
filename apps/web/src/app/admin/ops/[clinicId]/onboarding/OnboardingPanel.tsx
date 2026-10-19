@@ -20,6 +20,7 @@ import type {
   MetaPlatform,
   OnboardingView,
   OpsResult,
+  RerunPracticeOutcome,
   RetryCalendarWriteOutcome,
   SimpleOutcome,
 } from "@/lib/admin/ops-client";
@@ -58,7 +59,7 @@ type Actions = {
   // action passes a channel's audit or approves the script: the practice
   // questions do, and a run they flag is decided in /admin/reviews. The
   // console can only ask them again.
-  rerunPractice: () => Promise<OpsResult<CareOutcome>>;
+  rerunPractice: () => Promise<OpsResult<RerunPracticeOutcome>>;
   confirmWidget: () => Promise<OpsResult<CareOutcome>>;
 };
 
@@ -563,7 +564,7 @@ function needWords(channel: ChannelId, input: ChannelLiveInput): string {
     case "leaving":
       return "The clinic has left: nothing goes live.";
     case "audit":
-      return "Its practice questions haven't passed. They run by themselves after each change the clinic makes; a run they flag waits for you in Reviews (/admin/reviews), and your decision there is the only way an operator passes one.";
+      return "Its practice questions haven't passed. While the practice-questions job is on in Ops, they run by themselves once the clinic's answers are set up, and again after each change it makes; a run they flag waits for you in Reviews (/admin/reviews), and your decision there is the only way an operator passes one.";
     case "runtime":
       return channel === "voice"
         ? "No assistant number: enter it under Phone line once the Retell agent and number exist."
@@ -625,6 +626,25 @@ function ChannelsCard({
  * it never passes anything. The run waits its two minutes and runs one at a
  * time, as any other, and a run it flags goes to Reviews.
  */
+/**
+ * What the console says once it has asked: only what is true. The run waits
+ * while the practice-questions job is off, and asks nothing until the
+ * clinic's answers are set up; an apps/app that predates `jobEnabled` cannot
+ * say which, so the line names the condition. A refusal (a run waits in
+ * Reviews) is apps/app's own sentence, and a write that missed the security
+ * log says so, as this page's other writes do.
+ */
+export function rerunSaid(data: RerunPracticeOutcome): string {
+  if (data.status === "refused") return data.message;
+  const said =
+    data.jobEnabled === true
+      ? "Asked: the practice questions run again for every channel in about two minutes, once the clinic's answers are set up. If they flag something, it waits in Reviews."
+      : data.jobEnabled === false
+        ? "Asked, but the practice-questions job is off in Ops, so nothing runs until it is switched on. Then they run for every channel within two minutes, once the clinic's answers are set up."
+        : "Asked. They run for every channel within about two minutes while the practice-questions job is on in Ops, and once the clinic's answers are set up; this apps/app does not say whether the job is on.";
+  return data.auditRecorded ? said : `${said} ${UNAUDITED}`;
+}
+
 function RerunPractice({ onRerun }: { onRerun: Actions["rerunPractice"] }) {
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
@@ -636,12 +656,7 @@ function RerunPractice({ onRerun }: { onRerun: Actions["rerunPractice"] }) {
         onClick={() =>
           start(async () => {
             const result = await onRerun();
-            if (!result.ok) return setMessage(result.message);
-            setMessage(
-              result.data.status === "updated"
-                ? "Asked: the practice questions run again for every channel in about two minutes. If they flag something, it waits in Reviews."
-                : result.data.message,
-            );
+            setMessage(result.ok ? rerunSaid(result.data) : result.message);
           })
         }
         className="border-line rounded-full border px-4 py-2 text-sm font-bold disabled:opacity-40"

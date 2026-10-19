@@ -822,7 +822,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     both: true,
     title: "The shop window hands work to the engine",
     carries:
-      "Paid purchases to set up, every Stripe billing change after that, email delivery reports, review and welcome checks, and every read and button on Ops, Reviews (the practice questions waiting for you), Host and this map; the engine answers with what those pages show",
+      "Paid purchases to set up, every Stripe billing change after that, email delivery reports, review and welcome checks, and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses and times, never the words), Reviews (the practice questions waiting for you), Host and this map; the engine answers with what those pages show",
     example: "A clinic's first invoice is paid. The shop window posts its signed agreement to the engine in an envelope sealed with a stamp only the two of them own; the engine checks the seal and opens the clinic's account.",
     keys: ["vercel.HEALDESK_PROVISION_SECRET", "aws.HEALDESK_PROVISION_SECRET", "vercel.HEALDESK_APP_URL", "aws.HEALDESK_ADMIN_EMAIL"],
     phi: false,

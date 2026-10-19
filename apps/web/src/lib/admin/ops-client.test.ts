@@ -1356,3 +1356,89 @@ describe("the practice questions' review queue (/admin/reviews)", () => {
     expect(sent[2]).toEqual({ op: "rerunPracticeQuestions", args: { clinicId: CLINIC } });
   });
 });
+
+describe("the transcript receipts (owner's decision of 14 October 2026)", () => {
+  const CONVERSATION = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const counts = { open: 0, pending: 1, sent: 0, bounced: 1, delivered: 2, expired: 0, unconfirmed: 0 };
+
+  test("asks for one clinic's receipts and returns exactly ids, statuses, times and attempts", async () => {
+    reply({
+      data: {
+        status: "ok",
+        sinceDays: 30,
+        counts,
+        receipts: [
+          {
+            conversationId: CONVERSATION,
+            status: "bounced",
+            sentAt: "2026-10-18T09:00:00.000Z",
+            deliveredAt: null,
+            attempts: 2,
+            // Fields the engine never sends, to prove they would not cross.
+            to: "front-desk@clinic.example",
+            reason: "550 mailbox front-desk@clinic.example unavailable",
+          },
+        ],
+      },
+    });
+    const result = await opsClient.fetchTranscriptDeliveries(CLINIC, 30);
+    expect(sent).toEqual([{ op: "transcriptDeliveries", args: { clinicId: CLINIC, sinceDays: 30 } }]);
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        sinceDays: 30,
+        counts,
+        receipts: [
+          { conversationId: CONVERSATION, status: "bounced", sentAt: "2026-10-18T09:00:00.000Z", deliveredAt: null, attempts: 2 },
+        ],
+      },
+    });
+  });
+
+  test("leaves the window out when none is asked for, so the engine's default applies", async () => {
+    reply({ data: { status: "ok", sinceDays: 30, counts, receipts: [] } });
+    await opsClient.fetchTranscriptDeliveries(CLINIC);
+    expect(sent[0]?.args).toEqual({ clinicId: CLINIC });
+  });
+
+  test.each([
+    ["an unknown status", { counts, receipts: [{ conversationId: CONVERSATION, status: "vanished", sentAt: null, deliveredAt: null, attempts: 0 }] }],
+    ["a conversation id that is not an id", { counts, receipts: [{ conversationId: "Maria Lopez", status: "sent", sentAt: null, deliveredAt: null, attempts: 1 }] }],
+    ["a time that is not a time", { counts, receipts: [{ conversationId: CONVERSATION, status: "sent", sentAt: "yesterday", deliveredAt: null, attempts: 1 }] }],
+    ["a missing count", { counts: { pending: 1 }, receipts: [] }],
+    ["an engine error", { status: "error", message: "No such clinic." }],
+  ])("%s is a malformed answer, not a screen", async (_name, body) => {
+    reply({ data: { status: "ok", sinceDays: 30, ...body } });
+    const result = await opsClient.fetchTranscriptDeliveries(CLINIC);
+    expect(result).toMatchObject({ ok: false, code: "malformed" });
+  });
+
+  test("an engine that predates the operation says it is out of date", async () => {
+    reply({ error: "Unknown operation.", code: "unknown_operation" }, 400);
+    const result = await opsClient.fetchTranscriptDeliveries(CLINIC);
+    expect(result).toMatchObject({ ok: false, code: "outdated" });
+  });
+
+  test("a resend sends the clinic and the conversation, and no address", async () => {
+    reply({ data: { status: "queued", auditRecorded: true } });
+    const result = await opsClient.resendTranscript(CLINIC, CONVERSATION);
+    expect(sent).toEqual([{ op: "resendTranscript", args: { clinicId: CLINIC, conversationId: CONVERSATION } }]);
+    expect(result).toEqual({ ok: true, data: { status: "queued", auditRecorded: true } });
+  });
+
+  test("a copy that is already deleted is 'gone', and an open chat is a refusal with the engine's sentence", async () => {
+    reply({ data: { status: "gone" } });
+    expect(await opsClient.resendTranscript(CLINIC, CONVERSATION)).toEqual({ ok: true, data: { status: "gone" } });
+    reply({ data: { status: "error", message: "That web chat is still going; its transcript is emailed when it ends." } });
+    expect(await opsClient.resendTranscript(CLINIC, CONVERSATION)).toEqual({
+      ok: true,
+      data: { status: "refused", message: "That web chat is still going; its transcript is emailed when it ends." },
+    });
+  });
+
+  test("a resend answered 500 may have happened, and says so", async () => {
+    reply({ error: "That operation failed.", code: "failed" }, 500);
+    const result = await opsClient.resendTranscript(CLINIC, CONVERSATION);
+    expect(!result.ok && result.message).toMatch(/may have carried this out/);
+  });
+});

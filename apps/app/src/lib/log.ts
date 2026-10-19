@@ -91,6 +91,10 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "exportDeliveredAt",
   "exportDueAt",
   "destroyAt",
+  // A vendor's business associate agreement's recorded expiry (YYYY-MM-DD,
+  // UTC; lib/compliance/vendor-coverage.ts): a contract date about
+  // healdesk's own vendor, never about a clinic or a patient.
+  "expiresOn",
   // A deletion request's id (erasure_requests, lib/patient-rights/erasure.ts):
   // a random uuid naming the request, never the person.
   "erasureId",

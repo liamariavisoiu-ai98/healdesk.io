@@ -20,9 +20,11 @@ import { parseMetaEvents, signMetaBody, verifyMetaSignature } from "@/lib/meta/w
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { withTenant } from "@/lib/tenant";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled, setWeekdayHours } from "./setup/factories";
+import { attestPlatform } from "./setup/platform";
 
 /**
  * The Meta front door: a narrow agent, a deterministic guard, and a webhook
@@ -292,6 +294,9 @@ describeDb("the front door, end to end", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // The vendors' agreements in force, as a launched platform holds them
+    // (the answer gate reads them, lib/compliance/vendor-coverage.ts).
+    await attestPlatform(COVERAGE_VENDORS);
     process.env.META_APP_SECRET = APP_SECRET;
     process.env.META_VERIFY_TOKEN = "verify-me";
   }, 60_000);

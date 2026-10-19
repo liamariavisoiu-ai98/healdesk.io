@@ -291,6 +291,20 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "A clinic's stored connection below is revoked or in error. For a Meta platform (provider meta-messenger, meta-instagram or meta-whatsapp) that channel cannot reply to anyone until the clinic connects it again from Facebook login: call the clinic. Every connection finding is in the 07:00 digest as well.",
   },
+  // The vendors' agreements (lib/compliance/vendor-coverage.ts): `code` is the
+  // vendor, `phase` 30_days or 7_days, `expiresOn` the recorded expiry.
+  vendor_agreement_expiring: {
+    title: "A vendor's business associate agreement expires soon",
+    action:
+      "The attestation for the vendor in Code expires on the day shown. When it lapses, AYA stops answering where that vendor serves (every channel for anthropic, aws and database_host; phone for retell) and calls go to each clinic's direct line. Get the renewed agreement and record it on /admin/compliance, with its new expiry, before that day.",
+  },
+  // `phase` withdrawn (recorded on /admin/compliance) or expired (`expiresOn`
+  // passed with no renewal).
+  vendor_agreement_lapsed: {
+    title: "A vendor's agreement lapsed: AYA has stopped",
+    action:
+      "The attestation for the vendor in Code was withdrawn or passed its expiry, so AYA has stopped answering where that vendor serves: every channel for anthropic, aws and database_host, phone for retell. Calls go to each clinic's direct line, website chat is the contact form (which keeps nothing while aws or database_host is the one lapsed), and Meta messages wait unanswered. Open an incident on /admin/incidents now: patient data may have gone to the vendor between the agreement's real end and this stop. AYA answers again the moment a renewed attestation is recorded on /admin/compliance.",
+  },
   // L32's clock (lib/patient-rights/patient-requests.ts), once per request
   // each: the clinic's and the request's ids.
   patient_request_due_soon: {
@@ -416,6 +430,8 @@ const LABELS: Record<string, string> = {
   count: "Count",
   windowStart: "Day",
   destroyAt: "Destruction due (UTC)",
+  expiresOn: "Expires (UTC)",
+  phase: "Phase",
   serviceEndedAt: "Service ended (UTC)",
   lateDays: "Days late",
 };

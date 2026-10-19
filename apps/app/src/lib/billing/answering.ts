@@ -16,6 +16,8 @@ import type { ActorContext } from "@/lib/audit";
 import { isPaused, type ClinicPause } from "@/lib/channels/state";
 import { clinicLocalDate, closedOn } from "@/lib/clinic/closures";
 import { isOpenAt, parseOpeningHours } from "@/lib/clinic/opening-hours";
+import { readPlatformCompliance } from "@/lib/compliance/platform";
+import { vendorLapses, type VendorLapses } from "@/lib/compliance/vendor-coverage";
 import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import { withTenant } from "@/lib/tenant";
 
@@ -59,13 +61,15 @@ export type CoverageMode = "all_calls" | "overflow_after_hours" | "after_hours_o
 /**
  * Why the assistant passes a call or conversation through instead of
  * answering, in the order BD22 checks them: no agreement in effect (BAA 1.3.0
- * clause 17: terminating the agreement ends the Services that day), billing
- * (BD9, R21), not bought, the channel row, the pause, voice coverage, the
- * allowance cap.
+ * clause 17: terminating the agreement ends the Services that day), a
+ * vendor's agreement lapsed, billing (BD9, R21), not bought, the channel
+ * row, the pause, voice coverage, the allowance cap.
  */
 export type PassThroughReason =
   | "no_agreement"
   | "agreement_insufficient"
+  | "host_agreement_lapsed"
+  | "vendor_agreement_lapsed"
   | "unpaid"
   | "not_active"
   | "cancel_before_start"
@@ -102,16 +106,36 @@ export function servicesEnded(reason: PassThroughReason): boolean {
 
 /**
  * The refusals after which nothing may take or keep a person's details on
- * the practice's behalf: the Services have ended, or the agreement in effect
+ * the practice's behalf: the Services have ended; the agreement in effect
  * no longer covers the practice (`agreement_insufficient`), when the
- * database refuses its patient rows (app_clinic_accepts_phi). The assistant
- * may not answer even as the fallback for a call with no direct line (R25's
- * safe script), so that call is closed with the fixed line (a call with a
- * direct line still goes to it, as every refused call does); and the
- * website's contact form takes no message (lib/chat/contact-form.ts).
+ * database refuses its patient rows (app_clinic_accepts_phi); or the host's
+ * own agreement, AWS's or the database host's, has lapsed
+ * (`host_agreement_lapsed`), so nothing new may be written where patient
+ * data is kept. The assistant may not answer even as the fallback for a call
+ * with no direct line (R25's safe script), so that call is closed with the
+ * fixed line (a call with a direct line still goes to it, as every refused
+ * call does) and is not recorded (lib/voice/retell.ts); and the website's
+ * contact form takes no message (lib/chat/contact-form.ts).
  */
 export function patientDataRefused(reason: PassThroughReason): boolean {
-  return servicesEnded(reason) || reason === "agreement_insufficient";
+  return (
+    servicesEnded(reason) ||
+    reason === "agreement_insufficient" ||
+    reason === "host_agreement_lapsed"
+  );
+}
+
+/**
+ * The refusals after which the assistant may not be the fallback for a call
+ * with no direct line (R25's safe script is AYA herself): every refusal
+ * `patientDataRefused` names, and the assistant's own vendor's agreement
+ * lapsed (`vendor_agreement_lapsed`: the model provider's, or Retell's on
+ * phone). That call is closed with the fixed line. The contact form still
+ * takes messages after a vendor lapse, because no model is in it and the
+ * host still covers what it keeps.
+ */
+export function assistantFallbackRefused(reason: PassThroughReason): boolean {
+  return patientDataRefused(reason) || reason === "vendor_agreement_lapsed";
 }
 
 /**
@@ -166,6 +190,14 @@ export type AnswerFacts = {
    * recorded, as the database treats it.
    */
   agreementCovers: boolean;
+  /**
+   * The vendors on this channel's path whose business associate agreement
+   * is not in force now (platform_compliance, lib/compliance/vendor-coverage.ts):
+   * `host` (AWS, the database host) and `assistant` (the model provider;
+   * Retell on voice). Platform-wide, so the same for every clinic. Empty
+   * when the channel is covered; ignored on synthetic data.
+   */
+  lapsedVendors: VendorLapses;
   /** The BILLING clinic's entitlements, or null when it has no row. */
   billing: {
     status: BillingStatus;
@@ -342,6 +374,13 @@ function billingRefusal(
  *      practice now a covered entity) is `agreement_insufficient`. It
  *      comes first because nothing else can make a terminated practice's
  *      Services run again;
+ *   0b. the vendors' agreements (the owner's decision of 19 October 2026):
+ *      on a production clinic, the host's (AWS, the database host) not in
+ *      force is `host_agreement_lapsed`, then the assistant's own (the model
+ *      provider; Retell on voice) is `vendor_agreement_lapsed`. Withdrawn on
+ *      /admin/compliance, past a recorded expiry, or never recorded: no
+ *      record means no coverage. Before billing, because no payment makes a
+ *      lapsed vendor's agreement cover anyone;
  *   1. billing (BD9). A synthetic clinic with no billing row skips it; any
  *      other clinic with none is `not_active` (fail closed, R1). A `demo`
  *      row skips it on a synthetic clinic and is `not_active` elsewhere;
@@ -368,6 +407,14 @@ export function decideAnswer(facts: AnswerFacts): AnswerDecision {
     return refuse("no_agreement");
   }
   if (!facts.isSynthetic && !facts.agreementCovers) return refuse("agreement_insufficient");
+
+  // 0b. The vendors' agreements: the host's first, then the assistant's own.
+  if (!facts.isSynthetic && facts.lapsedVendors.host.length > 0) {
+    return refuse("host_agreement_lapsed");
+  }
+  if (!facts.isSynthetic && facts.lapsedVendors.assistant.length > 0) {
+    return refuse("vendor_agreement_lapsed");
+  }
 
   // 1. Billing.
   if (billing === null) {
@@ -518,6 +565,8 @@ async function runGate(
       isSynthetic: clinic.dataClassification === "synthetic",
       agreement,
       agreementCovers: agreementRow?.kind_covers !== false,
+      // The vendors' agreements, platform-wide (platform_compliance, 0090).
+      lapsedVendors: vendorLapses(await readPlatformCompliance(tx.db, now), channel),
       channelRow: row ?? null,
       pause: { pausedAt: settings?.pausedAt ?? null, pausedUntil: settings?.pausedUntil ?? null },
       directLine: settings?.directLine ?? null,
@@ -575,6 +624,7 @@ async function runGate(
     isSynthetic: location.isSynthetic,
     agreement: location.agreement,
     agreementCovers: location.agreementCovers,
+    lapsedVendors: location.lapsedVendors,
     billing: row
       ? {
           status: row.status,

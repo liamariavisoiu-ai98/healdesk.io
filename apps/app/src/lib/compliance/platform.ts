@@ -3,12 +3,14 @@ import { sql } from "drizzle-orm";
 
 import type { Queryable } from "@/db";
 import { platformCompliance, type PlatformComplianceRow } from "@/db/schema";
+import { notifyOps } from "@/lib/ops/notify";
 
 import {
   CHANNEL_SUBJECTS,
   CLINIC_WIDE_SUBJECTS,
   DOCUMENT_REF_MAX,
   isPlatformSubject,
+  isVendorSubject,
   PLATFORM_SUBJECTS,
   type PlatformAction,
   type PlatformSubject,
@@ -243,7 +245,10 @@ export type AttestationInput = {
  *   - a withdrawal only of a subject attested now.
  *
  * Withdrawing never takes a live channel offline: a live channel is not asked
- * again. It holds back what has not gone live yet.
+ * again. It holds back what has not gone live yet. Withdrawing a vendor's
+ * agreement also stops AYA answering where that vendor serves, until a
+ * renewed attestation (the answer gate, lib/compliance/vendor-coverage.ts),
+ * and tells ops at once, to open an incident.
  */
 export async function recordPlatformAttestation(
   db: Queryable,
@@ -299,6 +304,11 @@ export async function recordPlatformAttestation(
     expiresOn,
     actorLabel: input.actorLabel.slice(0, 200),
   });
+  // A vendor's agreement withdrawn while it counted: the answer gate stops
+  // AYA where that vendor serves from now on, and ops opens an incident.
+  if (input.action === "withdrawn" && before[subject].attested && isVendorSubject(subject)) {
+    await notifyOps("vendor_agreement_lapsed", { code: subject, phase: "withdrawn" });
+  }
   return { subject, status: await readPlatformCompliance(db, now) };
 }
 

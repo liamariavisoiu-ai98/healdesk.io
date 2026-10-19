@@ -55,6 +55,7 @@ import {
 } from "@/lib/scheduler/requests-still-open";
 import { withTenant } from "@/lib/tenant";
 import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 
 import {
   closePools,
@@ -73,6 +74,7 @@ import {
   setWeekdayHours,
   type SeededClinic,
 } from "./setup/factories";
+import { attestPlatform } from "./setup/platform";
 
 /**
  * The live alerts (package F; Annex X5's L7-L12, L20 and L34): every one a
@@ -353,6 +355,9 @@ describeDb("the live alerts' hooks", () => {
 
   beforeEach(async () => {
     await truncateAll();
+    // The vendors' agreements in force, as a launched platform holds them
+    // (the answer gate reads them, lib/compliance/vendor-coverage.ts).
+    await attestPlatform(COVERAGE_VENDORS);
   });
 
   afterAll(async () => {

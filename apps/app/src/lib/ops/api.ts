@@ -228,7 +228,12 @@ import { requestPracticeQuestions } from "@/lib/engine/practice/store";
 import { PRACTICE_SECTIONS, type PracticeSection } from "@/lib/engine/practice/types";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { completeStep, reopenStep } from "@/lib/onboarding/steps";
-import { getJob, listJobs as listJobRecords, PHASE_TWO_JOBS } from "@/lib/scheduler/jobs";
+import {
+  getJob,
+  JOB_PRACTICE_QUESTIONS,
+  listJobs as listJobRecords,
+  PHASE_TWO_JOBS,
+} from "@/lib/scheduler/jobs";
 import { SETUP_CLOSURE_REASON } from "@/lib/setup/closure-email";
 import { moveSetupDeadlineToZone } from "@/lib/setup/practice";
 import { toCents } from "@/lib/setup/prices";
@@ -3009,12 +3014,20 @@ async function opDecidePracticeReview(args: Record<string, unknown>, operator: O
   return ok({ status: "updated", decision, auditRecorded } satisfies PracticeReviewState);
 }
 
+/**
+ * The questions asked again, unless a run of theirs waits in Reviews
+ * (rerunPracticeQuestions refuses then). `jobEnabled` says whether the
+ * practice-questions job is on, since the run only waits while it is off;
+ * a console that predates it reads its absence as not known.
+ */
 async function opRerunPracticeQuestions(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return ok({ status: "refused", message: "No such clinic." });
-  await rerunPracticeQuestions({ clinicId: clinic.id, actor: actorFor(operator), request: operator.request });
+  const outcome = await rerunPracticeQuestions({ clinicId: clinic.id, actor: actorFor(operator), request: operator.request });
+  if (outcome.status === "refused") return ok(outcome);
   const auditRecorded = await audit(operator, "practice_questions_rerun", { clinicSlug: clinic.slug });
-  return ok({ status: "updated", auditRecorded });
+  const jobEnabled = (await getJob(JOB_PRACTICE_QUESTIONS))?.enabled === true;
+  return ok({ status: "updated", auditRecorded, jobEnabled });
 }
 
 export type GoLiveState =

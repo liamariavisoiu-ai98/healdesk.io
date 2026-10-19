@@ -959,6 +959,58 @@ describeDb("the practice questions, against the database", () => {
     expect(reviews).toEqual({ n: 1 });
   });
 
+  test("the questions are not asked again over a run waiting in Reviews; once it is decided they are, and the reply says whether the job is on", async () => {
+    await setAnswers();
+    const flagged = await dueQueued();
+    await runOnePracticeRun(clinic.clinicId, flagged, {
+      responder: model(),
+      metaResponder: null,
+      judge: judge("fail"),
+    });
+    const rerun = async () =>
+      (
+        (await runOperation("rerunPracticeQuestions", { clinicId: clinic.clinicId }, OPERATOR))
+          .body as { data: Record<string, unknown> }
+      ).data;
+    expect(await rerun()).toEqual({
+      status: "refused",
+      message: expect.stringMatching(
+        /^A run of the practice questions waits in Reviews: decide it there\./,
+      ),
+    });
+    expect((await runs()).filter((r) => r.status === "queued")).toEqual([]);
+    const [review] = await inTenant(
+      clinic.clinicId,
+      async (c) =>
+        (
+          await c.query<{ id: string; status: string }>(
+            `select id, status from audit_review_queue where run_id = $1`,
+            [flagged],
+          )
+        ).rows,
+    );
+    expect(review!.status).toBe("open");
+    // Failed in Reviews with no section (our side to put right): asking again is allowed.
+    await runOperation(
+      "decidePracticeReview",
+      { clinicId: clinic.clinicId, reviewId: review!.id, decision: "fail" },
+      OPERATOR,
+    );
+    // The job ships off (drizzle/0080), and the reply says so.
+    expect(await rerun()).toEqual({ status: "updated", auditRecorded: true, jobEnabled: false });
+    expect((await runs()).filter((r) => r.status === "queued")).toMatchObject([{ reason: "ops" }]);
+    await getMigratorPool().query(
+      `update scheduled_jobs set enabled = true where name = 'practice-questions'`,
+    );
+    try {
+      expect(await rerun()).toMatchObject({ status: "updated", jobEnabled: true });
+    } finally {
+      await getMigratorPool().query(
+        `update scheduled_jobs set enabled = false where name = 'practice-questions'`,
+      );
+    }
+  });
+
   test("a review's decision is about its own run: refused once what the questions read has changed, which asks for the run that replaces it", async () => {
     await setAnswers();
     const runId = await dueQueued();

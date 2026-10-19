@@ -30,6 +30,7 @@ import {
   EmailCompositionError,
   MAX_HTML_BYTES,
   REPLY_LINE,
+  WRITE_NEW_LINE,
 } from "@/lib/email/templates/compose";
 import {
   ACCOUNT_REASON,
@@ -331,7 +332,10 @@ describe("each template's output", () => {
       test("ends with the footer: why, the reply line, the entity and the postal address", () => {
         const r = rendered();
         for (const body of [r.text, visibleText(r.html)]) {
-          expect(body).toContain(REPLY_LINE);
+          // O16 carries a live link and asks for a new email, never a reply
+          // that would quote it to us, so its footer says the same.
+          expect(body).toContain(kind === "device_recovery_link" ? WRITE_NEW_LINE : REPLY_LINE);
+          if (kind === "device_recovery_link") expect(body).not.toContain(REPLY_LINE);
           expect(body).toContain(SENDER_IDENTITY.entityLine);
           expect(body).toContain(SENDER_IDENTITY.postalAddress);
           expect(body).toContain("You're receiving this because");

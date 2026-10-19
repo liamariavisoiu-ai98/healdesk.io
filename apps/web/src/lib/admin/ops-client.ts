@@ -5177,7 +5177,14 @@ export function fetchClinicDevices(clinicId: string): Promise<OpsResult<ClinicDe
       backupCodesLeft: count(data.backupCodesLeft, "getClinicDevices.backupCodesLeft"),
       sessions: count(data.sessions, "getClinicDevices.sessions"),
       patientDataMayExist: bool(data.patientDataMayExist, "getClinicDevices.patientDataMayExist"),
-      addressChangeOpen: bool(data.addressChangeOpen, "getClinicDevices.addressChangeOpen"),
+      // Missing from an apps/app that predates the address check: this app
+      // goes to Vercel as main moves, apps/app to AWS when the owner
+      // deploys, so for a while the older reply is the one that arrives,
+      // and it had no change check to report.
+      addressChangeOpen:
+        data.addressChangeOpen === undefined
+          ? false
+          : bool(data.addressChangeOpen, "getClinicDevices.addressChangeOpen"),
       recoveries: list(data.recoveries, "getClinicDevices.recoveries").map(readDeviceRecovery),
     };
   });
@@ -5234,7 +5241,12 @@ export function endDeviceRecovery(
       ? { status }
       : {
           status,
-          browsersSignedOut: count(data.browsersSignedOut, "endDeviceRecovery.browsersSignedOut"),
+          // Missing from an apps/app that predates signing the browser out
+          // (deployed after this app): it signed nobody out.
+          browsersSignedOut:
+            data.browsersSignedOut === undefined
+              ? 0
+              : count(data.browsersSignedOut, "endDeviceRecovery.browsersSignedOut"),
         };
   });
 }

@@ -35,6 +35,8 @@ export const renderDeviceRecoveryLink: EmailTemplate<DeviceRecoveryLinkPayload> 
   compose(
     {
       subject: "Add a device to your healdesk sign-in",
+      // The footer must not invite the reply its body asks the reader not to send.
+      replyLine: "write_new",
       preheader: `The link from your call with healdesk. It adds one device, within ${payload.validHours} hours.`,
       blocks: [
         {

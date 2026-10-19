@@ -100,10 +100,14 @@ export async function lockFactors(db: Queryable, userId: string): Promise<void> 
 
 /**
  * Why a link does nothing: never ours, already used, past its window, ended
- * by healdesk or a newer link, or `moved`: the address it was mailed to is
- * no longer the sign-in's, or a change of that address is under way.
+ * by healdesk or a newer link, `moved` (the address it was mailed to is no
+ * longer the sign-in's, or a change of that address is under way), or
+ * `unfinished`: claimed, but no session came of it, so it is spent and a
+ * new link is needed. A claim is made once, for every role (drizzle/0092),
+ * so it is never given back.
  */
-export type DeviceRecoveryProblem = "unknown" | "used" | "expired" | "ended" | "moved";
+export type DeviceRecoveryProblem =
+  "unknown" | "used" | "expired" | "ended" | "moved" | "unfinished";
 
 export type DeviceRecoveryLookup =
   | { ok: true; recoveryId: string; userId: string; emailMasked: string; landing: string }
@@ -126,6 +130,7 @@ export async function lookUpDeviceRecovery(token: unknown): Promise<DeviceRecove
       email: user.email,
       landing: deviceRecoveries.landing,
       claimedAt: deviceRecoveries.claimedAt,
+      bound: sql<boolean>`${deviceRecoveries.sessionTokenHash} is not null`,
       revokedAt: deviceRecoveries.revokedAt,
       expired: sql<boolean>`${deviceRecoveries.expiresAt} <= now()`,
       addressStillIts: sql<boolean>`${ADDRESS_STILL_ITS}`,
@@ -135,8 +140,8 @@ export async function lookUpDeviceRecovery(token: unknown): Promise<DeviceRecove
     .where(eq(deviceRecoveries.tokenHash, hash))
     .limit(1);
   if (!row) return { ok: false, reason: "unknown" };
-  if (row.claimedAt) return { ok: false, reason: "used" };
   if (row.revokedAt) return { ok: false, reason: "ended" };
+  if (row.claimedAt) return { ok: false, reason: row.bound ? "used" : "unfinished" };
   if (row.expired) return { ok: false, reason: "expired" };
   if (!row.addressStillIts) return { ok: false, reason: "moved" };
   return {
@@ -148,11 +153,16 @@ export async function lookUpDeviceRecovery(token: unknown): Promise<DeviceRecove
   };
 }
 
+/** One refusal row per link in this long, so a spent link presented again and again cannot flood the log. */
+export const REFUSAL_RECORD_EVERY_MS = 10 * 60 * 1000;
+
 /**
  * Record a link presented and refused (used, ended, expired, moved), against
  * the sign-in it was for: a spent or ended link presented again is the case
- * most likely to mean it leaked. A token that is none of ours names no
- * sign-in, so nothing is recorded for it. Never throws.
+ * most likely to mean it leaked. At most one row per link every ten
+ * minutes, decided under a per-link advisory lock so concurrent refusals
+ * write one. A token that is none of ours names no sign-in, so nothing is
+ * recorded for it. Never throws.
  */
 export async function recordRecoveryRefusal(input: {
   token: unknown;
@@ -168,16 +178,69 @@ export async function recordRecoveryRefusal(input: {
       .where(eq(deviceRecoveries.tokenHash, hash))
       .limit(1);
     if (!known) return;
-    await recordSecurityEvent(unsafeDb, {
-      event: "device_recovery_refused",
-      actorLabel: await actorLabelFor(unsafeDb, known.userId),
-      userId: known.userId,
-      ipAddress: input.request?.ipAddress ?? null,
-      userAgent: input.request?.userAgent ?? null,
-      metadata: { recoveryId: known.id, code: input.reason },
+    await unsafeDb.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`device_recovery_refused:${known.id}`}, 0))`,
+      );
+      const recent = await tx.execute(
+        sql`select 1 from security_events
+             where event = 'device_recovery_refused'
+               and metadata->>'recoveryId' = ${known.id}
+               and occurred_at > now() - ${REFUSAL_RECORD_EVERY_MS} * interval '1 millisecond'
+             limit 1`,
+      );
+      if (recent.rows.length > 0) return;
+      await recordSecurityEvent(tx, {
+        event: "device_recovery_refused",
+        actorLabel: await actorLabelFor(tx, known.userId),
+        userId: known.userId,
+        ipAddress: input.request?.ipAddress ?? null,
+        userAgent: input.request?.userAgent ?? null,
+        metadata: { recoveryId: known.id, code: input.reason },
+      });
     });
   } catch (error) {
     log.error("device recovery refusal not recorded", { error: describeError(error) });
+  }
+}
+
+/**
+ * A claim that no session came of: the session could not be started, or
+ * could not be named because the link was ended in between. The link stays
+ * spent (a claim is made once), any session started for it is deleted, and
+ * the row is recorded, so the operator sees why the clinic needs another.
+ * Never throws.
+ */
+export async function recordUnfinishedClaim(input: {
+  recoveryId: string;
+  userId: string;
+  code: "session_failed" | "ended_meanwhile";
+  /** The session started for the claim, if one was, which is deleted. */
+  sessionId?: string;
+  request?: RecoveryTrace;
+}): Promise<void> {
+  try {
+    await unsafeDb.transaction(async (tx) => {
+      if (input.sessionId) {
+        await tx
+          .delete(session)
+          .where(and(eq(session.id, input.sessionId), eq(session.userId, input.userId)));
+      }
+      await recordSecurityEvent(tx, {
+        event: "device_recovery_unfinished",
+        actorLabel: await actorLabelFor(tx, input.userId),
+        userId: input.userId,
+        ipAddress: input.request?.ipAddress ?? null,
+        userAgent: input.request?.userAgent ?? null,
+        metadata: {
+          recoveryId: input.recoveryId,
+          code: input.code,
+          sessionEnded: input.sessionId !== undefined,
+        },
+      });
+    });
+  } catch (error) {
+    log.error("device recovery: unfinished claim not recorded", { error: describeError(error) });
   }
 }
 
@@ -239,7 +302,7 @@ export async function claimDeviceRecovery(input: {
  * row), by SHA-256 of its token read from the row in the same statement,
  * which must be this sign-in's. Once only, and only while the link is still
  * unspent and unrevoked: false when the operator ended it in between, and
- * the session is then a plain sign-in that can add nothing.
+ * the page then deletes that session (recordUnfinishedClaim).
  */
 export async function bindDeviceRecovery(input: {
   recoveryId: string;

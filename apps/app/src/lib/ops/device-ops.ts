@@ -183,8 +183,15 @@ export async function opIssueDeviceRecovery(
   args: Record<string, unknown>,
   operator: Operator,
 ): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
+  const asked = stringArg(args, "clinicId");
+  const clinic = await clinicById(asked);
   if (!clinic) {
+    // Recorded like every other refusal of a link (lib/factors/recovery-issue.ts),
+    // naming the id asked for only when it has an id's shape.
+    await audit(operator, "device_recovery_issue_refused", {
+      code: "no_clinic",
+      clinicId: asked && UUID.test(asked) ? asked : null,
+    });
     return ok({ status: "refused", message: "No such clinic." } satisfies IssueDeviceRecoveryState);
   }
   const outcome = await issueDeviceRecovery({
@@ -251,10 +258,14 @@ export async function opRemoveClinicDevices(
   args: Record<string, unknown>,
   operator: Operator,
 ): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
+  const asked = stringArg(args, "clinicId");
+  const clinic = await clinicById(asked);
   // Every refusal is recorded, with a code and the clinic, never what was sent.
   const refused = async (code: string, message: string) => {
-    await audit(operator, "operator_sign_out_refused", { code, clinicId: clinic?.id ?? null });
+    await audit(operator, "operator_sign_out_refused", {
+      code,
+      clinicId: clinic?.id ?? (asked && UUID.test(asked) ? asked : null),
+    });
     return ok({ status: "refused", message } satisfies RemoveClinicDevicesState);
   };
   if (!clinic) return refused("no_clinic", "No such clinic.");

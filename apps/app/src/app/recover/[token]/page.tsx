@@ -9,8 +9,10 @@ import {
   claimDeviceRecovery,
   lookUpDeviceRecovery,
   recordRecoveryRefusal,
+  recordUnfinishedClaim,
   type DeviceRecoveryProblem,
 } from "@/lib/factors/recovery";
+import { describeError, log } from "@/lib/log";
 
 export const metadata: Metadata = {
   title: "Add a device to healdesk",
@@ -34,6 +36,12 @@ export const dynamic = "force-dynamic";
  * The winner then starts a session for the clinic's sign-in, binds the link
  * to it and goes to the clinic's Protect page, where that session may add
  * one device.
+ *
+ * A claim is made once (drizzle/0092), so a claim no session came of is not
+ * given back: when the session cannot be started, or the operator ended the
+ * link in the moment before it was named, any session started is deleted,
+ * nobody stays signed in by it, and the page says plainly that the link is
+ * spent and how to get another.
  */
 
 const PROBLEMS: Record<DeviceRecoveryProblem, { title: string; body: string }> = {
@@ -48,6 +56,10 @@ const PROBLEMS: Record<DeviceRecoveryProblem, { title: string; body: string }> =
   ended: {
     title: "This link was stopped.",
     body: "healdesk ended it, or a newer one was sent to the same address. Use the newest, or email hello@healdesk.io.",
+  },
+  unfinished: {
+    title: "This link didn't finish signing you in.",
+    body: "It works only once, so it can't be used again. Email hello@healdesk.io: we'll call your clinic back and send another.",
   },
   moved: {
     title: "This link no longer works.",
@@ -82,11 +94,35 @@ async function continueWithRecovery(formData: FormData): Promise<void> {
   const claimed = await claimDeviceRecovery({ token, request });
   if (!claimed.ok) redirect(back);
 
-  const started = await auth.api.startLinkSession({ body: { userId: claimed.userId }, headers: h });
-  // False only when the operator ended the link in the moment between: this
-  // browser keeps a plain sign-in, which adds nothing, and is not handed a
-  // cookie for a session deleted under it.
-  await bindDeviceRecovery({ recoveryId: claimed.recoveryId, sessionId: started.sessionId });
+  let sessionId: string | null = null;
+  try {
+    sessionId = (await auth.api.startLinkSession({ body: { userId: claimed.userId }, headers: h }))
+      .sessionId;
+  } catch (error) {
+    log.error("device recovery: no session could be started", { error: describeError(error) });
+  }
+  if (!sessionId) {
+    await recordUnfinishedClaim({
+      recoveryId: claimed.recoveryId,
+      userId: claimed.userId,
+      code: "session_failed",
+      request,
+    });
+    redirect(back);
+  }
+  // False only when the operator ended the link in the moment between: the
+  // session just started is deleted, so nobody stays signed in by a link
+  // that was ended, and the page says it was stopped.
+  if (!(await bindDeviceRecovery({ recoveryId: claimed.recoveryId, sessionId }))) {
+    await recordUnfinishedClaim({
+      recoveryId: claimed.recoveryId,
+      userId: claimed.userId,
+      code: "ended_meanwhile",
+      sessionId,
+      request,
+    });
+    redirect(back);
+  }
   redirect(claimed.landing);
 }
 

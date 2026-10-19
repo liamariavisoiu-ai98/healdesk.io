@@ -15,6 +15,10 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers({ "user-agent": "vitest", "x-forwarded-for": "203.0.113.9" }),
 }));
 
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { DevicesSection } from "@/app/admin/ops/[clinicId]/account/DevicesSection";
 import { enterDeviceRecovery, enterDeviceRemoval } from "@/lib/admin/device-recovery";
 import { endDeviceRecovery, fetchClinicDevices } from "@/lib/admin/ops-client";
 import { __resetStepLedgerForTests, base32Decode, hotp, totpStep } from "@/lib/admin/totp";
@@ -119,7 +123,14 @@ describe("the human route's link from /admin", () => {
     expect(sent).toEqual([{ op: "endDeviceRecovery", args: { clinicId: CLINIC } }]);
     replies.push({ data: { status: "none" } });
     expect(await endDeviceRecovery(CLINIC)).toEqual({ ok: true, data: { status: "none" } });
+    // An apps/app deployed before the sign-out existed answers without the
+    // count: it signed nobody out, and the console reads it so.
     replies.push({ data: { status: "ended" } });
+    expect(await endDeviceRecovery(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "ended", browsersSignedOut: 0 },
+    });
+    replies.push({ data: { status: "ended", browsersSignedOut: "one" } });
     expect(await endDeviceRecovery(CLINIC)).toMatchObject({ ok: false, code: "malformed" });
   });
 });
@@ -162,6 +173,10 @@ describe("removing devices from /admin (O3's promise)", () => {
   });
 });
 
+const unused = async (): Promise<never> => {
+  throw new Error("an action ran during a static render");
+};
+
 describe("the devices reader is strict", () => {
   const view = {
     clinicId: CLINIC,
@@ -197,6 +212,23 @@ describe("the devices reader is strict", () => {
   test("reads the devices, the backup, the sessions and the links", async () => {
     replies.push({ data: view });
     expect(await fetchClinicDevices(CLINIC)).toEqual({ ok: true, data: view });
+  });
+
+  test("the reply of an apps/app deployed before the address check reads as no change open, never as malformed", async () => {
+    const { addressChangeOpen: _, ...older } = view;
+    void _;
+    replies.push({ data: older });
+    const read = await fetchClinicDevices(CLINIC);
+    expect(read).toEqual({ ok: true, data: { ...view, addressChangeOpen: false } });
+    // And the panel renders it as a working panel, not an error.
+    const html = renderToStaticMarkup(
+      createElement(DevicesSection, {
+        view: read,
+        actions: { issueRecovery: unused, endRecovery: unused, removeDevices: unused },
+      }),
+    );
+    expect(html).toContain("Front desk Mac");
+    expect(html).toContain("Send the link");
   });
 
   test("a link state or an end it does not know, or a fractional count, is refused, not shown", async () => {

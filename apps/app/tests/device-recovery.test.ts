@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -117,6 +119,8 @@ const { default: RecoverPage } = await import("@/app/recover/[token]/page");
 const { ProtectDevice } = await import("@/app/c/[slug]/protect/ProtectDevice");
 const { HUMAN_ROUTE, protectMode } = await import("@/app/c/[slug]/protect/copy");
 const { renderDeviceChanged } = await import("@/lib/email/templates/device_changed");
+const { DEVICE_RECOVERY_LINK_ENTRY } = await import("@/lib/email/templates/device_recovery_link");
+const { DEVICE_RECOVERY_TTL_HOURS } = await import("@/lib/factors/recovery-terms");
 
 const { closePools, getAppPool, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } =
   await import("./setup/db");
@@ -497,8 +501,6 @@ describe("O3 for what healdesk did", () => {
 
 describe("O16, the link's email", () => {
   test("asks for a new email to stop it, never a reply, which would copy the live link into hello@", async () => {
-    const { DEVICE_RECOVERY_LINK_ENTRY } =
-      await import("@/lib/email/templates/device_recovery_link");
     const rendered = DEVICE_RECOVERY_LINK_ENTRY.render(DEVICE_RECOVERY_LINK_ENTRY.fixture, {
       clinicName: "Radiance Med Spa",
       audience: "patients",
@@ -511,6 +513,11 @@ describe("O16, the link's email", () => {
       "Write a new email to hello@healdesk.io, rather than replying to this one, so the link isn't copied into it",
     );
     expect(rendered.text).not.toMatch(/reply to this email/i);
+    // Nor does its footer invite the reply (X1.9's line for this one kind).
+    expect(rendered.text).not.toContain("Replies reach the healdesk team");
+    expect(rendered.text).toContain(
+      "To reach the healdesk team, write a new email to hello@healdesk.io rather than replying.",
+    );
   });
 });
 
@@ -1076,6 +1083,157 @@ describeDb("the human route", () => {
       expect(await passkeys(clinic.staffUserId)).toEqual([]);
       expect(mocks.sent).toEqual([]);
     });
+  });
+
+  describe("a claim no session comes of", () => {
+    test("when the link is ended between the claim and the session, the session is deleted and the page says it was stopped", async () => {
+      const clinic = await seedClinic("rbindlost");
+      const token = await issue(clinic);
+      const original = auth.api.startLinkSession.bind(auth.api);
+      const spy = vi.spyOn(auth.api, "startLinkSession").mockImplementationOnce((async (
+        ...args: Parameters<typeof original>
+      ) => {
+        const started = await original(...args);
+        // The operator presses End this link in that moment.
+        await op("endDeviceRecovery", { clinicId: clinic.clinicId });
+        return started;
+      }) as typeof original);
+      try {
+        expect(await postLink(token)).toBe(`/recover/${token}`);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(await sessionsOf(clinic.staffUserId)).toEqual([]);
+      expect(
+        renderToStaticMarkup(await RecoverPage({ params: Promise.resolve({ token }) })),
+      ).toContain("This link was stopped.");
+      expect((await events("device_recovery_unfinished"))[0]!.metadata).toMatchObject({
+        code: "ended_meanwhile",
+        sessionEnded: true,
+      });
+    });
+
+    test("when no session can be started, the link stays spent, nobody is signed in, and the page says plainly a new one is needed", async () => {
+      const clinic = await seedClinic("rnosession");
+      const token = await issue(clinic);
+      const spy = vi
+        .spyOn(auth.api, "startLinkSession")
+        .mockRejectedValueOnce(new Error("the session store is down"));
+      try {
+        expect(await postLink(token)).toBe(`/recover/${token}`);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(await sessionsOf(clinic.staffUserId)).toEqual([]);
+      expect(await lookUpDeviceRecovery(token)).toEqual({ ok: false, reason: "unfinished" });
+      const page = renderToStaticMarkup(await RecoverPage({ params: Promise.resolve({ token }) }));
+      expect(page).toContain("This link didn&#x27;t finish signing you in.");
+      expect(page).toContain("it can&#x27;t be used again");
+      expect((await events("device_recovery_unfinished"))[0]!.metadata).toMatchObject({
+        code: "session_failed",
+        sessionEnded: false,
+      });
+      // The console shows it opened and unfinished; the operator ends it and sends another.
+      expect(await op("getClinicDevices", { clinicId: clinic.clinicId })).toMatchObject({
+        recoveries: [{ state: "claimed" }],
+      });
+      await op("endDeviceRecovery", { clinicId: clinic.clinicId });
+      await issue(clinic);
+    });
+  });
+
+  test("a spent link presented again and again writes one refusal every ten minutes, not one per try", async () => {
+    const clinic = await seedClinic("rthrottle");
+    const token = await issue(clinic);
+    await op("endDeviceRecovery", { clinicId: clinic.clinicId });
+    const elsewhere = await issue(await seedClinic("rthrottle-other"));
+    for (let i = 0; i < 3; i += 1) {
+      expect(await postLink(token, elsewhere)).toBe(`/recover/${token}`);
+    }
+    expect(await events("device_recovery_refused")).toHaveLength(1);
+    await sql(
+      `update security_events set occurred_at = now() - interval '11 minutes' where event = 'device_recovery_refused'`,
+    );
+    await postLink(token, elsewhere);
+    expect(await events("device_recovery_refused")).toHaveLength(2);
+  });
+
+  test("the trigger's window and the CHECK are DEVICE_RECOVERY_TTL_HOURS, the number the email states", async () => {
+    const [fn] = await sql<{ src: string }>(
+      `select prosrc as src from pg_proc where proname = 'app_device_recovery_guard'`,
+    );
+    const hours = [...fn!.src.matchAll(/interval '(\d+) hours'/g)].map((m) => Number(m[1]));
+    expect(hours).toEqual([DEVICE_RECOVERY_TTL_HOURS]);
+    const [check] = await sql<{ def: string }>(
+      `select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'device_recoveries_window_check'`,
+    );
+    expect(check!.def).toContain(
+      `'${String(DEVICE_RECOVERY_TTL_HOURS).padStart(2, "0")}:00:00'::interval`,
+    );
+    expect(DEVICE_RECOVERY_LINK_ENTRY.fixture.validHours).toBe(DEVICE_RECOVERY_TTL_HOURS);
+  });
+
+  test("an issue for a clinic there is none of is refused and recorded too", async () => {
+    const nowhere = randomUUID();
+    expect(await op("issueDeviceRecovery", { clinicId: nowhere, calledBack: true })).toEqual({
+      status: "refused",
+      message: "No such clinic.",
+    });
+    expect(await events("device_recovery_issue_refused")).toEqual([
+      {
+        actor_label: "ops@healdesk.test",
+        user_id: null,
+        metadata: { code: "no_clinic", clinicId: nowhere },
+      },
+    ]);
+  });
+
+  test("a data-only restore brings links back as they were once the guard is off, as docs/handover.md says, and not with it on", async () => {
+    const handover = readFileSync(join(process.cwd(), "..", "..", "docs", "handover.md"), "utf8");
+    expect(handover).toContain(
+      "ALTER TABLE device_recoveries DISABLE TRIGGER device_recoveries_guard;",
+    );
+    expect(handover).toContain(
+      "ALTER TABLE device_recoveries ENABLE TRIGGER device_recoveries_guard;",
+    );
+
+    const clinic = await seedClinic("rrestore");
+    await postLink(await issue(clinic));
+    await lapse(clinic.staffUserId);
+    const before = await sql<Record<string, unknown>>(
+      `select * from device_recoveries order by created_at`,
+    );
+    expect(before).toHaveLength(1);
+    const columns = Object.keys(before[0]!);
+    const reload = async (client: { query: (t: string, v?: unknown[]) => Promise<unknown> }) => {
+      await client.query(`delete from device_recoveries`);
+      for (const row of before) {
+        await client.query(
+          `insert into device_recoveries (${columns.join(", ")}) values (${columns.map((_, i) => `$${i + 1}`).join(", ")})`,
+          columns.map((c) => row[c]),
+        );
+      }
+    };
+    const client = await getMigratorPool().connect();
+    try {
+      // With the guard on, the claimed link is refused.
+      await client.query("begin");
+      await expect(reload(client)).rejects.toMatchObject({ code: "42501" });
+      await client.query("rollback");
+      // The handover's steps: off by name, the load, on again.
+      await client.query("begin");
+      await client.query(`alter table device_recoveries disable trigger device_recoveries_guard`);
+      await reload(client);
+      await client.query(`alter table device_recoveries enable trigger device_recoveries_guard`);
+      await client.query("commit");
+    } finally {
+      client.release();
+    }
+    expect(await sql(`select * from device_recoveries order by created_at`)).toEqual(before);
+    const [enabled] = await sql<{ on: string }>(
+      `select tgenabled as on from pg_trigger where tgname = 'device_recoveries_guard'`,
+    );
+    expect(enabled!.on).toBe("O");
   });
 
   describe("the Continue button, at the page, with the browser's own cookies", () => {

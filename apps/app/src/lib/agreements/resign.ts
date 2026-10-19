@@ -45,7 +45,7 @@ import {
 } from "@/lib/audit";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { recordSupersedingTerms } from "@/lib/booking/elections";
-import { isDemoClinic } from "@/lib/booking/terms";
+import { calendarTermsFor, isDemoClinic } from "@/lib/booking/terms";
 import { updateClinicSettingsRecordingPause } from "@/lib/channels/pause";
 import { AGREEMENT_PAUSE_LABEL, PAUSE_LINE_ORDER } from "@/lib/channels/pause-words";
 import { isPaused } from "@/lib/channels/state";
@@ -167,8 +167,11 @@ import { supersedeAgreement, SupersedeError } from "./kind";
  *   - **The document** is the current BAA rendered from the practice's own
  *     answers: its legal name and signatory from the BAA in force, its
  *     specialty and covered-entity answer from the clinic's record, and the
- *     booking system and Google account the agreement in force recorded, or
- *     the clinic's settings for a version that recorded none (before 1.3.0).
+ *     booking system and Google account of its calendar terms in effect, an
+ *     election since the signature included, since the signature becomes
+ *     those terms (recordSupersedingTerms); without terms in effect, those
+ *     the agreement in force recorded, or the clinic's settings for a
+ *     version that recorded none (before 1.3.0).
  *
  * Contract metadata and business contact data; never a patient.
  */
@@ -1015,19 +1018,29 @@ function documentFromDpa(
  * or null when they cannot render one. A BAA keeps the specialty by its
  * display name, so the id is the clinic's own; the covered-entity answer is
  * the clinic's record now, which ops or the practice may have recorded since
- * it signed; the booking system and Google account are what the agreement in
- * force recorded beside it (1.3.0 on), or the clinic's settings, which the
- * funnel's answers seeded, for a version that recorded neither.
+ * it signed. The booking system and Google account are the location's
+ * calendar terms in effect (`calendar`), an election since the signature
+ * included: the new signature becomes those terms (recordSupersedingTerms),
+ * so answers older than an election would undo it, and the calendar watch
+ * would disconnect a Google account the election had allowed
+ * (`election_changed`). Without terms in effect, what the agreement in force
+ * recorded (1.3.0 on), or the clinic's settings, which the funnel's answers
+ * seeded, for a version that recorded neither.
  */
 function documentFromBaa(
   variables: Record<string, unknown>,
   clinic: { specialty: string; covered: boolean | null },
   settings: { bookingSystem: string | null; calendarAccount: string | null } | undefined,
   signatoryEmail: string,
+  calendar: { bookingSystem: string; calendarAccount: string } | null,
 ): ResignDocument | null {
   const clinicLegalName = textOf(variables.clinicLegalName);
-  const bookingSystem = textOf(variables.bookingSystem) || (settings?.bookingSystem ?? "");
-  const calendarAccount = textOf(variables.calendarAccount) || (settings?.calendarAccount ?? "");
+  const bookingSystem =
+    calendar?.bookingSystem || textOf(variables.bookingSystem) || (settings?.bookingSystem ?? "");
+  const calendarAccount =
+    calendar?.calendarAccount ||
+    textOf(variables.calendarAccount) ||
+    (settings?.calendarAccount ?? "");
   if (
     !clinicLegalName ||
     !isSpecialtyId(clinic.specialty) ||
@@ -1049,7 +1062,12 @@ function documentFromBaa(
   };
 }
 
-/** The current BAA's document for the clinic, from the older BAA in force: documentFromBaa, with the clinic's settings read. */
+/**
+ * The current BAA's document for the clinic, from the older BAA in force:
+ * documentFromBaa, with the clinic's calendar terms in effect and its
+ * settings read. The clinic is the account (a location re-signs through it),
+ * the location set up at signing whose terms the signature records.
+ */
 async function baaResignDocument(
   tx: TenantTx,
   variables: Record<string, unknown>,
@@ -1064,7 +1082,10 @@ async function baaResignDocument(
     .from(clinicSettings)
     .where(eq(clinicSettings.clinicId, tx.clinicId))
     .limit(1);
-  return documentFromBaa(variables, clinic, settings, signatoryEmail);
+  const terms = await calendarTermsFor(tx);
+  const calendar =
+    "account" in terms ? { bookingSystem: terms.bookingSystem, calendarAccount: terms.account } : null;
+  return documentFromBaa(variables, clinic, settings, signatoryEmail, calendar);
 }
 
 async function readLink(tx: TenantTx, resignId: string, forUpdate: boolean) {

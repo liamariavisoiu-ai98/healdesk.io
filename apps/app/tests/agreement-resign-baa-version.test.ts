@@ -11,6 +11,7 @@ import {
   templateReadsCalendarAccount,
 } from "@healdesk/catalog";
 import { effectiveDateOf, prepareSigning } from "@healdesk/catalog/agreement-signing";
+import { fakeGoogleCalendar, resetGoogleTokenCache, setGoogleFetch } from "@healdesk/connectors";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
@@ -27,6 +28,7 @@ import {
   seedChannels,
   seedClinic,
   seedEntitled,
+  seedGoogleConnection,
 } from "./setup/factories";
 import { attestPlatform } from "./setup/platform";
 
@@ -142,6 +144,9 @@ const { renderResignPreview } = await import("@/lib/agreements/resign-preview");
 const { assistantMayAnswer } = await import("@/lib/billing/answering");
 const { PauseError, pauseAya, resumeAya } = await import("@/lib/channels/pause");
 const { AGREEMENT_PAUSE_LABEL } = await import("@/lib/channels/pause-words");
+const { recordAgreementTerms, recordCalendarElection } = await import("@/lib/booking/elections");
+const { calendarTermsFor } = await import("@/lib/booking/terms");
+const { sweepCalendarTerms } = await import("@/lib/connections/google-calendar");
 const { withTenant } = await import("@/lib/tenant");
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -242,6 +247,8 @@ describeDb("re-signing a newer BAA over an older one", () => {
       synthetic?: boolean;
       live?: boolean;
       covered?: boolean | null;
+      /** The kind of Google account signed with it: a Workspace one without Google's BAA unless said. */
+      calendarAccount?: "personal" | "workspace_no_baa";
     } = {},
   ) {
     const covered = options.covered === undefined ? null : options.covered;
@@ -258,7 +265,12 @@ describeDb("re-signing a newer BAA over an older one", () => {
         isCoveredEntity: covered,
         attributionMode: "estimated",
         platform: agreementPlatformFor("none"),
-        ...(legacy ? {} : { bookingSystem: "none", calendarAccount: "workspace_no_baa" }),
+        ...(legacy
+          ? {}
+          : {
+              bookingSystem: "none",
+              calendarAccount: options.calendarAccount ?? "workspace_no_baa",
+            }),
         assentLabel: BAA_ASSENT_LABEL,
         templateVersion: version,
       },
@@ -690,6 +702,121 @@ describeDb("re-signing a newer BAA over an older one", () => {
     expect(await lookUpResignLink(linkIn(l22!.text))).toMatchObject({
       ok: true,
       holdsPause: false,
+    });
+  });
+
+  describe("the location's Google Calendar through the re-sign", () => {
+    let google: ReturnType<typeof fakeGoogleCalendar>;
+    let accounts = 0;
+
+    beforeEach(() => {
+      google = fakeGoogleCalendar();
+      setGoogleFetch(google.fetch);
+      resetGoogleTokenCache();
+    });
+
+    afterAll(() => {
+      setGoogleFetch(undefined);
+    });
+
+    const termsOf = (clinicId: string) =>
+      withTenant({ clinicId, actor: OPERATOR }, (tx) => calendarTermsFor(tx));
+
+    /** A Workspace calendar, stored as the connect flow stores one, on a grant the fake issued. */
+    async function connectWorkspace(clinicId: string) {
+      const sub = `3${Date.now() % 1_000_000_000}${String(++accounts).padStart(6, "0")}`;
+      google.addAccount({ sub, email: `desk${accounts}@practice.test`, hd: "practice.test" });
+      const { refreshToken } = google.grant({ sub });
+      await seedGoogleConnection(clinicId, {
+        managed: true,
+        refreshToken,
+        accountRef: sha256(`google:${sub}`),
+      });
+      return refreshToken;
+    }
+
+    async function connectionOf(clinicId: string) {
+      const { rows } = await inTenant(clinicId, (client) =>
+        client.query<{ status: string; last_error: string | null }>(
+          `select status, last_error from provider_connections
+            where clinic_id = $1 and provider = 'google_calendar'`,
+          [clinicId],
+        ),
+      );
+      return rows[0] ?? null;
+    }
+
+    test("a location that changed its kind of Google account by election re-signs with that account, and keeps its calendar", async () => {
+      // Signed with a personal account; the owner then elected a Workspace one and connected it.
+      const practice = await baaPractice("bvcalelect", { calendarAccount: "personal" });
+      await withTenant({ clinicId: practice.clinicId, actor: OPERATOR }, (tx) =>
+        recordAgreementTerms(tx, practice.agreementId),
+      );
+      const elected = await withTenant({ clinicId: practice.clinicId, actor: OPERATOR }, (tx) =>
+        recordCalendarElection(tx, {
+          choice: { bookingSystem: "none", calendarAccount: "workspace_no_baa" },
+          signatory: { name: "Laura Owner", title: "Owner" },
+          via: { source: "portal", userId: practice.staffUserId },
+        }),
+      );
+      expect(elected).toMatchObject({ status: "recorded" });
+      const refreshToken = await connectWorkspace(practice.clinicId);
+      expect(await termsOf(practice.clinicId)).toMatchObject({
+        account: "workspace_no_baa",
+        source: "portal",
+        sequence: 2,
+      });
+
+      await runAgreementResignsJob();
+      const link = await lookUpResignLink(linkIn(l22For(practice.staffEmail)[0]!.text));
+      if (!link.ok) throw new Error(`the link did not open: ${link.reason}`);
+      // The answers the location holds now, not the ones 1.5.0 recorded.
+      expect(link.document).toMatchObject({
+        bookingSystem: "none",
+        calendarAccount: "workspace_no_baa",
+      });
+      const outcome = await signFromL22(practice.staffEmail);
+      if (outcome.status !== "signed") throw new Error(`not signed: ${JSON.stringify(outcome)}`);
+      expect(await termsOf(practice.clinicId)).toMatchObject({
+        account: "workspace_no_baa",
+        source: "agreement",
+        sequence: 3,
+        agreementId: outcome.agreementId,
+        allowsWrite: true,
+      });
+
+      expect(await sweepCalendarTerms([practice.clinicId])).toMatchObject({
+        checked: 1,
+        disconnected: 0,
+        failed: 0,
+      });
+      expect(await connectionOf(practice.clinicId)).toEqual({ status: "active", last_error: null });
+      expect(google.grantOf(refreshToken)?.revoked).toBe(false);
+    });
+
+    test("a plain BAA-version re-sign keeps the location's calendar too", async () => {
+      const practice = await baaPractice("bvcalplain");
+      await withTenant({ clinicId: practice.clinicId, actor: OPERATOR }, (tx) =>
+        recordAgreementTerms(tx, practice.agreementId),
+      );
+      const refreshToken = await connectWorkspace(practice.clinicId);
+
+      await runAgreementResignsJob();
+      const outcome = await signFromL22(practice.staffEmail);
+      if (outcome.status !== "signed") throw new Error(`not signed: ${JSON.stringify(outcome)}`);
+      expect(await termsOf(practice.clinicId)).toMatchObject({
+        account: "workspace_no_baa",
+        source: "agreement",
+        sequence: 2,
+        agreementId: outcome.agreementId,
+      });
+      expect(await sweepCalendarTerms([practice.clinicId])).toMatchObject({
+        checked: 1,
+        disconnected: 0,
+        failed: 0,
+      });
+      expect(await connectionOf(practice.clinicId)).toEqual({ status: "active", last_error: null });
+      expect(google.grantOf(refreshToken)?.revoked).toBe(false);
     });
   });
 

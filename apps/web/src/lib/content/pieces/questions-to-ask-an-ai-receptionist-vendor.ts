@@ -13,10 +13,10 @@ export const piece: Piece = {
   family: "standards",
   title: "Questions to ask any AI receptionist vendor",
   description:
-    "Eight questions a clinic can put to any AI receptionist vendor, each with the sourced reason to ask it and what a complete answer includes.",
+    "Eight questions a clinic can put to any AI receptionist vendor, each with the reason to ask it and what a complete answer includes.",
   answer:
     "A clinic can test any AI receptionist vendor with eight questions, on AI disclosure, business associate agreements, first contact, price, booking, failure, complications and what is kept. " +
-    "Each section below gives the reason to ask, with its source, and what a complete answer includes.",
+    "Each section below gives the reason to ask, with its source where a law, a survey or a platform's documentation supplies one, and what a complete answer includes.",
   stage: "draft",
   legal: false,
   published: "2026-10-19",
@@ -29,9 +29,9 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "A Pew Research Center survey published in August 2026 found that most US adults want to be told when a healthcare provider uses AI in their care. " +
+            "A Pew Research Center survey of 3,488 US adults, published in August 2026, found that most want to be told when a healthcare provider uses AI in their care. " +
             "Pew reports that 72% of US adults say it is extremely or very important that a doctor or other healthcare provider tells them if they are using AI in their healthcare. " +
-            "The survey covered 3,488 adults on Pew's American Trends Panel from 22 to 28 June 2026, and 56% said a provider or its office should tell them when AI schedules a medical appointment. " +
+            "Asked about specific tasks, 56% said a provider or its office should tell them when AI schedules a medical appointment, the lowest share of any task, and 33% said it should not. " +
             "Several states also have disclosure rules that can reach an assistant answering a clinic's phone or chat, which [Does an AI receptionist have to say it is an AI?](/guides/does-an-ai-receptionist-have-to-say-it-is-an-ai) sets out. " +
             "What a caller must be told about transcription is covered in [AI call transcription consent by state](/guides/ai-call-transcription-consent-by-state).",
           cite: ["pew-2026"],
@@ -85,7 +85,7 @@ export const piece: Piece = {
             "The Federal Communications Commission ruled in February 2024 that the Telephone Consumer Protection Act's restrictions on calls using an \"artificial or prerecorded voice\" cover current AI technologies that generate human voices. " +
             "Such calls need the prior express consent of the person called, unless they serve an emergency purpose or an exemption applies (FCC 24-17). " +
             "The ruling treats AI-generated voices as \"artificial\" because a person is not speaking them. " +
-            "Reminders, call-backs to missed calls, reactivation campaigns and review requests are each a contact that the patient did not start.",
+            "Reminders, call-backs to missed calls, reactivation campaigns and review requests are each a contact that the patient did not start, and the ruling concerns those made as calls in an AI-generated voice.",
           cite: ["fcc-24-17"],
         },
         { kind: "h3", text: "What a complete answer includes" },
@@ -131,7 +131,7 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "An AI receptionist that books appointments writes into a calendar or booking system through a connection the clinic grants, and that connection can stop working. " +
+            "An AI receptionist that books into a clinic's own calendar or booking system does so through a connection the clinic grants, and that connection can stop working. " +
             "Google's documentation for its APIs lists the reasons a refresh token, the credential behind such a connection, might stop working. " +
             "Two of them are that the user has revoked the app's access and that the token has not been used for six months. " +
             "A booking written into a calendar that the clinic's own booking system does not read for conflicts can also be booked over by staff or by that system's online booking.",
@@ -158,7 +158,7 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "Under conditional call forwarding, the clinic's own line sends some or all of its calls to the vendor's number, as the guide to [conditional call forwarding](/guides/conditional-call-forwarding) explains. " +
+            "Under call forwarding, conditional or unconditional, the clinic's own line sends some or all of its calls to the vendor's number, as the [guide to call forwarding](/guides/conditional-call-forwarding) explains. " +
             "Once forwarded, a call rings the vendor's system, so whatever that system does during an outage, a pause or a suspension is what the clinic's callers hear. " +
             "The same holds for a chat window on the clinic's website that stops answering.",
         },
@@ -182,16 +182,16 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "California's AB 1979, approved on 30 September 2026 as Chapter 854 of the Statutes of 2026, adds section 22758.5 to the Business and Professions Code. " +
+            "California's AB 1979, approved on 30 September 2026 as Chapter 854 of the Statutes of 2026, adds section 22758.5 to the Business and Professions Code with effect from 1 January 2027. " +
             "It bars a health facility, clinic, physician's office or group practice office from using a tool that includes artificial intelligence to independently perform a clinical function the law reserves for a licensed person. " +
             "It also bars using such a tool to direct, guide, supervise or instruct unlicensed staff in performing such a function.",
-          cite: ["ca-ab-1979"],
+          cite: ["ca-ab-1979", "ca-const-iv-8"],
         },
         {
           kind: "p",
           text:
-            "The section does not apply to automated systems used for documentation and communication that involve no professional judgment. " +
-            "Its definition of clinical decision support also leaves out booking, cancelling and rescheduling appointments, to the extent that doing so needs no professional licence. " +
+            "The section does not apply to automated decision systems used for documentation and communication that involve no professional judgment. " +
+            "The definition of clinical decision support, which the section uses only for its duty to preserve a licensed provider's independent judgment, leaves out booking, cancelling and rescheduling appointments where that needs no professional licence. " +
             "It does not list which replies to a patient describing a complication count as a clinical function.",
           cite: ["ca-ab-1979"],
         },
@@ -216,7 +216,7 @@ export const piece: Piece = {
           kind: "p",
           text:
             "A business associate agreement must require the business associate, when the contract ends, to return or destroy all the protected health information it still holds and keep no copies, if that is feasible. " +
-            "Where return or destruction is not feasible, the agreement must extend its protections to the information and limit further use to the purposes that make it infeasible (45 CFR 164.504(e)(2)(ii)(J)). " +
+            "Where return or destruction is not feasible, the agreement must extend its protections to the information and limit further uses and disclosures to the purposes that make it infeasible (45 CFR 164.504(e)(2)(ii)(J)). " +
             "What a vendor holds when the contract ends depends on what it keeps while the contract runs, including recordings, transcripts, summaries and copies held by its own providers.",
           cite: ["ecfr-164-504"],
         },
@@ -235,9 +235,10 @@ export const piece: Piece = {
     },
   ],
   aya: [
-    "AYA's own answers to each of these questions are published at [How AYA is built to behave](/standards/how-aya-is-built-to-behave), with its prices on the [pricing](/pricing) page.",
-    "AYA has not yet answered a real patient, so those answers describe how it is designed rather than a record of live use.",
-    "That page carries the date it was last checked against the product.",
+    "AYA's monthly prices and setup fees are on the [pricing](/pricing) page, so the price question is answered before any sales call.",
+    "AYA is built to say it is an AI assistant in its first line on every channel, and to contact no patient first.",
+    "We sign a business associate agreement and handle patient data under it.",
+    "AYA has not yet answered a real patient, so these describe how it is designed rather than a record of live use.",
   ],
   sources: [
     {
@@ -286,6 +287,15 @@ export const piece: Piece = {
       title: "AB 1979, Health care services: artificial intelligence (Chapter 854, Statutes of 2026)",
       publisher: "California Legislature",
       url: "https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1979",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "ca-const-iv-8",
+      title:
+        "California Constitution, Article IV, § 8(c), effective date of statutes",
+      publisher: "California Legislature",
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CONS&sectionNum=SEC.%208.&article=IV",
       kind: "statute",
       checked: "2026-10-19",
     },

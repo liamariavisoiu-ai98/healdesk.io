@@ -15,6 +15,7 @@ import { CHANNEL_LIVE_ENTRY } from "./channel_live";
 import { CHANNEL_READY_ENTRY } from "./channel_ready";
 import { CONNECT_CONNECTED_ENTRY } from "./connect_connected";
 import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
+import { DAILY_SUMMARY_ENTRY } from "./daily_summary";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
 import { GRACE_ENDING_ENTRY } from "./grace_ending";
 import { LOCATION_ADDED_ENTRY } from "./location_added";
@@ -42,6 +43,7 @@ import { SUPPORT_REQUEST_ENTRY } from "./support_request";
 import { SUSPENDED_ENTRY } from "./suspended";
 import type { EmailTemplate } from "./types";
 import { USAGE_100_ENTRY, USAGE_80_ENTRY } from "./usage_alert";
+import { WEEKLY_RECAP_ENTRY } from "./weekly_recap";
 import { WELCOME_ENTRY } from "./welcome";
 
 /**
@@ -127,6 +129,11 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // The practice questions (M4, package B): O8 and O9.
   assistant_ready: ASSISTANT_READY_ENTRY,
   practice_questions_failed: PRACTICE_QUESTIONS_FAILED_ENTRY,
+  // The claims function's emails (M6, package WP4): L13, the daily summary,
+  // and L14, the weekly recap, which goes alone only while no summary can
+  // carry it.
+  daily_summary: DAILY_SUMMARY_ENTRY,
+  weekly_recap: WEEKLY_RECAP_ENTRY,
 };
 
 /**
@@ -140,7 +147,6 @@ export type OwingPackage =
   | "F"
   | "WP1"
   | "WP3"
-  | "WP4"
   | "WP5"
   | "WP6"
   | "WP7"
@@ -208,6 +214,8 @@ export const PENDING_TEMPLATES: Record<
     | "support_escalation"
     | "assistant_ready"
     | "practice_questions_failed"
+    | "daily_summary"
+    | "weekly_recap"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -225,9 +233,6 @@ export const PENDING_TEMPLATES: Record<
   urgent: { owner: "plan", package: "F", ships: "M5 (L12)" },
   website_message: { owner: "plan", package: "F", ships: "M5 (L20)" },
   calendar_check: { owner: "plan", package: "F", ships: "M5 (L34)" },
-  // WP4: the claims function's emails.
-  daily_summary: { owner: "plan", package: "WP4", ships: "M6 (L13)" },
-  weekly_recap: { owner: "plan", package: "WP4", ships: "M6 (L14, retargeted)" },
   // The runtime's routed/answered counter: blocked, owned by no package yet.
   outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
   outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },

@@ -6,11 +6,13 @@ import type { AiPausedPayload } from "@/lib/email/templates/ai_paused";
 import type { CalendarStatePayload } from "@/lib/email/templates/calendar_state";
 import type { ChannelLivePayload } from "@/lib/email/templates/channel_live";
 import type { ChannelReadyPayload } from "@/lib/email/templates/channel_ready";
+import type { DailySummaryPayload } from "@/lib/email/templates/daily_summary";
 import type { PracticeQuestionsFailedPayload } from "@/lib/email/templates/practice_questions_failed";
 import type { SettingChangedPayload } from "@/lib/email/templates/setting_changed";
 import type { SetupClosedPayload } from "@/lib/email/templates/setup_closed";
 import type { SetupReminderPayload } from "@/lib/email/templates/setup_reminder";
 import type { SupportRequestPayload } from "@/lib/email/templates/support_request";
+import type { WeeklyRecapPayload } from "@/lib/email/templates/weekly_recap";
 
 /**
  * The plan's own outbox kinds (lib/email/kinds.ts, owner "plan"): their
@@ -73,8 +75,10 @@ export type PlanNoticePayloads = {
   urgent: OwedPayload;
   website_message: OwedPayload;
   calendar_check: OwedPayload;
-  daily_summary: OwedPayload;
-  weekly_recap: OwedPayload;
+  /** Dedupe `daily_summary:<clinic-local date>`: once per working day (lib/scheduler/daily-summary.ts). */
+  daily_summary: DailySummaryPayload;
+  /** Dedupe `weekly_recap:<ISO week of last week's Monday>`: once per week (lib/scheduler/weekly-recap.ts). */
+  weekly_recap: WeeklyRecapPayload;
   outage_started: OwedPayload;
   outage_ended: OwedPayload;
   guarantee_miss: OwedPayload;

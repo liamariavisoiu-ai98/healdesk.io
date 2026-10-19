@@ -136,6 +136,10 @@ function classOfKey(key: string): ValueClass | null {
   if (key === "planId" || key === "plan" || key === "boughtPlanId") return "planId";
   if (key === "channel" || key === "channels") return "channel";
   if (key === "rows" || /Rows$/.test(key)) return "rows";
+  // The claims (lib/reporting/claim-words.ts ClaimsPayload) as one nested
+  // object, `dayClaims` and `weekClaims` in L13 and L14: counts and cents,
+  // each field checked against this same list, one level down.
+  if (/Claims$/.test(key)) return "rows";
   if (/^(is|has|was|can|will)[A-Z]/.test(key)) return "flag";
   if (/Cents$/.test(key)) return "cents";
   if (/Url$/.test(key)) return "url";

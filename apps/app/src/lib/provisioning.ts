@@ -521,8 +521,14 @@ async function provisionOnce({
     if (agreement.calendarTerms) {
       await recordAgreementTerms(provisioningTx, request.agreementId);
     }
-    // The buyer is the first recipient of the monthly report; the clinic can
-    // point it at a front-desk inbox later from the console.
+    // The buyer, seeded into report_recipients. No clinic email reads the
+    // list any more: the daily summary and the weekly recap go through the
+    // outbox to the clinic's one address (lib/scheduler/daily-summary.ts,
+    // weekly-recap.ts), and package F retires the desk's direct mail. It is
+    // still read, so it is still written: billingRecipients() and
+    // calendarRecipients() fall back to this provisioning-seeded row for a
+    // clinic with no owner membership, the ops care view and health page
+    // list it, and the phase-two monthly report mails it.
     await addRecipient(provisioningTx, {
       email: request.contactEmail,
       label: request.contactName.trim() || undefined,

@@ -168,6 +168,16 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "AYA could not pass a call through because the clinic has no direct line set, so she answered it with the fixed safe script. Ask the clinic for a direct line that does not forward back to us.",
   },
+  voice_call_start_failed: {
+    title: "A call started while the database could not be read",
+    action:
+      "The voice endpoint could not read the clinic's settings when a call came in. The code says where the call went: transferred_gate, transferred_database, transferred_memory or transferred_retell sent it to the clinic's direct line (named by the answer gate before the failure, read on its own from a database that failed one query rather than hung, remembered from the clinic's last call, or read back from Retell), closed means no direct line was known and the caller heard the closing line, and hung_up that the call ended (the caller hung up, or the voice process shut down) before either. Check the database first; if it stays down, put Retell in outage mode (docs/on-call.md).",
+  },
+  retell_fallback_unsynced: {
+    title: "A Retell fallback is not the direct line",
+    action:
+      "The hourly sync could not set the fallback number of the clinic's AYA number in Retell to its direct line. The code says why: duplicate (two clinics name the same AYA number, whose fallback is cleared; fix the wrong one in Ops), missing (Retell has no such number), not_kept (Retell answered but did not keep it, or failed while setting it), rejected, unreachable or database; key_refused (Retell refused HEALDESK_RETELL_API_KEY) and retell_unreachable (three numbers in a row timed out) stop the run for every clinic. Until it is fixed, outage mode and a voice task started during a database outage cannot send that clinic's calls to its direct line. Check the number in Retell's dashboard and HEALDESK_RETELL_API_KEY.",
+  },
   plan_start_after_cancel: {
     title: "A plan started on a subscription set to cancel",
     action:

@@ -538,20 +538,24 @@ export const KEYS: readonly KeyDef[] = [
     id: "aws.HEALDESK_RETELL_API_KEY",
     env: "HEALDESK_RETELL_API_KEY",
     home: "aws",
-    label: "Retell key (engine): signs call-ended messages and reads a call back",
-    // Optional, not later: the live line runs without it, and only the
-    // backstop for a call the voice task never recorded is off. As "later"
-    // it would show the whole voice line off while calls were being answered.
-    // Pasted with the line password, from the clinics' own Retell workspace
-    // (under Retell's agreement, never the demo line's, whose keys are on
-    // Vercel), the key with the webhook badge; each clinic's agent webhook is
+    label: "Retell key (engine): call-ended messages, a call read back, each number's fallback line",
+    // Optional, not later: the live line runs without it. Without it the
+    // backstop for a call the voice task never recorded is off, and no AYA
+    // number has the clinic's direct line as Retell's fallback (the hourly
+    // sync, lib/voice/retell-fallback-sync.ts; the voice endpoint reads it
+    // back when the database is down, fallback-line.ts). As "later" it would
+    // show the whole voice line off while calls were being answered. Pasted
+    // with the line password, from the clinics' own Retell workspace (under
+    // Retell's agreement, never the demo line's, whose keys are on Vercel),
+    // the key with the webhook badge; each clinic's agent webhook is
     // https://app.healdesk.io/api/webhooks/retell/<clinic id>.
     need: "optional",
+    neverSameAs: "vercel.RETELL_API_KEY",
     rotation: {
       kind: "every",
       days: 180,
-      how: `Make a new key in Retell (Settings, API Keys) and give it the webhook badge. ${AWS_HOW("HEALDESK_RETELL_API_KEY")} Then delete the old one.`,
-      impact: "Retell's call-ended messages are refused until the restart, and Retell retries them only for a few seconds: a call lost by a crash in that window stays unrecorded.",
+      how: `Make a new key in Retell (Settings, API Keys), in the workspace under the agreement, never the demo line's, and give it the webhook badge. ${AWS_HOW("HEALDESK_RETELL_API_KEY")} Then delete the old one.`,
+      impact: "Until the restart, Retell's call-ended messages are refused, and Retell retries them only for a few seconds, so a call lost by a crash in that window stays unrecorded; the hourly fallback sync cannot reach Retell and says so in Ops. Calls carry on.",
     },
   },
   {
@@ -1157,7 +1161,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. If our voice endpoint is down, nothing of ours sends the call to the clinic's line: that rests on each Retell agent's own failure setting, so check it names the clinic's direct line. If Retell itself is down, no setting of Retell's runs, and the clinic's forwarding has to be removed by hand (the automatic fall-through is not built).",
+      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. Retell has no setting that sends a call on when our voice endpoint cannot be reached: after about 27 seconds of nothing it gives up and the call drops. So when the endpoint is down, you put Retell in outage mode, which by Retell's support material sends each number's calls to its fallback, the clinic's direct line, kept there every hour by the engine (that needs the Retell key). Outage mode has not been tried here: check the plan has it and make one test call before relying on it. If Retell itself is down, nothing of Retell's runs, and each clinic has to remove its forwarding by hand: nothing tells them automatically.",
   },
   {
     id: "retell-app",
@@ -1183,12 +1187,16 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "AYA puts the caller through to the clinic",
     carries: "The live call, to the clinic's direct line",
     example: "The clinic has paused AYA; Maria's call is answered with one line and put straight through to the front desk.",
+    // The transfer needs no key. The Retell key (on retell-app, where its
+    // absence reads as one part off) only adds the fallback; listed here as
+    // the bridge's only key, its absence would show every transfer off.
+    keyless: "The engine names the clinic's direct line and Retell dials it. The Retell key keeps that line as each number's fallback, for outage mode and for a call that starts while the database is down.",
     keys: [],
-    keyless: "The engine names the clinic's direct line and Retell dials it; no key of ours.",
     dependsOn: "retell-app",
     phi: true,
     build: "built",
-    buildNote: "Only while our endpoint is up, and only where the clinic has set a direct line.",
+    buildNote:
+      "Wherever the clinic has set a direct line: when AYA is paused, capped or suspended, when the model fails twice, when answering a turn fails, and when a call starts while the database is down (the engine remembers each clinic's line from its last call, and otherwise reads it back from Retell). In Retell's outage mode, untested here, Retell would dial it without us. With no line known, the caller hears a closing line.",
   },
   {
     id: "patients-widget",

@@ -219,10 +219,11 @@ describeDb("the Retell voice endpoint", () => {
     const closed = await call(port, `/llm-websocket/${SECRET}/${withoutLine.clinicId}/call_kind_closed`);
     await closed.waitFor((r) => responses(r).length >= 1);
     expect(responses(closed.received)[0]).toMatchObject({ response_id: 0, content: CLOSED_LINE, end_call: true });
-    // Nothing a caller says reaches the model afterwards.
+    // Nothing a caller says reaches the model afterwards: Retell keeps only
+    // the latest response, so a later request hears the closing line again.
     closed.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "Hello?" }] });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(responses(closed.received)).toHaveLength(1);
+    expect(responses(closed.received).map((r) => r.content)).toEqual([CLOSED_LINE, CLOSED_LINE]);
     expect(asked).toBe(false);
     await closed.close();
   });
@@ -267,8 +268,14 @@ describeDb("the Retell voice endpoint", () => {
         gate: failingGate,
         ingest: async () => ({ conversationId: null }) as never,
         realCalls: true,
+        // The places that hold the line without the database hold nothing
+        // here: this is the line read on its own, or nothing.
+        fallbackLine: async () => null,
+        callDetailsWaitMs: 0,
       });
       await session.open();
+      // The fall-through runs beside the message chain: wait for it to speak.
+      for (let i = 0; i < 60 && responses(sent).length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 50));
       return responses(sent);
     };
     const withLine = await seedClinic("retell-start-line");
@@ -368,8 +375,10 @@ describeDb("the Retell voice endpoint", () => {
       c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "Could I book a consultation?" }] });
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect(c.received[0]).toEqual({ response_type: "config", config: { auto_reconnect: true, call_details: false } });
+      // The caller who speaks before the transfer hears it again, never AYA.
       expect(responses(c.received)).toEqual([
         { response_type: "response", response_id: 0, content: TRANSFER_LINE, content_complete: true, end_call: false, transfer_number: "+14155550124" },
+        { response_type: "response", response_id: 1, content: TRANSFER_LINE, content_complete: true, end_call: false, transfer_number: "+14155550124" },
       ]);
       await hangUp(c);
       expect(asked).toBe(false);
@@ -394,9 +403,11 @@ describeDb("the Retell voice endpoint", () => {
       const c = await call(testPort, `/llm-websocket/${SECRET}/${demo.clinicId}/call_test_demo`);
       await c.waitFor((r) => responses(r).length >= 1);
       expect(c.received[0]).toEqual({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
-      expect(String(responses(c.received)[0]!.content)).toMatch(/^Hi, I'm an AI assistant for .* — not a human\. This call is transcribed/);
+      const opening = String(responses(c.received)[0]!.content);
+      expect(opening).toMatch(/^Hi, I'm an AI assistant for .* — not a human\. This call is transcribed/);
       c.send({ interaction_type: "call_details", call: { call_id: "call_test_demo", from_number: "+14155550194", direction: "inbound" } });
-      c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "When are you open?" }] });
+      // As Retell sends it: the opening line, spoken, is in the transcript.
+      c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "agent", content: opening }, { role: "user", content: "When are you open?" }] });
       await c.waitFor((r) => responses(r).length >= 2);
       expect(responses(c.received)[1]).toMatchObject({ response_id: 1, content: "We're open weekdays nine to five." });
       await hangUp(c);

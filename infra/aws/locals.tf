@@ -204,7 +204,8 @@ locals {
   # Traced from src/workers/index.ts: the database, session signing (email
   # stop links), identifier references, provisioning's signature, mail,
   # Stripe, Google for the calendar watch, sync and connection health, and
-  # Retell's key for the voice call backstop, which reads a call back.
+  # Retell's key for the voice call backstop, which reads a call back, and for
+  # the hourly fallback-number sync (lib/voice/retell-fallback-sync.ts).
   worker_secret_names = [
     "BETTER_AUTH_SECRET",
     "DATABASE_URL",

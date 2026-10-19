@@ -25,6 +25,7 @@ import { runSetupRemindersJob } from "@/lib/setup/reminders";
 import { runAddressChangesJob } from "@/lib/sign-in/address-change";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 import { runSiteReadsSweep, runWebsiteDriftJob } from "@/lib/website/job";
+import { syncRetellFallbacks } from "@/lib/voice/retell-fallback-sync";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
@@ -227,6 +228,11 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // until the owner switches it on, the monthly check of each live clinic.
   await record("site-reads", () => runSiteReadsSweep({ now: () => now }));
   await record("website-drift", () => runWebsiteDriftJob({ now }));
+  // The voice fall-through (T14): each clinic's AYA number in Retell keeps
+  // the clinic's direct line as its fallback, for outage mode and for a voice
+  // task that cannot read the database (lib/voice/retell-fallback-sync.ts).
+  // Not a switched job: it does nothing until HEALDESK_RETELL_API_KEY is set.
+  await record("retell-fallback", () => syncRetellFallbacks());
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));

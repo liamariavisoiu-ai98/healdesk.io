@@ -190,7 +190,7 @@ would land in the state at the next plan.) The real values are written inside AW
 | `app/STRIPE_CONNECT_WEBHOOK_SECRET` | The owner, from doorbell B (Stripe's Connect endpoint at `https://app.healdesk.io/api/webhooks/stripe-connect`) | web |
 | `app/META_APP_SECRET`, `app/META_VERIFY_TOKEN`, `app/ANTHROPIC_API_KEY` | The owner, only once the BAA chain allows ("What still blocks real patient data") | web |
 | `app/HEALDESK_RETELL_LLM_SECRET` | The owner, before turning `enable_voice` on: a random value, at least 32 characters (letters, digits, `-` and `_` only, since it is a URL path segment: `openssl rand -hex 32`); the same value goes into each clinic's Retell agent URL ("The voice endpoint", below). It may be pasted before the agreements for a test call on the demo clinic only, which the voice process enforces until `voice_real_calls` is on ("Turning it on"). Unset (`__unset__`), the voice process refuses every call | voice (and web, which gets every `app/` parameter) |
-| `app/HEALDESK_RETELL_API_KEY` | The owner, with `HEALDESK_RETELL_LLM_SECRET`: the API key of the Retell workspace the clinics' agents are in, the one with the webhook badge. That workspace is the one under Retell's BAA and holds no demo agent: a key reads every call in its workspace, and the demo's keys sit on Vercel, which handles no patient data. It verifies Retell's call-ended webhook (`/api/webhooks/retell/<clinic id>`) and lets the worker read a call back (`GET https://api.retellai.com/v2/get-call/<id>`), the backstop for a call the voice task never recorded ("The voice endpoint", below). Unset, the webhook answers 503 and nothing is backstopped | web (the webhook), worker (the backstop job), and voice, which gets every `app/` parameter the web tier does |
+| `app/HEALDESK_RETELL_API_KEY` | The owner, with `HEALDESK_RETELL_LLM_SECRET`: the `key_...` API key of the Retell workspace the clinics' agents are in, the one with the webhook badge (never the marketing site's `RETELL_API_KEY`). That workspace is the one under Retell's BAA and holds no demo agent: a key reads every call in its workspace, and the demo's keys sit on Vercel, which handles no patient data. It verifies Retell's call-ended webhook (`/api/webhooks/retell/<clinic id>`) and lets the worker read a call back (`GET https://api.retellai.com/v2/get-call/<id>`), the backstop for a call the voice task never recorded; it keeps each clinic's AYA number's fallback on its direct line, hourly, and lets the voice endpoint read that line back while the database is down (`docs/on-call.md`, "Voice: where a call goes when something fails"). Unset, the webhook answers 503 and nothing is backstopped, the sync reports `skipped`, and outage mode has no direct lines to send calls to | web (the webhook), worker (the backstop job and the sync), voice (the fallback line) |
 | `ci/CLOUDFLARE_API_TOKEN` (not Terraform's) | The owner, before the first plan, under the bootstrap stack's key | `infra.yml` and `host.yml`, after they assume the Terraform role |
 | RDS master secret (Secrets Manager, managed by RDS, rotated every 7 days) | RDS | db-bootstrap only, through the execution role |
 
@@ -1191,7 +1191,7 @@ calls drop and the other answers the next.
    agreement yet, so no real clinic's Retell agent or call forwarding may point at Retell before
    its agreement is signed. The demo clinic's calls are answered and kept like any call, so give
    its Retell agent a number only you dial, never one a patient could find. Real patients' calls
-   wait for every link of the BAA chain, Retell's included ("What still blocks real patient data"), and then step 7.
+   wait for every link of the BAA chain, Retell's included ("What still blocks real patient data"), and then step 8.
 2. Generate the secret and paste it, in CloudShell: `openssl rand -hex 32`, then
    `bash put-external-secrets.sh HEALDESK_RETELL_LLM_SECRET`. The script asks for a typed answer:
    `test` for a test call on the demo clinic only, while the agreements are not signed, or `yes`
@@ -1231,7 +1231,14 @@ calls drop and the other answers the next.
    asking Retell. Check on the test call: the web log shows no `retell webhook signature did
    not verify`, and ten minutes later the worker log shows `voice call backstop found the call
    recorded` (the live line got there first), never `voice call recorded by the backstop`.
-7. Real calls, only once every agreement in the chain is signed: `voice_real_calls = true` in
+7. **The fall-through.** With the key from step 6 pasted and the tasks restarted, within the hour the worker's `retell-fallback`
+   job sets each clinic's AYA number's fallback in Retell to the clinic's direct line; the job
+   list shows its count. Retell drops a call whose endpoint it cannot reach, so this fallback,
+   with outage mode turned on in Retell's dashboard, is how calls reach the clinic while our
+   endpoint is down. Outage mode is described in Retell's support material, not in its API
+   reference, and has not been tried here, so this step is also its first test (`docs/on-call.md`, "Voice endpoint down"). Make one test call to a made-up
+   clinic with outage mode on, and check it rings that clinic's direct line.
+8. Real calls, only once every agreement in the chain is signed: `voice_real_calls = true` in
    `production.tfvars`, merge, run `infra.yml` with `apply`, then a full `deploy-app.yml` (not
    `restart_only`: the flag is in the task definition). Then each real clinic's agent may get the
    address. Turning it back off is the same three steps with `false`.
@@ -1314,9 +1321,10 @@ Synthflow routes' two secrets were retired on 14 October 2026, `ssm.tf`.)
 Records and drills still open (the compliance map's §4): this module's first apply and deploy;
 the restore drill (T9); the rotation runbook (T6; the table above is its draft, not yet adopted or
 exercised); the tabletop exercise; the Security Official's name and sign-off; attorney review, a
-penetration test and the access review; the automatic fall-through to the clinic's line (T14), and
-until it exists, a check that Retell's own failure behaviour forwards to the clinic's direct line;
-and every v1 surface the spec still lists as unbuilt.
+penetration test and the access review; for the fall-through to the clinic's line (T14), pasting
+`app/HEALDESK_RETELL_API_KEY` and one test call with Retell in outage mode (Retell drops a call
+whose endpoint it cannot reach, so outage mode, turned on by a person, is the step for our endpoint
+being down: `docs/on-call.md`); and every v1 surface the spec still lists as unbuilt.
 
 ---
 

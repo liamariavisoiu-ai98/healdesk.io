@@ -98,9 +98,9 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     id: "failure-direct-line",
     promise: "Every failure ends with calls going to a direct clinic line",
     where: "Terms, portal behaviour screens, CLAUDE.md",
-    status: "on",
-    left: "Endpoint or vendor failure is each clinic's Retell agent's own fallback transfer to the direct line, set when the agent is created.",
-    evidence: "apps/app/src/lib/voice/retell.ts (RetellCallSession.open), apps/app/src/lib/billing/answering.ts (patientDataRefused), apps/app/tests/retell-voice.test.ts",
+    status: "owner",
+    left: "Inside our endpoint every failure transfers to the direct line wherever the line can be known, a database outage included; with none known the caller hears a closing line. Left for you: paste the Retell key (HEALDESK_RETELL_API_KEY), so the hourly sync gives each AYA number the clinic's direct line as Retell's fallback; confirm the plan has Retell's outage mode, the step for our endpoint being down, and make one test call on a made-up clinic with it on. Retell itself being down still means each clinic removing its forwarding by hand.",
+    evidence: "apps/app/src/lib/voice/retell.ts, apps/app/src/lib/voice/fallback-line.ts, apps/app/src/lib/voice/retell-fallback-sync.ts, apps/app/src/lib/billing/answering.ts (patientDataRefused), docs/on-call.md",
     blocksGoLive: true,
   },
   {

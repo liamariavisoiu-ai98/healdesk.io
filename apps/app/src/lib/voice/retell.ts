@@ -4,16 +4,18 @@ import { clinicSettings } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
-import { answerTurn, EMPTY_CAPTURE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
+import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { describeError, log } from "@/lib/log";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { notifyOps } from "@/lib/ops/notify";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
+import { fallbackLineFor, rememberDirectLine, type FallbackLookup } from "./fallback-line";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
 import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./test-calls";
 
@@ -67,6 +69,11 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  * caller to the clinic's direct line where there is one. With none, the
  * assistant takes the caller's details, so the call still reaches someone;
  * once the Services have ended, it closes the call with a fixed line.
+ * A call that cannot start because the database cannot be read goes to the
+ * direct line too, known without the database (fallback-line.ts: this
+ * process's memory of the clinic's last call, then the fallback number Retell
+ * holds for the clinic's AYA number); only with neither does it close. A
+ * fault while answering a turn is a failure like the model's, never silence.
  *
  * Nothing here is written to disk or a log but ids, counts and outcomes. The
  * call's words live in this object until the ingest seals them.
@@ -85,7 +92,7 @@ type RetellEvent = {
   response_id?: unknown;
   transcript?: unknown;
   timestamp?: unknown;
-  call?: { from_number?: unknown; direction?: unknown; start_timestamp?: unknown; call_id?: unknown };
+  call?: { from_number?: unknown; to_number?: unknown; direction?: unknown; start_timestamp?: unknown; call_id?: unknown };
 };
 
 export type RetellOutbound =
@@ -102,7 +109,54 @@ export type RetellSessionDeps = {
   /** Real patients' calls allowed; unset reads HEALDESK_VOICE_REAL_CALLS. */
   realCalls?: boolean;
   screen?: (clinicId: string) => Promise<TestCallScreen>;
+  /** Where the call goes when the database cannot be read (fallback-line.ts). */
+  fallbackLine?: FallbackLookup;
+  /** How long a call that cannot start waits for Retell's call details, which name the number called. */
+  callDetailsWaitMs?: number;
+  /** How long the gate and the clinic's facts may take before the call falls through. */
+  startDeadlineMs?: number;
 };
+
+/**
+ * A database that hangs rather than refuses (a blackholed route, a stalled
+ * failover, a full pool) would otherwise hold the caller in silence for as
+ * long as the connection takes to give up, which the pool does not bound.
+ */
+const START_DEADLINE_MS = 3_000;
+/**
+ * A start that passed its deadline with no line known anywhere may still be
+ * slow rather than dead (the gate also sends ops and clinic email): it gets
+ * this much longer to answer the call normally before the closing line.
+ */
+const LATE_START_GRACE_MS = 5_000;
+/** The direct line read alone, for a start that failed rather than hung. */
+const LINE_ALONE_DEADLINE_MS = 1_500;
+/** The urgent and handover alerts' writes; past it the reply is said without them. */
+const ALERT_DEADLINE_MS = 2_000;
+
+/** `promise`, or a rejection once `ms` have passed. Never leaves a timer behind. */
+function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  promise.catch(() => {});
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Deadline()), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+type Started = { decision: AnswerDecision; facts: AssistantFacts | null };
+
+class Deadline extends Error {
+  constructor() {
+    super("passed its deadline");
+    this.name = "Deadline";
+  }
+}
+
+/** Retell sends call details straight after our config; this only bounds a call where it never does. */
+const CALL_DETAILS_WAIT_MS = 1_500;
 
 /** The caller's words since the agent last spoke, from Retell's transcript. */
 export function latestCallerWords(transcript: unknown): string {
@@ -125,6 +179,12 @@ export class RetellCallSession {
   private startedAt: Date | null = null;
   private disclosurePlayedAt: Date | null = null;
   private callerPhone: string | null = null;
+  /** The AYA number the call came in on, from call details. */
+  private calledNumber: string | null = null;
+  private calledNumberArrived: () => void = () => {};
+  private readonly callDetailsArrived = new Promise<void>((resolve) => {
+    this.calledNumberArrived = resolve;
+  });
   private outbound = false;
   private urgent = false;
   private handoff = false;
@@ -145,6 +205,15 @@ export class RetellCallSession {
    * before the check answers keeps nothing either.
    */
   private unrecorded = false;
+  /** The record has begun: a late start must not rewrite what it reads. */
+  private recording = false;
+  /**
+   * The last thing said that ended the call or put it through. Retell keeps
+   * only the latest response, so a caller who speaks before it is said, or
+   * over it, would otherwise lose the transfer; every later request while
+   * closing is answered with it again.
+   */
+  private final: { content: string; endCall: boolean; transferTo: string | null } | null = null;
   private finished: Promise<IngestResult | null> | null = null;
 
   constructor(
@@ -162,6 +231,7 @@ export class RetellCallSession {
 
   private say(responseId: number, content: string, options: { endCall?: boolean; transferTo?: string | null } = {}): void {
     this.turns.push({ speaker: "assistant", text: content });
+    if (options.endCall || options.transferTo) this.final = { content, endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
     this.send({
       response_type: "response",
       response_id: responseId,
@@ -181,42 +251,142 @@ export class RetellCallSession {
     if (!(this.deps.realCalls ?? voiceRealCallsAllowed()) && !(await this.madeUpClinic())) return;
     this.send({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
     const now = this.now();
-    let decision: AnswerDecision;
+    let gated: AnswerDecision | null = null;
+    // Nothing here writes the session: a start that finishes after its
+    // deadline changes nothing unless the fall-through hands it back.
+    const started: Promise<Started> = (async () => {
+      const decision = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
+      gated = decision;
+      const facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
+      return { decision, facts };
+    })();
+    let result: Started;
     try {
-      decision = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
-      this.facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
+      result = await withDeadline(started, this.deps.startDeadlineMs ?? START_DEADLINE_MS);
     } catch (error) {
       log.error("retell call could not start", { clinicId: this.clinicId, error: describeError(error) });
-      // A settings failure still ends at a person when the direct line can
-      // be read on its own; closed only when it cannot.
       this.closing = true;
-      const line = await this.directLineAlone();
-      if (line) this.say(0, TROUBLE_TRANSFER_LINE, { transferTo: line });
-      else this.say(0, CLOSED_LINE, { endCall: true });
+      // A gate that answered before the facts failed, even after the
+      // deadline, names the line: read when the fall-through decides. A
+      // start that failed rather than hung may leave the line readable on its
+      // own (fallThrough); one that hung is not asked again.
+      const known = () => {
+        const decision = gated as AnswerDecision | null;
+        return decision?.decision === "pass_through" ? decision.directLine : null;
+      };
+      this.sending.push(this.fallThrough(known, error instanceof Deadline ? started : null));
       return;
     }
-    this.directLine = this.facts?.directLine ?? (decision.decision === "pass_through" ? decision.directLine : null);
+    this.begin(result);
+  }
+
+  /** The gate and the facts are in: transfer, close, or say the opening line. */
+  private begin({ decision, facts }: Started): void {
+    this.facts = facts;
+    // On the newest request, if the caller spoke while the start was slow.
+    const responseId = Math.max(this.latestResponseId, 0);
+    this.directLine = facts?.directLine ?? (decision.decision === "pass_through" ? decision.directLine : null);
+    // Kept for a later call that cannot read the database (fallback-line.ts).
+    if (facts) rememberDirectLine(this.clinicId, facts.directLine, facts.phone);
 
     if (decision.decision === "pass_through" && decision.directLine) {
       // Paused, capped, suspended, or the service ended (the Terms'
       // pass-through, sections 2 and 7): the caller goes to a person, never
       // to silence. Every degradation path ends at the direct line.
       this.closing = true;
-      this.say(0, TRANSFER_LINE, { transferTo: decision.directLine });
+      this.say(responseId, TRANSFER_LINE, { transferTo: decision.directLine });
       return;
     }
     // No direct line, and the clinic has left, its Services have ended, or
     // its agreement no longer covers it (agreement_insufficient): nothing may
     // process the caller, so the call is closed with the fixed line, never
     // answered by the safe script.
-    if (!this.facts || (decision.decision === "pass_through" && patientDataRefused(decision.reason))) {
+    if (!facts || (decision.decision === "pass_through" && patientDataRefused(decision.reason))) {
       this.closing = true;
-      this.say(0, CLOSED_LINE, { endCall: true });
+      this.say(responseId, CLOSED_LINE, { endCall: true });
       return;
     }
     this.gateAnswered = decision.decision === "answer";
-    this.disclosurePlayedAt = now;
-    this.say(0, openingLine(this.facts, "voice"));
+    this.disclosurePlayedAt = this.now();
+    this.say(responseId, openingLine(facts, "voice"));
+  }
+
+  /**
+   * The call could not start: send it to the direct line, known without the
+   * database, or close it when nowhere holds one. Runs beside the message
+   * chain rather than in it, because the number the call came in on arrives
+   * as a message (call details) after this has begun. The record waits for it.
+   */
+  private async fallThrough(known: () => string | null, late: Promise<Started> | null): Promise<void> {
+    // Call details may already have said this is an outbound call, which
+    // callDetails has ended (v1 is inbound only): nothing more is said.
+    if (this.outbound) return;
+    // The slow start's grace runs from its deadline, beside the lookup
+    // below, never after it: the caller is already waiting.
+    const lateStart = late ? withDeadline(late, LATE_START_GRACE_MS) : null;
+    lateStart?.catch(() => {});
+    const gateLine = () => {
+      const line = known();
+      return line ? { line, source: "gate" } : null;
+    };
+    let found: { line: string; source: string } | null = gateLine();
+    // A start that failed rather than hung (no late start to wait for) may
+    // leave the database readable: the direct line, read alone, before the
+    // places that hold it without the database. Bounded all the same: a
+    // database that refused one query may hang the next.
+    if (!found && !late) {
+      const line = await withDeadline(this.directLineAlone(), LINE_ALONE_DEADLINE_MS).catch(() => null);
+      if (line) found = { line, source: "database" };
+    }
+    if (!found) {
+      await Promise.race([
+        this.callDetailsArrived,
+        new Promise<void>((resolve) => setTimeout(resolve, this.deps.callDetailsWaitMs ?? CALL_DETAILS_WAIT_MS).unref?.()),
+      ]);
+      try {
+        found = await (this.deps.fallbackLine ?? fallbackLineFor)({ clinicId: this.clinicId, calledNumber: this.calledNumber });
+      } catch {
+        found = null;
+      }
+    }
+    if (this.outbound) return;
+    // A line that would send the caller back to us is no line at all; and a
+    // slow gate may have named one while the lookup ran.
+    if (found?.line === this.calledNumber) found = null;
+    found ??= gateLine();
+    if (!found && lateStart) {
+      // Nowhere holds a line, and the start was slow rather than failed:
+      // give it longer to answer the call normally before closing.
+      try {
+        const result = await lateStart;
+        // Hung up meanwhile: the record has begun, and nothing was heard.
+        if (this.outbound || this.recording) return;
+        log.warn("retell call started late", { clinicId: this.clinicId });
+        this.closing = false;
+        this.begin(result);
+        return;
+      } catch {
+        if (this.outbound) return;
+      }
+      found = gateLine();
+    }
+    if (this.recording) {
+      // Hung up, or the process is shutting down, before anything was said:
+      // nothing to say, nowhere it went.
+      void notifyOps("voice_call_start_failed", { clinicId: this.clinicId, code: "hung_up" });
+      return;
+    }
+    // The latest request, if the caller has spoken while this was found.
+    const responseId = Math.max(this.latestResponseId, 0);
+    if (found && found.line !== this.calledNumber) {
+      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: found.line });
+    } else {
+      found = null;
+      this.say(responseId, CLOSED_LINE, { endCall: true });
+    }
+    // Not awaited: with the database hanging, the alert's own write could
+    // hold the call's record, and the process's drain, until it gave up.
+    void notifyOps("voice_call_start_failed", { clinicId: this.clinicId, code: found ? `transferred_${found.source}` : "closed" });
   }
 
   /** The clinic's direct line, read alone for a call whose start failed; null when that fails too. */
@@ -281,7 +451,11 @@ export class RetellCallSession {
         return;
       case "reminder_required":
       case "response_required":
-        await this.respond(event);
+        try {
+          await this.respond(event);
+        } catch (error) {
+          this.respondFailed(event, error);
+        }
         return;
       default:
         return;
@@ -291,6 +465,8 @@ export class RetellCallSession {
   private callDetails(event: RetellEvent): void {
     const call = event.call ?? {};
     if (typeof call.from_number === "string" && call.from_number.trim()) this.callerPhone = call.from_number.trim();
+    if (typeof call.to_number === "string" && call.to_number.trim()) this.calledNumber = call.to_number.trim();
+    this.calledNumberArrived();
     if (typeof call.start_timestamp === "number") this.startedAt = new Date(call.start_timestamp);
     if (call.direction === "outbound") {
       // healdesk places no calls. A call the vendor says we placed is a
@@ -300,15 +476,30 @@ export class RetellCallSession {
       this.closing = true;
       // A refused test call is not ingested, so its security event is this line.
       if (this.unrecorded) log.error("retell outbound call refused", { clinicId: this.clinicId });
+      this.final = { content: "", endCall: true, transferTo: null };
       this.send({ response_type: "response", response_id: Math.max(this.latestResponseId, 0), content: "", content_complete: true, end_call: true });
     }
   }
 
   private async respond(event: RetellEvent): Promise<void> {
-    if (this.closing || !this.facts) return;
     const responseId = typeof event.response_id === "number" ? event.response_id : NaN;
     if (!Number.isInteger(responseId) || responseId < 0) return;
     this.latestResponseId = Math.max(this.latestResponseId, responseId);
+    if (this.closing) {
+      // Answer again with the transfer or the goodbye, on the newest id.
+      if (this.final && responseId === this.latestResponseId) {
+        this.send({
+          response_type: "response",
+          response_id: responseId,
+          content: this.final.content,
+          content_complete: true,
+          end_call: this.final.endCall,
+          ...(this.final.transferTo ? { transfer_number: this.final.transferTo } : {}),
+        });
+      }
+      return;
+    }
+    if (!this.facts) return;
 
     if (event.interaction_type === "reminder_required") {
       this.say(responseId, REMINDER_LINE);
@@ -331,8 +522,12 @@ export class RetellCallSession {
     if (turn.urgent && !this.urgent) {
       this.urgent = true;
       try {
-        await withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
-          notifyBookingAlert(tx, "urgent", { callId: this.callId, channel: "voice" }),
+        // Bounded, so a database that hangs never holds the urgent reply.
+        await withDeadline(
+          withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
+            notifyBookingAlert(tx, "urgent", { callId: this.callId, channel: "voice" }),
+          ),
+          ALERT_DEADLINE_MS,
         );
         urgentQueued = true;
       } catch (error) {
@@ -344,8 +539,11 @@ export class RetellCallSession {
     if (turn.handoff && !this.handoverAlerted && !this.urgent) {
       this.handoverAlerted = true;
       try {
-        await withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
-          notifyBookingAlert(tx, "handover", { callId: this.callId, channel: "voice" }),
+        await withDeadline(
+          withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
+            notifyBookingAlert(tx, "handover", { callId: this.callId, channel: "voice" }),
+          ),
+          ALERT_DEADLINE_MS,
         );
       } catch (error) {
         log.error("retell handover alert not raised", { clinicId: this.clinicId, error: describeError(error) });
@@ -364,12 +562,36 @@ export class RetellCallSession {
       this.failures = 0;
     }
     if (turn.end) this.closing = true;
-    this.say(responseId, turn.reply, { endCall: turn.end });
+    // Retell keeps only the latest response: a caller who spoke before the
+    // opening line went out may never have heard it. Retell's transcript
+    // then holds no word of the agent's, and the AI line comes first here.
+    // Not before an urgent reply, which must not wait behind it.
+    const heardOpening = Array.isArray(event.transcript) && (event.transcript as RetellTranscriptEntry[]).some((e) => e.role === "agent");
+    const reply = !heardOpening && !turn.urgent && this.disclosurePlayedAt ? `${openingLine(facts, "voice")} ${turn.reply}` : turn.reply;
+    this.say(responseId, reply, { endCall: turn.end });
     // The urgent alert is critical: sent in-process once its row has
     // committed, after the caller has heard the reply, so the line never
     // waits on an email. It never rejects; whatever it misses, the minute
     // queue sends.
     if (urgentQueued) this.sending.push(deliverCriticalAfterCommit(this.clinicId, { transport: this.deps.transport }));
+  }
+
+  /**
+   * Answering a turn threw (anything outside the model, whose own failure
+   * answerTurn already turns into FAILURE_LINE): the caller goes to the
+   * direct line, or hears the failure line, never silence.
+   */
+  private respondFailed(event: RetellEvent, error: unknown): void {
+    log.error("retell turn failed", { clinicId: this.clinicId, error: describeError(error) });
+    const responseId = typeof event.response_id === "number" ? event.response_id : NaN;
+    if (this.closing || !Number.isInteger(responseId) || responseId < this.latestResponseId) return;
+    if (this.directLine) {
+      this.closing = true;
+      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: this.directLine });
+      return;
+    }
+    this.failures += 1;
+    this.say(responseId, FAILURE_LINE);
   }
 
   /** What the caller asked the desk for, as the ingest reads it. */
@@ -395,6 +617,7 @@ export class RetellCallSession {
   }
 
   private async record(): Promise<IngestResult | null> {
+    this.recording = true;
     this.closing = true;
     if (this.unrecorded) {
       this.turns = [];

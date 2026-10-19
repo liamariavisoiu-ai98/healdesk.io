@@ -54,6 +54,12 @@ export const OPS_EVENTS = [
   "meter_report_failing",
   "first_period_refund_due",
   "voice_fallback_no_direct_line",
+  // The voice fall-through (T14): a call that could not start because the
+  // database could not be read, and where it went (lib/voice/retell.ts); and
+  // a Retell number whose fallback could not be kept on the clinic's direct
+  // line (lib/voice/retell-fallback-sync.ts).
+  "voice_call_start_failed",
+  "retell_fallback_unsynced",
   "plan_start_after_cancel",
   // The DMARC review reminder (open item 14; the owner, 6 October 2026):
   // raised once, ever, by the dmarc-review job on the 14th day after Resend

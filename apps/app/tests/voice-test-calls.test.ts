@@ -53,8 +53,10 @@ describe("a call in test mode", () => {
     await s.handle(JSON.stringify({ interaction_type: "call_details", call: { from_number: "+14155550199", direction: "inbound" } }));
     await s.handle(JSON.stringify({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "Hello?" }] }));
     expect(await s.finish()).toBeNull();
+    // The caller who speaks again hears the transfer again, never AYA.
     expect(responses()).toEqual([
       { response_type: "response", response_id: 0, content: TRANSFER_LINE, content_complete: true, end_call: false, transfer_number: "+14155550123" },
+      { response_type: "response", response_id: 1, content: TRANSFER_LINE, content_complete: true, end_call: false, transfer_number: "+14155550123" },
     ]);
     expect(calls).toEqual({ gate: 0, ingest: 0, model: 0 });
     // Retell is never asked for the caller's number.

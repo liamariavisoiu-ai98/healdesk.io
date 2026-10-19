@@ -6,15 +6,78 @@ Three processes run from the `apps/app` image, and each fails differently:
 | --- | --- | --- |
 | Web tier | `node apps/app/server.js` | The portal, the web chat widget's API, the Meta webhooks, provisioning and billing events |
 | Worker | `npm run worker -w @healdesk/app` | Everything scheduled (below). Nothing patient-facing stops at once; the watches stop watching |
-| Voice endpoint (Retell custom-LLM WebSocket) | Not built yet | Every forwarded call. Retell reaches no brain, so the call must fall through to the clinic |
+| Voice endpoint (Retell custom-LLM WebSocket) | `node --import tsx src/voice/server.ts` (service `healdesk-production-voice`, with `enable_voice`) | Every forwarded call. Retell reaches no brain and drops the call, so put Retell in outage mode ("Voice endpoint down", below) |
 
 **The rule every failure ends in:** a patient calling a clinic always reaches someone.
 Every degradation path ends with calls forwarding to a direct clinic line that does not
 forward back to us, and website chat becoming a contact form. If you are deciding what to
-switch off during an incident, switch off the assistant, never the clinic's line. The
-automatic fall-through for an endpoint or vendor failure is not built; until it is,
-check that Retell's own failure behaviour for the agent sends the call to the clinic's
-direct line.
+switch off during an incident, switch off the assistant, never the clinic's line.
+
+## Voice: where a call goes when something fails
+
+Inside our endpoint every failure ends in a transfer to the clinic's direct line
+wherever the line can be known (`lib/voice/retell.ts`): the answer gate passing the
+call through, the model failing twice, a turn that throws, and a call that cannot
+start because the database cannot be read, or has not answered within three seconds
+(a database that hangs rather than refuses). For that last one, a start that failed
+rather than hung first reads the direct line on its own, for a second and a half; then
+the line is known without the database (`lib/voice/fallback-line.ts`): first from the
+process's memory of the clinic's last call, then from the fallback number Retell holds
+for the clinic's AYA number. Each such call raises `voice_call_start_failed`, whose code
+says where it went (`transferred_gate`, `transferred_database`, `transferred_memory`,
+`transferred_retell`, or
+`closed` when no line was known and the caller heard the closing line, or `hung_up` when
+the call ended first: the caller hung up, or the voice process was shutting down). A start that
+was only slow, with no line known, has until five seconds past its deadline to answer
+normally first.
+That alert writes to the ops log before it emails, so while the database hangs rather
+than refuses it waits with the database and is not emailed: then the voice alarm and the
+`retell call could not start` log lines are the signal. The database pool sets no
+connection or statement timeout (`src/db/index.ts`), so after a hang it can stay
+jammed until its connections give up; a pool timeout is the fix, not yet made.
+
+The worker keeps that Retell fallback number equal to each clinic's direct line every
+hour (`lib/voice/retell-fallback-sync.ts`, tick job `retell-fallback`), through
+`HEALDESK_RETELL_API_KEY`. It never sets a line equal to the AYA number or the
+clinic's published number. It clears the fallback of a number whose clinic has no
+usable direct line, since a line left there could only be a previous holder's, and of a
+number two clinics both name. `retell_fallback_unsynced` names a clinic
+whose number it could not set (`duplicate`, `missing`, `not_kept`, `rejected`, `unreachable`,
+`database`); a refused key (`key_refused`) or three numbers in a row timing out
+(`retell_unreachable`) stops the run with one alert for every clinic. Offboarding forgets a clinic's AYA number, so the sync cannot clear that
+number's fallback: release the number in Retell, or clear its fallback, when a clinic
+leaves. Until the key is pasted the job reports `skipped` and none of what
+follows in this section works.
+
+**Voice endpoint down** (the voice alarm, or no `retell call recorded` lines while
+clinics are live). Retell has no per-agent or per-number setting for an unreachable
+custom-LLM endpoint: it tries to open the socket three times, seven seconds each, and
+then drops the call (`error_llm_websocket_open` in Retell's call history), so the caller
+hears about 27 seconds of nothing first. So:
+
+1. In Retell's dashboard, turn **outage mode** on (it has been under Settings →
+   Reliability). By Retell's support material, every inbound call to the workspace's
+   numbers then goes to its number's fallback, the clinic's direct line; it is
+   workspace-wide, every clinic, healthy or not, until it is turned off; and it is
+   toggled only in the dashboard, so it is a person's step. None of this is in
+   Retell's API reference and none of it has been tried here: confirm once, before
+   launch, that the workspace's plan has outage mode and that a test call in it
+   reaches a made-up clinic's direct line.
+2. Fix the endpoint; turn outage mode off; make a test call.
+
+A number at Retell's concurrency limit falls back to the same line by itself.
+
+**Retell itself down.** Nothing of Retell's runs, outage mode included, and nothing of
+ours can move a call that never reaches us. Each clinic has to remove its call
+forwarding (the undo codes are in the portal, Settings → Safety net). Nothing emails
+clinics automatically: a watchdog cannot tell a Retell API blip from calls failing,
+a false alarm would have every clinic dismantle its coverage, and forwarding removed
+has to be put back by hand. Decide from Retell's status page and its call history,
+and call or email the live clinics yourself.
+
+**Host in standby.** `host.yml standby` removes the voice service. Never put the host
+in standby with a clinic whose phone channel is live; if it has to happen, turn
+outage mode on first.
 
 ## What the worker runs
 
@@ -136,7 +199,7 @@ the location to manual booking in the same turn, from the tool layer
 | Email | `/api/health` → `email.lateCriticalNotices` and `reasons`; ops alert emails (`ops_alerts`); the job list, row `billing-notices` | 0 late | any late: a critical email is still unsent ten minutes after it was due. `/api/health` answers 503 with `"reasons": ["critical_notice_undelivered"]` and ops is emailed once per notice. Check Resend and the job's note, then call the clinic |
 | Jobs | ops console job list: `last_run_status` and `last_run_note` | `ok` | `failed` twice in a row, or `already-running` for over an hour (a stale lock is reclaimed after 60 min; 10 min for `calendar-watch`) |
 | Calendar watch | ops alert emails (`calendar_broken`, `calendar_degraded`, `calendar_recovered`, `google_oauth_client_rejected`, `calendar_watch_incomplete`, `calendar_watch_failed`); the job list, row `calendar-watch`, whose note counts each run's checks, breakages, misses, skips and failures and ends with the run's id | `ok` every five minutes once switched on | `google_oauth_client_rejected`: at once, every clinic is affected. `calendar_watch_failed`, or `failed` on the job row, twice in a row: read the worker's `calendar watch` error lines. `calendar_watch_incomplete` on most runs. No `last_run_at` ten minutes after switching it on: the queue was not installed or the worker not restarted (look for `queue clock not running` with `calendar-watch`) |
-| Voice endpoint | Not built. Needs its own liveness check, and Retell's call log for calls that reached no endpoint | — | Any forwarded call that did not reach the endpoint and did not fall through to the clinic |
+| Voice endpoint | The voice target group's healthy-task alarm (`alarms.tf`); ops alerts `voice_call_start_failed` and `retell_fallback_unsynced`; the job list, row `retell-fallback`; Retell's call history for `error_llm_websocket_*` | healthy tasks at `voice_desired`; `retell-fallback` `ok` | The alarm, or any `error_llm_websocket_*` call: outage mode on ("Voice endpoint down"). `voice_call_start_failed`: the database, first. `retell_fallback_unsynced`: that clinic's number in Retell, or the key |
 | Meta webhooks | The audit rows the front door writes per answered message, the `front door` lines in the logs, and any delivery failures Meta reports for the app | Messages answered | Meta reports failed deliveries, model calls fail, or a clinic with a connected channel goes quiet |
 
 Point an external uptime check (any provider; it lives outside the thing it

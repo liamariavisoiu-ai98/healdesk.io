@@ -13,6 +13,11 @@ import type { Piece } from "@/lib/content/types";
  * Spectrum Business (403), Weave (no first-party help page found) and AT&T's
  * per-device wireless guides (rendered by script). AT&T's conditional codes
  * for mobile lines are given only as Google's help page states them.
+ *
+ * Verizon's star-code page gives *42 for variable busy/no-answer forwarding
+ * and its Calling Features User Guide (p. 8) gives *41; the page prints both.
+ * The guide also says *90 and *92 forward to a number fixed by the Business
+ * Office, which forwarding.ts ("*90{n}", "*92{n}") does not reflect.
  */
 export const piece: Piece = {
   slug: "conditional-call-forwarding",
@@ -48,19 +53,19 @@ export const piece: Piece = {
           rows: [
             ["Unconditional (all calls)", "Always, at once", "*72 (Verizon home phone, AT&T Phone, Xfinity Voice); **21* (T-Mobile)"],
             ["Busy", "The line is already in use", "*90 (Verizon home phone, AT&T Phone); **67* (T-Mobile)"],
+            ["No answer", "Nobody picks up within the set rings or seconds", "*92 (AT&T Phone, Verizon home phone); **61* (T-Mobile)"],
             [
-              "No answer",
-              "Nobody picks up within the set rings or seconds",
-              "*92 (AT&T Phone; Verizon home phone, which names it Call Forwarding Busy Don't Answer); **61* (T-Mobile)",
+              "Not reachable",
+              "The phone is off, out of signal range or offline",
+              "**62* (T-Mobile); *372 (AT&T Phone, during a service disruption or outage)",
             ],
-            ["Not reachable", "The phone is off, out of signal range or offline", "**62* (T-Mobile)"],
             [
               "Busy or no answer, one code",
               "Either condition",
-              "*71 (Verizon mobile, Spectrum Voice); *42 (Verizon home phone, which names it Call Forwarding Busy Line/Don't Answer (Variable))",
+              "*71 (Verizon mobile, Spectrum Voice); *42 or *41 (Verizon home phone, whose star-code page and user guide differ)",
             ],
           ],
-          cite: ["verizon-home", "verizon-article", "att-phone", "xfinity-qr", "tmobile-codes", "spectrum"],
+          cite: ["verizon-home", "verizon-guide", "verizon-article", "att-phone", "xfinity-qr", "tmobile-codes", "spectrum"],
         },
       ],
     },
@@ -106,7 +111,7 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "The codes below are as each carrier documents them on its own support pages, opened on 19 October 2026. " +
+            "The codes below are as each carrier documents them on its own support pages and guides, opened on 19 October 2026. " +
             "Dial them from the line being forwarded and enter the destination as each carrier gives it: 10 digits on Verizon mobile, and 1 before the number on T-Mobile. " +
             "On AT&T's traditional home phone, a long-distance destination takes 1 and the 10-digit number, and forwarding starts only if the destination answers the call the system places after the confirmation tone. " +
             "Verizon notes that its home-phone codes may not be available in all areas, and AT&T that some features need a monthly subscription or carry a usage fee.",
@@ -120,21 +125,47 @@ export const piece: Piece = {
             [
               "Verizon home phone (Fios Digital Voice and traditional)",
               "*72 / *73",
-              "*90 / *91; *42 / *43 for what Verizon names Call Forwarding Busy Line/Don't Answer (Variable)",
-              "*92 / *93, which Verizon names Call Forwarding Busy Don't Answer",
+              "*90 / *91, to a number Verizon fixes; for busy and no answer together, to a number entered each time, *42 / *43 on the star-code page or *41 / *43 in the user guide",
+              "*92 / *93, to a number Verizon fixes; named Call Forwarding Busy Don't Answer on the star-code page and Call Forwarding Don't Answer in the user guide",
               "Not listed",
             ],
             ["Verizon mobile", "*72 + number / *73", "*71 + number / *73, covering busy and no answer together", "*71 + number / *73", "Not listed"],
-            ["AT&T Phone, for homes and businesses", "*72, number, # / *73#", "*90, number, # / *91#", "*92, number, # / *93#", "Not listed"],
+            [
+              "AT&T Phone, for homes and businesses",
+              "*72, number, # / *73#",
+              "*90, number, # / *91#",
+              "*92, number, # / *93#",
+              "*372, number, # / *373#, which AT&T names Safe Call Forwarding, for a service disruption or outage",
+            ],
             ["AT&T traditional home phone", "*72 or 72#, then the number / *73 or 73#", "By calling AT&T on 800.288.2020", "By calling AT&T on 800.288.2020", "Not listed"],
             ["T-Mobile", "**21*1+number# / ##21#", "**67*1+number# / ##67#", "**61*1+number# / ##61#", "**62*1+number# / ##62#"],
           ],
-          cite: ["verizon-home", "verizon-faq", "verizon-article", "att-phone", "att-business", "att-traditional", "tmobile-codes"],
+          cite: [
+            "verizon-home",
+            "verizon-guide",
+            "verizon-faq",
+            "verizon-article",
+            "att-phone",
+            "att-business",
+            "att-traditional",
+            "tmobile-codes",
+          ],
         },
         {
           kind: "p",
           text:
-            "On T-Mobile, the no-answer delay can be set from 5 to 30 seconds by dialling **61*1+number**seconds#, and ##004# resets call forwarding to its default. " +
+            "Verizon's two home-phone sources disagree on the code for variable busy and no-answer forwarding, which takes a new destination number each time it is switched on. " +
+            "The star-code page lists *42, while the calling features user guide linked from that page says to dial *41, and both cancel it with *43. " +
+            "Neither source says which of the two is current, and the test call described below shows whether a code took effect on the line. " +
+            "For *90 and *92, the guide says the destination is fixed by Verizon's local Business Office and changed by a service order, and that in most cases this forwarding is always on.",
+          cite: ["verizon-home", "verizon-guide"],
+        },
+        {
+          kind: "p",
+          text:
+            "T-Mobile's page offers a no-answer delay of 5, 10 or 15 seconds, up to 30, and shows its code only with the number 18056377243, as **61*18056377243**10# for 10 seconds. " +
+            "It does not show the delay code with any other forwarding number. " +
+            "T-Mobile also lists ##004#, which resets call forwarding to its default. " +
             "T-Mobile describes its busy forwarding as applying when a call arrives while the phone is dialling out. " +
             "T-Mobile and Verizon both say calls cannot be forwarded to international numbers.",
           cite: ["tmobile-codes", "tmobile-calling", "verizon-faq"],
@@ -142,10 +173,10 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "AT&T's pages opened for this guide give #21# to turn forwarding off on a mobile phone, and *21*, the number and # to forward all calls from its Wireless Home Phone device. " +
-            "They do not list codes for busy, no-answer or unreachable forwarding on an AT&T mobile line. " +
+            "AT&T's page opened for this guide gives #21# to turn forwarding off on a mobile phone. " +
+            "It does not list codes for busy, no-answer or unreachable forwarding on an AT&T mobile line. " +
             "Google's Voice help page, in an example for AT&T Wireless customers, gives *67*number# for busy, *61*number# for no answer and *62*number# for unreachable, cancelled with ##67#, ##61# and ##62#.",
-          cite: ["att-wireless", "att-wireless-home-phone", "google-voice-carriers"],
+          cite: ["att-wireless", "google-voice-carriers"],
         },
       ],
     },
@@ -198,7 +229,7 @@ export const piece: Piece = {
               "Zoom Phone (Zoom Workplace app)",
               "Settings > Phone > Voicemail and forwarding, on the Business hours and Closed hours tabs",
               "When I'm busy on another call; When a call goes unanswered; each can Forward to External Contacts if the account has a directory of external users",
-              "Needs a direct number (DID); the optional Send unanswered calls to my voicemail toggle makes the contact press 1 before the call connects",
+              "Needs a direct number (DID), and Zoom Support must enable the setting, which Zoom says will be rolled out to accounts over time; the optional Send unanswered calls to my voicemail toggle makes the contact press 1 before the call connects",
             ],
             [
               "Nextiva (voice portal, administrator)",
@@ -266,7 +297,7 @@ export const piece: Piece = {
           kind: "p",
           text:
             "Where each condition has its own code, cancelling one leaves the others in place, so each one switched on needs its own cancel code. " +
-            "On Verizon home phones the cancel codes are *73, *91, *93 and *43, on AT&T Phone *73#, *91# and *93#, and on Comcast Business *73, *91 and *93. " +
+            "On Verizon home phones the cancel codes are *73, *91, *93 and *43, on AT&T Phone *73#, *91#, *93# and *373#, and on Comcast Business *73, *91 and *93. " +
             "Verizon mobile and Spectrum Voice use *73 for both kinds, and Verizon notes that its confirmation may sound like a busy signal. " +
             "T-Mobile uses ##21#, ##61#, ##62# and ##67#, and ##004# resets its call forwarding to the default. " +
             "On a cloud phone system, the rule is removed or changed in the same screen that created it.",
@@ -318,6 +349,14 @@ export const piece: Piece = {
       title: "Fios Digital Voice & Traditional Star Codes & Other Calling Features",
       publisher: "Verizon",
       url: "https://www.verizon.com/support/residential/homephone/calling-features/star-codes-other-features",
+      kind: "vendor",
+      checked: "2026-10-19",
+    },
+    {
+      id: "verizon-guide",
+      title: "Calling Features User Guide",
+      publisher: "Verizon",
+      url: "https://www.verizon.com/content/dam/verizon/support/consumer/documents/phone/user-guides/calling-features-user-guide.pdf",
       kind: "vendor",
       checked: "2026-10-19",
     },
@@ -374,14 +413,6 @@ export const piece: Piece = {
       title: "Troubleshoot AT&T Wireless Call Issues",
       publisher: "AT&T",
       url: "https://www.att.com/support/article/wireless/KM1062174/",
-      kind: "vendor",
-      checked: "2026-10-19",
-    },
-    {
-      id: "att-wireless-home-phone",
-      title: "User Guide - AT&T Wireless Home Phone",
-      publisher: "AT&T",
-      url: "https://www.att.com/support_static_files/manuals/ATT_Wireless_Home_Phone_WF721.pdf",
       kind: "vendor",
       checked: "2026-10-19",
     },

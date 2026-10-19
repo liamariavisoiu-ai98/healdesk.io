@@ -17,7 +17,7 @@ export const piece: Piece = {
     "What California, Texas, Utah and Maine require of an AI answering a clinic's phone or chat, who carries the duty, and what the statutes leave open.",
   answer:
     "Several states require an AI assistant to say it is an AI in some conversations, and the rules differ by state and by what the conversation covers. " +
-    "California, Texas, Utah and Maine have rules that can reach an assistant on a clinic's phone or website chat, while the federal rules on AI voices cover calls a business places.",
+    "California, Texas, Utah and Maine have rules that can reach an assistant on a clinic's phone or website chat, while the FCC's 2024 ruling on AI voices addresses outbound calls.",
   stage: "draft",
   legal: true,
   published: "2026-10-19",
@@ -48,8 +48,8 @@ export const piece: Piece = {
           kind: "p",
           text:
             "California's bot law has applied since 1 July 2019 to anyone who uses a bot to communicate or interact with a person in California online. " +
-            "It bars using a bot with intent to mislead a person about its artificial identity to incentivize a purchase or sale, and disclosing that it is a bot removes liability. " +
-            'The disclosure must be "clear, conspicuous, and reasonably designed to inform" the people the bot interacts with ([Business and Professions Code § 17941](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=17941)). ' +
+            "It bars using a bot with intent to mislead a person about its artificial identity, to knowingly deceive them about the content of the communication and so incentivize a purchase or sale. " +
+            'Disclosing that it is a bot removes liability, and the disclosure must be "clear, conspicuous, and reasonably designed to inform" the people the bot interacts with ([Business and Professions Code § 17941](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=17941)). ' +
             "The law defines online as appearing on a public-facing website, web application or digital application, and its text does not mention telephone calls.",
           cite: ["ca-bpc-17940", "ca-bpc-17941", "ca-bpc-17943"],
         },
@@ -57,7 +57,8 @@ export const piece: Piece = {
           kind: "p",
           text:
             "Since 1 January 2026, AB 489 has prohibited terms in the advertising or functionality of an AI system that indicate or imply its care or advice comes from a licensed human professional. " +
-            'The prohibition can be enforced against "a person or entity who develops or deploys" such a system, and each prohibited use counts as a separate violation. ' +
+            'Bans in the same division of the code on terms implying a health care licence can be enforced against "a person or entity who develops or deploys" an AI system using them. ' +
+            "Each use of a prohibited term counts as a separate violation. " +
             "Enforcement sits with the appropriate health care licensing board, which may seek an injunction ([Business and Professions Code § 4999.9](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=4999.9)).",
           cite: ["ca-bpc-4999-9"],
         },
@@ -66,7 +67,8 @@ export const piece: Piece = {
           text:
             "Two California laws signed in September 2026 take effect on 1 January 2027 under the state constitution's rule for statutes enacted at a regular session. " +
             "[AB 1979](https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1979) bars a health facility, clinic, physician's office or group practice from using AI to independently perform any clinical function that the law reserves for a licensed person. " +
-            'Its definition of a clinical decision support system leaves out "appointment management such as booking, canceling and rescheduling appointments", and it contains no disclosure requirement. ' +
+            'Its definition of a clinical decision support system leaves out "appointment management such as booking, canceling and rescheduling appointments" to the extent the system\'s doing so needs no professional licence. ' +
+            "It contains no requirement to disclose the use of AI. " +
             "[AB 1609](https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1609) bars a business taking in more than $500 million a year nationally from representing a customer service chatbot as human. " +
             "It also requires such a business to disclose the chatbot where a reasonable person is likely to be misled into believing they are interacting with a human.",
           cite: ["ca-ab-1979", "ca-ab-1609", "ca-const-iv-8"],
@@ -90,9 +92,10 @@ export const piece: Piece = {
           kind: "p",
           text:
             "The same section defines health care services as services related to human health, or to diagnosing, preventing or treating disease, provided by a licensed, registered or certified individual. " +
-            "The attorney general has exclusive authority to enforce the Act, which creates no private right of action. " +
-            "Before suing, the attorney general must give written notice and wait 60 days, and may not sue a person who cures the violation in that time and says so in writing. " +
-            "Uncured violations carry civil penalties of $10,000 to $12,000 each where curable and $80,000 to $200,000 where not. " +
+            "The attorney general has exclusive authority to enforce Chapter 552, except for the agency sanctions in section 552.106, and the chapter creates no private right of action. " +
+            "Before suing, the attorney general must give written notice and wait 60 days. " +
+            "It may not sue a person who, in that time, cures the violation and states in writing that it did so, provided supporting documentation of how and changed internal policies as necessary. " +
+            "Uncured violations carry civil penalties of $10,000 to $12,000 each where curable or a cure statement is breached, $80,000 to $200,000 where not, and $2,000 to $40,000 for each day a violation continues. " +
             "A state licensing agency may add sanctions against a licensee once a violation is found and the attorney general recommends it.",
           cite: ["tx-bcc-552"],
         },
@@ -122,11 +125,11 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            'Chapter 77 also gives a safe harbour to generative AI that discloses, at the outset and throughout an interaction, that it is generative AI, is not human, or is "an artificial intelligence assistant". ' +
+            'Chapter 77\'s safe harbour covers a person whose generative AI "clearly and conspicuously discloses", at the outset and throughout an interaction, that it is generative AI, is not human, or is "an artificial intelligence assistant". ' +
             "The state's Division of Consumer Protection enforces the chapter and may impose an administrative fine of up to $2,500 for each violation. " +
-            "Utah's separate Artificial Intelligence Policy Act, Title 13, Chapter 72, is due to be repealed on 1 July 2027, a date set by a 2025 bill, SB 226. " +
+            "Utah's separate Artificial Intelligence Policy Act, Title 13, Chapter 72, is due to be repealed on 1 July 2027, a date set by two 2025 bills, SB 226 and SB 332. " +
             "Chapter 77 is not listed in either section of the Utah Code that sets repeal dates for Title 13, though it borrows its definition of artificial intelligence technology from Chapter 72.",
-          cite: ["ut-13-77", "ut-63i-2-213", "ut-63i-1-213", "ut-sb-226"],
+          cite: ["ut-13-77", "ut-63i-2-213", "ut-63i-1-213", "ut-sb-226", "ut-sb-332"],
         },
       ],
     },
@@ -158,17 +161,21 @@ export const piece: Piece = {
           kind: "p",
           text:
             "Several chatbot laws passed in 2025 and 2026 require companion or conversational chatbots to disclose that they are AI, and each excludes some customer-service software. " +
-            "California's companion chatbot law excludes \"a bot that is used only for customer service\", and Oregon's 2026 law excludes software operating solely for customer service or patient care. " +
-            "Washington's law, in force from 1 January 2027, excludes a customer-service bot unless it sustains a relationship across multiple interactions and generates outputs likely to elicit emotional responses. " +
+            "California's companion chatbot law excludes \"a bot that is used only for customer service\". " +
+            "Oregon's 2026 law excludes software operating solely for customer service or support, or for assisting or supporting patient or resident care services in a facility. " +
+            "Washington's law, in force from 1 January 2027, excludes a bot used only for customer service if it does not sustain a relationship across multiple interactions and generate outputs likely to elicit emotional responses. " +
             "Colorado's 2026 law requires operators of public conversational AI services to disclose that they are AI from 1 January 2027. " +
-            "It excludes software primarily designed for customer service, and software used by or for a HIPAA covered entity or its business associate.",
+            "It excludes software primarily designed for customer service, and software used by or for a HIPAA covered entity or its business associate. " +
+            "SB 26-189, approved on 14 May 2026, repeals and re-enacts the part of Colorado's statutes holding that law on 1 January 2027, with a different section 6-1-1708, and neither act refers to the other.",
           cite: [
             "ca-bpc-22601",
+            "ca-bpc-22602",
             "or-sb-1546",
             "or-sb-1546-overview",
             "wa-hb-2225",
             "wa-hb-2225-sl",
             "co-hb26-1263",
+            "co-sb26-189-act",
           ],
         },
         {
@@ -190,8 +197,10 @@ export const piece: Piece = {
             "The Federal Communications Commission ruled in February 2024 that AI-generated voices are artificial voices under the Telephone Consumer Protection Act (TCPA). " +
             "As a result, callers need the prior express consent of the called party before making such calls, unless an emergency purpose or exemption applies. " +
             'The ruling says these requirements apply to "any AI technology that initiates any outbound telephone call", and it does not address calls that a patient places to a clinic. ' +
-            "The identification rules it cites also concern the entity responsible for initiating a call (FCC 24-17).",
-          cite: ["fcc-24-17"],
+            "The identification rules it cites also concern the entity responsible for initiating a call (FCC 24-17). " +
+            "In June 2025 the Supreme Court held, in McLaughlin Chiropractic Associates v. McKesson Corp., that the Hobbs Act does not bind district courts in civil enforcement proceedings to an agency's interpretation of a statute. " +
+            "Those courts decide the statute's meaning themselves while giving the agency's interpretation appropriate respect, and the case concerned an FCC ruling under the TCPA.",
+          cite: ["fcc-24-17", "scotus-mclaughlin"],
         },
         {
           kind: "p",
@@ -213,7 +222,8 @@ export const piece: Piece = {
           text:
             "Most US adults say they want to be told, according to a Pew Research Center survey of 3,488 adults fielded from 22 to 28 June 2026 and published in August. " +
             "Pew reports that 72% say it is extremely or very important that a doctor or other healthcare provider tells them if they are using AI in their healthcare. " +
-            "Fewer say so for administrative tasks, with 56% saying a provider or its office should tell them when AI is used to schedule a medical appointment and 33% saying it should not.",
+            "On specific tasks, 81% say a provider or its office should tell them if AI is used to make a diagnosis, against 56% for scheduling a medical appointment. " +
+            "Scheduling is the task with the largest share, 33%, saying they do not need to be told.",
           cite: ["pew-2026"],
         },
       ],
@@ -225,7 +235,8 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "The health-specific laws in California and Texas put the duty on the health care provider, while California's AB 489 reaches whoever develops or deploys the AI system. " +
+            "The health-specific laws put the duty on the health facility, clinic or practice in California and on the provider of the service or treatment in Texas. " +
+            "California's AB 489 reaches whoever develops or deploys the AI system. " +
             "The general bot laws in California and Maine apply to any person who uses a bot or chatbot in the ways they describe. " +
             "Utah splits the duty between a supplier, who must answer when asked, and an individual in a regulated occupation, who must disclose in high-risk interactions.",
           cite: [
@@ -257,13 +268,13 @@ export const piece: Piece = {
             [
               "California SB 1001, [Business and Professions Code § 17941](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=17941)",
               "Any person using a bot",
-              "A bot used online with intent to mislead about its artificial identity to incentivize a sale",
+              "A bot used online to mislead about its artificial identity, knowingly deceiving a person to incentivize a purchase or sale",
               "1 July 2019",
             ],
             [
               "California AB 489, [Business and Professions Code § 4999.9](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=4999.9)",
               "A person or entity who develops or deploys the AI system",
-              "Terms implying that care or advice comes from a licensed human professional",
+              "Terms implying a health care licence in an AI system's advertising or functionality",
               "1 January 2026",
             ],
             [
@@ -326,6 +337,7 @@ export const piece: Piece = {
             'Utah: whether a clinic\'s front-desk assistant is used "in the provision of regulated services" by an individual in a regulated occupation. The text also does not say how a written disclosure comes before a written exchange when the patient sends the first message.',
             "Utah: how Chapter 77's borrowed definition of artificial intelligence technology reads after Chapter 72 is repealed on 1 July 2027, which neither chapter says.",
             "Maine: what clear and conspicuous notice requires on a voice call, which the statute does not specify.",
+            "Colorado: how HB 26-1263's disclosure duty is codified from 1 January 2027, when SB 26-189 re-enacts the same part of the statutes with a different section 6-1-1708.",
             "Federal: whether the proceedings that Executive Order 14365 directs will produce a federal disclosure standard that displaces any of these state laws.",
           ],
           cite: [
@@ -335,6 +347,8 @@ export const piece: Piece = {
             "ut-13-77",
             "ut-63i-2-213",
             "me-1500-dd",
+            "co-hb26-1263",
+            "co-sb26-189-act",
             "eo-14365",
           ],
         },
@@ -342,7 +356,7 @@ export const piece: Piece = {
     },
   ],
   aya: [
-    "AYA is built to open every call it answers by saying that it is an AI assistant, not a human, and that the call is transcribed with no audio recording kept.",
+    "AYA is built to open its side of every call it holds by saying that it is an AI assistant, not a human, and that the call is transcribed with no audio recording kept.",
     "Website chats are built to open with a line saying the visitor is chatting with an AI assistant, and the first reply on Instagram, Messenger and WhatsApp says the same.",
     "The clinic cannot switch the line off or edit it out through its greeting.",
   ],
@@ -428,6 +442,15 @@ export const piece: Piece = {
       checked: "2026-10-19",
     },
     {
+      id: "ca-bpc-22602",
+      title:
+        "California Business and Professions Code § 22602, companion chatbot disclosure (SB 243, Statutes of 2025, chapter 677)",
+      publisher: "California Legislature",
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=22602",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
       id: "tx-bcc-552",
       title:
         "Texas Business and Commerce Code, Chapter 552, Artificial Intelligence Protection (HB 149, Acts 2025, chapter 1174)",
@@ -485,6 +508,15 @@ export const piece: Piece = {
         "S.B. 226, Artificial Intelligence Consumer Protection Amendments, 2025 General Session, enrolled copy",
       publisher: "Utah State Legislature",
       url: "https://le.utah.gov/Session/2025/bills/enrolled/SB0226.pdf",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "ut-sb-332",
+      title:
+        "S.B. 332, Artificial Intelligence Revisions, 2025 General Session, enrolled copy",
+      publisher: "Utah State Legislature",
+      url: "https://le.utah.gov/Session/2025/bills/enrolled/SB0332.pdf",
       kind: "statute",
       checked: "2026-10-19",
     },
@@ -568,12 +600,29 @@ export const piece: Piece = {
       checked: "2026-10-19",
     },
     {
+      id: "co-sb26-189-act",
+      title: "Senate Bill 26-189, signed act",
+      publisher: "Colorado General Assembly",
+      url: "https://leg.colorado.gov/bill_files/116489/download",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
       id: "fcc-24-17",
       title:
         "Implications of Artificial Intelligence Technologies on Protecting Consumers from Unwanted Robocalls and Robotexts, Declaratory Ruling, FCC 24-17",
       publisher: "Federal Communications Commission",
       url: "https://docs.fcc.gov/public/attachments/FCC-24-17A1.pdf",
       kind: "government",
+      checked: "2026-10-19",
+    },
+    {
+      id: "scotus-mclaughlin",
+      title:
+        "McLaughlin Chiropractic Associates, Inc. v. McKesson Corp., No. 23-1226, 606 U.S. 146 (2025)",
+      publisher: "Supreme Court of the United States",
+      url: "https://www.supremecourt.gov/opinions/24pdf/606us1r55_3d9g.pdf",
+      kind: "court",
       checked: "2026-10-19",
     },
     {

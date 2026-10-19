@@ -485,6 +485,39 @@ not by restoring that code.
 
 ---
 
+# The editorial library (SEO and GEO, `apps/web`, no PHI)
+
+The public guides, research and standards pages, the glossary and the About
+page carry the owner's search and AI-visibility strategy (14 and 19 October
+2026). The strategy itself is the doc at
+https://claude.ai/code/artifact/6a71b399-b0bc-4317-9a18-21aebd2e9aca.
+
+- **Pieces are TypeScript data in `apps/web/src/lib/content/`**, so the copy
+  guard (`lib/site-copy.test.ts`) and `lib/content/content.test.ts` read every
+  sentence: citations resolve, every listed source is cited, every source was
+  reopened within twelve months (against the real clock, so a stale figure
+  fails the build), and our own prose keeps the house style. Never move
+  content to Markdown or a CMS without moving those guards with it.
+- **A piece is `draft`, `audited` or `live`, and only `live` is public.** The
+  family routes (`/guides`, `/research`, `/standards/[slug]`) build from
+  `livePieces()` with `dynamicParams = false`, so a draft is a 404; the
+  sitemap, `llms.txt` and the `/guides` hub list live pieces only; a link to
+  a piece that is not live prints as its label (`lib/content/inline.tsx`).
+- **A legal piece goes live only after an independent audit of every
+  statement against the primary text passes.** As of 19 October 2026 that
+  audit is an AI review, not a lawyer's (owner's decision); each legal page's
+  notice and `/about` say so, and the notice names a lawyer's review when one
+  has taken place.
+- **Structured data is built in `lib/structured-data.ts` from what the page
+  prints**: `site` for the company, the catalog for prices, the registry for
+  articles. `legalName` stays out of the markup, keeping the operating
+  company on the Terms and Privacy pages only.
+- **The sitemap carries real edit dates**, typed on each route in
+  `lib/seo.ts` or taken from an article's `lastReviewed`, never the build
+  time. IndexNow pings the sitemap's URLs after each production deployment
+  (`.github/workflows/indexnow.yml`; the key file in `public/` is public by
+  design).
+
 # Deployment
 
 | Workspace | Target | Root directory | PHI |

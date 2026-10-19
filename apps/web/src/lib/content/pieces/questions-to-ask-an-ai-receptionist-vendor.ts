@@ -18,7 +18,7 @@ export const piece: Piece = {
   answer:
     "A clinic can test any AI receptionist vendor with eight questions, on AI disclosure, business associate agreements, first contact, price, booking, failure, complications and what is kept. " +
     "Each section below gives the reason to ask, with its source where a law, a survey or a platform's documentation supplies one, and what a complete answer includes.",
-  stage: "draft",
+  stage: "live",
   legal: false,
   published: "2026-10-19",
   lastReviewed: "2026-10-19",

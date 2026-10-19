@@ -24,7 +24,7 @@ export const piece: Piece = {
     "The earliest source found for the claim that 88 percent of appointments are made by telephone is vendor material from 2017 that names no source or method for it. " +
     "Peer-reviewed studies in which researchers posed as patients found that most calls did not end with an appointment or scheduling information, but none found covers cash-pay elective practices. " +
     "A 2018 systematic review of 105 studies put the average no-show rate across medical specialties and countries at about 23 percent.",
-  stage: "draft",
+  stage: "live",
   legal: false,
   published: "2026-10-19",
   lastReviewed: "2026-10-19",
@@ -78,8 +78,7 @@ export const piece: Piece = {
             "Invoca, a call-tracking vendor, published benchmarks in July 2026 drawn from over 70 million phone calls tracked on its platform across ten industries. " +
             "In this vendor data, 54 percent of the calls it tracked for its healthcare customers were answered by a person, rising to 65 percent for calls longer than 15 seconds. " +
             "The healthcare figures cover behavioural health and rehab, dental, eye care, hearing, hospitals and physical therapy. " +
-            "Invoca presents every figure as an average across its customer base and does not state the period or the number of healthcare calls. " +
-            "Its healthcare report names AI voice and SMS agents, which Invoca also sells, as \"the single biggest lever for improving answer rates\".",
+            "Invoca presents every figure as an average across its customer base and does not state the period or the number of healthcare calls.",
           cite: ["invoca-2026-healthcare", "invoca-2026-blog"],
         },
         {
@@ -94,7 +93,7 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "Another figure, that nearly three in four consumers would switch providers after a poor contact-centre experience, comes from CallMiner's 2020 US Churn Index. " +
+            "Another figure, that nearly three in four consumers would switch providers after a poor contact-centre experience, comes from CallMiner's 2020 Churn Index. " +
             "CallMiner sells speech and conversation analytics, and this vendor survey was carried out for it by 3Gem Research & Insights. " +
             "It asked 2,000 US adults who had contacted a provider in the previous 12 months, online in March 2020, and recorded what they said they would do. " +
             "It covered providers in general and named banks and broadband providers as the industries with the highest churn. " +
@@ -153,8 +152,8 @@ export const piece: Piece = {
           kind: "p",
           text:
             "No peer-reviewed no-show figure for cash-pay elective practices, such as medical spas or private aesthetic clinics, turned up in the searches for this piece. " +
-            "The 2017 commentary says no-show rates run \"as high as 30% nationwide\", and the DialogTech infographic lists rates by specialty from 10 to 37 percent. " +
-            "Neither says which study or population the rates describe, so this page does not rely on them.",
+            "The 2017 commentary puts no-show rates \"as high as 30% nationwide\", and the DialogTech infographic's \"No-Show Rate in the US by Practice\" runs from 10 percent for dental to 37 percent for mental health. " +
+            "Both give rates for the United States, but neither ties them to a named study, a period or a number of appointments, so this page does not rely on them.",
           cite: ["hci-2017", "dialogtech-2017"],
         },
       ],
@@ -178,7 +177,7 @@ export const piece: Piece = {
             ["88% of appointments booked by phone", "Healthcare Innovation commentary by SCI Solutions' chief marketing officer, April 2017", "Vendor", "No"],
             ["88%, attributed to \"a third study in 2016\"", "DialogTech infographic, 2017", "Vendor", "No; seven sources listed, none matched to the figure"],
             ["$150 billion a year in missed appointments", "Healthcare Innovation commentary, April 2017", "Vendor", "No; two inputs named, no calculation shown"],
-            ["Nearly three in four would switch after a poor contact-centre experience", "CallMiner 2020 US Churn Index, May 2020", "Vendor survey", "Yes: online survey of 2,000 US adults, March 2020"],
+            ["Nearly three in four would switch after a poor contact-centre experience", "CallMiner 2020 Churn Index, May 2020", "Vendor survey", "Yes: online survey of 2,000 US adults, March 2020"],
             ["54% of healthcare calls tracked by Invoca answered by a person", "Invoca benchmarks, July 2026", "Vendor data", "Partly: averages across its customers; no period or healthcare sample size"],
             ["29% of healthcare calls unanswered", "Invoca infographic citing its 2021 customer data", "Vendor data", "No definition of an unanswered call"],
             ["41.5% of simulated new-patient calls given an appointment date or scheduling information", "JAMA Network Open, 2024", "Peer-reviewed", "Yes"],

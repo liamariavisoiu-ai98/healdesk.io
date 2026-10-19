@@ -838,6 +838,75 @@ describeDb("re-signing a newer BAA over an older one", () => {
     }
   });
 
+  test("a location holding the organisation's DPA re-sign is still chased once it starts offboarding, and holds its siblings to it once destroyed", async () => {
+    const practice = await dpaPractice("bvleave");
+    const location = await seedLocation(practice, "bvleavetwo", "dpa");
+    await inTenant(location, (client) =>
+      client.query(
+        `insert into clinic_memberships (clinic_id, user_id, role) values ($1, $2, 'owner')`,
+        [location, practice.staffUserId],
+      ),
+    );
+    // The location answers for the organisation: the re-sign is its row, and pauses both.
+    expect(await yes(location)).toMatchObject({ status: "recorded" });
+    expect(await resigns(location)).toMatchObject([{ status: "open", reason: "now_covered" }]);
+    expect(await resigns(practice.clinicId)).toEqual([]);
+    expect(await pause(practice.clinicId)).toMatchObject({
+      ai_paused_by_label: AGREEMENT_PAUSE_LABEL,
+    });
+    expect(l22For(practice.staffEmail)).toHaveLength(1);
+
+    // It starts leaving; the account is still in service, still paused, still waiting.
+    await getMigratorPool().query(
+      `update clinics set offboarding_started_at = now() where id = $1`,
+      [location],
+    );
+    expect(await runAgreementResignsJob({ now: new Date(Date.now() + 4 * DAY) })).toMatchObject({
+      open: 1,
+      sent: 1,
+    });
+    expect(await runAgreementResignsJob({ now: new Date(Date.now() + 8 * DAY) })).toMatchObject({
+      open: 1,
+      sent: 1,
+      alerted: 1,
+    });
+    expect(l22For(practice.staffEmail)).toHaveLength(3);
+    const { rows: alerted } = await getMigratorPool().query<{ n: number }>(
+      `select count(*)::int as n from ops_alerts
+        where event = 'agreement_unsigned_7_days' and fields->>'clinicId' = $1`,
+      [location],
+    );
+    expect(alerted[0]!.n).toBe(1);
+    const header = { clinicId: practice.clinicId, actor: OPERATOR };
+    await expect(
+      withTenant(header, (tx) => resumeAya(tx, { actorLabel: "Front desk Mac" })),
+    ).rejects.toBeInstanceOf(PauseError);
+
+    // Destroyed: its re-sign is still the organisation's, so the account's
+    // header still refuses and no second one opens.
+    await getMigratorPool().query(`update clinics set destroyed_at = now() where id = $1`, [
+      location,
+    ]);
+    await expect(
+      withTenant(header, (tx) => resumeAya(tx, { actorLabel: "Front desk Mac" })),
+    ).rejects.toBeInstanceOf(PauseError);
+    await yes(practice.clinicId);
+    expect(await resigns(practice.clinicId)).toEqual([]);
+    expect(await pause(practice.clinicId)).toMatchObject({
+      ai_paused_by_label: AGREEMENT_PAUSE_LABEL,
+    });
+
+    // Once the whole organisation is leaving, nothing more is sent.
+    await getMigratorPool().query(
+      `update clinics set offboarding_started_at = now() where id = $1`,
+      [practice.clinicId],
+    );
+    expect(await runAgreementResignsJob({ now: new Date(Date.now() + 9 * DAY) })).toMatchObject({
+      open: 0,
+      sent: 0,
+    });
+  });
+
   test("a BAA version's re-sign pauses no location either", async () => {
     const practice = await baaPractice("bvorgbaa");
     const location = await seedLocation(practice, "bvorgbaatwo");

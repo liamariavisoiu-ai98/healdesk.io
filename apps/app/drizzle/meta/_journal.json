@@ -722,6 +722,13 @@
       "when": 1792438371560,
       "tag": "0102_resign_held_pauses",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1792438376364,
+      "tag": "0103_resign_walks_by_organisation",
+      "breakpoints": true
     }
   ]
 }

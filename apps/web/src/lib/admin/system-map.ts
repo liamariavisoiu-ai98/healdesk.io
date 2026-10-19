@@ -578,7 +578,7 @@ export const KEYS: readonly KeyDef[] = [
     label: "Real patients' calls (voice_real_calls)",
     need: "later",
     waitsFor:
-      "every business associate agreement in the chain is signed, Retell's included: then set voice_real_calls = true in production.tfvars, merge, and run an infra.yml apply and a full deploy-app.yml. Until then the voice line answers only the made-up demo clinic, and a call for any other clinic goes to its direct line, or is refused, before AYA speaks",
+      "every business associate agreement in the chain is signed, Retell's included: then set voice_real_calls = true in production.tfvars, merge, and run an infra.yml apply and a full deploy-app.yml. Until then the voice line answers only the made-up demo clinic, and a call for any other clinic goes to its direct line, or is refused, before AYA speaks; the backstop for a lost call records the demo clinic's alone too",
     rotation: { kind: "public" },
   },
   {
@@ -757,8 +757,6 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_DIRECT_BOOKING_ENABLED:
     "Your switch for AYA booking by herself rather than asking the clinic. No channel calls the booking engine yet, so today it changes only the buy page's wording and reports; never set from Terraform.",
   HEALDESK_PHASE_TWO_ATTRIBUTION: "The phase-two switch, off in v1.",
-  HEALDESK_VOICE_REAL_CALLS:
-    "Your switch out of the voice line's test mode: until it is exactly 1, calls are answered and recorded for the demo clinic alone, the backstop for a lost call included.",
   // One-off jobs (apps/app/scripts), started by hand inside AWS.
   HEALDESK_EXPORT_BUCKET: "The export job's bucket: a name.",
   HEALDESK_EXPORT_KEY: "The export file's name in that bucket; not a key.",

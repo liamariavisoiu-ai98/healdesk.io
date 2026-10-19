@@ -188,6 +188,15 @@ describe("the registry", () => {
     // A setting nothing reads any more comes off the list, so it stays short and true.
     const stale = Object.keys(NOT_KEYS).filter((n) => !web.has(n) && !app.has(n));
     expect(stale, "no longer read by either app: remove from NOT_KEYS").toEqual([]);
+
+    // A setting must excuse a read the keys do not already cover: one that
+    // is a key wherever it is read (two branches listing the same variable,
+    // one way each) would give the map two answers. HEALDESK_APP_URL stays:
+    // a key on Vercel, only a setting where apps/app reads it.
+    const redundant = Object.keys(NOT_KEYS).filter(
+      (n) => !(web.has(n) && !webKeys.has(n)) && !(app.has(n) && !appKeys.has(n)),
+    );
+    expect(redundant, "a key wherever it is read: remove from NOT_KEYS").toEqual([]);
   });
 
   test("the deploy-only and your computer's keys are the ones the AWS setup and .env.example name", () => {

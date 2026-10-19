@@ -91,7 +91,15 @@ function hoursLines(hours: OpeningHours | null): string[] {
   });
 }
 
-export async function assistantFacts(tx: TenantTx): Promise<AssistantFacts | null> {
+/**
+ * `asApproved` reads the script as it would be once approved: the practice
+ * questions (lib/engine/practice) check the words a pass would approve,
+ * before anyone has approved them. Every channel reads it without.
+ */
+export async function assistantFacts(
+  tx: TenantTx,
+  options: { asApproved?: boolean } = {},
+): Promise<AssistantFacts | null> {
   const [clinic] = await tx.db
     .select({
       name: clinics.name,
@@ -112,7 +120,7 @@ export async function assistantFacts(tx: TenantTx): Promise<AssistantFacts | nul
     .from(agentConfigs)
     .where(eq(agentConfigs.clinicId, tx.clinicId))
     .limit(1);
-  const approved = Boolean(agent?.approvedAt);
+  const approved = options.asApproved === true ? Boolean(agent) : Boolean(agent?.approvedAt);
   const knowledge = await readKnowledge(tx.db, tx.clinicId);
 
   const settings = await readSetupSettings(tx.db, tx.clinicId);

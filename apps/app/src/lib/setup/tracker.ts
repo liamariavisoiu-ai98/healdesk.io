@@ -1,4 +1,7 @@
 import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
+import { whatToFix } from "@/lib/engine/practice/sections";
+import { NO_PRACTICE_STATE, practicePassed, type PracticeState } from "@/lib/engine/practice/state";
+import { formatReplyBy } from "@/lib/reply-by";
 
 import type { SetupState } from "./state";
 
@@ -10,12 +13,29 @@ import type { SetupState } from "./state";
  * when every stage that blocks is done, and until then its button names
  * what is left.
  *
- * The last two stages are the engine's (M4): nothing in this build builds an
- * assistant or runs its practice questions, so they are honestly not done,
- * and the preview stays locked. The calendar stage reads the connection
- * (the calendar session's getCalendarConnection) and never blocks: without a
- * connected calendar, bookings arrive as requests.
+ * The last two stages are the engine's (M4), read from the practice
+ * questions (lib/engine/practice): "Assistant built" once the answers are set
+ * up and a run has built AYA from them, "Practice questions passed" once the
+ * latest run passed with nothing changed since; while a run is in review, the
+ * date our team will be done by ("Being checked by our team; ready by
+ * Tuesday 7 October", the next business day), and after a failure on the
+ * clinic's own data, the section to fix and a count, never the service. The
+ * calendar stage reads the connection (the calendar session's
+ * getCalendarConnection) and never blocks: without a connected calendar,
+ * bookings arrive as requests.
+ *
+ * Talk to your AYA is package C's: until its preview exists
+ * (TALK_TO_AYA_BUILT), Home's button stays locked even when every stage is
+ * done, and O8, which says she is ready to talk to, is not sent.
  */
+
+/**
+ * Whether Talk to your AYA exists (/c/[slug]/preview, package C). False until
+ * it does: O8 tells a clinic it can talk to AYA, so it is held until there is
+ * somewhere to talk to her, and the hourly sweep sends it to every clinic
+ * whose tracker is complete once this is true (lib/engine/practice/job.ts).
+ */
+export const TALK_TO_AYA_BUILT = false;
 
 export type StageId =
   "agreement" | "payment" | "website" | "answers" | "calendar" | "built" | "practice_questions";
@@ -61,7 +81,28 @@ export function answersMissing(
   return missing;
 }
 
-export function buildTracker(state: SetupState, calendar: CalendarConnectionView): Tracker {
+export function buildTracker(
+  state: SetupState,
+  calendar: CalendarConnectionView,
+  practice: PracticeState = NO_PRACTICE_STATE,
+): Tracker {
+  const stages = blockingStages(state, practice);
+  stages.splice(4, 0, calendarStage(calendar));
+  const left = stages.filter((s) => s.blocks && s.state !== "done").map((s) => s.label);
+  return { stages, left, previewUnlocked: left.length === 0 };
+}
+
+/**
+ * The labels of the blocking stages not done: what stands between the
+ * clinic and Talk to your AYA. The calendar never blocks, so it is not read.
+ */
+export function stagesLeft(state: SetupState, practice: PracticeState): string[] {
+  return blockingStages(state, practice)
+    .filter((s) => s.blocks && s.state !== "done")
+    .map((s) => s.label);
+}
+
+function blockingStages(state: SetupState, practice: PracticeState): Stage[] {
   const stages: Stage[] = [];
 
   stages.push({
@@ -116,26 +157,73 @@ export function buildTracker(state: SetupState, calendar: CalendarConnectionView
     blocks: true,
   });
 
-  stages.push(calendarStage(calendar));
-
+  const built = missing.length === 0 && practice.latest !== null;
   stages.push({
     id: "built",
     label: "Assistant built",
-    state: "not_done",
-    detail: "We build AYA from your answers once they're set up.",
+    state: built ? "done" : "not_done",
+    detail: built
+      ? "AYA is built from your answers, with your prices, your hours and what she must never say."
+      : missing.length > 0
+        ? "We build AYA from your answers once they're set up."
+        : "We're building AYA from your answers.",
     blocks: true,
   });
 
-  stages.push({
-    id: "practice_questions",
-    label: "Practice questions passed",
+  stages.push(practiceStage(missing.length === 0 ? practice : NO_PRACTICE_STATE));
+
+  return stages;
+}
+
+/** "Practice questions passed", from the latest run and whether anything changed since. */
+function practiceStage(practice: PracticeState): Stage {
+  const stage = { id: "practice_questions" as const, label: "Practice questions passed", blocks: true };
+  const latest = practice.latest;
+  if (practicePassed(practice)) {
+    return {
+      ...stage,
+      state: "done",
+      detail: latest?.overridden
+        ? "Our team checked AYA's answers with you and approved them."
+        : "AYA answered her practice questions about your practice, and got them right.",
+    };
+  }
+  if (practice.pending) {
+    return {
+      ...stage,
+      state: "not_done",
+      detail:
+        latest === null
+          ? "AYA is answering her practice questions about your practice."
+          : "AYA is answering her practice questions again, with your latest change.",
+    };
+  }
+  if (latest?.status === "in_review") {
+    return {
+      ...stage,
+      state: "not_done",
+      detail: latest.reviewDueOn
+        ? `Being checked by our team; ready by ${formatReplyBy(latest.reviewDueOn)}.`
+        : "Being checked by our team.",
+    };
+  }
+  if (latest?.status === "failed") {
+    return {
+      ...stage,
+      state: "not_done",
+      detail: latest.failedSection
+        ? `One thing to fix: ${whatToFix(latest.failedSection, latest.failedCount ?? 1)}. Fix it there and she answers them again.`
+        : "Our team is putting right one of her answers on our side, and she answers them again after.",
+    };
+  }
+  if (latest?.status === "error") {
+    return { ...stage, state: "not_done", detail: "Her practice questions couldn't finish, so she answers them again shortly." };
+  }
+  return {
+    ...stage,
     state: "not_done",
     detail: "AYA answers practice questions about your practice before anyone else talks to her.",
-    blocks: true,
-  });
-
-  const left = stages.filter((s) => s.blocks && s.state !== "done").map((s) => s.label);
-  return { stages, left, previewUnlocked: left.length === 0 };
+  };
 }
 
 /**

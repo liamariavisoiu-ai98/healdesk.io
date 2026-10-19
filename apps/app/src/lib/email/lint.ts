@@ -115,6 +115,9 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   "change",
   // B1: the Terms version accepted at checkout ("2026-10-07.1").
   "version",
+  // O9: the Knowledge section or Settings card to fix (lib/engine/practice
+  // PRACTICE_SECTIONS), a closed vocabulary that never names the service.
+  "section",
   // L25 and I3: a support-chat escalation's topic and what is wrong, each an
   // id from lib/support/escalation-fields.ts's fixed lists, never words.
   "topic",

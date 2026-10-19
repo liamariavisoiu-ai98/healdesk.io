@@ -11,6 +11,8 @@ import { eq } from "drizzle-orm";
 
 import { clinics, type DepositUncollectable } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { requestPracticeQuestions } from "@/lib/engine/practice/store";
+import type { PracticeSection } from "@/lib/engine/practice/types";
 import { DepositSettingsError, setDepositSettings } from "@/lib/billing/deposits";
 import { DIRECT_LINE_NEEDED_WHILE_LIVE, voiceIsLive } from "@/lib/billing/settings";
 import {
@@ -139,6 +141,23 @@ export const SETTING_CHANNELS: Readonly<Record<SettingKey, readonly Channel[]>> 
   transfer_number: ["voice"],
 };
 
+/**
+ * The settings the practice questions read (lib/engine/practice): how AYA
+ * talks, and the numbers the urgent line gives. Changing one asks for the
+ * questions to run again, two minutes after the last change.
+ */
+const PRACTICE_SETTINGS: Partial<Record<SettingKey, PracticeSection>> = {
+  tone: "how_aya_talks",
+  phone_greeting: "how_aya_talks",
+  chat_greeting: "how_aya_talks",
+  languages: "how_aya_talks",
+  suggest_add_ons: "how_aya_talks",
+  mention_promotions: "promotions",
+  direct_line: "safety_net",
+  urgent_help: "safety_net",
+  vet_referral: "safety_net",
+};
+
 export type SettingContext = {
   clinicId: string;
   userId: string;
@@ -195,6 +214,8 @@ export async function saveSetting(
         throw new Refusal("key", "That setting isn't part of your plan.");
       }
       const consequence = await write(tx, state, ctx, key, value, now);
+      const section = PRACTICE_SETTINGS[key];
+      if (section) await requestPracticeQuestions(tx, { reason: "settings", section, now });
       const applies = appliesWhen(state.channels, SETTING_CHANNELS[key]);
       return applies ? `${consequence} ${applies}` : consequence;
     });

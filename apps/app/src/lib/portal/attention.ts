@@ -6,6 +6,8 @@ import {
   wizardScreens,
 } from "@/lib/setup/screens";
 import type { SetupState } from "@/lib/setup/state";
+import { PRACTICE_SECTION_WORDS } from "@/lib/engine/practice/sections";
+import { practiceDoubleChecking, type PracticeState } from "@/lib/engine/practice/state";
 import { joinWords } from "@/lib/setup/tracker";
 
 import { isBuiltSection, sectionPath, type PortalSection } from "./nav";
@@ -25,6 +27,12 @@ import { isBuiltSection, sectionPath, type PortalSection } from "./nav";
  * calendar that stopped working, a quiet channel) needs the calendar backend
  * and go-live (M6), and joins here then.
  *
+ * After go-live, a change the practice questions did not pass (lib/engine/
+ * practice: failed on the clinic's own data, or in review with our team)
+ * shows "We're double-checking your change to Prices" (plan Part F1, F3),
+ * linking to the section, while AYA keeps answering as she was. Before
+ * go-live the build tracker says the same thing in its own stage.
+ *
  * Pure: the page reads the facts, this decides what to say.
  */
 
@@ -37,7 +45,8 @@ export type AttentionId =
   | "passkey"
   | "backup"
   | "payment_account"
-  | "website_changes";
+  | "website_changes"
+  | "double_checking";
 
 export type AttentionItem = {
   id: AttentionId;
@@ -57,6 +66,10 @@ export type AttentionFacts = {
   paymentAccountDisconnected?: boolean;
   /** Website changes the drift check found and nobody has confirmed or ignored (M7). */
   websiteChanges?: number;
+  /** Where the practice questions stand (lib/engine/practice). */
+  practice?: PracticeState;
+  /** Whether any channel has gone live: before then, the tracker shows the practice questions. */
+  live?: boolean;
 };
 
 export function needsAttention(facts: AttentionFacts): AttentionItem[] {
@@ -162,6 +175,18 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
           ? "We found a change on your website."
           : `We found ${changes} changes on your website.`,
       action: screenLink(slug, "knowledge", "#website", "Review them"),
+    });
+  }
+
+  if (facts.live && facts.practice && practiceDoubleChecking(facts.practice)) {
+    const latest = facts.practice.latest!;
+    const section = latest.failedSection ?? latest.triggerSection;
+    const words = section ? PRACTICE_SECTION_WORDS[section] : null;
+    const [screen, hash] = words ? (words.path.split("#") as [string, string]) : ["knowledge", ""];
+    items.push({
+      id: "double_checking",
+      text: words ? `We're double-checking your change to ${words.name}.` : "We're double-checking your latest change.",
+      action: screenLink(slug, screen === "settings" ? "settings" : "knowledge", hash ? `#${hash}` : "", words ? `Open ${words.name}` : "Open Knowledge"),
     });
   }
 

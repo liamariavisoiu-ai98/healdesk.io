@@ -93,8 +93,9 @@ describe("agreementKindFor", () => {
       });
     }
     expect(specialtyOffered("veterinary", false)).toBe(false);
-    // Released, a vet is still not offered until the product is ready for it (VETERINARY_READY).
-    expect(specialtyOffered("veterinary", true)).toBe(false);
+    // Released, a vet is offered once the product is ready for it (VETERINARY_READY), which it now is.
+    expect(specialtyOffered("veterinary", true)).toBe(true);
+    expect(specialtyOffered("veterinary", true, false)).toBe(false);
     expect(specialtyOffered("veterinary", true, true)).toBe(true);
   });
 
@@ -140,19 +141,19 @@ describe("agreementKindFor", () => {
 describe("veterinary readiness", () => {
   // Each item names the thing that must exist before a vet can buy, and is
   // true only because it does: these hold each one to its substance.
-  test("the gate is exactly these items; the vet practice cases are package B's, so no vet is offered yet", () => {
+  test("the gate is exactly these items, all in place since package B's vet practice cases; the DPA's release still decides", () => {
     expect(VETERINARY_READINESS).toEqual({
       urgentSet: true,
       referralNumber: true,
       clientWording: true,
-      vetPracticeCases: false,
+      vetPracticeCases: true,
     });
-    expect(VETERINARY_READY).toBe(false);
-    // Whatever the DPA's flag, which stays the owner's: not offered.
+    expect(VETERINARY_READY).toBe(true);
+    // The DPA's flag stays the owner's: until it is released, no vet is offered.
     expect(isDpaReleased()).toBe(false);
     expect(specialtyOffered("veterinary")).toBe(false);
-    expect(specialtyOffered("veterinary", true)).toBe(false);
     expect(specialtyOffered("veterinary", false)).toBe(false);
+    expect(specialtyOffered("veterinary", true)).toBe(true);
   });
 
   test("urgentSet: a veterinary practice is screened with its own set, which an animal's emergency trips", () => {

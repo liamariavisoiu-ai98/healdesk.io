@@ -121,9 +121,11 @@ export function asksCoveredQuestion(id: SpecialtyId): boolean {
  *   reply on every channel;
  * - `clientWording`: "clients", never "patients" (audience.ts);
  * - `vetPracticeCases`: the veterinary practice questions (plan Part G),
- *   package B's. False until B delivers them, so no veterinary practice is
- *   offered, whatever the DPA's flag says. B sets it true in the change that
- *   adds the cases, with the test that ties it to them.
+ *   package B's (apps/app lib/engine/practice/cases.ts): the nine cases
+ *   about an animal, its complication screened with the veterinary set and
+ *   answered with the emergency vet the practice refers to. In place since
+ *   B landed them; apps/app's tests/practice-questions.test.ts holds this
+ *   item to them.
  *
  * The DPA's release flag stays the owner's alone (dpa.ts,
  * `approvedByCounsel`): nothing here releases it, and readiness alone never
@@ -133,7 +135,7 @@ export const VETERINARY_READINESS = Object.freeze({
   urgentSet: true,
   referralNumber: true,
   clientWording: true,
-  vetPracticeCases: false,
+  vetPracticeCases: true,
 } as const);
 
 /** Every item of VETERINARY_READINESS is in place. */

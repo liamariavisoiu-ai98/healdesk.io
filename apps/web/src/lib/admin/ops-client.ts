@@ -233,6 +233,12 @@ type OperatorOp =
   // The AWS host's standby switch (/admin/host): three counts, asked before
   // standby is dispatched.
   | "hostStandbyCheck"
+  // The practice questions' review queue (/admin/reviews): synthetic cases,
+  // AYA's answers to them and what the checks made of them; the decision; and
+  // a run asked for again after a fix on our side.
+  | "listPracticeReviews"
+  | "decidePracticeReview"
+  | "rerunPracticeQuestions"
   // The system map (/admin/map): which of the host's keys are in place, yes
   // or no per name, and a live seal-and-open with the credential key.
   | "keyPresence"
@@ -3761,6 +3767,147 @@ export function hostStandbyCheck(): Promise<OpsResult<HostStandbyCheck>> {
       boundAgreements: count(data.boundAgreements, "hostStandbyCheck.boundAgreements"),
       openTranscripts: count(data.openTranscripts, "hostStandbyCheck.openTranscripts"),
     };
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The practice questions' review queue
+// -----------------------------------------------------------------------------
+
+/**
+ * A run of a clinic's practice questions that a judge failed, or whose check
+ * failed on our side, waiting for a person (apps/app lib/engine/practice/
+ * review.ts). Everything in it is synthetic: the cases are templated from
+ * the clinic's business profile, and the answers are AYA's to them. No
+ * patient is in any of it, which is why it may cross to this console.
+ */
+export const PRACTICE_REVIEW_STATUSES = ["open", "passed", "failed"] as const;
+export type PracticeReviewStatus = (typeof PRACTICE_REVIEW_STATUSES)[number];
+
+/** Where a failure the clinic must fix lives; what O9 names. */
+export const PRACTICE_SECTIONS = [
+  "practice",
+  "prices",
+  "policies",
+  "promotions",
+  "quick_answers",
+  "never_say",
+  "hours",
+  "how_aya_talks",
+  "safety_net",
+] as const;
+export type PracticeSection = (typeof PRACTICE_SECTIONS)[number];
+
+const PRACTICE_CHANNELS = ["web", "meta", "voice"] as const;
+const PRACTICE_CASE_STATUSES = ["failed", "review"] as const;
+/** The longest answer apps/app keeps (lib/assistant/turn.ts MAX_TEXT, plus the Meta line). */
+const MAX_ANSWER = 2_400;
+
+export type PracticeReviewCase = {
+  channel: (typeof PRACTICE_CHANNELS)[number];
+  id: string;
+  status: (typeof PRACTICE_CASE_STATUSES)[number];
+  asked: string[];
+  answered: string[];
+  checks: { name: string; ok: boolean; detail: string | null }[];
+  judge: { verdict: string; reason: string } | null;
+};
+
+export type PracticeReview = {
+  id: string;
+  clinicId: string;
+  clinicSlug: string;
+  clinicName: string;
+  runId: string;
+  status: PracticeReviewStatus;
+  createdAt: { on: string; at: string };
+  dueOn: string;
+  pastDue: boolean;
+  decidedAt: { on: string; at: string } | null;
+  decidedByLabel: string | null;
+  section: PracticeSection | null;
+  cases: PracticeReviewCase[];
+};
+
+function readPracticeCase(value: unknown): PracticeReviewCase {
+  const row = object(value, "practiceReview.case");
+  const judge = row.judge === undefined || row.judge === null ? null : object(row.judge, "practiceReview.case.judge");
+  return {
+    channel: literal(row.channel, PRACTICE_CHANNELS, "practiceReview.case.channel"),
+    id: code(row.id, "practiceReview.case.id"),
+    status: literal(row.status, PRACTICE_CASE_STATUSES, "practiceReview.case.status"),
+    asked: list(row.asked, "practiceReview.case.asked").map((t) => editable(t, "practiceReview.case.asked", MAX_ANSWER)),
+    answered: list(row.answered, "practiceReview.case.answered").map((t) => editable(t, "practiceReview.case.answered", MAX_ANSWER)),
+    checks: list(row.checks, "practiceReview.case.checks").map((c) => {
+      const check = object(c, "practiceReview.case.check");
+      return {
+        name: code(check.name, "practiceReview.case.check.name"),
+        ok: bool(check.ok, "practiceReview.case.check.ok"),
+        detail: optionalText(check.detail, "practiceReview.case.check.detail"),
+      };
+    }),
+    judge: judge
+      ? { verdict: code(judge.verdict, "practiceReview.case.judge.verdict"), reason: text(judge.reason, "practiceReview.case.judge.reason") }
+      : null,
+  };
+}
+
+function readPracticeReview(value: unknown): PracticeReview {
+  const row = object(value, "practiceReview");
+  return {
+    id: id(row.id, "practiceReview.id"),
+    clinicId: id(row.clinicId, "practiceReview.clinicId"),
+    clinicSlug: text(row.clinicSlug, "practiceReview.clinicSlug"),
+    clinicName: text(row.clinicName, "practiceReview.clinicName"),
+    runId: id(row.runId, "practiceReview.runId"),
+    status: literal(row.status, PRACTICE_REVIEW_STATUSES, "practiceReview.status"),
+    createdAt: instant(row.createdAt, "practiceReview.createdAt"),
+    dueOn: date(row.dueOn, "practiceReview.dueOn"),
+    pastDue: bool(row.pastDue, "practiceReview.pastDue"),
+    decidedAt: optionalInstant(row.decidedAt, "practiceReview.decidedAt"),
+    decidedByLabel: optionalText(row.decidedByLabel, "practiceReview.decidedByLabel"),
+    section:
+      row.section === null || row.section === undefined
+        ? null
+        : literal(row.section, PRACTICE_SECTIONS, "practiceReview.section"),
+    cases: list(row.cases, "practiceReview.cases").map(readPracticeCase),
+  };
+}
+
+export function fetchPracticeReviews(): Promise<OpsResult<PracticeReview[]>> {
+  return callOps("listPracticeReviews", "read", {}, (value) =>
+    list(object(value, "listPracticeReviews").reviews, "listPracticeReviews.reviews").map(readPracticeReview),
+  );
+}
+
+export type PracticeReviewOutcome =
+  | { status: "updated"; decision: "pass" | "fail"; auditRecorded: boolean }
+  | { status: "refused"; message: string };
+
+export function decidePracticeReview(
+  clinicId: string,
+  reviewId: string,
+  decision: "pass" | "fail",
+  section: PracticeSection | null = null,
+): Promise<OpsResult<PracticeReviewOutcome>> {
+  const args: Record<string, unknown> = { clinicId, reviewId, decision };
+  if (decision === "fail" && section) args.section = section;
+  return callOps("decidePracticeReview", "write", args, (value) => {
+    const data = object(value, "decidePracticeReview");
+    if (state(data, "decidePracticeReview") !== "updated") return refusal(data, "decidePracticeReview");
+    return {
+      status: "updated",
+      decision: literal(data.decision, ["pass", "fail"] as const, "decidePracticeReview.decision"),
+      auditRecorded: bool(data.auditRecorded, "decidePracticeReview.auditRecorded"),
+    };
+  });
+}
+
+export function rerunPracticeQuestions(clinicId: string): Promise<OpsResult<{ status: "updated"; auditRecorded: boolean } | { status: "refused"; message: string }>> {
+  return callOps("rerunPracticeQuestions", "write", { clinicId }, (value) => {
+    const data = object(value, "rerunPracticeQuestions");
+    if (state(data, "rerunPracticeQuestions") !== "updated") return refusal(data, "rerunPracticeQuestions");
+    return { status: "updated", auditRecorded: bool(data.auditRecorded, "rerunPracticeQuestions.auditRecorded") };
   });
 }
 

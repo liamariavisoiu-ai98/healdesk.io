@@ -5,6 +5,7 @@ import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
 import type { ChannelState } from "@/lib/channels/state";
+import type { PracticeState } from "@/lib/engine/practice/state";
 import { needsAttention, type AttentionFacts } from "@/lib/portal/attention";
 import { portalDay, portalMoment, portalMoney } from "@/lib/portal/format";
 import { answeringStatus } from "@/lib/portal/header";
@@ -300,6 +301,40 @@ describe("dates and money as the portal writes them", () => {
     );
     expect(portalMoney(89700)).toBe("$897");
     expect(portalMoney(2450)).toBe("$24.50");
+  });
+});
+
+describe("Needs attention after go-live: the practice questions", () => {
+  const latest = (over: Partial<NonNullable<PracticeState["latest"]>> = {}): PracticeState => ({
+    pending: false,
+    latest: {
+      id: "11111111-2222-4333-8444-555555555555",
+      status: "in_review",
+      finishedAt: at,
+      failedSection: null,
+      failedCount: null,
+      triggerSection: "prices",
+      overridden: false,
+      reviewDueOn: "2026-10-14",
+      ...over,
+    },
+  });
+
+  test("a change the questions did not pass shows \"We're double-checking your change to Prices\", linking to it, once a channel is live", () => {
+    expect(needsAttention(facts({ live: true, practice: latest() }))).toEqual([
+      { id: "double_checking", text: "We're double-checking your change to Prices.", action: { label: "Open Prices", href: "/c/glow/knowledge#prices" } },
+    ]);
+    // A failure the clinic must fix names the section that failed, here a Settings card.
+    expect(needsAttention(facts({ live: true, practice: latest({ status: "failed", failedSection: "safety_net", failedCount: 1 }) }))[0]).toMatchObject({
+      text: "We're double-checking your change to Safety net.",
+      action: { href: "/c/glow/settings#safety-net" },
+    });
+  });
+
+  test("not before go-live, where the tracker says it, and not once a run has passed", () => {
+    expect(needsAttention(facts({ live: false, practice: latest() }))).toEqual([]);
+    expect(needsAttention(facts({ live: true, practice: latest({ status: "passed" }) }))).toEqual([]);
+    expect(needsAttention(facts({ live: true, practice: latest({ status: "error" }) }))).toEqual([]);
   });
 });
 

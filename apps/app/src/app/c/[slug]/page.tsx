@@ -56,15 +56,16 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
     address: state.address,
     actor: page.actorContext,
   });
-  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts });
+  const live = shell.status.kind !== "not_yet";
+  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts, live });
   const tracker = buildTracker(
     state,
     await getCalendarConnection(portal.clinicId, { actor: page.actorContext }),
+    facts.practice,
   );
   const finished = wizardFinished(state.screens, state.progress);
   const plan = state.billing ? getPlan(state.billing.boughtPlanId) : undefined;
   const one = audienceSingular(shell.audience);
-  const live = shell.status.kind !== "not_yet";
   const started = state.billing?.planStartedAt ?? null;
   const summary = started ? await getBillingSummary(portal.clinicId, { now }) : null;
 
@@ -133,9 +134,17 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
               Talk to your AYA
             </button>
             <p id="preview-left" className="text-muted mt-2 text-sm">
-              Opens when every stage above is done. Still to come:{" "}
-              {joinWords(tracker.left.map((l) => l.toLowerCase()))}. In the preview nothing reaches{" "}
-              {shell.audience}, and nothing is booked.
+              {tracker.left.length > 0 ? (
+                <>
+                  Opens when every stage above is done. Still to come:{" "}
+                  {joinWords(tracker.left.map((l) => l.toLowerCase()))}.
+                </>
+              ) : (
+                // Every stage is done, and the preview itself is package C's:
+                // O8 goes out when it opens (lib/setup/tracker.ts TALK_TO_AYA_BUILT).
+                <>Every stage above is done. The preview isn&apos;t open yet; we&apos;ll email you when it is.</>
+              )}{" "}
+              In the preview nothing reaches {shell.audience}, and nothing is booked.
             </p>
           </div>
         </section>

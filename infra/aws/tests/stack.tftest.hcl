@@ -294,7 +294,7 @@ run "production_defaults" {
       for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).secrets : e.name
       ]) == toset([
       "ANTHROPIC_API_KEY", "BETTER_AUTH_SECRET", "DATABASE_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
-      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_LLM_SECRET",
+      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_API_KEY", "HEALDESK_RETELL_LLM_SECRET",
       "META_APP_SECRET", "META_VERIFY_TOKEN",
       "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
     ])
@@ -349,9 +349,9 @@ run "production_defaults" {
   assert {
     condition = toset([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].secrets : e.name]) == toset([
       "BETTER_AUTH_SECRET", "DATABASE_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
-      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "RESEND_API_KEY", "STRIPE_SECRET_KEY",
+      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_API_KEY", "RESEND_API_KEY", "STRIPE_SECRET_KEY",
     ])
-    error_message = "The worker's secrets differ from what its code reads (Google included, for the calendar watch)."
+    error_message = "The worker's secrets differ from what its code reads (Google included, for the calendar watch, and Retell's key, for the voice call backstop)."
   }
 
   assert {
@@ -752,7 +752,7 @@ run "production_defaults" {
   assert {
     condition = (
       local.unset_placeholder == "__unset__" &&
-      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 10 &&
+      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 11 &&
       alltrue([
         for p in concat(values(aws_ssm_parameter.internal), values(aws_ssm_parameter.external)) :
         p.type == "SecureString" && p.key_id == aws_kms_key.main.arn && p.tier == "Standard" &&
@@ -778,13 +778,13 @@ run "production_defaults" {
     condition = (
       output.parameters_to_fill == sort([for name in [
         "ANTHROPIC_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "HEALDESK_PROVISION_SECRET",
-        "HEALDESK_RETELL_LLM_SECRET", "META_APP_SECRET",
+        "HEALDESK_RETELL_API_KEY", "HEALDESK_RETELL_LLM_SECRET", "META_APP_SECRET",
         "META_VERIFY_TOKEN", "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
       ] : "/healdesk/production/app/${name}"]) &&
       length(output.internal_parameters) == 6 &&
       !contains(output.parameters_to_fill, "/healdesk/production/ci/CLOUDFLARE_API_TOKEN")
     )
-    error_message = "parameters_to_fill lists the ten external keys, without the two retired Synthflow ones (and never the CI token, which Terraform does not manage)."
+    error_message = "parameters_to_fill lists the eleven external keys, without the two retired Synthflow ones (and never the CI token, which Terraform does not manage)."
   }
 
   assert {
@@ -1346,6 +1346,17 @@ run "voice_on" {
     error_message = "With enable_voice on, the web task must say so in HEALDESK_VOICE_ENABLED, which the ops API's keyPresence reports."
   }
 
+  # Test mode by default: only the demo clinic's calls are answered, and only
+  # the demo clinic's lost calls backstopped. The web task holds the shared
+  # worker; the worker task is the separate placement's.
+  assert {
+    condition = alltrue([
+      for td in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.voice[0].container_definitions, aws_ecs_task_definition.worker.container_definitions] :
+      !strcontains(td, "HEALDESK_VOICE_REAL_CALLS")
+    ])
+    error_message = "With voice_real_calls off, neither the voice task, the web task nor the worker may carry HEALDESK_VOICE_REAL_CALLS: the endpoint and the backstop must stay in test mode."
+  }
+
   assert {
     condition = (
       one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).secrets ==
@@ -1491,6 +1502,76 @@ run "voice_on_plain_http_longest_environment" {
     )
     error_message = "Without alb_to_task_tls the voice task has no sidecar and its group is HTTP:3001 on the process; the group's name fits AWS's 32 characters at the longest environment."
   }
+}
+
+# Real patients' calls, the switch for once every agreement is signed: the
+# voice task gets the flag the endpoint reads, the web task the same, for
+# /admin/map, and the worker too, because the backstop for a call the voice
+# task never recorded runs there and reads the voice line's switch
+# (lib/voice/backstop.ts). Without it the backstop would stay in test mode and
+# drop every real clinic's lost call.
+run "voice_real_calls_on" {
+  command = plan
+
+  variables {
+    enable_voice     = true
+    voice_real_calls = true
+  }
+
+  assert {
+    condition = alltrue([
+      for td in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.voice[0].container_definitions] :
+      contains([for e in one([for c in jsondecode(td) : c if c.name == "app"]).environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_REAL_CALLS=1")
+    ])
+    error_message = "With voice_real_calls on, the voice task and the web task must carry HEALDESK_VOICE_REAL_CALLS=1."
+  }
+
+  # Shared placement (the default): the web task's "worker" container.
+  assert {
+    condition     = contains([for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "worker"]).environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_REAL_CALLS=1")
+    error_message = "With voice_real_calls on, the worker inside the web task must carry HEALDESK_VOICE_REAL_CALLS=1: the call backstop runs there."
+  }
+}
+
+# Separate placement: the worker's own task carries the switch as well.
+run "voice_real_calls_on_with_a_separate_worker" {
+  command = plan
+
+  variables {
+    enable_voice     = true
+    voice_real_calls = true
+    worker_placement = "separate"
+  }
+
+  assert {
+    condition = (
+      contains([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_REAL_CALLS=1") &&
+      !contains([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c.name], "worker") &&
+      aws_ecs_service.worker[0].task_definition == aws_ecs_task_definition.worker.arn
+    )
+    error_message = "With voice_real_calls on and worker_placement separate, the worker task must carry HEALDESK_VOICE_REAL_CALLS=1: the call backstop runs there."
+  }
+}
+
+run "refuses_real_calls_without_voice" {
+  command = plan
+
+  variables {
+    voice_real_calls = true
+  }
+
+  expect_failures = [var.voice_real_calls]
+}
+
+run "refuses_real_calls_through_app_environment" {
+  command = plan
+
+  variables {
+    enable_voice    = true
+    app_environment = { HEALDESK_VOICE_REAL_CALLS = "1" }
+  }
+
+  expect_failures = [var.app_environment]
 }
 
 run "refuses_a_voice_size_fargate_does_not_offer_and_a_fifth_task" {
@@ -1857,7 +1938,7 @@ run "standby" {
   assert {
     condition = (
       aws_kms_key.main.enable_key_rotation && aws_kms_alias.main.name == "alias/healdesk-production" &&
-      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 10 &&
+      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 11 &&
       toset(keys(aws_ecr_repository.this)) == toset(["app", "db-admin", "tls-proxy"]) &&
       length(aws_ecr_lifecycle_policy.this) == 3
     )

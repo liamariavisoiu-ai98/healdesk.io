@@ -11,6 +11,7 @@ import {
   amountsIn,
   cardNumberIn,
   clinicOwnWords,
+  cutCardNumbersAcrossTurns,
   guardAssistantReply,
   guardedLine,
   guardGreeting,
@@ -595,6 +596,99 @@ describe("the guard", () => {
   test("a card number is cut; a phone number is not", () => {
     expect(cardNumberIn("card 4242-4242-4242-4242 thanks")).toEqual({ text: "card [card number removed] thanks", found: true });
     expect(cardNumberIn("call me on 415 555 0192")).toEqual({ text: "call me on 415 555 0192", found: false });
+  });
+
+  test("a card number is cut however the recogniser or the person punctuates it", () => {
+    for (const [said, left] of [
+      // Retell's recogniser puts commas and full stops between the groups a caller reads.
+      ["Yeah it's 4242, 4242, 4242, 4242.", "Yeah it's [card number removed]."],
+      ["4242. 4242. 4242. 4242.", "[card number removed]."],
+      ["it's 4242  4242  4242  4242 ok", "it's [card number removed] ok"],
+      ["4,242 4,242 4,242 4,242", "[card number removed]"],
+      ["5555 5555 5555 4444", "[card number removed]"],
+      // Amex, as printed: 4-6-5.
+      ["amex 3782 822463 10005", "amex [card number removed]"],
+      ["6011111111111117 please", "[card number removed] please"],
+    ] as const) {
+      expect(cardNumberIn(said), said).toEqual({ text: left, found: true });
+    }
+  });
+
+  test("a card number followed by its expiry or security code is cut, and they go with it", () => {
+    for (const said of [
+      "4242 4242 4242 4242 123",
+      "4242 4242 4242 4242 12/28",
+      "4242 4242 4242 4242 12 28",
+      "4242 4242 4242 4242, 12/28, 123",
+      "4111111111111111 123",
+      "4111 1111 1111 1111 1 2 3",
+      "41111111111111111228123",
+    ]) {
+      expect(cardNumberIn(`card ${said} thanks`), said).toEqual({ text: "card [card number removed] thanks", found: true });
+    }
+    // Said straight after a phone number, the number alone goes.
+    expect(cardNumberIn("Call 415 555 0192 4242 4242 4242 4242")).toEqual({ text: "Call 415 555 0192 [card number removed]", found: true });
+  });
+
+  test("phone numbers, dates, prices and times are never cut, alone or side by side", () => {
+    for (const said of [
+      "call me on 415 555 0192",
+      "+1 (415) 555-0192",
+      "1 415 555 0192",
+      "415.555.0192",
+      // Each of the next two holds a stretch of digits that passes the Luhn
+      // check with an issuer's first digit: only the shapes keep them whole.
+      "my cell is 415-555-0100, 415-555-0106 is the house",
+      "Jo Smith, 415-555-0100, 03-14-1957, Thursday 10:30",
+      "My number is 415 555 0192, 12/03/2026 at 10:30 please",
+      "born 03/14/1990, phone 415-555-0192",
+      // 415555019294117 passes the Luhn check whole; the comma and the
+      // phone number's shape keep it a number and a ZIP code.
+      "My number is 415-555-0192, 94117",
+      "415 555 0192. 94117 is my zip",
+      "2026-12-03 or 12.03.2026",
+      "It's $1,250.00, or 1,250.50 dollars, or $12,500",
+      "at 2.30pm, or 10 30 tomorrow, or 10:30",
+      "Is the $450 package 3 sessions of 60 minutes?",
+    ]) {
+      expect(cardNumberIn(said), said).toEqual({ text: said, found: false });
+    }
+  });
+
+  test("a card number read out across turns is cut from each turn that holds part of it, past the assistant's turns between", () => {
+    expect(
+      cutCardNumbersAcrossTurns([
+        { speaker: "assistant", text: "How can I help?" },
+        { speaker: "person", text: "My card is 4242 4242." },
+        { speaker: "assistant", text: "Please don't read me card numbers." },
+        { speaker: "person", text: "4242 4242, expiry 12/28" },
+      ]),
+    ).toEqual([
+      { speaker: "assistant", text: "How can I help?" },
+      { speaker: "person", text: "My card is [card number removed]." },
+      { speaker: "assistant", text: "Please don't read me card numbers." },
+      { speaker: "person", text: "[card number removed], expiry 12/28" },
+    ]);
+    // A group a turn, and a number whole in one turn, all go.
+    expect(
+      cutCardNumbersAcrossTurns([
+        { speaker: "person", text: "4242" },
+        { speaker: "assistant", text: "Mm-hm." },
+        { speaker: "person", text: " 4242 4242 " },
+        { speaker: "assistant", text: "Mm-hm." },
+        { speaker: "person", text: "4242 and my other card is 5555 5555 5555 4444" },
+      ]).map((t) => t.text),
+    ).toEqual(["[card number removed]", "Mm-hm.", " [card number removed] ", "Mm-hm.", "[card number removed] and my other card is [card number removed]"]);
+    // A phone number ending one turn and a date or another number starting
+    // the next are not a card, though "555 0100 03 14 1957" passes the Luhn check.
+    const kept = [
+      { speaker: "person" as const, text: "My number is 415 555 0100" },
+      { speaker: "assistant" as const, text: "And your date of birth?" },
+      { speaker: "person" as const, text: "03 14 1957" },
+      { speaker: "assistant" as const, text: "And a second number?" },
+      { speaker: "person" as const, text: "415 555 0193" },
+    ];
+    expect(cutCardNumbersAcrossTurns(kept)).toEqual(kept);
   });
 });
 

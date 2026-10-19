@@ -1,5 +1,5 @@
 {
-  "id": "cc926e73-bc1a-412a-9d61-d577da1ee7c1",
+  "id": "1633fa76-e619-461c-b48b-6d72561f154d",
   "prevId": "f8988f89-e04a-49b1-9449-875a413da99b",
   "version": "7",
   "dialect": "postgresql",
@@ -5312,220 +5312,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.conversation_flags": {
-      "name": "conversation_flags",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "conversation_id": {
-          "name": "conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "thread_conversation_id": {
-          "name": "thread_conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "thread_party_ref": {
-          "name": "thread_party_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "channel": {
-          "name": "channel",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "conversation_started_at": {
-          "name": "conversation_started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "flagged_at": {
-          "name": "flagged_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "clock_timestamp()"
-        },
-        "corrected_at": {
-          "name": "corrected_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "conversation_flags_conversation_idx": {
-          "name": "conversation_flags_conversation_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "conversation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"conversation_flags\".\"conversation_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_flags_thread_conversation_idx": {
-          "name": "conversation_flags_thread_conversation_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "thread_conversation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"conversation_flags\".\"thread_conversation_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_flags_flagged_idx": {
-          "name": "conversation_flags_flagged_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "flagged_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "conversation_flags_clinic_id_clinics_id_fk": {
-          "name": "conversation_flags_clinic_id_clinics_id_fk",
-          "tableFrom": "conversation_flags",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "conversation_flags_conversation_fk": {
-          "name": "conversation_flags_conversation_fk",
-          "tableFrom": "conversation_flags",
-          "tableTo": "conversations",
-          "columnsFrom": [
-            "clinic_id",
-            "conversation_id"
-          ],
-          "columnsTo": [
-            "clinic_id",
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "conversation_flags_thread_fk": {
-          "name": "conversation_flags_thread_fk",
-          "tableFrom": "conversation_flags",
-          "tableTo": "chat_threads",
-          "columnsFrom": [
-            "clinic_id",
-            "channel",
-            "thread_party_ref"
-          ],
-          "columnsTo": [
-            "clinic_id",
-            "channel",
-            "party_ref"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "conversation_flags_source_check": {
-          "name": "conversation_flags_source_check",
-          "value": "\"conversation_flags\".\"source\" in ('call_or_chat', 'meta_thread')"
-        },
-        "conversation_flags_target_check": {
-          "name": "conversation_flags_target_check",
-          "value": "(\"conversation_flags\".\"source\" = 'call_or_chat' and \"conversation_flags\".\"conversation_id\" is not null and \"conversation_flags\".\"thread_conversation_id\" is null and \"conversation_flags\".\"thread_party_ref\" is null)\n        or (\"conversation_flags\".\"source\" = 'meta_thread' and \"conversation_flags\".\"conversation_id\" is null and \"conversation_flags\".\"thread_conversation_id\" is not null and \"conversation_flags\".\"thread_party_ref\" is not null\n            and \"conversation_flags\".\"channel\" in ('instagram', 'messenger', 'whatsapp'))"
-        },
-        "conversation_flags_channel_check": {
-          "name": "conversation_flags_channel_check",
-          "value": "\"conversation_flags\".\"channel\" in ('voice', 'web_chat', 'instagram', 'messenger', 'whatsapp', 'sms', 'web_form')"
-        },
-        "conversation_flags_outcome_check": {
-          "name": "conversation_flags_outcome_check",
-          "value": "\"conversation_flags\".\"outcome\" is null or \"conversation_flags\".\"outcome\" in ('answered', 'booked', 'request', 'handover', 'urgent')"
-        },
-        "conversation_flags_party_ref_check": {
-          "name": "conversation_flags_party_ref_check",
-          "value": "\"conversation_flags\".\"thread_party_ref\" is null or char_length(\"conversation_flags\".\"thread_party_ref\") between 1 and 200"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.conversations": {
       "name": "conversations",
       "schema": "",
@@ -6689,6 +6475,305 @@
         "google_oauth_states_consumed_ip_check": {
           "name": "google_oauth_states_consumed_ip_check",
           "value": "\"google_oauth_states\".\"consumed_ip\" is null or \"google_oauth_states\".\"used_at\" is not null"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.handovers": {
+      "name": "handovers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "clinic_id": {
+          "name": "clinic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform": {
+          "name": "platform",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "external_call_id": {
+          "name": "external_call_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "party_ref": {
+          "name": "party_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "meta_conversation_id": {
+          "name": "meta_conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "callback_phone": {
+          "name": "callback_phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "callback_first_name": {
+          "name": "callback_first_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "handled_at": {
+          "name": "handled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "handled_by_label": {
+          "name": "handled_by_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "handled_by_user_id": {
+          "name": "handled_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "handovers_clinic_idx": {
+          "name": "handovers_clinic_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_call_idx": {
+          "name": "handovers_call_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_call_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"handovers\".\"external_call_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_conversation_idx": {
+          "name": "handovers_conversation_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"handovers\".\"conversation_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_meta_conversation_idx": {
+          "name": "handovers_meta_conversation_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "meta_conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"handovers\".\"meta_conversation_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_thread_idx": {
+          "name": "handovers_thread_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "platform",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "party_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_callback_idx": {
+          "name": "handovers_callback_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "callback_phone",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"handovers\".\"callback_phone\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "handovers_clinic_id_clinics_id_fk": {
+          "name": "handovers_clinic_id_clinics_id_fk",
+          "tableFrom": "handovers",
+          "tableTo": "clinics",
+          "columnsFrom": [
+            "clinic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "handovers_conversation_fk": {
+          "name": "handovers_conversation_fk",
+          "tableFrom": "handovers",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "clinic_id",
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "clinic_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "handovers_thread_fk": {
+          "name": "handovers_thread_fk",
+          "tableFrom": "handovers",
+          "tableTo": "chat_threads",
+          "columnsFrom": [
+            "clinic_id",
+            "platform",
+            "party_ref"
+          ],
+          "columnsTo": [
+            "clinic_id",
+            "channel",
+            "party_ref"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "handovers_shape_check": {
+          "name": "handovers_shape_check",
+          "value": "(\"handovers\".\"channel\" = 'voice' and \"handovers\".\"external_call_id\" is not null and \"handovers\".\"platform\" is null and \"handovers\".\"party_ref\" is null and \"handovers\".\"meta_conversation_id\" is null and \"handovers\".\"callback_phone\" is null)\n        or (\"handovers\".\"channel\" = 'web_chat' and \"handovers\".\"conversation_id\" is not null and \"handovers\".\"external_call_id\" is null and \"handovers\".\"platform\" is null and \"handovers\".\"party_ref\" is null and \"handovers\".\"meta_conversation_id\" is null)\n        or (\"handovers\".\"channel\" = 'meta' and \"handovers\".\"platform\" in ('instagram', 'messenger', 'whatsapp') and \"handovers\".\"party_ref\" is not null and \"handovers\".\"meta_conversation_id\" is not null and \"handovers\".\"conversation_id\" is null and \"handovers\".\"external_call_id\" is null and \"handovers\".\"callback_phone\" is null)"
+        },
+        "handovers_callback_check": {
+          "name": "handovers_callback_check",
+          "value": "(\"handovers\".\"callback_phone\" is null or \"handovers\".\"callback_phone\" ~ '^\\+[1-9][0-9]{6,14}$') and (\"handovers\".\"callback_first_name\" is null or (\"handovers\".\"callback_phone\" is not null and char_length(\"handovers\".\"callback_first_name\") between 1 and 40))"
+        },
+        "handovers_call_id_check": {
+          "name": "handovers_call_id_check",
+          "value": "\"handovers\".\"external_call_id\" is null or char_length(\"handovers\".\"external_call_id\") between 1 and 200"
+        },
+        "handovers_handled_check": {
+          "name": "handovers_handled_check",
+          "value": "(\"handovers\".\"handled_at\" is null) = (\"handovers\".\"handled_by_label\" is null) and (\"handovers\".\"handled_at\" is null) = (\"handovers\".\"handled_by_user_id\" is null) and (\"handovers\".\"handled_by_label\" is null or char_length(\"handovers\".\"handled_by_label\") between 1 and 200)"
         }
       },
       "isRLSEnabled": false

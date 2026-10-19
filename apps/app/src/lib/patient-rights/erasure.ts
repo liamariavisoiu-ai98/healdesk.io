@@ -1,5 +1,5 @@
 import { BACKUP_RETENTION_DAYS } from "@healdesk/catalog";
-import { and, asc, eq, inArray, isNotNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 
 import {
   bookingRequests,
@@ -7,13 +7,16 @@ import {
   consentRecords,
   contactAttempts,
   contacts,
+  conversations,
   erasureRequests,
+  handovers,
   metaBookingDrafts,
   suppressions,
   webhookEvents,
   type ErasureVendorStamp,
 } from "@/db/schema";
 import { clearHoldsForErasure } from "@/lib/booking/holds";
+import { linkCallHandovers, namedHandover } from "@/lib/handovers/record";
 import { identifierRef } from "@/lib/identifier-ref";
 import { addBusinessDays } from "@/lib/incidents/incidents";
 import { describeError, log } from "@/lib/log";
@@ -188,6 +191,8 @@ export type ErasureCounts = {
   holds: number;
   /** Deposits of their appointments, with the Connect events that last touched them (drizzle/0067). */
   deposits: number;
+  /** Their requests for a person, found by the call-back number they gave (drizzle/0092). */
+  handovers: number;
 };
 
 function noCounts(): ErasureCounts {
@@ -206,6 +211,7 @@ function noCounts(): ErasureCounts {
     amendments: 0,
     holds: 0,
     deposits: 0,
+    handovers: 0,
   };
 }
 
@@ -234,7 +240,13 @@ export type ErasureKept = {
 };
 
 /** The identifiers a deletion is asked about. */
-type Asked = { phones: string[]; emails: string[]; threads: string[] };
+type Asked = {
+  phones: string[];
+  emails: string[];
+  threads: string[];
+  /** Web chat handovers named by id: each with its chat, and nothing by its number (drizzle/0092). */
+  handovers?: string[];
+};
 
 /** Everything the identifiers lead to, read before anything is deleted. */
 type Survey = {
@@ -251,6 +263,8 @@ type Survey = {
    * their numbers or addresses. Their kept requests lose the thread.
    */
   namedSharedThreads: string[];
+  /** Web chat handovers named by id (Asked.handovers). */
+  handovers: string[];
   kept: ErasureKept;
 };
 
@@ -388,6 +402,7 @@ async function survey(tx: TenantTx, asked: Asked, before: Date): Promise<Survey>
     threads: own,
     sharedThreads: shared,
     namedSharedThreads: namedShared,
+    handovers: [...(asked.handovers ?? [])],
     kept,
   };
 }
@@ -601,6 +616,50 @@ function add(counts: ErasureCounts, contact: ErasureResult): void {
 }
 
 /**
+ * Web chat handovers, and each one's chat where nothing of anyone else's
+ * holds it (eraseChats).
+ */
+async function eraseHandovers(tx: TenantTx, counts: ErasureCounts, which: SQL, before: Date): Promise<void> {
+  const asked = await tx.db
+    .delete(handovers)
+    .where(and(eq(handovers.clinicId, tx.clinicId), eq(handovers.channel, "web_chat"), which, lte(handovers.createdAt, before)))
+    .returning({ conversationId: handovers.conversationId });
+  counts.handovers += asked.length;
+  await eraseChats(
+    tx,
+    counts,
+    asked.map((h) => h.conversationId).filter((id): id is string => id !== null),
+    before,
+  );
+}
+
+/**
+ * Web chats, each where nothing of anyone else's holds it: no contact on it,
+ * and no booking request, appointment or amendment pointing at it. A web chat
+ * carries no contact, so nothing else in an erasure reaches one; its queued
+ * transcript and any handover go by the cascade.
+ */
+async function eraseChats(tx: TenantTx, counts: ErasureCounts, chats: string[], before: Date): Promise<void> {
+  if (!chats.length) return;
+  const gone = await tx.db
+    .delete(conversations)
+    .where(
+      and(
+        eq(conversations.clinicId, tx.clinicId),
+        inArray(conversations.id, [...new Set(chats)]),
+        eq(conversations.channel, "web_chat"),
+        isNull(conversations.contactId),
+        lte(conversations.startedAt, before),
+        sql`not exists (select 1 from booking_requests r where r.conversation_id = ${conversations.id})`,
+        sql`not exists (select 1 from appointments a where a.conversation_id = ${conversations.id})`,
+        sql`not exists (select 1 from record_amendments ra where ra.conversation_id = ${conversations.id})`,
+      ),
+    )
+    .returning({ id: conversations.id });
+  counts.conversations += gone.length;
+}
+
+/**
  * The deletes, in the order the foreign keys need, all bounded by `before`,
  * under the record of the request (`erasureId`): the definer that deletes
  * the person's suppressions, consent records and contact attempts refuses
@@ -633,10 +692,52 @@ async function eraseSurveyed(
   // The people, by every number and address the survey made theirs (not
   // only the ones asked), with their own requests whatever thread they came
   // from: every contact carrying one of them goes whole.
+  // A call's handover the database missed linking is linked first, so it
+  // goes with its conversation below (drizzle/0092).
+  await linkCallHandovers(tx);
+  // The web chats their booking requests were made in, read before the
+  // requests go: a web chat carries no contact, so nothing below would reach
+  // one, and its handover (asked under any number) goes with it (drizzle/0092).
+  const requestChats = s.contactIds.length
+    ? (
+        await tx.db
+          .select({ conversationId: bookingRequests.conversationId })
+          .from(bookingRequests)
+          .where(
+            and(
+              eq(bookingRequests.clinicId, tx.clinicId),
+              eq(bookingRequests.channel, "web_chat"),
+              inArray(bookingRequests.contactId, s.contactIds),
+              isNotNull(bookingRequests.conversationId),
+            ),
+          )
+      )
+        .map((r) => r.conversationId)
+        .filter((id): id is string => id !== null)
+    : [];
   for (const phone of s.phones)
     add(counts, await eraseContact(tx, { phone, requestedBy, before }));
+
   for (const email of s.emails)
     add(counts, await eraseContact(tx, { email, requestedBy, before }));
+
+  // A web chat's handover holds the number the visitor gave for the call
+  // back, on the handover and on no contact, so the contacts above never
+  // reach it: it goes by the number, and so does its chat, with its queued
+  // transcript, where nothing of anyone else's holds the conversation. A
+  // handover named by its id goes the same way, alone (drizzle/0092).
+  if (s.phones.length) {
+    await eraseHandovers(tx, counts, inArray(handovers.callbackPhone, s.phones), before);
+  }
+  if (s.handovers.length) {
+    await eraseHandovers(tx, counts, inArray(handovers.id, s.handovers), before);
+  }
+  // The chats their requests were made in, now that the requests are gone:
+  // any handover asked there, and the chat itself where nothing else holds it.
+  if (requestChats.length) {
+    await eraseHandovers(tx, counts, inArray(handovers.conversationId, [...new Set(requestChats)]), before);
+    await eraseChats(tx, counts, requestChats, before);
+  }
 
   // A call with no caller ID: no contact led to its conversation, but its
   // raw payload named the person, so the conversation it became goes too,
@@ -826,6 +927,7 @@ export async function erasePerson(
   input: ErasePersonInput,
 ): Promise<ErasePersonResult> {
   let phone = input.phone?.trim() || undefined;
+  let named: { handoverId: string } | null = null;
   let email = input.email?.trim().toLowerCase() || undefined;
   if (input.contactId) {
     if (phone || email) throw new Error("Name the person by a contact's id, or by their details, not both.");
@@ -834,26 +936,38 @@ export async function erasePerson(
       .from(contacts)
       .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, input.contactId)))
       .limit(1);
-    if (!contact) throw new ErasureContactNotFound();
-    phone = contact.phone ?? undefined;
-    email = contact.email?.toLowerCase() ?? undefined;
-    if (!phone && !email) {
+    // Someone who only asked for a person in web chat has no contact: their
+    // handover is named by its id or its chat's in the same place, and only
+    // it and its chat go, never anything found by the number they typed
+    // (namedHandover; drizzle/0092). Ids are UUIDs, so one cannot be the
+    // other's.
+    named = contact ? null : await namedHandover(tx, input.contactId);
+    if (!contact && !named) throw new ErasureContactNotFound();
+    phone = contact?.phone ?? undefined;
+    email = contact?.email?.toLowerCase() ?? undefined;
+    if (contact && !phone && !email) {
       throw new Error("That contact has no telephone number or email address to find the person by.");
     }
   }
-  if (!phone && !email)
+  if (!phone && !email && !named)
     throw new Error("A deletion request needs a telephone number or an email address.");
 
   const now = await databaseNow(tx);
   const receivedAt =
     input.receivedAt && input.receivedAt.getTime() < now.getTime() ? input.receivedAt : now;
-  const asked: Asked = { phones: phone ? [phone] : [], emails: email ? [email] : [], threads: [] };
+  const asked: Asked = {
+    phones: phone ? [phone] : [],
+    emails: email ? [email] : [],
+    threads: [],
+    handovers: named ? [named.handoverId] : [],
+  };
   const s = await survey(tx, asked, now);
 
   const restoreRefs = [
     ...new Set([
       ...s.phones.map((p) => identifierRef("erasure", tx.clinicId, `phone:${p}`)),
       ...s.emails.map((e) => identifierRef("erasure", tx.clinicId, `email:${e}`)),
+      ...s.handovers.map((h) => identifierRef("erasure", tx.clinicId, `handover:${h}`)),
       ...partyRefs(tx.clinicId, s.threads),
       ...partyRefs(tx.clinicId, s.namedSharedThreads),
     ]),
@@ -1095,11 +1209,32 @@ async function recover(tx: TenantTx, refs: ReadonlySet<string>, before: Date): P
       )),
   ];
   for (const r of evidence) candidatePhones.add(r.phone);
+  // A web chat visitor's call-back number, which no contact holds (drizzle/0092).
+  for (const r of await tx.db
+    .select({ phone: handovers.callbackPhone })
+    .from(handovers)
+    .where(
+      and(
+        eq(handovers.clinicId, tx.clinicId),
+        isNotNull(handovers.callbackPhone),
+        lte(handovers.createdAt, before),
+      ),
+    )) {
+    if (r.phone) candidatePhones.add(r.phone);
+  }
 
   return {
     phones: [...candidatePhones].filter((p) => refs.has(phoneRef(p))),
     emails: [...candidateEmails].filter((e) => refs.has(emailRef(e))),
     threads: [...candidateThreads].filter((t) => refs.has(threadRef(t))),
+    handovers: (
+      await tx.db
+        .select({ id: handovers.id })
+        .from(handovers)
+        .where(and(eq(handovers.clinicId, tx.clinicId), lte(handovers.createdAt, before)))
+    )
+      .map((h) => h.id)
+      .filter((id) => refs.has(identifierRef("erasure", tx.clinicId, `handover:${id}`))),
   };
 }
 

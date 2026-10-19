@@ -306,7 +306,7 @@ describe("Needs attention", () => {
       ).toEqual([
         {
           id: "website_line",
-          text: "Website chat is ready: paste one line on your website and AYA starts answering there.",
+          text: "Website chat is ready: paste one line on your website, and AYA is designed to start answering there.",
           action: { label: "Get the line", href: "/c/glow/settings#website-line" },
         },
       ]);

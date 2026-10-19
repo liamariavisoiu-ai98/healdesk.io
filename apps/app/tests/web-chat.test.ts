@@ -188,6 +188,42 @@ describeDb("the web chat", () => {
     expect(rows).toEqual([{ outcome: "escalated_to_human", urgent: true }]);
   });
 
+  test("an urgent chat ends once it holds a number to call back on, so its transcript, with the number, reaches the clinic at once", async () => {
+    const clinic = await liveWebClinic("chat-urgent-callback");
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("no chat");
+    const { responder } = scripted((last) =>
+      /\d{3}/.test(last)
+        ? { reply: "Thank you, Dana. The clinic will call you on that number.", booking: { first_name: "Dana", phone: "415 555 0192" } }
+        : { reply: "I can help with that." },
+    );
+    const transport = new FakeTransport();
+    const urgent = await sendWebChatMessage(clinic, start.token, "I'm having a bad reaction to the filler", { responder, transport });
+    if (urgent.mode !== "chat") throw new Error("no chat");
+    // The urgent reply asks for a number, so the chat stays open for it.
+    expect(urgent.reply).toContain("Leave a number for the clinic to call you.");
+    expect(urgent.ended).toBe(false);
+    const conversationId = readToken(urgent.token, clinic.clinicId)!.conversationId!;
+    expect(transport.transcripts()).toEqual([]);
+
+    const number = await sendWebChatMessage(clinic, urgent.token, "Dana, 415 555 0192", { responder, transport });
+    if (number.mode !== "chat") throw new Error("no chat");
+    expect(number.reply).toBe("Thank you, Dana. The clinic will call you on that number.");
+    expect(number.ended).toBe(true);
+    expect(readToken(number.token, clinic.clinicId)!.conversationId).toBeNull();
+    // Sent now, through the transcript path, not after thirty quiet minutes.
+    expect(transport.transcripts()).toHaveLength(1);
+    expect(transport.transcripts()[0]!.message.text).toContain("Visitor: Dana, 415 555 0192");
+    expect((await transcriptRow(clinic.clinicId, conversationId))?.status).toBe("sent");
+
+    // A chat with no urgent message is not ended by a number.
+    const other = await startWebChat(clinic);
+    if (other.mode !== "chat") throw new Error("no chat");
+    const plain = await sendWebChatMessage(clinic, other.token, "Dana, 415 555 0192", { responder, transport });
+    expect(plain.mode === "chat" && plain.ended).toBe(false);
+    expect(transport.transcripts()).toHaveLength(1);
+  });
+
   // The 19 October audit: the sealed history kept the urgent message, and
   // the next message sent the whole history to the model.
   test("an urgent message, or one in a language no screen reads, never reaches the model on a later message, and the transcript keeps it", async () => {

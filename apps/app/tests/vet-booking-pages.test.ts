@@ -140,6 +140,8 @@ async function bookingsPage(view: BookingRequestView): Promise<string> {
   mocks.screen = {
     timeZone: view.timeZone,
     open: [view],
+    handovers: [],
+    openHandoverCount: 0,
     deposits: [],
     missed: [],
     booked: [],

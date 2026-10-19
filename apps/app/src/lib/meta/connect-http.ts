@@ -1,6 +1,7 @@
 import type { RequestContext } from "@/lib/audit";
 import { clientIp } from "@/lib/client-ip";
 import { env } from "@/lib/env";
+import { publicOrigin } from "@/lib/public-url";
 
 import type { MetaAppCredentials } from "./connect";
 
@@ -50,4 +51,22 @@ export class LinkAlreadySpentError extends Error {
     super("The link was spent by another request.");
     this.name = "LinkAlreadySpentError";
   }
+}
+
+/**
+ * The request came from one of our own pages. The portal's session cookie is
+ * SameSite=Lax, which already keeps another site's form from riding on it;
+ * this is the second check on the two routes that now act on that cookie
+ * (the same one /api/calendar/google/start makes).
+ */
+export function fromOwnPage(headers: Headers): boolean {
+  const origin = headers.get("origin");
+  if (origin !== null && origin !== "null") {
+    try {
+      return new URL(origin).origin === new URL(publicOrigin()).origin;
+    } catch {
+      return false;
+    }
+  }
+  return headers.get("sec-fetch-site") === "same-origin";
 }

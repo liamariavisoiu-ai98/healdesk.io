@@ -168,6 +168,26 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "AYA could not pass a call through because the clinic has no direct line set, so she answered it with the fixed safe script. Ask the clinic for a direct line that does not forward back to us.",
   },
+  voice_call_start_failed: {
+    title: "A call started while the database could not be read",
+    action:
+      "The voice endpoint could not read the clinic's settings when a call came in. The code says where the call went: transferred_gate, transferred_database, transferred_memory or transferred_retell sent it to the clinic's direct line (named by the answer gate before the failure, read on its own from a database that failed one query rather than hung, remembered from the clinic's last call, or read back from Retell), closed means no direct line was known and the caller heard the closing line, and hung_up that the call ended (the caller hung up, or the voice process shut down) before either. Check the database first; if it stays down, put Retell in outage mode (docs/on-call.md).",
+  },
+  retell_fallback_unsynced: {
+    title: "A Retell fallback is not the direct line",
+    action:
+      "The hourly sync could not set the fallback number of the clinic's AYA number in Retell to its direct line. The code says why: duplicate (two clinics name the same AYA number, whose fallback is cleared; fix the wrong one in Ops), missing (Retell has no such number), not_kept (Retell answered but did not keep it, or failed while setting it), rejected, unreachable or database; key_refused (Retell refused HEALDESK_RETELL_API_KEY) and retell_unreachable (three numbers in a row timed out) stop the run for every clinic. Until it is fixed, outage mode and a voice task started during a database outage cannot send that clinic's calls to its direct line. Check the number in Retell's dashboard and HEALDESK_RETELL_API_KEY.",
+  },
+  voice_direct_line_loops: {
+    title: "A clinic's direct line forwards back to AYA",
+    action:
+      "The clinic's direct line is the same as its published number or its AYA number, so a call put through to it would come straight back to AYA and never reach a person. Until it changes, AYA treats the clinic as having no direct line: a call she would pass through is answered with the fixed safe script, or closed where the Services have ended, and no call is transferred. The code is the answer gate's decision on the call that found it. Ask the clinic for a direct line that reaches a person and does not forward back to us, and check its published number.",
+  },
+  voice_test_mode_refused: {
+    title: "A call was refused in voice test mode",
+    action:
+      "Real calls are off (HEALDESK_VOICE_REAL_CALLS), so the voice endpoint answers only the demo clinic, and it refused a call for the clinic below. Phase not_made_up means the clinic is not the demo clinic: its Retell agent or its call forwarding already points at the endpoint, which must not happen before every agreement in the chain is signed, so find out why and point it back. Phase check_failed means the endpoint could not tell within its start deadline whether the clinic is made up, usually because the database could not be read. The code says where the call went: transferred to the clinic's direct line, or closed with the closing line. Nothing of the call was kept.",
+  },
   plan_start_after_cancel: {
     title: "A plan started on a subscription set to cancel",
     action:
@@ -284,7 +304,7 @@ const WORDING: Record<OpsEvent, Wording> = {
   web_widget_to_confirm: {
     title: "Confirm a clinic's website chat is on its site",
     action:
-      "The clinic below has website chat waiting on its line, and the chat was opened from what claims to be its website. A claim is not proof, so website chat stays off until you look: open the clinic's website, check the chat is there and answers, then press \"The line is on their website\" on the clinic's onboarding page in the console.",
+      "The clinic below has website chat waiting on its line, and the chat was opened from what claims to be its website. A claim is not proof, so website chat stays off until you look: open the clinic's website and check the chat bubble is there (until you confirm, it tells visitors to call the practice), then press \"The line is on their website\" on the clinic's onboarding page in the console.",
   },
   connection_broken: {
     title: "A clinic's connection stopped working",
@@ -394,6 +414,14 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Our own target is to tell the practice within 24 hours of discovering a breach, a security incident or an improper use or disclosure, well inside the agreement's outer limit, and no notice is recorded for the incident below. Decide it now on the console's Incidents page: send the report, which emails the practice's address from fixed fields, or record why it isn't reportable (docs/incident-response.md).",
   },
+  // Raised by lib/notices/booking-alerts.ts (urgentAlertNotQueued) when an
+  // urgent message's L12 could not be queued: the clinic has no email about
+  // it and /api/health stays green, so a person has to phone the clinic.
+  urgent_alert_not_queued: {
+    title: "An urgent message's alert to the clinic failed",
+    action:
+      "Someone reported a complication or an urgent symptom, and the clinic's urgent alert could not be queued, so the clinic has not been emailed about it. They were given the fixed urgent reply (emergency services, then the clinic's own number), or, where the message could not be recorded at all, asked to contact the practice directly. Phone the clinic now: tell them an urgent message came in on the channel below at about the time this alert was raised; if its conversation was recorded, its transcript reaches their address when it ends. Then read apps/app's error lines for the failure, usually the database.",
+  },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
     action:
@@ -434,6 +462,8 @@ const LABELS: Record<string, string> = {
   phase: "Phase",
   serviceEndedAt: "Service ended (UTC)",
   lateDays: "Days late",
+  conversationId: "Conversation id",
+  channel: "Channel",
 };
 
 function wordingFor(payload: OpsAlertPayload): Wording {

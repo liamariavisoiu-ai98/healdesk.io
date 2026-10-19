@@ -349,6 +349,7 @@ describeDb("collected on a call and in a chat, refused on Meta, shown to the des
       const session = new RetellCallSession(clinic.clinicId, callId, () => {}, {
         responder,
         transport,
+        realCalls: true,
       });
       await session.open();
       await session.handle(

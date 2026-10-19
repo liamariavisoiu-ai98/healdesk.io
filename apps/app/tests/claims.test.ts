@@ -7,6 +7,7 @@ import { readWaitingCounts } from "@/lib/portal/bookings";
 import { waitedFor, waitingSentence } from "@/lib/portal/waiting-words";
 import { claimLines, escalatedLine, type ClaimsPayload } from "@/lib/reporting/claim-words";
 import {
+  countHandled,
   QUIET_CHANNEL_DAYS,
   quietDayIsUnusual,
   readClaims,
@@ -390,6 +391,14 @@ describeDb("the claims, against the database", () => {
       outcome: "escalated_to_human",
     });
     await conversation(c.clinicId, { channel: "web_chat", at: inWeek });
+    // A call AYA never spoke on: put through to the clinic's direct line by
+    // the fall-through, no opening line. Recorded, never handled or answered.
+    await conversation(c.clinicId, {
+      channel: "voice",
+      at: inWeek,
+      reason: "rang_unanswered",
+      answered: false,
+    });
     // Outside the week.
     await conversation(c.clinicId, {
       channel: "voice",
@@ -482,6 +491,12 @@ describeDb("the claims, against the database", () => {
       { channel: "voice", handled: 4 },
     ]);
     expect(claims.handled).toBe(7);
+    // The quiet day's count is the same conversations.
+    expect(
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        countHandled(tx, new Date(now.getTime() - 7 * DAY), now),
+      ),
+    ).toBe(7);
     expect(claims.rangOut).toBe(2);
     expect(claims.urgent).toBe(1);
     expect(claims.handovers).toBe(1);

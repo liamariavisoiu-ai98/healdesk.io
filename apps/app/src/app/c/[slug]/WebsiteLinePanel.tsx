@@ -32,7 +32,8 @@ export function WebsiteLinePanel({ slug, snippet }: { slug: string; snippet: str
       />
       <p className="text-muted">
         Paste it once, just before <code>&lt;/body&gt;</code>, on every page of your website, or
-        send it to whoever looks after your site. AYA starts answering there once it&rsquo;s in.
+        send it to whoever looks after your site. AYA is designed to start answering there once
+        it&rsquo;s in.
       </p>
       <p>{WEB_CHAT_COUNTS_LINE}</p>
       <p>

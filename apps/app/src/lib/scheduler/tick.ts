@@ -15,6 +15,7 @@ import {
   queueAfterCancellationNotices,
   runDestructionNotices,
 } from "@/lib/offboarding/after-cancellation";
+import { runMetaTokenWatch } from "@/lib/meta/token-watch";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 import { expireErasureRecords } from "@/lib/patient-rights/erasure";
 import { sweepPatientRequests } from "@/lib/patient-rights/patient-requests";
@@ -25,6 +26,7 @@ import { runSetupRemindersJob } from "@/lib/setup/reminders";
 import { runAddressChangesJob } from "@/lib/sign-in/address-change";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 import { runSiteReadsSweep, runWebsiteDriftJob } from "@/lib/website/job";
+import { syncRetellFallbacks } from "@/lib/voice/retell-fallback-sync";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
@@ -102,6 +104,18 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   await record("daily-summary", () => runDailySummaryJob({ now }));
   await record("weekly-recap", () => runWeeklyRecapJob({ now }));
   await record("connection-health", () => runConnectionHealthJob({ now }));
+  // Every six hours: ask Meta whether each clinic's Facebook, Instagram and
+  // WhatsApp logins still work, and mark the dropped ones so the portal offers
+  // Reconnect (lib/meta/token-watch.ts). Not a switched job: it only marks.
+  if (hour % 6 === 2) {
+    await record("meta-token-watch", async () => {
+      const r = await runMetaTokenWatch();
+      return {
+        status: r.failures ? "failed" : "ok",
+        note: `${r.checked} checked, ${r.marked} marked${r.failures ? `, ${r.failures} failed` : ""}`,
+      };
+    });
+  }
   // §C.4: booking requests whose link or proposed times have lapsed become
   // `expired`. Not a switched job: a pure function of the clock over rows
   // that already exist, like the sweep below. (It ran inside the call-back
@@ -215,6 +229,11 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // until the owner switches it on, the monthly check of each live clinic.
   await record("site-reads", () => runSiteReadsSweep({ now: () => now }));
   await record("website-drift", () => runWebsiteDriftJob({ now }));
+  // The voice fall-through (T14): each clinic's AYA number in Retell keeps
+  // the clinic's direct line as its fallback, for outage mode and for a voice
+  // task that cannot read the database (lib/voice/retell-fallback-sync.ts).
+  // Not a switched job: it does nothing until HEALDESK_RETELL_API_KEY is set.
+  await record("retell-fallback", () => syncRetellFallbacks());
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));

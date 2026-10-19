@@ -173,7 +173,7 @@ export async function issueDeviceRecovery(
         addressHash: sql`app_address_hash(${userId})`,
         landing: `/c/${clinic.slug}/protect`,
         issuedBy: operatorLabel,
-        // The database dates the row itself (drizzle/0094); this is its rule.
+        // The database dates the row itself (drizzle/0095); this is its rule.
         expiresAt: sql`now() + ${WINDOW}`,
       })
       .returning({ id: deviceRecoveries.id, expiresAt: deviceRecoveries.expiresAt });

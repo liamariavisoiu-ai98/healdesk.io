@@ -254,7 +254,7 @@ describeDb("the portal's screens, before and after go-live", () => {
 
       const home = await render("home");
       expect(text(home)).toContain(
-        "Website chat is ready: paste one line on your website and AYA starts answering there. Get the line",
+        "Website chat is ready: paste one line on your website, and AYA is designed to start answering there. Get the line",
       );
       expect(home).toContain(`href="/c/${portal.clinicSlug}/settings#website-line"`);
       expect(brokenLinks(home, portal.clinicSlug)).toEqual([]);
@@ -333,8 +333,8 @@ describeDb("the portal's screens, before and after go-live", () => {
           [clinic.clinicId],
         );
         await c.query(
-          `insert into conversations (clinic_id, contact_id, channel, recovery_reason, outcome, started_at)
-           values ($1, $2, 'voice', 'after_hours', 'qualified_no_booking', now() - interval '3 hours')`,
+          `insert into conversations (clinic_id, contact_id, channel, recovery_reason, outcome, started_at, disclosure_played_at)
+           values ($1, $2, 'voice', 'after_hours', 'qualified_no_booking', now() - interval '3 hours', now() - interval '3 hours')`,
           [clinic.clinicId, rows[0]!.id],
         );
         await c.query(

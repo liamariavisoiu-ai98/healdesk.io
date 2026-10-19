@@ -531,7 +531,7 @@ describe("website chat's line in O10 and O11", () => {
     const { subject, text } = ready();
     expect(subject).toBe("Website chat is ready: one step left");
     expect(text).toContain(
-      "AYA is ready to answer chats on Radiance Med Spa's website. One step is left, and it's yours: paste this line once, just before </body>, on every page of your website.",
+      "Website chat is ready for Radiance Med Spa's website. One step is left, and it's yours: paste this line once, just before </body>, on every page of your website. AYA is designed to start answering there once it's in.",
     );
     expect(text).toContain(WEB_CHAT_COUNTS_LINE);
     expect(text).toContain(
@@ -547,7 +547,7 @@ describe("website chat's line in O10 and O11", () => {
     const { subject, text, html } = steps();
     expect(subject).toBe("Website chat line from Radiance Med Spa");
     expect(text).toContain(
-      "Radiance Med Spa asked us to send you this line for its website. Paste it once, just before </body>, on every page of the site, and AYA, the practice's AI assistant from healdesk, answers chats there once it's in.",
+      "Radiance Med Spa asked us to send you this line for its website. Paste it once, just before </body>, on every page of the site. AYA, the practice's AI assistant from healdesk, is designed to start answering chats there once it's in.",
     );
     for (const body of [text, visibleText(html)]) {
       expect(body).toContain(

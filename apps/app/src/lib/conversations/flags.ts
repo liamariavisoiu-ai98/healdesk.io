@@ -5,7 +5,7 @@ import { CORRECTION_STATES, type CorrectionState } from "@/lib/portal/conversati
 import type { TenantTx } from "@/lib/tenant";
 
 /**
- * The records behind "Flag this answer" (conversation_flags, drizzle/0092;
+ * The records behind "Flag this answer" (conversation_flags, drizzle/0093;
  * spec, "When the agent gets something wrong"). Each function reads or
  * writes inside the caller's tenant transaction: the portal's patient page
  * (lib/portal/flag-answer.ts, lib/portal/conversations.ts), so every read
@@ -133,7 +133,7 @@ export async function metaFlags(tx: TenantTx, limit: number): Promise<Conversati
 
 /**
  * The clinic's flags in the seven days to now, by the database's clock
- * (flagged_at is the database's own, drizzle/0092), the one just written
+ * (flagged_at is the database's own, drizzle/0093), the one just written
  * included.
  */
 export async function recentFlagCount(tx: TenantTx): Promise<number> {

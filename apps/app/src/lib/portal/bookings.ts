@@ -1,13 +1,18 @@
-import { and, eq, gt, inArray, min, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, min, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import {
   appointments,
   bookingRequests,
   clinics,
   contacts,
+  conversations,
+  handovers,
   type BookedVia,
   type CalendarWriteStatus,
   type DepositStatus,
+  type HandoverChannel,
+  type HandoverPlatform,
 } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { writableConnection } from "@/lib/booking/calendar";
@@ -47,9 +52,10 @@ import { logPatientAccess, type PatientPage, type PatientTx } from "./patient-pa
  * the passkey (logPatientAccess) in that transaction: one for the requests
  * shown, one for the appointments. A message left on the website while AYA
  * was off is a request (source 'contact_form', package F) and sits in Needs
- * you with the rest, worded by `requestWords`. A handover has no record of
- * its own to list: its alert (L11) and the conversation's transcript carry
- * it.
+ * you with the rest, worded by `requestWords`. Someone who asked AYA for a
+ * person (L11) is a handover (drizzle/0092, lib/handovers/record.ts): open
+ * ones sit in Needs you, with an access row of their own, until the desk
+ * marks one handled (markHandoverHandled).
  *
  * Server only.
  */
@@ -134,10 +140,27 @@ export type BookedAppointment = {
   amendments: { text: string; requestedAt: Date }[];
 };
 
+/** Someone asked AYA for a person, and the desk has not marked it handled. */
+export type HandoverView = {
+  id: string;
+  channel: HandoverChannel;
+  platform: HandoverPlatform | null;
+  askedAt: Date;
+  /** The call's or web chat's conversation, to open in Conversations; null for Meta, and for a call not yet written. */
+  conversationId: string | null;
+  /** From the conversation's contact: the caller's number, or the one a web chat visitor gave. */
+  firstName: string | null;
+  phone: string | null;
+};
+
 export type BookingsScreen = {
   timeZone: string;
   /** Open requests, oldest first. */
   open: BookingRequestView[];
+  /** Open handovers, newest first, at most MAX_OPEN_HANDOVERS of them. */
+  handovers: HandoverView[];
+  /** How many handovers are open in all: more than `handovers` holds once the oldest are past the cap. */
+  openHandoverCount: number;
   /** Deposits a booking left for the front desk, while the appointment is ahead. */
   deposits: BookedAppointment[];
   /** Lapsed requests, newest first. */
@@ -174,6 +197,9 @@ export async function readBookingsScreen(
     { now, limit: 50 },
   );
   const booked = await readBookedAppointments(tx, now);
+  const asked = await readOpenHandovers(tx);
+  const openHandoverCount =
+    asked.length < MAX_OPEN_HANDOVERS ? asked.length : await countOpenHandovers(tx);
   let focus: BookingRequestView | null = null;
   if (focusId !== null) {
     focus =
@@ -197,11 +223,20 @@ export async function readBookingsScreen(
       resourceIds: booked.map((a) => a.id),
     });
   }
+  if (asked.length > 0) {
+    await logPatientAccess(tx, {
+      action: "read",
+      resourceType: "handover",
+      resourceIds: asked.map((h) => h.id),
+    });
+  }
 
   const deposits = booked.filter((a) => isDepositToCollect(a, now));
   return {
     timeZone: open[0]?.timeZone ?? missed[0]?.timeZone ?? (await clinicZone(tx)),
     open,
+    handovers: asked,
+    openHandoverCount,
     deposits,
     missed,
     booked,
@@ -244,9 +279,9 @@ export type WaitingCounts = {
  * name, number, time or service, only how many, and when the oldest request
  * was taken.
  *
- * A handover has no record that says whether anyone has dealt with it yet
- * (Bookings lists none either, above), so there is no count of handovers
- * waiting: each one was emailed the moment it happened.
+ * Open handovers are not counted here: Bookings lists them under Needs
+ * you until the desk marks them handled, and each was emailed the moment it
+ * happened.
  */
 export async function readWaitingCounts(tx: TenantTx, now: Date = new Date()): Promise<WaitingCounts> {
   const [open] = await tx.db
@@ -511,4 +546,183 @@ export async function markAppointmentOutcome(
     },
   });
   return { ok: true, status: outcome, changed: true };
+}
+
+/**
+ * How many open handovers Needs you lists at most: the newest first, so the
+ * one an L11 email has just pointed at is always on the screen it links to,
+ * however many older ones nobody marked. The page says how many more there
+ * are (openHandoverCount). Unlike a request, a handover never lapses: it
+ * names no time the person was promised, so there is nothing to miss, and
+ * the record clock deletes it with the rest (lib/retention/purge.ts).
+ */
+export const MAX_OPEN_HANDOVERS = 100;
+
+/**
+ * The open handovers, newest first, with a name and number to call: the one
+ * a web chat visitor gave for the call back, or a call's caller. A Meta handover has neither: the desk answers it in
+ * the platform's own inbox. A call's conversation is written when the call
+ * ends, so one still going has none yet.
+ */
+async function readOpenHandovers(tx: TenantTx): Promise<HandoverView[]> {
+  // A call's handover is linked to its conversation by the database when
+  // the call's row is written; one raised in the same instant may miss the
+  // link, so a call is also found by its call id.
+  const call = alias(conversations, "handover_call");
+  const rows = await tx.db
+    .select({
+      id: handovers.id,
+      channel: handovers.channel,
+      platform: handovers.platform,
+      askedAt: handovers.createdAt,
+      conversationId: sql<string | null>`coalesce(${handovers.conversationId}, ${call.id})`,
+      firstName: sql<string | null>`coalesce(${handovers.callbackFirstName}, ${contacts.fullName})`,
+      phone: sql<string | null>`coalesce(${handovers.callbackPhone}, ${contacts.phone})`,
+    })
+    .from(handovers)
+    .leftJoin(
+      call,
+      and(
+        isNull(handovers.conversationId),
+        eq(call.clinicId, handovers.clinicId),
+        eq(call.externalCallId, handovers.externalCallId),
+      ),
+    )
+    .leftJoin(
+      conversations,
+      and(
+        eq(conversations.clinicId, handovers.clinicId),
+        eq(conversations.id, sql`coalesce(${handovers.conversationId}, ${call.id})`),
+      ),
+    )
+    .leftJoin(
+      contacts,
+      and(eq(contacts.clinicId, conversations.clinicId), eq(contacts.id, conversations.contactId)),
+    )
+    .where(and(eq(handovers.clinicId, tx.clinicId), isNull(handovers.handledAt)))
+    .orderBy(desc(handovers.createdAt), desc(handovers.id))
+    .limit(MAX_OPEN_HANDOVERS);
+  return rows.map((r) => ({
+    id: r.id,
+    channel: r.channel,
+    platform: r.platform,
+    askedAt: r.askedAt,
+    conversationId: r.conversationId,
+    firstName: r.firstName,
+    phone: r.phone,
+  }));
+}
+
+/** Every open handover, counted without reading one: only how many. */
+async function countOpenHandovers(tx: TenantTx): Promise<number> {
+  const [row] = await tx.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(handovers)
+    .where(and(eq(handovers.clinicId, tx.clinicId), isNull(handovers.handledAt)));
+  return row?.n ?? 0;
+}
+
+/**
+ * What Needs you says under its handovers when there are more open than it
+ * lists: how many older ones are not shown, and how they come into view.
+ */
+export function olderHandoversLine(total: number, shown: number): string {
+  const older = total - shown;
+  return `Showing the ${shown} most recent of ${total}. ${
+    older === 1 ? "One older one is" : `${older} older ones are`
+  } not shown: mark the ones your team has dealt with, and the rest appear here.`;
+}
+
+/** How Bookings words a handover: where they asked, and how the desk reaches them. */
+export function handoverWords(view: Pick<HandoverView, "channel" | "platform" | "conversationId" | "phone">): {
+  /** "on the phone", "in your website chat", "on Instagram". */
+  via: string;
+  /** What to do, or where the number they gave is, beside any number to call. */
+  reach: string | null;
+} {
+  if (view.channel === "meta") {
+    const platform =
+      view.platform === "instagram" ? "Instagram" : view.platform === "whatsapp" ? "WhatsApp" : "Messenger";
+    return {
+      via: `on ${platform}`,
+      reach: `Reply to them in your ${platform} inbox. Nothing they wrote is kept here.`,
+    };
+  }
+  if (view.channel === "voice") {
+    // A number the caller gave AYA is not kept on the handover: it is in
+    // the call's transcript, the only copy of what was said.
+    const given = "it's in the call's transcript, which is emailed to you when the call ends.";
+    return {
+      via: "on the phone",
+      reach: view.phone
+        ? `This is the number they called from. If they gave AYA a different one, ${given}`
+        : view.conversationId
+          ? `The caller's number wasn't shown. If they gave AYA one, ${given}`
+          : `The caller's number appears here once the call ends, if it was shown. If they gave AYA one, ${given}`,
+    };
+  }
+  return {
+    via: "in your website chat",
+    reach: view.phone
+      ? null
+      : "They haven't left a number. The chat's transcript is emailed to you when it ends.",
+  };
+}
+
+/** Thrown inside the patient transaction for an id that is not this clinic's handover, so it rolls back with no row. */
+export class HandoverNotFoundError extends Error {
+  constructor() {
+    super("Not one of this clinic's handovers.");
+    this.name = "HandoverNotFoundError";
+  }
+}
+
+export type HandoverResult =
+  | { ok: true; changed: boolean }
+  /** The clinic is closing: its portal is read-only (the page hides the button; this holds for a hand-made post). */
+  | { ok: false; reason: "read_only" };
+
+/**
+ * The desk has dealt with a handover: marked once, by the device whose
+ * passkey is live, in the action's patient transaction (withPatientPage),
+ * with an access row for the handover it read and an update row for the
+ * change, each naming the passkey. The database stamps the time and never
+ * reopens it (drizzle/0092), so marking one already handled changes
+ * nothing. A clinic whose offboarding has started is read-only, and nothing
+ * is written. An id that is not one of this clinic's handovers throws
+ * HandoverNotFoundError, so the transaction rolls back and leaves no row.
+ */
+export async function markHandoverHandled(tx: PatientTx, handoverId: string): Promise<HandoverResult> {
+  if (!UUID.test(handoverId)) throw new HandoverNotFoundError();
+  const [row] = await tx.db
+    .select({ handledAt: handovers.handledAt })
+    .from(handovers)
+    .where(and(eq(handovers.id, handoverId), eq(handovers.clinicId, tx.clinicId)))
+    .for("update")
+    .limit(1);
+  if (!row) throw new HandoverNotFoundError();
+  await logPatientAccess(tx, { action: "read", resourceType: "handover", resourceId: handoverId });
+  const [clinic] = await tx.db
+    .select({ offboardingStartedAt: clinics.offboardingStartedAt })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  if (clinic?.offboardingStartedAt) return { ok: false, reason: "read_only" };
+  if (row.handledAt) return { ok: true, changed: false };
+  const label = tx.page.stepUp.deviceLabel.trim().slice(0, 200) || "Your team";
+  await tx.db
+    .update(handovers)
+    .set({ handledAt: sql`clock_timestamp()`, handledByLabel: label, handledByUserId: tx.page.portal.userId })
+    .where(and(eq(handovers.id, handoverId), eq(handovers.clinicId, tx.clinicId), isNull(handovers.handledAt)));
+  tx.audit.record({
+    action: "update",
+    resourceType: "handover",
+    resourceId: handoverId,
+    metadata: {
+      outcome: "handled",
+      passkeyId: tx.page.stepUp.passkeyId,
+      stepUpId: tx.page.stepUp.stepUpId,
+    },
+  });
+  return { ok: true, changed: true };
 }

@@ -21,22 +21,23 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 export const LOGIN_COOKIE = "hd_meta_login";
 const MAX_AGE_SECONDS = 15 * 60;
 
-export type LoginCookie = { token: string; nonce: string };
+/** `from` is set only when the portal's button started the login; it says which portal screen to return to. */
+export type LoginCookie = { token: string; nonce: string; from?: "setup" | "settings" };
 
 export function newNonce(): string {
   return randomBytes(32).toString("base64url");
 }
 
 export function encodeLoginCookie(value: LoginCookie): string {
-  return Buffer.from(JSON.stringify({ t: value.token, n: value.nonce }), "utf8").toString("base64url");
+  return Buffer.from(JSON.stringify({ t: value.token, n: value.nonce, ...(value.from ? { r: value.from } : {}) }), "utf8").toString("base64url");
 }
 
 export function decodeLoginCookie(raw: string | undefined | null): LoginCookie | null {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as { t?: unknown; n?: unknown };
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as { t?: unknown; n?: unknown; r?: unknown };
     if (typeof parsed.t !== "string" || typeof parsed.n !== "string" || !parsed.t || !parsed.n) return null;
-    return { token: parsed.t, nonce: parsed.n };
+    return { token: parsed.t, nonce: parsed.n, ...(parsed.r === "setup" || parsed.r === "settings" ? { from: parsed.r } : {}) };
   } catch {
     return null;
   }

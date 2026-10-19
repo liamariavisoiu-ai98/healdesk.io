@@ -105,6 +105,7 @@ export async function runRetentionPurgeJob(options: { now?: Date } = {}) {
             r.chatThreadsDeleted +
             r.slotHoldsDeleted +
             r.depositsDeleted +
+            r.handoversDeleted +
             r.patientRequestsDeleted,
           skipped: acc.skipped + (r.skipped ? 1 : 0),
         }),

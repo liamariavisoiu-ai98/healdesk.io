@@ -37,7 +37,7 @@ export const dynamic = "force-dynamic";
  * to it and goes to the clinic's Protect page, where that session may add
  * one device.
  *
- * A claim is made once (drizzle/0094), so a claim no session came of is not
+ * A claim is made once (drizzle/0095), so a claim no session came of is not
  * given back: when the session cannot be started, or the operator ended the
  * link in the moment before it was named, any session started is deleted,
  * nobody stays signed in by it, and the page says plainly that the link is

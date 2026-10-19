@@ -12,9 +12,11 @@ import { env } from "../src/lib/env";
  *
  * A shell command rather than an operation in the ops console on purpose. The
  * console's operations are a closed list (lib/ops/api.ts), and this exists for
- * the Meta App Review recordings and the first pilot clinics. The onboarding
- * wizard (launch plan 2.6) replaces it with the connect buttons the spec
- * describes, inside a signed-in session, and this script then goes.
+ * the Meta App Review recordings and the first pilot clinics. The portal now
+ * has the connect buttons the spec describes (set-up's channels step and
+ * Settings → Channels, Connect and Reconnect), so a clinic that can sign in
+ * needs no link; this stays for an operator helping one who cannot, and for
+ * recordings.
  *
  * The URLs are printed and nowhere else: the token is unrecoverable once this
  * process exits, which is the point of storing only its digest.

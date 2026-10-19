@@ -418,6 +418,12 @@ function ClinicCard({
         Report recipients, deliveries, incidents, offboarding →
       </a>
       <a
+        href={`/admin/ops/${clinic.id}/transcripts`}
+        className="mt-1 ml-4 inline-block text-sm font-semibold underline underline-offset-2"
+      >
+        Transcript deliveries →
+      </a>
+      <a
         href={`/admin/ops/${clinic.id}/account`}
         className="mt-1 ml-4 inline-block text-sm font-semibold underline underline-offset-2"
       >

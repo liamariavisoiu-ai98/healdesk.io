@@ -44,6 +44,7 @@ export const KEY_PRESENCE_NAMES = [
   "META_VERIFY_TOKEN",
   "ANTHROPIC_API_KEY",
   "HEALDESK_RETELL_LLM_SECRET",
+  "HEALDESK_RETELL_API_KEY",
   "GOOGLE_OAUTH_CLIENT_ID",
   "GOOGLE_OAUTH_CLIENT_SECRET",
   // Generated inside AWS by the db-bootstrap task.
@@ -63,6 +64,9 @@ export const KEY_PRESENCE_NAMES = [
   // Set with enable_voice, because HEALDESK_RETELL_LLM_SECRET reads as
   // present here before the voice service exists (infra/aws/locals.tf).
   "HEALDESK_VOICE_ENABLED",
+  // Set with voice_real_calls: the voice endpoint answers real patients, not
+  // only the demo clinic (lib/voice/test-calls.ts).
+  "HEALDESK_VOICE_REAL_CALLS",
 ] as const;
 
 export type KeyPresenceName = (typeof KEY_PRESENCE_NAMES)[number];

@@ -8,11 +8,12 @@ import { addRecipient } from "@/lib/reporting/recipients";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 import { CLOSED_LINE, latestCallerWords, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE } from "@/lib/voice/retell";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 import { createVoiceServer } from "@/voice/server";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { bindAgreementInEffect, inTenant, seedClinic } from "./setup/factories";
-import { attestPlatform } from "./setup/platform";
+import { bindAgreementInEffect, inTenant, seedClinic, seedDemoClinic } from "./setup/factories";
+import { attestPlatform, withdrawPlatform } from "./setup/platform";
 
 /**
  * The Retell voice endpoint (src/voice/server.ts, lib/voice/retell.ts), end to
@@ -86,7 +87,7 @@ describeDb("the Retell voice endpoint", () => {
     await runMigrations();
     await truncateAll();
     await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'transcript-emails'`);
-    server = createVoiceServer({ secret: SECRET, responder, transport });
+    server = createVoiceServer({ secret: SECRET, responder, transport, realCalls: true });
     await new Promise<void>((resolve) => server.server.listen(0, "127.0.0.1", () => resolve()));
     port = (server.server.address() as AddressInfo).port;
   }, 180_000);
@@ -187,6 +188,35 @@ describeDb("the Retell voice endpoint", () => {
     await c.close();
   });
 
+  test("a direct line that is the clinic's AYA number is never transferred to: the caller would come straight back", async () => {
+    const clinic = await seedClinic("retell-loop");
+    await bindAgreementInEffect(clinic.clinicId);
+    await getMigratorPool().query(
+      `update clinics set data_classification = 'production', baa_signed_at = now(), assistant_number_e164 = '+14155550127' where id = $1`,
+      [clinic.clinicId],
+    );
+    await inTenant(clinic.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550127')
+         on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+        [clinic.clinicId],
+      ),
+    );
+    // Passed through (no billing row), with no line to pass to: the safe
+    // script. The vendors are in force for this call only: a later test reads
+    // this file as having attested nothing, and a withdrawal reads the same.
+    await attestPlatform(COVERAGE_VENDORS);
+    try {
+      const c = await call(port, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_loop`);
+      await c.waitFor((r) => responses(r).length >= 1);
+      expect(responses(c.received)[0]).not.toHaveProperty("transfer_number");
+      expect(String(responses(c.received)[0]!.content)).toMatch(/^Hi, I'm an AI assistant/);
+      await c.close();
+    } finally {
+      await withdrawPlatform(COVERAGE_VENDORS);
+    }
+  });
+
   test("a practice whose agreement no longer covers it goes to its direct line, and with none the call is closed, never the assistant", async () => {
     // A DPA practice that has told us it is now a covered entity: the
     // database refuses its patient rows until it signs the BAA.
@@ -225,10 +255,11 @@ describeDb("the Retell voice endpoint", () => {
     const closed = await call(port, `/llm-websocket/${SECRET}/${withoutLine.clinicId}/call_kind_closed`);
     await closed.waitFor((r) => responses(r).length >= 1);
     expect(responses(closed.received)[0]).toMatchObject({ response_id: 0, content: CLOSED_LINE, end_call: true });
-    // Nothing a caller says reaches the model afterwards.
+    // Nothing a caller says reaches the model afterwards: Retell keeps only
+    // the latest response, so a later request hears the closing line again.
     closed.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "Hello?" }] });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(responses(closed.received)).toHaveLength(1);
+    expect(responses(closed.received).map((r) => r.content)).toEqual([CLOSED_LINE, CLOSED_LINE]);
     expect(asked).toBe(false);
     await closed.close();
   });
@@ -272,8 +303,15 @@ describeDb("the Retell voice endpoint", () => {
         transport,
         gate: failingGate,
         ingest: async () => ({ conversationId: null }) as never,
+        realCalls: true,
+        // The places that hold the line without the database hold nothing
+        // here: this is the line read on its own, or nothing.
+        fallbackLine: async () => null,
+        callDetailsWaitMs: 0,
       });
       await session.open();
+      // The fall-through runs beside the message chain: wait for it to speak.
+      for (let i = 0; i < 60 && responses(sent).length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 50));
       return responses(sent);
     };
     const withLine = await seedClinic("retell-start-line");
@@ -385,14 +423,21 @@ describeDb("the Retell voice endpoint", () => {
     const urgent = "I'm having a severe reaction to my filler";
     const c = await call(port, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_urgent_later`);
     await c.waitFor((r) => responses(r).length >= 1);
-    c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: urgent }] });
+    // As Retell sends it: the opening line, spoken, is in the transcript.
+    const opening = String(responses(c.received)[0]!.content);
+    c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "agent", content: opening }, { role: "user", content: urgent }] });
     await c.waitFor((r) => responses(r).length >= 2);
     expect(String(responses(c.received)[1]!.content)).toMatch(/call 911/);
     expect(modelSaw).toHaveLength(0);
     c.send({
       interaction_type: "response_required",
       response_id: 2,
-      transcript: [{ role: "agent", content: String(responses(c.received)[1]!.content) }, { role: "user", content: "When are you open?" }],
+      transcript: [
+        { role: "agent", content: opening },
+        { role: "user", content: urgent },
+        { role: "agent", content: String(responses(c.received)[1]!.content) },
+        { role: "user", content: "When are you open?" },
+      ],
     });
     await c.waitFor((r) => responses(r).length >= 3);
     expect(responses(c.received)[2]).toMatchObject({ response_id: 2, content: "We're open weekdays nine to five." });
@@ -418,6 +463,147 @@ describeDb("the Retell voice endpoint", () => {
     await Promise.all([...server.sessions].map((s) => s.finish()));
     const { rows } = await inTenant(clinic.clinicId, (client) => client.query(`select id from conversations`));
     expect(rows).toHaveLength(0);
+  });
+
+  // Test mode (owner, 19 October 2026; lib/voice/test-calls.ts): with real
+  // calls off, only a clinic app_clinic_is_demo() calls made up is answered.
+  describe("with real calls off", () => {
+    let testPort = 0;
+    let testServer: ReturnType<typeof createVoiceServer>;
+
+    beforeAll(async () => {
+      testServer = createVoiceServer({ secret: SECRET, responder, transport, realCalls: false });
+      await new Promise<void>((resolve) => testServer.server.listen(0, "127.0.0.1", () => resolve()));
+      testPort = (testServer.server.address() as AddressInfo).port;
+    });
+
+    afterAll(async () => {
+      await testServer.drain();
+    });
+
+    const hangUp = async (c: Awaited<ReturnType<typeof call>>) => {
+      await c.close();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await Promise.all([...testServer.sessions].map((s) => s.finish()));
+    };
+
+    test("a synthetic clinic that is not the demo clinic is put through to its direct line, and nothing is kept", async () => {
+      const clinic = await seedClinic("retell-test-real");
+      await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) => addRecipient(tx, { email: "desk@retell-test.test", addedBy: "test" }));
+      await inTenant(clinic.clinicId, (client) =>
+        client.query(
+          `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550124')
+           on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+          [clinic.clinicId],
+        ),
+      );
+      let asked = false;
+      modelAnswer = () => {
+        asked = true;
+        return { reply: "model" };
+      };
+      const mailed = transport.sent.length;
+      const c = await call(testPort, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_test_real`);
+      await c.waitFor((r) => responses(r).length >= 1);
+      c.send({ interaction_type: "call_details", call: { call_id: "call_test_real", from_number: "+14155550193", direction: "inbound" } });
+      c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "Could I book a consultation?" }] });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(c.received[0]).toEqual({ response_type: "config", config: { auto_reconnect: true, call_details: false } });
+      // The caller who speaks before the transfer hears it again, never AYA.
+      expect(responses(c.received)).toEqual([
+        { response_type: "response", response_id: 0, content: TRANSFER_LINE, content_complete: true, end_call: false, transfer_number: "+14155550124" },
+        { response_type: "response", response_id: 1, content: TRANSFER_LINE, content_complete: true, end_call: false, transfer_number: "+14155550124" },
+      ]);
+      await hangUp(c);
+      expect(asked).toBe(false);
+      const { rows } = await inTenant(clinic.clinicId, (client) => client.query(`select id from conversations`));
+      expect(rows).toHaveLength(0);
+      expect(transport.sent.length).toBe(mailed);
+    });
+
+    test("one with no direct line is refused politely and the call ends", async () => {
+      const clinic = await seedClinic("retell-test-noline");
+      const c = await call(testPort, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_test_noline`);
+      await c.waitFor((r) => responses(r).length >= 1);
+      expect(responses(c.received)).toEqual([{ response_type: "response", response_id: 0, content: CLOSED_LINE, content_complete: true, end_call: true }]);
+      await hangUp(c);
+      const { rows } = await inTenant(clinic.clinicId, (client) => client.query(`select id from conversations`));
+      expect(rows).toHaveLength(0);
+    });
+
+    test("a clinic whose direct line is its published number is refused with the closing line, never put through to it", async () => {
+      const clinic = await seedClinic("retell-test-loop");
+      await getMigratorPool().query(`update clinics set published_phone_e164 = '+14155550128' where id = $1`, [clinic.clinicId]);
+      await inTenant(clinic.clinicId, (client) =>
+        client.query(
+          `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550128')
+           on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+          [clinic.clinicId],
+        ),
+      );
+      const c = await call(testPort, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_test_loop`);
+      await c.waitFor((r) => responses(r).length >= 1);
+      expect(responses(c.received)).toEqual([{ response_type: "response", response_id: 0, content: CLOSED_LINE, content_complete: true, end_call: true }]);
+      await hangUp(c);
+    });
+
+    test("the demo clinic with a direct line is still answered by AYA, never transferred, and its call is no first answer", async () => {
+      const demo = await seedDemoClinic("retell-test-demo-line");
+      await inTenant(demo.clinicId, (client) =>
+        client.query(
+          `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550129')
+           on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+          [demo.clinicId],
+        ),
+      );
+      const billingRequests = async () =>
+        (await getMigratorPool().query<{ n: number }>(`select count(*)::int as n from billing_requests where clinic_id = $1`, [demo.clinicId])).rows[0]!.n;
+      const before = await billingRequests();
+      modelAnswer = () => ({ reply: "We're open weekdays nine to five." });
+      const c = await call(testPort, `/llm-websocket/${SECRET}/${demo.clinicId}/call_test_demo_line`);
+      await c.waitFor((r) => responses(r).length >= 1);
+      const opening = responses(c.received)[0]!;
+      expect(opening).not.toHaveProperty("transfer_number");
+      expect(String(opening.content)).toMatch(/^Hi, I'm an AI assistant for .* — not a human\. This call is transcribed/);
+      c.send({ interaction_type: "call_details", call: { call_id: "call_test_demo_line", from_number: "+14155550195", direction: "inbound" } });
+      c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "agent", content: String(opening.content) }, { role: "user", content: "When are you open?" }] });
+      await c.waitFor((r) => responses(r).length >= 2);
+      expect(responses(c.received)[1]).toMatchObject({ response_id: 1, content: "We're open weekdays nine to five." });
+      await hangUp(c);
+      const { rows } = await inTenant(demo.clinicId, (client) =>
+        client.query<{ external_call_id: string }>(`select external_call_id from conversations where external_call_id = 'call_test_demo_line'`),
+      );
+      expect(rows).toHaveLength(1);
+      // Never live, so never a first answer: no plan start, no billing request.
+      const { rows: channel } = await inTenant(demo.clinicId, (client) =>
+        client.query<{ live_at: Date | null; first_answer_at: Date | null }>(`select live_at, first_answer_at from clinic_channels where channel = 'voice'`),
+      );
+      expect(channel).toEqual([{ live_at: null, first_answer_at: null }]);
+      expect(await billingRequests()).toBe(before);
+      const { rows: alerts } = await getMigratorPool().query(
+        `select 1 from ops_alerts where event = 'voice_fallback_no_direct_line' and fields->>'clinicId' = $1`,
+        [demo.clinicId],
+      );
+      expect(alerts).toHaveLength(0);
+    });
+
+    test("the demo clinic is answered as any call is: the AI line first, then the brain, and the call recorded", async () => {
+      const demo = await seedDemoClinic("retell-test-demo");
+      modelAnswer = () => ({ reply: "We're open weekdays nine to five." });
+      const c = await call(testPort, `/llm-websocket/${SECRET}/${demo.clinicId}/call_test_demo`);
+      await c.waitFor((r) => responses(r).length >= 1);
+      expect(c.received[0]).toEqual({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
+      const opening = String(responses(c.received)[0]!.content);
+      expect(opening).toMatch(/^Hi, I'm an AI assistant for .* — not a human\. This call is transcribed/);
+      c.send({ interaction_type: "call_details", call: { call_id: "call_test_demo", from_number: "+14155550194", direction: "inbound" } });
+      // As Retell sends it: the opening line, spoken, is in the transcript.
+      c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "agent", content: opening }, { role: "user", content: "When are you open?" }] });
+      await c.waitFor((r) => responses(r).length >= 2);
+      expect(responses(c.received)[1]).toMatchObject({ response_id: 1, content: "We're open weekdays nine to five." });
+      await hangUp(c);
+      const { rows } = await inTenant(demo.clinicId, (client) => client.query<{ external_call_id: string }>(`select external_call_id from conversations`));
+      expect(rows).toEqual([{ external_call_id: "call_test_demo" }]);
+    });
   });
 });
 

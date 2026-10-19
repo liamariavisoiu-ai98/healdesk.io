@@ -54,6 +54,21 @@ export const OPS_EVENTS = [
   "meter_report_failing",
   "first_period_refund_due",
   "voice_fallback_no_direct_line",
+  // The voice fall-through (T14): a call that could not start because the
+  // database could not be read, and where it went (lib/voice/retell.ts); and
+  // a Retell number whose fallback could not be kept on the clinic's direct
+  // line (lib/voice/retell-fallback-sync.ts).
+  "voice_call_start_failed",
+  "retell_fallback_unsynced",
+  // A clinic's direct line is its published number or its AYA number, so
+  // a call put through to it would come straight back: the answer gate
+  // treats it as no line (lib/billing/answering.ts), once an hour per clinic
+  // and decision. And a call refused by the voice line's test mode
+  // (lib/voice/test-calls.ts), which means a clinic that is not made up has
+  // its calls reaching the voice endpoint before real calls are switched on,
+  // or that the test-mode check could not be read; once an hour per clinic.
+  "voice_direct_line_loops",
+  "voice_test_mode_refused",
   "plan_start_after_cancel",
   // The DMARC review reminder (open item 14; the owner, 6 October 2026):
   // raised once, ever, by the dmarc-review job on the 14th day after Resend
@@ -189,6 +204,11 @@ export const OPS_EVENTS = [
   // before its reply-by day; and the reply-by day has passed unmarked.
   "patient_request_due_soon",
   "patient_request_past_due",
+  // An urgent message's alert to the clinic (L12) could not be queued, so
+  // the clinic has not been emailed and /api/health cannot see it: raised by
+  // lib/notices/booking-alerts.ts (urgentAlertNotQueued), with the clinic,
+  // the channel and the conversation when it has one. Ids only.
+  "urgent_alert_not_queued",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

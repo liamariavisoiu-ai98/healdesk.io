@@ -129,7 +129,7 @@ Why each piece is shaped the way it is:
 | `nat.tf`, `templates/nat-instance.sh.tftpl` | The NAT instance: one `t4g.nano` (`nat_instance_type`) on the newest minimal Amazon Linux 2023 arm64 image, in the first public subnet with its own public address; source/destination check off; security group admitting 443 from the tasks only and sending 443 only; nftables forwarding new connections to 443 from the VPC and dropping everything else; IMDSv2 only, no key pair, no instance role, standard CPU credits, an encrypted root volume, automatic recovery; `dnf-automatic` security updates; alarm `nat-instance-status` | About $7 a month against about $37 for a NAT gateway, for the same job: only the app's own TLS crosses it. See "The NAT instance" below |
 | `kms.tf` | One customer-managed key, `alias/healdesk-production`: symmetric, single-region, rotating, `prevent_destroy`. Key policy: account root (delegating to IAM), CloudWatch Logs for this account's log groups, CloudTrail for this trail by `aws:SourceArn` | It encrypts the credential vault (`HEALDESK_KMS_KEY_ID`), RDS storage, the master secret, Performance Insights, every SSM parameter, ECR, every log group and the trail. The app pins its ARN, so it is never replaced. The key policy names the app's task role nowhere, and must never: a statement naming it without the lock-label conditions would make them moot |
 | `rds.tf` | PostgreSQL 17.11 on `db.t4g.micro` (`db_instance_class`), 20 GiB gp3, encrypted with the key, single-AZ (`db_multi_az`), private, 5432 from the tasks' security group only; 35-day backups, no final snapshot (but standby's), deletion protection (`deletion_protection`, off only for standby's first apply), no `prevent_destroy` (the plan guard instead: "Standby"); created from a standby snapshot when `restore_snapshot_identifier` names one, which it then ignores; master user `healdesk_admin` with an RDS-managed password; database `healdesk`; CA `rds-ca-rsa2048-g1`; `postgresql` log exported; Database Insights standard (free), Performance Insights under the key for 7 days. Parameter group `healdesk-production-postgres17`: `rds.force_ssl=1`, TLS 1.2 minimum, SCRAM, `log_error_verbosity=terse`, `log_statement=none`, `log_min_error_statement=panic` | Encryption at rest can only be set at creation. 35 days is the clinic agreement's backup promise (1.3.0, release gate 18): no copy of deleted data may outlive it, hence no final snapshot. Standby's snapshot is the one exception, allowed only while no clinic is in production and no agreement in effect. The engine log never expires: terse drops DETAIL and CONTEXT lines, `none` logs no statement as it runs, and `panic` keeps the text of a *failing* statement out (at the default, `error`, a failed `ALTER ROLE ... PASSWORD '...'` or an `INSERT` carrying patient values is logged in full after its ERROR line). What remains: a primary message that quotes its own input (`invalid input syntax for type uuid: "..."`) |
-| `ssm.tf` | SecureString parameters under `/healdesk/production/`, all under the key, all created holding `__unset__` through the write-only `value_wo`: six internal (`db/APP_PASSWORD`, `db/MIGRATOR_PASSWORD`, `app/BETTER_AUTH_SECRET`, `app/HEALDESK_IDENTIFIER_REF_KEY`, `app/DATABASE_URL`, `migrator/MIGRATION_DATABASE_URL`) and ten external under `app/`; `prevent_destroy` on all; two `moved` blocks that retire the Synthflow pair (below) | See "Secrets and configuration". The retired `HEALDESK_VOICE_WEBHOOK_SECRET` and `HEALDESK_VOICE_TOOLS_SECRET` (14 October 2026) are moved to an address no resource declares, which Terraform destroys without the `prevent_destroy` the rest keep, since a `removed` block can name only a whole resource |
+| `ssm.tf` | SecureString parameters under `/healdesk/production/`, all under the key, all created holding `__unset__` through the write-only `value_wo`: six internal (`db/APP_PASSWORD`, `db/MIGRATOR_PASSWORD`, `app/BETTER_AUTH_SECRET`, `app/HEALDESK_IDENTIFIER_REF_KEY`, `app/DATABASE_URL`, `migrator/MIGRATION_DATABASE_URL`) and eleven external under `app/`; `prevent_destroy` on all; two `moved` blocks that retire the Synthflow pair (below) | See "Secrets and configuration". The retired `HEALDESK_VOICE_WEBHOOK_SECRET` and `HEALDESK_VOICE_TOOLS_SECRET` (14 October 2026) are moved to an address no resource declares, which Terraform destroys without the `prevent_destroy` the rest keep, since a `removed` block can name only a whole resource |
 | `ecr.tf` | `healdesk/app`, `healdesk/db-admin`, `healdesk/tls-proxy`: immutable tags, scan on push, the key, last 30 images kept | A git SHA always names the same bytes, and 30 images are weeks of rollback |
 | `iam.tf` | Execution role (pull our images, write our log streams, `ssm:GetParameters` on `app/*` and `migrator/*` only, the RDS master secret, decrypt only through SSM and Secrets Manager); app task role (the credential vault, below; S3 and SES statements only when their flags are on); db-admin task role (`ssm:GetParameter` and `ssm:PutParameter` on exactly the six internal parameters, the key only through SSM and only for those six); deploy role `healdesk-production-github-deploy` | The app task role may call `GenerateDataKey`, `Decrypt` and `Encrypt` on the key only as its own calls (no `kms:ViaService`), only with an encryption context of `healdesk:clinic` and `healdesk:login` and no other key, and, with `kms_require_lock_labels` (the default), with both present: statement 1 of `docs/design/google-calendar-2026-10-05.md` §5. That refuses every context an AWS service puts on its own data under the key, so the role cannot decrypt the parameters, logs or trail even with the ciphertext. The deploy role: "Who can change production", below |
 | `logs.tf` | `/healdesk/production/{web,worker,voice,migrate,db-bootstrap,tls-proxy}` (and one per operator task) and `/aws/rds/instance/healdesk-production/postgresql`, each with the key, "Never expire" and `skip_destroy`; Container Insights and flow-log groups when those are on | AWS addendum §4.2(c) asks for maximum retention. A group AWS creates by itself would get neither our key nor the retention, so every group is created first |
@@ -189,7 +189,8 @@ would land in the state at the next plan.) The real values are written inside AW
 | `app/GOOGLE_OAUTH_CLIENT_ID`, `app/GOOGLE_OAUTH_CLIENT_SECRET` | The owner, from the Google OAuth client whose redirect URI is `https://app.healdesk.io/api/calendar/google/callback` (the calendar's Google connection, on main since its C8). Until both are set, apps/app sends no clinic to Google: the connect page says calendar connection is not available yet | web, worker |
 | `app/STRIPE_CONNECT_WEBHOOK_SECRET` | The owner, from doorbell B (Stripe's Connect endpoint at `https://app.healdesk.io/api/webhooks/stripe-connect`) | web |
 | `app/META_APP_SECRET`, `app/META_VERIFY_TOKEN`, `app/ANTHROPIC_API_KEY` | The owner, only once the BAA chain allows ("What still blocks real patient data") | web |
-| `app/HEALDESK_RETELL_LLM_SECRET` | The owner, before turning `enable_voice` on: a random value, at least 32 characters (letters, digits, `-` and `_` only, since it is a URL path segment: `openssl rand -hex 32`); the same value goes into each clinic's Retell agent URL ("The voice endpoint", below). Until then leave it `__unset__`, and the voice process refuses every call | voice (and web, which gets every `app/` parameter) |
+| `app/HEALDESK_RETELL_LLM_SECRET` | The owner, before turning `enable_voice` on: a random value, at least 32 characters (letters, digits, `-` and `_` only, since it is a URL path segment: `openssl rand -hex 32`); the same value goes into each clinic's Retell agent URL ("The voice endpoint", below). It may be pasted before the agreements for a test call on the demo clinic only, which the voice process enforces until `voice_real_calls` is on ("Turning it on"). Unset (`__unset__`), the voice process refuses every call | voice (and web, which gets every `app/` parameter) |
+| `app/HEALDESK_RETELL_API_KEY` | The owner, once Retell's agreement is signed: the script takes it on `yes` only, because it reads every call in its workspace and the owner's test-call exception names the line password alone. It is the `key_...` API key of the Retell workspace the clinics' agents are in, the one with the webhook badge (never the marketing site's `RETELL_API_KEY`). That workspace is the one under Retell's BAA and holds no agent of the marketing site's demo line: a key reads every call in its workspace, and the demo line's keys sit on Vercel, which handles no patient data. It verifies Retell's call-ended webhook (`/api/webhooks/retell/<clinic id>`) and lets the worker read a call back (`GET https://api.retellai.com/v2/get-call/<id>`), the backstop for a call the voice task never recorded; it keeps each clinic's AYA number's fallback on its direct line, hourly, and lets the voice endpoint read that line back while the database is down (`docs/on-call.md`, "Voice: where a call goes when something fails"). Unset, the webhook answers 503 and nothing is backstopped, the sync reports `skipped`, and outage mode has no direct lines to send calls to | web (the webhook), worker (the backstop job and the sync), voice (the fallback line) |
 | `ci/CLOUDFLARE_API_TOKEN` (not Terraform's) | The owner, before the first plan, under the bootstrap stack's key | `infra.yml` and `host.yml`, after they assume the Terraform role |
 | RDS master secret (Secrets Manager, managed by RDS, rotated every 7 days) | RDS | db-bootstrap only, through the execution role |
 
@@ -247,8 +248,11 @@ same conversation code.
   with `enable_voice`, `HEALDESK_VOICE_ENABLED=1`, which tells `/admin/map` the voice endpoint
   exists (the pasted secret cannot: the web tier holds every `app/` parameter; like any task
   change, it reaches the running web tasks with the next full deploy); the voice task
-  (`enable_voice`) adds only `PORT=3001` and `HOSTNAME=0.0.0.0`. An empty variable is left out,
-  not set to `""`.
+  (`enable_voice`) adds only `PORT=3001` and `HOSTNAME=0.0.0.0`. With `voice_real_calls`, the
+  web, the worker and the voice task get `HEALDESK_VOICE_REAL_CALLS=1`: the voice process answers
+  real patients only with it, the worker's backstop for a call the voice task never recorded
+  records a real clinic's call only with it (in either `worker_placement`), and `/admin/map` reads
+  it from the web tier. An empty variable is left out, not set to `""`.
 - **Never set on web, worker or voice**, enforced by preconditions that fail the plan and by the
   deploy workflow's shape check: `MIGRATION_DATABASE_URL`, `HEALDESK_LOCAL_KEK`,
   `HEALDESK_DIRECT_BOOKING_ENABLED`, `HEALDESK_PHASE_TWO_ATTRIBUTION`, `BETTER_AUTH_SECRETS`. The
@@ -480,7 +484,7 @@ Terraform's side is the `standby` variable and its three companions (`variables.
 
 | Standby removes | Standby keeps |
 | --- | --- |
-| The RDS instance, after its final snapshot `healdesk-production-standby-<UTC yyyymmddhhmmss>`, and with it its RDS-managed master secret | The KMS key, and every SSM parameter: the six internal (passwords, URLs, auth and reference keys), the ten external, `ci/CLOUDFLARE_API_TOKEN`, `host/mode` |
+| The RDS instance, after its final snapshot `healdesk-production-standby-<UTC yyyymmddhhmmss>`, and with it its RDS-managed master secret | The KMS key, and every SSM parameter: the six internal (passwords, URLs, auth and reference keys), the eleven external, `ci/CLOUDFLARE_API_TOKEN`, `host/mode` |
 | The load balancer, its two listeners, its rules and target groups (web, voice) | The ECR repositories and their images |
 | The NAT instance and its address (or the NAT gateways and their Elastic IPs), and the private subnets' default route | The VPC, subnets, internet gateway, every security group, the database's subnet and parameter groups |
 | Every ECS service: web, worker (when separate), voice (when on) | The ECS cluster and the task definitions, but one |
@@ -1154,7 +1158,8 @@ is a process and a service of its own. Turning it on creates:
   `GET http://127.0.0.1:3001/health`. It gets the web tier's plain environment without the
   web-only names (`KEEP_ALIVE_TIMEOUT`, the SES events topic, the Meta and Connect ids,
   `HEALDESK_VOICE_ENABLED`), on
-  `PORT=3001` and `HOSTNAME=0.0.0.0`; the web tier's secrets, `HEALDESK_RETELL_LLM_SECRET` among
+  `PORT=3001` and `HOSTNAME=0.0.0.0`, with `HEALDESK_VOICE_REAL_CALLS=1` only under
+  `voice_real_calls`; the web tier's secrets, `HEALDESK_RETELL_LLM_SECRET` among
   them; the app task role; log group `/healdesk/production/voice`. Beside it, the `tls-proxy`
   sidecar exactly as in the web task, except its health check, which asks for `/health`: the
   image's own check asks for the web tier's liveness path, which the voice process answers 404.
@@ -1184,17 +1189,29 @@ calls drop and the other answers the next.
 
 **Turning it on**, in order:
 
-1. Real calls wait for the Retell link of the BAA chain ("What still blocks real patient data");
-   until then, synthetic test calls only.
+1. The rule (owner, 19 October 2026): the secret may be pasted, and `enable_voice` turned on,
+   before the business associate agreements are signed, for a test call on a made-up clinic and
+   nothing else. The code holds it, not this page: until `voice_real_calls` is on, the voice
+   process answers only the demo clinic, the one `scripts/demo-clinic.ts` makes and
+   `app_clinic_is_demo()` names (entitlements `demo`, no Stripe ids, synthetic data). A call for
+   any other clinic is put through to that clinic's direct line, or closed with a fixed line where
+   it has none, before the assistant says a word, and nothing of it is recorded
+   (`apps/app/src/lib/voice/test-calls.ts`); Retell is not asked for the caller's number. That
+   protects healdesk's side only: Retell still carries any call its agent is given, and has no
+   agreement yet, so no real clinic's Retell agent or call forwarding may point at Retell before
+   its agreement is signed. The demo clinic's calls are answered and kept like any call, so give
+   its Retell agent a number only you dial, never one a patient could find. Real patients' calls
+   wait for every link of the BAA chain, Retell's included ("What still blocks real patient data"), and then step 8.
 2. Generate the secret and paste it, in CloudShell: `openssl rand -hex 32`, then
-   `bash put-external-secrets.sh HEALDESK_RETELL_LLM_SECRET`. The script asks for a typed `yes`,
-   as for the other patient-facing keys, and refuses anything under 32 characters or holding a
-   character a URL path would need escaped. Keep the value for step 4, and nowhere else (no ticket,
-   no chat).
+   `bash put-external-secrets.sh HEALDESK_RETELL_LLM_SECRET`. The script asks for a typed answer:
+   `test` for a test call on the demo clinic only, while the agreements are not signed, or `yes`
+   once every agreement in the chain is; either saves the same parameter, and the script prints
+   what the answer allows. It refuses anything under 32 characters or holding a character a URL
+   path would need escaped. Keep the value for step 4, and nowhere else (no ticket, no chat).
 3. `enable_voice = true` in `production.tfvars`, merge, run `infra.yml` with `plan` and then
    `apply`, then a full `deploy-app.yml`: it finds the voice service at 0 and brings it up to
    `voice_desired`. `voice-below-desired` is in ALARM in between.
-4. In each clinic's Retell agent, configure a custom LLM whose WebSocket URL is the
+4. In each clinic's Retell agent (in test mode, the demo clinic's only), configure a custom LLM whose WebSocket URL is the
    `voice_websocket_url` output with its placeholders filled:
    `wss://app.healdesk.io/llm-websocket/<HEALDESK_RETELL_LLM_SECRET>/<clinic id>`, where the clinic
    id is the clinic's UUID in lower case. Retell appends the call id. The secret is the same for
@@ -1202,16 +1219,57 @@ calls drop and the other answers the next.
    balancer, the sidecar nor the process logs it.
 5. Check: a test call hears the assistant's opening line, and `/healdesk/production/voice` shows
    `voice endpoint ready` (and no `every call is refused` warning, which means the secret is still
-   unset).
+   unset). In test mode it also shows `voice endpoint in test mode`, and a call for any clinic but
+   the demo clinic logs `retell call refused`. Without `ANTHROPIC_API_KEY`, which still waits for
+   Anthropic's agreement, AYA has no model, so after the opening line the test call hears only the
+   fixed fallback lines; that is enough to check Retell's protocol fields.
+6. **The backstop.** Paste the engine's Retell key, `bash put-external-secrets.sh
+   HEALDESK_RETELL_API_KEY` (the key with the webhook badge, in the workspace the clinics' agents
+   are in: their own, under Retell's BAA, never the marketing site's demo line's, whose keys are on Vercel), and restart.
+   The script takes it on `yes` only, once Retell's agreement is signed: the key reads every call
+   in its workspace, and the test-call exception covers the line password alone. So this step and
+   the next wait for that agreement; the test call on the demo clinic (step 5) needs neither. In each clinic's Retell agent set the agent's own webhook URL to
+   `https://app.healdesk.io/api/webhooks/retell/<clinic id>` (the same lower-case UUID as the
+   socket's path), and make sure the clinic row's `assistant_number_e164` is the agent's Retell
+   number: the backstop records nothing for a call to any other number. Retell sends
+   `call_ended` and `call_analyzed` there, signed; the web tier checks the signature and queues
+   one job per call on `voice-call-backstop` (installed by `queue:install`, which every
+   `deploy-app.yml` runs). Ten minutes later the worker records the call only if the voice task
+   never did: it reads the call back from Retell, and the ingest writes the conversation, emails
+   the transcript and counts the minutes, with no booking request, since what the caller asked for
+   was in the dead task's memory; the clinic reads it in the transcript. It reads the words from
+   Retell's own copy, so an agent that opts out of Retell storing sensitive data gets a backstop
+   with no transcript. Until `HEALDESK_VOICE_REAL_CALLS` is exactly `1` in the worker, which
+   `voice_real_calls` sets there as on the voice task, the backstop, like the voice line, records
+   calls for the demo clinic alone and drops every other clinic's without asking Retell. Check on the test call: the web log shows no `retell webhook signature did
+   not verify`, and ten minutes later the worker log shows `voice call backstop found the call
+   recorded` (the live line got there first), never `voice call recorded by the backstop`.
+7. **The fall-through.** With the key from step 6 pasted and the tasks restarted, within the hour the worker's hourly tick
+   sets each clinic's AYA number's fallback in Retell to the clinic's direct line. It is not a row
+   in the ops console's job list: the worker's `tick` log line (`/healdesk/production/worker`)
+   shows `retell-fallback=ok` (`skipped` while the key is unset; `failed` comes with a
+   `retell_fallback_unsynced` ops alert naming the clinic, or the key), and Retell's dashboard
+   shows the clinic's direct line as the number's fallback. Retell drops a call whose endpoint it cannot reach, so this fallback,
+   with outage mode turned on in Retell's dashboard, is how calls reach the clinic while our
+   endpoint is down. Outage mode is described in Retell's support material, not in its API
+   reference, and has not been tried here, so this step is also its first test (`docs/on-call.md`, "Voice endpoint down"). Make one test call to a made-up
+   clinic with outage mode on, and check it rings that clinic's direct line.
+8. Real calls, only once every agreement in the chain is signed: `voice_real_calls = true` in
+   `production.tfvars`, merge, run `infra.yml` with `apply`, then a full `deploy-app.yml` (not
+   `restart_only`: the flag is in the web, worker and voice task definitions, and the worker's
+   backstop reads it as the voice line does). Then each real clinic's agent may get the address.
+   Turning it back off is the same three steps with `false`.
 
 **Rotating the secret**: paste a new value, run `restart_only`, then update every agent's URL;
 calls to an agent not yet updated are refused in between, so do it in a quiet hour.
 
 **Turning it off**: point each clinic's forwarding back to its own line, set `enable_voice = false`
-and apply. The apply waits while the voice tasks drain, up to an hour (the service's delete
+and, if real calls were on, `voice_real_calls = false` in the same change (the plan refuses
+`voice_real_calls` without `enable_voice`), and apply. The apply waits while the voice tasks drain, up to an hour (the service's delete
 timeout is 65 minutes, inside `infra.yml`'s 90), so do it in a quiet hour. Then run a full
 `deploy-app.yml` (not `restart_only`): the web tasks keep the revision the last deploy registered,
-so until then they still carry `HEALDESK_VOICE_ENABLED` and `/admin/map` still shows voice as on.
+so until then they still carry `HEALDESK_VOICE_ENABLED` (and, with the worker, any
+`HEALDESK_VOICE_REAL_CALLS`) and `/admin/map` still shows voice as on.
 The log group and its logs stay.
 
 **Cost**, on Fargate ARM64 in us-east-1 at $0.03238 per vCPU-hour and $0.00356 per GB-hour, 730
@@ -1268,18 +1326,25 @@ data only until every link of the chain is in place.
 | Clinic to Google | The clinic's own calendar under its own Google agreement; confirmed per clinic |
 
 Nothing in the code checks vendor BAAs, so configuration holds the chain: leave
-`META_APP_SECRET`, `META_VERIFY_TOKEN`, `ANTHROPIC_API_KEY` and
-`HEALDESK_RETELL_LLM_SECRET` `__unset__`, and `enable_voice` off, until it is complete
-(`put-external-secrets.sh` asks for a typed `yes` before each). With them unset, the Meta webhook
-answers 503, the front door has no model to call and the voice endpoint refuses every call. (The
+`META_APP_SECRET`, `META_VERIFY_TOKEN` and `ANTHROPIC_API_KEY` `__unset__`, and
+`voice_real_calls` off, until it is complete (`put-external-secrets.sh` asks for a typed `yes`
+before each key). With them unset, the Meta webhook answers 503 and the front door has no model
+to call. The one exception is the voice line, for a test call on the demo clinic (owner,
+19 October 2026): `HEALDESK_RETELL_LLM_SECRET` may be pasted with the answer `test` and
+`enable_voice` turned on before the chain is complete, because while `voice_real_calls` is off
+the voice endpoint itself answers no clinic but the demo clinic and records nothing of any other
+call ("The voice endpoint", "Turning it on"); `HEALDESK_RETELL_API_KEY` is not part of that
+exception and waits for Retell's agreement. Retell still carries whatever reaches it, so only the
+demo clinic's agent may hold the address until Retell's agreement is signed. With the secret unset, it refuses every call. (The
 Synthflow routes' two secrets were retired on 14 October 2026, `ssm.tf`.)
 
 Records and drills still open (the compliance map's §4): this module's first apply and deploy;
 the restore drill (T9); the rotation runbook (T6; the table above is its draft, not yet adopted or
 exercised); the tabletop exercise; the Security Official's name and sign-off; attorney review, a
-penetration test and the access review; the automatic fall-through to the clinic's line (T14), and
-until it exists, a check that Retell's own failure behaviour forwards to the clinic's direct line;
-and every v1 surface the spec still lists as unbuilt.
+penetration test and the access review; for the fall-through to the clinic's line (T14), pasting
+`app/HEALDESK_RETELL_API_KEY` and one test call with Retell in outage mode (Retell drops a call
+whose endpoint it cannot reach, so outage mode, turned on by a person, is the step for our endpoint
+being down: `docs/on-call.md`); and every v1 surface the spec still lists as unbuilt.
 
 ---
 

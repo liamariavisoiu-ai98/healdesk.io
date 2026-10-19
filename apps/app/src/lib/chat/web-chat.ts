@@ -23,10 +23,11 @@ import {
 } from "@/lib/conversations/transcript-outbox";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { env } from "@/lib/env";
+import { attachHandoverCaller, raiseHandover } from "@/lib/handovers/record";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { createBookingRequest } from "@/lib/meta/booking-requests";
-import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { notifyBookingAlert, urgentAlertNotQueued, withoutTeamTold } from "@/lib/notices/booking-alerts";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 import { upsertCallerContact } from "@/lib/voice/ingest";
@@ -60,11 +61,18 @@ import { CLOSED_FORM, contactFormOffer, type ContactFormOffer } from "./contact-
  *   alerts   an urgent message queues L12 (critical: sent in-process once
  *            the message's transaction commits) and a request for a person
  *            queues L11, each once per conversation
- *            (lib/notices/booking-alerts.ts).
+ *            (lib/notices/booking-alerts.ts). An L12 that cannot be queued
+ *            is told to ops, the reply leaves out "I've told the team", and
+ *            the next urgent message tries again.
  *   end      when the visitor ends the chat, or after thirty quiet minutes,
  *            the transcript goes to the clinic by email, and healdesk deletes
  *            its sealed copy the moment the clinic's mail server confirms
- *            delivery (never later than 30 days after the chat began).
+ *            delivery (never later than 30 days after the chat began). A
+ *            chat with an urgent message ends as soon as a later message
+ *            gives a number to call back on, which the urgent reply asks
+ *            for: the transcript carrying it is the clinic's only copy of
+ *            that number, and it goes at once rather than after the quiet
+ *            time.
  *
  * The token is the visitor's only handle on the chat: an HMAC-signed note of
  * the clinic, the conversation and the session, with nothing the visitor
@@ -80,7 +88,14 @@ export type WebChatToken = { clinicId: string; conversationId: string | null; se
 type ChatState = {
   capture: BookingCapture;
   requestId: string | null;
+  /** L12 is queued for this conversation. */
   urgentAlerted: boolean;
+  /**
+   * An urgent message came in, whether or not its L12 could be queued.
+   * Absent on a chat opened before 19 October 2026, where urgentAlerted
+   * says it, since L12 could not fail quietly then.
+   */
+  urgent?: boolean;
   /** L11 was queued for this conversation. Absent on a chat opened before package F, which reads as not yet. */
   handoverAlerted?: boolean;
   openedAt: string;
@@ -237,6 +252,16 @@ type Deps = {
   origin?: string | null;
 };
 
+/** A number to call back on: one that is a number (toE164), as the handover takes it. */
+function callBackNumber(capture: BookingCapture): string | null {
+  return typeof capture.phone === "string" && capture.phone.length <= 32 ? (toE164(capture.phone) ?? null) : null;
+}
+
+/** Whether the chat has had an urgent message, alerted or not. */
+function hadUrgent(state: ChatState): boolean {
+  return state.urgent === true || state.urgentAlerted;
+}
+
 /** A complete request: a first name, a number that is a number, and a time. */
 function requestReady(capture: BookingCapture): { firstName: string; phone: string; window: string } | null {
   if (!capture.wants || !capture.firstName || !capture.window || !capture.phone) return null;
@@ -312,8 +337,14 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
   const history: TranscriptTurn[] = continuing ? existing!.payload.turns : [{ speaker: "assistant", text: openingLine(facts) }];
 
   const turn = await answerTurn({ facts, channel: "web_chat", history, text, capture: state.capture, responder: deps.responder, now });
-  const turns: TranscriptTurn[] = [...history, { speaker: "person", text: turn.personText }, { speaker: "assistant", text: turn.reply }];
-  const ended = turn.end;
+  // After an urgent message, the first later message once the chat holds a
+  // number to call back on (given then, or earlier) ends the chat, so its
+  // transcript, the only copy of that number, reaches the clinic now and
+  // not after the quiet time.
+  const ended = turn.end || (hadUrgent(state) && !turn.urgent && callBackNumber(turn.capture) !== null);
+  // What the visitor is told, and the transcript keeps: the urgent reply
+  // loses "I've told the team" if its alert is not queued (below).
+  let reply = turn.reply;
 
   let written: { transcriptId: string } | null = null;
   let urgentQueued = false;
@@ -344,16 +375,26 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
         conversationId,
       });
       const next: ChatState = { ...state, capture: turn.capture };
+      if (turn.urgent) next.urgent = true;
       if (turn.urgent && !state.urgentAlerted) {
-        await notifyBookingAlert(tx, "urgent", { conversationId, channel: "web" });
-        next.urgentAlerted = true;
-        urgentQueued = true;
+        // False when the row could not be queued: ops has been told
+        // (notifyBookingAlert), the reply must not say the team was, and
+        // the next urgent message in the chat tries again.
+        urgentQueued = await notifyBookingAlert(tx, "urgent", { conversationId, channel: "web" });
+        next.urgentAlerted = urgentQueued;
+        if (!urgentQueued) reply = withoutTeamTold(turn.reply);
       }
+      const turns: TranscriptTurn[] = [...history, { speaker: "person", text: turn.personText }, { speaker: "assistant", text: reply }];
       // L11: they asked for a person. Once per conversation, and not after
       // an urgent alert, which already has the clinic looking at it.
+      // Kept for Bookings' Needs you as well as alerted, with the number
+      // they give for the call back (lib/handovers/record.ts).
       if (turn.handoff && !state.handoverAlerted && !next.urgentAlerted) {
-        await notifyBookingAlert(tx, "handover", { conversationId, channel: "web" });
+        await raiseHandover(tx, { channel: "web_chat", conversationId });
         next.handoverAlerted = true;
+      }
+      if (next.handoverAlerted) {
+        await attachHandoverCaller(tx, { conversationId, capture: turn.capture });
       }
       if (!next.requestId) {
         next.requestId = await takeRequest(tx, facts, conversationId, turn.capture);
@@ -362,9 +403,9 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
         .update(conversations)
         .set({
           endedAt: now,
-          outcome: next.urgentAlerted || turn.handoff ? "escalated_to_human" : next.requestId ? "booked" : "qualified_no_booking",
+          outcome: hadUrgent(next) || turn.handoff ? "escalated_to_human" : next.requestId ? "booked" : "qualified_no_booking",
           // What tells an urgent hit from a handover (drizzle/0078).
-          urgent: next.urgentAlerted,
+          urgent: hadUrgent(next),
         })
         .where(and(eq(conversations.id, conversationId), eq(conversations.clinicId, tx.clinicId)));
       const payload: OpenChatState<ChatState> = { channel: "web_chat", startedAt: state.openedAt, turns, state: next };
@@ -385,6 +426,13 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
       return sendWebChatMessage(clinic, signToken({ ...token, conversationId: null, issuedAt: now.getTime() }), text, deps);
     }
     log.error("web chat message not recorded", { clinicId: clinic.clinicId, error: describeError(error) });
+    // An urgent message whose alert rolled back with the rest: ops is told,
+    // now that the transaction has ended, so someone phones the clinic.
+    if (turn.urgent && !state.urgentAlerted) {
+      const tell = () => urgentAlertNotQueued(clinic.clinicId, { conversationId, channel: "web" });
+      if (deps.after) deps.after(tell);
+      else await tell();
+    }
     return { mode: "chat", reply: FAILURE_LINE, token: signToken({ ...token, issuedAt: token.issuedAt }), ended: false };
   }
 
@@ -395,7 +443,7 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
   log.info("web chat message", { clinicId: clinic.clinicId, conversationId, source: turn.source, status: ended ? "ended" : "open" });
   return {
     mode: "chat",
-    reply: turn.reply,
+    reply,
     token: signToken({ clinicId: clinic.clinicId, conversationId: ended ? null : conversationId, sessionId: token.sessionId, issuedAt: ended ? now.getTime() : token.issuedAt }),
     ended,
   };

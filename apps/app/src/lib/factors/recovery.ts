@@ -45,7 +45,7 @@ import { endStepUps } from "./step-ups";
  *
  * The window, DEVICE_RECOVERY_TTL_HOURS from issue, covers the claim and the
  * use, on the database's clock: the database dates the row on INSERT and a
- * CHECK keeps the window from being longer (drizzle/0094). A link is bound
+ * CHECK keeps the window from being longer (drizzle/0095). A link is bound
  * to the address it was mailed to: none is issued while a change of that
  * address is open, starting or applying one ends it, and it neither claims
  * nor adds a device once its address is not the sign-in's or a change of it
@@ -53,7 +53,7 @@ import { endStepUps } from "./step-ups";
  * Every step writes a security_events row with ids only. The token is
  * returned once, into one email, and only its SHA-256 is stored.
  *
- * Identity plane (drizzle/0094): a passkey belongs to the sign-in, not to a
+ * Identity plane (drizzle/0095): a passkey belongs to the sign-in, not to a
  * clinic. "For that clinic" is the clinic's one sign-in: the row is bound to
  * its user and lands on that clinic's Protect page, and another sign-in's
  * session can do nothing with it. Business contact data; no patient.
@@ -103,7 +103,7 @@ export async function lockFactors(db: Queryable, userId: string): Promise<void> 
  * by healdesk or a newer link, `moved` (the address it was mailed to is no
  * longer the sign-in's, or a change of that address is under way), or
  * `unfinished`: claimed, but no session came of it, so it is spent and a
- * new link is needed. A claim is made once, for every role (drizzle/0094),
+ * new link is needed. A claim is made once, for every role (drizzle/0095),
  * so it is never given back.
  */
 export type DeviceRecoveryProblem =
@@ -115,7 +115,7 @@ export type DeviceRecoveryLookup =
 
 /**
  * The link's address is still the sign-in's, and no change of it is open:
- * the condition every claim and every use of a link repeats (drizzle/0094).
+ * the condition every claim and every use of a link repeats (drizzle/0095).
  */
 const ADDRESS_STILL_ITS = sql`(${deviceRecoveries.addressHash} = app_address_hash(${deviceRecoveries.userId}) and not app_sign_in_address_change_open(${deviceRecoveries.userId}))`;
 

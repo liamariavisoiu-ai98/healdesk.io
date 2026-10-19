@@ -198,6 +198,18 @@ describe("the registry", () => {
       (n) => !web.has(n) && !app.has(n) && !quoted.includes(`"${n}"`),
     );
     expect(stale, "no longer read by either app: remove from NOT_KEYS").toEqual([]);
+
+    // A setting must excuse a read the keys do not already cover: one that
+    // is a key wherever it is read (two branches listing the same variable,
+    // one way each) would give the map two answers. HEALDESK_APP_URL stays:
+    // a key on Vercel, only a setting where apps/app reads it.
+    const redundant = Object.keys(NOT_KEYS).filter(
+      (n) =>
+        (webKeys.has(n) || appKeys.has(n)) &&
+        !(web.has(n) && !webKeys.has(n)) &&
+        !(app.has(n) && !appKeys.has(n)),
+    );
+    expect(redundant, "a key wherever it is read: remove from NOT_KEYS").toEqual([]);
   });
 
   test("the deploy-only and your computer's keys are the ones the AWS setup and .env.example name", () => {
@@ -256,7 +268,7 @@ describe("assess", () => {
     expect(bridge(view, "app-kms")).toMatchObject({ status: "working", proven: true });
     expect(bridge(view, "you-console")).toMatchObject({ status: "working", proven: false });
     expect(bridge(view, "connectors-app").status).toBe("parked");
-    expect(bridge(view, "patients-widget").status).toBe("to-build");
+    expect(bridge(view, "patients-widget").status).toBe("working");
     expect(view.todos.filter((t) => t.kind === "fix" || t.kind === "add-key")).toEqual([]);
   });
 
@@ -279,6 +291,16 @@ describe("assess", () => {
     expect(view.todos.some((t) => t.kind === "waiting" && t.key === "aws.META_APP_SECRET")).toBe(true);
   });
 
+  test("the backstop's Retell key missing leaves the live voice line working, with only the backstop off", () => {
+    const live = allGood();
+    (live.host as Extract<HostReach, { state: "answered" }>).present.HEALDESK_RETELL_API_KEY = false;
+    const view = assess(live);
+
+    expect(key(view, "aws.HEALDESK_RETELL_API_KEY").state).toBe("optional-off");
+    for (const id of ["retell-app", "patients-retell", "retell-clinic"]) expect(bridge(view, id).status, id).toBe("working");
+    expect(view.todos.some((t) => t.kind === "add-key" && t.key === "aws.HEALDESK_RETELL_API_KEY")).toBe(false);
+  });
+
   test("a pasted voice secret alone is not voice: the line stays off until enable_voice is on", () => {
     const live = allGood();
     (live.host as Extract<HostReach, { state: "answered" }>).present.HEALDESK_VOICE_ENABLED = false;
@@ -289,6 +311,19 @@ describe("assess", () => {
     expect(bridge(view, "retell-app").statusText).toContain("enable_voice");
     expect(bridge(view, "patients-retell").status).toBe("off");
     expect(bridge(view, "retell-clinic").status).toBe("off");
+  });
+
+  test("voice on for test calls only: the line is up, and patients' calls stay off until voice_real_calls", () => {
+    const live = allGood();
+    (live.host as Extract<HostReach, { state: "answered" }>).present.HEALDESK_VOICE_REAL_CALLS = false;
+    const view = assess(live);
+
+    expect(key(view, "aws.HEALDESK_VOICE_REAL_CALLS").state).toBe("waiting");
+    expect(bridge(view, "retell-app").status).not.toBe("off");
+    expect(bridge(view, "patients-retell").status).toBe("off");
+    expect(bridge(view, "patients-retell").statusText).toContain("voice_real_calls");
+    expect(bridge(view, "patients-retell").statusText).toContain("demo clinic");
+    expect(view.todos.some((t) => t.kind === "add-key" && t.key === "aws.HEALDESK_VOICE_REAL_CALLS")).toBe(false);
   });
 
   test("checkout waits on the Sheet it seals purchases into, and on the seal", () => {
@@ -394,7 +429,7 @@ describe("assess", () => {
     expect(view.todos.some((t) => t.kind === "check")).toBe(true);
     // What is unbuilt stays on the list, whatever the host is doing.
     const builds = view.todos.filter((t) => t.kind === "build").map((t) => t.bridge);
-    expect(builds).toEqual(expect.arrayContaining(["patients-widget", "app-clinic-stripe"]));
+    expect(builds).toEqual(expect.arrayContaining(["app-clinic-stripe"]));
   });
 
   test("a host that refuses the signed call breaks the bridge between the two apps", () => {

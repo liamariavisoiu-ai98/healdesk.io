@@ -758,7 +758,7 @@ describeDb("database audit (0031)", () => {
 
   test("the identity plane's records of who got in, and with what, cannot be erased by the runtime role", async () => {
     // security_events (0003), sign_in_links (0043), the portal's second
-    // factors and step-ups (0047), and the human route's links (0094):
+    // factors and step-ups (0047), and the human route's links (0095):
     // which device's passkey could open patient data, how it got there, and
     // when. A new table of this kind belongs on this list.
     for (const table of [
@@ -785,7 +785,8 @@ describeDb("database audit (0031)", () => {
     // their services (whose patient someone is, beside a booking); 0064 the
     // amendments Practice directs to a request or a conversation; 0069 the
     // transcript outbox's sealed copies (on INSERT only: see the migration);
-    // 0092 the flags staff put on conversations; 0093 a patient's request to
+    // 0092 the handovers, which point at a caller's conversation or thread;
+    // 0093 the flags staff put on conversations; 0094 a patient's request to
     // healdesk, passed to the practice (L32).
     const expected = [
       "appointments",
@@ -798,6 +799,7 @@ describeDb("database audit (0031)", () => {
       "conversation_flags",
       "conversations",
       "deposit_payments",
+      "handovers",
       "meta_booking_drafts",
       "patient_requests",
       "record_amendments",

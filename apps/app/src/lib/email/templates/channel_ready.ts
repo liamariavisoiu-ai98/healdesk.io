@@ -96,11 +96,11 @@ function renderWebReady(
   return compose(
     {
       subject: "Website chat is ready: one step left",
-      preheader: "Paste one line on your website and AYA starts answering there.",
+      preheader: "Paste one line on your website, and AYA is designed to start answering there.",
       blocks: [
         {
           type: "paragraph",
-          text: `AYA is ready to answer chats on ${clinic}'s website. One step is left, and it's yours: paste this line once, ${PASTE_WHERE} of your website.`,
+          text: `Website chat is ready for ${clinic}'s website. One step is left, and it's yours: paste this line once, ${PASTE_WHERE} of your website. AYA is designed to start answering there once it's in.`,
         },
         webLineBlock(payload),
         { type: "paragraph", text: WEB_CHAT_COUNTS_LINE },

@@ -53,14 +53,23 @@ web_memory            = 1024
 web_desired           = 1
 worker_desired        = 1
 
-# The Retell voice endpoint: off until a clinic has bought voice and
-# HEALDESK_RETELL_LLM_SECRET is pasted. Turned on, one task of a quarter vCPU
+# The Retell voice endpoint: off until HEALDESK_RETELL_LLM_SECRET is pasted,
+# for a test call on the demo clinic or, with voice_real_calls, a clinic that
+# has bought voice. Turned on, one task of a quarter vCPU
 # and 1 GB, about $8.51 a month; voice_desired = 2 survives losing a task
 # mid-call.
 enable_voice  = false
 voice_desired = 1
 voice_cpu     = 256
 voice_memory  = 1024
+
+# Real patients' calls: off until every business associate agreement in the
+# chain is signed, Retell's included. Off, the voice endpoint answers only the
+# made-up demo clinic, for a test call (owner, 19 October 2026), and the
+# worker's backstop records only that clinic's lost calls. On, the web, worker
+# and voice tasks all carry the switch. It needs enable_voice: turning voice
+# off means setting both to false in the same change.
+voice_real_calls = false
 
 # Database.
 postgres_version     = "17.11"

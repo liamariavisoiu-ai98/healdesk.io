@@ -80,7 +80,7 @@ function renderWebLine(
       blocks: [
         {
           type: "paragraph",
-          text: `${clinic} asked us to send you this line for its website. Paste it once, ${PASTE_WHERE} of the site, and AYA, the practice's AI assistant from healdesk, answers chats there once it's in.`,
+          text: `${clinic} asked us to send you this line for its website. Paste it once, ${PASTE_WHERE} of the site. AYA, the practice's AI assistant from healdesk, is designed to start answering chats there once it's in.`,
         },
         webLineBlock(payload),
         { type: "paragraph", text: QUESTIONS_LINE },

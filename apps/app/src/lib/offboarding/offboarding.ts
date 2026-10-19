@@ -17,6 +17,7 @@ import {
   contacts,
   conversationFlags,
   conversations,
+  handovers,
   metaBookingDrafts,
   metaInboundMessages,
   patientRequests,
@@ -622,7 +623,11 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // deleted here first so the count is in the record and the stamp's check
   // names it.
   await del("transcript_emails", () => tx.db.delete(transcriptEmails).where(eq(transcriptEmails.clinicId, c)).returning({ id: transcriptEmails.id }));
-  // The flags staff put on conversations (drizzle/0092): each goes with its
+  // Handovers (drizzle/0092) go with their conversations and threads by the
+  // foreign keys' cascades; deleted here first so the count is in the record
+  // and the stamp's check names them.
+  await del("handovers", () => tx.db.delete(handovers).where(eq(handovers.clinicId, c)).returning({ id: handovers.id }));
+  // The flags staff put on conversations (drizzle/0093): each goes with its
   // conversation or its Meta thread by the foreign keys' cascades, and is
   // deleted here first, as the transcript outbox is, so the count is in the
   // record and the stamp's check names it.
@@ -634,7 +639,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // The half-collected drafts hold a phone number and nothing the record
   // needs, so they are deleted outright.
   await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));
-  // The patients' requests passed to the practice (drizzle/0093), before the
+  // The patients' requests passed to the practice (drizzle/0094), before the
   // contacts they name: a contact's delete would set each one's contact_id to
   // NULL first, a rewrite for nothing.
   await del("patient_requests", () => tx.db.delete(patientRequests).where(eq(patientRequests.clinicId, c)).returning({ id: patientRequests.id }));

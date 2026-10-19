@@ -25,6 +25,7 @@ import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/re
 import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
 import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting, type Channel } from "@/lib/compliance/disclosure";
+import { raiseHandover } from "@/lib/handovers/record";
 import { describeError, log } from "@/lib/log";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { isOpenAt, parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
@@ -414,6 +415,7 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     '1. Start your reply with the substance. Never greet the person (no "Hi", "Hello" or "Hey"), and never introduce yourself or say what you are unless they ask: the code puts the channel\'s opening line in front of your reply wherever one is owed, and that line already greets them and says you are an AI assistant.',
     "2. Answer PUBLIC questions from the facts below: hours, location, parking, and whether the practice offers something the person asks about and its published price, without ever naming it.",
     `3. Move the person to a secure channel to discuss anything personal: the phone${facts.phone ? ` (${facts.phone})` : ""}${facts.websiteHint ? ` or the website (${facts.websiteHint})` : ""}.`,
+    `If they ask to speak to a person, say a person at the practice can help on the phone${facts.phone ? ` (${facts.phone})` : ""}, and set "handoff" to true.`,
     `4. If the person wants to book, take a BOOKING REQUEST for the practice to confirm by phone. Ask only for: their first name, a phone number the practice can call, a preferred day or time, and — once you have that — up to two other times that could also work. ${requiredMetaFieldsLine(facts.requirements)}. Ask for whichever are still missing, one message at a time. Never ask why they are visiting or which treatment they want, and never repeat their phone number back.`,
     "",
     "You must NEVER:",
@@ -444,7 +446,7 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     "Always write in English, whatever language the message is in: this channel answers in English only.",
     "",
     "ANSWER FORMAT — respond with JSON only, no prose around it:",
-    '{"reply": "<what to send the person>", "booking": {"wants": <true if they want to book>, "first_name": <string or null>, "phone": <string or null>, "window": <their preferred day or time as they said it, or null>, "alt_windows": [<other times they named, as they said them, up to two>], "fields": {}}}',
+    '{"reply": "<what to send the person>", "handoff": <true if they asked to speak to a person: a human, the staff, the front desk>, "booking": {"wants": <true if they want to book>, "first_name": <string or null>, "phone": <string or null>, "window": <their preferred day or time as they said it, or null>, "alt_windows": [<other times they named, as they said them, up to two>], "fields": {}}}',
     "Fill the booking fields only with what the person actually wrote in THIS message; leave the rest null or empty. Put nothing about their health in any window.",
     "",
     "FACTS YOU MAY STATE:",
@@ -1258,6 +1260,12 @@ export function openWithGreeting(greeting: string, reply: { text: string; source
 /** The model's structured answer. Anything that is not the expected JSON is read as a plain reply. */
 export type ModelReply = {
   reply: string;
+  /**
+   * They asked for a person. Read only from a model answer, which a message
+   * the inbound screen refused never reaches, so a Meta handover
+   * (lib/handovers/record.ts) never stands on clinical content.
+   */
+  handoff: boolean;
   booking: {
     wants: boolean;
     first_name: string | null;
@@ -1274,10 +1282,10 @@ export function parseModelReply(raw: string): ModelReply {
   const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
-  if (start === -1 || end <= start) return { reply: raw.trim(), booking: { ...NO_BOOKING } };
+  if (start === -1 || end <= start) return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
   try {
-    const parsed = JSON.parse(trimmed.slice(start, end + 1)) as { reply?: unknown; booking?: Record<string, unknown> };
-    if (typeof parsed.reply !== "string") return { reply: raw.trim(), booking: { ...NO_BOOKING } };
+    const parsed = JSON.parse(trimmed.slice(start, end + 1)) as { reply?: unknown; handoff?: unknown; booking?: Record<string, unknown> };
+    if (typeof parsed.reply !== "string") return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
     const b = parsed.booking ?? {};
     const s = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
     const alt_windows = Array.isArray(b.alt_windows) ? b.alt_windows.map(s).filter((v): v is string => v !== null).slice(0, 2) : [];
@@ -1290,10 +1298,11 @@ export function parseModelReply(raw: string): ModelReply {
     }
     return {
       reply: parsed.reply.trim(),
+      handoff: parsed.handoff === true,
       booking: { wants: b.wants === true, first_name: s(b.first_name), phone: s(b.phone), window: s(b.window), alt_windows, fields },
     };
   } catch {
-    return { reply: raw.trim(), booking: { ...NO_BOOKING } };
+    return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
   }
 }
 
@@ -1433,6 +1442,8 @@ export type FrontDoorDraft = {
   /** What the model gathered for a booking request, cleaned; null when the model did not answer. */
   extracted: BookingFields | null;
   wants: boolean;
+  /** The model read a request for a person (never set for a screened message). */
+  handoff?: boolean;
 };
 
 /**
@@ -1487,6 +1498,7 @@ export async function draftFrontDoorAnswer(
         : { text: fallback, source: "handoff", guard: verdict.reason, screened: null, booking: "none", greeted: false },
       extracted: cleanBookingFields(parsed.booking),
       wants: parsed.booking.wants,
+      handoff: parsed.handoff,
     };
   } catch (error) {
     log.error("front door model call failed", { clinicId: input.clinicId, error: describeError(error) });
@@ -1549,6 +1561,13 @@ export async function answerFrontDoor(
   // by the webhook once this transaction has committed.
   if (screened === "urgent") {
     await notifyBookingAlert(tx, "urgent", { conversationId: conversation?.conversationId, channel: "meta" });
+  }
+  // L11: they asked for a person. Kept for Bookings' Needs you, once per
+  // conversation, by the thread's keyed reference and never their words
+  // (lib/handovers/record.ts); only from the model's answer, so never for a
+  // message the screen refused.
+  if (draft.handoff === true && screened === null && thread && conversation) {
+    await raiseHandover(tx, { channel: "meta", platform: thread.platform, partyRef: conversation.partyRef, metaConversationId: conversation.conversationId });
   }
 
   // Only the model extracts booking fields, so a screened message never

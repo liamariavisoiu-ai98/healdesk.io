@@ -954,7 +954,7 @@ export const contacts = pgTable(
       .on(t.clinicId, t.externalSource, t.externalContactId)
       .where(sql`${t.externalContactId} is not null`),
     // The key a patient's request names its contact by, with the clinic
-    // (patient_requests_contact_fk, drizzle/0093), so a request can only name
+    // (patient_requests_contact_fk, drizzle/0094), so a request can only name
     // a contact of its own clinic. id is unique already.
     unique("contacts_clinic_id_unique").on(t.clinicId, t.id),
   ],
@@ -2823,7 +2823,7 @@ export type PatientRequestKind = (typeof PATIENT_REQUEST_KINDS)[number];
  * (lib/patient-rights/patient-requests.ts).
  *
  * PHI while it names a contact: whose request it is, at which practice. So
- * tenant RLS, FORCEd, and the BAA gate (drizzle/0093). It holds no name, no
+ * tenant RLS, FORCEd, and the BAA gate (drizzle/0094). It holds no name, no
  * number, no address and nothing typed: the person is the contact it names,
  * read from `contacts` when the page opens, and the contact's own clock and
  * erasure govern them. Its foreign key (clinic_id, contact_id) is written by
@@ -5173,7 +5173,7 @@ export const factorLockouts = pgTable(
 
 /**
  * The human route for a clinic that has lost every device (plan Part D3,
- * "Lost every device"; drizzle/0094): after the operator has called the
+ * "Lost every device"; drizzle/0095): after the operator has called the
  * practice back on its published number and entered a fresh code from the
  * operator's authenticator on apps/web, the ops operation
  * issueDeviceRecovery mints one of these and emails its link to the
@@ -6210,7 +6210,7 @@ export type ConversationFlagSource = (typeof CONVERSATION_FLAG_SOURCES)[number];
  * list a Meta conversation its thread has since moved on from. Either way it
  * goes with what it points at, through the foreign key's cascade: an erasure,
  * the record clock or a quiet thread's purge, and destruction, which also
- * deletes it first and checks (drizzle/0092).
+ * deletes it first and checks (drizzle/0093).
  *
  * PHI-adjacent, since it marks a patient's conversation: tenant RLS, forced,
  * and the BAA gate. `flagged_at` and `corrected_at` are the database's clock
@@ -6499,3 +6499,111 @@ export const platformCompliance = pgTable(
 );
 
 export type PlatformComplianceRow = typeof platformCompliance.$inferSelect;
+
+// -----------------------------------------------------------------------------
+// Handovers  ⚠️ PHI by what they point at
+// -----------------------------------------------------------------------------
+
+/** The channels a person can ask AYA for a person on. */
+export type HandoverChannel = "voice" | "web_chat" | "meta";
+export type HandoverPlatform = "instagram" | "messenger" | "whatsapp";
+
+/**
+ * Someone asked AYA for a person (alert L11; spec, "Every switch in the
+ * portal": Handover requests, "Where 'I want to speak to a person' goes"),
+ * kept so Bookings can list it under Needs you until the desk marks it
+ * handled (plan Part F5: "open handovers"). lib/handovers/record.ts is its
+ * one writer, in the transaction that queues the alert.
+ *
+ * It holds no words and no identity of its own: only which conversation it
+ * was asked in, so the person is reached, kept and erased through that
+ * conversation, and for a web chat the number the visitor gave for the call
+ * back. A call or web chat points at its conversation and goes with
+ * it by the foreign key's cascade (a call's row is written when the call
+ * ends, so a call's handover carries the vendor's call id until then and
+ * the database links it, drizzle/0092). A Meta thread points at its
+ * chat_threads row, the keyed hash of who wrote, and goes with that.
+ * Nothing the Meta screen refused is ever behind one: the front door records
+ * a handover only from the model's answer, which a screened message never
+ * reaches. The record clock deletes what outlives both (lib/retention/purge.ts).
+ */
+export const handovers = pgTable(
+  "handovers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    channel: text("channel").$type<HandoverChannel>().notNull(),
+    /** Meta only: which of the three. */
+    platform: text("platform").$type<HandoverPlatform>(),
+    /** Voice only: the vendor's call id, which the call's conversation will carry. */
+    externalCallId: text("external_call_id"),
+    /** The call's or web chat's conversation. A call's is set when its row is written. */
+    conversationId: uuid("conversation_id"),
+    /** Meta only: the keyed reference to who wrote (chat_threads.party_ref). */
+    partyRef: text("party_ref"),
+    /** Meta only: the thread's conversation (chat_threads.conversation_id), once per which. */
+    metaConversationId: uuid("meta_conversation_id"),
+    /**
+     * Web chat only: the number the visitor gave so the desk can call back
+     * (E.164), and the first name with it, set once. ⚠️ PHI. On the handover,
+     * never as a contact: the number is whatever was typed, so a contact
+     * would be found by every later lookup by that number and could take a
+     * patient's call or booking; and never on the conversation, which a later
+     * request in the chat may tie to someone else. Erasure by the number
+     * deletes it (lib/patient-rights/erasure.ts).
+     */
+    callbackPhone: text("callback_phone"),
+    callbackFirstName: text("callback_first_name"),
+    /** When they asked: the database's clock at the insert. */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    /** The desk marked it handled: the database's clock, once. */
+    handledAt: timestamp("handled_at", { withTimezone: true }),
+    /** Who: the device whose passkey stepped up, as staff named it. */
+    handledByLabel: text("handled_by_label"),
+    handledByUserId: text("handled_by_user_id"),
+  },
+  (t) => [
+    index("handovers_clinic_idx").on(t.clinicId, t.createdAt),
+    uniqueIndex("handovers_call_idx")
+      .on(t.clinicId, t.externalCallId)
+      .where(sql`${t.externalCallId} is not null`),
+    uniqueIndex("handovers_conversation_idx")
+      .on(t.clinicId, t.conversationId)
+      .where(sql`${t.conversationId} is not null`),
+    uniqueIndex("handovers_meta_conversation_idx")
+      .on(t.clinicId, t.metaConversationId)
+      .where(sql`${t.metaConversationId} is not null`),
+    index("handovers_thread_idx").on(t.clinicId, t.platform, t.partyRef),
+    index("handovers_callback_idx").on(t.clinicId, t.callbackPhone).where(sql`${t.callbackPhone} is not null`),
+    foreignKey({
+      name: "handovers_conversation_fk",
+      columns: [t.clinicId, t.conversationId],
+      foreignColumns: [conversations.clinicId, conversations.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "handovers_thread_fk",
+      columns: [t.clinicId, t.platform, t.partyRef],
+      foreignColumns: [chatThreads.clinicId, chatThreads.channel, chatThreads.partyRef],
+    }).onDelete("cascade"),
+    check(
+      "handovers_shape_check",
+      sql`(${t.channel} = 'voice' and ${t.externalCallId} is not null and ${t.platform} is null and ${t.partyRef} is null and ${t.metaConversationId} is null and ${t.callbackPhone} is null)
+        or (${t.channel} = 'web_chat' and ${t.conversationId} is not null and ${t.externalCallId} is null and ${t.platform} is null and ${t.partyRef} is null and ${t.metaConversationId} is null)
+        or (${t.channel} = 'meta' and ${t.platform} in ('instagram', 'messenger', 'whatsapp') and ${t.partyRef} is not null and ${t.metaConversationId} is not null and ${t.conversationId} is null and ${t.externalCallId} is null and ${t.callbackPhone} is null)`,
+    ),
+    check(
+      "handovers_callback_check",
+      sql`(${t.callbackPhone} is null or ${t.callbackPhone} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.callbackFirstName} is null or (${t.callbackPhone} is not null and char_length(${t.callbackFirstName}) between 1 and 40))`,
+    ),
+    check(
+      "handovers_call_id_check",
+      sql`${t.externalCallId} is null or char_length(${t.externalCallId}) between 1 and 200`,
+    ),
+    check(
+      "handovers_handled_check",
+      sql`(${t.handledAt} is null) = (${t.handledByLabel} is null) and (${t.handledAt} is null) = (${t.handledByUserId} is null) and (${t.handledByLabel} is null or char_length(${t.handledByLabel}) between 1 and 200)`,
+    ),
+  ],
+);

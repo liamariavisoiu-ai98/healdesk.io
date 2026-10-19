@@ -225,13 +225,13 @@ CREATE TRIGGER device_recoveries_guard
 REVOKE ALL ON FUNCTION app_device_recovery_guard() FROM PUBLIC;--> statement-breakpoint
 
 COMMENT ON TABLE device_recoveries IS
-  'The human route for a clinic that lost every device (plan Part D3; 0094): one link, issued by the operator after a call back to the practice''s published number and mailed only to the clinic''s address, bound to that address, that lets the session it starts add one passkey within its window. Identity plane, no PHI. The runtime role moves the claim, the use and the end only, and never deletes.';--> statement-breakpoint
+  'The human route for a clinic that lost every device (plan Part D3; 0095): one link, issued by the operator after a call back to the practice''s published number and mailed only to the clinic''s address, bound to that address, that lets the session it starts add one passkey within its window. Identity plane, no PHI. The runtime role moves the claim, the use and the end only, and never deletes.';--> statement-breakpoint
 COMMENT ON FUNCTION app_address_hash(text) IS
-  'SHA-256 of a sign-in''s address, trimmed and lower-cased: what a device recovery link is bound to (0094).';--> statement-breakpoint
+  'SHA-256 of a sign-in''s address, trimmed and lower-cased: what a device recovery link is bound to (0095).';--> statement-breakpoint
 COMMENT ON FUNCTION app_sign_in_address_change_open(text) IS
-  'Whether a change of the sign-in''s address is open at any of its clinics, walking their tenants; one boolean (0094).';--> statement-breakpoint
+  'Whether a change of the sign-in''s address is open at any of its clinics, walking their tenants; one boolean (0095).';--> statement-breakpoint
 COMMENT ON FUNCTION app_device_recovery_guard() IS
-  'Dates and binds a device recovery link on INSERT (now(), 24 hours, the sign-in''s address, unclaimed), and on UPDATE keeps what was issued fixed, the claim and its session once each, and a used or revoked link final (0094).';--> statement-breakpoint
+  'Dates and binds a device recovery link on INSERT (now(), 24 hours, the sign-in''s address, unclaimed), and on UPDATE keeps what was issued fixed, the claim and its session once each, and a used or revoked link final (0095).';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- The grants, checked as this migration runs: it fails if the runtime role
@@ -242,13 +242,13 @@ COMMENT ON FUNCTION app_device_recovery_guard() IS
 DO $$
 BEGIN
   IF has_table_privilege('healdesk_app'::name, 'device_recoveries'::regclass, 'DELETE') THEN
-    RAISE EXCEPTION 'healdesk_app can delete device_recoveries, which 0094 keeps.';
+    RAISE EXCEPTION 'healdesk_app can delete device_recoveries, which 0095 keeps.';
   END IF;
   IF has_column_privilege('healdesk_app'::name, 'device_recoveries'::regclass, 'token_hash', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'device_recoveries'::regclass, 'address_hash', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'device_recoveries'::regclass, 'expires_at', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'device_recoveries'::regclass, 'user_id', 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app can re-point a device recovery or stretch its window, which 0094 fixes.';
+    RAISE EXCEPTION 'healdesk_app can re-point a device recovery or stretch its window, which 0095 fixes.';
   END IF;
   IF NOT has_column_privilege('healdesk_app'::name, 'device_recoveries'::regclass, 'used_at', 'UPDATE') THEN
     RAISE EXCEPTION 'healdesk_app cannot spend a device recovery.';

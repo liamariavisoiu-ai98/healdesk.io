@@ -1,6 +1,6 @@
 {
-  "id": "e95de04d-b0bd-4819-ad0c-0e4dccc1c413",
-  "prevId": "cc926e73-bc1a-412a-9d61-d577da1ee7c1",
+  "id": "cc926e73-bc1a-412a-9d61-d577da1ee7c1",
+  "prevId": "1633fa76-e619-461c-b48b-6d72561f154d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5307,16 +5307,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "contacts_clinic_id_unique": {
-          "name": "contacts_clinic_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "clinic_id",
-            "id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -6702,6 +6693,305 @@
       },
       "isRLSEnabled": false
     },
+    "public.handovers": {
+      "name": "handovers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "clinic_id": {
+          "name": "clinic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform": {
+          "name": "platform",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "external_call_id": {
+          "name": "external_call_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "party_ref": {
+          "name": "party_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "meta_conversation_id": {
+          "name": "meta_conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "callback_phone": {
+          "name": "callback_phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "callback_first_name": {
+          "name": "callback_first_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "handled_at": {
+          "name": "handled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "handled_by_label": {
+          "name": "handled_by_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "handled_by_user_id": {
+          "name": "handled_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "handovers_clinic_idx": {
+          "name": "handovers_clinic_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_call_idx": {
+          "name": "handovers_call_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_call_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"handovers\".\"external_call_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_conversation_idx": {
+          "name": "handovers_conversation_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"handovers\".\"conversation_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_meta_conversation_idx": {
+          "name": "handovers_meta_conversation_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "meta_conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"handovers\".\"meta_conversation_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_thread_idx": {
+          "name": "handovers_thread_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "platform",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "party_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_callback_idx": {
+          "name": "handovers_callback_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "callback_phone",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"handovers\".\"callback_phone\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "handovers_clinic_id_clinics_id_fk": {
+          "name": "handovers_clinic_id_clinics_id_fk",
+          "tableFrom": "handovers",
+          "tableTo": "clinics",
+          "columnsFrom": [
+            "clinic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "handovers_conversation_fk": {
+          "name": "handovers_conversation_fk",
+          "tableFrom": "handovers",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "clinic_id",
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "clinic_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "handovers_thread_fk": {
+          "name": "handovers_thread_fk",
+          "tableFrom": "handovers",
+          "tableTo": "chat_threads",
+          "columnsFrom": [
+            "clinic_id",
+            "platform",
+            "party_ref"
+          ],
+          "columnsTo": [
+            "clinic_id",
+            "channel",
+            "party_ref"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "handovers_shape_check": {
+          "name": "handovers_shape_check",
+          "value": "(\"handovers\".\"channel\" = 'voice' and \"handovers\".\"external_call_id\" is not null and \"handovers\".\"platform\" is null and \"handovers\".\"party_ref\" is null and \"handovers\".\"meta_conversation_id\" is null and \"handovers\".\"callback_phone\" is null)\n        or (\"handovers\".\"channel\" = 'web_chat' and \"handovers\".\"conversation_id\" is not null and \"handovers\".\"external_call_id\" is null and \"handovers\".\"platform\" is null and \"handovers\".\"party_ref\" is null and \"handovers\".\"meta_conversation_id\" is null)\n        or (\"handovers\".\"channel\" = 'meta' and \"handovers\".\"platform\" in ('instagram', 'messenger', 'whatsapp') and \"handovers\".\"party_ref\" is not null and \"handovers\".\"meta_conversation_id\" is not null and \"handovers\".\"conversation_id\" is null and \"handovers\".\"external_call_id\" is null and \"handovers\".\"callback_phone\" is null)"
+        },
+        "handovers_callback_check": {
+          "name": "handovers_callback_check",
+          "value": "(\"handovers\".\"callback_phone\" is null or \"handovers\".\"callback_phone\" ~ '^\\+[1-9][0-9]{6,14}$') and (\"handovers\".\"callback_first_name\" is null or (\"handovers\".\"callback_phone\" is not null and char_length(\"handovers\".\"callback_first_name\") between 1 and 40))"
+        },
+        "handovers_call_id_check": {
+          "name": "handovers_call_id_check",
+          "value": "\"handovers\".\"external_call_id\" is null or char_length(\"handovers\".\"external_call_id\") between 1 and 200"
+        },
+        "handovers_handled_check": {
+          "name": "handovers_handled_check",
+          "value": "(\"handovers\".\"handled_at\" is null) = (\"handovers\".\"handled_by_label\" is null) and (\"handovers\".\"handled_at\" is null) = (\"handovers\".\"handled_by_user_id\" is null) and (\"handovers\".\"handled_by_label\" is null or char_length(\"handovers\".\"handled_by_label\") between 1 and 200)"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.incidents": {
       "name": "incidents",
       "schema": "",
@@ -7339,172 +7629,6 @@
         "overage_invoices_status_check": {
           "name": "overage_invoices_status_check",
           "value": "\"overage_invoices\".\"status\" in ('pending', 'invoiced', 'failed', 'skipped')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.patient_requests": {
-      "name": "patient_requests",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "contact_id": {
-          "name": "contact_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "contact_named": {
-          "name": "contact_named",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "received_at": {
-          "name": "received_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reply_by": {
-          "name": "reply_by",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "recorded_by": {
-          "name": "recorded_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "recorded_at": {
-          "name": "recorded_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "clock_timestamp()"
-        },
-        "acknowledged_at": {
-          "name": "acknowledged_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "acknowledged_by": {
-          "name": "acknowledged_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "patient_requests_open_idx": {
-          "name": "patient_requests_open_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "reply_by",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"patient_requests\".\"acknowledged_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "patient_requests_contact_idx": {
-          "name": "patient_requests_contact_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "contact_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"patient_requests\".\"contact_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "patient_requests_clinic_id_clinics_id_fk": {
-          "name": "patient_requests_clinic_id_clinics_id_fk",
-          "tableFrom": "patient_requests",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "patient_requests_kind_check": {
-          "name": "patient_requests_kind_check",
-          "value": "\"patient_requests\".\"kind\" in ('access', 'amendment', 'accounting', 'deletion', 'other')"
-        },
-        "patient_requests_recorded_by_check": {
-          "name": "patient_requests_recorded_by_check",
-          "value": "char_length(btrim(\"patient_requests\".\"recorded_by\")) between 1 and 320"
-        },
-        "patient_requests_received_check": {
-          "name": "patient_requests_received_check",
-          "value": "\"patient_requests\".\"received_at\" <= \"patient_requests\".\"recorded_at\""
-        },
-        "patient_requests_contact_check": {
-          "name": "patient_requests_contact_check",
-          "value": "\"patient_requests\".\"contact_id\" is null or \"patient_requests\".\"contact_named\""
-        },
-        "patient_requests_reply_by_check": {
-          "name": "patient_requests_reply_by_check",
-          "value": "\"patient_requests\".\"reply_by\" between (\"patient_requests\".\"received_at\" at time zone 'UTC')::date + 4 and (\"patient_requests\".\"received_at\" at time zone 'UTC')::date + 8"
-        },
-        "patient_requests_acknowledged_check": {
-          "name": "patient_requests_acknowledged_check",
-          "value": "(\"patient_requests\".\"acknowledged_at\" is null) = (\"patient_requests\".\"acknowledged_by\" is null)\n        and (\"patient_requests\".\"acknowledged_by\" is null or char_length(btrim(\"patient_requests\".\"acknowledged_by\")) between 1 and 200)"
         }
       },
       "isRLSEnabled": false

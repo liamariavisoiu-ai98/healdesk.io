@@ -124,6 +124,8 @@ export const PATIENT_RECORD_TYPES = [
   "booking_request",
   /** A booking AYA made: Booked by AYA (Bookings). */
   "appointment",
+  /** Someone asked AYA for a person: Needs you, and Mark handled (Bookings). */
+  "handover",
   /** The clinic's whole export. */
   "clinic_bundle",
   /** One person's export, from a conversation (Conversations), named by their contact ids. */

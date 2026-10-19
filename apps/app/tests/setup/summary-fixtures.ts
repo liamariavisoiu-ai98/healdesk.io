@@ -96,12 +96,14 @@ export async function conversation(
     reason?: string | null;
     urgent?: boolean;
     outcome?: string;
+    /** False for a call AYA never spoke on: no opening line played. */
+    answered?: boolean;
   },
 ): Promise<void> {
   await inTenant(clinicId, (client) =>
     client.query(
-      `insert into conversations (clinic_id, channel, recovery_reason, outcome, urgent, started_at)
-       values ($1, $2, $3, $4, $5, $6)`,
+      `insert into conversations (clinic_id, channel, recovery_reason, outcome, urgent, started_at, disclosure_played_at)
+       values ($1, $2, $3, $4, $5, $6, $7)`,
       [
         clinicId,
         input.channel,
@@ -109,6 +111,7 @@ export async function conversation(
         input.outcome ?? "qualified_no_booking",
         input.urgent ?? false,
         input.at,
+        input.answered === false ? null : input.at,
       ],
     ),
   );

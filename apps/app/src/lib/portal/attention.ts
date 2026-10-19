@@ -9,6 +9,7 @@ import {
 } from "@/lib/setup/screens";
 import type { ChannelState } from "@/lib/channels/state";
 import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
+import type { MetaConnectView } from "@/lib/meta/reconnect";
 import type { SetupState } from "@/lib/setup/state";
 import { PRACTICE_SECTION_WORDS } from "@/lib/engine/practice/sections";
 import { practiceDoubleChecking, type PracticeState } from "@/lib/engine/practice/state";
@@ -63,6 +64,8 @@ export type AttentionId =
   | "website_changes"
   | "calendar_disconnected"
   | "quiet_channel"
+  | "meta_facebook_dropped"
+  | "meta_whatsapp_dropped"
   | "double_checking";
 
 export type AttentionItem = {
@@ -88,6 +91,8 @@ export type AttentionFacts = {
   paymentAccountDisconnected?: boolean;
   /** The clinic's Google Calendar connection as the calendar session reads it. */
   calendar?: CalendarConnectionView;
+  /** The clinic's Meta logins, when it bought Meta: one Meta dropped is a line here, with Reconnect. */
+  meta?: MetaConnectView | null;
   /** Website changes a re-read found and nobody has confirmed or ignored (lib/website). */
   websiteChanges?: number;
   /** Where the practice questions stand (lib/engine/practice). */
@@ -171,7 +176,7 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
   if (web?.status === "waiting" && web.waitingOn === "snippet") {
     items.push({
       id: "website_line",
-      text: "Website chat is ready: paste one line on your website and AYA starts answering there.",
+      text: "Website chat is ready: paste one line on your website, and AYA is designed to start answering there.",
       action: screenLink(slug, "settings", "#website-line", "Get the line"),
     });
   }
@@ -218,6 +223,24 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
         action: screenLink(slug, "settings", "#channels", "Check it in Settings"),
       });
     }
+  }
+
+  // A login Meta dropped (lib/meta/reconnect.ts): AYA can't reply on those
+  // apps until the clinic signs in again, which is worth a line at any stage.
+  // No patient is named; the words are the apps'.
+  if (facts.meta?.facebook.state === "needs_reconnect") {
+    items.push({
+      id: "meta_facebook_dropped",
+      text: `Facebook dropped the connection to ${joinWords(facts.meta.facebook.names)}, so AYA can't reply there.`,
+      action: screenLink(slug, "settings", "#meta-connections", "Reconnect it in Settings"),
+    });
+  }
+  if (facts.meta?.whatsapp.state === "needs_reconnect") {
+    items.push({
+      id: "meta_whatsapp_dropped",
+      text: "Meta dropped the WhatsApp connection, so AYA can't reply there.",
+      action: screenLink(slug, "settings", "#meta-connections", "Reconnect it in Settings"),
+    });
   }
 
   const changes = facts.websiteChanges ?? 0;

@@ -7,7 +7,10 @@ import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import type { ForwardingView } from "@/lib/setup/forwarding";
 import type { ForwardingTestView } from "@/lib/setup/forwarding-test-words";
 
+import { portalMetaOutcome } from "@/lib/meta/portal-return";
+
 import { ForwardingTestPanel } from "../ForwardingTestPanel";
+import { MetaConnectButtons } from "../MetaConnectButtons";
 import { SendStepsForm } from "../SendStepsForm";
 import { WebsiteLinePanel } from "../WebsiteLinePanel";
 
@@ -65,8 +68,11 @@ export function ChannelsCard({
   phoneSteps = null,
   forwarding = null,
   webLine = null,
+  metaOutcome = null,
 }: {
   view: SettingsView;
+  /** `?meta=` from a Facebook login or WhatsApp sign-up that just returned here. */
+  metaOutcome?: string | null;
   /** AYA's number as the page prints it, once phone is ready on our side; null until then. */
   phoneSteps?: { numberLabel: string } | null;
   /** The forwarding steps and the test, once phone is ready for forwarding; null until then. */
@@ -76,6 +82,16 @@ export function ChannelsCard({
 }) {
   return (
     <Card id="channels" title="Channels" intro="Each channel you bought, on or off on its own.">
+      {portalMetaOutcome(metaOutcome) ? (
+        <p
+          role={portalMetaOutcome(metaOutcome)!.ok ? "status" : "alert"}
+          className={`my-3 rounded-xl border px-4 py-3 text-sm ${
+            portalMetaOutcome(metaOutcome)!.ok ? "border-line bg-tint-mint" : "border-red-200 text-red-800"
+          }`}
+        >
+          {portalMetaOutcome(metaOutcome)!.text}
+        </p>
+      ) : null}
       {view.channels.map((c) =>
         c.key ? (
           <div key={c.channel}>
@@ -119,6 +135,12 @@ export function ChannelsCard({
           </div>
         ),
       )}
+      {view.metaConnect ? (
+        <div id="meta-connections" className="py-3">
+          <h3 className="font-semibold">Instagram, Messenger &amp; WhatsApp logins</h3>
+          <MetaConnectButtons slug={view.slug} from="settings" view={view.metaConnect} />
+        </div>
+      ) : null}
       {view.bought.voice && forwarding ? (
         <CoverageSetting
           slug={view.slug}

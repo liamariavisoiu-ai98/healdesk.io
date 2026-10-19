@@ -1,6 +1,6 @@
 {
-  "id": "a4c6d705-c4c6-4f08-9780-fa9877685f41",
-  "prevId": "e95de04d-b0bd-4819-ad0c-0e4dccc1c413",
+  "id": "e95de04d-b0bd-4819-ad0c-0e4dccc1c413",
+  "prevId": "cc926e73-bc1a-412a-9d61-d577da1ee7c1",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5938,242 +5938,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.device_recoveries": {
-      "name": "device_recoveries",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "address_hash": {
-          "name": "address_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "landing": {
-          "name": "landing",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "issued_by": {
-          "name": "issued_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "claimed_at": {
-          "name": "claimed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "session_token_hash": {
-          "name": "session_token_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "factor_id": {
-          "name": "factor_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_reason": {
-          "name": "revoked_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "device_recoveries_token_hash_idx": {
-          "name": "device_recoveries_token_hash_idx",
-          "columns": [
-            {
-              "expression": "token_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "device_recoveries_one_open_idx": {
-          "name": "device_recoveries_one_open_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"device_recoveries\".\"used_at\" is null and \"device_recoveries\".\"revoked_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "device_recoveries_user_idx": {
-          "name": "device_recoveries_user_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "device_recoveries_session_idx": {
-          "name": "device_recoveries_session_idx",
-          "columns": [
-            {
-              "expression": "session_token_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"device_recoveries\".\"session_token_hash\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "device_recoveries_user_id_user_id_fk": {
-          "name": "device_recoveries_user_id_user_id_fk",
-          "tableFrom": "device_recoveries",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "device_recoveries_factor_id_user_factors_id_fk": {
-          "name": "device_recoveries_factor_id_user_factors_id_fk",
-          "tableFrom": "device_recoveries",
-          "tableTo": "user_factors",
-          "columnsFrom": [
-            "factor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "device_recoveries_token_hash_length": {
-          "name": "device_recoveries_token_hash_length",
-          "value": "octet_length(\"device_recoveries\".\"token_hash\") = 32"
-        },
-        "device_recoveries_address_hash_length": {
-          "name": "device_recoveries_address_hash_length",
-          "value": "octet_length(\"device_recoveries\".\"address_hash\") = 32"
-        },
-        "device_recoveries_session_hash_length": {
-          "name": "device_recoveries_session_hash_length",
-          "value": "\"device_recoveries\".\"session_token_hash\" is null or octet_length(\"device_recoveries\".\"session_token_hash\") = 32"
-        },
-        "device_recoveries_landing_check": {
-          "name": "device_recoveries_landing_check",
-          "value": "\"device_recoveries\".\"landing\" like '/c/%/protect' and \"device_recoveries\".\"landing\" not like '//%' and \"device_recoveries\".\"landing\" !~ '[\\\\[:cntrl:][:space:]]' and char_length(\"device_recoveries\".\"landing\") <= 200"
-        },
-        "device_recoveries_issued_by_check": {
-          "name": "device_recoveries_issued_by_check",
-          "value": "char_length(\"device_recoveries\".\"issued_by\") between 1 and 200"
-        },
-        "device_recoveries_window_check": {
-          "name": "device_recoveries_window_check",
-          "value": "\"device_recoveries\".\"expires_at\" > \"device_recoveries\".\"created_at\" and \"device_recoveries\".\"expires_at\" <= \"device_recoveries\".\"created_at\" + interval '24 hours'"
-        },
-        "device_recoveries_claim_check": {
-          "name": "device_recoveries_claim_check",
-          "value": "\"device_recoveries\".\"session_token_hash\" is null or \"device_recoveries\".\"claimed_at\" is not null"
-        },
-        "device_recoveries_use_check": {
-          "name": "device_recoveries_use_check",
-          "value": "\"device_recoveries\".\"used_at\" is null or \"device_recoveries\".\"session_token_hash\" is not null"
-        },
-        "device_recoveries_factor_check": {
-          "name": "device_recoveries_factor_check",
-          "value": "\"device_recoveries\".\"factor_id\" is null or \"device_recoveries\".\"used_at\" is not null"
-        },
-        "device_recoveries_revoked_check": {
-          "name": "device_recoveries_revoked_check",
-          "value": "(\"device_recoveries\".\"revoked_at\" is null) = (\"device_recoveries\".\"revoked_reason\" is null) and (\"device_recoveries\".\"revoked_at\" is null or \"device_recoveries\".\"used_at\" is null) and (\"device_recoveries\".\"revoked_reason\" is null or \"device_recoveries\".\"revoked_reason\" in ('replaced', 'someone_left', 'operator_signed_out', 'operator_ended', 'address_changed'))"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.email_daily_quota": {
       "name": "email_daily_quota",
       "schema": "",
@@ -6934,6 +6698,305 @@
         "google_oauth_states_consumed_ip_check": {
           "name": "google_oauth_states_consumed_ip_check",
           "value": "\"google_oauth_states\".\"consumed_ip\" is null or \"google_oauth_states\".\"used_at\" is not null"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.handovers": {
+      "name": "handovers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "clinic_id": {
+          "name": "clinic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform": {
+          "name": "platform",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "external_call_id": {
+          "name": "external_call_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "party_ref": {
+          "name": "party_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "meta_conversation_id": {
+          "name": "meta_conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "callback_phone": {
+          "name": "callback_phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "callback_first_name": {
+          "name": "callback_first_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "handled_at": {
+          "name": "handled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "handled_by_label": {
+          "name": "handled_by_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "handled_by_user_id": {
+          "name": "handled_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "handovers_clinic_idx": {
+          "name": "handovers_clinic_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_call_idx": {
+          "name": "handovers_call_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_call_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"handovers\".\"external_call_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_conversation_idx": {
+          "name": "handovers_conversation_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"handovers\".\"conversation_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_meta_conversation_idx": {
+          "name": "handovers_meta_conversation_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "meta_conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"handovers\".\"meta_conversation_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_thread_idx": {
+          "name": "handovers_thread_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "platform",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "party_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "handovers_callback_idx": {
+          "name": "handovers_callback_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "callback_phone",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"handovers\".\"callback_phone\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "handovers_clinic_id_clinics_id_fk": {
+          "name": "handovers_clinic_id_clinics_id_fk",
+          "tableFrom": "handovers",
+          "tableTo": "clinics",
+          "columnsFrom": [
+            "clinic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "handovers_conversation_fk": {
+          "name": "handovers_conversation_fk",
+          "tableFrom": "handovers",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "clinic_id",
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "clinic_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "handovers_thread_fk": {
+          "name": "handovers_thread_fk",
+          "tableFrom": "handovers",
+          "tableTo": "chat_threads",
+          "columnsFrom": [
+            "clinic_id",
+            "platform",
+            "party_ref"
+          ],
+          "columnsTo": [
+            "clinic_id",
+            "channel",
+            "party_ref"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "handovers_shape_check": {
+          "name": "handovers_shape_check",
+          "value": "(\"handovers\".\"channel\" = 'voice' and \"handovers\".\"external_call_id\" is not null and \"handovers\".\"platform\" is null and \"handovers\".\"party_ref\" is null and \"handovers\".\"meta_conversation_id\" is null and \"handovers\".\"callback_phone\" is null)\n        or (\"handovers\".\"channel\" = 'web_chat' and \"handovers\".\"conversation_id\" is not null and \"handovers\".\"external_call_id\" is null and \"handovers\".\"platform\" is null and \"handovers\".\"party_ref\" is null and \"handovers\".\"meta_conversation_id\" is null)\n        or (\"handovers\".\"channel\" = 'meta' and \"handovers\".\"platform\" in ('instagram', 'messenger', 'whatsapp') and \"handovers\".\"party_ref\" is not null and \"handovers\".\"meta_conversation_id\" is not null and \"handovers\".\"conversation_id\" is null and \"handovers\".\"external_call_id\" is null and \"handovers\".\"callback_phone\" is null)"
+        },
+        "handovers_callback_check": {
+          "name": "handovers_callback_check",
+          "value": "(\"handovers\".\"callback_phone\" is null or \"handovers\".\"callback_phone\" ~ '^\\+[1-9][0-9]{6,14}$') and (\"handovers\".\"callback_first_name\" is null or (\"handovers\".\"callback_phone\" is not null and char_length(\"handovers\".\"callback_first_name\") between 1 and 40))"
+        },
+        "handovers_call_id_check": {
+          "name": "handovers_call_id_check",
+          "value": "\"handovers\".\"external_call_id\" is null or char_length(\"handovers\".\"external_call_id\") between 1 and 200"
+        },
+        "handovers_handled_check": {
+          "name": "handovers_handled_check",
+          "value": "(\"handovers\".\"handled_at\" is null) = (\"handovers\".\"handled_by_label\" is null) and (\"handovers\".\"handled_at\" is null) = (\"handovers\".\"handled_by_user_id\" is null) and (\"handovers\".\"handled_by_label\" is null or char_length(\"handovers\".\"handled_by_label\") between 1 and 200)"
         }
       },
       "isRLSEnabled": false
@@ -12125,7 +12188,7 @@
         },
         "webauthn_challenges_basis_check": {
           "name": "webauthn_challenges_basis_check",
-          "value": "(\"webauthn_challenges\".\"purpose\" = 'register') = (\"webauthn_challenges\".\"enrol_basis\" is not null) and (\"webauthn_challenges\".\"enrol_basis\" is null or \"webauthn_challenges\".\"enrol_basis\" in ('first_passkey', 'step_up', 'code', 'recovery', 'paying_browser'))"
+          "value": "(\"webauthn_challenges\".\"purpose\" = 'register') = (\"webauthn_challenges\".\"enrol_basis\" is not null) and (\"webauthn_challenges\".\"enrol_basis\" is null or \"webauthn_challenges\".\"enrol_basis\" in ('first_passkey', 'step_up', 'code'))"
         },
         "webauthn_challenges_challenge_format": {
           "name": "webauthn_challenges_challenge_format",

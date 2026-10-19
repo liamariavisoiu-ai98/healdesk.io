@@ -105,6 +105,7 @@ import { headers } from "next/headers";
 
 import { requireOperator } from "@/lib/admin/operator";
 import { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
+import { TRANSCRIPT_STATUSES, type TranscriptStatus } from "@/lib/admin/transcript-status";
 import { clientKey } from "@/lib/rate-limit";
 
 /**
@@ -242,6 +243,10 @@ type OperatorOp =
   | "setConnectionPhiBasis"
   | "retryCalendarWrite"
   | "listCalendarWrites"
+  // The transcript outbox's receipts and its "send again" (apps/app
+  // lib/conversations/transcript-outbox.ts): ids, statuses, times, counts.
+  | "transcriptDeliveries"
+  | "resendTranscript"
   // The booking mode and the Google Calendar (plan §10): Auto-confirm, the
   // calendar link mailed to the practice's own address, and a disconnect.
   | "setAutoConfirm"
@@ -3829,6 +3834,92 @@ export function fetchCalendarWrites(clinicId: string): Promise<OpsResult<Calenda
   return callOps("listCalendarWrites", "read", { clinicId }, (value) => {
     const data = object(value, "listCalendarWrites");
     return list(data.writes ?? [], "listCalendarWrites.writes").map(readCalendarWrite);
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The transcript receipts (owner's decision of 14 October 2026). A transcript is
+// emailed to the clinic and the copy deleted once SES reports it delivered; the
+// row stays as a receipt without the words. What crosses is apps/app's
+// projection: a conversation's opaque id, a status, two times and a count.
+// Never the words, never the clinic's address, never SES's reason (a mail
+// server's diagnostic can quote the address), so this reader names exactly those
+// fields and drops anything else the answer carries.
+// -----------------------------------------------------------------------------
+
+export type { TranscriptStatus };
+
+export type TranscriptReceipt = {
+  conversationId: string;
+  status: TranscriptStatus;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  attempts: number;
+};
+
+export type TranscriptDeliveriesView = {
+  sinceDays: number;
+  counts: Record<TranscriptStatus, number>;
+  receipts: TranscriptReceipt[];
+};
+
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function readReceiptTime(value: unknown, at: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) throw new ShapeError(at);
+  return new Date(value).toISOString();
+}
+
+function readTranscriptReceipt(value: unknown): TranscriptReceipt {
+  const row = object(value, "transcriptDeliveries.receipts");
+  if (typeof row.conversationId !== "string" || !CONVERSATION_ID.test(row.conversationId)) {
+    throw new ShapeError("transcriptDeliveries.conversationId");
+  }
+  return {
+    conversationId: row.conversationId.toLowerCase(),
+    status: literal(row.status, TRANSCRIPT_STATUSES, "transcriptDeliveries.status"),
+    sentAt: readReceiptTime(row.sentAt, "transcriptDeliveries.sentAt"),
+    deliveredAt: readReceiptTime(row.deliveredAt, "transcriptDeliveries.deliveredAt"),
+    attempts: count(row.attempts, "transcriptDeliveries.attempts"),
+  };
+}
+
+/** One clinic's receipts over the last `sinceDays` days (the engine defaults to 30 and refuses more than 366). */
+export function fetchTranscriptDeliveries(clinicId: string, sinceDays?: number): Promise<OpsResult<TranscriptDeliveriesView>> {
+  return callOps("transcriptDeliveries", "read", { clinicId, ...(sinceDays === undefined ? {} : { sinceDays }) }, (value) => {
+    const data = object(value, "transcriptDeliveries");
+    // An error here is the engine's own sentence about the arguments; as a
+    // read it has no refusal shape, so it is a malformed answer to the page.
+    if (state(data, "transcriptDeliveries") !== "ok") throw new ShapeError("transcriptDeliveries.status");
+    const counts = object(data.counts, "transcriptDeliveries.counts");
+    return {
+      sinceDays: count(data.sinceDays, "transcriptDeliveries.sinceDays"),
+      counts: Object.fromEntries(
+        TRANSCRIPT_STATUSES.map((status) => [status, count(counts[status], `transcriptDeliveries.counts.${status}`)]),
+      ) as Record<TranscriptStatus, number>,
+      receipts: list(data.receipts, "transcriptDeliveries.receipts").map(readTranscriptReceipt),
+    };
+  });
+}
+
+export type ResendTranscriptOutcome =
+  | ({ status: "queued" } & Audited)
+  | { status: "gone" }
+  | { status: "refused"; message: string };
+
+/**
+ * Send a conversation's transcript to the clinic again, from its sealed copy.
+ * The address is always the clinic's; this call cannot name one. "gone" means
+ * the copy is already deleted (delivered, expired or unconfirmed).
+ */
+export function resendTranscript(clinicId: string, conversationId: string): Promise<OpsResult<ResendTranscriptOutcome>> {
+  return callOps("resendTranscript", "write", { clinicId, conversationId }, (value) => {
+    const data = object(value, "resendTranscript");
+    const status = state(data, "resendTranscript");
+    if (status === "gone") return { status: "gone" };
+    if (status !== "queued") return refusal(data, "resendTranscript");
+    return { status: "queued", auditRecorded: bool(data.auditRecorded, "resendTranscript.auditRecorded") };
   });
 }
 

@@ -595,7 +595,7 @@ export const KEYS: readonly KeyDef[] = [
     id: "aws.HEALDESK_IDENTIFIER_REF_KEY",
     env: "HEALDESK_IDENTIFIER_REF_KEY",
     home: "aws",
-    label: "The phone-number scrambler",
+    label: "The id scrambler (vendors' ids, and WhatsApp numbers)",
     need: "required",
     rotation: { kind: "never", why: "Every stored conversation was filed under it. A new one would split every open conversation and count every caller twice. Only with a re-key plan." },
   },
@@ -659,7 +659,7 @@ export const KEYS: readonly KeyDef[] = [
     home: "clinic",
     label: "Each clinic's Instagram, Messenger or WhatsApp login",
     need: "required",
-    rotation: { kind: "only-if", when: "a clinic disconnects or Meta revokes it", how: "Make a new link with run-task.sh channels-link and send it to the clinic: the portal has no Connect button for Meta yet." },
+    rotation: { kind: "only-if", when: "a clinic disconnects or Meta revokes it", how: "Make a new link with run-task.sh channels-link (meta for Facebook and Instagram, whatsapp for WhatsApp) and send it to the clinic. The set-up wizard's Connect with Facebook button won't come back by itself: it shows only until one of the clinic's Meta logins is connected, nothing tells the engine when Meta revokes one, and WhatsApp has no button in the portal." },
   },
   {
     id: "clinic.stripe",
@@ -699,6 +699,8 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_APP_PUBLIC_URL: "The engine's public address, given to a Stripe set-up script on your computer.",
   RETELL_DEMO_TOOL_ORIGIN: "The site address the demo agent's set-up script points AYA's tools at.",
   SITE_URL: "The site address the IndexNow script pings for: a public address.",
+  HEALDESK_CHECKOUT_MODE: "Your switch for who may buy: public opens checkout to anyone; anything else keeps it to people you sent a setup link.",
+  HEALDESK_SETUP_LINKS: "Your switch that lets Setup send setup links in production (open), once the launch checklist is done.",
   HEALDESK_APP_URL: "The engine's private address. The engine reads it only to refuse it in any email it sends.",
   HEALDESK_SUPPORT_PHONE: "Our public support number, shown in the portal's Help.",
   HEALDESK_CALL_BOOKING_URL: "The public page clinics book their set-up call on.",
@@ -820,7 +822,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     both: true,
     title: "The shop window hands work to the engine",
     carries:
-      "Paid purchases to set up, every Stripe billing change after that, email delivery reports, review and welcome checks, and every read and button on Ops, Host and this map; the engine answers with what those pages show",
+      "Paid purchases to set up, every Stripe billing change after that, email delivery reports, review and welcome checks, and every read and button on Ops, Reviews (the practice questions waiting for you), Host and this map; the engine answers with what those pages show",
     example: "A clinic's first invoice is paid. The shop window posts its signed agreement to the engine in an envelope sealed with a stamp only the two of them own; the engine checks the seal and opens the clinic's account.",
     keys: ["vercel.HEALDESK_PROVISION_SECRET", "aws.HEALDESK_PROVISION_SECRET", "vercel.HEALDESK_APP_URL", "aws.HEALDESK_ADMIN_EMAIL"],
     phi: false,
@@ -1170,7 +1172,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "partial",
     buildNote:
-      "The engine's chat is built; the bubble clinics paste on their website is not. Yet the welcome email, Home, the set-up wizard and the reminder email already ask clinics to paste it.",
+      "The engine's chat is built; the bubble's script is not: nothing serves the address the pasted line points to. Yet once a clinic's script is approved, by you or by a passing practice-question run, its website chat counts as ready and the set-up wizard hands it the line to paste, with a Copy button; Home, the welcome email and the reminder email ask for it too. The chat cannot go live until you confirm in Ops that the line is on the clinic's site, so confirm none until the bubble exists.",
   },
   {
     id: "app-claude",
@@ -1178,11 +1180,15 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "claude-baa",
     title: "Claude writes AYA's replies to patients",
-    carries: "The conversation so far and the clinic's settings; and the portal's support chat, screened first",
-    example: "A patient asks \"anything Saturday morning?\". The engine asks Claude, under the business associate agreement, to write AYA's answer, then checks it against the clinic's rules before it is said. The clinic's own support chat in the portal uses the same key, and answers with a fixed line and our support number until it is added.",
+    carries:
+      "The conversation so far and the clinic's settings; the portal's support chat, screened first; made-up practice questions built from the clinic's own prices and answers; and the clinic team's own messages in Talk to your AYA",
+    example:
+      "A patient asks \"anything Saturday morning?\". The engine asks Claude, under the business associate agreement, to write AYA's answer, then checks it against the clinic's rules before it is said. The same key answers the clinic's support chat (a fixed line and our support number until it is added), puts made-up practice questions to AYA on every channel a clinic bought whenever its set-up changes, and answers the front desk when it tries Talk to your AYA.",
     keys: ["aws.ANTHROPIC_API_KEY"],
     phi: true,
     build: "built",
+    buildNote:
+      "The practice questions run only once you switch the practice-questions job on in Ops, and every run spends tokens on this key; while it is off, only your approval clears a clinic's script. Talk to your AYA opens once a clinic's build tracker is complete, stores nothing, and is capped per conversation, per device and per practice each day.",
   },
   {
     id: "meta-app",
@@ -1205,14 +1211,16 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "meta",
     title: "AYA answers in Instagram and Messenger",
     carries: "AYA's reply, inside Meta's 24-hour window only",
-    example: "You send the clinic a connect link; it logs in to Facebook, and from then on AYA's answer appears in the same chat thread.",
+    example:
+      "The clinic presses Connect with Facebook at the channels step of its set-up and picks its Page; an Instagram account linked to that Page connects with it. A link you send works too. From then on AYA's answer appears in the same chat thread.",
     // The Facebook login's return address is built from the portal's.
     keys: ["aws.META_APP_ID", "aws.META_LOGIN_CONFIG_ID", "aws.BETTER_AUTH_URL", "clinic.meta"],
     dependsOn: "meta-app",
     phi: true,
     phiNote: META_SCOPE,
     build: "built",
-    buildNote: "The portal's Connect buttons are not built: you make the clinic's link with run-task.sh channels-link and send it.",
+    buildNote:
+      "The Connect with Facebook button is on the set-up wizard's channels step, not in Settings. It shows only until one of the clinic's Meta logins is connected, and only once the Facebook login's keys are in (without them the clinic is told to email us). For any later connection you make the clinic's link with run-task.sh channels-link and send it.",
   },
   {
     id: "app-whatsapp",
@@ -1228,7 +1236,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     phiNote: META_SCOPE,
     build: "built",
-    buildNote: "The portal's Connect buttons are not built: you make the clinic's link with run-task.sh channels-link and send it.",
+    buildNote:
+      "The portal has no WhatsApp button: set-up's Connect with Facebook links Instagram and Messenger only. You make the clinic's WhatsApp link with run-task.sh channels-link (choosing whatsapp) and send it.",
   },
   {
     id: "app-gcal",
@@ -1237,9 +1246,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "gcal",
     both: true,
     title: "Bookings the desk confirms go into the clinic's calendar",
-    carries: "Free times for the desk's request page one way, the booking the desk confirms the other",
+    carries:
+      "Free times one way, for a request the desk opens on Bookings and for the clinic's own Talk to your AYA preview, which holds and books nothing; the booking the desk confirms on Bookings the other",
     example:
-      "Maria asks for Thursday afternoon. The receptionist opens the request link, sees Thursday 3pm free in the clinic's Google Calendar, confirms it, and the engine writes it there.",
+      "Maria asks for Thursday afternoon. The receptionist follows the emailed link, signs in and unlocks Bookings with a passkey, sees Thursday 3pm free in the clinic's Google Calendar, confirms it, and the engine writes it there.",
     // The Google login's return address is built from the portal's address,
     // and its one-time check values are signed with a key made from the
     // sign-in secret (lib/connections/google-oauth.ts).
@@ -1276,7 +1286,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "partial",
     buildNote:
-      "Clinics can connect and disconnect their Stripe in Settings. The deposit link is built (lib/billing/deposit-link.ts) but no chat sends one yet: it needs a booking, and no channel books yet.",
+      "Clinics can connect their Stripe from the deposits step of set-up (if they bought a chat channel) or in Settings, and disconnect it in Settings. The deposit link is built (lib/billing/deposit-link.ts) but no chat sends one yet: it needs a booking, and no channel books yet. Set-up already tells a clinic that has connected that AYA sends the link in chat.",
   },
   {
     id: "clinic-stripe-app",
@@ -1303,12 +1313,13 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "resend",
     title: "Everyday clinic email goes out",
     carries: "Welcome, sign-in links, \"you have a new booking request\"; and alerts and support requests to you",
-    example: "\"New booking request via Instagram\": a private link for the front desk, good for 7 days, never a patient's name, number or time.",
+    example:
+      "\"New booking request via Instagram\": just a link, never a patient's name, number or time. The receptionist follows it, signs in, unlocks Bookings with the front-desk computer's passkey, and has 7 days to answer the request before it moves to Missed.",
     keys: ["aws.RESEND_API_KEY", "aws.HEALDESK_EMAIL_FROM"],
     phi: false,
     build: "built",
     buildNote:
-      "Booking-request emails go, linking a page that opens on the emailed link alone. Urgent, deposit and calendar-check alerts are only logged until the alerts are sent through the outbox (funnel M5), so an urgent caller's escalation reaches nobody yet.",
+      "Booking-request emails go, and each is only a pointer: its link opens the request on Bookings after sign-in and the passkey. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. Urgent, deposit and calendar-check alerts are only logged until the alerts are sent through the outbox (funnel M5), so an urgent caller's escalation reaches nobody yet.",
   },
   {
     id: "app-ses",
@@ -1350,7 +1361,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     both: true,
     title: "The engine's memory",
     carries: "Clinics, bookings, conversations, settings",
-    example: "Bookings and conversations live in the database. A caller's phone number is stored only as a scrambled fingerprint, never as the number itself.",
+    example:
+      "Bookings and conversations live in the database, with each person's name and phone number, so the front desk can press \"Call Maria\" on Bookings. The ids Meta, Retell and the website chat use to tell people, calls and messages apart are kept only as scrambled fingerprints.",
     keys: ["aws.DATABASE_URL", "aws.HEALDESK_IDENTIFIER_REF_KEY", "aws-ci.MIGRATION_DATABASE_URL"],
     phi: true,
     build: "built",
@@ -1378,11 +1390,13 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "app",
     title: "The clinic signs in to its portal",
     carries: "Sign-in links, settings, bookings and conversations",
-    example: "The receptionist clicks the sign-in link in the clinic's inbox and confirms with a passkey on the front-desk laptop, then changes the greeting in Settings.",
+    example:
+      "The receptionist clicks the sign-in link in the clinic's inbox and changes the greeting in Settings, with no passkey needed. When she opens Maria's request on Bookings, the portal first asks for the front-desk laptop's passkey, and logs that the laptop opened it.",
     keys: ["aws.BETTER_AUTH_SECRET", "aws.BETTER_AUTH_URL"],
     phi: true,
-    build: "partial",
-    buildNote: "Home, Settings, Knowledge, Billing, the set-up wizard, the support chat and Conversations (opened only behind a passkey) are built; the Bookings screen is not yet.",
+    build: "built",
+    buildNote:
+      "All six screens are built: Home, Settings, Knowledge, Conversations, Bookings and Billing, with the set-up wizard, the support chat, Talk to your AYA (once the build tracker is complete) and, once a channel is live, the AYA is answering switch at the top of every screen. Conversations and Bookings open only behind a passkey. Bookings does not yet list a caller who asked for a person, or a message left while AYA was off: nothing records them yet.",
   },
   {
     id: "connectors-app",
@@ -1525,12 +1539,14 @@ export const STORIES: readonly StoryDef[] = [
       { bridge: "retell-app", text: "Retell streams what Maria says to the clinic engine, over a private line with a password in its address." },
       { bridge: "app-claude", text: "The engine asks Claude, under a business associate agreement, how AYA should answer." },
       {
-        bridge: "app-gcal",
-        text: "AYA takes Maria's name, number and preferred time as a booking request; the receptionist confirms it from the emailed link, and only then is it written into the clinic's Google Calendar.",
+        bridge: "app-db",
+        text: "AYA takes Maria's name, number and preferred time as a booking request, and the engine keeps it with a record of the call; the call's words only as a sealed copy until the transcript is delivered.",
       },
-      { bridge: "app-db", text: "The request and a record of the call are kept; the call's words only as a sealed copy until the transcript is delivered." },
+      { bridge: "app-resend", text: "The clinic's inbox gets a \"new booking request\" email: just a link, with nothing about Maria in it." },
       { bridge: "app-ses", text: "When Maria hangs up, the transcript is emailed to the clinic through Amazon, encrypted on the way." },
       { bridge: "ses-app", text: "Amazon confirms it arrived, and the engine deletes its copy." },
+      { bridge: "clinic-app", text: "Next morning the receptionist follows the link, signs in, and opens Maria's request on Bookings with the front-desk laptop's passkey." },
+      { bridge: "app-gcal", text: "She confirms Thursday at 3pm, and only then is it written into the clinic's Google Calendar." },
     ],
   },
   {

@@ -53,6 +53,9 @@ export type Selection =
 const MIN_SCALE = 0.62;
 
 /** Each band's accent: the patient side blue, what is shared slate, the shop side warm. */
+/** Each band's colour at its top edge, solid, for what sits on it above the lines. */
+const BAND_PAPER: Record<Band, string> = { patient: "#f1f7fe", shared: "#f6f7f9", shop: "#fdf8f2" };
+
 export const BAND_ACCENT: Record<Band, { ink: string; tint: string; field: string; edge: string }> = {
   patient: { ink: "#255d99", tint: "#e5effa", field: "linear-gradient(180deg, #f1f7fe 0%, #f7fbff 100%)", edge: "#cfe0f3" },
   shared: { ink: "#475569", tint: "#eef1f5", field: "linear-gradient(180deg, #f6f7f9 0%, #fafbfc 100%)", edge: "#dfe4ea" },
@@ -258,7 +261,12 @@ function Bands() {
             className="absolute rounded-lg border"
             style={{ left: area.x, top: area.y, width: area.w, height: area.h, background: accent.field, borderColor: accent.edge }}
           >
-            <div className={`absolute flex items-baseline gap-2 ${band === "shared" ? "top-5 left-6 max-w-[260px] flex-col gap-1" : "top-3.5 left-6"}`}>
+            {/* Above the lines, on the band's own colour, so a line that has to
+                cross a band's label passes behind it rather than through it. */}
+            <div
+              className={`absolute z-[1] flex items-baseline gap-2 rounded-sm px-1.5 py-0.5 ${band === "shared" ? "top-[18px] left-[18px] max-w-[260px] flex-col gap-1" : "top-3 left-[18px]"}`}
+              style={{ background: BAND_PAPER[band] }}
+            >
               <span className="text-[11.5px] font-bold tracking-[0.14em] uppercase" style={{ color: accent.ink }}>
                 {area.title}
               </span>

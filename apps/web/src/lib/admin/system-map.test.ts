@@ -152,7 +152,8 @@ describe("the registry", () => {
    * cannot be added to the code and stay off the map. A read is
    * `process.env.NAME`, `process.env["NAME"]`, one of the helpers that take a
    * name (apps/app's `optional` and `required`, apps/web's `pastedSetting`),
-   * or a name held in a `…_VARIABLE` constant (lib/host/github.ts). A name
+   * a name held in a `…_VARIABLE` constant (lib/host/github.ts), or `env.NAME`
+   * on an environment handed in (lib/checkout-mode.ts). A name
    * reached any other way is not seen, which is why the forward tests above
    * hold the map's own names to the code.
    */
@@ -162,6 +163,7 @@ describe("the registry", () => {
       /process\.env\[\s*["'`]([A-Z][A-Z0-9_]+)["'`]\s*\]/g,
       /\b(?:optional|required|pastedSetting)\(\s*["']([A-Z][A-Z0-9_]+)["']/g,
       /\b[A-Z][A-Z0-9_]*_VARIABLE\s*=\s*["']([A-Z][A-Z0-9_]+)["']/g,
+      /\benv\??\.([A-Z][A-Z0-9_]+)/g,
     ];
     const readsIn = (...dirs: string[]) => {
       const names = new Set<string>();
@@ -382,7 +384,7 @@ describe("assess", () => {
     expect(view.todos.some((t) => t.kind === "check")).toBe(true);
     // What is unbuilt stays on the list, whatever the host is doing.
     const builds = view.todos.filter((t) => t.kind === "build").map((t) => t.bridge);
-    expect(builds).toEqual(expect.arrayContaining(["patients-widget", "app-clinic-stripe", "clinic-app"]));
+    expect(builds).toEqual(expect.arrayContaining(["patients-widget", "app-clinic-stripe"]));
   });
 
   test("a host that refuses the signed call breaks the bridge between the two apps", () => {

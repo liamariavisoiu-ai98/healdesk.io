@@ -173,7 +173,6 @@ describe("the template registry", () => {
       WP4: ["daily_summary", "weekly_recap"],
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
       WP9: ["agreement_to_sign"],
-      WP11: ["website_changes"],
       WP7: [
         "terms_notice",
         "subprocessor_notice",
@@ -189,7 +188,7 @@ describe("the template registry", () => {
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the support chat's L25 and I3, and the practice questions' O8 and O9", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the support chat's L25 and I3, the practice questions' O8 and O9, and the drift list's L23", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -234,6 +233,7 @@ describe("the template registry", () => {
       "support_escalation",
       "assistant_ready",
       "practice_questions_failed",
+      "website_changes",
     ]);
   });
 

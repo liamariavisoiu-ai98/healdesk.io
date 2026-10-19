@@ -42,6 +42,7 @@ import { SUPPORT_REQUEST_ENTRY } from "./support_request";
 import { SUSPENDED_ENTRY } from "./suspended";
 import type { EmailTemplate } from "./types";
 import { USAGE_100_ENTRY, USAGE_80_ENTRY } from "./usage_alert";
+import { WEBSITE_CHANGES_ENTRY } from "./website_changes";
 import { WELCOME_ENTRY } from "./welcome";
 
 /**
@@ -127,6 +128,8 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // The practice questions (M4, package B): O8 and O9.
   assistant_ready: ASSISTANT_READY_ENTRY,
   practice_questions_failed: PRACTICE_QUESTIONS_FAILED_ENTRY,
+  // WP11, the drift list (M7): L23.
+  website_changes: WEBSITE_CHANGES_ENTRY,
 };
 
 /**
@@ -208,6 +211,7 @@ export const PENDING_TEMPLATES: Record<
     | "support_escalation"
     | "assistant_ready"
     | "practice_questions_failed"
+    | "website_changes"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -234,8 +238,6 @@ export const PENDING_TEMPLATES: Record<
   guarantee_miss: { owner: "plan", package: "runtime", ships: "M6 (L21)" },
   // WP9: DPA completion.
   agreement_to_sign: { owner: "plan", package: "WP9", ships: "M2 (L22)" },
-  // WP11: the drift list.
-  website_changes: { owner: "plan", package: "WP11", ships: "M7 (L23)" },
   // WP7: the operator's notices and incidents, from /admin.
   terms_notice: { owner: "plan", package: "WP7", ships: "Gate A (L28)" },
   subprocessor_notice: { owner: "plan", package: "WP7", ships: "Gate A (L29)" },

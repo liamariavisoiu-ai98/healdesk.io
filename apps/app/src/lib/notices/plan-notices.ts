@@ -11,6 +11,7 @@ import type { SettingChangedPayload } from "@/lib/email/templates/setting_change
 import type { SetupClosedPayload } from "@/lib/email/templates/setup_closed";
 import type { SetupReminderPayload } from "@/lib/email/templates/setup_reminder";
 import type { SupportRequestPayload } from "@/lib/email/templates/support_request";
+import type { WebsiteChangesPayload } from "@/lib/email/templates/website_changes";
 
 /**
  * The plan's own outbox kinds (lib/email/kinds.ts, owner "plan"): their
@@ -78,7 +79,8 @@ export type PlanNoticePayloads = {
   outage_started: OwedPayload;
   outage_ended: OwedPayload;
   guarantee_miss: OwedPayload;
-  website_changes: OwedPayload;
+  /** Dedupe `website_changes:<site_rereads id>`: once per drift check that raised changes (lib/website). */
+  website_changes: WebsiteChangesPayload;
   /** Dedupe `support_request:<escalation id>`: once per escalation (lib/support/escalate.ts). */
   support_request: SupportRequestPayload;
   terms_notice: OwedPayload;

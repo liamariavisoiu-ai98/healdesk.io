@@ -115,6 +115,10 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   "change",
   // B1: the Terms version accepted at checkout ("2026-10-07.1").
   "version",
+  // L25 and I3: a support-chat escalation's topic and what is wrong, each an
+  // id from lib/support/escalation-fields.ts's fixed lists, never words.
+  "topic",
+  "symptom",
 ]);
 
 /** The class a key's value must belong to, or null when the key is not on the list. */

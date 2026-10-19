@@ -24,9 +24,13 @@ const REPO = join(__dirname, "..", "..", "..", "..", "..", "..");
 
 /** apps/app's flag, read from its source: apps/web may not import apps/app. */
 function locationClinicsReady(): boolean {
-  const source = readFileSync(join(REPO, "apps", "app", "src", "lib", "location-clinic.ts"), "utf8");
+  const source = readFileSync(
+    join(REPO, "apps", "app", "src", "lib", "location-clinic.ts"),
+    "utf8",
+  );
   const found = /export const LOCATION_CLINICS_READY = (true|false);/.exec(source);
-  if (!found) throw new Error("LOCATION_CLINICS_READY is no longer a plain boolean in location-clinic.ts");
+  if (!found)
+    throw new Error("LOCATION_CLINICS_READY is no longer a plain boolean in location-clinic.ts");
   return found[1] === "true";
 }
 
@@ -35,9 +39,16 @@ describe("extra locations are promised as designed, and tracked until production
 
   test("the purchase states the promise the item tracks", () => {
     const plan = planFor(PACKAGES[0]!.id, { voiceMinutes: 500, chatConversations: 300 });
-    expect(locationsLine(plan, "month")).toMatch(/^This sets up one location\. Add more from Billing after setup: /);
-    const pricing = readFileSync(join(REPO, "apps", "web", "src", "app", "pricing", "page.tsx"), "utf8");
-    expect(pricing.replace(/\s+/g, " ")).toContain("added to the same plan from Billing in your portal");
+    expect(locationsLine(plan, "month")).toMatch(
+      /^This sets up one location\. Add more from Billing after setup: /,
+    );
+    const pricing = readFileSync(
+      join(REPO, "apps", "web", "src", "app", "pricing", "page.tsx"),
+      "utf8",
+    );
+    expect(pricing.replace(/\s+/g, " ")).toContain(
+      "added to the same plan from Billing in your portal",
+    );
   });
 
   test("while apps/app cannot add a location, the item is open and does not hold go-live", () => {

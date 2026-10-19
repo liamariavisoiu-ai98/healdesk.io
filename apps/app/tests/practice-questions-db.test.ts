@@ -15,11 +15,14 @@ import {
   recordPracticeRun,
   requestPracticeQuestions,
 } from "@/lib/engine/practice/store";
+import { getCalendarConnection } from "@/lib/connections/google-calendar";
 import { runOperation, type Operator } from "@/lib/ops/api";
+import { readHomeFacts } from "@/lib/portal/home";
 import { saveKnowledge } from "@/lib/portal/knowledge";
 import { saveSetupScreen, type SaveContext } from "@/lib/setup/save";
 import { loadSetupState } from "@/lib/setup/state";
 import { buildTracker } from "@/lib/setup/tracker";
+import { readAccountState } from "@/lib/support/account-reader";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -321,6 +324,77 @@ describeDb("the practice questions, against the database", () => {
         ).rows[0],
     );
     expect(reused).toEqual({ all: true });
+  });
+
+  test("a pass reads the same everywhere: the tracker's last two stages are done on Home, in the support chat's get_account_state and on the console's clinic cards", async () => {
+    await setAnswers();
+    const stages = (rows: { id?: string; code?: string; state?: string; status?: string }[]) =>
+      rows
+        .map((r) => [r.id ?? r.code, r.state ?? r.status])
+        .filter(([id]) => id === "built" || id === "practice_questions");
+    // Each of the three, as its reader reads the clinic.
+    const home = async () => {
+      const state = await loadSetupState({
+        clinicId: clinic.clinicId,
+        userId: clinic.userId,
+        actor: ACTOR,
+      });
+      const facts = await readHomeFacts({
+        clinicId: clinic.clinicId,
+        address: state!.address,
+        actor: ACTOR,
+        channels: state!.channels,
+      });
+      const calendar = await getCalendarConnection(clinic.clinicId, { actor: ACTOR });
+      return stages(
+        buildTracker(state!, calendar, facts.practice, facts.goLive ?? undefined).stages,
+      );
+    };
+    const support = async () =>
+      stages(
+        (await readAccountState({
+          clinicId: clinic.clinicId,
+          userId: clinic.userId,
+          actor: ACTOR,
+        }))!.account.stageRows,
+      );
+    const cards = async () => {
+      const outcome = await runOperation("listClinicCards", {}, OPERATOR);
+      const card = (
+        outcome.body as {
+          data: {
+            cards: {
+              id: string;
+              tracker: { id: string; state: string }[];
+              trackerLeft: string[];
+            }[];
+          };
+        }
+      ).data.cards.find((c) => c.id === clinic.clinicId)!;
+      expect(card.trackerLeft.includes("Practice questions passed")).toBe(
+        card.tracker.find((s) => s.id === "practice_questions")!.state !== "done",
+      );
+      return stages(card.tracker);
+    };
+    const NOT_YET = [
+      ["built", "not_done"],
+      ["practice_questions", "not_done"],
+    ];
+    expect([await home(), await support(), await cards()]).toEqual([NOT_YET, NOT_YET, NOT_YET]);
+
+    const runId = await dueQueued();
+    expect(
+      await runOnePracticeRun(clinic.clinicId, runId, {
+        responder: model(),
+        metaResponder: null,
+        judge: judge("pass"),
+      }),
+    ).toBe("passed");
+    const DONE = [
+      ["built", "done"],
+      ["practice_questions", "done"],
+    ];
+    expect([await home(), await support(), await cards()]).toEqual([DONE, DONE, DONE]);
   });
 
   test("a wrong price the clinic's own answer states queues O9, naming the section and a count, tells ops, and approves nothing", async () => {

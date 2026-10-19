@@ -7,6 +7,7 @@ import { setCoveredEntity } from "@/lib/agreements/covered-entity";
 import { listAgreementReviews } from "@/lib/agreements/misclassification";
 import type { ChannelStatus } from "@/lib/channels/state";
 import { getCalendarConnection } from "@/lib/connections/google-calendar";
+import { readPracticeState } from "@/lib/engine/practice/store";
 import { readSetupState } from "@/lib/setup/state";
 import { buildTracker, type StageId, type StageState } from "@/lib/setup/tracker";
 import {
@@ -347,9 +348,9 @@ export function agreementLabel(kind: AgreementKind | null): string {
  * What each clinic card adds to listClinics (which stays as it is): every
  * bought channel's state, the build tracker the clinic sees on Home, and the
  * kind of agreement it is under. Computed by the same functions the portal
- * uses (readChannelStates, buildTracker), so the console and the clinic
- * cannot read a clinic differently. The calendar stage carries no account:
- * the tracker's detail lines are never projected.
+ * uses (readChannelStates, readPracticeState, buildTracker), so the console
+ * and the clinic cannot read a clinic differently. The calendar stage
+ * carries no account: the tracker's detail lines are never projected.
  */
 export async function opListClinicCards(operator: Operator): Promise<OpsOutcome> {
   const listed = await unsafeDb.execute<{ id: string }>(
@@ -358,13 +359,17 @@ export async function opListClinicCards(operator: Operator): Promise<OpsOutcome>
   const now = new Date();
   const cards: ClinicCard[] = [];
   for (const { id } of listed.rows) {
-    const state = await withTenant(
+    const read = await withTenant(
       { clinicId: id, actor: actorFor(operator), request: operator.request },
-      (tx) => readSetupState(tx, { userId: null, now }),
+      async (tx) => {
+        const state = await readSetupState(tx, { userId: null, now });
+        return state ? { state, practice: await readPracticeState(tx) } : null;
+      },
     );
-    if (!state) continue;
+    if (!read) continue;
+    const { state, practice } = read;
     const calendar = await getCalendarConnection(id, { actor: actorFor(operator) });
-    const tracker = buildTracker(state, calendar);
+    const tracker = buildTracker(state, calendar, practice);
     cards.push({
       id,
       agreementKind: state.clinic.agreementKind,

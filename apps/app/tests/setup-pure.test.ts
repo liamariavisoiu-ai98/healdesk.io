@@ -65,7 +65,7 @@ import {
 } from "@/lib/setup/settings";
 import { skipCost } from "@/lib/setup/skip-costs";
 import type { SetupState } from "@/lib/setup/state";
-import type { PracticeState } from "@/lib/engine/practice/state";
+import { NO_PRACTICE_STATE, type PracticeState } from "@/lib/engine/practice/state";
 import { answersMissing, buildTracker, joinWords } from "@/lib/setup/tracker";
 import { urgentHelpField, urgentHelpNumber } from "@/lib/setup/urgent";
 
@@ -584,7 +584,7 @@ function connection(
 
 describe("the build tracker", () => {
   test("each stage's done-rule reads the data, and the preview stays locked while the engine is not built", () => {
-    const fresh = buildTracker(setupState(), NOT_CONNECTED);
+    const fresh = buildTracker(setupState(), NOT_CONNECTED, NO_PRACTICE_STATE);
     expect(fresh.stages.map((s) => [s.id, s.state])).toEqual([
       ["agreement", "done"],
       ["payment", "done"],
@@ -630,7 +630,7 @@ describe("the build tracker", () => {
       progress: new Map([["services", { outcome: "done", at }]]),
     });
     expect(answersMissing(answered)).toEqual([]);
-    const tracker = buildTracker(answered, NOT_CONNECTED);
+    const tracker = buildTracker(answered, NOT_CONNECTED, NO_PRACTICE_STATE);
     expect(tracker.stages.find((s) => s.id === "website")!.state).toBe("done");
     expect(tracker.stages.find((s) => s.id === "answers")!.state).toBe("done");
     expect(tracker.left).toEqual(["Assistant built", "Practice questions passed"]);
@@ -707,7 +707,7 @@ describe("the build tracker", () => {
 
   test("the calendar stage follows the connection, and never blocks the preview", () => {
     const stage = (view: CalendarConnectionView) =>
-      buildTracker(setupState(), view).stages.find((s) => s.id === "calendar")!;
+      buildTracker(setupState(), view, NO_PRACTICE_STATE).stages.find((s) => s.id === "calendar")!;
     expect(stage(NOT_CONNECTED)).toEqual({
       id: "calendar",
       label: "Calendar",
@@ -735,8 +735,8 @@ describe("the build tracker", () => {
       stage({ ...connection("active"), account: { email: null, kind: null, domain: null } }).detail,
     ).toBe("Your Google Calendar is connected.");
     // Connected or not, what is left is the same.
-    expect(buildTracker(setupState(), connection("active")).left).toEqual(
-      buildTracker(setupState(), NOT_CONNECTED).left,
+    expect(buildTracker(setupState(), connection("active"), NO_PRACTICE_STATE).left).toEqual(
+      buildTracker(setupState(), NOT_CONNECTED, NO_PRACTICE_STATE).left,
     );
   });
 });

@@ -42,6 +42,7 @@ import { readProgress, resumeScreen } from "@/lib/setup/screens";
 import { agreementRecord, intentRecord, records } from "./setup/checkout-records";
 import type { SetupSeed } from "@/lib/setup/seed";
 import { loadSetupState } from "@/lib/setup/state";
+import { NO_PRACTICE_STATE } from "@/lib/engine/practice/state";
 import { buildTracker } from "@/lib/setup/tracker";
 import { urgentHelpNumber } from "@/lib/setup/urgent";
 import {
@@ -443,7 +444,7 @@ describeDb("the setup wizard", () => {
           actor: SERVICE,
         });
         const calendar = { status: "not_connected", accessRemovedAt: null } as const;
-        return buildTracker(state!, calendar).stages.find((stage) => stage.id === "answers")!
+        return buildTracker(state!, calendar, NO_PRACTICE_STATE).stages.find((stage) => stage.id === "answers")!
           .detail;
       };
       expect(await answers()).toContain("a check of your prices");

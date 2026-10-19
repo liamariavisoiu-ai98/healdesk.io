@@ -667,9 +667,11 @@ export async function queueReadyEmail(
 // -----------------------------------------------------------------------------
 
 /**
- * Where the clinic's practice questions stand. An operator's override
- * (reason `override`, retired) is not a run of the questions and is never
- * the latest run.
+ * Where the clinic's practice questions stand: the one reader of it, which
+ * Home, Talk to your AYA, the support chat's get_account_state, the console's
+ * clinic cards, O8 and the gate all ask, so none of them can read a clinic
+ * differently. An operator's override (reason `override`, retired) is not a
+ * run of the questions and is never the latest run.
  */
 export async function readPracticeState(
   tx: Pick<TenantTx, "db" | "clinicId">,

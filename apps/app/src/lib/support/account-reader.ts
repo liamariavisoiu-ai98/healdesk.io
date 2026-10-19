@@ -6,15 +6,18 @@ import { getDepositSettings } from "@/lib/billing/deposits";
 import { getBillingSummary } from "@/lib/billing/summary";
 import { getCalendarConnection } from "@/lib/connections/google-calendar";
 import { isUndeliverable } from "@/lib/email/events";
+import { readPracticeState } from "@/lib/engine/practice/store";
 import { readSetupState, type SetupState } from "@/lib/setup/state";
 import { withTenant } from "@/lib/tenant";
 
 import { accountStateFrom, type AccountState } from "./account-state";
 
 /**
- * get_account_state's reader: the clinic's setup state, its pause, its
- * carrier and phone system, its deposit switch and payment account, and
- * whether its address takes mail, in one tenant transaction; then its
+ * get_account_state's reader: the clinic's setup state, where its practice
+ * questions stand (readPracticeState, the reader Home and Talk to your AYA
+ * ask, so the chat's tracker is Home's), its pause, its carrier and phone
+ * system, its deposit switch and payment account, and whether its address
+ * takes mail, in one tenant transaction; then its
  * calendar connection and billing summary, each through its own reader. A
  * reader that fails leaves its facts out (a calendar or a summary of null)
  * rather than failing the chat. Business data only.
@@ -43,7 +46,8 @@ export async function readAccountState(input: {
       .limit(1);
     const deposits = await getDepositSettings(tx);
     const undeliverable = state.address ? await isUndeliverable(tx, state.address) : false;
-    return { state, clinic, pause, deposits, undeliverable };
+    const practice = await readPracticeState(tx);
+    return { state, clinic, pause, deposits, undeliverable, practice };
   });
   if (!read) return null;
 
@@ -62,6 +66,7 @@ export async function readAccountState(input: {
     depositsOn: read.deposits.depositsEnabled,
     paymentConnected: read.deposits.isConnected,
     calendar,
+    practice: read.practice,
     summary,
     addressUndeliverable: read.undeliverable,
     now,

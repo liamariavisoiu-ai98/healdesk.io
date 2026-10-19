@@ -48,6 +48,7 @@ import { providersStep } from "@/lib/setup/providers";
 import { saveSetupScreen, type SaveContext } from "@/lib/setup/save";
 import { readProgress } from "@/lib/setup/screens";
 import { loadSetupState } from "@/lib/setup/state";
+import { NO_PRACTICE_STATE } from "@/lib/engine/practice/state";
 import { buildTracker } from "@/lib/setup/tracker";
 import { withTenant } from "@/lib/tenant";
 import { contentSecurityPolicy } from "@/proxy";
@@ -572,7 +573,7 @@ describeDb("setup step 3 on the calendar functions", () => {
 
       // And the tracker counts it, without blocking on it.
       expect(
-        buildTracker(state!, await getCalendarConnection(clinic.clinicId)).stages.find(
+        buildTracker(state!, await getCalendarConnection(clinic.clinicId), NO_PRACTICE_STATE).stages.find(
           (stage) => stage.id === "calendar",
         ),
       ).toEqual({

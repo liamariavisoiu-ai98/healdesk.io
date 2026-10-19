@@ -1,13 +1,8 @@
-import {
-  agreementKindOfVersion,
-  BACKUP_RETENTION_DAYS,
-  FORWARDING_PASS_THROUGH_DAYS,
-  isCarrier,
-} from "@healdesk/catalog";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { agreementKindOfVersion, BACKUP_RETENTION_DAYS, isCarrier } from "@healdesk/catalog";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { clinics, conversations } from "@/db/schema";
+import { clinicChannels, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { readCoverageMode } from "@/lib/billing/answering";
 import type { ForwardingFacts } from "@/lib/billing/notices";
@@ -27,7 +22,12 @@ import { publicUrl } from "@/lib/public-url";
 import { claimDelivery, recordDelivery } from "@/lib/reporting/recipients";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
-import { destructionPlan, destructionPlanIn, type DestructionPlan } from "./offboarding";
+import {
+  destructionPlan,
+  destructionPlanIn,
+  passThroughEndsAt,
+  type DestructionPlan,
+} from "./offboarding";
 
 /**
  * After cancellation (Annex X5, E3–E6): what a leaving clinic is told, and
@@ -36,9 +36,14 @@ import { destructionPlan, destructionPlanIn, type DestructionPlan } from "./offb
  *
  *   - E3, `pass_through_ending`: 7 days and 1 day before calls still
  *     forwarded to us stop passing through to the direct line (Terms §7,
- *     FORWARDING_PASS_THROUGH_DAYS from the end), and only while calls were
- *     forwarded in the last RECENT_CALLS_DAYS: a clinic that already undid
- *     its forwarding has nothing to undo. With the carrier undo codes.
+ *     FORWARDING_PASS_THROUGH_DAYS from the end), to a clinic whose line was
+ *     pointed at us: phone went live, or a forwarding test saw a forwarded
+ *     call (phoneWasForwardedToUs). Never from calls recorded after the end:
+ *     the database takes no new patient row once offboarding has started
+ *     (app_clinic_accepts_phi), so a passed-through call leaves none. A
+ *     clinic destroyed before its pass-through ended gets it too: its line
+ *     still forwards, and its number is kept, until then. With the carrier
+ *     undo codes.
  *   - E4, `export_ready`: once the service has ended. The export is the
  *     portal's (Conversations, behind the sign-in and the passkey step-up),
  *     built in full from the records at each download; only a download that
@@ -82,8 +87,6 @@ const ACTOR = { type: "service", serviceName: "after-cancellation" } as const;
 /** E3's two notices: a week ahead, then a day ahead. */
 export const PASS_THROUGH_NOTICE_DAYS = [7, 1] as const;
 export type PassThroughNotice = (typeof PASS_THROUGH_NOTICE_DAYS)[number];
-/** E3 goes only while calls were forwarded to us this recently. */
-export const RECENT_CALLS_DAYS = 14;
 /** E5 goes this long before the data is destroyed undownloaded. */
 export const EXPORT_REMINDER_DAYS = 7;
 /**
@@ -99,10 +102,8 @@ const DESTROYED_PERIOD = "destroyed";
 // Dates: pure, so each rule is one table test
 // -----------------------------------------------------------------------------
 
-/** When calls still forwarded to us stop passing through to the direct line. */
-export function passThroughEndsAt(endedAt: Date): Date {
-  return new Date(endedAt.getTime() + FORWARDING_PASS_THROUGH_DAYS * DAY_MS);
-}
+/** When forwarded calls stop passing through: lib/offboarding's, which keeps AYA's number until then. */
+export { passThroughEndsAt };
 
 /**
  * The E3 notice due at `now`, or null: the nearer of the two whose time has
@@ -155,10 +156,10 @@ export function destructionNoticeExpired(destroyedAt: Date, now: Date): boolean 
 export type AfterCancellationRun = { clinics: number; queued: number; failures: number };
 
 /**
- * Every clinic whose service has ended and whose data is not yet destroyed,
- * each in its own transaction: E4 once, E5 when it is due, E3 when one is due
- * and calls were forwarded to us lately. Each dedupe key queues once, so an
- * hour that runs twice queues nothing new. Not a switched job: the export is
+ * Every clinic whose service has ended, each in its own transaction: E4
+ * once and E5 when it is due, while its data is not yet destroyed; E3 when
+ * one is due to a clinic whose line was pointed at us, destroyed or not.
+ * Each dedupe key queues once, so an hour that runs twice queues nothing new. Not a switched job: the export is
  * owed whether or not anyone switched anything on (Terms §7), and the outbox
  * that sends these has its own switch.
  */
@@ -167,9 +168,12 @@ export async function queueAfterCancellationNotices(
 ): Promise<AfterCancellationRun> {
   const run: AfterCancellationRun = { clinics: 0, queued: 0, failures: 0 };
   for (const clinic of await listClinics()) {
-    if (!clinic.offboardingStartedAt || clinic.destroyedAt) continue;
+    if (!clinic.offboardingStartedAt) continue;
     const plan = destructionPlan(clinic);
     if (!plan) continue;
+    // A destroyed clinic has nothing left to export, and is reached only
+    // while E3 may still be due.
+    if (clinic.destroyedAt && passThroughNoticeDue(plan.endedAt, now) === null) continue;
     run.clinics += 1;
     try {
       run.queued += await withTenant({ clinicId: clinic.id, actor: ACTOR }, (tx) =>
@@ -195,7 +199,7 @@ async function queueFor(
   let queued = 0;
   const exportUrl = publicUrl(`/c/${clinic.slug}/conversations#export`);
 
-  if (!clinic.exportDeliveredAt && (await exportOwed(tx))) {
+  if (!clinic.destroyedAt && !clinic.exportDeliveredAt && (await exportOwed(tx))) {
     if (
       await enqueuePlanNotice(tx.db, tx.clinicId, "export_ready", "export_ready", {
         exportByOn: plan.exportByOn,
@@ -219,10 +223,7 @@ async function queueFor(
   }
 
   const notice = passThroughNoticeDue(plan.endedAt, now);
-  if (
-    notice !== null &&
-    (await callsForwardedSince(tx, new Date(now.getTime() - RECENT_CALLS_DAYS * DAY_MS)))
-  ) {
+  if (notice !== null && (await phoneWasForwardedToUs(tx, clinic))) {
     if (
       await enqueuePlanNotice(
         tx.db,
@@ -263,16 +264,29 @@ async function exportOwed(tx: TenantTx): Promise<boolean> {
   return result.rows[0]?.owed === true;
 }
 
-/** A call reached us from the clinic's forwarding since `since`: one is still forwarded. */
-async function callsForwardedSince(tx: TenantTx, since: Date): Promise<boolean> {
+/**
+ * Whether the clinic pointed its line at us, so has forwarding to undo: phone
+ * went live (clinic_channels.live_at for voice, which phone reaches only
+ * with a forwarding test's evidence, lib/channels/events.ts), or a test
+ * saw a forwarded call that still stands (clinics.forwarding_test_observed,
+ * which a test started again clears until it sees another). Both are
+ * configuration, kept through destruction, and neither is written by a call
+ * after the end. healdesk holds no record of a clinic undoing its forwarding,
+ * which happens at its carrier, so E3 asks it to "if you haven't already".
+ */
+async function phoneWasForwardedToUs(
+  tx: TenantTx,
+  clinic: Pick<ClinicOverview, "forwardingTestObserved">,
+): Promise<boolean> {
+  if (clinic.forwardingTestObserved) return true;
   const [row] = await tx.db
-    .select({ id: conversations.id })
-    .from(conversations)
+    .select({ liveAt: clinicChannels.liveAt })
+    .from(clinicChannels)
     .where(
       and(
-        eq(conversations.clinicId, tx.clinicId),
-        eq(conversations.channel, "voice"),
-        gte(conversations.startedAt, since),
+        eq(clinicChannels.clinicId, tx.clinicId),
+        eq(clinicChannels.channel, "voice"),
+        isNotNull(clinicChannels.liveAt),
       ),
     )
     .limit(1);

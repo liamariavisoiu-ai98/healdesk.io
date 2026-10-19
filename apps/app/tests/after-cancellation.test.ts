@@ -49,6 +49,7 @@ import {
 } from "./setup/db";
 import {
   inTenant,
+  seedChannels,
   seedClinic,
   seedContact,
   seedConversation,
@@ -386,7 +387,10 @@ describeDb("after cancellation, in the database", () => {
     expect(reminder!.payload.downloadByOn).toBe(ready!.payload.exportByOn);
   });
 
-  test("E3: a week and a day before the pass-through ends, only while calls were forwarded to us in the last 14 days, with the clinic's undo codes", async () => {
+  test("E3: a week and a day before the pass-through ends, to a clinic that cancelled with phone live, with no call recorded after the end; and with the clinic's undo codes", async () => {
+    // A production clinic whose phone went live two months ago: once its
+    // service has ended the database takes no new patient row, so a call
+    // passed through after the end leaves no conversation behind.
     const c = await seedClinic("pass-through");
     await getMigratorPool().query(
       `update clinics set carrier = 'att', phone_system_type = 'landline' where id = $1`,
@@ -399,24 +403,70 @@ describeDb("after cancellation, in the database", () => {
         [c.clinicId],
       ),
     );
-    // A call passed through three days ago: forwarding is still on.
-    await seedConversation(c.clinicId, { startedAt: new Date(Date.now() - 3 * DAY) });
-    const quiet = await seedClinic("pass-quiet");
-    // Its last call was fifteen days ago: it has undone its forwarding.
-    await seedConversation(quiet.clinicId, { startedAt: new Date(Date.now() - 15 * DAY) });
-    for (const clinic of [c, quiet]) await offboard(clinic);
+    await seedChannels(c.clinicId, [
+      {
+        channel: "voice",
+        readyAt: new Date(Date.now() - 61 * DAY),
+        liveAt: new Date(Date.now() - 60 * DAY),
+      },
+    ]);
+    // Forwarding seen by a test call, though phone never went live.
+    const observed = await seedClinic("pass-observed");
+    await getMigratorPool().query(
+      `update clinics set forwarding_test_observed = $2::jsonb where id = $1`,
+      [
+        observed.clinicId,
+        JSON.stringify({
+          arrivedAt: new Date(Date.now() - 40 * DAY).toISOString(),
+          conversationId: "00000000-0000-4000-8000-000000000000",
+          callerIdPreserved: true,
+          condition: "no_answer",
+        }),
+      ],
+    );
+    // Website chat only: no line was ever pointed at us.
+    const chatOnly = await seedClinic("pass-chat-only");
+    await seedChannels(chatOnly.clinicId, [
+      {
+        channel: "web",
+        readyAt: new Date(Date.now() - 61 * DAY),
+        liveAt: new Date(Date.now() - 60 * DAY),
+      },
+    ]);
+    for (const clinic of [c, observed, chatOnly]) await offboard(clinic);
+    await getMigratorPool().query(
+      `update clinics set data_classification = 'production', baa_signed_at = now() - interval '1 year' where id = $1`,
+      [c.clinicId],
+    );
+    await expect(
+      inTenant(c.clinicId, (q) =>
+        q.query(
+          `insert into conversations (clinic_id, channel, started_at) values ($1, 'voice', now())`,
+          [c.clinicId],
+        ),
+      ),
+    ).rejects.toThrow(/refusing to write PHI to conversations/);
+    const conversationsAfter = async () =>
+      (
+        await getMigratorPool().query<{ n: number }>(
+          `select count(*)::int as n from conversations where clinic_id = $1`,
+          [c.clinicId],
+        )
+      ).rows[0]!.n;
+    expect(await conversationsAfter()).toBe(0);
 
     // Day 22: nothing yet.
-    for (const clinic of [c, quiet]) await moveBack(clinic.clinicId, 22 * 24);
+    for (const clinic of [c, observed, chatOnly]) await moveBack(clinic.clinicId, 22 * 24);
     await queueAfterCancellationNotices(new Date());
     expect(await notices(c.clinicId, ["pass_through_ending"])).toEqual([]);
 
-    // Day 23: the week's notice, once.
-    for (const clinic of [c, quiet]) await moveBack(clinic.clinicId, 25);
+    // Day 23: the week's notice, once, to both clinics whose line was pointed at us.
+    for (const clinic of [c, observed, chatOnly]) await moveBack(clinic.clinicId, 25);
     await queueAfterCancellationNotices(new Date());
     await queueAfterCancellationNotices(new Date());
     const week = await notices(c.clinicId, ["pass_through_ending"]);
     expect(week.map((n) => n.dedupe_key)).toEqual(["pass_through_ending:7"]);
+    expect(await conversationsAfter()).toBe(0);
     const { rows } = await getMigratorPool().query<{ started: Date }>(
       `select offboarding_started_at as started from clinics where id = $1`,
       [c.clinicId],
@@ -429,7 +479,10 @@ describeDb("after cancellation, in the database", () => {
       routing: "after_hours_only",
     });
     expect(() => assertPayloadAllowed(week[0]!.payload, "pass_through_ending")).not.toThrow();
-    expect(await notices(quiet.clinicId, ["pass_through_ending"])).toEqual([]);
+    expect(
+      (await notices(observed.clinicId, ["pass_through_ending"])).map((n) => n.dedupe_key),
+    ).toEqual(["pass_through_ending:7"]);
+    expect(await notices(chatOnly.clinicId, ["pass_through_ending"])).toEqual([]);
 
     // The undo codes are the catalog's for that carrier and mode: After hours
     // only is all-call forwarding, so its undo is the all-call cancel code.
@@ -449,6 +502,7 @@ describeDb("after cancellation, in the database", () => {
     expect(undo.length).toBeGreaterThan(0);
     for (const step of undo) expect(rendered.text).toContain(step.dial);
     expect(rendered.text).toContain(CARRIERS.find((x) => x.id === "att")!.name);
+    expect(rendered.text).toContain("If you haven't undone the forwarding yet");
 
     // Day 29: the day's notice.
     await moveBack(c.clinicId, 6 * 24);
@@ -461,6 +515,107 @@ describeDb("after cancellation, in the database", () => {
     await moveBack(c.clinicId, 24);
     await queueAfterCancellationNotices(new Date());
     expect(await notices(c.clinicId, ["pass_through_ending"])).toHaveLength(2);
+  });
+
+  test("AYA's number outlives a day-29 destruction until the pass-through ends: kept on days 29, released on day 30, still gone on day 31; and E3's day-ahead notice still reaches the destroyed clinic", async () => {
+    const NUMBER = "+18885550142";
+    // On BAA 1.5.1 with its export delivered, and on BAA 1.2.1 without: both
+    // are destroyed on day 29.
+    const delivered = await seedClinic("number-export-rule");
+    const thirty = await seedClinic("number-thirty-days");
+    for (const clinic of [delivered, thirty]) {
+      await getMigratorPool().query(`update clinics set assistant_number_e164 = $2 where id = $1`, [
+        clinic.clinicId,
+        NUMBER,
+      ]);
+      await seedContact(clinic.clinicId, "+14155550134");
+      await seedChannels(clinic.clinicId, [
+        {
+          channel: "voice",
+          readyAt: new Date(Date.now() - 61 * DAY),
+          liveAt: new Date(Date.now() - 60 * DAY),
+        },
+      ]);
+    }
+    await offboard(delivered, "1.5.1");
+    await withTenant({ clinicId: delivered.clinicId, actor: ACTOR }, (tx) =>
+      markExportDelivered(tx, "bundle handed to the practice manager"),
+    );
+    await offboard(thirty, "1.2.1");
+    const both = [delivered, thirty];
+    const state = async (clinicId: string) =>
+      (
+        await getMigratorPool().query<{ number: string | null; destroyed: Date | null }>(
+          `select assistant_number_e164 as number, destroyed_at as destroyed from clinics where id = $1`,
+          [clinicId],
+        )
+      ).rows[0]!;
+    // One hour as the tick runs it: destruction, then the after-cancellation notices.
+    const hour = async () => {
+      await destroyDueClinics(new Date());
+      await queueAfterCancellationNotices(new Date());
+    };
+
+    // Day 29: destroyed, and the number kept: calls still forward until day 30.
+    for (const clinic of both) await moveBack(clinic.clinicId, 29 * 24 + 1);
+    await hour();
+    for (const clinic of both) {
+      expect(await state(clinic.clinicId)).toEqual({ number: NUMBER, destroyed: expect.any(Date) });
+      // The destroyed clinic is still told its pass-through ends tomorrow.
+      expect(
+        (await notices(clinic.clinicId, ["pass_through_ending"])).map((n) => n.dedupe_key),
+      ).toEqual(["pass_through_ending:1"]);
+    }
+
+    // The last hour of day 29: still kept.
+    for (const clinic of both) await moveBack(clinic.clinicId, 22);
+    await hour();
+    for (const clinic of both) expect((await state(clinic.clinicId)).number).toBe(NUMBER);
+
+    // Day 30: the pass-through has ended, and the next run releases the number.
+    for (const clinic of both) await moveBack(clinic.clinicId, 1);
+    await hour();
+    for (const clinic of both) {
+      expect((await state(clinic.clinicId)).number).toBeNull();
+      const released = await inTenant(clinic.clinicId, (q) =>
+        q.query<{ n: number }>(
+          `select count(*)::int as n from audit_log
+            where clinic_id = $1 and resource_type = 'clinic_offboarding'
+              and metadata->>'numberReleased' = 'true'`,
+          [clinic.clinicId],
+        ),
+      );
+      expect(released.rows[0]!.n).toBe(1);
+    }
+
+    // Day 31: nothing more happens, and nothing more is queued.
+    for (const clinic of both) await moveBack(clinic.clinicId, 24);
+    await hour();
+    for (const clinic of both) {
+      expect((await state(clinic.clinicId)).number).toBeNull();
+      expect(await notices(clinic.clinicId, ["pass_through_ending"])).toHaveLength(1);
+    }
+  });
+
+  test("a destruction after the pass-through has ended releases the number with the data", async () => {
+    const c = await seedClinic("number-late");
+    await getMigratorPool().query(
+      `update clinics set assistant_number_e164 = '+18885550143' where id = $1`,
+      [c.clinicId],
+    );
+    await seedContact(c.clinicId, "+14155550134");
+    // BAA 1.5.1, export never delivered: destroyed on day 89.
+    await offboard(c, "1.5.1");
+    await moveBack(c.clinicId, 89 * 24 + 1);
+    await destroyDueClinics(new Date());
+    const { rows } = await getMigratorPool().query<{
+      number: string | null;
+      destroyed: Date | null;
+    }>(
+      `select assistant_number_e164 as number, destroyed_at as destroyed from clinics where id = $1`,
+      [c.clinicId],
+    );
+    expect(rows[0]).toEqual({ number: null, destroyed: expect.any(Date) });
   });
 
   test("E6: destruction captures the address before it deletes anything; the email goes there once, to the captured address, and the address is gone", async () => {

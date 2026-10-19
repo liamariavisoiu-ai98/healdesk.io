@@ -116,7 +116,8 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // Every hour, on either rule: a clinic is due at day 29 (on BAA 1.3.0 or
   // the DPA once its export is delivered, or at the delivery when later) or
   // at day 89, and the next hourly run destroys it (lib/offboarding, "Which
-  // rule, and why").
+  // rule, and why"). It also releases AYA's number of a clinic destroyed
+  // before its pass-through ended, once that has.
   await record("offboarding-destroy", () => runOffboardingDestroyJob({ now }));
   // E6 (lib/offboarding/after-cancellation.ts), right after the destruction
   // it reports, to the address captured in the destruction's transaction,
@@ -134,7 +135,8 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // export is ready, the pass-through is ending, the export is about to go
   // undownloaded. Not a switched job, for the reason the channel sweep is not:
   // a pure function of rows that already exist, and the outbox that sends
-  // them has its own switch.
+  // them has its own switch. E3 reaches a clinic destroyed before its
+  // pass-through ended too: its line still forwards to us until then.
   await record("after-cancellation", async () => {
     const r = await queueAfterCancellationNotices(now);
     return {

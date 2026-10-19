@@ -7,9 +7,11 @@ import type { EmailTemplate } from "./types";
 
 /**
  * E3, "Calls stop passing through on {date}" (Annex X5): 7 days and 1 day
- * before the pass-through ends, and only while calls were still being
- * forwarded to us in the last 14 days (lib/offboarding/after-cancellation.ts
- * decides both and queues it).
+ * before the pass-through ends, to a clinic whose line was pointed at us:
+ * phone went live, or a forwarding test saw a forwarded call
+ * (lib/offboarding/after-cancellation.ts decides both and queues it).
+ * healdesk cannot see a clinic undo its forwarding at its carrier, so the
+ * email asks it to if it hasn't already.
  *
  * When the service ends, calls still forwarded to healdesk pass straight
  * through to the clinic's direct line for the Terms' pass-through days (§7,
@@ -43,11 +45,11 @@ export const renderPassThroughEnding: EmailTemplate<PassThroughEndingPayload> = 
       blocks: [
         {
           type: "paragraph",
-          text: `Calls to ${clinic} were still being forwarded to healdesk in the last 14 days. Since your service ended we have passed them straight through to your direct line, and that stops on ${ends}. After that, a call still forwarded to us won't reach you.`,
+          text: `${clinic}'s line was set to forward calls to healdesk. Since your service ended, calls still forwarded to us pass straight through to your direct line, and that stops on ${ends}. After that, a call still forwarded to us won't reach you.`,
         },
         ...undoForwarding(
           payload,
-          `Undo the forwarding before ${ends}, so callers keep reaching you directly.`,
+          `If you haven't undone the forwarding yet, do it before ${ends}, so callers keep reaching you directly.`,
         ),
         {
           type: "paragraph",

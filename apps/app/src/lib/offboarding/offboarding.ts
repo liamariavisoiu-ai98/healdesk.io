@@ -1,5 +1,10 @@
-import { agreementKindOfVersion, DPA_VERSION_PREFIX, type AgreementKind } from "@healdesk/catalog";
-import { and, asc, eq, sql } from "drizzle-orm";
+import {
+  agreementKindOfVersion,
+  DPA_VERSION_PREFIX,
+  FORWARDING_PASS_THROUGH_DAYS,
+  type AgreementKind,
+} from "@healdesk/catalog";
+import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
@@ -187,6 +192,12 @@ import { withTenant } from "@/lib/tenant";
  * E6, "Your data has been destroyed", goes to the address the account had
  * when its data went, whatever becomes of the sign-in after
  * (lib/offboarding/after-cancellation.ts sends it and clears the address).
+ *
+ * AYA's number, the one the clinic's line forwards to, is not patient data
+ * and does not go with it: forwarded calls pass through to the direct line
+ * until the end plus FORWARDING_PASS_THROUGH_DAYS, a day after the earliest
+ * destruction, so the number is released at the later of the two
+ * (releaseNumberAfterPassThrough), by this job's next hourly run.
  */
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -500,13 +511,60 @@ export async function markExportDelivered(tx: TenantTx, how: string): Promise<Da
 
 export type DestructionResult = { clinicId: string; deleted: Record<string, number> };
 
+// -----------------------------------------------------------------------------
+// AYA's number: kept until the pass-through has ended
+// -----------------------------------------------------------------------------
+
+/**
+ * When calls still forwarded to us stop passing through to the clinic's
+ * direct line: the end of the service plus the Terms' pass-through days (§7,
+ * FORWARDING_PASS_THROUGH_DAYS), the day E2 and E3 name.
+ */
+export function passThroughEndsAt(endedAt: Date): Date {
+  return new Date(endedAt.getTime() + FORWARDING_PASS_THROUGH_DAYS * DAY_MS);
+}
+
+/**
+ * Release AYA's number (clinics.assistant_number_e164), the number the
+ * clinic's line forwards to, once the pass-through has ended, and not
+ * before. Destruction is due from day 29 (a day early, to meet the
+ * agreements' thirty days) while forwarded calls pass through to day 30, so
+ * releasing the number with the data cut the last day's callers off. The
+ * number is no patient's data, so keeping it past the destruction breaks no
+ * promise to destroy: the data goes on its agreement's day, and the number
+ * at the later of that and the pass-through's end. Decided by the database's
+ * clock, in hours, as the destruction floor is (drizzle/0058). Returns
+ * whether this call released it.
+ */
+export async function releaseNumberAfterPassThrough(tx: TenantTx): Promise<boolean> {
+  const released = await tx.db
+    .update(clinics)
+    .set({ assistantNumberE164: null })
+    .where(
+      and(
+        eq(clinics.id, tx.clinicId),
+        isNotNull(clinics.assistantNumberE164),
+        sql`${clinics.offboardingStartedAt} <= clock_timestamp() - make_interval(hours => ${24 * FORWARDING_PASS_THROUGH_DAYS}::int)`,
+      ),
+    )
+    .returning({ id: clinics.id });
+  if (released.length === 0) return false;
+  tx.audit.record({
+    action: "update",
+    resourceType: "clinic_offboarding",
+    resourceId: tx.clinicId,
+    metadata: { numberReleased: true },
+  });
+  return true;
+}
+
 /**
  * Every patient row for one clinic, booking requests and slot holds
  * included, the hashes of who messaged it, its closed days, its setup
  * progress, its providers, its suppressions, consent records and contact
  * attempts, the records of its deletion requests, the amendments Practice
  * directed, and its deposits, gone. Audit, agreements, calendar elections and
- * billing stay.
+ * billing stay, and so does AYA's number until the pass-through has ended.
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -608,10 +666,12 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   const providers = await tx.db.execute<{ n: number }>(sql`select app_destroy_clinic_providers(${c}::uuid) as n`);
   deleted.clinic_providers = providers.rows[0]?.n ?? 0;
 
-  // The number is released with the data. destroyed_at is the database's
-  // to stamp, and it refuses a clinic that is not due or still holds any
-  // row deleted above (see the header).
-  await tx.db.update(clinics).set({ assistantNumberE164: null }).where(eq(clinics.id, c));
+  // AYA's number goes with the data only when the pass-through has already
+  // ended; before then it stays, and the hourly job releases it on the
+  // pass-through's last day (releaseNumberAfterPassThrough). destroyed_at is
+  // the database's to stamp, and it refuses a clinic that is not due or
+  // still holds any row deleted above (see the header).
+  await releaseNumberAfterPassThrough(tx);
   await tx.db.execute(sql`select app_mark_clinic_destroyed(${c}::uuid)`);
   // Beside the stamp, which the column's CHECK requires: only a destroyed
   // clinic holds one, and E6's sender clears it.
@@ -672,7 +732,25 @@ export async function destroyDueClinics(
   const actor = { type: "service", serviceName: "offboarding-destroy" } as const;
   const results: DestructionResult[] = [];
   for (const clinic of await listClinics()) {
-    if (clinic.destroyedAt) continue;
+    if (clinic.destroyedAt) {
+      // Destroyed before its pass-through ended: its number is released now
+      // that the pass-through has, whatever the job's switch says.
+      if (
+        clinic.assistantNumberE164 &&
+        clinic.offboardingStartedAt &&
+        now.getTime() >= passThroughEndsAt(clinic.offboardingStartedAt).getTime()
+      ) {
+        try {
+          await withTenant({ clinicId: clinic.id, actor }, (tx) => releaseNumberAfterPassThrough(tx));
+        } catch (error) {
+          log.error("number not released after the pass-through", {
+            clinicId: clinic.id,
+            error: describeError(error),
+          });
+        }
+      }
+      continue;
+    }
     const plan = destructionPlan(clinic);
     if (!plan) continue;
     if (options.onlyPromised && !exportRuleIsPromised(plan.agreementVersion)) continue;

@@ -3640,8 +3640,8 @@ exports[`each template's output > pass_through_ending, for clients: the snapshot
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Undo your call forwarding this week, so callers keep reaching you after 6 December.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Calls to Radiance Med Spa were still being forwarded to healdesk in the last 14 days. Since your service ended we have passed them straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won&#39;t reach you.</p>
-<p style="margin:0 0 16px;">Undo the forwarding before Sunday 6 December, so callers keep reaching you directly. From the clinic&#39;s own line, dial these AT&amp;T codes:</p>
+<p style="margin:0 0 16px;">Radiance Med Spa&#39;s line was set to forward calls to healdesk. Since your service ended, calls still forwarded to us pass straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won&#39;t reach you.</p>
+<p style="margin:0 0 16px;">If you haven&#39;t undone the forwarding yet, do it before Sunday 6 December, so callers keep reaching you directly. From the clinic&#39;s own line, dial these AT&amp;T codes:</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding: *91</li><li>Cancel no-answer forwarding: *93</li></ul>
 <p style="margin:0 0 16px;">Once it&#39;s undone, calls ring your own line as they did before healdesk, and nothing is forwarded to us.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -3654,9 +3654,9 @@ exports[`each template's output > pass_through_ending, for clients: the snapshot
 </html>",
   "preheader": "Undo your call forwarding this week, so callers keep reaching you after 6 December.",
   "subject": "Calls stop passing through on 6 December",
-  "text": "Calls to Radiance Med Spa were still being forwarded to healdesk in the last 14 days. Since your service ended we have passed them straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won't reach you.
+  "text": "Radiance Med Spa's line was set to forward calls to healdesk. Since your service ended, calls still forwarded to us pass straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won't reach you.
 
-Undo the forwarding before Sunday 6 December, so callers keep reaching you directly. From the clinic's own line, dial these AT&T codes:
+If you haven't undone the forwarding yet, do it before Sunday 6 December, so callers keep reaching you directly. From the clinic's own line, dial these AT&T codes:
 
 - Cancel busy forwarding: *91
 - Cancel no-answer forwarding: *93
@@ -3692,8 +3692,8 @@ exports[`each template's output > pass_through_ending, for patients: the snapsho
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Undo your call forwarding this week, so callers keep reaching you after 6 December.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Calls to Radiance Med Spa were still being forwarded to healdesk in the last 14 days. Since your service ended we have passed them straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won&#39;t reach you.</p>
-<p style="margin:0 0 16px;">Undo the forwarding before Sunday 6 December, so callers keep reaching you directly. From the clinic&#39;s own line, dial these AT&amp;T codes:</p>
+<p style="margin:0 0 16px;">Radiance Med Spa&#39;s line was set to forward calls to healdesk. Since your service ended, calls still forwarded to us pass straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won&#39;t reach you.</p>
+<p style="margin:0 0 16px;">If you haven&#39;t undone the forwarding yet, do it before Sunday 6 December, so callers keep reaching you directly. From the clinic&#39;s own line, dial these AT&amp;T codes:</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding: *91</li><li>Cancel no-answer forwarding: *93</li></ul>
 <p style="margin:0 0 16px;">Once it&#39;s undone, calls ring your own line as they did before healdesk, and nothing is forwarded to us.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -3706,9 +3706,9 @@ exports[`each template's output > pass_through_ending, for patients: the snapsho
 </html>",
   "preheader": "Undo your call forwarding this week, so callers keep reaching you after 6 December.",
   "subject": "Calls stop passing through on 6 December",
-  "text": "Calls to Radiance Med Spa were still being forwarded to healdesk in the last 14 days. Since your service ended we have passed them straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won't reach you.
+  "text": "Radiance Med Spa's line was set to forward calls to healdesk. Since your service ended, calls still forwarded to us pass straight through to your direct line, and that stops on Sunday 6 December. After that, a call still forwarded to us won't reach you.
 
-Undo the forwarding before Sunday 6 December, so callers keep reaching you directly. From the clinic's own line, dial these AT&T codes:
+If you haven't undone the forwarding yet, do it before Sunday 6 December, so callers keep reaching you directly. From the clinic's own line, dial these AT&T codes:
 
 - Cancel busy forwarding: *91
 - Cancel no-answer forwarding: *93

@@ -366,11 +366,13 @@ export class RetellCallSession {
   /**
    * A line this call may be put through to (usableLine): never the number
    * it came in on, once call details have named it, nor the clinic's
-   * published number. The answer gate has already refused the clinic's own
-   * published and AYA numbers from the database.
+   * published or AYA number. The answer gate has already refused the
+   * clinic's own published and AYA numbers from the database; this holds the
+   * same for the line kept in memory, which test mode's refusal can use when
+   * call details are never asked for.
    */
   private usable(line: string | null | undefined): string | null {
-    return usableLine(line, [this.calledNumber, this.facts?.phone]);
+    return usableLine(line, [this.calledNumber, this.facts?.phone, this.facts?.assistantNumber]);
   }
 
   /** The request kept while the start was found, if it is still the newest and has words to answer. */

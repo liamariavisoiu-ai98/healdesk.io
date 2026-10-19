@@ -46,6 +46,16 @@ describeDb("the voice fall-through, with the database", () => {
     await closePools();
   });
 
+  test("a direct line that is the clinic's AYA number is never remembered, so no later call is put through to it", async () => {
+    const clinicId = await withNumbers("fall-memory-loop");
+    await inTenant(clinicId, (client) =>
+      client.query(`update clinic_settings set direct_line_e164 = $2 where clinic_id = $1`, [clinicId, AYA]),
+    );
+    const first = new RetellCallSession(clinicId, "call_loop_first", () => {}, { responder: null, ingest: async () => ({}) as never, realCalls: true });
+    await first.open();
+    expect(rememberedDirectLine(clinicId)).toBeNull();
+  });
+
   test("a call that starts normally remembers the line a later call without the database uses", async () => {
     const clinicId = await withNumbers("fall-memory");
     const first = new RetellCallSession(clinicId, "call_first", () => {}, { responder: null, ingest: async () => ({}) as never, realCalls: true });

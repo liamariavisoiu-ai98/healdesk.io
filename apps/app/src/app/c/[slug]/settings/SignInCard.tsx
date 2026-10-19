@@ -38,13 +38,11 @@ export function SignInCard(props: {
   addDeviceHref: string;
   addBackupHref: string;
   /**
-   * The address change from Settings (plan Part D5, O5): a confirmation to the
-   * new address and "Stop this change" to the old one, in effect 72 hours
-   * later, moving the sign-in, the Stripe customer and the agreement's notice
-   * address together. Its pieces are not on main (a pending-change record and
-   * the job that applies it, Package C's update of the Stripe customer, the
-   * ops console's changeClinicEmail), so until they land the card says how
-   * the change is made by hand, through hello@, and this slot stays empty.
+   * The address change from Settings (plan Part D5, O5; AddressControl.tsx):
+   * a confirmation to the new address and "Stop this change" to the old one,
+   * in effect 72 hours later, moving the sign-in, the Stripe customer and the
+   * agreement's notice address together (lib/sign-in/address-change.ts).
+   * Without it the card says how the change is made by hand, through hello@.
    */
   addressControl?: ReactNode;
 }) {

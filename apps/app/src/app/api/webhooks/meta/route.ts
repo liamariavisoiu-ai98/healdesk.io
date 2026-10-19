@@ -1,13 +1,15 @@
+import { after } from "next/server";
+
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
 import { recordFirstAnswer } from "@/lib/channels/events";
 import { touchChatThread } from "@/lib/chat/threads";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
+import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { resolveMetaChannel, sendMetaReply, type MetaSender } from "@/lib/meta/channels";
 import { anthropicResponder, answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
-import { notifyDeskAfterCommit } from "@/lib/meta/booking-requests";
 import { recordGreeting } from "@/lib/meta/greeting";
 import { claimMetaMessage } from "@/lib/meta/inbound";
 import { parseMetaEvents, verifyMetaSignature } from "@/lib/meta/webhook";
@@ -30,10 +32,12 @@ export const runtime = "nodejs";
  * the clinic's team in the app. The reply is
  * produced by the narrow agent in lib/meta/front-door.ts and sent with the
  * clinic's sealed token, opened inside the tenant transaction. A message
- * that completes a booking request also emails the clinic's desk a
- * single-use link (lib/meta/booking-requests.ts); the sender id travels
- * into that flow so the desk's decision can be relayed back to the person —
- * inside Meta's 24-hour window only, which lib/meta/channels.ts enforces.
+ * that completes a booking request also queues the clinic's booking-request
+ * alert (L7, a pointer into Bookings) in the answer's transaction; the
+ * sender id travels into the request so the desk's decision can be relayed
+ * back to the person — inside Meta's 24-hour window only, which
+ * lib/meta/channels.ts enforces. An urgent message queues L12 the same way,
+ * and it is sent in-process once that transaction has committed.
  *
  * Each message, in order (BD24, R18):
  *
@@ -64,8 +68,9 @@ let senderForTests: MetaSender | undefined;
 let transportForTests: EmailTransport | undefined;
 let nowForTests: Date | undefined;
 /**
- * Test seam: swap the model, the Graph API, the desk's email transport and
- * the clock. Undefined restores the real ones.
+ * Test seam: swap the model, the Graph API, the clinic's email transport
+ * (the urgent alert, sent in-process) and the clock. Undefined restores the
+ * real ones.
  */
 export function __setMetaRuntimeForTests(
   responder: FrontDoorResponder | null | undefined,
@@ -205,39 +210,36 @@ export async function POST(request: Request): Promise<Response> {
         skipped += 1;
         continue;
       }
-      try {
-        // 6: the reply. Replying to the message just received: the thread
-        // may hold no request yet, so the instant is passed in. sendMetaReply
-        // still drops the reply if that instant is more than 24 hours old.
-        await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
-          const outcome = await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send, { lastInboundAt: sentAt, now });
-          // The greeting is given once the reply carrying it has gone out. A
-          // reply dropped outside the window (a backlog Meta delivers a day
-          // late) leaves it owed, so the first reply the person does get
-          // opens with it (lib/meta/greeting.ts).
-          if (outcome.status === "sent" && answer.greetingToRecord) await recordGreeting(tx, answer.greetingToRecord);
-          // A reply that reached the person, past the gate: the Meta
-          // channel's first answer, if it is one, with its plan start or
-          // step-up (lib/channels/events.ts). It never undoes the send's record.
-          if (outcome.status === "sent") {
-            await recordFirstAnswer(tx, {
-              channel: "meta",
-              source: "runtime",
-              gateAnswered: true,
-              personAnswered: true,
-              conversationId: thread.conversationId,
-            });
-          }
-        });
-        answered += 1;
-      } finally {
-        // 7: the desk's email, only now that the request it links to has
-        // committed, and whether or not the reply went out: the desk calls
-        // either way. It never throws.
-        if (answer.deskNotice) {
-          await notifyDeskAfterCommit(owner.clinicId, answer.deskNotice, { channel: "meta", platform: message.platform }, { transport: transportForTests, actor });
-        }
+      // The urgent alert (L12) is critical: its row has committed with the
+      // answer, so it goes now, in-process, after the response; whatever
+      // this misses, the minute queue sends.
+      if (answer.source === "urgent") {
+        await deliverCriticalAfterCommit(owner.clinicId, { transport: transportForTests, after });
       }
+      // 6: the reply. Replying to the message just received: the thread
+      // may hold no request yet, so the instant is passed in. sendMetaReply
+      // still drops the reply if that instant is more than 24 hours old.
+      await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
+        const outcome = await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send, { lastInboundAt: sentAt, now });
+        // The greeting is given once the reply carrying it has gone out. A
+        // reply dropped outside the window (a backlog Meta delivers a day
+        // late) leaves it owed, so the first reply the person does get
+        // opens with it (lib/meta/greeting.ts).
+        if (outcome.status === "sent" && answer.greetingToRecord) await recordGreeting(tx, answer.greetingToRecord);
+        // A reply that reached the person, past the gate: the Meta
+        // channel's first answer, if it is one, with its plan start or
+        // step-up (lib/channels/events.ts). It never undoes the send's record.
+        if (outcome.status === "sent") {
+          await recordFirstAnswer(tx, {
+            channel: "meta",
+            source: "runtime",
+            gateAnswered: true,
+            personAnswered: true,
+            conversationId: thread.conversationId,
+          });
+        }
+      });
+      answered += 1;
     } catch (error) {
       skipped += 1;
       // `channel`, never `platform`: lib/log.ts throws on a key off its

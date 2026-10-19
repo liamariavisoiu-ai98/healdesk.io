@@ -791,7 +791,7 @@ const DEFINER_OUTCOMES = new Set(["recorded", "already", "not_bought", "not_live
  * answered channel, `stepUpPackage(channel, first_answer)` for each later
  * one.
  *
- * Once per channel, three ways over: the definer (drizzle/0079, 0082) sets
+ * Once per channel, three ways over: the definer (drizzle/0079, 0085) sets
  * `first_answer_at` once, for a conversation that exists on the channel; the
  * channel rows are locked in channel order while it is decided; and the
  * partial unique index on channel_events (drizzle/0044) refuses a second
@@ -806,7 +806,7 @@ const DEFINER_OUTCOMES = new Set(["recorded", "already", "not_bought", "not_live
  * again. Never throws.
  *
  * The first answer's time is the database's clock, stamped inside the
- * definer (drizzle/0082), as the destruction and the record clocks are: it
+ * definer (drizzle/0085), as the destruction and the record clocks are: it
  * is billing evidence, the day a channel's price joins, so no caller chooses
  * it.
  */

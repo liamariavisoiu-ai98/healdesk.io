@@ -16,6 +16,7 @@ import { runOpsDigestJob } from "@/lib/ops/digest";
 import { runHealthFlagsJob } from "@/lib/ops/health-flags";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
+import { runAddressChangesJob } from "@/lib/sign-in/address-change";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
@@ -27,6 +28,7 @@ import { heartbeat } from "./jobs";
 import { runMonthlyReportJob } from "./monthly-report";
 import { runNightlySyncJob } from "./nightly-sync";
 import { runOffboardingDestroyJob } from "./offboarding-destroy";
+import { runRequestsStillOpenJob } from "./requests-still-open";
 import { runRetentionPurgeJob } from "./retention-purge";
 import { runWeeklyRecapJob } from "./weekly-recap";
 
@@ -171,6 +173,9 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));
+  // L8, hourly behind its switch: each clinic's "request still open" goes at
+  // its own opening hour, so the hour it runs is the clinic's, not UTC's.
+  await record("requests-still-open", () => runRequestsStillOpenJob({ now }));
   // The welcome email's backstop. Not a switched job: the welcome itself goes
   // at every provisioning, unswitched, so its retry must not wait for a
   // switch that ships off. It reaches only a clinic whose provisioning
@@ -180,6 +185,18 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
     return {
       status: "ok",
       note: `${result.resent} resent, ${result.unsent} still unsent, ${result.failed} failed`,
+    };
+  });
+  // A change of a clinic's one address takes effect 72 hours after it was
+  // confirmed, and an unused confirmation link closes after 72 hours (plan
+  // Part D5). Not a switched job, like the welcome email's backstop: the
+  // clinic was told the moment, and a switch that ships off would break it.
+  // Each change is applied under its own row lock (lib/sign-in/address-change.ts).
+  await record("address-changes", async () => {
+    const r = await runAddressChangesJob();
+    return {
+      status: "ok",
+      note: `${r.applied} applied, ${r.expired} expired, ${r.failed} failed, ${r.waiting} waiting`,
     };
   });
   // Phase two, like the monthly report.

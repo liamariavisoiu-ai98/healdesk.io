@@ -12,7 +12,7 @@ import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } fr
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled, setWeekdayHours } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, queuedNotices, seedClinic, seedEntitled, setWeekdayHours } from "./setup/factories";
 
 /**
  * The web chat (lib/chat/web-chat.ts, app/api/widget/v1): the opening line,
@@ -230,7 +230,7 @@ describeDb("the web chat", () => {
     expect(b.mode === "chat" && b.reply).not.toMatch(/completely safe|painless/i);
   });
 
-  test("a complete request becomes one booking request on the web chat channel, and the desk gets a link", async () => {
+  test("a complete request becomes one booking request on the web chat channel, and the clinic's alert is queued, not mailed to the desk", async () => {
     const clinic = await liveWebClinic("chat-request");
     const start = await startWebChat(clinic);
     if (start.mode !== "chat") throw new Error("no chat");
@@ -244,9 +244,13 @@ describeDb("the web chat", () => {
       client.query<{ channel: string; preferred_window: string; platform: string | null }>(`select channel, preferred_window, platform from booking_requests`),
     );
     expect(rows).toEqual([{ channel: "web_chat", preferred_window: "Thursday afternoon", platform: null }]);
-    const deskMail = transport.sent.filter((s) => s.message.phiClass !== "may-carry-phi");
-    expect(deskMail.length).toBeGreaterThanOrEqual(1);
-    expect(JSON.stringify(deskMail[0]!.message)).not.toContain("Dana");
+    // notifyDesk is retired: nothing goes to the report recipient. The clinic
+    // gets L7 through the outbox, once, a pointer that names nobody.
+    expect(transport.sent.filter((s) => s.message.phiClass !== "may-carry-phi")).toEqual([]);
+    const alerts = await queuedNotices(clinic.clinicId, ["booking_request"]);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.payload).toMatchObject({ channel: "web" });
+    expect(JSON.stringify(alerts[0]!.payload)).not.toMatch(/Dana|0192|Thursday|Consultation/);
   });
 
   test("ending the chat sends the transcript to the clinic, and the next message starts a new conversation", async () => {

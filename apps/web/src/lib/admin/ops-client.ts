@@ -77,11 +77,29 @@
  */
 
 import {
+  GUARANTEE_FAILURES,
+  GUARANTEE_OUTCOMES,
+  INCIDENT_INFORMATION_TYPES,
+  INCIDENT_MITIGATIONS,
+  INCIDENT_REPORT_EVENTS,
+  PHI_SUBCONTRACTORS,
+  PRODUCT_UPDATES,
   SIGNATURE_HEADER,
+  SUSPENSION_CAUSES,
+  TERMS_CHANGE_TOPICS,
   TIMESTAMP_HEADER,
   getPlan,
   sign,
   type AgreementTerminationReason,
+  type GuaranteeFailure,
+  type GuaranteeOutcome,
+  type IncidentInformationType,
+  type IncidentMitigation,
+  type IncidentReportEvent,
+  type PhiSubcontractor,
+  type ProductUpdateCode,
+  type SuspensionCause,
+  type TermsChangeTopic,
 } from "@healdesk/catalog";
 import { headers } from "next/headers";
 
@@ -242,6 +260,31 @@ type OperatorOp =
   // or no per name, and a live seal-and-open with the credential key.
   | "keyPresence"
   | "getCredentialKeyStatus"
+  // The operator's notices and the incidents across practices (WP7): ids,
+  // dates, flags and the catalog's codes in; ids, kinds, dates, states and
+  // counts out. The one piece of prose, a not-reportable reason, is
+  // PHI-scanned by apps/app like an incident summary.
+  | "listIncidentRegister"
+  | "sendIncidentReport"
+  | "markIncidentNotReportable"
+  | "sendTermsNotice"
+  | "sendSubprocessorNotice"
+  | "sendProductUpdate"
+  | "recordGuaranteeClaim"
+  | "sendGuaranteeFinding"
+  | "suspendForCause"
+  | "getOperatorNotices"
+  // The account (plan Part K, D5 and L): the clinic's address and each
+  // change of it; changeClinicEmail, sent only after the operator's fresh
+  // TOTP (lib/admin/fresh-code.ts), and an objection's stop; the
+  // covered-entity answer; the clinic cards' channel states, tracker and
+  // agreement label; and the purchases whose website read failed.
+  | "getClinicSignIn"
+  | "changeClinicEmail"
+  | "stopClinicEmailChange"
+  | "setCoveredEntity"
+  | "listClinicCards"
+  | "listSiteReadFailures"
   // Support replies (WP5; /admin/support): the support chat's escalations
   // with the day L25 promised a reply by, and the mark that one was replied to.
   | "listSupportRequests"
@@ -2380,6 +2423,14 @@ export type CareView = {
     resolvedAt: string | null;
     resolution: string | null;
     openedBy: string;
+    /**
+     * WP7: the deadline the practice's agreement promises (null for a service
+     * complaint, or from an apps/app that predates it), beside notifyBy,
+     * healdesk's internal target; and ops' decision.
+     */
+    agreementNotifyBy: string | null;
+    reportsSent: number;
+    notReportableReason: string | null;
   }[];
 };
 
@@ -2476,6 +2527,10 @@ function readCareView(value: unknown): CareView {
         resolvedAt: optionalInstant(i.resolvedAt, "care.incident.resolvedAt")?.at ?? null,
         resolution: optionalText(i.resolution, "care.incident.resolution"),
         openedBy: text(i.openedBy, "care.incident.openedBy"),
+        agreementNotifyBy: optionalInstant(i.agreementNotifyBy, "care.incident.agreementNotifyBy")?.at ?? null,
+        reportsSent:
+          i.reportsSent === undefined || i.reportsSent === null ? 0 : count(i.reportsSent, "care.incident.reportsSent"),
+        notReportableReason: optionalText(i.notReportableReason, "care.incident.notReportableReason"),
       };
     }),
   };
@@ -2566,7 +2621,15 @@ export function markErasureVendorDeleted(
 
 
 export type OpenIncidentOutcome =
-  | { status: "opened"; id: string; notifyBy: string; ftcNotifyBy: string | null }
+  | {
+      status: "opened";
+      id: string;
+      /** healdesk's internal target, never the agreement's promise. */
+      notifyBy: string;
+      ftcNotifyBy: string | null;
+      /** The deadline the practice's agreement promises (WP7); null from an older apps/app. */
+      agreementNotifyBy: string | null;
+    }
   | { status: "refused"; message: string };
 
 export function openIncident(
@@ -2581,6 +2644,7 @@ export function openIncident(
       id: id(data.id, "openIncident.id"),
       notifyBy: instant(data.notifyBy, "openIncident.notifyBy").at,
       ftcNotifyBy: optionalInstant(data.ftcNotifyBy, "openIncident.ftcNotifyBy")?.on ?? null,
+      agreementNotifyBy: optionalInstant(data.agreementNotifyBy, "openIncident.agreementNotifyBy")?.at ?? null,
     };
   });
 }
@@ -4078,4 +4142,678 @@ export function credentialKeyStatus(): Promise<OpsResult<CredentialKeyCheck>> {
     },
     MAP_TIMEOUT_MS,
   );
+}
+
+// -----------------------------------------------------------------------------
+// The operator's notices and the incidents across practices (WP7)
+//
+// /admin/incidents and /admin/notices. What crosses is the catalog's codes,
+// dates, ids and flags (packages/catalog operator-notices.ts), never text a
+// practice would read: apps/app renders every email from the code. The reads
+// return ids, kinds, dates, states and counts, and each incident's summary,
+// which apps/app refused unless it was written in ids.
+// -----------------------------------------------------------------------------
+
+const keysOf = <T extends object>(table: T) => Object.keys(table) as (keyof T & string)[];
+
+/**
+ * Build a write's arguments with the same readers that check what comes
+ * back, so a code the catalog does not list, or a malformed date, stops
+ * here: nothing is signed or sent, and the operator reads why.
+ */
+function withCheckedArgs<T>(
+  build: () => Record<string, unknown>,
+  call: (args: Record<string, unknown>) => Promise<OpsResult<T>>,
+): Promise<OpsResult<T>> {
+  let args: Record<string, unknown>;
+  try {
+    args = build();
+  } catch (error) {
+    if (error instanceof ShapeError) {
+      return Promise.resolve({
+        ok: false,
+        code: "invalid_filter",
+        message: "Something on this form isn't one of the choices it offers. Nothing was sent.",
+      });
+    }
+    throw error;
+  }
+  return call(args);
+}
+
+/**
+ * One incident across practices, with BOTH deadlines: the one the
+ * practice's agreement promises, and healdesk's internal target, which is
+ * never a promise (owner, 12 October 2026). Instants as "YYYY-MM-DD HH:MM
+ * UTC" for the screen, with the ISO forms beside them for comparing.
+ */
+export type IncidentRegisterRow = {
+  id: string;
+  clinicId: string;
+  clinicSlug: string;
+  clinicName: string;
+  class: IncidentClass;
+  summary: string;
+  conversationId: string | null;
+  discoveredAt: string;
+  /** The agreement's deadline; null for a service complaint, which no agreement clocks. */
+  agreementNotifyBy: string | null;
+  agreementNotifyByIso: string | null;
+  /** The version it was read from; null when there was none and the strictest rule applied. */
+  agreementVersion: string | null;
+  /** healdesk's internal target: 24 hours from discovery. */
+  targetNotifyBy: string;
+  targetNotifyByIso: string;
+  ftcNotifyBy: string | null;
+  notifiedAt: string | null;
+  notifiedHow: string | null;
+  reportedAt: string | null;
+  reportsSent: number;
+  notReportableAt: string | null;
+  notReportableReason: string | null;
+  decidedBy: string | null;
+  resolvedAt: string | null;
+  openedBy: string;
+};
+
+function readIncidentRegisterRow(entry: unknown): IncidentRegisterRow {
+  const i = object(entry, "incidentRegister.incident");
+  const agreement = optionalIsoInstant(i.agreementNotifyBy, "incidentRegister.agreementNotifyBy");
+  const target = isoInstant(i.targetNotifyBy, "incidentRegister.targetNotifyBy");
+  return {
+    id: id(i.id, "incidentRegister.id"),
+    clinicId: id(i.clinicId, "incidentRegister.clinicId"),
+    clinicSlug: text(i.clinicSlug, "incidentRegister.clinicSlug"),
+    clinicName: text(i.clinicName, "incidentRegister.clinicName"),
+    class: literal(i.class, INCIDENT_CLASSES, "incidentRegister.class"),
+    summary: text(i.summary, "incidentRegister.summary"),
+    conversationId:
+      i.conversationId === null || i.conversationId === undefined
+        ? null
+        : id(i.conversationId, "incidentRegister.conversationId"),
+    discoveredAt: instant(i.discoveredAt, "incidentRegister.discoveredAt").at,
+    agreementNotifyBy: agreement ? instant(agreement, "incidentRegister.agreementNotifyBy").at : null,
+    agreementNotifyByIso: agreement,
+    agreementVersion: optionalText(i.agreementVersion, "incidentRegister.agreementVersion"),
+    targetNotifyBy: instant(target, "incidentRegister.targetNotifyBy").at,
+    targetNotifyByIso: target,
+    ftcNotifyBy: optionalInstant(i.ftcNotifyBy, "incidentRegister.ftcNotifyBy")?.on ?? null,
+    notifiedAt: optionalInstant(i.notifiedAt, "incidentRegister.notifiedAt")?.at ?? null,
+    notifiedHow: optionalText(i.notifiedHow, "incidentRegister.notifiedHow"),
+    reportedAt: optionalInstant(i.reportedAt, "incidentRegister.reportedAt")?.at ?? null,
+    reportsSent: count(i.reportsSent, "incidentRegister.reportsSent"),
+    notReportableAt: optionalInstant(i.notReportableAt, "incidentRegister.notReportableAt")?.at ?? null,
+    notReportableReason: optionalText(i.notReportableReason, "incidentRegister.notReportableReason"),
+    decidedBy: optionalText(i.decidedBy, "incidentRegister.decidedBy"),
+    resolvedAt: optionalInstant(i.resolvedAt, "incidentRegister.resolvedAt")?.at ?? null,
+    openedBy: text(i.openedBy, "incidentRegister.openedBy"),
+  };
+}
+
+export function fetchIncidentRegister(): Promise<OpsResult<IncidentRegisterRow[]>> {
+  return callOps("listIncidentRegister", "read", {}, (value) =>
+    list(object(value, "listIncidentRegister").incidents, "listIncidentRegister.incidents").map(
+      readIncidentRegisterRow,
+    ),
+  );
+}
+
+/** "Send report": the fixed fields, as codes, counts and a date. */
+export type IncidentReportFields = {
+  event: IncidentReportEvent;
+  /** YYYY-MM-DD, or absent while it is not known. */
+  occurredOn?: string;
+  info: { type: IncidentInformationType; count: number }[];
+  mitigations: IncidentMitigation[];
+};
+
+export type IncidentReportOutcome =
+  | { status: "sent"; report: number; auditRecorded: boolean }
+  | { status: "refused"; message: string };
+
+/**
+ * Exactly the fixed fields cross: the event's code, a date, the types'
+ * codes with counts and the mitigations' codes. Each is re-checked against
+ * the catalog here before it is signed, so nothing a browser invents is sent.
+ */
+export function sendIncidentReport(
+  clinicId: string,
+  incidentId: string,
+  fields: IncidentReportFields,
+): Promise<OpsResult<IncidentReportOutcome>> {
+  return withCheckedArgs(
+    () => ({
+      clinicId: id(clinicId, "sendIncidentReport.clinicId"),
+      incidentId: id(incidentId, "sendIncidentReport.incidentId"),
+      event: literal(fields.event, keysOf(INCIDENT_REPORT_EVENTS), "sendIncidentReport.event"),
+      ...(fields.occurredOn ? { occurredOn: date(fields.occurredOn, "sendIncidentReport.occurredOn") } : {}),
+      info: list(fields.info, "sendIncidentReport.info").map((entry) => {
+        const row = object(entry, "sendIncidentReport.info");
+        return {
+          type: literal(row.type, keysOf(INCIDENT_INFORMATION_TYPES), "sendIncidentReport.info.type"),
+          count: count(row.count, "sendIncidentReport.info.count"),
+        };
+      }),
+      mitigations: list(fields.mitigations, "sendIncidentReport.mitigations").map((code) =>
+        literal(code, keysOf(INCIDENT_MITIGATIONS), "sendIncidentReport.mitigations"),
+      ),
+    }),
+    (args) =>
+      callOps("sendIncidentReport", "write", args, (value) => {
+        const data = object(value, "sendIncidentReport");
+        if (state(data, "sendIncidentReport") !== "sent") return refusal(data, "sendIncidentReport");
+        return {
+          status: "sent" as const,
+          report: count(data.report, "sendIncidentReport.report"),
+          auditRecorded: bool(data.auditRecorded, "sendIncidentReport.auditRecorded"),
+        };
+      }),
+  );
+}
+
+export function markIncidentNotReportable(clinicId: string, incidentId: string, reason: string) {
+  return withCheckedArgs(
+    () => ({
+      clinicId: id(clinicId, "markIncidentNotReportable.clinicId"),
+      incidentId: id(incidentId, "markIncidentNotReportable.incidentId"),
+      reason: String(reason).slice(0, 2000),
+    }),
+    (args) => careWrite("markIncidentNotReportable", args),
+  );
+}
+
+/** What a broadcast did: practices it was queued for, had it already, have no address, or failed. */
+export type BroadcastOutcome =
+  | {
+      status: "queued";
+      queued: number;
+      alreadyQueued: number;
+      noAddress: number;
+      failed: number;
+      auditRecorded: boolean;
+    }
+  | { status: "refused"; message: string };
+
+function broadcastWrite(
+  op: "sendTermsNotice" | "sendSubprocessorNotice" | "sendProductUpdate",
+  build: () => Record<string, unknown>,
+): Promise<OpsResult<BroadcastOutcome>> {
+  return withCheckedArgs(build, (args) =>
+    callOps(op, "write", args, (value) => {
+      const data = object(value, op);
+      if (state(data, op) !== "queued") return refusal(data, op);
+      return {
+        status: "queued" as const,
+        queued: count(data.queued, `${op}.queued`),
+        alreadyQueued: count(data.alreadyQueued, `${op}.alreadyQueued`),
+        noAddress: count(data.noAddress, `${op}.noAddress`),
+        failed: count(data.failed, `${op}.failed`),
+        auditRecorded: bool(data.auditRecorded, `${op}.auditRecorded`),
+      };
+    }),
+  );
+}
+
+/** A Terms version as its page prints it ("2026-11-20.1"), as apps/app checks it. */
+const TERMS_VERSION = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,39}$/;
+
+/** L28: a terms notice to every practice with an agreement in effect. */
+export function sendTermsNotice(input: {
+  version: string;
+  effectiveOn: string;
+  topics: TermsChangeTopic[];
+  isPublished: boolean;
+}) {
+  return broadcastWrite("sendTermsNotice", () => {
+    if (typeof input.version !== "string" || !TERMS_VERSION.test(input.version)) {
+      throw new ShapeError("sendTermsNotice.version");
+    }
+    return {
+      version: input.version,
+      effectiveOn: date(input.effectiveOn, "sendTermsNotice.effectiveOn"),
+      topics: list(input.topics, "sendTermsNotice.topics").map((t) =>
+        literal(t, keysOf(TERMS_CHANGE_TOPICS), "sendTermsNotice.topics"),
+      ),
+      isPublished: input.isPublished === true,
+    };
+  });
+}
+
+/** L29: a new subcontractor's notice, to the same practices; startsAt is an ISO instant. */
+export function sendSubprocessorNotice(input: { provider: PhiSubcontractor; startsAt: string }) {
+  return broadcastWrite("sendSubprocessorNotice", () => ({
+    provider: literal(input.provider, keysOf(PHI_SUBCONTRACTORS), "sendSubprocessorNotice.provider"),
+    startsAt: isoInstant(input.startsAt, "sendSubprocessorNotice.startsAt"),
+  }));
+}
+
+/** L33: a product update, to every practice still with us. */
+export function sendProductUpdate(code: ProductUpdateCode) {
+  return broadcastWrite("sendProductUpdate", () => ({
+    code: literal(code, keysOf(PRODUCT_UPDATES), "sendProductUpdate.code"),
+  }));
+}
+
+export type GuaranteeClaimOutcome =
+  | { status: "queued"; findingByOn: string; auditRecorded: boolean }
+  | { status: "refused"; message: string };
+
+/** L30: the claim received, by the day it reached us. */
+export function recordGuaranteeClaim(
+  clinicId: string,
+  claimReceivedOn: string,
+): Promise<OpsResult<GuaranteeClaimOutcome>> {
+  return withCheckedArgs(
+    () => ({
+      clinicId: id(clinicId, "recordGuaranteeClaim.clinicId"),
+      claimReceivedOn: date(claimReceivedOn, "recordGuaranteeClaim.claimReceivedOn"),
+    }),
+    (args) =>
+      callOps("recordGuaranteeClaim", "write", args, (value) => {
+        const data = object(value, "recordGuaranteeClaim");
+        if (state(data, "recordGuaranteeClaim") !== "queued") return refusal(data, "recordGuaranteeClaim");
+        return {
+          status: "queued" as const,
+          findingByOn: date(data.findingByOn, "recordGuaranteeClaim.findingByOn"),
+          auditRecorded: bool(data.auditRecorded, "recordGuaranteeClaim.auditRecorded"),
+        };
+      }),
+  );
+}
+
+export type SentOutcome =
+  | { status: "queued" | "suspended"; auditRecorded: boolean }
+  | { status: "refused"; message: string };
+
+/** L30: our finding on a recorded claim. A miss carries the refund's day and what failed. */
+export function sendGuaranteeFinding(
+  clinicId: string,
+  input: {
+    claimReceivedOn: string;
+    outcome: GuaranteeOutcome;
+    refundByOn?: string;
+    failure?: GuaranteeFailure;
+  },
+): Promise<OpsResult<SentOutcome>> {
+  return withCheckedArgs(
+    () => ({
+      clinicId: id(clinicId, "sendGuaranteeFinding.clinicId"),
+      claimReceivedOn: date(input.claimReceivedOn, "sendGuaranteeFinding.claimReceivedOn"),
+      outcome: literal(input.outcome, keysOf(GUARANTEE_OUTCOMES), "sendGuaranteeFinding.outcome"),
+      ...(input.refundByOn ? { refundByOn: date(input.refundByOn, "sendGuaranteeFinding.refundByOn") } : {}),
+      ...(input.failure
+        ? { failure: literal(input.failure, keysOf(GUARANTEE_FAILURES), "sendGuaranteeFinding.failure") }
+        : {}),
+    }),
+    (args) =>
+      callOps("sendGuaranteeFinding", "write", args, (value) => {
+        const data = object(value, "sendGuaranteeFinding");
+        if (state(data, "sendGuaranteeFinding") !== "queued") return refusal(data, "sendGuaranteeFinding");
+        return {
+          status: "queued" as const,
+          auditRecorded: bool(data.auditRecorded, "sendGuaranteeFinding.auditRecorded"),
+        };
+      }),
+  );
+}
+
+/** L31: suspend a practice for a legal or security reason, and email it why. */
+export function suspendForCause(clinicId: string, cause: SuspensionCause): Promise<OpsResult<SentOutcome>> {
+  return withCheckedArgs(
+    () => ({
+      clinicId: id(clinicId, "suspendForCause.clinicId"),
+      cause: literal(cause, keysOf(SUSPENSION_CAUSES), "suspendForCause.cause"),
+    }),
+    (args) =>
+      callOps("suspendForCause", "write", args, (value) => {
+        const data = object(value, "suspendForCause");
+        if (state(data, "suspendForCause") !== "suspended") return refusal(data, "suspendForCause");
+        return {
+          status: "suspended" as const,
+          auditRecorded: bool(data.auditRecorded, "suspendForCause.auditRecorded"),
+        };
+      }),
+  );
+}
+
+/** Where one queued notice stands. */
+export type NoticeState = "sent" | "switched_off" | "not_sent" | "dead" | "pending";
+const NOTICE_STATES: readonly NoticeState[] = ["sent", "switched_off", "not_sent", "dead", "pending"];
+export const BROADCAST_NOTICE_KINDS = ["terms_notice", "subprocessor_notice", "product_update"] as const;
+export const SINGLE_NOTICE_KINDS = [
+  "incident_report",
+  "guarantee_claim_received",
+  "guarantee_finding",
+  "suspended_for_cause",
+] as const;
+
+export type OperatorNoticesView = {
+  broadcasts: {
+    kind: (typeof BROADCAST_NOTICE_KINDS)[number];
+    subject: string;
+    firstQueuedAt: string;
+    counts: Record<NoticeState, number>;
+  }[];
+  notices: {
+    clinicId: string;
+    clinicSlug: string;
+    clinicName: string;
+    kind: (typeof SINGLE_NOTICE_KINDS)[number];
+    subject: string;
+    queuedAt: string;
+    state: NoticeState;
+  }[];
+  openClaims: {
+    clinicId: string;
+    clinicSlug: string;
+    clinicName: string;
+    claimReceivedOn: string;
+    findingByOn: string;
+  }[];
+};
+
+export function fetchOperatorNotices(): Promise<OpsResult<OperatorNoticesView>> {
+  return callOps("getOperatorNotices", "read", {}, (value) => {
+    const data = object(value, "getOperatorNotices");
+    return {
+      broadcasts: list(data.broadcasts, "getOperatorNotices.broadcasts").map((entry) => {
+        const b = object(entry, "getOperatorNotices.broadcast");
+        const counts = object(b.counts, "getOperatorNotices.broadcast.counts");
+        return {
+          kind: literal(b.kind, BROADCAST_NOTICE_KINDS, "getOperatorNotices.broadcast.kind"),
+          subject: text(b.subject, "getOperatorNotices.broadcast.subject"),
+          firstQueuedAt: instant(b.firstQueuedAt, "getOperatorNotices.broadcast.firstQueuedAt").at,
+          counts: Object.fromEntries(
+            NOTICE_STATES.map((s) => [s, count(counts[s], `getOperatorNotices.broadcast.counts.${s}`)]),
+          ) as Record<NoticeState, number>,
+        };
+      }),
+      notices: list(data.notices, "getOperatorNotices.notices").map((entry) => {
+        const n = object(entry, "getOperatorNotices.notice");
+        return {
+          clinicId: id(n.clinicId, "getOperatorNotices.notice.clinicId"),
+          clinicSlug: text(n.clinicSlug, "getOperatorNotices.notice.clinicSlug"),
+          clinicName: text(n.clinicName, "getOperatorNotices.notice.clinicName"),
+          kind: literal(n.kind, SINGLE_NOTICE_KINDS, "getOperatorNotices.notice.kind"),
+          subject: text(n.subject, "getOperatorNotices.notice.subject"),
+          queuedAt: instant(n.queuedAt, "getOperatorNotices.notice.queuedAt").at,
+          state: literal(n.state, NOTICE_STATES, "getOperatorNotices.notice.state"),
+        };
+      }),
+      openClaims: list(data.openClaims, "getOperatorNotices.openClaims").map((entry) => {
+        const c = object(entry, "getOperatorNotices.openClaim");
+        return {
+          clinicId: id(c.clinicId, "getOperatorNotices.openClaim.clinicId"),
+          clinicSlug: text(c.clinicSlug, "getOperatorNotices.openClaim.clinicSlug"),
+          clinicName: text(c.clinicName, "getOperatorNotices.openClaim.clinicName"),
+          claimReceivedOn: date(c.claimReceivedOn, "getOperatorNotices.openClaim.claimReceivedOn"),
+          findingByOn: date(c.findingByOn, "getOperatorNotices.openClaim.findingByOn"),
+        };
+      }),
+    };
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The account (plan Part K, D5 and L)
+//
+// Business contact data and configuration, each a projection apps/app wrote:
+// the clinic's one address (its sign-in, the Stripe customer's email and the
+// agreement's notice address) and each change of it, the covered-entity
+// answer, the clinic cards and the site-read failures. Never a patient row.
+// -----------------------------------------------------------------------------
+
+const ADDRESS_CHANGE_STATUSES = [
+  "awaiting_confirmation",
+  "pending",
+  "applied",
+  "stopped",
+  "expired",
+  "failed",
+] as const;
+
+export type AddressChangeRow = {
+  id: string;
+  status: (typeof ADDRESS_CHANGE_STATUSES)[number];
+  source: "settings" | "operator";
+  oldEmail: string;
+  newEmail: string;
+  requestedBy: string;
+  createdAt: string;
+  confirmedAt: string | null;
+  /** When it takes effect: the end of the 72-hour objection window. ISO, UTC. */
+  effectiveAt: string | null;
+  resolvedAt: string | null;
+  stoppedBy: "clinic" | "operator" | null;
+  resolution: string | null;
+};
+
+export type ClinicSignInView = {
+  clinicId: string;
+  clinicName: string;
+  address: string | null;
+  changes: AddressChangeRow[];
+  coveredEntity: {
+    specialty: string;
+    regime: "hipaa" | "hipaa-if-covered" | "non-hipaa" | null;
+    agreementKind: "baa" | "dpa" | null;
+    isCoveredEntity: boolean | null;
+  };
+};
+
+function address(value: unknown, at: string): string {
+  const raw = text(value, at);
+  if (raw.length > 320 || !/^[^\s@]+@[^\s@]+$/.test(raw)) throw new ShapeError(at);
+  return raw;
+}
+
+function optionalBoolean(value: unknown, at: string): boolean | null {
+  return value === null ? null : bool(value, at);
+}
+
+function readAddressChange(value: unknown): AddressChangeRow {
+  const row = object(value, "change");
+  return {
+    id: id(row.id, "change.id"),
+    status: literal(row.status, ADDRESS_CHANGE_STATUSES, "change.status"),
+    source: literal(row.source, ["settings", "operator"] as const, "change.source"),
+    oldEmail: address(row.oldEmail, "change.oldEmail"),
+    newEmail: address(row.newEmail, "change.newEmail"),
+    requestedBy: text(row.requestedBy, "change.requestedBy"),
+    createdAt: isoInstant(row.createdAt, "change.createdAt"),
+    confirmedAt: optionalIsoInstant(row.confirmedAt, "change.confirmedAt"),
+    effectiveAt: optionalIsoInstant(row.effectiveAt, "change.effectiveAt"),
+    resolvedAt: optionalIsoInstant(row.resolvedAt, "change.resolvedAt"),
+    stoppedBy:
+      row.stoppedBy === null
+        ? null
+        : literal(row.stoppedBy, ["clinic", "operator"] as const, "change.stoppedBy"),
+    resolution: optionalText(row.resolution, "change.resolution"),
+  };
+}
+
+export function fetchClinicSignIn(clinicId: string): Promise<OpsResult<ClinicSignInView>> {
+  return callOps("getClinicSignIn", "read", { clinicId }, (value) => {
+    const data = object(value, "getClinicSignIn");
+    const covered = object(data.coveredEntity, "getClinicSignIn.coveredEntity");
+    return {
+      clinicId: id(data.clinicId, "getClinicSignIn.clinicId"),
+      clinicName: text(data.clinicName, "getClinicSignIn.clinicName"),
+      address: data.address === null ? null : address(data.address, "getClinicSignIn.address"),
+      changes: list(data.changes, "getClinicSignIn.changes").map(readAddressChange),
+      coveredEntity: {
+        specialty: text(covered.specialty, "coveredEntity.specialty"),
+        regime:
+          covered.regime === null
+            ? null
+            : literal(covered.regime, ["hipaa", "hipaa-if-covered", "non-hipaa"] as const, "coveredEntity.regime"),
+        agreementKind:
+          covered.agreementKind === null
+            ? null
+            : literal(covered.agreementKind, ["baa", "dpa"] as const, "coveredEntity.agreementKind"),
+        isCoveredEntity: optionalBoolean(covered.isCoveredEntity, "coveredEntity.isCoveredEntity"),
+      },
+    };
+  });
+}
+
+export type ChangeClinicEmailOutcome =
+  | { status: "entered"; changeId: string; newEmail: string; effectiveAt: string; emailed: boolean }
+  | { status: "refused"; message: string };
+
+/**
+ * changeClinicEmail. The caller has already checked the operator's fresh
+ * TOTP code (lib/admin/fresh-code.ts): this only sends the clinic and the
+ * address, and the far side decides.
+ */
+export function changeClinicEmail(
+  clinicId: string,
+  newEmail: string,
+): Promise<OpsResult<ChangeClinicEmailOutcome>> {
+  return callOps("changeClinicEmail", "write", { clinicId, newEmail }, (value) => {
+    const data = object(value, "changeClinicEmail");
+    if (state(data, "changeClinicEmail") !== "entered") return refusal(data, "changeClinicEmail");
+    return {
+      status: "entered",
+      changeId: id(data.changeId, "changeClinicEmail.changeId"),
+      newEmail: address(data.newEmail, "changeClinicEmail.newEmail"),
+      effectiveAt: isoInstant(data.effectiveAt, "changeClinicEmail.effectiveAt"),
+      emailed: bool(data.emailed, "changeClinicEmail.emailed"),
+    };
+  });
+}
+
+export function stopClinicEmailChange(
+  clinicId: string,
+): Promise<OpsResult<{ status: "stopped" | "none" }>> {
+  return callOps("stopClinicEmailChange", "write", { clinicId }, (value) => {
+    const data = object(value, "stopClinicEmailChange");
+    return { status: literal(data.status, ["stopped", "none"] as const, "stopClinicEmailChange.status") };
+  });
+}
+
+export type CoveredAnswer = "yes" | "no" | "not_sure";
+
+export type SetCoveredEntityOutcome =
+  | {
+      status: "recorded";
+      agreementKind: "baa" | "dpa";
+      isCoveredEntity: boolean | null;
+      covered: boolean;
+      supersedeStarted: boolean;
+      linkSent: boolean;
+      auditRecorded: boolean;
+    }
+  | { status: "refused"; message: string };
+
+export function setCoveredEntity(
+  clinicId: string,
+  answer: CoveredAnswer,
+): Promise<OpsResult<SetCoveredEntityOutcome>> {
+  return callOps("setCoveredEntity", "write", { clinicId, answer }, (value) => {
+    const data = object(value, "setCoveredEntity");
+    if (state(data, "setCoveredEntity") !== "recorded") return refusal(data, "setCoveredEntity");
+    return {
+      status: "recorded",
+      agreementKind: literal(data.agreementKind, ["baa", "dpa"] as const, "setCoveredEntity.agreementKind"),
+      isCoveredEntity: optionalBoolean(data.isCoveredEntity, "setCoveredEntity.isCoveredEntity"),
+      covered: bool(data.covered, "setCoveredEntity.covered"),
+      supersedeStarted: bool(data.supersedeStarted, "setCoveredEntity.supersedeStarted"),
+      linkSent: bool(data.linkSent, "setCoveredEntity.linkSent"),
+      auditRecorded: bool(data.auditRecorded, "setCoveredEntity.auditRecorded"),
+    };
+  });
+}
+
+const CARD_CHANNELS = ["web", "meta", "voice"] as const;
+const CARD_CHANNEL_STATUSES = ["off", "paused", "live", "waiting", "setting_up"] as const;
+const TRACKER_STAGES = [
+  "agreement",
+  "payment",
+  "website",
+  "answers",
+  "calendar",
+  "built",
+  "practice_questions",
+] as const;
+const TRACKER_STATES = ["done", "not_done", "info"] as const;
+
+export type ClinicCardView = {
+  id: string;
+  agreementKind: "baa" | "dpa" | null;
+  agreementLabel: string;
+  channels: { channel: (typeof CARD_CHANNELS)[number]; status: (typeof CARD_CHANNEL_STATUSES)[number] }[];
+  tracker: { id: (typeof TRACKER_STAGES)[number]; label: string; state: (typeof TRACKER_STATES)[number] }[];
+  trackerLeft: string[];
+};
+
+export type ClinicCards = { cards: ClinicCardView[]; limit: number };
+
+export function fetchClinicCards(): Promise<OpsResult<ClinicCards>> {
+  return callOps("listClinicCards", "read", {}, (value) => {
+    const data = object(value, "listClinicCards");
+    return {
+      limit: count(data.limit, "listClinicCards.limit"),
+      cards: list(data.cards, "listClinicCards.cards").map((entry) => {
+        const card = object(entry, "card");
+        return {
+          id: id(card.id, "card.id"),
+          agreementKind:
+            card.agreementKind === null
+              ? null
+              : literal(card.agreementKind, ["baa", "dpa"] as const, "card.agreementKind"),
+          agreementLabel: text(card.agreementLabel, "card.agreementLabel"),
+          channels: list(card.channels, "card.channels").map((c) => {
+            const row = object(c, "card.channel");
+            return {
+              channel: literal(row.channel, CARD_CHANNELS, "card.channel.channel"),
+              status: literal(row.status, CARD_CHANNEL_STATUSES, "card.channel.status"),
+            };
+          }),
+          tracker: list(card.tracker, "card.tracker").map((s) => {
+            const row = object(s, "card.stage");
+            return {
+              id: literal(row.id, TRACKER_STAGES, "card.stage.id"),
+              label: text(row.label, "card.stage.label"),
+              state: literal(row.state, TRACKER_STATES, "card.stage.state"),
+            };
+          }),
+          trackerLeft: list(card.trackerLeft, "card.trackerLeft").map((l) => text(l, "card.trackerLeft")),
+        };
+      }),
+    };
+  });
+}
+
+export type SiteReadFailureRow = {
+  ref: string;
+  clinicName: string;
+  website: string | null;
+  createdAt: string;
+  provisionedAt: string | null;
+  clinicId: string | null;
+  profileSince: boolean;
+};
+
+export function fetchSiteReadFailures(): Promise<
+  OpsResult<{ failures: SiteReadFailureRow[]; limit: number }>
+> {
+  return callOps("listSiteReadFailures", "read", {}, (value) => {
+    const data = object(value, "listSiteReadFailures");
+    return {
+      limit: count(data.limit, "listSiteReadFailures.limit"),
+      failures: list(data.failures, "listSiteReadFailures.failures").map((entry) => {
+        const row = object(entry, "failure");
+        return {
+          ref: id(row.ref, "failure.ref"),
+          clinicName: text(row.clinicName, "failure.clinicName"),
+          website: row.website === null ? null : url(row.website, "failure.website"),
+          createdAt: isoInstant(row.createdAt, "failure.createdAt"),
+          provisionedAt: optionalIsoInstant(row.provisionedAt, "failure.provisionedAt"),
+          clinicId: row.clinicId === null ? null : id(row.clinicId, "failure.clinicId"),
+          profileSince: bool(row.profileSince, "failure.profileSince"),
+        };
+      }),
+    };
+  });
 }

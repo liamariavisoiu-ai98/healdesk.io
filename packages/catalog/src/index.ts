@@ -41,6 +41,7 @@ export * from "./forwarding";
 export * from "./google-calendar-disclosure";
 export * from "./message-language";
 export * from "./onboarding";
+export * from "./operator-notices";
 export * from "./plans";
 export * from "./platforms";
 export * from "./provision-request";

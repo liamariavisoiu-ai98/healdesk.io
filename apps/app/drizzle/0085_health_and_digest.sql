@@ -115,4 +115,4 @@ $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_channel_record_first_answer(text, uuid, text) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_channel_record_first_answer(text, uuid, text) TO healdesk_app;--> statement-breakpoint
 COMMENT ON FUNCTION app_channel_record_first_answer(text, uuid, text) IS
-  'Records a live channel''s first answer once, in the caller''s tenant, for a conversation that exists on that channel, stamped from the database''s clock (0082). The plan start or step-up is recorded beside it, in the same transaction. No patient data.';
+  'Records a live channel''s first answer once, in the caller''s tenant, for a conversation that exists on that channel, stamped from the database''s clock (0085). The plan start or step-up is recorded beside it, in the same transaction. No patient data.';

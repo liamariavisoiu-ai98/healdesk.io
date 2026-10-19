@@ -146,30 +146,35 @@ describe("the registry", () => {
   });
 
   /**
-   * The other way round: every variable either app reads is a key on the map
-   * or a setting NOT_KEYS names, so a new secret cannot be added to the code
-   * and stay off the map. A read is `process.env.NAME`, `process.env["NAME"]`,
-   * or one of the helpers that take a name (apps/app's `optional` and
-   * `required`, apps/web's `pastedSetting`); a name held in a constant and
-   * read through it is not seen, which is why those few are on the map by
-   * hand and the forward test above holds them.
+   * The other way round: every variable either app reads, in its code or in
+   * the scripts beside it (run on your computer, or as one-off jobs inside
+   * AWS), is a key on the map or a setting NOT_KEYS names, so a new secret
+   * cannot be added to the code and stay off the map. A read is
+   * `process.env.NAME`, `process.env["NAME"]`, one of the helpers that take a
+   * name (apps/app's `optional` and `required`, apps/web's `pastedSetting`),
+   * a name held in a `…_VARIABLE` constant (lib/host/github.ts), or `env.NAME`
+   * on an environment handed in (lib/checkout-mode.ts). A name
+   * reached any other way is not seen, which is why the forward tests above
+   * hold the map's own names to the code.
    */
   test("every variable either app reads is on the map or named as a setting", () => {
     const READS = [
       /process\.env\.([A-Z][A-Z0-9_]+)/g,
       /process\.env\[\s*["'`]([A-Z][A-Z0-9_]+)["'`]\s*\]/g,
       /\b(?:optional|required|pastedSetting)\(\s*["']([A-Z][A-Z0-9_]+)["']/g,
+      /\b[A-Z][A-Z0-9_]*_VARIABLE\s*=\s*["']([A-Z][A-Z0-9_]+)["']/g,
+      /\benv\??\.([A-Z][A-Z0-9_]+)/g,
     ];
-    const readsIn = (dir: string) => {
+    const readsIn = (...dirs: string[]) => {
       const names = new Set<string>();
-      for (const file of walk(dir)) {
+      for (const file of dirs.flatMap((dir) => walk(dir))) {
         const text = readFileSync(file, "utf8");
         for (const re of READS) for (const m of text.matchAll(re)) names.add(m[1]!);
       }
       return names;
     };
-    const web = readsIn(WEB_SRC);
-    const app = readsIn(join(REPO, "apps", "app", "src"));
+    const web = readsIn(WEB_SRC, join(REPO, "apps", "web", "scripts"));
+    const app = readsIn(join(REPO, "apps", "app", "src"), join(REPO, "apps", "app", "scripts"));
     const onMap = (homes: string[]) => new Set(KEYS.filter((k) => homes.includes(k.home)).map((k) => k.env));
 
     const webKeys = onMap(["vercel"]);
@@ -191,6 +196,14 @@ describe("the registry", () => {
     const example = readFileSync(join(REPO, ".env.example"), "utf8");
     for (const k of KEYS.filter((k) => k.home === "aws-ci")) expect(paste.includes(k.env!) || ssm.includes(k.env!), k.id).toBe(true);
     for (const k of KEYS.filter((k) => k.home === "computer")) expect(example).toContain(`${k.env}=`);
+  });
+
+  test("GitHub's keys are the repository variables the AWS workflows read", () => {
+    const workflows = join(REPO, ".github", "workflows");
+    const text = readdirSync(workflows)
+      .map((name) => readFileSync(join(workflows, name), "utf8"))
+      .join("\n");
+    for (const k of KEYS.filter((k) => k.home === "github")) expect(text, k.id).toContain(`vars.${k.env}`);
   });
 });
 
@@ -256,6 +269,55 @@ describe("assess", () => {
     expect(view.todos.some((t) => t.kind === "waiting" && t.key === "aws.META_APP_SECRET")).toBe(true);
   });
 
+  test("a pasted voice secret alone is not voice: the line stays off until enable_voice is on", () => {
+    const live = allGood();
+    (live.host as Extract<HostReach, { state: "answered" }>).present.HEALDESK_VOICE_ENABLED = false;
+    const view = assess(live);
+
+    expect(key(view, "aws.HEALDESK_RETELL_LLM_SECRET").state).toBe("in-place");
+    expect(bridge(view, "retell-app").status).toBe("off");
+    expect(bridge(view, "retell-app").statusText).toContain("enable_voice");
+    expect(bridge(view, "patients-retell").status).toBe("off");
+    expect(bridge(view, "retell-clinic").status).toBe("off");
+  });
+
+  test("checkout waits on the Sheet it seals purchases into, and on the seal", () => {
+    const sheetDown = assess(allGood({ proofs: { ...allGood().proofs, sheet: { ok: false, detail: "no access" } } }));
+    // A broken Sheet breaks checkout too; only the Sheet gets the to-do.
+    expect(bridge(sheetDown, "web-stripe").status).toBe("broken");
+    expect(bridge(sheetDown, "web-stripe").statusText).toMatch(/^Waits on bridge \d+, "Leads and setup requests/);
+    expect(sheetDown.todos.filter((t) => t.kind === "fix").map((t) => t.bridge)).toEqual(["web-sheets"]);
+
+    const live = allGood();
+    live.vercel.HEALDESK_PROVISION_SECRET = false;
+    expect(bridge(assess(live), "web-stripe").status).toBe("needs-key");
+  });
+
+  test("a bridge that waits on a broken or unconfigured one takes its colour, never 'off on purpose'", () => {
+    const refused = assess(allGood({ host: { state: "refused", message: "most often the two copies differ" }, proofs: {} }));
+    expect(bridge(refused, "stripe-web").status).toBe("broken");
+    expect(bridge(refused, "stripe-web").statusText).toContain("Most often the two copies differ");
+
+    expect(bridge(assess(allGood({ host: { state: "unconfigured" }, proofs: {} })), "stripe-web").status).toBe("needs-key");
+    expect(bridge(assess(allGood({ proofs: { ...allGood().proofs, kms: { ok: false, detail: "denied" } } })), "app-ses").status).toBe("broken");
+  });
+
+  test("an engine older than this page's list says so, rather than 'could not be read'", () => {
+    const live = allGood();
+    delete (live.host as Extract<HostReach, { state: "answered" }>).present.HEALDESK_VOICE_ENABLED;
+    const view = assess(live);
+    expect(bridge(view, "retell-app").status).toBe("unknown");
+    expect(bridge(view, "retell-app").statusText).toContain("older version");
+    for (const b of view.bridges) expect(b.statusText, b.id).not.toContain("could not be read");
+    expect(view.todos.some((t) => t.kind === "check" && t.text.includes("deploy-app.yml"))).toBe(true);
+  });
+
+  test("GitHub's repository variables are named but never checked from here", () => {
+    const view = assess(allGood());
+    for (const k of view.keys.filter((k) => k.home === "github")) expect(k.state, k.id).toBe("not-checked");
+    expect(bridge(view, "github-app").status).toBe("not-checked");
+  });
+
   test("a required key that is missing names itself and where to add it", () => {
     const live = allGood();
     live.vercel.STRIPE_WEBHOOK_SECRET = false;
@@ -272,9 +334,41 @@ describe("assess", () => {
   test("an optional key that is missing switches a feature off and is not a to-do", () => {
     const live = allGood();
     live.vercel.SLACK_WEBHOOK_URL = false;
+    live.vercel.RETELL_DEMO_INBOUND_AGENT_ID = false;
     const view = assess(live);
     expect(key(view, "vercel.SLACK_WEBHOOK_URL").state).toBe("optional-off");
     expect(view.todos.some((t) => t.key === "vercel.SLACK_WEBHOOK_URL")).toBe(false);
+    // Its only key: the whole line is off. One of several: that part is.
+    expect(bridge(view, "web-slack").status).toBe("off");
+    expect(bridge(view, "prospects-retell-demo").status).toBe("working");
+    expect(bridge(view, "prospects-retell-demo").statusText).toContain("not added, so that part is off");
+    expect(bridge(view, "prospects-retell-demo").statusText).not.toContain("every key it needs is in place");
+  });
+
+  test("a demo-line follow-up without its webhook key is part-off, since calls fall back to the API key", () => {
+    const live = allGood();
+    live.vercel.RETELL_WEBHOOK_KEY = false;
+    const view = assess(live);
+    expect(bridge(view, "retell-demo-web").status).toBe("working");
+    expect(bridge(view, "retell-demo-web").statusText).toContain("not added, so that part is off");
+  });
+
+  test("an engine too old to answer, or answering with an error, is never guessed to be in standby", () => {
+    for (const cause of ["outdated", "server-error"] as const) {
+      const view = assess(allGood({ host: { state: "silent", cause, message: "it said so" }, proofs: {} }));
+      for (const id of ["console-app", "app-gcal", "web-app", "app-kms"]) expect(bridge(view, id).statusText, `${cause} ${id}`).not.toContain("standby");
+      expect(view.host.text, cause).not.toContain("standby");
+      const check = view.todos.find((t) => t.kind === "check")!;
+      expect(check.text, cause).not.toContain("standby");
+      if (cause === "outdated") expect(check.text).toContain("deploy-app.yml");
+    }
+  });
+
+  test("an engine that is up but refuses is not called 'in standby'", () => {
+    const view = assess(allGood({ host: { state: "refused", message: "the two copies differ" }, proofs: {} }));
+    expect(bridge(view, "console-app").status).toBe("unknown");
+    expect(bridge(view, "console-app").statusText).toContain("refused");
+    expect(bridge(view, "app-gcal").statusText).not.toContain("standby");
   });
 
   test("a host that does not answer makes its keys unknown, never missing", () => {
@@ -283,8 +377,14 @@ describe("assess", () => {
     expect(bridge(view, "web-app").status).toBe("unknown");
     expect(bridge(view, "app-kms").status).toBe("unknown");
     expect(bridge(view, "app-gcal").status).toBe("unknown");
+    // Keyless work on the engine is not "connected" while there is no engine.
+    expect(bridge(view, "console-app").status).toBe("unknown");
+    expect(bridge(view, "app-exports").status).toBe("unknown");
     expect(view.todos.some((t) => t.kind === "add-key" && t.key?.startsWith("aws."))).toBe(false);
     expect(view.todos.some((t) => t.kind === "check")).toBe(true);
+    // What is unbuilt stays on the list, whatever the host is doing.
+    const builds = view.todos.filter((t) => t.kind === "build").map((t) => t.bridge);
+    expect(builds).toEqual(expect.arrayContaining(["patients-widget", "app-clinic-stripe"]));
   });
 
   test("a host that refuses the signed call breaks the bridge between the two apps", () => {

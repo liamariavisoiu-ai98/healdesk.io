@@ -1,5 +1,5 @@
 {
-  "id": "313d0060-0474-4f10-a8d5-43e8fac0a0e7",
+  "id": "7d4ab586-6587-4f08-8532-52d447d56b79",
   "prevId": "fd69b6a1-46cc-403b-bb6b-c144df0e149b",
   "version": "7",
   "dialect": "postgresql",
@@ -1960,6 +1960,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'assistant'"
+        },
         "last_inbound_at": {
           "name": "last_inbound_at",
           "type": "timestamp with time zone",
@@ -2140,7 +2147,16 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "booking_requests_source_known": {
+          "name": "booking_requests_source_known",
+          "value": "\"booking_requests\".\"source\" in ('assistant', 'contact_form')"
+        },
+        "booking_requests_source_shape": {
+          "name": "booking_requests_source_shape",
+          "value": "\"booking_requests\".\"source\" = 'assistant' or (\"booking_requests\".\"channel\" = 'web_chat' and \"booking_requests\".\"conversation_id\" is null and \"booking_requests\".\"vendor_call_id\" is null)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.calendar_elections": {
@@ -2790,19 +2806,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "paid_seen_at": {
-          "name": "paid_seen_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "provision_failures": {
-          "name": "provision_failures",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "first_invoice_url": {
           "name": "first_invoice_url",

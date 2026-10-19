@@ -50,9 +50,10 @@ describe("the urgent-help screen", () => {
     expect(html).not.toContain("emergency referral clinic");
   });
 
-  test("it says AYA tells the team only once the urgent alert reaches it", () => {
-    // The review of 14 October: the screen promised an alert that only logs.
-    expect(URGENT_ALERT_DELIVERED).toBe(false);
+  test("it says AYA tells the team only once the urgent alert reaches it, which it now does", () => {
+    // The review of 14 October: the screen promised an alert that only logged.
+    // Package F sends L12, so the page passes true (setup/page.tsx).
+    expect(URGENT_ALERT_DELIVERED).toBe(true);
     expect(render(false)).not.toContain("tells your team");
     expect(render(false)).toContain("and gives them the number below.");
     expect(render(false, true)).toContain(

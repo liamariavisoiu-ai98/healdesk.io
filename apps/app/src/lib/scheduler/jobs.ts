@@ -105,6 +105,14 @@ export const JOB_INCIDENT_DEADLINES = "incident-deadlines";
  */
 export const JOB_TRANSCRIPT_EMAILS = "transcript-emails";
 /**
+ * L8, "Request still open" (package F), seeded off by drizzle/0082. Hourly
+ * from the tick: at a clinic's opening hour, only while its daily summary is
+ * off, one email counting the booking requests still waiting for the desk
+ * (lib/scheduler/requests-still-open.ts). The owner switches it on with the
+ * live alerts, once the sender's own switch is on.
+ */
+export const JOB_REQUESTS_STILL_OPEN = "requests-still-open";
+/**
  * The practice questions (lib/engine/practice, plan Part G), seeded off by
  * the practice_questions migration. Every minute from its own
  * `practice-questions` queue: each clinic's due run, one at a time per
@@ -119,7 +127,7 @@ export const JOB_TRANSCRIPT_EMAILS = "transcript-emails";
 export const JOB_PRACTICE_QUESTIONS = "practice-questions";
 /**
  * The internal health flags (WP5; spec, "The first 48 hours" and the voice
- * plan's fourteen days), seeded OFF by drizzle/0082. Hourly from the tick:
+ * plan's fourteen days), seeded OFF by drizzle/0085. Hourly from the tick:
  * a clinic whose channels went live 48 hours ago with no interaction on any
  * of them, and a live phone channel with no inbound call for 14 days, each
  * raised once through notifyOpsOnce (lib/ops/health-flags.ts). Internal: it
@@ -128,7 +136,7 @@ export const JOB_PRACTICE_QUESTIONS = "practice-questions";
  */
 export const JOB_HEALTH_FLAGS = "health-flags";
 /**
- * I2, the 07:00 ops digest (WP5; Annex X5), seeded ON by drizzle/0082, like
+ * I2, the 07:00 ops digest (WP5; Annex X5), seeded ON by drizzle/0085, like
  * incident-deadlines, because it only mails ops, ids and counts: from the
  * hourly tick at 07 UTC and after, once a UTC day, every queue with the age
  * of its oldest item, email health per kind, connection health and the
@@ -137,7 +145,7 @@ export const JOB_HEALTH_FLAGS = "health-flags";
  */
 export const JOB_OPS_DIGEST = "ops-digest";
 /**
- * The ops watch (WP5), seeded ON by drizzle/0082, because it only alerts:
+ * The ops watch (WP5), seeded ON by drizzle/0085, because it only alerts:
  * every minute from the billing-minute queue, a paid purchase with no
  * account ten minutes after its relay reached this host, and B3's follow-up
  * past its day; hourly from the tick, those and every support reply (L25)

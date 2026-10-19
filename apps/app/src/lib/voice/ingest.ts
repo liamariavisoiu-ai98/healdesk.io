@@ -12,7 +12,8 @@ import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { queueTranscriptEmail, sendQueuedTranscriptNow } from "@/lib/conversations/transcript-outbox";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
-import { cleanAlternatives, cleanCollectedFields, createBookingRequest, notifyDesk } from "@/lib/meta/booking-requests";
+import { cleanAlternatives, cleanCollectedFields, createBookingRequest } from "@/lib/meta/booking-requests";
+import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { evaluateForwardingCall, inForwardingTestWindow, observeForwardingCall } from "@/lib/onboarding/forwarding-test";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
@@ -610,7 +611,9 @@ export async function ingestCall(
           collectedFields: request.collectedFields,
         });
         bookingRequestId = created.id;
-        await notifyDesk(tx, created, { channel: "voice", platform: null }, { transport: deps.transport });
+        // L7, in the transaction that writes the request and the call: a
+        // pointer to the clinic's one address, sent after commit.
+        await notifyBookingAlert(tx, "booking_request", { bookingRequestId: created.id, conversationId: row.id, channel: "voice" });
       }
     }
 

@@ -67,7 +67,10 @@ categories; never paste patient data into it.
    clinic must still reach someone, so never contain by leaving the forwarded
    number dead.
 2. **Open the incident** in the console (class, summary in ids, discovery time,
-   conversation id if there is one). The deadline appears on the row.
+   conversation id if there is one). Two deadlines appear on the row: the
+   one the clinic's agreement promises (60 calendar days under BAA 1.2.2 on
+   and the DPA), and our internal 24-hour target, which is never quoted to a
+   clinic as a promise.
 3. **Preserve.** Do not delete the webhook payload, the transcript reference or
    the audit rows involved (no call audio is kept, so there is no recording).
    The retention purge skips nothing on its own; if the evidence is inside its
@@ -89,6 +92,19 @@ categories; never paste patient data into it.
    identify each affected patient in a list sent by secure transfer, never in
    the email. Record `notified_at` and how, and add to the report as we learn
    more.
+
+   The written report is sent from the console's **Incidents** page
+   (/admin/incidents, since 14 October 2026): **Send report** emails the
+   clinic's address an L29 report built from fixed fields only (what
+   happened, from a fixed list; the dates of the event and of its discovery;
+   each type of information with a count; what we did; and the reply address
+   as the contact), records `notified_at`, and can be sent again as an update.
+   The email never names anyone and states no deadline; the patients' list,
+   the patients' own steps and our recommendations still go by secure transfer
+   and by phone, as above. If the incident owes the clinic no report (a
+   routine unsuccessful attempt the agreement already reports once, say),
+   record that with **Not reportable** and the reason instead. Nothing
+   reaches a clinic unless it is sent from that page.
 
    If a law enforcement official says a notice would impede a criminal
    investigation or damage national security, delay it as 45 CFR 164.412

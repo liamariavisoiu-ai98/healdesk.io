@@ -865,7 +865,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     both: true,
     title: "The shop window hands work to the engine",
     carries:
-      "Paid purchases to set up, every Stripe billing change after that, email delivery reports, review and welcome checks, and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses, times and attempt counts, never the words), Reviews (the practice questions waiting for you), Host and this map; the engine answers with what those pages show",
+      "Paid purchases to set up, every Stripe billing change after that, email delivery reports (the shop window's own counted for the morning ops digest), a signer's agreement copy held back for a person to send (its id and why, once per address a day), review and welcome checks, and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses, times and attempt counts, never the words), Reviews (the practice questions waiting for you), Host and this map; the engine answers with what those pages show",
     example: "A clinic's first invoice is paid. The shop window posts its signed agreement to the engine in an envelope sealed with a stamp only the two of them own; the engine checks the seal and opens the clinic's account.",
     keys: ["vercel.HEALDESK_PROVISION_SECRET", "aws.HEALDESK_PROVISION_SECRET", "vercel.HEALDESK_APP_URL", "aws.HEALDESK_ADMIN_EMAIL"],
     phi: false,
@@ -1013,12 +1013,12 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "resend",
     to: "web",
     title: "Resend reports bounces and spam complaints",
-    carries: "Bounces and spam complaints for the shop window's mail; every delivery report for the engine's mail, passed on to it",
+    carries: "Bounces and spam complaints for the shop window's mail, and its sends and complaints counted for the engine's morning digest; every delivery report for the engine's mail, passed on to it",
     example: "A clinic's old address no longer exists. Resend tells us, and we stop writing to it, which keeps our emails out of spam folders.",
     keys: ["vercel.RESEND_WEBHOOK_SECRET"],
     phi: false,
     build: "built",
-    buildNote: "The engine's half is passed on over the bridge to the engine, and waits while the host is off.",
+    buildNote: "The engine's half is passed on over the bridge to the engine, and waits while the host is off. The shop window's counts are passed on once, best effort, and are lost while the host is off.",
   },
   {
     id: "cron-web",

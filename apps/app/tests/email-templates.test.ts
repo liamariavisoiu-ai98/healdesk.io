@@ -59,6 +59,7 @@ import {
   STEPS_SENT_ENTRY,
   stepsReason,
   stepsSentWebFixture,
+  type StepsSentPayload,
 } from "@/lib/email/templates/steps_sent";
 import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import { widgetSnippet } from "@/lib/setup/snippet";
@@ -570,6 +571,55 @@ describe("website chat's line in O10 and O11", () => {
         contextFor("steps_sent"),
       ),
     ).toThrow(EmailCompositionError);
+  });
+});
+
+describe("phone's steps in O11", () => {
+  // The set-up promise describes the step, never the time (CLAUDE.md,
+  // "Claims and copy"). Until 19 October 2026 O11's phone version said "It
+  // takes a few minutes, from the practice's own phone."
+  const phone = STEPS_SENT_ENTRY.fixture as Extract<StepsSentPayload, { channel: "voice" }>;
+  const intro = (payload: StepsSentPayload) => {
+    const { text } = STEPS_SENT_ENTRY.render(payload, contextFor("steps_sent"));
+    const line = text.split("\n").find((l) => l.startsWith("Radiance Med Spa asked us"));
+    expect(line).toBeDefined();
+    return line!;
+  };
+  const LEAD =
+    "Radiance Med Spa asked us to send you these steps. They forward the practice's main line to AYA, its AI assistant from healdesk, so the calls the front desk can't take are answered.";
+
+  test("it says how the steps are done on each path they take, and never how long they take", () => {
+    const cases: [StepsSentPayload, string][] = [
+      // The carrier's codes, dialled from the line being forwarded.
+      [
+        phone,
+        "It's done by dialling the codes below from the practice's own phone, on the main line itself.",
+      ],
+      [
+        { ...phone, carrier: "verizon", phoneSystem: "unknown", routing: "after_hours_only" },
+        "It's done by dialling the codes below from the practice's own phone, on the main line itself.",
+      ],
+      // A cloud phone system: a rule in its admin, whatever the carrier.
+      [
+        { ...phone, phoneSystem: "voip" },
+        "It's done in the admin of the practice's phone system, as below.",
+      ],
+      // No codes for the carrier: the steps ask it.
+      [{ ...phone, carrier: null }, "It's done by asking the practice's phone company, as below."],
+      [
+        { ...phone, carrier: "other", routing: "all_calls" },
+        "It's done by asking the practice's phone company, as below.",
+      ],
+    ];
+    for (const [payload, how] of cases) {
+      const line = intro(payload);
+      expect(line).toBe(`${LEAD} ${how}`);
+      // The lead's "can't take" is about calls; the step's sentence follows it.
+      expect(line.slice(LEAD.length)).not.toMatch(
+        /\b(takes?|few|couple|minutes?|hours?|seconds?|quick(ly)?|\d+)\b/i,
+      );
+      expect(copyProblems(line)).toEqual([]);
+    }
   });
 });
 

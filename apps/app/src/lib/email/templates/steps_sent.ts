@@ -1,3 +1,5 @@
+import { forwardingInstructions } from "@healdesk/catalog";
+
 import { publicUrl } from "@/lib/public-url";
 import { WIDGET_SCRIPT_PATH } from "@/lib/setup/snippet";
 
@@ -41,7 +43,7 @@ export const renderStepsSent: EmailTemplate<StepsSentPayload> = (payload, ctx) =
   const blocks: Block[] = [
     {
       type: "paragraph",
-      text: `${clinic} asked us to send you these steps. They forward the practice's main line to AYA, its AI assistant from healdesk, so the calls the front desk can't take are answered. It takes a few minutes, from the practice's own phone.`,
+      text: `${clinic} asked us to send you these steps. They forward the practice's main line to AYA, its AI assistant from healdesk, so the calls the front desk can't take are answered. ${howItIsDone(payload)}`,
     },
     ...forwardingBlocks(payload),
   ];
@@ -66,6 +68,29 @@ export const renderStepsSent: EmailTemplate<StepsSentPayload> = (payload, ctx) =
 };
 
 const QUESTIONS_LINE = "Questions? Reply to this email and a person at healdesk answers.";
+
+/**
+ * What doing the steps below involves, never how long it takes (the set-up
+ * promise describes the step, never the time; until 19 October 2026 this
+ * said "It takes a few minutes"). The same three paths the steps take
+ * (forwardingInstructions): the carrier's codes dialled from the line being
+ * forwarded; a rule in a cloud phone system's admin; or, with no codes for
+ * the carrier, a request to it.
+ */
+function howItIsDone(fields: ForwardingFields): string {
+  if (fields.phoneSystem === "voip") {
+    return "It's done in the admin of the practice's phone system, as below.";
+  }
+  const { needsCarrierHelp } = forwardingInstructions({
+    carrier: fields.carrier,
+    phoneSystemType: fields.phoneSystem,
+    routing: fields.routing,
+    destinationE164: fields.ayaNumberE164,
+  });
+  return needsCarrierHelp
+    ? "It's done by asking the practice's phone company, as below."
+    : "It's done by dialling the codes below from the practice's own phone, on the main line itself.";
+}
 
 /** Website chat's: who asked, the two-sentence instruction, and the line. */
 function renderWebLine(

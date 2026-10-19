@@ -521,6 +521,62 @@ export const KEY_ROTATIONS: Tab = {
   ],
 };
 
+/**
+ * The owner's ticks on the SEO steps at /admin/seo (lib/admin/seo/steps.ts).
+ * Append-only, like key_rotations: one row per tick or untick, and the newest
+ * row for a step is its state. A step id, true or false, when and who; never
+ * free text.
+ */
+export type SeoStepTickRow = {
+  id: string;
+  stepId: string;
+  done: boolean;
+  at: Date;
+  recordedBy: string;
+};
+
+export const SEO_STEP_TICKS: Tab = {
+  title: "seo_step_ticks",
+  columns: [
+    col("id", "id", "text"),
+    col("step_id", "stepId", "text"),
+    col("done", "done", "bool"),
+    col("at", "at", "timestamp"),
+    col("recorded_by", "recordedBy", "text"),
+  ],
+};
+
+/**
+ * One answer from one AI engine to one panel question, as logged at
+ * /admin/seo (lib/admin/seo/panel.ts). Append-only. Whether the answer named
+ * healdesk, whether it cited healdesk.io, and the public URLs it cited: the
+ * engines' answers are about clinics in general, never about a patient.
+ */
+export type AiPanelRunRow = {
+  id: string;
+  ranOn: string;
+  engine: string;
+  questionId: string;
+  named: boolean;
+  cited: boolean;
+  sources: string;
+  recordedBy: string;
+};
+
+export const AI_PANEL_RUNS: Tab = {
+  title: "ai_panel_runs",
+  columns: [
+    col("id", "id", "text"),
+    col("ran_on", "ranOn", "text"),
+    col("engine", "engine", "text"),
+    col("question_id", "questionId", "text"),
+    col("named", "named", "bool"),
+    col("cited", "cited", "bool"),
+    col("sources", "sources", "text"),
+    col("recorded_by", "recordedBy", "text"),
+  ],
+};
+
 export const TABS: readonly Tab[] = [
   LEADS,
   LEAD_EVENTS,
@@ -531,6 +587,8 @@ export const TABS: readonly Tab[] = [
   AGREEMENTS,
   CHECKOUT_INTENTS,
   KEY_ROTATIONS,
+  SEO_STEP_TICKS,
+  AI_PANEL_RUNS,
 ];
 
 // -----------------------------------------------------------------------------

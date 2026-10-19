@@ -55,6 +55,8 @@ describe("marketing sheet schema", () => {
       "agreements",
       "checkout_intents",
       "key_rotations",
+      "seo_step_ticks",
+      "ai_panel_runs",
     ]);
     for (const tab of TABS) {
       for (const column of tab.columns) {
@@ -83,7 +85,7 @@ describe("the lead store over the Sheet", () => {
     __resetSheetSchemaForTests();
   });
 
-  it("provisions the nine tabs with their header rows on first use, and leaves the owner's tabs alone", async () => {
+  it("provisions the eleven tabs with their header rows on first use, and leaves the owner's tabs alone", async () => {
     await recordDemoUnlock({ email: "a@b.co", isBusinessEmail: true });
     expect([...sheets.tabs.keys()]).toEqual([
       "Sheet1",
@@ -96,6 +98,8 @@ describe("the lead store over the Sheet", () => {
       "agreements",
       "checkout_intents",
       "key_rotations",
+      "seo_step_ticks",
+      "ai_panel_runs",
     ]);
     expect(sheets.tabs.get("leads")![0]).toEqual(LEADS.columns.map((c) => c.header));
     expect(sheets.tabs.get("lead_events")![0]).toEqual(LEAD_EVENTS.columns.map((c) => c.header));

@@ -14,6 +14,7 @@ import type { Metadata } from "next";
 import { TrackView } from "@/components/analytics/TrackView";
 import { BuyButton, BuyModalProvider } from "@/components/BuyModal";
 import { Footer } from "@/components/Footer";
+import { JsonLd } from "@/components/JsonLd";
 import { Nav } from "@/components/Nav";
 import { PricingSheet } from "@/components/pricing/PricingSheet";
 import {
@@ -25,15 +26,41 @@ import {
   usd,
 } from "@/lib/pricing";
 import { site } from "@/lib/site";
+import { softwareApplicationLd } from "@/lib/structured-data";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/pricing" },
-  title: "Pricing",
+  // The category's words, the way a buyer searches for a price (strategy,
+  // 14 October 2026); the H1 below stays the owner's.
+  title: "AI receptionist pricing",
   description:
     "What AYA costs: pick a product, pick a usage step from 100 to 1,500 minutes or " +
     "conversations a month, and pay a one-time setup fee. Prices are per location; annual " +
     "billing is 20% off.",
 };
+
+/**
+ * The date the prices below were set: the owner's pricing sheet. Printed with
+ * them, because a price an answer engine quotes should carry its date.
+ */
+const PRICES_AS_OF = "13 October 2026";
+
+/**
+ * Every product's price in one sentence, from the catalog, so an answer to
+ * "what does an AI receptionist cost" can be lifted whole and cannot drift
+ * from checkout. The setup discount is not here: the website's 30% has its
+ * own clock and copy, and the operator-demo 50% is never printed publicly.
+ */
+function priceSentence(): string {
+  const { voice, webchat, metachat } = PRODUCTS;
+  return (
+    `As of ${PRICES_AS_OF}, ${voice.name} costs ${usd.format(voice.perStepMonthlyUsd)} a month per ` +
+    `${String(STEP_UNITS)} voice minutes, ${webchat.name} ${usd.format(webchat.perStepMonthlyUsd)} and ` +
+    `${metachat.name} ${usd.format(metachat.perStepMonthlyUsd)} per ${String(STEP_UNITS)} conversations, ` +
+    `with a one-time setup fee of ${usd.format(voice.setupFeeUsd)}, ${usd.format(webchat.setupFeeUsd)} ` +
+    `and ${usd.format(metachat.setupFeeUsd)} respectively.`
+  );
+}
 
 /**
  * The sheet's worked example of mixing steps: 500 voice minutes and 300 web
@@ -131,6 +158,7 @@ export default function PricingPage() {
     <BuyModalProvider>
       <TrackView event="pricing_viewed" />
       <Nav />
+      <JsonLd data={softwareApplicationLd()} />
 
       <main className="mx-auto max-w-[1240px] px-5 pt-16 sm:px-8 sm:pt-20 lg:px-14">
         <div className="max-w-[58ch]">
@@ -144,6 +172,7 @@ export default function PricingPage() {
             product, and your plan starts the day {site.agent} first answers a patient. Prices
             are per location; annual billing is {annualSavingsPercent()}% off.
           </p>
+          <p className="text-muted mt-4 text-[16.5px] leading-[1.6]">{priceSentence()}</p>
         </div>
 
         <section aria-labelledby="how-heading" className="mt-16">
@@ -233,7 +262,7 @@ export default function PricingPage() {
             comparison is only fair if it is honest about the desk work that
             stays with a person. */}
         <section className="border-line mt-20 rounded-lg border bg-white p-7 sm:p-10">
-          <p className="eyebrow-tag">A smarter way to answer every call</p>
+          <p className="eyebrow-tag">A smarter way to answer the phone</p>
           <h2 className="font-display mt-5 max-w-[22ch] text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-normal tracking-[-0.024em] text-balance">
             Why pay {usd.format(wageMonthly)} a month just to keep the phone covered?
           </h2>

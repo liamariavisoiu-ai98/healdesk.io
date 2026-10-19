@@ -329,11 +329,19 @@ describe("the site makes none of the claims it may not make", () => {
 });
 
 /**
- * Anthropic keeps inputs for 30 days, except content its automated
- * trust-and-safety systems flag or the law requires it to keep, which it may
- * keep for up to two years, even under its BAA (agreement-changes.md, finding
- * A3). Every paragraph, list item or table cell that states the 30 days must
- * carry the exception, on every surface that states it.
+ * Anthropic keeps conversation content for no more than 30 days under the
+ * standard retention of a HIPAA-ready organisation, and may keep content its
+ * automated trust-and-safety systems flag for up to two years, even under its
+ * BAA. Every paragraph, list item or table cell that states the 30 days must
+ * carry that exception, on every surface that states it.
+ *
+ * The two years belong to flagged content alone. Content the law requires it
+ * to keep is kept as long as the law requires, with no cap, and "cannot run
+ * with shorter retention" is true only of Anthropic's Covered Models, which
+ * the product does not call (packages/catalog model-retention.ts;
+ * agreement-changes.md § 16, which corrects finding A3's misquote). So no
+ * sentence may give the law's exception the two years, and none may carry the
+ * Covered Models' requirement or a purpose Anthropic does not state.
  */
 describe("the model provider's 30 days always travel with the two-year exception", () => {
   const SURFACES = {
@@ -367,6 +375,35 @@ describe("the model provider's 30 days always travel with the two-year exception
     for (const element of [h(KnowMore), h(TermsPage), h(DataDeletionPage)]) {
       expect(blocks(renderToStaticMarkup(element)).some((block) => /\b30 days\b/.test(block) && /two years/.test(block))).toBe(true);
     }
+  });
+
+  /** Every statement of the retention, on a surface or in the register, split into its sentences and clauses. */
+  const statements = (): { where: string; clause: string }[] => [
+    ...Object.entries(SURFACES).flatMap(([where, element]) =>
+      blocks(renderToStaticMarkup(element)).map((block) => ({ where, block })),
+    ),
+    ...SUBPROCESSORS.map((vendor) => ({ where: `register: ${vendor.name}`, block: normalise(vendor.data) })),
+  ].flatMap(({ where, block }) =>
+    block.split(/(?<=[.;:])\s+/).map((clause) => ({ where, clause })),
+  );
+
+  test("no sentence gives content the law requires the two years: the law's own period, with no cap", () => {
+    const offenders = statements().filter(
+      ({ clause }) =>
+        /law requires/.test(clause) && /two years/.test(clause) && !/as long as the law requires/.test(clause),
+    );
+    expect(offenders).toEqual([]);
+    // And the ones that name the law's exception give it its own period.
+    const law = statements().filter(({ clause }) => /content the law requires/.test(clause));
+    expect(law.length).toBeGreaterThan(3);
+    for (const { where, clause } of law) expect(clause, where).toMatch(/as long as the law requires/);
+  });
+
+  test("no statement carries what Anthropic says only of its Covered Models, or a purpose it does not give", () => {
+    const offenders = statements().filter(({ clause }) =>
+      /cannot run with|run with none|cannot shorten|covered models? require|abuse detection/i.test(clause),
+    );
+    expect(offenders).toEqual([]);
   });
 });
 

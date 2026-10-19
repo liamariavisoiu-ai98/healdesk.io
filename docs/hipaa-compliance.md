@@ -88,7 +88,7 @@ by scoping.
 | Hosting (product) | AWS (`us-east-1`, account `865780386982`) | **Accepted 22 September 2026** (account agreement in AWS Artifact). Covers only that account and HIPAA-eligible services; record in [policies/aws-hipaa-account.md](./policies/aws-hipaa-account.md) |
 | Database (product) | AWS RDS for PostgreSQL, or Neon on its Scale plan | **Not chosen.** RDS is covered by the AWS agreement already held; Neon signs its own (self-serve) and its Data API sits outside it. Sign, then apply the settings the agreement requires |
 | Voice telephony and speech | Retell | **Pending — self-serve.** Sign the BAA and DPA in Retell's click-agreements portal and confirm the executed text names the services in use; then set per-agent retention to the minimum, PII controls on and recording off. PHI subprocessor: caller audio in transit, transcript, number |
-| LLM, every channel | Anthropic (Claude API) | **Pending.** The primary owner signs and arranges activation. Patient traffic runs in its own HIPAA-ready organisation, never the marketing org. Covered models require **30-day retention** and cannot run with zero data retention; the clinic agreement must disclose it. Batch, Files, web fetch, compaction and context editing are excluded from coverage (blockers-runbook §3) |
+| LLM, every channel | Anthropic (Claude API) | **Pending.** The primary owner signs and arranges activation. Patient traffic runs in its own HIPAA-ready organisation, never the marketing org. The models in use, `claude-opus-5-5` and `claude-sonnet-5-5` (`PATIENT_MODEL_IDS`, `packages/catalog/src/model-retention.ts`), are not Anthropic's Covered Models (Claude Fable and Mythos, which require 30-day retention): under the HIPAA-ready organisation's standard retention they keep conversation content **no more than 30 days**, flagged content up to two years, and law-required content as long as the law requires. The clinic agreement must disclose it (BAA 1.6.0, drafted; `docs/counsel/agreement-changes.md` § 16). The responder refuses a model override outside that list. Batch, Files, web fetch, compaction and context editing are excluded from coverage (blockers-runbook §3) |
 | Calendar | Google Calendar (the clinic's own) | Between the **clinic and Google**, on a paid Workspace plan; confirm per clinic at onboarding. The clinic's OAuth token, granted to Healdesk's Google Cloud app, is stored in `apps/app` (not built yet) |
 | Payments (our subscription) | Stripe | **Never, on any tier.** Not needed: the buyer's name, work email and invoice are business contact data |
 | Payments (patient deposits) | Stripe Connect or the clinic's own gateway | **Never.** Used only inside the payment-processing carve-out: an amount, a generic descriptor and an opaque reference. No treatment name, diagnosis or clinical metadata in the description, the statement descriptor or metadata |
@@ -211,8 +211,10 @@ for.
   to 14 day cycle whether or not the lead buys.
 - **Never log PHI.** Not to stdout, not to an error tracker, not to analytics. Scrub
   before it leaves the process.
-- **No PHI in LLM prompts** except through the BAA-covered Anthropic organisation, with its
-  30-day retention disclosed.
+- **No PHI in LLM prompts** except through the BAA-covered Anthropic organisation, on a
+  model in `PATIENT_MODEL_IDS`, with its retention disclosed as Anthropic documents it:
+  no more than 30 days, two years for flagged content, the law's own period for what the
+  law requires (`packages/catalog/src/model-retention.ts`).
 - **Offboarding** is export first, then destroy, on the clock the agreement states. The
   obligations persist through non-payment, suspension and cancellation until PHI is
   returned or destroyed.
@@ -229,7 +231,8 @@ patient-authored review text into any system that stores patient data.
 
 - [ ] Healthcare attorney review of the product and data flows, including the spec's open
       legal items (state-by-state AI-disclosure and transcription consent, the UAE
-      business-associate question, the 30-day Anthropic retention disclosure)
+      business-associate question, the Anthropic retention disclosure and BAA 1.6.0's
+      release, agreement-changes.md § 16)
 - [ ] BAA signed with Retell, Anthropic and the database provider; AWS already accepted
 - [ ] `apps/app` running on the AWS HIPAA account (CLAUDE.md lists what blocks the deploy)
 - [ ] Audit logging, including the transcript access log, implemented and verified

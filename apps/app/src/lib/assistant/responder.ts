@@ -21,6 +21,7 @@ import type { AssistantChannel } from "./facts";
  *     instead of silence;
  *   - the Meta front door: claude-opus-5-5, 800 tokens, adaptive thinking,
  *     the SDK's own timeout and retries, as it always had.
+ *
  * An override names one of PATIENT_MODEL_IDS (@healdesk/catalog
  * model-retention.ts) or is ignored, with a warning and the channel's
  * default: the terms, BAA 1.6.0 and the DPA state Anthropic's retention for

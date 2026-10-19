@@ -517,9 +517,11 @@ function describeVariant(v: BaaVariables): string {
  * passages said as the product then worked, and 1.5.0, current since 14
  * October 2026, is 1.4.0 with the transcript's copy deleted once delivery is
  * confirmed. They have the same matrix, so all three run here; only the
- * current one is signable.
+ * current one is signable. 1.6.0, drafted on 19 October 2026, is 1.5.0 with
+ * Anthropic's retention as Anthropic documents it (agreement-changes.md §16):
+ * the same matrix again, and not signable until the owner releases it.
  */
-describe.each(["1.3.0", "1.4.0", "1.5.0"])("every %s variant the funnel will produce", (V130) => {
+describe.each(["1.3.0", "1.4.0", "1.5.0", "1.6.0"])("every %s variant the funnel will produce", (V130) => {
   const v130 = () => getBaaTemplate(V130)!;
   const SIGNER = {
     clinicLegalName: VARS.clinicLegalName,
@@ -656,6 +658,14 @@ describe.each(["1.3.0", "1.4.0", "1.5.0"])("every %s variant the funnel will pro
       bookingSystem: "none",
       calendarAccount: "workspace_baa",
     });
+    if (V130 === "1.6.0") {
+      // A draft: not current, not in the overlap, refused by name.
+      expect(v130().approvedByCounsel).toBe(false);
+      expect(currentBaaTemplate()).not.toBe(v130());
+      expect(BAA_RELEASE_OVERLAP).not.toHaveProperty(V130);
+      expect(() => validateSignRequest(request)).toThrow(AgreementError);
+      return;
+    }
     expect(v130().approvedByCounsel).toBe(true);
     if (V130 === "1.5.0") {
       expect(currentBaaTemplate()).toBe(v130());

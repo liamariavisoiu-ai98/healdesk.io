@@ -1,6 +1,9 @@
 import {
   MAX_STEP_UNITS,
   MIN_STEP_UNITS,
+  MODEL_RETENTION_EXCEPTIONS,
+  MODEL_RETENTION_PUBLIC,
+  MODEL_STANDARD_RETENTION_DAYS,
   OVERAGE_BLOCK_UNITS,
   OVERAGE_RATES_PROVISIONAL,
   STEP_UNITS,
@@ -198,6 +201,27 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * credits are the four the catalog defines, only one of which applies to a
  * purchase. The deferred start, the non-refundable setup fee and the refund
  * window are unchanged.
+ *
+ * Revised on 19 October 2026 as LEGAL_VERSION 2026-10-19.1, for the model
+ * provider's retention (docs/counsel/agreement-changes.md § 16). Section 9
+ * and the annex's model item said the provider keeps conversation content
+ * "for 30 days, for abuse detection and security", that content the law
+ * requires it to keep may be kept "for up to two years", and that its service
+ * "cannot run with shorter retention" (the annex: "the models it covers
+ * require 30 days of data retention and cannot run with none"). Anthropic's
+ * documentation says none of that of the models the product calls
+ * (claude-opus-5-5 and claude-sonnet-5-5): a HIPAA-ready organisation runs
+ * under standard retention, which deletes content within 30 days, with no
+ * purpose stated; the two years belong to flagged content alone; the
+ * law-required exception has no stated limit; and only its Covered Models,
+ * which the product does not call, need 30 days. Both now print the catalog's
+ * sentences (packages/catalog model-retention.ts), which the BAA 1.6.0 draft
+ * and the DPA share, still naming no vendor and still stating the provider's
+ * agreement as a promise about when it is signed (release gates 14 and 17).
+ * Section 9 no longer says "The Business Associate Agreement states the
+ * same": BAA 1.5.0, the version signed today, still carries the old clause,
+ * and the corrected one is the 1.6.0 draft, which only the owner can release.
+ * When it is released, that sentence can come back.
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -581,12 +605,9 @@ export default function TermsPage() {
         <p>
           <strong>The language model.</strong> Our language-model provider receives the content of
           each conversation, to generate the agent&apos;s replies, only under a business associate
-          agreement with us signed before any patient&apos;s information reaches it. Under that
-          agreement it keeps conversation content for 30 days, for abuse detection and security,
-          and then deletes it, except content its automated trust-and-safety systems flag or the
-          law requires it to keep, which it may keep for up to two years; the service it provides
-          under that agreement cannot run with shorter retention, and it never trains on that
-          content. The Business Associate Agreement states the same.
+          agreement with us signed before any patient&apos;s information reaches it.{" "}
+          {MODEL_RETENTION_PUBLIC} This is the provider&apos;s own documented retention, which
+          neither we nor you control.
         </p>
         <p>
           <strong>Meta channels.</strong> Instagram, Messenger and WhatsApp are operated by Meta,
@@ -924,12 +945,14 @@ export default function TermsPage() {
             descriptor or the metadata.
           </li>
           <li>
-            <strong>The AI model keeps inputs for 30 days.</strong> Our model provider covers its
-            service under its own business associate agreement, but the models it covers require 30
-            days of data retention and cannot run with none. Even under that agreement it may keep
-            content its automated trust-and-safety systems flag, or that the law requires it to
-            keep, for up to two years. Everywhere else we push retention down; this one we cannot,
-            so we say so here rather than leave it for your counsel to find.
+            <strong>
+              The AI model provider keeps inputs for up to {MODEL_STANDARD_RETENTION_DAYS} days.
+            </strong>{" "}
+            Our model provider&apos;s own business associate agreement covers its service only
+            under its standard retention, which we do not control: it keeps conversation content
+            for no more than {MODEL_STANDARD_RETENTION_DAYS} days, and then deletes it.{" "}
+            {MODEL_RETENTION_EXCEPTIONS} Everywhere else we push retention down; this one we
+            cannot, so we say so here rather than leave it for your counsel to find.
           </li>
           <li>
             <strong>Your calendar is yours.</strong> Bookings are written into your own Google

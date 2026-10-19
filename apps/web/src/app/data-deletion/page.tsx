@@ -1,4 +1,8 @@
-import { TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
+import {
+  MODEL_RETENTION_EXCEPTIONS,
+  MODEL_STANDARD_RETENTION_DAYS,
+  TRANSCRIPT_RETENTION_DAYS,
+} from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
@@ -19,7 +23,7 @@ export const metadata: Metadata = {
  *
  * Adopted 3 Oct 2026 by the owner without external counsel review, with the
  * model provider's two-year exception added beside its 30 days
- * (docs/counsel/agreement-changes.md, finding A3). Three audiences, because
+ * (docs/counsel/agreement-changes.md, finding A3, corrected in § 16). Three audiences, because
  * the answer differs: a visitor to this site, whose data we control; a clinic,
  * whose connections and account we hold; and a patient who messaged a
  * clinic, whose record the clinic controls under its Business Associate
@@ -49,6 +53,16 @@ export const metadata: Metadata = {
  * encrypted copy goes as soon as the clinic's mail server confirms delivery,
  * or 30 days after it was queued if it is never delivered, where it went
  * seven days after the email first went.
+ *
+ * Revised 19 October 2026 (LEGAL_VERSION 2026-10-19.1), for the model
+ * provider's retention (docs/counsel/agreement-changes.md § 16): the clinic
+ * section said the provider keeps inputs "for 30 days under its own
+ * agreement, which we cannot shorten", and may keep flagged or law-required
+ * content "for up to two years". Anthropic's documentation, for the models
+ * the product calls, gives no more than 30 days under the standard retention
+ * of a HIPAA-ready organisation, two years for flagged content alone, and no
+ * limit for what the law requires; the section now prints the catalog's
+ * exceptions sentence (packages/catalog model-retention.ts), naming no vendor.
  */
 export default function DataDeletionPage() {
   const email = (
@@ -101,9 +115,9 @@ export default function DataDeletionPage() {
             is yours to delete. The record of each conversation, without what was
             said, is also deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after it took
             place. Email {email} from the owner&apos;s address on the account. Our AI model
-            provider keeps conversation inputs for 30 days under its own agreement, which we cannot
-            shorten, and may keep content its automated trust-and-safety systems flag, or that the
-            law requires it to keep, for up to two years.
+            provider keeps conversation inputs for no more than {MODEL_STANDARD_RETENTION_DAYS}{" "}
+            days under the standard retention of its own agreement, which we do not control, and
+            then deletes them. {MODEL_RETENTION_EXCEPTIONS}
           </li>
         </ul>
       </Section>

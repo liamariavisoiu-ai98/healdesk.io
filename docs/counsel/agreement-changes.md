@@ -38,6 +38,15 @@
 > recommends that counsel review it. No clinic had signed 1.4.0, so 1.5.0
 > replaced it outright: 1.4.0 is no longer signable, and 1.5.0 is the
 > go-live floor.
+>
+> **On 19 October 2026 BAA 1.6.0 was drafted and not released** (§ 16,
+> `docs/baa-v1.6.0.txt`): 1.5.0 with Anthropic's retention said as
+> Anthropic's documentation says it for the models the product calls. Finding
+> A3 (§ 3) had quoted that documentation with an ellipsis that gave content
+> the law requires Anthropic to keep the two years Anthropic gives flagged
+> content alone; § 16 corrects it. 1.5.0 stays the version offered until the
+> owner releases 1.6.0. The terms, /data-deletion, the homepage FAQ, the
+> register and the unreleased DPA were corrected the same day.
 
 ## Contents
 
@@ -56,7 +65,8 @@
 13. [BAA 1.2.2: the list on request, one email address, the spec's breach wording](#13-baa-122-the-list-on-request-one-email-address-the-specs-breach-wording)
 14. [BAA 1.4.0: the transcript emailed, not kept](#14-baa-140-the-transcript-emailed-not-kept) (released 13 October 2026)
 15. [BAA 1.5.0: the transcript's copy deleted once delivery is confirmed](#15-baa-150-the-transcripts-copy-deleted-once-delivery-is-confirmed) (released 14 October 2026)
-16. [Review log](#review-log-2026-10-01)
+16. [BAA 1.6.0: the model provider's retention, as Anthropic documents it](#16-baa-160-the-model-providers-retention-as-anthropic-documents-it) (drafted 19 October 2026, not released)
+17. [Review log](#review-log-2026-10-01)
 
 ---
 
@@ -67,7 +77,7 @@ Owner's decisions of 1 October 2026, now in code:
 | Decision | Where |
 | --- | --- |
 | BAA 1.2.0 published, approved by the owner without external counsel, then replaced the same day by 1.2.1 carrying the five fixes in § 3 (A1–A5); 1.0.0 no longer offered | `BAA_TEMPLATES[0]` is 1.2.1, `approvedByCounsel: true` with the doc comment recording the basis; `docs/baa-v1.2.1.txt` |
-| Anthropic retention stated with the exception its own terms carry: 30 days, except flagged or legally required content, which may be kept up to two years | 1.2.1 clause 11; terms § 9; `/subprocessors` |
+| Anthropic retention stated with the exception its own terms carry: 30 days, except flagged or legally required content, which may be kept up to two years. **Corrected 19 October 2026 (§ 16):** Anthropic gives the two years to flagged content only and no limit to what the law requires | 1.2.1 clause 11; terms § 9; `/subprocessors` |
 | Anthropic named as the model provider; 30-day retention for abuse detection and security stated; no training | 1.2.0 clause 11; terms § 9 |
 | Callbacks, the Cal.com write, the direct-booking addendum and the reactivation gate removed; Google Calendar clause added, unconditional | 1.2.0 clauses 4, 5, 8; terms § 2 and § 8 "Bookings" |
 | One liability allocation: healdesk's liability excluded where the law allows, capped at twelve months' Fees otherwise, not reaching wilful misconduct, gross negligence or non-limitable liability; the clinic indemnifies, breach investigation and notification costs included; a regulator's civil money penalty on healdesk cannot be shifted and the text says so | 1.2.0 clause 16; terms §§ 13–14 |
@@ -137,7 +147,7 @@ arrangement, not a countersignature. Low risk, noted.
 | 8 | Safeguards | Kept with the callback sentence removed; the one exception is the call a patient placed; no calls, no SMS | **A4.** "will not transmit PHI over a channel that cannot negotiate encryption — email included" contradicts itself and the design: PHI email goes only through SES with `TlsPolicy=REQUIRE`, which fails delivery when the receiving server will not negotiate TLS (risk analysis T13). Delete "— email included" or say "an email whose receiving server will not negotiate encryption is failed, not sent". Also say that the list of individuals in a breach report goes by secure transfer, not in the email (`incident-response.md` step 5 already does this) |
 | 9 | Minimum necessary | Kept and extended: the callback-slip set; no history, medication or diagnosis; no card numbers; the fixed opening disclosure | None |
 | 10 | Reporting | Kept: five business days for improper use and security incidents, five calendar days for a breach, § 164.410(c) contents; cost allocation deferred to cl. 16 | None |
-| 11 | Subcontractors | Names Anthropic, states the 30 days, the purpose, "cannot run with shorter retention", no training. Basis: spec "Five rules", third rule, and Anthropic's published terms (§ 4) | **A3.** "retains conversation content for 30 days … and then deletes it" overstates. Anthropic's own pages say content flagged by its automated trust-and-safety systems, or that the law requires it to keep, may be retained for up to two years, "even with ZDR or HIPAA arrangements in place". Add: "except content Anthropic's automated trust-and-safety systems flag or the law requires it to keep, which it may retain for up to two years". The same sentence is in terms § 9 and must change there too |
+| 11 | Subcontractors | Names Anthropic, states the 30 days, the purpose, "cannot run with shorter retention", no training. Basis: spec "Five rules", third rule, and Anthropic's published terms (§ 4) | **A3.** "retains conversation content for 30 days … and then deletes it" overstates. Anthropic's own pages say content flagged by its automated trust-and-safety systems, or that the law requires it to keep, may be retained for up to two years, "even with ZDR or HIPAA arrangements in place". Add: "except content Anthropic's automated trust-and-safety systems flag or the law requires it to keep, which it may retain for up to two years". The same sentence is in terms § 9 and must change there too. **Corrected 19 October 2026 (§ 16):** this misreads the source. Its full text is "Even with ZDR or HIPAA arrangements in place, Anthropic may retain data where required by law or where it has been flagged by Anthropic's automated trust and safety systems. As a result, if a chat or session is flagged, Anthropic may retain inputs and outputs for up to 2 years." The two years belong to flagged content alone, and the law-required exception has no stated limit. "For abuse detection and security" and "cannot run with shorter retention" are not stated for the models the product calls either; the second is true only of Anthropic's Covered Models. BAA 1.2.1 to 1.5.0 carry the misreading and are frozen; 1.6.0 corrects it |
 | 12 | Patient rights | 1.0.0 object | None |
 | 13 | Acting in your place | 1.0.0 object | "sending messages in Practice's name" is accurate for replies. Optional: "replying in Practice's name" |
 | 14 | Not authorised | New object: no training; no PHI to any advertising or analytics platform; Meta named, with the scoping ("handles no clinical content, confirms no appointment details"); no clinical advice; no sale | Consistent with the one rule in § 6. Privacy § 12 and `disclosure.ts` must align (§ 8, § 11) |
@@ -157,7 +167,7 @@ pages read on 1 October 2026.
 
 | Vendor | Role | PHI? | Agreement | Verified this session |
 | --- | --- | --- | --- | --- |
-| Anthropic | Language model, every channel | Yes | HIPAA readiness enabled from the Claude Console by executing Anthropic's standard BAA; **pending** | https://platform.claude.com/docs/en/manage-claude/api-and-data-retention : "Conversation content … is not retained by default; the exception is Covered Models, which require 30-day retention"; "Retained data is never used for model training without your express permission"; ZDR is not available to a HIPAA-ready organisation; HIPAA readiness is organisation-wide, so a separate organisation is needed for non-HIPAA work (matches the two-org design); "Even with ZDR or HIPAA arrangements in place, Anthropic may retain data where required by law or where it has been flagged by Anthropic's automated trust and safety systems … for up to 2 years" (finding A3); **"Do not include PHI in JSON schema definitions"** for structured outputs and `strict` tools, because compiled schemas are cached without PHI protections (engineering rule, § 11). https://support.claude.com/en/articles/15455031-covered-models-under-a-business-associate-agreement-baa (1 Jul 2026): "HIPAA-ready API" with standard retention is an Eligible Service; Covered Models "require 30-day data retention on every platform". https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data (1 Jul 2026): deletion "within 30 days", except by agreement, "to enforce our Usage Policy", or by law; Usage Policy violations "up to 2 years" |
+| Anthropic | Language model, every channel | Yes | HIPAA readiness enabled from the Claude Console by executing Anthropic's standard BAA; **pending** | https://platform.claude.com/docs/en/manage-claude/api-and-data-retention : "Conversation content … is not retained by default; the exception is Covered Models, which require 30-day retention"; "Retained data is never used for model training without your express permission"; ZDR is not available to a HIPAA-ready organisation; HIPAA readiness is organisation-wide, so a separate organisation is needed for non-HIPAA work (matches the two-org design); "Even with ZDR or HIPAA arrangements in place, Anthropic may retain data where required by law or where it has been flagged by Anthropic's automated trust and safety systems … for up to 2 years" (finding A3; the ellipsis drops "As a result, if a chat or session is flagged,", which ties the two years to flagged content alone: corrected in § 16); **"Do not include PHI in JSON schema definitions"** for structured outputs and `strict` tools, because compiled schemas are cached without PHI protections (engineering rule, § 11). https://support.claude.com/en/articles/15455031-covered-models-under-a-business-associate-agreement-baa (1 Jul 2026): "HIPAA-ready API" with standard retention is an Eligible Service; Covered Models "require 30-day data retention on every platform". https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data (1 Jul 2026): deletion "within 30 days", except by agreement, "to enforce our Usage Policy", or by law; Usage Policy violations "up to 2 years" |
 | Retell | Voice telephony and speech | Yes | BAA and DPA self-signed at click-agreements.retellai.com, "no additional fee"; **pending** | https://docs.retellai.com/general/compliance : per-agent retention "from 1 day up to 2 years for transcripts, recordings, and logs"; per-agent storage choice ("everything, exclude PII, or basic attributes only"); hosted on AWS, **region not disclosed**; subprocessor list only on request to support@retellai.com. Action: ask for the list and the region in writing, and confirm the executed BAA names telephony and speech providers |
 | AWS | Hosting, keys, storage, SES for any PHI email | Yes | Accepted 22 Sep 2026 in AWS Artifact | Not re-checked; `docs/policies/aws-hipaa-account.md` |
 | Database provider | Postgres | Yes | Not chosen: AWS RDS under the AWS agreement, or Neon Scale under its own BAA | If Neon: a new row and the 15-day notice (§ 10) |
@@ -2677,6 +2687,181 @@ against 1.3.0; against 1.5.0, in `docs/baa-v1.5.0.txt`'s Appendix B,
 `595ed7f45fd4eb3510e021abbdf285fb9afd6a1b9869a34e2f11c6c2fd0f03dd`) and the
 Google Calendar disclosure. The DPA's other seven hashes moved with its
 sample (`packages/catalog/src/dpa.test.ts`).
+
+---
+
+## 16. BAA 1.6.0: the model provider's retention, as Anthropic documents it
+
+> **Not legal advice. Drafted 19 October 2026 and NOT released.** BAA 1.6.0
+> is 1.5.0 with one paragraph changed, the Subcontractors clause's paragraph
+> on Anthropic. It is registered after 1.5.0 with `approvedByCounsel: false`,
+> so checkout does not offer it and signing, provisioning and go-live refuse
+> it. Releasing it is the owner's decision (§ 16.5), which may go to counsel
+> first. The terms, /data-deletion, the homepage FAQ, the internal register
+> and the unreleased DPA were corrected the same day, in place.
+
+### 16.1 What was wrong
+
+Every statement of Anthropic's retention traced to finding A3 (§ 3), which
+quoted Anthropic's API data-retention page with an ellipsis. The page reads,
+in full: "Even with ZDR or HIPAA arrangements in place, Anthropic may retain
+data where required by law or where it has been flagged by Anthropic's
+automated trust and safety systems. As a result, if a chat or session is
+flagged, Anthropic may retain inputs and outputs for up to 2 years." The
+ellipsis dropped the sentence that ties the two years to flagged content, and
+A3's wording, copied into BAA 1.2.1 to 1.5.0, terms § 9 and the annex,
+/data-deletion, the homepage FAQ, the register and the DPA, gave content the
+law requires Anthropic to keep a two-year cap Anthropic does not state.
+
+Two more claims did not hold for the models the product calls, which are
+`claude-opus-5-5` (web chat, the Meta front door, the support chat) and
+`claude-sonnet-5-5` (calls), in `apps/app/src/lib/assistant/responder.ts`
+and `lib/support/model.ts`:
+
+- "for abuse detection and security" as the purpose of the 30 days.
+  Anthropic's pages give no purpose for standard retention of these models;
+- "the service it provides under that agreement cannot run with shorter
+  retention" (the annex: "the models it covers require 30 days of data
+  retention and cannot run with none"). Anthropic says that only of its
+  Covered Models, Claude Fable 5 and 5.1 and Claude Mythos 5 and 5.1, which
+  "require 30-day data retention"; "All other Claude models continue to
+  operate under your existing agreement and configured retention settings".
+
+### 16.2 What Anthropic's documentation says, read 19 October 2026
+
+| Source | What it says |
+| --- | --- |
+| https://platform.claude.com/docs/en/manage-claude/api-and-data-retention | "Conversation content (your prompts and Claude's outputs) is not retained by default; the exception is Covered Models, which require 30-day retention." The Covered Models are "Claude Fable 5.1, Claude Mythos 5.1, Claude Fable 5, and Claude Mythos 5". "Retained data is never used for model training without your express permission." Under HIPAA readiness "data can be retained with these safeguards in place rather than requiring immediate deletion". The flagged and law-required passage above. "Your signed BAA is the official source of truth" for which features are covered |
+| https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data (updated 1 July 2026) | Inputs and outputs deleted "within 30 days of receipt or generation", except where a longer-retention service is used, by agreement, to enforce the Usage Policy, or "in compliance with the law"; flagged content "up to 2 years", trust-and-safety classification scores "up to 7 years" |
+| https://support.claude.com/en/articles/15425695 (1 September 2026) | The Covered Models require "30-day minimum retention by default"; "All other Claude models continue to operate under your existing agreement and configured retention settings" |
+| https://support.claude.com/en/articles/15455031 | The HIPAA-ready API "operates with standard retention", and is an Eligible Service under Anthropic's BAA |
+
+So, for `claude-opus-5-5` and `claude-sonnet-5-5` in a HIPAA-ready
+organisation: content is kept no more than 30 days under standard retention
+(the platform page's "not retained by default" and the privacy centre's
+"within 30 days" are both true of "no more than 30 days"); flagged content
+up to two years; law-required content as long as the law requires, with no
+limit stated; no training without permission, which healdesk does not give.
+
+### 16.3 The text
+
+One source of truth: `packages/catalog/src/model-retention.ts` holds the
+patient models (`PATIENT_MODEL_IDS`), the date the sources were read
+(`MODEL_RETENTION_VERIFIED_ON`, failing its test after twelve months), the
+sources, and the sentences every surface prints: `MODEL_RETENTION_PUBLIC`
+(terms § 9, naming no vendor), `MODEL_RETENTION_EXCEPTIONS` (the annex and
+/data-deletion) and `MODEL_RETENTION_AGREEMENT` (BAA 1.6.0 and the DPA,
+naming Anthropic).
+
+| Document | Was | Now |
+| --- | --- | --- |
+| BAA 1.5.0, clause 13 (frozen; 1.3.0 and 1.4.0 the same object) | "Anthropic retains conversation content for 30 days, for abuse detection and security, and then deletes it, except content its automated trust-and-safety systems flag or the law requires it to keep, which it may retain for up to two years. The service it provides under that agreement cannot run with shorter retention. Anthropic never trains on that content, and healdesk may not use PHI to train, fine-tune or evaluate any model, its own or a third party's." | BAA 1.6.0, clause 13: "Under that agreement Anthropic keeps conversation content for no more than the 30 days of its standard retention, and then deletes it. Two exceptions apply even then: content its automated trust-and-safety systems flag as violating its usage policy, which it may keep for up to two years, and content the law requires it to keep, which it may keep for as long as the law requires. Anthropic does not use that content to train its models without healdesk's permission, which healdesk will not give. healdesk may not use PHI to train, fine-tune or evaluate any model, its own or a third party's." |
+| DPA 1.0.0, clause 11 (unreleased; corrected in place, its eight hashes and `docs/dpa-v1.0.0.txt` regenerated) | 1.2.1's sentence | 1.6.0's sentences, word for word, then "healdesk may not use Client Information to train, …" |
+| Terms § 9 | "… it keeps conversation content for 30 days, for abuse detection and security, and then deletes it, except content … or the law requires it to keep, which it may keep for up to two years; the service it provides under that agreement cannot run with shorter retention, and it never trains on that content. The Business Associate Agreement states the same." | `MODEL_RETENTION_PUBLIC`, then "This is the provider's own documented retention, which neither we nor you control." "The Business Associate Agreement states the same" is gone: BAA 1.5.0, which clinics sign today, still carries the old clause. It can come back when 1.6.0 is released |
+| Terms annex, "How we protect data" | "The AI model keeps inputs for 30 days. … the models it covers require 30 days of data retention and cannot run with none. Even under that agreement it may keep content … or that the law requires it to keep, for up to two years." | "The AI model provider keeps inputs for up to 30 days. Our model provider's own business associate agreement covers its service only under its standard retention, which we do not control: it keeps conversation content for no more than 30 days, and then deletes it." and `MODEL_RETENTION_EXCEPTIONS` |
+| /data-deletion | "… for 30 days under its own agreement, which we cannot shorten, and may keep content … or that the law requires it to keep, for up to two years." | "… for no more than 30 days under the standard retention of its own agreement, which we do not control, and then deletes them." and `MODEL_RETENTION_EXCEPTIONS` |
+| Homepage FAQ (`KnowMore.tsx`) | "… for 30 days, or up to two years where its safety systems flag them or the law requires it to keep them." | "… for up to 30 days; content its safety systems flag may be kept for up to two years, and content the law requires it to keep for as long as the law requires." |
+| Register (`subprocessors.ts`), given to clinics on request | "keeps inputs for 30 days, which its covered models require, except … or the law requires it to keep, which it may hold for up to two years" | "keeps inputs for no more than the 30 days of its standard retention, except content its trust-and-safety systems flag, which it may hold for up to two years, and content the law requires it to keep, for as long as the law requires" |
+| Checkout notes beside the clause (`baa-explainer.ts`, `dpa-explainer.ts`) | 1.3.0's note (shown for 1.5.0) and the DPA's | 1.6.0 has its own note, saying what 1.6.0 says; 1.3.0's stays beside the frozen 1.3.0 to 1.5.0 clauses it describes; the DPA's note is corrected in place |
+
+Every surface keeps the release-gate framing (gates 14 and 17): Anthropic
+receives content "only under a business associate agreement with us signed
+before any patient's information reaches it", a promise about when it is
+signed, never "in force". The public pages still name no vendor.
+LEGAL_VERSION 2026-10-19.1. /privacy states no figure for the model provider
+(§ 5 by category, § 6 "our AI model provider's own retention applies") and
+is unchanged.
+
+Two cross-references in 1.6.0 stay as 1.5.0 has them, and remain true: the
+Term clause lets Anthropic keep "what the Subcontractors clause describes,
+only for the purposes and periods that clause states", and the state-law
+clause excepts what that clause "says it may keep for abuse detection and
+security, or because a law requires it". The new paragraph's exceptions are
+content flagged as violating Anthropic's usage policy and content the law
+requires it to keep, which those words fit. The 30-day standard retention
+needs no exception of its own: it ends within the 45 days California's and
+Washington's laws give a business to act on a deletion request. Counsel
+may prefer the state-law clause to read "content its automated
+trust-and-safety systems flag" in a later version (item 4 below).
+
+### 16.4 What shipped, and what holds it
+
+| Change | Where |
+| --- | --- |
+| `PATIENT_MODEL_IDS`, the verified-on date and sources, and the three sentences; a test that fails on a Covered Model in the list, on a check older than twelve months, on two years beside the law's exception, and on "cannot run with", "covered models require", "abuse detection" or "security" | `packages/catalog/src/model-retention.ts`, `model-retention.test.ts` |
+| 1.6.0 registered after 1.5.0, `approvedByCounsel: false`, `publishedOn` 2026-10-19: `CLAUSES_1_5` with `SUBCONTRACTORS_1_6` in place of the Subcontractors clause; 1.3.0's preamble and render guard naming 1.6.0 | `packages/catalog/src/baa.ts` |
+| Golden hashes for 1.6.0 (§ 16.6), and a test that 1.6.0 differs from 1.5.0 in that paragraph and the version line only, is not signable and is refused at go-live | `apps/app/tests/baa-golden.test.ts`; `agreements.test.ts` (the variant matrix); `packages/catalog/src/baa.test.ts` |
+| `DESTRUCTION_RULES` and `app_destruction_rule()` give 1.6.0 the export rule its Term clause (1.3.0's own) states, as 0058 did for 1.3.0 while it was a draft; `app_baa_version_acceptable()` is unchanged, so go-live still refuses 1.6.0 | `apps/app/src/lib/offboarding/offboarding.ts`; `apps/app/drizzle/0080_baa_draft_1_6_0.sql` |
+| The responder accepts a `HEALDESK_CHAT_MODEL` or `HEALDESK_VOICE_MODEL` override only from `PATIENT_MODEL_IDS`; any other value, a Covered Model above all, falls back to the channel's default with one warning naming the variable, never the conversation. The support chat's model is typed against the same list | `apps/app/src/lib/assistant/responder.ts`; `apps/app/src/lib/support/model.ts`; `apps/app/tests/assistant.test.ts`, `support-chat.test.ts` |
+| The public pages and the register, and a guard that fails on two years beside the law's exception, or on "cannot run with", "cannot shorten", "covered models require" or "abuse detection", on every surface and in the register | `apps/web/src/app/terms/page.tsx`, `data-deletion/page.tsx`; `apps/web/src/components/KnowMore.tsx`; `apps/web/src/lib/subprocessors.ts`; `terms-copy.test.ts`, `site-copy.test.ts`; `legal.ts`, `legal-version.test.ts` |
+| The DPA, its explainer note, its hashes and its review copy | `packages/catalog/src/dpa.ts`, `dpa-explainer.ts`, `dpa.test.ts`; `docs/dpa-v1.0.0.txt` |
+| The draft review copy | `docs/baa-v1.6.0.txt` |
+
+### 16.5 For the owner, and counsel
+
+1. **Release 1.6.0, or send it to counsel first.** To release: move it to
+   `BAA_TEMPLATES[0]` with `approvedByCounsel: true` and a comment saying who
+   released it and when; decide the floor (`MIN_ACCEPTABLE_BAA_VERSION`) and
+   any `BAA_RELEASE_OVERLAP`; add a migration that makes
+   `app_baa_version_acceptable()` match, as 0073 did; move the tests that
+   name the current version; and restore terms § 9's "The Business
+   Associate Agreement states the same", with a new LEGAL_VERSION. Until
+   then checkout offers 1.5.0, whose clause 13 misstates Anthropic's
+   retention as § 16.1 describes. (owner)
+2. **Who signed 1.5.0.** Before the floor moves past 1.5.0, read the
+   marketing Sheet's agreement tab (read-only: no hand edits) for any real
+   buyer who has signed 1.5.0 or earlier. None means 1.6.0 can replace 1.5.0
+   outright; any means an overlap and a re-signature. (owner)
+3. **Notice of the terms change.** Terms § 16 asks for 30 days' emailed
+   notice of a change that affects a customer's rights or fees. This one
+   corrects a description of a vendor's retention and narrows no right of
+   the clinic's, but whether any paying customer must be told is the
+   owner's call. (owner)
+4. **Anthropic's executed BAA governs.** Anthropic names the signed BAA as
+   the source of truth. When the owner signs it in the HIPAA-ready
+   organisation's Console, keep the dated BAA and HIPAA Implementation
+   Guide, and check both against § 16.2: the retention for models outside
+   the Covered list under standard retention, and whether law-required
+   retention has any limit. A difference means another revision. Counsel may
+   also want the state-law clause's "abuse detection and security" read as
+   flagged content (§ 16.3). (owner; counsel)
+5. **The spec.** `docs/v1-product-spec.md` (an export) still says "covered
+   models require 30-day data retention and cannot run with zero retention"
+   as the product's trade-off (its Anthropic row, the model retention rule,
+   and the open item on Anthropic's agreement). The owner's spec doc changes
+   to say that the models in use are not Covered Models and keep content no
+   more than 30 days, with flagged content up to two years, and is
+   re-exported. The duty to state the 30-day window in the clinic-facing
+   agreement and explain why it exists is still met. (owner)
+6. **Moving a channel onto a Covered Model** (Claude Fable or Mythos) needs
+   this wording, the terms and a new BAA version first: they keep content at
+   least 30 days. The responder refuses such an override. (engineering)
+
+### 16.6 Golden hashes
+
+1.6.0's, from the draft (`apps/app/tests/baa-golden.test.ts`); they may
+move until its release, and never after:
+
+| Document and variant | SHA-256 |
+| --- | --- |
+| 1.6.0 covered_estimated (the sample, and covered_outbound) | `5b37c787a4326f1940fd644bdc29ddec740a8fa9955d7051c82f17a795a40fa4` |
+| 1.6.0 notcovered_estimated | `8556fe1dea61f135a3aeed1029502b1ba8e5f688ef5166262fb8df0fd4d97e2c` |
+| 1.6.0 unknown_estimated | `bbf9c1c62f155309a42d795d771c2a13193cb0b51cc2483c76bb7c94164a5ad9` |
+| 1.6.0 uncovered_nobaa | `e57a86b0a08f4ea8c8730e1e665ec7141a3af405b2cf47cfaecd0e73f87a711e` |
+| 1.6.0 uncovered_personal | `54271edec28888e20c0979d7ce39c30f82cc89afa54ec1c9bf68e4f267d4c9f3` |
+| 1.6.0 notused_mindbody | `ab87d9e12ed8deb940bab2ee0d55a5c5c6ba06cec2f83e8f55c0c5a00c32cfd5` |
+| 1.6.0 notused_other | `dfd11259c6ca28ebfac975bf927c25055348f538d4a337a72efe148740bdc56b` |
+| 1.6.0 live_calcom | `5b292d7f6725ac96ad658c688d683503bc1793a0b1e117a8ae7077dbb90a3994` |
+| 1.6.0 live_highlevel_personal | `d01da6593c104c09724ab6afe49093aa135af1eb17eb98352601b297f877693b` |
+| 1.6.0 live_calendly_nobaa | `761f17cc7e2c5a60c941b4bb9b1d599977a1009ef6d685dc8129bd04265f1430` |
+| DPA 1.0.0 sample, regenerated | `88d592a2db0ac50faa80a819a1d6bd1dc0558d9fa31aaad14807a0a8eda43cc0` |
+
+No released hash moved: 1.5.0 / covered_estimated is still
+`cc903fb5d31765ee0f084096ef47181e55737ad3a28816e3bab9a21f37e6f7e2`, and every
+older version, the election and the disclosure reproduce as before. The
+election rendered against 1.6.0, in `docs/baa-v1.6.0.txt`'s Appendix B, is
+`649a6b4e555d154447d6b4e8043cf8fed80da188c8d83c1cf9b280fea8c2bd1c`. The
+DPA's other seven hashes moved with its sample.
 
 ---
 

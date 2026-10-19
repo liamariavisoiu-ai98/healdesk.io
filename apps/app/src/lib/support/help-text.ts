@@ -86,7 +86,7 @@ Switching a channel off in Settings → Channels stops AYA there at once: calls 
 - The practice keeps its published number. It forwards calls from its main line to AYA's number with its carrier's codes, so patients never dial AYA directly.
 - Which calls reach AYA (Settings → Channels): ${COVERAGE_MODES}
 - The forwarding codes depend on the carrier, the kind of line (a landline, or a cloud phone system such as RingCentral) and the choice above. Use get_forwarding_steps. When it returns nothing, phone isn't ready for forwarding on healdesk's side yet: tell them not to change call forwarding yet, because the steps appear in Setup when phone is ready for them.
-- Forwarding is undone in one step, by the practice, with no call to us. The undo codes are in Settings → Safety net.
+- The practice undoes forwarding itself, with no call to us. The undo steps for its carrier and kind of line are in Settings → Safety net, and get_forwarding_steps gives them too. On some lines one step is to call or ask the carrier.
 - Every call is transcribed, and AYA says so in her first line. No call audio is kept.
 - The direct line (Settings → Safety net) is where calls go whenever AYA can't answer: a channel switched off, the allowance used up under "Stop and fall back", a suspended or ended service, or an outage on our side. It must be a line that does not forward back to AYA, such as a second line or a manager's mobile, or callers loop.
 

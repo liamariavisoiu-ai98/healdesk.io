@@ -95,7 +95,7 @@ export const piece: Piece = {
               "Overflow and after hours",
               "Calls staff miss or cannot take while open, and all calls while closed",
               "Busy and no answer, plus not reachable where the line has a code for it, such as T-Mobile's **62* or AT&T Phone's *372 for an outage on the line",
-              "Busy forwarding may need call waiting switched off; Verizon documents its mobile *71 for busy and unanswered calls only",
+              "Busy forwarding may need call waiting switched off; Verizon describes its mobile *71 for busy and unanswered calls and does not mention a phone that is off",
             ],
             [
               "After hours only",

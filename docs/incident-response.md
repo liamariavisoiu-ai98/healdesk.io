@@ -27,6 +27,19 @@ the agreement no longer says so. Since 7 October 2026 the console's
 An incident opened before then keeps the five-day deadline it was opened with:
 work to 24 hours from discovery for it too, not to the console.
 
+**A vendor's notice starts our 24 hours on the day it arrives, but the 60 days
+may start earlier.** Retell's BAA gives it up to 21 business days (about 30
+calendar days) to tell us (§4.1); its DPA says 48 hours (§5.2), but that covers
+only what Data Protection Laws reach, which may not include PHI, so plan on the
+longer figure until Retell confirms. If Retell is our agent, its awareness is
+ours under 45 CFR 164.410(a)(2), so the 60 calendar days promised to clinics
+counts from when Retell knew. Record Retell's own discovery date, from its
+notice, on the incident as well as the arrival date, and compute the outer
+deadline from the earlier. Thirty days from Retell plus our 24 hours still
+leaves the clinic inside the 60, but the margin is gone: tell the clinic the
+day the notice arrives, and ask Retell for its discovery date if its notice
+omits it.
+
 A service complaint becomes one of the first three the moment the investigation
 finds PHI went somewhere it should not have. Reclassify by opening a new incident
 of the right class with the original's id in the summary; do not edit the class

@@ -87,7 +87,7 @@ by scoping.
 | Hosting (product) | Vercel | **Enterprise plan only** ⚠️ — not the plan |
 | Hosting (product) | AWS (`us-east-1`, account `865780386982`) | **Accepted 22 September 2026** (account agreement in AWS Artifact). Covers only that account and HIPAA-eligible services; record in [policies/aws-hipaa-account.md](./policies/aws-hipaa-account.md) |
 | Database (product) | AWS RDS for PostgreSQL, or Neon on its Scale plan | **Not chosen.** RDS is covered by the AWS agreement already held; Neon signs its own (self-serve) and its Data API sits outside it. Sign, then apply the settings the agreement requires |
-| Voice telephony and speech | Retell | **Pending — self-serve.** Sign the BAA and DPA in Retell's click-agreements portal and confirm the executed text names the services in use; then set per-agent retention to the minimum, PII controls on and recording off. PHI subprocessor: caller audio in transit, transcript, number |
+| Voice telephony and speech | Retell | **Signed by the owner 19 October 2026**: BAA v3.1 (DocuSign envelope 94E4FEDE-4C27-87E7-801B-634A9DBC19A8) and DPA v1.1 (111BB5A6-0AF7-8186-834B-BB6A9E53462E); executed copies to be filed. The BAA covers "the Services" under Retell's SaaS agreement rather than naming them, permits processing outside the US and de-identification (risk T19 in [hipaa-risk-analysis.md](./hipaa-risk-analysis.md)), and watch the subprocessor list at trust.retellai.com/subprocessors at least every 10 days (DPA §4.3–4.4). Then set per-agent retention to the minimum, PII controls on and recording off. PHI subprocessor: caller audio in transit, transcript, number |
 | LLM, every channel | Anthropic (Claude API) | **Pending.** The primary owner signs and arranges activation. Patient traffic runs in its own HIPAA-ready organisation, never the marketing org. Covered models require **30-day retention** and cannot run with zero data retention; the clinic agreement must disclose it. Batch, Files, web fetch, compaction and context editing are excluded from coverage (blockers-runbook §3) |
 | Calendar | Google Calendar (the clinic's own) | Between the **clinic and Google**, on a paid Workspace plan; confirm per clinic at onboarding. The clinic's OAuth token, granted to Healdesk's Google Cloud app, is stored in `apps/app` (not built yet) |
 | Payments (our subscription) | Stripe | **Never, on any tier.** Not needed: the buyer's name, work email and invoice are business contact data |
@@ -230,7 +230,7 @@ patient-authored review text into any system that stores patient data.
 - [ ] Healthcare attorney review of the product and data flows, including the spec's open
       legal items (state-by-state AI-disclosure and transcription consent, the UAE
       business-associate question, the 30-day Anthropic retention disclosure)
-- [ ] BAA signed with Retell, Anthropic and the database provider; AWS already accepted
+- [ ] BAA signed with Retell, Anthropic and the database provider; AWS already accepted (Retell signed 19 October 2026 with its DPA, subject to risk T19; Anthropic outstanding)
 - [ ] `apps/app` running on the AWS HIPAA account (CLAUDE.md lists what blocks the deploy)
 - [ ] Audit logging, including the transcript access log, implemented and verified
 - [ ] Retention and deletion policy documented per clinic

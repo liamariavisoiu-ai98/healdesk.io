@@ -14,8 +14,7 @@ CREATE TABLE "platform_compliance" (
 	CONSTRAINT "platform_compliance_actor_check" CHECK (char_length("platform_compliance"."actor_label") between 1 and 200)
 );
 --> statement-breakpoint
-CREATE INDEX "platform_compliance_subject_idx" ON "platform_compliance" USING btree ("subject","recorded_at");
--- =============================================================================
+CREATE INDEX "platform_compliance_subject_idx" ON "platform_compliance" USING btree ("subject","recorded_at");-- =============================================================================
 -- Automatic go-live (WP2, 19 October 2026; plan Part G "Automatic go-live",
 -- Part J "Go-live", Part K, the Gates table). The two statements above were
 -- generated from schema.ts; everything below is the part drizzle cannot
@@ -597,7 +596,7 @@ AS $$
   ORDER BY c.created_at DESC
 $$;--> statement-breakpoint
 COMMENT ON FUNCTION app_clinics_overview() IS
-  'Clinic listing for background jobs and the ops console. SECURITY DEFINER because a scheduler must enumerate clinics before choosing one, which the runtime role cannot do. Configuration, onboarding, offboarding, booking-mode and billing-location state, the version of the agreement in effect, the version of the agreement the service ended under (the destruction rule''s), and the agreement gate''s regime and kind (0085) — no patient data. Callers must still use withTenant() to read anything else.';--> statement-breakpoint
+  'Clinic listing for background jobs and the ops console. SECURITY DEFINER because a scheduler must enumerate clinics before choosing one, which the runtime role cannot do. Configuration, onboarding, offboarding, booking-mode and billing-location state, the version of the agreement in effect, the version of the agreement the service ended under (the destruction rule''s), and the agreement gate''s regime and kind (0088) — no patient data. Callers must still use withTenant() to read anything else.';--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_clinics_overview() FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_clinics_overview() TO healdesk_app;--> statement-breakpoint
 
@@ -605,9 +604,9 @@ GRANT EXECUTE ON FUNCTION app_clinics_overview() TO healdesk_app;--> statement-b
 -- Comments
 -- -----------------------------------------------------------------------------
 COMMENT ON TABLE platform_compliance IS
-  'Ops-only, platform-wide: each operator attestation (or its withdrawal) of a vendor''s business associate agreement in the chain (anthropic, database_host, aws; retell for phone) or a Gate B readiness flag, with the operator, the dates and a reference to the document. Go-live and each channel''s live read the latest row per subject (app_platform_attested). Append-only; written outside any tenant, from the ops envelope. No clinic_id and no patient data, so no RLS (0085 says why) and no place in destruction or the purge.';--> statement-breakpoint
+  'Ops-only, platform-wide: each operator attestation (or its withdrawal) of a vendor''s business associate agreement in the chain (anthropic, database_host, aws; retell for phone) or a Gate B readiness flag, with the operator, the dates and a reference to the document. Go-live and each channel''s live read the latest row per subject (app_platform_attested). Append-only; written outside any tenant, from the ops envelope. No clinic_id and no patient data, so no RLS (0088 says why) and no place in destruction or the purge.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_production(uuid) IS
-  'The only path from synthetic to production, automatic since 0085: in the clinic''s own tenant, once app_go_live_missing() is empty (not leaving, not a demo, covered status determined, an acceptable agreement of the clinic''s kind that covers it, the platform attested, and Gate B for a channel). Copies the agreement''s accepted_at into baa_signed_at; a clinic already in production is left as it is.';--> statement-breakpoint
+  'The only path from synthetic to production, automatic since 0088: in the clinic''s own tenant, once app_go_live_missing() is empty (not leaving, not a demo, covered status determined, an acceptable agreement of the clinic''s kind that covers it, the platform attested, and Gate B for a channel). Copies the agreement''s accepted_at into baa_signed_at; a clinic already in production is left as it is.';--> statement-breakpoint
 COMMENT ON FUNCTION app_go_live_missing(uuid) IS
   'What go-live still waits on, as goLivePreconditions'' codes in its order; empty when the clinic may go live. In the clinic''s own tenant only. No patient data.';--> statement-breakpoint
 COMMENT ON FUNCTION app_agreement_version_acceptable(text) IS

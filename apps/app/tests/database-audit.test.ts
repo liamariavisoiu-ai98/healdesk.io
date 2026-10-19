@@ -80,7 +80,7 @@ async function seedAcceptance(
 }
 
 /**
- * Everything go-live checks except the agreement (drizzle/0085): the
+ * Everything go-live checks except the agreement (drizzle/0088): the
  * agreement gate's columns, website chat meeting Gate B, and the platform
  * attested (in beforeAll).
  */
@@ -507,7 +507,7 @@ describeDb("database audit (0031)", () => {
     await readyForGoLive(clinicId);
 
     // Outside the clinic's tenant (no tenant, or another's) it runs at all
-    // nowhere: the channel tables it reads FORCE row-level security (0085).
+    // nowhere: the channel tables it reads FORCE row-level security (0088).
     const other = await seedClinic("golive-other");
     for (const tenant of [null, other.clinicId]) {
       await asTenant(tenant, async (c) => {
@@ -611,7 +611,7 @@ describeDb("database audit (0031)", () => {
     // replaced it outright (owner, 19 October 2026), as 1.5.0 had replaced
     // 1.4.0 (14 October), and the test above refuses a 1.5.0 clinic. Go-live
     // reads the floor through app_baa_version_acceptable, never a version of
-    // its own (0085), so the next release moves it too.
+    // its own (0088), so the next release moves it too.
     expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.5.1");
     const { clinicId, organizationId } = await seedClinic("acceptable");
     await readyForGoLive(clinicId);
@@ -624,7 +624,7 @@ describeDb("database audit (0031)", () => {
     expect(rows[0]).toEqual({ data_classification: "production" });
   });
 
-  test("app_mark_clinic_production asks a DPA's release, not the BAA floor, of a DPA clinic: refused while it is a draft (0085)", async () => {
+  test("app_mark_clinic_production asks a DPA's release, not the BAA floor, of a DPA clinic: refused while it is a draft (0088)", async () => {
     // The kind-aware rule 0051 left for this rewrite: a DPA's version goes
     // live once released (app_dpa_version_released), a BAA's at the floor.
     // The DPA is a draft, so a practice under it, which it covers (a

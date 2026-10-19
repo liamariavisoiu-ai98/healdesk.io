@@ -129,6 +129,11 @@ import {
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
 import { hostStandbyCheck } from "@/lib/ops/host-standby";
+import {
+  opListSupportRequests,
+  opMarkSupportReplied,
+  opSetupRepliesPastDue,
+} from "@/lib/ops/promise-ops";
 import { keyPresence } from "@/lib/ops/key-presence";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
@@ -526,6 +531,16 @@ const OPERATIONS = [
   "setCoveredEntity",
   "listClinicCards",
   "listSiteReadFailures",
+  // Dated promises (WP5; lib/ops/promise-ops.ts). setupRepliesPastDue is
+  // machine to machine, like emailQuota: apps/web's daily cron hands over
+  // the ids of setup requests unanswered past the day P2 promised, and each
+  // raises one ops alert; it writes the ops log only, so it is not in
+  // MUTATING_OPERATIONS. listSupportRequests reads the support chat's
+  // escalations and their reply days for /admin/support; markSupportReplied
+  // is the operator's mark that hello@ replied, a security event.
+  "setupRepliesPastDue",
+  "listSupportRequests",
+  "markSupportReplied",
   // The platform's attestations (WP2, lib/ops/compliance-ops.ts; plan Part
   // K): the vendors' business associate agreements in the chain and Gate
   // B's readiness flags, which automatic go-live and each channel's live
@@ -614,6 +629,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "changeClinicEmail",
   "stopClinicEmailChange",
   "setCoveredEntity",
+  // Mutating: the operator's mark that a support request was replied to.
+  "markSupportReplied",
   // Mutating: an attestation of the platform recorded, or withdrawn.
   "attestPlatformCompliance",
   "withdrawPlatformCompliance",
@@ -1195,6 +1212,12 @@ export async function runOperation(
       return opListClinicCards(operator);
     case "listSiteReadFailures":
       return opListSiteReadFailures(operator);
+    case "setupRepliesPastDue":
+      return opSetupRepliesPastDue(args);
+    case "listSupportRequests":
+      return opListSupportRequests();
+    case "markSupportReplied":
+      return opMarkSupportReplied(args, operator);
     case "listPlatformCompliance":
       return opListPlatformCompliance();
     case "attestPlatformCompliance":

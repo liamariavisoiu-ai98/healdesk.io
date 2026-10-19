@@ -15,7 +15,7 @@ import {
 } from "./subjects";
 
 /**
- * The platform's attestations (platform_compliance, drizzle/0085): what an
+ * The platform's attestations (platform_compliance, drizzle/0088): what an
  * operator has said is in place before any clinic answers a patient, read
  * by go-live (lib/onboarding/go-live.ts) and by each channel's `live`
  * (lib/channels/events.ts), and written from the ops envelope

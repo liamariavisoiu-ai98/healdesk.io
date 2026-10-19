@@ -285,6 +285,10 @@ type OperatorOp =
   | "setCoveredEntity"
   | "listClinicCards"
   | "listSiteReadFailures"
+  // Support replies (WP5; /admin/support): the support chat's escalations
+  // with the day L25 promised a reply by, and the mark that one was replied to.
+  | "listSupportRequests"
+  | "markSupportReplied"
   // The platform's attestations (WP2; /admin/compliance): the vendors'
   // business associate agreements and Gate B's readiness flags, which
   // automatic go-live reads. Each write is sent only after the operator's
@@ -306,7 +310,13 @@ type OperatorOp =
  * so the worst a forged call could do is mark one of apps/app's ledger rows,
  * and a forged call needs HEALDESK_PROVISION_SECRET.
  */
-type RelayOp = "emailEvent" | "welcomeHandoff" | "bookingSwitch" | "emailQuota";
+type RelayOp =
+  | "emailEvent"
+  | "welcomeHandoff"
+  | "bookingSwitch"
+  | "emailQuota"
+  // The daily cron's setup requests past their promised reply (WP5).
+  | "setupRepliesPastDue";
 
 type OpName = OperatorOp | RelayOp;
 
@@ -813,6 +823,96 @@ export function relayEmailQuota(used: number, at: Date): Promise<OpsResult<{ rec
 }
 
 const EMAIL_QUOTA_TIMEOUT_MS = 3_000;
+
+// -----------------------------------------------------------------------------
+// Dated promises (WP5)
+// -----------------------------------------------------------------------------
+
+/**
+ * Hand apps/app the ids of setup requests still unanswered past the day P2
+ * promised a reply by, from the daily cron (app/api/cron/setup-replies), so
+ * each raises `setup_request_reply_past_due` once in the one ops log. A relay
+ * op like emailQuota: no session and no browser context, because the caller
+ * is Vercel's cron, which the route authenticates itself. Only the Sheet's
+ * random request ids cross, never a name or an address.
+ */
+export function relaySetupRepliesPastDue(
+  requestIds: readonly string[],
+): Promise<OpsResult<{ raised: number }>> {
+  return send(
+    "setupRepliesPastDue",
+    "write",
+    (value) => ({ raised: count(object(value, "setupRepliesPastDue").raised, "setupRepliesPastDue.raised") }),
+    { requestIds: [...requestIds] },
+    { context: false, timeoutMs: SETUP_REPLIES_TIMEOUT_MS },
+  );
+}
+
+const SETUP_REPLIES_TIMEOUT_MS = 8_000;
+
+/** One escalation from the portal's support chat, as /admin/support lists it. */
+export type SupportRequestView = {
+  clinicId: string;
+  /** The clinic's slug, for the link to its page in the console; null if it has left. */
+  clinicSlug: string | null;
+  requestId: string;
+  /** A topic code from apps/app's fixed list (lib/support/escalation-fields.ts). */
+  topic: string;
+  /** The day L25 promised a reply by, YYYY-MM-DD, New York's business day. */
+  replyByOn: string;
+  askedAt: string;
+  repliedAt: string | null;
+  pastDue: boolean;
+};
+
+export type SupportRequests = { requests: SupportRequestView[]; unreadClinics: number };
+
+/** The support chat's escalations of the last 30 days, newest first, with their reply marks. */
+export function fetchSupportRequests(): Promise<OpsResult<SupportRequests>> {
+  return callOps("listSupportRequests", "read", {}, (value) => {
+    const data = object(value, "listSupportRequests");
+    return {
+      requests: list(data.requests, "listSupportRequests.requests").map((row, i) => {
+        const r = object(row, `listSupportRequests.requests[${i}]`);
+        return {
+          clinicId: id(r.clinicId, "request.clinicId"),
+          clinicSlug: optionalText(r.clinicSlug, "request.clinicSlug"),
+          requestId: id(r.requestId, "request.requestId"),
+          topic: code(r.topic, "request.topic"),
+          replyByOn: date(r.replyByOn, "request.replyByOn"),
+          askedAt: isoInstant(r.askedAt, "request.askedAt"),
+          repliedAt: optionalIsoInstant(r.repliedAt, "request.repliedAt"),
+          pastDue: bool(r.pastDue, "request.pastDue"),
+        };
+      }),
+      unreadClinics: count(data.unreadClinics, "listSupportRequests.unreadClinics"),
+    };
+  });
+}
+
+export type MarkSupportRepliedOutcome =
+  | { status: "marked" }
+  | { status: "already"; repliedAt: string }
+  | { status: "not_found" };
+
+/**
+ * Mark that hello@ replied to a support request: one security event on
+ * apps/app, which stops `support_reply_past_due` for it. Refused upstream for
+ * a request the clinic never made; a second mark changes nothing.
+ */
+export function markSupportReplied(
+  clinicId: string,
+  requestId: string,
+): Promise<OpsResult<MarkSupportRepliedOutcome>> {
+  return callOps("markSupportReplied", "write", { clinicId, requestId }, (value) => {
+    const data = object(value, "markSupportReplied");
+    const status = literal(data.status, ["marked", "already", "not_found"] as const, "markSupportReplied.status");
+    if (status === "already") {
+      return { status, repliedAt: isoInstant(data.repliedAt, "markSupportReplied.repliedAt") };
+    }
+    return { status };
+  });
+}
 
 // -----------------------------------------------------------------------------
 // The paying browser's way back

@@ -88,7 +88,7 @@ export type ClinicOverview = {
    */
   destructionAgreementVersion: string | null;
   /**
-   * 0085: the agreement gate's two columns (0051), the regime of the
+   * 0088: the agreement gate's two columns (0051), the regime of the
    * clinic's specialty at provisioning and the kind of agreement it records,
    * so the card can say an agreement does not cover the practice before
    * go-live refuses it. Null on a clinic created before 0051.

@@ -26,6 +26,7 @@ import {
   runCalendarWatchJob,
 } from "@/lib/scheduler/calendar-watch";
 import { runPracticeQuestionsJob } from "@/lib/engine/practice/job";
+import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runTick } from "@/lib/scheduler/tick";
 import { syncConnection } from "@/lib/sync/run";
 import { processWebhookEvent } from "@/lib/sync/webhooks";
@@ -165,6 +166,9 @@ async function main(): Promise<void> {
       ["billing-requests", () => runBillingRequestsJob()],
       ["usage-meter-report", () => runUsageMeterReportJob()],
       ["transcript-emails", () => runTranscriptEmailsJob()],
+      // The ops watch's purchase checks (WP5): a paid order with no account
+      // ten minutes on, and B3's follow-up past its day (lib/ops/watch.ts).
+      ["ops-watch", () => runOpsWatchJob()],
     ] as const) {
       try {
         const outcome = await run();

@@ -26,7 +26,7 @@
  * Pure data with no imports: db/schema.ts generates the table's CHECK from
  * PLATFORM_SUBJECTS, and drizzle-kit loads it outside the app. The SQL mirror
  * of CLINIC_WIDE_SUBJECTS and CHANNEL_SUBJECTS is
- * app_platform_subjects_for() (drizzle/0085), and tests/go-live.test.ts holds
+ * app_platform_subjects_for() (drizzle/0088), and tests/go-live.test.ts holds
  * the two together.
  */
 

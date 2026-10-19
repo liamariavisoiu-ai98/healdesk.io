@@ -9,7 +9,7 @@ import { inTenant, seedChannels } from "./factories";
 
 /**
  * A synthetic clinic with everything automatic go-live asks
- * (lib/onboarding/go-live.ts, drizzle/0085) but whatever a test leaves out,
+ * (lib/onboarding/go-live.ts, drizzle/0088) but whatever a test leaves out,
  * written as the migrator, standing in for provisioning, the wizard, the
  * operator's attestation and the definers. Website chat is the channel that
  * meets Gate B: it needs no number of ours, only its line confirmed on the

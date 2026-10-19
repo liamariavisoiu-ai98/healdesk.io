@@ -11,6 +11,10 @@ import type {
 import type { CalendarStatePayload } from "@/lib/email/templates/calendar_state";
 import type { ChannelLivePayload } from "@/lib/email/templates/channel_live";
 import type { ChannelReadyPayload } from "@/lib/email/templates/channel_ready";
+import type { ExportReadyPayload } from "@/lib/email/templates/export_ready";
+import type { ExportReminderPayload } from "@/lib/email/templates/export_reminder";
+import type { PassThroughEndingPayload } from "@/lib/email/templates/pass_through_ending";
+import type { DailySummaryPayload } from "@/lib/email/templates/daily_summary";
 import type {
   GuaranteeClaimReceivedPayload,
   GuaranteeFindingPayload,
@@ -25,6 +29,7 @@ import type { SubprocessorNoticePayload } from "@/lib/email/templates/subprocess
 import type { SupportRequestPayload } from "@/lib/email/templates/support_request";
 import type { SuspendedForCausePayload } from "@/lib/email/templates/suspended_for_cause";
 import type { TermsNoticePayload } from "@/lib/email/templates/terms_notice";
+import type { WeeklyRecapPayload } from "@/lib/email/templates/weekly_recap";
 
 /**
  * The plan's own outbox kinds (lib/email/kinds.ts, owner "plan"): their
@@ -112,8 +117,10 @@ export type PlanNoticePayloads = {
   website_message: BookingAlertPayload;
   /** Dedupe `calendar_check:request:<id>`: once per request. */
   calendar_check: BookingAlertPayload;
-  daily_summary: OwedPayload;
-  weekly_recap: OwedPayload;
+  /** Dedupe `daily_summary:<clinic-local date>`: once per working day (lib/scheduler/daily-summary.ts). */
+  daily_summary: DailySummaryPayload;
+  /** Dedupe `weekly_recap:<ISO week of last week's Monday>`: once per week (lib/scheduler/weekly-recap.ts). */
+  weekly_recap: WeeklyRecapPayload;
   outage_started: OwedPayload;
   outage_ended: OwedPayload;
   guarantee_miss: OwedPayload;
@@ -121,9 +128,15 @@ export type PlanNoticePayloads = {
   /** Dedupe `support_request:<escalation id>`: once per escalation (lib/support/escalate.ts). */
   support_request: SupportRequestPayload;
   patient_request: OwedPayload;
-  pass_through_ending: OwedPayload;
-  export_ready: OwedPayload;
-  export_reminder: OwedPayload;
+  /**
+   * After cancellation (lib/offboarding/after-cancellation.ts). Dedupe
+   * `pass_through_ending:<7|1>`: once a week ahead and once a day ahead.
+   */
+  pass_through_ending: PassThroughEndingPayload;
+  /** Dedupe `export_ready`: once per clinic, when its service has ended. */
+  export_ready: ExportReadyPayload;
+  /** Dedupe `export_reminder`: once, a week before the data goes undownloaded. */
+  export_reminder: ExportReminderPayload;
 };
 
 // The payload map and the registry's plan kinds name the same kinds: adding a

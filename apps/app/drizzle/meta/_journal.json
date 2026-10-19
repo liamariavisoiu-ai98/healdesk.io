@@ -600,8 +600,29 @@
     {
       "idx": 85,
       "version": "7",
-      "when": 1792401356653,
-      "tag": "0085_platform_compliance",
+      "when": 1792400407100,
+      "tag": "0085_health_and_digest",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792401303575,
+      "tag": "0086_after_cancellation",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792401370887,
+      "tag": "0087_claims_and_summary",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1792403921278,
+      "tag": "0088_platform_compliance",
       "breakpoints": true
     }
   ]

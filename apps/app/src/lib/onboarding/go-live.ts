@@ -26,7 +26,7 @@ import type { TenantTx } from "@/lib/tenant";
  * (lib/engine/practice/store.ts, afterPass), or any other input of a channel
  * arrives, the channel events' writer (lib/channels/events.ts, evaluate)
  * asks `goLivePreconditions` here, and when nothing is missing calls
- * app_mark_clinic_production() (drizzle/0085) in the clinic's own tenant,
+ * app_mark_clinic_production() (drizzle/0088) in the clinic's own tenant,
  * which re-checks everything itself and refuses on its own. The channel then
  * goes live in the same transaction, and the purge, which follows the
  * agreement in effect, already applies to the clinic.

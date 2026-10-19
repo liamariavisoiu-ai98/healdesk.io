@@ -1,5 +1,5 @@
 {
-  "id": "f6facb13-5f99-4087-a895-1453e20837bf",
+  "id": "7521ccc5-adbf-4bb9-9d45-0e047cc0605e",
   "prevId": "44dc2ef0-6aca-4c20-b01c-840d165c5a1d",
   "version": "7",
   "dialect": "postgresql",
@@ -2806,6 +2806,19 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "paid_seen_at": {
+          "name": "paid_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provision_failures": {
+          "name": "provision_failures",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "first_invoice_url": {
           "name": "first_invoice_url",
@@ -6845,112 +6858,6 @@
         "overage_invoices_status_check": {
           "name": "overage_invoices_status_check",
           "value": "\"overage_invoices\".\"status\" in ('pending', 'invoiced', 'failed', 'skipped')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.platform_compliance": {
-      "name": "platform_compliance",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "subject": {
-          "name": "subject",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "action": {
-          "name": "action",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "document_ref": {
-          "name": "document_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "effective_on": {
-          "name": "effective_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_on": {
-          "name": "expires_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "actor_label": {
-          "name": "actor_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "recorded_at": {
-          "name": "recorded_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "clock_timestamp()"
-        }
-      },
-      "indexes": {
-        "platform_compliance_subject_idx": {
-          "name": "platform_compliance_subject_idx",
-          "columns": [
-            {
-              "expression": "subject",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "recorded_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "platform_compliance_subject_check": {
-          "name": "platform_compliance_subject_check",
-          "value": "\"platform_compliance\".\"subject\" in ('anthropic', 'database_host', 'aws', 'retell', 'launch_promises', 'runtime_web', 'runtime_meta', 'runtime_voice', 'voice_pass_through')"
-        },
-        "platform_compliance_action_check": {
-          "name": "platform_compliance_action_check",
-          "value": "\"platform_compliance\".\"action\" in ('attested', 'withdrawn')"
-        },
-        "platform_compliance_document_ref_check": {
-          "name": "platform_compliance_document_ref_check",
-          "value": "char_length(\"platform_compliance\".\"document_ref\") between 1 and 300 and \"platform_compliance\".\"document_ref\" !~ '[[:cntrl:]]'"
-        },
-        "platform_compliance_expires_check": {
-          "name": "platform_compliance_expires_check",
-          "value": "\"platform_compliance\".\"expires_on\" is null or (\"platform_compliance\".\"action\" = 'attested' and \"platform_compliance\".\"expires_on\" >= \"platform_compliance\".\"effective_on\")"
-        },
-        "platform_compliance_actor_check": {
-          "name": "platform_compliance_actor_check",
-          "value": "char_length(\"platform_compliance\".\"actor_label\") between 1 and 200"
         }
       },
       "isRLSEnabled": false

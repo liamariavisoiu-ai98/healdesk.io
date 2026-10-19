@@ -47,7 +47,10 @@ export async function welcomeState(input: {
   if (!(await sessionBelongs(intent, input.sessionId))) return { status: "unknown" };
 
   const email = maskEmail(intent.contactEmail);
-  if (intent.provisionFailedAt) return { status: "failed", email };
+  // A dead-lettered purchase (lib/checkout/dead-letter.ts) can still be made
+  // by a later redelivery, and once it is, its account is what this browser
+  // came for: "failed" only while there is none.
+  if (intent.provisionFailedAt && !intent.consumedAt) return { status: "failed", email };
   if (!intent.consumedAt || !intent.provisionedUserId || !intent.provisionedClinicId) {
     return { status: "pending", email };
   }

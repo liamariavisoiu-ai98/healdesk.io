@@ -5,9 +5,17 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 import { __clearPriceCacheForTests } from "@/lib/billing/prices";
 import { __clearPortalConfigurationForTests } from "@/lib/billing/stripe-actions";
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
+import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
+import { withTenant } from "@/lib/tenant";
 
 import { axeViolations } from "./setup/axe";
-import { closePools, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import {
+  closePools,
+  getMigratorPool,
+  hasTestDatabase,
+  runMigrations,
+  truncateAll,
+} from "./setup/db";
 import { inTenant, seedGoogleConnection } from "./setup/factories";
 import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic";
 import { brokenLinks } from "./setup/portal-links";
@@ -25,7 +33,9 @@ import { createStripeWorld } from "./setup/stripe-world";
  *   - Billing after the plan starts (the start and the next charge from
  *     Stripe's own preview) and after cancellation (the plan has ended,
  *     nothing left to switch or change, the card, invoices and agreement
- *     still there);
+ *     still there; once the service has ended, read-only with the export's
+ *     deadline and the destruction's date, then the delivery, then the
+ *     destruction);
  *
  * and axe-core on every screen this build has (Part F8): Home, Settings,
  * Knowledge, Conversations and Billing, and the add-a-device and step-up
@@ -261,8 +271,35 @@ describeDb("the portal's screens, before and after go-live", () => {
     }
 
     test("Home: AYA is answering, no tracker, the channels live, the plan's start, and the broken calendar first to fix", async () => {
+      // A caller AYA answered this week and took a request from, waiting for
+      // the team (WP4's "Waiting for you" card and the week's numbers).
+      await inTenant(clinic.clinicId, async (c) => {
+        const { rows } = await c.query<{ id: string }>(
+          `insert into contacts (clinic_id, phone, full_name) values ($1, '+14155550134', 'Maria Lopez') returning id`,
+          [clinic.clinicId],
+        );
+        await c.query(
+          `insert into conversations (clinic_id, contact_id, channel, recovery_reason, outcome, started_at)
+           values ($1, $2, 'voice', 'after_hours', 'qualified_no_booking', now() - interval '3 hours')`,
+          [clinic.clinicId, rows[0]!.id],
+        );
+        await c.query(
+          `insert into booking_requests (clinic_id, contact_id, channel, preferred_window, treatment, token_hash, expires_at, created_at)
+           values ($1, $2, 'voice', 'Thursday afternoon', 'Consultation', $3, now() + interval '7 days', now() - interval '2 hours')`,
+          [clinic.clinicId, rows[0]!.id, randomBytes(32)],
+        );
+      });
       const html = await render("home");
       const words = text(html);
+      // The first card: counts and an age, one tap into Bookings, nobody named.
+      expect(words.indexOf("Waiting for you:")).toBeLessThan(words.indexOf("Needs attention"));
+      expect(words).toContain("Waiting for you: 1 person to call back (oldest 2 h) Open Bookings");
+      expect(html).toContain(`href="/c/${portal.clinicSlug}/bookings"`);
+      // This week, from the claims function.
+      expect(words).toContain(
+        "This week The last 7 days. Conversations handled 1 Phone 1 call · 1 would otherwise have rung out Website chat 0 chats Booking requests taken 1 · 0 confirmed by your team",
+      );
+      expect(words).not.toMatch(/Maria|Lopez|4155550134|Consultation|Thursday afternoon|revenue/);
       expect(words).not.toContain("AYA isn’t answering patients yet");
       expect(words).not.toContain("Building your AYA");
       expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Talk to your AYA<\/button>/);
@@ -312,6 +349,64 @@ describeDb("the portal's screens, before and after go-live", () => {
         expect(brokenLinks(html, portal.clinicSlug)).toEqual([]);
         expect(await axeViolations(html, "Billing")).toEqual([]);
       } finally {
+        await entitlements(`status = 'active'`);
+      }
+    });
+
+    test("Billing once the service has ended: read-only, with the export's deadline and the destruction's date, then the delivery, then the destruction", async () => {
+      worldAfterStart();
+      const actor = { type: "service", serviceName: "portal-pages-test" } as const;
+      await entitlements(`status = 'canceled'`);
+      await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+        startOffboarding(tx, "customer.subscription.deleted"),
+      );
+      try {
+        // Not delivered: the day to download by, the latest destruction, and the way to the export.
+        let html = await render("billing");
+        let words = text(html);
+        expect(words).toContain("Your export and your data");
+        expect(words).toMatch(
+          /Your export is ready in Conversations\. Download it by [A-Z][a-z]+day \d{1,2} [A-Z][a-z]+( \d{4})?\./,
+        );
+        expect(words).toMatch(
+          /We destroy our copies of your data within 30 days of your export being delivered, and by [A-Z][a-z]+day \d{1,2} [A-Z][a-z]+( \d{4})? at the latest\./,
+        );
+        expect(html).toContain(`href="/c/${portal.clinicSlug}/conversations#export"`);
+        // Read-only: nothing to switch or change.
+        expect(html).not.toContain('id="switches"');
+        expect(html).not.toContain('id="change"');
+        expect(brokenLinks(html, portal.clinicSlug)).toEqual([]);
+        expect(await axeViolations(html, "Billing after cancellation")).toEqual([]);
+
+        // Delivered: when, and the day the data goes.
+        await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+          markExportDelivered(tx, "downloaded in full by the clinic"),
+        );
+        worldAfterStart();
+        words = text(await render("billing"));
+        expect(words).toMatch(
+          /Your export was delivered on [A-Z][a-z]+day \d{1,2} [A-Z][a-z]+\. We destroy our copies of your data by [A-Z][a-z]+day \d{1,2} [A-Z][a-z]+( \d{4})?\./,
+        );
+        expect(words).not.toContain("Open the export");
+
+        // Destroyed: when, the backups' last day, and what is kept.
+        await getMigratorPool().query(`update clinics set destroyed_at = now() where id = $1`, [
+          clinic.clinicId,
+        ]);
+        worldAfterStart();
+        html = await render("billing");
+        words = text(html);
+        expect(words).toMatch(/Your data was destroyed on [A-Z][a-z]+day \d{1,2} [A-Z][a-z]+\./);
+        expect(words).toContain("Copies in our encrypted database backups expire by");
+        expect(words).toContain("We keep the signed agreement and your billing history");
+        expect(brokenLinks(html, portal.clinicSlug)).toEqual([]);
+        expect(await axeViolations(html, "Billing after destruction")).toEqual([]);
+      } finally {
+        await getMigratorPool().query(
+          `update clinics set offboarding_started_at = null, destroy_after = null,
+                  export_delivered_at = null, destroyed_at = null where id = $1`,
+          [clinic.clinicId],
+        );
         await entitlements(`status = 'active'`);
       }
     });

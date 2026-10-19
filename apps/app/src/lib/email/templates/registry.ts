@@ -27,14 +27,20 @@ import { CHANNEL_LIVE_ENTRY } from "./channel_live";
 import { CHANNEL_READY_ENTRY } from "./channel_ready";
 import { CONNECT_CONNECTED_ENTRY } from "./connect_connected";
 import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
+import { DATA_DESTROYED_ENTRY } from "./data_destroyed";
+import { DAILY_SUMMARY_ENTRY } from "./daily_summary";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
+import { EXPORT_READY_ENTRY } from "./export_ready";
+import { EXPORT_REMINDER_ENTRY } from "./export_reminder";
 import { GRACE_ENDING_ENTRY } from "./grace_ending";
 import { GUARANTEE_CLAIM_RECEIVED_ENTRY, GUARANTEE_FINDING_ENTRY } from "./guarantee_claim";
 import { INCIDENT_REPORT_ENTRY } from "./incident_report";
 import { LOCATION_ADDED_ENTRY } from "./location_added";
 import { OPS_ALERT_FIXTURE, renderOpsAlert } from "./ops_alert";
+import { OPS_DIGEST_ENTRY } from "./ops_digest";
 import { ORDER_CONFIRMED_DELAYED_ENTRY } from "./order_confirmed_delayed";
 import { OVERAGE_INVOICED_ENTRY } from "./overage_invoiced";
+import { PASS_THROUGH_ENDING_ENTRY } from "./pass_through_ending";
 import { PAYMENT_ACTION_REQUIRED_ENTRY } from "./payment_action_required";
 import { PAYMENT_FAILED_ENTRY } from "./payment_failed";
 import { PLAN_CHANGED_ENTRY } from "./plan_changed";
@@ -61,6 +67,7 @@ import { SUSPENDED_FOR_CAUSE_ENTRY } from "./suspended_for_cause";
 import { TERMS_NOTICE_ENTRY } from "./terms_notice";
 import type { EmailTemplate } from "./types";
 import { USAGE_100_ENTRY, USAGE_80_ENTRY } from "./usage_alert";
+import { WEEKLY_RECAP_ENTRY } from "./weekly_recap";
 import { WELCOME_ENTRY } from "./welcome";
 
 /**
@@ -170,6 +177,19 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // The practice questions (M4, package B): O8 and O9.
   assistant_ready: ASSISTANT_READY_ENTRY,
   practice_questions_failed: PRACTICE_QUESTIONS_FAILED_ENTRY,
+  // WP5: I2, the 07:00 ops digest.
+  ops_digest: OPS_DIGEST_ENTRY,
+  // WP6, after cancellation (M6): E3, E4 and E5 from the outbox, E6 straight
+  // to the address captured at destruction (lib/offboarding/after-cancellation.ts).
+  pass_through_ending: PASS_THROUGH_ENDING_ENTRY,
+  export_ready: EXPORT_READY_ENTRY,
+  export_reminder: EXPORT_REMINDER_ENTRY,
+  data_destroyed: DATA_DESTROYED_ENTRY,
+  // The claims function's emails (M6, package WP4): L13, the daily summary,
+  // and L14, the weekly recap, which goes alone only while no summary can
+  // carry it.
+  daily_summary: DAILY_SUMMARY_ENTRY,
+  weekly_recap: WEEKLY_RECAP_ENTRY,
 };
 
 /**
@@ -182,7 +202,6 @@ export type OwingPackage =
   | "B"
   | "WP1"
   | "WP3"
-  | "WP4"
   | "WP5"
   | "WP6"
   | "WP7"
@@ -274,13 +293,17 @@ export const PENDING_TEMPLATES: Record<
     | "support_escalation"
     | "assistant_ready"
     | "practice_questions_failed"
+    | "ops_digest"
+    | "pass_through_ending"
+    | "export_ready"
+    | "export_reminder"
+    | "data_destroyed"
+    | "daily_summary"
+    | "weekly_recap"
     | BillingTemplatedKind
   >,
   PendingTemplate
 > = {
-  // WP4: the claims function's emails.
-  daily_summary: { owner: "plan", package: "WP4", ships: "M6 (L13)" },
-  weekly_recap: { owner: "plan", package: "WP4", ships: "M6 (L14, retargeted)" },
   // The runtime's routed/answered counter: blocked, owned by no package yet.
   outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
   outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },
@@ -293,13 +316,8 @@ export const PENDING_TEMPLATES: Record<
   // (patient_requests, behind the BAA gate) and the Home pointer. Not part of
   // WP7's operator notices, which are templated above.
   patient_request: { owner: "plan", package: "WP7", ships: "M5 (L32)" },
-  // WP6: after cancellation.
-  pass_through_ending: { owner: "plan", package: "WP6", ships: "M6 (E3)" },
-  export_ready: { owner: "plan", package: "WP6", ships: "M6 (E4)" },
-  export_reminder: { owner: "plan", package: "WP6", ships: "M6 (E5)" },
-  data_destroyed: { owner: "plan", package: "WP6", ships: "M6 (E6)" },
-  // WP5: the ops digest and the internal alerts.
-  ops_digest: { owner: "plan", package: "WP5", ships: "Gate A (I2)" },
+  // I4 waits for the flags themselves (package H's conversation_flags), which
+  // do not exist yet; WP5 built I2 and leaves this one named to it.
   flag_alert: { owner: "plan", package: "WP5", ships: "Gate A (I4)" },
 };
 

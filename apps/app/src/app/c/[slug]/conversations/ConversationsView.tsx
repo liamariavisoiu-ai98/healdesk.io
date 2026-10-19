@@ -15,8 +15,8 @@ import { portalMoment } from "@/lib/portal/format";
 
 import { useAnnounce } from "../feedback";
 
-import { exportAllAction, findConversationsAction } from "./actions";
-import { downloadJson } from "./download";
+import { confirmExportAction, exportAllAction, findConversationsAction } from "./actions";
+import { digestOf, downloadJson } from "./download";
 
 /**
  * The Conversations list (plan Part F4): a search by name or phone digits,
@@ -233,7 +233,17 @@ export function ExportAll(props: { slug: string; closedNote: string | null; dest
       const result = await exportAllAction(props.slug);
       if (result.ok) {
         downloadJson(result.filename, result.body);
-        announce({ text: result.message, tone: "ok" });
+        if (result.receipt) {
+          // After cancellation: only a file that arrived whole is a delivery.
+          const confirmed = await confirmExportAction(
+            props.slug,
+            result.receipt,
+            await digestOf(result.body),
+          );
+          announce({ text: confirmed.message, tone: confirmed.ok ? "ok" : "problem" });
+        } else {
+          announce({ text: result.message, tone: "ok" });
+        }
       } else {
         announce({ text: result.message, tone: "problem" });
       }

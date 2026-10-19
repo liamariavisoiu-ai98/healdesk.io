@@ -152,7 +152,7 @@ describe("clinic blockers", () => {
     ]);
   });
 
-  test("an agreement that doesn't cover the practice is said before go-live, and blocks a live clinic's data (0051, 0085)", () => {
+  test("an agreement that doesn't cover the practice is said before go-live, and blocks a live clinic's data (0051, 0088)", () => {
     // A DPA practice that now bills insurance: the PHI gate refuses its data.
     const live = blockersFor(
       clinic({ dataClassification: "production", baaVersion: "dpa/1.0.0", agreementKind: "dpa", isCoveredEntity: true }),
@@ -282,7 +282,7 @@ describeDb("ops clinic listing", () => {
     expect(blockersFor(found!)).toEqual([]);
   });
 
-  test("projects the agreement gate's two columns, as provisioning and a supersede leave them (0085)", async () => {
+  test("projects the agreement gate's two columns, as provisioning and a supersede leave them (0088)", async () => {
     const { clinicId } = await seedClinic("ops-gate-cols");
     const read = async () => {
       const found = (await listClinics()).find((c) => c.id === clinicId)!;

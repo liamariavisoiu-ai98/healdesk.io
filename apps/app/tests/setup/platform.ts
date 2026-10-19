@@ -3,7 +3,7 @@ import { PLATFORM_SUBJECTS, type PlatformSubject } from "@/lib/compliance/subjec
 import { getMigratorPool } from "./db";
 
 /**
- * The platform's attestations for a test (platform_compliance, drizzle/0085),
+ * The platform's attestations for a test (platform_compliance, drizzle/0088),
  * written as the migrator outside any tenant, as the ops envelope writes
  * them. Every channel's `live` and every clinic's go-live read them, so a
  * file that takes channels live attests what they need first; truncateAll

@@ -1,3 +1,4 @@
+import { livePieces, piecePath } from "@/lib/content/registry";
 import type { GlossaryEntry, Source } from "@/lib/content/types";
 
 /**
@@ -13,7 +14,14 @@ import type { GlossaryEntry, Source } from "@/lib/content/types";
 
 export const glossaryReviewed = "2026-10-19";
 
-export const glossary: readonly GlossaryEntry[] = [
+/**
+ * Each `see` names the piece that goes further, and its "More" link is kept
+ * only while that piece is live: the family routes answer 404 for anything
+ * else, and this page is public from the day it deploys.
+ */
+const livePaths = new Set(livePieces().map(piecePath));
+
+const entries: readonly GlossaryEntry[] = [
   {
     term: "After-hours coverage",
     definition:
@@ -40,7 +48,7 @@ export const glossary: readonly GlossaryEntry[] = [
   {
     term: "All-party consent",
     definition:
-      "A rule under which a private conversation may be recorded or intercepted only with the consent of everyone taking part, as Washington's law requires for private telephone communications.",
+      "A rule under which a private conversation may be recorded or intercepted only with the consent of everyone taking part, as Washington's law requires for private telephone communications, with exceptions such as emergency calls.",
     cite: ["rcw-9-73-030"],
     see: "/guides/ai-call-transcription-consent-by-state",
   },
@@ -53,7 +61,7 @@ export const glossary: readonly GlossaryEntry[] = [
   {
     term: "Booking request (manual booking)",
     definition:
-      "A request for an appointment at a preferred time that staff confirm or decline later, used in place of direct booking when the scheduling system cannot be checked or written to automatically.",
+      "A request for a preferred appointment time that staff confirm or decline later, used instead of direct booking when a practice approves each appointment or its scheduling system cannot be checked or written to automatically.",
   },
   {
     term: "Business associate",
@@ -85,7 +93,7 @@ export const glossary: readonly GlossaryEntry[] = [
   {
     term: "Deposit",
     definition:
-      "An amount paid in advance to secure an appointment, which the practice's own policy decides whether to credit, refund or keep after a late cancellation or no-show.",
+      "An amount paid in advance to secure an appointment, which the practice's cancellation policy says it will credit, refund or keep after a late cancellation or no-show.",
   },
   {
     term: "Hosted payment link",
@@ -95,7 +103,7 @@ export const glossary: readonly GlossaryEntry[] = [
   {
     term: "Meta's 24-hour messaging window",
     definition:
-      "The period, generally 24 hours after a person messages a business on Messenger, Instagram or WhatsApp, in which the business may reply freely, after which Meta allows only set message types.",
+      "The period, generally 24 hours after a person last messages a business on Messenger, Instagram or WhatsApp, in which the business may send free-form replies, after which Meta allows only set message types.",
     cite: ["meta-messenger-window", "meta-whatsapp-window"],
   },
   {
@@ -106,8 +114,8 @@ export const glossary: readonly GlossaryEntry[] = [
   {
     term: "One-party consent",
     definition:
-      "A rule allowing a call to be intercepted when one party to it has given prior consent, as federal law provides unless the interception is for a criminal or tortious purpose.",
-    cite: ["usc-2511"],
+      "A rule allowing a call to be intercepted with one party's prior consent, as federal law provides unless the purpose is criminal or tortious, though state law, such as Washington's, can require everyone's consent.",
+    cite: ["usc-2511", "rcw-9-73-030"],
     see: "/guides/ai-call-transcription-consent-by-state",
   },
   {
@@ -126,7 +134,7 @@ export const glossary: readonly GlossaryEntry[] = [
   {
     term: "Slot hold",
     definition:
-      "A short reservation placed on an open appointment time while a booking is completed, so that nobody else can take the same time in the meantime.",
+      "A short reservation that a booking system places on an open appointment time while a booking is completed, so that no other booking made through that system can take the time in the meantime.",
   },
   {
     term: "Standard transaction",
@@ -150,10 +158,14 @@ export const glossary: readonly GlossaryEntry[] = [
   {
     term: "WhatsApp Business Platform",
     definition:
-      "Meta's service that lets businesses communicate with customers on WhatsApp at scale, through a Cloud API that lets software send messages and place calls programmatically.",
+      "Meta's service that lets businesses communicate with customers on WhatsApp, including through a Cloud API that lets software send messages and make and receive calls programmatically.",
     cite: ["meta-whatsapp-platform"],
   },
 ];
+
+export const glossary: readonly GlossaryEntry[] = entries.map(({ see, ...entry }) =>
+  see !== undefined && livePaths.has(see) ? { ...entry, see } : entry,
+);
 
 export const glossarySources: readonly Source[] = [
   {

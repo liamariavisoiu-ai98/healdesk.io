@@ -168,7 +168,10 @@ export function NoticesBoard({
         <ProductUpdateForm send={actions.sendProductUpdate} />
       </Section>
       <Section title="Updated agreement to sign (L22)">
-        <BaaResignForm start={actions.startBaaVersionResigns} />
+        <BaaResignForm
+          start={actions.startBaaVersionResigns}
+          availability={record.ok ? record.data.baaVersionResigns : null}
+        />
       </Section>
       <Section title="First-month guarantee (L30)">
         <GuaranteeForms
@@ -399,13 +402,30 @@ function ProductUpdateForm({ send }: { send: Actions["sendProductUpdate"] }) {
   );
 }
 
-function BaaResignForm({ start }: { start: Actions["startBaaVersionResigns"] }) {
+/** Why "Start the re-signs" is off, or null when it may run. */
+export function resignsOffLine(availability: OperatorNoticesView["baaVersionResigns"]): string | null {
+  if (availability === null) {
+    return "Not available until apps/app is deployed with it.";
+  }
+  if (availability.ready) return null;
+  return availability.waiting ?? "Not available yet.";
+}
+
+function BaaResignForm({
+  start,
+  availability,
+}: {
+  start: Actions["startBaaVersionResigns"];
+  availability: OperatorNoticesView["baaVersionResigns"];
+}) {
   const [pending, begin] = useTransition();
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
+  const off = resignsOffLine(availability);
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault();
+        if (off) return;
         if (
           !window.confirm(
             "Open a re-sign for every practice on an older business associate agreement, and email each its link?",
@@ -427,11 +447,12 @@ function BaaResignForm({ start }: { start: Actions["startBaaVersionResigns"] }) 
       <div>
         <button
           type="submit"
-          disabled={pending}
-          className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white"
+          disabled={pending || off !== null}
+          className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white disabled:opacity-40"
         >
           Start the re-signs
         </button>
+        {off ? <p className="text-muted mt-2 text-xs">{off}</p> : null}
       </div>
       <Outcome said={said} />
     </form>

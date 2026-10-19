@@ -462,7 +462,13 @@ nothing and removes the argument.
   person to phone the practice; the ops digest counts those still unsigned.
   Only the DPA→BAA re-sign pauses AYA, at every location, because a practice
   that now bills insurance electronically needs a BAA before AYA keeps
-  answering. Two levers, both the release's:
+  answering. **Switched off until the calendar fix** (owner, 19 October
+  2026; `BAA_VERSION_RESIGNS_READY` in
+  `apps/app/src/lib/agreements/baa-version-ready.ts`): a supersede leaves the
+  practice's location with no calendar election under the new agreement, and
+  the next calendar sweep would disconnect its Google Calendar, so neither
+  lever below runs until healdesk-io-22's fix (calendar/resign-terms) merges,
+  in the commit that turns it on. Two levers, both the release's:
   - **The floor.** Once `app_baa_version_acceptable()` no longer accepts a
     version, the hourly job opens every account's re-sign on it by itself,
     and go-live refuses an account that has not signed.

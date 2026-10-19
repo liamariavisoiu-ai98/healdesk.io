@@ -68,6 +68,17 @@ vi.mock("@healdesk/catalog", async (importOriginal) => {
   };
 });
 
+/**
+ * The switch (lib/agreements/baa-version-ready.ts) is off until the calendar
+ * fix lands; these tests stand in for the commit that turns it on, so the
+ * mechanism stays tested, and the switch-off test turns it back off.
+ */
+const resignsSwitch = vi.hoisted(() => ({ ready: true }));
+vi.mock("@/lib/agreements/baa-version-ready", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agreements/baa-version-ready")>();
+  return { ...actual, baaVersionResignsReady: () => resignsSwitch.ready };
+});
+
 const sent = vi.hoisted(() => ({
   emails: [] as { to: string; kind: string; subject: string; text: string }[],
   copies: 0,
@@ -112,6 +123,9 @@ const { signAgreement } = await import("@/lib/agreements");
 const { agreementKindForRequest } = await import("@healdesk/catalog/agreement-signing");
 const { startBaaVersionResigns } = await import("@/lib/agreements/baa-version");
 const { setCoveredEntity } = await import("@/lib/agreements/covered-entity");
+const { BAA_VERSION_RESIGNS_READY, BAA_VERSION_RESIGNS_WAITING } =
+  await import("@/lib/agreements/baa-version-ready");
+const { runOperation } = await import("@/lib/ops/api");
 const {
   baaOlderThanCurrent,
   lookUpResignLink,
@@ -184,6 +198,7 @@ describeDb("re-signing a newer BAA over an older one", () => {
     await acceptOld(false);
     stand.dpaReleased = false;
     stand.overlap = {};
+    resignsSwitch.ready = true;
     sent.emails.length = 0;
     sent.copies = 0;
   });
@@ -370,6 +385,42 @@ describeDb("re-signing a newer BAA over an older one", () => {
       templateVersion: link.document.templateVersion,
     });
   }
+
+  test("switched off until the calendar fix: the job opens no BAA-version re-sign, the broadcast refuses and changes nothing, and the DPA re-sign is untouched", async () => {
+    // The commit that merges the calendar fix turns it on; until then it is off.
+    expect(BAA_VERSION_RESIGNS_READY).toBe(false);
+    resignsSwitch.ready = false;
+    const practice = await baaPractice("bvoff");
+
+    expect(await runAgreementResignsJob()).toMatchObject({ opened: 0, open: 0 });
+    const refused = await startBaaVersionResigns({ actorLabel: "ops@healdesk.test" });
+    expect(refused).toEqual({
+      status: "refused",
+      message: expect.stringMatching(/calendar fix.*Nothing was changed\./),
+    });
+    const operator = { email: "ops@healdesk.test", request: {} };
+    const viaOps = (await runOperation("startBaaVersionResigns", {}, operator)) as {
+      status: number;
+      body: { data?: { status: string; message: string } };
+    };
+    expect(viaOps.body.data).toMatchObject({ status: "refused" });
+    expect(await resigns(practice.clinicId)).toEqual([]);
+    expect(l22For(practice.staffEmail)).toEqual([]);
+
+    // The console reads the switch, with the line it shows.
+    const view = (await runOperation("getOperatorNotices", {}, operator)) as {
+      body: { data: { baaVersionResigns: unknown } };
+    };
+    expect(view.body.data.baaVersionResigns).toEqual({
+      ready: false,
+      waiting: BAA_VERSION_RESIGNS_WAITING,
+    });
+
+    // WP9's DPA→BAA re-sign is not behind it.
+    const dpa = await dpaPractice("bvoffdpa");
+    await yes(dpa.clinicId);
+    expect(await resigns(dpa.clinicId)).toMatchObject([{ reason: "now_covered", status: "open" }]);
+  });
 
   test("the floor passed the version in force: the job opens the re-sign and sends L22 once, and AYA keeps answering", async () => {
     const practice = await baaPractice("bvfloor");

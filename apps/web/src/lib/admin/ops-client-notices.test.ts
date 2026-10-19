@@ -387,6 +387,22 @@ describe("the notices", () => {
     });
     expect(read.ok && read.data.notices[0]!.state).toBe("dead");
     expect(read.ok && read.data.openClaims[0]!.findingByOn).toBe("2026-11-26");
+    // That reply is an older apps/app's: it has no re-sign switch, read as none.
+    expect(read.ok && read.data.baaVersionResigns).toBeNull();
+
+    reply({
+      data: {
+        broadcasts: [],
+        notices: [],
+        openClaims: [],
+        baaVersionResigns: { ready: false, waiting: "Waits for the calendar fix." },
+      },
+    });
+    const off = await fetchOperatorNotices();
+    expect(off.ok && off.data.baaVersionResigns).toEqual({
+      ready: false,
+      waiting: "Waits for the calendar fix.",
+    });
 
     reply({ data: { broadcasts: [], notices: [{ state: "lost" }], openClaims: [] } });
     expect((await fetchOperatorNotices()).ok).toBe(false);

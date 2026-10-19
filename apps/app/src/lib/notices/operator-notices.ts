@@ -31,6 +31,10 @@ import {
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 
 import { billingNotices, clinics, incidents } from "@/db/schema";
+import {
+  BAA_VERSION_RESIGNS_WAITING,
+  baaVersionResignsReady,
+} from "@/lib/agreements/baa-version-ready";
 import type { ActorContext } from "@/lib/audit";
 import { resolveBillingClinicId } from "@/lib/billing/billing-clinic";
 import { getEntitlementsForUpdate } from "@/lib/billing/entitlements";
@@ -841,6 +845,11 @@ export type OperatorNoticesView = {
   notices: ClinicNoticeRecord[];
   /** Claims recorded with no finding sent yet, earliest due first. */
   openClaims: OpenGuaranteeClaim[];
+  /**
+   * Whether "Start the re-signs" may run (lib/agreements/baa-version-ready.ts),
+   * and while not, the line the console shows beside it.
+   */
+  baaVersionResigns: { ready: boolean; waiting: string | null };
 };
 
 const RECORD_DAYS = 180;
@@ -931,6 +940,9 @@ export async function operatorNoticesView(
     ),
     notices: notices.sort((a, b) => b.queuedAt.localeCompare(a.queuedAt)),
     openClaims: openClaims.sort((a, b) => a.findingByOn.localeCompare(b.findingByOn)),
+    baaVersionResigns: baaVersionResignsReady()
+      ? { ready: true, waiting: null }
+      : { ready: false, waiting: BAA_VERSION_RESIGNS_WAITING },
   };
 }
 

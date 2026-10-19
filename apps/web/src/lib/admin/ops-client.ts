@@ -4779,6 +4779,13 @@ export type OperatorNoticesView = {
     claimReceivedOn: string;
     findingByOn: string;
   }[];
+  /**
+   * Whether "Start the re-signs" may run (apps/app lib/agreements/
+   * baa-version-ready.ts), and while not, the line shown beside it. Null from
+   * an apps/app that predates it, which has no such operation: the button is
+   * then disabled too.
+   */
+  baaVersionResigns: { ready: boolean; waiting: string | null } | null;
 };
 
 export function fetchOperatorNotices(): Promise<OpsResult<OperatorNoticesView>> {
@@ -4819,6 +4826,17 @@ export function fetchOperatorNotices(): Promise<OpsResult<OperatorNoticesView>> 
           findingByOn: date(c.findingByOn, "getOperatorNotices.openClaim.findingByOn"),
         };
       }),
+      // apps/web is live before apps/app: an older reply has no switch.
+      baaVersionResigns:
+        data.baaVersionResigns === undefined || data.baaVersionResigns === null
+          ? null
+          : (() => {
+              const r = object(data.baaVersionResigns, "getOperatorNotices.baaVersionResigns");
+              return {
+                ready: bool(r.ready, "getOperatorNotices.baaVersionResigns.ready"),
+                waiting: optionalText(r.waiting, "getOperatorNotices.baaVersionResigns.waiting"),
+              };
+            })(),
     };
   });
 }

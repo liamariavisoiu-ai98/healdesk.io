@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 
 import type { OperatorNoticesView, OpsResult } from "@/lib/admin/ops-client";
 
-import { NoticesBoard, resignsSaid } from "./NoticesBoard";
+import { NoticesBoard, resignsOffLine, resignsSaid } from "./NoticesBoard";
 
 /**
  * What /admin/notices tells the operator (WP7). The owner's decisions of
@@ -44,9 +44,17 @@ function render(record: OpsResult<OperatorNoticesView>): { html: string; text: s
   return { html, text };
 }
 
+const WAITING =
+  "Waits for the calendar fix: a re-sign signed now would leave the practice's location without calendar terms, and its Google Calendar would disconnect.";
+
 const EMPTY: OpsResult<OperatorNoticesView> = {
   ok: true,
-  data: { broadcasts: [], notices: [], openClaims: [] },
+  data: {
+    broadcasts: [],
+    notices: [],
+    openClaims: [],
+    baaVersionResigns: { ready: false, waiting: WAITING },
+  },
 };
 
 describe("the notices page", () => {
@@ -101,6 +109,7 @@ describe("the notices page", () => {
             findingByOn: "2026-10-13",
           },
         ],
+        baaVersionResigns: { ready: false, waiting: WAITING },
       },
     });
     expect(text).toContain(
@@ -153,5 +162,26 @@ describe("the notices page", () => {
     expect(
       resignsSaid({ ok: false, code: "refused", message: "The ops API refused the request." }),
     ).toEqual({ ok: false, text: "The ops API refused the request." });
+  });
+
+  test("Start the re-signs is disabled, with its reason, until the calendar fix switches it on, and from an older apps/app", () => {
+    const button = (html: string) => html.match(/<button[^>]*>Start the re-signs<\/button>/)?.[0] ?? "";
+    const off = render(EMPTY);
+    expect(button(off.html)).toContain('disabled=""');
+    expect(off.text).toContain(WAITING);
+
+    // An older apps/app's reply has no switch: disabled too, saying why.
+    const older = render({ ok: true, data: { ...EMPTY.data, baaVersionResigns: null } as never });
+    expect(button(older.html)).toContain('disabled=""');
+    expect(older.text).toContain("Not available until apps/app is deployed with it.");
+
+    // Once the calendar fix has switched it on.
+    const on = render({
+      ok: true,
+      data: { ...(EMPTY as { data: OperatorNoticesView }).data, baaVersionResigns: { ready: true, waiting: null } },
+    });
+    expect(button(on.html)).not.toContain('disabled=""');
+    expect(on.text).not.toContain(WAITING);
+    expect(resignsOffLine({ ready: true, waiting: null })).toBeNull();
   });
 });

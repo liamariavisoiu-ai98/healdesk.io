@@ -64,6 +64,7 @@ import { claimDelivery, recordDelivery } from "@/lib/reporting/recipients";
 import { clinicSignIn } from "@/lib/sign-in/address-change";
 import { withTenant, TENANT_GUC, type TenantTx } from "@/lib/tenant";
 
+import { baaVersionResignsReady } from "./baa-version-ready";
 import { agreementInEffect } from "./in-effect";
 import { openResignHoldsPause, organisationOpenResigns, resignHoldsPause } from "./resign-pause";
 import type { ResignDocument } from "./resign-preview";
@@ -126,6 +127,9 @@ import { supersedeAgreement, SupersedeError } from "./kind";
  * link L22 and its reminders carried, and a GET only looks.
  *
  * ## A newer BAA over an older one (`baa_version`, wave 2 R11)
+ *
+ * Switched off until the calendar fix (BAA_VERSION_RESIGNS_READY,
+ * lib/agreements/baa-version-ready.ts): until then nothing below opens one.
  *
  * The same row, link, screen and reminders carry a practice under a Business
  * Associate Agreement to the current version of it (plan Part L:
@@ -472,7 +476,16 @@ export async function baaVersionAcceptable(tx: TenantTx, version: string): Promi
 export type BaaVersionResignOpening =
   | { status: "opened"; resignId: string; fromVersion: string }
   | { status: "already_open"; resignId: string }
-  | { status: "current" | "no_agreement" | "dpa" | "location" | "demo" | "unrenderable" };
+  | {
+      status:
+        | "current"
+        | "no_agreement"
+        | "dpa"
+        | "location"
+        | "demo"
+        | "unrenderable"
+        | "not_ready";
+    };
 
 /**
  * Open the clinic's re-sign from the BAA in force to the current version, if
@@ -485,6 +498,8 @@ export async function openBaaVersionResign(
   tx: TenantTx,
   input: { source: AgreementResignSource; requestedBy: string; now?: Date },
 ): Promise<BaaVersionResignOpening> {
+  // Off until the calendar fix (lib/agreements/baa-version-ready.ts).
+  if (!baaVersionResignsReady()) return { status: "not_ready" };
   const [clinic] = await tx.db
     .select({
       billingClinicId: clinics.billingClinicId,
@@ -556,6 +571,8 @@ export async function openBaaVersionResign(
  * failure is logged and the rest go on. Returns how many opened.
  */
 export async function openOwedBaaVersionResigns(now: Date): Promise<number> {
+  // Off until the calendar fix (lib/agreements/baa-version-ready.ts).
+  if (!baaVersionResignsReady()) return 0;
   let opened = 0;
   for (const clinic of await listClinics()) {
     if (

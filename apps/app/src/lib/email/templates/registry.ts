@@ -44,6 +44,8 @@ import { SETUP_REMINDER_ENTRY } from "./setup_reminder";
 import { SIGN_IN_LINK_ENTRY } from "./sign_in_link";
 import { STEP_UP_REMINDER_ENTRY } from "./step_up_reminder";
 import { STEPS_SENT_ENTRY } from "./steps_sent";
+import { SUPPORT_ESCALATION_ENTRY } from "./support_escalation";
+import { SUPPORT_REQUEST_ENTRY } from "./support_request";
 import { SUSPENDED_ENTRY } from "./suspended";
 import type { EmailTemplate } from "./types";
 import { USAGE_100_ENTRY, USAGE_80_ENTRY } from "./usage_alert";
@@ -134,6 +136,9 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   urgent: URGENT_ENTRY,
   website_message: WEBSITE_MESSAGE_ENTRY,
   calendar_check: CALENDAR_CHECK_ENTRY,
+  // WP10, the support chat (M7): L25 to the clinic, I3 to hello@.
+  support_request: SUPPORT_REQUEST_ENTRY,
+  support_escalation: SUPPORT_ESCALATION_ENTRY,
 };
 
 /**
@@ -221,6 +226,8 @@ export const PENDING_TEMPLATES: Record<
     | "calendar_link"
     | "calendar_election_recorded"
     | LiveAlertKind
+    | "support_request"
+    | "support_escalation"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -242,8 +249,6 @@ export const PENDING_TEMPLATES: Record<
   agreement_to_sign: { owner: "plan", package: "WP9", ships: "M2 (L22)" },
   // WP11: the drift list.
   website_changes: { owner: "plan", package: "WP11", ships: "M7 (L23)" },
-  // WP10: the support chat.
-  support_request: { owner: "plan", package: "WP10", ships: "M7 (L25)" },
   // WP7: the operator's notices and incidents, from /admin.
   terms_notice: { owner: "plan", package: "WP7", ships: "Gate A (L28)" },
   subprocessor_notice: { owner: "plan", package: "WP7", ships: "Gate A (L29)" },

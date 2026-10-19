@@ -17,7 +17,10 @@ import { publicUrl } from "@/lib/public-url";
  * Shown once the channel is open: ready on our side (`ready_at`), so a
  * clinic never pastes a line that loads nothing. The widget's script is the
  * runtime's to serve at WIDGET_SCRIPT_PATH before any web channel is marked
- * ready.
+ * ready. From then on it is in the wizard's channel step and in Settings →
+ * Channels for good (app/c/[slug]/WebsiteLinePanel.tsx), emailed to the
+ * clinic an hour later if still not on its site (O10), and sent on to its
+ * web person when asked (O11), each from the same parts.
  */
 
 /** Where the widget's script is served, on the public origin. */
@@ -28,8 +31,23 @@ export function snippetOpen(web: Pick<ChannelState, "readyAt"> | undefined): boo
   return web !== undefined && web.readyAt !== null;
 }
 
+/** The widget's script on the public origin: what the line loads. */
+export function widgetScriptUrl(): string {
+  return publicUrl(WIDGET_SCRIPT_PATH);
+}
+
 /** The line itself, for the clinic whose public slug is `slug`. */
 export function widgetSnippet(slug: string): string {
+  return snippetLineFor(widgetScriptUrl(), slug);
+}
+
+/**
+ * The line from its two parts, for an email that stores them (O10 and O11,
+ * lib/email/templates/web-line.ts) rather than the line: the same words as
+ * the screens print, from the payload alone. The URL passes through the URL
+ * parser, so no quote in it can end the attribute early.
+ */
+export function snippetLineFor(scriptUrl: string, slug: string): string {
   const safe = slug.replace(/[^a-z0-9-]/g, "");
-  return `<script src="${publicUrl(WIDGET_SCRIPT_PATH)}" data-clinic="${safe}" async></script>`;
+  return `<script src="${new URL(scriptUrl).href}" data-clinic="${safe}" async></script>`;
 }

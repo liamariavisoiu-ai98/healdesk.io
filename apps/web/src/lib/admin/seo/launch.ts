@@ -168,6 +168,17 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     blocksGoLive: true,
   },
   {
+    id: "extra-locations",
+    promise:
+      "Each further location is added to the same plan from Billing, at the plan's price again plus its own setup fee, renewing on the same date",
+    where: "Pricing (Prices are per location), Get AYA's package step and Review and pay, terms (More than one location)",
+    status: "building",
+    left: "healdesk-io-58's Package C: addLocation is written, but createLocationClinic is a stub and LOCATION_CLINICS_READY is false, so addLocation refuses, Billing's Add a location card asks the clinic to email hello@healdesk.io, and no path, the ops console's included, can add a location to a plan yet. It moves to On in the commit that flips the flag, once that release is deployed. One location works without it, so it does not hold go-live.",
+    evidence:
+      "apps/app/src/lib/location-clinic.ts (LOCATION_CLINICS_READY), apps/app/src/lib/billing/stripe-actions.ts (addLocation), apps/app/src/app/c/[slug]/billing/page.tsx",
+    blocksGoLive: false,
+  },
+  {
     id: "direct-booking-addendum",
     promise: "A clinic can elect direct booking under its agreement",
     where: "Setup, agreement",
@@ -175,5 +186,14 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     left: "The direct-booking addendum is drafted and marked not approved by counsel; approve it, or decide to release it without counsel as with the legal pages.",
     evidence: "packages/catalog/src/direct-booking-addendum.ts",
     blocksGoLive: true,
+  },
+  {
+    id: "phone-flips-live",
+    promise: "Phone goes live by itself once a call forwarded from the clinic's main line reaches AYA",
+    where: "Setup wizard (phone), Settings → Channels",
+    status: "owner",
+    left: "Built: a call the carrier says it forwarded from the clinic's published number (its Diversion or History-Info header), with the caller's number kept, meets phone's forwarding step with no test window and no operator, and the clinic's own Test it now does the same from the wizard or Settings. Left: once enable_voice is on, check on a forwarded test call that Retell passes the carrier's Diversion or History-Info header on its numbers; where it does not, Test it now is how phone goes live.",
+    evidence: "apps/app/src/lib/voice/forwarded-from.ts, apps/app/src/lib/onboarding/forwarding-test.ts, apps/app/src/lib/setup/forwarding-test-view.ts",
+    blocksGoLive: false,
   },
 ];

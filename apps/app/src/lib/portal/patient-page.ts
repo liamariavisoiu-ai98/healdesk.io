@@ -130,6 +130,8 @@ export const PATIENT_RECORD_TYPES = [
   "clinic_bundle",
   /** One person's export, from a conversation (Conversations), named by their contact ids. */
   "patient_bundle",
+  /** A patient's own request to healdesk, passed to the practice (L32): its page off Home. */
+  "patient_request",
 ] as const;
 export type PatientRecordType = (typeof PATIENT_RECORD_TYPES)[number];
 

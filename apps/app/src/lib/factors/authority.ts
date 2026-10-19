@@ -4,6 +4,7 @@ import { unsafeDb, type Queryable } from "@/db";
 import { clinics, userBackupCodes, userFactors } from "@/db/schema";
 import { withTenant } from "@/lib/tenant";
 
+import { liveDeviceRecovery } from "./recovery";
 import { findLiveStepUp, type LiveStepUp } from "./step-ups";
 
 /**
@@ -17,8 +18,19 @@ import { findLiveStepUp, type LiveStepUp } from "./step-ups";
  * - **Every later passkey**, and the first one after go-live, needs proof
  *   from a factor the sign-in already has: a passkey step-up on this session
  *   (another device's passkey, over the cross-device QR flow if need be), or
- *   a code from the authenticator app or the backup list. With none of those
- *   at hand there is the human route, which is not code.
+ *   a code from the authenticator app or the backup list.
+ * - **With none of those at hand**, the human route (recovery.ts): after a
+ *   call back to the practice's published number and the operator's own
+ *   code, a link to the clinic's address lets the session it starts add one
+ *   passkey, within its window.
+ * - **The browser that paid**, for its seven days (Part D3's "7-day
+ *   same-browser cookie window for first enrolment"; lib/sign-in/
+ *   paying-browser.ts), may add the sign-in's first passkey ever, even once
+ *   a clinic has gone live: the Protect screen after /welcome is skippable,
+ *   and chat can be answering patients the same session, so without it the
+ *   buyer who skipped would be locked out of patient pages from the very
+ *   browser that paid. "First ever" counts revoked passkeys too, so removing
+ *   every device never reopens it.
  * - **The authenticator backup** is enrolled under a step-up, or, like the
  *   first passkey, while the sign-in has no factor at all and nothing is live.
  *
@@ -83,24 +95,60 @@ export async function anyClinicMayHoldPatientData(userId: string): Promise<boole
 export type PasskeyEnrolDecision =
   | { allowed: true; basis: "first_passkey" }
   | { allowed: true; basis: "step_up"; stepUp: LiveStepUp }
-  | { allowed: false; codeRoute: boolean };
+  | { allowed: true; basis: "recovery"; recoveryId: string; expiresAt: Date }
+  | { allowed: true; basis: "paying_browser" }
+  | {
+      allowed: false;
+      /** A code from the authenticator app or the backup list could unlock it. */
+      codeRoute: boolean;
+      /** The sign-in has a passkey another device could step this session up with. */
+      hasPasskey: boolean;
+    };
+
+/** Whether the sign-in has never had a passkey, removed ones included. */
+export async function neverHadPasskey(userId: string, db: Queryable = unsafeDb): Promise<boolean> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(userFactors)
+    .where(and(eq(userFactors.userId, userId), eq(userFactors.kind, "passkey")));
+  return Number(row?.n ?? 0) === 0;
+}
 
 /**
- * May this session add a passkey without a code? `codeRoute` says whether a
- * code from the authenticator app or the backup list could unlock it instead.
+ * May this session add a passkey without a code? In order: the first
+ * passkey before go-live, a live step-up, this session's claim on the human
+ * route's link, and the paying browser's first enrolment. A refusal says
+ * which proof could still unlock it.
+ *
+ * `payingBrowser` is lib/sign-in/paying-browser.ts's answer for this
+ * request's cookie: the caller reads the cookie, and the window it carries
+ * is checked there.
  */
 export async function passkeyEnrolDecision(
   userId: string,
   sessionTokenHash: Buffer,
   db: Queryable = unsafeDb,
+  options: { payingBrowser?: boolean } = {},
 ): Promise<PasskeyEnrolDecision> {
   const factors = await activeFactors(userId, db);
   if (factors.passkeys === 0 && !(await anyClinicMayHoldPatientData(userId))) {
     return { allowed: true, basis: "first_passkey" };
   }
-  const stepUp = await findLiveStepUp(db, { sessionTokenHash, userId }, { touch: false });
+  const session = { sessionTokenHash, userId };
+  const stepUp = await findLiveStepUp(db, session, { touch: false });
   if (stepUp) return { allowed: true, basis: "step_up", stepUp };
-  return { allowed: false, codeRoute: factors.totp > 0 || factors.backupCodes > 0 };
+  const recovery = await liveDeviceRecovery(db, session);
+  if (recovery) {
+    return { allowed: true, basis: "recovery", recoveryId: recovery.id, expiresAt: recovery.expiresAt };
+  }
+  if (options.payingBrowser === true && (await neverHadPasskey(userId, db))) {
+    return { allowed: true, basis: "paying_browser" };
+  }
+  return {
+    allowed: false,
+    codeRoute: factors.totp > 0 || factors.backupCodes > 0,
+    hasPasskey: factors.passkeys > 0,
+  };
 }
 
 /** May this session enrol the authenticator backup, or replace the backup codes? */

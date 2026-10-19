@@ -396,9 +396,12 @@ describeDb("passkeys", () => {
     await getMigratorPool().query(`update clinics set went_live_at = now() where id = $1`, [
       clinic.clinicId,
     ]);
+    // With no passkey to step up with, the refusal says so (`no_device`), so
+    // the Protect page offers the backup code and the human route rather
+    // than a step-up that could only send it back (wave 2, R4).
     expect(await startPasskeyRegistration({ session: binding(clinic.staffUserId) })).toEqual({
       ok: false,
-      reason: "needs_step_up",
+      reason: "no_device",
     });
 
     // And a "first passkey" challenge issued before go-live is refused after it.

@@ -33,7 +33,8 @@ import {
 } from "./AgreementsRegister";
 
 /**
- * /admin/agreements, the register of signed business associate agreements.
+ * /admin/agreements, the register of signed agreements: business associate
+ * agreements and data protection agreements, each row labelled by its kind.
  *
  * ## Why this is a page of its own and not a panel on /admin/ops
  *
@@ -123,9 +124,12 @@ export default async function AgreementsPage({
         Agreements.
       </h1>
       <p className="text-muted mt-3 max-w-[68ch] text-[18px]">
-        Every BAA anyone has signed, paid for or not. Retention runs six years
-        from the later of signature and termination (45 CFR 164.530(j)(2)), so
-        an agreement that is still in effect has no purge date at all: the clock
+        Every agreement anyone has signed, paid for or not: a business associate
+        agreement, or the data protection agreement a practice HIPAA does not
+        cover signs instead. Each is kept six years from the later of signature
+        and termination (45 CFR 164.530(j)(2) for a business associate
+        agreement, and the same clock for a data protection agreement), so an
+        agreement that is still in effect has no purge date at all: the clock
         has not started.
       </p>
 
@@ -255,7 +259,7 @@ async function resendCopy(
 }
 
 /**
- * Record the date a BAA stopped being in effect.
+ * Record the date an agreement stopped being in effect.
  *
  * 45 CFR 164.530(j)(2) requires documentation to be retained six years "from
  * the date of its creation or the date when it last was in effect, whichever is

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { annualTotalUsd, getPlan, SENDER_IDENTITY } from "@healdesk/catalog";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { DIRECT_KIND_REGISTRY, DIRECT_KINDS, LEDGER_DIRECT_KINDS } from "@/lib/email/direct-kinds";
 import {
@@ -28,8 +28,10 @@ import {
 import {
   compose,
   EmailCompositionError,
+  escapeHtml,
   MAX_HTML_BYTES,
   REPLY_LINE,
+  WRITE_NEW_LINE,
 } from "@/lib/email/templates/compose";
 import {
   ACCOUNT_REASON,
@@ -40,6 +42,7 @@ import {
   SIGN_IN_REASON,
 } from "@/lib/email/templates/context";
 import { addressConfirmReason } from "@/lib/email/templates/address_change_confirm";
+import { ASSISTANT_READY_ENTRY } from "@/lib/email/templates/assistant_ready";
 import { AGREEMENT_TO_SIGN_ENTRY } from "@/lib/email/templates/agreement_to_sign";
 import {
   ADDRESS_CHANGING_ENTRY,
@@ -48,7 +51,17 @@ import {
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { SIGN_IN_HELP_REASON } from "@/lib/email/templates/sign_in_help_link";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
-import { stepsReason } from "@/lib/email/templates/steps_sent";
+import {
+  CHANNEL_READY_ENTRY,
+  channelReadyWebFixture,
+} from "@/lib/email/templates/channel_ready";
+import {
+  STEPS_SENT_ENTRY,
+  stepsReason,
+  stepsSentWebFixture,
+} from "@/lib/email/templates/steps_sent";
+import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
+import { widgetSnippet } from "@/lib/setup/snippet";
 import { SUPPORT_REASON } from "@/lib/email/templates/support_escalation";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
 import { WELCOME_ENTRY } from "@/lib/email/templates/welcome";
@@ -101,6 +114,7 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
     clinicName:
       kind === "ops_alert" ||
       kind === "ops_digest" ||
+      kind === "flag_alert" ||
       kind === "sign_in_link" ||
       kind === "sign_in_help_link" ||
       kind === "device_changed"
@@ -108,7 +122,7 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
         : "Radiance Med Spa",
     audience,
     reason:
-      kind === "ops_alert" || kind === "ops_digest"
+      kind === "ops_alert" || kind === "ops_digest" || kind === "flag_alert"
         ? OPS_REASON
         : kind === "sign_in_link"
           ? SIGN_IN_REASON
@@ -175,13 +189,10 @@ describe("the template registry", () => {
     }
     expect(byPackage).toEqual({
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
-      // WP7's operator notices are templated; L32 is the one left.
-      WP7: ["patient_request"],
-      WP5: ["flag_alert"],
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, the DPA re-sign's L22, and the drift list's L23", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, the DPA re-sign's L22, the drift list's L23, Flag this answer's I4, a patient's request, L32, and the human route's O16", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -253,6 +264,9 @@ describe("the template registry", () => {
       "weekly_recap",
       "agreement_to_sign",
       "website_changes",
+      "flag_alert",
+      "patient_request",
+      "device_recovery_link",
     ]);
   });
 
@@ -330,7 +344,10 @@ describe("each template's output", () => {
       test("ends with the footer: why, the reply line, the entity and the postal address", () => {
         const r = rendered();
         for (const body of [r.text, visibleText(r.html)]) {
-          expect(body).toContain(REPLY_LINE);
+          // O16 carries a live link and asks for a new email, never a reply
+          // that would quote it to us, so its footer says the same.
+          expect(body).toContain(kind === "device_recovery_link" ? WRITE_NEW_LINE : REPLY_LINE);
+          if (kind === "device_recovery_link") expect(body).not.toContain(REPLY_LINE);
           expect(body).toContain(SENDER_IDENTITY.entityLine);
           expect(body).toContain(SENDER_IDENTITY.postalAddress);
           expect(body).toContain("You're receiving this because");
@@ -380,6 +397,38 @@ describe("O5 from ops' changeClinicEmail", () => {
   });
 });
 
+// Round 2 of the 19 October guardrails: O8 said "She has passed her practice
+// questions … among others" while the booking and deposit cases cannot be
+// asked. It names what was asked, as Home's tracker does, until they can be.
+describe("O8, your AYA is ready to talk to", () => {
+  afterEach(() => {
+    vi.doUnmock("@/lib/engine/practice/cases");
+    vi.resetModules();
+  });
+
+  test("names the questions asked and says the booking ones wait, then goes back to the plain line once every case can be asked", async () => {
+    for (const audience of ["patients", "clients"] as const) {
+      const one = audience === "clients" ? "client" : "patient";
+      const r = ASSISTANT_READY_ENTRY.render(ASSISTANT_READY_ENTRY.fixture, contextFor("assistant_ready", audience));
+      expect(r.text).toContain(`an urgent message from a ${one}, an off-topic ${one} and a question your answers don't cover.`);
+      expect(r.text).toContain("The ones about booking and deposits wait for her booking tools.");
+      expect(r.text).not.toMatch(/among others/);
+      expect(r.preheader).toBe(`She has passed the practice questions she can be asked. Nothing in the preview reaches ${audience}.`);
+      expect(copyProblems([r.subject, r.preheader, r.text].join("\n"))).toEqual([]);
+    }
+    vi.resetModules();
+    vi.doMock("@/lib/engine/practice/cases", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/engine/practice/cases")>()),
+      casesNotAskable: () => [],
+    }));
+    const { ASSISTANT_READY_ENTRY: every } = await import("@/lib/email/templates/assistant_ready");
+    const plain = every.render(every.fixture, contextFor("assistant_ready"));
+    expect(plain.preheader).toBe("She has passed her practice questions. Nothing in the preview reaches patients.");
+    expect(plain.text).toContain("AYA has passed her practice questions about Radiance Med Spa:");
+    expect(plain.text).not.toMatch(/booking tools/);
+  });
+});
+
 describe("L22, sign your updated agreement", () => {
   const render = (over: Partial<typeof AGREEMENT_TO_SIGN_ENTRY.fixture>, audience: EmailAudience = "patients") =>
     AGREEMENT_TO_SIGN_ENTRY.render(
@@ -421,6 +470,106 @@ describe("L22, sign your updated agreement", () => {
     expect(day7.text).toContain("still waiting to be signed, 7 days after we sent it");
     expect(day7.text).toContain("not sure whether Radiance Med Spa bills any health insurance");
     expect(copyProblems([day7.subject, day7.text].join("\n"))).toEqual([]);
+  });
+});
+
+describe("website chat's line in O10 and O11", () => {
+  // The registry's fixtures are phone's. Website chat's variants carry the
+  // line a clinic pastes (lib/setup/snippet.ts), built from the stored script
+  // address and slug, so it must be the screens' line to the byte, shown and
+  // never parsed in the HTML, and on our public origin.
+  const LINE = `<script src="${ORIGIN}/widget/v1.js" data-clinic="radiance-med-spa" async></script>`;
+  const ready = () =>
+    CHANNEL_READY_ENTRY.render(channelReadyWebFixture(), contextFor("channel_ready"));
+  const steps = () => STEPS_SENT_ENTRY.render(stepsSentWebFixture(), contextFor("steps_sent"));
+
+  test("the snapshots, for patients and for clients", () => {
+    for (const audience of ["patients", "clients"] as const) {
+      expect(
+        CHANNEL_READY_ENTRY.render(channelReadyWebFixture(), contextFor("channel_ready", audience)),
+      ).toMatchSnapshot();
+      expect(
+        STEPS_SENT_ENTRY.render(stepsSentWebFixture(), contextFor("steps_sent", audience)),
+      ).toMatchSnapshot();
+    }
+  });
+
+  test("each carries the line the screens print, on a line of its own, and its payload passes the allowlist", () => {
+    expect(widgetSnippet("radiance-med-spa")).toBe(LINE);
+    for (const [kind, rendered, payload] of [
+      ["channel_ready", ready(), channelReadyWebFixture()],
+      ["steps_sent", steps(), stepsSentWebFixture()],
+    ] as const) {
+      expect(rendered.text.split("\n"), kind).toContain(LINE);
+      // Escaped in the HTML: shown as text, never a tag a mail client runs.
+      expect(rendered.html, kind).toContain(escapeHtml(LINE));
+      expect(rendered.html, kind).not.toMatch(/<script|<img|<link|<iframe|<[^>]*\bsrc=/i);
+      expect(visibleText(rendered.html), kind).toContain(LINE);
+      expect(linkProblems(rendered, kind), kind).toEqual([]);
+      expect(subjectProblems(rendered.subject), kind).toEqual([]);
+      expect(
+        copyProblems([rendered.subject, rendered.preheader, rendered.text].join("\n")),
+        kind,
+      ).toEqual([]);
+      expect(() => assertPayloadAllowed(payload, kind), kind).not.toThrow();
+    }
+    // A slug is an id's shape; anything that is not one is refused.
+    expect(() =>
+      assertPayloadAllowed({ ...stepsSentWebFixture(), clinicSlug: "<b>radiance</b>" }, "steps_sent"),
+    ).toThrow(PayloadNotAllowedError);
+    // The script on any origin but ours is refused, so no email can hand a
+    // clinic a line that loads someone else's code.
+    expect(() =>
+      assertPayloadAllowed(
+        { ...stepsSentWebFixture(), scriptUrl: "https://cdn.example.com/widget/v1.js" },
+        "steps_sent",
+      ),
+    ).toThrow(PayloadNotAllowedError);
+  });
+
+  test("O10 tells the clinic its one step, that a chat on its site is real, and links to Settings for the web person", () => {
+    const { subject, text } = ready();
+    expect(subject).toBe("Website chat is ready: one step left");
+    expect(text).toContain(
+      "Website chat is ready for Radiance Med Spa's website. One step is left, and it's yours: paste this line once, just before </body>, on every page of your website. AYA is designed to start answering there once it's in.",
+    );
+    expect(text).toContain(WEB_CHAT_COUNTS_LINE);
+    expect(text).toContain(
+      `Open the line in Settings: ${ORIGIN}/c/radiance-med-spa/settings#website-line`,
+    );
+    expect(findLinks(text)).toEqual([
+      `${ORIGIN}/widget/v1.js`,
+      `${ORIGIN}/c/radiance-med-spa/settings#website-line`,
+    ]);
+  });
+
+  test("O11 is the line with a two-sentence instruction, says who asked, and carries the stop link", () => {
+    const { subject, text, html } = steps();
+    expect(subject).toBe("Website chat line from Radiance Med Spa");
+    expect(text).toContain(
+      "Radiance Med Spa asked us to send you this line for its website. Paste it once, just before </body>, on every page of the site. AYA, the practice's AI assistant from healdesk, is designed to start answering chats there once it's in.",
+    );
+    for (const body of [text, visibleText(html)]) {
+      expect(body).toContain(
+        "You're receiving this because someone at Radiance Med Spa asked us to send it to this address.",
+      );
+      expect(body).toContain(`Stop these emails: ${stepsStopUrl(CLINIC_ID, STEPS_DELIVERY_ID)}`);
+    }
+  });
+
+  test("the Meta channels have no step an email can carry: refused, never sent without it", () => {
+    expect(() =>
+      CHANNEL_READY_ENTRY.render(
+        { channel: "meta" } as unknown as ReturnType<typeof channelReadyWebFixture>,
+        contextFor("channel_ready"),
+      ),
+    ).toThrow(EmailCompositionError);
+    expect(() =>
+      STEPS_SENT_ENTRY.render(
+        { channel: "meta" } as unknown as ReturnType<typeof stepsSentWebFixture>,
+        contextFor("steps_sent"),
+      ),
+    ).toThrow(EmailCompositionError);
   });
 });
 
@@ -921,6 +1070,10 @@ describe("the kind rules", () => {
   test("a bounce on a sign-in kind locks a clinic out; one on an ops alert does not", () => {
     expect(locksOutClinic("sign_in_link")).toBe(true);
     expect(locksOutClinic("sign_in_help_link")).toBe(true);
+    // O16, the human route's link: a single-use token, and a clinic that
+    // cannot receive it cannot open patient details at all.
+    expect(isLinkEmail("device_recovery_link")).toBe(true);
+    expect(locksOutClinic("device_recovery_link")).toBe(true);
     expect(locksOutClinic("order_confirmed_delayed")).toBe(true);
     expect(locksOutClinic("ops_alert")).toBe(false);
     expect(locksOutClinic("payment_failed")).toBe(false);

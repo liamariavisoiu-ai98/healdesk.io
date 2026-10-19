@@ -16,6 +16,7 @@ import { recordAuditPassed } from "@/lib/channels/audit-seam";
 import {
   CHANNEL_READY_EMAIL_DELAY_MS,
   channelInputs,
+  confirmWidgetOnSite,
   decideChannel,
   evaluateChannels,
   firstAnswerExclusion,
@@ -680,6 +681,46 @@ describeDb("channel events against the database", () => {
       { wentLive: false, waitingOn: null, missing: ["go_live"] },
     ]);
     expect((await channelRow(c.clinicId, "voice")).live_at).toBeNull();
+  });
+
+  test("website chat waiting on its line queues O10 an hour out, once, with the line's parts; the operator's confirmation moves it off the line", async () => {
+    const c = await boughtClinic("ev-web-ready", {
+      plan: "webchat-1000",
+      channels: [{ channel: "web" }],
+      production: false,
+    });
+    await setWeekdayHours(c.clinicId);
+    await agent(c.clinicId);
+    await finishSetup(c.clinicId);
+    await passAudit(c.clinicId, "web");
+    expect(await evaluate(c.clinicId, "web")).toMatchObject([
+      { readied: true, waitingOn: "snippet", wentLive: false },
+    ]);
+    const row = await channelRow(c.clinicId, "web");
+    const ready = await noticesOf(c.clinicId, "channel_ready");
+    expect(ready).toHaveLength(1);
+    expect(ready[0]!.dedupe_key).toBe(`channel_ready:web:${row.ready_at!.toISOString()}`);
+    expect(ready[0]!.send_after.getTime()).toBe(
+      row.ready_at!.getTime() + CHANNEL_READY_EMAIL_DELAY_MS,
+    );
+    expect(ready[0]!.payload).toMatchObject({
+      channel: "web",
+      clinicSlug: c.slug,
+      scriptUrl: expect.stringMatching(/\/widget\/v1\.js$/),
+      settingsUrl: expect.stringMatching(new RegExp(`/c/${c.slug}/settings#website-line$`)),
+    });
+    expect(() => assertPayloadAllowed(ready[0]!.payload, "channel_ready")).not.toThrow();
+
+    // Asked again, by an event or the sweep: still the one email.
+    await evaluate(c.clinicId, "web");
+    await sweepChannelStates();
+    expect(await noticesOf(c.clinicId, "channel_ready")).toHaveLength(1);
+
+    // The operator saw the line on the site: no longer the step left, so the
+    // outbox closes the queued notice unsent (lib/email/superseded.ts).
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => confirmWidgetOnSite(tx));
+    await evaluate(c.clinicId, "web");
+    expect((await channelRow(c.clinicId, "web")).waiting_on).not.toBe("snippet");
   });
 
   test("the audit seam fails closed: no pass of the practice questions, no readiness; a retired attestation's row is none; a second record is nothing; an unbought channel is refused", async () => {
@@ -1621,7 +1662,11 @@ describeDb("channel events against the database", () => {
 
     // Phone now waits on the forwarding, O10 is queued, and the steps carry AYA's number.
     expect(await stepUp()).toMatchObject({ waiting_on: "forwarding", live_at: null });
-    expect(await noticesOf(id, "channel_ready")).toHaveLength(1);
+    // The pass passed both channels bought, so website chat waits on its line
+    // and has its own O10 beside phone's.
+    expect(
+      (await noticesOf(id, "channel_ready")).map((n) => n.dedupe_key.split(":")[1]).sort(),
+    ).toEqual(["voice", "web"]);
     expect(
       await withTenant({ clinicId: id, actor: ACTOR }, (tx) =>
         readPhoneStepsNumber(tx.db, tx.clinicId),

@@ -251,8 +251,8 @@ export default function PricingPage() {
           </h2>
           <p className="text-muted mt-4 max-w-[64ch] text-[18px] leading-[1.55] font-medium">
             Every price on this page covers one location. Each further location is added to the
-            same plan from your portal, at the same plan price again and its own setup fee, and
-            renews on the same date.
+            same plan from Billing in your portal, at the same plan price again and its own setup
+            fee, and renews on the same date.
           </p>
         </section>
 

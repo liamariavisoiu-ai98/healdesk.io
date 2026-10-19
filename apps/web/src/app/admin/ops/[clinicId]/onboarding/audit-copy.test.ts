@@ -74,6 +74,7 @@ function page(agent: OnboardingView["agent"], channels: OnboardingView["channels
       assistantNumberE164: null,
       publishedPhoneE164: null,
       openingHoursPresent: false,
+      coverageMode: "overflow_after_hours",
       wentLiveAt: null,
     },
     steps: [],

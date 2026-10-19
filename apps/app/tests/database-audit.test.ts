@@ -757,9 +757,10 @@ describeDb("database audit (0031)", () => {
   });
 
   test("the identity plane's records of who got in, and with what, cannot be erased by the runtime role", async () => {
-    // security_events (0003), sign_in_links (0043), and the portal's second
-    // factors and step-ups (0047): which device's passkey could open patient
-    // data, and when. A new table of this kind belongs on this list.
+    // security_events (0003), sign_in_links (0043), the portal's second
+    // factors and step-ups (0047), and the human route's links (0095):
+    // which device's passkey could open patient data, how it got there, and
+    // when. A new table of this kind belongs on this list.
     for (const table of [
       "security_events",
       "sign_in_links",
@@ -768,6 +769,7 @@ describeDb("database audit (0031)", () => {
       "webauthn_challenges",
       "step_ups",
       "factor_lockouts",
+      "device_recoveries",
     ]) {
       const { rows } = await getMigratorPool().query<{ deletable: boolean }>(
         `select has_table_privilege('healdesk_app', $1::regclass, 'DELETE') as deletable`,
@@ -783,7 +785,9 @@ describeDb("database audit (0031)", () => {
     // their services (whose patient someone is, beside a booking); 0064 the
     // amendments Practice directs to a request or a conversation; 0069 the
     // transcript outbox's sealed copies (on INSERT only: see the migration);
-    // 0092 the handovers, which point at a caller's conversation or thread.
+    // 0092 the handovers, which point at a caller's conversation or thread;
+    // 0093 the flags staff put on conversations; 0094 a patient's request to
+    // healdesk, passed to the practice (L32).
     const expected = [
       "appointments",
       "booking_requests",
@@ -792,10 +796,12 @@ describeDb("database audit (0031)", () => {
       "consent_records",
       "contact_attempts",
       "contacts",
+      "conversation_flags",
       "conversations",
       "deposit_payments",
       "handovers",
       "meta_booking_drafts",
+      "patient_requests",
       "record_amendments",
       "slot_holds",
       "suppressions",

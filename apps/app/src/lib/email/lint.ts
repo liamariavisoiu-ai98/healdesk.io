@@ -145,7 +145,10 @@ function classOfKey(key: string): ValueClass | null {
   if (/Url$/.test(key)) return "url";
   if (/E164$/.test(key)) return "phone";
   if (/Masked$/.test(key)) return "masked";
-  if (key === "id" || /Ids?$/.test(key)) return "id";
+  // The clinic's public slug, which its portal URLs and its website-chat
+  // line name it by (O10, O11): lower-case letters, digits and hyphens, an
+  // id's shape, never a sentence.
+  if (key === "id" || key === "clinicSlug" || /Ids?$/.test(key)) return "id";
   // Before the date rule: `waitingOn` names a waiting state ("forwarding"),
   // not a day, and as a date every L4 payload would be refused at send time.
   if (CATEGORY_KEYS.has(key)) return "category";

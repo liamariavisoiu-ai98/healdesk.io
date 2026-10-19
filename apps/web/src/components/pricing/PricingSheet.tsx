@@ -21,6 +21,7 @@ import {
 } from "@healdesk/catalog";
 import { useId, useState } from "react";
 
+import { useBuy } from "@/components/BuyModal";
 import {
   annualSavingsPercent,
   annualTotalLabel,
@@ -404,15 +405,50 @@ function Calculator({ interval, offer }: { interval: BillingInterval; offer: Sit
             Today you pay the setup fee. Your {interval === "year" ? "annual" : "monthly"} price starts the day{" "}
             {site.agent} first answers a patient.
           </p>
-          <a
-            href={`/get-started?plan=${encodeURIComponent(plan.id)}&interval=${interval}`}
+          <PlanBuyLink
+            planId={plan.id}
+            interval={interval}
             className="bg-red hover:bg-red-deep mt-6 rounded-sm px-6 py-3.5 text-center text-[17px] font-semibold text-white transition-colors duration-fast"
-          >
-            {site.cta.primary.label}
-          </a>
+          />
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * The calculator's "Get AYA": the purchase opens in place over the page, with
+ * this package at these steps and this interval already chosen (plan A1,
+ * "Pricing cards open the sheet in place with the package already chosen"),
+ * through the BuyModalProvider the page wraps everything in. It stays a link
+ * to /get-started with the same choice, which preselects it there, for a
+ * page without the provider, a browser that has not run the script yet, and
+ * a click that asks for a new tab or window.
+ */
+export function PlanBuyLink({
+  planId,
+  interval,
+  className,
+}: {
+  planId: string;
+  interval: BillingInterval;
+  className: string;
+}) {
+  const buy = useBuy();
+  return (
+    <a
+      href={`/get-started?plan=${encodeURIComponent(planId)}&interval=${interval}`}
+      onClick={(event) => {
+        if (!buy || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+          return;
+        }
+        event.preventDefault();
+        buy.open({ plan: planId, interval });
+      }}
+      className={className}
+    >
+      {site.cta.primary.label}
+    </a>
   );
 }
 

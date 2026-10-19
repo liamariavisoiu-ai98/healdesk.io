@@ -45,6 +45,23 @@ export const OUTCOME_STYLES: Record<ConversationOutcome, string> = {
   answered: "bg-paper-2 text-muted",
 };
 
+/**
+ * Where a "Flag this answer" correction stands (lib/conversations/flags.ts):
+ * live in the quick answers AYA reads, saved and waiting for the agent's
+ * words to be approved again, removed from the quick answers since, or none
+ * typed.
+ */
+export const CORRECTION_STATES = ["live", "waiting", "removed", "none"] as const;
+export type CorrectionState = (typeof CORRECTION_STATES)[number];
+
+/** The Flagged view's words for each, beside the flag. */
+export const CORRECTION_WORDS: Record<CorrectionState, string> = {
+  live: "Correction live in Quick answers",
+  waiting: "Correction saved: AYA uses it once your answers are checked again",
+  removed: "Correction no longer in Quick answers",
+  none: "No correction added",
+};
+
 /** Today, yesterday, or this week (Monday to today), in the clinic's own time zone. */
 export const DAY_CHIPS = ["today", "yesterday", "week"] as const;
 export type DayChip = (typeof DAY_CHIPS)[number];

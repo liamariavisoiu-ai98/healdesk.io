@@ -325,6 +325,18 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The attestation for the vendor in Code was withdrawn or passed its expiry, so AYA has stopped answering where that vendor serves: every channel for anthropic, aws and database_host, phone for retell. Calls go to each clinic's direct line, website chat is the contact form (which keeps nothing while aws or database_host is the one lapsed), and Meta messages wait unanswered. Open an incident on /admin/incidents now: patient data may have gone to the vendor between the agreement's real end and this stop. AYA answers again the moment a renewed attestation is recorded on /admin/compliance.",
   },
+  // L32's clock (lib/patient-rights/patient-requests.ts), once per request
+  // each: the clinic's and the request's ids.
+  patient_request_due_soon: {
+    title: "A patient's request is due tomorrow",
+    action:
+      "A request a patient made to healdesk about the clinic below has not been marked received by anyone at the practice, and the agreement has us pass it on within five business days, of which one is left. The practice has had the email and two reminders. Telephone the practice on its published number today: tell them a patient's request is waiting on Home in their portal, and if the request names no contact, tell them who asked and how to reach them. Never email the person's details.",
+  },
+  patient_request_past_due: {
+    title: "A patient's request is past its five business days",
+    action:
+      "A request a patient made to healdesk about the clinic below is past the five business days the agreement gives us to pass it on, and nobody at the practice has marked it received. Telephone the practice today and pass it on by telephone, who asked included where the request names no contact; then ask them to mark it received on its page in the portal, so the record shows it reached them.",
+  },
   destruction_notice_undelivered: {
     title: "A practice was not told its data was destroyed",
     action:

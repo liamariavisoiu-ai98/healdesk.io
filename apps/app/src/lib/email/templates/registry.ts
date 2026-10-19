@@ -31,8 +31,10 @@ import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
 import { DATA_DESTROYED_ENTRY } from "./data_destroyed";
 import { DAILY_SUMMARY_ENTRY } from "./daily_summary";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
+import { DEVICE_RECOVERY_LINK_ENTRY } from "./device_recovery_link";
 import { EXPORT_READY_ENTRY } from "./export_ready";
 import { EXPORT_REMINDER_ENTRY } from "./export_reminder";
+import { FLAG_ALERT_ENTRY } from "./flag_alert";
 import { GRACE_ENDING_ENTRY } from "./grace_ending";
 import { GUARANTEE_CLAIM_RECEIVED_ENTRY, GUARANTEE_FINDING_ENTRY } from "./guarantee_claim";
 import { INCIDENT_REPORT_ENTRY } from "./incident_report";
@@ -43,6 +45,7 @@ import { ORDER_CONFIRMED_DELAYED_ENTRY } from "./order_confirmed_delayed";
 import { OVERAGE_INVOICED_ENTRY } from "./overage_invoiced";
 import { PASS_THROUGH_ENDING_ENTRY } from "./pass_through_ending";
 import { PAYMENT_ACTION_REQUIRED_ENTRY } from "./payment_action_required";
+import { PATIENT_REQUEST_ENTRY } from "./patient_request";
 import { PAYMENT_FAILED_ENTRY } from "./payment_failed";
 import { PLAN_CHANGED_ENTRY } from "./plan_changed";
 import { PLAN_STARTED_ENTRY } from "./plan_started";
@@ -196,6 +199,16 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   agreement_to_sign: AGREEMENT_TO_SIGN_ENTRY,
   // WP11, the drift list (M7): L23.
   website_changes: WEBSITE_CHANGES_ENTRY,
+  // Wave 2's R2, Flag this answer (plan Part F4): I4, each flag and two in
+  // seven days, to ops (lib/ops/flag-alert.ts).
+  flag_alert: FLAG_ALERT_ENTRY,
+  // L32, a patient's request recorded from a trusted shell (M5): its own
+  // table (patient_requests, behind the BAA gate), the Home pointer and the
+  // request's patient page (lib/patient-rights/patient-requests.ts).
+  patient_request: PATIENT_REQUEST_ENTRY,
+  // Wave 2, R4 (plan Part D3): O16, the human route's link for a clinic that
+  // lost every device, mailed only to the clinic's address on file.
+  device_recovery_link: DEVICE_RECOVERY_LINK_ENTRY,
 };
 
 /**
@@ -308,6 +321,9 @@ export const PENDING_TEMPLATES: Record<
     | "weekly_recap"
     | "agreement_to_sign"
     | "website_changes"
+    | "flag_alert"
+    | "patient_request"
+    | "device_recovery_link"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -316,13 +332,6 @@ export const PENDING_TEMPLATES: Record<
   outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
   outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },
   guarantee_miss: { owner: "plan", package: "runtime", ships: "M6 (L21)" },
-  // L32, a patient's request recorded from a trusted shell: its own table
-  // (patient_requests, behind the BAA gate) and the Home pointer. Not part of
-  // WP7's operator notices, which are templated above.
-  patient_request: { owner: "plan", package: "WP7", ships: "M5 (L32)" },
-  // I4 waits for the flags themselves (package H's conversation_flags), which
-  // do not exist yet; WP5 built I2 and leaves this one named to it.
-  flag_alert: { owner: "plan", package: "WP5", ships: "Gate A (I4)" },
 };
 
 /** The template for a kind, or undefined while it is pending. */

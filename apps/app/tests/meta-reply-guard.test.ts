@@ -525,3 +525,31 @@ describe("the reply guard: the menu's prices", () => {
     });
   });
 });
+
+// Round 2 of the 19 October guardrails: the claim to be a person that a call
+// and a web chat refuse is refused here too, with the same check.
+describe("the reply guard: a claim to be a person", () => {
+  const context = { clinicName: "Glow Clinic" };
+
+  test.each([
+    "No, I'm not a bot. Call the practice to book.",
+    "I'm not an AI. Call the practice to book.",
+    "You're talking to Sarah at the front desk. Call the practice to book.",
+    "This is a human. Call the practice to book.",
+    "You're talking to a real person. Call the practice to book.",
+    "No soy un bot. Llame a la clínica.",
+  ])("refused: %j", (reply) => {
+    expect(guardReply(reply, context)).toEqual({ ok: false, reason: "a human claim" });
+  });
+
+  test.each([
+    "No, I'm an automated assistant, not a real person. Call the practice and someone on the team can help.",
+    "A person from our team will call you to confirm.",
+    "If you'd rather talk to a real person, call the practice.",
+    "Our staff can help: call the practice to book.",
+    "Thanks for messaging Glow Clinic! Call the practice to book.",
+  ])("passes: %j", (reply) => {
+    expect(guardReply(reply, context)).toEqual({ ok: true });
+  });
+});
+

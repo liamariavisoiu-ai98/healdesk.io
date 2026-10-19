@@ -1408,8 +1408,10 @@ describeDb("the setup wizard", () => {
     expect(rows.map((r) => [r.kind, r.dedupe_key])).toEqual([
       ["calendar_stopped", "conn-1:broken"],
     ]);
+    // Settings, never the wizard: a reconnect from the wizard's calendar step
+    // counts as a setup connect, which sends no "reconnected".
     expect((rows[0]!.payload as { calendarUrl: string }).calendarUrl).toBe(
-      `${process.env.BETTER_AUTH_URL}/c/${clinic.slug}/setup?s=calendar`,
+      `${process.env.BETTER_AUTH_URL}/c/${clinic.slug}/settings#calendar`,
     );
   });
 

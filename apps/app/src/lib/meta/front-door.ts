@@ -19,7 +19,7 @@ import { and, eq } from "drizzle-orm";
 
 import { agentConfigs, clinicChannels, clinicProviders, clinics, clinicSettings } from "@/db/schema";
 import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
-import { amountsIn, clinicOwnWords, neverSayIn } from "@/lib/assistant/guard";
+import { amountsIn, claimsToBeHuman, clinicOwnWords, neverSayIn } from "@/lib/assistant/guard";
 import { priceText } from "@/lib/assistant/prompt";
 import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/responder";
 import { getClinicSettings } from "@/lib/billing/settings";
@@ -675,6 +675,10 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   const flat = reply.replace(/\s*[\r\n]+\s*/g, " ");
   const hit = REFUSED.find((r) => r.pattern.test(flat));
   if (hit) return { ok: false, reason: hit.label };
+  // A claim to be a person, or not to be an AI, as a call and a web chat
+  // refuse it (lib/assistant/guard.ts, claimsToBeHuman): "I'm not a bot",
+  // "you're talking to Sarah at the front desk", "soy una persona real".
+  if (claimsToBeHuman(flat, { clinicName: context.clinicName })) return { ok: false, reason: "a human claim" };
   // No figure off the menu, written or said ("$450", "four hundred and fifty
   // dollars"): the menu's own only, as on the phone and the website chat.
   // The prompt invites a price; this is what holds it to the list.

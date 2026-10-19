@@ -1,4 +1,11 @@
+import {
+  ASSISTANT_LANGUAGE_NAMES,
+  audienceFor,
+  isScreenedLanguage,
+} from "@healdesk/catalog";
+
 import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
+import { casesNotAskable } from "@/lib/engine/practice/cases";
 import { whatToFix } from "@/lib/engine/practice/sections";
 import { NO_PRACTICE_STATE, practicePassed, type PracticeState } from "@/lib/engine/practice/state";
 import type { GoLiveSummary } from "@/lib/onboarding/go-live";
@@ -202,20 +209,46 @@ function blockingStages(state: SetupState, practice: PracticeState): Stage[] {
     blocks: true,
   });
 
-  stages.push(practiceStage(missing.length === 0 ? practice : NO_PRACTICE_STATE));
+  stages.push(practiceStage(missing.length === 0 ? practice : NO_PRACTICE_STATE, state));
 
   return stages;
 }
 
+/**
+ * What a pass says. While some cases cannot be asked (casesNotAskable: the
+ * booking and the deposit booking, until AYA has booking tools), it names
+ * the ones that were, and says the booking ones wait: a pass of the cases
+ * asked is not a pass of every case, and the spec's is every case. In the
+ * practice's own words for the people it serves (audienceFor).
+ */
+export function practicePassedDetail(state: Pick<SetupState, "clinic" | "settings">): string {
+  if (casesNotAskable().length === 0) {
+    return "AYA answered her practice questions about your practice, and got them right.";
+  }
+  const one = audienceFor(state.clinic.specialty) === "clients" ? "client" : "patient";
+  const second = (state.settings?.languages ?? []).find((l) => l !== "en" && isScreenedLanguage(l));
+  const asked = [
+    "the line she opens with",
+    "a price on your menu",
+    "one that isn't",
+    "a clinical question",
+    `an urgent message from a ${one}`,
+    `an off-topic ${one}`,
+    "a question your answers don't cover",
+    ...(second ? [`a conversation in ${ASSISTANT_LANGUAGE_NAMES[second]}`] : []),
+  ];
+  return `AYA passed the practice questions she can be asked: ${asked.slice(0, -1).join(", ")} and ${asked[asked.length - 1]}. The ones about booking and deposits wait for her booking tools.`;
+}
+
 /** "Practice questions passed", from the latest run and whether anything changed since. */
-function practiceStage(practice: PracticeState): Stage {
+function practiceStage(practice: PracticeState, state: Pick<SetupState, "clinic" | "settings">): Stage {
   const stage = { id: "practice_questions" as const, label: "Practice questions passed", blocks: true };
   const latest = practice.latest;
   if (practicePassed(practice)) {
     return {
       ...stage,
       state: "done",
-      detail: "AYA answered her practice questions about your practice, and got them right.",
+      detail: practicePassedDetail(state),
     };
   }
   if (practice.pending) {

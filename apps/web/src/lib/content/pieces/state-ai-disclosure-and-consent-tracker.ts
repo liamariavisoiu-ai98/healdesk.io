@@ -13,9 +13,6 @@ import type { Piece } from "@/lib/content/types";
  * its AI cell says so instead of "None found".
  */
 
-const CA = "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml";
-const CA_BILL = "https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=";
-
 export const piece: Piece = {
   slug: "state-ai-disclosure-and-consent-tracker",
   family: "research",
@@ -32,11 +29,13 @@ export const piece: Piece = {
   sections: [
     {
       id: "tracker",
-      heading: "Which states require consent to record a call, and which require AI disclosure?",
+      heading:
+        "Which states require consent to record a call, and which require AI disclosure?",
       blocks: [
         {
           kind: "table",
-          caption: "Consent to record or transcribe a call, and AI-disclosure laws, in 20 states",
+          caption:
+            "Consent to record or transcribe a call, and AI-disclosure laws, in 20 states",
           head: [
             "State",
             "Recording or transcription consent",
@@ -46,13 +45,13 @@ export const piece: Piece = {
           rows: [
             [
               "California",
-              `All parties. [Penal Code § 632](${CA}?lawCode=PEN&sectionNum=632) bars recording a confidential communication "without the consent of all parties"; [§ 631](${CA}?lawCode=PEN&sectionNum=631) bars learning a message's contents in transit without all parties' consent.`,
-              `[SB 1001, Bus. & Prof. Code § 17941](${CA}?lawCode=BPC&sectionNum=17941): bots online, from 1 July 2019. [AB 3030, Health & Safety Code § 1339.75](${CA}?lawCode=HSC&sectionNum=1339.75): generative AI messages about patient clinical information, from 1 January 2025. [AB 489, Bus. & Prof. Code § 4999.9](${CA}?lawCode=BPC&sectionNum=4999.9): no implying a licensed human professional, from 1 January 2026. [AB 1609](${CA_BILL}202520260AB1609): chatbots of businesses taking in over $500 million a year, from 1 January 2027.`,
+              `All parties. [Penal Code § 632](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=632) bars recording a confidential communication "without the consent of all parties"; [§ 631](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=631) bars learning a message's contents in transit without all parties' consent.`,
+              `[SB 1001, Bus. & Prof. Code § 17941](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=17941): bots online, from 1 July 2019. [AB 3030, Health & Safety Code § 1339.75](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=HSC&sectionNum=1339.75): generative AI messages about patient clinical information, from 1 January 2025. [AB 489, Bus. & Prof. Code § 4999.9](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=4999.9): no implying a licensed human professional, from 1 January 2026. [AB 1609](https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1609): chatbots of businesses taking in over $500 million a year, from 1 January 2027.`,
               "19 October 2026",
             ],
             [
               "Texas",
-              `One party. [Penal Code § 16.02(c)(4)](https://tcss.legis.texas.gov/resources/PE/htm/PE.16.htm) allows interception by a party, or where "one of the parties to the communication has given prior consent".`,
+              `One party. [Penal Code § 16.02(c)(4)](https://tcss.legis.texas.gov/resources/PE/htm/PE.16.htm) makes it a defence that the person is a party, or that "one of the parties to the communication has given prior consent".`,
               `[Bus. & Com. Code § 552.051(f)](https://tcss.legis.texas.gov/resources/BC/htm/BC.552.htm) (TRAIGA): the provider must disclose AI "used in relation to health care service or treatment", from 1 January 2026. [Health & Safety Code § 183.005](https://tcss.legis.texas.gov/resources/HS/htm/HS.183.htm): AI used for diagnosis, from 1 September 2025.`,
               "19 October 2026",
             ],
@@ -82,7 +81,7 @@ export const piece: Piece = {
             ],
             [
               "Illinois",
-              `All parties. [720 ILCS 5/14-2](https://codes.findlaw.com/il/chapter-720-criminal-offenses/il-st-sect-720-5-14-2.html) (mirror) bars recording or transcribing a private conversation or electronic communication "in a surreptitious manner" without the consent of all parties.`,
+              `All parties. [720 ILCS 5/14-2](https://codes.findlaw.com/il/chapter-720-criminal-offenses/il-st-sect-720-5-14-2.html) (mirror) bars a non-party from recording a private conversation, or recording or transcribing a private electronic communication, "in a surreptitious manner" without the consent of all parties.`,
               "None found.",
               "19 October 2026",
             ],
@@ -130,7 +129,7 @@ export const piece: Piece = {
             ],
             [
               "Nevada",
-              `[NRS 200.620](https://www.leg.state.nv.us/NRS/NRS-200.html) allows intercepting a wire communication, unless the statute provides otherwise, only with one party's prior consent and an emergency in which a court order is impractical.`,
+              `Except as the statute provides otherwise, [NRS 200.620](https://www.leg.state.nv.us/NRS/NRS-200.html) allows intercepting a wire communication only with one party's prior consent and an emergency in which obtaining a court order first is impractical.`,
               "None found.",
               "19 October 2026",
             ],
@@ -155,7 +154,7 @@ export const piece: Piece = {
             [
               "Colorado",
               `One party. [C.R.S. §§ 18-9-303 and 18-9-304](https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-18.pdf) (2024 edition) bar interception without the consent of a sender or receiver, or of "at least one of the principal parties".`,
-              `[HB 26-1263](https://leg.colorado.gov/laws/session-laws/HB26-1263/208/download), from 1 January 2027: operators of public conversational AI services must disclose that they are AI, but software primarily designed for customer service, or used for a HIPAA covered entity, is excluded. [SB 26-189](https://leg.colorado.gov/bill_files/116489/download) covers only consequential decisions.`,
+              `[HB 26-1263](https://leg.colorado.gov/laws/session-laws/HB26-1263/208/download), from 1 January 2027: operators of public conversational AI services must disclose that they are AI, but software primarily designed for customer service, or used by or for a HIPAA covered entity or business associate, is excluded. [SB 26-189](https://leg.colorado.gov/bill_files/116489/download) covers only consequential decisions.`,
               "19 October 2026",
             ],
             [
@@ -209,6 +208,7 @@ export const piece: Piece = {
             "me-15-710",
             "me-1500-dd",
             "me-legislature",
+            "me-ld-1727",
           ],
         },
         {
@@ -228,17 +228,17 @@ export const piece: Piece = {
         {
           kind: "list",
           items: [
-            "California: AB 489 (Statutes of 2025, chapter 615) and SB 243 (chapter 677), on companion chatbots, took effect on 1 January 2026. SB 243 excludes \"a bot that is used only for customer service\".",
-            "California: AB 1979, AB 1609 and SB 690 were signed in September 2026 and take effect on 1 January 2027. AB 1979 bars AI from independently performing clinical functions reserved for licensed people, and it requires no disclosure.",
-            "California: SB 690 is not an AI law. It leaves private suits over pen registers and trap-and-trace devices on websites and apps to the Attorney General, and its text names only Penal Code § 638.51.",
+            'California: AB 489 (Statutes of 2025, chapter 615) and SB 243 (chapter 677), on companion chatbots, took effect on 1 January 2026. SB 243 excludes "a bot that is used only for customer service".',
+            "California: AB 1979, AB 1609 and SB 690 were signed in September 2026 and take effect on 1 January 2027. AB 1979 bars health facilities, clinics and physicians' offices from using AI to independently perform clinical functions reserved for licensed people, and it requires no disclosure.",
+            "California: SB 690 is not an AI law. It lets only the Attorney General sue a private actor under Penal Code § 637.2 over a pen register or trap-and-trace device alleged on a website or app, and its text names only § 638.51.",
             "Texas: the Responsible Artificial Intelligence Governance Act (HB 149, Acts 2025, chapter 1174) took effect on 1 January 2026, and Health and Safety Code § 183.005 (SB 1188) on 1 September 2025.",
-            "Utah: the generative AI disclosure chapter, now Title 13, Chapter 77, took effect on 7 May 2025, and SB 226 moved the repeal date of the AI Policy Act, Chapter 72, to 1 July 2027. Section 13-77-101 was amended in 2026 (Laws of Utah 2026, chapter 95).",
+            "Utah: the generative AI disclosure chapter, Title 13, Chapter 77, took effect on 7 May 2025. SB 226 moved the repeal date of the AI Policy Act, Chapter 72, to 1 July 2027. Section 13-77-101 was amended in 2026 (Laws of Utah 2026, chapter 95).",
             "Maine: Public Law 2025, chapter 294 took effect on 24 September 2025, and the Revisor of Statutes has moved it from § 1500-Y to § 1500-DD of Title 10.",
-            "Colorado: SB 26-189, signed on 14 May 2026, repeals and re-enacts Part 17 of Article 1 of Title 6, the 2024 AI act, from 1 January 2027. Its notices apply to automated decisions in consequential decisions, which exclude \"routine scheduling\".",
+            'Colorado: SB 26-189, signed on 14 May 2026, repeals and re-enacts Part 17 of Article 1 of Title 6, the 2024 AI act, from 1 January 2027. Its notices apply where automated decision-making technology materially influences a consequential decision, a term that excludes "routine scheduling".',
             "Colorado: HB 26-1263, approved on 29 May 2026, adds the conversational AI disclosure described in the table, from 1 January 2027.",
             "Washington: HB 2225, on AI companion chatbots, was signed on 24 March 2026 and takes effect on 1 January 2027. Oregon: SB 1546, on AI companions, became chapter 85 of its 2026 session laws.",
             "Florida: SB 482 died in messages on 13 March 2026. New York: S7263A was committed to the Rules Committee on 5 June 2026 and is not law.",
-            "Federal: Executive Order 14365 of 11 December 2025 directs agencies to challenge state AI laws that conflict with its policy, and the Justice Department set up its AI Litigation Task Force on 9 January 2026.",
+            "Federal: Executive Order 14365 of 11 December 2025 directs agencies to challenge state AI laws that conflict with its policy. The Justice Department set up its AI Litigation Task Force on 9 January 2026.",
           ],
           cite: [
             "ca-bpc-4999-9",
@@ -248,6 +248,7 @@ export const piece: Piece = {
             "ca-sb-690",
             "ca-const-iv-8",
             "tx-bcc-552",
+            "tx-hb-149",
             "tx-hsc-183",
             "ut-13-77",
             "ut-sb-226",
@@ -255,6 +256,7 @@ export const piece: Piece = {
             "me-1500-dd",
             "me-pl-2025-294",
             "me-legislature",
+            "me-ld-1727",
             "co-sb26-189",
             "co-sb26-189-act",
             "co-hb26-1263",
@@ -292,7 +294,7 @@ export const piece: Piece = {
           kind: "p",
           text:
             "A row states what the statute's text says and whom it binds, and it does not say whether any practice meets it. " +
-            "None found records that no AI-disclosure law reaching a clinic's assistant turned up in the searches for this tracker, and it does not mean that none exists. " +
+            '"None found" records that no AI-disclosure law reaching a clinic\'s assistant turned up in the searches for this tracker, and it does not mean that none exists. ' +
             "The table is rechecked against the primary text every month, and each row carries the date of its last check. " +
             "Corrections, with the statute or bill that supports them, go to [hello@healdesk.io](mailto:hello@healdesk.io).",
         },
@@ -302,14 +304,14 @@ export const piece: Piece = {
   aya: [
     "AYA is built to play the same opening line on every call in every state, rather than choosing a disclosure by the caller's area code.",
     "That line says it is an AI assistant, not a human, and that the call is transcribed with no audio recording kept.",
-    "Website chats open with a line saying the visitor is chatting with an AI assistant, and the clinic cannot switch either line off.",
+    "Website chats are built to open with a line saying the visitor is chatting with an AI assistant, and the clinic cannot switch either line off.",
   ],
   sources: [
     {
       id: "ca-pen-632",
       title: "California Penal Code § 632",
       publisher: "California Legislature",
-      url: `${CA}?lawCode=PEN&sectionNum=632`,
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=632",
       kind: "statute",
       checked: "2026-10-19",
     },
@@ -317,15 +319,16 @@ export const piece: Piece = {
       id: "ca-pen-631",
       title: "California Penal Code § 631",
       publisher: "California Legislature",
-      url: `${CA}?lawCode=PEN&sectionNum=631`,
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=PEN&sectionNum=631",
       kind: "statute",
       checked: "2026-10-19",
     },
     {
       id: "ca-bpc-17941",
-      title: "California Business and Professions Code § 17941 (SB 1001, Statutes of 2018, chapter 892)",
+      title:
+        "California Business and Professions Code § 17941 (SB 1001, Statutes of 2018, chapter 892)",
       publisher: "California Legislature",
-      url: `${CA}?lawCode=BPC&sectionNum=17941`,
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=17941",
       kind: "statute",
       checked: "2026-10-19",
     },
@@ -333,63 +336,70 @@ export const piece: Piece = {
       id: "ca-bpc-17943",
       title: "California Business and Professions Code § 17943, operative date",
       publisher: "California Legislature",
-      url: `${CA}?lawCode=BPC&sectionNum=17943`,
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=17943",
       kind: "statute",
       checked: "2026-10-19",
     },
     {
       id: "ca-hsc-1339-75",
-      title: "California Health and Safety Code § 1339.75 (AB 3030, Statutes of 2024, chapter 848)",
+      title:
+        "California Health and Safety Code § 1339.75 (AB 3030, Statutes of 2024, chapter 848)",
       publisher: "California Legislature",
-      url: `${CA}?lawCode=HSC&sectionNum=1339.75`,
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=HSC&sectionNum=1339.75",
       kind: "statute",
       checked: "2026-10-19",
     },
     {
       id: "ca-bpc-4999-9",
-      title: "California Business and Professions Code § 4999.9 (AB 489, Statutes of 2025, chapter 615)",
+      title:
+        "California Business and Professions Code § 4999.9 (AB 489, Statutes of 2025, chapter 615)",
       publisher: "California Legislature",
-      url: `${CA}?lawCode=BPC&sectionNum=4999.9`,
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=4999.9",
       kind: "statute",
       checked: "2026-10-19",
     },
     {
       id: "ca-bpc-22601",
-      title: "California Business and Professions Code § 22601 (SB 243, Statutes of 2025, chapter 677)",
+      title:
+        "California Business and Professions Code § 22601 (SB 243, Statutes of 2025, chapter 677)",
       publisher: "California Legislature",
-      url: `${CA}?lawCode=BPC&sectionNum=22601`,
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=22601",
       kind: "statute",
       checked: "2026-10-19",
     },
     {
       id: "ca-ab-1979",
-      title: "AB 1979, Health care services: artificial intelligence (Statutes of 2026, chapter 854)",
+      title:
+        "AB 1979, Health care services: artificial intelligence (Statutes of 2026, chapter 854)",
       publisher: "California Legislature",
-      url: `${CA_BILL}202520260AB1979`,
+      url: "https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1979",
       kind: "statute",
       checked: "2026-10-19",
     },
     {
       id: "ca-ab-1609",
-      title: "AB 1609, Customer service chatbots (Statutes of 2026, chapter 733)",
+      title:
+        "AB 1609, Customer service chatbots (Statutes of 2026, chapter 733)",
       publisher: "California Legislature",
-      url: `${CA_BILL}202520260AB1609`,
+      url: "https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1609",
       kind: "statute",
       checked: "2026-10-19",
     },
     {
       id: "ca-sb-690",
-      title: "SB 690, Crimes: invasion of privacy (Statutes of 2026, chapter 976)",
+      title:
+        "SB 690, Crimes: invasion of privacy (Statutes of 2026, chapter 976)",
       publisher: "California Legislature",
-      url: `${CA_BILL}202520260SB690`,
+      url: "https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260SB690",
       kind: "statute",
       checked: "2026-10-19",
     },
     {
       id: "ca-const-iv-8",
-      title: "California Constitution, Article IV, § 8(c), effective date of statutes",
+      title:
+        "California Constitution, Article IV, § 8(c), effective date of statutes",
       publisher: "California Legislature",
-      url: `${CA}?lawCode=CONS&sectionNum=SEC.%208.&article=IV`,
+      url: "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=CONS&sectionNum=SEC.%208.&article=IV",
       kind: "statute",
       checked: "2026-10-19",
     },
@@ -403,15 +413,26 @@ export const piece: Piece = {
     },
     {
       id: "tx-bcc-552",
-      title: "Texas Business and Commerce Code, Chapter 552 (HB 149, Acts 2025, chapter 1174)",
+      title:
+        "Texas Business and Commerce Code, Chapter 552 (HB 149, Acts 2025, chapter 1174)",
       publisher: "Texas Legislative Council",
       url: "https://tcss.legis.texas.gov/resources/BC/htm/BC.552.htm",
       kind: "statute",
       checked: "2026-10-19",
     },
     {
+      id: "tx-hb-149",
+      title:
+        "H.B. No. 149, enrolled version (89th Legislature, Regular Session)",
+      publisher: "Texas Legislature Online",
+      url: "https://capitol.texas.gov/tlodocs/89R/billtext/html/HB00149F.htm",
+      kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
       id: "tx-hsc-183",
-      title: "Texas Health and Safety Code § 183.005 (SB 1188, Acts 2025, chapter 1002)",
+      title:
+        "Texas Health and Safety Code § 183.005 (SB 1188, Acts 2025, chapter 1002)",
       publisher: "Texas Legislative Council",
       url: "https://tcss.legis.texas.gov/resources/HS/htm/HS.183.htm",
       kind: "statute",
@@ -443,7 +464,8 @@ export const piece: Piece = {
     },
     {
       id: "ny-gbl-1700",
-      title: "New York General Business Law § 1700 (Article 47, Artificial Intelligence Companion Models)",
+      title:
+        "New York General Business Law § 1700 (Article 47, Artificial Intelligence Companion Models)",
       publisher: "New York State Senate",
       url: "https://www.nysenate.gov/legislation/laws/GBS/1700",
       kind: "statute",
@@ -483,7 +505,8 @@ export const piece: Piece = {
     },
     {
       id: "wa-hb-2225-sl",
-      title: "Engrossed Substitute House Bill 2225, session law (Laws of 2026, chapter 168)",
+      title:
+        "Engrossed Substitute House Bill 2225, session law (Laws of 2026, chapter 168)",
       publisher: "Washington State Legislature",
       url: "https://lawfilesext.leg.wa.gov/biennium/2025-26/Pdf/Bills/Session%20Laws/House/2225-S.SL.pdf",
       kind: "statute",
@@ -499,7 +522,8 @@ export const piece: Piece = {
     },
     {
       id: "pa-5704",
-      title: "18 Pa.C.S. § 5704 (mirror of the Pennsylvania Consolidated Statutes)",
+      title:
+        "18 Pa.C.S. § 5704 (mirror of the Pennsylvania Consolidated Statutes)",
       publisher: "FindLaw",
       url: "https://codes.findlaw.com/pa/title-18-pacsa-crimes-and-offenses/pa-csa-sect-18-5704.html",
       kind: "statute",
@@ -571,7 +595,8 @@ export const piece: Piece = {
     },
     {
       id: "or-sb-1546",
-      title: "Enrolled Senate Bill 1546 (2026), Relating to artificial intelligence companions",
+      title:
+        "Enrolled Senate Bill 1546 (2026), Relating to artificial intelligence companions",
       publisher: "Oregon State Legislature",
       url: "https://olis.oregonlegislature.gov/liz/2026R1/Downloads/MeasureDocument/SB1546/Enrolled",
       kind: "statute",
@@ -611,7 +636,8 @@ export const piece: Piece = {
     },
     {
       id: "ut-13-77",
-      title: "Utah Code Title 13, Chapter 77, Generative Artificial Intelligence: Consumer Disclosures and Enforcement",
+      title:
+        "Utah Code Title 13, Chapter 77, Generative Artificial Intelligence: Consumer Disclosures and Enforcement",
       publisher: "Utah State Legislature",
       url: "https://le.utah.gov/xcode/Title13/Chapter77/13-77.html",
       kind: "statute",
@@ -627,7 +653,8 @@ export const piece: Piece = {
     },
     {
       id: "ut-sb-226",
-      title: "S.B. 226, Artificial Intelligence Consumer Protection Amendments, 2025 General Session, enrolled copy",
+      title:
+        "S.B. 226, Artificial Intelligence Consumer Protection Amendments, 2025 General Session, enrolled copy",
       publisher: "Utah State Legislature",
       url: "https://le.utah.gov/Session/2025/bills/enrolled/SB0226.pdf",
       kind: "statute",
@@ -635,8 +662,10 @@ export const piece: Piece = {
     },
     {
       id: "co-18-9",
-      title: "Colorado Revised Statutes 2024, Title 18, §§ 18-9-303 and 18-9-304",
-      publisher: "Colorado General Assembly, Office of Legislative Legal Services",
+      title:
+        "Colorado Revised Statutes 2024, Title 18, §§ 18-9-303 and 18-9-304",
+      publisher:
+        "Colorado General Assembly, Office of Legislative Legal Services",
       url: "https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-18.pdf",
       kind: "statute",
       checked: "2026-10-19",
@@ -698,8 +727,18 @@ export const piece: Piece = {
       checked: "2026-10-19",
     },
     {
+      id: "me-ld-1727",
+      title:
+        "LD 1727 (HP 1154), text and status, 132nd Legislature, First Special Session",
+      publisher: "Maine Legislature",
+      url: "https://legislature.maine.gov/legis/bills/display_ps.asp?LD=1727&snum=132",
+      kind: "government",
+      checked: "2026-10-19",
+    },
+    {
       id: "me-legislature",
-      title: "Maine Legislature home page: general effective dates of nonemergency laws",
+      title:
+        "Maine Legislature home page: general effective dates of nonemergency laws",
       publisher: "Maine Legislature",
       url: "https://legislature.maine.gov/",
       kind: "government",
@@ -715,7 +754,8 @@ export const piece: Piece = {
     },
     {
       id: "eo-14365",
-      title: "Executive Order 14365, Ensuring a National Policy Framework for Artificial Intelligence, 90 FR 58499",
+      title:
+        "Executive Order 14365, Ensuring a National Policy Framework for Artificial Intelligence, 90 FR 58499",
       publisher: "Federal Register, via GovInfo",
       url: "https://www.govinfo.gov/content/pkg/FR-2025-12-16/pdf/2025-23092.pdf",
       kind: "government",
@@ -723,7 +763,8 @@ export const piece: Piece = {
     },
     {
       id: "doj-ai-task-force",
-      title: "Memorandum for all Department of Justice employees: Artificial Intelligence Litigation Task Force (9 January 2026)",
+      title:
+        "Memorandum for all Department of Justice employees: Artificial Intelligence Litigation Task Force (9 January 2026)",
       publisher: "Office of the Attorney General, US Department of Justice",
       url: "https://www.justice.gov/ag/media/1422986/dl?inline=",
       kind: "government",

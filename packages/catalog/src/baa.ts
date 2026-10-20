@@ -879,9 +879,9 @@ const GOVERNING_STATE = "Delaware";
  * BAA 1.2.2 prints them, exported once so that the data protection agreement
  * (dpa.ts) names the same party at the same address under the same law.
  * Kind-neutral and read-only. The BAA templates read the constants above
- * directly, never this object, so it moves no BAA hash; but once the DPA is
- * released it is frozen with the DPA's golden hashes, and a new address is a
- * new constant beside these, never an edit to them. 1.1.0-draft to 1.2.1
+ * directly, never this object, so it moves no BAA hash; but the DPA was
+ * released on 20 October 2026, so it is frozen with the DPA's golden hashes,
+ * and a new address is a new constant beside these, never an edit to them. 1.1.0-draft to 1.2.1
  * print NOTICE_ADDRESS, with legal@; 1.2.2 and this object print
  * NOTICE_ADDRESS_1_2_2, with hello@ (owner, 9 October 2026).
  */
@@ -2630,9 +2630,10 @@ export function stateLawClauseBody140(input: StateLawClauseInput): string {
  * documentation does not, is gone with the purpose it qualified.
  *
  * Everything else is 1.4.0's (and so 1.5.1's), word for word (baa.test.ts
- * holds the two together). BAA 1.6.0 and the DPA are both unreleased: their
- * text may move until each is released, and from then a new wording is a new
- * function.
+ * holds the two together). The DPA, which prints it too, was released on 20
+ * October 2026, so its golden hashes freeze this function from that day,
+ * though BAA 1.6.0 is still a draft: a wording 1.6.0 needs before its release
+ * is a new function, never an edit to this one.
  */
 export function stateLawClauseBody160(input: StateLawClauseInput): string {
   return stateLawClause(input, "emailed", "periods");

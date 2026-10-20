@@ -41,22 +41,22 @@ import { wrap } from "./wrap";
  *   - it may amend only a DPA: an agreement version that is not a DPA's is
  *     refused, as is one the selector cannot choose a clause for.
  *
- * ## Unreleased, and nothing can record it yet
+ * ## Released with the DPA
  *
- * `approvedByCounsel` is false, the flag the BAA's election and every
- * agreement carry: the owner releases it with the DPA, after reading it in
- * docs/dpa-v1.0.0.txt (Appendix B). Until then, as for the BAA's election, it
- * is to count only for a demo clinic (plan A10), and the database is to
- * refuse a draft row for anyone else (plan §11.6). Neither the election rows
- * nor the code that writes them is on main (the calendar session's plan C6
- * and C7), so today no election of either kind can be recorded at all, and a
- * DPA practice can neither add a location under calendar terms nor change a
- * location's booking system or account kind: `addLocation` answers
- * "not_available", `createLocationClinic` is a stub behind
- * `LOCATION_CLINICS_READY = false`, and nothing writes a location's booking
- * system. That refusal is to be kept until this form is released. Whatever
- * records an election takes its form from `calendarElectionFor`, by the
- * kind of the agreement in effect, never `currentCalendarElection()` alone.
+ * `approvedByCounsel` is the flag the BAA's election and every agreement
+ * carry. The owner released this form with the DPA on 20 October 2026, after
+ * the DPA's review copy (docs/dpa-v1.0.0.txt, Appendix B), and the migration
+ * of that day (apps/app drizzle/0104_dpa_release_1_0_0) added it to
+ * app_calendar_election_released(), so an election under it counts for every
+ * DPA practice, not only a demo clinic (plan A10). Whatever records an
+ * election takes its form from `calendarElectionFor`, by the kind of the
+ * agreement in effect, never `currentCalendarElection()` alone (apps/app
+ * lib/booking/elections.ts), and the database's election guard refuses this
+ * form under a business associate agreement and the BAA's under a DPA (the
+ * same migration). A second location is still not possible for any practice
+ * (`LOCATION_CLINICS_READY` is false in apps/app), so today a DPA practice's
+ * election is a change of its first location's booking system or kind of
+ * Google account, as a BAA practice's is.
  *
  * To revise: add a new entry at DPA_CALENDAR_ELECTIONS[0] with a new version.
  * Once released, never edit one; an election row's stored hash points at it.
@@ -66,12 +66,17 @@ export const DPA_CALENDAR_ELECTION_VERSION = "calendar-election-dpa/1.0.0";
 
 export const DPA_CALENDAR_ELECTIONS: readonly CalendarElection[] = [
   // Newest first; currentDpaCalendarElection() reads [0]. Drafted on 7
-  // October 2026 and unreleased, so changed in place, with its golden hash,
-  // until the owner releases it.
+  // October 2026 and changed in place, with its golden hash, until its
+  // release; from then on a new wording is a new version.
   {
     version: DPA_CALENDAR_ELECTION_VERSION,
-    publishedOn: "2026-10-07",
-    approvedByCounsel: false,
+    publishedOn: "2026-10-20",
+    // Approved for release by the OWNER on 2026-10-20, with DPA dpa/1.0.0,
+    // on the owner's own instruction and without external counsel: the flag
+    // records the owner's release, not a lawyer's approval
+    // (agreement-changes.md §18). app_calendar_election_released() lists it
+    // since the migration of that day (dpa_release_1_0_0).
+    approvedByCounsel: true,
     // Literal, not the BAA election's sentences with a word swapped: a new
     // version of that form must not move this one's bytes.
     purpose:

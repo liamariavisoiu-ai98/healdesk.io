@@ -79,6 +79,8 @@ const VARS: BaaVariables = {
   calendarAccount: "workspace_baa",
 };
 
+// A med spa that answered "Yes": the BAA. "No" signs the Data Protection
+// Agreement since its release (20 October 2026; tests/dpa-signing.test.ts).
 const validSignRequest = (over: Record<string, unknown> = {}) =>
   ({
   clinicLegalName: "Radiance Med Spa",
@@ -86,7 +88,7 @@ const validSignRequest = (over: Record<string, unknown> = {}) =>
   signatoryName: "Alex Chen",
   signatoryTitle: "Owner",
   signatoryEmail: "alex@radiance.test",
-  isCoveredEntity: false,
+  isCoveredEntity: true,
   attributionMode: "estimated",
   platform: "none",
   // Both calendar answers, which 1.3.0, the current version, requires.
@@ -889,29 +891,52 @@ describe("validation", () => {
 /**
  * Which agreement a practice signs is agreementKindFor's to decide (packages/
  * catalog/src/agreement-kind.ts). This endpoint signs the business associate
- * agreement, and the Data Protection Agreement once the owner releases it
- * (tests/dpa-signing.test.ts). A practice the decision sends to the DPA is
- * never handed a BAA, and while the DPA is unreleased a veterinary practice
- * is refused by name.
+ * agreement, and the Data Protection Agreement since the owner released it on
+ * 20 October 2026 (tests/dpa-signing.test.ts). A practice the decision sends
+ * to the DPA is never handed a BAA; before the release a veterinary practice
+ * was refused by name, as it still would be under a DPA nobody released.
  */
 describe("which agreement a request signs", () => {
-  test("a veterinary practice is refused, because there is no agreement it can sign yet", () => {
+  test("a veterinary practice is sent to the DPA, never handed a BAA", () => {
     // It could sign a BAA here before plan C3. HIPAA does not reach a practice
-    // whose patients are animals, and the DPA it signs instead is unreleased.
+    // whose patients are animals, and it signs the DPA instead.
     for (const isCoveredEntity of [true, false, null]) {
+      expect(agreementKindForRequest({ specialty: "veterinary", isCoveredEntity })).toBe("dpa");
       expect(
         refusal(() =>
           validateSignRequest(validSignRequest({ specialty: "veterinary", isCoveredEntity })),
+        ),
+      ).toMatchObject({ field: "assentLabel" });
+      // Without the release it would have nothing to sign, and is refused by name.
+      expect(
+        refusal(() =>
+          validateSignRequest(validSignRequest({ specialty: "veterinary", isCoveredEntity }), {
+            dpaReleased: false,
+          }),
         ),
       ).toMatchObject({ message: "This specialty can't sign up yet.", field: "specialty" });
     }
   });
 
-  test("a med spa that bills no insurance still signs the BAA while the DPA is unreleased", () => {
+  test("a med spa that bills no insurance signs the DPA since its release, and the BAA without it", () => {
+    expect(agreementKindForRequest({ specialty: "med-spa", isCoveredEntity: false })).toBe("dpa");
+    // The BAA's label on a "No" is refused: the decision is the catalogue's.
+    expect(
+      refusal(() =>
+        validateSignRequest(validSignRequest({ specialty: "med-spa", isCoveredEntity: false })),
+      ),
+    ).toMatchObject({ field: "assentLabel" });
     expect(() =>
-      validateSignRequest(validSignRequest({ specialty: "med-spa", isCoveredEntity: false })),
+      validateSignRequest(validSignRequest({ specialty: "med-spa", isCoveredEntity: false }), {
+        dpaReleased: false,
+      }),
     ).not.toThrow();
-    expect(agreementKindForRequest({ specialty: "med-spa", isCoveredEntity: false })).toBe("baa");
+    expect(
+      agreementKindForRequest(
+        { specialty: "med-spa", isCoveredEntity: false },
+        { dpaReleased: false },
+      ),
+    ).toBe("baa");
   });
 
   test("a plastic surgery practice signs the BAA, whatever it answers", () => {
@@ -1405,7 +1430,7 @@ describe("the server's render", () => {
       specialtyId: "med-spa",
       attributionMode: "estimated",
       bookingSystem: "gohighlevel",
-      isCoveredEntity: false,
+      isCoveredEntity: true,
       calendarAccount: "personal",
       template,
     });
@@ -1918,9 +1943,14 @@ describeDb("signing", () => {
   test("a direct call refused for its answers or its practice writes nothing", async () => {
     const before = await acceptanceCount();
 
+    // A vet signs the DPA since its release (20 October 2026): the BAA's
+    // version and label are refused, whatever the request says.
     await expect(
       signAgreement(validSignRequest({ clinicLegalName: "Vet Clinic", specialty: "veterinary" })),
-    ).rejects.toMatchObject({ field: "specialty" });
+    ).rejects.toMatchObject({
+      field: "templateVersion",
+      message: expect.stringMatching(/signs the Data Protection Agreement/),
+    });
     const unanswered = validSignRequest({
       clinicLegalName: "Unanswered Clinic",
       templateVersion: "1.3.0",

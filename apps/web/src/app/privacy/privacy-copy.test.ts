@@ -80,7 +80,7 @@ describe("who processes visitor data, by category", () => {
 
   test("says the patient-information subcontractors are listed for clinics on request", () => {
     expect(text).toContain(
-      "The list of the subcontractors that handle patient information is given to clinics on request, under the Business Associate Agreement.",
+      "The list of the subcontractors that handle patient information is given to clinics on request, under the Business Associate Agreement or the data protection agreement the clinic signed.",
     );
     expect(text).not.toContain("/subprocessors");
   });

@@ -61,11 +61,12 @@ function request(id: string): Request {
   return new Request(`https://healdesk.io/api/agreement/pdf?id=${encodeURIComponent(id)}`);
 }
 
-async function signed(): Promise<string> {
+/** A med spa that answered "Yes" signs the BAA; "No" signs the DPA since its release (20 October 2026). */
+async function signed(covered: "yes" | "no" = "yes"): Promise<string> {
   const record = await signTestAgreement({
     clinicName: "Radiance Med Spa LLC",
     specialty: "med-spa",
-    covered: "no",
+    covered,
     bookingSystem: "google_calendar",
     calendarAccount: "workspace_baa",
     contactName: "Alex Chen",
@@ -135,6 +136,18 @@ describe("the PDF, from the record, with no apps/app", () => {
     // lets the digest recorded with the emailed copy mean anything.
     const again = Buffer.from(await (await GET(request(id))).arrayBuffer());
     expect(createHash("sha256").update(again).digest("hex")).toBe(createHash("sha256").update(bytes).digest("hex"));
+  });
+
+  test("a Data Protection Agreement downloads under its own name", async () => {
+    const id = await signed("no");
+    cookieValue = issueDownloadToken(id);
+    const response = await GET(request(id));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toMatch(
+      /^attachment; filename="healdesk-dpa-[a-z0-9._-]+-\d{4}-\d{2}-\d{2}\.pdf"$/,
+    );
+    const bytes = Buffer.from(await response.arrayBuffer());
+    expect(bytes.subarray(0, 5).toString("latin1")).toBe("%PDF-");
   });
 
   test("a record that was never written is 404, and one edited in the Sheet is 409, with no PDF", async () => {

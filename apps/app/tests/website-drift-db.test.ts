@@ -135,19 +135,24 @@ type Clinic = { clinicId: string; slug: string; userId: string };
 async function provision(label: string, setup: SetupSeed): Promise<Clinic> {
   const email = `${label}-${randomUUID().slice(0, 8)}@glowspa.test`;
   const platform = agreementPlatformFor("none");
-  const signed = await signAgreement({
-    clinicLegalName: `${label} Med Spa LLC`,
-    specialty: "med-spa",
-    signatoryName: "Laura Owner",
-    signatoryEmail: email,
-    isCoveredEntity: false,
-    attributionMode: "estimated",
-    platform,
-    bookingSystem: "none",
-    calendarAccount: "workspace_no_baa",
-    assentLabel: BAA_ASSENT_LABEL,
-    templateVersion: CURRENT_BAA_VERSION,
-  });
+  // A "No" that signed the BAA before the DPA's release (20 October 2026).
+  const signed = await signAgreement(
+    {
+      clinicLegalName: `${label} Med Spa LLC`,
+      specialty: "med-spa",
+      signatoryName: "Laura Owner",
+      signatoryEmail: email,
+      isCoveredEntity: false,
+      attributionMode: "estimated",
+      platform,
+      bookingSystem: "none",
+      calendarAccount: "workspace_no_baa",
+      assentLabel: BAA_ASSENT_LABEL,
+      templateVersion: CURRENT_BAA_VERSION,
+    },
+    {},
+    { dpaReleased: false },
+  );
   const result = await provisionClinic(
     {
       clinicName: `${label} Med Spa LLC`,

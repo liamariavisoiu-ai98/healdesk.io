@@ -183,13 +183,14 @@ describe("the terms describe v1 as the spec defines it", () => {
   });
 
   test("leaving delivers an export within 30 days, then destruction on the agreement's terms", () => {
-    // The Business Associate Agreement's Term clause: an export within thirty
-    // days of termination, then destruction. The terms must not promise a
-    // different order or a different clock.
+    // The Data Agreement's Term clause (the BAA's, or the DPA's since its
+    // release on 20 October 2026): an export within thirty days of
+    // termination, then destruction. The terms must not promise a different
+    // order or a different clock.
     // No transcript is in it since 13 October 2026: each reached the clinic
     // by email when its conversation ended (BAA 1.4.0 clause 11).
     expect(text).toContain(
-      "Within 30 days of the end we deliver an export of your data — the records of your conversations and the booking log; the transcripts themselves reached you by email as each conversation ended — and we then destroy our copies when and as the Business Associate Agreement says.",
+      "Within 30 days of the end we deliver an export of your data — the records of your conversations and the booking log; the transcripts themselves reached you by email as each conversation ended — and we then destroy our copies when and as your Data Agreement says.",
     );
     expect(text).not.toContain("transcripts and the booking log");
     expect(text).not.toContain("before destroying our copies on the schedule");
@@ -314,7 +315,7 @@ describe("refunds say what is refunded, how, and when", () => {
     expect(text).toContain("You have 30 days to finish setup.");
     expect(text).toContain("we email you a reminder every five days");
     expect(text).toContain(
-      "If at the end of the 30th day after your payment none of them is, your subscription is cancelled and your account closed: nothing more is charged, nothing is refunded, and we keep only the signed Business Associate Agreement and the billing records the law requires us to keep.",
+      "If at the end of the 30th day after your payment none of them is, your subscription is cancelled and your account closed: nothing more is charged, nothing is refunded, and we keep only your signed Data Agreement and the billing records the law requires us to keep.",
     );
   });
 
@@ -369,7 +370,7 @@ describe("the first-month guarantee", () => {
     expect(whole).toContain("Your carrier, Google and Meta are not our suppliers.");
     expect(whole).toContain("The setup fee is not part of this guarantee.");
     expect(whole).toContain(
-      "It does not limit your rights under the Business Associate Agreement, or for anything other than the missed call or message itself.",
+      "It does not limit your rights under your Data Agreement, or for anything other than the missed call or message itself.",
     );
     expect(whole).not.toContain("to the card you paid with");
     expect(whole).not.toMatch(/\[|\]/);
@@ -445,7 +446,7 @@ describe("the annex on how we protect data", () => {
 
   test("opens by saying it is not a term of the agreement", () => {
     expect(annex).toContain(
-      "How we protect data This annex describes our practices for protecting information. It is provided for information only and is not a term of this agreement, and it changes as our practices do. The Business Associate Agreement you sign at checkout governs patient information.",
+      "How we protect data This annex describes our practices for protecting information. It is provided for information only and is not a term of this agreement, and it changes as our practices do. The Data Agreement you sign at checkout (section 1) governs patient information.",
     );
   });
 
@@ -558,13 +559,14 @@ describe("the Meta assistant takes booking requests and sends no payment link", 
  * BAA makes. Everywhere else the agreement meant is the practice's Data
  * Agreement, whichever kind it signed.
  *
- * While the DPA is unreleased (catalog `isDpaReleased()`), every practice
- * signs the BAA, so a passage that says "Business Associate Agreement" where
- * it means the Data Agreement is still true, and is listed below as such. The
- * release of the DPA fails this test until each of those reads "Data
- * Agreement". Any use in neither list fails at once. The lowercase noun (a
- * vendor's business associate agreement) and the plural are the general
- * term, not the document, and are not read.
+ * Until the owner released the DPA on 20 October 2026 (catalog
+ * `isDpaReleased()`), every practice signed the BAA, so eleven passages said
+ * "Business Associate Agreement" where they meant the Data Agreement and were
+ * listed here as true for the time being. The release made them false for a
+ * DPA practice, and LEGAL_VERSION 2026-10-20.1 says "Data Agreement" in each,
+ * so the list is gone: every use is now a BAA passage, or the test fails. The
+ * lowercase noun (a vendor's business associate agreement) and the plural
+ * are the general term, not the document, and are not read.
  */
 describe('"Business Associate Agreement" only where the BAA is meant', () => {
   const DEFINED_TERM = /Business Associate Agreement(?!s)|BUSINESS ASSOCIATE AGREEMENT(?!S)/;
@@ -580,21 +582,6 @@ describe('"Business Associate Agreement" only where the BAA is meant', () => {
     { text: "which is the exception the Business Associate Agreement makes", why: "the annex: the BAA's telephone exception" },
     { text: "ours are in the Business Associate Agreement.", why: "the annex: HIPAA's obligations" },
     { text: "the way to check ours is to read the Business Associate Agreement", why: "the annex: HIPAA's obligations" },
-  ];
-
-  /** True only while every practice signs the BAA: the Data Agreement is meant. */
-  const WHILE_EVERY_PRACTICE_SIGNS_THE_BAA: readonly string[] = [
-    "we keep only the signed Business Associate Agreement and the billing records",
-    "It does not limit your rights under the Business Associate Agreement",
-    "we then destroy our copies when and as the Business Associate Agreement says.",
-    "Patient information is covered by the Business Associate Agreement, not by this section.",
-    "EXCEPT AS EXPRESSLY STATED IN THESE TERMS OR THE BUSINESS ASSOCIATE AGREEMENT",
-    "The Business Associate Agreement allocates liability for patient information consistently with this section",
-    "Nothing in these terms or in the Business Associate Agreement shifts to you a civil money penalty",
-    "These terms, the Business Associate Agreement and the order you complete at checkout are the entire agreement",
-    "The Business Associate Agreement you sign at checkout governs patient information.",
-    "runs on separate infrastructure, under the Business Associate Agreement,",
-    "The list of these subcontractors is given to clinics on request, under the Business Associate Agreement.",
   ];
 
   /** Every sentence of the terms that uses the defined term, as a reader sees it. */
@@ -619,39 +606,49 @@ describe('"Business Associate Agreement" only where the BAA is meant', () => {
 
   const found = sentences();
   const isBaaPassage = (s: string) => BAA_PASSAGES.some((p) => s.includes(p.text));
-  const isInterim = (s: string) => WHILE_EVERY_PRACTICE_SIGNS_THE_BAA.some((p) => s.includes(p));
 
   test("the scan finds the definition, so it is reading the terms", () => {
     expect(found.some((s) => s.includes("In these terms your Data Agreement means"))).toBe(true);
-    expect(found.length).toBeGreaterThan(10);
+    // Nine since the DPA's release, each one where the BAA itself is meant.
+    expect(found.length).toBeGreaterThanOrEqual(BAA_PASSAGES.length);
   });
 
-  test("every use is a BAA passage, or one listed as true while every practice signs the BAA", () => {
-    expect(found.filter((s) => !isBaaPassage(s) && !isInterim(s))).toEqual([]);
+  test("every use is a BAA passage: the DPA is released, so a practice may have signed it instead", () => {
+    expect(isDpaReleased()).toBe(true);
+    expect(
+      found.filter((s) => !isBaaPassage(s)),
+      'A practice may have signed the DPA: where the Data Agreement is meant, say "Data Agreement" (bump LEGAL_VERSION).',
+    ).toEqual([]);
   });
 
-  test("once the DPA is released, none of the interim uses is left", () => {
-    const interim = found.filter((s) => !isBaaPassage(s) && isInterim(s));
-    if (isDpaReleased()) {
-      expect(
-        interim,
-        'The DPA is released, so a practice may have signed it: these must say "Data Agreement" (bump LEGAL_VERSION).',
-      ).toEqual([]);
-    } else {
-      expect(interim.length).toBeGreaterThan(0);
+  test("where the Data Agreement is meant, the terms say so, and section 9 carries over to the DPA", () => {
+    const markup = renderToStaticMarkup(h(TermsPage));
+    const words = markup.replace(/<[^>]+>/g, " ").replace(/&#x27;|&apos;/g, "'").replace(/\s+/g, " ");
+    for (const text of [
+      "we keep only your signed Data Agreement and the billing records",
+      "we then destroy our copies when and as your Data Agreement says.",
+      "Patient information is covered by your Data Agreement, not by this section.",
+      "EXCEPT AS EXPRESSLY STATED IN THESE TERMS OR YOUR DATA AGREEMENT",
+      "Your Data Agreement allocates liability for patient information consistently with this section",
+      "Nothing in these terms or in your Data Agreement shifts to you a civil money penalty",
+      "These terms, your Data Agreement and the order you complete at checkout are the entire agreement",
+      "The Data Agreement you sign at checkout (section 1) governs patient information.",
+      "under your Data Agreement, and that is the only place",
+      "given to clinics on request, under each clinic's Data Agreement.",
+      "It does not limit your rights under your Data Agreement",
+      "For a Practice that signs our data protection agreement in its place (section 1), everything this section says of that agreement it says of the data protection agreement.",
+    ]) {
+      expect(words, text).toContain(text);
     }
   });
 
-  test("every listed passage is still in the terms, so neither list outlives its sentence", () => {
+  test("every listed passage is still in the terms, so the list does not outlive its sentence", () => {
     for (const { text } of BAA_PASSAGES) expect(found.some((s) => s.includes(text)), text).toBe(true);
-    for (const text of WHILE_EVERY_PRACTICE_SIGNS_THE_BAA) {
-      expect(found.some((s) => s.includes(text)), text).toBe(true);
-    }
   });
 
   test("the rule catches a stray use, and leaves the general noun alone", () => {
     const stray = "Your Business Associate Agreement ends when your subscription does.";
-    expect(DEFINED_TERM.test(stray) && !isBaaPassage(stray) && !isInterim(stray)).toBe(true);
+    expect(DEFINED_TERM.test(stray) && !isBaaPassage(stray)).toBe(true);
     expect(DEFINED_TERM.test("each under a business associate agreement with us")).toBe(false);
     expect(DEFINED_TERM.test("Meta, which does not sign Business Associate Agreements.")).toBe(false);
   });

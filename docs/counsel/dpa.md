@@ -1,12 +1,17 @@
 # The healdesk Data Protection Agreement (dpa/1.0.0)
 
-> **Drafted 6 October 2026. Not released, not offered, not legal advice.**
-> The owner releases it at launch (Gate A) by setting `approvedByCounsel` to
-> true on `DPA_TEMPLATES[0]` in `packages/catalog/src/dpa.ts`, after reading
-> [`docs/dpa-v1.0.0.txt`](../dpa-v1.0.0.txt), once the rest of § 9's checklist
-> is done: the flag alone does not let a DPA practice go live, and its
-> release adds `dpa/1.0.0` to `app_dpa_version_released` in a migration in
-> the same commit (gap 11).
+> **Drafted 6 October 2026. Released by the owner on 20 October 2026, with
+> its calendar election form, without external counsel. Not legal advice.**
+> The owner said "Release the DPA now." `approvedByCounsel` is true on
+> `DPA_TEMPLATES[0]` in `packages/catalog/src/dpa.ts` and on
+> `calendar-election-dpa/1.0.0` in `dpa-calendar-election.ts`, and the
+> migration of the same commit (`apps/app/drizzle/0104_dpa_release_1_0_0.sql`)
+> adds `dpa/1.0.0` to `app_dpa_version_released` and the form to
+> `app_calendar_election_released` (gap 11). Nothing in either text changed,
+> so no hash moved; [`docs/dpa-v1.0.0.txt`](../dpa-v1.0.0.txt) is the released
+> copy. The release did not wait for every item of § 9's checklist: § 9 says
+> which are open, and [agreement-changes.md](./agreement-changes.md) § 18
+> recommends counsel review the text before the first live DPA practice.
 > Drafted by an AI assistant, as the rest of this folder was; the primary
 > sources are linked so anyone can check the reading.
 >
@@ -62,8 +67,10 @@ of the business associate agreement (the v1 spec, "Who is what"; plan Part L):
 
 `agreementKindFor` (`packages/catalog/src/agreement-kind.ts`) is the one
 function that decides, and it reads the DPA template's release flag at call
-time. Until the release, a "No" signs the BAA, as it always has, and a
-veterinary practice cannot buy (`specialtyOffered`).
+time. Until the release on 20 October 2026, a "No" signed the BAA and a
+veterinary practice could not buy (`specialtyOffered`); since then both sign
+the DPA. A "No" practice that signed the BAA before keeps it: a BAA is never
+replaced by a DPA.
 
 The DPA is not a weaker paper. The spec says a DPA practice's client data "is
 controlled exactly as PHI", so the DPA applies the HIPAA Security Rule's
@@ -108,9 +115,11 @@ destruction, and adds the processor terms state law asks for.
   `calendar-election-dpa/1.0.0` (`packages/catalog/src/dpa-calendar-election.ts`),
   built from calendar-terms.ts's exported pieces with the clause in the
   DPA's words (`dpaCalendarClauseBody`) and without the location paragraph,
-  unreleased, frozen by `dpa-calendar-election.test.ts` and printed in
-  Appendix B of the review file. `calendarElectionFor(agreementVersion)`
-  picks the form by the agreement's kind (§ 6, gap 6).
+  released with the DPA on 20 October 2026, frozen by
+  `dpa-calendar-election.test.ts` and printed in Appendix B of the review
+  file. `calendarElectionFor(agreementVersion)` picks the form by the
+  agreement's kind, and the database's election guard holds a row's form to
+  the kind of the agreement in effect (§ 6, gap 6).
 - **Variables.** Legal name, signatory, title, email, date, the specialty
   (which chooses the status clause and gives the legal descriptor in the
   preamble), the booking system and the Google account kind. Plan, price,
@@ -186,7 +195,7 @@ Added on 7 October 2026, read at origin/main c926414:
 | "delete it as the clause headed … provides" (13); ten business days, raw copies, backups within 35 days (5, item c) | The operator's deletion script in apps/app's own shell (`npm run ops:erase-person`; never apps/web, since 12 October 2026) runs `eraseContact` and also deletes the client's raw payloads (`webhook_events`), the drafts and `chat_threads` of their own messaging threads (a thread that also booked for someone else keeps what it sent for others, counted in the reply), and their suppressions, consent records and contact attempts, in one transaction; it records the request with its ten-business-day deadline and shows each subcontractor step (Retell's, done in its console) outstanding until the operator records it. Backups age out at the host's 35 days (gate 18) | `apps/app/src/lib/patient-rights/erasure.ts`; `apps/app/src/lib/ops/patient-entry.ts`; agreement-changes.md § 12.14, gate 6 |
 | "It will correct that information as Practice directs"; "healdesk corrects a client's contact details in its own copy"; "It does not rewrite a booking request, an appointment record or the record of a conversation: it appends the correction to that record and links the two"; "Every later export of that record, and every screen of healdesk's that shows it, then carries the correction" (13; the appointment record named since BAA 1.3.0's release audit, 12 October 2026, where it read as corrected in place; the exports and healdesk's screens named since its second read the same day, where it said "every later use and export") | Since 12 October 2026: the operator's scripts in apps/app's own shell (never apps/web) correct a contact in place (`npm run ops:amend-contact`, recording which fields changed) and append a correction to a booking request, a conversation or an appointment (`npm run ops:amend-record`) in `record_amendments`, append-only, linked by a foreign key that keeps it on a record of the same clinic, and removed only with that record (erasure, the purge, destruction). `exportPatient` and `exportClinic` carry each beside its record, and the desk's view of a booking request says how many there are (never their words: it opens without a passkey). A booking request still never changes in place (0039's trigger) | `apps/app/src/lib/patient-rights/amendments.ts`, `apps/app/src/lib/patient-rights/export.ts`; `apps/app/drizzle/0064_record_amendments.sql`, pinned by `apps/app/tests/record-amendments.test.ts`; agreement-changes.md § 12.14, gate 8 |
 | Terminating "ends the Services on the same day, and no Fees accrue"; on Practice's termination for healdesk's violation or under the Subcontractors clause, "healdesk refunds … the prorated unused part of the subscription period" (17) | Nothing automates it: Package C's refund actions answer "not_available" on main, so an operator refunds through Stripe and cancels the subscription the same day, which starts offboarding (`customer.subscription.deleted`) | `apps/app/src/lib/billing/stripe-actions.ts`; `apps/app/src/lib/billing/events.ts` |
-| "Calendar election" and the form that names this agreement (1, 8, 19) | `calendar-election-dpa/1.0.0` exists as text, unreleased. Nothing can record an election of either kind: the election rows and their writer are plan C6 and C7, not on main | `packages/catalog/src/dpa-calendar-election.ts`; docs/design/google-calendar-2026-10-05.md |
+| "Calendar election" and the form that names this agreement (1, 8, 19) | `calendar-election-dpa/1.0.0`, released with the DPA on 20 October 2026. An election under a DPA is recorded on it (`calendarElectionFor` in `apps/app/src/lib/booking/elections.ts`), in the portal's Settings or through a calendar link, and the election guard refuses it under a BAA and the BAA's form under a DPA (drizzle/0104). A second location is still not possible for any practice (`LOCATION_CLINICS_READY` is false), so today an election changes the first location's booking system or kind of Google account | `packages/catalog/src/dpa-calendar-election.ts`; `apps/app/src/lib/booking/elections.ts`; `apps/app/drizzle/0104_dpa_release_1_0_0.sql`, pinned by `apps/app/tests/google-calendar-schema.test.ts` and `tests/calendar-portal.test.ts` |
 
 Added on 13 October 2026, read at `7da5ee3` (the transcript outbox), with BAA
 1.4.0 (agreement-changes.md § 14.2 has the same rows for the BAA's words):
@@ -425,9 +434,15 @@ above:
    `meta_inbound_messages`, and `app_mark_clinic_destroyed()` refuses to
    record a destruction while either holds a row (drizzle/0054), so clause
    17's "no Client Information except" holds for both.
-6. **The calendar election: the DPA's form exists, and nothing can record
-   it yet.** `calendar-election/1.0.0` takes the place of the calendar
-   clause "of the Business Associate Agreement" and calls the person a
+6. **The calendar election: resolved on 20 October 2026.** The owner
+   released `calendar-election-dpa/1.0.0` with the DPA; the calendar
+   session's rows and writer (C6, C7, C18) were on main by then and take the
+   form through `calendarElectionFor`, and drizzle/0104 lists the form in
+   `app_calendar_election_released` and has the guard refuse a form of the
+   other kind. A DPA practice records an election exactly as a BAA practice
+   does (`apps/app/tests/calendar-portal.test.ts`). What the gap said before:
+   **the DPA's form exists, and nothing can record it yet.**
+   `calendar-election/1.0.0` takes the place of the calendar clause "of the Business Associate Agreement" and calls the person a
    booking is for a patient, so it cannot be handed to a DPA practice. The
    DPA's own form, `calendar-election-dpa/1.0.0`, is now drafted beside it
    (§ 2), unreleased, and `calendarElectionFor(agreementVersion)` /
@@ -449,8 +464,8 @@ above:
    agreement-changes.md § 12.11, item 9). Inherited from the quote.
 8. **The state-law clause names "Practice's portal settings"**, a portal not
    built yet (Gate A includes the portal, M3).
-9. **Signing, the PDF and the copy email: built, and refused until the
-   release.** `validateSignRequest` and `signAgreement`
+9. **Signing, the PDF and the copy email: built, refused until the
+   release, and signing since 20 October 2026.** `validateSignRequest` and `signAgreement`
    (`apps/app/src/lib/agreements.ts`) sign a DPA through
    `prepareDpaAgreement`: rendered by `prepareDpa`, stored as `dpa/1.0.0`
    (so the generated `agreement_kind` is `dpa`) with the DPA's own variables
@@ -476,8 +491,13 @@ above:
     agreement ends (§§ 4, 7, 13, 14 and 15); the other sentences still name
     the BAA.
 11. **Go-live refuses every DPA practice until the release, and the release
-    is two changes, not one.** Since WP2 (19 October 2026, apps/app
-    `drizzle/0090`) go-live is kind-aware: `app_mark_clinic_production` and
+    is two changes, not one. Resolved on 20 October 2026:** the commit that
+    set the flag added `apps/app/drizzle/0104_dpa_release_1_0_0.sql`, which
+    lists `dpa/1.0.0` in `app_dpa_version_released`, and the tests that take
+    a vet and a "No" practice live (`apps/app/tests/go-live.test.ts`,
+    `tests/database-audit.test.ts`). A vet still waits on Gate B until its
+    emergency referral number is set (0079). What the gap said before:
+    since WP2 (19 October 2026, apps/app `drizzle/0090`) go-live is kind-aware: `app_mark_clinic_production` and
     `goLivePreconditions` ask `app_agreement_version_acceptable`, which reads
     a BAA through `app_baa_version_acceptable` and a DPA through
     `app_dpa_version_released`, and ask `app_agreement_kind_sufficient` of
@@ -574,11 +594,14 @@ above:
     themselves give it", where 1.3.0 lists staff entries and the payment
     processor's notice too. True while staff enter nothing and no deposit
     link exists; to be widened before either does.
-21. **The incident deadline in the console** (12). The runbook works to 24
-    hours for every clinic, but `notifyDeadline` still gives a security
-    incident and an improper use or disclosure five business days. Gate 5
-    (another branch) brings it to 24 hours for every class; the DPA should
-    not be released before it lands.
+21. **The incident deadline in the console** (12): resolved. Gate 5 landed:
+    `notifyDeadline` gives a breach, an improper use or disclosure and a
+    security incident 24 hours from discovery at every clinic
+    (`REPORT_WITHIN_MS`, `apps/app/src/lib/incidents/incidents.ts`, read on
+    20 October 2026). What the gap said before: the runbook worked to 24
+    hours for every clinic, but `notifyDeadline` gave a security incident
+    and an improper use or disclosure five business days, and the DPA was
+    not to be released before Gate 5 landed.
 22. **Correction on request: the code is built** (13; 12 October 2026, BAA
     1.3.0 release gate 8). The operator's `ops:amend-record` script appends a
     correction to a booking request or a conversation (`record_amendments`,
@@ -657,18 +680,29 @@ its trigger.
 
 ## 9. Release checklist (Gate A)
 
-- [ ] The owner reads `docs/dpa-v1.0.0.txt` and sets `approvedByCounsel`
-      true on `DPA_TEMPLATES[0]`.
-- [ ] Vet readiness: the veterinary urgent set and its fixed reply, the
+- [x] The owner reads `docs/dpa-v1.0.0.txt` and sets `approvedByCounsel`
+      true on `DPA_TEMPLATES[0]` (20 October 2026, with the election form;
+      agreement-changes.md § 18).
+- [x] Vet readiness: the veterinary urgent set and its fixed reply, the
       emergency referral number (wizard 2.5), vet practice cases, client
       wording (`audienceFor`), and animal clinical content caught at the Meta
-      boundary, which clause 15's filters describe.
-- [ ] The animal's name and species in the booking catalogue, if the owner
-      wants them collected (the text allows it; nothing asks for them yet).
+      boundary, which clause 15's filters describe. The first four are
+      `VETERINARY_READINESS` in `packages/catalog/src/agreement-kind.ts`,
+      every item true and tied to its code by `agreement-kind.test.ts`; at
+      the Meta boundary a veterinary urgent message is screened before the
+      model (`apps/app/tests/meta-screen-and-greeting.test.ts`), and whether
+      other animal clinical content is caught there was not re-checked on 20
+      October 2026.
+- [x] The animal's name and species in the booking catalogue, if the owner
+      wants them collected (the text allows it). Built since: the two
+      `forAnimals` fields, `animal_name` and `animal_species`, in
+      `packages/catalog/src/booking-requirements.ts`, asked only at a
+      veterinary practice (`apps/app/tests/vet-booking-fields.test.ts`; read
+      on 20 October 2026).
 - [x] The signing path, PDF and copy email for a DPA (gap 9).
-- [ ] The calendar election able to amend a DPA (gap 6): the form is
-      drafted (`calendar-election-dpa/1.0.0`); its release, and election
-      rows that take it through `calendarElectionFor`, remain.
+- [x] The calendar election able to amend a DPA (gap 6): the form,
+      `calendar-election-dpa/1.0.0`, released with the DPA on 20 October
+      2026, and the election rows take it through `calendarElectionFor`.
 - [x] Gap 2 resolved: the DPA states the purge's periods (12 October 2026),
       and since 13 October 2026 that each transcript is emailed to the
       practice and not kept, with nothing for the portal to shorten. (Gaps 3
@@ -683,18 +717,26 @@ its trigger.
       request or the record of a conversation" to name it.
 - [ ] The portal (M5) shows each correction beside every request or
       conversation it shows or exports, and counsel gives a view of an
-      appended correction under the state privacy laws (gap 22).
+      appended correction under the state privacy laws (gap 22). On 20
+      October 2026 the portal's conversations and bookings read
+      `record_amendments` (`apps/app/src/lib/portal/conversations.ts`,
+      `bookings.ts`); not re-checked against every screen and export, and
+      counsel's view is still open.
 - [ ] `offboarding-destroy` switched on for live clinics (gap 1);
       `retention-purge` runs for a DPA practice whatever its switch (gate 9),
       and is switched on at the release for every other clinic.
-- [ ] Go-live admits a released DPA (gap 11): the migration, the TypeScript
-      checks and the tests that take a vet and a "No" practice live.
-- [ ] The covered-entity notice has code behind it. Clause 2 promises that
+- [x] Go-live admits a released DPA (gap 11): the migration
+      (drizzle/0104), the TypeScript checks and the tests that take a vet
+      and a "No" practice live (20 October 2026).
+- [x] The covered-entity notice has code behind it. Clause 2 promises that
       from the practice's notice the assistant pauses until the BAA is
-      signed, with forwarded calls passing to the direct line. Nothing
-      implements that yet: build it as one audited operator action, in this
-      order: pause (`ai_paused_at`), record `is_covered_entity`, send the
-      re-sign link, then `supersedeAgreement`. Or change clause 2 to match.
+      signed, with forwarded calls passing to the direct line. Package WP9
+      built it (`apps/app/src/lib/agreements/resign.ts`): the answer that
+      ends the DPA's cover opens the re-sign and pauses AYA in the same
+      transaction, the practice signs the BAA from a signed link, and
+      `supersedeAgreement` puts it in force with the location's calendar
+      terms (`recordSupersedingTerms`) and lifts the pause; the release
+      makes it reachable (`apps/app/tests/agreement-resign.test.ts`).
 - [x] Destruction works for a practice with a confirmed booking request
       (drizzle/0054_booking_request_destruction, 7 October 2026). A
       confirmed request's `appointment_id ON DELETE SET NULL` collided with
@@ -718,12 +760,18 @@ its trigger.
       appended and linked (§ 5, items 10 to 15).
 - [x] Gates 6 and 7 land, and the telephone-number sentences in clauses 13
       and 17 change with them (gap 15, 12 October 2026).
-- [ ] Gate 5 lands (gap 21).
+- [x] Gate 5 lands (gap 21).
 - [x] The owner decides the refund on a termination for healdesk's breach
       (gap 17, 12 October 2026), and the Term clause states it.
 - [ ] The owner decides the definitions of "Services" and "Fees" (gap 18).
 - [ ] The Terms read for a DPA practice (A6, "Data Agreement"): §§ 1, 7, 9,
       11, 12, 14 and 19, Privacy § 12 and `/data-deletion` name only the BAA
-      today, and a vet's clients are called patients.
+      today, and a vet's clients are called patients. In part, 20 October
+      2026 (LEGAL_VERSION 2026-10-20.1): every sentence of the Terms that
+      meant whichever agreement the practice signed says "your Data
+      Agreement" (§§ 3, 5, 7, 11, 12, 14, 19 and the annex), § 9 says that
+      what it says of the BAA it says of the DPA for a practice under it, and
+      Privacy §§ 1, 5 and 12 and `/data-deletion` name the DPA beside the
+      BAA. Still open: the pages call a vet's clients patients.
 - [ ] Any public page that states a notice period says the same as the
       agreements in force (gap 14; `/subprocessors` is gone).

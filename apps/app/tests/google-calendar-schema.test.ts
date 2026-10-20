@@ -7,7 +7,9 @@ import {
   type BookingSystemId,
   type CalendarAccount,
   getCalendarElection,
+  getDpaCalendarElection,
   prepareCalendarElection,
+  prepareDpaCalendarElection,
 } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
@@ -86,6 +88,12 @@ type ElectionInput = {
   /** Default: the address insertCalendarLink sends to. */
   linkSentTo?: string[] | null;
   sequence?: number;
+  /**
+   * Which form the server renders: the BAA's (default) or the DPA's own,
+   * amending the agreement version given (drizzle/0104 holds the form to the
+   * kind of the agreement in effect).
+   */
+  form?: { kind: "baa" } | { kind: "dpa"; agreementVersion: string };
 };
 
 /** A calendar election as the server renders it (prepareCalendarElection), inserted on the client given. */
@@ -97,17 +105,19 @@ async function insertElection(
 ): Promise<{ id: string; sequence: number }> {
   const bookingSystem = input.bookingSystem ?? "google_calendar";
   const calendarAccount = input.calendarAccount ?? "workspace_baa";
-  const prepared = prepareCalendarElection({
+  const variables = {
     clinicLegalName: "Radiance Synthetic",
     locationName: "Main Street",
-    agreementVersion: "1.3.0",
+    agreementVersion: input.form?.kind === "dpa" ? input.form.agreementVersion : "1.3.0",
     agreementEffectiveDate: "2026-10-07",
     bookingSystem,
     calendarAccount,
     signatoryName: "Alex Chen",
     signatoryTitle: "Owner",
     electedOn: "2026-10-07",
-  });
+  };
+  const prepared =
+    input.form?.kind === "dpa" ? prepareDpaCalendarElection(variables) : prepareCalendarElection(variables);
   const documentVersion = input.documentVersion ?? prepared.version;
   const { rows } = await c.query<{ id: string; sequence: number }>(
     `insert into calendar_elections
@@ -128,7 +138,10 @@ async function insertElection(
       bookingSystem,
       documentVersion,
       input.documentHash ?? prepared.hash,
-      input.released ?? getCalendarElection(documentVersion)?.approvedByCounsel ?? false,
+      input.released ??
+        (getCalendarElection(documentVersion) ?? getDpaCalendarElection(documentVersion))
+          ?.approvedByCounsel ??
+        false,
       input.ownerConfirmed ?? false,
       prepared.text,
       input.source === "portal" ? input.userId : null,
@@ -713,9 +726,10 @@ describeDb("drizzle/0057: the Google Calendar schema", () => {
       // wrong as the reverse.
       expect(getCalendarElection("calendar-election/1.0.0")?.approvedByCounsel).toBe(true);
       await expect(elect({ released: false })).rejects.toMatchObject(releasedRefusal);
-      // The DPA's election is still a draft, and is the draft here: not on
-      // the database's list of releases.
-      const DRAFT = "calendar-election-dpa/1.0.0";
+      // A later BAA election version nobody released is the draft here: not
+      // on the database's list of releases. (The DPA's own form was the
+      // draft until its release with the DPA on 20 October 2026, 0104.)
+      const DRAFT = "calendar-election/1.1.0-draft";
       expect(getCalendarElection(DRAFT)).toBeUndefined();
       // Told truthfully, a draft is refused for a clinic that is not a demo clinic...
       await expect(elect({ documentVersion: DRAFT })).rejects.toMatchObject({
@@ -813,6 +827,60 @@ describeDb("drizzle/0057: the Google Calendar schema", () => {
         `select app_calendar_election_released('calendar-election/1.0.0') as released`,
       );
       expect(rows[0]!.released).toBe(true);
+    },
+    SLOW,
+  );
+
+  test(
+    "an election is recorded on the form of its agreement's kind: the DPA's own under a DPA, never the BAA's, and never the reverse (0104)",
+    async () => {
+      const kindRefusal = {
+        code: "23514",
+        message: expect.stringMatching(/on the form of its agreement's kind/),
+      };
+      // A location under the released DPA, not a demo clinic: its own form,
+      // released with the DPA, counts, and the BAA's is refused.
+      const dpa = await seedClinic("elect-dpa");
+      const dpaAgreement = await bindCalendarAgreement(dpa, {
+        bookingSystem: "mindbody",
+        documentVersion: "dpa/1.0.0",
+      });
+      const dpaLink = await insertCalendarLink(dpa.clinicId, { audience: "owner" });
+      const electDpa = (input: Partial<ElectionInput>) =>
+        asApp(dpa.clinicId, (c) =>
+          insertElection(c, dpa.clinicId, dpaAgreement, {
+            source: "calendar_link",
+            linkId: dpaLink,
+            ownerConfirmed: true,
+            ...input,
+          }),
+        );
+      expect(getDpaCalendarElection("calendar-election-dpa/1.0.0")?.approvedByCounsel).toBe(true);
+      await expect(electDpa({})).rejects.toMatchObject(kindRefusal);
+      const recorded = await electDpa({ form: { kind: "dpa", agreementVersion: "dpa/1.0.0" } });
+      expect(recorded.sequence).toBe(1);
+      const { rows } = await inTenant(dpa.clinicId, (c) =>
+        c.query<{ document_version: string; document_released: boolean }>(
+          `select document_version, document_released from calendar_elections where id = $1`,
+          [recorded.id],
+        ),
+      );
+      expect(rows).toEqual([{ document_version: "calendar-election-dpa/1.0.0", document_released: true }]);
+
+      // A location under a BAA: the DPA's form is refused, whatever it says it is.
+      const baa = await seedClinic("elect-baa-dpa-form");
+      const baaAgreement = await bindCalendarAgreement(baa, { bookingSystem: "mindbody" });
+      const baaLink = await insertCalendarLink(baa.clinicId, { audience: "owner" });
+      await expect(
+        asApp(baa.clinicId, (c) =>
+          insertElection(c, baa.clinicId, baaAgreement, {
+            source: "calendar_link",
+            linkId: baaLink,
+            ownerConfirmed: true,
+            form: { kind: "dpa", agreementVersion: "dpa/1.0.0" },
+          }),
+        ),
+      ).rejects.toMatchObject(kindRefusal);
     },
     SLOW,
   );

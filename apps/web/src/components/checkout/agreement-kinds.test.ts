@@ -49,6 +49,9 @@ import {
  * covered-entity answer, every booking system and every kind of Google
  * account. Since 19 October 2026 the current version is 1.5.1 (1.5.0 from 14 October,
  * 1.4.0 from 13 October, 1.3.0 from 12 October), whose calendar clause both answers choose.
+ * Since the DPA's release on 20 October 2026 a "No" and a veterinary practice
+ * read the DPA, which the server renders through prepareDpaAgreement
+ * (serverRenderDpa below), and every other answer the BAA.
  */
 
 /**
@@ -125,8 +128,9 @@ const RENDER_TIMEOUT_MS = 60_000;
 const OFFERED = specialties.filter((s) => specialtyOffered(s.id));
 
 describe("the agreement the buyer reads is the one apps/app stores", () => {
-  test("every specialty offered is covered", () => {
-    expect(OFFERED.map((s) => s.id)).toHaveLength(7);
+  test("every specialty offered is covered, the veterinary one since the DPA's release", () => {
+    expect(OFFERED.map((s) => s.id)).toHaveLength(8);
+    expect(OFFERED.map((s) => s.id)).toContain("veterinary");
   });
 
   test.each(OFFERED.map((s) => [s.id, s] as const))(
@@ -155,14 +159,22 @@ describe("the agreement the buyer reads is the one apps/app stores", () => {
               bookingSystem: system.id,
               calendarAccount: account,
             });
-            const stored = serverRender({
-              ...signer,
-              specialty: specialty.id,
-              platform: agreementPlatformFor(system.id),
-              bookingSystem: system.id,
-              calendarAccount: account,
-              isCoveredEntity: choice.isCoveredEntity,
-            });
+            const stored =
+              choice.kind === "dpa"
+                ? serverRenderDpa({
+                    ...signer,
+                    specialty: specialty.id,
+                    bookingSystem: system.id,
+                    calendarAccount: account,
+                  })
+                : serverRender({
+                    ...signer,
+                    specialty: specialty.id,
+                    platform: agreementPlatformFor(system.id),
+                    bookingSystem: system.id,
+                    calendarAccount: account,
+                    isCoveredEntity: choice.isCoveredEntity,
+                  });
             expect(preview.text, `${specialty.id} ${covered} ${system.id} ${account}`).toBe(stored);
             combinations += 1;
           }
@@ -244,12 +256,14 @@ function serverRenderDpa(input: {
   }).text;
 }
 
-describe("the DPA the buyer reads is the one apps/app stores, once it is released", () => {
-  // The practices the release sends to the DPA: a veterinary practice, never
-  // asked, and each specialty HIPAA reaches only if covered, answering No.
+describe("the DPA the buyer reads is the one apps/app stores, now that it is released", () => {
+  // The practices the release (20 October 2026) sends to the DPA: a
+  // veterinary practice, never asked, and each specialty HIPAA reaches only
+  // if covered, answering No. Read with nothing stood in for: the catalogue's
+  // own flag decides.
   const DPA_PRACTICES = specialties.flatMap((s) =>
     ([...COVERED_ANSWERS, null] as (CoveredAnswer | null)[]).flatMap((covered) => {
-      const choice = agreementKindFor({ specialty: s.id, covered, dpaReleased: true });
+      const choice = agreementKindFor({ specialty: s.id, covered });
       return choice.ok && choice.kind === "dpa" ? [{ specialty: s.id, covered }] : [];
     }),
   );
@@ -385,7 +399,7 @@ describe("AGREEMENT_COPY", () => {
     expect(baaAgreementCopy(getBaaTemplate("1.2.2")!).explainer).toBe(BAA_EXPLAINER);
   });
 
-  test("holds the Data Protection Agreement too, unreleased, with its own explainer and assent wording", () => {
+  test("holds the Data Protection Agreement too, released, with its own explainer and assent wording", () => {
     const dpa = AGREEMENT_COPY.dpa;
     expect(agreementCopyFor("dpa")).toBe(dpa);
     expect(dpa.kind).toBe("dpa");
@@ -395,15 +409,21 @@ describe("AGREEMENT_COPY", () => {
     expect(dpa.assentLabel).toBe(DPA_ASSENT_LABEL);
     expect(dpa.assentSentence("Golden Paws LLC")).not.toMatch(/Business Associate/);
     expect(dpa.version).toBe(currentDpaTemplate().version);
-    expect(dpa.released).toBe(false);
+    expect(dpa.released).toBe(true);
     expect(dpa.fileStem).toBe("healdesk-dpa");
   });
 
-  test("nothing reaches the DPA's entry while it is unreleased: the decision never names it", () => {
+  test("the decision names the DPA's entry for a vet and every No, and the BAA's for everyone else", () => {
     for (const s of specialties) {
       for (const covered of [...COVERED_ANSWERS, null] as (CoveredAnswer | null)[]) {
         const choice = agreementKindFor({ specialty: s.id, covered });
-        if (choice.ok) expect(choice.kind, `${s.id} ${covered}`).toBe("baa");
+        expect(choice.ok, `${s.id} ${covered}`).toBe(true);
+        if (!choice.ok) continue;
+        const dpa =
+          s.id === "veterinary" ||
+          (covered === "no" && ["med-spa", "hair-restoration", "massage-chiro"].includes(s.id));
+        expect(choice.kind, `${s.id} ${covered}`).toBe(dpa ? "dpa" : "baa");
+        expect(agreementCopyFor(choice.kind)?.released, `${s.id} ${covered}`).toBe(true);
       }
     }
   });

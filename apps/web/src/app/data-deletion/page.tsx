@@ -111,9 +111,9 @@ export default function DataDeletionPage() {
           </li>
           <li>
             <strong>Everything else.</strong> Conversations, bookings and the data we received from
-            Google or Meta are deleted on your instruction, under your Business Associate Agreement
-            with us. We keep no transcript: each is emailed to you when its conversation ends, and
-            our encrypted copy is deleted as soon as your mail server confirms it has the email (or
+            Google or Meta are deleted on your instruction, under your Business Associate Agreement,
+            or the data protection agreement you signed in its place, with us. We keep no
+            transcript: each is emailed to you when its conversation ends, and our encrypted copy is deleted as soon as your mail server confirms it has the email (or
             30 days after it was queued, if it is never delivered), so a transcript in your inbox
             is yours to delete. The record of each conversation, without what was
             said, is also deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after it took

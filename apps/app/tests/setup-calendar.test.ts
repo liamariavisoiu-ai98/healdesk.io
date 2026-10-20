@@ -200,19 +200,24 @@ async function provisioned(
   }
   const bookingSystem = terms.bookingSystem ?? "google_calendar";
   const platform = agreementPlatformFor(bookingSystem);
-  const signed = await signAgreement({
-    clinicLegalName: "Glow Med Spa LLC",
-    specialty: "med-spa",
-    signatoryName: "Laura Owner",
-    signatoryEmail: email,
-    isCoveredEntity: false,
-    attributionMode: "estimated",
-    platform,
-    bookingSystem,
-    calendarAccount: terms.calendarAccount ?? "workspace_baa",
-    assentLabel: BAA_ASSENT_LABEL,
-    templateVersion: CURRENT_BAA_VERSION,
-  });
+  // A "No" that signed the BAA before the DPA's release (20 October 2026).
+  const signed = await signAgreement(
+    {
+      clinicLegalName: "Glow Med Spa LLC",
+      specialty: "med-spa",
+      signatoryName: "Laura Owner",
+      signatoryEmail: email,
+      isCoveredEntity: false,
+      attributionMode: "estimated",
+      platform,
+      bookingSystem,
+      calendarAccount: terms.calendarAccount ?? "workspace_baa",
+      assentLabel: BAA_ASSENT_LABEL,
+      templateVersion: CURRENT_BAA_VERSION,
+    },
+    {},
+    { dpaReleased: false },
+  );
   const result = await provisionClinic({
     clinicName: "Glow Med Spa LLC",
     specialty: "med-spa",

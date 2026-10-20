@@ -147,8 +147,10 @@ export default function PrivacyPage() {
         <p>
           <strong>Patient information is not handled on this website.</strong> When a clinic
           becomes a customer, its patients' information is processed only inside the product,
-          under a Business Associate Agreement the clinic signs at checkout. That agreement,
-          not this page, governs patient data. If you are a patient of a clinic that uses{" "}
+          under a Business Associate Agreement the clinic signs at checkout or, for a clinic HIPAA
+          does not cover, such as a veterinary practice, the data protection agreement it signs in
+          its place. That agreement, not this page, governs patient data. If you are a patient of
+          a clinic that uses{" "}
           {site.name}, contact your clinic; it controls your records and we act on its
           instructions.
         </p>
@@ -410,7 +412,8 @@ export default function PrivacyPage() {
           us, signed before any patient information reaches it; messages on Instagram, Messenger
           and WhatsApp travel through Meta, which signs no such agreement, so the product is set up
           to keep clinical content off them (section 12). The list of the subcontractors that handle patient
-          information is given to clinics on request, under the Business Associate Agreement.
+          information is given to clinics on request, under the Business Associate Agreement or
+          the data protection agreement the clinic signed.
         </p>
       </Section>
 
@@ -666,7 +669,8 @@ export default function PrivacyPage() {
             the clinic that received it: a first name and a telephone number, each checked by automated
             filters designed to keep clinical content out, the times the person prefers, only in a
             fixed day-and-time form, and the identifier Meta attaches to the conversation. They are
-            kept under that clinic&apos;s instructions and its Business Associate Agreement with us,
+            kept under that clinic&apos;s instructions and its Business Associate Agreement or data
+            protection agreement with us,
             are visible to that clinic&apos;s team in its portal, and to healdesk staff only as the
             clinic&apos;s agreement allows, and are deleted automatically within the periods that
             agreement sets, which run at most {TRANSCRIPT_RETENTION_DAYS} days from the latest of

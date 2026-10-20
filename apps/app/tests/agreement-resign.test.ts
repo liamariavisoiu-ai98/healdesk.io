@@ -46,9 +46,10 @@ import {
  * location set up at signing. Synthetic clinics, fake mail and the in-memory
  * Google throughout.
  *
- * The DPA is unreleased, as it must be until the owner releases it; the
- * practice here signed it as it will after the release (`dpaReleased`, the
- * stand-in every DPA test uses), and nothing flips its flag.
+ * The DPA is released (owner, 20 October 2026), so the practice here signs
+ * it as any "No" practice does; `dpaReleased`, the stand-in every DPA test
+ * used before the release, now only says so again, and nothing flips the
+ * template's flag.
  */
 
 const sent = vi.hoisted(() => ({

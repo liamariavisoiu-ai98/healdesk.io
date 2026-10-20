@@ -41,7 +41,9 @@ the three words "run by our service providers" (recommended, not adopted).
 **Narrowed on 6 October 2026: no separate DPA.** The funnel plan (Part L)
 gives a veterinary practice, and a practice HIPAA reaches only if covered
 that answers "No", the healdesk Data Protection Agreement instead of the BAA,
-once the owner releases it ([dpa.md](./dpa.md), drafted as `dpa/1.0.0`). The 1
+once the owner releases it ([dpa.md](./dpa.md), drafted as `dpa/1.0.0`). The
+owner released it on 20 October 2026, without external counsel
+([agreement-changes.md](./agreement-changes.md) § 18). The 1
 October decision still holds for every other practice that signs the BAA
 while not covered, and the state-law clause stays in BAA 1.3.0 for them;
 dpa.md § 7 records the narrowing.

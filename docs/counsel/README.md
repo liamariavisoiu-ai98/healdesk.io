@@ -9,7 +9,7 @@ without external counsel review. Not legal advice.
 | --- | --- |
 | [brief.md](./brief.md) | One page: the decisions taken, and every open risk with its owner, mitigation and the trigger that would force a lawyer's engagement. Start here |
 | [guarantee-and-refund.md](./guarantee-and-refund.md) | The first-month guarantee: the decisions, the adopted text, how it sits with the 14-day refund and terms §§ 3, 5, 12, 13 and 19, and how it may be advertised |
-| [dpa.md](./dpa.md) | The Data Protection Agreement for practices HIPAA does not cover (`dpa/1.0.0`, drafted 6 October 2026, unreleased): who signs it, how it is built, every sentence that rests on a code fact and where, the gaps found, and its open questions |
+| [dpa.md](./dpa.md) | The Data Protection Agreement for practices HIPAA does not cover (`dpa/1.0.0`, drafted 6 October 2026, released by the owner on 20 October 2026 without external counsel, with its calendar election form): who signs it, how it is built, every sentence that rests on a code fact and where, the gaps found, and its open questions |
 | [agreement-changes.md](./agreement-changes.md) | BAA 1.2.0 checked against 45 CFR 164.504(e) and 164.314(a), clause by clause with the fixes the next version needs; the terms and privacy page; the subprocessor position as verified against the vendors' own pages; the one Meta rule; the state-law clause for clinics outside HIPAA |
 | [state-disclosure.md](./state-disclosure.md) | The AI-disclosure and call-transcription consent position, state by state, each row checked against the statute where it could be reached and marked where it could not |
 
@@ -53,7 +53,15 @@ recommends that counsel review it. The same day BAA 1.6.0 was drafted, not
 released: 1.5.1 with Anthropic's retention said as Anthropic's
 documentation says it for the models the product calls, correcting finding
 A3's misquote (`agreement-changes.md` § 17, `docs/baa-v1.6.0.txt`); its
-`approvedByCounsel` is false until the owner releases it. The
+`approvedByCounsel` is false until the owner releases it. On 20 October
+2026 the owner released the Data Protection Agreement (`dpa/1.0.0`), which
+a veterinary practice and a practice that answers "No" to billing health
+insurance electronically sign in place of the BAA, with its own calendar
+election form (`calendar-election-dpa/1.0.0`), on the owner's own
+instruction and without external counsel (`agreement-changes.md` § 18,
+`dpa.md`, `docs/dpa-v1.0.0.txt`); counsel approved its clauses as they
+stood on 6 October 2026, not the edits since, and § 18 recommends that
+counsel review it before the first live DPA practice. The
 reasoning: no clinic is live and no real patient data has been processed;
 the regulatory skeleton of the BAA is checkable against the text of 45 CFR
 164.504(e) and was checked; the open points that a lawyer would settle are
@@ -69,7 +77,9 @@ state table could not be read on the state's own site this session and are
 marked as unverified with the one action that would verify each. The
 `approvedByCounsel` flag in `packages/catalog/src/baa.ts` is set true for
 1.5.1 (and the superseded 1.5.0, 1.4.0, 1.3.0, 1.2.2, 1.2.1 and 1.2.0) on the owner's own
-review, and its doc comment says so.
+review, and its doc comment says so; the same flag in
+`packages/catalog/src/dpa.ts` is true for `dpa/1.0.0` since 20 October 2026,
+on the owner's own instruction, and says so too.
 
 ## Rules for this folder
 

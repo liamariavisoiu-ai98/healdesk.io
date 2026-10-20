@@ -50,20 +50,25 @@ describeDb("the setup wizard's actions", () => {
     await runMigrations();
     await truncateAll();
     const email = `actions-${randomUUID().slice(0, 8)}@glowspa.test`;
-    const signed = await signAgreement({
-      clinicLegalName: "Glow Med Spa LLC",
-      specialty: "med-spa",
-      signatoryName: "Laura Owner",
-      signatoryEmail: email,
-      isCoveredEntity: false,
-      attributionMode: "estimated",
-      platform: "none",
-      // BAA 1.3.0, the current version, reads both calendar answers.
-      bookingSystem: "none",
-      calendarAccount: "workspace_no_baa",
-      assentLabel: BAA_ASSENT_LABEL,
-      templateVersion: CURRENT_BAA_VERSION,
-    });
+    // A "No" that signed the BAA before the DPA's release (20 October 2026).
+    const signed = await signAgreement(
+      {
+        clinicLegalName: "Glow Med Spa LLC",
+        specialty: "med-spa",
+        signatoryName: "Laura Owner",
+        signatoryEmail: email,
+        isCoveredEntity: false,
+        attributionMode: "estimated",
+        platform: "none",
+        // BAA 1.3.0, the current version, reads both calendar answers.
+        bookingSystem: "none",
+        calendarAccount: "workspace_no_baa",
+        assentLabel: BAA_ASSENT_LABEL,
+        templateVersion: CURRENT_BAA_VERSION,
+      },
+      {},
+      { dpaReleased: false },
+    );
     const result = await provisionClinic({
       clinicName: "Glow Med Spa LLC",
       specialty: "med-spa",

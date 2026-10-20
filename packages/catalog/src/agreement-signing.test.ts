@@ -32,7 +32,9 @@ function request(overrides: Record<string, unknown> = {}): Record<string, unknow
     calendarAccount: "workspace_baa",
     signatoryName: "Laura Owner",
     signatoryEmail: "laura@glowspa.test",
-    isCoveredEntity: false,
+    // "Yes": a med spa that bills no insurance signs the DPA since its
+    // release (20 October 2026), and this request signs the BAA.
+    isCoveredEntity: true,
     assentLabel: AGREEMENT_COPY.baa.assentLabel,
     templateVersion: AGREEMENT_COPY.baa.currentVersion,
     ...overrides,
@@ -84,16 +86,22 @@ describe("prepareSigning", () => {
 
 describe("re-accepting a business associate agreement in force", () => {
   test("a No practice signs the BAA again once the DPA is released, and a vet never signs one", () => {
-    // The decision on its own sends a "No" practice to the DPA once released.
-    expect(agreementKindForRequest(request(), { dpaReleased: true })).toBe("dpa");
+    const no = request({ isCoveredEntity: false });
+    // The decision on its own sends a "No" practice to the DPA, released
+    // since 20 October 2026, as it does with the release stood in for.
+    expect(agreementKindForRequest(no)).toBe("dpa");
+    expect(agreementKindForRequest(no, { dpaReleased: true })).toBe("dpa");
     // A re-sign of the BAA it already holds stays a BAA: never BAA→DPA.
-    expect(agreementKindForRequest(request(), { dpaReleased: true, reacceptsBaa: true })).toBe("baa");
-    const prepared = prepareSigning(request() as never, "2026-10-19", {
+    expect(agreementKindForRequest(no, { dpaReleased: true, reacceptsBaa: true })).toBe("baa");
+    expect(agreementKindForRequest(no, { reacceptsBaa: true })).toBe("baa");
+    const prepared = prepareSigning(no as never, "2026-10-19", {
       dpaReleased: true,
       reacceptsBaa: true,
     });
     expect(prepared.kind).toBe("baa");
-    expect(refusal(request(), { dpaReleased: true, reacceptsBaa: true })).toBeUndefined();
+    expect(refusal(no, { dpaReleased: true, reacceptsBaa: true })).toBeUndefined();
+    // Without the re-acceptance, the BAA's label on a "No" practice's request is refused.
+    expect(refusal(no)).toBe("assentLabel");
     expect(() =>
       agreementKindForRequest({ specialty: "veterinary", isCoveredEntity: false }, { reacceptsBaa: true }),
     ).toThrow(/no business associate agreement/);

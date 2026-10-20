@@ -27,12 +27,12 @@ import {
  * Two kinds: the Business Associate Agreement, and the Data Protection
  * Agreement a practice HIPAA does not reach signs instead, each with its own
  * explainer, notes, assent wording and renderer from the catalogue's
- * AGREEMENT_COPY. The DPA's entry is here before its release, so the step can
- * sign it the day the owner releases it, and nothing signs it sooner: while
- * it is unreleased `agreementKindFor` never answers "dpa", so the step never
- * looks the entry up, and apps/app refuses a DPA signature whatever is sent.
- * The BAA's explainer is the BAA's alone: it never appears beside the other
- * document.
+ * AGREEMENT_COPY. The DPA's entry was here before its release, so the step
+ * signed it the day the owner released it (20 October 2026), and nothing
+ * signed it sooner: while it was unreleased `agreementKindFor` never answered
+ * "dpa", so the step never looked the entry up. Since then a veterinary
+ * practice and a practice that answers "No" read and sign it. The BAA's
+ * explainer is the BAA's alone: it never appears beside the other document.
  *
  * ## One template, one version, everything said about it
  *

@@ -201,8 +201,18 @@ describe("clinic blockers", () => {
     );
     expect(synthetic.map((b) => b.message)).toEqual(
       expect.arrayContaining([
-        "The data protection agreement dpa/1.0.0 is not released: the practice can't go live under it until it is.",
         "Its agreement does not cover the practice: it signs a business associate agreement before go-live.",
+      ]),
+    );
+    // dpa/1.0.0 is released (20 October 2026), so the card says nothing of its
+    // release; a DPA version nobody released is still named.
+    expect(synthetic.map((b) => b.message).join("\n")).not.toMatch(/is not released/);
+    const unreleased = blockersFor(
+      clinic({ baaVersion: "dpa/9.9.9", agreementKind: "dpa", isCoveredEntity: false }),
+    );
+    expect(unreleased.map((b) => b.message)).toEqual(
+      expect.arrayContaining([
+        "The data protection agreement dpa/9.9.9 is not released: the practice can't go live under it until it is.",
       ]),
     );
     // A clinic from before 0051, with no regime recorded, is not judged on it.

@@ -1,21 +1,27 @@
-healdesk Data Protection Agreement — version dpa/1.0.0, DRAFT, rendered 6
-October 2026 for the owner's release. Not released, so nothing can sign it:
-approvedByCounsel is false in packages/catalog/src/dpa.ts, which is the one
-switch. While it is false, agreementKindFor gives a practice that answers "No"
-the business associate agreement, as it always has, and refuses a veterinary
-practice, and provisioning refuses an account bound to an unreleased DPA.
-Nothing in the text marks it a draft, so releasing it moves no hash; an edit
-before release regenerates this file and the golden hashes in
-packages/catalog/src/dpa.test.ts in the same commit.
+healdesk Data Protection Agreement — version dpa/1.0.0, RELEASED, rendered 20
+October 2026, the day it was released. Approved for release by the owner, on
+the owner's own instruction and without external counsel
+(docs/counsel/agreement-changes.md §18, which recommends that counsel review
+it before the first live DPA practice): approvedByCounsel is true in
+packages/catalog/src/dpa.ts, and app_dpa_version_released lists dpa/1.0.0
+(apps/app drizzle/0104_dpa_release_1_0_0). From that day agreementKindFor
+gives a practice that answers "No" this agreement where it gave the business
+associate agreement, checkout offers a veterinary practice, which it refused
+while there was no agreement for it to sign, and provisioning, and go-live's
+agreement check, accept an account bound to it. Drafted 6 October 2026;
+nothing in the text marked it a draft, so the release moved no hash. It is
+frozen now: a change is a new version, never an edit, and
+packages/catalog/src/dpa.test.ts holds this file and the golden hashes to the
+renderer.
 
 Who signs it (plan Part L): a veterinary practice, without being asked the
 covered-entity question; and a med spa, hair restoration, or massage and
 chiropractic practice that answers "No" to billing any health insurance
 electronically. "Not sure" signs the BAA, and so does every specialty HIPAA
-always reaches. Its launch-checklist items (Gate A): this text; vet readiness
-(the veterinary urgent set and its fixed reply, the emergency referral number,
-vet practice cases, client wording); and the supersede function for the "No"
-branch (app_supersede_agreement, drizzle/0051).
+always reaches. A practice that signed this agreement and later answers "Yes"
+or "Not sure" is paused and signs the business associate agreement in its
+place (apps/app lib/agreements/resign.ts; app_supersede_agreement,
+drizzle/0051).
 
 Rendered for a sample practice: a med spa that answered "No"; bookings in
 Mindbody, which does not read Google Calendar, so the calendar clause is the
@@ -1315,16 +1321,19 @@ Calendar, whatever the Google account (not used; replaces clause 8):
 
 ------------------------------------------------------------------------------
 
-APPENDIX B — THE CALENDAR ELECTION (calendar-election-dpa/1.0.0, DRAFT)
+APPENDIX B — THE CALENDAR ELECTION (calendar-election-dpa/1.0.0, RELEASED)
 
 How a location's calendar terms change after signing, and how a second
 location gets calendar terms at all: the form this agreement's calendar clause
 sends both to, and its Definitions clause makes part of the agreement once
 accepted. Section 2 is the calendar clause that applies, in this agreement's
-words, without its location paragraph. Not released; until it is, only a demo
-clinic's election is to count (plan A10), and nothing can record an election
-of either kind yet, because the election rows and the code that writes them
-(plan C6 and C7) are not built. Rendered for the sample practice electing a
+words, without its location paragraph. Released with the agreement on 20
+October 2026, on the owner's own instruction and without external counsel:
+app_calendar_election_released lists it, so an election under it counts for
+every practice under this agreement, and the election guard records it only
+under a Data Protection Agreement, and the business associate agreement's form
+never under one (apps/app lib/booking/elections.ts, calendarElectionFor;
+drizzle/0104_dpa_release_1_0_0). Rendered for the sample practice electing a
 personal Google account for a second location; frozen as
 calendar-election-dpa/1.0.0 in
 packages/catalog/src/dpa-calendar-election.test.ts (SHA-256

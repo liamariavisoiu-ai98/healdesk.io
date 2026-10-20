@@ -127,8 +127,10 @@ describe("P7 through the cron", () => {
     const gate = await gateState(token);
     expect(gate).toMatchObject({ mode: "pilot", link: "valid" });
     expect(gate.mode === "pilot" && gate.link === "valid" && gate.request.id).toBe(request.id);
-    // A med spa that does not bill insurance signs the BAA while the DPA is unreleased.
-    expect(email!.body.text).toContain("If you signed the business associate agreement");
+    // A med spa that does not bill insurance signs the data protection
+    // agreement since its release (20 October 2026), and the email names it.
+    expect(email!.body.text).toContain("If you signed the data protection agreement");
+    expect(email!.body.text).not.toContain("business associate agreement");
     expect(email!.body.text).not.toMatch(/\bsaved\b/i);
     // Once: the next run sends nothing.
     expect((await runNurture(later(26 * HOUR))).abandonmentSent).toBe(0);

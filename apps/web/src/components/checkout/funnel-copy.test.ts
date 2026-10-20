@@ -575,10 +575,12 @@ describe("the package step", () => {
 });
 
 describe("the clinic step", () => {
-  test("asks its questions as radio groups, without the veterinary chip", () => {
+  test("asks its questions as radio groups, with the veterinary chip since the DPA's release", () => {
     const markup = renderToStaticMarkup(clinicStep(initialFunnel({ plan: "voice" })));
     expect(markup.match(/role="radiogroup"/g)?.length).toBeGreaterThanOrEqual(3);
-    expect(markup).not.toContain("Veterinary");
+    // A veterinary practice signs the Data Protection Agreement, released on
+    // 20 October 2026; until then the chip was not offered.
+    expect(markup).toContain("Veterinary");
     expect(text(clinicStep(initialFunnel({ plan: "voice" })))).toContain(
       "Where do bookings live today?",
     );
@@ -679,7 +681,18 @@ describe("the agreement step", () => {
 
   test("shows the document once it is answered, with a marker at its end", () => {
     const markup = renderToStaticMarkup(agreementStep(answered()));
-    expect(markup).toContain("HEALDESK BUSINESS ASSOCIATE AGREEMENT");
+    // "No": the Data Protection Agreement, since its release; "Yes": the BAA.
+    expect(markup).toContain("HEALDESK DATA PROTECTION AGREEMENT");
+    expect(markup).not.toContain("HEALDESK BUSINESS ASSOCIATE AGREEMENT");
+    expect(renderToStaticMarkup(agreementStep(answered({ covered: "yes" })))).toContain(
+      "HEALDESK BUSINESS ASSOCIATE AGREEMENT",
+    );
+    const vet = renderToStaticMarkup(
+      agreementStep(answered({ specialty: "veterinary", covered: null })),
+    );
+    expect(vet).toContain("HEALDESK DATA PROTECTION AGREEMENT");
+    // A veterinary practice is never asked the covered-entity question.
+    expect(vet).not.toContain("Do you bill any health insurance electronically");
     expect(markup).toContain("data-agreement-end");
     // Inline below 640px, a scroll box above: never a box on a phone.
     expect(markup).toMatch(/sm:max-h-80 sm:overflow-y-auto/);
@@ -702,8 +715,15 @@ describe("the agreement step", () => {
   });
 
   test("a signature for these answers is shown, not offered again", () => {
-    const words = text(agreementStep(answered(), { signed: SIGNED }));
+    const words = text(agreementStep(answered({ covered: "yes" }), { signed: SIGNED }));
     expect(words).toContain("Business Associate Agreement signed");
+    const dpa = text(
+      agreementStep(answered(), {
+        signed: { ...SIGNED, version: "dpa/1.0.0", text: "HEALDESK DATA PROTECTION AGREEMENT\n\n1. DEFINITIONS..." },
+      }),
+    );
+    expect(dpa).toContain("Data Protection Agreement signed");
+    expect(dpa).not.toContain("Business Associate Agreement signed");
     expect(words).toContain("Continue to review");
     expect(words).toContain("Sign again with different answers");
     expect(words).not.toContain("Sign and continue");

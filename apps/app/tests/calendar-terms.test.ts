@@ -349,7 +349,8 @@ describeDb("calendar terms at runtime", () => {
         signatoryName: "Alex Chen",
         signatoryTitle: "Owner",
         signatoryEmail: "alex@radiance-match.test",
-        isCoveredEntity: false,
+        // "Yes": a med spa that answered No signs the DPA since its release (20 October 2026).
+        isCoveredEntity: true,
         attributionMode: "estimated",
         platform: "none",
         // BAA 1.3.0, the current version, reads both calendar answers.
@@ -362,7 +363,7 @@ describeDb("calendar terms at runtime", () => {
         clinicName: "Radiance Synthetic LLC",
         specialty: "med-spa",
         platform: "none",
-        isCoveredEntity: false,
+        isCoveredEntity: true,
         bookingSystem: "none",
         calendarAccount: "workspace_no_baa",
       } as const;
@@ -509,7 +510,8 @@ describeDb("calendar terms at runtime", () => {
             signatoryName: "Alex Chen",
             signatoryTitle: "Owner",
             signatoryEmail: email,
-            isCoveredEntity: false,
+            // "Yes": a "No" signs the DPA since its release (20 October 2026).
+            isCoveredEntity: true,
             attributionMode: "estimated",
             assentLabel: BAA_ASSENT_LABEL,
             templateVersion: template?.version ?? CURRENT_BAA_VERSION,

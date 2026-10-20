@@ -18,7 +18,7 @@ export { addBusinessDays } from "./reporting-rules";
  *   b. any breach of unsecured PHI;
  *   c. any security incident, a state-law breach of security included.
  *
- * Since BAA 1.2.2 (owner, 9 October 2026), and in BAA 1.3.0 and the DPA draft,
+ * Since BAA 1.2.2 (owner, 9 October 2026), and in BAA 1.3.0 and the DPA,
  * it promises each "without unreasonable delay and in no case later than 60
  * calendar days" after discovery, the product spec's wording. The clock this
  * file keeps is stricter, and stays so on purpose: 24 hours from discovery

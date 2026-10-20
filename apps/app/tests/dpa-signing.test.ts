@@ -38,27 +38,28 @@ import {
 
 /**
  * Signing the Data Protection Agreement (plan Part L), the path a veterinary
- * practice and a practice that answered "No" take once the owner releases it:
+ * practice and a practice that answered "No" take since the owner released it
+ * on 20 October 2026:
  * rendered through prepareDpa, stored as `dpa/1.0.0` with its own variables,
  * held to the BAA path's refusals by field, its displayed-hash comparison and
  * its released-templates-only rule, and sent to the signer as a PDF and an
  * email that name the document they signed.
  *
- * The template is unreleased, as it must be until the owner releases it, and
- * nothing here flips its flag. A test signs as after the release by passing
- * `dpaReleased` (`RELEASED`), the same stand-in agreementKindFor takes; and
- * provisioning, which reads the bound row's own template, is shown the
- * release through `release`, which changes only what `getDpaTemplate`
- * reports, as tests/agreement-kinds.test.ts does.
+ * The template is released, its own flag, and nothing here flips it. What a
+ * DPA nobody released does is still shown: a test passes `dpaReleased: false`
+ * (`UNRELEASED`), the stand-in agreementKindFor takes; and provisioning,
+ * which reads the bound row's own template, is shown an unreleased one
+ * through `release`, which changes only what `getDpaTemplate` reports, as
+ * tests/agreement-kinds.test.ts does.
  */
-const release = vi.hoisted(() => ({ dpa: false }));
+const release = vi.hoisted(() => ({ dpa: true }));
 vi.mock("@healdesk/catalog", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@healdesk/catalog")>();
   return {
     ...actual,
     getDpaTemplate: (version: string) => {
       const template = actual.getDpaTemplate(version);
-      return template && release.dpa ? { ...template, approvedByCounsel: true } : template;
+      return template && !release.dpa ? { ...template, approvedByCounsel: false } : template;
     },
   };
 });
@@ -78,8 +79,11 @@ vi.mock("@/lib/email/agreement-copy", async (importOriginal) => {
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 
-/** Standing in for the owner's release of the DPA. Its own flag stays false. */
-const RELEASED = { dpaReleased: true } satisfies SignableOptions;
+/** The DPA as released: its own flag, which the owner set on 20 October 2026. Nothing stands in. */
+const RELEASED = {} satisfies SignableOptions;
+
+/** Standing in for a DPA nobody released, to show what the release changed. */
+const UNRELEASED = { dpaReleased: false } satisfies SignableOptions;
 
 /** The effective date the signing tests fix, so no test depends on the day it runs. */
 const DATE = "2026-10-07";
@@ -157,29 +161,42 @@ describe("which agreement, and whether it can be signed", () => {
     );
   });
 
-  test("with the flag off, signing a DPA refuses exactly as before", () => {
+  test("released by the owner on 20 October 2026: with nothing stood in, a vet and a No sign the DPA", () => {
+    expect(currentDpaTemplate().approvedByCounsel).toBe(true);
+    expect(agreementKindForRequest(vetRequest())).toBe("dpa");
+    expect(agreementKindForRequest(noRequest())).toBe("dpa");
+    expect(() => validateSignRequest(vetRequest())).not.toThrow();
+    expect(() => validateSignRequest(noRequest())).not.toThrow();
+    expect(signableDpaTemplate(currentDpaTemplate().version)).toBe(currentDpaTemplate());
+  });
+
+  test("with the flag off, signing a DPA refuses exactly as it did before the release", () => {
     // A vet has nothing to sign: refused by name, before any other field.
-    expect(refusal(() => validateSignRequest(vetRequest()))).toMatchObject({
+    expect(refusal(() => validateSignRequest(vetRequest(), UNRELEASED))).toMatchObject({
       message: "This specialty can't sign up yet.",
       field: "specialty",
     });
-    expect(refusal(() => prepareDpaAgreement(vetRequest(), DATE))).toMatchObject({
+    expect(refusal(() => prepareDpaAgreement(vetRequest(), DATE, UNRELEASED))).toMatchObject({
       field: "specialty",
     });
-    // A No signs the BAA, as it always has: the DPA's label and version are refused.
-    expect(agreementKindForRequest(noRequest())).toBe("baa");
-    expect(refusal(() => validateSignRequest(noRequest()))).toMatchObject({
+    // A No signs the BAA: the DPA's label and version are refused.
+    expect(agreementKindForRequest(noRequest(), UNRELEASED)).toBe("baa");
+    expect(refusal(() => validateSignRequest(noRequest(), UNRELEASED))).toMatchObject({
       field: "assentLabel",
     });
     expect(
-      refusal(() => validateSignRequest(noRequest({ assentLabel: BAA_ASSENT_LABEL }))),
+      refusal(() =>
+        validateSignRequest(noRequest({ assentLabel: BAA_ASSENT_LABEL }), UNRELEASED),
+      ),
     ).toMatchObject({ message: "Unknown agreement version.", field: "templateVersion" });
-    expect(refusal(() => prepareDpaAgreement(noRequest(), DATE))).toMatchObject({
+    expect(refusal(() => prepareDpaAgreement(noRequest(), DATE, UNRELEASED))).toMatchObject({
       message: "This practice signs the Business Associate Agreement, not this one.",
       field: "specialty",
     });
     // And the DPA template itself is not signable while its flag is false.
-    expect(refusal(() => signableDpaTemplate(currentDpaTemplate().version))).toMatchObject({
+    expect(
+      refusal(() => signableDpaTemplate(currentDpaTemplate().version, UNRELEASED)),
+    ).toMatchObject({
       message: "The Data Protection Agreement can't be signed yet.",
       field: "templateVersion",
     });
@@ -269,7 +286,7 @@ describe("the DPA's refusals, by field", () => {
     }
   });
 
-  test("a DPA it cannot sign is refused by the field, while it is unreleased", () => {
+  test("a DPA it cannot sign is refused by the field, were it unreleased", () => {
     // The endpoint that answered these with 422 and the field moved to
     // apps/web on 14 October 2026 (its /api/agreement runs this same
     // validation, from the catalog); the refusal and its field are this.
@@ -277,7 +294,10 @@ describe("the DPA's refusals, by field", () => {
       [vetRequest(), "specialty"],
       [noRequest(), "assentLabel"],
     ] as [SignAgreementRequest, string][]) {
-      expect(refusal(() => validateSignRequest(request)), request.specialty).toMatchObject({ field });
+      expect(
+        refusal(() => validateSignRequest(request, UNRELEASED)),
+        request.specialty,
+      ).toMatchObject({ field });
     }
   });
 
@@ -323,7 +343,7 @@ describeDb("signing the DPA", () => {
   }, 60_000);
 
   afterAll(async () => {
-    release.dpa = false;
+    release.dpa = true;
     await closePools();
   });
 
@@ -382,7 +402,7 @@ describeDb("signing the DPA", () => {
       text: shown.text,
       clauseIds: shown.clauseIds,
       // What the row and its event record about release is the template's own flag.
-      approvedByCounsel: false,
+      approvedByCounsel: true,
     });
     const row = await storedRow(signed.agreementId);
     expect(row.document_version).toBe("dpa/1.0.0");
@@ -414,7 +434,7 @@ describeDb("signing the DPA", () => {
     expect(rows[0]!.metadata).toMatchObject({
       version: "dpa/1.0.0",
       hash: shown.hash,
-      approvedByCounsel: false,
+      approvedByCounsel: true,
     });
   });
 
@@ -477,9 +497,13 @@ describeDb("signing the DPA", () => {
 
   test("with the flag off, a direct call refuses a DPA and writes nothing", async () => {
     const before = await acceptanceCount();
-    await expect(signOnDate(vetRequest(), {})).rejects.toMatchObject({ field: "specialty" });
+    await expect(signOnDate(vetRequest(), UNRELEASED)).rejects.toMatchObject({
+      field: "specialty",
+    });
     // A No under the DPA's label and version: the BAA path's, and refused as such.
-    await expect(signOnDate(noRequest(), {})).rejects.toMatchObject({ field: "templateVersion" });
+    await expect(signOnDate(noRequest(), UNRELEASED)).rejects.toMatchObject({
+      field: "templateVersion",
+    });
     expect(await acceptanceCount()).toBe(before);
   });
 
@@ -513,7 +537,7 @@ describeDb("signing the DPA", () => {
     };
   }
 
-  test("provisioning refuses a signed DPA while it is unreleased, and binds it once released", async () => {
+  test("provisioning binds a signed DPA since its release, and refuses one whose template is not released", async () => {
     const signed = await signOnDate(vetRequest({ clinicLegalName: "Bound Paws LLC" }));
 
     release.dpa = false;
@@ -555,7 +579,7 @@ describeDb("signing the DPA", () => {
         ),
       ).rejects.toBeInstanceOf(ProvisioningError);
     } finally {
-      release.dpa = false;
+      release.dpa = true;
     }
   });
 });

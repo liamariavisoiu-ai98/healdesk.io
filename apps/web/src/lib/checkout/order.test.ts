@@ -86,9 +86,9 @@ describe("a practice with no website", () => {
 /**
  * What /api/agreement checks before it forwards a signature to apps/app: the
  * calendar answers, the platform they imply, and a practice `agreementKindFor`
- * gives an agreement to. The Data Protection Agreement is one of them once
- * the owner releases it, stood in for here; until then the decision never
- * names it, and a veterinary practice is refused.
+ * gives an agreement to. The Data Protection Agreement is one of them since
+ * the owner released it on 20 October 2026; with a release stood in as
+ * false, the decision never names it and a veterinary practice is refused.
  */
 describe("a signature request", () => {
   const REQUEST = {
@@ -104,19 +104,20 @@ describe("a signature request", () => {
     expect(signRequestRefusal(REQUEST, { dpaReleased: true })).toBeNull();
   });
 
-  test("a veterinary practice is refused until the DPA is released, and signs it from then", () => {
+  test("a veterinary practice signs the DPA now that it is released, and would be refused without it", () => {
     const vet = { ...REQUEST, specialty: "veterinary", isCoveredEntity: false };
-    expect(signRequestRefusal(vet)).toEqual({
+    expect(signRequestRefusal(vet)).toBeNull();
+    expect(signRequestRefusal(vet, { dpaReleased: true })).toBeNull();
+    expect(signRequestRefusal(vet, { dpaReleased: false })).toEqual({
       field: "specialty",
       error: "We can't offer an agreement for this practice here.",
     });
-    expect(signRequestRefusal(vet, { dpaReleased: true })).toBeNull();
   });
 
-  test("a med spa that answered No is forwarded either way: to the BAA today, to the DPA once released", () => {
+  test("a med spa that answered No is forwarded either way: to the DPA since its release, to the BAA without it", () => {
     const no = { ...REQUEST, isCoveredEntity: false };
     expect(signRequestRefusal(no)).toBeNull();
-    expect(signRequestRefusal(no, { dpaReleased: true })).toBeNull();
+    expect(signRequestRefusal(no, { dpaReleased: false })).toBeNull();
   });
 
   test("the calendar answers are still checked first, whichever agreement it is", () => {

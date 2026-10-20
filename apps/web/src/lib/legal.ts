@@ -30,8 +30,8 @@ import {
  * the bump fails the build.
  */
 
-export const LEGAL_VERSION = "2026-10-19.1";
-export const LEGAL_LAST_UPDATED = "19 October 2026";
+export const LEGAL_VERSION = "2026-10-20.1";
+export const LEGAL_LAST_UPDATED = "20 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */
@@ -236,7 +236,7 @@ export const GUARANTEE_TEXT = {
     {
       lead: "Limits.",
       body:
-        "One refund per practice, meaning one account, however many locations or channels it has. On an annual plan, the refund is one month at your plan's annual per-month price, meaning the annual fee divided by twelve. You do not have to cancel to claim; if you stay, the service continues as normal. This refund is your only remedy for a call or message missed during your first month. It does not limit your rights under the Business Associate Agreement, or for anything other than the missed call or message itself.",
+        "One refund per practice, meaning one account, however many locations or channels it has. On an annual plan, the refund is one month at your plan's annual per-month price, meaning the annual fee divided by twelve. You do not have to cancel to claim; if you stay, the service continues as normal. This refund is your only remedy for a call or message missed during your first month. It does not limit your rights under your Data Agreement, or for anything other than the missed call or message itself.",
     },
   ],
 } as const;

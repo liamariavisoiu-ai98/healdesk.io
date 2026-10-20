@@ -95,7 +95,7 @@ vi.mock("@healdesk/catalog", async (importOriginal) => {
   return {
     ...actual,
     // Only the BAA's form is ever made a draft here; the DPA's stays as the
-    // catalogue has it, unreleased.
+    // catalogue has it, released with the DPA on 20 October 2026.
     calendarElectionFor: (version: string) => {
       const form = actual.calendarElectionFor(version);
       return mocks.draft.election && actual.agreementKindOfVersion(version) === "baa"
@@ -1079,9 +1079,10 @@ describeDb("the portal's way into the calendar", () => {
   );
 
   test(
-    "a practice under a DPA is never handed the BAA's election: its own form is unreleased, so nothing offers, mails or records one even once the BAA's is",
+    "a practice under a DPA records its election on the DPA's own form, released with the DPA, and is never handed the BAA's",
     async () => {
-      // The BAA's form is released (plan C19); the DPA's is not.
+      // The BAA's form is released (plan C19); the DPA's with the DPA, on 20
+      // October 2026 (drizzle/0104).
       const baa = await seedClinic("cp-dpa-baa");
       await bindAgreement(baa.organizationId, "1.2.1");
       const dpa = await seedClinic("cp-dpa");
@@ -1091,7 +1092,7 @@ describeDb("the portal's way into the calendar", () => {
         calendarAccount: "workspace_no_baa",
       } as const;
 
-      // Under the BAA, the released form is offered: in the portal, and
+      // Under the BAA, the BAA's released form is offered: in the portal, and
       // through a calendar link whose page shows the election form.
       const offered = await previewCalendarElection(baa.clinicId, choice);
       expect(offered).toMatchObject({
@@ -1105,32 +1106,47 @@ describeDb("the portal's way into the calendar", () => {
       expect(token).toBeDefined();
       expect((await calendarLinkPage(token!)).state).toBe("election");
 
-      // Under the DPA, its own form decides, and it is a draft.
+      // Under the DPA, its own form decides, and it is released: offered in
+      // the portal in the DPA's words, never the BAA's...
       expect(await getCalendarTerms(dpa.clinicId)).toMatchObject({
-        election: { status: "unavailable", reason: "draft_terms" },
+        election: { status: "ready" },
       });
-      expect(await previewCalendarElection(dpa.clinicId, choice)).toEqual({
-        status: "unavailable",
-        reason: "draft_terms",
+      const dpaPreview = await previewCalendarElection(dpa.clinicId, choice);
+      expect(dpaPreview).toMatchObject({
+        status: "ready",
+        documentVersion: "calendar-election-dpa/1.0.0",
       });
+      if (dpaPreview.status !== "ready") throw new Error("no preview");
+      expect(dpaPreview.text).toContain("to the healdesk Data Protection Agreement");
+      expect(dpaPreview.text).not.toMatch(/Business Associate Agreement/);
+      // ...offered and mailed through a calendar link whose page shows the form...
+      expect(
+        await issueCalendarLink(dpa.clinicId, { reason: "ops", rule: "useful" }),
+      ).toMatchObject({ status: "issued" });
+      const dpaToken = /\/calendar\/([A-Za-z0-9_-]{43})/.exec(mocks.sent.at(-1)?.text ?? "")?.[1];
+      expect(dpaToken).toBeDefined();
+      expect((await calendarLinkPage(dpaToken!)).state).toBe("election");
+      // ...and recorded by the owner, on that form.
       expect(
         await elect(
           dpa.clinicId,
           { ...choice, name: "Alex Chen", title: "Owner", accepted: true },
           owner(dpa),
         ),
-      ).toEqual({ status: "unavailable", reason: "draft_terms" });
-      expect(await elections(dpa.clinicId)).toEqual([]);
-      // Nor is a calendar link offered or mailed for it: its page could only
-      // show a form whose answer is `draft_terms`.
-      const mailed = mocks.sent.length;
-      for (const rule of ["offer", "useful"] as const) {
-        expect(await issueCalendarLink(dpa.clinicId, { reason: "ops", rule })).toMatchObject({
-          status: "refused",
-          reason: "nothing_to_do",
-        });
-      }
-      expect(mocks.sent).toHaveLength(mailed);
+      ).toMatchObject({ status: "recorded", kind: "uncovered" });
+      const recorded = await elections(dpa.clinicId);
+      expect(recorded).toHaveLength(1);
+      expect(recorded[0]!.rendered_text).toContain("to the healdesk Data Protection Agreement");
+      expect(recorded[0]!.rendered_text).not.toMatch(/Business Associate Agreement/);
+      const { rows } = await inTenant(dpa.clinicId, (client) =>
+        client.query<{ document_version: string; document_released: boolean }>(
+          `select document_version, document_released from calendar_elections where clinic_id = $1`,
+          [dpa.clinicId],
+        ),
+      );
+      expect(rows).toEqual([
+        { document_version: "calendar-election-dpa/1.0.0", document_released: true },
+      ]);
     },
     SLOW,
   );

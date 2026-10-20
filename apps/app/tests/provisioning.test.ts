@@ -115,21 +115,26 @@ async function signFor(
   clinicName: string,
   email: string,
 ): Promise<string> {
-  const signed = await signAgreement({
-    clinicLegalName: clinicName,
-    specialty: "med-spa",
-    signatoryName: "Alex Chen",
-    signatoryTitle: "Owner",
-    signatoryEmail: email,
-    isCoveredEntity: false,
-    attributionMode: "estimated",
-    platform: "none",
-    // The current version (1.5.1, as 1.5.0, 1.4.0 and 1.3.0 before it) reads both calendar answers.
-    bookingSystem: "none",
-    calendarAccount: "workspace_no_baa",
-    assentLabel: BAA_ASSENT_LABEL,
-    templateVersion: CURRENT_BAA_VERSION,
-  });
+  // A "No" that signed the BAA before the DPA's release (20 October 2026).
+  const signed = await signAgreement(
+    {
+      clinicLegalName: clinicName,
+      specialty: "med-spa",
+      signatoryName: "Alex Chen",
+      signatoryTitle: "Owner",
+      signatoryEmail: email,
+      isCoveredEntity: false,
+      attributionMode: "estimated",
+      platform: "none",
+      // The current version (1.5.1, as 1.5.0, 1.4.0 and 1.3.0 before it) reads both calendar answers.
+      bookingSystem: "none",
+      calendarAccount: "workspace_no_baa",
+      assentLabel: BAA_ASSENT_LABEL,
+      templateVersion: CURRENT_BAA_VERSION,
+    },
+    {},
+    { dpaReleased: false },
+  );
   return signed.agreementId;
 }
 
@@ -170,7 +175,8 @@ async function signWith(
       templateVersion: template?.version ?? CURRENT_BAA_VERSION,
     },
     {},
-    template ? { current: template } : {},
+    // A "No" that signed the BAA before the DPA's release (20 October 2026).
+    { dpaReleased: false, ...(template ? { current: template } : {}) },
   );
   return signed.agreementId;
 }

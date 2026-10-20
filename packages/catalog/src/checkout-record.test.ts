@@ -44,7 +44,9 @@ function signedAgreement(overrides: Record<string, unknown> = {}): AgreementReco
     signatoryName: "Laura Owner",
     signatoryTitle: "Owner",
     signatoryEmail: "Laura@GlowSpa.test",
-    isCoveredEntity: false,
+    // "Yes": a med spa that bills no insurance signs the DPA since its
+    // release (20 October 2026), and this record is a BAA's.
+    isCoveredEntity: true,
     assentLabel: AGREEMENT_COPY.baa.assentLabel,
     templateVersion: AGREEMENT_COPY.baa.currentVersion,
     ...overrides,
@@ -79,7 +81,7 @@ function purchase(record: AgreementRecord, overrides: Record<string, unknown> = 
       contactName: "Laura Owner",
       contactEmail: "laura@glowspa.test",
       agreementId: record.id,
-      isCoveredEntity: false,
+      isCoveredEntity: true,
       bookingSystem: "google_calendar",
       calendarAccount: "workspace_baa",
       website: "glowspa.test",

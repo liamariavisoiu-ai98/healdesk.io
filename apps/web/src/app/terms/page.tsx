@@ -224,6 +224,19 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * same": BAA 1.5.1, the version signed today, still carries the old clause,
  * and the corrected one is the 1.6.0 draft, which only the owner can release.
  * When it is released, that sentence can come back.
+ *
+ * Revised on 20 October 2026 as LEGAL_VERSION 2026-10-20.1, for the owner's
+ * release of the data protection agreement (dpa/1.0.0) that day: a
+ * veterinary practice, and a practice that bills no insurance electronically,
+ * now sign it in place of the Business Associate Agreement. The eleven
+ * sentences that said "Business Associate Agreement" where they meant
+ * whichever agreement the Practice signed, true only while every practice
+ * signed the BAA, say "your Data Agreement" (sections 3, 7, 11, 12, 14 and
+ * 19, the first-month guarantee's limits in section 5, and the annex);
+ * section 9 says that for a Practice under the data protection agreement,
+ * what it says of the BAA it says of that agreement. terms-copy.test.ts holds
+ * every remaining use of the defined term to a passage where the BAA itself
+ * is meant (docs/counsel/agreement-changes.md §18).
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -427,8 +440,7 @@ export default function TermsPage() {
           your channels is answering patients, we email you a reminder every five days. If at the
           end of the 30th day after your payment none of them is, your subscription is cancelled
           and your account closed: nothing more is charged, nothing is refunded, and we keep only
-          the signed Business Associate Agreement and the billing records the law requires us to
-          keep.
+          your signed Data Agreement and the billing records the law requires us to keep.
         </p>
         <p>
           Payments are processed through our payment processor account, which is linked to our
@@ -528,8 +540,8 @@ export default function TermsPage() {
           your Google Calendar, your Meta accounts and your payment gateway. Within 30 days of the
           end we deliver an export of your data — the records of your conversations and the
           booking log; the transcripts themselves reached you by email as each conversation
-          ended — and we then destroy our copies when and as the Business Associate Agreement
-          says. Billing records are retained as tax law requires.
+          ended — and we then destroy our copies when and as your Data Agreement says. Billing
+          records are retained as tax law requires.
         </p>
       </Section>
 
@@ -595,7 +607,9 @@ export default function TermsPage() {
           what then happens to the service and your fees (section 15). It allocates liability for
           patient information consistently with sections 13 and 14 of these terms. The list of the
           subcontractors that process patient information for us is given to you on request, under
-          the Business Associate Agreement.
+          the Business Associate Agreement. For a Practice that signs our data protection agreement
+          in its place (section 1), everything this section says of that agreement it says of the
+          data protection agreement.
         </p>
         <p>
           <strong>No real patient information before every agreement is in place.</strong> We
@@ -644,8 +658,8 @@ export default function TermsPage() {
         <p>
           Each of us keeps the other's non-public information confidential, uses it only for this
           agreement, and protects it as carefully as its own, for as long as it remains
-          confidential. Patient information is covered by the Business Associate Agreement, not by
-          this section.
+          confidential. Patient information is covered by your Data Agreement, not by this
+          section.
         </p>
       </Section>
 
@@ -656,7 +670,7 @@ export default function TermsPage() {
           AGENT WILL ANSWER EVERY CALL OR BOOK EVERY APPOINTMENT, OR THAT ANY PARTICULAR REVENUE
           WILL RESULT. BOOKED VALUE IS AN ESTIMATE FROM YOUR OWN CONFIGURED PRICES, NOT A MEASURE
           OF REVENUE, AND FIGURES ON OUR WEBSITE ARE ILLUSTRATIVE INDUSTRY RANGES, NOT PROMISES.
-          EXCEPT AS EXPRESSLY STATED IN THESE TERMS OR THE BUSINESS ASSOCIATE AGREEMENT, WE
+          EXCEPT AS EXPRESSLY STATED IN THESE TERMS OR YOUR DATA AGREEMENT, WE
           DISCLAIM ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A
           PARTICULAR PURPOSE AND NON-INFRINGEMENT.
         </p>
@@ -700,9 +714,9 @@ export default function TermsPage() {
           It does not extend to a claim for the refund section 15 gives.
         </p>
         <p>
-          <strong>We</strong> give you no indemnity. The Business Associate Agreement allocates
-          liability for patient information consistently with this section and section 13.
-          Nothing in these terms or in the Business Associate Agreement shifts to you a civil
+          <strong>We</strong> give you no indemnity. Your Data Agreement allocates liability for
+          patient information consistently with this section and section 13. Nothing in these
+          terms or in your Data Agreement shifts to you a civil
           money penalty a regulator imposes on us for our own conduct, or changes what either of
           us owes a regulator directly.
         </p>
@@ -773,7 +787,7 @@ export default function TermsPage() {
 
       <Section id="general" title="19. General">
         <p>
-          These terms, the Business Associate Agreement and the order you complete at checkout are
+          These terms, your Data Agreement and the order you complete at checkout are
           the entire agreement between us and replace any earlier discussion. If a term is
           unenforceable the rest stands. Neither party is liable for delay caused by events beyond
           its reasonable control, except for payment obligations and the first-month guarantee in
@@ -831,7 +845,7 @@ export default function TermsPage() {
           <strong>
             This annex describes our practices for protecting information. It is provided for
             information only and is not a term of this agreement, and it changes as our practices
-            do. The Business Associate Agreement you sign at checkout governs patient information.
+            do. The Data Agreement you sign at checkout (section 1) governs patient information.
           </strong>
         </p>
 
@@ -840,7 +854,7 @@ export default function TermsPage() {
           {site.name} is two systems. This website and its demo hold no patient information at
           all: a clinic owner&apos;s work email, a chat with a demo agent, a business enquiry. The
           product — the assistant that answers your phone and chat — runs on separate
-          infrastructure, under the Business Associate Agreement, and that is the only place a
+          infrastructure, under your Data Agreement, and that is the only place a
           caller&apos;s name, number or question is kept.
         </p>
         <p>
@@ -895,8 +909,8 @@ export default function TermsPage() {
             <strong>Who handles it.</strong> Inside the product, patient information is processed
             by our cloud hosting provider, our voice provider and our AI model provider, each under
             a business associate agreement with us that is signed before any patient information
-            reaches it. The list of these subcontractors is given to clinics on request, under the
-            Business Associate Agreement. The vendors that serve this website, its demo and our
+            reaches it. The list of these subcontractors is given to clinics on request, under each
+            clinic&apos;s Data Agreement. The vendors that serve this website, its demo and our
             billing never receive patient information.
           </li>
           <li>

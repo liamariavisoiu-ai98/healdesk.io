@@ -6,7 +6,9 @@ import {
   bookingSyncFor,
   CALENDAR_ELECTIONS,
   CURRENT_BAA_VERSION,
+  DPA_CALENDAR_ELECTIONS,
   getCalendarElection,
+  getDpaCalendarElection,
   isBaaVersionAcceptable,
   MIN_ACCEPTABLE_BAA_VERSION,
 } from "@healdesk/catalog";
@@ -487,17 +489,23 @@ describeDb("database audit (0031)", () => {
     // document, or confirming that a booking system reads Google, without a
     // migration redefining them fails here, not as elections refused (or
     // wrongly accepted) in production.
+    // Both forms: the BAA's (CALENDAR_ELECTIONS) and, since the DPA's
+    // release (0104), the DPA's own (DPA_CALENDAR_ELECTIONS).
     for (const version of [
       ...CALENDAR_ELECTIONS.map((e) => e.version),
+      ...DPA_CALENDAR_ELECTIONS.map((e) => e.version),
       "calendar-election/9.9.9",
+      "calendar-election-dpa/9.9.9",
       "",
     ]) {
       const { rows } = await getMigratorPool().query<{ ok: boolean }>(
         `select app_calendar_election_released($1) as ok`,
         [version],
       );
-      expect(rows[0]!.ok, version).toBe(getCalendarElection(version)?.approvedByCounsel ?? false);
+      const form = getCalendarElection(version) ?? getDpaCalendarElection(version);
+      expect(rows[0]!.ok, version).toBe(form?.approvedByCounsel ?? false);
     }
+    expect(DPA_CALENDAR_ELECTIONS.every((e) => e.approvedByCounsel)).toBe(true);
     for (const system of [...BOOKING_SYSTEMS.map((b) => b.id), "acuity", ""]) {
       const { rows } = await getMigratorPool().query<{ ok: boolean }>(
         `select app_booking_system_live($1) as ok`,
@@ -646,24 +654,36 @@ describeDb("database audit (0031)", () => {
     expect(rows[0]).toEqual({ data_classification: "production" });
   });
 
-  test("app_mark_clinic_production asks a DPA's release, not the BAA floor, of a DPA clinic: refused while it is a draft (0090)", async () => {
+  test("app_mark_clinic_production asks a DPA's release, not the BAA floor, of a DPA clinic: dpa/1.0.0 goes live since its release, an unreleased version is refused (0090, 0104)", async () => {
     // The kind-aware rule 0051 left for this rewrite: a DPA's version goes
     // live once released (app_dpa_version_released), a BAA's at the floor.
-    // The DPA is a draft, so a practice under it, which it covers (a
-    // hipaa-if-covered practice that is not covered), is refused by name.
+    // A practice the DPA covers (a hipaa-if-covered practice that is not
+    // covered) under a DPA version nobody released is refused by name...
+    const draft = await seedClinic("dpagolive-draft");
+    await readyForGoLive(draft.clinicId, "dpa");
+    await seedAcceptance(draft.organizationId, "dpa/9.9.9");
+    await asTenant(draft.clinicId, async (c) => {
+      const { rows } = await c.query<{ codes: string[] }>(`select app_go_live_missing($1::uuid) as codes`, [draft.clinicId]);
+      expect(rows[0]!.codes).toEqual(["agreement_version"]);
+      await expect(
+        c.query(`select app_mark_clinic_production($1::uuid)`, [draft.clinicId]),
+      ).rejects.toMatchObject({
+        code: "23514",
+        message: expect.stringContaining("data protection agreement version dpa/9.9.9, which is not released"),
+      });
+    });
+
+    // ...and under dpa/1.0.0, which the owner released on 20 October 2026, it goes live.
     const { clinicId, organizationId } = await seedClinic("dpagolive");
     await readyForGoLive(clinicId, "dpa");
     await seedAcceptance(organizationId, "dpa/1.0.0");
     await asTenant(clinicId, async (c) => {
       const { rows } = await c.query<{ codes: string[] }>(`select app_go_live_missing($1::uuid) as codes`, [clinicId]);
-      expect(rows[0]!.codes).toEqual(["agreement_version"]);
-      await expect(
-        c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
-      ).rejects.toMatchObject({
-        code: "23514",
-        message: expect.stringContaining("data protection agreement version dpa/1.0.0, which is not released"),
-      });
+      expect(rows[0]!.codes).toEqual([]);
     });
+    await committedInTenant(clinicId, (c) => c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]));
+    const { rows } = await getMigratorPool().query(`select data_classification from clinics where id = $1`, [clinicId]);
+    expect(rows[0]).toEqual({ data_classification: "production" });
   });
 
   test("the SQL allow-list is the catalog's floor, version for version", async () => {

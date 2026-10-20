@@ -241,11 +241,12 @@ describe("step 2: the clinic", () => {
     expect(initialFunnel().noWebsite).toBe(false);
   });
 
-  test("the veterinary chip is not offered while its agreement is unreleased", () => {
-    expect(initialFunnel({ specialty: "veterinary" }).specialty).toBeNull();
-    expect(clinicIssues(answered({ specialty: "veterinary" })).map((i) => i.field)).toEqual([
-      "specialty",
-    ]);
+  test("the veterinary chip is offered since its agreement, the DPA, was released (20 October 2026)", () => {
+    expect(initialFunnel({ specialty: "veterinary" }).specialty).toBe("veterinary");
+    // A veterinary practice is never asked the covered-entity question.
+    expect(
+      clinicIssues(answered({ specialty: "veterinary", covered: null })).map((i) => i.field),
+    ).toEqual([]);
     expect(initialFunnel({ specialty: "dental" }).specialty).toBe("dental");
   });
 });
@@ -353,12 +354,21 @@ describe("step 3: the agreement's inputs", () => {
   test("are named only once the clinic is complete and the question is answered", () => {
     expect(agreementInputs(answered({ covered: null }))).toBeNull();
     expect(agreementInputs(answered({ bookingSystem: null }))).toBeNull();
+    // A med spa that bills no insurance signs the DPA since its release; "Yes" the BAA.
     expect(agreementInputs(answered())).toMatchObject({
-      kind: "baa",
+      kind: "dpa",
       clinicLegalName: "Glow Med Spa LLC",
       covered: "no",
       platform: "none",
       signatoryEmail: "info@glowmedspa.com",
+    });
+    expect(agreementInputs(answered({ covered: "yes" }))).toMatchObject({
+      kind: "baa",
+      covered: "yes",
+    });
+    expect(agreementInputs(answered({ specialty: "veterinary", covered: null }))).toMatchObject({
+      kind: "dpa",
+      covered: null,
     });
     expect(agreementInputs(answered({ bookingSystem: "mindbody" }))?.platform).toBe("mindbody");
   });
@@ -443,7 +453,7 @@ describe("the answers kept for the tab", () => {
       packageId: "complete",
       voiceMinutes: 550,
       chatConversations: 1600,
-      specialty: "veterinary",
+      specialty: "astrology",
       bookingSystem: "zenoti",
       calendarAccount: 1,
       covered: "maybe",

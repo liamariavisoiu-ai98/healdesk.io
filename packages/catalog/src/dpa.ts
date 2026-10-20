@@ -133,12 +133,13 @@ import { wrap } from "./wrap";
  * ## Released by the owner, never by default
  *
  * `approvedByCounsel` is the BAA's flag under the BAA's name: the owner's
- * release. While it is false nothing may sign this document:
- * `agreementKindFor` falls back to the BAA for "No" and refuses a veterinary
- * practice (agreement-kind.ts reads this flag), and provisioning refuses an
- * account bound to an unreleased DPA. The text carries no draft marker, so
- * releasing it moves no hash; an edit before release regenerates the golden
- * hashes (dpa.test.ts) and docs/dpa-v1.0.0.txt in the same commit.
+ * release. While it was false nothing could sign this document:
+ * `agreementKindFor` fell back to the BAA for "No" and refused a veterinary
+ * practice (agreement-kind.ts reads this flag), and provisioning refused an
+ * account bound to an unreleased DPA. The owner released dpa/1.0.0 on 20
+ * October 2026, without external counsel; the text carried no draft marker,
+ * so the release moved no hash (dpa.test.ts), and docs/dpa-v1.0.0.txt is the
+ * released copy.
  *
  * To publish a revision after release: add a new version at DPA_TEMPLATES[0],
  * never edit a released one. Someone has signed it.
@@ -1264,17 +1265,24 @@ function validate100(v: DpaVariables): void {
 
 export const DPA_TEMPLATES: readonly DpaTemplate[] = [
   // Newest released first, as BAA_TEMPLATES: CURRENT_DPA_VERSION and
-  // currentDpaTemplate() read [0]. Drafted 6 October 2026; the owner releases
-  // it at launch (Gate A) after reading docs/dpa-v1.0.0.txt, by setting
-  // approvedByCounsel to true here, and, in the same commit, a migration
-  // adding its version to app_dpa_version_released() (apps/app drizzle/0090),
-  // go-live's copy of this flag: without it go-live refuses every DPA
-  // practice, and apps/app's tests/go-live.test.ts fails on the
-  // disagreement. No hash moves (docs/counsel/dpa.md, gap 11).
+  // currentDpaTemplate() read [0]. Drafted 6 October 2026 and released on
+  // 2026-10-20, with its election form (calendar-election-dpa/1.0.0,
+  // dpa-calendar-election.ts). The migration of that day,
+  // dpa_release_1_0_0 (apps/app drizzle/0104), added the version to
+  // app_dpa_version_released() (0090), go-live's copy of this flag, and the
+  // form to app_calendar_election_released(). No hash moved: nothing in the text
+  // marked it a draft (docs/counsel/dpa.md, gap 11).
   {
     version: "dpa/1.0.0",
-    publishedOn: "2026-10-06",
-    approvedByCounsel: false,
+    publishedOn: "2026-10-20",
+    // Approved for release by the OWNER on 2026-10-20, on the owner's own
+    // instruction ("Release the DPA now.") and without external counsel: as
+    // the field's doc comment on DpaTemplate says, the flag records the
+    // owner's release, not a lawyer's approval. Counsel approved the clauses
+    // as they stood on 6 October 2026, not the edits since, which
+    // agreement-changes.md §18 and docs/counsel/dpa.md recommend counsel
+    // review before the first live DPA practice.
+    approvedByCounsel: true,
     preamble: preamble100,
     clauses: CLAUSES_1_0,
     validate: validate100,

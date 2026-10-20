@@ -57,6 +57,8 @@ export type CalendarTermsInput = {
   bookingSystem?: BookingSystemId;
   /** Default "workspace_baa": covered. */
   calendarAccount?: CalendarAccount;
+  /** The agreement's version. Default "1.3.0"; "dpa/1.0.0" binds a Data Protection Agreement. */
+  documentVersion?: string;
 };
 
 export type BoundAgreement = {
@@ -82,13 +84,14 @@ export async function bindCalendarAgreement(
   const bookingSystem = input.bookingSystem ?? "google_calendar";
   const calendarAccount = input.calendarAccount ?? "workspace_baa";
   const { kind, clauseId } = selectCalendarClause({ bookingSystem, calendarAccount });
+  const documentVersion = input.documentVersion ?? "1.3.0";
   const agreementId = randomUUID();
   const documentHash = randomBytes(32).toString("hex");
   await getMigratorPool().query(
     `insert into baa_acceptances
        (id, organization_id, document_version, document_hash, rendered_text, variables,
         assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
-     values ($1, $2, '1.3.0', $3, 'BUSINESS ASSOCIATE AGREEMENT (synthetic test)', $4::jsonb,
+     values ($1, $2, $5, $3, $6, $4::jsonb,
              'I agree', 'Alex Chen', 'alex@radiance.test', now(), now())`,
     [
       agreementId,
@@ -100,11 +103,15 @@ export async function bindCalendarAgreement(
         calendarAccount,
         appliedClauses: ["data-sources-none", clauseId, "term"],
       }),
+      documentVersion,
+      documentVersion.startsWith("dpa/")
+        ? "DATA PROTECTION AGREEMENT (synthetic test)"
+        : "BUSINESS ASSOCIATE AGREEMENT (synthetic test)",
     ],
   );
   return {
     agreementId,
-    documentVersion: "1.3.0",
+    documentVersion,
     documentHash,
     bookingSystem,
     calendarAccount,

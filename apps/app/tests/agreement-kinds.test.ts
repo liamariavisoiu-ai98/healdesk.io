@@ -44,18 +44,18 @@ import { seedClinic, seedContact } from "./setup/factories";
  * its TypeScript mirror, the PHI gate's new condition, the supersede function,
  * and provisioning's part.
  *
- * The DPA template is unreleased, as it must be until the owner releases it.
- * To exercise provisioning as it will run after the release, this file can
- * flip the flag `getDpaTemplate` reports, and only that, through `release`.
+ * The DPA template is released (owner, 20 October 2026), its own flag. To
+ * show what provisioning does with a DPA nobody released, this file can turn
+ * off the flag `getDpaTemplate` reports, and only that, through `release`.
  */
-const release = vi.hoisted(() => ({ dpa: false }));
+const release = vi.hoisted(() => ({ dpa: true }));
 vi.mock("@healdesk/catalog", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@healdesk/catalog")>();
   return {
     ...actual,
     getDpaTemplate: (version: string) => {
       const template = actual.getDpaTemplate(version);
-      return template && release.dpa ? { ...template, approvedByCounsel: true } : template;
+      return template && !release.dpa ? { ...template, approvedByCounsel: false } : template;
     },
   };
 });
@@ -243,7 +243,7 @@ describeDb("agreement kinds in the database (0051)", () => {
   }, 60_000);
 
   afterAll(async () => {
-    release.dpa = false;
+    release.dpa = true;
     await closePools();
   });
 
@@ -701,7 +701,7 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
   }, 60_000);
 
   afterAll(async () => {
-    release.dpa = false;
+    release.dpa = true;
     await closePools();
   });
 
@@ -805,15 +805,19 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
 
   test("an unreleased DPA provisions nothing", async () => {
     release.dpa = false;
-    const agreementId = await signDpa({});
-    const req = request({ agreementId, clinicName: "Unreleased Clinic" });
-    await expect(provisionClinic(req)).rejects.toThrow(/not released/);
-    const { rows } = await getMigratorPool().query<{ n: number }>(
-      `select (select count(*) from clinics where name = 'Unreleased Clinic')::int
-            + (select count(*) from provisioning_attempts where idempotency_key = $1)::int as n`,
-      [req.idempotencyKey],
-    );
-    expect(rows[0]!.n).toBe(0);
+    try {
+      const agreementId = await signDpa({});
+      const req = request({ agreementId, clinicName: "Unreleased Clinic" });
+      await expect(provisionClinic(req)).rejects.toThrow(/not released/);
+      const { rows } = await getMigratorPool().query<{ n: number }>(
+        `select (select count(*) from clinics where name = 'Unreleased Clinic')::int
+              + (select count(*) from provisioning_attempts where idempotency_key = $1)::int as n`,
+        [req.idempotencyKey],
+      );
+      expect(rows[0]!.n).toBe(0);
+    } finally {
+      release.dpa = true;
+    }
   });
 
   test("a released DPA provisions a practice outside HIPAA, stored as not covered", async () => {
@@ -896,7 +900,7 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
         is_covered_entity: false,
       });
     } finally {
-      release.dpa = false;
+      release.dpa = true;
     }
   });
 
@@ -924,7 +928,7 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
         ProvisioningError,
       );
     } finally {
-      release.dpa = false;
+      release.dpa = true;
     }
   });
 
@@ -961,7 +965,7 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
       );
       expect(rows[0]).toEqual({ n: 0, bound: false });
     } finally {
-      release.dpa = false;
+      release.dpa = true;
     }
   });
 });

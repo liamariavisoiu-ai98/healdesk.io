@@ -154,8 +154,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "A practice HIPAA does not cover signs a data protection agreement instead of a business associate agreement",
     where: "Is a cash-pay clinic covered by HIPAA?, How AYA is built to behave",
     status: "owner",
-    left: "The agreement is drafted and marked not released (isDpaReleased() is false), so every practice signs the business associate agreement today. Release it, as you released the business associate agreement versions, and checkout offers it by specialty.",
-    evidence: "packages/catalog/src/dpa.ts, packages/catalog/src/agreement-kind.ts",
+    left: "Released by you on 20 October 2026 (dpa/1.0.0, with its calendar election form), without external counsel: checkout offers it to a veterinary practice and to a practice that answers No, provisioning binds it and go-live accepts it. Left: deploy apps/app (deploy-app.yml) so the dpa_release_1_0_0 migration reaches the host, then mark this on; counsel's review before the first live DPA practice is recommended.",
+    evidence: "packages/catalog/src/dpa.ts, packages/catalog/src/agreement-kind.ts, apps/app/drizzle/0104_dpa_release_1_0_0.sql, docs/counsel/agreement-changes.md section 18",
     blocksGoLive: false,
   },
   {

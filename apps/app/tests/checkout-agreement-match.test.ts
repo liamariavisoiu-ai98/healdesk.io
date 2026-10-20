@@ -220,67 +220,46 @@ describe("a Data Protection Agreement", () => {
     calendarAccount: "workspace_baa",
   };
 
-  test("is refused while it is unreleased, whatever it says", () => {
-    expect(currentDpaTemplate().approvedByCounsel).toBe(false);
-    expect(agreementMismatch("dpa/1.0.0", DPA, PURCHASE)).toMatch(/can no longer be used/);
+  test("is accepted since its release (20 October 2026), and a DPA version nobody released is refused", () => {
+    expect(currentDpaTemplate().approvedByCounsel).toBe(true);
+    expect(agreementMismatch("dpa/1.0.0", DPA, PURCHASE)).toBeNull();
+    expect(agreementMismatch("dpa/9.9.9", DPA, PURCHASE)).toMatch(/can no longer be used/);
   });
 
-  /**
-   * Released (Gate A, the template's own flag), set here for this file's
-   * module instance only and put back: what the checks do from the day the
-   * owner releases it, which is also the first version to name the booking
-   * system and the Google account.
-   */
-  function released(run: () => void) {
-    const template = currentDpaTemplate() as { approvedByCounsel: boolean };
-    template.approvedByCounsel = true;
-    try {
-      run();
-    } finally {
-      template.approvedByCounsel = false;
-    }
-  }
-
-  test("once released, the document as signed passes, for a practice outside HIPAA", () => {
-    released(() => {
-      expect(agreementMismatch("dpa/1.0.0", DPA, PURCHASE)).toBeNull();
-      expect(
-        agreementMismatch(
-          "dpa/1.0.0",
-          { ...DPA, specialty: "veterinary" },
-          { ...PURCHASE, specialty: "veterinary" },
-        ),
-      ).toBeNull();
-    });
+  test("released, the document as signed passes, for a practice outside HIPAA", () => {
+    expect(agreementMismatch("dpa/1.0.0", DPA, PURCHASE)).toBeNull();
+    expect(
+      agreementMismatch(
+        "dpa/1.0.0",
+        { ...DPA, specialty: "veterinary" },
+        { ...PURCHASE, specialty: "veterinary" },
+      ),
+    ).toBeNull();
   });
 
-  test("once released, names the booking system and the Google account, and both must match", () => {
-    released(() => {
-      expect(
-        agreementMismatch("dpa/1.0.0", DPA, { ...PURCHASE, bookingSystem: "google_calendar" }),
-      ).toMatch(/different booking system or Google account/);
-      expect(
-        agreementMismatch("dpa/1.0.0", DPA, { ...PURCHASE, calendarAccount: "personal" }),
-      ).toMatch(/different booking system or Google account/);
-    });
+  test("released, it names the booking system and the Google account, and both must match", () => {
+    expect(
+      agreementMismatch("dpa/1.0.0", DPA, { ...PURCHASE, bookingSystem: "google_calendar" }),
+    ).toMatch(/different booking system or Google account/);
+    expect(
+      agreementMismatch("dpa/1.0.0", DPA, { ...PURCHASE, calendarAccount: "personal" }),
+    ).toMatch(/different booking system or Google account/);
   });
 
-  test("once released, never covers a practice that bills insurance, or is not sure", () => {
-    released(() => {
-      for (const isCoveredEntity of [true, null]) {
-        expect(
-          agreementMismatch("dpa/1.0.0", DPA, { ...PURCHASE, isCoveredEntity }),
-          String(isCoveredEntity),
-        ).toMatch(/doesn't cover this practice/);
-      }
-      // Nor a specialty HIPAA always reaches.
+  test("released, it never covers a practice that bills insurance, or is not sure", () => {
+    for (const isCoveredEntity of [true, null]) {
       expect(
-        agreementMismatch(
-          "dpa/1.0.0",
-          { ...DPA, specialty: "dental" },
-          { ...PURCHASE, specialty: "dental" },
-        ),
+        agreementMismatch("dpa/1.0.0", DPA, { ...PURCHASE, isCoveredEntity }),
+        String(isCoveredEntity),
       ).toMatch(/doesn't cover this practice/);
-    });
+    }
+    // Nor a specialty HIPAA always reaches.
+    expect(
+      agreementMismatch(
+        "dpa/1.0.0",
+        { ...DPA, specialty: "dental" },
+        { ...PURCHASE, specialty: "dental" },
+      ),
+    ).toMatch(/doesn't cover this practice/);
   });
 });

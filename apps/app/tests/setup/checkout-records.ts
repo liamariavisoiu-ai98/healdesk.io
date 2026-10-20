@@ -29,6 +29,14 @@ export type SignatureAnswers = {
   bookingSystem?: string;
   calendarAccount?: string;
   displayedHash?: string;
+  /**
+   * Which agreement the record is. Default the BAA: for a practice that
+   * answered "No" (the default answer), one signed before the DPA's release
+   * on 20 October 2026, as every "No" signed until then. "dpa" signs the
+   * released Data Protection Agreement, as apps/web signs one for a "No" or a
+   * veterinary practice from that day.
+   */
+  kind?: "baa" | "dpa";
 };
 
 /** A signature, recorded as apps/web's /api/agreement records one. */
@@ -36,6 +44,7 @@ export function agreementRecord(
   answers: SignatureAnswers,
   facts: { id?: string; acceptedAt?: Date; ipAddress?: string | null; userAgent?: string | null } = {},
 ): AgreementRecord {
+  const kind = answers.kind ?? "baa";
   const request: Record<string, unknown> = {
     clinicLegalName: answers.clinicLegalName ?? "Glow Med Spa LLC",
     specialty: answers.specialty ?? "med-spa",
@@ -47,13 +56,14 @@ export function agreementRecord(
     platform: answers.platform ?? "none",
     bookingSystem: answers.bookingSystem ?? "none",
     calendarAccount: answers.calendarAccount ?? "workspace_no_baa",
-    assentLabel: AGREEMENT_COPY.baa.assentLabel,
-    templateVersion: AGREEMENT_COPY.baa.currentVersion,
+    assentLabel: AGREEMENT_COPY[kind].assentLabel,
+    templateVersion: AGREEMENT_COPY[kind].currentVersion,
     ...(answers.displayedHash ? { displayedHash: answers.displayedHash } : {}),
   };
-  validateSignRequest(request);
+  const options = kind === "baa" ? { dpaReleased: false } : {};
+  validateSignRequest(request, options);
   const acceptedAt = facts.acceptedAt ?? new Date();
-  return agreementRecordFrom(prepareSigning(request, effectiveDateOf(acceptedAt), {}), {
+  return agreementRecordFrom(prepareSigning(request, effectiveDateOf(acceptedAt), options), {
     id: facts.id ?? randomUUID(),
     acceptedAt,
     ipAddress: facts.ipAddress === undefined ? "203.0.113.4" : facts.ipAddress,

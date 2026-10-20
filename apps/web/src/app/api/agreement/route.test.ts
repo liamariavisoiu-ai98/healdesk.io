@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import type { CoveredAnswer } from "@healdesk/catalog";
 import { effectiveDateOf, prepareSigning } from "@healdesk/catalog/agreement-signing";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -60,12 +61,21 @@ afterEach(() => {
   __resetSheetSchemaForTests();
 });
 
-/** What the agreement step sends for a med spa that answered "No", whose bookings are in Mindbody. */
-function signature(signatoryEmail: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+/**
+ * What the agreement step sends for a med spa that answered "Yes", whose
+ * bookings are in Mindbody: the business associate agreement. A "No", or a
+ * veterinary practice, signs the Data Protection Agreement since its release
+ * (20 October 2026), which `practice` asks for.
+ */
+function signature(
+  signatoryEmail: string,
+  overrides: Record<string, unknown> = {},
+  practice: { specialty: string; covered: CoveredAnswer | null } = { specialty: "med-spa", covered: "yes" },
+): Record<string, unknown> {
   const request = signatureRequestFor({
     clinicName: "Radiance Med Spa LLC",
-    specialty: "med-spa",
-    covered: "no",
+    specialty: practice.specialty,
+    covered: practice.covered,
     bookingSystem: "mindbody",
     calendarAccount: "workspace_no_baa",
     contactName: "Alex Chen",
@@ -604,10 +614,33 @@ describe("POST /api/agreement checks the calendar answers before anything is sig
     });
   });
 
-  test("a practice with no agreement to sign here, a veterinary one while the DPA is unreleased, is refused", async () => {
-    expect(await refusal(await sign(null, { ...signature("a@clinic.com"), specialty: "veterinary" }))).toEqual({
+  test("a practice with no agreement to sign here is refused", async () => {
+    expect(await refusal(await sign(null, { ...signature("a@clinic.com"), specialty: "astrology" }))).toEqual({
       status: 422,
       field: "specialty",
+    });
+    expect(agreementRows()).toHaveLength(0);
+  });
+
+  test("a veterinary practice, and a med spa that answered No, sign the Data Protection Agreement since its release", async () => {
+    for (const practice of [
+      { specialty: "veterinary", covered: null },
+      { specialty: "med-spa", covered: "no" },
+    ] as const) {
+      const response = await sign(null, signature("a@clinic.com", {}, practice));
+      expect(response.status, practice.specialty).toBe(201);
+      const body = (await response.json()) as { agreementId: string; version: string; text: string; approvedByCounsel: boolean };
+      expect(body.version, practice.specialty).toBe("dpa/1.0.0");
+      expect(body.approvedByCounsel).toBe(true);
+      expect(body.text.startsWith("HEALDESK DATA PROTECTION AGREEMENT\n")).toBe(true);
+      const found = await findAgreementRecord(body.agreementId);
+      expect(found.status === "found" && found.record.documentVersion).toBe("dpa/1.0.0");
+    }
+    // A veterinary practice that sends the BAA's wording is refused: the decision is the catalogue's.
+    const vet = signature("a@clinic.com", {}, { specialty: "veterinary", covered: null });
+    expect(await refusal(await sign(null, { ...vet, assentLabel: "I agree to the Business Associate Agreement" }))).toEqual({
+      status: 422,
+      field: "assentLabel",
     });
   });
 });

@@ -20,9 +20,9 @@ import { inTenant } from "./setup/factories";
  * practice questions' review queue (kind `agreement_kind`) for ops to ask it.
  * The decision is the practice's answer, recorded through setCoveredEntity.
  *
- * The DPA is unreleased; provisioning is shown the owner's release through
- * `release`, which changes only what `getDpaTemplate` reports, as
- * tests/dpa-signing.test.ts does, and its own flag never moves.
+ * The DPA is released (owner, 20 October 2026). `release`, which stood in
+ * for that before it by changing only what `getDpaTemplate` reports, now
+ * only says so again; the template's own flag is never moved here.
  */
 
 const release = vi.hoisted(() => ({ dpa: true }));

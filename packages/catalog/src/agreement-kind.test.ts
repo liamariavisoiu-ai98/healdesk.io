@@ -29,16 +29,24 @@ import { fixedUrgentReply } from "./urgent-replies";
 const ANSWERS: (CoveredAnswer | null)[] = [...COVERED_ANSWERS, null];
 
 describe("agreementKindFor", () => {
-  test("the DPA is not released yet, and its template's own flag is what says so", () => {
-    expect(currentDpaTemplate().approvedByCounsel).toBe(false);
+  test("the DPA is released (owner, 20 October 2026), and its template's own flag is what says so", () => {
+    expect(currentDpaTemplate().approvedByCounsel).toBe(true);
     expect(isDpaReleased()).toBe(currentDpaTemplate().approvedByCounsel);
-    // Unreleased, the defaults nothing overrides offer no DPA to anyone.
-    expect(agreementKindFor({ specialty: "med-spa", covered: "no" })).toMatchObject({ kind: "baa" });
-    expect(agreementKindFor({ specialty: "veterinary", covered: null })).toEqual({
-      ok: false,
-      reason: "dpa_not_released",
+    // Released, the defaults nothing overrides give a "No" practice and a vet the DPA.
+    expect(agreementKindFor({ specialty: "med-spa", covered: "no" })).toEqual({
+      ok: true,
+      kind: "dpa",
+      isCoveredEntity: false,
     });
-    expect(specialtyOffered("veterinary")).toBe(false);
+    expect(agreementKindFor({ specialty: "veterinary", covered: null })).toEqual({
+      ok: true,
+      kind: "dpa",
+      isCoveredEntity: false,
+    });
+    expect(specialtyOffered("veterinary")).toBe(true);
+    // "Yes" and "Not sure" still sign the BAA.
+    expect(agreementKindFor({ specialty: "med-spa", covered: "yes" })).toMatchObject({ kind: "baa" });
+    expect(agreementKindFor({ specialty: "med-spa", covered: "not_sure" })).toMatchObject({ kind: "baa" });
   });
 
   test("a specialty HIPAA always reaches signs the BAA, whatever it answers", () => {
@@ -141,7 +149,7 @@ describe("agreementKindFor", () => {
 describe("veterinary readiness", () => {
   // Each item names the thing that must exist before a vet can buy, and is
   // true only because it does: these hold each one to its substance.
-  test("the gate is exactly these items, all in place since package B's vet practice cases; the DPA's release still decides", () => {
+  test("the gate is exactly these items, all in place since package B's vet practice cases; the DPA's release decides with them", () => {
     expect(VETERINARY_READINESS).toEqual({
       urgentSet: true,
       referralNumber: true,
@@ -149,9 +157,10 @@ describe("veterinary readiness", () => {
       vetPracticeCases: true,
     });
     expect(VETERINARY_READY).toBe(true);
-    // The DPA's flag stays the owner's: until it is released, no vet is offered.
-    expect(isDpaReleased()).toBe(false);
-    expect(specialtyOffered("veterinary")).toBe(false);
+    // The DPA's flag stays the owner's, who released it on 20 October 2026:
+    // with the readiness above, a vet is offered; without the release, none is.
+    expect(isDpaReleased()).toBe(true);
+    expect(specialtyOffered("veterinary")).toBe(true);
     expect(specialtyOffered("veterinary", false)).toBe(false);
     expect(specialtyOffered("veterinary", true)).toBe(true);
   });

@@ -29,8 +29,9 @@ import { inTenant } from "./setup/factories";
  * alone (`insurance`), which changes nothing else; and a review ops decided
  * `passed` is not reopened by the same site.
  *
- * The DPA is unreleased; provisioning is shown the owner's release through
- * `release`, as tests/agreement-misclassification.test.ts does.
+ * The DPA is released (owner, 20 October 2026); `release`, which stood in
+ * for that before it, now only says so again, as
+ * tests/agreement-misclassification.test.ts does.
  */
 
 const release = vi.hoisted(() => ({ dpa: true }));

@@ -67,11 +67,18 @@ function signed(url: string, body: unknown): Request {
 
 /** A signed agreement and one press of Pay for it, as apps/web records them. */
 function purchase(
-  options: { inviteRef?: string; attempt?: number; sessionId?: string; purchase?: Record<string, unknown> } = {},
+  options: {
+    inviteRef?: string;
+    attempt?: number;
+    sessionId?: string;
+    purchase?: Record<string, unknown>;
+    /** The agreement's own answers, over the default med spa's. */
+    signature?: Omit<Parameters<typeof agreementRecord>[0], "signatoryEmail">;
+  } = {},
 ) {
   const email = `laura-${randomUUID().slice(0, 8)}@glowspa.test`;
   const agreement = agreementRecord(
-    { signatoryEmail: email },
+    { signatoryEmail: email, ...options.signature },
     { acceptedAt: new Date(Date.now() - 3 * 60_000) },
   );
   const n = nonce();
@@ -357,6 +364,40 @@ describeDb("provisioning from the imported records, and /welcome", () => {
     expect((await provision(p, sub, {}, {})).json.replayed).toBe(true);
   });
 
+  // One purchase per test: the relay below names one Stripe customer, and a
+  // second account for it would be a replay of the first.
+  test.each([
+    [
+      "veterinary",
+      { kind: "dpa", specialty: "veterinary", clinicLegalName: "Golden Paws Veterinary LLC", isCoveredEntity: false },
+      { specialty: "veterinary" },
+      "non-hipaa",
+    ],
+    ["no", { kind: "dpa", isCoveredEntity: false }, {}, "hipaa-if-covered"],
+  ] as const)(
+    "since the DPA's release, a %s practice's Data Protection Agreement provisions its account, bound to dpa/1.0.0",
+    async (label, signature, purchaseFields, regime) => {
+      const p = purchase({ signature, purchase: purchaseFields });
+      expect(p.agreement.documentVersion, label).toBe("dpa/1.0.0");
+      const response = await provision(p, subscription());
+      expect(response.status, `${label}: ${JSON.stringify(response.json)}`).toBe(201);
+      expect(response.json.replayed).toBe(false);
+      const clinicId = response.json.clinicId as string;
+      const bound = (await getAgreement(p.agreement.id))!;
+      expect(bound.organizationId, label).toBe(response.json.organizationId);
+      const { rows } = await getMigratorPool().query<{
+        regulatory_regime: string;
+        agreement_kind: string;
+        is_covered_entity: boolean | null;
+      }>(`select regulatory_regime, agreement_kind, is_covered_entity from clinics where id = $1`, [clinicId]);
+      expect(rows[0], label).toEqual({
+        regulatory_regime: regime,
+        agreement_kind: "dpa",
+        is_covered_entity: false,
+      });
+    },
+  );
+
   test("a payment provisions only while the purchase names the press of Pay and the terms paid", async () => {
     const errors: string[] = [];
     vi.spyOn(console, "error").mockImplementation((line: unknown) => {
@@ -478,19 +519,24 @@ describeDb("provisioning from the imported records, and /welcome", () => {
     });
     try {
       const email = `legacy-${randomUUID().slice(0, 8)}@glowspa.test`;
-      const signedAgreement = await signAgreement({
-        clinicLegalName: "Legacy Med Spa LLC",
-        specialty: "med-spa",
-        signatoryName: "Laura Owner",
-        signatoryEmail: email,
-        isCoveredEntity: false,
-        attributionMode: "estimated",
-        platform: agreementPlatformFor("none"),
-        bookingSystem: "none",
-        calendarAccount: "workspace_no_baa",
-        assentLabel: BAA_ASSENT_LABEL,
-        templateVersion: CURRENT_BAA_VERSION,
-      });
+      // A "No" that signed the BAA before the DPA's release (20 October 2026).
+      const signedAgreement = await signAgreement(
+        {
+          clinicLegalName: "Legacy Med Spa LLC",
+          specialty: "med-spa",
+          signatoryName: "Laura Owner",
+          signatoryEmail: email,
+          isCoveredEntity: false,
+          attributionMode: "estimated",
+          platform: agreementPlatformFor("none"),
+          bookingSystem: "none",
+          calendarAccount: "workspace_no_baa",
+          assentLabel: BAA_ASSENT_LABEL,
+          templateVersion: CURRENT_BAA_VERSION,
+        },
+        {},
+        { dpaReleased: false },
+      );
       const key = subscription();
       const response = await postProvision(
         signed("http://app.test/api/provision", {

@@ -33,13 +33,12 @@ import { wrap } from "./wrap";
 /**
  * The calendar election that names the Data Protection Agreement
  * (docs/counsel/dpa.md, gap 6): what it must say on every variant, read out
- * of the rendered text, and its golden hash. Unreleased, so an edit before
- * the release regenerates the hash here and docs/dpa-v1.0.0.txt (Appendix B)
- * in the same commit; after it, a change is a new version at
- * DPA_CALENDAR_ELECTIONS[0].
+ * of the rendered text, and its golden hash. Released with the DPA by the
+ * owner on 20 October 2026, which moved no hash; from then on a change is a
+ * new version at DPA_CALENDAR_ELECTIONS[0].
  */
 
-/** The review sample's election (Appendix B), frozen from the draft. */
+/** The review sample's election (Appendix B), frozen from the draft and released unchanged. */
 const GOLDEN_SAMPLE = "ee7dec03829f090cd7dcf43c2529a21c0463f2f14b4e262ee376253f5e709007";
 
 const SYSTEMS = BOOKING_SYSTEMS.map((s) => s.id) as BookingSystemId[];
@@ -67,7 +66,7 @@ function clauseOf(text: string): string {
 }
 
 describe("the DPA's calendar election", () => {
-  test("is registered once, versioned like the BAA's, drafted and unreleased", () => {
+  test("is registered once, versioned like the BAA's, and released with the DPA", () => {
     expect(DPA_CALENDAR_ELECTIONS.map((e) => e.version)).toEqual(["calendar-election-dpa/1.0.0"]);
     expect(DPA_CALENDAR_ELECTION_VERSION).toBe("calendar-election-dpa/1.0.0");
     expect(currentDpaCalendarElection()).toBe(DPA_CALENDAR_ELECTIONS[0]);
@@ -75,15 +74,19 @@ describe("the DPA's calendar election", () => {
       currentDpaCalendarElection(),
     );
     expect(getDpaCalendarElection(CALENDAR_ELECTION_VERSION)).toBeUndefined();
-    expect(currentDpaCalendarElection().publishedOn).toBe("2026-10-07");
-    expect(currentDpaCalendarElection().approvedByCounsel).toBe(false);
+    // Drafted 7 October 2026; released by the owner with the DPA on 20 October 2026.
+    expect(currentDpaCalendarElection().publishedOn).toBe("2026-10-20");
+    expect(currentDpaCalendarElection().approvedByCounsel).toBe(true);
+    expect(currentDpaCalendarElection().approvedByCounsel).toBe(
+      currentDpaTemplate().approvedByCounsel,
+    );
   });
 
   test("the review sample still renders the bytes drafted", () => {
     const prepared = prepareDpaCalendarElection(DPA_ELECTION_REVIEW_SAMPLE);
     expect(
       prepared.hash,
-      "The DPA's election text changed. Before release, regenerate this hash and docs/dpa-v1.0.0.txt (npm run dpa:review -w @healdesk/catalog) in the same commit; after release, add a new version.",
+      "The DPA's election text changed. It was released on 20 October 2026: never edit it, add a new version at DPA_CALENDAR_ELECTIONS[0].",
     ).toBe(GOLDEN_SAMPLE);
     expect(prepared.hash).toBe(hashDpaCalendarElection(prepared.text));
     expect(prepared).toMatchObject({
@@ -196,16 +199,16 @@ describe("the DPA's calendar election", () => {
 });
 
 /**
- * Until the form that names the DPA is released, a DPA practice can record no
- * election, so it can neither give a second location calendar terms nor
- * change a location's booking system or account kind (§12.14). The election
- * rows themselves are the calendar session's (plan C6 and C7) and are not
- * built; what is pinned here is the form whatever records one must take.
+ * A DPA practice records its elections on its own form, released with the
+ * DPA, and never on the BAA's (§12.14): whatever records one takes the form
+ * from calendarElectionFor (apps/app lib/booking/elections.ts), and the
+ * database's election guard holds the form to the agreement's kind
+ * (drizzle/0104).
  */
 describe("which form an agreement takes", () => {
-  test("a DPA takes its own, unreleased; a BAA keeps the BAA's", () => {
+  test("a DPA takes its own, released with it; a BAA keeps the BAA's", () => {
     expect(calendarElectionFor("dpa/1.0.0")).toBe(currentDpaCalendarElection());
-    expect(calendarElectionFor("dpa/1.0.0").approvedByCounsel).toBe(false);
+    expect(calendarElectionFor("dpa/1.0.0").approvedByCounsel).toBe(true);
     for (const version of ["1.3.0", "1.2.1", "1.0.0"]) {
       expect(calendarElectionFor(version), version).toBe(currentCalendarElection());
     }
@@ -232,7 +235,7 @@ describe("docs/dpa-v1.0.0.txt, Appendix B", () => {
       "utf8",
     );
     expect(doc).toContain(
-      "APPENDIX B — THE CALENDAR ELECTION (calendar-election-dpa/1.0.0, DRAFT)",
+      "APPENDIX B — THE CALENDAR ELECTION (calendar-election-dpa/1.0.0, RELEASED)",
     );
     expect(doc).toContain(renderDpaCalendarElection(DPA_ELECTION_REVIEW_SAMPLE));
     expect(doc).toContain(GOLDEN_SAMPLE);

@@ -57,10 +57,10 @@ import { SUBPROCESSOR_NOTICE_HOURS, subprocessorNoticeClauseBody } from "./subpr
  * must and must not say on every variant, read out of the rendered text,
  * because the text is what the owner releases and a practice signs.
  *
- * The golden hashes are frozen from this draft. Until the owner releases the
- * template an edit regenerates them in the same commit, with
- * docs/dpa-v1.0.0.txt; after the release they never move, and a change is a
- * new version at DPA_TEMPLATES[0].
+ * The golden hashes were frozen from the draft and are now the released
+ * text's: the owner released the template on 20 October 2026, and the
+ * release moved none of them. From then on they never move, and a change is
+ * a new version at DPA_TEMPLATES[0].
  */
 
 const SAMPLE: DpaVariables = {
@@ -111,6 +111,7 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
  * it, Anthropic's agreement signed before any client's information reaches
  * it, and the state-law clause's two exceptions to deletion as BAA 1.6.0
  * states them (stateLawClauseBody160; the sample was 88d592a2…3cc0).
+ * Released unchanged on 20 October 2026: these are the signed bytes.
  */
 const GOLDEN: Record<string, string> = {
   sample: "b4246144e9915532193c7d25be8dee92a8a9e398c499c0441d77a46cdc4e3a08",
@@ -163,7 +164,7 @@ describe("DPA freeze", () => {
     test(`${CURRENT_DPA_VERSION} / ${name} still renders the bytes drafted`, () => {
       expect(
         render(VARIANTS[name]!).hash,
-        "The DPA text changed. Before release, regenerate these hashes and docs/dpa-v1.0.0.txt in the same commit; after release, add a new version.",
+        "The DPA text changed. It was released on 20 October 2026: never edit it, add a new version at DPA_TEMPLATES[0].",
       ).toBe(hash);
     });
   }
@@ -173,14 +174,16 @@ describe("DPA freeze", () => {
     expect(new Set(hashes).size).toBe(hashes.length);
   });
 
-  test("is registered once, namespaced, drafted and unreleased, and nothing in the text says so", () => {
+  test("is registered once, namespaced and released, and nothing in the text ever said it was a draft", () => {
     expect(DPA_TEMPLATES.map((t) => t.version)).toEqual(["dpa/1.0.0"]);
     expect(CURRENT_DPA_VERSION).toBe("dpa/1.0.0");
     expect(getDpaTemplate("dpa/1.0.0")).toBe(template());
     expect(getDpaTemplate("1.0.0")).toBeUndefined();
-    expect(template().publishedOn).toBe("2026-10-06");
-    // The owner's release is this flag, and only this flag.
-    expect(template().approvedByCounsel).toBe(false);
+    // Drafted 6 October 2026; released by the owner on 20 October 2026.
+    expect(template().publishedOn).toBe("2026-10-20");
+    // The owner's release is this flag, and only this flag: the release
+    // moved none of the golden hashes above.
+    expect(template().approvedByCounsel).toBe(true);
     const text = render({}).text;
     expect(
       text.startsWith(

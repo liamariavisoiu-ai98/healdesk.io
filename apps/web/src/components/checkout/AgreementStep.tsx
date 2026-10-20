@@ -31,9 +31,10 @@ import { FIELD_LABEL, PrimaryButton, RadioGroup, type RadioOption, StepShell, Te
  * Never chosen here. `agreementKindFor` decides from the specialty and the
  * covered-entity answer (plan Part L), and the document, its explainer and its
  * assent wording come from AGREEMENT_COPY for that kind. Until the owner
- * releases the Data Protection Agreement every practice offered signs the
- * Business Associate Agreement; from then on a veterinary practice, and one
- * HIPAA reaches only if covered that answers "No", sign the DPA here.
+ * released the Data Protection Agreement on 20 October 2026 every practice
+ * offered signed the Business Associate Agreement; since then a veterinary
+ * practice, and one HIPAA reaches only if covered that answers "No", sign the
+ * DPA here.
  *
  * ## Why this is heavier than a checkbox
  *

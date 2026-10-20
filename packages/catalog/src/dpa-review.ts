@@ -11,14 +11,15 @@ import { regimeFor, specialties } from "./specialties";
 import { wrap } from "./wrap";
 
 /**
- * docs/dpa-v1.0.0.txt, the text the owner reads to release the DPA, built
- * from the renderer so it can never drift from what a practice signs.
+ * docs/dpa-v1.0.0.txt, the released copy of the DPA (the owner read it to
+ * release the DPA on 20 October 2026), built from the renderer so it can
+ * never drift from what a practice signs.
  *
  * `npm run dpa:review -w @healdesk/catalog` writes it, and dpa.test.ts fails
- * when the file in the repo is not exactly this. Any change to a clause the
- * DPA renders, its own or one it shares with the BAA, therefore regenerates
- * the file in the same commit, and the owner reads the text that would be
- * signed, not a copy of it.
+ * when the file in the repo is not exactly this. Released, its clauses no
+ * longer change: a clause the DPA shares with the BAA that moves would move
+ * this file and the golden hashes, and dpa.test.ts fails on both, because a
+ * change to a released agreement is a new version.
  */
 
 /** The sample practice: a med spa that answered "No", on Mindbody, with a personal Google account. */
@@ -159,18 +160,23 @@ const ENTRIES: readonly Entry[] = [
   },
 ];
 
-function header(): string {
-  const template = currentDpaTemplate();
-  const sample = prepareDpa(template, DPA_REVIEW_SAMPLE);
-  const published = new Date(`${template.publishedOn}T12:00:00Z`).toLocaleDateString("en-GB", {
+/** "2026-10-20" → "20 October 2026". */
+function formatDay(iso: string): string {
+  return new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", {
     day: "numeric",
     month: "long",
     year: "numeric",
     timeZone: "UTC",
   });
+}
+
+function header(): string {
+  const template = currentDpaTemplate();
+  const sample = prepareDpa(template, DPA_REVIEW_SAMPLE);
+  const published = formatDay(template.publishedOn);
   return [
-    `healdesk Data Protection Agreement — version ${template.version}, ${template.approvedByCounsel ? "RELEASED" : "DRAFT"}, rendered ${published} for the owner's release. Not released, so nothing can sign it: approvedByCounsel is false in packages/catalog/src/dpa.ts, which is the one switch. While it is false, agreementKindFor gives a practice that answers "No" the business associate agreement, as it always has, and refuses a veterinary practice, and provisioning refuses an account bound to an unreleased DPA. Nothing in the text marks it a draft, so releasing it moves no hash; an edit before release regenerates this file and the golden hashes in packages/catalog/src/dpa.test.ts in the same commit.`,
-    `Who signs it (plan Part L): a veterinary practice, without being asked the covered-entity question; and a med spa, hair restoration, or massage and chiropractic practice that answers "No" to billing any health insurance electronically. "Not sure" signs the BAA, and so does every specialty HIPAA always reaches. Its launch-checklist items (Gate A): this text; vet readiness (the veterinary urgent set and its fixed reply, the emergency referral number, vet practice cases, client wording); and the supersede function for the "No" branch (app_supersede_agreement, drizzle/0051).`,
+    `healdesk Data Protection Agreement — version ${template.version}, ${template.approvedByCounsel ? "RELEASED" : "DRAFT"}, rendered ${published}, the day it was released. Approved for release by the owner, on the owner's own instruction and without external counsel (docs/counsel/agreement-changes.md §18, which recommends that counsel review it before the first live DPA practice): approvedByCounsel is true in packages/catalog/src/dpa.ts, and app_dpa_version_released lists ${template.version} (apps/app drizzle/0104_dpa_release_1_0_0). From that day agreementKindFor gives a practice that answers "No" this agreement where it gave the business associate agreement, checkout offers a veterinary practice, which it refused while there was no agreement for it to sign, and provisioning, and go-live's agreement check, accept an account bound to it. Drafted 6 October 2026; nothing in the text marked it a draft, so the release moved no hash. It is frozen now: a change is a new version, never an edit, and packages/catalog/src/dpa.test.ts holds this file and the golden hashes to the renderer.`,
+    `Who signs it (plan Part L): a veterinary practice, without being asked the covered-entity question; and a med spa, hair restoration, or massage and chiropractic practice that answers "No" to billing any health insurance electronically. "Not sure" signs the BAA, and so does every specialty HIPAA always reaches. A practice that signed this agreement and later answers "Yes" or "Not sure" is paused and signs the business associate agreement in its place (apps/app lib/agreements/resign.ts; app_supersede_agreement, drizzle/0051).`,
     `Rendered for a sample practice: a med spa that answered "No"; bookings in Mindbody, which does not read Google Calendar, so the calendar clause is the one under which healdesk connects nothing; and a personal Google account, which that clause does not depend on. From the title line on, the sample is exactly what packages/catalog/src/dpa.test.ts freezes as ${template.version} / sample (SHA-256 ${sample.hash}). The clauses that render only for some practices follow in Appendix A, numbered as they render; nothing else in the text varies. Appendix B is the calendar election that names this agreement, which its Definitions clause and its calendar clause refer to. What each sentence rests on in the code, and the gaps found, are in docs/counsel/dpa.md. Source: packages/catalog/src/dpa.ts, with the state-law and Payments clauses quoted from baa.ts, the calendar clause from calendar-terms.ts and the notice of a new subcontractor from subprocessor-notice.ts; the election is dpa-calendar-election.ts.`,
   ]
     .map((p) => wrap(p, ""))
@@ -184,7 +190,7 @@ function electionAppendix(): string {
   return [
     `APPENDIX B — THE CALENDAR ELECTION (${election.version}, ${election.approvedByCounsel ? "RELEASED" : "DRAFT"})`,
     wrap(
-      `How a location's calendar terms change after signing, and how a second location gets calendar terms at all: the form this agreement's calendar clause sends both to, and its Definitions clause makes part of the agreement once accepted. Section 2 is the calendar clause that applies, in this agreement's words, without its location paragraph. Not released; until it is, only a demo clinic's election is to count (plan A10), and nothing can record an election of either kind yet, because the election rows and the code that writes them (plan C6 and C7) are not built. Rendered for the sample practice electing a personal Google account for a second location; frozen as ${election.version} in packages/catalog/src/dpa-calendar-election.test.ts (SHA-256 ${prepared.hash}).`,
+      `How a location's calendar terms change after signing, and how a second location gets calendar terms at all: the form this agreement's calendar clause sends both to, and its Definitions clause makes part of the agreement once accepted. Section 2 is the calendar clause that applies, in this agreement's words, without its location paragraph. Released with the agreement on ${formatDay(election.publishedOn)}, on the owner's own instruction and without external counsel: app_calendar_election_released lists it, so an election under it counts for every practice under this agreement, and the election guard records it only under a Data Protection Agreement, and the business associate agreement's form never under one (apps/app lib/booking/elections.ts, calendarElectionFor; drizzle/0104_dpa_release_1_0_0). Rendered for the sample practice electing a personal Google account for a second location; frozen as ${election.version} in packages/catalog/src/dpa-calendar-election.test.ts (SHA-256 ${prepared.hash}).`,
       "",
     ),
     prepared.text,

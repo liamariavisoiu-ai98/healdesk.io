@@ -190,8 +190,11 @@ describe("the funnel's answers, validated", () => {
     expect(valid.profile?.dropped).toBe(1);
   });
 
-  test("a practice with no agreement to sign cannot buy", () => {
-    expect(refusal(order({ specialty: "veterinary" }))).toBe("specialty");
+  test("a practice with no agreement to sign cannot buy; a vet can since the DPA's release", () => {
+    expect(refusal(order({ specialty: "astrology" }))).toBe("specialty");
+    // Released by the owner on 20 October 2026: a veterinary practice has the
+    // DPA to sign, and buys.
+    expect(refusal(order({ specialty: "veterinary" }))).toBeUndefined();
   });
 
   test("a plan is a package at steps on the grid; the seven packages of 5 October are refused", () => {

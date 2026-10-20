@@ -178,7 +178,8 @@ describe("goLivePreconditions", () => {
       leaving: true,
       demo: true,
       isCoveredEntity: null,
-      agreement: { version: "dpa/1.0.0", kind: "dpa" },
+      // A DPA version that is not released (dpa/1.0.0 is, since 20 October 2026).
+      agreement: { version: "dpa/9.9.9", kind: "dpa" },
       platform: ["aws"],
       channels: [],
       notBuilt: ["x"],
@@ -194,6 +195,8 @@ describe("goLivePreconditions", () => {
     expect(
       goLivePreconditions({ ...READY, regulatoryRegime: "hipaa", isCoveredEntity: null }).ok,
     ).toBe(true);
+    // The DPA is released (20 October 2026): a vet under it, never asked the
+    // covered question, and a "No" practice under it both pass the agreement's rules.
     const vet = goLivePreconditions({
       ...READY,
       regulatoryRegime: "non-hipaa",
@@ -201,10 +204,27 @@ describe("goLivePreconditions", () => {
       isCoveredEntity: null,
       agreement: { version: "dpa/1.0.0", kind: "dpa" },
     });
-    expect(goLiveCodes(vet)).toEqual(["agreement_version"]);
+    expect(goLiveCodes(vet)).toEqual([]);
+    expect(vet.ok).toBe(true);
+    const no = goLivePreconditions({
+      ...READY,
+      agreementKind: "dpa",
+      isCoveredEntity: false,
+      agreement: { version: "dpa/1.0.0", kind: "dpa" },
+    });
+    expect(goLiveCodes(no)).toEqual([]);
+    // A "Not sure" under the DPA is not covered by it, released or not.
+    const unsure = goLivePreconditions({
+      ...READY,
+      agreementKind: "dpa",
+      isCoveredEntity: null,
+      agreement: { version: "dpa/1.0.0", kind: "dpa" },
+    });
+    expect(goLiveCodes(unsure)).not.toContain("agreement_version");
+    expect(unsure.ok).toBe(false);
   });
 
-  test("the version rule knows the agreement's kind: a superseded BAA names the current one, a draft DPA says it is not released", () => {
+  test("the version rule knows the agreement's kind: a superseded BAA names the current one, an unreleased DPA says it is not released", () => {
     const baa = goLivePreconditions({ ...READY, agreement: { version: "1.0.0", kind: "baa" } });
     expect(baa.missing[0]!.text).toBe(
       `The agreement in effect is BAA v1.0.0, which has been superseded. The practice must accept v${CURRENT_BAA_VERSION} before go-live.`,
@@ -212,11 +232,18 @@ describe("goLivePreconditions", () => {
     const dpa = goLivePreconditions({
       ...READY,
       agreementKind: "dpa",
-      agreement: { version: "dpa/1.0.0", kind: "dpa" },
+      agreement: { version: "dpa/9.9.9", kind: "dpa" },
     });
     expect(dpa.missing.map((m) => m.text)).toEqual([
-      "The agreement in effect is DPA dpa/1.0.0, which is not released. The DPA's release lets it go live.",
+      "The agreement in effect is DPA dpa/9.9.9, which is not released. The DPA's release lets it go live.",
     ]);
+    // dpa/1.0.0 is released, so the version rule says nothing of it.
+    const released = goLivePreconditions({
+      ...READY,
+      agreementKind: "dpa",
+      agreement: { version: "dpa/1.0.0", kind: "dpa" },
+    });
+    expect(released).toEqual({ ok: true, missing: [], notBuilt: [] });
   });
 
   test("Gate B says what each channel waits on, and the answer gate is the code's part of it", () => {
@@ -634,11 +661,25 @@ describeDb("automatic go-live against the database", () => {
       ["a hipaa practice not sure whether it is covered", { regime: "hipaa", covered: null }, []],
       ["no agreement", { version: null }, ["no_agreement"]],
       ["a superseded BAA", { version: "1.5.0" }, ["agreement_version"]],
-      ["a draft DPA", { kind: "dpa", version: "dpa/1.0.0" }, ["agreement_version"]],
+      ["an unreleased DPA version", { kind: "dpa", version: "dpa/9.9.9" }, ["agreement_version"]],
+      // Released by the owner on 20 October 2026 (drizzle/0104).
+      ["the released DPA at a practice that bills no insurance", { kind: "dpa", version: "dpa/1.0.0" }, []],
+      // A vet waits on Gate B until its emergency referral number is set
+      // (0079), whichever agreement; the test below sets it and goes live.
+      [
+        "the released DPA at a vet, with no emergency referral number yet",
+        { regime: "non-hipaa", kind: "dpa", version: "dpa/1.0.0" },
+        ["gate_b"],
+      ],
       ["the clinic's kind not the agreement's", { kind: "dpa" }, ["agreement_kind_mismatch"]],
       [
         "a DPA practice now covered",
         { kind: "dpa", covered: true, version: "dpa/1.0.0" },
+        ["agreement_insufficient"],
+      ],
+      [
+        "an unreleased DPA at a practice now covered",
+        { kind: "dpa", covered: true, version: "dpa/9.9.9" },
         ["agreement_version", "agreement_insufficient"],
       ],
       [
@@ -825,6 +866,47 @@ describeDb("automatic go-live against the database", () => {
     // The purge follows the agreement in effect, which states it: nothing to switch on.
     expect(purgeIsPromised(CURRENT_BAA_VERSION)).toBe(true);
     expect(await heldAlerts(c.clinicId)).toEqual([]);
+  });
+
+  test("since the DPA's release, a vet and a practice that bills no insurance go live under it, with no operator step", async () => {
+    // docs/counsel/dpa.md, gap 11: the release's migration (0104) lets
+    // go-live admit dpa/1.0.0, as agreementTemplateReleased does.
+    for (const [label, fixture] of [
+      ["gl-dpa-vet", { regime: "non-hipaa", kind: "dpa", version: "dpa/1.0.0" }],
+      ["gl-dpa-no", { regime: "hipaa-if-covered", kind: "dpa", covered: false, version: "dpa/1.0.0" }],
+    ] as const) {
+      const c = await ready(label, { ...fixture, web: { audit: false } });
+      if (fixture.regime === "non-hipaa") {
+        // A vet's website chat answers only with an emergency referral number (0079).
+        await inTenant(c.clinicId, (client) =>
+          client.query(
+            `insert into clinic_settings (clinic_id, vet_referral_e164) values ($1, $2)
+             on conflict (clinic_id) do update set vet_referral_e164 = excluded.vet_referral_e164`,
+            [c.clinicId, "+14155550911"],
+          ),
+        );
+      }
+      expect(await codes(c.clinicId), label).toEqual(["gate_b"]);
+      const runId = await passedRun(c.clinicId);
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        afterPass(tx, {
+          runId,
+          inputVersion: "a".repeat(64),
+          agentVersion: null,
+          slug: c.slug,
+          channels: ["web"],
+          now: new Date(),
+          talkToAyaBuilt: false,
+        }),
+      );
+      const row = await clinicRow(c.clinicId);
+      expect(row.data_classification, label).toBe("production");
+      expect(row.baa_signed_at, label).not.toBeNull();
+      expect(await liveAt(c.clinicId, "web"), label).not.toBeNull();
+      expect(await heldAlerts(c.clinicId), label).toEqual([]);
+    }
+    // The purge follows the DPA, which states it.
+    expect(purgeIsPromised("dpa/1.0.0")).toBe(true);
   });
 
   test("a refusal leaves the clinic as it is and says why: to ops once, to the console and on Home; the sweep goes live once it can", async () => {

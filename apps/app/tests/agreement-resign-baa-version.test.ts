@@ -53,8 +53,9 @@ import { attestPlatform } from "./setup/platform";
 
 /**
  * Stand-ins for two catalogue facts a release decides: whether the DPA is
- * released (the decision sends a "No" practice to it once it is), and a
- * release overlap. Off unless a test turns them on.
+ * released (the decision sends a "No" practice to it once it is; it is, by
+ * its own flag, since 20 October 2026, so the stand-in now only says so
+ * again), and a release overlap. Off unless a test turns them on.
  */
 const stand = vi.hoisted(() => ({ dpaReleased: false, overlap: {} as Record<string, string> }));
 vi.mock("@healdesk/catalog", async (importOriginal) => {
@@ -275,7 +276,13 @@ describeDb("re-signing a newer BAA over an older one", () => {
         templateVersion: version,
       },
       {},
-      { current: getBaaTemplate(version)! },
+      {
+        current: getBaaTemplate(version)!,
+        // A practice that answered "No" holds a BAA only from before the
+        // DPA's release (20 October 2026): it signed then, as the decision
+        // without the release sends it.
+        ...(covered === false ? { dpaReleased: false } : {}),
+      },
     );
     await getMigratorPool().query(
       `update baa_acceptances set accepted_at = now() - interval '1 day' where id = $1`,

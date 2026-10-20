@@ -173,20 +173,25 @@ async function agreementFor(
   },
   isCoveredEntity: boolean | null = false,
 ) {
-  const result = await signAgreement({
-    clinicLegalName: "Glow Med Spa LLC",
-    specialty: "med-spa",
-    signatoryName: "Laura Owner",
-    signatoryTitle: "Owner",
-    signatoryEmail: email,
-    isCoveredEntity,
-    attributionMode: "estimated",
-    platform: agreementPlatformFor(answers.bookingSystem),
-    bookingSystem: answers.bookingSystem,
-    calendarAccount: answers.calendarAccount,
-    assentLabel: BAA_ASSENT_LABEL,
-    templateVersion: CURRENT_BAA_VERSION,
-  });
+  const result = await signAgreement(
+    {
+      clinicLegalName: "Glow Med Spa LLC",
+      specialty: "med-spa",
+      signatoryName: "Laura Owner",
+      signatoryTitle: "Owner",
+      signatoryEmail: email,
+      isCoveredEntity,
+      attributionMode: "estimated",
+      platform: agreementPlatformFor(answers.bookingSystem),
+      bookingSystem: answers.bookingSystem,
+      calendarAccount: answers.calendarAccount,
+      assentLabel: BAA_ASSENT_LABEL,
+      templateVersion: CURRENT_BAA_VERSION,
+    },
+    {},
+    // A "No" here is one that signed the BAA before the DPA's release (20 October 2026).
+    { dpaReleased: false },
+  );
   return result.agreementId;
 }
 

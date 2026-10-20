@@ -15,10 +15,11 @@ import { isSpecialtyId, regimeFor, type SpecialtyId } from "./specialties";
  * - A veterinary practice is outside HIPAA, because its patients are not
  *   people, and signs the DPA without being asked.
  *
- * Until the owner releases the DPA (Gate A), "No" signs the BAA, as it
- * always has, and a veterinary practice cannot buy: there is no agreement
- * for it to sign. The release is the DPA template's own flag (dpa.ts), read
- * here at call time, so setting it is the one switch.
+ * Until the owner released the DPA on 20 October 2026, "No" signed the BAA
+ * and a veterinary practice could not buy: there was no agreement for it to
+ * sign. The release is the DPA template's own flag (dpa.ts), read here at
+ * call time, so setting it was the one switch here; a later DPA version is
+ * offered only once it is at DPA_TEMPLATES[0] with the flag true.
  */
 
 export type AgreementKind = "baa" | "dpa";
@@ -55,10 +56,10 @@ export function isCoveredAnswer(value: unknown): value is CoveredAnswer {
 }
 
 /**
- * Whether the Data Protection Agreement can be signed yet: the current DPA
+ * Whether the Data Protection Agreement can be signed: the current DPA
  * template's release flag (`approvedByCounsel`, the one the BAA templates
- * carry). False until the owner reads docs/dpa-v1.0.0.txt and releases it,
- * with the veterinary readiness items (plan Part L). A function, not a
+ * carry). True since the owner released dpa/1.0.0 on 20 October 2026, with
+ * the veterinary readiness items in place (plan Part L). A function, not a
  * constant, so nothing caches the answer.
  */
 export function isDpaReleased(): boolean {

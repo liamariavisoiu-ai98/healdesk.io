@@ -389,7 +389,8 @@ Nevada or Connecticut, or a consumer request under one of those laws.
 **Narrowed on 6 October 2026.** The funnel plan (Part L) gives a veterinary
 practice, and a practice HIPAA reaches only if covered that answers "No", a
 separate Data Protection Agreement once the owner releases it
-([dpa.md](./dpa.md); `dpa/1.0.0` in `packages/catalog/src/dpa.ts`). It quotes
+([dpa.md](./dpa.md); `dpa/1.0.0` in `packages/catalog/src/dpa.ts`), which
+the owner did on 20 October 2026 (§ 18). It quotes
 the clause above with two edits a document without PHI needs. The decision
 above still holds for every practice that signs the BAA while not covered.
 
@@ -3125,6 +3126,99 @@ older version, the election and the disclosure reproduce as before. The
 election rendered against 1.6.0, in `docs/baa-v1.6.0.txt`'s Appendix B, is
 `649a6b4e555d154447d6b4e8043cf8fed80da188c8d83c1cf9b280fea8c2bd1c`. The
 DPA's other seven hashes moved with its sample.
+
+---
+
+## 18. DPA 1.0.0 and its calendar election: released (20 October 2026)
+
+> **Not legal advice.** The owner released the Data Protection Agreement
+> (`dpa/1.0.0`) and its calendar election form (`calendar-election-dpa/1.0.0`)
+> on 20 October 2026 ("Release the DPA now."), on the owner's own instruction
+> and **without external counsel**. The texts were drafted by an AI assistant
+> from the code, as the rest of this folder was. Counsel approved the DPA's
+> clauses as they stood on 6 October 2026 ([dpa.md](./dpa.md), header); the
+> edits since (the fuller state-law clause and the funnel's pre-release text
+> of § 12.14, and the transcript, retention and Anthropic changes of 12 to 19
+> October, §§ 14 to 17 in the DPA's words) are the owner's release alone.
+> **Recommended: counsel reviews the DPA and its election form, with the
+> points in § 18.4, before the first live DPA practice**, as §§ 14 to 16
+> recommend for the BAA.
+
+### 18.1 Who signs it, from 20 October 2026
+
+| Practice | Until 20 October 2026 | From 20 October 2026 |
+| --- | --- | --- |
+| Veterinary (`non-hipaa`), never asked the covered-entity question | Refused at checkout: there was no agreement it could sign (`dpa_not_released`) | Signs the DPA |
+| Med spa, hair restoration, massage and chiropractic (`hipaa-if-covered`) answering **No** | Signed the BAA | Signs the DPA |
+| The same answering **Yes** or **Not sure**, and every `hipaa` specialty | Signed the BAA | Signs the BAA |
+
+`agreementKindFor` (packages/catalog/src/agreement-kind.ts) reads the DPA
+template's own flag, so the funnel's agreement step, the agreement and
+checkout routes, the checkout intent, provisioning and go-live all moved
+with it. A practice that answered "No" and signed a BAA before the release
+keeps its BAA: a BAA is never replaced by a DPA (`app_supersede_agreement`),
+and a re-sign of a newer BAA version re-accepts the BAA
+(`reacceptsBaa`). No clinic has gone live under either; apps/app holds
+synthetic data only.
+
+### 18.2 What changed, and what did not
+
+- `packages/catalog/src/dpa.ts`: `approvedByCounsel` true, `publishedOn`
+  2026-10-20 (drafted 2026-10-06). `dpa-calendar-election.ts`: the same, the
+  form drafted 2026-10-07.
+- `apps/app/drizzle/0104_dpa_release_1_0_0.sql`: `app_dpa_version_released`
+  lists `dpa/1.0.0`, go-live's copy of the flag (gap 11);
+  `app_calendar_election_released` lists `calendar-election-dpa/1.0.0`
+  beside `calendar-election/1.0.0`; and the election guard
+  (`app_calendar_election_guard`, 0100's definition with one check added)
+  records an election only on the form of its agreement's kind, the DPA's
+  under a DPA and never under a BAA, because with both forms released the
+  release list no longer kept them apart. `app_baa_version_acceptable` still
+  refuses `dpa/1.0.0`: the DPA is its own kind, not a BAA version.
+- **No text changed, so no hash moved.** The eight golden hashes in
+  `packages/catalog/src/dpa.test.ts` (the sample is
+  `b4246144e9915532193c7d25be8dee92a8a9e398c499c0441d77a46cdc4e3a08`) and
+  the election's (`ee7dec03829f090cd7dcf43c2529a21c0463f2f14b4e262ee376253f5e709007`)
+  are the drafts' own. `docs/dpa-v1.0.0.txt` is now the released copy: only
+  its header and Appendix B's note changed, to say so.
+- The Terms (LEGAL_VERSION 2026-10-20.1): the eleven sentences that said
+  "Business Associate Agreement" where they meant whichever agreement the
+  practice signed, true only while every practice signed the BAA, say "your
+  Data Agreement" (§§ 3, 5, 7, 11, 12, 14, 19 and the annex), and § 9 says
+  that for a practice under the DPA what it says of the BAA it says of the
+  DPA. Privacy §§ 1, 5 and 12 and `/data-deletion` name the DPA beside the
+  BAA.
+
+### 18.3 What the release freezes beyond the DPA
+
+Two pieces the DPA prints are printed by BAA 1.6.0 too, which is still a
+draft (§ 17): the state-law clause (`stateLawClauseBody160`, baa.ts) and
+Anthropic's retention (`MODEL_RETENTION_AGREEMENT`, model-retention.ts).
+From 20 October 2026 the DPA's golden hashes freeze both: a wording 1.6.0
+needs before its own release is a new function or constant, never an edit
+to these. `AGREEMENT_PARTY` (baa.ts) is frozen with the DPA the same way.
+
+### 18.4 For counsel, and still open
+
+- **The party block.** The DPA names healdesk "of 800 N King Street, Suite
+  304-1426, Wilmington, DE 19801, United States, and by email to
+  hello@healdesk.io", BAA 1.2.2's notice address (`AGREEMENT_PARTY`). BAA
+  1.3.0 on names the registered address in Sharjah instead and calls the
+  Delaware mailbox correspondence only, never a place of business or an
+  address for service (baa.ts, above `REGISTERED_ADDRESS`). Released, the
+  DPA keeps its wording; changing it is `dpa/1.1.0`.
+- **"Services" and "Fees"** are left to the Terms, which define neither
+  ([dpa.md](./dpa.md), gap 18); BAA 1.3.0 defines both.
+- **The rows of [brief.md](./brief.md)** the DPA raises (3, 5, 6 and 10;
+  dpa.md § 8): the one-way indemnity for a practice with less regulatory
+  reason to accept it, a UAE processor of non-PHI health data, Utah's
+  regulated-occupation disclosure for a veterinary practice, and California's
+  veterinary confidentiality statute.
+- **Open on dpa.md § 9's checklist:** the portal showing every correction
+  and counsel's view of an appended correction (gap 22); the
+  `offboarding-destroy` job switched on for live clinics (gap 1); the pages
+  still calling a vet's clients patients; and any public page that states a
+  notice period.
 
 ---
 

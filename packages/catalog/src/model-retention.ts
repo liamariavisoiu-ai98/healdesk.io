@@ -128,6 +128,10 @@ export const MODEL_RETENTION_PUBLIC =
  * data retention (support article 15455031), and healdesk does not control
  * it. It says so of Anthropic's offering, never "cannot run with shorter
  * retention", which Anthropic says only of its Covered Models.
+ *
+ * Frozen since 20 October 2026: the DPA, released that day, prints it, so
+ * an edit moves the DPA's golden hashes (dpa.test.ts) even while BAA 1.6.0,
+ * which prints it too, is a draft. A wording 1.6.0 needs is a new constant.
  */
 export const MODEL_RETENTION_AGREEMENT =
   `Anthropic keeps conversation content ${STANDARD}. Anthropic offers its service under a ` +

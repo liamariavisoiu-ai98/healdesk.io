@@ -279,12 +279,27 @@ describe("POST /api/checkout validates the billing terms", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("the practice's legal name is capped, and a specialty that cannot buy yet is refused", async () => {
+  test("the practice's legal name is capped, an unknown specialty is refused, and a vet is never asked the covered question", async () => {
     const long = await post({ ...VALID, clinicName: "A".repeat(121) });
     expect(((await long.json()) as { field: string }).field).toBe("clinicName");
+    const unknown = await post({ ...VALID, specialty: "astrology" });
+    expect(((await unknown.json()) as { field: string }).field).toBe("specialty");
+    // A veterinary practice buys since the DPA's release (20 October 2026),
+    // but is never asked whether it bills insurance: an answer is refused.
     const vet = await post({ ...VALID, specialty: "veterinary" });
-    expect(((await vet.json()) as { field: string }).field).toBe("specialty");
+    expect(((await vet.json()) as { field: string }).field).toBe("covered");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a veterinary practice buys on the Data Protection Agreement it signed, since the DPA's release", async () => {
+    const response = await post({
+      ...VALID,
+      clinicName: "Golden Paws Veterinary LLC",
+      specialty: "veterinary",
+      covered: null,
+    });
+    expect(response.status).toBe(201);
+    expect(forwarded(0)).toMatchObject({ specialty: "veterinary", isCoveredEntity: false });
   });
 
   test("the terms must be ticked, under the version this server publishes", async () => {

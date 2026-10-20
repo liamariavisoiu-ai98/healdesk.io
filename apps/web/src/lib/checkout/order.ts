@@ -273,9 +273,10 @@ export function intentFields(order: Order): Record<string, unknown> {
  * be the one the booking system implies, so the document cannot name one
  * system while the purchase names another; and the practice must be one this
  * screen can sign for: `agreementKindFor` decides, the Business Associate
- * Agreement or, once the owner releases it, the Data Protection Agreement.
- * While the DPA is unreleased the decision never names it, and refuses a
- * veterinary practice. `dpaReleased` is for tests; the route passes nothing.
+ * Agreement or the Data Protection Agreement, which the owner released on 20
+ * October 2026. Until then the decision never named the DPA and refused a
+ * veterinary practice; it still would for an unreleased one. `dpaReleased`
+ * is for tests; the route passes nothing.
  */
 export function signRequestRefusal(
   body: Record<string, unknown>,

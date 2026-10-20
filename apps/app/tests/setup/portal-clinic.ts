@@ -42,19 +42,27 @@ export async function provisionPortalClinic(
   const specialty = options.specialty ?? "med-spa";
   const bookingSystem = options.bookingSystem ?? "none";
   const platform = agreementPlatformFor(bookingSystem);
-  const signed = await signAgreement({
-    clinicLegalName: `${label} Med Spa LLC`,
-    specialty,
-    signatoryName: "Laura Owner",
-    signatoryEmail: email,
-    isCoveredEntity: false,
-    attributionMode: "estimated",
-    platform,
-    bookingSystem,
-    calendarAccount: options.calendarAccount ?? "workspace_no_baa",
-    assentLabel: BAA_ASSENT_LABEL,
-    templateVersion: CURRENT_BAA_VERSION,
-  });
+  // A med spa that answered "No" and signed the BAA before the DPA's
+  // release (20 October 2026), as every "No" did until then: from that day a
+  // "No" signs the DPA (tests/dpa-signing.test.ts), and one that signed the
+  // BAA keeps it, which is the clinic these tests need.
+  const signed = await signAgreement(
+    {
+      clinicLegalName: `${label} Med Spa LLC`,
+      specialty,
+      signatoryName: "Laura Owner",
+      signatoryEmail: email,
+      isCoveredEntity: false,
+      attributionMode: "estimated",
+      platform,
+      bookingSystem,
+      calendarAccount: options.calendarAccount ?? "workspace_no_baa",
+      assentLabel: BAA_ASSENT_LABEL,
+      templateVersion: CURRENT_BAA_VERSION,
+    },
+    {},
+    { dpaReleased: false },
+  );
   const result = await provisionClinic({
     clinicName: `${label} Med Spa LLC`,
     specialty,

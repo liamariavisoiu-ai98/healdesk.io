@@ -73,9 +73,9 @@ vi.mock("@healdesk/catalog", async (importOriginal) => {
 });
 
 /**
- * The switch (lib/agreements/baa-version-ready.ts) is off until the calendar
- * fix lands; these tests stand in for the commit that turns it on, so the
- * mechanism stays tested, and the switch-off test turns it back off.
+ * The switch (lib/agreements/baa-version-ready.ts), on since the calendar fix
+ * (2e820d57). On here unless a test forces it off, so the kill switch stays
+ * tested whatever the constant ships as.
  */
 const resignsSwitch = vi.hoisted(() => ({ ready: true }));
 vi.mock("@/lib/agreements/baa-version-ready", async (importOriginal) => {
@@ -411,9 +411,9 @@ describeDb("re-signing a newer BAA over an older one", () => {
     );
   }
 
-  test("switched off until the calendar fix: the job opens no BAA-version re-sign, the broadcast refuses and changes nothing, and the DPA re-sign is untouched", async () => {
-    // The commit that merges the calendar fix turns it on; until then it is off.
-    expect(BAA_VERSION_RESIGNS_READY).toBe(false);
+  test("switched off, the job opens no BAA-version re-sign, the broadcast refuses and changes nothing, and the DPA re-sign is untouched", async () => {
+    // On since the calendar fix; forced off here.
+    expect(BAA_VERSION_RESIGNS_READY).toBe(true);
     resignsSwitch.ready = false;
     const practice = await baaPractice("bvoff");
 
@@ -421,7 +421,7 @@ describeDb("re-signing a newer BAA over an older one", () => {
     const refused = await startBaaVersionResigns({ actorLabel: "ops@healdesk.test" });
     expect(refused).toEqual({
       status: "refused",
-      message: expect.stringMatching(/calendar fix.*Nothing was changed\./),
+      message: expect.stringMatching(/^Switched off in apps\/app .* Nothing was changed\.$/),
     });
     const operator = { email: "ops@healdesk.test", request: {} };
     const viaOps = (await runOperation("startBaaVersionResigns", {}, operator)) as {
@@ -440,6 +440,12 @@ describeDb("re-signing a newer BAA over an older one", () => {
       ready: false,
       waiting: BAA_VERSION_RESIGNS_WAITING,
     });
+    resignsSwitch.ready = true;
+    const on = (await runOperation("getOperatorNotices", {}, operator)) as {
+      body: { data: { baaVersionResigns: unknown } };
+    };
+    expect(on.body.data.baaVersionResigns).toEqual({ ready: true, waiting: null });
+    resignsSwitch.ready = false;
 
     // WP9's DPA→BAA re-sign is not behind it.
     const dpa = await dpaPractice("bvoffdpa");

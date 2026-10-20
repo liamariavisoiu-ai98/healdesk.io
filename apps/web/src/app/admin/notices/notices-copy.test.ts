@@ -45,7 +45,7 @@ function render(record: OpsResult<OperatorNoticesView>): { html: string; text: s
 }
 
 const WAITING =
-  "Waits for the calendar fix: a re-sign signed now would leave the practice's location without calendar terms, and its Google Calendar would disconnect.";
+  "Switched off in apps/app (BAA_VERSION_RESIGNS_READY): no re-sign of a newer business associate agreement opens, and one already open is held, unreminded and unsignable, until it is on again.";
 
 const EMPTY: OpsResult<OperatorNoticesView> = {
   ok: true,
@@ -164,7 +164,7 @@ describe("the notices page", () => {
     ).toEqual({ ok: false, text: "The ops API refused the request." });
   });
 
-  test("Start the re-signs is disabled, with its reason, until the calendar fix switches it on, and from an older apps/app", () => {
+  test("Start the re-signs is disabled, with its reason, while apps/app has it switched off, and from an older apps/app", () => {
     const button = (html: string) => html.match(/<button[^>]*>Start the re-signs<\/button>/)?.[0] ?? "";
     const off = render(EMPTY);
     expect(button(off.html)).toContain('disabled=""');
@@ -180,7 +180,7 @@ describe("the notices page", () => {
     expect(button(older.html)).toContain('disabled=""');
     expect(older.text).toContain("Not available until apps/app is deployed with it.");
 
-    // Once the calendar fix has switched it on.
+    // Switched on, as apps/app ships it since the calendar fix.
     const on = render({
       ok: true,
       data: { ...(EMPTY as { data: OperatorNoticesView }).data, baaVersionResigns: { ready: true, waiting: null } },

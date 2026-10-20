@@ -49,7 +49,7 @@ export async function startBaaVersionResigns(input: {
   now?: Date;
 }): Promise<BaaVersionResignSummary | BaaVersionResignRefusal> {
   const now = input.now ?? new Date();
-  // Off until the calendar fix: refused before anything is read or written.
+  // Switched off (baa-version-ready.ts): refused before anything is read or written.
   if (!baaVersionResignsReady()) return { status: "refused", message: BAA_VERSION_RESIGNS_REFUSED };
   const label = input.actorLabel.trim().slice(0, 200);
   if (!label) return { status: "refused", message: "Who is starting it? Sign in again." };

@@ -550,7 +550,7 @@ export async function openBaaVersionResign(
   tx: TenantTx,
   input: { source: AgreementResignSource; requestedBy: string; now?: Date },
 ): Promise<BaaVersionResignOpening> {
-  // Off until the calendar fix (lib/agreements/baa-version-ready.ts).
+  // Unless switched off (lib/agreements/baa-version-ready.ts).
   if (!baaVersionResignsReady()) return { status: "not_ready" };
   const [clinic] = await tx.db
     .select({
@@ -623,7 +623,7 @@ export async function openBaaVersionResign(
  * failure is logged and the rest go on. Returns how many opened.
  */
 export async function openOwedBaaVersionResigns(now: Date): Promise<number> {
-  // Off until the calendar fix (lib/agreements/baa-version-ready.ts).
+  // Unless switched off (lib/agreements/baa-version-ready.ts).
   if (!baaVersionResignsReady()) return 0;
   let opened = 0;
   for (const clinic of await listClinics()) {

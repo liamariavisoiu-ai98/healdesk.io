@@ -462,13 +462,18 @@ nothing and removes the argument.
   person to phone the practice; the ops digest counts those still unsigned.
   Only the DPA→BAA re-sign pauses AYA, at every location, because a practice
   that now bills insurance electronically needs a BAA before AYA keeps
-  answering. **Switched off until the calendar fix** (owner, 19 October
-  2026; `BAA_VERSION_RESIGNS_READY` in
-  `apps/app/src/lib/agreements/baa-version-ready.ts`): a supersede leaves the
-  practice's location with no calendar election under the new agreement, and
-  the next calendar sweep would disconnect its Google Calendar, so neither
-  lever below runs until healdesk-io-22's fix (calendar/resign-terms) merges,
-  in the commit that turns it on. Two levers, both the release's:
+  answering. **Behind a switch, on since the calendar fix** (owner, 19
+  October 2026; `BAA_VERSION_RESIGNS_READY` in
+  `apps/app/src/lib/agreements/baa-version-ready.ts`). It was off while a
+  supersede left the practice's location with no calendar terms under the
+  new agreement, so the next calendar sweep would have disconnected its
+  Google Calendar. healdesk-io-22's fix (2e820d57) records the new signature
+  as the location's terms, and the re-sign's document carries the answers of
+  the terms in effect, an election since the first signature included, so
+  the signature never undoes an election; the switch went on with it.
+  Turned off again, neither lever below runs, and a re-sign already open is
+  held: no reminder goes, no alert is raised, and its link signs nothing.
+  Two levers, both the release's:
   - **The floor.** Once `app_baa_version_acceptable()` no longer accepts a
     version, the hourly job opens every account's re-sign on it by itself,
     and go-live refuses an account that has not signed.
@@ -477,9 +482,10 @@ nothing and removes the argument.
     signers ("an overlap and a re-signature", § 17.5, item 2): release, keep
     the old version acceptable for the overlap, broadcast, then raise the
     floor in a later migration.
-  After a supersede the account's first location has no calendar election
-  under the new agreement (drizzle/0057's guard; the calendar build's open
-  item 2), so its bookings read as manual until one is recorded.
+  After a supersede the location set up at signing takes the new signature
+  as its calendar terms (recordSupersedingTerms); any other location of the
+  organisation keeps its elections under the old agreement and records one
+  of its own (none exists while `LOCATION_CLINICS_READY` is false).
 
 ---
 

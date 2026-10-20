@@ -147,7 +147,7 @@ describe("the incidents page", () => {
   });
 
   test("a report's written steps for the people affected and our recommendations, and a reply from an older apps/app that dropped them", () => {
-    const sent = { status: "sent" as const, report: 1, auditRecorded: true };
+    const sent = { status: "sent" as const, report: 1, delayed: false, auditRecorded: true };
     expect(reportSentLine({ ...sent, steps: 2, recommendations: 1 }, { steps: 2, recommendations: 1 })).toBe(
       "Report queued: it goes to the practice's address now.",
     );
@@ -165,5 +165,19 @@ describe("the incidents page", () => {
         recommendations: 0,
       }),
     ).toBe("Update 2 queued: it goes to the practice's address now. It is NOT in the audit log: record it by hand.");
+  });
+
+  test("a law enforcement delay an older apps/app dropped is said, and one it carried is not", () => {
+    const sent = { status: "sent" as const, report: 1, steps: 1, recommendations: 0, auditRecorded: true };
+    const chose = { steps: 1, recommendations: 0, delayed: true };
+    expect(reportSentLine({ ...sent, delayed: true }, chose)).toBe(
+      "Report queued: it goes to the practice's address now.",
+    );
+    expect(reportSentLine({ ...sent, delayed: null }, chose)).toContain(
+      "It went WITHOUT saying the notice was delayed at a law enforcement official's request",
+    );
+    expect(reportSentLine({ ...sent, delayed: null }, { ...chose, delayed: false })).toBe(
+      "Report queued: it goes to the practice's address now.",
+    );
   });
 });

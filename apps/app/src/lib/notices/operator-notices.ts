@@ -399,6 +399,14 @@ export type IncidentReportInput = {
   steps?: unknown;
   /** Codes from INCIDENT_RECOMMENDATIONS: what we recommend the practice do. */
   recommendations?: unknown;
+  /**
+   * Whether a law enforcement official required the notice to be delayed
+   * (45 CFR 164.412; the BAA's Reporting clause lists it among what a breach
+   * report gives). True or absent: absent from an older console.
+   */
+  delayedByLawEnforcement?: unknown;
+  /** YYYY-MM-DD: the day that delay ended, or absent when it is not given. */
+  delayEndedOn?: unknown;
 };
 
 const DECISION_REFUSALS: Record<IncidentDecisionRefusal, string> = {
@@ -423,6 +431,7 @@ export function readIncidentReportFields(
   input: IncidentReportInput,
   discoveredOn: string,
   cls: ReportableClass,
+  today: string = isoDay(new Date()),
 ):
   | {
       event: IncidentReportEvent;
@@ -431,6 +440,8 @@ export function readIncidentReportFields(
       mitigationRows: { code: IncidentMitigation }[];
       stepRows: { code: IncidentPatientStep }[];
       recommendationRows: { code: IncidentRecommendation }[];
+      /** A law enforcement official required the notice to be delayed: until when, if given. */
+      lawEnforcementDelay: { endedOn: string | null } | null;
     }
   | OperatorNoticeRefusal {
   if (!isIncidentReportEvent(input.event)) return refuse("Pick what happened from the list.");
@@ -500,6 +511,36 @@ export function readIncidentReportFields(
       "Notifying the people affected points to the list on the incident's page, which only a breach's report links to.",
     );
   }
+  // A delay at a law enforcement official's request (45 CFR 164.412): a
+  // breach notice's, said in the report with the day it ended when given.
+  const delayed = input.delayedByLawEnforcement;
+  if (delayed !== undefined && delayed !== null && typeof delayed !== "boolean") {
+    return refuse("Did a law enforcement official require the notice to be delayed? Yes or no.");
+  }
+  const endedRaw = input.delayEndedOn;
+  const ended = endedRaw === undefined || endedRaw === null || endedRaw === "" ? null : endedRaw;
+  let lawEnforcementDelay: { endedOn: string | null } | null = null;
+  if (delayed === true) {
+    if (cls !== "breach") {
+      return refuse(
+        "A law enforcement delay is a breach notice's (45 CFR 164.412): this incident isn't a breach.",
+      );
+    }
+    if (ended !== null) {
+      if (!isRealDay(ended)) {
+        return refuse("When did the delay end? A date, YYYY-MM-DD, or leave it empty.");
+      }
+      if (ended < discoveredOn) return refuse("The delay can't have ended before the discovery.");
+      if (ended > today) {
+        return refuse("The delay must have ended before the report goes: notice waits for it.");
+      }
+    }
+    lawEnforcementDelay = { endedOn: ended };
+  } else if (ended !== null) {
+    return refuse(
+      "A day the delay ended, with no delay: tick that an official required it, or leave the date empty.",
+    );
+  }
   return {
     event: input.event,
     occurredOn,
@@ -507,6 +548,7 @@ export function readIncidentReportFields(
     mitigationRows,
     stepRows,
     recommendationRows,
+    lawEnforcementDelay,
   };
 }
 
@@ -518,6 +560,8 @@ export type IncidentReportSent = {
   /** How many steps for the people affected, and recommendations, it carries. */
   steps: number;
   recommendations: number;
+  /** Whether it says a law enforcement official required the notice to be delayed. */
+  delayed: boolean;
 };
 
 /**
@@ -541,7 +585,12 @@ export async function sendIncidentReport(
       if ("refused" in found) return refuse(DECISION_REFUSALS[found.refused]);
       const row = found.row;
       if (!isReportableClass(row.class)) return refuse(DECISION_REFUSALS.not_reportable_class);
-      const fields = readIncidentReportFields(input, isoDay(row.discoveredAt), row.class);
+      const fields = readIncidentReportFields(
+        input,
+        isoDay(row.discoveredAt),
+        row.class,
+        isoDay(now),
+      );
       if ("status" in fields) return fields;
       if ((await billingRecipients(tx, "incident_report")).length === 0) {
         return refuse(
@@ -566,6 +615,14 @@ export async function sendIncidentReport(
         recommendationRows: fields.recommendationRows,
         isUpdate: n > 1,
         ...(listUrl ? { listUrl } : {}),
+        ...(fields.lawEnforcementDelay
+          ? {
+              isDelayedByLawEnforcement: true,
+              ...(fields.lawEnforcementDelay.endedOn
+                ? { delayEndedOn: fields.lawEnforcementDelay.endedOn }
+                : {}),
+            }
+          : {}),
       });
       const noticeId = await noticeIdOf(tx, "incident_report", key);
       const report = await recordReportQueued(tx, row.id, {
@@ -579,6 +636,7 @@ export async function sendIncidentReport(
         noticeId,
         steps: fields.stepRows.length,
         recommendations: fields.recommendationRows.length,
+        delayed: fields.lawEnforcementDelay !== null,
       };
     },
   );

@@ -138,7 +138,14 @@ describe("the incidents page", () => {
     });
     expect(result).toEqual({
       ok: true,
-      data: { status: "sent", report: 1, steps: 1, recommendations: 1, auditRecorded: true },
+      data: {
+        status: "sent",
+        report: 1,
+        steps: 1,
+        recommendations: 1,
+        delayed: null,
+        auditRecorded: true,
+      },
     });
     expect(sent).toEqual([
       {
@@ -168,7 +175,14 @@ describe("the incidents page", () => {
     });
     expect(result).toEqual({
       ok: true,
-      data: { status: "sent", report: 2, steps: null, recommendations: null, auditRecorded: true },
+      data: {
+        status: "sent",
+        report: 2,
+        steps: null,
+        recommendations: null,
+        delayed: null,
+        auditRecorded: true,
+      },
     });
     // A step off the list never leaves the console.
     const offList = await sendIncidentReport(CLINIC, INCIDENT, {
@@ -179,6 +193,45 @@ describe("the incidents page", () => {
       recommendations: [],
     });
     expect(offList.ok).toBe(false);
+    expect(sent).toHaveLength(1);
+  });
+
+  test("a breach's law enforcement delay crosses as a flag and a date, and the reply says whether it went", async () => {
+    reply({
+      data: {
+        status: "sent",
+        report: 1,
+        steps: 0,
+        recommendations: 0,
+        delayed: true,
+        auditRecorded: true,
+      },
+    });
+    const result = await sendIncidentReport(CLINIC, INCIDENT, {
+      event: "other",
+      info: [],
+      mitigations: [],
+      steps: [],
+      recommendations: [],
+      delayedByLawEnforcement: true,
+      delayEndedOn: "2026-10-12",
+    });
+    expect(result).toMatchObject({ ok: true, data: { delayed: true } });
+    expect(sent[0]!.args).toMatchObject({
+      delayedByLawEnforcement: true,
+      delayEndedOn: "2026-10-12",
+    });
+    // A date that is not one never leaves the console.
+    const bad = await sendIncidentReport(CLINIC, INCIDENT, {
+      event: "other",
+      info: [],
+      mitigations: [],
+      steps: [],
+      recommendations: [],
+      delayedByLawEnforcement: true,
+      delayEndedOn: "next week",
+    });
+    expect(bad.ok).toBe(false);
     expect(sent).toHaveLength(1);
   });
 

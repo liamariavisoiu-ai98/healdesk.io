@@ -38,6 +38,9 @@ import type { EmailTemplate } from "./types";
  *     event (or that it is not yet known) and of its discovery;
  *   - the types of information involved, each with a count;
  *   - what was done about it, from a closed list;
+ *   - for a breach, whether a law enforcement official required the notice
+ *     to be delayed, and until when (`isDelayedByLawEnforcement`,
+ *     `delayEndedOn`), which the Reporting clause lists too;
  *   - what the people affected can do to protect themselves, and what
  *     healdesk recommends the practice do, each from a closed list
  *     (`stepRows`, `recommendationRows`, wave 2 R11): the Reporting clause
@@ -78,6 +81,14 @@ export type IncidentReportPayload = {
   recommendationRows?: readonly { code: IncidentRecommendation }[];
   /** An update to an earlier report about the same incident. */
   isUpdate: boolean;
+  /**
+   * A breach's: a law enforcement official required this notice to be
+   * delayed (45 CFR 164.412; the BAA's Reporting clause asks a breach report
+   * to say whether one did). Absent when none did.
+   */
+  isDelayedByLawEnforcement?: boolean;
+  /** The day that delay ended (YYYY-MM-DD), when given. */
+  delayEndedOn?: string;
   /**
    * A breach's: the incident's page in the portal, where the list of who it
    * affected is read behind the passkey step-up. publicUrl of
@@ -153,6 +164,16 @@ export const renderIncidentReport: EmailTemplate<IncidentReportPayload> = (paylo
             : "Not yet known. We'll tell you in an update.",
         ],
         ["When we discovered it", dayLong(payload.discoveredOn, ctx)],
+        ...(payload.kind === "breach" && payload.isDelayedByLawEnforcement
+          ? ([
+              [
+                "Notice delayed",
+                payload.delayEndedOn
+                  ? `Yes: a law enforcement official required it, until ${dayLong(payload.delayEndedOn, ctx)}`
+                  : "Yes: a law enforcement official required it",
+              ],
+            ] as [string, string][])
+          : []),
       ],
     },
     ...(info.length > 0

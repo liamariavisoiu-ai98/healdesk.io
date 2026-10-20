@@ -126,7 +126,10 @@ categories; never paste patient data into it.
    says: for the period a written statement specifies, or, on an oral
    statement, record it with the official's identity and delay no more than
    30 days unless a written statement follows. Then notify at once, and say
-   in the report that notice was delayed.
+   in the report that notice was delayed: tick **Notice delayed** in the
+   breach's report on `/admin/incidents`, with the day the delay ended, and
+   the report says a law enforcement official required it, as the BAA's
+   Reporting clause asks.
 6. **Help the clinic notify** its patients and HHS if it decides it must. The
    cost of that notification is the clinic's, whoever caused the breach
    (terms §14, BAA Liability clause), and there is no insurance on our side to

@@ -77,6 +77,8 @@ export type SendIncidentReportOutcome =
       /** What the console sent of the two lists, so it can tell an older apps/app that dropped them. */
       steps: number;
       recommendations: number;
+      /** Whether it says the notice was delayed at a law enforcement official's request. */
+      delayed: boolean;
       auditRecorded: boolean;
     }
   | Refused;
@@ -99,6 +101,8 @@ export async function opSendIncidentReport(
       mitigations: args.mitigations,
       steps: args.steps,
       recommendations: args.recommendations,
+      delayedByLawEnforcement: args.delayedByLawEnforcement,
+      delayEndedOn: args.delayEndedOn,
     },
     { actorLabel: operator.email },
   );
@@ -113,6 +117,7 @@ export async function opSendIncidentReport(
     report: result.report,
     steps: result.steps,
     recommendations: result.recommendations,
+    delayed: result.delayed,
     auditRecorded,
   } satisfies SendIncidentReportOutcome);
 }

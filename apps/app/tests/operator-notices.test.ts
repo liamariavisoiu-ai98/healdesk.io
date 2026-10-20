@@ -405,6 +405,63 @@ describeDb("the operator's notices and the incidents page (WP7)", () => {
       ).toMatchObject({ status: "sent", steps: 1, recommendations: 1 });
     });
 
+    test("a breach's report says the notice was delayed at a law enforcement official's request, and until when", async () => {
+      const c = await seedClinic("report-delayed");
+      await bindAgreementInEffect(c.clinicId, "1.5.0");
+      const breach = await open(c.clinicId, "breach", new Date("2026-10-05T12:00:00Z"));
+      const security = await open(
+        c.clinicId,
+        "security_incident",
+        new Date("2026-10-05T12:00:00Z"),
+      );
+      const tryIt = async (incidentId: string, args: Record<string, unknown>) =>
+        data<{ status: string; message?: string; delayed?: boolean }>(
+          await runOperation(
+            "sendIncidentReport",
+            { clinicId: c.clinicId, incidentId, ...FIELDS, ...args },
+            OPERATOR,
+          ),
+        );
+
+      expect(await tryIt(security.id, { delayedByLawEnforcement: true })).toMatchObject({
+        status: "refused",
+        message: expect.stringMatching(/isn't a breach/),
+      });
+      expect(
+        await tryIt(breach.id, { delayedByLawEnforcement: true, delayEndedOn: "2026-10-04" }),
+      ).toMatchObject({
+        status: "refused",
+        message: expect.stringMatching(/before the discovery/),
+      });
+      expect(
+        await tryIt(breach.id, { delayedByLawEnforcement: true, delayEndedOn: "2999-01-01" }),
+      ).toMatchObject({
+        status: "refused",
+        message: expect.stringMatching(/before the report goes/),
+      });
+      expect(await tryIt(breach.id, { delayEndedOn: "2026-10-12" })).toMatchObject({
+        status: "refused",
+        message: expect.stringMatching(/with no delay/),
+      });
+      expect(await tryIt(breach.id, { delayedByLawEnforcement: "yes" })).toMatchObject({
+        status: "refused",
+      });
+      expect(await notices(c.clinicId, "incident_report")).toEqual([]);
+
+      expect(
+        await tryIt(breach.id, { delayedByLawEnforcement: true, delayEndedOn: "2026-10-12" }),
+      ).toMatchObject({ status: "sent", delayed: true });
+      const [row] = await notices(c.clinicId, "incident_report");
+      expect(row!.payload).toMatchObject({
+        isDelayedByLawEnforcement: true,
+        delayEndedOn: "2026-10-12",
+      });
+      // None: said as none, and the payload carries no word of it.
+      expect(await tryIt(breach.id, {})).toMatchObject({ status: "sent", delayed: false });
+      const rows = await notices(c.clinicId, "incident_report");
+      expect(rows[1]!.payload).not.toHaveProperty("isDelayedByLawEnforcement");
+    });
+
     test("a console that predates the steps sends none, and the report says they follow in an update", async () => {
       const c = await seedClinic("report-older-console");
       await bindAgreementInEffect(c.clinicId, "1.5.0");

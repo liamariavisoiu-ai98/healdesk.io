@@ -74,21 +74,27 @@ export function reportRecommendations(cls: IncidentClass): [IncidentRecommendati
 /**
  * What the console says once a report is queued. An apps/app that predates
  * the two lists (apps/web is live first) answers without their counts and
- * ignores them, so a report sent with any went without them: the operator
- * is told to send an update once apps/app is deployed.
+ * ignores them, so a report sent with any went without them; one that
+ * predates the law enforcement delay answers without `delayed` and ignores
+ * it likewise. The operator is told to send an update once apps/app is
+ * deployed.
  */
 export function reportSentLine(
   outcome: Extract<IncidentReportOutcome, { status: "sent" }>,
-  chose: { steps: number; recommendations: number },
+  chose: { steps: number; recommendations: number; delayed?: boolean },
 ): string {
   const which = outcome.report === 1 ? "Report" : `Update ${outcome.report - 1}`;
   const dropped =
     (outcome.steps === null || outcome.recommendations === null) &&
     chose.steps + chose.recommendations > 0;
+  const delayDropped = chose.delayed === true && outcome.delayed === null;
   return (
     `${which} queued: it goes to the practice's address now.` +
     (dropped
       ? " It went WITHOUT the steps and recommendations you chose: apps/app isn't deployed with them yet. Send an update with them once it is."
+      : "") +
+    (delayDropped
+      ? " It went WITHOUT saying the notice was delayed at a law enforcement official's request: apps/app isn't deployed with it yet. Send an update saying so once it is."
       : "") +
     (outcome.auditRecorded ? "" : " It is NOT in the audit log: record it by hand.")
   );
@@ -323,6 +329,7 @@ function ReportForm({
         event.preventDefault();
         const f = new FormData(event.currentTarget);
         const occurredOn = String(f.get("occurredOn") ?? "").trim();
+        const delayEndedOn = String(f.get("delayEndedOn") ?? "").trim();
         const info = INFO_TYPES.flatMap(([type]) => {
           const raw = String(f.get(`count:${type}`) ?? "").trim();
           return raw === "" ? [] : [{ type, count: Number(raw) }];
@@ -338,6 +345,12 @@ function ReportForm({
           recommendations: advice
             .filter(([code]) => f.get(`advise:${code}`) === "on")
             .map(([code]) => code),
+          ...(incident.class === "breach" && f.get("delayed") === "on"
+            ? {
+                delayedByLawEnforcement: true,
+                ...(delayEndedOn ? { delayEndedOn } : {}),
+              }
+            : {}),
         };
         const kind = incident.reportsSent > 0 ? "this update" : "this report";
         if (
@@ -356,6 +369,7 @@ function ReportForm({
               reportSentLine(result.data, {
                 steps: fields.steps.length,
                 recommendations: fields.recommendations.length,
+                delayed: fields.delayedByLawEnforcement === true,
               }),
             );
           }
@@ -448,6 +462,30 @@ function ReportForm({
           ))}
         </div>
       </fieldset>
+      {incident.class === "breach" ? (
+        <fieldset className="text-sm">
+          <legend className="text-muted text-xs font-bold uppercase">
+            Notice delayed (45 CFR 164.412)
+          </legend>
+          <label className="mt-2 flex items-start gap-2">
+            <input name="delayed" type="checkbox" className="mt-1" />
+            <span>
+              A law enforcement official required this notice to be delayed. The report says so.
+            </span>
+          </label>
+          <label className="mt-2 block">
+            <span className="text-muted block text-xs font-bold uppercase">
+              The day the delay ended (empty if not to be given)
+            </span>
+            <input
+              name="delayEndedOn"
+              type="date"
+              min={discoveredOn}
+              className="border-line mt-1 rounded-sm border px-3 py-2"
+            />
+          </label>
+        </fieldset>
+      ) : null}
       <p className="text-muted text-xs">
         The email names no one. For a breach it links to the incident&rsquo;s page, where the
         practice reads who it affected behind its passkey, and it says the people&rsquo;s steps

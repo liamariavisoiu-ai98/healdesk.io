@@ -175,6 +175,24 @@ describe("the incident report (L29)", () => {
     ).toThrow(EmailCompositionError);
   });
 
+  test("a breach's report says when a law enforcement official required the notice to be delayed, and until when", () => {
+    const delayed = { ...base, isDelayedByLawEnforcement: true, delayEndedOn: "2026-10-12" };
+    expect(() => assertPayloadAllowed(delayed, "incident_report")).not.toThrow();
+    expect(all(renderIncidentReport(delayed, CTX))).toContain(
+      "Notice delayed: Yes: a law enforcement official required it, until Monday 12 October",
+    );
+    const { delayEndedOn: _d, ...undated } = delayed;
+    expect(all(renderIncidentReport(undated, CTX))).toContain(
+      "Notice delayed: Yes: a law enforcement official required it",
+    );
+    expect(all(renderIncidentReport(undated, CTX))).not.toContain(", until ");
+    // None, or not a breach: not a word of it.
+    expect(all(renderIncidentReport(base, CTX))).not.toContain("Notice delayed");
+    expect(all(renderIncidentReport({ ...delayed, kind: "security_incident" }, CTX))).not.toContain(
+      "law enforcement official required",
+    );
+  });
+
   test("states no deadline, so no reporting promise of 24 hours or five days can reach a practice", () => {
     for (const kind of ["breach", "security_incident", "improper_use_or_disclosure"] as const) {
       for (const isUpdate of [false, true]) {

@@ -4537,6 +4537,10 @@ export type IncidentReportFields = {
   steps: IncidentPatientStep[];
   /** What we recommend the practice do: codes from INCIDENT_RECOMMENDATIONS. */
   recommendations: IncidentRecommendation[];
+  /** A breach's: a law enforcement official required the notice to be delayed (45 CFR 164.412). */
+  delayedByLawEnforcement?: boolean;
+  /** YYYY-MM-DD: the day that delay ended, when given. */
+  delayEndedOn?: string;
 };
 
 export type IncidentReportOutcome =
@@ -4550,6 +4554,12 @@ export type IncidentReportOutcome =
        */
       steps: number | null;
       recommendations: number | null;
+      /**
+       * Whether it says the notice was delayed at a law enforcement
+       * official's request, or null from an apps/app that predates it, which
+       * ignores the field: a report sent with the delay went without it.
+       */
+      delayed: boolean | null;
       auditRecorded: boolean;
     }
   | { status: "refused"; message: string };
@@ -4587,6 +4597,17 @@ export function sendIncidentReport(
         (code) =>
           literal(code, keysOf(INCIDENT_RECOMMENDATIONS), "sendIncidentReport.recommendations"),
       ),
+      ...(fields.delayedByLawEnforcement
+        ? {
+            delayedByLawEnforcement: bool(
+              fields.delayedByLawEnforcement,
+              "sendIncidentReport.delayedByLawEnforcement",
+            ),
+            ...(fields.delayEndedOn
+              ? { delayEndedOn: date(fields.delayEndedOn, "sendIncidentReport.delayEndedOn") }
+              : {}),
+          }
+        : {}),
     }),
     (args) =>
       callOps("sendIncidentReport", "write", args, (value) => {
@@ -4604,6 +4625,10 @@ export function sendIncidentReport(
             data.recommendations === undefined || data.recommendations === null
               ? null
               : count(data.recommendations, "sendIncidentReport.recommendations"),
+          delayed:
+            data.delayed === undefined || data.delayed === null
+              ? null
+              : bool(data.delayed, "sendIncidentReport.delayed"),
           auditRecorded: bool(data.auditRecorded, "sendIncidentReport.auditRecorded"),
         };
       }),

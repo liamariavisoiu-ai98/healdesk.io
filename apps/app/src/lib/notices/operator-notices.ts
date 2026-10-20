@@ -55,6 +55,7 @@ import {
   isReportableClass,
   subcontractorNoticeMs,
   subcontractorNoticeRuleFor,
+  type ReportableClass,
 } from "@/lib/incidents/reporting-rules";
 import { describeError, log } from "@/lib/log";
 import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
@@ -409,10 +410,19 @@ const DECISION_REFUSALS: Record<IncidentDecisionRefusal, string> = {
   already_reported: "A report has gone for this incident: it can't be recorded as not reportable.",
 };
 
-/** The report's fixed fields, checked, or why not. */
+/**
+ * The report's fixed fields, checked, or why not. Each code is one the
+ * catalog lists, and two of them only where the rest of the report bears
+ * them out: "nothing they need to do", which says what was involved was
+ * deleted before anyone used it, goes alone and only with the recipient's
+ * confirmed deletion among what was done; and the recommendation to notify
+ * the people affected, which points to the list on the incident's page,
+ * goes only in a breach's report, the one that links to that page.
+ */
 export function readIncidentReportFields(
   input: IncidentReportInput,
   discoveredOn: string,
+  cls: ReportableClass,
 ):
   | {
       event: IncidentReportEvent;
@@ -463,6 +473,18 @@ export function readIncidentReportFields(
     return refuse("Pick what the people affected can do from the list.");
   }
   const stepRows = [...new Set(rawSteps as IncidentPatientStep[])].map((code) => ({ code }));
+  if (stepRows.some((r) => r.code === "nothing_needed")) {
+    if (stepRows.length > 1) {
+      return refuse(
+        "\"There's nothing they need to do\" can't go with other steps for them: choose one or the other.",
+      );
+    }
+    if (!mitigationRows.some((r) => r.code === "recipient_confirmed_deletion")) {
+      return refuse(
+        "\"There's nothing they need to do\" says what was involved was deleted before anyone used it: tick that the recipient confirmed deleting it, or choose the steps they can take.",
+      );
+    }
+  }
   const rawAdvice =
     input.recommendations === undefined || input.recommendations === null
       ? []
@@ -473,6 +495,11 @@ export function readIncidentReportFields(
   const recommendationRows = [...new Set(rawAdvice as IncidentRecommendation[])].map((code) => ({
     code,
   }));
+  if (cls !== "breach" && recommendationRows.some((r) => r.code === "notify_people")) {
+    return refuse(
+      "Notifying the people affected points to the list on the incident's page, which only a breach's report links to.",
+    );
+  }
   return {
     event: input.event,
     occurredOn,
@@ -514,7 +541,7 @@ export async function sendIncidentReport(
       if ("refused" in found) return refuse(DECISION_REFUSALS[found.refused]);
       const row = found.row;
       if (!isReportableClass(row.class)) return refuse(DECISION_REFUSALS.not_reportable_class);
-      const fields = readIncidentReportFields(input, isoDay(row.discoveredAt));
+      const fields = readIncidentReportFields(input, isoDay(row.discoveredAt), row.class);
       if ("status" in fields) return fields;
       if ((await billingRecipients(tx, "incident_report")).length === 0) {
         return refuse(

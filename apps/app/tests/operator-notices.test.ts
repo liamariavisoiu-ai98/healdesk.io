@@ -263,7 +263,8 @@ describeDb("the operator's notices and the incidents page (WP7)", () => {
         // who it affected is read behind the passkey (wave 2 R11).
         listUrl: `${ORIGIN}/c/${c.slug}/incidents/${i.id}`,
       });
-      expect(JSON.stringify(row!.payload)).not.toMatch(/Jane|555/);
+      // Not the typed summary's words (the link's random ids may hold any digits).
+      expect(JSON.stringify(row!.payload)).not.toMatch(/Jane|555 010 0123/);
 
       const [stored] = await inTenant(
         c.clinicId,
@@ -356,6 +357,52 @@ describeDb("the operator's notices and the incidents page (WP7)", () => {
       );
       expect((await tryIt({})).message).toMatch(/resolved/);
       expect(await notices(c.clinicId, "incident_report")).toEqual([]);
+    });
+
+    test("refuses steps the rest of the report contradicts, and a pointer to the list in a report that has none", async () => {
+      const c = await seedClinic("report-consistent");
+      await bindAgreementInEffect(c.clinicId, "1.5.0");
+      const breach = await open(c.clinicId, "breach", new Date("2026-10-05T12:00:00Z"));
+      const security = await open(
+        c.clinicId,
+        "security_incident",
+        new Date("2026-10-05T12:00:00Z"),
+      );
+      const tryIt = async (incidentId: string, args: Record<string, unknown>) =>
+        data<{ status: string; message?: string }>(
+          await runOperation(
+            "sendIncidentReport",
+            { clinicId: c.clinicId, incidentId, ...FIELDS, ...args },
+            OPERATOR,
+          ),
+        );
+
+      // "Nothing they need to do" beside a step they should take.
+      expect(
+        await tryIt(breach.id, { steps: ["nothing_needed", "unexpected_contact"] }),
+      ).toMatchObject({ status: "refused", message: expect.stringMatching(/other steps/) });
+      // Or claiming a deletion the report never records.
+      expect(
+        await tryIt(breach.id, { steps: ["nothing_needed"], mitigations: ["investigating"] }),
+      ).toMatchObject({
+        status: "refused",
+        message: expect.stringMatching(/recipient confirmed deleting it/),
+      });
+      // A security incident's report has no list to point to.
+      expect(await tryIt(security.id, { recommendations: ["notify_people"] })).toMatchObject({
+        status: "refused",
+        message: expect.stringMatching(/only a breach's report/),
+      });
+      expect(await notices(c.clinicId, "incident_report")).toEqual([]);
+
+      // Borne out by the rest: sent.
+      expect(
+        await tryIt(breach.id, {
+          steps: ["nothing_needed"],
+          mitigations: ["recipient_confirmed_deletion"],
+          recommendations: ["notify_people"],
+        }),
+      ).toMatchObject({ status: "sent", steps: 1, recommendations: 1 });
     });
 
     test("a console that predates the steps sends none, and the report says they follow in an update", async () => {

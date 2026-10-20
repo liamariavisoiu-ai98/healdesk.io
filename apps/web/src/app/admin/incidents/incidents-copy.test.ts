@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 
 import type { IncidentRegisterRow, OpsResult } from "@/lib/admin/ops-client";
 
-import { affectedLine, IncidentsBoard, reportSentLine } from "./IncidentsBoard";
+import { affectedLine, IncidentsBoard, reportRecommendations, reportSentLine } from "./IncidentsBoard";
 
 /**
  * What /admin/incidents tells the operator about each incident's clock (WP7):
@@ -119,6 +119,14 @@ describe("the incidents page", () => {
     expect(board([{ ...ROW, agreementVersion: null }])).toContain(
       "(no agreement on file: the strictest rule)",
     );
+  });
+
+  test("notifying the people affected is offered only in a breach's report, the one that links to its list", () => {
+    const codes = (cls: IncidentRegisterRow["class"]) => reportRecommendations(cls).map(([code]) => code);
+    expect(codes("breach")).toContain("notify_people");
+    expect(codes("security_incident")).not.toContain("notify_people");
+    expect(codes("improper_use_or_disclosure")).not.toContain("notify_people");
+    expect(codes("security_incident")).toContain("assess_notice_duty");
   });
 
   test("who an incident affected is a count and where it is recorded, never who, and unknown before apps/app has it", () => {

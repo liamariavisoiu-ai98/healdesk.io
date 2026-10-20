@@ -62,6 +62,16 @@ const RECOMMENDATIONS = Object.entries(INCIDENT_RECOMMENDATIONS) as [
 ][];
 
 /**
+ * The recommendations the report form offers for an incident of `cls`.
+ * Notifying the people affected points to the list on the incident's page,
+ * which only a breach's report links to, so it is offered only there
+ * (apps/app refuses it in any other report).
+ */
+export function reportRecommendations(cls: IncidentClass): [IncidentRecommendation, string][] {
+  return RECOMMENDATIONS.filter(([code]) => cls === "breach" || code !== "notify_people");
+}
+
+/**
  * What the console says once a report is queued. An apps/app that predates
  * the two lists (apps/web is live first) answers without their counts and
  * ignores them, so a report sent with any went without them: the operator
@@ -306,6 +316,7 @@ function ReportForm({
 }) {
   const [pending, start] = useTransition();
   const discoveredOn = incident.discoveredAt.slice(0, 10);
+  const advice = reportRecommendations(incident.class);
   return (
     <form
       onSubmit={(event) => {
@@ -324,9 +335,9 @@ function ReportForm({
             ([code]) => code,
           ),
           steps: STEPS.filter(([code]) => f.get(`step:${code}`) === "on").map(([code]) => code),
-          recommendations: RECOMMENDATIONS.filter(
-            ([code]) => f.get(`advise:${code}`) === "on",
-          ).map(([code]) => code),
+          recommendations: advice
+            .filter(([code]) => f.get(`advise:${code}`) === "on")
+            .map(([code]) => code),
         };
         const kind = incident.reportsSent > 0 ? "this update" : "this report";
         if (
@@ -429,7 +440,7 @@ function ReportForm({
           What we recommend the practice do
         </legend>
         <div className="mt-2 grid gap-1">
-          {RECOMMENDATIONS.map(([code, sentence]) => (
+          {advice.map(([code, sentence]) => (
             <label key={code} className="flex items-start gap-2">
               <input name={`advise:${code}`} type="checkbox" className="mt-1" />
               <span>{sentence}</span>

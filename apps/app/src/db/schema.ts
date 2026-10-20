@@ -5490,7 +5490,7 @@ export type CalendarElectionSource = (typeof CALENDAR_ELECTION_SOURCES)[number];
  * row against the agreement, and refuses any UPDATE or DELETE. It also holds
  * the rules on who may record what: an `agreement` row only for the
  * location set up at signing, and only as the first row under its agreement
- * (drizzle/0102); a released document and a booking sync as the
+ * (drizzle/0100); a released document and a booking sync as the
  * database's own copies of the catalogue say (a draft counts only for a demo
  * clinic); an unspent, unexpired link of this location, sent to whom the row
  * says; and an election that widens what reaches Google needs the practice
@@ -5616,7 +5616,7 @@ export const calendarElections = pgTable(
     ),
     // An agreement row is a released, signed document nobody had to
     // confirm. It is the first row under its agreement, which the guard
-    // checks (drizzle/0102): a location's first terms at provisioning, and
+    // checks (drizzle/0100): a location's first terms at provisioning, and
     // its terms under the agreement that superseded the one before
     // (recordSupersedingTerms), so not always sequence 1.
     check(

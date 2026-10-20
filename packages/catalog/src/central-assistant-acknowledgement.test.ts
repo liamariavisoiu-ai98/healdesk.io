@@ -193,8 +193,8 @@ describe("the variables are validated before anything renders", () => {
       "{{practice}}",
       "Radiance } Downtown",
       "Radiance\u0000Downtown",
-      "Radiance ‮nwotnwoD",
-      "Radiance⁦Downtown",
+      "Radiance \u202EnwotnwoD",
+      "Radiance\u2066Downtown",
     ]) {
       expect(() => renderCentralAssistantAcknowledgement({ ...BASE, locationName: value })).toThrow(
         CentralAssistantAcknowledgementError,
@@ -207,6 +207,19 @@ describe("the variables are validated before anything renders", () => {
         practiceLegalName: "Clínica O’Neil & Søn, P.A.",
       }),
     ).not.toThrow();
+  });
+
+  test("prints a dollar sign as typed, never as a replacement pattern", () => {
+    const dollars = unwrap(
+      renderCentralAssistantAcknowledgement({
+        ...BASE,
+        practiceLegalName: "Cash$$ Aesthetics $& Co",
+      }),
+    );
+    expect(dollars).toContain(
+      "I have authority to bind Cash$$ Aesthetics $& Co. Radiance Downtown,",
+    );
+    expect(dollars).toContain("is operated by Cash$$ Aesthetics $& Co, the practice named");
   });
 });
 

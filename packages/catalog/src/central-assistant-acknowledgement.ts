@@ -222,10 +222,12 @@ export function centralAssistantAcknowledgementParts(
   const statements = acknowledgement.statements
     .filter((s) => v.packageHasPhone || !s.phoneOnly)
     .map((s) => s.text);
+  // Replaced through functions, so a "$&" or "$$" in a typed name is printed
+  // as typed rather than read as a replacement pattern.
   const acceptance = acknowledgement.acceptance
-    .replaceAll("{{practice}}", v.practiceLegalName)
-    .replaceAll("{{location}}", v.locationName)
-    .replaceAll("{{address}}", v.locationAddress);
+    .replaceAll("{{practice}}", () => v.practiceLegalName)
+    .replaceAll("{{location}}", () => v.locationName)
+    .replaceAll("{{address}}", () => v.locationAddress);
   if (/\{\{|\}\}/.test(acceptance)) {
     throw new CentralAssistantAcknowledgementError(
       "Unsubstituted placeholder in the central-assistant acknowledgement.",

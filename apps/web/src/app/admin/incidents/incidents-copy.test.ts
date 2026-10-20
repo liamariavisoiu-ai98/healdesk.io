@@ -148,35 +148,50 @@ describe("the incidents page", () => {
 
   test("a report's written steps for the people affected and our recommendations, and a reply from an older apps/app that dropped them", () => {
     const sent = { status: "sent" as const, report: 1, delayed: false, auditRecorded: true };
-    expect(reportSentLine({ ...sent, steps: 2, recommendations: 1 }, { steps: 2, recommendations: 1 })).toBe(
+    expect(reportSentLine({ ...sent, steps: 2, recommendations: 1 }, { steps: 2, recommendations: 1 }, "breach")).toBe(
       "Report queued: it goes to the practice's address now.",
     );
     // apps/web is live before apps/app: the older reply has no counts and the lists were ignored.
     expect(
-      reportSentLine({ ...sent, steps: null, recommendations: null }, { steps: 1, recommendations: 0 }),
+      reportSentLine({ ...sent, steps: null, recommendations: null }, { steps: 1, recommendations: 0 }, "breach"),
     ).toContain("It went WITHOUT the steps and recommendations you chose");
-    // Nothing chosen, nothing dropped.
+    // Nothing chosen: nothing dropped from a security incident's report...
     expect(
-      reportSentLine({ ...sent, steps: null, recommendations: null }, { steps: 0, recommendations: 0 }),
+      reportSentLine(
+        { ...sent, steps: null, recommendations: null },
+        { steps: 0, recommendations: 0 },
+        "security_incident",
+      ),
+    ).toBe("Report queued: it goes to the practice's address now.");
+    // ...but a breach's, from the older apps/app, says nothing of the people's steps at all.
+    expect(
+      reportSentLine({ ...sent, steps: null, recommendations: null }, { steps: 0, recommendations: 0 }, "breach"),
+    ).toContain(
+      "It went WITHOUT a word on what the people affected can do, not even that it follows: apps/app isn't deployed with the steps yet. Send an update with them once it is.",
+    );
+    // The current apps/app says they follow: nothing to add.
+    expect(
+      reportSentLine({ ...sent, steps: 0, recommendations: 0 }, { steps: 0, recommendations: 0 }, "breach"),
     ).toBe("Report queued: it goes to the practice's address now.");
     expect(
-      reportSentLine({ ...sent, report: 3, steps: 0, recommendations: 0, auditRecorded: false }, {
-        steps: 0,
-        recommendations: 0,
-      }),
+      reportSentLine(
+        { ...sent, report: 3, steps: 0, recommendations: 0, auditRecorded: false },
+        { steps: 0, recommendations: 0 },
+        "breach",
+      ),
     ).toBe("Update 2 queued: it goes to the practice's address now. It is NOT in the audit log: record it by hand.");
   });
 
   test("a law enforcement delay an older apps/app dropped is said, and one it carried is not", () => {
     const sent = { status: "sent" as const, report: 1, steps: 1, recommendations: 0, auditRecorded: true };
     const chose = { steps: 1, recommendations: 0, delayed: true };
-    expect(reportSentLine({ ...sent, delayed: true }, chose)).toBe(
+    expect(reportSentLine({ ...sent, delayed: true }, chose, "breach")).toBe(
       "Report queued: it goes to the practice's address now.",
     );
-    expect(reportSentLine({ ...sent, delayed: null }, chose)).toContain(
+    expect(reportSentLine({ ...sent, delayed: null }, chose, "breach")).toContain(
       "It went WITHOUT saying the notice was delayed at a law enforcement official's request",
     );
-    expect(reportSentLine({ ...sent, delayed: null }, { ...chose, delayed: false })).toBe(
+    expect(reportSentLine({ ...sent, delayed: null }, { ...chose, delayed: false }, "breach")).toBe(
       "Report queued: it goes to the practice's address now.",
     );
   });

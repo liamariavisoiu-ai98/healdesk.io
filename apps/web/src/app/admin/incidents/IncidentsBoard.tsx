@@ -72,27 +72,31 @@ export function reportRecommendations(cls: IncidentClass): [IncidentRecommendati
 }
 
 /**
- * What the console says once a report is queued. An apps/app that predates
- * the two lists (apps/web is live first) answers without their counts and
- * ignores them, so a report sent with any went without them; one that
- * predates the law enforcement delay answers without `delayed` and ignores
- * it likewise. The operator is told to send an update once apps/app is
- * deployed.
+ * What the console says once a report about an incident of `cls` is queued.
+ * An apps/app that predates the two lists (apps/web is live first) answers
+ * without their counts and ignores them, so a report sent with any went
+ * without them; and its breach report has no line about the people's steps
+ * at all, not even that they follow in an update, so a breach's report from
+ * it is always said to have gone without them. One that predates the law
+ * enforcement delay answers without `delayed` and ignores it likewise. The
+ * operator is told to send an update once apps/app is deployed.
  */
 export function reportSentLine(
   outcome: Extract<IncidentReportOutcome, { status: "sent" }>,
   chose: { steps: number; recommendations: number; delayed?: boolean },
+  cls: IncidentClass,
 ): string {
   const which = outcome.report === 1 ? "Report" : `Update ${outcome.report - 1}`;
-  const dropped =
-    (outcome.steps === null || outcome.recommendations === null) &&
-    chose.steps + chose.recommendations > 0;
+  const older = outcome.steps === null || outcome.recommendations === null;
+  const dropped = older && chose.steps + chose.recommendations > 0;
   const delayDropped = chose.delayed === true && outcome.delayed === null;
   return (
     `${which} queued: it goes to the practice's address now.` +
     (dropped
       ? " It went WITHOUT the steps and recommendations you chose: apps/app isn't deployed with them yet. Send an update with them once it is."
-      : "") +
+      : older && cls === "breach"
+        ? " It went WITHOUT a word on what the people affected can do, not even that it follows: apps/app isn't deployed with the steps yet. Send an update with them once it is."
+        : "") +
     (delayDropped
       ? " It went WITHOUT saying the notice was delayed at a law enforcement official's request: apps/app isn't deployed with it yet. Send an update saying so once it is."
       : "") +
@@ -366,11 +370,15 @@ function ReportForm({
           if (message) onProblem(message);
           else if (result.ok && result.data.status === "sent") {
             onSent(
-              reportSentLine(result.data, {
-                steps: fields.steps.length,
-                recommendations: fields.recommendations.length,
-                delayed: fields.delayedByLawEnforcement === true,
-              }),
+              reportSentLine(
+                result.data,
+                {
+                  steps: fields.steps.length,
+                  recommendations: fields.recommendations.length,
+                  delayed: fields.delayedByLawEnforcement === true,
+                },
+                incident.class,
+              ),
             );
           }
         });
@@ -489,7 +497,8 @@ function ReportForm({
       <p className="text-muted text-xs">
         The email names no one. For a breach it links to the incident&rsquo;s page, where the
         practice reads who it affected behind its passkey, and it says the people&rsquo;s steps
-        will follow in an update when none are chosen here. Its contact is a reply to the email,
+        will follow in an update when none are chosen here (once apps/app is deployed with them:
+        until then you&rsquo;re told when it went without). Its contact is a reply to the email,
         which reaches hello@.
       </p>
       <div>

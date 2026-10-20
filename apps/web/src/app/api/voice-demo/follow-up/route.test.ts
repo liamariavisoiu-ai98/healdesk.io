@@ -307,5 +307,26 @@ describe("the day's cap", () => {
     expect(((await capped.json()) as { message: string }).message).toContain("hello@healdesk.io");
     expect(sent).toHaveLength(20);
   });
+
+  /** The check of 19 October 2026: the cap counted requests, so twenty starts were forty emails. */
+  test("a start is two emails and takes two places: ten starts fill the day, and an eleventh sends nothing", async () => {
+    for (let i = 0; i < 10; i += 1) {
+      expect((await post({ topic: "start", email: `owner${i}@clinic.com`, recommended_package: "AYA Voice" })).status).toBe(200);
+    }
+    expect(sent).toHaveLength(20);
+    expect((await post({ topic: "start", email: "owner10@clinic.com" })).status).toBe(429);
+    // A one-email request still fits nowhere, and a refused start used none of the day.
+    expect((await post({ topic: "pricing", email: "owner11@clinic.com" })).status).toBe(429);
+    expect(sent).toHaveLength(20);
+  });
+
+  test("a start that finds one place left takes none, and leaves it for a one-email request", async () => {
+    for (let i = 0; i < 19; i += 1) {
+      expect((await post({ topic: "pricing", email: `sam${i}@clinic.com` })).status).toBe(200);
+    }
+    expect((await post({ topic: "start", email: "owner@clinic.com" })).status).toBe(429);
+    expect((await post({ topic: "pricing", email: "last@clinic.com" })).status).toBe(200);
+    expect(sent).toHaveLength(20);
+  });
 });
 

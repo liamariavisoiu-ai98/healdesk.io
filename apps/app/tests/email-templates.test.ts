@@ -319,6 +319,26 @@ describe("the template registry", () => {
   });
 });
 
+/**
+ * Since 17ab8ea1 a direct sender leaves out a clinic name the email may not
+ * print (printableClinicName), so every direct kind can render with none.
+ * The check of 19 October 2026 found the fallbacks lower case where they open
+ * a sentence ("your practice's AYA is ready", "a practice asked us").
+ */
+describe("every direct kind, rendered with no clinic name it may print", () => {
+  const STARTS_LOWER = /(?:^|[.!?:]\s+|\n)(?:your|a) practice\b/;
+  for (const [kind, entry] of TEMPLATED.filter(([k]) => (DIRECT_KINDS as readonly string[]).includes(k))) {
+    test(`${kind}: no gap, and no sentence opening in lower case`, () => {
+      const ctx = { ...contextFor(kind), clinicName: null };
+      const r = entry.render(entry.fixture, ctx);
+      for (const part of [r.subject, r.preheader, r.text, visibleText(r.html)]) {
+        expect(part).not.toMatch(/\bnull\b|\bundefined\b/);
+        expect(part, kind).not.toMatch(STARTS_LOWER);
+      }
+    });
+  }
+});
+
 describe("each template's output", () => {
   for (const [kind, entry] of TEMPLATED) {
     for (const audience of ["patients", "clients"] as const) {

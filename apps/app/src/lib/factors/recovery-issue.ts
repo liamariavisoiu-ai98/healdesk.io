@@ -6,7 +6,7 @@ import { unsafeDb } from "@/db";
 import { user } from "@/db/auth-schema";
 import { clinics, deviceRecoveries } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/lib/audit";
-import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
+import { printableClinicName } from "@/lib/email/lint";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import { audienceFor, clinicReason } from "@/lib/email/templates/context";
 import {
@@ -254,7 +254,6 @@ async function sendRecoveryLink(
       recoveryUrl: publicUrl(`/recover/${input.token}`),
       validHours: DEVICE_RECOVERY_TTL_HOURS,
     };
-    assertPayloadAllowed(payload, "device_recovery_link");
     // The name as the email may print it, or none (lib/email/lint.ts).
     const printed = printableClinicName(input.clinic.name);
     const rendered = renderDeviceRecoveryLink(payload, {

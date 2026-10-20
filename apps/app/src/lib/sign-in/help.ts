@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { SENDER_IDENTITY } from "@healdesk/catalog";
 import { and, count, eq, gte, lt, sql } from "drizzle-orm";
@@ -19,7 +19,7 @@ import {
 import { renderSignInHelpLink, SIGN_IN_HELP_REASON } from "@/lib/email/templates/sign_in_help_link";
 import { SUPPORT_REASON } from "@/lib/email/templates/support_escalation";
 import { describeError, log } from "@/lib/log";
-import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
+import { notifyOpsOnce } from "@/lib/ops/notify";
 import { portalGrants } from "@/lib/portal/access";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 
@@ -34,9 +34,11 @@ import { looksLikeEmail, normaliseSignInEmail } from "./request";
  * detail is checked against the account's Stripe customer on the server
  * (lib/billing/billing-detail.ts). On a match, O6 sends a sign-in link to the
  * address already on the account, and only there; it never adds a device,
- * and patient pages still need a passkey. Anything else sends no link and
- * tells ops through notifyOps, one alert an hour per clinic and code, with
- * structured fields only. When the address is an account's, hello@ also gets
+ * and patient pages still need a passkey. Anything else sends no link. An
+ * address with no account is recorded in the security log and counted in
+ * the 07:00 ops digest, and nothing is mailed. An address that is an
+ * account's tells ops once a UTC day per code and clinic (notifyOpsOnce,
+ * the day in its identity, the name typed out of it), and hello@ also gets
  * I3's access request (plan D5: "Anything else emails hello@ with structured
  * fields"; Annex X5's I3): a code, the clinic's id, whether the name typed
  * matched, which kind of billing detail was offered and the address masked,
@@ -180,13 +182,19 @@ export async function runSignInHelp(
         ...(signal ? { signal } : {}),
       },
     }).catch((error) => log.error("sign-in help not recorded", { error: describeError(error) }));
-    await notifyOps("sign_in_help_unmatched", {
-      code,
-      clinicId: fields.clinicId ?? null,
-      signal,
-    });
-    // I3 to hello@ only for an address that is an account's: an address with
-    // none is anyone's to type, and ops' hourly alert above is all it gets.
+    // An address with no account is anyone's to type: the security event is
+    // its record and the 07:00 digest counts it, and nothing is mailed. One
+    // that is an account's alerts ops once a UTC day per code and clinic,
+    // whatever was typed as the name (the event keeps that), so the form
+    // cannot farm the hourly alert into the day's Resend sending.
+    if (code !== "no_account" && fields.clinicId) {
+      await notifyOpsOnce("sign_in_help_unmatched", {
+        code,
+        clinicId: fields.clinicId,
+        windowStart: (options.now ?? new Date()).toISOString().slice(0, 10),
+      });
+    }
+    // I3 to hello@ only for an address that is an account's.
     if (fields.clinicId) {
       await sendAccessRequest(
         {
@@ -328,9 +336,19 @@ export const ACCESS_REQUEST_DAILY_CAP = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * The claim's event id: a digest of the clinic, the code and the UTC day, so
+ * the day's dedupe holds and email_events, which says it holds no clinic,
+ * does not carry one.
+ */
+export function accessRequestClaimId(clinicId: string, code: AccessRequestCode, day: string): string {
+  return `i3.${createHash("sha256").update(`${clinicId}|${code}|${day}`).digest("hex").slice(0, 40)}`;
+}
+
+/**
  * Claim today's one I3 email for this clinic and code, under the day's cap.
  * The claim is the email_events row the digest counts (status `sent`), keyed
- * by its event id `i3.<clinic>.<code>.<UTC day>`, so a second request about
+ * by its event id `i3.<digest of clinic, code and UTC day>`, so the table
+ * holds no clinic id, and a second request about
  * the same clinic and code that day finds it and sends nothing, and the cap
  * is a count of the day's claims. Serialised by an advisory lock, so two
  * processes cannot both take the last place.
@@ -362,7 +380,7 @@ async function claimAccessRequest(
         kind: "access_request",
         status: "sent",
         at: now,
-        eventId: `i3.${clinicId}.${code}.${day}`,
+        eventId: accessRequestClaimId(clinicId, code, day),
       })
       .onConflictDoNothing()
       .returning({ id: emailEvents.id });

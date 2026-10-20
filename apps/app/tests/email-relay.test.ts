@@ -343,6 +343,13 @@ describeDb("the emailEvent relay", () => {
     expect(await alerts("agreement_copy_withheld")).toEqual([
       { agreementId, code: "already_sent_today" },
     ]);
+    // A copy that failed, had no transport, or met the day's cap is owed too.
+    for (const code of ["daily_cap", "send_failed", "transport_unavailable"]) {
+      expect(await run({ agreementId: crypto.randomUUID(), code })).toEqual({
+        status: 200,
+        body: { data: { raised: true } },
+      });
+    }
     expect(await run({ agreementId, code: "owner@radiance.test" })).toMatchObject({ status: 400 });
     expect(await run({ agreementId: "not-an-id", code: "unsafe_text" })).toMatchObject({ status: 400 });
   });

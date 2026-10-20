@@ -18,7 +18,7 @@ import { agreementInEffect } from "@/lib/agreements/in-effect";
 import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/lib/audit";
 import { stripeCustomerOf, updateStripeCustomerEmail } from "@/lib/billing/customer-email";
 import { stripeConfigured } from "@/lib/billing/stripe-client";
-import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
+import { printableClinicName } from "@/lib/email/lint";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import {
   addressConfirmReason,
@@ -898,7 +898,6 @@ async function sendConfirmLink(
       payload,
       clinicName: clinic.name,
       render: () => {
-        assertPayloadAllowed(payload, "address_change_confirm");
         return renderAddressChangeConfirm(payload, {
           clinicName: clinic.name,
           audience: audienceFor(clinic.specialty),
@@ -942,7 +941,6 @@ async function sendChangingNotices(
         payload,
         clinicName: clinic.name,
         render: () => {
-          assertPayloadAllowed(payload, "address_changing");
           return renderAddressChanging(payload, {
             clinicName: clinic.name,
             audience: audienceFor(clinic.specialty),

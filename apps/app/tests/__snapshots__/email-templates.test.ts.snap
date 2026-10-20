@@ -4495,6 +4495,7 @@ exports[`each template's output > ops_digest, for clients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">Kinds starting web: are the marketing site&#39;s mail, counted from the events Resend reports and its webhook relays here. Not counted: a marketing-site send Resend refused, which raises no event, and any event relayed while this app could not be reached.</p>
 <p style="margin:0 0 16px;">Connections that need a look (revoked ones were alerted at once):</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Clinic 0c1d2e3f-0000-4000-8000-000000000000, connection 9a8b7c6d-5e4f-4321-8765-0fedcba98765: meta-whatsapp, revoked</li></ul>
+<p style="margin:0 0 16px;">Sign-in help: 3 requests in the last 24 hours named an address with no account. Nothing was mailed for them; the security log&#39;s sign_in_help_unmatched rows have each, and many from one place are worth a look.</p>
 <p style="margin:0 0 16px;">Google Calendar connections, by state:</p>
 <p style="margin:0 0 4px;"><strong>active:</strong> 3</p>
 <p style="margin:0 0 4px;"><strong>degraded:</strong> 1</p>
@@ -4537,6 +4538,8 @@ Kinds starting web: are the marketing site's mail, counted from the events Resen
 Connections that need a look (revoked ones were alerted at once):
 
 - Clinic 0c1d2e3f-0000-4000-8000-000000000000, connection 9a8b7c6d-5e4f-4321-8765-0fedcba98765: meta-whatsapp, revoked
+
+Sign-in help: 3 requests in the last 24 hours named an address with no account. Nothing was mailed for them; the security log's sign_in_help_unmatched rows have each, and many from one place are worth a look.
 
 Google Calendar connections, by state:
 
@@ -4591,6 +4594,7 @@ exports[`each template's output > ops_digest, for patients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">Kinds starting web: are the marketing site&#39;s mail, counted from the events Resend reports and its webhook relays here. Not counted: a marketing-site send Resend refused, which raises no event, and any event relayed while this app could not be reached.</p>
 <p style="margin:0 0 16px;">Connections that need a look (revoked ones were alerted at once):</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Clinic 0c1d2e3f-0000-4000-8000-000000000000, connection 9a8b7c6d-5e4f-4321-8765-0fedcba98765: meta-whatsapp, revoked</li></ul>
+<p style="margin:0 0 16px;">Sign-in help: 3 requests in the last 24 hours named an address with no account. Nothing was mailed for them; the security log&#39;s sign_in_help_unmatched rows have each, and many from one place are worth a look.</p>
 <p style="margin:0 0 16px;">Google Calendar connections, by state:</p>
 <p style="margin:0 0 4px;"><strong>active:</strong> 3</p>
 <p style="margin:0 0 4px;"><strong>degraded:</strong> 1</p>
@@ -4633,6 +4637,8 @@ Kinds starting web: are the marketing site's mail, counted from the events Resen
 Connections that need a look (revoked ones were alerted at once):
 
 - Clinic 0c1d2e3f-0000-4000-8000-000000000000, connection 9a8b7c6d-5e4f-4321-8765-0fedcba98765: meta-whatsapp, revoked
+
+Sign-in help: 3 requests in the last 24 hours named an address with no account. Nothing was mailed for them; the security log's sign_in_help_unmatched rows have each, and many from one place are worth a look.
 
 Google Calendar connections, by state:
 

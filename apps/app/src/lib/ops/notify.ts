@@ -241,13 +241,16 @@ export const OPS_EVENTS = [
   "access_requests_capped",
   // sendEmail refused a direct kind before sending it (lib/email/send.ts):
   // its payload or the clinic name it printed is outside the allowlist, or a
-  // link in it is not one an email may carry. Once per kind and clinic, so a
-  // refusal that would otherwise only be a log line reaches a person.
+  // link in it is not one an email may carry. Once a UTC day per kind and
+  // clinic (`windowStart`), so a refusal that would otherwise only be a log
+  // line reaches a person, and one that returns after a fix is heard again.
   "email_refused",
-  // The signer's copy of the agreement (P6) was withheld by apps/web's rules
-  // for an address no setup link confirmed: one already went to the address
-  // that day, or the names on it are not safe to mail. Relayed by apps/web,
-  // once per address and day, with the agreement's id and the code.
+  // The signer's copy of the agreement (P6) is still owed: withheld by
+  // apps/web's rules for an address no setup link confirmed (one already
+  // went to the address that day, the names on it are not safe to mail, the
+  // day's copies are spent) or not sent (failed, or no transport). Relayed by
+  // apps/web, once per address and day and ten a day in all, with the
+  // agreement's id and the code.
   "agreement_copy_withheld",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];

@@ -28,6 +28,12 @@ describe("isSafeTypedText", () => {
     ["a path", "Smith/Jones"],
     ["a colon", "Act now: call us"],
     ["a phone number", "Call 5125550100"],
+    // The check of 19 October 2026: punctuation broke the run, and a one-letter label passed.
+    ["a hyphenated number", "Call 512-555-0100 to verify"],
+    ["a bracketed number", "Call +1 (512) 555 0100"],
+    ["a callback lure", "Payment of 499 USD pending - call +1 (512) 555-0100 to cancel"],
+    ["a one-letter domain", "Visit x.com"],
+    ["a chain of one-letter labels", "a.b.co"],
     ["markup", "<b>Radiance</b>"],
     ["a line break", "Radiance\nClick here"],
     ["quotes", 'The "best" spa'],

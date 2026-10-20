@@ -83,6 +83,24 @@ export type RateLimitResult = {
  * may send in a day (api/voice-demo/follow-up), which bounds the inbox and a
  * stranger's, and is no bound at all if each warm instance counts its own.
  */
+/*
+ * ## The day's email budget
+ *
+ * Resend's free plan sends 100 emails a day across the account, both apps,
+ * and past that every email fails until midnight UTC, sign-in links and urgent
+ * alerts included (Annex X2). The day's caps that bound mail an outsider can
+ * cause, so that together they leave room for those:
+ *
+ *   - `voice-followup:day`: 20 emails from AYA's demo calls, a "start" being two;
+ *   - `agreement-copy:day`: 30 copies of P6 to unconfirmed addresses, and
+ *     `agreement-copy-withheld:day`: 10 alerts to ops about copies still owed;
+ *   - apps/app's I3 (lib/sign-in/help.ts): 10 access requests to hello@, and
+ *     /sign-in/help's ops alert once a day per clinic and code, none for an
+ *     address with no account.
+ *
+ * The contact, setup-request and review forms are bounded per IP only, and
+ * the 70-a-day alarm (apps/app lib/email/quota.ts) says when the day is near.
+ */
 export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
   "chat:global:day",
   "callback:global:day",
@@ -92,6 +110,10 @@ export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
   "voice-demo-webcall:global:day",
   "own-demo:global:day",
   "voice-followup:day",
+  // P6's copies to unconfirmed addresses, all mailboxes together, and the
+  // owed copies ops is told of (lib/email/agreement-copy.ts; 19 October 2026).
+  "agreement-copy:day",
+  "agreement-copy-withheld:day",
 ]);
 
 /**
@@ -301,7 +323,12 @@ async function rateLimitShared(key: string, limit: number, windowMs: number): Pr
   return withKeyLock(key, () => rateLimitSharedUnlocked(key, limit, windowMs));
 }
 
-async function rateLimitSharedUnlocked(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+async function rateLimitSharedUnlocked(
+  key: string,
+  limit: number,
+  windowMs: number,
+  countRefused = true,
+): Promise<RateLimitResult> {
   const client = await counters();
   const now = Date.now();
   const state = await currentShared(client, key, windowMs, now);
@@ -309,6 +336,9 @@ async function rateLimitSharedUnlocked(key: string, limit: number, windowMs: num
     state.count = 1;
     state.windowStart = now;
     state.windowMs = windowMs;
+  } else if (!countRefused && state.count >= limit) {
+    // A take that is refused leaves the count as it was, and writes nothing.
+    return { ok: false, remaining: 0, retryAfter: Math.max(0, Math.ceil((state.windowStart + state.windowMs - now) / 1000)) };
   } else {
     state.count += 1;
   }
@@ -362,6 +392,38 @@ export async function isOverLimit(key: string, limit: number): Promise<boolean> 
     logStoreError("unreachable on peek", error);
     return isOverLimitInMemory(key, limit);
   }
+}
+
+/**
+ * `rateLimit` for a place that is taken and may be given back: a refusal
+ * does not count. With `rateLimit`, every call adds one, a refused one too,
+ * so one take, one refused call and one release left a limit of one spent
+ * with nothing sent (the check of 19 October 2026: a copy that failed while
+ * a second signing was refused, and every signing after it that day told a
+ * copy had gone). Here the count is exactly the places held.
+ */
+export async function takeRateLimit(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+  if (!isGlobalCapKey(key) || !hasSharedStore()) return takeInMemory(key, limit, windowMs);
+  try {
+    return await withKeyLock(key, () => rateLimitSharedUnlocked(key, limit, windowMs, false));
+  } catch (error) {
+    logStoreError("unreachable", error);
+    return takeInMemory(key, limit, windowMs);
+  }
+}
+
+function takeInMemory(key: string, limit: number, windowMs: number): RateLimitResult {
+  const now = Date.now();
+  sweep(now);
+  const existing = windows.get(key);
+  if (!existing || existing.resetAt <= now) {
+    windows.set(key, { count: 1, resetAt: now + windowMs });
+    return { ok: true, remaining: limit - 1, retryAfter: 0 };
+  }
+  const retryAfter = Math.ceil((existing.resetAt - now) / 1000);
+  if (existing.count >= limit) return { ok: false, remaining: 0, retryAfter };
+  existing.count += 1;
+  return { ok: true, remaining: limit - existing.count, retryAfter };
 }
 
 /**

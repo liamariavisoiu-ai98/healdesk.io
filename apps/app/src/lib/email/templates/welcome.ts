@@ -73,7 +73,8 @@ export type WelcomePayload = {
 export const renderWelcome: EmailTemplate<WelcomePayload> = (payload, ctx) => {
   const plan = getPlan(payload.planId);
   if (!plan) throw new EmailCompositionError(`There is no plan "${payload.planId}".`);
-  const clinic = ctx.clinicName ?? "your practice";
+  // It opens a sentence (a name the email may not print is left out).
+  const clinicStart = ctx.clinicName ?? "Your practice";
   const audience = audienceSingular(ctx.audience);
   const usd = (amount: number) => `$${amount.toLocaleString("en-US")}`;
   // The monthly price either way, as checkout quoted it: an annual plan's is
@@ -90,7 +91,7 @@ export const renderWelcome: EmailTemplate<WelcomePayload> = (payload, ctx) => {
   const blocks: Block[] = [
     {
       type: "paragraph",
-      text: `Thank you for your order. ${clinic}'s AYA is ready for you to set up: four short steps, about fifteen minutes of your time.`,
+      text: `Thank you for your order. ${clinicStart}'s AYA is ready for you to set up: four short steps, about fifteen minutes of your time.`,
     },
     { type: "action", label: "Continue setup", url: payload.continueUrl },
     {

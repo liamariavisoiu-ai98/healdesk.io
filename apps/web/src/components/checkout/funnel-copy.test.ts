@@ -656,6 +656,18 @@ describe("the clinic step", () => {
 });
 
 describe("the agreement step", () => {
+  /**
+   * The check of 19 October 2026: "or sent by a person if it can't go at
+   * once" promised a person whom no relay reaches while the host is off, or
+   * while apps/app predates the operation. The page itself always says when
+   * a copy did not go, and how to get it.
+   */
+  test("promises only what the page itself does about a copy", () => {
+    const said = text(agreementStep(answered()));
+    expect(said).toContain("A copy is emailed to you, and this page says if it can't be.");
+    expect(said).not.toMatch(/sent by a person/i);
+  });
+
   test("asks the covered-entity question in terms of billing", () => {
     expect(text(agreementStep(answered({ covered: null })))).toContain(
       "Do you bill any health insurance electronically, yourself or through a clearinghouse?",

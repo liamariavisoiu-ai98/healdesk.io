@@ -876,9 +876,10 @@ export function relayWebEmailEvent(event: {
 }
 
 /**
- * Tell apps/app that the signer's copy of an agreement was held back (P6:
- * one already went to the mailbox today, or the names on it are not safe to
- * mail), so ops is alerted and a person sends it: before payment there is no
+ * Tell apps/app that the signer's copy of an agreement is still owed (P6:
+ * one already went to the mailbox today, the names on it are not safe to
+ * mail, the day's copies are spent, or the send failed or had no transport),
+ * so ops is alerted and a person sends it: before payment there is no
  * account and no queue to show it in. The agreement's id and the code only.
  * A relay op with a short timeout, like emailQuota: the signature has been
  * recorded, and an apps/app in standby, or one older than 19 October 2026
@@ -886,7 +887,7 @@ export function relayWebEmailEvent(event: {
  */
 export function relayAgreementCopyWithheld(
   agreementId: string,
-  code: "already_sent_today" | "unsafe_text",
+  code: "already_sent_today" | "unsafe_text" | "daily_cap" | "send_failed" | "transport_unavailable",
 ): Promise<OpsResult<{ raised: boolean }>> {
   return send(
     "agreementCopyWithheld",

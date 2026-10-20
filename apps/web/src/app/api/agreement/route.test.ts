@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { DOWNLOAD_COOKIE } from "@/lib/agreement-download";
 import { findAgreementRecord } from "@/lib/checkout/records";
-import { mailboxOf } from "@/lib/email/agreement-copy";
-import { __resetRateLimiterForTests } from "@/lib/rate-limit";
+import { mailboxOf, UNCONFIRMED_COPIES_PER_DAY } from "@/lib/email/agreement-copy";
+import { __resetRateLimiterForTests, takeRateLimit } from "@/lib/rate-limit";
 import { signatureRequestFor } from "@/lib/checkout/records.testing";
 import { issueSetupToken, setupLinkExpiry } from "@/lib/setup-link";
 import { createSetupRequest, findSetupRequest, updateSetupRequest } from "@/lib/setup-requests";
@@ -310,6 +310,8 @@ describe("POST /api/agreement holds the copy to an address nobody confirmed to P
   beforeEach(() => {
     vi.stubEnv("HEALDESK_CHECKOUT_MODE", "public");
     vi.spyOn(console, "warn").mockImplementation(() => {});
+    // mockClear keeps an implementation a test set: each starts from the default.
+    appTakesNoRelays();
   });
 
   test("one copy per address a day, counted in the Sheet, so another instance does not send a second", async () => {
@@ -352,27 +354,154 @@ describe("POST /api/agreement holds the copy to an address nobody confirmed to P
    * payment, so nobody knew to send it. apps/app is told, once per mailbox
    * and day, with the agreement's id and the code only.
    */
+  /** The relays to apps/app's agreementCopyWithheld, as sent. */
+  const relayed = () =>
+    resend.mock.calls
+      .filter(([url]) => String(url) === "http://app.test/api/ops")
+      .map(([, init]) => JSON.parse(String(init?.body)) as { op: string; args: Record<string, unknown> });
+
+  /** An apps/app without the operation, or a host in standby: no relay is taken. */
+  function appTakesNoRelays(): void {
+    resend.mockImplementation(async (url) => {
+      if (String(url) === "https://api.resend.com/emails") return Response.json({ id: "email_1" });
+      return new Response("not here", { status: 599 });
+    });
+  }
+
+  /** apps/app answering the relay, as one that has the operation does. */
+  function appTakesRelays(): void {
+    resend.mockImplementation(async (url) => {
+      if (String(url) === "https://api.resend.com/emails") return Response.json({ id: "email_1" });
+      if (String(url) === "http://app.test/api/ops") return Response.json({ data: { raised: true } });
+      return new Response("not here", { status: 599 });
+    });
+  }
+
   test("a copy held back is told to ops once per mailbox and day, ids and codes only", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const relayed = () =>
-      resend.mock.calls
-        .filter(([url]) => String(url) === "http://app.test/api/ops")
-        .map(([, init]) => JSON.parse(String(init?.body)) as { op: string; args: Record<string, unknown> });
+    appTakesRelays();
     await sign(null, signature("info@radiance.com"));
     expect(relayed()).toEqual([]);
     const second = (await (await sign(null, signature("info+again@radiance.com"))).json()) as { agreementId: string };
     await sign(null, signature("info@radiance.com"));
-    expect(relayed()).toEqual([
-      { op: "agreementCopyWithheld", args: { agreementId: second.agreementId, code: "already_sent_today" } },
-    ]);
+    await vi.waitFor(() =>
+      expect(relayed()).toEqual([
+        { op: "agreementCopyWithheld", args: { agreementId: second.agreementId, code: "already_sent_today" } },
+      ]),
+    );
     expect(JSON.stringify(relayed())).not.toContain("radiance.com");
     const unsafe = (await (await sign(null, signature("x@stranger.com", { signatoryName: "Call 5125550100" }))).json()) as {
       agreementId: string;
     };
-    expect(relayed()[1]).toEqual({
-      op: "agreementCopyWithheld",
-      args: { agreementId: unsafe.agreementId, code: "unsafe_text" },
+    await vi.waitFor(() =>
+      expect(relayed()[1]).toEqual({
+        op: "agreementCopyWithheld",
+        args: { agreementId: unsafe.agreementId, code: "unsafe_text" },
+      }),
+    );
+  });
+
+  /**
+   * The check of 19 October 2026: a relay apps/app did not take kept the
+   * mailbox's place for the day, so no later signing was told; and a copy
+   * that failed was never told at all.
+   */
+  test("a relay apps/app did not take gives its place back, and a copy that failed is told too", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    appTakesNoRelays();
+    await sign(null, signature("relays@radiance.com"));
+    // apps/app answers nothing it knows (599 here): the relay is not taken,
+    // and once it has answered, the mailbox's place is given back.
+    await sign(null, signature("relays@radiance.com"));
+    await vi.waitFor(() => expect(relayed()).toHaveLength(1));
+    const withheldPlaces = () =>
+      sheets
+        .records("counters")
+        .filter((r) => String(r.key).startsWith("agreement-copy-withheld:") && r.key !== "agreement-copy-withheld:day")
+        .map((r) => Number(r.count));
+    await vi.waitFor(() => expect(withheldPlaces()).toEqual([0]));
+    appTakesRelays();
+    const third = (await (await sign(null, signature("relays@radiance.com"))).json()) as { agreementId: string };
+    await vi.waitFor(() => expect(relayed()).toHaveLength(2));
+    expect(relayed()[1]!.args).toEqual({ agreementId: third.agreementId, code: "already_sent_today" });
+
+    resend.mockImplementationOnce(async () => new Response("down", { status: 500 }));
+    const failed = (await (await sign(null, signature("new@clinic.com"))).json()) as { agreementId: string };
+    await vi.waitFor(() =>
+      expect(relayed()[2]).toEqual({ op: "agreementCopyWithheld", args: { agreementId: failed.agreementId, code: "send_failed" } }),
+    );
+  });
+
+  test("telling ops never holds the buyer's answer", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await sign(null, signature("answer@radiance.com"));
+    let answerRelay: (r: Response) => void = () => {};
+    resend.mockImplementation(async (url) => {
+      if (String(url) === "http://app.test/api/ops") return new Promise<Response>((resolve) => (answerRelay = resolve));
+      return Response.json({ id: "email_1" });
     });
+    const answer = await sign(null, signature("answer@radiance.com"));
+    // The withheld sentence, while the relay is still waiting on apps/app.
+    expect(((await answer.json()) as { copy: { reason: string } }).copy.reason).toBe(
+      "A copy of an agreement already went to this address today, so we have not emailed another.",
+    );
+    await vi.waitFor(() => expect(relayed()).toHaveLength(1));
+    answerRelay(Response.json({ data: { raised: true } }));
+  });
+
+  test("the day's copies to unconfirmed addresses are capped across mailboxes, and a refusal takes nothing", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The day's places but one are taken already, by other mailboxes.
+    for (let i = 1; i < UNCONFIRMED_COPIES_PER_DAY; i += 1) {
+      expect((await takeRateLimit("agreement-copy:day", UNCONFIRMED_COPIES_PER_DAY, 24 * 60 * 60 * 1000)).ok).toBe(true);
+    }
+    const last = (await (await sign(null, signature("last@clinic.com"))).json()) as { copy: unknown };
+    expect(last.copy).toEqual({ status: "sent" });
+    const over = (await (await sign(null, signature("one.more@clinic.com"))).json()) as { copy: unknown };
+    expect(over.copy).toEqual({
+      status: "not_sent",
+      reason: "We have emailed as many copies today as we send in a day, so yours has not been sent.",
+    });
+    expect(emails()).toHaveLength(1);
+    // The refused mailbox kept nothing: its own day is free for tomorrow's place.
+    const day = sheets.records("counters").find((r) => r.key === "agreement-copy:day");
+    expect(Number(day!.count)).toBe(UNCONFIRMED_COPIES_PER_DAY);
+  });
+
+  /**
+   * The check of 19 October 2026: every call counted, a refused one too, so a
+   * copy that failed while a second signing was refused left the day spent,
+   * and the next signing was told a copy had gone.
+   */
+  test("a copy that failed while a second signing was refused leaves the mailbox's day free", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The first copy's send fails, slowly, while the second signing is refused.
+    let firstSend = true;
+    resend.mockImplementation(async (url) => {
+      if (String(url) !== "https://api.resend.com/emails") return new Response("not here", { status: 599 });
+      if (!firstSend) return Response.json({ id: "email_2" });
+      firstSend = false;
+      return new Promise<Response>((resolve) => setTimeout(() => resolve(new Response("down", { status: 500 })), 100));
+    });
+    const [a, b] = await Promise.all([
+      sign(null, signature("info@radiance.com")),
+      sign(null, signature("info@radiance.com")),
+    ]);
+    const reasons = await Promise.all([a, b].map(async (r) => ((await r.json()) as { copy: { reason?: string } }).copy.reason));
+    expect(reasons).toContain("We tried to email your copy and it did not go out.");
+    const c = await sign(null, signature("info@radiance.com"));
+    expect(((await c.json()) as { copy: unknown }).copy).toEqual({ status: "sent" });
+  });
+
+  test("the address is counted and sent in the form it travels in: a full-width domain is gmail.com", async () => {
+    const wide = await sign(null, signature("alex@ｇｍａｉｌ.com"));
+    expect(wide.status).toBe(201);
+    expect(((await wide.json()) as { copy: unknown }).copy).toEqual({ status: "sent" });
+    expect(emails()[0]!.to).toEqual(["alex@gmail.com"]);
+    const plain = await sign(null, signature("a.lex@gmail.com"));
+    expect(((await plain.json()) as { copy: { status: string } }).copy.status).toBe("not_sent");
+    expect(mailboxOf("alex@gmail。com")).toBe("alex@gmail.com");
+    expect(mailboxOf("alex@münchen.de")).toBe(mailboxOf("alex@xn--mnchen-3ya.de"));
   });
 
   test("two signings to one mailbox at the same moment send one copy", async () => {

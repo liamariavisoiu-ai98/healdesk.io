@@ -150,9 +150,9 @@ async function sendEscalation(
     hasReplyAddress: options.replyTo !== null,
     accountRows: [{ ...account, clinicName: printed ?? "A practice" }],
   };
-  // The allowlist runs before rendering, as the outbox's does: the payload is
-  // ids, categories, dates, flags and the clinic's own numbers, or nothing goes.
-  assertPayloadAllowed(payload, "support_escalation");
+  // sendEmail holds the payload to the allowlist (ids, categories, dates,
+  // flags and the clinic's own numbers, or nothing goes), and reports a
+  // refusal to ops, which a check here would have kept from it.
   const rendered = renderSupportEscalation(payload, {
     clinicName: printed,
     audience: "patients",

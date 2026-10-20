@@ -285,7 +285,11 @@ describeDb("/sign-in/help", () => {
     expect(sent[0]!.message.text).not.toMatch(/\/link\//);
     const alerts = await opsAlerts();
     expect(alerts).toEqual([
-      { code: "no_match", clinicId: clinic.clinicId, signal: "clinic_not_named" },
+      {
+        code: "no_match",
+        clinicId: clinic.clinicId,
+        windowStart: new Date().toISOString().slice(0, 10),
+      },
     ]);
     expect(JSON.stringify(alerts)).not.toContain("Somewhere");
     const { rows } = await getMigratorPool().query<{
@@ -348,7 +352,7 @@ describeDb("/sign-in/help", () => {
    * in each process's memory, so made-up addresses from one IP could spend
    * Resend's 100 a day, which sign-in links and urgent alerts need.
    */
-  test("a flood of made-up addresses mails hello@ nothing: ops' hourly alert is all they get", async () => {
+  test("a flood of made-up addresses mails nothing at all: the security log keeps them", async () => {
     const { transport, sent } = fakeTransport();
     for (let i = 0; i < 15; i += 1) {
       expect(
@@ -360,7 +364,44 @@ describeDb("/sign-in/help", () => {
       ).toBe("no_account");
     }
     expect(sent).toEqual([]);
-    expect((await opsAlerts()).map((a) => a.code)).toEqual(["no_account"]);
+    // No alert either: the security log has each, and the digest counts them.
+    expect(await opsAlerts()).toEqual([]);
+    const { rows } = await getMigratorPool().query(
+      `select 1 from security_events where event = 'sign_in_help_unmatched' and metadata->>'code' = 'no_account'`,
+    );
+    expect(rows).toHaveLength(15);
+  });
+
+  /**
+   * The check of 19 October 2026: the ops alert was hourly per code, clinic
+   * and whether the name typed matched, so a few requests an hour (one
+   * made-up address, each known clinic's address with and without its name)
+   * mailed 120 alerts a day on the Resend account sign-in links need.
+   */
+  test("ops hears once a UTC day per code and clinic, however the name is typed and however often", async () => {
+    const { stripe } = fakeStripe({
+      cards: [{ id: "pm_2", card: { last4: "1111", exp_month: 4, exp_year: 2028 } }],
+    });
+    __setStripeForTests(stripe);
+    const { transport } = fakeTransport();
+    const day = new Date("2026-10-19T00:30:00Z");
+    for (let hour = 0; hour < 24; hour += 1) {
+      const now = new Date(day.getTime() + hour * 60 * 60 * 1000);
+      for (const name of ["help", "Somewhere Else"]) {
+        await runSignInHelp({ email: clinic.staffEmail, clinic: name, detail: card }, {}, { transport, now });
+      }
+      await runSignInHelp({ email: `nobody${hour}@nowhere.test`, clinic: "x", detail: card }, {}, { transport, now });
+    }
+    expect(await opsAlerts()).toEqual([
+      { code: "no_match", clinicId: clinic.clinicId, windowStart: "2026-10-19" },
+    ]);
+    // The next day is a new day.
+    await runSignInHelp(
+      { email: clinic.staffEmail, clinic: "help", detail: card },
+      {},
+      { transport, now: new Date("2026-10-20T09:00:00Z") },
+    );
+    expect((await opsAlerts()).map((a) => a.windowStart)).toEqual(["2026-10-19", "2026-10-20"]);
   });
 
   test("the same account twice in a day mails hello@ once, and a send that failed gives its place back", async () => {
@@ -377,10 +418,13 @@ describeDb("/sign-in/help", () => {
     await ask(transport);
     await ask(transport);
     expect(sent.map((s) => s.to)).toEqual(["hello@healdesk.io"]);
-    const { rows } = await getMigratorPool().query<{ status: string }>(
-      `select status from email_events where kind = 'access_request' order by recorded_at`,
+    const { rows } = await getMigratorPool().query<{ status: string; event_id: string | null }>(
+      `select status, event_id from email_events where kind = 'access_request' order by recorded_at`,
     );
     expect(rows.map((r) => r.status)).toEqual(["failed", "sent"]);
+    // The claim is a digest: email_events, which holds no clinic, holds no clinic id.
+    expect(rows[1]!.event_id).toMatch(/^i3\.[0-9a-f]{40}$/);
+    expect(rows[1]!.event_id).not.toContain(clinic.clinicId);
   });
 
   test("past the day's cap hello@ gets nothing more, and ops hears once", async () => {
@@ -424,7 +468,7 @@ describeDb("/sign-in/help", () => {
         { transport },
       ),
     ).toBe("billing_unavailable");
-    expect((await opsAlerts()).map((a) => a.code)).toEqual(["no_account", "billing_unavailable"]);
+    expect((await opsAlerts()).map((a) => a.code)).toEqual(["billing_unavailable"]);
   });
 
   test("the page's answer is the same whether or not the address has an account, and nothing runs before it", async () => {

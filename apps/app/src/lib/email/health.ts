@@ -20,7 +20,9 @@ import { isDirectKind, KIND_SHAPE } from "./kind-rules";
  * near a pause.
  *
  * email_events (0099) keeps a kind, a status and a time for each of them, and
- * nothing else: no address, no clinic.
+ * nothing else: no address, no clinic. Its event id is a relayed webhook's
+ * own id, or I3's daily claim (lib/sign-in/help.ts), a digest of the clinic,
+ * the code and the day, never the clinic's id itself.
  *
  *   - sendEmail records each send of a kind `countsAtSend` names, sent or
  *     failed, as the transport answered it;

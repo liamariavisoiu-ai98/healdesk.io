@@ -5,7 +5,7 @@ import { unsafeDb } from "@/db";
 import { checkoutIntents, reportDeliveries, type CheckoutIntentPayload } from "@/db/schema";
 import { billingRecipients } from "@/lib/billing/recipients";
 import { setupLastDay } from "@/lib/clinic/setup-window";
-import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
+import { printableClinicName } from "@/lib/email/lint";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import { audienceFor, clinicReason } from "@/lib/email/templates/context";
 import { renderWelcome, type WelcomePayload } from "@/lib/email/templates/welcome";
@@ -214,7 +214,6 @@ export async function sendWelcomeEmail(
       billingUrl: publicUrl(`/c/${state.clinic.slug}/billing#switches`),
       agreementUrl: publicUrl(`/c/${state.clinic.slug}/billing/agreement`),
     };
-    assertPayloadAllowed(payload, "welcome");
     // The name as the email may print it, or none (lib/email/lint.ts).
     const printed = printableClinicName(state.clinic.name);
     const rendered = renderWelcome(payload, {

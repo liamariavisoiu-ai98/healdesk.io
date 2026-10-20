@@ -53,7 +53,8 @@ export const renderCalendarElectionRecorded: EmailTemplate<CalendarElectionRecor
     day: "numeric",
     year: "numeric",
   }).format(new Date(payload.electedAt));
-  const practice = ctx.clinicName ?? "your practice";
+  // It opens the preheader and a sentence (a name the email may not print is left out).
+  const practice = ctx.clinicName ?? "Your practice";
   const summary =
     payload.kind === "not_used"
       ? "healdesk does not connect to this location's Google Calendar, and your assistant takes each booking as a request for your staff to confirm."

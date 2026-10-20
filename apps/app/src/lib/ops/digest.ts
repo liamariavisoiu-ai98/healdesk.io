@@ -10,6 +10,7 @@ import {
   checkoutIntents,
   opsAlerts,
   reportDeliveries,
+  securityEvents,
   stripeConnectEvents,
   transcriptEmails,
 } from "@/db/schema";
@@ -314,6 +315,23 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
     }
   });
 
+  // /sign-in/help's requests for an address with no account, which alert no
+  // one: the security log holds each (lib/sign-in/help.ts).
+  let signInHelpNoAccountCount = 0;
+  await tally.read("security_events", async () => {
+    const [row] = await unsafeDb
+      .select({ n: count() })
+      .from(securityEvents)
+      .where(
+        and(
+          eq(securityEvents.event, "sign_in_help_unmatched"),
+          sql`${securityEvents.metadata}->>'code' = 'no_account'`,
+          gte(securityEvents.occurredAt, since),
+        ),
+      );
+    signInHelpNoAccountCount = row?.n ?? 0;
+  });
+
   let emailsYesterdayCount: number | null = null;
   let emailsTodayCount: number | null = null;
   await tally.read("email_daily_quota", async () => {
@@ -357,6 +375,7 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
       (bouncePercent ?? 0) >= BOUNCE_TARGET_PERCENT ||
       (complaintPercent ?? 0) >= COMPLAINT_TARGET_PERCENT,
     unreadCount: tally.unread,
+    signInHelpNoAccountCount,
   };
 }
 

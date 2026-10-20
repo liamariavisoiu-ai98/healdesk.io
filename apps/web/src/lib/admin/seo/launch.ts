@@ -172,7 +172,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise:
       "One AYA answers for every location of a practice, as one central assistant like a call centre, and each further location is added to the same plan from Billing, at the plan's price again plus its setup fee once, renewing on the same date",
     where:
-      "Pricing (Prices are per location), Get AYA's package step and Review and pay, terms (More than one location), the portal's Billing (Add a location)",
+      "Pricing (Prices are per location), Get AYA's package step and Review and pay, terms (More than one location), the portal's Billing (Add a location), the location-added email, the set-up wizard's first question",
     status: "building",
     left: "Locations are being built as rows inside one account, for the AYA Web Chat and AYA Meta Chat packages bought first (the extra-locations plan, slice 1). Today AYA knows one address and one set of hours, no conversation or booking request records a location, the acknowledgement a practice accepts for one central assistant is drafted and marked not released until its wording audit passes, nothing stores it, and addLocation still ends in createLocationClinic's stub, so the switch that offers Add a location is off for every package. Billing's Add a location card states the price and the central model and offers no button. It moves to On in the commit that switches locations on for the chat packages, once that release is deployed. One location works without it, so it does not hold go-live.",
     evidence:

@@ -40,7 +40,7 @@ export const PORTAL_META_OUTCOMES: Record<string, { ok: boolean; text: string }>
   },
   several_pages: {
     ok: false,
-    text: "More than one Page was chosen. Each location answers on one Page, so sign in again and choose only this location's Page.",
+    text: "More than one Page was chosen. Your account answers on one Facebook Page for all your locations, so sign in again and choose only that Page.",
   },
   meta_error: { ok: false, text: "Facebook didn't finish connecting. Nothing was changed. Try again in a minute." },
   page_taken: {

@@ -11,7 +11,9 @@ import type { EmailTemplate } from "./types";
  *
  * What the location cost: its setup fee, charged when it was added, and its
  * plan price, which joins the plan at once (prorated onto the invoice) or,
- * before the plan has started, with the plan itself. The payload does not say
+ * before the plan has started, with the plan itself. And what it is: one more
+ * location answered by the account's one AYA, as a central assistant (the
+ * owner's model of 20 October 2026), not a setup of its own. The payload does not say
  * whether the plan is monthly or annual, so the price is "each billing
  * period" rather than a guess. The invoice is the receipt (X3's merges), so
  * how to cancel online sits beside it.
@@ -32,7 +34,7 @@ export const renderLocationAdded: EmailTemplate<LocationAddedPayload> = (payload
   return compose(
     {
       subject: `Location added: you now have ${payload.locations} healdesk locations`,
-      preheader: "The new location has its own setup in healdesk.",
+      preheader: "The same AYA answers for every one of your locations.",
       blocks: [
         {
           type: "paragraph",
@@ -46,7 +48,7 @@ export const renderLocationAdded: EmailTemplate<LocationAddedPayload> = (payload
         },
         {
           type: "paragraph",
-          text: "The new location has its own setup to finish in healdesk.",
+          text: "The same AYA answers for every location, as one central assistant with one knowledge base and price list. It answers for this one once you confirm its address, hours and phone numbers in your portal.",
         },
         ...invoice,
       ],

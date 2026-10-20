@@ -213,7 +213,7 @@ const OUTCOMES: Record<GoogleConnectOutcome, { ok: boolean; text: string }> = {
   },
   account_in_use: {
     ok: false,
-    text: "That Google account is already connected to another healdesk location. Each location connects its own; nothing was stored.",
+    text: "That Google account is already connected to another healdesk account; nothing was stored.",
   },
   already_connected: { ok: true, text: "Your calendar was already connected." },
   terms: { ok: false, text: "This location's calendar terms don't let healdesk use a calendar." },

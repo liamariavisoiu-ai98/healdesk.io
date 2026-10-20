@@ -41,12 +41,16 @@
  * The setup fee is per PACKAGE, not per plan (it does not change with how
  * much a clinic uses), so its lookup key carries the package id.
  *
- * ## The setup fee is real and charged on the first invoice
+ * ## The setup fee is real, and charged once per location
  *
- * Provisioning builds a voice agent, allocates a number and runs a QA pass
- * before the clinic sees anything, and the setup fee is what pays for that
- * work. There is no trial. The setup credits below take a share of it off,
- * never anything off the subscription.
+ * The setup fee pays for the location's set-up, its number where it has
+ * phone, and a QA pass before it answers anyone. For the first location that
+ * is provisioning the clinic's AYA, and it is charged on the first invoice;
+ * a further location is answered by the same AYA (the owner's central model
+ * of 20 October 2026), and its fee is charged when it is added
+ * (`additionalLocationChargeUsd`). There is no trial. The setup credits below
+ * take a share of the first location's fee off, never anything off the
+ * subscription.
  *
  * ## Annual pricing is a flat 20% off, stated per month
  *

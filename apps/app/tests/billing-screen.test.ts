@@ -216,6 +216,11 @@ describeDb("Billing", () => {
     expect(words).toContain(
       `Each further location is added to this plan from Billing, at your plan’s price again: $${plan.monthlyUsd.toLocaleString("en-US")} a month plus a $${plan.setupFeeUsd.toLocaleString("en-US")} setup fee, charged once. It renews on the same date as your plan, and the allowances are pooled across your locations.`,
     );
+    // The owner's central model of 20 October 2026: one AYA for every
+    // location, and only the practice's own locations on one account.
+    expect(words).toContain(
+      "One AYA answers for all of your locations as a central assistant, like a call centre, with one knowledge base, price list and sign-in. Every location must be run by your practice; one run by a different business needs its own account.",
+    );
     // No inbox that cannot add one, and no newness words or dates.
     expect(card).not.toContain("mailto:");
     expect(words).not.toMatch(/hello@|email|set it up with you/i);

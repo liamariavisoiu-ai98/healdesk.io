@@ -71,6 +71,15 @@ describe("the sheet, in its order", () => {
   test("prices are per location, and annual billing is 20% off", () => {
     expect(words).toContain("Prices are per location.");
     expect(words).toContain("at the same plan price again and its own setup fee");
+    // The owner's central model of 20 October 2026: one AYA for every
+    // location, not an assistant per location, and only the practice's own.
+    expect(words).toContain(
+      "One AYA answers for all of your locations as a central assistant, like a call centre: one knowledge base, one price list and one sign-in, not a separate assistant for each location.",
+    );
+    expect(words).toContain("She is designed to work out, or ask, which location someone means.");
+    expect(words).toContain(
+      "Every location must be run by your practice; a location run by a different business needs its own account.",
+    );
     expect(words).toContain("annual billing is 20% off");
     expect(words).toContain("Save 20%");
   });

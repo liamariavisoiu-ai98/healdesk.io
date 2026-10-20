@@ -97,8 +97,11 @@ import { supersedeAgreement, SupersedeError } from "./kind";
  *      at 7 days (`agreement_unsigned_7_days`).
  *   3. **The practice signs** at /agreement/<token>, a screen that reuses the
  *      funnel's agreement step for the BAA with the practice's own validated
- *      answers (app/agreement/[token]). `signAgreementResign` renders the
- *      document again from those answers, refuses a screen that showed
+ *      answers (app/agreement/[token]): the DPA's, except the booking system
+ *      and Google account, which are its calendar terms in effect, an
+ *      election since it signed included (documentFromDpa).
+ *      `signAgreementResign` renders the document again from those answers,
+ *      refuses a screen that showed
  *      anything else, and in ONE transaction writes the acceptance, puts it
  *      in force through supersedeAgreement (app_supersede_agreement(), which
  *      never goes BAA→DPA and binds the new row), records the calendar terms
@@ -980,15 +983,25 @@ function textOf(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** The practice's answers, from the DPA in force, or null when they cannot sign a BAA. */
+/**
+ * The practice's answers, from the DPA in force, or null when they cannot
+ * sign a BAA. The booking system and Google account are the location's
+ * calendar terms in effect (`calendar`), as documentFromBaa takes them: the
+ * DPA's election form is released, so a DPA location may have changed its
+ * account kind by election since it signed, and the BAA's signature becomes
+ * its terms (recordSupersedingTerms). Answers older than that election would
+ * undo it, and the calendar watch would disconnect the Google account it had
+ * allowed (`election_changed`). Without terms in effect, the DPA's own.
+ */
 function documentFromDpa(
   variables: Record<string, unknown>,
   covered: boolean | null,
   signatoryEmail: string,
+  calendar: { bookingSystem: string; calendarAccount: string } | null,
 ): ResignDocument | null {
   const specialty = textOf(variables.specialty);
-  const bookingSystem = textOf(variables.bookingSystem);
-  const calendarAccount = textOf(variables.calendarAccount);
+  const bookingSystem = calendar?.bookingSystem || textOf(variables.bookingSystem);
+  const calendarAccount = calendar?.calendarAccount || textOf(variables.calendarAccount);
   const clinicLegalName = textOf(variables.clinicLegalName);
   if (
     !clinicLegalName ||
@@ -1081,10 +1094,22 @@ async function baaResignDocument(
     .from(clinicSettings)
     .where(eq(clinicSettings.clinicId, tx.clinicId))
     .limit(1);
+  return documentFromBaa(variables, clinic, settings, signatoryEmail, await calendarInEffect(tx));
+}
+
+/**
+ * The booking system and Google account of the clinic's calendar terms in
+ * effect, an election since the signature included, or null with none. The
+ * clinic is the account (a location re-signs through it), the location set
+ * up at signing whose terms the new signature records.
+ */
+async function calendarInEffect(
+  tx: TenantTx,
+): Promise<{ bookingSystem: string; calendarAccount: string } | null> {
   const terms = await calendarTermsFor(tx);
-  const calendar =
-    "account" in terms ? { bookingSystem: terms.bookingSystem, calendarAccount: terms.account } : null;
-  return documentFromBaa(variables, clinic, settings, signatoryEmail, calendar);
+  return "account" in terms
+    ? { bookingSystem: terms.bookingSystem, calendarAccount: terms.account }
+    : null;
 }
 
 async function readLink(tx: TenantTx, resignId: string, forUpdate: boolean) {
@@ -1121,7 +1146,12 @@ async function readLink(tx: TenantTx, resignId: string, forUpdate: boolean) {
     }
     document = await baaResignDocument(tx, agreement.variables, clinic, signIn.email);
   } else {
-    document = documentFromDpa(agreement.variables, clinic.covered, signIn.email);
+    document = documentFromDpa(
+      agreement.variables,
+      clinic.covered,
+      signIn.email,
+      await calendarInEffect(tx),
+    );
   }
   if (!document) return { ok: false as const, reason: "unknown" as const };
   return {

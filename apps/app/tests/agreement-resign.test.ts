@@ -107,7 +107,9 @@ const {
 const { renderResignPreview } = await import("@/lib/agreements/resign-preview");
 const { supersedeAgreement } = await import("@/lib/agreements/kind");
 const { assistantMayAnswer } = await import("@/lib/billing/answering");
-const { recordAgreementTerms, recordSupersedingTerms } = await import("@/lib/booking/elections");
+const { recordAgreementTerms, recordCalendarElection, recordSupersedingTerms } = await import(
+  "@/lib/booking/elections"
+);
 const { calendarTermsFor } = await import("@/lib/booking/terms");
 const { pauseAya, PauseError, resumeAya } = await import("@/lib/channels/pause");
 const { AGREEMENT_PAUSE_LABEL, pauseBanner } = await import("@/lib/channels/pause-words");
@@ -203,7 +205,10 @@ describeDb("the DPA→BAA re-sign", () => {
    * the real signature and variables, bound to its organisation, production,
    * billed, with phone and website chat live and a direct line.
    */
-  async function dpaPractice(label: string) {
+  async function dpaPractice(
+    label: string,
+    { calendarAccount = "workspace_no_baa" }: { calendarAccount?: CalendarAccount } = {},
+  ) {
     const clinic = await seedClinic(label);
     const signed = await signAgreement(
       {
@@ -216,7 +221,7 @@ describeDb("the DPA→BAA re-sign", () => {
         attributionMode: "estimated",
         platform: agreementPlatformFor("none"),
         bookingSystem: "none",
-        calendarAccount: "workspace_no_baa",
+        calendarAccount,
         assentLabel: DPA_ASSENT_LABEL,
         templateVersion: currentDpaTemplate().version,
       },
@@ -823,6 +828,60 @@ describeDb("the DPA→BAA re-sign", () => {
         ]),
       );
       expect(permitted[0]!.ok).toBe(true);
+    });
+
+    test("DPA→BAA: a location that changed its kind of Google account by election re-signs with that account, and keeps its calendar", async () => {
+      // Signed the DPA with a personal account; the owner then elected a
+      // Workspace one on the DPA's own form (released with the DPA) and
+      // connected it.
+      const practice = await dpaPractice("resigncalelect", { calendarAccount: "personal" });
+      await recordSignedTerms(practice.clinicId, practice.dpaId);
+      const elected = await withTenant({ clinicId: practice.clinicId, actor: OPERATOR }, (tx) =>
+        recordCalendarElection(tx, {
+          choice: { bookingSystem: "none", calendarAccount: "workspace_no_baa" },
+          signatory: { name: "Laura Owner", title: "Owner" },
+          via: { source: "portal", userId: practice.staffUserId },
+        }),
+      );
+      expect(elected).toMatchObject({ status: "recorded" });
+      const connected = await connectWorkspace(practice.clinicId);
+      expect(await termsOf(practice.clinicId)).toMatchObject({
+        account: "workspace_no_baa",
+        source: "portal",
+        sequence: 2,
+        agreementId: practice.dpaId,
+        allowsWrite: true,
+      });
+
+      const outcome = await signFromLink(practice);
+
+      // The BAA was signed with the account the location holds now, not the
+      // DPA's "personal", and that signature is its terms from now on.
+      const elections = await electionsOf(practice.clinicId);
+      expect(elections.at(-1)).toMatchObject({
+        sequence: 3,
+        source: "agreement",
+        agreement_id: outcome.agreementId,
+        calendar_account: "workspace_no_baa",
+        document_version: CURRENT_BAA_VERSION,
+      });
+      expect(await termsOf(practice.clinicId)).toMatchObject({
+        account: "workspace_no_baa",
+        source: "agreement",
+        sequence: 3,
+        agreementId: outcome.agreementId,
+        allowsWrite: true,
+      });
+
+      // So the watch leaves the Workspace calendar connected.
+      expect(await sweepCalendarTerms([practice.clinicId])).toEqual({
+        checked: 1,
+        disconnected: 0,
+        failed: 0,
+        failedClinicIds: [],
+      });
+      expect(await connectionOf(practice.clinicId)).toEqual({ status: "active", last_error: null });
+      expect(google.grantOf(connected.refreshToken)?.revoked).toBe(false);
     });
 
     /**

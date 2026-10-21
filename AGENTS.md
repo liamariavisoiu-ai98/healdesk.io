@@ -21,47 +21,42 @@ The one rule to carry even if you read nothing else:
 
 ---
 
-# Continuously maintained session handoff
+# Session handoff — live state (update after every work package)
 
-This section is **operational state**, not a replacement for the architecture rules above. Follow [CLAUDE.md](./CLAUDE.md), the immutable [product specification](./docs/v1-product-spec.md), and the [master execution plan](./HEALDESK_CLAUDE_CODE_LAUNCH_EXECUTION_PLAN.md). Start every session with [the proof-of-reading procedure](./docs/claude-session-start.md).
+**Purpose:** This is a concise, persistent resume pointer, **not** a second product specification or a claim that a previous session succeeded. Read [CLAUDE.md](./CLAUDE.md), [product spec](./docs/v1-product-spec.md), [master delivery plan](./HEALDESK_CLAUDE_CODE_LAUNCH_EXECUTION_PLAN.md), and [session-start protocol](./docs/claude-session-start.md) first. Keep this section brief (ideally under 100 lines); link to PRs, issues and CI rather than copying lengthy logs.
 
-**Do not assume the following state is current.** Compare it to the actual branch, HEAD, worktree, recent commits, code and test results. Refresh this section at the end of each work package or before an account/session switch. Never put credentials, tokens, patient data or protected logs here.
+**Rules:** Verify this snapshot against Git, actual code and CI on every restart. Never store credentials, tokens, PHI, signed agreements or sensitive production logs. Do not overwrite unrelated uncommitted work. Separate `CODE`, `TESTED`, `DEPLOYED`, `LIVE VERIFIED` and `OWNER APPROVED`.
 
-## Handoff snapshot
-- Updated (UTC): 2026-10-21 (initial handoff; refresh on next engineering session)
-- Repository: `liamariavisoiu-ai98/healdesk.io`
-- Branch and HEAD: **recheck with Git**; no development checkout state verified here.
-- Current wave: Wave 0 — read-only repository and launch-readiness audit.
-- Current approved task: Review the master plan, reconcile it with code and launch promises, and propose bounded implementation packages. **No production deployment or activation authorized.**
-- Working tree: Unknown; inspect `git status --short` before editing.
+## Resume pointer
+| Field | Current value |
+| --- | --- |
+| Last updated (UTC) | 2026-10-21; initial documentation handoff |
+| Current task | `WAVE0-01` — read-only launch inventory and work-package proposal |
+| Status | NOT STARTED; no engineering audit or production proof claimed |
+| Branch / HEAD | Resolve locally with `git branch --show-current` / `git rev-parse HEAD` |
+| Worktree | Unknown; inspect `git status --short` before editing |
+| Approved scope | Read-only audit and planning after Owner authorizes this work |
+| Next action | Review PR #11; after merge, run session-start protocol and Wave 0 |
+| Blocker | Owner review/merge of [PR #11](https://github.com/liamariavisoiu-ai98/healdesk.io/pull/11) |
 
-## Verified facts and source of truth
-- `CLAUDE.md` and `docs/v1-product-spec.md` govern architecture and product scope.
-- The Owner reports Retell and Anthropic agreements executed, database coverage confirmed, and signed evidence retained. This is Owner-reported, not a live production configuration check.
-- The SEO/GEO admin dashboard, technical SEO routes and launch-promise register have been inspected in source; production success has **not** been established by this handoff.
-- `apps/web/src/lib/admin/seo/launch.ts` contains public-promise launch blockers; never mark an item `on` without the specified production evidence.
+## Last verified / reported evidence
+- **Owner-reported:** Retell and Anthropic agreements signed, database coverage confirmed, signed evidence retained. Do not request repeat signatures without a specific new requirement.
+- **Source-inspected, not production-verified:** SEO/GEO code and `apps/web/src/lib/admin/seo/launch.ts`. The launch-promise register requires real evidence before a feature is marked on.
+- **This change:** continuity rules, master plan, startup procedure and CI hygiene are proposed in [PR #11](https://github.com/liamariavisoiu-ai98/healdesk.io/pull/11); no product code, production deployment or live tests were performed.
 
-## Work completed in the current documentation change
-- Permanent session rules added to `CLAUDE.md` on a review branch.
-- Proof-of-reading procedure, execution plan, PR template and automated documentation check are being prepared on that branch.
-- No product feature, production integration, deployment or live acceptance test has been completed by this documentation work.
+## Last completed work package
+- ID / outcome: Documentation preparation for PR #11; awaiting review.
+- Changed paths: `CLAUDE.md`, `AGENTS.md`, master plan, startup note, PR template, workflow and checker.
+- Tests: No passing test or CI run verified; inspect PR checks.
+- Evidence: [PR #11](https://github.com/liamariavisoiu-ai98/healdesk.io/pull/11).
 
-## In progress / failures
-- Engineering Wave 0 has **not** been run.
-- No CI, test or deployment result is claimed here. Check the PR and GitHub Actions after opening it.
+## Next approved work and Owner queue
+1. **Owner:** Review PR #11 and CI; merge only when satisfied. Configure required status check in branch protection.
+2. **Claude Code, once authorized:** Run Wave 0 read-only audit; reconcile source, tests, product spec and launch promises; propose task IDs, priority, proof and Owner dependencies.
+3. **Owner:** Approve the first bounded engineering work package before product edits.
 
-## Next actions — ordered
-1. Review and merge the continuity documentation PR after checks and Owner approval.
-2. In a fresh Claude Code session, run the read-only Wave 0 audit using `docs/claude-session-start.md`.
-3. Produce a prioritized, evidence-backed list of Claude Code tasks and Owner-only dependencies.
-4. Ask for approval before implementing the first bounded task.
+## Hard stops
+No merge, push, production deploy, Terraform apply, live vendor changes, real patient traffic, compliance attestation or final go-live without specific Owner approval. Preserve existing code and report any dirty worktree.
 
-## Owner approvals and restrictions
-- Approved scope: This documentation/CI preparation only.
-- NOT approved: merge to `main`, production deployment, Terraform apply, production vendor changes, real patient traffic, or final launch attestation.
-- Pending: Owner review of the PR and selection of the first implementation package.
-
-## Evidence and rollback
-- Evidence: GitHub pull request for `chore/claude-session-continuity-20261021`.
-- Rollback: Revert the documentation/CI commits if approved changes are later withdrawn.
-- **Checkpoint fields for every future session:** task ID; branch; HEAD; dirty paths; changes; exact test commands/results; evidence URLs; blockers; Owner decisions; next approved action.
+## End-of-session update contract
+Before stopping, replace stale values above with **actual** task ID/status, UTC time, branch/HEAD, dirty paths, changed files, exact tests/results (including skips), evidence links, blockers, Owner decisions and **one next executable step**. Keep stable architectural guidance at the top unchanged. If interrupted, reconstruct state from Git and CI; do not invent a checkpoint.

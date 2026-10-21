@@ -326,8 +326,9 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
     try {
       deposit = await engine.chatDepositFor(context.clinicId, appointmentId, { channel: "web", actor: context.actor, now });
     } catch (error) {
-      // The booking stands; the deposit is still owed, and the Bookings
-      // screen shows it. Nothing about it is promised here.
+      // The booking stands; the deposit is still owed (`pending_link`, written
+      // with the booking), and lib/billing/deposit-sweep.ts hands it to the
+      // front desk. Nothing about it is promised here.
       log.error("booking tool deposit failed", { clinicId: context.clinicId, error: describeError(error) });
       return null;
     }

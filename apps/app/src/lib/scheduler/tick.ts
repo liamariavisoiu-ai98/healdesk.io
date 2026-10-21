@@ -3,6 +3,7 @@ import { runAnnualOverageJob } from "@/lib/billing/annual-overage";
 import { sweepChannelStates } from "@/lib/channels/events";
 import { sweepEndedPauses } from "@/lib/channels/pause";
 import { runCardExpiringJob } from "@/lib/billing/card-expiring";
+import { sweepUnlinkedDeposits } from "@/lib/billing/deposit-sweep";
 import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
 import { runBillingReconcileJob } from "@/lib/billing/reconcile";
 import { runBillingRequestsJob } from "@/lib/billing/requests";
@@ -221,6 +222,17 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
     return {
       status: r.failures ? "failed" : "ok",
       note: `${r.clinics} clinics, ${r.resumed} resumed${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
+  // A chat deposit whose link was never made (lib/billing/deposit-sweep.ts):
+  // every minute from the billing-minute queue, and here as its backstop.
+  // Not a switched job, like the channel-states sweep: it only hands a
+  // deposit the booking already owes to the front desk, once.
+  await record("deposit-links", async () => {
+    const r = await sweepUnlinkedDeposits(now);
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.clinics} clinics, ${r.flagged} flagged${r.failures ? `, ${r.failures} failed` : ""}`,
     };
   });
   // The internal health flags (WP5), hourly behind their switch, which ships

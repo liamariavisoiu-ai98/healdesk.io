@@ -143,7 +143,10 @@ export type ChatDeposit =
  * A link that cannot be made (deposits switched off or the clinic's Stripe
  * disconnected since the booking, Stripe unavailable, a service name that
  * would reach Stripe) leaves the deposit to the front desk instead, with the
- * L10 alert, in the same transaction that moves it there.
+ * L10 alert, in the same transaction that moves it there. If this never runs
+ * or never finishes (the process dies after the booking commits), the
+ * booking was written `pending_link`, and lib/billing/deposit-sweep.ts hands
+ * it to the front desk once its grace has passed.
  */
 export async function chatDepositFor(
   clinicId: string,

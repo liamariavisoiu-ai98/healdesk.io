@@ -336,7 +336,12 @@ type OperatorOp =
   // the call at Retell with its own key. Never a recording URL, a transcript
   // or a number.
   | "listRecordingAlerts"
-  | "deleteRecordedCall";
+  | "deleteRecordedCall"
+  // Each clinic's Retell agent and AYA number, set up by code (apps/app
+  // lib/voice/provision.ts): ids, status and times only, never a caller, a
+  // number or a secret. A read; the retry stays in apps/app's ops envelope
+  // until a page with the operator's fresh code is built for it.
+  | "voiceAgentStatus";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -1099,6 +1104,58 @@ export function deleteRecordedCall(
     if (status === "too_soon") return { status, notBefore: isoInstant(data.notBefore, "deleteRecordedCall.notBefore") };
     if (status === "failed") return { status, reason: text(data.reason, "deleteRecordedCall.reason") };
     return { status };
+  });
+}
+
+/**
+ * One clinic's Retell set-up, as apps/app projects it (lib/voice/provision.ts,
+ * voiceAgentStatusView): Retell's agent id, whether a number is held (never
+ * the number), the status, attempts, our own last reason and times.
+ */
+export type VoiceAgentStatusView = {
+  clinicId: string;
+  clinicSlug: string;
+  engine: "custom" | "native";
+  status: "pending" | "provisioning" | "ready" | "failed" | "deprovisioning" | "released";
+  retellAgentId: string | null;
+  hasNumber: boolean;
+  attempts: number;
+  lastError: string | null;
+  lastSyncedAt: string | null;
+  numberOrderedAt: string | null;
+  driftRepairs: number;
+  driftFlaggedAt: string | null;
+  releasedAt: string | null;
+  updatedAt: string;
+};
+
+/** Every clinic's voice set-up, or one clinic's when `clinicId` is given. */
+export function fetchVoiceAgentStatus(clinicId?: string): Promise<OpsResult<VoiceAgentStatusView[]>> {
+  return callOps("voiceAgentStatus", "read", clinicId ? { clinicId } : {}, (value) => {
+    const data = object(value, "voiceAgentStatus");
+    return list(data.agents, "voiceAgentStatus.agents").map((row, i) => {
+      const r = object(row, `voiceAgentStatus.agents[${i}]`);
+      return {
+        clinicId: id(r.clinicId, "agent.clinicId"),
+        clinicSlug: text(r.clinicSlug, "agent.clinicSlug"),
+        engine: literal(r.engine, ["custom", "native"] as const, "agent.engine"),
+        status: literal(
+          r.status,
+          ["pending", "provisioning", "ready", "failed", "deprovisioning", "released"] as const,
+          "agent.status",
+        ),
+        retellAgentId: r.retellAgentId === null ? null : retellCallId(r.retellAgentId, "agent.retellAgentId"),
+        hasNumber: bool(r.hasNumber, "agent.hasNumber"),
+        attempts: count(r.attempts, "agent.attempts"),
+        lastError: optionalText(r.lastError, "agent.lastError"),
+        lastSyncedAt: optionalIsoInstant(r.lastSyncedAt, "agent.lastSyncedAt"),
+        numberOrderedAt: optionalIsoInstant(r.numberOrderedAt, "agent.numberOrderedAt"),
+        driftRepairs: count(r.driftRepairs, "agent.driftRepairs"),
+        driftFlaggedAt: optionalIsoInstant(r.driftFlaggedAt, "agent.driftFlaggedAt"),
+        releasedAt: optionalIsoInstant(r.releasedAt, "agent.releasedAt"),
+        updatedAt: isoInstant(r.updatedAt, "agent.updatedAt"),
+      };
+    });
   });
 }
 

@@ -75,7 +75,8 @@ export async function truncateAll(): Promise<void> {
   // named: an attestation left by one file would let the next file's
   // synthetic clinics go live by themselves (lib/onboarding/go-live.ts).
   // email_events (0099) has no clinic either: one file's counted sends would
-  // be the next file's digest.
+  // be the next file's digest. voice_number_order_days (0106) has no clinic
+  // either: one test's numbers bought would fill the next one's daily cap.
   await pool.query(`
     truncate table
       billing_events, billing_transitions, billing_requests, entitlements,
@@ -86,7 +87,7 @@ export async function truncateAll(): Promise<void> {
       checkout_intents, sign_in_links, stripe_connect_events, stripe_connect_states,
       step_ups, webauthn_challenges, user_backup_codes, user_factors, factor_lockouts,
       invitation, member, organization, session, account, verification, "user",
-      platform_compliance, email_events
+      platform_compliance, email_events, voice_number_order_days
     restart identity cascade
   `);
 

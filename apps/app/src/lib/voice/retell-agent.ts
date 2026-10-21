@@ -72,6 +72,22 @@ export type RetellAgentOptions = RetellApiOptions & {
 
 const LLM_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
+/**
+ * The agent's speech-recognition language, as Retell names it: one locale
+ * ("en-US"), or, for an agent that answers in several, the locale array
+ * Retell took in place of the removed scalar "multi" (its deprecation notice
+ * of 31 July 2026).
+ */
+export type RetellLanguage = string | readonly string[];
+
+const LOCALE = /^[a-z]{2,3}-[A-Z0-9]{2,3}$/;
+
+function languageBody(language: RetellLanguage): string | string[] {
+  const list = typeof language === "string" ? [language] : [...language];
+  if (list.length === 0 || !list.every((l) => LOCALE.test(l))) throw new RetellAgentConfigError("not a Retell language");
+  return list.length === 1 ? list[0]! : list;
+}
+
 export class RetellAgentConfigError extends Error {
   constructor(message: string) {
     super(message);
@@ -228,7 +244,7 @@ function mustHold(check: RetellAgentCheck): void {
  */
 export async function createRetellAgent(
   clinicId: string,
-  input: { voiceId: string; agentName?: string },
+  input: { voiceId: string; agentName?: string; language?: RetellLanguage },
   options: RetellAgentOptions,
 ): Promise<{ agentId: string; check: RetellAgentCheck }> {
   if (!/^[A-Za-z0-9_.-]{1,128}$/.test(input.voiceId)) throw new RetellAgentConfigError("not a Retell voice id");
@@ -239,6 +255,7 @@ export async function createRetellAgent(
       body: JSON.stringify({
         ...retellAgentSettings(clinicId, options),
         voice_id: input.voiceId,
+        ...(input.language !== undefined ? { language: languageBody(input.language) } : {}),
         // The clinic id, never its name: the agent list is Retell's dashboard.
         agent_name: (input.agentName ?? `healdesk ${clinicId}`).slice(0, 120),
       }),
@@ -259,10 +276,21 @@ export async function updateRetellAgent(
   agentId: string,
   clinicId: string,
   options: RetellAgentOptions,
+  fields: { voiceId?: string; language?: RetellLanguage } = {},
 ): Promise<RetellAgentCheck> {
+  if (fields.voiceId !== undefined && !/^[A-Za-z0-9_.-]{1,128}$/.test(fields.voiceId)) {
+    throw new RetellAgentConfigError("not a Retell voice id");
+  }
   const body = await send(
     `/update-agent/${agentPath(agentId)}`,
-    { method: "PATCH", body: JSON.stringify(retellAgentSettings(clinicId, options)) },
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        ...retellAgentSettings(clinicId, options),
+        ...(fields.voiceId !== undefined ? { voice_id: fields.voiceId } : {}),
+        ...(fields.language !== undefined ? { language: languageBody(fields.language) } : {}),
+      }),
+    },
     options,
   );
   const check = checkRetellAgent(body, clinicId, options);
@@ -284,4 +312,39 @@ export async function verifyRetellAgent(
 ): Promise<RetellAgentCheck> {
   const body = await send(`/get-agent/${agentPath(agentId)}`, { method: "GET" }, options);
   return checkRetellAgent(body, clinicId, options);
+}
+
+/**
+ * The agent as Retell describes it (GET /get-agent/<id>), for a caller that
+ * compares more than verifyRetellAgent does (lib/voice/provision.ts: the
+ * voice and the language). Null when Retell has no such agent: it answers
+ * 404, or 422 "Cannot find requested asset" (its API reference). Throws on
+ * any other failure, so "unknown" is never read as "absent".
+ */
+export async function getRetellAgent(agentId: string, options: RetellApiOptions): Promise<unknown | null> {
+  try {
+    return await send(`/get-agent/${agentPath(agentId)}`, { method: "GET" }, options);
+  } catch (error) {
+    if (error instanceof RetellApiError && (error.status === 404 || error.status === 422)) return null;
+    throw error;
+  }
+}
+
+/**
+ * Delete an agent and all its versions (DELETE /delete-agent/<id>). "absent"
+ * when Retell has no such agent (404 or 422), so a retry after a crash is
+ * not an error. Retell's success status for this call is not in its
+ * reference: any 2xx counts.
+ */
+export async function deleteRetellAgent(agentId: string, options: RetellApiOptions): Promise<"deleted" | "absent"> {
+  const key = options.key === undefined ? retellApiKey() : options.key;
+  if (!key) throw new RetellAgentConfigError("HEALDESK_RETELL_API_KEY is not set");
+  const response = await (options.fetch ?? fetch)(`${RETELL_API_ORIGIN}/delete-agent/${agentPath(agentId)}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
+  });
+  if (response.status === 404 || response.status === 422) return "absent";
+  if (!response.ok) throw new RetellApiError(response.status);
+  return "deleted";
 }

@@ -17,6 +17,7 @@ import {
   QUEUE_SYNC_CONNECTION,
   QUEUE_TICK,
   QUEUE_VOICE_CALL_BACKSTOP,
+  QUEUE_VOICE_PROVISION,
   startGuardedClock,
   stopBoss,
   type ProcessWebhookPayload,
@@ -32,6 +33,7 @@ import { runPracticeQuestionsJob } from "@/lib/engine/practice/job";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSiteReadsJob } from "@/lib/website/job";
 import { handleCallBackstopJob, type CallBackstopPayload } from "@/lib/voice/backstop";
+import { handleVoiceProvisionJob, type VoiceProvisionPayload } from "@/lib/voice/provision-job";
 import { runTick } from "@/lib/scheduler/tick";
 import { syncConnection } from "@/lib/sync/run";
 import { processWebhookEvent } from "@/lib/sync/webhooks";
@@ -269,6 +271,21 @@ async function main(): Promise<void> {
   } else {
     log.error("queue not worked: run `npm run queue:install` as the migrator, then restart the worker", {
       job: QUEUE_VOICE_CALL_BACKSTOP,
+    });
+  }
+
+  // Each clinic's Retell agent and AYA number (lib/voice/provision-job.ts),
+  // queued by the hourly sweep only while HEALDESK_VOICE_PROVISION_ENABLED is
+  // on. A run Retell did not answer throws, and pg-boss retries it with the
+  // backoff set at enqueue; every run is idempotent. Looked up first, like
+  // the backstop, so a queue never installed is logged with its fix.
+  if (await boss.getQueue(QUEUE_VOICE_PROVISION)) {
+    await boss.work<VoiceProvisionPayload>(QUEUE_VOICE_PROVISION, { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await handleVoiceProvisionJob(job.data);
+    });
+  } else {
+    log.error("queue not worked: run `npm run queue:install` as the migrator, then restart the worker", {
+      job: QUEUE_VOICE_PROVISION,
     });
   }
 

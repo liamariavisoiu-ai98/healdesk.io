@@ -763,6 +763,12 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_DIRECT_BOOKING_ENABLED:
     "Your switch for AYA booking by herself rather than asking the clinic. On, together with counsel's release of the Direct booking addendum, the call and website chat book through the booking engine; it also changes the buy page's wording and reports. Never set from Terraform.",
   HEALDESK_PHASE_TWO_ATTRIBUTION: "The phase-two switch, off in v1.",
+  HEALDESK_VOICE_PROVISION_ENABLED:
+    "Your switch for the engine buying each paid voice clinic's AYA number from Retell and creating its agent by itself (apps/app lib/voice/provision.ts). Exactly 1 is on; anything else is off, and off makes no Retell call at all. Each number is billed by Retell. Set it, with HEALDESK_RETELL_VOICE_ID, on the worker and web tasks when you decide; until then agents and numbers are set up by hand. Never set from Terraform.",
+  HEALDESK_VOICE_PROVISION_DAILY_CAP:
+    "How many AYA numbers automatic voice provisioning may order from Retell in one UTC day, across every clinic: 20 by default. Over it, clinics wait for the next day and you are emailed once.",
+  HEALDESK_RETELL_VOICE_ID:
+    "Which of Retell's voices every clinic's agent speaks with, by Retell's voice id; automatic provisioning refuses to create an agent without one.",
   HEALDESK_CHAT_MODEL: "Which model answers website chat: one of PATIENT_MODEL_IDS (@healdesk/catalog model-retention.ts); any other value is ignored with a warning, because the agreements state the provider's retention for those models only.",
   HEALDESK_VOICE_MODEL: "Which model answers calls: one of PATIENT_MODEL_IDS (@healdesk/catalog model-retention.ts); any other value is ignored with a warning, because the agreements state the provider's retention for those models only.",
   // One-off jobs (apps/app/scripts), started by hand inside AWS.
@@ -1173,7 +1179,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. Retell has no setting that sends a call on when our voice endpoint cannot be reached: after about 27 seconds of nothing it gives up and the call drops. So when the endpoint is down, you put Retell in outage mode, which by Retell's support material sends each number's calls to its fallback, the clinic's direct line, kept there every hour by the engine (that needs the Retell key). Outage mode has not been tried here: check the plan has it and make one test call before relying on it. If Retell itself is down, nothing of Retell's runs, and each clinic has to remove its forwarding by hand: nothing tells them automatically.",
+      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard until your switch for automatic set-up is on (app-retell-provisioning). Retell has no setting that sends a call on when our voice endpoint cannot be reached: after about 27 seconds of nothing it gives up and the call drops. So when the endpoint is down, you put Retell in outage mode, which by Retell's support material sends each number's calls to its fallback, the clinic's direct line, kept there every hour by the engine (that needs the Retell key). Outage mode has not been tried here: check the plan has it and make one test call before relying on it. If Retell itself is down, nothing of Retell's runs, and each clinic has to remove its forwarding by hand: nothing tells them automatically.",
   },
   {
     id: "retell-app",
@@ -1224,7 +1230,23 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "built",
     buildNote:
-      "Since 21 October 2026 Retell keeps each call's transcript, and with it the recording, until the call is processed (data storage Everything, kept at most one day), so the backstop can read a call whose voice task died. The engine has the code to write and read back those settings (lib/voice/retell-agent.ts), though nothing calls it yet: agents are still set up by hand. The backstop job, ten minutes after Retell's call-ended message, deletes the call at Retell once it has a conversation here with its sealed transcript, without waiting for the email to be delivered; a failure is retried for about an hour. A call never recorded here is left to Retell's one-day deletion. A call still at Retell 30 minutes after it ended becomes one alert on Retell deletions: the clinic, Retell's call id and when, never the recording or its address. Your browser never sees the Retell key.",
+      "Since 21 October 2026 Retell keeps each call's transcript, and with it the recording, until the call is processed (data storage Everything, kept at most one day), so the backstop can read a call whose voice task died. The engine writes and reads back those settings when it sets up a clinic's agent (lib/voice/provision.ts, app-retell-provisioning), which waits on your switch; until it is on, agents are set up by hand. The backstop job, ten minutes after Retell's call-ended message, deletes the call at Retell once it has a conversation here with its sealed transcript, without waiting for the email to be delivered; a failure is retried for about an hour. A call never recorded here is left to Retell's one-day deletion. A call still at Retell 30 minutes after it ended becomes one alert on Retell deletions: the clinic, Retell's call id and when, never the recording or its address. Your browser never sees the Retell key.",
+  },
+  {
+    id: "app-retell-provisioning",
+    theme: "running",
+    from: "app",
+    to: "retell",
+    title: "The engine sets up each clinic's Retell agent and number",
+    carries:
+      "The clinic's id, its agent's settings (our voice endpoint's address, storage kept at most a day, the call-ended webhook, the voice and language), an order for an AYA number, the number's binding to the agent for inbound calls only and its fallback, the clinic's direct line; Retell answers with its ids",
+    example:
+      "A clinic pays its first invoice for Voice + Web Chat. Within the hour the engine creates its Retell agent, buys an AYA number in the clinic's area code, binds it to the agent and sets its fallback to the front desk, reads it all back and marks it ready; the clinic then forwards its line to that number.",
+    keys: ["aws.HEALDESK_RETELL_API_KEY"],
+    phi: false,
+    build: "built",
+    buildNote:
+      "Built on 21 October 2026 and off: nothing is bought until your switch HEALDESK_VOICE_PROVISION_ENABLED is 1, and then only for a clinic whose first invoice is paid and whose package has voice, and at most HEALDESK_VOICE_PROVISION_DAILY_CAP numbers a day. A run that crashed after buying finds the number by its nickname rather than buying another. A voice or language change is written to Retell within the hour, only when its hash changed; knowledge, prices, hours and the greeting live here and need no Retell write. Every night at 03 UTC the engine reads each agent and number back, writes them again where they drifted and emails you once per drift, and after three repairs leaves it for you. Once a departed clinic's pass-through has ended, its number is released and its agent deleted (the care page's Retell step is still yours to record). Only the custom engine is built; a clinic set to Retell's own engine fails with that reason. Tested against a fake Retell only: Retell's list-numbers paging and its delete-agent answer are not confirmed in its reference.",
   },
   {
     id: "patients-widget",

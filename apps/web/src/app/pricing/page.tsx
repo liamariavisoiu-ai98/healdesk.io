@@ -252,7 +252,15 @@ export default function PricingPage() {
           <p className="text-muted mt-4 max-w-[64ch] text-[18px] leading-[1.55] font-medium">
             Every price on this page covers one location. Each further location is added to the
             same plan from Billing in your portal, at the same plan price again and its own setup
-            fee, and renews on the same date.
+            fee, and renews on the same date, with the allowances pooled across your locations.
+          </p>
+          <p className="text-muted mt-4 max-w-[64ch] text-[18px] leading-[1.55] font-medium">
+            One {site.agent} answers for all of your locations as a central assistant, like a call
+            centre: one knowledge base, one price list and one sign-in, not a separate assistant
+            for each location. She is designed to work out, or ask, which location someone means.
+            With phone, each location forwards its own line to its own {site.agent} number and
+            keeps its own direct line. Every location must be run by your practice; a location run
+            by a different business needs its own account.
           </p>
         </section>
 

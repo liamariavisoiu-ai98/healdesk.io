@@ -186,7 +186,7 @@ async function writeScreen(
         },
         now,
       );
-      // "Which location is this AYA for?": the chosen location's hours become
+      // "Which one is your main location?": the chosen location's hours become
       // the starting point of the hours screen, until the clinic confirms them.
       const index = typeof input.location === "number" ? input.location : null;
       const location = index === null ? undefined : state.clinic.siteProfile?.locations[index];

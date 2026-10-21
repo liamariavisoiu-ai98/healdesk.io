@@ -78,3 +78,48 @@ describe("extra locations are promised as designed, and tracked until production
     expect(item!.evidence).toContain("apps/app/src/lib/location-clinic.ts");
   });
 });
+
+/**
+ * The owner's decision of 20 October 2026: a practice's locations are one
+ * account answered by one central AYA, like a call centre, not a separate
+ * assistant for each. The first release switches on the two chat packages;
+ * phone per location and calendars per location follow. These read the
+ * items' own words only, so they hold whichever switch apps/app offers Add a
+ * location behind.
+ */
+describe("the locations items describe one central AYA, and none of them holds go-live", () => {
+  const byId = (id: string) => LAUNCH_PROMISES.find((p) => p.id === id);
+
+  test("extra-locations promises one central assistant for every location, not a setup per location", () => {
+    const item = byId("extra-locations")!;
+    expect(item.promise).toContain(
+      "One AYA answers for every location of a practice, as one central assistant",
+    );
+    expect(item.promise).toContain("at the plan's price again plus its setup fee once");
+    expect(`${item.promise} ${item.left}`).not.toMatch(/its own setup|own agent configuration/);
+    expect(item.left).toContain("AYA Web Chat and AYA Meta Chat packages bought first");
+    expect(item.evidence).toContain("packages/catalog/src/central-assistant-acknowledgement.ts");
+  });
+
+  test("phone per location and the requests-only rule for later locations are tracked as building", () => {
+    const phone = byId("location-phone");
+    const calendar = byId("location-calendar");
+    expect(phone?.status).toBe("building");
+    expect(phone!.promise).toContain("forwards its own line to its own AYA number");
+    expect(phone!.promise).toContain("that location's own direct line");
+    expect(calendar?.status).toBe("building");
+    expect(calendar!.promise).toContain("takes booking requests your team confirms");
+    expect(calendar!.promise).toContain("nothing about it reaches Google Calendar");
+  });
+
+  test("no locations item holds go-live: an open item that did would stop every clinic's", () => {
+    // launch.ts: no clinic goes live while an item that blocks go-live is
+    // open, and one location works without any of these.
+    for (const id of ["extra-locations", "location-phone", "location-calendar"]) {
+      const item = byId(id);
+      expect(item, id).toBeDefined();
+      expect(item!.blocksGoLive, id).toBe(false);
+      expect(item!.status, id).not.toBe("on");
+    }
+  });
+});

@@ -147,7 +147,7 @@ export async function addLocationAction(
   if (result.status === "added") {
     return {
       ok: true,
-      toast: "The location is added. Its own setup comes next.",
+      toast: "The location is added. Next, confirm its address, hours and phone numbers, so AYA can answer for it.",
       href: `/c/${result.slug}/setup`,
     };
   }

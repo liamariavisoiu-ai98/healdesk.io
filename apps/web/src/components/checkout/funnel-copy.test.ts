@@ -533,7 +533,7 @@ describe("the package step", () => {
 
   test("the locations line, once a package is chosen", () => {
     expect(text(packageStep(initialFunnel({ plan: "voice-metachat" })))).toContain(
-      "This sets up one location. Add more from Billing after setup: $580/mo + $1,394 setup fee each.",
+      "This sets up one location. Add more from Billing after setup: $580/mo + $1,394 setup fee each. One AYA answers for all of them.",
     );
   });
 

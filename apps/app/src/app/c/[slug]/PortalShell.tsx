@@ -35,7 +35,11 @@ export type ShellProps = {
   /** The channels that have gone live, for what the menu's unbuilt screens say. */
   liveChannels?: readonly Channel[];
   timeZone: string;
-  /** Every clinic this sign-in opens; the switcher shows only when there are several. */
+  /**
+   * Every account this sign-in opens: separate practices that share one email
+   * address, never the locations of one account, which AYA answers for
+   * together. The switcher shows only when there are several.
+   */
   locations: readonly PortalGrant[];
   /** The patient screens the menu links to (openPatientScreens). */
   opened?: readonly PortalSection[];
@@ -57,7 +61,7 @@ export function PortalShell(props: ShellProps) {
       <header className="pt-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {others.length > 0 ? (
-            <LocationSwitcher current={props.clinicName} others={others} section={props.section} />
+            <AccountSwitcher current={props.clinicName} others={others} section={props.section} />
           ) : (
             <p className="text-lg font-semibold">{props.clinicName}</p>
           )}
@@ -189,11 +193,14 @@ function formatPauseEnd(until: Date, timeZone: string): string {
 }
 
 /**
- * The clinic's name, and the other locations this sign-in opens, each a link
- * to the same screen there. A disclosure rather than a select, so it works
- * without a script.
+ * The account's name, and the other accounts this sign-in opens, each a link
+ * to the same screen there. They are separate accounts that share one email
+ * address (a business that bought a second account at checkout with the same
+ * address), not locations: the locations of one account share it, and its
+ * one AYA, so switching between them is never this. A disclosure rather than
+ * a select, so it works without a script.
  */
-function LocationSwitcher(props: {
+function AccountSwitcher(props: {
   current: string;
   others: readonly PortalGrant[];
   section: PortalSection;
@@ -202,19 +209,19 @@ function LocationSwitcher(props: {
     <details className="relative">
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-lg font-semibold">
         {props.current}
-        <span className="text-muted text-sm font-normal">· switch location</span>
+        <span className="text-muted text-sm font-normal">· switch account</span>
       </summary>
       <ul
-        aria-label="Other locations"
+        aria-label="Other accounts"
         className="border-line mt-2 grid gap-1 rounded-xl border bg-white p-2"
       >
-        {props.others.map((location) => (
-          <li key={location.slug}>
+        {props.others.map((account) => (
+          <li key={account.slug}>
             <a
-              href={sectionPath(location.slug, props.section)}
+              href={sectionPath(account.slug, props.section)}
               className="flex min-h-11 items-center rounded-lg px-3 font-semibold hover:bg-paper-2"
             >
-              {location.name}
+              {account.name}
             </a>
           </li>
         ))}

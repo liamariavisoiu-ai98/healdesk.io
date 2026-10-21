@@ -92,7 +92,7 @@ export function BasicsScreen(
     >
       {props.locations.length > 1 ? (
         <Choice
-          legend="Your website lists more than one location. Which one is this AYA for?"
+          legend="Your website lists more than one location. Which one is your main location? The same AYA answers for all of them: add the others from Billing after setup."
           value={String(location ?? 0)}
           onChange={(value) => {
             const index = Number(value);

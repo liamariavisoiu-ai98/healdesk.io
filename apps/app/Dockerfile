@@ -23,7 +23,7 @@
 # check that depends on the database (see src/app/api/health/route.ts).
 # =============================================================================
 
-FROM node:22-bookworm-slim AS base
+FROM node:25-bookworm-slim AS base
 ENV NODE_ENV=production
 WORKDIR /repo
 

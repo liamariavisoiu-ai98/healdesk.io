@@ -13,6 +13,7 @@ import { priceText } from "@/lib/assistant/prompt";
 import {
   answerTurn,
   EMPTY_CAPTURE,
+  languageLine,
   parseModelAnswer,
   urgentReply,
   type AssistantResponder,
@@ -242,7 +243,12 @@ function assistantBrain(
     factsSummary: summary,
     urgentExpected(text) {
       const finding = findUrgentContent(text, facts.specialty, { clinicName: facts.clinicName });
-      return finding ? urgentReply(facts, channel, finding, deps.now) : null;
+      if (!finding) return null;
+      // Urgent words in a language the assistant does not answer in count as
+      // urgent here too: the turn answers them with the language line (911
+      // in English and Spanish) and raises the alert (lib/assistant/turn.ts).
+      // The owner's default until answered (H4, 21 October 2026): yes.
+      return finding.otherLanguage ? languageLine(facts, channel) : urgentReply(facts, channel, finding, deps.now);
     },
     async ask(history, text, _first, capture) {
       let wrote: string | null = null;
@@ -567,7 +573,10 @@ async function evaluate(
         { name: "urgent_matcher_fires", ok: expected !== null },
         {
           name: "answered_with_the_fixed_urgent_line",
-          ok: expected !== null && first.source === "urgent" && first.reply.includes(expected),
+          ok:
+            expected !== null &&
+            (first.source === "urgent" || (first.source === "language" && first.urgent)) &&
+            first.reply.includes(expected),
         },
         { name: "escalates", ok: first.urgent },
       ];

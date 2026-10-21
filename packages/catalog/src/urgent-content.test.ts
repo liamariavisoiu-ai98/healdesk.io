@@ -769,3 +769,171 @@ describe("review of the widened screen (21 October 2026): ordinary questions it 
     expect(findUrgentContent("¡socorro, mi hija!", "med-spa")).not.toBeNull();
   });
 });
+
+describe("Spanish as it is typed (H4, 21 October 2026): accents or none, misspellings, text speak, both sides of the Atlantic", () => {
+  // Each was a miss on the reviewed Wave 0 screen: a Spanish speaker's
+  // emergency, answered by the model (or, where the language check could
+  // not read the words, by the language line with no alert to the clinic).
+  test.each([
+    // The colour of an occlusion, whatever the verb, as in English.
+    ["labio blanco despues del relleno", "a change in the skin or in sight"],
+    ["tengo el labio pálido", "a change in the skin or in sight"],
+    ["el labio se ve palido", "a change in the skin or in sight"],
+    ["la piel esta gris", "a change in the skin or in sight"],
+    ["se me puso el labio azul", "a change in the skin or in sight"],
+    ["tengo los labios morados", "a change in the skin or in sight"],
+    ["la zona está pálida", "a change in the skin or in sight"],
+    ["tengo la piel blanca donde me pusieron el relleno", "a change in the skin or in sight"],
+    ["se me puso negra la piel", "a change in the skin or in sight"],
+    ["la piel oscura donde me pusieron el relleno", "a change in the skin or in sight"],
+    ["se me esta muriendo la piel", "a change in the skin or in sight"],
+    ["manchas moradas despues del relleno", "a change in the skin or in sight"],
+    // Sight.
+    ["veo borroso", "a change in the skin or in sight"],
+    ["tengo la vista borrosa", "a change in the skin or in sight"],
+    ["vision borrosa", "a change in the skin or in sight"],
+    ["no veo nada", "a change in the skin or in sight"],
+    ["no veo bien despues del relleno", "a change in the skin or in sight"],
+    ["me duele el ojo", "a change in the skin or in sight"],
+    ["se me nublo la vista", "a change in the skin or in sight"],
+    // Breathing, the throat, the chest.
+    ["no puedo respirsr", "breathing, the throat or the chest"],
+    ["no pudo respirar", "breathing, the throat or the chest"],
+    ["no puedo resipirar", "breathing, the throat or the chest"],
+    ["no pueo respirar", "breathing, the throat or the chest"],
+    ["nopuedo respirar", "breathing, the throat or the chest"],
+    ["casi no puedo respirar", "breathing, the throat or the chest"],
+    ["me falta el aire", "breathing, the throat or the chest"],
+    ["respiro con dificultad", "breathing, the throat or the chest"],
+    ["dificultad respiratoria", "breathing, the throat or the chest"],
+    ["no me entra el aire", "breathing, the throat or the chest"],
+    ["se me cierra la garganta", "breathing, the throat or the chest"],
+    ["la garganta se me esta cerrando", "breathing, the throat or the chest"],
+    ["dolor pecho", "breathing, the throat or the chest"],
+    ["me aprieta el pecho", "breathing, the throat or the chest"],
+    ["opresion en el pecho", "breathing, the throat or the chest"],
+    ["me cuesta tragar", "breathing, the throat or the chest"],
+    // Swelling, without the h too.
+    ["tengo la cara inchada", "swelling"],
+    ["hinchazon en los labios", "swelling"],
+    ["se me hincho la boca", "swelling"],
+    // Fainting, severe pain, bleeding, infection, allergy.
+    ["me desmalle", "consciousness or the nerves"],
+    ["perdi el conocimiento", "consciousness or the nerves"],
+    ["se me durmió la cara", "consciousness or the nerves"],
+    ["no puedo mover la cara", "consciousness or the nerves"],
+    ["me duele demasiado", "severe pain"],
+    ["me duele un chingo", "severe pain"],
+    ["me duele un huevo", "severe pain"],
+    ["duele un monton", "severe pain"],
+    ["no aguanto el dolor", "severe pain"],
+    ["no para de salir sangre", "bleeding"],
+    ["me sale mucha sangre", "bleeding"],
+    ["tengo infeccion", "an infection or a burn"],
+    ["creo que tengo una infección", "an infection or a burn"],
+    ["se infecto", "an infection or a burn"],
+    ["tengo calentura", "an infection or a burn"],
+    ["está caliente y roja", "an infection or a burn"],
+    ["reacion alerjica", "an allergic reaction"],
+    ["me dio alergia", "an allergic reaction"],
+    ["choque anafilactico", "an allergic reaction"],
+    ["tengo una complicasion", "a reaction or a complication"],
+    ["algo salió mal con el relleno", "a reaction or a complication"],
+    // Cries for help.
+    ["ayuda", "an emergency"],
+    ["AYUDAA!", "an emergency"],
+    ["¡ayuda!", "an emergency"],
+    ["auxilio", "an emergency"],
+    ["¡socorro!", "an emergency"],
+    ["ayúdenme por favor", "an emergency"],
+    ["llamen a una ambulancia", "an emergency"],
+    // Crisis, in Spanish verb forms the English root used to take.
+    ["me voy a suicidar", "a crisis"],
+    ["pienso en suicidarme", "a crisis"],
+  ])("%j is urgent (%s), and its reply is Spanish", (text, label) => {
+    expect(findUrgentContent(text, "med-spa")).toEqual({ label, emergency: "911", language: "es" });
+  });
+
+  test.each([
+    ["mi perro se desmayó", "a collapse or a seizure"],
+    ["mi perro no se levanta", "a collapse or a seizure"],
+    ["mi perro tuvo un ataque", "a collapse or a seizure"],
+    ["mi perro esta temblando y babeando", "a collapse or a seizure"],
+    ["mi gato está tieso y no responde", "a collapse or a seizure"],
+    ["mi gato convulsiona", "a collapse or a seizure"],
+    ["mi perro no respira", "breathing"],
+    ["mi perro se ahoga", "breathing"],
+    ["mi perro tiene la lengua morada", "breathing"],
+    ["mi gato respira con la boca abierta", "breathing"],
+    ["mi perro esta intoxicado", "a poisoning or something swallowed"],
+    ["creo que mi perro esta envenenado", "a poisoning or something swallowed"],
+    ["mi gato no hace pipi", "not passing urine"],
+    ["mi perro quiere vomitar y no puede", "bloat"],
+    ["mi perro tiene diarrea con sangre", "bleeding"],
+    ["mi perro vomita sangre", "bleeding"],
+    ["mi perro chilla de dolor", "severe pain"],
+    ["mi gato llora de dolor", "severe pain"],
+  ])("%j is an animal's emergency at a veterinary practice (%s)", (text, label) => {
+    expect(findUrgentContent(text, "veterinary", VET_NAME)).toEqual({ label, emergency: "veterinary", language: "es" });
+  });
+
+  // The ordinary business of a front desk, in Spanish: each checked against
+  // the patterns above.
+  test.each([
+    "¿Cuánto cuesta el botox?",
+    "¿Cuanto cuesta el botox?",
+    "quiero una cita el martes",
+    "¿puedo hacer ejercicio después del relleno?",
+    "¿puedo hacer ejercicio despues del relleno?",
+    "tengo dolor de cabeza y quiero reservar",
+    "¿me ayuda a reservar una cita?",
+    "ayúdame por favor a reservar una cita",
+    "necesito ayuda para elegir un tratamiento",
+    "Hola, soy Socorro, quiero una cita",
+    "¿Tienen estacionamiento en la zona azul?",
+    "¿Hay riesgo de infección?",
+    "Tengo alergia a la penicilina, ¿puedo hacerme botox?",
+    "¿Hacen análisis de sangre?",
+    "soy de piel blanca, ¿qué láser me recomiendan?",
+    "¿mi piel es demasiado blanca para el láser?",
+    "tengo la piel oscura, ¿el láser es seguro?",
+    "tengo manchas oscuras en la cara, ¿las tratan?",
+    "¿Hacen blanqueamiento dental?",
+    "¿el relleno de labios duele mucho?",
+    "no veo la hora de mi cita",
+    "quiero quitarme una mancha blanca de la cara",
+    "¿Me pueden dar un respiro en el pago?",
+    "¿Hacen ejercicios de respiración?",
+    "¿hacen limpieza facial con extracción de puntos negros?",
+    "algo salió mal con mi pago",
+    "tengo una calentura en el labio, ¿puedo hacerme el relleno?",
+  ])("%j is not urgent", (text) => {
+    expect(findUrgentContent(text, "med-spa")).toBeNull();
+  });
+
+  test.each(["¿Cuánto cuesta vacunar a mi perro?", "quiero una cita para mi gato el martes", "¿mi perro puede comer uvas?"])(
+    "%j is not urgent at a veterinary practice",
+    (text) => {
+      expect(findUrgentContent(text, "veterinary", VET_NAME)).toBeNull();
+    },
+  );
+
+  test("borderline, decided for recall: what the English set does with the same words", () => {
+    // A question about swelling before treatment gets the fixed line, as in
+    // English (the swelling test above): a deliberate decision.
+    expect(findUrgentContent("¿cuánto dura la hinchazón después del relleno?", "med-spa")).toMatchObject({ label: "swelling" });
+    // A pale skin told as a skin type, with "tener" rather than "ser de": as
+    // "my skin is very pale" in English, urgent whatever the verb.
+    expect(findUrgentContent("tengo la piel muy blanca, ¿puedo hacerme láser?", "med-spa")).toMatchObject({
+      label: "a change in the skin or in sight",
+    });
+    // A hypothetical complication: "if I have" is not told from "I have".
+    expect(findUrgentContent("¿qué pasa si tengo una complicación?", "med-spa")).toMatchObject({ label: "a reaction or a complication" });
+  });
+
+  test("a Spanish misspelling of swelling is read as Spanish, not as the Portuguese fragment", () => {
+    expect(findUrgentContent("tengo la cara inchada", "med-spa")?.otherLanguage).toBeUndefined();
+    // Portuguese still escalates: the Spanish words read it first, so its reply is the Spanish one.
+    expect(findUrgentContent("Meu rosto está muito inchado", "med-spa")).toMatchObject({ label: "swelling" });
+  });
+});

@@ -44,7 +44,8 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedChannels, seedClinic } from "./setup/factories";
+import { inTenant, queuedNotices, seedChannels, seedClinic } from "./setup/factories";
+import { SPANISH_NOT_URGENT, SPANISH_URGENT_CASES } from "./setup/safety-cases";
 
 /**
  * Release gate 4 of BAA 1.3.0 (docs/counsel/agreement-changes.md §12.14,
@@ -175,6 +176,11 @@ describe("the screen, before any model", () => {
     expect(line).toContain("call 911 now");
     expect(line).toContain(DIRECT);
     expect(guardReply(line, { clinicName: "Radiance", serviceNames: ["Botox"] })).toEqual({ ok: true });
+  });
+
+  test("Spanish as it is typed is screened as urgent on Meta too, and ordinary Spanish is not (H4)", () => {
+    for (const c of SPANISH_URGENT_CASES) expect(screenInbound(c.text), c.text).toBe("urgent");
+    for (const text of SPANISH_NOT_URGENT) expect(screenInbound(text), text).not.toBe("urgent");
   });
 
   test("the practice's own terms are no language to the screen: its menu and its people reach the model", () => {
@@ -949,6 +955,25 @@ describeDb("the screen and the greeting, end to end", () => {
       { platform: "messenger", source: "urgent", screened: "urgent" },
       { platform: "messenger", source: "urgent", screened: "urgent" },
     ]);
+  }, 60_000);
+
+  test("a Spanish urgent message, misspelt and without accents, gets the Spanish urgent line, never reaches the model or a table, and alerts the clinic (H4)", async () => {
+    const pageId = "910000000000016";
+    const c = await doorOpen("screen-spanish-urgent", [{ platform: "messenger", externalId: pageId }], {
+      directLine: DIRECT,
+      urgentHelp: URGENT,
+    });
+    const responder = vi.fn<FrontDoorResponder>(async () => modelJson("Abrimos de lunes a viernes."));
+    __setMetaRuntimeForTests(responder, sender, transport);
+
+    await post(messengerEvent("no pueo respirsr y tengo el labio palido", "user-es1", pageId));
+    expect(responder).not.toHaveBeenCalled();
+    const urgent = urgentLine({ clinicName: c.clinicName, phone: PUBLISHED, urgentPhone: URGENT }, { emergency: "911", language: "es" });
+    expect(urgent).toMatch(/llame al 911/);
+    expect(sent.map((s) => s.text)).toEqual([`${greetingFor(c.clinicName, "messenger")} ${urgent}`]);
+    expect(await rowsContaining(c.clinicId, ["respirsr", "labio palido"])).toEqual([]);
+    const alerts = await queuedNotices(c.clinicId, ["urgent"]);
+    expect(alerts.map((a) => [a.kind, a.payload.channel])).toEqual([["urgent", "meta"]]);
   }, 60_000);
 
   test("the first reply on a thread opens with the greeting and the second does not, on Instagram, Messenger and WhatsApp", async () => {

@@ -55,6 +55,14 @@ import { isSpecialtyId, regimeFor } from "./specialties";
  * language is caught by messageLanguage (./message-language.ts) and never
  * reaches the model.
  *
+ * The Spanish is read as it is typed (H4, 21 October 2026): with accents and
+ * without ("hinchazon", "pálido"/"palido"), with the common misspellings
+ * ("no pueo respirsr", "inchada", "me desmalle", "reacion alerjica"), and in
+ * Latin American and Peninsular plain words ("me duele un chingo", "me
+ * duele un huevo", "me falta el aire"). A Spanish message the language check
+ * cannot place is still urgent here first, so it gets the Spanish fixed line
+ * and the alert rather than the language line.
+ *
  * Two things are read past before matching: the practice's own name ("is
  * Oakwood Animal Hospital open?" is not an emergency), and a question about
  * the practice's emergency service ("do you offer emergency appointments?",
@@ -132,7 +140,9 @@ function es(body: string): RegExp {
  */
 const SELF_HARM_EN = new RegExp(
   [
-    "\\bsuicid\\w*",
+    // Not the Spanish verb and noun ("suicidarme", "suicidio"): the Spanish
+    // set reads those, so the reply is written in Spanish.
+    "\\bsuicid(?!(?:ar|arme|arte|arse|ando|io|ios|a|as|é|ó)(?![a-zà-ÿ]))\\w*",
     // Text speak: "kms" (kill myself), "unalive", "killmyself".
     // Not kilometres: "5 kms", "how many kms", "kms from the airport".
     "(?<!(\\d|\\bmany|\\bfew|\\bthe|\\bof)\\s?)\\bkms\\b(?!\\s+(from|away|to|of|drive|north|south|east|west)\\b)",
@@ -212,8 +222,17 @@ const EMERGENCY_WORDS: UrgentFamily = {
   // A cry for help in text speak: "SOS", "help!", "someone help", "help me
   // please", "pls hlp". Not "can you help me with a booking?".
   en: /(?<!\b(vos|que|tu|tú|si|no|ya) )\b(sos|mayday|hlp)\b|\bhelp+\s*!|\b(somebody|someone|anybody|anyone) help\b|\bhelp me+\s*(!|(please|pls|plz|now|asap)\b(?!\s*,?\s*(to|with|book|schedule|make|find|get|choose|pick|understand|figure|decide|reschedule|cancel|change)\b))|\b(pls|plz|please) (help|hlp)\s*(!|me\s*!|$)|\b(emergenc(y|ies)|ambulance|paramedics?|urgent care)\b|\b(go(ing)? to|in|at|take (me|him|her|them|it) to|bring (him|her|them|it) (in )?to) (the |an |a )?((animal|pet|vet|veterinary|emergency) )?(hospital|ER|A&E|emergency room|emergency vet)\b|(?<!\b(not|non|isn't|nothing)[\s-]?)\burgent(ly)?\b|(?<![\d-])\b911\b(?![\d-])/i,
+  // A cry for help in Spanish: "¡ayuda!", "ayúdenme por favor", "auxilio",
+  // "¡socorro", a message that is only "ayuda". Not "¿me ayuda a reservar?"
+  // or "necesito ayuda para elegir", and not the name Socorro.
   es: es(
-    "emergencias?|ambulancia|param[ée]dicos?|urgencias|(?<!(nada|no es|no) )urgente|(ir|voy|vamos|ll[ée]vame|llevarme|llevarlo|llevarla|lo llevo|la llevo) (al|a la|a) (hospital|sala de emergencias|urgencias)|(?<![\\d-])911(?![\\d-])",
+    [
+      "emergencias?|ambulancia|param[ée]dicos?|urgencias|(?<!(nada|no es|no) )urgente|(ir|voy|vamos|ll[ée]vame|llevarme|llevarlo|llevarla|lo llevo|la llevo) (al|a la|a) (hospital|sala de emergencias|urgencias)|(?<![\\d-])911(?![\\d-])",
+      "auxilio|¡\\s*socorro|socorro(?=\\s*!)|(pido|necesito|pedir) socorro",
+      "¡\\s*ay[uú]da|ay[uú]da+\\s*!|^\\s*ay[uú]da+\\s*[.!]*\\s*$",
+      "ay[uú]d(en|e|a)me+\\s*(!|(por favor|porfa|plis|pls|ya|r[áa]pido)(?!\\s*,?\\s*(a|con|para|en)\\s)|$)",
+      "necesito ayuda (ya|ahora|r[áa]pido|urgente)|llamen? (a )?(una ambulancia|emergencias|urgencias|al 911)",
+    ].join("|"),
   ),
   other: es(
     "urgence|au secours|(à|a) l'aide|aidez-moi|notfall|notarzt|krankenwagen|rettungswagen|hilfe|emergenza|ambulanza|aiuto|pronto soccorso|emerg[êe]ncia|socorro(?=\\s*!)|¡\\s*socorro|(pe[çc]o|pido|preciso de|necesito|pedir) socorro|ajuda|ambul[âa]ncia",
@@ -258,6 +277,48 @@ const SKIN_AFTER_TREATMENT = `(?:(?=.*\\b(where|after|since|around|from|near|at)
 const SKIN_COLOUR =
   "(white|whiter|pale|paler|blue|bluish|blueish|grey|gray|greyish|grayish|purple|purplish|dusky|black|dark|mottled|blotchy|cold|patchy)";
 
+// -----------------------------------------------------------------------------
+// Spanish as it is typed: no accents, dropped letters, text speak
+// -----------------------------------------------------------------------------
+
+/**
+ * "Respirar" as it is typed in a hurry: "respirsr", "resipirar", "repirar",
+ * "respiar", and its forms "respira", "respiro". Only ever read beside a
+ * word of trouble, so "respiración" or "un respiro" alone is not urgent.
+ */
+const RESPIRAR_ES = "re?s*i?pi?r?(?:ar|sr|ra|ro|a|o)";
+/** "No puedo", and the other ways of not being able to, with their misspellings ("no pueo", "nopuedo"). */
+const NO_PUEDO_ES =
+  "(?:no (?:puedo|pued[oe]s?|pueo|pudo|pod[íi]a|logro|consigo|alcanzo a)|nopued[oe]|(?:me|le) cuesta|(?:dificultad|problemas?|trabajo) (?:para|al)|casi no)";
+
+/**
+ * A part of the skin where a filler's occlusion shows, in Spanish. Not "zona
+ * azul" (paid street parking in Spain), and never preceded by "tipo de" or
+ * "soy de": "soy de piel blanca" describes a person, not an occlusion.
+ */
+const PIEL_ES =
+  "(?<!(?:tipo|soy|eres|somos) de )(?:labios?|piel|zona(?! azul)|[áa]rea|nariz|punta de la nariz|mejillas?|cachetes?|ment[óo]n|barbilla|cara|rostro|frente|tejido|relleno)";
+/**
+ * The colours of an occlusion, read in any order and after any verb or none
+ * ("labio blanco", "tengo el labio pálido", "se me puso el labio azul"), as
+ * the English set reads them (the owner's review of 21 October 2026): a
+ * blanched lip is the classic sign, and missing it is worse than a fixed line
+ * sent to someone describing their skin. Only "demasiado" between the two
+ * stops it, the word of a question about skin type ("¿mi piel es demasiado
+ * blanca para el láser?").
+ */
+const VASCULAR_ES =
+  "(?:blanc[oa]s?|blanquecin[oa]s?|blanquead[oa]s?|p[áa]lid[oa]s?|gris(?:es|[áa]ce[oa]s?)?|azul(?:es|ad[oa]s?|os[oa]s?)?|morad[oa]s?|amoratad[oa]s?|violet[ao]s?|violace[oa]s?|jaspead[oa]s?|marmolead[oa]s?|fr[íi][oa]s?|helad[oa]s?)";
+/** Colours that are also a skin type or a mark: read after a verb of change, or tied to a treatment. */
+const TONO_ES = "(?:negr[oa]s?|oscur[oa]s?|ennegrecid[oa]s?|manchad[oa]s?|con manchas)";
+const CAMBIO_ES =
+  "(?:se (?:me |le |te )?)?(?:est[áa] |esta )?(?:puso|pone|ponen|poniendo|pusieron|ha puesto|han puesto|volvi[óo]|vuelve|volviendo|ha vuelto|torn[óo]|torna|tornando|qued[óo]|quedando|cambi[óo] a)";
+const TRATAMIENTO_ES =
+  "(?:relleno|rellenos|inyecci[óo]n|inyecciones|inyectaron|inyect[óo]|b[óo]tox|tratamiento|procedimiento|aguja|pinchazos?|[áa]cido hialur[óo]nico)";
+const TIE_ES = `(?:despu[ée]s|desde|donde|alrededor|cerca|tras)(?:\\s+\\p{L}+){0,3}?\\s+${TRATAMIENTO_ES}`;
+/** Up to three words between a part of the skin and its colour, none of them "demasiado". */
+const GAP_ES = "(?:\\s+(?!demasiad)\\p{L}+){0,3}?\\s+";
+
 const HUMAN_FAMILIES: UrgentFamily[] = [
   EMERGENCY_WORDS,
   {
@@ -281,8 +342,20 @@ const HUMAN_FAMILIES: UrgentFamily[] = [
       ].join("|"),
       "i",
     ),
+    // In Spanish with and without accents, misspelt ("no pueo respirsr"),
+    // and in its plain forms: "me falta el aire", "se me cierra la
+    // garganta", "dolor pecho", "me aprieta el pecho".
     es: es(
-      "no (puedo|puede|podía) respirar|no respira|dej[óo] de respirar|(dificultad|problemas?) para respirar|me cuesta respirar|me falta (el )?aire|falta de aire|(me|se) (est[áa] )?(ahogando|atragantando)|me ahogo|se atragant\\p{L}*|se me (est[áa] )?cerr(a|ando) la garganta|garganta (cerrada|hinchada|apretada)|dolor (en el|de) pecho|me duele (mucho |much[íi]simo )?el pecho|presi[óo]n en el pecho|ataque al coraz[óo]n|infarto|no (puedo|puede) tragar|(dificultad|problemas?|dolor) (para|al) tragar|me duele (al )?tragar",
+      [
+        `${NO_PUEDO_ES} (bien |casi |ni |nada |mucho )?${RESPIRAR_ES}|no respira|dej[óo] de respirar`,
+        "(respiro|respira|respirando) (con dificultad|mal|muy mal|raro|con ruido|entrecortado|muy r[áa]pido)|dificultad respiratoria|problemas? respiratorios?|insuficiencia respiratoria",
+        "(me )?falta (el |de )?aire|me falta el aliento|sin aire|no me (entra|llega) (el )?aire",
+        "(me|se) (est[áa] |esta )?(ahogando|asfixiando|atragantando)|me ahogo|me asfixio|ahog[áa]ndome|(me|se) atragant\\p{L}*",
+        "se me (est[áa] |esta )?(cierra|cerrando|cerr[óo]|cierre) la garganta|la garganta se me (cierra|est[áa] cerrando|esta cerrando|cerr[óo])|garganta (cerrada|cerr[áa]ndose|hinchada|inchada|apretada)|lengua (hinchada|inchada|gorda|enorme)",
+        "dolor (en el |de |del |en )?pecho|me duele (mucho |much[íi]simo |demasiado )?(el )?pecho|(presi[óo]n|opresi[óo]n|apret[óo]n|peso) (en el|de|del) pecho|me (aprieta|oprime|presiona) (mucho )?el pecho|pecho apretado",
+        "ataque (al|del) coraz[óo]n|infarto|palpitaciones|taquicardia|(el )?coraz[óo]n (me )?(late|va|est[áa]) (muy )?(r[áa]pido|acelerado)",
+        "no (puedo|puede|pued[oe]|pueo) tragar|(dificultad|problemas?|dolor) (para|al) tragar|me (duele|cuesta) (al |para )?tragar",
+      ].join("|"),
     ),
     other: es(
       "(ne )?(peux|peut|arrive) (pas|plus) (à |a )?respirer|du mal (à|a) respirer|difficult[ée]s? (à|a) respirer|j'?[ée]touffe|[ée]touff\\p{L}*|douleurs? (dans la|à la|a la|de la) poitrine|douleur thoracique|mal (à|a) la poitrine|(kann|könnte|kriege|bekomme) (nicht|keine|kaum) (mehr )?(atmen|luft)|atemnot|atembeschwerden|schwer (zu )?atmen|ersticke\\p{L}*|brustschmerz\\p{L}*|schmerzen in der brust|non (riesco a|posso) respirare|non respiro|difficolt[àa] (a|nel) respirare|dolore al petto|n[ãa]o (consigo|posso) respirar|falta de ar|dificuldade (para|em|de) respirar|dor no peito",
@@ -292,7 +365,12 @@ const HUMAN_FAMILIES: UrgentFamily[] = [
     // "Reacton", "alergic": a dropped letter must not defeat the family.
     label: "an allergic reaction",
     en: /\b(al+er?gi?c|alergic) (re?a?ct(ion|ino|on|oin|in)|rxn|attack|response|shock)\b|\b(allergic reaction|anaphyla\w*|anafala\w*|anaphalax\w*|hives|allergy attack)\b|\b(used|use|using|need|needed|grab|grabbed|had to use) (my |an |the |her |his )?epi-?pen\b/i,
-    es: es("reacci[óo]n al[ée]rgica|anafila\\p{L}*|urticaria|ronchas"),
+    // "Reacion alerjica": a dropped or swapped letter must not defeat it
+    // either. "Tengo alergia a la penicilina" states an allergy and is not
+    // read; "me dio alergia" reports one happening.
+    es: es(
+      "rea?c{1,2}i[óo]n al[ée]r[gj]ica|anafila\\p{L}*|(shock|choque) anafil\\p{L}*|urticaria|ronchas|me (dio|est[áa] dando|ha dado) (una )?alergia|ataque de alergia|epi-?pen|me (puse|us[ée]|inyect[ée]) (la |mi |el )?(epinefrina|adrenalina)",
+    ),
     other: es(
       "r[ée]action allergique|choc anaphylactique|anaphyla\\p{L}*|urticaire|allergische reaktion|nesselsucht|reazione allergica|orticaria|rea[çc][ãa]o al[ée]rgica",
     ),
@@ -302,13 +380,21 @@ const HUMAN_FAMILIES: UrgentFamily[] = [
     // gets the fixed line too, which is where it belongs (the header).
     label: "swelling",
     en: /\b(swell(ing|s|ed|in)|swell up|swollen|swolen|swollan|sweling|sweeling)\b|\b(face|lips?|tongue|throat|eyelids?|cheeks?) (is |are |looks? |feels? |got |went |getting |keeps getting )(so |really |very |all )?(puffy|puffed up|huge|enlarged|ballooning|blown up)\b/i,
-    es: es("hinchad[oa]s?|hinchaz[óo]n|se (me )?(est[áa] )?hinch(a|ando|ó|o)|inflamad[oa]s?|inflamaci[óo]n"),
+    // With and without the h ("inchada", "hinchazon", "inchason"): read in
+    // Spanish before the Portuguese "inchada" below, so a Spanish message
+    // gets the Spanish reply.
+    es: es(
+      "h?inchad[oa]s?|h?inchaz[óo]n|h?inchas[óo]n|se (me |le )?(est[áa] |esta )?h?inch(a|an|ando|[óo]|aron)|inflamad[oa]s?|inflamaci[óo]n",
+    ),
     other: es("gonfl[ée]\\p{L}*|enfl[ée]\\p{L}*|geschwollen\\p{L}*|schwellung|schwillt|gonfi[oae]\\p{L}*|gonfiore|inchad[oa]s?|incha[çc][ãa]o|inchando|inchou"),
   },
   {
     label: "bleeding",
     en: /\b(bleed(ing|s|in)?|bled|bleding|bleading|bleedin|ha?emorrhag\w*)\b|\bblood (everywhere|won'?t stop|wont stop|keeps (coming|pouring)|pouring|gushing|all over)\b/i,
-    es: es("sangrando|sangra|sangr[óo]|sangrado|hemorragia|no (para|deja) de sangrar|mucha sangre"),
+    // Not "sangre" alone: "análisis de sangre" is a blood test.
+    es: es(
+      "sangrando|sangr[áa]ndome|sangra|sangran|sangr[óo]|sangrado|hemorragia|desangr\\p{L}*|no (para|deja|par[óo]|dej[óo]) de (sangrar|salir(me)? sangre)|mucha sangre|sangre (por todos lados|por todas partes|que no para|sin parar|a chorros)|(sale|sali[óo]|est[áa] saliendo|me sale) (mucha )?sangre",
+    ),
     other: es("saign\\p{L}*|h[ée]morragie|blut(e|et|en|ung)\\p{L}*|sanguin(a|ando|amento)|emorragia|sangramento|hemorragia"),
   },
   {
@@ -316,7 +402,16 @@ const HUMAN_FAMILIES: UrgentFamily[] = [
     // infection?" is a question for the clinical screen.
     label: "an infection or a burn",
     en: /\b(pus|oozing|abscess(es)?|f(e|ee|ea)v[ea]r(ish)?|infected|sepsis|blister(s|ed|ing)?|burns|burned|burnt)\b|\bburning (sensation|pain|feeling)\b|\b(got|have|has|having|developed|developing|signs of|looks like|think (i|it|she|he) (has|have|got)) (an |a )?infection\b|\b(hot|warm) to (the )?touch\b|\bred streaks?\b/i,
-    es: es("pus|supura\\p{L}*|absceso|fiebre|infectad[oa]|ampollas?|quemad[oa]|quemaduras?|me quem[ée]"),
+    // "Infección" only as something someone has, as in English: "¿hay
+    // riesgo de infección?" is the clinical screen's. "Calentura" only as a
+    // fever ("tengo calentura"), not "una calentura", a cold sore.
+    es: es(
+      [
+        "pus|supura\\p{L}*|absceso|fiebre|febril|(tengo|tiene|con|mucha) calentura|infectad[oa]s?|se (me |le )?(infect[óo]|infecto|est[áa] infectando|ha infectado)",
+        "(tengo|tiene|tuve|tenga|me dio|le dio|hay|se me hizo|se hizo|me sali[óo]|parece|creo que (es|hay|tengo|tiene)|signos de|se ve como|desarroll[ée]) (una |la |alguna )?infecc?i[óo]n",
+        "ampollas?|quemad[oa]|quemaduras?|me quem[ée]|(muy )?caliente (al tacto|y roj[oa])|roj[oa] y caliente|(vetas?|l[íi]neas?|rayas?) roj[oa]s",
+      ].join("|"),
+    ),
     other: es("fi[èe]vre|fieber|eiter|febbre|febre|infect[ée]e?|infiziert|infett[oa]|infeccionad[oa]"),
   },
   {
@@ -342,8 +437,24 @@ const HUMAN_FAMILIES: UrgentFamily[] = [
       ].join("|"),
       "i",
     ),
+    // The same rule as the English: the colours of an occlusion (white,
+    // pale, grey, blue, purple) after a part of the skin, in either order,
+    // whatever the verb; black, dark and blotchy only after a verb of change
+    // or tied to a treatment ("la piel oscura donde me pusieron el relleno").
     es: es(
-      "(se (me )?(est[áa] )?(poniendo|puso|ha puesto)|est[áa]) (blanc[oa]|azul|morad[oa]|negr[oa])|necros\\p{L}*|visi[óo]n borrosa|(perd[íi]|perdiendo|p[ée]rdida de) (la )?(visi[óo]n|vista)|no (puedo|veo) ver( bien)?|veo doble",
+      [
+        "(se (me )?(est[áa] )?(poniendo|puso|ha puesto)|est[áa]) (blanc[oa]|azul|morad[oa]|negr[oa])|necros\\p{L}*",
+        `${PIEL_ES}${GAP_ES}${VASCULAR_ES}`,
+        `${VASCULAR_ES}\\s+(el |la |los |las |mi |mis )${PIEL_ES}`,
+        `${PIEL_ES}${GAP_ES}${CAMBIO_ES}\\s+(muy |toda |todo |medio |un poco |bien )?${TONO_ES}`,
+        `${CAMBIO_ES}\\s+(el |la |los |las |mi |mis )?${PIEL_ES}\\s+(muy |toda |todo |medio |un poco |bien )?${TONO_ES}`,
+        `${PIEL_ES}${GAP_ES}${TONO_ES}(?:(?=.*${TIE_ES})|(?<=${TIE_ES}.*))`,
+        "se (me |le )?(est[áa] |esta )?muriendo (la piel|el labio|el tejido|la zona)",
+        "manchas? (blanc|azul|morad|gris|p[áa]lid)\\p{L}*(\\s+\\p{L}+){0,2}?\\s+(despu[ée]s|desde|donde|alrededor|tras)|livedo|(patr[óo]n|manchas?) (en forma de red|reticular|como (una )?red|de encaje)",
+        "visi[óo]n (borros[oa]|nublada|doble)|vista (borrosa|nublada|doble)|veo (borroso|borrosa|doble|nublado|mal|manchas|puntos (negros|brillantes)|todo (negro|borroso|nublado|oscuro)|destellos|lucecitas)|se me (nubl[óo]|nubla|est[áa] nublando) la vista",
+        "(perd[íi]|perdi[óo]|perdiendo|p[ée]rdida de|perder) (la )?(visi[óo]n|vista)|no (puedo|logro|consigo|pued[oe]) ver|no veo (nada|bien|de un ojo|con un ojo|por (un|el|este) ojo|del ojo|de este ojo)|ya no veo(?! la hora)|me (qued[ée]|estoy quedando) cieg[oa]|ceguera",
+        "me duele (mucho |el |un |mi )*ojo|me duelen (mucho )?los ojos|dolor (en el|de|del|en un) ojo",
+      ].join("|"),
     ),
     other: es(
       "vision (floue|trouble)|je (ne )?vois (plus rien|plus|rien|flou|double)|(devenu|devenue|est) (toute? )?(blanc|blanche|bleu|bleue|violet|violette)|verschwommen\\p{L}*|sehe (nichts|nicht mehr|doppelt|schlecht)|(wei[ßs]|blau|lila) geworden|vista (offuscata|annebbiata)|non vedo (niente|nulla|bene)|vedo (doppio|sfocato)|(diventat[oa]|diventa) (bianc[oa]|blu|viola)|vis[ãa]o (emba[çc]ada|turva)|n[ãa]o (consigo ver|enxergo)|(ficou|est[áa] ficando) (branc[oa]|azul|rox[oa])",
@@ -352,7 +463,11 @@ const HUMAN_FAMILIES: UrgentFamily[] = [
   {
     label: "severe pain",
     en: /\b(severe|sever|sevre|extreme|excruciating|unbearable|unbareable|intense|terrible|horrible|awful|worst|agoni[sz]ing|really bad|very bad|crazy|insane) (pain|pains|pian|headache|cramps?|cramping)\b|\bin (a lot of|alot of|so much|lots of|terrible|severe|extreme) pain\b|\bin agony\b|\bpain (is |keeps )?(getting )?(worse|unbearable)\b|\b(it|this|that|my \w+|the \w+) (really |still )?(hurts|is hurting) (so |really |soo+ )?(bad|badly|a lot|alot|so much)\b/i,
-    es: es("dolor (muy )?(fuerte|intenso|insoportable|terrible|horrible)|mucho dolor|me duele (much[íi]simo|mucho)"),
+    // Latin American and Peninsular: "me duele un chingo", "me duele un
+    // huevo", "me muero del dolor", "no aguanto el dolor".
+    es: es(
+      "dolor(es)? (muy |demasiado |bien |tan |s[úu]per )?(fuertes?|intensos?|insoportables?|terribles?|horribles?|espantosos?|horrorosos?|insufribles?|tremendos?|agudos?|atroz|inaguantables?)|(much[íi]simo|mucho|tanto) dolor|no (aguanto|soporto|puedo con) (el|este|tanto|del) dolor|me muero (de|del) dolor|duele (much[íi]simo|un mont[óo]n|horrible|horrores|un chingo|un huevo|a morir)|me duelen? (much[íi]simo|mucho|demasiado|horrible|horrores|un mont[óo]n|un chingo|un huevo|una barbaridad|a morir|bastante|cantidad|fatal|tanto)",
+    ),
     other: es(
       "douleur (atroce|insupportable|intense|tr[èe]s forte)|starke schmerzen|unertr[äa]gliche schmerzen|dolore (forte|insopportabile|atroce)|dor (forte|insuport[áa]vel|intensa)",
     ),
@@ -360,8 +475,14 @@ const HUMAN_FAMILIES: UrgentFamily[] = [
   {
     label: "consciousness or the nerves",
     en: /\b(faint(ed|ing)?|f(ia|ei|a)nt(ed|ing)|feel(ing)? (so |really |very )?faint|about to faint|(going to|gonna) (faint|pass out)|pass(ed|ing) out|pased out|past out|black(ed)? out|unconscious|(lost|loss of|losing) consciousness|unresponsive|collaps(e|ed|ing)|seizures?|convuls\w*|(having|had|a) stroke|slurr(ed|ing)|numbness|can'?t feel (my|his|her|the|anything)|paraly[sz]\w*|dizz(y|iness)|light-?headed|vomit(ing|ed)?|throwing up)\b|\bwon'?t wake( up)?\b|\b(can'?t|cannot) wake (him|her|them|my \w+) up\b|\bnot waking up\b|\b(arm|face|leg|side|lips?|hand|tongue) (is |are |feels |went |has gone |going |keeps going )?numb\b/i,
+    // "Me desmalle", "desmaie": the y typed as ll or i.
     es: es(
-      "desmay\\p{L}*|perd[íi] el conocimiento|inconsciente|no responde|no (despierta|reacciona)|no (puedo|logro|consigo) despertar(lo|la)?|convulsi\\p{L}*|derrame cerebral|mare(o|ada|ado|ando)s?|entumecid[oa]|no siento (el|la|los|las|mi|mis|nada)|paralizad[oa]|par[áa]lisis|vomit\\p{L}*|v[óo]mitos?",
+      [
+        "desma(y|ll|i)\\p{L}*|desvanec\\p{L}*|perd(([íi]|i[óo]) el (conocimiento|sentido))|inconsciente|no responde|no (despierta|reacciona)|no (puedo|logro|consigo) despertar(lo|la)?",
+        "convulsi\\p{L}*|derrame cerebral|embolia|ictus|mare(o|ada|ado|ando)s?|entumecid[oa]s?|entumid[oa]s?|adormecid[oa]s?",
+        "se me (durmi[óo]|est[áa] durmiendo|adormeci[óo]|entumi[óo]) (la |el |los |las |media |toda |mi )?(cara|labios?|brazo|lengua|boca|mano|pierna|lado)|(cara|labios?|brazo|lengua|mano|pierna) dormid[oa]s?",
+        "no siento (el|la|los|las|mi|mis|nada)|no puedo mover (el|la|los|las|mi|mis|media)|paralizad[oa]|par[áa]lisis|habla arrastrada|vomit\\p{L}*|v[óo]mitos?",
+      ].join("|"),
     ),
     other: es(
       "[ée]vanoui\\p{L}*|perdu connaissance|ohnm[äa]cht\\p{L}*|bewusstlos|svenut[oa]|svenimento|desmai\\p{L}*|perdi a consci[êe]ncia",
@@ -371,7 +492,7 @@ const HUMAN_FAMILIES: UrgentFamily[] = [
     label: "a wound or an injury",
     en: /\b(wound|incision|stitch(es)?|sutures?) (has |have |is |are )?(opened|open|opening|split|burst|came out|come out|coming out|leak\w*|ooz\w*|bleed\w*)\b|\b(knocked[- ]out|broke(n)?|cracked|chipped) (a |my |his |her |their )?(front )?(tooth|teeth|jaw)\b|\b(tooth|teeth) (got )?(knocked out|broke|broken|cracked)\b/i,
     es: es(
-      "(la herida|la incisi[óo]n|los puntos|las suturas) (se )?(abri[óo]|abrieron|est[áa] abierta|soltaron|sangra)|se me (rompi[óo]|cay[óo]|parti[óo]) (un|el|la) (diente|muela)|diente (roto|partido)",
+      "(la herida|la incisi[óo]n|los puntos|las suturas) (se )?(abri[óo]|abrieron|est[áa] abierta|soltaron|sangra)|se (me )?(abri[óo]|abrieron) (la herida|los puntos)|se me (salieron|soltaron) los puntos|se me (rompi[óo]|cay[óo]|parti[óo]) (un|el|la) (diente|muela)|diente (roto|partido)",
     ),
   },
   CRISIS,
@@ -384,8 +505,14 @@ const HUMAN_FAMILIES: UrgentFamily[] = [
     label: "a reaction or a complication",
     // Misspelt too ("reacton", "sever reaction", "complicaton").
     en: /\b(have|has|having|had|get|gets|getting|got|develop(s|ed|ing)?) (an? |some )?((really|very) )?(bad |severe |sever |serious |allergic |alergic |strange |weird |nasty |terrible |awful |horrible )?(re?a?ct(ion|ino|on|oin)|complicat(ion|on)|complecation)s?\b|\b(bad|severe|sever|serious|strange|weird|nasty|terrible|awful|horrible) (re?a?ct(ion|ino|on|oin)|complicat(ion|on)|complecation)s?\b|\breact(ed|ing) (badly|terribly|really badly|to (the|my|it|this|that))\b/i,
+    // Misspelt too ("reacion", "complicasion"), and "algo salió mal" tied
+    // to a treatment, never on its own ("algo salió mal con mi pago").
     es: es(
-      "(tengo|tiene|tuve|tuvo|estoy teniendo|me dio|le dio) una (mala |fuerte |grave |seria )?(reacci[óo]n|complicaci[óo]n)|(mala|fuerte|grave) reacci[óo]n",
+      [
+        "(tengo|tiene|tuve|tuvo|estoy teniendo|me dio|le dio|me est[áa] dando|present[ée]|tengo como) (una |alguna )?(mala |fuerte |grave |seria |rara |extra[ñn]a |terrible |horrible )?(rea?c{1,2}i[óo]n|complica(c|s)i[óo]n)",
+        "(mala|fuerte|grave|rara|extra[ñn]a|terrible|horrible) (rea?c{1,2}i[óo]n|complica(c|s)i[óo]n)|reaccion(ando|[óo]|[ée]) mal",
+        "algo (sali[óo]|est[áa] saliendo) mal (con|en|despu[ée]s de|tras)( (el|la|mi|los|las))? (relleno|botox|b[óo]tox|tratamiento|procedimiento|inyecci[óo]n|inyecciones|peeling|l[áa]ser|cirug[íi]a|operaci[óo]n)",
+      ].join("|"),
     ),
     other: es("(mauvaise|grave) r[ée]action|complication grave|(schlimme|starke|schwere) reaktion|komplikation|(brutta|grave) reazione|complicazione|(rea[çc][ãa]o|complica[çc][ãa]o) (grave|forte|ruim)"),
   },
@@ -442,7 +569,7 @@ const VETERINARY_FAMILIES: UrgentFamily[] = [
     label: "bloat",
     en: /\b(bloat(ed|ing)?|gdv|twisted (stomach|gut)|stomach (has )?twist\w*|(belly|stomach|abdomen|tummy) (is |looks |feels |seems |has gone |got )?(swollen|distended|hard|tight|bloated|huge|enlarged)|(swollen|distended|hard|bloated) (belly|stomach|abdomen|tummy)|retching|dry[- ]?heav\w*|trying to (vomit|throw up|be sick)|unproductive (vomiting|retching))\b/i,
     es: es(
-      "(barriga|est[óo]mago|abdomen|panza|panzita) (muy )?(hinchad[oa]|inflamad[oa]|dur[oa]|distendid[oa])|torsi[óo]n (g[áa]strica|de est[óo]mago)|arcadas|intenta vomitar",
+      "(barriga|est[óo]mago|abdomen|panza|panzita|pancita) (muy )?(h?inchad[oa]|inflamad[oa]|dur[oa]|distendid[oa])|torsi[óo]n (g[áa]strica|de est[óo]mago)|arcadas|(intenta|trata de|quiere) vomitar( y no puede)?",
     ),
   },
   {
@@ -450,20 +577,22 @@ const VETERINARY_FAMILIES: UrgentFamily[] = [
     label: "breathing",
     en: /\b(can'?t|cannot|can not|couldn'?t|hard to|trouble|difficulty|struggling to|unable to|not|isn'?t|stopped) breath(e|ing)\b(?! easy| easily)|\b(can'?t|cannot) (get|make) (my|the|our|his|her|this) [\w-]+ (to )?breathe\b|\bbreathing (hard|heavily|fast|funny|strange(ly)?|weird(ly)?|badly|noisily)\b|\bshort(ness)? of breath\b|\b(gasping|wheezing|choking|choked)\b|\bpanting (heavily|hard|a lot|non-?stop|constantly)\b|\b(blue|white|grey|gray|pale|purple) (gums|tongue)\b|\b(gums|tongue) (is |are |looks? |have gone |has gone |turned )?(blue|white|grey|gray|pale|purple)\b/i,
     es: es(
-      "no (puede|puedo) respirar|(le cuesta|dificultad para) respirar|no respira|se (est[áa] )?ahogando|enc[íi]as (azules|blancas|p[áa]lidas|moradas)",
+      `no (puede|puedo|pued[oe]|pueo) ${RESPIRAR_ES}|(le cuesta|dificultad para|problemas para) respirar|no respira|respira (raro|mal|muy r[áa]pido|con dificultad|con la boca abierta)|se (est[áa] |esta )?(ahogando|asfixiando|atragantando)|se (ahoga|asfixia|atragant\\p{L}*)|enc[íi]as (azules|blancas|p[áa]lidas|moradas|grises)|lengua (azul|morada|blanca|gris|p[áa]lida)`,
     ),
   },
   {
     label: "a collapse or a seizure",
     en: /\b(collaps(e|ed|es|ing)|unconscious|unresponsive|passed out|fainted|fainting|seizures?|seizing|convuls\w*|(having|had|has|having another) (a )?fits?|(is|was|keeps|started) fitting|paraly[sz]\w*|dying|(isn'?t|is not|not|stopped|won'?t|can'?t) (moving|move)|won'?t (wake|wake up)|(can'?t|cannot) wake (him|her|it|them|(my|the|our|this) [\w-]+) up|(can'?t|cannot) (get|make) (my|the|our|his|her|this) [\w-]+ (to )?(wake( up)?|respond|move)|can'?t (stand|stand up|get up|walk|move (his|her|its|their) (back |hind )?legs)|(won'?t|will not|unable to) (stand|get up|walk)|dragging (his|her|its|their) (back |hind )?legs|(back|hind) legs (have )?(gone|given out|stopped working|collapsed)|(shaking|trembling|twitching) (uncontrollably|all over|badly)|tremors)\b/i,
     es: es(
-      "(se )?desplom\\p{L}*|colaps\\p{L}*|convulsi\\p{L}*|inconsciente|no se mueve|no (despierta|reacciona)|no (puedo|logro|consigo) despertar(lo|la)?|no se puede (levantar|parar|mover)|arrastra las patas|paralizad[oa]|par[áa]lisis|se (est[áa] )?muriendo|temblando (mucho|sin parar)",
+      "(se )?desplom\\p{L}*|colaps\\p{L}*|convulsi\\p{L}*|desma(y|ll|i)\\p{L}*|inconsciente|no responde|est[áa] ties[oa]|no se mueve|no (despierta|reacciona)|no (puedo|logro|consigo) despertar(lo|la)?|no se (puede )?(levanta|levantar|para|parar|mueve|mover)|no (puede|logra) (levantarse|pararse|caminar|moverse)|arrastra las patas|paralizad[oa]|par[áa]lisis|se (est[áa] )?muriendo|(tuvo|le dio|le est[áa] dando|tiene) un ataque|espasmos|(temblando|tiembla) (mucho|sin parar|y babeando)",
     ),
   },
   {
     label: "bleeding",
     en: /\b(bleed(ing|s)?|bled|ha?emorrhag\w*)\b|\bblood (in|from) (his|her|its|their|the) (urine|pee|wee|stool|poo|poop|vomit|mouth|nose|ears?|eyes?|bottom)\b|\b(bloody|blood in) (urine|pee|wee|stool|poo|poop|vomit|diarrh\w*|nose)\b|\b(vomiting|throwing up|coughing( up)?|peeing|pooping) blood\b/i,
-    es: es("sangrando|sangra mucho|sangrado|hemorragia|sangre en (la orina|las heces|el v[óo]mito|la popo)|vomitando sangre"),
+    es: es(
+      "sangrando|sangra (mucho|sin parar)|sangrado|hemorragia|no (para|deja) de sangrar|sangre en (la orina|las heces|el v[óo]mito|la popo|la caca|el pip[íi]|la diarrea)|(diarrea|v[óo]mitos?|orina|popo|caca|heces) con sangre|(vomita|vomitando|vomit[óo]|orina|hace pip[íi]|hace popo|hace caca) sangre",
+    ),
   },
   {
     label: "an accident or an injury",
@@ -477,7 +606,7 @@ const VETERINARY_FAMILIES: UrgentFamily[] = [
     label: "not passing urine",
     en: /\b(can'?t|cannot|unable to|isn'?t able to|not able to|trying to|straining to|struggling to|keeps trying to) (pee|urinate|wee|pass urine)\b|\b(not|hasn'?t|has not|hasn'?t been|isn'?t) (peeing|urinating|weeing|peed|urinated)\b|\bno (urine|pee)\b|\b(urinary|urethral|bladder) (blockage|obstruction)\b|\b(blocked|obstructed) (bladder|urethra|cat|tom)\b|\bstraining (in|to use) the (litter ?box|litter ?tray|tray)\b/i,
     es: es(
-      "no (puede|logra) (orinar|hacer pis|hacer pip[íi])|no (ha )?orinado|no orina|intenta orinar|(bloqueo|obstrucci[óo]n) urinari[ao]",
+      "no (puede|logra) (orinar|hacer pis|hacer pip[íi])|no (hace|ha hecho) (pis|pip[íi])|no (ha )?orinado|no orina|intenta orinar|lleva (\\p{L}+ ){0,2}sin orinar|(bloqueo|obstrucci[óo]n) urinari[ao]",
     ),
   },
   {
@@ -508,7 +637,9 @@ const VETERINARY_FAMILIES: UrgentFamily[] = [
   {
     label: "severe pain",
     en: /\b(screaming|crying|yelping|howling|whimpering|shaking) (in|with|from) pain\b|\bin (a lot of|so much|severe|terrible|extreme|agonising|agonizing) pain\b|\b(severe|extreme|excruciating|terrible) pain\b/i,
-    es: es("(llorando|chillando|aullando|gritando) de dolor|mucho dolor"),
+    es: es(
+      "(llorando|chillando|aullando|gritando|llora|chilla|a[úu]lla|grita|se queja) (de|del|por el) dolor|mucho dolor|dolor (muy )?(fuerte|intenso|insoportable)",
+    ),
   },
 ];
 

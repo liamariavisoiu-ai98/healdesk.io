@@ -21,13 +21,13 @@ The one rule to carry even if you read nothing else:
 
 ---
 
-# Session handoff — live state (update after every work package)
+# Continuously maintained session handoff
 
 **Purpose:** This is a concise, persistent resume pointer, **not** a second product specification or a claim that a previous session succeeded. Read [CLAUDE.md](./CLAUDE.md), [product spec](./docs/v1-product-spec.md), [master delivery plan](./HEALDESK_CLAUDE_CODE_LAUNCH_EXECUTION_PLAN.md), and [session-start protocol](./docs/claude-session-start.md) first. Keep this section brief (ideally under 100 lines); link to PRs, issues and CI rather than copying lengthy logs.
 
 **Rules:** Verify this snapshot against Git, actual code and CI on every restart. Never store credentials, tokens, PHI, signed agreements or sensitive production logs. Do not overwrite unrelated uncommitted work. Separate `CODE`, `TESTED`, `DEPLOYED`, `LIVE VERIFIED` and `OWNER APPROVED`.
 
-## Resume pointer
+## Handoff snapshot
 | Field | Current value |
 | --- | --- |
 | Last updated (UTC) | 2026-10-21; GitHub handoff prepared after PR #11 merge |
@@ -50,12 +50,14 @@ The one rule to carry even if you read nothing else:
 - Tests: Vercel check was successful on PR head; post-merge Vercel check pending at last observation. No application tests or delivery-handoff Actions result verified.
 - Evidence: [PR #11](https://github.com/liamariavisoiu-ai98/healdesk.io/pull/11).
 
-## Next approved work and Owner queue
+## Next actions — ordered
 1. **Owner:** Pull latest `main` into the existing local checkout **without discarding unfinished changes**; inspect Actions and configure required handoff status check in branch protection.
 2. **Claude Code, once authorized:** First reconcile any previous local session's uncommitted files, branch and unfinished tasks; then run Wave 0 read-only audit and propose evidence-backed work packages.
 3. **Owner:** Approve the first bounded engineering work package before product edits.
 
-## Hard stops
+## Owner approvals and restrictions
+
+### Hard stops
 No merge, push, production deploy, Terraform apply, live vendor changes, real patient traffic, compliance attestation or final go-live without specific Owner approval. Preserve existing code and report any dirty worktree.
 
 ## End-of-session update contract

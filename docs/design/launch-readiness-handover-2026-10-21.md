@@ -210,3 +210,23 @@ still are.
 - Do not stage in a shared index; use your own worktree. `apps/app/Dockerfile` may show as modified in the main checkout from another session; leave it.
 - The audit's own corrections: product mail goes through Resend (transcripts through SES); `turbo.json` has `//` comments (fine); the Meta window-gated reply is allowed.
 - Session-restart note: three builders (verification, provisioning, ended-early) died with the previous session; this handover replaces them.
+
+## 6. CI result for `check/wave0-integration` (c6820b04), run 39633056105: RED
+
+`infra`, `types, lint, other tests, build` and app shard 4 passed. Seven app tests
+failed in shards 1 to 3. Do H0 with these as the starting list; `main` was NOT
+updated with the integration branch because of them.
+
+| Test | Failure | Cause (read from the log, not yet fixed) | Branch to fix |
+| --- | --- | --- | --- |
+| `tests/booking-request-destruction.test.ts` "every table with a clinic_id is..." | expected `['retell_recording_alerts']` to equal `[]` | the new 0105 table has a `clinic_id` but destruction/erasure does not handle or list it | `pkg/alert-noaudio` / `fix/retell-transcript` |
+| `tests/retention.test.ts` "every table with a clinic_id is purged nightly or left by the purge for a stated reason" | list has 54 tables, expected 53 | same table not registered in the purge list with a stated reason | same |
+| `tests/account-closure.test.ts` "the frozen tables" | list has 41, expected 40 | same table not in the frozen-tables list | same |
+| `tests/meta-screen-and-greeting.test.ts` (two tests: "a message in a language no screen reads...", "a message in another language never reaches...") | French "Je n'arrive pas a respirer" is now `urgent`, the tests expect `language` | stale tests: `fix/screen-turn` deliberately reads French, German, Italian, Portuguese as urgent on Meta too | `fix/screen-turn` |
+| `tests/delivery.test.ts` "the hourly tick beats the heart and runs every job through its own switch" | job list has one more entry than expected | a new tick job (deposit sweep from `fix/deposit-gap`) was not added to the expected list | `fix/deposit-gap` |
+| `tests/setup-wizard.test.ts` "one on day 5" | `not_due` instead of `sent` | known failure, also on unmodified `main` | (H7) |
+
+The first three are a real gap, not only stale tests: a table holding a clinic's
+data must have a stated destruction, purge or freeze rule. Decide the rule for
+`retell_recording_alerts` (it holds a Retell call id, times and our own reason,
+no content) and add it in all three places.

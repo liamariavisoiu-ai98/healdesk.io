@@ -7,6 +7,7 @@ import { activeFactors } from "@/lib/factors/authority";
 import { deviceKindFrom } from "@/lib/factors/device";
 import { findLiveStepUp } from "@/lib/factors/step-ups";
 import { requirePortal } from "@/lib/portal/access";
+import { portalAudience } from "@/lib/portal/audience";
 import { portalNext, sessionBinding } from "@/lib/portal/step-up";
 
 import { StepUpPrompt } from "./StepUpPrompt";
@@ -54,6 +55,7 @@ export default async function StepUpPage({
         hasPasskey={passkeys > 0}
         protectHref={protectHref}
         initialDevice={deviceKindFrom({ userAgent: (await headers()).get("user-agent") })}
+        audience={await portalAudience(portal)}
       />
     </main>
   );

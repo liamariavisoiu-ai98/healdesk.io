@@ -1,7 +1,6 @@
 import {
   bookingSyncFor,
   BOOKING_SYSTEMS,
-  renderGoogleCalendarDisclosure,
   type CalendarAccount,
   type GoogleCalendarDisclosure,
 } from "@healdesk/catalog";
@@ -13,6 +12,7 @@ import {
   type EffectiveBookingMode,
 } from "@/lib/booking/mode";
 import { calendarTermsFor } from "@/lib/booking/terms";
+import { renderPracticeCalendarDisclosure } from "@/lib/connections/calendar-disclosure";
 import {
   calendarConnectProblem,
   getCalendarConnection,
@@ -71,15 +71,20 @@ export async function calendarStep(
   options: { actor: ActorContext },
 ): Promise<CalendarStep> {
   if (await calendarConnectProblem()) return { kind: "requests_only", reason: "unavailable" };
-  const terms = await withTenant({ clinicId: clinic.id, actor: options.actor }, (tx) =>
-    calendarTermsFor(tx),
+  const { terms, disclosure } = await withTenant(
+    { clinicId: clinic.id, actor: options.actor },
+    async (tx) => ({
+      terms: await calendarTermsFor(tx),
+      // The practice's own wording: the BAA's, or the DPA's for its audience.
+      disclosure: await renderPracticeCalendarDisclosure(tx, clinic.name),
+    }),
   );
   if (!terms.allowsWrite) return { kind: "requests_only", reason: "terms" };
   return {
     kind: "google",
     connection: await getCalendarConnection(clinic.id, { actor: options.actor }),
     account: terms.account,
-    disclosure: renderGoogleCalendarDisclosure({ clinicName: clinic.name }),
+    disclosure,
   };
 }
 

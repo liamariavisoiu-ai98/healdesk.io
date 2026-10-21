@@ -45,6 +45,8 @@ export function SignInCard(props: {
    * Without it the card says how the change is made by hand, through hello@.
    */
   addressControl?: ReactNode;
+  /** Who the practice serves: a vet's devices open its clients' details. */
+  audience: "patients" | "clients";
 }) {
   return (
     <section
@@ -111,8 +113,14 @@ function useSignInAction(): (
 // Devices
 // -----------------------------------------------------------------------------
 
-function Devices(props: { slug: string; devices: DeviceView[]; addDeviceHref: string }) {
+function Devices(props: {
+  slug: string;
+  devices: DeviceView[];
+  addDeviceHref: string;
+  audience: "patients" | "clients";
+}) {
   const act = useSignInAction();
+  const one = props.audience === "clients" ? "client" : "patient";
   const [devices, setDevices] = useState(props.devices);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -129,7 +137,7 @@ function Devices(props: { slug: string; devices: DeviceView[]; addDeviceHref: st
     <div className="py-3">
       <p className="font-semibold">Devices with Face ID</p>
       <p className="text-muted mt-1 text-sm">
-        Each phone or computer that can open patient details, with its own Face ID, fingerprint or
+        Each phone or computer that can open {one} details, with its own Face ID, fingerprint or
         screen lock.
       </p>
       {devices.length === 0 ? (
@@ -160,7 +168,7 @@ function Devices(props: { slug: string; devices: DeviceView[]; addDeviceHref: st
               {confirming === d.id ? (
                 <div className="mt-2">
                   <p>
-                    {d.label} will no longer open patient details, and any browser that stepped up
+                    {d.label} will no longer open {one} details, and any browser that stepped up
                     with it is signed out.
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">

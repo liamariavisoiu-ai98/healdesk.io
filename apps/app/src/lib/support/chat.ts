@@ -161,6 +161,7 @@ export async function handleSupportChat(
     system: buildSupportPrompt({
       clinicName: state.clinic.name,
       audience: audienceFor(state.clinic.specialty),
+      agreementKind: state.clinic.agreementKind,
       timeZone: state.clinic.timezone,
       now,
     }),

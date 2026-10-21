@@ -7,6 +7,7 @@ import { SIGN_IN_REASON } from "@/lib/email/templates/context";
 import { renderSignInLink } from "@/lib/email/templates/sign_in_link";
 import { describeError, log } from "@/lib/log";
 import { portalGrants } from "@/lib/portal/access";
+import { signInAudience } from "@/lib/portal/audience";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 
 import { isSafeRedirect, issueSignInLink, SIGN_IN_LINK_TTL_MS } from "./links";
@@ -55,7 +56,8 @@ export async function sendSignInLink(
     .from(user)
     .where(sql`lower(${user.email}) = ${email}`)
     .limit(1);
-  if (!account || (await portalGrants(account.id)).length === 0) return "no_account";
+  const grants = account ? await portalGrants(account.id) : [];
+  if (!account || grants.length === 0) return "no_account";
 
   // Asked before anything is minted, so no live link exists that nobody can
   // be sent (lib/public-url.ts).
@@ -82,7 +84,8 @@ export async function sendSignInLink(
     payload,
     {
       clinicName: null,
-      audience: "patients",
+      // The footer's "leave out patient details" is a vet's "your clients' details".
+      audience: await signInAudience(grants),
       reason: SIGN_IN_REASON,
       raisedAt: options.now ?? new Date(),
       timeZone: "UTC",

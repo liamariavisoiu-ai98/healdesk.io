@@ -5,6 +5,7 @@ import { withinConnectAttemptLimit } from "@/lib/connections/attempt-limit";
 import { resolveConnectionLink } from "@/lib/connections/links";
 import { env } from "@/lib/env";
 import { GRAPH_VERSION } from "@/lib/meta/graph";
+import { clinicAudience } from "@/lib/portal/audience";
 
 import { connectRequestContext } from "../../../connect/[token]/request-context";
 import { ChannelFrame, Notice, Throttled } from "../../shared";
@@ -39,6 +40,11 @@ export default async function WhatsAppChannelPage({ params }: { params: Promise<
   const appId = env.metaAppId();
   const configId = env.metaWhatsAppConfigId();
   const available = Boolean(appId && configId && env.metaAppSecret());
+  // Who messages the number, in the clinic's word: a vet's are its clients.
+  const audience = await clinicAudience(link.clinicId, {
+    type: "service",
+    serviceName: "whatsapp-link",
+  });
 
   return (
     <ChannelFrame clinicName={link.clinicName} title="Let your assistant answer WhatsApp messages">
@@ -47,7 +53,7 @@ export default async function WhatsAppChannelPage({ params }: { params: Promise<
       </p>
       <ul className="mt-3 list-disc space-y-1 pl-5 text-[15px] text-[color:var(--color-muted)]">
         <li>The Facebook account that manages your business on Meta.</li>
-        <li>The phone number you want patients to message, and that phone, to receive a verification code by text or call.</li>
+        <li>The phone number you want {audience} to message, and that phone, to receive a verification code by text or call.</li>
         <li>
           A card to add to your WhatsApp account in Meta. <span className="font-semibold text-[color:var(--color-ink)]">Meta bills you directly</span>{" "}
           for WhatsApp messages, healdesk does not resell them, and your number cannot send a reply until a card is added.

@@ -41,7 +41,7 @@ export const renderDeviceRecoveryLink: EmailTemplate<DeviceRecoveryLinkPayload> 
       blocks: [
         {
           type: "paragraph",
-          text: "Your clinic told us on the phone that no device on its healdesk sign-in can open patient details any more. This link lets one phone or computer add its own Face ID, fingerprint or screen lock to the sign-in. Open it on that device.",
+          text: `Your clinic told us on the phone that no device on its healdesk sign-in can open ${ctx.audience === "clients" ? "client" : "patient"} details any more. This link lets one phone or computer add its own Face ID, fingerprint or screen lock to the sign-in. Open it on that device.`,
         },
         { type: "action", label: "Add a device", url: payload.recoveryUrl },
         {

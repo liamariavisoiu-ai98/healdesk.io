@@ -1,3 +1,5 @@
+import type { Audience } from "@healdesk/catalog";
+
 /**
  * The first thing a clinic's AYA says in a chat, before the demo's own notice.
  *
@@ -8,6 +10,8 @@
  * with, and it says it is an AI assistant, as the opening line has to on every
  * channel.
  */
-export function greetingLead(clinicName: string): string {
-  return `Hi! I'm ${clinicName}'s AI assistant. Ask me anything a patient would: treatments, prices, hours, how to book.`;
+export function greetingLead(clinicName: string, audience: Audience = "patients"): string {
+  // A vet's demo, in its own word: the people who write in are clients.
+  const one = audience === "clients" ? "client" : "patient";
+  return `Hi! I'm ${clinicName}'s AI assistant. Ask me anything a ${one} would: treatments, prices, hours, how to book.`;
 }

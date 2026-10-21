@@ -1,4 +1,4 @@
-import { SENDER_IDENTITY } from "@healdesk/catalog";
+import { SENDER_IDENTITY, type Audience } from "@healdesk/catalog";
 
 import { cutCardNumbersAcrossTurns } from "@/lib/assistant/guard";
 import { escapeHtml } from "@/lib/email/templates/compose";
@@ -79,6 +79,8 @@ export type TranscriptEmailInput = {
     name: string;
     /** IANA time zone, for the conversation's time. */
     timeZone: string;
+    /** Who the practice serves (audienceFor): a vet's callers are its clients. */
+    audience: Audience;
   };
   channel: TranscriptChannel;
   startedAt: Date;
@@ -90,11 +92,20 @@ export type RenderedTranscriptEmail = { subject: string; text: string; html: str
 /** Fixed, and about nobody: the subject shows on a locked phone. */
 export const TRANSCRIPT_SUBJECT = "Conversation transcript from your healdesk assistant";
 
-const DO_NOT_REPLY =
-  "Please don't reply to this email: a reply would send this transcript to healdesk's general inbox, which isn't meant to hold patient information.";
+/** What the email holds, and where it belongs, in the practice's word: a vet's are its clients'. */
+const WORDS: Readonly<Record<Audience, { information: string; records: string }>> = {
+  patients: { information: "patient information", records: "patient records" },
+  clients: { information: "your clients' information", records: "client records" },
+};
 
-const KEEP_IT =
-  "This email holds patient information. healdesk deletes its own encrypted copy as soon as your mail server confirms it has received this email, so this email is the record of what was said: file it where your practice keeps patient records, and then delete it from this inbox.";
+function doNotReply(audience: Audience): string {
+  return `Please don't reply to this email: a reply would send this transcript to healdesk's general inbox, which isn't meant to hold ${WORDS[audience].information}.`;
+}
+
+function keepIt(audience: Audience): string {
+  const words = WORDS[audience];
+  return `This email holds ${words.information}. healdesk deletes its own encrypted copy as soon as your mail server confirms it has received this email, so this email is the record of what was said: file it where your practice keeps ${words.records}, and then delete it from this inbox.`;
+}
 
 /** A conversation longer than this is cut, with a note, rather than refused. */
 export const MAX_TRANSCRIPT_CHARACTERS = 200_000;
@@ -172,6 +183,9 @@ export function renderTranscriptEmail(input: TranscriptEmailInput): RenderedTran
   const last = turns.length - 1;
   const cut = turns.length < spoken.length || turns[last]?.text.length !== spoken[last]?.text.length;
 
+  const audience: Audience = input.clinic.audience === "clients" ? "clients" : "patients";
+  const KEEP_IT = keepIt(audience);
+  const DO_NOT_REPLY = doNotReply(audience);
   const kind = input.channel === "voice" ? "call" : "web chat";
   const intro = `Your assistant's transcript of a ${kind} on ${when(input)}.`;
   const reference = `Reference: ${input.conversationId}`;

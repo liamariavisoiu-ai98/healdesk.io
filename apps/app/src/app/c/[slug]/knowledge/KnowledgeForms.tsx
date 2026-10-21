@@ -163,6 +163,8 @@ export function PracticeForm(props: {
   slug: string;
   initial: { name: string; address: string; phone: string; website: string; timezone: string };
   zones: readonly { id: string; label: string }[];
+  /** Who calls the main number: a vet's clients, everyone else's patients. */
+  audience: "patients" | "clients";
 }) {
   const { save, working, problem } = useKnowledgeSave(props.slug, "practice");
   const [form, setForm] = useState(props.initial);
@@ -197,7 +199,7 @@ export function PracticeForm(props: {
       />
       <TextInput
         label="Main phone number"
-        hint="The number your patients call. It can't be your direct line."
+        hint={`The number your ${props.audience} call. It can't be your direct line.`}
         value={form.phone}
         onChange={(phone) => set({ phone })}
         type="tel"

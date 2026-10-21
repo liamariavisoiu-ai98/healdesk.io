@@ -82,7 +82,8 @@ describe("nurture sequence", () => {
       const footer = text.slice(text.lastIndexOf("\n--\n"));
       expect(footer, `touch ${touch.step}`).toContain(`You're getting this because you ticked "email me about AYA" on healdesk.io.`);
       expect(footer).toMatch(/Stop these emails: https?:\/\/\S+\/api\/email\/unsubscribe\?t=/);
-      expect(footer).toContain("Replies reach the healdesk team. Please leave out patient details.");
+      // A lead's practice may be a vet's, whose people are clients.
+      expect(footer).toContain("Replies reach the healdesk team. Please leave out patient or client details.");
       expect(footer).toContain("healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.");
       expect(footer).toContain("US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States");
     }
@@ -177,9 +178,17 @@ describe("P7: the purchase is still open", () => {
   test("carries the footer every commercial email does", () => {
     const text = stillOpenEmail(lead(), { clinicName: "Radiance", agreementKind: "baa", setupLink: LINK }).text;
     expect(text).toContain("You're getting this because you started a purchase for Radiance at healdesk.io. Stop these emails: ");
-    expect(text).toContain("Replies reach the healdesk team. Please leave out patient details.");
+    // The lead never said its specialty, so the footer names both.
+    expect(text).toContain("Replies reach the healdesk team. Please leave out patient or client details.");
     expect(text).toContain("healdesk is a service of Viixi FZC");
     expect(text).toContain("Wilmington, DE");
+    // One that did is named in its own word: a vet's people are clients.
+    expect(
+      stillOpenEmail(lead({ specialty: "veterinary" }), { clinicName: "Paws", agreementKind: "dpa", setupLink: LINK }).text,
+    ).toContain("Please leave out your clients' details.");
+    expect(
+      stillOpenEmail(lead({ specialty: "med-spa" }), { clinicName: "Radiance", agreementKind: "baa", setupLink: LINK }).text,
+    ).toContain("Please leave out patient details.");
   });
 
   test("a long clinic name is cut so the subject stays within 70 characters", () => {

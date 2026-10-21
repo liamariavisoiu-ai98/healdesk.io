@@ -1,5 +1,7 @@
 "use client";
 
+import type { Audience } from "@healdesk/catalog";
+
 import { patientValuePerYear, type RoiInputs } from "@/lib/demo/roi";
 import { usd } from "@/lib/pricing";
 
@@ -16,6 +18,8 @@ import { usd } from "@/lib/pricing";
  */
 export type DemoCheckout = {
   clinicName: string;
+  /** Who the demo's clinic serves (demoAudience): a vet's new people are clients. */
+  audience: Audience;
   roi: {
     priceUsd: number;
     priceSource: string;

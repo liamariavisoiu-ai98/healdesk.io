@@ -21,6 +21,7 @@ import { SUPPORT_REASON } from "@/lib/email/templates/support_escalation";
 import { describeError, log } from "@/lib/log";
 import { notifyOpsOnce } from "@/lib/ops/notify";
 import { portalGrants } from "@/lib/portal/access";
+import { signInAudience } from "@/lib/portal/audience";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 
 import { issueSignInLink, maskEmail, SIGN_IN_LINK_TTL_MS } from "./links";
@@ -281,7 +282,8 @@ export async function runSignInHelp(
     payload,
     {
       clinicName: null,
-      audience: "patients",
+      // Whose details still need a passkey: a vet's sign-in reads "client details".
+      audience: await signInAudience(grants),
       reason: SIGN_IN_HELP_REASON,
       raisedAt: options.now ?? new Date(),
       timeZone: "UTC",

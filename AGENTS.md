@@ -18,3 +18,45 @@ The one rule to carry even if you read nothing else:
 > Clinics DO sign in, to the clinic portal in `apps/app`. `/admin` is ours.
 
 `docs/hipaa-compliance.md` is authoritative for what counts as PHI.
+
+---
+
+# Session handoff — live state (update after every work package)
+
+**Purpose:** This is a concise, persistent resume pointer, **not** a second product specification or a claim that a previous session succeeded. Read [CLAUDE.md](./CLAUDE.md), [product spec](./docs/v1-product-spec.md), [master delivery plan](./HEALDESK_CLAUDE_CODE_LAUNCH_EXECUTION_PLAN.md), and [session-start protocol](./docs/claude-session-start.md) first. Keep this section brief (ideally under 100 lines); link to PRs, issues and CI rather than copying lengthy logs.
+
+**Rules:** Verify this snapshot against Git, actual code and CI on every restart. Never store credentials, tokens, PHI, signed agreements or sensitive production logs. Do not overwrite unrelated uncommitted work. Separate `CODE`, `TESTED`, `DEPLOYED`, `LIVE VERIFIED` and `OWNER APPROVED`.
+
+## Resume pointer
+| Field | Current value |
+| --- | --- |
+| Last updated (UTC) | 2026-10-21; initial documentation handoff |
+| Current task | `WAVE0-01` — read-only launch inventory and work-package proposal |
+| Status | NOT STARTED; no engineering audit or production proof claimed |
+| Branch / HEAD | Resolve locally with `git branch --show-current` / `git rev-parse HEAD` |
+| Worktree | Unknown; inspect `git status --short` before editing |
+| Approved scope | Read-only audit and planning after Owner authorizes this work |
+| Next action | Review PR #11; after merge, run session-start protocol and Wave 0 |
+| Blocker | Owner review/merge of [PR #11](https://github.com/liamariavisoiu-ai98/healdesk.io/pull/11) |
+
+## Last verified / reported evidence
+- **Owner-reported:** Retell and Anthropic agreements signed, database coverage confirmed, signed evidence retained. Do not request repeat signatures without a specific new requirement.
+- **Source-inspected, not production-verified:** SEO/GEO code and `apps/web/src/lib/admin/seo/launch.ts`. The launch-promise register requires real evidence before a feature is marked on.
+- **This change:** continuity rules, master plan, startup procedure and CI hygiene are proposed in [PR #11](https://github.com/liamariavisoiu-ai98/healdesk.io/pull/11); no product code, production deployment or live tests were performed.
+
+## Last completed work package
+- ID / outcome: Documentation preparation for PR #11; awaiting review.
+- Changed paths: `CLAUDE.md`, `AGENTS.md`, master plan, startup note, PR template, workflow and checker.
+- Tests: No passing test or CI run verified; inspect PR checks.
+- Evidence: [PR #11](https://github.com/liamariavisoiu-ai98/healdesk.io/pull/11).
+
+## Next approved work and Owner queue
+1. **Owner:** Review PR #11 and CI; merge only when satisfied. Configure required status check in branch protection.
+2. **Claude Code, once authorized:** Run Wave 0 read-only audit; reconcile source, tests, product spec and launch promises; propose task IDs, priority, proof and Owner dependencies.
+3. **Owner:** Approve the first bounded engineering work package before product edits.
+
+## Hard stops
+No merge, push, production deploy, Terraform apply, live vendor changes, real patient traffic, compliance attestation or final go-live without specific Owner approval. Preserve existing code and report any dirty worktree.
+
+## End-of-session update contract
+Before stopping, replace stale values above with **actual** task ID/status, UTC time, branch/HEAD, dirty paths, changed files, exact tests/results (including skips), evidence links, blockers, Owner decisions and **one next executable step**. Keep stable architectural guidance at the top unchanged. If interrupted, reconstruct state from Git and CI; do not invent a checkpoint.

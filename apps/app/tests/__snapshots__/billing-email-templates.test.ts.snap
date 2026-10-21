@@ -435,13 +435,13 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > location_added: a location added after the start > the words, as a snapshot 1`] = `
 {
-  "preheader": "The new location has its own setup in healdesk.",
+  "preheader": "The same AYA answers for every one of your locations.",
   "subject": "Location added: you now have 2 healdesk locations",
   "text": "Your new location is added, so your healdesk account now covers 2 locations.
 
 Its setup fee of $956 was charged when you added it, and your plan now costs $520 more each billing period. The invoice covers the setup fee and the new location's share of this period.
 
-The new location has its own setup to finish in healdesk.
+The same AYA answers for every location, as one central assistant with one knowledge base and price list. It answers for this one once you confirm its address, hours and phone numbers in your portal.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -458,13 +458,13 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > location_added: a location added before the start, no invoice link > the words, as a snapshot 1`] = `
 {
-  "preheader": "The new location has its own setup in healdesk.",
+  "preheader": "The same AYA answers for every one of your locations.",
   "subject": "Location added: you now have 3 healdesk locations",
   "text": "Your new location is added, so your healdesk account now covers 3 locations.
 
 Its setup fee of $259 was charged when you added it. Its plan price of $120 starts with your plan, the day AYA first answers a patient.
 
-The new location has its own setup to finish in healdesk.
+The same AYA answers for every location, as one central assistant with one knowledge base and price list. It answers for this one once you confirm its address, hours and phone numbers in your portal.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

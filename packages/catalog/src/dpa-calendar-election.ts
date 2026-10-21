@@ -54,9 +54,10 @@ import { wrap } from "./wrap";
  * lib/booking/elections.ts), and the database's election guard refuses this
  * form under a business associate agreement and the BAA's under a DPA (the
  * same migration). A second location is still not possible for any practice
- * (`LOCATION_CLINICS_READY` is false in apps/app), so today a DPA practice's
- * election is a change of its first location's booking system or kind of
- * Google account, as a BAA practice's is.
+ * (`locationsReady` in apps/app's lib/locations.ts is false for every
+ * package, and `addLocation` answers "not_available"), so today a DPA
+ * practice's election is a change of its first location's booking system or
+ * kind of Google account, as a BAA practice's is.
  *
  * To revise: add a new entry at DPA_CALENDAR_ELECTIONS[0] with a new version.
  * Once released, never edit one; an election row's stored hash points at it.

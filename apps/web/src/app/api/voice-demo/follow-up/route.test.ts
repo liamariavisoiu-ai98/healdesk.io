@@ -246,7 +246,7 @@ describe("the owner's setup-link email", () => {
     expect(String(theirs!.body.text)).toMatch(/Stop these emails: https:\/\/\S+\/api\/email\/unsubscribe\?t=/);
     expect(String(theirs!.body.text)).toContain("healdesk is a service of Viixi FZC");
     expect(String(theirs!.body.text)).toContain("Wilmington, DE 19801");
-    expect(String(theirs!.body.text)).toContain("Please leave out patient details.");
+    expect(String(theirs!.body.text)).toContain("Please leave out patient or client details.");
     expect(theirs!.body.tags).toEqual([
       { name: "app", value: "web" },
       { name: "kind", value: "voice-setup-link" },

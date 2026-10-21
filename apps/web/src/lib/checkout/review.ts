@@ -253,13 +253,19 @@ export function runOutLine(plan: Plan): string {
 
 export const SALES_TAX_LINE = "Plus sales tax where it applies.";
 
-/** "This sets up one location. Add more from Billing after setup: $520/mo + $1,394 setup fee each." */
+/**
+ * "This sets up one location. Add more from Billing after setup: $520/mo +
+ * $1,394 setup fee each. One AYA answers for all of them." The last sentence
+ * is the owner's central model of 20 October 2026: a practice's locations
+ * share one assistant, so a buyer planning several hears it before paying.
+ */
 export function locationsLine(plan: Plan, interval: BillingInterval): string {
   const extra = additionalLocationChargeUsd(plan, interval);
   const per = interval === "year" ? "/yr" : "/mo";
   return (
     "This sets up one location. Add more from Billing after setup: " +
-    `${usd.format(extra.recurringUsd)}${per} + ${usd.format(extra.setupFeeUsd)} setup fee each.`
+    `${usd.format(extra.recurringUsd)}${per} + ${usd.format(extra.setupFeeUsd)} setup fee each. ` +
+    "One AYA answers for all of them."
   );
 }
 

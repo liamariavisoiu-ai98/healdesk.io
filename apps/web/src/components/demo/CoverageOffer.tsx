@@ -1,3 +1,5 @@
+import { agreementClaim, type Audience } from "@healdesk/catalog";
+
 import { DemoBuyButton } from "@/components/demo/DemoBuyButton";
 import { HOURS_IN_A_WEEK, type WeekSchedule } from "@/lib/demo/opening-hours";
 import { site } from "@/lib/site";
@@ -58,6 +60,7 @@ export function CoverageOffer({
   schedule,
   source,
   buy = false,
+  audience = "patients",
 }: {
   slug: string;
   clinicName: string;
@@ -67,7 +70,13 @@ export function CoverageOffer({
   source: { kind: "google"; place: string | null } | { kind: "website" } | null;
   /** A homepage demo: the way in opens the purchase over the page. */
   buy?: boolean;
+  /**
+   * Who the clinic serves (demoAudience): a vet's people are clients, and a
+   * vet signs the data protection agreement, never a business associate one.
+   */
+  audience?: Audience;
 }) {
+  const one = audience === "clients" ? "client" : "patient";
   const openMinutes = schedule.days.reduce((sum, spans) => sum + spans.reduce((s, [a, b]) => s + (b - a), 0), 0);
   const openHours = Math.round((openMinutes / 60) * 10) / 10;
   const closed = Math.round((HOURS_IN_A_WEEK - openHours) * 10) / 10;
@@ -177,7 +186,7 @@ export function CoverageOffer({
         {[
           ["Answers 100% of your calls", "Every call, day and night, if you want her on the whole line."],
           ["Takes calls after hours", "Evenings, weekends and holidays, while your team keeps the day."],
-          ["Steps in when your receptionist is busy", "With a patient or on another line, the call still gets answered."],
+          ["Steps in when your receptionist is busy", `With a ${one} or on another line, the call still gets answered.`],
           ["Chats answered 24/7", "Your website, WhatsApp, Instagram and Messenger, always on."],
         ].map(([title, body]) => (
           <li key={title} className="flex gap-3 rounded-md bg-white/[0.06] px-4 py-4">
@@ -214,7 +223,9 @@ export function CoverageOffer({
           </li>
         ))}
       </ul>
-      <p className="mt-6 text-[13.2px] text-white/50">We sign a business associate agreement and handle patient data under it.</p>
+      <p className="mt-6 text-[13.2px] text-white/50">
+        {agreementClaim(audience === "clients" ? "dpa" : "baa", audience)}.
+      </p>
     </section>
   );
 }

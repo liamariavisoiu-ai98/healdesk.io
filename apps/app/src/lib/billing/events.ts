@@ -1341,7 +1341,7 @@ async function planStartedPayload(
  * The channel whose first answer started the plan: the billing clinic's
  * earliest `first_answer_at`, else the billed package's only channel. A
  * location's channels sit in another tenant and are not read here; until
- * locations exist (LOCATION_CLINICS_READY) every first answer is the billing
+ * locations exist (locationsReady) every first answer is the billing
  * clinic's own. Null when neither says, and the email names no channel.
  */
 async function firstAnsweredChannel(tx: TenantTx, billed: Plan): Promise<Channel | null> {

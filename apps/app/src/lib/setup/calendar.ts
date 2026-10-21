@@ -1,7 +1,6 @@
 import {
   bookingSyncFor,
   BOOKING_SYSTEMS,
-  renderGoogleCalendarDisclosure,
   type CalendarAccount,
   type GoogleCalendarDisclosure,
 } from "@healdesk/catalog";
@@ -13,6 +12,7 @@ import {
   type EffectiveBookingMode,
 } from "@/lib/booking/mode";
 import { calendarTermsFor } from "@/lib/booking/terms";
+import { renderPracticeCalendarDisclosure } from "@/lib/connections/calendar-disclosure";
 import {
   calendarConnectProblem,
   getCalendarConnection,
@@ -71,15 +71,20 @@ export async function calendarStep(
   options: { actor: ActorContext },
 ): Promise<CalendarStep> {
   if (await calendarConnectProblem()) return { kind: "requests_only", reason: "unavailable" };
-  const terms = await withTenant({ clinicId: clinic.id, actor: options.actor }, (tx) =>
-    calendarTermsFor(tx),
+  const { terms, disclosure } = await withTenant(
+    { clinicId: clinic.id, actor: options.actor },
+    async (tx) => ({
+      terms: await calendarTermsFor(tx),
+      // The practice's own wording: the BAA's, or the DPA's for its audience.
+      disclosure: await renderPracticeCalendarDisclosure(tx, clinic.name),
+    }),
   );
   if (!terms.allowsWrite) return { kind: "requests_only", reason: "terms" };
   return {
     kind: "google",
     connection: await getCalendarConnection(clinic.id, { actor: options.actor }),
     account: terms.account,
-    disclosure: renderGoogleCalendarDisclosure({ clinicName: clinic.name }),
+    disclosure,
   };
 }
 
@@ -154,7 +159,7 @@ const NOTICE_WORDS: Record<Exclude<CalendarNotice, "mismatch">, string> = {
   election_needed:
     "That Google account is a different kind of account, or in another Workspace organisation, from the one connected now. Switching to it means updating your calendar terms first, so nothing changed. Write to hello@healdesk.io and we'll help.",
   account_in_use:
-    "That Google account is already connected to another healdesk location. Each location connects its own account, so nothing was stored.",
+    "That Google account is already connected to another healdesk account, so nothing was stored.",
   already_connected: "That sign-in had already been used, so nothing changed.",
   terms:
     "Your calendar terms don't let healdesk use a calendar, so nothing was connected. Bookings arrive as requests your team confirms.",

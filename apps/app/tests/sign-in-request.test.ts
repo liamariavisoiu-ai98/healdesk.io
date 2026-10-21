@@ -162,6 +162,26 @@ describeDb("sending a sign-in link", () => {
     });
   });
 
+  test("a vet's sign-in link asks a reply to leave out its clients' details, never patient details", async () => {
+    const vet = await seedClinic("paws");
+    await getMigratorPool().query(`update clinics set specialty = 'veterinary' where id = $1`, [
+      vet.clinicId,
+    ]);
+    const owner = await seedPortalUser(vet.clinicId, "owner");
+    const { sent, transport } = fakeTransport();
+
+    expect(await sendSignInLink({ email: owner.email }, { transport })).toBe("sent");
+    const [{ message }] = sent as [Sent];
+    expect(message.text).toContain("Replies reach the healdesk team. Please leave out your clients' details.");
+    expect(message.text).not.toMatch(/\bpatients?\b/i);
+
+    // A practice whose patients are people reads the footer as before.
+    const glow = await seedClinic("glow");
+    const glowOwner = await seedPortalUser(glow.clinicId, "owner");
+    expect(await sendSignInLink({ email: glowOwner.email }, { transport })).toBe("sent");
+    expect(sent[1]!.message.text).toContain("Please leave out patient details.");
+  });
+
   test("an address with no clinic, or no account at all, is sent nothing and mints nothing", async () => {
     await getMigratorPool().query(
       `insert into "user" (id, name, email, email_verified, created_at, updated_at)

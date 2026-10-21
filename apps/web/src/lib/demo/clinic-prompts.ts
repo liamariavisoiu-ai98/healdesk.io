@@ -1,3 +1,5 @@
+import type { Audience } from "@healdesk/catalog";
+
 import { CLINICAL_BOUNDARIES, HEALDESK_PRODUCT_FACTS } from "@/lib/demo-prompt";
 
 import { greetingLead } from "./greeting";
@@ -48,8 +50,10 @@ export function demoModeLine(clinicName: string): string {
 }
 
 /** The first message in the chat panel, before anyone types. */
-export function chatGreeting(clinicName: string): string {
-  return `${greetingLead(clinicName)} This is a demo, so please don't share real patient details.`;
+/** The demo's chat greeting, in the clinic's word for its people (a vet's are clients). */
+export function chatGreeting(clinicName: string, audience: Audience = "patients"): string {
+  const one = audience === "clients" ? "client" : "patient";
+  return `${greetingLead(clinicName, audience)} This is a demo, so please don't share real ${one} details.`;
 }
 
 export function buildClinicChatPrompt(profile: ClinicProfile): string {

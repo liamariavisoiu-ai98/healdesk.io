@@ -1,4 +1,4 @@
-import { type AgreementKind, COHORT_SETUP_CREDIT } from "@healdesk/catalog";
+import { type AgreementKind, type Audience, audienceFor, COHORT_SETUP_CREDIT, isSpecialtyId } from "@healdesk/catalog";
 
 import type { Lead } from "@/lib/leads";
 
@@ -54,8 +54,18 @@ function footer(lead: Lead): string {
     commercialFooter(
       `You're getting this because you ticked "email me about ${site.agent}" on ${site.domain}.`,
       unsubscribeUrl(lead.id),
+      leadAudience(lead),
     )
   );
+}
+
+/**
+ * Who the lead's practice serves, when the lead said its specialty (a vet's
+ * people are its clients), so the footer can name them; null, and both words,
+ * when it did not.
+ */
+function leadAudience(lead: Lead): Audience | null {
+  return isSpecialtyId(lead.specialty) ? audienceFor(lead.specialty) : null;
 }
 
 export const TOUCHES: readonly Touch[] = [
@@ -179,6 +189,7 @@ export function stillOpenEmail(lead: Lead, facts: StillOpenFacts): { subject: st
       commercialFooter(
         `You're getting this because you started a purchase${clinic ? ` for ${clinic}` : ""} at ${site.domain}.`,
         unsubscribeUrl(lead.id),
+        leadAudience(lead),
       ),
   };
 }

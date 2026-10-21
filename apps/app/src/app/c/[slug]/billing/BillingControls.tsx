@@ -474,8 +474,14 @@ export function AddLocation(props: { slug: string; interval: "month" | "year" })
     null,
   );
   const [label, setLabel] = useState("");
+  const [address, setAddress] = useState("");
+  const [acceptedBy, setAcceptedBy] = useState("");
+  const [accepted, setAccepted] = useState(false);
   const [working, setWorking] = useState(false);
   const labelId = useId();
+  const addressId = useId();
+  const acceptedById = useId();
+  const tickId = useId();
 
   async function ask() {
     setWorking(true);
@@ -492,7 +498,13 @@ export function AddLocation(props: { slug: string; interval: "month" | "year" })
     setWorking(true);
     let result: BillingActionResult;
     try {
-      result = await addLocationAction(props.slug, { requestId: preview.requestId, name: label });
+      result = await addLocationAction(props.slug, {
+        requestId: preview.requestId,
+        name: label,
+        address,
+        acceptedBy,
+        accepted,
+      });
     } catch {
       result = FAILED;
     }
@@ -540,10 +552,59 @@ export function AddLocation(props: { slug: string; interval: "month" | "year" })
         placeholder="e.g. Uptown"
         className="border-line min-h-11 rounded-xl border px-3"
       />
+      <label htmlFor={addressId} className="font-semibold">
+        Its street address
+      </label>
+      <input
+        id={addressId}
+        value={address}
+        maxLength={300}
+        onChange={(e) => setAddress(e.target.value)}
+        className="border-line min-h-11 rounded-xl border px-3"
+      />
+      {/*
+        The central-assistant acknowledgement (the owner's central model of
+        20 October 2026), as the server will render and record it: the
+        statements for the package bought and the sentence ticked. What is
+        stored is the server's own render, never these words sent back.
+      */}
+      <div className="grid gap-1">
+        <p className="font-semibold">One AYA for every location</p>
+        <ol className="list-decimal grid gap-1 pl-5">
+          {preview.acknowledgement.statements.map((statement) => (
+            <li key={statement}>{statement}</li>
+          ))}
+        </ol>
+      </div>
+      <label htmlFor={acceptedById} className="font-semibold">
+        Your name and title
+      </label>
+      <input
+        id={acceptedById}
+        value={acceptedBy}
+        maxLength={200}
+        onChange={(e) => setAcceptedBy(e.target.value)}
+        placeholder="e.g. Laura Owner, owner"
+        className="border-line min-h-11 rounded-xl border px-3"
+      />
+      <div className="flex items-start gap-2">
+        <input
+          id={tickId}
+          type="checkbox"
+          checked={accepted}
+          onChange={(e) => setAccepted(e.target.checked)}
+          className="mt-1 h-5 w-5"
+        />
+        <label htmlFor={tickId}>
+          {preview.acknowledgement.acceptance
+            .replaceAll("{{location}}", () => label.trim() || "this location")
+            .replaceAll("{{address}}", () => address.trim() || "its address")}
+        </label>
+      </div>
       <p className="text-muted">Adding it needs Face ID or your screen lock.</p>
       <button
         type="button"
-        disabled={working}
+        disabled={working || !accepted || !label.trim() || !address.trim() || !acceptedBy.trim()}
         onClick={() => void confirm()}
         className="bg-ink min-h-11 w-fit rounded-full px-5 font-bold text-white disabled:opacity-50"
       >

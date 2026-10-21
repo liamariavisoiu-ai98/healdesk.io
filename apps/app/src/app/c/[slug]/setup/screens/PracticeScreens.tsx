@@ -47,6 +47,8 @@ export function BasicsScreen(
     zones: readonly { id: string; label: string }[];
     /** The locations the website read lists, when it lists several. */
     locations: readonly { label: string; address: string | null; phone: string | null }[];
+    /** Who calls the main number: a vet's clients, everyone else's patients. */
+    audience: "patients" | "clients";
   },
 ) {
   const [name, setName] = useState(props.initial.name);
@@ -92,7 +94,7 @@ export function BasicsScreen(
     >
       {props.locations.length > 1 ? (
         <Choice
-          legend="Your website lists more than one location. Which one is this AYA for?"
+          legend="Your website lists more than one location. Which one is your main location? The same AYA answers for all of them: add the others from Billing after setup."
           value={String(location ?? 0)}
           onChange={(value) => {
             const index = Number(value);
@@ -125,7 +127,7 @@ export function BasicsScreen(
       />
       <Field
         label="Main phone number"
-        hint="The number patients call today. You keep it: phone forwarding comes later, from this number."
+        hint={`The number ${props.audience} call today. You keep it: phone forwarding comes later, from this number.`}
         value={phone}
         onChange={setPhone}
         type="tel"

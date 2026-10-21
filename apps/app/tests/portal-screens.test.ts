@@ -89,8 +89,11 @@ describeDb("the portal's screens", () => {
       expect(html).not.toContain("/bookings");
     });
 
-    test("one location shows no switcher; several show the others, each a link to the same screen", async () => {
-      expect(await renderHome()).not.toContain("switch location");
+    test("one account shows no switcher; several show the others as accounts, each a link to the same screen", async () => {
+      // The clinics one sign-in opens are separate accounts that share an
+      // email address; the locations of one account are answered by its one
+      // AYA and are never switched between here (owner, 20 October 2026).
+      expect(await renderHome()).not.toContain("switch account");
       grants.push({
         clinicId: "00000000-0000-4000-8000-000000000001",
         slug: "screens-uptown",
@@ -98,7 +101,9 @@ describeDb("the portal's screens", () => {
       });
       try {
         const html = await renderHome();
-        expect(html).toContain("switch location");
+        expect(html).toContain("switch account");
+        expect(html).toContain('aria-label="Other accounts"');
+        expect(html).not.toMatch(/switch location|Other locations/);
         expect(html).toContain('href="/c/screens-uptown"');
       } finally {
         grants.pop();

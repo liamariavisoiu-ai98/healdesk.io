@@ -1027,7 +1027,7 @@ export async function recordFirstAnswer(
       }
       // A location's channels are billed on its billing clinic, through
       // app_record_billing_request (drizzle/0050) from this location's own
-      // tenant. When locations exist (LOCATION_CLINICS_READY), a location's
+      // tenant. When locations exist (locationsReady), a location's
       // step-up is recorded in the billing clinic's own transaction.
       const request = first
         ? await startPlan(scoped, tx.clinicId, "first_answer")

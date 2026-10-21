@@ -1,8 +1,4 @@
-import {
-  renderGoogleCalendarDisclosure,
-  getBookingSystem,
-  type GoogleCalendarDisclosure,
-} from "@healdesk/catalog";
+import { getBookingSystem, type GoogleCalendarDisclosure } from "@healdesk/catalog";
 
 import type { ActorContext } from "@/lib/audit";
 import {
@@ -10,6 +6,7 @@ import {
   type BookingModeReasonCode,
   type EffectiveBookingMode,
 } from "@/lib/booking/mode";
+import { renderPracticeCalendarDisclosure } from "@/lib/connections/calendar-disclosure";
 import {
   calendarConnectProblem,
   getCalendarConnection,
@@ -17,6 +14,7 @@ import {
 } from "@/lib/connections/google-calendar";
 import { isGoogleConnectOutcome, type GoogleConnectOutcome } from "@/lib/connections/google-oauth";
 import type { SetupSettings } from "@/lib/setup/settings";
+import { withTenant } from "@/lib/tenant";
 
 /**
  * Settings → Calendar (plan Part F2's card: "Connected calendar [Change]
@@ -83,16 +81,21 @@ const UNAVAILABLE = "Connecting a calendar isn't available yet.";
 export async function readCalendarCard(input: {
   slug: string;
   clinicId: string;
-  /** The practice's name, which Google's notice names (renderGoogleCalendarDisclosure). */
+  /** The practice's name, which Google's notice names (renderPracticeCalendarDisclosure). */
   clinicName: string;
   settings: Pick<SetupSettings, "bookingSystem" | "autoConfirmBookings" | "bookingDetail">;
   actor: ActorContext;
   outcome?: unknown;
 }): Promise<CalendarCardView> {
-  const [mode, connection, problem] = await Promise.all([
+  const [mode, connection, problem, disclosure] = await Promise.all([
     effectiveBookingMode(input.clinicId, { actor: input.actor }),
     getCalendarConnection(input.clinicId, { actor: input.actor }),
     calendarConnectProblem(),
+    // Rendered with the practice's name, as the wizard and the link page do,
+    // in the practice's own wording: the BAA's, or the DPA's for its audience.
+    withTenant({ clinicId: input.clinicId, actor: input.actor }, (tx) =>
+      renderPracticeCalendarDisclosure(tx, input.clinicName),
+    ),
   ]);
   const blocker = mode.reasons.find((reason) => CONNECT_BLOCKERS.has(reason.code));
   const blockedLine = blocker
@@ -108,9 +111,7 @@ export async function readCalendarCard(input: {
     canConnect: blockedLine === null,
     blockedLine,
     connection: shown,
-    // Rendered with the practice's name, as the wizard and the link page do:
-    // the template's own text says "{clinicName}" where the name goes.
-    disclosure: renderGoogleCalendarDisclosure({ clinicName: input.clinicName }),
+    disclosure,
     bookingSystem: input.settings.bookingSystem
       ? (getBookingSystem(input.settings.bookingSystem)?.label ?? null)
       : null,
@@ -213,7 +214,7 @@ const OUTCOMES: Record<GoogleConnectOutcome, { ok: boolean; text: string }> = {
   },
   account_in_use: {
     ok: false,
-    text: "That Google account is already connected to another healdesk location. Each location connects its own; nothing was stored.",
+    text: "That Google account is already connected to another healdesk account; nothing was stored.",
   },
   already_connected: { ok: true, text: "Your calendar was already connected." },
   terms: { ok: false, text: "This location's calendar terms don't let healdesk use a calendar." },

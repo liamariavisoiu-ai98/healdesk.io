@@ -1,4 +1,10 @@
-import { audienceSingular, type Audience } from "@healdesk/catalog";
+import {
+  agreementClaim,
+  audienceSingular,
+  DPA_SAFEGUARDS_LINE,
+  type AgreementKind,
+  type Audience,
+} from "@healdesk/catalog";
 
 import { HELP_TEXT } from "./help-text";
 
@@ -10,8 +16,9 @@ import { HELP_TEXT } from "./help-text";
  *   - STABLE: the rules and the help text. The same bytes for every clinic
  *     and every turn: nothing here may name a clinic, a date or a time, or
  *     every turn would pay for the whole prefix again.
- *   - TURN: the practice's name, whether it serves patients or clients, and
- *     today's date.
+ *   - TURN: the practice's name, whether it serves patients or clients, the
+ *     agreement it signed with healdesk and the one sentence that describes
+ *     it, and today's date.
  *
  * The rules are the product's, not the model's to relax: the chat is not a
  * patient channel, names no treatment, changes nothing, and never sends the
@@ -32,7 +39,7 @@ Rules:
 - Use escalate_to_support when the person asks for a person, or when the help text and the account state can't solve their problem. Pick the category and what's wrong from the lists, and the carrier, phone system, coverage mode or channel only when they apply and you know them from the account state or the person; otherwise "not_applicable". Say plainly that you are sending it to the healdesk team, and that the email carries the topic, the details picked and the account's state, never this chat. Escalate at most once for one problem.
 - If the help text doesn't cover something, say you don't know rather than guessing, and offer to send it to the team.
 - Answer in plain text: short sentences, no markdown, no headings, no bold, no tables. Numbered steps written "1." are fine. Be brief: most answers are two to four sentences.
-- Never say "HIPAA compliant": say "we sign a business associate agreement and handle patient data under it". Never say "revenue", and never "collected" except in "deposits collected". Never promise a date or a time for a channel to go live.
+- Never say "HIPAA compliant". Describe the practice's agreement with healdesk only in the words the turn context gives: not every practice signs a business associate agreement. Never say "revenue", and never "collected" except in "deposits collected". Never promise a date or a time for a channel to go live.
 - Use the word the turn context gives for the people the practice serves: "patients" or, at a veterinary practice, "clients".`;
 
 /** The cached prefix: identical for every clinic and every turn. */
@@ -41,6 +48,12 @@ export const SUPPORT_PROMPT_STABLE = `${RULES}\n\n${HELP_TEXT}`;
 export function buildSupportPrompt(input: {
   clinicName: string;
   audience: Audience;
+  /**
+   * `clinics.agreement_kind`: a practice under the Data Protection Agreement
+   * signed no business associate agreement, and is never told it did. Null,
+   * none recorded, is the BAA's, as the PHI gate reads it.
+   */
+  agreementKind: AgreementKind | null;
   timeZone: string;
   now: Date;
 }): SupportPrompt {
@@ -59,6 +72,27 @@ export function buildSupportPrompt(input: {
   const singular = audienceSingular(input.audience);
   return {
     stable: SUPPORT_PROMPT_STABLE,
-    turn: `The practice is ${input.clinicName}. It serves ${input.audience}: say "${input.audience}" and "${singular}", never the other word. Today is ${today}.`,
+    turn: `The practice is ${input.clinicName}. It serves ${input.audience}: say "${input.audience}" and "${singular}", never the other word. ${agreementLine(input.agreementKind, input.audience)} Today is ${today}.`,
   };
+}
+
+/**
+ * What the practice signed, and the one sentence to describe it
+ * (agreementClaim in @healdesk/catalog). In the turn, not the cached prefix,
+ * because it differs by practice.
+ */
+function agreementLine(kind: AgreementKind | null, audience: Audience): string {
+  const claim = agreementClaim(kind, audience);
+  if (kind !== "dpa") {
+    return `Its agreement with healdesk is a business associate agreement: say "${lowerFirst(claim)}".`;
+  }
+  return (
+    `Its agreement with healdesk is a data protection agreement, not a business associate agreement: ` +
+    `say "${lowerFirst(claim)}", and never that healdesk signs a business associate agreement with it. ` +
+    `If asked how that information is protected, say "${DPA_SAFEGUARDS_LINE}".`
+  );
+}
+
+function lowerFirst(sentence: string): string {
+  return sentence.charAt(0).toLowerCase() + sentence.slice(1);
 }

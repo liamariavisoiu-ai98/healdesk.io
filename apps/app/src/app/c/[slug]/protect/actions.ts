@@ -10,6 +10,7 @@ import {
   type RegistrationStart,
 } from "@/lib/factors/passkeys";
 import { requirePortal } from "@/lib/portal/access";
+import { portalAudience } from "@/lib/portal/audience";
 import { portalNext, sessionBinding } from "@/lib/portal/step-up";
 import { isPayingBrowser, PAYING_BROWSER_COOKIE } from "@/lib/sign-in/paying-browser";
 
@@ -29,9 +30,7 @@ type Refusal =
   | Exclude<RegistrationStart, { ok: true }>["reason"]
   | Exclude<RegistrationFinish, { ok: true }>["reason"];
 
-const MESSAGES: Record<Refusal, string> = {
-  needs_step_up:
-    "This sign-in already has a device that opens patient details. Confirm with that device first, or enter a code from your authenticator app.",
+const MESSAGES: Record<Exclude<Refusal, "needs_step_up">, string> = {
   no_device: `This sign-in has no device to confirm with. Enter a code from your authenticator app or a backup code. ${HUMAN_ROUTE}`,
   code_incorrect: "That code didn't work. Check it and try again.",
   code_locked: "Too many wrong codes in a row. Code entry is paused for 15 minutes.",
@@ -66,9 +65,20 @@ export async function beginAddDevice(
     request: await requestMeta(),
     payingBrowser: await payingBrowser(portal.userId),
   });
-  return started.ok
-    ? { ok: true, options: started.options }
-    : { ok: false, message: MESSAGES[started.reason] };
+  if (started.ok) return { ok: true, options: started.options };
+  return {
+    ok: false,
+    message:
+      started.reason === "needs_step_up"
+        ? await needsStepUp(portal)
+        : MESSAGES[started.reason],
+  };
+}
+
+/** The one refusal that names whose details a device opens: a vet's are its clients'. */
+async function needsStepUp(portal: Parameters<typeof portalAudience>[0]): Promise<string> {
+  const one = (await portalAudience(portal)) === "clients" ? "client" : "patient";
+  return `This sign-in already has a device that opens ${one} details. Confirm with that device first, or enter a code from your authenticator app.`;
 }
 
 export type FinishAddDevice = { ok: true; next: string } | { ok: false; message: string };

@@ -145,6 +145,7 @@ export default async function SettingsPage({
             addDeviceHref={`/c/${portal.clinicSlug}/protect?next=${encodeURIComponent(settingsPath)}`}
             addBackupHref={`/c/${portal.clinicSlug}/setup?s=backup`}
             addressControl={<AddressControl slug={portal.clinicSlug} open={openChange} />}
+            audience={shell.audience}
           />
         </div>
       </FeedbackProvider>

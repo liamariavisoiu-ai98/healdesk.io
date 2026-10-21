@@ -2,7 +2,6 @@ import { createHash, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto"
 import { isIP } from "node:net";
 
 import {
-  GOOGLE_CALENDAR_DISCLOSURE,
   GOOGLE_CALENDAR_DISCLOSURE_COMPATIBLE,
   googleCalendarDisclosureSha256,
 } from "@healdesk/catalog";
@@ -52,6 +51,7 @@ import { portalActor } from "@/lib/portal/actor";
 import { publicUrl } from "@/lib/public-url";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
+import { practiceCalendarDisclosure } from "./calendar-disclosure";
 import {
   calendarBreakOf,
   calendarConnectProblem,
@@ -209,7 +209,9 @@ export type GoogleSignInVia =
 
 /**
  * Mint a sign-in: refuse unless Google may be asked at all, the notice was
- * ticked on the current version and the location's terms allow writing; then
+ * ticked on the version of the practice's own wording (the BAA's, or the
+ * DPA's for its audience: lib/connections/calendar-disclosure.ts) and the
+ * location's terms allow writing; then
  * store the state row (with the notice's version, hash and the time it was
  * accepted), audit the acceptance, and hand back Google's consent URL and
  * the cookie value that binds the round trip to this browser. The caller
@@ -234,13 +236,6 @@ export async function beginGoogleSignIn(input: {
     });
     throw new GoogleConnectError("unavailable", "Calendar connection isn't available yet.");
   }
-  if (input.disclosureVersion !== GOOGLE_CALENDAR_DISCLOSURE.version) {
-    throw new GoogleConnectError(
-      "disclosure",
-      "Tick the box under the notice to allow healdesk to use the calendar.",
-    );
-  }
-
   const state = randomBytes(32).toString("base64url");
   const bind = randomBytes(32).toString("base64url");
   const via = input.via;
@@ -248,6 +243,15 @@ export async function beginGoogleSignIn(input: {
   await withTenant(
     { clinicId: input.clinicId, actor: input.actor, request: input.request },
     async (tx) => {
+      // The practice's own wording, the one its page showed (the BAA's, or
+      // the DPA's for its audience): ticked on any other version, refused.
+      const disclosure = await practiceCalendarDisclosure(tx);
+      if (input.disclosureVersion !== disclosure.version) {
+        throw new GoogleConnectError(
+          "disclosure",
+          "Tick the box under the notice to allow healdesk to use the calendar.",
+        );
+      }
       if (await leaving(tx)) {
         throw new GoogleConnectError("terms", "This location is leaving healdesk.");
       }
@@ -272,8 +276,8 @@ export async function beginGoogleSignIn(input: {
         userId: via.kind === "portal" ? via.userId : null,
         returnTo: via.kind === "calendar_link" ? "calendar_link" : via.returnTo,
         browserBindingHash: sha256(bind),
-        disclosureVersion: GOOGLE_CALENDAR_DISCLOSURE.version,
-        disclosureSha256: Buffer.from(googleCalendarDisclosureSha256(), "hex"),
+        disclosureVersion: disclosure.version,
+        disclosureSha256: Buffer.from(googleCalendarDisclosureSha256(disclosure), "hex"),
         disclosureAcceptedAt: sql`now()`,
         // One clock for both ends of the fifteen minutes.
         expiresAt: sql`now() + make_interval(secs => ${GOOGLE_STATE_TTL_SECONDS})`,
@@ -284,7 +288,7 @@ export async function beginGoogleSignIn(input: {
         resourceId: tx.clinicId,
         metadata: {
           event: "calendar_disclosure_accepted",
-          version: GOOGLE_CALENDAR_DISCLOSURE.version,
+          version: disclosure.version,
           via: via.kind,
         },
       });

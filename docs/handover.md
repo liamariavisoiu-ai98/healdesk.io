@@ -872,8 +872,15 @@ request's `recorded_at` and refuses every one the practice has already marked re
 and 0095's `device_recoveries_guard` refuses every device link that arrives claimed,
 used or ended, or bound to an address its sign-in no longer has, which is nearly every
 link, and dates the rest from the moment of the load, which would reopen a link already
-past its 24 hours. For such a load the owner disables all seven by name, loads every
-table, `booking_request_keys` included, and enables them again, in one transaction:
+past its 24 hours. Three more came with locations in 0108: `clinics_main_location` makes
+a main location for every clinic loaded, which the loaded `clinic_locations` rows then
+meet (one main location per account); `clinic_locations_guard` restamps every location's
+`created_at` and `activated_at` and refuses every later location that arrives active;
+and `location_acknowledgements_guard` restamps every acceptance's `accepted_at` and
+refuses every one whose step-up has ended, which after eight hours is all of them. For
+such a load the owner disables all ten by name, loads every table,
+`booking_request_keys` and `clinic_locations` included, and enables them again, in one
+transaction:
 
 ```sql
 BEGIN;
@@ -884,6 +891,9 @@ ALTER TABLE record_amendments DISABLE TRIGGER record_amendments_guard;
 ALTER TABLE handovers DISABLE TRIGGER handovers_guard;
 ALTER TABLE patient_requests DISABLE TRIGGER patient_requests_guard;
 ALTER TABLE device_recoveries DISABLE TRIGGER device_recoveries_guard;
+ALTER TABLE clinics DISABLE TRIGGER clinics_main_location;
+ALTER TABLE clinic_locations DISABLE TRIGGER clinic_locations_guard;
+ALTER TABLE location_acknowledgements DISABLE TRIGGER location_acknowledgements_guard;
 -- the data-only load
 ALTER TABLE clinics ENABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests ENABLE TRIGGER booking_requests_keys_once;
@@ -892,13 +902,17 @@ ALTER TABLE record_amendments ENABLE TRIGGER record_amendments_guard;
 ALTER TABLE handovers ENABLE TRIGGER handovers_guard;
 ALTER TABLE patient_requests ENABLE TRIGGER patient_requests_guard;
 ALTER TABLE device_recoveries ENABLE TRIGGER device_recoveries_guard;
+ALTER TABLE clinics ENABLE TRIGGER clinics_main_location;
+ALTER TABLE clinic_locations ENABLE TRIGGER clinic_locations_guard;
+ALTER TABLE location_acknowledgements ENABLE TRIGGER location_acknowledgements_guard;
 COMMIT;
 ```
 
 (`pg_restore --data-only --disable-triggers` does the same for every table, foreign keys
-included, but only as a superuser, which RDS does not give.) Then check that both
-triggers and `clinics_record_clock` read `tgenabled = 'O'` in `pg_trigger`, the check
-0054 ends with, and that every booking request has its key, counting clinic by clinic
+included, but only as a superuser, which RDS does not give.) Then check that every one
+of them and `clinics_record_clock` read `tgenabled = 'O'` in `pg_trigger` (0054's check,
+widened), that every open account has exactly one main location (0108 ends with that
+count), and that every booking request has its key, counting clinic by clinic
 inside each clinic's tenant as 0054's backfill does (`booking_requests` is FORCEd): a
 request loaded without its key could be deleted and written again with another decision.
 `tests/booking-request-destruction.test.ts` runs these steps.

@@ -2,16 +2,19 @@
 
 import { randomUUID } from "node:crypto";
 
-import { isBillingInterval } from "@healdesk/catalog";
+import { getPlan, isBillingInterval } from "@healdesk/catalog";
 
 import { setCoveredEntity } from "@/lib/agreements/covered-entity";
 import { readOpenResign, resignPath } from "@/lib/agreements/resign";
 import { addLocation, changePlan, createPortalSession } from "@/lib/billing/stripe-actions";
+import { getEntitlements } from "@/lib/billing/entitlements";
 import { previewAddLocation, previewChangePlan } from "@/lib/billing/summary";
+import { acknowledgementShown } from "@/lib/location-add";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
 import { isBillingSwitchKey, setBillingSwitch } from "@/lib/portal/billing";
 import { stepUpPath, touchStepUp } from "@/lib/portal/step-up";
+import { withTenant } from "@/lib/tenant";
 import { publicUrl } from "@/lib/public-url";
 
 /**
@@ -121,12 +124,36 @@ export async function changePlanAction(
 export async function previewLocationAction(slug: string) {
   const portal = await requirePortal(String(slug));
   const preview = await previewAddLocation(portal.clinicId);
-  return preview.status === "ok" ? { ...preview, requestId: randomUUID() } : preview;
+  if (preview.status !== "ok") return preview;
+  const actor = await portalActor(portal);
+  // The words shown above the tick, from the document the add records.
+  const acknowledgement = await withTenant(
+    { clinicId: portal.clinicId, actor: { type: "user", userId: portal.userId, label: actor.label } },
+    async (tx) => {
+      const row = await getEntitlements(tx.db, portal.clinicId);
+      const bought = row?.boughtPlanId ? getPlan(row.boughtPlanId) : undefined;
+      return bought ? acknowledgementShown(tx, bought) : null;
+    },
+  );
+  if (!acknowledgement) {
+    return { status: "not_available" as const, message: "Adding a location isn't available yet." };
+  }
+  return { ...preview, acknowledgement, requestId: randomUUID() };
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 export async function addLocationAction(
   slug: string,
-  input: { requestId: unknown; name: unknown },
+  input: {
+    requestId: unknown;
+    name: unknown;
+    address: unknown;
+    acceptedBy: unknown;
+    accepted: unknown;
+  },
 ): Promise<BillingActionResult> {
   const portal = await requirePortal(String(slug));
   const actor = await portalActor(portal);
@@ -137,18 +164,32 @@ export async function addLocationAction(
       stepUpHref: stepUpPath(portal.clinicSlug, billingPath(portal.clinicSlug)),
     };
   }
-  await touchStepUp(portal);
+  // The live step-up the acknowledgement is recorded under: the database
+  // checks it is this person's, on this device, and not ended.
+  const stepUp = await touchStepUp(portal);
+  if (!stepUp) {
+    return {
+      ok: false,
+      message: STEP_UP,
+      stepUpHref: stepUpPath(portal.clinicSlug, billingPath(portal.clinicSlug)),
+    };
+  }
   const result = await addLocation({
     clinicId: portal.clinicId,
-    requestId: typeof input.requestId === "string" ? input.requestId : "",
+    requestId: text(input.requestId),
     actorLabel: actor.label,
-    ...(typeof input.name === "string" && input.name.trim() ? { name: input.name } : {}),
+    location: { name: text(input.name), address: text(input.address) },
+    acceptance: {
+      userId: portal.userId,
+      acceptedByLabel: text(input.acceptedBy),
+      stepUp,
+      accepted: input.accepted === true,
+    },
   });
   if (result.status === "added") {
     return {
       ok: true,
-      toast: "The location is added. Its own setup comes next.",
-      href: `/c/${result.slug}/setup`,
+      toast: "The location is added. Next, confirm its address, hours and phone numbers, so AYA can answer for it.",
     };
   }
   return result.status === "pending_setup"

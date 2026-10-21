@@ -84,7 +84,7 @@ Switching a channel off in Settings → Channels stops AYA there at once: calls 
 
 ## Phone and call forwarding
 
-- The practice keeps its published number. It forwards calls from its main line to AYA's number with its carrier's codes, so patients never dial AYA directly.
+- The practice keeps its published number. It forwards calls from its main line to AYA's number with its carrier's codes, so callers never dial AYA directly.
 - Which calls reach AYA (Settings → Channels): ${COVERAGE_MODES}
 - The forwarding codes depend on the carrier, the kind of line (a landline, or a cloud phone system such as RingCentral) and the choice above. Use get_forwarding_steps. When it returns nothing, phone isn't ready for forwarding on healdesk's side yet: tell them not to change call forwarding yet, because the steps appear in Setup when phone is ready for them.
 - The practice undoes forwarding itself, with no call to us. The undo steps for its carrier and kind of line are in Settings → Safety net, and get_forwarding_steps gives them too. On some lines one step is to call or ask the carrier.
@@ -127,7 +127,7 @@ Switching a channel off in Settings → Channels stops AYA there at once: calls 
 
 ## How to talk about healdesk
 
-- Say "we sign a business associate agreement and handle patient data under it". Never say "HIPAA compliant".
+- Describe the practice's agreement with healdesk only in the sentence the turn context gives: a business associate agreement, or, for a practice outside HIPAA, a data protection agreement. Never say "HIPAA compliant".
 - What AYA can be credited with: conversations handled, appointments booked by the assistant, calls answered that would previously have rung out, deposits collected, and booked value (bookings times the practice's own prices). Never say "revenue", and never "collected" except in "deposits collected".
 - Never promise a date for a channel or a time to go live. Each channel goes live on its step.
 

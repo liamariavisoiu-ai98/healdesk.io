@@ -48,7 +48,7 @@ export type MetaLoginProblem =
   | "cancelled"
   /** No Page was selected, or the account administers none. */
   | "no_page"
-  /** More than one Page selected. One clinic location answers on one Page. */
+  /** More than one Page selected. One account answers on one Page, for all its locations. */
   | "several_pages"
   /** Meta refused a call. `detail` carries its message. */
   | "meta_error";
@@ -63,11 +63,12 @@ export type MetaAppCredentials = { appId: string; appSecret: string };
  * A Facebook Login for Business code → the Page, and its Instagram account when
  * it has one.
  *
- * Exactly one Page. Healdesk is sold per location and each location answers on
- * its own Page; a login that selected two would otherwise force a silent guess
- * about which one this clinic is, and `saveConnection` keeps one connection per
- * provider, so the guess would be stored as fact. The clinic is asked to
- * choose one instead.
+ * Exactly one Page. One AYA answers for every location of an account, and the
+ * account answers on one Page for all of them (several Pages per account are a
+ * later item of the extra-locations plan); a login that selected two would
+ * otherwise force a silent guess about which one is the practice's, and
+ * `saveConnection` keeps one connection per provider, so the guess would be
+ * stored as fact. The clinic is asked to choose one instead.
  *
  * A Page with no linked Instagram professional account connects Messenger
  * alone, and the screen says what Instagram still needs. That is not an

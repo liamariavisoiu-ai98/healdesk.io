@@ -165,13 +165,16 @@ describeDb("database audit (0031)", () => {
     // offboarding and record-clock columns (0054), the client number every
     // sealed credential is labelled with (migration A, 0057), the export's
     // delivery, which the destruction floor reads (0058), the
-    // organisation, which the agreement gate reads (0066), and the account's
+    // organisation, which the agreement gate reads (0066), the account's
     // closure with the notice address it keeps, which only
-    // app_close_clinic_account and app_expire_notice_addresses write (0096).
+    // app_close_clinic_account and app_expire_notice_addresses write (0096),
+    // and the billing pointer, retired as the way locations are made and
+    // given no new writer (0108).
     expect(locked).toEqual([
       "account_closed_at",
       "agreement_kind",
       "baa_signed_at",
+      "billing_clinic_id",
       "client_number",
       "data_classification",
       "destroy_after",

@@ -15,7 +15,7 @@ import { notFound } from "next/navigation";
 
 import { readOpenResign } from "@/lib/agreements/resign";
 import { setupLastDay } from "@/lib/clinic/setup-window";
-import { LOCATION_CLINICS_READY } from "@/lib/location-clinic";
+import { locationsReady } from "@/lib/locations";
 import { backupsExpireOn, type AfterCancellation } from "@/lib/offboarding/after-cancellation";
 import {
   extraBlockLine,
@@ -371,10 +371,12 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
               />
               {/*
                 The promise as designed (CLAUDE.md, "Copy first, then the
-                switch"): what a location costs and that it is added here.
-                Until createLocationClinic exists the button is not offered,
-                and the gap is LAUNCH_PROMISES' "extra-locations"; nothing
-                here sends the clinic to an inbox that cannot add one either.
+                switch"): what a location costs, that it is added here, and
+                the owner's central model of 20 October 2026, one AYA for
+                every location of the practice. Until the package bought may
+                add one (locationsReady) the button is not offered, and the
+                gap is LAUNCH_PROMISES' "extra-locations"; nothing here sends
+                the clinic to an inbox that cannot add one either.
               */}
               <div className="border-line mt-2 border-t pt-3">
                 <h3 className="font-semibold">Add a location</h3>
@@ -385,9 +387,12 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
                     {summary.interval === "year" ? "a year" : "a month"} plus a{" "}
                     {portalMoney(location.setupFeeUsd * 100)} setup fee, charged once. It renews on
                     the same date as your plan, and the allowances are pooled across your locations.
+                    One AYA answers for all of your locations as a central assistant, like a call
+                    centre, with one knowledge base, price list and sign-in. Every location must be
+                    run by your practice; one run by a different business needs its own account.
                   </p>
                 ) : null}
-                {LOCATION_CLINICS_READY ? (
+                {locationsReady(bought) ? (
                   <AddLocation slug={portal.clinicSlug} interval={summary.interval} />
                 ) : null}
               </div>

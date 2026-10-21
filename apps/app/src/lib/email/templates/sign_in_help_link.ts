@@ -35,7 +35,7 @@ export const renderSignInHelpLink: EmailTemplate<SignInHelpLinkPayload> = (paylo
         { type: "action", label: "Sign in", url: payload.signInUrl },
         {
           type: "paragraph",
-          text: `It works once, for the next ${payload.validMinutes} minutes. Patient details still open only with Face ID or the screen lock on a device you've added.`,
+          text: `It works once, for the next ${payload.validMinutes} minutes. ${ctx.audience === "clients" ? "Client" : "Patient"} details still open only with Face ID or the screen lock on a device you've added.`,
         },
         {
           type: "paragraph",

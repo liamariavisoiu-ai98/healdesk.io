@@ -103,9 +103,14 @@ export function detailsBeforeHoldLine(when: string): string {
   return `Before I hold ${when} for you, could I take your first name and a mobile number the clinic can reach you on?`;
 }
 
-/** The voice HOLD_LINE, and the one detail still to take. */
+/** The one detail still to take, asked on its own. */
+export function askLine(missing: "first_name" | "phone"): string {
+  return missing === "first_name" ? "Could I take your first name?" : "What's the best number for the clinic to reach you on?";
+}
+
+/** The voice HOLD_LINE, and the one detail still to take: only once a hold is placed. */
 export function heldAskLine(missing: "first_name" | "phone"): string {
-  return `${HOLD_LINE} ${missing === "first_name" ? "Could I take your first name?" : "What's the best number for the clinic to reach you on?"}`;
+  return `${HOLD_LINE} ${askLine(missing)}`;
 }
 
 /**

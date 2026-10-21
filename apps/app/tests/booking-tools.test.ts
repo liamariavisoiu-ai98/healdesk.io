@@ -26,7 +26,7 @@ vi.mock("@healdesk/catalog", async (importOriginal) => {
   };
 });
 
-import { bookingTools, EMPTY_TOOL_STATE, type BookingToolState } from "@/lib/assistant/booking-tools";
+import { bookingTools, EMPTY_TOOL_STATE, type BookingEngine, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { guardedLine } from "@/lib/assistant/guard";
 import { EMPTY_CAPTURE, type AssistantPrompt, type AssistantResponder } from "@/lib/assistant/turn";
 import type { AnswerDecision } from "@/lib/billing/answering";
@@ -34,7 +34,18 @@ import { handleConnectEvent } from "@/lib/billing/connect-events";
 import { clampDepositExpiry, depositLinkText } from "@/lib/billing/deposit-link";
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { slotLabel } from "@/lib/booking/calendar";
-import { bookedLine, depositLine, detailsBeforeHoldLine, forChat, heldAskLine, REQUEST_TAKEN_LINE } from "@/lib/booking/lines";
+import {
+  askLine,
+  bookedLine,
+  depositLine,
+  detailsBeforeHoldLine,
+  forChat,
+  HOLD_LINE,
+  heldAskLine,
+  MANUAL_BOOKING_LINE,
+  REQUEST_TAKEN_LINE,
+  TOOL_FAILURE_LINE,
+} from "@/lib/booking/lines";
 import { sendWebChatMessage, startWebChat, type WebChatClinic } from "@/lib/chat/web-chat";
 import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -374,6 +385,31 @@ describeDb("the booking tool layer in the web chat and the call", () => {
     SLOW,
   );
 
+  test(
+    "web chat: a tool failure hands the chat to the request flow, so the details it offers to take are filed for the desk",
+    async () => {
+      const f = await location("tools-failure");
+      const { responder, seen } = scripted([
+        () => ({ reply: "Looking.", booking: { wants: true, service: "Consultation" }, action: { type: "find_times", service: "Consultation", day: "" } }),
+        () => ({
+          reply: "Thanks Ida. The team will confirm Friday morning within a day.",
+          booking: { wants: true, first_name: "Ida", phone: "+14155550133", window: "Friday morning", service: "Consultation" },
+        }),
+      ]);
+      const say = await chat(f.web, responder);
+      // Google answers 500 to every free/busy read of this turn.
+      google.failNext({ on: "freeBusy", status: 500, times: 20 });
+      expect(await say("A consultation please")).toBe(forChat(TOOL_FAILURE_LINE));
+      expect(await say("Friday morning, I'm Ida, 415 555 0133")).toBe("Thanks Ida. The team will confirm Friday morning within a day.");
+      // The request flow from here: no tools on offer, and the desk has the request.
+      expect(seen[1]!.system.stable).not.toContain("find_times");
+      const { requests, holds } = await rows(f.clinicId);
+      expect(holds).toEqual([]);
+      expect(requests).toEqual([expect.objectContaining({ status: "requested", channel: "web_chat", vendor_call_id: null })]);
+    },
+    SLOW,
+  );
+
   test.each([
     ["the owner's switch off", () => delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED],
     ["counsel's addendum not released", () => (state.addendum = false)],
@@ -635,5 +671,60 @@ describeDb("the booking tool layer in the web chat and the call", () => {
       },
       SLOW,
     );
+  });
+});
+
+/**
+ * The tool layer alone, on an engine that answers as told: what is said when
+ * the engine holds nothing, and when it fails.
+ */
+describe("the booking tool layer's lines, on a scripted engine", () => {
+  const at = "2026-11-03T15:00:00.000Z";
+  const context = {
+    clinicId: randomUUID(),
+    channel: "voice" as const,
+    holderKey: "retell:call_unit",
+    bookingKey: "retell:call_unit:1",
+    conversationId: null,
+    timeZone: "America/Los_Angeles",
+    actor: ACTOR,
+    budgetMs: 6_000,
+  };
+  const chosenState: BookingToolState = { ...EMPTY_TOOL_STATE, service: "Consultation", offered: [{ at, providerId: null }] };
+
+  function engine(overrides: Partial<BookingEngine>): BookingEngine {
+    const never = () => {
+      throw new Error("not expected");
+    };
+    return { offerTimes: never, placeHold: never, bookConversation: never, chatDepositFor: never, ...overrides } as BookingEngine;
+  }
+
+  test("a call whose time the engine will not hold is never told it is held", async () => {
+    const tools = bookingTools(context, engine({ placeHold: async () => ({ kind: "request_only", reasons: ["calendar_broken"] }) }));
+    const said = await tools.run({ action: { type: "choose_time", at }, capture: EMPTY_CAPTURE, state: chosenState, callerPhone: PHONE, now: new Date("2026-11-01T12:00:00Z") });
+    expect(said!.reply).toBe(`${MANUAL_BOOKING_LINE} ${askLine("first_name")}`);
+    expect(said!.reply).not.toContain(HOLD_LINE);
+    expect(said!.state.held).toBe(false);
+  });
+
+  test("a call whose time is held hears the hold line", async () => {
+    const tools = bookingTools(
+      context,
+      engine({
+        placeHold: async () => ({ kind: "held", holdId: randomUUID(), expiresAt: new Date(), startsAt: new Date(at), minutes: 30, providerId: null }),
+      }),
+    );
+    const said = await tools.run({ action: { type: "choose_time", at }, capture: EMPTY_CAPTURE, state: chosenState, callerPhone: PHONE, now: new Date("2026-11-01T12:00:00Z") });
+    expect(said!.reply).toBe(heldAskLine("first_name"));
+    expect(said!.state.held).toBe(true);
+  });
+
+  test("a tool failure hands the conversation to the request flow", async () => {
+    const tools = bookingTools(context, engine({ offerTimes: async () => ({ status: "unavailable" }) as never }));
+    const said = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now: new Date() });
+    expect(said!.reply).toBe(TOOL_FAILURE_LINE);
+    expect(said!.state.manual).toBe(true);
+    // And the next turn is the model's own (the request flow).
+    expect(await tools.run({ action: { type: "find_times", service: null, day: null }, capture: EMPTY_CAPTURE, state: said!.state, now: new Date() })).toBeNull();
   });
 });

@@ -23,6 +23,7 @@ import {
 import { noteChannelSwitchedOff } from "@/lib/channels/pause";
 import { ChannelSwitchError, setChannelEnabled } from "@/lib/channels/switch";
 import type { MetaPlatform } from "@/lib/meta/front-door";
+import { urgentAlertReadiness } from "@/lib/notices/urgent-readiness";
 import { formatPhone } from "@/lib/setup/help";
 import {
   saveDirectLine,
@@ -436,9 +437,11 @@ async function write(
     case "daily_summary": {
       const on = requireBoolean(value, key);
       await save({ dailySummary: on });
-      return on
-        ? "Daily summary on. It arrives at the start of each working day, and the week's first carries your weekly recap."
-        : "Daily summary off. Booking requests and urgent alerts still arrive the moment they happen, and your weekly recap comes on its own each Monday.";
+      if (on) return "Daily summary on. It arrives at the start of each working day, and the week's first carries your weekly recap.";
+      // The same read as the Alerts card: never "urgent alerts still arrive" while none would.
+      return (await urgentAlertReadiness(tx)).ready
+        ? "Daily summary off. Booking requests and urgent alerts still arrive the moment they happen, and your weekly recap comes on its own each Monday."
+        : "Daily summary off. Urgent alerts are not switched on yet, so none reach you today; once they are, they and booking requests arrive the moment they happen, and your weekly recap comes on its own each Monday.";
     }
 
     case "transfer_live_calls": {

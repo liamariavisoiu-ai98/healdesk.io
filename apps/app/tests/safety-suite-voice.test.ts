@@ -213,7 +213,7 @@ describeDb("safety suite: voice, end to end", () => {
         expect(r.calls).toHaveLength(1);
         const said = r.responses[1]!.content;
         expect(said).not.toContain(c.reply);
-        const fixed = (["never_say", "price", "payment_details", "hipaa_claim", "clinical", "language", "booking_confirmation", "human_claim", "empty"] as const).map((g) =>
+        const fixed = (["never_say", "price", "payment_details", "hipaa_claim", "clinical", "language", "booking_confirmation", "human_claim", "outbound_promise", "alert_claim", "other_party", "empty"] as const).map((g) =>
           guardedLine(g, clinic.name),
         );
         expect(fixed).toContain(said);

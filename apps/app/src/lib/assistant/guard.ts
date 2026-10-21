@@ -47,7 +47,15 @@ import type { AssistantFacts } from "./facts";
  *     the tool layer wrote no booking (ReplyTurn, confirmsBooking). The
  *     model never words a booking: when the tool layer books, its own fixed
  *     line is said instead of the model's reply (turn.ts, booking-tools.ts),
- *     so a model's reply that says a booking is made is always refused.
+ *     so a model's reply that says a booking is made is always refused;
+ *   - promises contact after the conversation: the assistant texting,
+ *     calling, emailing, reminding or following up, or any text or reminder
+ *     at all (promisesOutbound). v1 is inbound only; the team getting back
+ *     to someone within a day is the one promise, and it passes;
+ *   - says the team has been told or alerted, when no alert is queued for
+ *     the turn (claimsAlert, ReplyTurn.alertQueued);
+ *   - speaks of another patient, or compares the practice with another
+ *     (mentionsOtherParty).
  * A refused reply is replaced by a fixed line; nothing of it is sent.
  *
  * The limit of the never-say list: its entries are the clinic's own words, in
@@ -70,6 +78,9 @@ export type GuardRefusal =
   | "language"
   | "booking_confirmation"
   | "human_claim"
+  | "outbound_promise"
+  | "alert_claim"
+  | "other_party"
   | "empty";
 
 export type GuardVerdict = { ok: true } | { ok: false; reason: GuardRefusal };
@@ -81,8 +92,14 @@ export type GuardVerdict = { ok: true } | { ok: false; reason: GuardRefusal };
  * before anything confirming is said). turn.ts passes the model's own words
  * with bookingWritten false on every turn: the tool layer's booked line
  * (booking-tools.ts) replaces them rather than passing through here.
+ *
+ * alertQueued: an alert to the clinic's team is already queued for this
+ * turn. turn.ts never says so, because the guard runs before any adapter
+ * queues one (web-chat.ts, retell.ts raise the alert after the reply is
+ * chosen), so a model's "I've told the team" is always refused; the urgent
+ * reply's own line is the catalog's, held to facts.urgentAlertsReady.
  */
-export type ReplyTurn = { bookingWritten?: boolean };
+export type ReplyTurn = { bookingWritten?: boolean; alertQueued?: boolean };
 
 function normalise(text: string): string {
   return text
@@ -397,7 +414,7 @@ export function spokenAmountsIn(text: string): number[] {
  */
 export function amountsIn(text: string): number[] {
   const out: number[] = [];
-  for (const pattern of [DOLLARS, SPOKEN_DOLLARS]) {
+  for (const pattern of [DOLLARS, SPOKEN_DOLLARS, CODE_DOLLARS]) {
     for (const match of text.matchAll(pattern)) {
       const whole = Number(match[1]!.replace(/,/g, ""));
       const cents = match[2] ? Number(match[2].padEnd(2, "0")) : 0;
@@ -405,10 +422,73 @@ export function amountsIn(text: string): number[] {
       out.push(Math.round((whole * thousands) * 100 + cents));
     }
   }
+  // Another currency is never a price on the menu, which is in dollars.
+  for (const _ of text.matchAll(OTHER_CURRENCY)) out.push(NOT_ON_ANY_MENU);
   return [...out, ...spokenAmountsIn(text)];
 }
 
+/** A currency code or "US$" before the number: "USD 650", "US$ 650", "USD650.00". */
+const CODE_DOLLARS = /\b(?:usd|us\s?dollars?)\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(\s?k\b)?/gi;
+/** An amount in a currency other than the dollar, symbol or code either side: "€650", "650 EUR", "£200", "650 euros". */
+const OTHER_CURRENCY =
+  /[€£¥₹]\s?\d|\b(?:eur|gbp|aed|cad|aud|mxn|chf|jpy|inr)\s?\d|\d\s?(?:[€£¥₹]|(?:eur|gbp|aed|cad|aud|mxn|chf|jpy|inr|euros?)\b)/gi;
+/** An amount no menu holds: refuses the reply whatever the clinic lists. */
+const NOT_ON_ANY_MENU = -1;
+
+/**
+ * "Free" said of what the practice sells is a price of nothing: "the
+ * consultation is free", "a free consultation", "complimentary", "at no
+ * cost", "free of charge", "gratis": a price of $0, so it passes only where
+ * the clinic lists that service at $0 (freeOffList). A sentence about parking, wifi or a drink is
+ * not read ("free parking behind the building"), nor is "feel free", "free
+ * time" or "if you're free on Thursday", which name no price.
+ */
+const FREE_PRICE: readonly RegExp[] = [
+  /\b(?:consultations?|consults?|services?|treatments?|sessions?|assessments?|appointments?|visits?|deposits?|follow-ups?|touch-ups?|check-ups?|first (?:visit|session|appointment))\s+(?:is|are|'s|will be|would be)\s+(?:completely\s+|totally\s+|absolutely\s+|always\s+)?(?:free|complimentary)\b/i,
+  /\b(?:free|complimentary|no-cost|no-charge)\s+(?:initial\s+|first\s+|virtual\s+|in-person\s+)?(?:consultations?|consults?|assessments?|sessions?|treatments?|appointments?|visits?|follow-ups?|touch-ups?|check-ups?)\b/i,
+  /\bfree of charge\b|\bfor free\b|\bat no (?:extra |additional )?(?:cost|charge)\b|\bno charge\b|\bcosts? nothing\b|\bwon'?t cost (?:you )?(?:anything|a (?:thing|penny|cent))\b/i,
+  /(?<![\p{L}])(?:gratis|gratuit[oa]s?|sin costo|sin cargo)(?![\p{L}])/iu,
+];
+const NOT_A_PRICE_TOPIC = /\b(?:park(?:ing)?|car park|garage|wi-?fi|internet|coffee|tea|water|refreshments?|snacks?|drinks?|estacionamiento|aparcamiento)\b/i;
+
+/**
+ * Whether the reply calls something free that the clinic does not list at
+ * $0. A sentence that says "free" passes only when it names a service the
+ * clinic prices at $0 (a "Consultation" at $0 lets "a free consultation"
+ * through); a $0 skin check does not make the consultation free.
+ */
+export function freeOffList(text: string, facts: Pick<AssistantFacts, "services">): boolean {
+  const free = facts.services
+    .filter((s) => s.priceFromUsd === 0 || (s.priceFromUsd == null && s.priceToUsd === 0))
+    .map((s) => s.name.trim().toLowerCase())
+    .filter(Boolean);
+  for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
+    if (NOT_A_PRICE_TOPIC.test(sentence) || !FREE_PRICE.some((p) => p.test(sentence))) continue;
+    const said = sentence.toLowerCase();
+    // A service named in the singular or the plural, or by its first word ("consult" for "Consultation").
+    const named = free.some((name) => said.includes(name) || (name.length > 6 && said.includes(name.slice(0, 7))));
+    if (!named) return true;
+  }
+  return false;
+}
+
 const PAYMENT_ASK = /\b(card number|credit card|debit card|card details|cvv|cvc|security code|expir(y|ation) date|bank (account|details)|routing number)\b/i;
+
+const CARD = "(?:card|visa|mastercard|master card|amex|american express|discover|credit card|debit card)";
+/**
+ * An ask for a card in other words, each one naming the card itself, so "we
+ * accept Visa and Mastercard" and "the clinic sends a secure payment link"
+ * pass: the number or digits on it ("the long number on the front of your
+ * card", "the 16 digits on your Visa"), reading or sending it ("read me your
+ * card", "send a photo of your card"), the code or the expiry on its own
+ * ("the three digits on the back", "when does it expire").
+ */
+const CARD_ASK: readonly RegExp[] = [
+  new RegExp(`\\b(?:numbers?|digits|code|name|details|info(?:rmation)?)\\b[^.?!]{0,30}\\b(?:on|of|from|off)\\s+(?:the\\s+)?(?:(?:front|back)\\s+of\\s+)?(?:your|the)\\s+${CARD}\\b`, "i"),
+  new RegExp(`\\b(?:read|tell|give|send|text|share|type|enter|spell|pass)\\s+(?:me|us)?\\s*(?:out\\s+)?(?:the\\s+|your\\s+)${CARD}\\b(?!\\s+(?:to|with)\\s+(?:the\\s+)?(?:clinic|practice|team|front desk))`, "i"),
+  new RegExp(`\\b(?:photo|picture|pic|image|scan|screenshot|copy)\\s+of\\s+(?:your|the)\\s+${CARD}`, "i"),
+  /\b(?:16|sixteen|15|fifteen)[- ]digits?\b|\b(?:three|3|four|4)[- ]digits? (?:on the back|code|security)\b|\bexp(?:iry|iration)?\b[^.?!]{0,20}\b(?:date|month|year)\b|\bwhen does (?:it|your card|the card) expire\b/i,
+];
 const HIPAA_CLAIM = /\bhipaa[- ]?(compliant|certified|approved)\b/i;
 
 /**
@@ -474,6 +554,18 @@ function withoutEveryday(text: string): string {
   return EVERYDAY.reduce((out, pattern) => out.replace(pattern, " "), text);
 }
 
+/** Medicines a model might tell someone to take or put on, by name or by kind. */
+const MEDICINES =
+  "tylenol|ibuprofen|advil|motrin|aleve|naproxen|aspirin|paracetamol|acetaminophen|antihistamines?|benadryl|claritin|zyrtec|painkillers?|pain relievers?|prednisone|prednisolone|steroids?|hydrocortisone|cortisone|antibiotics?|neosporin|polysporin|bacitracin|mupirocin|arnica|tretinoin|retin-?a|lidocaine|numbing cream|valtrex|valacyclovir|acyclovir|tablets?|pills?|capsules?";
+
+/**
+ * Where an instruction to the person starts: the start of a sentence, or
+ * words that tell them to ("you should", "just", "try to"). So "use a cream"
+ * is advice and "we use a cooling gel during the laser" is not read by it.
+ */
+const TOLD_TO =
+  "(?:^\\s*|[.!?:;]\\s+|\\b(?:you should|you can|you could|you'?ll want to|you need to|you must|just|please|try to|make sure (?:to|you)|be sure to|remember to|i'?d|i would|we'?d)\\s+)";
+
 /** Words a reply about a treatment's aftermath is made of. */
 const AFTERMATH =
   "bruis\\w*|swelling|swollen|puff(y|iness)|redness|tenderness|soreness|sore|tingling|numbness|itch\\w*|lumps?|bumps?|flaking|peeling|scabbing|irritation";
@@ -513,6 +605,21 @@ const PLAIN_CLINICAL: RegExp[] = [
   // A dose without its unit: "about 20", "20U", "2 syringes".
   /(?<!\b(open|opens|opening|close|closes|closing|until|till|from|at|by|after|before|since|arrive|starts?|ends?|takes|lasts|wait|waits)\s)\b(about|around|roughly|approximately|typically|usually)\s\d+\b(?!\s*(%|percent|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|am|pm|a\.m\.|p\.m\.|o'?clock|people|patients|clients|spaces?|spots?|cars?|miles?|km|blocks?|dollars|bucks|usd|seconds?|openings?|slots?|appointments?|times?|seats?|left|available|-minute|-hour|:\d))/i,
   /\b\d+\s?u\b(?!\.?\s?s\.)|\b\d+\s(syringes?|vials?|ccs?)\b/i,
+  // A dose by weight, written with or without the space: "400mg", "5 mcg", "1000 IU".
+  /\b\d+(?:[.,]\d+)?\s?(?:mg|mcg|µg|milligrams?|micrograms?|iu)\b/i,
+  // A medicine taken or put on, with words between: "take 400mg ibuprofen", "apply hydrocortisone cream".
+  new RegExp(`(?:\\b(?:take|taking|apply|applying)|${TOLD_TO}(?:use|put|rub|pop|try|dab))\\b[^.?!]{0,40}\\b(?:${MEDICINES})\\b`, "i"),
+  new RegExp(`${TOLD_TO}(?:apply|put|rub|dab|smooth|use)\\b[^.?!]{0,30}\\b(?:creams?|ointments?|gels?|lotions?|balms?|salves?|serums?)\\b`, "i"),
+  // A schedule for a medicine or a treatment: "every 6 hours", "twice a day", "three times daily".
+  /\bevery (?:\d+|two|three|four|six|eight|twelve) hours\b|\b(?:once|twice|three times|four times|\d+ times) (?:a|per) day\b|\b(?:once|twice|three times) daily\b/i,
+  // A treatment plan: a course said or recommended, or named as the plan.
+  /\b(?:your|my|a|the|this)\s+(?:personal(?:i[sz]ed)?\s+|custom\s+)?treatment plan\s*(?::|is\b|would be\b|will be\b|should be\b|looks like\b)|\b(?:here'?s|here is|this is)\s+(?:your|a)\s+(?:suggested\s+|recommended\s+)?(?:treatment plan\b|plan\s*:)/i,
+  /\b(?:i'?d|i would|we'?d|we would|i|we)\s+(?:strongly\s+|probably\s+|personally\s+)?(?:recommend|suggest|advise|prescribe)\b[^.?!]{0,50}\b(?:\d+|one|two|three|four|five|six|several|a few|a course of|a series of)\s+(?:sessions?|treatments?|rounds?|peels?|syringes?|vials?|units?|appointments? of)\b/i,
+  /\b(?:\d+|one|two|three|four|five|six|several|a few)\s+(?:sessions?|treatments?|rounds?|peels?)\b[^.?!]{0,40}(?:\bthen\b|\bfollowed by\b|\bafter that\b)/i,
+  // A guarantee, by the verb or the word ("we guarantee", "..., guaranteed"),
+  // unless it is denied ("we can't guarantee results", "there's no guarantee").
+  /(?<!\b(?:can'?t|cannot|can not|don'?t|do not|doesn'?t|does not|won'?t|will not|never|no|not|isn'?t|aren'?t|unable to)\s+(?:\w+\s+){0,2})\bguarantee(?:s|d|ing)?\b/i,
+  /\byou'?ll\s+(?:definitely|certainly|surely|absolutely|100%|totally)\s+(?:see|notice|love|get)\b/i,
   // Spanish.
   /(?<![\p{L}])(puede|pueden|debe|deben|tome|tomar|t[óo]mese) (tomar )?(un |una |el |la )?(tylenol|ibuprofeno|paracetamol|aspirina|advil|antihistam[íi]nico)/iu,
   /(?<![\p{L}])(la hinchaz[óo]n|los moretones|el moret[óo]n|los morados|el enrojecimiento|la rojez|el bulto|la inflamaci[óo]n|el dolor|las molestias)[^.?!]{0,60}(es|son|ser[áa]|ser[áa]n) (normal|normales|com[úu]n|comunes|esperad[oa]s?|temporal(es)?)/iu,
@@ -581,6 +688,38 @@ function wholeWords(phrase: string): RegExp {
  * apart.
  */
 export function neverSayIn(reply: string, list: readonly string[], ownWords: readonly string[] = []): boolean {
+  // The clinic's own words read the same way, so "Pain-Less Laser" still excuses itself.
+  return SPELLINGS.some((form) => {
+    const text = form(reply);
+    return (form === asWritten || text !== reply) && neverSayInForm(text, list, ownWords.map(form));
+  });
+}
+
+/** Single letters with a hyphen, space, dot, slash, star or underscore between, three or more: "p-a-i-n", "c u r e". */
+const SPELT_OUT = /(?<![\p{L}\p{N}'’])\p{L}(?:[\s\-_.*·•/|]+\p{L}(?![\p{L}\p{N}])){2,}/gu;
+
+/**
+ * The reply as written, and the ways a word can be broken up to slip past
+ * the list read back together: a word spelt out letter by letter
+ * ("p-a-i-n-l-e-s-s", "p a i n l e s s", "p.a.i.n.l.e.s.s") joined, and a
+ * hyphen inside a word dropped ("pain-less"). Each form is read on its own,
+ * so a form can only find more, never hide an entry the reply holds as
+ * written. NEVER_SAY_PROTECTED is unaffected: none of its sentences spells
+ * a word out or hyphenates one.
+ */
+const asWritten = (text: string): string => text;
+/** A spelt-out run joined; an "a" or "I" said before it stays a word of its own ("a p a i n" is "a pain"). */
+function joinSpelt(run: string): string {
+  const letters = run.replace(/[^\p{L}]/gu, "");
+  return /^[ai]\s/i.test(run) && letters.length > 3 ? `${letters[0]} ${letters.slice(1)}` : letters;
+}
+const SPELLINGS: ReadonlyArray<(text: string) => string> = [
+  asWritten,
+  (text) => text.replace(SPELT_OUT, joinSpelt),
+  (text) => normalise(text).replace(/(?<=\p{L})-(?=\p{L})/gu, ""),
+];
+
+function neverSayInForm(reply: string, list: readonly string[], ownWords: readonly string[]): boolean {
   const text = ` ${listForm(reply)} `;
   const own = [...new Set(ownWords.map((w) => listForm(w).trim()).filter(Boolean))];
   // Where the clinic's own words stand in the reply, as [start, end) spans.
@@ -637,7 +776,7 @@ export function neverSayBlocksDisclosure(entry: string): boolean {
 // A booking said to be made
 // -----------------------------------------------------------------------------
 
-const BOOKED = "(?:booked(?: in)?|confirmed|scheduled|reserved|pencil(?:l)?ed in|locked in|secured)";
+const BOOKED = "(?:booked(?: in)?|confirmed|scheduled|reserved|pencil(?:l)?ed in|locked in|secured|held|on hold)";
 const DAY_OR_TIME =
   "(?:you\\b|(?:mon|tues|wednes|thurs|fri|satur|sun)day\\b|(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\\b|tomorrow\\b|today\\b|tonight\\b|next\\b|this\\b|the\\s+\\d|\\d|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\b)";
 
@@ -660,6 +799,11 @@ const CONFIRMATIONS: readonly RegExp[] = [
   new RegExp(`\\b${BOOKED}\\s+for\\s+${DAY_OR_TIME}`),
   new RegExp(`\\b(?:all set|good to go)\\s+for\\s+(?:${DAY_OR_TIME}|your)`),
   /\bconfirmation (?:number|code|email|text|message)\b/,
+  // "All booked!", "all confirmed", with no subject at all.
+  /(?:^|[,!.;:-]\s*|\b(?:done|great|perfect|ok|okay|right|and)\s*[,!-]?\s*)all (?:booked|confirmed|scheduled|reserved|sorted)\b/,
+  // "You have an appointment Thursday at 3pm", "you've got a slot on Monday".
+  new RegExp(`\\byou(?:'ve| have)(?: got)?\\s+(?:an?|your|the)\\s+(?:appointment|booking|slot|consultation|visit|reservation|session)\\s+(?:(?:on|for|at|with us on)\\s+)?${DAY_OR_TIME}`),
+  /\b(?:i'm|i am|we're|we are|i've|i have|we've|we have)\s+(?:now\s+|just\s+)?(?:holding|held|put a hold on)\b/,
   /(?<![\p{L}])(?:est[áa]|queda|qued[óo]|ha quedado|ha sido|fue)\s+(?:ya\s+)?(?:confirmad[oa]|reservad[oa]|agendad[oa]|programad[oa]|apuntad[oa])(?![\p{L}])/u,
   /(?<![\p{L}])(?:le|te|lo|la)\s+(?:he|hemos)\s+(?:reservado|agendado|confirmado|apuntado|programado)(?![\p{L}])/u,
   /(?<![\p{L}])(?:confirmad[oa]|reservad[oa]|agendad[oa])\s+para\s+(?:el|la|ma[ñn]ana|hoy|las?)(?![\p{L}])/u,
@@ -693,9 +837,113 @@ export function confirmsBooking(reply: string): boolean {
   return false;
 }
 
+// -----------------------------------------------------------------------------
+// Contact promised after the conversation, an alert claimed, other people
+// -----------------------------------------------------------------------------
+
+/** Words before a match that deny it: "we don't send reminders", "I can't text you". */
+const DENIED = /\b(?:can'?t|cannot|can not|don'?t|do not|doesn'?t|does not|won'?t|will not|never|no|not|isn'?t|aren'?t|unable to|no longer)\s+(?:\w+\s+){0,4}$/;
+
+/** Each sentence of the normalised reply that is not a question, with whether a pattern is said in it unless denied. */
+function saidUndenied(reply: string, patterns: readonly RegExp[]): boolean {
+  for (const sentence of normalise(reply).split(/(?<=[.!?])\s+/)) {
+    const said = sentence.trim();
+    if (!said) continue;
+    for (const pattern of patterns) {
+      const m = pattern.exec(said);
+      if (m && !DENIED.test(said.slice(0, m.index))) return true;
+    }
+  }
+  return false;
+}
+
+const CONTACT_VERB =
+  "(?:text|txt|sms|call|ring|phone|message|email|e-mail|whatsapp|dm|remind|follow up|follow-up|check in|check back|reach out|get back|contact|send you|touch base)";
+const AT_A_SET_TIME =
+  "(?:tomorrow|today|tonight|later|this (?:morning|afternoon|evening|week)|next (?:week|month|\\w+day)|on (?:mon|tues|wednes|thurs|fri|satur|sun)day|(?:mon|tues|wednes|thurs|fri|satur|sun)day|in (?:an?|one|two|a few|\\d+) (?:minutes?|hours?|days?)|at \\d|before your (?:visit|appointment))";
+
+/**
+ * Contact after the conversation, promised (CLAUDE.md, "Inbound only": no
+ * texts, reminders, follow-ups or call-backs, and v1 places no calls):
+ *   - the assistant itself contacting the person ("I'll text you later", "I'll
+ *     call you back", "let me email you", "I'll follow up next week");
+ *   - the practice ("we") texting, reminding, following up or checking in,
+ *     or calling back at a set time ("we'll call you back tomorrow");
+ *   - a text, an SMS or a reminder, from anyone ("you'll get a reminder
+ *     text", "we'll send you a reminder").
+ * What the prompt has the assistant say passes: "the team will get back to
+ * you within a day", "a person from our team will call you", "I'll pass
+ * this on". So does a denial ("we don't send reminders").
+ */
+const OUTBOUND_PROMISES: readonly RegExp[] = [
+  new RegExp(`\\b(?:i'll|i will|i'm going to|i am going to|i can|let me|i'd be happy to|i shall)\\s+(?:also\\s+|just\\s+|personally\\s+|quickly\\s+)?${CONTACT_VERB}\\b`),
+  new RegExp(`\\b(?:we'll|we will|we're going to|we are going to|we can|we'd be happy to)\\s+(?:also\\s+|just\\s+)?(?:text|txt|sms|whatsapp|remind|follow up|follow-up|check in|check back|touch base|send you (?:an?\\s+)?(?:text|sms|reminder|message|follow-up))\\b`),
+  new RegExp(`\\b(?:we'll|we will|we're going to|we are going to)\\s+(?:give you a\\s+)?(?:call|ring|phone)(?: you)?(?: back)?\\s+${AT_A_SET_TIME}`),
+  /\b(?:reminder|confirmation|follow-up|follow up)\s+(?:text|sms|message|call|email)s?\b|\b(?:text|sms|email|message) (?:reminder|confirmation)s?\b/,
+  /\b(?:send|sends|sending|get|gets|receive|receives|text|texts)\s+(?:you\s+)?(?:an?\s+|the\s+)?(?:quick\s+)?(?:reminder|text|sms|text message)s?\b/,
+  /\b(?:text|sms|remind)\s+you\b/,
+];
+
+export function promisesOutbound(reply: string): boolean {
+  return saidUndenied(reply, OUTBOUND_PROMISES);
+}
+
+const TEAM = "(?:the |your |our )?(?:team|clinic|practice|staff|front desk|reception|doctor|nurse|clinicians?|injector|provider|on-call|manager|owner|someone)";
+
+/**
+ * The team said to be told already: "I've told the team", "I've alerted the
+ * clinic", "the team has been notified", "I've let the staff know", "I've
+ * passed this on to the team". The future ("I'll let the team know", "I'll
+ * pass this on") promises what the adapter does with a handoff, and passes.
+ */
+const ALERT_CLAIMS: readonly RegExp[] = [
+  new RegExp(`\\b(?:i've|i have|we've|we have|i|i just|i've just|i have just|i've already|i have already|i've now)\\s+(?:just\\s+|already\\s+|now\\s+)?(?:told|alerted|notified|informed|messaged|emailed|paged|flagged (?:this|it|your \\w+) (?:to|with|for)|escalated (?:this|it|your \\w+) to|contacted|warned)\\s+${TEAM}\\b`),
+  new RegExp(`\\b(?:i've|i have|we've|we have)\\s+(?:just\\s+|already\\s+|now\\s+)?(?:let|made)\\s+${TEAM}\\s+(?:know|aware)\\b`),
+  new RegExp(`\\b(?:i've|i have|we've|we have)\\s+(?:just\\s+|already\\s+|now\\s+)?(?:passed|sent|forwarded|handed)\\s+(?:this|it|that|your (?:\\w+\\s+)?(?:message|details|request|question|concern|info(?:rmation)?))\\s+(?:on\\s+|over\\s+|along\\s+)?to\\s+${TEAM}\\b`),
+  new RegExp(`\\b${TEAM}\\s+(?:has|have|'s)\\s+(?:just\\s+|already\\s+|now\\s+)?been\\s+(?:told|alerted|notified|informed|messaged|paged|made aware)\\b`),
+  new RegExp(`\\b${TEAM}\\s+(?:knows|is aware|are aware|is on (?:it|their way)|is (?:now )?looking into it)\\b`),
+];
+
+export function claimsAlert(reply: string): boolean {
+  return saidUndenied(reply, ALERT_CLAIMS);
+}
+
+/**
+ * Other people, the minimal rule (no names list could be complete):
+ *   - another patient spoken of ("another patient, Jane, had the same",
+ *     "one of our clients", "a previous customer"), unless the reply says it
+ *     cannot speak of them ("I can't share anything about other patients");
+ *   - a patient or client named or called something ("a client named Ana");
+ *   - the practice compared with another, a comparative put against a place
+ *     or a proper name ("cheaper than Glow Med Spa", "better than other
+ *     clinics", "the best in town" is the never-say list's to hold). Not a
+ *     comparison with a time or a figure ("better than expected", "more
+ *     affordable than last year", "cheaper than $200").
+ */
+const OTHER_PARTY: readonly RegExp[] = [
+  /\b(?:another|a previous|a former|a past|an earlier|other|one of (?:our|my|the)|some of (?:our|my|the))\s+(?:patients?|clients?|customers?)\b/,
+  /\b(?:patients?|clients?|customers?)\s+(?:named|called|by the name of)\b/,
+];
+const COMPARATIVE =
+  /\b(?:cheaper|better|more affordable|less expensive|lower[- ]priced|more experienced|safer|more qualified|nicer|cleaner|faster|friendlier|more professional|superior)\s+(?:to|than)\s+(\S+(?:\s+\S+)?)/gi;
+const NOT_A_RIVAL = /^(?:expected|usual|average|before|ever|last|that|this|you|we|it|they|most of|anything|nothing|the (?:price|cost|list|menu|average|usual|last|first)|a (?:year|month|week)|\$|\d|i |what|people|waiting|paying|going|doing)/i;
+const RIVAL = /^(?:other|another|any(?:one|where)? other|most (?:other )?(?:clinics|spas|places|practices)|the (?:competition|competitors?|clinic|spa|place|practice|guys|one) |competitors?|the rest|everyone else|places|clinics|spas|practices|\p{Lu})/u;
+
+export function mentionsOtherParty(reply: string, facts: { clinicName?: string | null } = {}): boolean {
+  if (saidUndenied(reply, OTHER_PARTY)) return true;
+  const own = (facts.clinicName ?? "").trim();
+  const text = own ? reply.replace(new RegExp(escapeRegExp(own), "gi"), "us") : reply;
+  for (const m of text.matchAll(COMPARATIVE)) {
+    const target = m[1]!;
+    if (NOT_A_RIVAL.test(target)) continue;
+    if (RIVAL.test(target)) return true;
+  }
+  return false;
+}
+
 export function guardAssistantReply(
   reply: string,
-  facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts,
+  facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts & Partial<Pick<AssistantFacts, "urgentAlertsReady">>,
   turn: ReplyTurn = {},
 ): GuardVerdict {
   const text = normalise(reply);
@@ -706,15 +954,23 @@ export function guardAssistantReply(
   for (const cents of amountsIn(reply)) {
     if (!allowed.has(cents)) return { ok: false, reason: "price" };
   }
+  if (freeOffList(reply, facts)) return { ok: false, reason: "price" };
   if (PAYMENT_ASK.test(reply) && /\b(your|share|give|read|tell|provide|send|enter)\b/i.test(reply)) {
     return { ok: false, reason: "payment_details" };
   }
+  if (CARD_ASK.some((pattern) => pattern.test(reply))) return { ok: false, reason: "payment_details" };
   if (HIPAA_CLAIM.test(reply)) return { ok: false, reason: "hipaa_claim" };
   if (claimsToBeHuman(reply, facts)) return { ok: false, reason: "human_claim" };
   // The practice's own words (its menu, its people, its city) are no language either way.
   const knownTerms = [facts.clinicName, facts.address, ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])];
   if (messageLanguage(reply, { knownTerms }) === "other") return { ok: false, reason: "language" };
   if (clinicalIn(reply, facts)) return { ok: false, reason: "clinical" };
+  if (promisesOutbound(reply)) return { ok: false, reason: "outbound_promise" };
+  // Only an alert really queued for this turn, at a clinic whose alerts reach it, may be said to be sent.
+  if (!(turn.alertQueued === true && facts.urgentAlertsReady === true) && claimsAlert(reply)) {
+    return { ok: false, reason: "alert_claim" };
+  }
+  if (mentionsOtherParty(reply, facts)) return { ok: false, reason: "other_party" };
   // Last, so a reply refused for anything above keeps that reason.
   if (turn.bookingWritten !== true && confirmsBooking(reply)) return { ok: false, reason: "booking_confirmation" };
   return { ok: true };

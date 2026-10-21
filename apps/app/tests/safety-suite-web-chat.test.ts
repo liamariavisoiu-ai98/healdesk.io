@@ -194,7 +194,7 @@ describeDb("safety suite: web chat, end to end", () => {
         expect(r.transcript).not.toContain(c.reply);
         expect(r.transcript).toContain(`Assistant: ${r.replies[0]}`);
         // A refused line is one of the guard's fixed lines.
-        const fixed = (["never_say", "price", "payment_details", "hipaa_claim", "clinical", "language", "booking_confirmation", "human_claim", "empty"] as const).map((g) =>
+        const fixed = (["never_say", "price", "payment_details", "hipaa_claim", "clinical", "language", "booking_confirmation", "human_claim", "outbound_promise", "alert_claim", "other_party", "empty"] as const).map((g) =>
           guardedLine(g, clinic.name),
         );
         expect(fixed).toContain(r.replies[0]);

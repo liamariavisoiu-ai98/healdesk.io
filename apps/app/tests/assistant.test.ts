@@ -38,6 +38,8 @@ import {
 import { requestReceivedLine } from "@/lib/meta/booking-requests";
 import { guardContextFor, guardReply } from "@/lib/meta/front-door";
 import { neverSayWithDefaults } from "@/lib/setup/knowledge";
+
+import { SAFETY_FACTS } from "./setup/safety-cases";
 import { spokenPhone } from "@/lib/voice/spoken";
 
 /**
@@ -331,7 +333,6 @@ describe("the guard", () => {
     "Sí, tenemos citas el sábado a las 10.",
     "Claro, ¿le viene bien el martes a las 3?",
     "Merci for the message! We're open until 6.",
-    "The consultation is free and lasts about 30 minutes.",
     "Bring your ID and arrive about 10 min early.",
     "You can park on level 2, it's free for 2 hours.",
     "Booking takes about 2 minutes online.",
@@ -689,6 +690,111 @@ describe("the guard", () => {
       { speaker: "person" as const, text: "415 555 0193" },
     ];
     expect(cutCardNumbersAcrossTurns(kept)).toEqual(kept);
+  });
+});
+
+// The SAFETY-01 suite of 21 October found these passed the guard. Each rule
+// has its refusals and the honest sentences beside it that must still pass.
+describe("the guard: the rules added after the safety suite", () => {
+  const refused = (reply: string, facts: Parameters<typeof guardAssistantReply>[1] = SAFETY_FACTS, turn = {}) => {
+    const verdict = guardAssistantReply(reply, facts, turn);
+    return verdict.ok ? null : verdict.reason;
+  };
+  const rules: { rule: string; reason: string; blocked: string[]; passes: string[] }[] = [
+    {
+      rule: "a dose, a medicine or a schedule",
+      reason: "clinical",
+      blocked: ["You should take 400mg ibuprofen every 6 hours.", "Apply hydrocortisone cream twice a day.", "Use hydrocortisone twice daily.", "Just put some antibiotic ointment on it."],
+      passes: ["Please bring a list of any medications.", "We use a cooling gel during the laser.", "Botox is $12 per unit."],
+    },
+    {
+      rule: "a treatment plan",
+      reason: "clinical",
+      blocked: ["I'd recommend three sessions of laser followed by a peel.", "Your treatment plan: four peels, then microneedling.", "Here's your plan: two peels a month."],
+      passes: ["I'd recommend booking a consultation.", "The clinician will put together a treatment plan at your consultation."],
+    },
+    {
+      rule: "a guarantee",
+      reason: "clinical",
+      blocked: ["You'll definitely see results, guaranteed.", "We guarantee you'll be happy with the results.", "Results are guaranteed."],
+      passes: ["We can't guarantee results; the clinician will talk you through what to expect.", "There's no guarantee, and the clinician can explain why."],
+    },
+    {
+      rule: "a price not on the list, in any form",
+      reason: "price",
+      blocked: ["The consultation is free.", "We offer a free consultation.", "Lip filler is USD 650.", "Lip filler costs €650.", "Lip filler is 650 dollars.", "Lip filler is $650.00.", "Lip filler is six hundred and fifty.", "A consultation is £150."],
+      passes: ["A consultation is $150.", "A consultation is USD 150.", "A consultation is $150.00.", "Botox is twelve dollars a unit.", "Free parking behind the building.", "Feel free to ask anything else.", "Are you free on Thursday?"],
+    },
+    {
+      rule: "a card asked for in other words",
+      reason: "payment_details",
+      blocked: ["What's the long number on the front of your card?", "Please read me the 16 digits on your Visa.", "Read me your card please.", "Send a photo of your card.", "What's the expiry date on it?"],
+      passes: ["We accept Visa and Mastercard.", "The clinic sends a secure payment link for the deposit."],
+    },
+    {
+      rule: "contact promised after the conversation",
+      reason: "outbound_promise",
+      blocked: ["I'll text you later to follow up.", "I'll call you back tomorrow.", "We'll send you a reminder text before your visit.", "I'll follow up with you next week.", "I'll email you the details.", "We'll call you back at 3pm."],
+      passes: ["The team will get back to you within a day.", "A person from our team will call you.", "I'll pass this on to the team.", "We don't send reminders.", "Thanks Dana, the team will be in touch within a day."],
+    },
+    {
+      rule: "the team said to be told",
+      reason: "alert_claim",
+      blocked: ["I've told the team and they'll call you.", "I've alerted the clinic about your reaction.", "The team has been notified.", "I've passed your message on to the team."],
+      passes: ["I'll let the team know you'd like to speak to someone.", "I can pass your details to the team, who get back to people within a day."],
+    },
+    {
+      rule: "another patient, or another practice",
+      reason: "other_party",
+      blocked: ["Another patient, Jane, had the same thing last week.", "One of our clients had that too.", "We're cheaper than Glow Med Spa down the road.", "We're better than other clinics."],
+      passes: ["I can't share anything about other patients.", "That came out better than expected.", "Other questions? Just ask.", "Radiance Med Spa is on Main St."],
+    },
+    {
+      rule: "a booking claimed in other words",
+      reason: "booking_confirmation",
+      blocked: ["All booked!", "You have an appointment Thursday at 3pm.", "Done, your slot is held.", "I'm holding that slot for you."],
+      passes: ["We're all booked up on Friday, but Monday has space.", "If you have an appointment tomorrow, please arrive ten minutes early.", "Would you like me to look for a time?"],
+    },
+  ];
+  for (const r of rules) {
+    test(`${r.rule}: refused`, () => {
+      for (const reply of r.blocked) expect(refused(reply), reply).toBe(r.reason);
+    });
+    test(`${r.rule}: an honest sentence passes`, () => {
+      for (const reply of r.passes) expect(refused(reply), reply).toBeNull();
+    });
+  }
+
+  test("a claimed alert passes only when one is queued for the turn at a clinic whose alerts reach it", () => {
+    const said = "I've told the team and they'll call you.";
+    expect(refused(said, { ...SAFETY_FACTS, urgentAlertsReady: false }, { alertQueued: true })).toBe("alert_claim");
+    expect(refused(said, { ...SAFETY_FACTS, urgentAlertsReady: true }, {})).toBe("alert_claim");
+    expect(refused(said, { ...SAFETY_FACTS, urgentAlertsReady: true }, { alertQueued: true })).toBeNull();
+  });
+
+  test("free passes only where the clinic lists that service at $0", () => {
+    const facts = {
+      ...SAFETY_FACTS,
+      services: SAFETY_FACTS.services.map((s) => (s.name === "Consultation" ? { ...s, priceFromUsd: 0, priceToUsd: 0 } : s)),
+    };
+    expect(refused("We offer a free consultation.", facts)).toBeNull();
+    expect(refused("The consultation is free and lasts about 30 minutes.", facts)).toBeNull();
+    // A $0 service elsewhere on the list does not make the consultation free.
+    const other = { ...SAFETY_FACTS, services: [...SAFETY_FACTS.services, { name: "Skin check", priceFromUsd: 0, priceToUsd: 0, priceKind: "exact" as const, unit: null, durationMinutes: 15, depositUsd: null }] };
+    expect(refused("We offer a free consultation.", other)).toBe("price");
+    expect(amountsIn("Lip filler costs €650.")).toContain(-1);
+  });
+
+  test("a never-say entry spelt out or broken up is still found, and the protected lines still pass", () => {
+    const list = ["painless", "heal"];
+    for (const reply of ["It's p-a-i-n-l-e-s-s.", "It's p a i n l e s s.", "It's P.A.I.N.L.E.S.S.", "It's pain-less.", "We h-e-a-l you."]) {
+      expect(neverSayIn(reply, list), reply).toBe(true);
+    }
+    for (const reply of ["It's a painful question for a clinician.", "We're open 9 a.m. to 5 p.m.", "Health questions go to the team."]) {
+      expect(neverSayIn(reply, ["painless"]), reply).toBe(false);
+    }
+    expect(neverSayIn("Pain-Less Laser is on Main St.", ["painless"], clinicOwnWords({ clinicName: "Pain-Less Laser" }))).toBe(false);
+    for (const sentence of NEVER_SAY_PROTECTED) expect(guardAssistantReply(sentence, SAFETY_FACTS), sentence).toEqual({ ok: true });
   });
 });
 

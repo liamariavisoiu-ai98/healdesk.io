@@ -297,6 +297,12 @@ class FakeTransport implements EmailTransport {
 
 describeDb("the backstop against the database", () => {
   const transport = new FakeTransport();
+  /**
+   * Retell's delete-call, faked for every test here: once a call is
+   * recorded the job deletes it at Retell (lib/voice/recording-alerts.ts),
+   * and no test may reach the real Retell.
+   */
+  let deletes: string[] = [];
 
   beforeAll(async () => {
     await runMigrations();
@@ -305,6 +311,16 @@ describeDb("the backstop against the database", () => {
     await truncateAll();
     await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'transcript-emails'`);
     transport.sent = [];
+    deletes = [];
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method !== "DELETE" || !url.startsWith("https://api.retellai.com/v2/delete-call/")) throw new Error(`unexpected fetch ${url}`);
+      deletes.push(decodeURIComponent(url.slice(url.lastIndexOf("/") + 1)));
+      return new Response(null, { status: 204 });
+    }) as typeof fetch);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
   afterAll(async () => {
     await closePools();
@@ -352,14 +368,19 @@ describeDb("the backstop against the database", () => {
     expect(transcripts).toHaveLength(1);
     expect(transcripts[0]!.message.text).toContain("Caller: Could I come in Thursday afternoon?");
 
+    // Recorded and its transcript sealed, so Retell's copy is deleted.
+    expect(deletes).toEqual(["call_lost"]);
+
     const again = await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_lost" }, { apiKey: KEY, realCalls: true, fetchCall, transport });
     expect(again).toEqual({ status: "already_recorded" });
     expect(fetchCall).toHaveBeenCalledTimes(1);
+    // A second run asks for the delete again, which Retell answers as done.
+    expect(deletes).toEqual(["call_lost", "call_lost"]);
     expect(await counts(clinic.clinicId)).toEqual(after);
     expect(transport.sent.filter((s) => s.message.phiClass === "may-carry-phi")).toHaveLength(1);
   });
 
-  test("a call the live socket recorded is left alone: no second request, transcript or minutes, and Retell is not asked", async () => {
+  test("a call the live socket recorded is left alone: no second request, transcript or minutes, Retell is not read, and its copy is deleted", async () => {
     const clinic = await clinicWithNumber("backstop-live");
     const SECRET = "test-retell-llm-secret-0123456789";
     const responder = async () => JSON.stringify({ reply: "Thanks Dana, I'll pass Thursday afternoon to the team.", booking: { wants: true, first_name: "Dana", window: "Thursday afternoon", service: "consultation" } });
@@ -395,6 +416,7 @@ describeDb("the backstop against the database", () => {
     const fetchCall = vi.fn(async (callId: string) => retellCall({ call_id: callId }));
     expect(await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_live" }, { apiKey: KEY, realCalls: true, fetchCall, transport })).toEqual({ status: "already_recorded" });
     expect(fetchCall).not.toHaveBeenCalled();
+    expect(deletes).toEqual(["call_live"]);
     expect(await counts(clinic.clinicId)).toEqual(live);
     expect(transport.sent.length).toBe(mailed);
   });
@@ -425,6 +447,8 @@ describeDb("the backstop against the database", () => {
     expect(Object.keys(thrown as object)).toEqual([]);
     expect((thrown as Error).message).not.toContain("4155550192");
     expect((thrown as Error).message).not.toContain("Dana");
+    // The ingest failed, so Retell's copy is the only one: never deleted.
+    expect(deletes).toEqual([]);
   });
 
   test("in test mode only the demo clinic's calls are backstopped; any other clinic's is dropped without asking Retell", async () => {
@@ -439,6 +463,7 @@ describeDb("the backstop against the database", () => {
     const recorded = await runCallBackstop({ clinicId: demo.clinicId, callId: "call_demo_clinic" }, { apiKey: KEY, realCalls: false, fetchCall, transport });
     expect(recorded.status).toBe("recorded");
     expect(await counts(demo.clinicId)).toMatchObject({ conversations: 1, transcripts: 1 });
+    expect(deletes).toEqual(["call_demo_clinic"]);
   });
 
   test("a call to another number is not this clinic's; a call still in progress is retried; an outbound call is refused once", async () => {
@@ -482,6 +507,8 @@ describeDb("the backstop against the database", () => {
 
     await expect(runCallBackstop({ clinicId: clinic.clinicId, callId: "call_nokey" }, { apiKey: null, realCalls: true, transport })).rejects.toThrow(/HEALDESK_RETELL_API_KEY/);
     expect(await counts(clinic.clinicId)).toMatchObject({ conversations: 0, requests: 0, transcripts: 0, usage: 0 });
+    // Nothing recorded here, so nothing deleted at Retell.
+    expect(deletes).toEqual([]);
   });
 
   async function stored(clinicId: string, callId: string) {

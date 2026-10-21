@@ -330,10 +330,11 @@ type OperatorOp =
   | "issueDeviceRecovery"
   | "endDeviceRecovery"
   | "removeClinicDevices"
-  // Retell recordings found (NOAUDIO-01; /admin/recordings): the calls Retell
-  // kept a recording of though every agent is set to keep none, as ids and
-  // times; and the button, which has apps/app delete the call at Retell with
-  // its own key. Never a recording URL, a transcript or a number.
+  // Retell deletions (/admin/recordings): the calls Retell still held 30
+  // minutes after they ended, though apps/app deletes each once it is
+  // recorded, as ids and times; and the button, which has apps/app delete
+  // the call at Retell with its own key. Never a recording URL, a transcript
+  // or a number.
   | "listRecordingAlerts"
   | "deleteRecordedCall";
 
@@ -1015,11 +1016,11 @@ export function markSupportReplied(
 }
 
 // -----------------------------------------------------------------------------
-// Retell recordings found (NOAUDIO-01)
+// Retell calls not deleted in time
 // -----------------------------------------------------------------------------
 
 /**
- * One call Retell kept a recording of, as /admin/recordings lists it: ids,
+ * One call Retell still held past the deletion window, as /admin/recordings lists it: ids,
  * counts and times, and apps/app's own words for a delete that failed. The
  * recording's URL never leaves apps/app; it is not even kept there.
  */
@@ -1044,7 +1045,7 @@ function retellCallId(value: unknown, at: string): string {
   return value;
 }
 
-/** Every recording alert, open first, then newest. */
+/** Every Retell deletion alert, open first, then newest. */
 export function fetchRecordingAlerts(): Promise<OpsResult<RecordingAlerts>> {
   return callOps("listRecordingAlerts", "read", {}, (value) => {
     const data = object(value, "listRecordingAlerts");

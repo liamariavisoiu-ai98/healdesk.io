@@ -18,16 +18,24 @@ import { POST as opsRoute } from "@/app/api/ops/route";
 import { POST as retellWebhook } from "@/app/api/webhooks/retell/[clinicId]/route";
 import { isMutating, isOpName, runOperation, type Operator } from "@/lib/ops/api";
 import { __setRecordingDeleteDepsForTests } from "@/lib/ops/recording-alerts-ops";
-import { BACKSTOP_DELAY_SECONDS, runCallBackstop, type RetellCall } from "@/lib/voice/backstop";
+import {
+  BACKSTOP_DELAY_SECONDS,
+  BACKSTOP_RETRY_DELAY_SECONDS,
+  BACKSTOP_RETRY_LIMIT,
+  runCallBackstop,
+  type RetellCall,
+} from "@/lib/voice/backstop";
+import type { VoiceCallEvent } from "@/lib/voice/ingest";
 import {
   DELETE_NOT_BEFORE_MS,
-  RECORDING_URL_FIELDS,
+  deleteRetellCallAfterIngest,
   recordRecordingAlert,
-  retellCallHasRecording,
+  RETELL_DELETION_WINDOW_MS,
 } from "@/lib/voice/recording-alerts";
 import {
   checkRetellAgent,
   createRetellAgent,
+  RETELL_DATA_RETENTION_DAYS,
   RETELL_DATA_STORAGE_SETTING,
   RetellAgentConfigError,
   retellAgentSettings,
@@ -39,9 +47,12 @@ import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAl
 import { inTenant, seedClinic, type SeededClinic } from "./setup/factories";
 
 /**
- * NOAUDIO-01: every clinic's Retell agent is written with call storage
- * restricted (lib/voice/retell-agent.ts), and a recording Retell keeps anyway
- * becomes one opaque alert per call (lib/voice/recording-alerts.ts) that
+ * Retell's copy of a call (the owner's decision of 21 October 2026): every
+ * clinic's agent is written to keep the transcript, with a one-day retention
+ * (lib/voice/retell-agent.ts); once the call and its sealed transcript are
+ * committed here, the backstop job deletes the call at Retell, never before
+ * and never when the ingest failed (lib/voice/recording-alerts.ts); a call
+ * Retell still holds past the deletion window is one opaque alert, which
  * /admin/recordings deletes at Retell through the ops API. Retell is never
  * called: every request goes to a mocked fetch, and every value here is
  * synthetic.
@@ -51,9 +62,10 @@ const CLINIC = "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f60";
 const SECRET = "llm_secret_for_tests_0123456789";
 const ORIGIN = "https://app.healdesk.test";
 const KEY = "key_test_retell_engine_0123456789";
-const OPTIONS = { llmSecret: SECRET, publicOrigin: ORIGIN, key: KEY } as const;
+const OPTIONS = { llmSecret: SECRET, publicOrigin: ORIGIN, key: KEY, engine: { type: "custom-llm" } } as const;
 /** A recording URL's shape only; nothing fetches it. */
 const RECORDING = "https://recordings.example.test/rec/recording.wav";
+const ASSISTANT = "+14155550100";
 
 type Seen = { url: string; method: string; body: unknown; authorization: string | null };
 
@@ -82,12 +94,17 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 describe("a clinic's Retell agent", () => {
   const settings = retellAgentSettings(CLINIC, OPTIONS);
 
-  test("carries storage restricted, our custom-LLM endpoint for the clinic and its webhook", () => {
-    expect(RETELL_DATA_STORAGE_SETTING).toBe("basic_attributes_only");
+  test("keeps the transcript, for one day at most, with our custom-LLM endpoint for the clinic and its webhook", () => {
+    // everything_except_pii would scrub the transcript the clinic is emailed;
+    // basic_attributes_only would leave the crash backstop nothing to read.
+    expect(RETELL_DATA_STORAGE_SETTING).toBe("everything");
+    // Retell's minimum: its own deletion of anything ours did not delete.
+    expect(RETELL_DATA_RETENTION_DAYS).toBe(1);
     expect(settings).toEqual({
       response_engine: { type: "custom-llm", llm_websocket_url: `wss://app.healdesk.test/llm-websocket/${SECRET}/${CLINIC}` },
       webhook_url: `https://app.healdesk.test/api/webhooks/retell/${CLINIC}`,
-      data_storage_setting: "basic_attributes_only",
+      data_storage_setting: "everything",
+      data_storage_retention_days: 1,
     });
   });
 
@@ -105,26 +122,58 @@ describe("a clinic's Retell agent", () => {
     }
   });
 
+  test("the engine is an input: a Retell LLM that exists, named by id and version, needs no socket secret", () => {
+    const retellLlm = { ...OPTIONS, llmSecret: null, engine: { type: "retell-llm", llmId: "llm_synthetic_1", version: 3 } } as const;
+    const native = retellAgentSettings(CLINIC, retellLlm);
+    expect(native).toEqual({
+      response_engine: { type: "retell-llm", llm_id: "llm_synthetic_1", version: 3 },
+      webhook_url: `https://app.healdesk.test/api/webhooks/retell/${CLINIC}`,
+      data_storage_setting: "everything",
+      data_storage_retention_days: 1,
+    });
+    expect(JSON.stringify(native)).not.toContain("llm-websocket");
+    expect(retellAgentSettings(CLINIC, { ...retellLlm, engine: { type: "retell-llm", llmId: "llm_synthetic_1" } }).response_engine).toEqual({
+      type: "retell-llm",
+      llm_id: "llm_synthetic_1",
+    });
+    expect(() => retellAgentSettings(CLINIC, { ...retellLlm, engine: { type: "retell-llm", llmId: "../x" } })).toThrow(RetellAgentConfigError);
+    expect(() => retellAgentSettings(CLINIC, { ...retellLlm, engine: { type: "retell-llm", llmId: "llm_1", version: -1 } })).toThrow(RetellAgentConfigError);
+
+    // Read back: the same LLM (and version, when named) is ours; another, or our socket, is not.
+    expect(checkRetellAgent(native, CLINIC, retellLlm)).toMatchObject({ storageAsWritten: true, engineIsOurs: true, webhookIsOurs: true });
+    expect(checkRetellAgent({ ...native, response_engine: { type: "retell-llm", llm_id: "llm_other" } }, CLINIC, retellLlm).engineIsOurs).toBe(false);
+    expect(checkRetellAgent({ ...native, response_engine: { type: "retell-llm", llm_id: "llm_synthetic_1", version: 2 } }, CLINIC, retellLlm).engineIsOurs).toBe(false);
+    expect(checkRetellAgent(settings, CLINIC, retellLlm).engineIsOurs).toBe(false);
+    expect(checkRetellAgent(native, CLINIC, OPTIONS).engineIsOurs).toBe(false);
+  });
+
   test("create posts the settings and a voice, and checks Retell kept them", async () => {
     const { fetch, seen } = fakeFetch((s) => json({ agent_id: "agent_abc123", ...(s.body as object) }, 201));
     const created = await createRetellAgent(CLINIC, { voiceId: "retell-Voice" }, { ...OPTIONS, fetch });
     expect(created).toEqual({
       agentId: "agent_abc123",
-      check: { storageRestricted: true, storageSetting: "basic_attributes_only", engineIsOurs: true, webhookIsOurs: true },
+      check: { storageAsWritten: true, storageSetting: "everything", engineIsOurs: true, webhookIsOurs: true },
     });
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ url: "https://api.retellai.com/create-agent", method: "POST", authorization: `Bearer ${KEY}` });
     expect(seen[0]!.body).toMatchObject({ ...settings, voice_id: "retell-Voice", agent_name: `healdesk ${CLINIC}` });
+    expect(seen[0]!.body).toMatchObject({ data_storage_setting: "everything", data_storage_retention_days: 1 });
+
+    // An answer without the retention is an agent that keeps calls forever.
+    const forever = fakeFetch((s) => json({ agent_id: "agent_abc123", ...(s.body as object), data_storage_retention_days: null }, 201));
+    await expect(createRetellAgent(CLINIC, { voiceId: "retell-Voice" }, { ...OPTIONS, fetch: forever.fetch })).rejects.toThrow(/retention/);
   });
 
-  test("update patches the agent to the settings; an answer that dropped storage is an error, never success", async () => {
+  test("update patches the agent to the settings; an answer that dropped storage or retention is an error, never success", async () => {
     const good = fakeFetch((s) => json({ agent_id: "agent_abc123", ...(s.body as object) }));
-    expect((await updateRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch: good.fetch })).storageRestricted).toBe(true);
+    expect((await updateRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch: good.fetch })).storageAsWritten).toBe(true);
     expect(good.seen[0]).toMatchObject({ url: "https://api.retellai.com/update-agent/agent_abc123", method: "PATCH" });
     expect(good.seen[0]!.body).toEqual(settings);
 
-    const ignored = fakeFetch((s) => json({ ...(s.body as object), data_storage_setting: "everything" }));
-    await expect(updateRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch: ignored.fetch })).rejects.toThrow(/storage restricted/);
+    const scrubbing = fakeFetch((s) => json({ ...(s.body as object), data_storage_setting: "everything_except_pii" }));
+    await expect(updateRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch: scrubbing.fetch })).rejects.toThrow(/storage setting/);
+    const longer = fakeFetch((s) => json({ ...(s.body as object), data_storage_retention_days: 30 }));
+    await expect(updateRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch: longer.fetch })).rejects.toThrow(/retention/);
     const refused = fakeFetch(() => json({ status: "error" }, 422));
     await expect(updateRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch: refused.fetch })).rejects.toThrow(/422/);
     await expect(updateRetellAgent("../etc", CLINIC, { ...OPTIONS, fetch: good.fetch })).rejects.toThrow(RetellAgentConfigError);
@@ -133,13 +182,15 @@ describe("a clinic's Retell agent", () => {
   test("verify reads the agent back and reports, as yes or no, never a URL", async () => {
     const { fetch, seen } = fakeFetch(() => json({ agent_id: "agent_abc123", ...settings }));
     const check = await verifyRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch });
-    expect(check).toEqual({ storageRestricted: true, storageSetting: "basic_attributes_only", engineIsOurs: true, webhookIsOurs: true });
+    expect(check).toEqual({ storageAsWritten: true, storageSetting: "everything", engineIsOurs: true, webhookIsOurs: true });
     expect(seen[0]).toMatchObject({ url: "https://api.retellai.com/get-agent/agent_abc123", method: "GET" });
     expect(JSON.stringify(check)).not.toContain(SECRET);
 
     // Retell's default, a console change, an engine that is not ours, an old secret.
-    expect(checkRetellAgent({ ...settings, data_storage_setting: undefined }, CLINIC, OPTIONS)).toMatchObject({ storageRestricted: false, storageSetting: null });
-    expect(checkRetellAgent({ ...settings, data_storage_setting: "everything_except_pii" }, CLINIC, OPTIONS).storageRestricted).toBe(false);
+    expect(checkRetellAgent({ ...settings, data_storage_setting: undefined }, CLINIC, OPTIONS)).toMatchObject({ storageAsWritten: false, storageSetting: null });
+    expect(checkRetellAgent({ ...settings, data_storage_setting: "everything_except_pii" }, CLINIC, OPTIONS).storageAsWritten).toBe(false);
+    expect(checkRetellAgent({ ...settings, data_storage_setting: "basic_attributes_only" }, CLINIC, OPTIONS).storageAsWritten).toBe(false);
+    expect(checkRetellAgent({ ...settings, data_storage_retention_days: undefined }, CLINIC, OPTIONS).storageAsWritten).toBe(false);
     expect(checkRetellAgent({ ...settings, response_engine: { type: "retell-llm", llm_id: "llm_x" } }, CLINIC, OPTIONS).engineIsOurs).toBe(false);
     expect(
       checkRetellAgent(
@@ -148,7 +199,7 @@ describe("a clinic's Retell agent", () => {
         OPTIONS,
       ).engineIsOurs,
     ).toBe(false);
-    expect(checkRetellAgent(null, CLINIC, OPTIONS)).toMatchObject({ storageRestricted: false, engineIsOurs: false, webhookIsOurs: false });
+    expect(checkRetellAgent(null, CLINIC, OPTIONS)).toMatchObject({ storageAsWritten: false, engineIsOurs: false, webhookIsOurs: false });
 
     const down = fakeFetch(() => json({}, 500));
     await expect(verifyRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch: down.fetch })).rejects.toThrow(/500/);
@@ -158,23 +209,22 @@ describe("a clinic's Retell agent", () => {
 });
 
 // -----------------------------------------------------------------------------
-// Detection
+// The window
 // -----------------------------------------------------------------------------
 
-describe("a recording Retell kept", () => {
-  test("is any of the four recording URLs, present and not empty", () => {
-    expect(RECORDING_URL_FIELDS).toEqual(["recording_url", "recording_multi_channel_url", "scrubbed_recording_url", "scrubbed_recording_multi_channel_url"]);
-    for (const field of RECORDING_URL_FIELDS) expect(retellCallHasRecording({ call_id: "c", [field]: RECORDING }), field).toBe(true);
-    expect(retellCallHasRecording({ call_id: "c" })).toBe(false);
-    expect(retellCallHasRecording({ call_id: "c", recording_url: "" })).toBe(false);
-    expect(retellCallHasRecording({ call_id: "c", recording_url: null })).toBe(false);
-    expect(retellCallHasRecording(null)).toBe(false);
-    expect(retellCallHasRecording("recording_url")).toBe(false);
+describe("the deletion window", () => {
+  test("is 30 minutes, and the backstop job's last try is always after it", () => {
+    expect(RETELL_DELETION_WINDOW_MS).toBe(30 * 60_000);
+    // pg-boss waits retryDelay * 2^n * (1 to 2) after the n-th failure: the
+    // least the retries can take is retryDelay * (2^limit - 1).
+    const leastRetrySeconds = BACKSTOP_RETRY_DELAY_SECONDS * (2 ** BACKSTOP_RETRY_LIMIT - 1);
+    expect((BACKSTOP_DELAY_SECONDS + leastRetrySeconds) * 1000).toBeGreaterThan(RETELL_DELETION_WINDOW_MS);
   });
 
-  test("is not deleted at Retell before the backstop has read the call or given up", () => {
-    // The first read, plus five retries doubling from a minute (about an hour).
-    expect(DELETE_NOT_BEFORE_MS).toBeGreaterThanOrEqual(BACKSTOP_DELAY_SECONDS * 1000 + 63 * 60_000);
+  test("a manual delete of a call not recorded here waits until the backstop has read it or given up", () => {
+    // The first read, plus five retries doubling from a minute, at most (about an hour).
+    const mostRetrySeconds = 2 * BACKSTOP_RETRY_DELAY_SECONDS * (2 ** BACKSTOP_RETRY_LIMIT - 1);
+    expect(DELETE_NOT_BEFORE_MS).toBeGreaterThanOrEqual((BACKSTOP_DELAY_SECONDS + mostRetrySeconds) * 1000);
   });
 });
 
@@ -238,17 +288,12 @@ describeDb("recording alerts, against the real tables", () => {
     await closePools();
   });
 
-  test("a webhook carrying a recording URL raises one alert per call, however often it comes; one without raises none", async () => {
+  test("a webhook carrying a recording URL raises no alert: Retell's copy is expected until the call is recorded", async () => {
     const call = { call_id: "call_rec_1", recording_url: RECORDING, transcript: "synthetic words", from_number: "+14155550192" };
     expect((await webhook(c.clinicId, { event: "call_ended", call })).status).toBe(204);
     expect((await webhook(c.clinicId, { event: "call_analyzed", call })).status).toBe(204);
-    expect((await webhook(c.clinicId, { event: "call_ended", call })).status).toBe(204);
     expect((await webhook(c.clinicId, { event: "call_ended", call: { call_id: "call_clean" } })).status).toBe(204);
-    // A call_started is not a call Retell has finished with: ignored, as before.
-    expect((await webhook(c.clinicId, { event: "call_started", call: { call_id: "call_rec_2", recording_url: RECORDING } })).status).toBe(204);
-
-    const rows = await alertRows(c.clinicId);
-    expect(rows.map((r) => [r.retell_call_id, r.attempts, r.last_error, r.resolved_at])).toEqual([["call_rec_1", 0, null, null]]);
+    expect(await alertRows(c.clinicId)).toEqual([]);
     // Opaque: no column could hold the URL, the words or the number.
     const { rows: columns } = await getMigratorPool().query<{ column_name: string }>(
       `select column_name from information_schema.columns where table_name = 'retell_recording_alerts' order by ordinal_position`,
@@ -263,23 +308,185 @@ describeDb("recording alerts, against the real tables", () => {
       "last_error",
       "resolved_at",
     ]);
-    // The backstop is still queued for every finished call.
-    expect(mocks.scheduled.map((s) => s.callId)).toEqual(["call_rec_1", "call_rec_1", "call_rec_1", "call_clean"]);
+    // The backstop, which records and then deletes, is queued for every finished call.
+    expect(mocks.scheduled.map((s) => s.callId)).toEqual(["call_rec_1", "call_rec_1", "call_clean"]);
   });
 
   test("a clinic id that names no clinic records nothing", async () => {
     expect(await recordRecordingAlert(CLINIC, "call_rec_1")).toBe(false);
-    expect((await webhook(CLINIC, { event: "call_ended", call: { call_id: "call_rec_1", recording_url: RECORDING } })).status).toBe(204);
+    expect(await recordRecordingAlert(CLINIC, "call_rec_1", { reason: "Retell answered 500", at: new Date() })).toBe(false);
   });
 
-  test("the backstop's read of the call raises the alert too", async () => {
-    const recorded: string[] = [];
-    const call: RetellCall & Record<string, unknown> = { call_id: "call_rec_3", call_status: "ended", scrubbed_recording_url: RECORDING };
-    await runCallBackstop(
-      { clinicId: c.clinicId, callId: "call_rec_3" },
-      { apiKey: KEY, realCalls: true, fetchCall: async () => call, recordAlert: async (_clinic, callId) => (recorded.push(callId), true) },
+  // ---------------------------------------------------------------------------
+  // The automatic delete
+  // ---------------------------------------------------------------------------
+
+  const ENDED = new Date("2026-10-21T12:00:00.000Z");
+  const at = (minutes: number) => new Date(ENDED.getTime() + minutes * 60_000);
+
+  async function recordConversation(clinicId: string, callId: string) {
+    await inTenant(clinicId, (client) =>
+      client.query(
+        `insert into conversations (clinic_id, channel, started_at, ended_at, external_call_id) values ($1, 'voice', $2, $3, $4)`,
+        [clinicId, new Date(ENDED.getTime() - 5 * 60_000), ENDED, callId],
+      ),
     );
-    expect(recorded).toEqual(["call_rec_3"]);
+  }
+
+  test("nothing is deleted at Retell for a call with no conversation here: our copy is not committed", async () => {
+    const asked = fakeFetch(() => new Response(null, { status: 204 }));
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_unrecorded", { fetch: asked.fetch, apiKey: KEY, now: at(90) })).toEqual({
+      status: "not_recorded",
+    });
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "../bad", { fetch: asked.fetch, apiKey: KEY })).toEqual({ status: "not_recorded" });
+    expect(asked.seen).toEqual([]);
+    expect(await alertRows(c.clinicId)).toEqual([]);
+  });
+
+  test("a recorded call is deleted at Retell; 204 and 404 are both done, and a retry is harmless", async () => {
+    await recordConversation(c.clinicId, "call_done");
+    const deleting = fakeFetch(() => new Response(null, { status: 204 }));
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_done", { fetch: deleting.fetch, apiKey: KEY, now: at(10) })).toEqual({ status: "deleted" });
+    expect(deleting.seen).toEqual([
+      { url: "https://api.retellai.com/v2/delete-call/call_done", method: "DELETE", body: null, authorization: `Bearer ${KEY}` },
+    ]);
+    const gone = fakeFetch(() => json({ status: "error" }, 404));
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_done", { fetch: gone.fetch, apiKey: KEY, now: at(11) })).toEqual({ status: "deleted" });
+    expect(await alertRows(c.clinicId)).toEqual([]);
+  });
+
+  test("a failed delete is an alert only after the window, once per call, and a later delete resolves it", async () => {
+    await recordConversation(c.clinicId, "call_stuck");
+    const failing = fakeFetch(() => json({ status: "error", message: "synthetic upstream text" }, 500));
+
+    // Inside the window: retried by the job, no alert yet.
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_stuck", { fetch: failing.fetch, apiKey: KEY, now: at(10) })).toEqual({
+      status: "failed",
+      reason: "Retell answered 500",
+      alerted: false,
+    });
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_stuck", { fetch: failing.fetch, apiKey: KEY, now: at(29) })).toMatchObject({ alerted: false });
+    expect(await alertRows(c.clinicId)).toEqual([]);
+
+    // Past it: one alert, in our words.
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_stuck", { fetch: failing.fetch, apiKey: KEY, now: at(31) })).toMatchObject({ alerted: true });
+    expect((await alertRows(c.clinicId)).map((r) => [r.retell_call_id, r.attempts, r.last_error, r.resolved_at])).toEqual([
+      ["call_stuck", 1, "Retell answered 500", null],
+    ]);
+    // Again: still one alert, one more attempt, the newest reason.
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_stuck", { fetch: failing.fetch, apiKey: null, now: at(45) })).toMatchObject({ alerted: true });
+    expect((await alertRows(c.clinicId)).map((r) => [r.attempts, r.last_error, r.resolved_at])).toEqual([
+      [2, "HEALDESK_RETELL_API_KEY is not set on apps/app", null],
+    ]);
+    expect(failing.seen).toHaveLength(3);
+
+    // Retell back: deleted, and the alert resolves.
+    const deleting = fakeFetch(() => new Response(null, { status: 204 }));
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_stuck", { fetch: deleting.fetch, apiKey: KEY, now: at(50) })).toEqual({ status: "deleted" });
+    const [resolved] = await alertRows(c.clinicId);
+    expect(resolved).toMatchObject({ attempts: 3, last_error: null });
+    expect(resolved!.resolved_at).not.toBeNull();
+    // The resolved alert is never reopened by a later failure.
+    await recordRecordingAlert(c.clinicId, "call_stuck", { reason: "Retell answered 502", at: at(60) });
+    expect((await alertRows(c.clinicId)).map((r) => [r.attempts, r.last_error])).toEqual([[3, null]]);
+  });
+
+  function endedCall(callId: string): RetellCall {
+    return {
+      call_id: callId,
+      call_type: "phone_call",
+      call_status: "ended",
+      direction: "inbound",
+      to_number: ASSISTANT,
+      from_number: "+14155550192",
+      start_timestamp: ENDED.getTime() - 5 * 60_000,
+      end_timestamp: ENDED.getTime(),
+      duration_ms: 300_000,
+      transcript_object: [
+        { role: "agent", content: "Hello, synthetic opening." },
+        { role: "user", content: "A synthetic question." },
+      ],
+    };
+  }
+
+  test("the backstop deletes only after the ingest has committed; a failed ingest deletes nothing", async () => {
+    await getMigratorPool().query(`update clinics set assistant_number_e164 = $2 where id = $1`, [c.clinicId, ASSISTANT]);
+    const order: string[] = [];
+    const deleteCall = async (clinicId: string, callId: string) => {
+      order.push(`delete ${callId}`);
+      return deleteRetellCallAfterIngest(clinicId, callId, { fetch: fakeFetch(() => new Response(null, { status: 204 })).fetch, apiKey: KEY });
+    };
+    const ingest = async (event: VoiceCallEvent) => {
+      order.push(`ingest ${event.externalCallId}`);
+      await recordConversation(c.clinicId, event.externalCallId);
+      return { conversationId: crypto.randomUUID(), recoveryReason: null, duplicate: false } as never;
+    };
+    const recorded = await runCallBackstop(
+      { clinicId: c.clinicId, callId: "call_crash" },
+      { apiKey: KEY, realCalls: true, fetchCall: async (id) => endedCall(id), ingest, deleteCall },
+    );
+    expect(recorded.status).toBe("recorded");
+    expect(order).toEqual(["ingest call_crash", "delete call_crash"]);
+
+    // The ingest throws (the database, say): retried, and Retell is not asked.
+    order.length = 0;
+    await expect(
+      runCallBackstop(
+        { clinicId: c.clinicId, callId: "call_ingest_fails" },
+        {
+          apiKey: KEY,
+          realCalls: true,
+          fetchCall: async (id) => endedCall(id),
+          ingest: async () => {
+            throw new Error("synthetic database failure");
+          },
+          deleteCall,
+        },
+      ),
+    ).rejects.toThrow(/synthetic database failure/);
+    expect(order).toEqual([]);
+
+    // The ingest returned but nothing committed: the delete checks for itself and asks Retell nothing.
+    const asked = fakeFetch(() => new Response(null, { status: 204 }));
+    await runCallBackstop(
+      { clinicId: c.clinicId, callId: "call_rolled_back" },
+      {
+        apiKey: KEY,
+        realCalls: true,
+        fetchCall: async (id) => endedCall(id),
+        ingest: async () => ({ conversationId: crypto.randomUUID(), recoveryReason: null, duplicate: false }) as never,
+        deleteCall: (clinicId, callId) => deleteRetellCallAfterIngest(clinicId, callId, { fetch: asked.fetch, apiKey: KEY }),
+      },
+    );
+    expect(asked.seen).toEqual([]);
+  });
+
+  test("a delete that fails retries the job, which then finds the call recorded and deletes it without reading Retell again", async () => {
+    await getMigratorPool().query(`update clinics set assistant_number_e164 = $2 where id = $1`, [c.clinicId, ASSISTANT]);
+    const fetchCall = vi.fn(async (id: string) => endedCall(id));
+    const ingest = async (event: VoiceCallEvent) => {
+      await recordConversation(c.clinicId, event.externalCallId);
+      return { conversationId: crypto.randomUUID(), recoveryReason: null, duplicate: false } as never;
+    };
+    const down = fakeFetch(() => json({}, 503));
+    await expect(
+      runCallBackstop(
+        { clinicId: c.clinicId, callId: "call_retry" },
+        { apiKey: KEY, realCalls: true, fetchCall, ingest, deleteCall: (cl, id) => deleteRetellCallAfterIngest(cl, id, { fetch: down.fetch, apiKey: KEY, now: at(10) }) },
+      ),
+    ).rejects.toThrow(/not deleted at Retell: Retell answered 503/);
+    expect(await alertRows(c.clinicId)).toEqual([]);
+
+    const up = fakeFetch(() => new Response(null, { status: 204 }));
+    expect(
+      await runCallBackstop(
+        { clinicId: c.clinicId, callId: "call_retry" },
+        { apiKey: KEY, realCalls: true, fetchCall, ingest, deleteCall: (cl, id) => deleteRetellCallAfterIngest(cl, id, { fetch: up.fetch, apiKey: KEY, now: at(12) }) },
+      ),
+    ).toEqual({ status: "already_recorded" });
+    expect(fetchCall).toHaveBeenCalledTimes(1);
+    expect(down.seen).toHaveLength(1);
+    expect(up.seen.map((s) => s.url)).toEqual(["https://api.retellai.com/v2/delete-call/call_retry"]);
   });
 
   test("the operations: a read of ids and times, and a delete that resolves the alert at Retell, idempotently", async () => {

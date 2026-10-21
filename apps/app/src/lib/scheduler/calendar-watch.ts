@@ -137,7 +137,8 @@ import { JOB_CALENDAR_WATCH, runJob, type JobOutcome } from "./jobs";
  * not be bumped out of that list: lib/booking/mode.ts already sends such a
  * connection to requests (`calendar_disclosure_outdated`), so a bump would
  * silently put every connected location on booking requests and tell no
- * clinic why. Only version /1 exists.
+ * clinic why. Three versions exist, all in the list: the BAA's /1, and since
+ * 20 October 2026 the Data Protection Agreement's two, one per audience.
  */
 
 /** Every five minutes, in UTC. */

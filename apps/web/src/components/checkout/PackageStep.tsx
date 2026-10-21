@@ -138,6 +138,7 @@ export function PackageStep({
             offer={offer}
             noWebsite={state.noWebsite}
             includes={DEMO_INCLUDES}
+            audience={demo.audience}
           />
         </>
       ) : (
@@ -492,7 +493,8 @@ function PlanSummary({
         Setup fee <SetupFigure plan={plan} offer={offer} suffix=", once" />
       </p>
       <p className="text-muted mt-2 text-sm">
-        Today you pay the setup fee only. Your plan starts the day AYA first answers a patient.
+        Today you pay the setup fee only. Your plan starts the day AYA first answers a patient or
+        client.
       </p>
       <p className="text-muted mt-1 text-sm">{locationsLine(plan, interval)}</p>
     </div>

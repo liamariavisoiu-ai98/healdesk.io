@@ -311,6 +311,7 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
             address: l.address,
             phone: l.phone,
           }))}
+          audience={audience}
         />
       );
 

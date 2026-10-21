@@ -63,20 +63,22 @@ export const renderDeviceChanged: EmailTemplate<DeviceChangedPayload> = (payload
     timeZoneName: "short",
   }).format(new Date(payload.changedAt));
   const device = payload.deviceName ? `“${payload.deviceName}”` : "A device";
+  // Whose details a device opens: a vet's are its clients' (ctx.audience).
+  const details = `${ctx.audience === "clients" ? "client" : "patient"} details`;
 
   switch (payload.change) {
     case "added":
       return compose(
         {
           subject: "A device was added to your healdesk sign-in",
-          preheader: `${device} can now open patient details.`,
+          preheader: `${device} can now open ${details}.`,
           blocks: [
             {
               type: "paragraph",
               text:
                 payload.source === "recovery"
-                  ? `${device} was added to your healdesk sign-in on ${when}, with the one-time link healdesk emailed to this address after a call with your clinic. It can now open patient details, with its own Face ID, fingerprint or screen lock. The link is used up.`
-                  : `${device} was added to your healdesk sign-in on ${when}. It can now open patient details, with its own Face ID, fingerprint or screen lock.`,
+                  ? `${device} was added to your healdesk sign-in on ${when}, with the one-time link healdesk emailed to this address after a call with your clinic. It can now open ${details}, with its own Face ID, fingerprint or screen lock. The link is used up.`
+                  : `${device} was added to your healdesk sign-in on ${when}. It can now open ${details}, with its own Face ID, fingerprint or screen lock.`,
             },
             { type: "paragraph", text: NOT_YOU },
           ],
@@ -87,11 +89,11 @@ export const renderDeviceChanged: EmailTemplate<DeviceChangedPayload> = (payload
       return compose(
         {
           subject: "A device was removed from your healdesk sign-in",
-          preheader: `${device} can no longer open patient details.`,
+          preheader: `${device} can no longer open ${details}.`,
           blocks: [
             {
               type: "paragraph",
-              text: `${device} was removed from your healdesk sign-in on ${when}. It can no longer open patient details.`,
+              text: `${device} was removed from your healdesk sign-in on ${when}. It can no longer open ${details}.`,
             },
             {
               type: "paragraph",
@@ -135,7 +137,7 @@ export const renderDeviceChanged: EmailTemplate<DeviceChangedPayload> = (payload
               },
               {
                 type: "paragraph",
-                text: "Sign in again with a link from healdesk's sign-in page. Devices that weren't removed open patient details as before; add the authenticator app again in Settings → Sign-in.",
+                text: `Sign in again with a link from healdesk's sign-in page. Devices that weren't removed open ${details} as before; add the authenticator app again in Settings → Sign-in.`,
               },
               {
                 type: "paragraph",
@@ -157,7 +159,7 @@ export const renderDeviceChanged: EmailTemplate<DeviceChangedPayload> = (payload
             },
             {
               type: "paragraph",
-              text: "Sign in again with a link from healdesk's sign-in page. Devices that weren't removed open patient details as before; add the authenticator app again in Settings → Sign-in.",
+              text: `Sign in again with a link from healdesk's sign-in page. Devices that weren't removed open ${details} as before; add the authenticator app again in Settings → Sign-in.`,
             },
             {
               type: "paragraph",

@@ -1,7 +1,6 @@
 import {
   BOOKING_SYSTEMS,
   CALENDAR_ACCOUNT_OPTIONS,
-  renderGoogleCalendarDisclosure,
   type BookingSystemId,
   type CalendarAccount,
   type GoogleCalendarDisclosure,
@@ -29,6 +28,7 @@ import { describeError, log } from "@/lib/log";
 import { publicUrl } from "@/lib/public-url";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
+import { renderPracticeCalendarDisclosure } from "./calendar-disclosure";
 import {
   calendarConnectProblem,
   googleCalendarConnection,
@@ -636,7 +636,8 @@ export async function calendarLinkPage(
         };
       }
 
-      const disclosure = renderGoogleCalendarDisclosure({ clinicName });
+      // The practice's own wording: the BAA's, or the DPA's for its audience.
+      const disclosure = await renderPracticeCalendarDisclosure(tx, clinicName);
       const workspace = terms.account !== "personal";
       const connection = await googleCalendarConnection(tx);
       const live = connection !== null && connection.status !== "revoked";
@@ -672,7 +673,8 @@ export async function calendarLinkPage(
         .from(clinics)
         .where(eq(clinics.id, tx.clinicId))
         .limit(1);
-      return { terms, connection, timeZone: clinic?.timezone ?? null };
+      const disclosure = await renderPracticeCalendarDisclosure(tx, link.clinicName);
+      return { terms, connection, timeZone: clinic?.timezone ?? null, disclosure };
     },
   );
   const listed =
@@ -684,7 +686,7 @@ export async function calendarLinkPage(
     state: "connected",
     clinicName: link.clinicName,
     token,
-    disclosure: renderGoogleCalendarDisclosure({ clinicName: link.clinicName }),
+    disclosure: view.disclosure,
     workspace:
       view.terms.kind === "covered" || view.terms.kind === "uncovered"
         ? view.terms.account !== "personal"

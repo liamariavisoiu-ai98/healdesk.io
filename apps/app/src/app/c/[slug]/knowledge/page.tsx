@@ -124,6 +124,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
                 timezone: clinic.timezone,
               }}
               zones={US_TIME_ZONES}
+              audience={shell.audience}
             />
           </Section>
 

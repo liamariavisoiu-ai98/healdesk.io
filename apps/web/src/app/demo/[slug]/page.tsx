@@ -1,3 +1,4 @@
+import { agreementClaim } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -16,6 +17,7 @@ import { readableOn } from "@/lib/demo/colour";
 import { weekSchedule } from "@/lib/demo/opening-hours";
 import type { ClinicProfile } from "@/lib/demo/profile";
 import {
+  demoAudience,
   demoBuildElapsedMs,
   demoBuildState,
   demoOfferEndsAt,
@@ -195,6 +197,15 @@ export default async function DemoPage({ params }: Props) {
   }
 
   const schedule = weekSchedule(profile.hours);
+  // In the clinic's own word: a vet's callers are its clients (demoAudience).
+  const audience = demoAudience(session);
+  const one = audience === "clients" ? "client" : "patient";
+  // A vet signs the data protection agreement, not a BAA: HIPAA cannot reach
+  // a practice whose patients are animals (agreementKindFor).
+  const agreementPoint =
+    audience === "clients"
+      ? agreementClaim("dpa", "clients")
+      : "We sign a BAA and handle patient data under it";
   // A homepage demo buys through the homepage's own purchase, opened here
   // and knowing the demo; one an operator built keeps "Book Onboarding".
   const selfServe = isSelfServeDemo(session);
@@ -267,7 +278,7 @@ export default async function DemoPage({ params }: Props) {
             {name}, answering every call and chat.
           </h1>
           <p className="text-muted mt-3 max-w-[56ch] text-[18px] leading-[1.5] font-medium">
-            {site.agent} already knows {name}&rsquo;s services, prices and FAQs. Try her the way a patient would.
+            {site.agent} already knows {name}&rsquo;s services, prices and FAQs. Try her the way a {one} would.
           </p>
           {/* The owner asked for "the most human-like agent on the market" and
               "HIPAA compliant". Both are worded to what can be backed: the
@@ -278,7 +289,7 @@ export default async function DemoPage({ params }: Props) {
             {site.agent} sounds like a person, not a robot. Talk to her and hear it for yourself.
           </p>
           <ul className="mt-5 flex flex-wrap gap-2">
-            {["Answers 24/7", "Phone, website & socials", "Books into your calendar", "Deposit links in chat", "We sign a BAA and handle patient data under it"].map((point) => (
+            {["Answers 24/7", "Phone, website & socials", "Books into your calendar", "Deposit links in chat", agreementPoint].map((point) => (
               <li key={point} className="border-line flex items-center gap-1.5 rounded-full border bg-white px-3.5 py-1.5 text-[14.4px] font-semibold">
                 <span aria-hidden className="size-1.5 rounded-full bg-[#87d68d]" />
                 {point}
@@ -297,7 +308,7 @@ export default async function DemoPage({ params }: Props) {
               callRoute={`/api/demo/${slug}/retell`}
               callerRoute={`/api/demo/${slug}/caller`}
               demoLine={demoLine}
-              ringNote="One demo call, because you asked. Live, it only answers: it never dials a patient."
+              ringNote={`One demo call, because you asked. Live, it only answers: it never dials a ${one}.`}
               callbackExtra={{ demoSlug: slug }}
               prefillPhone={session.phoneE164}
               locked={expired}
@@ -314,7 +325,7 @@ export default async function DemoPage({ params }: Props) {
               slug={slug}
               clinicName={name}
               logoUrl={avatarLogo(session.logoUrl)}
-              greeting={chatGreeting(name)}
+              greeting={chatGreeting(name, audience)}
               chips={chipsFor(profile)}
               locked={expired}
             />
@@ -346,6 +357,7 @@ export default async function DemoPage({ params }: Props) {
                 : { kind: "website" }
           }
           buy={selfServe}
+          audience={audience}
         />
       </main>
     </Shell>

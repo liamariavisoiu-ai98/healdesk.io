@@ -47,6 +47,8 @@ export function BasicsScreen(
     zones: readonly { id: string; label: string }[];
     /** The locations the website read lists, when it lists several. */
     locations: readonly { label: string; address: string | null; phone: string | null }[];
+    /** Who calls the main number: a vet's clients, everyone else's patients. */
+    audience: "patients" | "clients";
   },
 ) {
   const [name, setName] = useState(props.initial.name);
@@ -125,7 +127,7 @@ export function BasicsScreen(
       />
       <Field
         label="Main phone number"
-        hint="The number patients call today. You keep it: phone forwarding comes later, from this number."
+        hint={`The number ${props.audience} call today. You keep it: phone forwarding comes later, from this number.`}
         value={phone}
         onChange={setPhone}
         type="tel"

@@ -25,7 +25,7 @@ import {
   monthAndYear,
   plusDays,
 } from "@/lib/email/templates/billing-copy";
-import { REPLY_LINE } from "@/lib/email/templates/compose";
+import { REPLY_LINES } from "@/lib/email/templates/compose";
 import { clinicReason } from "@/lib/email/templates/context";
 import { PENDING_TEMPLATES, TEMPLATES } from "@/lib/email/templates/registry";
 import type { EmailAudience, RenderedEmail, TemplateContext } from "@/lib/email/templates/types";
@@ -679,7 +679,8 @@ describe("every branch of every billing template", () => {
             ),
           ).toEqual([]);
           expect(linkProblems(email, v.kind)).toEqual([]);
-          expect(email.text).toContain(REPLY_LINE);
+          // A vet's footer asks a reply to leave out its clients' details.
+          expect(email.text).toContain(REPLY_LINES[audience]);
         });
       }
 

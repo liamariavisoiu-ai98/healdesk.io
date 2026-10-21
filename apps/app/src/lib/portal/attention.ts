@@ -1,4 +1,4 @@
-import type { Channel } from "@healdesk/catalog";
+import { audienceFor, audienceSingular, type Channel } from "@healdesk/catalog";
 
 import {
   SCREEN_DEFINITIONS,
@@ -182,9 +182,11 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
   }
 
   if (!state.hasPasskey) {
+    // A vet's are its clients' details: the animal's owner is the person.
+    const one = audienceSingular(audienceFor(state.clinic.specialty));
     items.push({
       id: "passkey",
-      text: "No device can open patient details yet. Conversations and Bookings need one.",
+      text: `No device can open ${one} details yet. Conversations and Bookings need one.`,
       action: {
         label: "Add this device",
         href: `${home}/protect?next=${encodeURIComponent(home)}`,

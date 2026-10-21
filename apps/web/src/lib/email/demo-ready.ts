@@ -1,4 +1,5 @@
 import {
+  demoAudience,
   demoOfferEndsAt,
   demoSetupCredit,
   demoUrl,
@@ -65,6 +66,8 @@ export function demoEmail(
   opts: { unsubscribeUrl: string },
 ): RenderedEmail {
   const name = displayName(session);
+  // In the clinic's own word: a vet's callers are its clients (demoAudience).
+  const audience = demoAudience(session);
   return {
     subject: `${SUBJECT_OPENING}${nameForSubject(name, SUBJECT_MAX - SUBJECT_OPENING.length)}`,
     text:
@@ -77,7 +80,7 @@ export function demoEmail(
         "",
         `On that page you can talk to the voice assistant from your browser, have it ring your phone, and chat with the website assistant. Both answer as ${name}, with the services, hours and FAQs from your site.`,
         "",
-        "It runs in demo mode: it doesn't have your booking calendar or a confirmed price list yet, so it will tell you where it would book or quote for real. Try it the way a patient would: ask what a treatment costs, when you're open, or to book a consult.",
+        `It runs in demo mode: it doesn't have your booking calendar or a confirmed price list yet, so it will tell you where it would book or quote for real. Try it the way a ${audience === "clients" ? "client" : "patient"} would: ask what a treatment costs, when you're open, or to book a consult.`,
         "",
         `The link is private to you and stays live until ${expiryDate(session)}. Just reply to this email with any questions.`,
         "",
@@ -87,6 +90,7 @@ export function demoEmail(
       commercialFooter(
         `You're getting this because a demo was built for ${name} and this address asked for its link.`,
         opts.unsubscribeUrl,
+        audience,
       ),
   };
 }

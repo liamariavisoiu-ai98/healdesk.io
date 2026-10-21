@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { audienceFor, type Audience } from "@healdesk/catalog";
 import { and, desc, eq, gt, gte, inArray, lte, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -204,6 +205,8 @@ type Claimed = {
   clientNumber: number;
   clinicName: string;
   timeZone: string;
+  /** A vet's transcript holds its clients' information, and says so. */
+  audience: Audience;
   recipients: string[];
 };
 
@@ -244,7 +247,12 @@ export async function deliverTranscriptEmail(
         .returning();
       if (!row || !row.sealed) return null;
       const [clinic] = await tx.db
-        .select({ clientNumber: clinics.clientNumber, name: clinics.name, timeZone: clinics.timezone })
+        .select({
+          clientNumber: clinics.clientNumber,
+          name: clinics.name,
+          timeZone: clinics.timezone,
+          specialty: clinics.specialty,
+        })
         .from(clinics)
         .where(eq(clinics.id, clinicId));
       if (!clinic) return null;
@@ -263,6 +271,7 @@ export async function deliverTranscriptEmail(
         clientNumber: clinic.clientNumber,
         clinicName: clinic.name,
         timeZone: clinic.timeZone,
+        audience: audienceFor(clinic.specialty),
         recipients,
       };
     });
@@ -283,7 +292,12 @@ export async function deliverTranscriptEmail(
     ) as SealedTranscript;
     const rendered = renderTranscriptEmail({
       conversationId: claimed.conversationId,
-      clinic: { id: clinicId, name: claimed.clinicName, timeZone: claimed.timeZone },
+      clinic: {
+        id: clinicId,
+        name: claimed.clinicName,
+        timeZone: claimed.timeZone,
+        audience: claimed.audience,
+      },
       channel: payload.channel,
       startedAt: new Date(payload.startedAt),
       turns: payload.turns,

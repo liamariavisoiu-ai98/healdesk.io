@@ -212,6 +212,7 @@ describe("the request", () => {
     const system = buildSupportPrompt({
       clinicName: "Radiance Med Spa",
       audience: "patients",
+      agreementKind: "baa",
       timeZone: "America/New_York",
       now: new Date("2026-10-14T15:00:00Z"),
     });
@@ -237,6 +238,7 @@ describe("the request", () => {
     const other = buildSupportPrompt({
       clinicName: "Paws Vet",
       audience: "clients",
+      agreementKind: "dpa",
       timeZone: "America/Chicago",
       now: new Date("2027-01-02T09:00:00Z"),
     });
@@ -261,6 +263,61 @@ describe("the request", () => {
       expect(HELP_TEXT, key).toContain(SETTING_PLACES[key].label);
     }
     expect(HELP_TEXT).not.toMatch(/HIPAA compliant\b(?!")/);
+  });
+
+  /**
+   * Released with the Data Protection Agreement on 20 October 2026: a practice
+   * under it signed no business associate agreement, and a vet's people are
+   * clients. The prefix every clinic shares names neither agreement as the
+   * practice's; the turn says which one this practice signed, in its own word.
+   */
+  test("the agreement the chat describes is the practice's own: a business associate agreement, or a data protection agreement", () => {
+    const at = new Date("2026-10-20T15:00:00Z");
+    const turn = (agreementKind: "baa" | "dpa" | null, audience: "patients" | "clients") =>
+      buildSupportPrompt({ clinicName: "A Practice", audience, agreementKind, timeZone: "UTC", now: at }).turn;
+
+    for (const baa of [turn("baa", "patients"), turn(null, "patients")]) {
+      expect(baa).toContain(
+        'Its agreement with healdesk is a business associate agreement: say "we sign a business associate agreement and handle patient data under it".',
+      );
+      expect(baa).not.toMatch(/data protection agreement/);
+    }
+
+    const vet = turn("dpa", "clients");
+    expect(vet).toContain(
+      'Its agreement with healdesk is a data protection agreement, not a business associate agreement: say "we sign a data protection agreement and handle your clients\' information under it", and never that healdesk signs a business associate agreement with it.',
+    );
+    expect(vet).toContain(
+      'If asked how that information is protected, say "healdesk protects it with the safeguards it uses where HIPAA does apply, the HIPAA Security Rule\'s included".',
+    );
+    expect(vet).not.toMatch(/\bpatients?\b(?!" and)/);
+    expect(vet).not.toMatch(/HIPAA compliant/);
+
+    const spa = turn("dpa", "patients");
+    expect(spa).toContain(
+      'say "we sign a data protection agreement and handle your patients\' information under it"',
+    );
+    expect(spa).not.toContain("handle patient data under it");
+
+    // The prefix every clinic shares claims neither agreement for the practice.
+    expect(SUPPORT_PROMPT_STABLE).not.toContain(
+      "we sign a business associate agreement and handle patient data under it",
+    );
+    expect(SUPPORT_PROMPT_STABLE).not.toMatch(/HIPAA compliant\b(?!")/);
+    expect(HELP_TEXT).not.toContain("so patients never dial AYA directly");
+  });
+
+  test("a vet's turn reaches the model with its own agreement and its own word", async () => {
+    const model = fakeModel([{ text: ["Sure."] }]);
+    const vetState = {
+      ...STATE,
+      clinic: { ...STATE.clinic, name: "Paws & Claws", specialty: "veterinary", agreementKind: "dpa" },
+    } as unknown as SetupState;
+    await chat(context(model, { readAccount: async () => ({ account: ACCOUNT, state: vetState }) }), "Is my data safe?");
+    const system = model.requests[0]!.system as Anthropic.TextBlockParam[];
+    expect(system[1]!.text).toContain("It serves clients");
+    expect(system[1]!.text).toContain("handle your clients' information under it");
+    expect(system[1]!.text).toContain("never that healdesk signs a business associate agreement with it");
   });
 
   test("the help text says where the build's three answers are given, and that AYA waits on them", () => {

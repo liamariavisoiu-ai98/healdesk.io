@@ -35,6 +35,8 @@ export function ProtectDevice(props: {
   codeRoute: boolean;
   initialDevice: DeviceKind;
   stepUpHref: string;
+  /** Who the practice serves: a vet's details are its clients'. */
+  audience: "patients" | "clients";
 }) {
   const [device, setDevice] = useState<DeviceKind>(props.initialDevice);
   const [label, setLabel] = useState(suggestedDeviceLabel(props.initialDevice));
@@ -93,10 +95,12 @@ export function ProtectDevice(props: {
     }
   }
 
+  const one = props.audience === "clients" ? "client" : "patient";
+
   return (
     <div>
       <h1 className="text-2xl font-semibold">
-        {props.firstDevice ? "Protect patient details: " : "Add this device: "}use {word}
+        {props.firstDevice ? `Protect ${one} details: ` : "Add this device: "}use {word}
       </h1>
       <p className="text-muted mt-3">
         {props.mode === "open"
@@ -104,10 +108,10 @@ export function ProtectDevice(props: {
             ? `The link from healdesk lets one device be added, once. Conversations and Bookings then open with ${word} on it.`
             : `Conversations and Bookings open only after ${word} on a device you've added. It takes one tap.`
           : props.mode === "needs_proof"
-            ? `This sign-in already has a device that opens patient details. Confirm with it, and this one can be added.`
+            ? `This sign-in already has a device that opens ${one} details. Confirm with it, and this one can be added.`
             : props.codeRoute
-              ? `This sign-in has no device that opens patient details, and patient details may already exist, so adding one takes a code from your authenticator app or a backup code.`
-              : `This sign-in has no device that opens patient details and no authenticator app to confirm with, and patient details may already exist, so a device is added with our help.`}
+              ? `This sign-in has no device that opens ${one} details, and ${one} details may already exist, so adding one takes a code from your authenticator app or a backup code.`
+              : `This sign-in has no device that opens ${one} details and no authenticator app to confirm with, and ${one} details may already exist, so a device is added with our help.`}
       </p>
 
       {!supported ? (
@@ -150,7 +154,7 @@ export function ProtectDevice(props: {
               className="border-line min-h-11 rounded-xl border bg-white px-4 py-2"
             />
             <p id={hintId} className="text-muted text-xs">
-              Staff see this name when this device opens patient details, like &ldquo;Front desk
+              Staff see this name when this device opens {one} details, like &ldquo;Front desk
               Mac&rdquo; or &ldquo;Maria&rsquo;s iPhone&rdquo;.
             </p>
           </div>

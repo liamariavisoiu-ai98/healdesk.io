@@ -16,6 +16,7 @@
  * `/checkout-record` (node:zlib).
  */
 
+export * from "./agreement-claim";
 export * from "./agreement-copy";
 export * from "./agreement-copy-email";
 export * from "./agreement-kind";

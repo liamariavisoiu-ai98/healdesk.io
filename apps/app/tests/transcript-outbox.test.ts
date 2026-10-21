@@ -310,6 +310,22 @@ describeDb("the transcript outbox", () => {
     expect(transport.sent).toHaveLength(1);
   });
 
+  test("a vet's transcript says it holds its clients' information; everyone else's, patient information", async () => {
+    const vet = await seeded("outbox-vet");
+    await getMigratorPool().query(`update clinics set specialty = 'veterinary' where id = $1`, [vet.clinicId]);
+    const people = await seeded("outbox-people");
+    const transport = new FakeTransport();
+    for (const clinic of [vet, people]) {
+      const id = await queue(clinic.clinicId, clinic.conversationId);
+      expect(await deliverTranscriptEmail(clinic.clinicId, id!, { transport })).toBe("sent");
+    }
+    const [toVet, toPeople] = transport.sent.map((s) => s.message.text);
+    expect(toVet).toContain("This email holds your clients' information.");
+    expect(toVet).toContain("file it where your practice keeps client records");
+    expect(toVet).not.toMatch(/\bpatients?\b/i);
+    expect(toPeople).toContain("This email holds patient information.");
+  });
+
   test("a failed send waits and tries again, and ops hears once, on the third failure, by ids", async () => {
     const { clinicId, conversationId } = await seeded("outbox-retry");
     const id = await queue(clinicId, conversationId);

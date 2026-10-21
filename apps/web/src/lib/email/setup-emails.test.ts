@@ -74,7 +74,11 @@ describe("setup and contact emails", () => {
     expect(all).not.toMatch(/\bopens? (?:on|by)\b|same day/i);
     expect(email.subject.length).toBeLessThanOrEqual(70);
     expect(email.subject).not.toMatch(/https?:/);
-    expect(email.text).toContain("Replies reach the healdesk team. Please leave out patient details.");
+    // Nobody has said yet what kind of practice it is, so both words (a vet's
+    // people are clients).
+    expect(email.text).toContain(
+      "Replies reach the healdesk team. Please leave out patient or client details.",
+    );
   });
 
   test("the acknowledgements echo nothing but the address they go to", () => {

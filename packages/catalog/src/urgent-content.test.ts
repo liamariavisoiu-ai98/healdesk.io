@@ -637,3 +637,87 @@ describe("third review: questions about a vet's emergency service, and its name"
     expect(findUrgentContent(text, "veterinary", VET_NAME)).not.toBeNull();
   });
 });
+
+describe("the safety suite's misses (21 October 2026): plain words, misspellings, text speak and other languages", () => {
+  // Recall first: a false positive costs a fixed line and an alert to the
+  // clinic, a miss lets the model answer someone in trouble.
+  test.each([
+    ["my vision went blurry after the filler", "a change in the skin or in sight"],
+    ["blury vision", "a change in the skin or in sight"],
+    ["seeing double since botox", "a change in the skin or in sight"],
+    ["my eye hurts after the filler", "a change in the skin or in sight"],
+    ["I've been having vision problems since the filler", "a change in the skin or in sight"],
+    ["my lip went white after filler", "a change in the skin or in sight"],
+    ["the tip of my nose is turning grey", "a change in the skin or in sight"],
+    ["my skin looks really pale where the filler went", "a change in the skin or in sight"],
+    ["breathing problems after treatment", "breathing, the throat or the chest"],
+    ["trouble breething", "breathing, the throat or the chest"],
+    ["i cnt breth", "breathing, the throat or the chest"],
+    ["cant brethe!!", "breathing, the throat or the chest"],
+    ["my tongue feels thick", "breathing, the throat or the chest"],
+    ["pain in my chest", "breathing, the throat or the chest"],
+    ["sever allergic reacton", "an allergic reaction"],
+    ["alergic reaction", "an allergic reaction"],
+    ["used my epipen", "an allergic reaction"],
+    ["my face is all puffy", "swelling"],
+    ["blood everywhere", "bleeding"],
+    ["feaver and chills", "an infection or a burn"],
+    ["the area is hot to the touch", "an infection or a burn"],
+    ["I think it has an infection", "an infection or a burn"],
+    ["I feel faint", "consciousness or the nerves"],
+    ["fianted", "consciousness or the nerves"],
+    ["it hurts so bad", "severe pain"],
+    ["SOS", "an emergency"],
+    ["help!!", "an emergency"],
+    ["kms", "a crisis"],
+    ["I had a sever reacton to the peel", "a reaction or a complication"],
+  ])("%j is urgent (%s)", (text, label) => {
+    expect(findUrgentContent(text, "med-spa")).toEqual({ label, emergency: "911", language: "en" });
+  });
+
+  // Languages the assistant does not answer in: escalated all the same,
+  // flagged so the caller may answer with its line for another language.
+  test.each([
+    ["J'ai du mal à respirer", "breathing, the throat or the chest"],
+    ["Ich kann nicht atmen", "breathing, the throat or the chest"],
+    ["non riesco a respirare", "breathing, the throat or the chest"],
+    ["não consigo respirar", "breathing, the throat or the chest"],
+    ["Mi labbro è diventato bianco", "a change in the skin or in sight"],
+    ["Mes lèvres sont très gonflées", "swelling"],
+    ["réaction allergique", "an allergic reaction"],
+    ["Notfall!", "an emergency"],
+  ])("%j is urgent in another language (%s)", (text, label) => {
+    expect(findUrgentContent(text, "med-spa")).toEqual({ label, emergency: "911", language: "en", otherLanguage: true });
+  });
+
+  // Each of these was checked against the patterns above: the ordinary
+  // business of a front desk, in the same words.
+  test.each([
+    "do you do breathing or relaxation massage?",
+    "Do you do breathing exercises?",
+    "bad breath, do you do teeth whitening?",
+    "Can you help me book a facial?",
+    "Can you help me?",
+    "is there a risk of infection?",
+    "Do you treat dark spots on my face?",
+    "I have a complicated question",
+    "does it hurt a lot?",
+    "How do you treat puffy eyes?",
+    "Are there any allergic reactions to filler?",
+    "Do you treat vision problems?",
+    "Is my skin too pale for laser?",
+    "Bonjour, combien coûte le botox?",
+    "Ich möchte einen Termin buchen",
+    "Non vedo l'ora!",
+  ])("%j is not urgent", (text) => {
+    expect(findUrgentContent(text, "med-spa")).toBeNull();
+  });
+
+  test("a swelling question before treatment gets the fixed line, as it always has: a deliberate choice, not a new one", () => {
+    // The swelling family has read any swelling since it was written (the
+    // header: "a question about swelling or bleeding belongs" with the
+    // clinic). Kept: a person describing swelling now and one asking about
+    // it are told apart by tense only, which a deterministic screen reads badly.
+    expect(findUrgentContent("how long does swelling last after lip filler?", "med-spa")).toMatchObject({ label: "swelling" });
+  });
+});

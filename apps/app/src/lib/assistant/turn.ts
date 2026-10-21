@@ -9,6 +9,7 @@ import {
 
 import { isOpenAt } from "@/lib/clinic/opening-hours";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
+import { log } from "@/lib/log";
 import { formatPhone } from "@/lib/setup/help";
 import { spokenPhone } from "@/lib/voice/spoken";
 
@@ -42,7 +43,10 @@ export type { AssistantMessage, AssistantPrompt, AssistantResponder, ModelRefusa
  *      clinic's own number. The adapter escalates (an alert to the clinic).
  *   3. A message in a language the screens do not read (messageLanguage:
  *      neither English nor Spanish) gets a fixed line in English and
- *      Spanish, with 911 and the clinic's number, and never the model.
+ *      Spanish, with 911 and the clinic's number, and never the model. When
+ *      the urgent screen reads urgent words in it (its French, German,
+ *      Italian and Portuguese fragments), the turn is urgent as well, so
+ *      the adapter alerts the clinic whatever the language.
  *      Neither it nor an urgent message reaches the model on a later turn
  *      either: the history the model is sent is screened again
  *      (messagesFor, screenedBeforeModel).
@@ -55,7 +59,9 @@ export type { AssistantMessage, AssistantPrompt, AssistantResponder, ModelRefusa
  * The model writes nothing: what it collects for a booking request is
  * returned as a capture, cleaned, and the adapter decides what to do with it
  * (the post-call ingest for a call, the request writer for a chat). A model
- * that fails or times out gives the fixed failure line, never silence.
+ * that fails, times out, passes our own deadline (MODEL_DEADLINE_MS) or
+ * answers with JSON that does not parse gives the fixed failure line, never
+ * silence and never its raw text.
  *
  * Where the adapter passes the booking tool layer (booking-tools.ts) and it
  * is live this turn, the model may also ask for an action (free times, or
@@ -110,6 +116,36 @@ const NO_BOOKING_WRITTEN = { bookingWritten: false } as const;
 
 export const FAILURE_LINE =
   "Sorry, I'm having trouble on my end. Please try again in a moment, or contact the practice directly.";
+
+/**
+ * Our own wall-clock bound on one model answer, per channel, beside the
+ * SDK's (responder.ts, MODEL_CONFIG): a responder that never settles, or
+ * an SDK whose timeout and retries add up past what the person can wait,
+ * still ends the turn with the failure line. On a call, a second under the
+ * SDK's 8 seconds, so the caller hears the line on our clock and the
+ * adapter's second failure transfers them (retell.ts). On the web chat,
+ * past the SDK's 30 seconds but short of its one retry's full minute.
+ * answerTurn takes another through `modelDeadlineMs`.
+ */
+export const MODEL_DEADLINE_MS: Readonly<Record<AssistantChannel, number>> = {
+  voice: 7_000,
+  web_chat: 40_000,
+};
+
+class ModelDeadline extends Error {}
+
+/** The responder's answer, or ModelDeadline once `ms` pass; the timer never outlives the turn. */
+async function withinDeadline<T>(answer: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new ModelDeadline()), ms);
+  });
+  try {
+    return await Promise.race([answer, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function numberFor(channel: AssistantChannel, e164: string | null): string | null {
   if (!e164) return null;
@@ -229,9 +265,35 @@ function clean(value: unknown, max = MAX_FIELD): string | null {
   return text.length > 0 ? text : null;
 }
 
-type ModelAnswer = { reply: string; booking: Partial<BookingCapture>; handoff: boolean; end: boolean; action: ToolAction | null };
+type ModelAnswer = {
+  reply: string;
+  booking: Partial<BookingCapture>;
+  handoff: boolean;
+  end: boolean;
+  action: ToolAction | null;
+  /**
+   * The text began an object that does not parse: a reply cut off at the
+   * token limit, or JSON the model got wrong. Its words are never sent (they
+   * may hold the booking object, braces and field names); answerTurn gives
+   * the failure line instead.
+   */
+  malformed?: true;
+};
 
-/** The model's JSON, read leniently: the first object in the text, or the text itself as the reply. */
+/**
+ * Whether text that did not parse was meant as the JSON object: it has a
+ * brace, or names the reply field. Plain prose with neither is read as the
+ * reply itself, as it always was.
+ */
+function meantAsJson(raw: string): boolean {
+  return raw.includes("{") || /"reply"\s*:/.test(raw);
+}
+
+/**
+ * The model's JSON, read leniently: the first object in the text, or plain
+ * prose (no brace, no reply field) as the reply. Text that meant to be the
+ * object and does not parse is malformed, with no reply.
+ */
 export function parseModelAnswer(raw: string): ModelAnswer {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
@@ -262,9 +324,10 @@ export function parseModelAnswer(raw: string): ModelAnswer {
         action: parseToolAction(parsed.action),
       };
     } catch {
-      // fall through to the text itself
+      // not an object: malformed, below
     }
   }
+  if (meantAsJson(raw)) return { reply: "", booking: {}, handoff: false, end: false, action: null, malformed: true };
   return { reply: clean(raw, MAX_TEXT) ?? "", booking: {}, handoff: false, end: false, action: null };
 }
 
@@ -345,6 +408,8 @@ export async function answerTurn(input: {
   toolState?: BookingToolState;
   /** A call's caller id, for a booking whose caller gave no other number. */
   callerPhone?: string | null;
+  /** Our own bound on the model's answer; MODEL_DEADLINE_MS for the channel when absent. */
+  modelDeadlineMs?: number;
 }): Promise<AssistantTurnResult> {
   const { facts, channel } = input;
   const capture = input.capture ?? EMPTY_CAPTURE;
@@ -355,6 +420,15 @@ export async function answerTurn(input: {
 
   const now = input.now ?? new Date();
   const finding = findUrgentContent(personText, facts.specialty, { clinicName: facts.clinicName });
+  if (finding?.otherLanguage) {
+    // Urgent words in a language the assistant does not answer in (French,
+    // German, Italian, Portuguese): the line for another language, in
+    // English and Spanish with 911 and the number, as any message in it
+    // gets; and urgent, so the adapter alerts the clinic as for any urgent
+    // hit. Until 21 October 2026 such a message was only "language", and no
+    // alert was queued.
+    return { ...base, reply: languageLine(facts, channel), source: "language", urgent: true };
+  }
   if (finding) {
     return { ...base, reply: urgentReply(facts, channel, finding, now), source: "urgent", urgent: true };
   }
@@ -379,12 +453,14 @@ export async function answerTurn(input: {
   };
   let raw: Awaited<ReturnType<AssistantResponder>>;
   try {
-    raw = await input.responder({
+    const answer = input.responder({
       system,
       messages: messagesFor(input.history, personText, (text) => screenedBeforeModel(text, facts)),
       channel,
     });
-  } catch {
+    raw = await withinDeadline(answer, input.modelDeadlineMs ?? MODEL_DEADLINE_MS[channel]);
+  } catch (error) {
+    if (error instanceof ModelDeadline) log.warn("model answer past its deadline", { channel, kind: "deadline" });
     return { ...base, reply: FAILURE_LINE, source: "fallback" };
   }
   if (isModelRefusal(raw)) {
@@ -392,6 +468,12 @@ export async function answerTurn(input: {
     return { ...base, reply: refusalLine(facts, channel), source: "refusal" };
   }
   const answer = parseModelAnswer(raw);
+  if (answer.malformed) {
+    // A failure to answer, like a throw: the fixed line, never the raw text,
+    // and nothing it held is captured. Logged by kind, never with the text.
+    log.warn("model answer not valid JSON", { channel, kind: "malformed" });
+    return { ...base, reply: FAILURE_LINE, source: "fallback" };
+  }
   const merged = mergeCapture(capture, answer.booking);
   const live = { ...base, toolsLive };
   if (toolsLive && !answer.handoff) {

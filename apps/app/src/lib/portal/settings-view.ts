@@ -32,6 +32,7 @@ import { getBillingSummary } from "@/lib/billing/summary";
 import { disclosureFor } from "@/lib/compliance/disclosure";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { readMetaConnectView, type MetaConnectView } from "@/lib/meta/reconnect";
+import { urgentAlertReadiness } from "@/lib/notices/urgent-readiness";
 import {
   channelNextStep,
   channelStatusLabel,
@@ -135,6 +136,14 @@ export type SettingsView = {
   };
   alerts: {
     address: string | null;
+    /**
+     * Whether an urgent alert raised now would reach the clinic
+     * (urgentAlertReadiness, lib/notices/urgent-readiness.ts), the same read
+     * the wizard's urgent screen and the urgent reply make. The card says
+     * alerts arrive only while it holds, and plainly that they are not
+     * switched on yet while it does not.
+     */
+    urgentAlertsReady: boolean;
     dailySummary: boolean;
     transferLiveCalls: boolean;
     transferNumber: string;
@@ -173,8 +182,11 @@ export async function readSettingsView(input: {
           connect: await readMetaConnectView(tx.db, tx.clinicId),
         }
       : { switches: { ...DEFAULT_META_PLATFORM_SWITCHES }, connected: [] as MetaPlatform[], connect: null };
+    // Never throws: every check inside fails closed.
+    const urgentAlerts = await urgentAlertReadiness(tx);
     return {
       deposits,
+      urgentAlertsReady: urgentAlerts.ready,
       carrier: phone?.carrier ?? null,
       phoneSystem: phone?.phoneSystem ?? null,
       meta,
@@ -309,6 +321,7 @@ export async function readSettingsView(input: {
     },
     alerts: {
       address: state.address,
+      urgentAlertsReady: tenant.urgentAlertsReady,
       dailySummary: settings.dailySummary,
       transferLiveCalls: settings.transferLiveCalls,
       transferNumber: settings.transferE164 ? formatPhone(settings.transferE164) : "",

@@ -99,6 +99,25 @@ paths = [
 ]
 regexes = ['''^\s*const (OTHER_)?SECRET = "''']
 
+# --- Voice provisioning and recording-alert tests (unmerged branches) ---------
+# pkg/voice-provisioning and pkg/alert-noaudio declare `const SECRET = "llm_secr..."`
+# (31 characters) as the stand-in for HEALDESK_RETELL_LLM_SECRET that they pass
+# to the code under test, beside the made-up origin app.healdesk.test. Both files
+# state that every value in them is synthetic; the real secret comes from
+# Parameter Store. Found by the first full-history scan of main, which walks
+# every branch (--log-opts="--all"), so they were flagged before either branch
+# had merged. Limited to those two files and that declaration line.
+[[allowlists]]
+description = "Voice provisioning and recording-alert tests: made-up Retell endpoint secret declared as SECRET"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^apps/app/tests/voice-provision\.test\.ts$''',
+  '''^apps/app/tests/recording-alerts\.test\.ts$''',
+]
+regexes = ['''^\s*const SECRET = "llm_secr''']
+
 # --- Public or non-secret identifiers that look like keys --------------------
 # The IndexNow key is public by design: the protocol requires the same string
 # to be served at /<key>.txt (apps/web/public/efe7223f...txt) so search engines

@@ -1,8 +1,8 @@
 name: Security
 
-# Repository hygiene checks that need no secret and no vendor setting. Today
-# that is the secret scan below; further jobs (a dependency audit) are added
-# under `jobs:` and share this file's triggers and read-only token.
+# Repository hygiene checks that need no secret and no vendor setting: a scan
+# of the full history for committed secrets, and an audit of the production
+# dependencies. They share this file's triggers and read-only token.
 #
 # Nothing here uploads a report, comments on a pull request or needs a
 # GitHub secret, so the workflow token only ever reads the repository.
@@ -86,3 +86,30 @@ jobs:
             --redact \
             --no-banner \
             --verbose
+
+  # What we ship, checked against the advisory database. npm audit reads
+  # package-lock.json and asks the registry; nothing is installed, so the job
+  # needs no Node setup and no secret. The weekly run matters here more than
+  # in the scan above: an advisory is published against a lock file that did
+  # not change.
+  #
+  # npm's own exit code is not the verdict. It is non-zero for any finding and
+  # for a registry that did not answer alike, and the only way to accept a
+  # finding with it is to delete the job. scripts/check-npm-audit.mjs reads the
+  # JSON instead: it fails on every high or critical advisory not listed in
+  # audit-exceptions.json with a reason and an expiry date, and fails closed on
+  # a report it cannot read. The report goes to the runner's temp directory and
+  # is not uploaded.
+  npm-audit:
+    name: npm audit (production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Audit production dependencies
+        run: |
+          npm audit --omit=dev --audit-level=high --json > "${RUNNER_TEMP}/audit.json" || true
+          node scripts/check-npm-audit.mjs "${RUNNER_TEMP}/audit.json" audit-exceptions.json

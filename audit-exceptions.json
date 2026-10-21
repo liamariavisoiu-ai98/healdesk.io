@@ -1,0 +1,4 @@
+{
+  "$comment": "Accepted high or critical production advisories, read by scripts/check-npm-audit.mjs. One entry per GHSA id (never per package): { \"id\": \"GHSA-xxxx-xxxx-xxxx\", \"reason\": \"why it does not apply or why it waits, in a sentence\", \"expires\": \"YYYY-MM-DD\" }. An entry expires after at most 90 days and the audit job fails again on its own. Empty on purpose: an entry here is the Owner's accepted risk, not something to add to make a job green.",
+  "exceptions": []
+}

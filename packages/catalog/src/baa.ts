@@ -4507,6 +4507,26 @@ function validate150(v: BaaVariables): void {
   validateFrom130(v, "1.5.0");
 }
 
+/**
+ * What healdesk's voice provider (Retell) holds of a call, said once for BAA
+ * 1.5.1, the 1.6.0 draft and the DPA (agreement-changes.md §19; owner, 21
+ * October 2026). The provider holds the transcript and recording only while
+ * the call runs and until healdesk has taken its own copy of the transcript;
+ * healdesk then has the provider delete the call, and the provider's own
+ * retention, set to its minimum of one day, removes anything left (apps/app
+ * lib/voice). Not a covenant about Anthropic, whose retention the
+ * Subcontractors clause states.
+ */
+export const VOICE_PROVIDER_RETENTION =
+  "healdesk's voice provider holds the transcript and recording of a call only while the " +
+  "call runs and until healdesk has taken its own copy of the transcript, and healdesk then " +
+  "has the provider delete them; the provider's own retention for anything left is one day.";
+
+/** The promise that replaced "No call audio is kept at all." in the same three documents. */
+export const NO_CALL_AUDIO_KEPT =
+  "healdesk keeps no call audio; its voice provider holds a call's recording only as this " +
+  "clause describes.";
+
 // -----------------------------------------------------------------------------
 // 1.5.1: the optional booking details asked in a website chat too
 // -----------------------------------------------------------------------------
@@ -4550,6 +4570,20 @@ function validate150(v: BaaVariables): void {
  * Frozen from the release: a later wording is a new version, and its golden
  * hashes (apps/app/tests/baa-golden.test.ts, agreement-changes.md §16) never
  * move.
+ *
+ * ⚖️ One exception, edited in place on 21 October 2026 on the owner's explicit
+ * authorisation for this change alone, with no version number moved
+ * (agreement-changes.md §19): the voice provider (Retell) holds a call's
+ * transcript and recording while the call runs and until healdesk has taken
+ * its own copy of the transcript, then healdesk has it delete the call, and
+ * Retell's own retention, set to its minimum of one day, is the backstop. The
+ * clause said "No call audio is kept at all" and listed only Anthropic beside
+ * healdesk's own copy. The transcript paragraph now adds
+ * VOICE_PROVIDER_RETENTION after the Anthropic sentence, and the last
+ * paragraph says NO_CALL_AUDIO_KEPT in place of that promise; nothing else in
+ * the clause moved. 1.6.0 carries this object, so it says the same. The
+ * golden hashes of 1.5.1 and 1.6.0 were regenerated; counsel has not reviewed
+ * the change.
  */
 const MINIMUM_NECESSARY_1_5_1: BaaClause = {
   id: "minimum-necessary",
@@ -4607,8 +4641,9 @@ const MINIMUM_NECESSARY_1_5_1: BaaClause = {
         `each transcript's delivery, without what was said or written in it, for as long as it ` +
         `keeps the record of that conversation. It keeps no other copy of a transcript, apart ` +
         `from the backups described below; what Anthropic keeps is what the Subcontractors ` +
-        `clause describes. Once healdesk's copy is deleted, the email is Practice's own record ` +
-        `of what was said, and Practice is responsible for keeping, protecting and deleting it.`,
+        `clause describes. ${VOICE_PROVIDER_RETENTION} Once healdesk's copy is deleted, the ` +
+        `email is Practice's own record of what was said, and Practice is responsible for ` +
+        `keeping, protecting and deleting it.`,
     ) +
     "\n\n" +
     wrap(
@@ -4620,8 +4655,8 @@ const MINIMUM_NECESSARY_1_5_1: BaaClause = {
         `details are kept while any conversation, appointment record or booking request of ` +
         `theirs is kept, and in any case until ${TRANSCRIPT_RETENTION_DAYS} days after the last ` +
         `time those details were recorded or changed. A backup copy of anything healdesk ` +
-        `deletes expires within ${BACKUP_RETENTION_DAYS} days of the deletion. No call audio is ` +
-        `kept at all. The Term clause governs what is held after termination.`,
+        `deletes expires within ${BACKUP_RETENTION_DAYS} days of the deletion. ` +
+        `${NO_CALL_AUDIO_KEPT} The Term clause governs what is held after termination.`,
     ),
 };
 
@@ -4808,7 +4843,9 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
     // on BaaTemplate defines it, the flag records the owner's release, not a
     // lawyer's approval. agreement-changes.md §16 recommends counsel review
     // it. 1.5.0 with the optional booking details asked in a website chat as
-    // well as on a call (above MINIMUM_NECESSARY_1_5_1).
+    // well as on a call (above MINIMUM_NECESSARY_1_5_1). Edited in place on
+    // 2026-10-21, on the owner's authorisation and with the version number
+    // unchanged, to say what the voice provider holds of a call (§19).
     approvedByCounsel: true,
     preamble: preamble151,
     clauses: CLAUSES_1_5_1,

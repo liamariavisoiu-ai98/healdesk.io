@@ -52,6 +52,9 @@ import { practiceJudge, practiceModel } from "./setup/practice";
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
+// Each test provisions a clinic and runs the questions end to end; the back-off
+// test alone took five seconds on a quiet machine, vitest's default limit.
+const DB_TEST_OPTIONS = { timeout: 120_000 };
 const ACTOR = { type: "service", serviceName: "practice-questions-test" } as const;
 const OPERATOR: Operator = { email: "ops@healdesk.test", request: {} };
 const CALENDAR = { status: "not_connected", accessRemovedAt: null } as const;
@@ -149,7 +152,7 @@ async function dueQueued(): Promise<string> {
   return rows[0]!.id;
 }
 
-describeDb("the practice questions, against the database", () => {
+describeDb("the practice questions, against the database", DB_TEST_OPTIONS, () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
@@ -1175,6 +1178,7 @@ describeDb("the practice questions, against the database", () => {
 
 describeDb(
   "the practice questions as the channel's audit input (lib/channels/audit-seam.ts)",
+  DB_TEST_OPTIONS,
   () => {
     beforeAll(async () => {
       await runMigrations();

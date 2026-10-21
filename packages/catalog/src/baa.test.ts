@@ -307,6 +307,7 @@ describe.each(["1.3.0", "1.4.0", "1.5.0", "1.5.1", "1.6.0"])("every %s document"
         expect(line.length, `${label}: ${line}`).toBeLessThanOrEqual(78);
       expect(text, label).not.toMatch(/revenue|\{\{|undefined|\[object/i);
     }
-    // 72 documents and every reference in each: give a busy runner room.
-  }, 30_000);
+    // 72 documents and every reference in each: about a second on a quiet
+    // machine, so give a runner loaded by parallel sessions a great deal of room.
+  }, 120_000);
 });

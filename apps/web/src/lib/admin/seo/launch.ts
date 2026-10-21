@@ -136,7 +136,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "We sign a business associate agreement and handle patient data under it",
     where: "Every page that states it",
     status: "owner",
-    left: "Countersign the business associate agreements with the model provider, Retell and the database host before the first real patient.",
+    left: "Countersign the business associate agreements with the model provider, Retell, the database host and AWS before the first real patient, and record each on /admin/compliance: go-live and the answer gate read all four.",
     evidence: "docs/hipaa-compliance.md, CLAUDE.md (BAA coverage)",
     blocksGoLive: true,
   },

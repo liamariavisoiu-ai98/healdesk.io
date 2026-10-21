@@ -99,6 +99,10 @@ vi.mock("@/lib/compliance/gate-b", async (importOriginal) => {
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
+// Every database test here migrates, provisions clinics and walks SQL and
+// TypeScript in turn: seconds of work on a quiet machine, and a load of several
+// hundred from parallel sessions stretches it past vitest's five-second default.
+const DB_TEST_OPTIONS = { timeout: 120_000 };
 const ACTOR = { type: "service", serviceName: "go-live-test" } as const;
 const OPERATOR: Operator = { email: "ops@healdesk.test", request: {} };
 const CALENDAR = { status: "not_connected", accessRemovedAt: null } as const;
@@ -560,7 +564,7 @@ async function passedRun(
   return runId;
 }
 
-describeDb("Gate B's code, as the database and the TypeScript read it", () => {
+describeDb("Gate B's code, as the database and the TypeScript read it", DB_TEST_OPTIONS, () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
@@ -638,7 +642,7 @@ describeDb("Gate B's code, as the database and the TypeScript read it", () => {
   });
 });
 
-describeDb("automatic go-live against the database", () => {
+describeDb("automatic go-live against the database", DB_TEST_OPTIONS, () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
@@ -1149,7 +1153,7 @@ describeDb("automatic go-live against the database", () => {
   });
 });
 
-describeDb("platform_compliance: the table and the ops envelope", () => {
+describeDb("platform_compliance: the table and the ops envelope", DB_TEST_OPTIONS, () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();

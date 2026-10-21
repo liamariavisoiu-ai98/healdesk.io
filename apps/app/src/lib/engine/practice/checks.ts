@@ -45,6 +45,10 @@ export function serviceFigures(service: PracticeService): Set<number> {
 
 /** "$12", "$99.50": for a check's detail, never a service name. */
 export function dollars(amountCents: number): string {
+  // The guard reads an amount in another currency ("€650", "650 euros") as -1,
+  // an amount no menu holds (amountsIn). It is no cent figure and must not
+  // print as "$-0.01" in a check's detail.
+  if (amountCents < 0) return "an amount in another currency";
   return amountCents % 100 === 0 ? `$${amountCents / 100}` : `$${(amountCents / 100).toFixed(2)}`;
 }
 

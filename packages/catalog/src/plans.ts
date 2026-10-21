@@ -85,13 +85,17 @@
  * Flipping it would change what Stripe bills and what the service agreement
  * says. That is a billing and counsel decision, not a copy one.
  *
- * Two things are still open, and they are recorded in the task list rather
- * than hidden here. First, nothing reports usage to Stripe's meters yet, so the
- * metered lines bill zero until `usage-meter-events` is built. Second, an
- * ANNUAL package attaches no metered price, because Stripe cannot mix a yearly
- * and a monthly price on one subscription. Annual overage is invoiced monthly
- * by hand until `annual-overage-invoicing` is built, which is why the terms
- * say "invoiced separately" for annual packages.
+ * Both halves of overage billing are built (apps/app, run by the scheduler's
+ * tick), and each ships OFF, as every job does, until it is switched on in the
+ * ops console: until `usage-meter-report` is on, nothing reports usage to
+ * Stripe's meters and the metered lines of a monthly package bill zero.
+ * `lib/billing/usage-report.ts` sends every usage row past the allowance to
+ * the clinic's meter. An ANNUAL package attaches no metered price, because
+ * Stripe cannot mix a yearly and a monthly price on one subscription, so
+ * `lib/billing/annual-overage.ts` invoices each closed allowance month on an
+ * invoice of its own when `annual-overage-invoice` is on, which is why the
+ * terms say "invoiced separately" for annual packages. Whether either has
+ * run against live Stripe is not shown here; the ops console says.
  *
  * ## The included amounts are the clinic's choice now
  *

@@ -452,6 +452,30 @@ const FREE_PRICE: readonly RegExp[] = [
 const NOT_A_PRICE_TOPIC = /\b(?:park(?:ing)?|car park|garage|wi-?fi|internet|coffee|tea|water|refreshments?|snacks?|drinks?|estacionamiento|aparcamiento)\b/i;
 
 /**
+ * What denies a "free" that follows it directly: "we don't offer free
+ * consultations", "we don't currently have any free sessions", "there's no
+ * free consultation", "it isn't a free consultation". The negation must be
+ * followed by a verb of offering or charging, or by nothing but articles, so
+ * "don't miss our free consultation" is still a price of nothing.
+ */
+const FREE_DENIED =
+  /(?:\b(?:don'?t|do not|doesn'?t|does not|can'?t|cannot|won'?t|will not|never|no longer)\s+(?:(?:currently|really|actually|usually|normally|generally|ever|also)\s+)?(?:offer|do|have|give|provide|include|run|make|list|advertise|charge|sell)\s+(?:(?:any|a|an|the|our|such|these|those)\s+)*|\b(?:there(?:'s| is| are)|we have|we offer|with|offer)\s+no\s+|\b(?:isn'?t|aren'?t|is not|are not|not)\s+(?:(?:a|an|any|the|really|actually|currently)\s+)*)$/i;
+
+/**
+ * Whether the sentence calls something free, in this pattern's words, and
+ * does not deny it: a "free" put right after a negation is the opposite of a
+ * price of nothing. Every match is read, so "We don't offer free consultations
+ * but the consultation is free this month" still says it.
+ */
+function saysFree(pattern: RegExp, sentence: string): boolean {
+  const all = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+  for (const m of sentence.matchAll(all)) {
+    if (!FREE_DENIED.test(sentence.slice(0, m.index))) return true;
+  }
+  return false;
+}
+
+/**
  * Whether the reply calls something free that the clinic does not list at
  * $0. A sentence that says "free" passes only when it names a service the
  * clinic prices at $0 (a "Consultation" at $0 lets "a free consultation"
@@ -463,7 +487,7 @@ export function freeOffList(text: string, facts: Pick<AssistantFacts, "services"
     .map((s) => s.name.trim().toLowerCase())
     .filter(Boolean);
   for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
-    if (NOT_A_PRICE_TOPIC.test(sentence) || !FREE_PRICE.some((p) => p.test(sentence))) continue;
+    if (NOT_A_PRICE_TOPIC.test(sentence) || !FREE_PRICE.some((p) => saysFree(p, sentence))) continue;
     const said = sentence.toLowerCase();
     // A service named in the singular or the plural, or by its first word ("consult" for "Consultation").
     const named = free.some((name) => said.includes(name) || (name.length > 6 && said.includes(name.slice(0, 7))));
@@ -532,6 +556,10 @@ function withoutOwnWords(reply: string, facts: ScreenFacts): string {
   return text;
 }
 
+/** Words that make a frequency a way of taking or applying something: a medicine, a cream, a dose. */
+const PRACTICE_NOT_DOSE =
+  "apply|applying|applied|take|takes|taking|use|using|put|putting|rub|dab|inject\\w*|dose|doses|dosing|dosage|medicat\\w*|medicines?|meds|creams?|ointments?|gels?|lotions?|balms?|serums?|tablets?|pills?|capsules?|drops?|sprays?|patch(?:es)?|supplements?|vitamins?|tylenol|ibuprofen|advil|aspirin|paracetamol|acetaminophen|antihistamines?|antibiotics?|steroids?|retinol|tretinoin|lidocaine";
+
 /**
  * Everyday words the clinical screen would misread, read past before it
  * runs: an address unit ("Unit 4", "Suite 2"), safety that is not a claim
@@ -548,6 +576,20 @@ const EVERYDAY: RegExp[] = [
   /\b(have a |get home |travel |drive |stay )safe(ly)?( (drive|trip|journey|flight|travels|home))?\b|\bsafe (drive|trip|journey|flight|travels)\b|\bdrive safe(ly)?\b/gi,
   /\b(a |the )?(list|names?) of (any |all |your |the )?(medications?|medicines|meds|allergies)\b/gi,
   /\b(any|your) allergies (we|you|I|the team) should (note|know|pass on|be aware of)\b/gi,
+  // How often the practice itself does something, not a dose: "the phones are
+  // answered twice a day", "we check the calendar twice a day". Read past
+  // only where a verb of the practice's own work leads the frequency within
+  // the clause and no medicine, cream or way of taking one is in the sentence
+  // on either side of it, so "apply the cream twice a day" and "we're open
+  // today, so take two tablets twice a day" are still read.
+  new RegExp(
+    `(?<!\\b(?:${PRACTICE_NOT_DOSE})\\b[^.?!]*)\\b(?:open|opens|closes?|closed|answer(?:s|ed)?|staffed|check(?:s|ed)?|available|operates?|respond(?:s|ed)?)\\b(?![^.?!]*\\b(?:${PRACTICE_NOT_DOSE})\\b)[^.?!,;]{0,30}?\\b(?:once|twice|\\d+ times|(?:two|three|four) times) (?:a|per) (?:day|week)\\b`,
+    "gi",
+  ),
+  // A dose the person named, handed back with a refusal and nothing more:
+  // "The 3mg figure is not something I can discuss." The whole sentence, so a
+  // figure said alongside anything else ("..., but 3mg is typical") is read.
+  /(?<![^.!?]*[^\s.!?][^.!?]*)\b(?:the|that|your) \d+(?:[.,]\d+)?\s?(?:mg|mcg|µg|iu|units?) (?:figure|amount|dose|dosage|number)(?: you (?:mentioned|gave|quoted|asked about))? (?:is not|isn'?t) something (?:that )?(?:i|we) (?:can|could|am able to) (?:discuss|advise on|comment on|help with|go into|speak to|talk about)(?: (?:it|this|that|further|here|in detail|with you))*(?:,? but (?:the )?(?:clinicians?|team|clinic|practice|staff|doctor|nurse|injector|provider) (?:can|could|will)(?: (?:discuss|advise|go through|talk you through|help)(?: (?:it|this|that|with you|you))*)?)?\s*(?=[.!?]|$)/gi,
 ];
 
 function withoutEveryday(text: string): string {
@@ -615,10 +657,12 @@ const PLAIN_CLINICAL: RegExp[] = [
   // A treatment plan: a course said or recommended, or named as the plan.
   /\b(?:your|my|a|the|this)\s+(?:personal(?:i[sz]ed)?\s+|custom\s+)?treatment plan\s*(?::|is\b|would be\b|will be\b|should be\b|looks like\b)|\b(?:here'?s|here is|this is)\s+(?:your|a)\s+(?:suggested\s+|recommended\s+)?(?:treatment plan\b|plan\s*:)/i,
   /\b(?:i'?d|i would|we'?d|we would|i|we)\s+(?:strongly\s+|probably\s+|personally\s+)?(?:recommend|suggest|advise|prescribe)\b[^.?!]{0,50}\b(?:\d+|one|two|three|four|five|six|several|a few|a course of|a series of)\s+(?:sessions?|treatments?|rounds?|peels?|syringes?|vials?|units?|appointments? of)\b/i,
-  /\b(?:\d+|one|two|three|four|five|six|several|a few)\s+(?:sessions?|treatments?|rounds?|peels?)\b[^.?!]{0,40}(?:\bthen\b|\bfollowed by\b|\bafter that\b)/i,
+  // Not slots on offer: "two sessions open Thursday, then Friday morning".
+  /\b(?:\d+|one|two|three|four|five|six|several|a few)\s+(?:sessions?|treatments?|rounds?|peels?)\b(?!\s+(?:open|available|free|left|remaining|spare)\b)[^.?!]{0,40}(?:\bthen\b|\bfollowed by\b|\bafter that\b)/i,
   // A guarantee, by the verb or the word ("we guarantee", "..., guaranteed"),
-  // unless it is denied ("we can't guarantee results", "there's no guarantee").
-  /(?<!\b(?:can'?t|cannot|can not|don'?t|do not|doesn'?t|does not|won'?t|will not|never|no|not|isn'?t|aren'?t|unable to)\s+(?:\w+\s+){0,2})\bguarantee(?:s|d|ing)?\b/i,
+  // unless it is denied ("we can't guarantee results", "there's no guarantee",
+  // "nobody can guarantee results").
+  /(?<!\b(?:can'?t|cannot|can not|don'?t|do not|doesn'?t|does not|won'?t|will not|never|no|not|isn'?t|aren'?t|unable to)\s+(?:\w+\s+){0,2})(?<!\b(?:nobody|no one|nothing|none)\s+(?:\w+\s+){0,2})\bguarantee(?:s|d|ing)?\b/i,
   /\byou'?ll\s+(?:definitely|certainly|surely|absolutely|100%|totally)\s+(?:see|notice|love|get)\b/i,
   // Spanish.
   /(?<![\p{L}])(puede|pueden|debe|deben|tome|tomar|t[óo]mese) (tomar )?(un |una |el |la )?(tylenol|ibuprofeno|paracetamol|aspirina|advil|antihistam[íi]nico)/iu,
@@ -882,6 +926,8 @@ const OUTBOUND_PROMISES: readonly RegExp[] = [
   /\b(?:reminder|confirmation|follow-up|follow up)\s+(?:text|sms|message|call|email)s?\b|\b(?:text|sms|email|message) (?:reminder|confirmation)s?\b/,
   /\b(?:send|sends|sending|get|gets|receive|receives|text|texts)\s+(?:you\s+)?(?:an?\s+|the\s+)?(?:quick\s+)?(?:reminder|text|sms|text message)s?\b/,
   /\b(?:text|sms|remind)\s+you\b/,
+  // A text or a reminder told to be expected: "expect a text from us tomorrow".
+  /\bexpect\s+(?:an?\s+|the\s+|some\s+)?(?:quick\s+)?(?:text|sms|reminder|follow-up|follow up)s?\b/,
 ];
 
 export function promisesOutbound(reply: string): boolean {
@@ -921,7 +967,7 @@ export function claimsAlert(reply: string): boolean {
  *     affordable than last year", "cheaper than $200").
  */
 const OTHER_PARTY: readonly RegExp[] = [
-  /\b(?:another|a previous|a former|a past|an earlier|other|one of (?:our|my|the)|some of (?:our|my|the))\s+(?:patients?|clients?|customers?)\b/,
+  /\b(?:another|another of (?:our|my|the)|a previous|a former|a past|an earlier|other|one of (?:our|my|the)|some of (?:our|my|the))\s+(?:patients?|clients?|customers?)\b/,
   /\b(?:patients?|clients?|customers?)\s+(?:named|called|by the name of)\b/,
 ];
 const COMPARATIVE =
@@ -937,8 +983,34 @@ const NOT_A_RIVAL = new RegExp(
 );
 const RIVAL = /^(?:other|another|any(?:one|where)? other|most (?:other )?(?:clinics|spas|places|practices)|the (?:competition|competitors?|clinic|spa|place|practice|guys|one) |competitors?|the rest|everyone else|places|clinics|spas|practices|\p{Lu})/u;
 
-export function mentionsOtherParty(reply: string, facts: { clinicName?: string | null } = {}): boolean {
-  if (saidUndenied(reply, OTHER_PARTY)) return true;
+/**
+ * "Other patients often ask about parking": what people ask the practice, in
+ * general, names no one and says nothing about anyone's care. Read past only
+ * as a whole sentence that opens that way and goes on in a few lower-case
+ * words with no digit, no apostrophe, no comma, no "and"/"but"/"so" to carry
+ * an answer, and none of the clinic's service names, so a name, a figure
+ * or a treatment put in it ("Other patients often ask about Botox", "...ask
+ * whether Jane's filler lasted") is still read as another patient spoken of.
+ */
+const GENERAL_ASK =
+  /^(?:[Oo]ther|[Mm]any|[Ss]ome|[Mm]ost) (?:patients|clients|customers|people) (?:often|also|usually|commonly|frequently|sometimes|typically) (?:ask|wonder|want to know) (?:about|whether|if|how|what|when|where|why) (?!(?:[a-z]+ )*?(?:and|but|so|because|which|yet|then|while|answer|answers)\b)[a-z ]{1,60}[.!]?$/;
+
+function withoutGeneralAsks(reply: string, services: readonly { name: string }[]): string {
+  const names = services.map((s) => s.name.trim().toLowerCase()).filter((n) => n.length > 2);
+  return reply
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => {
+      const said = sentence.trim();
+      return !(GENERAL_ASK.test(said.replace(/[‘’ʼ]/g, "'")) && !names.some((n) => said.toLowerCase().includes(n)));
+    })
+    .join(" ");
+}
+
+export function mentionsOtherParty(
+  reply: string,
+  facts: { clinicName?: string | null; services?: readonly { name: string }[] } = {},
+): boolean {
+  if (saidUndenied(withoutGeneralAsks(reply, facts.services ?? []), OTHER_PARTY)) return true;
   const own = (facts.clinicName ?? "").trim();
   const text = own ? reply.replace(new RegExp(escapeRegExp(own), "gi"), "us") : reply;
   for (const m of text.matchAll(COMPARATIVE)) {

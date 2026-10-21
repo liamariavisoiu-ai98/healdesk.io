@@ -1,0 +1,86 @@
+# Dependabot version updates. Until this file existed nothing in the repository
+# noticed a new release of anything: every pin, from an action's commit SHA to
+# the Terraform providers' lock file, stayed where it was the day it was
+# written, and an advisory against one of them reached us only if somebody
+# happened to read it.
+#
+# One schedule for everything (Monday, off-peak, UTC) and one pull request per
+# ecosystem for minor and patch releases, because the free reviewer is one
+# person: a week's patches are read together, and a major release arrives on
+# its own so it is read on its own. The open-pull-request limits are low on
+# purpose, for the same reason.
+#
+# Dependabot only opens pull requests; it never merges one. Turning on
+# Dependabot alerts and security updates is a repository setting that only the
+# Owner can switch (docs/design/security-hygiene-brief-2026-10-21.md).
+version: 2
+
+updates:
+  # The npm workspaces share the root package-lock.json. Dependabot reads the
+  # lock from the root, and each workspace's package.json is named here so a
+  # range in one of them is updated too.
+  - package-ecosystem: npm
+    directories:
+      - "/"
+      - "/apps/app"
+      - "/apps/web"
+      - "/packages/catalog"
+      - "/packages/connectors"
+      - "/packages/leadgen"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies]
+
+  # Actions are pinned by full commit SHA with a version comment. Dependabot
+  # moves the SHA and the comment together.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, ci]
+
+  # infra/aws: the providers pinned in .terraform.lock.hcl. The Terraform CLI
+  # version is pinned in the workflows (setup-terraform) and is not Dependabot's.
+  - package-ecosystem: terraform
+    directory: "/infra/aws"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
+    groups:
+      terraform-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, infra]
+
+  # The base images of the product image and of the two sidecar images the AWS
+  # host builds (db-admin, tls-proxy).
+  - package-ecosystem: docker
+    directories:
+      - "/apps/app"
+      - "/infra/aws/images/*"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    groups:
+      docker-minor-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, infra]

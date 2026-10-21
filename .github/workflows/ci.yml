@@ -364,6 +364,56 @@ jobs:
             }
           '
 
+      # The step above counts tests; it cannot say which suites made the
+      # count. With nothing skipped and 200 passes it would stay green if
+      # tenant-isolation.test.ts or rls-drift.test.ts were deleted, renamed or
+      # emptied, because the thousand other tests still pass: the isolation
+      # suites would stop running and nothing would say so. So this step names
+      # them. Each file must appear in the merged report with at least one
+      # passed test. The files are these because they are the ones that hold
+      # the claims the product makes to a clinic:
+      #   tenant-isolation, rls-drift  a clinic cannot read another's rows, and
+      #                                no table with a clinic_id lacks forced RLS
+      #   agreements                   a signed BAA is evidence the runtime role
+      #                                can bind but never rewrite ("signing")
+      #   billing-requests,
+      #   billing-foundation           the billing ledger and its helpers run as
+      #                                the runtime role, under RLS
+      #   vendor-coverage              the vendors' agreements are watched
+      #   database-url-tls             production refuses a database URL without
+      #                                verify-full
+      # The names are the files under apps/app/tests; a rename must change this
+      # list in the same commit. apps/app/tests/ci-db-guard.test.ts runs this
+      # script and checks every name here is a file that exists.
+      - name: Assert the named security suites ran
+        run: |
+          node -e '
+            const r = require("./test-results.json");
+            const SECURITY_SUITES = [
+              "tenant-isolation.test.ts",
+              "rls-drift.test.ts",
+              "agreements.test.ts",
+              "billing-requests.test.ts",
+              "billing-foundation.test.ts",
+              "vendor-coverage.test.ts",
+              "database-url-tls.test.ts",
+            ];
+            let failed = false;
+            for (const name of SECURITY_SUITES) {
+              const file = (r.testResults ?? []).find((t) => t.name.endsWith("/tests/" + name));
+              const passed = (file?.assertionResults ?? []).filter((a) => a.status === "passed").length;
+              console.log(name + ": " + (file ? passed + " passed" : "not in the report"));
+              if (passed < 1) {
+                failed = true;
+                console.log("::error::apps/app/tests/" + name + " " + (file ? "ran no passing test." : "did not run, or does not exist."));
+              }
+            }
+            if (failed) {
+              console.log("::error::A security suite named in this step did not run, so the isolation, evidence or billing claims it holds were not checked.");
+              process.exit(1);
+            }
+          '
+
   # The Terraform for the product host (infra/aws) is applied only by hand,
   # through infra.yml, so a formatting slip, a broken reference or a broken
   # rule would otherwise surface for the first time in front of production.

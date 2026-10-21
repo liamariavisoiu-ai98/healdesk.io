@@ -96,6 +96,7 @@ export async function offerTimes(clinicId: string, input: OfferTimesInput): Prom
     gate: await depositGateFor(tx, {
       channel: depositChannelOf(input.channel),
       service: input.service ?? null,
+      canCollectNow: canCollectNow(input.channel),
     }),
   }));
   if (!state.mode.canOfferTimes) {
@@ -179,6 +180,7 @@ export async function placeHold(clinicId: string, input: PlaceHoldInput): Promis
     gate: await depositGateFor(tx, {
       channel: depositChannelOf(input.channel),
       service: input.service,
+      canCollectNow: canCollectNow(input.channel),
     }),
     inFlight: await writeInFlight(tx, holderRef),
   }));
@@ -255,6 +257,15 @@ function pgCodeOf(error: unknown): string | undefined {
     current = (current as { cause?: unknown }).cause;
   }
   return undefined;
+}
+
+/**
+ * The website chat sends a deposit link in the conversation once the booking
+ * is in (lib/booking/deposit-gate.ts chatDepositFor). A Meta thread does not
+ * book through the engine; a call never collects.
+ */
+function canCollectNow(channel: SlotHoldChannel): boolean {
+  return channel === "web_chat";
 }
 
 function depositChannelOf(channel: SlotHoldChannel): DepositChannel {

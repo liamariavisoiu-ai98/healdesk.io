@@ -1289,7 +1289,14 @@ export async function recordAssistantWrite(
     .update(slotHolds)
     .set({ status: "converted", outcomeReason: late ? "written_late" : "written", releasedAt: sql`clock_timestamp()`, updatedAt: sql`now()` })
     .where(fenced(holdId, fence));
-  const gate = await depositGateFor(tx, { channel: hold.channel === "web_chat" ? "web" : hold.channel, service: request.treatment });
+  // A website chat's booking recorded in its turn sends its own link
+  // (lib/booking/deposit-gate.ts chatDepositFor), so its deposit is
+  // `collect`; one found later, after the chat moved on, is the front desk's.
+  const gate = await depositGateFor(tx, {
+    channel: hold.channel === "web_chat" ? "web" : hold.channel,
+    service: request.treatment,
+    canCollectNow: hold.channel === "web_chat" && !late,
+  });
   const deposit = bookedDepositOutcome(gate.outcome);
   const appointmentId = await insertAppointment(tx, {
     contactId: request.contactId,

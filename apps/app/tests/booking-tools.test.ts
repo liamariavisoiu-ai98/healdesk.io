@@ -30,11 +30,14 @@ import { bookingTools, EMPTY_TOOL_STATE, type BookingToolState } from "@/lib/ass
 import { guardedLine } from "@/lib/assistant/guard";
 import { EMPTY_CAPTURE, type AssistantPrompt, type AssistantResponder } from "@/lib/assistant/turn";
 import type { AnswerDecision } from "@/lib/billing/answering";
+import { handleConnectEvent } from "@/lib/billing/connect-events";
+import { clampDepositExpiry, depositLinkText } from "@/lib/billing/deposit-link";
+import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { slotLabel } from "@/lib/booking/calendar";
-import { bookedLine, detailsBeforeHoldLine, forChat, heldAskLine, REQUEST_TAKEN_LINE } from "@/lib/booking/lines";
+import { bookedLine, depositLine, detailsBeforeHoldLine, forChat, heldAskLine, REQUEST_TAKEN_LINE } from "@/lib/booking/lines";
 import { sendWebChatMessage, startWebChat, type WebChatClinic } from "@/lib/chat/web-chat";
 import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
-import { approveAgentConfig } from "@/lib/onboarding/agent-config";
+import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { withTenant } from "@/lib/tenant";
 import type { IngestResult, VoiceCallEvent } from "@/lib/voice/ingest";
@@ -42,8 +45,9 @@ import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { DESK_TZ, deskLocation, deskTime, freshGoogle, installGoogleEnv, restoreGoogleEnv, type DeskLocation } from "./setup/desk-calendar";
-import { bindAgreementInEffect, inTenant, seedEntitled } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, queuedNotices, seedEntitled } from "./setup/factories";
 import { attestPlatform } from "./setup/platform";
+import { createStripeFake, stripeError, type StripeFake } from "./setup/stripe-fake";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const SLOW = 120_000;
@@ -409,4 +413,227 @@ describeDb("the booking tool layer in the web chat and the call", () => {
     },
     SLOW,
   );
+
+  // ---------------------------------------------------------------------------
+  // Deposits (DEPOSIT-01)
+  // ---------------------------------------------------------------------------
+
+  describe("deposits", () => {
+    const ACCOUNT = "acct_1ToolsDeposit";
+    const HOLD_MINUTES = 90;
+    let fake: StripeFake;
+    let sessions = 0;
+    /** Session ids are unique in the database across tests. */
+    let run = "";
+
+    beforeEach(() => {
+      vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_tools");
+      sessions = 0;
+      run = randomUUID().slice(0, 8);
+      fake = createStripeFake({
+        "checkout.sessions.create": (params: unknown) => {
+          sessions += 1;
+          return {
+            id: `cs_test_${run}_${sessions}`,
+            url: `https://checkout.stripe.com/c/pay/cs_test_${run}_${sessions}`,
+            status: "open",
+            expires_at: (params as { expires_at: number }).expires_at,
+          };
+        },
+        "checkout.sessions.retrieve": (id: unknown) => ({
+          id,
+          url: `https://checkout.stripe.com/c/pay/${String(id)}`,
+          status: "open",
+          payment_status: "unpaid",
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+        }),
+        "checkout.sessions.expire": (id: unknown) => ({ id, status: "expired" }),
+      });
+      __setStripeForTests(fake.stripe);
+    });
+
+    afterEach(() => {
+      __setStripeForTests(null);
+      vi.unstubAllEnvs();
+    });
+
+    /** A live location whose Facial needs a $50 deposit, with deposits on and, unless `connected` is false, its own Stripe connected. */
+    async function depositLocation(label: string, options: { connected?: boolean } = {}) {
+      const f = await location(label);
+      await withTenant({ clinicId: f.clinicId, actor: ACTOR }, async (tx) => {
+        await updateAgentConfig(tx, {
+          greeting: "Hi",
+          services: [
+            { name: "Consultation", priceFromUsd: 0, priceToUsd: 0, durationMinutes: 30 },
+            { name: "Facial", priceFromUsd: 100, priceToUsd: 100, durationMinutes: 60, depositUsd: 50 },
+          ],
+          escalationPhone: null,
+          escalationHours: "Weekdays 9 to 5",
+          notes: null,
+          depositPolicy: null,
+        });
+        await approveAgentConfig(tx, "Dr Chen");
+      });
+      if (options.connected !== false) {
+        await getMigratorPool().query(
+          `update clinics set stripe_connect_account_id = $2, stripe_connect_connected_at = now() where id = $1`,
+          [f.clinicId, ACCOUNT],
+        );
+      }
+      await inTenant(f.clinicId, (client) =>
+        client.query(
+          `insert into clinic_settings (clinic_id, deposits_enabled, deposit_hold_minutes) values ($1, $2, $3)
+           on conflict (clinic_id) do update set deposits_enabled = excluded.deposits_enabled, deposit_hold_minutes = excluded.deposit_hold_minutes`,
+          [f.clinicId, options.connected !== false, HOLD_MINUTES],
+        ),
+      );
+      return f;
+    }
+
+    const booking = (f: DeskLocation, channel: "voice" | "web_chat", at: Date, key = randomUUID()) => {
+      const holder = channel === "voice" ? `retell:${key}` : `web:${key}`;
+      const iso = at.toISOString();
+      return bookingTools({ clinicId: f.clinicId, channel, holderKey: holder, bookingKey: `${holder}:1`, conversationId: null, timeZone: DESK_TZ, actor: ACTOR, budgetMs: 15_000 }).run({
+        action: { type: "choose_time", at: iso },
+        capture: { ...EMPTY_CAPTURE, firstName: "Ivy", phone: "+14155550133" },
+        state: { ...EMPTY_TOOL_STATE, service: "Facial", offered: [{ at: iso, providerId: null }] },
+        callerPhone: "+14155550133",
+        now: new Date(),
+      });
+    };
+
+    const appointment = async (clinicId: string) =>
+      (
+        await inTenant(clinicId, (client) =>
+          client.query<{ id: string; deposit_status: string; deposit_usd: string | null }>(`select id, deposit_status, deposit_usd from appointments`),
+        )
+      ).rows;
+
+    test(
+      "web chat: booked first, then the clinic's own link once, in fixed words; Stripe sees an amount, a generic name and an opaque reference, never the service; the expiry clamped to the clinic's hold",
+      async () => {
+        const f = await depositLocation("dep-web");
+        const at = deskTime(3, 11);
+        const key = randomUUID();
+        const before = Date.now();
+        const first = await booking(f, "web_chat", at, key);
+        const url = `https://checkout.stripe.com/c/pay/cs_test_${run}_1`;
+        expect(first).toMatchObject({ bookingWritten: true });
+        expect(first!.reply).toBe(`${forChat(bookedLine(slotLabel(at, DESK_TZ), "Facial"))} ${depositLinkText(url)}`);
+
+        const [row] = await appointment(f.clinicId);
+        expect(row).toMatchObject({ deposit_status: "pending_link", deposit_usd: "50.00" });
+
+        // Exactly what went to Stripe, on the clinic's own account.
+        const created = fake.callsTo("checkout.sessions.create");
+        expect(created).toHaveLength(1);
+        const [params, requestOptions] = created[0]!.args as [Record<string, unknown>, Record<string, unknown>];
+        const { rows: deposits } = await inTenant(f.clinicId, (client) =>
+          client.query<{ id: string; expires_at: Date }>(`select id, expires_at from deposit_payments`),
+        );
+        const ref = deposits[0]!.id;
+        expect(params).toEqual({
+          mode: "payment",
+          payment_method_types: ["card"],
+          line_items: [{ price_data: { currency: "usd", unit_amount: 5000, product_data: { name: "Appointment deposit" } }, quantity: 1 }],
+          payment_intent_data: { statement_descriptor_suffix: "DEPOSIT", metadata: { hd: "deposit", ref } },
+          client_reference_id: ref,
+          metadata: { hd: "deposit", ref },
+          expires_at: Math.floor(deposits[0]!.expires_at.getTime() / 1000),
+          success_url: "https://app.healdesk.test/deposit/thanks",
+          cancel_url: "https://app.healdesk.test/deposit/cancelled",
+        });
+        expect(JSON.stringify(params)).not.toMatch(/facial|consultation|ivy|4155550133/i);
+        expect(requestOptions).toMatchObject({ stripeAccount: ACCOUNT, idempotencyKey: `hd-deposit:${ref}` });
+        // The clinic's 90-minute hold, inside Stripe's window.
+        const expiry = deposits[0]!.expires_at.getTime();
+        expect(expiry).toBeGreaterThanOrEqual(clampDepositExpiry(new Date(before), HOLD_MINUTES).getTime() - 1000);
+        expect(expiry).toBeLessThanOrEqual(clampDepositExpiry(new Date(), HOLD_MINUTES).getTime() + 1000);
+
+        // A repeated tool call: the same booking, the same link, no second session.
+        const again = await booking(f, "web_chat", at, key);
+        expect(again!.reply).toBe(first!.reply);
+        expect(fake.callsTo("checkout.sessions.create")).toHaveLength(1);
+        expect(await appointment(f.clinicId)).toHaveLength(1);
+        expect(await queuedNotices(f.clinicId, ["deposit_to_collect"])).toEqual([]);
+      },
+      SLOW,
+    );
+
+    test(
+      "voice: the same service is booked and its deposit said and flagged for staff, never a link, and Stripe is never called",
+      async () => {
+        const f = await depositLocation("dep-voice");
+        const at = deskTime(3, 13);
+        const said = await booking(f, "voice", at);
+        expect(said).toMatchObject({ bookingWritten: true });
+        expect(said!.reply).toBe(`${bookedLine(slotLabel(at, DESK_TZ), "Facial")} ${depositLine({ action: "book_and_flag", amountUsd: 50, scope: "booking" })}`);
+        expect(said!.reply).not.toMatch(/https?:|link/i);
+        expect(fake.calls).toEqual([]);
+        expect(await appointment(f.clinicId)).toEqual([expect.objectContaining({ deposit_status: "pending_front_desk", deposit_usd: "50.00" })]);
+        expect((await queuedNotices(f.clinicId, ["deposit_to_collect"])).length).toBe(1);
+      },
+      SLOW,
+    );
+
+    test(
+      "web chat: a link that cannot be made leaves the deposit to the front desk, says so, and alerts the clinic once",
+      async () => {
+        const f = await depositLocation("dep-refused");
+        fake.on("checkout.sessions.create", () => {
+          throw stripeError("api", { message: "synthetic outage" });
+        });
+        const at = deskTime(4, 9);
+        const key = randomUUID();
+        const said = await booking(f, "web_chat", at, key);
+        expect(said).toMatchObject({ bookingWritten: true });
+        expect(said!.reply).toBe(
+          `${forChat(bookedLine(slotLabel(at, DESK_TZ), "Facial"))} ${forChat(depositLine({ action: "book_and_flag", amountUsd: 50, scope: "booking" }))}`,
+        );
+        expect(said!.reply).not.toMatch(/https?:/);
+        expect(await appointment(f.clinicId)).toEqual([expect.objectContaining({ deposit_status: "pending_front_desk" })]);
+        expect((await queuedNotices(f.clinicId, ["deposit_to_collect"])).length).toBe(1);
+        // Asked again: the same words, no second alert.
+        expect((await booking(f, "web_chat", at, key))!.reply).toBe(said!.reply);
+        expect((await queuedNotices(f.clinicId, ["deposit_to_collect"])).length).toBe(1);
+      },
+      SLOW,
+    );
+
+    test(
+      "a clinic with no connected Stripe: no deposit can be due (D's first rule), so the chat books with no link and Stripe is never called",
+      async () => {
+        const f = await depositLocation("dep-unconnected", { connected: false });
+        const at = deskTime(4, 15);
+        const said = await booking(f, "web_chat", at);
+        expect(said!.reply).toBe(forChat(bookedLine(slotLabel(at, DESK_TZ), "Facial")));
+        expect(fake.calls).toEqual([]);
+        expect(await appointment(f.clinicId)).toEqual([expect.objectContaining({ deposit_status: "none", deposit_usd: null })]);
+      },
+      SLOW,
+    );
+
+    test.each(["checkout.session.expired", "checkout.session.async_payment_failed"] as const)(
+      "%s on a chat's link: the deposit moves to the front desk with its alert",
+      async (type) => {
+        const f = await depositLocation(`dep-${type.endsWith("expired") ? "expired" : "failed"}`);
+        const said = await booking(f, "web_chat", deskTime(5, 11));
+        expect(said!.reply).toContain(`https://checkout.stripe.com/c/pay/cs_test_${run}_1`);
+        const { rows: deposits } = await inTenant(f.clinicId, (client) =>
+          client.query<{ id: string; checkout_session_id: string }>(`select id, checkout_session_id from deposit_payments`),
+        );
+        const result = await handleConnectEvent({
+          id: `evt_${randomUUID().replace(/-/g, "")}`,
+          type,
+          account: ACCOUNT,
+          livemode: false,
+          data: { object: { id: deposits[0]!.checkout_session_id, client_reference_id: deposits[0]!.id, metadata: { hd: "deposit", ref: deposits[0]!.id } } },
+        } as unknown as Parameters<typeof handleConnectEvent>[0]);
+        expect(result.outcome).toBe("processed");
+        expect(await appointment(f.clinicId)).toEqual([expect.objectContaining({ deposit_status: "pending_front_desk" })]);
+        expect((await queuedNotices(f.clinicId, ["deposit_to_collect"])).length).toBe(1);
+      },
+      SLOW,
+    );
+  });
 });

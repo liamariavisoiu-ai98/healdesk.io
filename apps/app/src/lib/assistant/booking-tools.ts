@@ -3,6 +3,7 @@ import { toE164 } from "@healdesk/connectors";
 
 import type { ActorContext } from "@/lib/audit";
 import { slotLabel } from "@/lib/booking/calendar";
+import { chatDepositFor, type ChatDeposit } from "@/lib/booking/deposit-gate";
 import {
   bookConversation,
   offerTimes,
@@ -64,6 +65,14 @@ import type { BookingCapture } from "./turn";
  * connection broke in this turn, a deposit the channel cannot take), the
  * time gone (the nearest times offered again), and so on. Only a booked
  * answer lets the turn say a booking is made (guard.ts, bookingWritten).
+ *
+ * Deposits (DEPOSIT-01). Card numbers are never taken. In the website chat a
+ * booking whose service needs a deposit is written, and then the clinic's
+ * own payment link is sent after the booked line (chatDepositFor: Stripe
+ * sees an amount, "Appointment deposit" and an opaque reference, never the
+ * service); when no link can be made the deposit is left to the front desk
+ * and the chat says so. A call never sends a link: the deposit is said
+ * (depositLine) and flagged for staff, as D's rules decide.
  *
  * The tools are offered to the model only while every switch allows direct
  * booking (directBookingToolsAllowed): the owner's kill switch
@@ -164,9 +173,10 @@ export type BookingEngine = {
   offerTimes: typeof offerTimes;
   placeHold: typeof placeHold;
   bookConversation: typeof bookConversation;
+  chatDepositFor: typeof chatDepositFor;
 };
 
-const ENGINE: BookingEngine = { offerTimes, placeHold, bookConversation };
+const ENGINE: BookingEngine = { offerTimes, placeHold, bookConversation, chatDepositFor };
 
 /** At most this many times are offered at once. */
 const OFFERED = 3;
@@ -310,6 +320,22 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
     }
   }
 
+  /** The website chat's line about a booked appointment's deposit, or null when there is nothing to say. */
+  async function chatDeposit(appointmentId: string, now: Date): Promise<string | null> {
+    let deposit: ChatDeposit;
+    try {
+      deposit = await engine.chatDepositFor(context.clinicId, appointmentId, { channel: "web", actor: context.actor, now });
+    } catch (error) {
+      // The booking stands; the deposit is still owed, and the Bookings
+      // screen shows it. Nothing about it is promised here.
+      log.error("booking tool deposit failed", { clinicId: context.clinicId, error: describeError(error) });
+      return null;
+    }
+    if (deposit.kind === "link") return deposit.text;
+    if (deposit.kind === "flagged") return forChat(depositLine({ action: "book_and_flag", amountUsd: deposit.amountUsd, scope: "booking" }));
+    return null;
+  }
+
   async function run(input: Parameters<BookingTools["run"]>[0]): Promise<ToolTurn | null> {
     const { action, capture, now } = input;
     let state = input.state;
@@ -376,7 +402,12 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       log.error("booking tool book failed", { clinicId: context.clinicId, error: describeError(error) });
       return turn(TOOL_FAILURE_LINE, state);
     }
-    return answerBooking(result, state, chosen);
+    const answered = answerBooking(result, state, chosen);
+    if (context.channel !== "web_chat" || result.kind !== "booked" || !result.appointmentId) return answered;
+    // The booking is in the calendar and said; its deposit after it, as the
+    // appointment stands: the clinic's own payment link, or the front desk.
+    const deposit = await chatDeposit(result.appointmentId, now);
+    return deposit ? { ...answered, reply: `${answered.reply} ${deposit}` } : answered;
   }
 
   return { channel: context.channel, available, run };

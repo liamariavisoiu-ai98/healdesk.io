@@ -238,9 +238,12 @@ export async function bookConversation(
   // the provider: the one named, else the one whose time the caller holds.
   const state = await withTenant({ clinicId, actor }, async (tx) => ({
     mode: await bookingModeFor(tx),
+    // The website chat can send its link in the conversation (DEPOSIT-01):
+    // a deposit due there is `collect`, booked and then linked.
     gate: await depositGateFor(tx, {
       channel: depositChannelOf(call.channel),
       service: ask.canonical ?? input.service,
+      canCollectNow: call.channel === "web_chat",
     }),
     inFlight: await inFlightUnderOtherKey(tx, holderRef, input.bookingKey),
     providerId: input.providerId ?? (await heldProviderOf(tx, holderRef, input.startsAt)),
@@ -717,7 +720,11 @@ async function replay(
   }
   // A request taken for a deposit says so again, as the clinic's switches stand.
   const gate = await withTenant({ clinicId: call.clinicId, actor: call.actor }, (tx) =>
-    depositGateFor(tx, { channel: depositChannelOf(call.channel), service: prior.treatment }),
+    depositGateFor(tx, {
+      channel: depositChannelOf(call.channel),
+      service: prior.treatment,
+      canCollectNow: call.channel === "web_chat",
+    }),
   );
   return gate.branch === "decline"
     ? {

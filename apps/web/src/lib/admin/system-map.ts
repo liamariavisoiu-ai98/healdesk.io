@@ -1351,7 +1351,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "partial",
     buildNote:
-      "Clinics can connect their Stripe from the deposits step of set-up (if they bought a chat channel) or in Settings, and disconnect it in Settings. Website chat sends the link once it books a service that needs a deposit (lib/booking/deposit-gate.ts chatDepositFor, after the booking is in the calendar; a link that cannot be made goes to the front desk with its alert), and a call books and flags the deposit for staff, never a link. Neither happens until direct booking is switched on (the booking bridge to Google Calendar), so no chat sends one yet; tested against a fake Stripe only. Set-up already tells a clinic that has connected that AYA sends the link in chat.",
+      "Clinics can connect their Stripe from the deposits step of set-up (if they bought a chat channel) or in Settings, and disconnect it in Settings. Website chat sends the link once it books a service that needs a deposit (lib/booking/deposit-gate.ts chatDepositFor, after the booking is in the calendar, which is written owing the deposit; a link that cannot be made, or is never made because the process stopped first, goes to the front desk with its alert, the second from the worker's sweep, lib/billing/deposit-sweep.ts), and a call books and flags the deposit for staff, never a link. Neither happens until direct booking is switched on (the booking bridge to Google Calendar), so no chat sends one yet; tested against a fake Stripe only. Set-up already tells a clinic that has connected that AYA sends the link in chat.",
   },
   {
     id: "clinic-stripe-app",

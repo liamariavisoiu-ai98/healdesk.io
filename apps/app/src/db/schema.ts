@@ -1123,7 +1123,10 @@ export const appointments = pgTable(
     /**
      * Where the deposit stands. "pending_front_desk" is the fallback path: the
      * agent said the desk will call to collect, and the desk owes the call.
-     * "pending_link" is a Stripe Connect payment link awaiting payment.
+     * "pending_link" is owed through a Stripe Connect payment link: written
+     * with the booking, so it holds from the moment the booking commits until
+     * the link opens and is paid; one whose link was never made is handed to
+     * the front desk by lib/billing/deposit-sweep.ts.
      */
     depositStatus: text("deposit_status").$type<DepositStatus>().notNull().default("none"),
 

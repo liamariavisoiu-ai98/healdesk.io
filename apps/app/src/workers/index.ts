@@ -1,5 +1,6 @@
 import { reconcilePeriod } from "@/lib/sync/reconcile-store";
 import { monthContaining, previousMonth } from "@/lib/attribution/period";
+import { sweepUnlinkedDeposits } from "@/lib/billing/deposit-sweep";
 import { runBillingRequestsJob } from "@/lib/billing/requests";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
@@ -173,6 +174,17 @@ async function main(): Promise<void> {
       // The ops watch's purchase checks (WP5): a paid order with no account
       // ten minutes on, and B3's follow-up past its day (lib/ops/watch.ts).
       ["ops-watch", () => runOpsWatchJob()],
+      // A chat deposit whose link was never made, handed to the front desk
+      // once its grace has passed (lib/billing/deposit-sweep.ts). Unswitched.
+      [
+        "deposit-links",
+        async () => {
+          const r = await sweepUnlinkedDeposits();
+          return r.failures
+            ? { status: "failed" as const, note: `${r.failures} clinics failed` }
+            : { status: "ok" as const, note: `${r.flagged} flagged` };
+        },
+      ],
     ] as const) {
       try {
         const outcome = await run();

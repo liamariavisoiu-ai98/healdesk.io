@@ -345,7 +345,14 @@ a rule already holds, and treat a gap as a bug, not a precedent.
 - **Inbound only.** No code path contacts a patient first, or after a
   conversation ends: no SMS or texting of any kind, no reminders, follow-ups,
   win-backs or reactivation, no missed-call text-back, no call-backs, no
-  post-treatment check-ins or review requests.
+  post-treatment check-ins or review requests. One thing is not contact "after
+  a conversation ends" (owner's ruling, 21 October 2026): a window-gated reply
+  to a patient's open request, such as the fixed line telling a person on Meta
+  that their booking request was decided or rescheduled. It is sent by the
+  adapter only inside the 24-hour window the patient opened and is dropped
+  outside it, names no treatment, and is never a reminder or a follow-up the
+  patient did not ask for (`lib/meta/booking-requests.ts`,
+  `lib/booking/reschedule.ts`, `sendMetaReply`).
 - **The assistant says it is an AI assistant in its opening line, on every
   channel.** On calls the same line says the call is transcribed; no call audio
   is kept. The clinic cannot switch this off or edit it out through the

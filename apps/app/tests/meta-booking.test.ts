@@ -58,6 +58,15 @@ describe("what the model may hand over", () => {
     });
   });
 
+  test("JSON cut off at the token limit, or that does not parse, is never sent: an empty reply the guard refuses", () => {
+    const cut = '{"reply":"Thanks Ana, I have noted Friday","booking":{"wants":true,"first_name":"Ana","phone":"415 555 0134"';
+    expect(parseModelReply(cut).reply).toBe("");
+    expect(parseModelReply('{"reply": "Sure", "booking": {"wants": tru}}').reply).toBe("");
+    expect(parseModelReply('{"booking":{"wants":true}}').reply).toBe("");
+    expect(parseModelReply('"reply": "Sure, what is your name').reply).toBe("");
+    expect(guardReply(parseModelReply(cut).reply)).toEqual({ ok: false, reason: "empty" });
+  });
+
   test("JSON, fenced or bare, is parsed: strings or null, alternatives and the fields — and a consent classifier is not read", () => {
     const parsed = parseModelReply(
       '```json\n{"reply":"Sure — what\'s your first name?","booking":{"wants":true,"first_name":null,"phone":"415 555 0134","window":"","alt_windows":["Thursday after 4","", 7],"callback_ok":true,"whatsapp_ok":true,"fields":{"last_name":"Lopez","bad key":"x"}}}\n```',

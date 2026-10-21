@@ -5,6 +5,7 @@ import { and, desc, eq, gt, gte, inArray, lte, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import {
   clinics,
+  conversations,
   TRANSCRIPT_EMAIL_FINAL_STATUSES,
   TRANSCRIPT_EMAIL_STATUSES,
   transcriptEmails,
@@ -205,6 +206,8 @@ type Claimed = {
   clinicName: string;
   timeZone: string;
   recipients: string[];
+  /** The call ended unexpectedly, as the conversation says at this send (lib/voice/ended-early.ts). */
+  endedEarly: boolean;
 };
 
 /**
@@ -248,6 +251,13 @@ export async function deliverTranscriptEmail(
         .from(clinics)
         .where(eq(clinics.id, clinicId));
       if (!clinic) return null;
+      // Read at each send, not sealed with the copy: Retell's own word that
+      // the call ended early can land after the transcript was queued.
+      const [conversation] = await tx.db
+        .select({ endedEarlyReason: conversations.endedEarlyReason })
+        .from(conversations)
+        .where(and(eq(conversations.clinicId, clinicId), eq(conversations.id, row.conversationId)))
+        .limit(1);
       const recipients = (await billingRecipients(tx)).map((r) => r.email);
       tx.audit.record({
         action: "decrypt",
@@ -264,6 +274,7 @@ export async function deliverTranscriptEmail(
         clinicName: clinic.name,
         timeZone: clinic.timeZone,
         recipients,
+        endedEarly: Boolean(conversation?.endedEarlyReason),
       };
     });
   } catch (error) {
@@ -287,6 +298,7 @@ export async function deliverTranscriptEmail(
       channel: payload.channel,
       startedAt: new Date(payload.startedAt),
       turns: payload.turns,
+      endedEarly: claimed.endedEarly,
     });
     if (claimed.recipients.length === 0) {
       reason = "the clinic has no address to send to";

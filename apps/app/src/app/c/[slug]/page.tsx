@@ -9,7 +9,7 @@ import { readMetaConnectView } from "@/lib/meta/reconnect";
 import { requirePortal } from "@/lib/portal/access";
 import { needsAttention } from "@/lib/portal/attention";
 import { portalDay } from "@/lib/portal/format";
-import { readHomeFacts, readHomePatientRequests } from "@/lib/portal/home";
+import { HOME_WEEK_DAYS, readHomeFacts, readHomePatientRequests } from "@/lib/portal/home";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { waitingSentence } from "@/lib/portal/waiting-words";
@@ -93,6 +93,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
     : null;
   const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts, live, calendar, meta });
   const bookingsHref = isBuiltSection("bookings") ? sectionPath(portal.clinicSlug, "bookings") : null;
+  const conversationsHref = isBuiltSection("conversations") ? sectionPath(portal.clinicSlug, "conversations") : null;
   const week = facts.week ? claimLines(claimsPayload(facts.week)) : [];
   const tracker = buildTracker(state, calendar, facts.practice, facts.goLive ?? undefined);
   const finished = wizardFinished(state.screens, state.progress);
@@ -133,6 +134,29 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
                 Open Bookings
               </a>
             ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {live && facts.endedEarly > 0 && conversationsHref ? (
+        <section aria-labelledby="ended-early-heading" className="mt-6">
+          {/* Calls cut off by a fault this week (lib/voice/ended-early.ts):
+              a count and a pointer only; Conversations marks each one, and
+              the people open there behind the passkey. healdesk calls
+              nobody back: the team decides. */}
+          <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3">
+            <p>
+              <span id="ended-early-heading" className="font-semibold">
+                {facts.endedEarly === 1 ? "1 call ended early" : `${facts.endedEarly} calls ended early`}
+              </span>{" "}
+              in the last {HOME_WEEK_DAYS} days. The caller may want a call back.
+            </p>
+            <a
+              href={conversationsHref}
+              className="bg-ink inline-flex min-h-11 items-center rounded-full px-5 text-sm font-bold text-white"
+            >
+              Open Conversations
+            </a>
           </div>
         </section>
       ) : null}

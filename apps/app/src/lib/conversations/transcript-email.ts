@@ -83,6 +83,12 @@ export type TranscriptEmailInput = {
   channel: TranscriptChannel;
   startedAt: Date;
   turns: readonly TranscriptTurn[];
+  /**
+   * The call ended unexpectedly (conversations.ended_early_reason, read when
+   * the email is sent): the email opens with ENDED_EARLY_BANNER. The subject
+   * does not change, and still names nobody.
+   */
+  endedEarly?: boolean;
 };
 
 export type RenderedTranscriptEmail = { subject: string; text: string; html: string };
@@ -95,6 +101,13 @@ const DO_NOT_REPLY =
 
 const KEEP_IT =
   "This email holds patient information. healdesk deletes its own encrypted copy as soon as your mail server confirms it has received this email, so this email is the record of what was said: file it where your practice keeps patient records, and then delete it from this inbox.";
+
+/**
+ * The fixed line at the top of a transcript whose call ended unexpectedly
+ * (lib/voice/ended-early.ts). It says nothing about the caller: the
+ * transcript below is what the team reads. healdesk calls nobody back.
+ */
+export const ENDED_EARLY_BANNER = "This call ended unexpectedly. The caller may want a call back.";
 
 /** A conversation longer than this is cut, with a note, rather than refused. */
 export const MAX_TRANSCRIPT_CHARACTERS = 200_000;
@@ -178,7 +191,11 @@ export function renderTranscriptEmail(input: TranscriptEmailInput): RenderedTran
   const cutNote = "The transcript was longer than this email can carry and is cut here.";
   const why = `You get this email because ${input.clinic.name} uses healdesk's assistant, and each transcript goes to this address instead of being stored.`;
 
+  // Only a call ends early: a web chat has no such flag.
+  const banner = input.endedEarly === true && input.channel === "voice" ? [ENDED_EARLY_BANNER] : [];
+
   const text = [
+    ...banner,
     intro,
     KEEP_IT,
     DO_NOT_REPLY,
@@ -194,6 +211,7 @@ export function renderTranscriptEmail(input: TranscriptEmailInput): RenderedTran
   const html = [
     "<!doctype html>",
     '<html><body style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f1f1f;">',
+    ...banner.map((line) => paragraph(line, "font-weight:700;color:#8a1c1c;")),
     paragraph(intro),
     paragraph(KEEP_IT, "font-weight:600;"),
     paragraph(DO_NOT_REPLY),

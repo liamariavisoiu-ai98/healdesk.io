@@ -1,7 +1,7 @@
 import type { Channel } from "@healdesk/catalog";
-import { eq } from "drizzle-orm";
+import { and, count, eq, gte, isNotNull } from "drizzle-orm";
 
-import { clinics } from "@/db/schema";
+import { clinics, conversations } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { readGoLiveCheck } from "@/lib/channels/events";
 import type { ChannelState } from "@/lib/channels/state";
@@ -47,6 +47,12 @@ export type HomeFacts = {
   quietChannels: Channel[];
   /** Patients' requests passed to the practice and not yet marked received (L32): ids and days. */
   patientRequests: OpenPatientRequest[];
+  /**
+   * After go-live: calls in the last seven days that ended unexpectedly
+   * (lib/voice/ended-early.ts). A count and a pointer to Conversations, where
+   * each is marked; nobody is named here. 0 before go-live.
+   */
+  endedEarly: number;
 };
 
 /** Home's week: the seven days to now, the stretch the spec's "this week" covers on any day. */
@@ -91,8 +97,24 @@ export async function readHomeFacts(input: {
         : null,
       quietChannels: live ? await readQuietChannels(tx, channels, now) : [],
       patientRequests: await readOpenPatientRequests(tx),
+      endedEarly: live ? await countEndedEarly(tx, new Date(now.getTime() - HOME_WEEK_DAYS * 86_400_000)) : 0,
     };
   });
+}
+
+/** Calls flagged as ended early since `since`, by when they started. */
+export async function countEndedEarly(tx: TenantTx, since: Date): Promise<number> {
+  const [row] = await tx.db
+    .select({ n: count() })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.clinicId, tx.clinicId),
+        isNotNull(conversations.endedEarlyReason),
+        gte(conversations.startedAt, since),
+      ),
+    );
+  return Number(row?.n ?? 0);
 }
 
 /**

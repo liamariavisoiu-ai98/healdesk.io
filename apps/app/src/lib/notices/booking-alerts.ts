@@ -38,7 +38,12 @@ export type BookingAlertKind =
    * was never confirmed, or a later desk decision won); staff check it in
    * Bookings. Sent at once, at any hour.
    */
-  | "calendar_check";
+  | "calendar_check"
+  /**
+   * L35: a call ended unexpectedly (lib/voice/ended-early.ts), so staff can
+   * call the person back themselves. Once per conversation.
+   */
+  | "ended_early";
 
 /**
  * Whether an urgent alert (L12) reaches the clinic is no longer a constant:
@@ -129,6 +134,9 @@ export const ALERT_SECTION: Readonly<Record<BookingAlertKind, PortalSection>> = 
   urgent: "conversations",
   website_message: "bookings",
   calendar_check: "bookings",
+  // A call, marked "Ended early" in Conversations, which is where staff find
+  // who it was and the time it came in.
+  ended_early: "conversations",
 };
 
 const REQUEST_CHANNEL: Readonly<Record<"voice" | "meta" | "web_chat", Channel>> = {

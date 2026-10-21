@@ -104,6 +104,7 @@ const LIVE_KINDS = [
   "urgent",
   "website_message",
   "calendar_check",
+  "ended_early",
 ] as const satisfies readonly BookingAlertKind[];
 
 /** The only keys a live alert's payload may carry: ids, a channel, a link, a flag and counts. */
@@ -117,6 +118,7 @@ const KEYS_OF: Record<(typeof LIVE_KINDS)[number], string[]> = {
   urgent: ALERT_KEYS,
   website_message: ALERT_KEYS,
   calendar_check: ALERT_KEYS,
+  ended_early: ALERT_KEYS,
 };
 
 function ctx(audience: "patients" | "clients" = "patients"): TemplateContext {

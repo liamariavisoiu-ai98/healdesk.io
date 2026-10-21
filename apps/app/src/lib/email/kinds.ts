@@ -152,6 +152,9 @@ export const NOTICE_KIND_REGISTRY = {
   urgent: kind("L12", "transactional", "critical", null, "any_hour", "plan"),
   website_message: kind("L20", "transactional", "normal", null, "any_hour", "plan"),
   calendar_check: kind("L34", "transactional", "normal", null, "any_hour", "plan"),
+  // L35: a call ended unexpectedly (lib/voice/ended-early.ts), so staff can
+  // call the person back themselves. At once, at any hour, like the others.
+  ended_early: kind("L35", "transactional", "normal", null, "any_hour", "plan"),
   // L13, at the clinic's opening time each working day: the job picks the
   // hour, so it goes when queued. The spec's switch, which its one-click
   // stop link also turns off.

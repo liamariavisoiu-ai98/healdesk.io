@@ -20,6 +20,7 @@ import { withTenant } from "@/lib/tenant";
 import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, type FallbackLookup } from "./fallback-line";
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
+import { redialPromptBlock, takeRedialContext, welcomeBackLine, type RedialContext } from "./redial";
 import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./test-calls";
 
 /**
@@ -92,6 +93,16 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  * holds for the clinic's AYA number); only with neither does it close. A
  * fault while answering a turn is a failure like the model's, never silence.
  *
+ * A call back after a call that ended unexpectedly (lib/voice/redial.ts):
+ * once the call is answered and the caller's number is known, the session
+ * takes the sealed record of that call's last turns, if one is waiting for
+ * the number, and deletes it as it does. The opening line is said as on any
+ * call; the first reply that is not urgent then starts with a fixed
+ * welcome-back line (saying the team was told only when the earlier call's
+ * alert is queued and alerts reach the clinic), and every turn's context
+ * carries the earlier turns as a record. No number, or a lookup that fails
+ * or is slow, is an ordinary call.
+ *
  * Nothing here is written to disk or a log but ids, counts and outcomes. The
  * call's words live in this object until the ingest seals them.
  */
@@ -134,6 +145,8 @@ export type RetellSessionDeps = {
   startDeadlineMs?: number;
   /** The booking tool layer; unset builds the shared one for the call (lib/assistant/booking-tools.ts). */
   tools?: (facts: AssistantFacts) => BookingTools | null;
+  /** The redial lookup (lib/voice/redial.ts, takeRedialContext); unset uses it. */
+  redial?: (clinicId: string, callerPhone: string) => Promise<RedialContext | null>;
 };
 
 /**
@@ -152,6 +165,8 @@ const LATE_START_GRACE_MS = 5_000;
 const LINE_ALONE_DEADLINE_MS = 1_500;
 /** The urgent and handover alerts' writes; past it the reply is said without them. */
 const ALERT_DEADLINE_MS = 2_000;
+/** How long the first reply waits for the redial lookup before answering as an ordinary call. */
+const REDIAL_DEADLINE_MS = 1_000;
 /** How long a caller waits for Google to take a booking before it becomes a request. */
 const BOOKING_BUDGET_MS = 6_000;
 
@@ -268,6 +283,12 @@ export class RetellCallSession {
    */
   private keepsNothing = false;
   private finished: Promise<IngestResult | null> | null = null;
+  /** The redial lookup, started once the call is answered and the number is known. */
+  private redialLookup: Promise<RedialContext | null> | null = null;
+  /** What the lookup found: the earlier call's last turns. In memory for this call only. */
+  private redial: RedialContext | null = null;
+  /** The welcome-back line has been said. */
+  private welcomedBack = false;
 
   constructor(
     readonly clinicId: string,
@@ -374,6 +395,7 @@ export class RetellCallSession {
       return;
     }
     this.gateAnswered = decision.decision === "answer";
+    this.startRedialLookup();
     if (options.opening === false) {
       this.openingOwed = true;
       return;
@@ -591,6 +613,7 @@ export class RetellCallSession {
     if (typeof call.start_timestamp === "number") this.startedAt = new Date(call.start_timestamp);
 
     this.forwardedFrom = forwardedFromCall(event.call);
+    if (call.direction !== "outbound") this.startRedialLookup();
     if (call.direction === "outbound") {
       // healdesk places no calls. A call the vendor says we placed is a
       // misconfiguration: say nothing more, end it, and let the ingest
@@ -602,6 +625,34 @@ export class RetellCallSession {
       this.final = { content: "", endCall: true, transferTo: null };
       this.send({ response_type: "response", response_id: Math.max(this.latestResponseId, 0), content: "", content_complete: true, end_call: true });
     }
+  }
+
+  /**
+   * Look for a cut-off call from this number, once: only on a call AYA is
+   * answering (the facts are read and nothing is closing it), never a
+   * refused test call, and only with the caller's number.
+   */
+  private startRedialLookup(): void {
+    if (this.redialLookup || !this.facts || this.closing || this.unrecorded || this.keepsNothing || this.outbound || !this.callerPhone) return;
+    const lookup = this.deps.redial ?? ((clinicId, phone) => takeRedialContext(clinicId, phone, ACTOR));
+    this.redialLookup = lookup(this.clinicId, this.callerPhone).catch((error) => {
+      log.error("redial lookup failed", { clinicId: this.clinicId, error: describeError(error) });
+      return null;
+    });
+  }
+
+  /** The lookup's answer, waited for briefly on the first reply; null afterwards is an ordinary call. */
+  private async redialContext(): Promise<RedialContext | null> {
+    if (this.redial || !this.redialLookup) return this.redial;
+    const lookup = this.redialLookup;
+    try {
+      this.redial = await withDeadline(lookup, REDIAL_DEADLINE_MS);
+    } catch {
+      this.redial = null;
+    }
+    // Asked once: a lookup that answered late is not used.
+    this.redialLookup = Promise.resolve(this.redial);
+    return this.redial;
   }
 
   private async respond(event: RetellEvent): Promise<void> {
@@ -637,6 +688,7 @@ export class RetellCallSession {
     if (!words) return;
 
     const facts = this.facts;
+    const resumed = await this.redialContext();
     this.tools ??= this.deps.tools
       ? this.deps.tools(facts)
       : bookingTools({
@@ -660,6 +712,7 @@ export class RetellCallSession {
       tools: this.tools,
       toolState: this.toolState,
       callerPhone: this.callerPhone,
+      resumed: resumed ? redialPromptBlock(resumed) : null,
     });
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.
@@ -734,6 +787,13 @@ export class RetellCallSession {
     // would reach the clinic (facts.urgentAlertsReady); while this call's
     // alert is not known to be queued, it must not say so either.
     let reply = turn.urgent && this.urgentUntold ? withoutTeamTold(turn.reply) : turn.reply;
+    // A call back after a cut-off call: the fixed welcome-back line, once,
+    // before the first reply that is not urgent, after the opening line.
+    // It says the team was told only while that is true (welcomeBackLine).
+    if (resumed && !this.welcomedBack && !turn.urgent) {
+      reply = `${welcomeBackLine(resumed, facts.urgentAlertsReady === true)} ${reply}`;
+      this.welcomedBack = true;
+    }
     if (this.openingOwed && !turn.urgent) {
       reply = `${openingLine(facts, "voice")} ${reply}`;
       this.openingOwed = false;
@@ -796,6 +856,9 @@ export class RetellCallSession {
   private async record(): Promise<IngestResult | null> {
     this.recording = true;
     this.closing = true;
+    // The earlier call's turns were for this call's replies only.
+    this.redial = null;
+    this.redialLookup = null;
     if (this.unrecorded) {
       this.turns = [];
       this.callerPhone = null;

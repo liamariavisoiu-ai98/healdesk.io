@@ -9,6 +9,7 @@ import { runBillingReconcileJob } from "@/lib/billing/reconcile";
 import { runBillingRequestsJob } from "@/lib/billing/requests";
 import { runPracticeQuestionsSweep } from "@/lib/engine/practice/job";
 import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
+import { sweepRedialContexts } from "@/lib/voice/redial";
 import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
@@ -224,6 +225,10 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
       note: `${r.clinics} clinics, ${r.resumed} resumed${r.failures ? `, ${r.failures} failed` : ""}`,
     };
   });
+  // The redial records of calls that ended early (lib/voice/redial.ts): every
+  // minute from the billing-minute queue, and here as its backstop. A
+  // deletion, so never behind a switch.
+  await record("redial-sweep", async () => ({ status: "ok", note: `${await sweepRedialContexts()} deleted` }));
   // A chat deposit whose link was never made (lib/billing/deposit-sweep.ts):
   // every minute from the billing-minute queue, and here as its backstop.
   // Not a switched job, like the channel-states sweep: it only hands a

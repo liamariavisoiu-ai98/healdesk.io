@@ -23,6 +23,7 @@ import {
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
+import { flagged as endedEarlyFlagged, isEndedEarlyReason } from "./ended-early";
 import type { ForwardedFrom } from "./forwarded-from";
 import { isHealdeskTestNumber } from "./test-numbers";
 
@@ -178,6 +179,15 @@ export type VoiceCallEvent = {
    * never stored anywhere else. A call already ingested queues nothing.
    */
   transcriptTurns?: readonly TranscriptTurn[];
+  /**
+   * The call ended unexpectedly (lib/voice/ended-early.ts): Retell's
+   * technical reason or `unexplained`. Set by the backstop, which reads
+   * Retell's reason with the call; the live socket never knows it, and
+   * Retell's webhook flags a call it recorded (recordRetellEnding). Written
+   * with the conversation, with the clinic's L35 alert and the short-lived
+   * redial record (lib/voice/redial.ts) in the same transaction.
+   */
+  endedEarlyReason?: string;
 };
 
 export class VoiceIngestError extends Error {
@@ -558,6 +568,9 @@ export async function ingestCall(
         startedAt: event.startedAt,
         endedAt: event.endedAt ?? null,
         externalCallId,
+        ...(isEndedEarlyReason(event.endedEarlyReason)
+          ? { endedEarlyReason: event.endedEarlyReason, endedEarlyAt: sql`clock_timestamp()` }
+          : {}),
       })
       .onConflictDoNothing({
         target: [conversations.clinicId, conversations.externalCallId],
@@ -726,6 +739,18 @@ export async function ingestCall(
     // phone channel takes no lock at all.
     await evaluateChannelsSafely(tx, { only: "voice" });
     await recordFirstAnswer(tx, voiceFirstAnswerEvidence(event, metering, row.id));
+
+    // A call that ended early: the clinic's L35 alert and the redial
+    // record, with the conversation (lib/voice/ended-early.ts).
+    if (isEndedEarlyReason(event.endedEarlyReason)) {
+      await endedEarlyFlagged(tx, {
+        conversationId: row.id,
+        reason: event.endedEarlyReason,
+        callerPhone: event.callerPhone,
+        turns: event.transcriptTurns,
+        via: "ingest",
+      });
+    }
 
     // The transcript, sealed in the outbox with the conversation it belongs
     // to: both commit or neither does.

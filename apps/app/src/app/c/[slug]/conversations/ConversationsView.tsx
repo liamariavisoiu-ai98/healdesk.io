@@ -211,6 +211,9 @@ export function ConversationsView(props: {
                 </span>
               )}
               {row.amended ? <span className="text-muted text-sm"> · Amended</span> : null}
+              {/* The call was cut off by a fault: the person may want a call
+                  back from the team (lib/voice/ended-early.ts). */}
+              {row.endedEarly ? <span className="text-sm font-semibold"> · Ended early</span> : null}
             </p>
             {row.flag ? (
               <p className="mt-1 text-sm">

@@ -12,12 +12,14 @@ import {
   handovers,
   metaBookingDrafts,
   suppressions,
+  voiceRedialContexts,
   webhookEvents,
   type ErasureVendorStamp,
 } from "@/db/schema";
 import { clearHoldsForErasure } from "@/lib/booking/holds";
 import { linkCallHandovers, namedHandover } from "@/lib/handovers/record";
 import { identifierRef } from "@/lib/identifier-ref";
+import { redialCallerRef } from "@/lib/voice/redial";
 import { addBusinessDays } from "@/lib/incidents/incidents";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
@@ -688,6 +690,17 @@ async function eraseSurveyed(
     phones: s.phones,
     threadRefs: partyRefs(tx.clinicId, s.threads),
   });
+
+  // A redial record of a call of theirs that ended early (drizzle/0107,
+  // lib/voice/redial.ts), by each number of theirs, whichever conversation
+  // it belongs to; the rest go with their conversations by cascade. Two
+  // hours at most and not part of the record, so not counted.
+  const redialRefs = s.phones.map((p) => redialCallerRef(tx.clinicId, p)).filter((r): r is string => Boolean(r));
+  if (redialRefs.length) {
+    await tx.db
+      .delete(voiceRedialContexts)
+      .where(and(eq(voiceRedialContexts.clinicId, tx.clinicId), inArray(voiceRedialContexts.callerRef, redialRefs)));
+  }
 
   // The people, by every number and address the survey made theirs (not
   // only the ones asked), with their own requests whatever thread they came

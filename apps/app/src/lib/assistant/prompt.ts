@@ -208,10 +208,13 @@ export function assistantTurnContext(
   opening?: string | null,
   /** booking-tools.ts toolTurnContext, on a turn the tools are live. */
   tools?: string | null,
+  /** A call back after a call that was cut off: lib/voice/redial.ts, redialPromptBlock. */
+  resumed?: string | null,
 ): string {
   const time = now.toLocaleString("en-US", { timeZone: facts.timeZone, weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
   const lines = [`Now it is ${time} in the practice's time zone.`];
   if (opening) lines.push(`You opened the conversation with: "${opening}"`);
+  if (resumed) lines.push(resumed);
   if (tools) lines.push(tools);
   return lines.join("\n");
 }

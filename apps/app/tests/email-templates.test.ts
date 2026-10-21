@@ -243,6 +243,7 @@ describe("the template registry", () => {
       "urgent",
       "website_message",
       "calendar_check",
+      "ended_early",
       "terms_notice",
       "subprocessor_notice",
       "incident_report",

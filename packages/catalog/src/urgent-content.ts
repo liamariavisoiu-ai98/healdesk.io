@@ -234,18 +234,21 @@ const CANNOT =
 /** A part of the body where a filler's occlusion shows as a change of colour. */
 const SKIN_SUBJECT = "(lips?|skin|area|spot|site|nose|cheeks?|chin|face|forehead|tissue|bump|filler|tip of (my|the) nose)";
 /**
- * Colours a vascular occlusion shows and no one describes their skin tone
- * or a mark with: read after any verb.
+ * Colours a vascular occlusion shows, read after any verb, as a plain state
+ * too: a blanched lip or skin ("my lip is white", "looks pale", "gone grey")
+ * is the classic sign, and missing it is worse than a fixed line sent to
+ * someone describing their skin tone (owner's review, 21 October 2026).
  */
-const SKIN_VASCULAR = "(blue|bluish|blueish|purple|purplish|dusky|mottled|cold)";
+const SKIN_VASCULAR =
+  "(white|whiter|pale|paler|grey|gray|greyish|grayish|blue|bluish|blueish|purple|purplish|dusky|mottled|cold)";
 /**
  * Colours that are also how a person describes their skin type, tone or a
  * mark ("my skin is dark, is laser safe?", "a spot that is dark", "my skin
- * is blotchy"): read after a verb of change ("went white", "turning grey"),
+ * is blotchy"): read after a verb of change ("went black", "turning dark"),
  * or after a verb of state only where the message ties it to a treatment
  * ("pale where the filler went"). Never before a feature ("getting dark spots").
  */
-const SKIN_TONE = "(white|whiter|pale|paler|grey|gray|greyish|grayish|black|dark|blotchy|patchy)";
+const SKIN_TONE = "(black|dark|blotchy|patchy)";
 const SKIN_CHANGE = "(went|gone|going|turned|turning|turns|getting|got|became|become|becoming)";
 const SKIN_STATE = "(is|are|has|have|been|looks?|looking|seems|feels?)";
 const SKIN_ADVERB = "(very |really |all |completely |kind of |kinda |a bit |so |super )?";

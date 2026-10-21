@@ -727,13 +727,11 @@ describe("review of the widened screen (21 October 2026): ordinary questions it 
   // or skin clinic; a name, a distance and Rioplatense "sos" are not cries for help.
   test.each([
     "My skin is dark, is laser hair removal safe for me?",
-    "my skin is very pale, which laser do you use?",
     "my skin type is dark, can I get IPL?",
     "I have a spot on my cheek that is dark, can you remove it?",
     "my skin is blotchy and red, would a facial help?",
     "my skin is patchy, do you do chemical peels?",
     "my face is getting dark spots, do you treat pigmentation?",
-    "my skin looks grey and tired, would a facial help?",
     "Hi, this is Socorro, I'd like to book Botox",
     "Socorro Martinez",
     "vos sos la clínica de Palermo?",
@@ -748,6 +746,10 @@ describe("review of the widened screen (21 October 2026): ordinary questions it 
   test.each([
     ["my lip went white after the filler", "a change in the skin or in sight"],
     ["my face went pale", "a change in the skin or in sight"],
+    ["my lip is white", "a change in the skin or in sight"],
+    ["my lip looks pale", "a change in the skin or in sight"],
+    ["my skin has gone grey", "a change in the skin or in sight"],
+    ["my skin is very pale", "a change in the skin or in sight"],
     ["the skin is turning dark where she injected", "a change in the skin or in sight"],
     ["since the filler my lip looks white", "a change in the skin or in sight"],
     ["my lips are blue", "a change in the skin or in sight"],

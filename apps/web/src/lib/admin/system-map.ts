@@ -773,6 +773,11 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_EXPORT_REQUESTED_BY: "Who asked for the export: a word.",
   HEALDESK_RUNTIME_ROLE: "The database role the queue is installed for: a name.",
   USER: "Set by the shell: who ran the job, for its audit row.",
+  // The voice eval (apps/app/scripts/voice-eval), run by hand on a developer's computer on synthetic calls only. Never set on Vercel or AWS.
+  VOICE_EVAL_ANTHROPIC_API_KEY:
+    "A developer's own Anthropic key for the voice eval on their computer, never the HIPAA organisation's ANTHROPIC_API_KEY and never on Vercel or AWS: synthetic test calls only. Rotate or revoke it in the Anthropic console.",
+  VOICE_EVAL_CONFIRM_SPEND: "Your approval of one voice-eval run's printed cost estimate: an id, not a secret. Without it the eval makes no paid call.",
+  VOICE_EVAL_OUT_DIR: "Where the voice eval writes its results on your computer: a folder.",
 };
 
 // -----------------------------------------------------------------------------

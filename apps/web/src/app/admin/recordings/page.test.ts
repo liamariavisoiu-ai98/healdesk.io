@@ -2,9 +2,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 /**
- * /admin/recordings, as the operator sees it (NOAUDIO-01): the calls Retell
- * kept a recording of, each open one with a "Delete at Retell" form and the
- * reason its last delete failed; the deleted ones with when; and the
+ * /admin/recordings, as the operator sees it: the calls Retell still held
+ * past the deletion window (a recording there before that is expected, not
+ * a failure), each open one with a "Delete at Retell" form and the reason
+ * its last delete failed; the deleted ones with when; and the
  * host-in-standby notice rather than an error when apps/app does not answer.
  * apps/web holds no Retell key and never sees a recording's address.
  */
@@ -79,6 +80,11 @@ afterEach(() => {
 describe("/admin/recordings", () => {
   test("lists the open alerts with a delete button and the last failure, and the deleted ones with when", async () => {
     const html = await render();
+    expect(html).toContain("Retell deletions");
+    expect(html).toContain("then the call is deleted at Retell automatically");
+    // A recording at Retell is no longer framed as a broken promise.
+    expect(html).not.toContain("breaks our promise");
+    expect(html).toContain("still at Retell 21 Oct, 08:00");
     expect(html).toContain("To delete (1)");
     expect(html).toContain("Deleted (1)");
     expect(html).toContain("call_open_1");

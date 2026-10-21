@@ -15,7 +15,7 @@ import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import { ingestCall, VoiceIngestError, type IngestResult, type VoiceCallEvent } from "./ingest";
-import { recordRecordingAlert, retellCallHasRecording } from "./recording-alerts";
+import { deleteRetellCallAfterIngest, type RetellCallDeletion } from "./recording-alerts";
 import { voiceRealCallsAllowed } from "./test-calls";
 
 /**
@@ -76,20 +76,35 @@ import { voiceRealCallsAllowed } from "./test-calls";
  * session records the call from the reconnect on, and the backstop, seeing
  * a conversation, leaves the first half unrecorded.
  *
- * It needs Retell to have kept the call's transcript. Every agent our code
- * writes is set to keep none (lib/voice/retell-agent.ts,
- * data_storage_setting basic_attributes_only, NOAUDIO-01), and then the
- * call has no agent turn to read: the backstop refuses it as
- * `never_answered` and records nothing of a call whose voice task died. An
- * owner question (NOAUDIO-01): keeping Retell's transcript would keep the
- * backstop's words, and also keep a copy of the call at Retell.
+ * It needs Retell to have kept the call's transcript, which every agent our
+ * code writes does (lib/voice/retell-agent.ts, data_storage_setting
+ * `everything`, the owner's decision of 21 October 2026).
  *
- * It also reads whether Retell kept a recording anyway, and raises one
- * opaque alert for the call if so (./recording-alerts.ts).
+ * ## Then Retell's copy is deleted
+ *
+ * Once the call has a conversation here, recorded by the live socket
+ * (`already_recorded`) or by this job (`recorded`, after the ingest has
+ * committed the conversation with its sealed transcript and tried the email
+ * once), the job deletes the call at Retell
+ * (./recording-alerts.ts, deleteRetellCallAfterIngest). A delete that fails
+ * throws, so pg-boss retries the whole job; the retry finds the
+ * conversation and goes straight to the delete. Nothing is deleted for a
+ * call that is not recorded here, whatever the reason: Retell's one-day
+ * retention removes those. A delete still failing
+ * RETELL_DELETION_WINDOW_MS after the call ended is one alert for the call.
  */
 
 /** Long after any live socket has recorded its call; short enough that the clinic's transcript is still timely. */
 export const BACKSTOP_DELAY_SECONDS = 10 * 60;
+
+/**
+ * The job's retries. pg-boss waits retryDelay * 2^n * (1 to 2) seconds
+ * after the n-th failure (n from 0), so the last try is at least
+ * BACKSTOP_DELAY_SECONDS + 31 minutes after the webhook, past
+ * RETELL_DELETION_WINDOW_MS (tests/recording-alerts.test.ts pins it).
+ */
+export const BACKSTOP_RETRY_LIMIT = 5;
+export const BACKSTOP_RETRY_DELAY_SECONDS = 60;
 
 /** Retell's events that say a call is over. `call_analyzed` follows `call_ended`; either queues the same job. */
 export const BACKSTOP_EVENTS: ReadonlySet<string> = new Set(["call_ended", "call_analyzed"]);
@@ -128,8 +143,8 @@ export async function scheduleCallBackstop(
     singletonKey: `${payload.clinicId}:${payload.callId}`,
     // Retell's API down for a while is the likely failure. pg-boss doubles
     // the delay each time, with jitter: about half an hour to an hour in all.
-    retryLimit: 5,
-    retryDelay: 60,
+    retryLimit: BACKSTOP_RETRY_LIMIT,
+    retryDelay: BACKSTOP_RETRY_DELAY_SECONDS,
     retryBackoff: true,
   });
   // null is pg-boss declining the job: a duplicate of one already waiting,
@@ -313,9 +328,20 @@ export type BackstopDeps = {
   fetchCall?: (callId: string, apiKey: string) => Promise<RetellCall>;
   ingest?: (event: VoiceCallEvent) => Promise<IngestResult>;
   transport?: EmailTransport;
-  /** Defaults to recordRecordingAlert (./recording-alerts.ts). */
-  recordAlert?: (clinicId: string, callId: string) => Promise<boolean>;
+  /** Defaults to deleteRetellCallAfterIngest (./recording-alerts.ts) with this key. */
+  deleteCall?: (clinicId: string, callId: string) => Promise<RetellCallDeletion>;
 };
+
+/**
+ * Delete the recorded call at Retell, or throw so the job is retried. Only
+ * reached once the call has a conversation here; the delete itself checks
+ * again and asks Retell nothing without one.
+ */
+async function deleteAtRetellOrRetry(clinicId: string, callId: string, deps: BackstopDeps): Promise<void> {
+  const apiKey = deps.apiKey === undefined ? retellApiKey() : deps.apiKey;
+  const outcome = await (deps.deleteCall ?? ((c, id) => deleteRetellCallAfterIngest(c, id, { apiKey })))(clinicId, callId);
+  if (outcome.status === "failed") throw new Error(`the call was not deleted at Retell: ${outcome.reason}`);
+}
 
 /**
  * The job: record the call if, and only if, nothing has yet. Throws when it
@@ -344,7 +370,7 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
       .from(conversations)
       .where(and(eq(conversations.clinicId, clinicId), eq(conversations.externalCallId, callId)))
       .limit(1);
-    if (existing) return { status: "already_recorded" as const };
+    if (existing) return { status: "recorded_here" as const };
     // What the session raised while the call was up, by the call's id: its
     // urgent alert, queued under a key naming the call, and its handover.
     const [urgentAlert] = await tx.db
@@ -359,21 +385,17 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
       .limit(1);
     return { status: "open" as const, assistantNumber: clinic.assistantNumber, raised: { urgent: Boolean(urgentAlert), handover: Boolean(handover) } };
   });
+  if (state.status === "recorded_here") {
+    // The usual case: the live socket recorded the call, and its transcript
+    // is sealed with it. Retell's copy goes now.
+    await deleteAtRetellOrRetry(clinicId, callId, deps);
+    return { status: "already_recorded" };
+  }
   if (state.status !== "open") return state;
 
   const apiKey = deps.apiKey === undefined ? retellApiKey() : deps.apiKey;
   if (!apiKey) throw new Error("HEALDESK_RETELL_API_KEY is unset: the call cannot be read back from Retell");
   const call = await (deps.fetchCall ?? fetchRetellCall)(callId, apiKey);
-  // Retell kept a recording though the agent is set to keep none: one opaque
-  // alert for the call (./recording-alerts.ts), whatever happens next. A
-  // failure to write it is logged, never a reason to drop the record.
-  if (retellCallHasRecording(call)) {
-    try {
-      await (deps.recordAlert ?? recordRecordingAlert)(clinicId, callId);
-    } catch (error) {
-      log.error("voice call backstop could not record a recording alert", { clinicId, error: describeError(error) });
-    }
-  }
 
   const mapped = callEventFromRetell(call, { clinicId, callId, assistantNumber: state.assistantNumber, raised: state.raised });
   if ("refused" in mapped) {
@@ -385,14 +407,20 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
   }
   // A duplicate here is the live socket, or a second job, recording first:
   // ingestCall returns the stored row and writes nothing twice.
+  let result: IngestResult;
   try {
-    const result = await (deps.ingest ?? ((e) => ingestCall(e, ACTOR, { transport: deps.transport })))(mapped.event);
-    return { status: "recorded", result };
+    result = await (deps.ingest ?? ((e) => ingestCall(e, ACTOR, { transport: deps.transport })))(mapped.event);
   } catch (error) {
-    // A refusal is final; retrying it would refuse it again.
+    // A refusal is final; retrying it would refuse it again. Either way the
+    // call is not recorded here, so Retell's copy is not touched.
     if (error instanceof VoiceIngestError) return { status: "refused", reason: "ingest_refused" };
     throw error;
   }
+  // Committed: the conversation and its sealed transcript, and the email
+  // tried once. Retell's copy goes now; a failure retries the job, which
+  // then finds the conversation and comes straight back here.
+  await deleteAtRetellOrRetry(clinicId, callId, deps);
+  return { status: "recorded", result };
 }
 
 /** The worker's handler for one job: logs ids and outcomes only, never the call's content. */
@@ -406,9 +434,9 @@ export async function handleCallBackstopJob(payload: CallBackstopPayload, deps: 
         status: outcome.result.duplicate ? "duplicate" : "recorded",
       });
     } else if (outcome.status === "already_recorded") {
-      // The usual case: the live socket got there first. Logged so a test
-      // call shows the backstop ran.
-      log.info("voice call backstop found the call recorded", { clinicId: payload.clinicId, status: outcome.status });
+      // The usual case: the live socket got there first, and Retell's copy
+      // is now deleted. Logged so a test call shows the backstop ran.
+      log.info("voice call backstop found the call recorded and deleted it at Retell", { clinicId: payload.clinicId, status: outcome.status });
     } else if (outcome.status === "test_mode") {
       log.info("voice call backstop dropped a call in test mode", { clinicId: payload.clinicId, status: outcome.status });
     } else if (outcome.status === "refused" || outcome.status === "unknown_clinic") {

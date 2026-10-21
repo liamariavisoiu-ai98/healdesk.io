@@ -16,68 +16,90 @@ function isRetellCallId(value: unknown): value is string {
 }
 
 /**
- * The backstop for "no call audio is kept" (NOAUDIO-01; the owner's design
- * of 21 October 2026).
+ * Retell's copy of a call, deleted once ours is safe (the owner's decision of
+ * 21 October 2026, reversing NOAUDIO-01's "nothing kept at Retell").
  *
- * Every clinic's Retell agent is set to keep no recording
- * (lib/voice/retell-agent.ts), but a setting can be changed in Retell's
- * console, or not honoured. So each call Retell tells us about is checked:
- * a call object carrying any recording URL is a recording Retell kept, and
- * becomes one opaque alert row (retell_recording_alerts, drizzle/0105): the
- * clinic, Retell's call id, when. Never the URL, never the transcript, never
- * a number, and the recording itself is never fetched.
+ * Every clinic's agent keeps Retell's default storage, `everything`
+ * (lib/voice/retell-agent.ts): the transcript, and unavoidably the
+ * recording, stay at Retell until the call has ended, so the crash backstop
+ * (lib/voice/backstop.ts) can read the words of a call whose voice task
+ * died. Then, once the call is recorded here (the conversation and its
+ * sealed transcript outbox row commit in one transaction, ./ingest.ts), the
+ * backstop job deletes the call at Retell (deleteRetellCallAfterIngest).
+ * Retell's delete-call (DELETE /v2/delete-call/<id>, 204 on success) removes
+ * the call record as a whole: its recording, its transcript and its logs.
+ * It does not wait for SES to deliver the transcript: our sealed copy is the
+ * source from then on. A call never recorded here is never deleted by code;
+ * the agent's data_storage_retention_days (1) is Retell's own backstop for
+ * that and for anything else we fail to delete.
+ *
+ * A recording URL on a call is therefore expected for a while, and is not
+ * an alert. The alert is a call whose data is still at Retell
+ * RETELL_DELETION_WINDOW_MS after it ended: the job's delete failed past the
+ * window, and one opaque row is written for the call
+ * (retell_recording_alerts, drizzle/0105; the table's name is older than
+ * its meaning): the clinic, Retell's call id, when, our own reason. Never
+ * the URL, the transcript or a number, and the recording is never fetched.
  *
  * /admin/recordings (apps/web) lists the alerts through the ops API
  * (listRecordingAlerts) and its button asks apps/app, which alone holds
  * HEALDESK_RETELL_API_KEY, to delete the call at Retell
- * (deleteRecordedCall). Retell's delete-call (DELETE /v2/delete-call/<id>,
- * 204 on success) deletes the call record as a whole: its recording, its
- * transcript and its logs. Nothing of ours depends on Retell's copy once the
- * call is recorded on our side, since the clinic's transcript is our own,
- * sealed in the outbox; the one reader of it is the backstop
- * (lib/voice/backstop.ts), which reads a call the live socket never recorded
- * BACKSTOP_DELAY_SECONDS after it ends and retries for about an hour. So a
- * delete waits until the call has a conversation here, or until the
- * backstop's last retry is over (DELETE_NOT_BEFORE_MS after the alert).
+ * (deleteRecordedCall): the manual backstop. A later automatic delete that
+ * goes through resolves the alert too.
  */
-
-/** The fields of Retell's call object that hold a recording (Retell's get-call reference). */
-export const RECORDING_URL_FIELDS = [
-  "recording_url",
-  "recording_multi_channel_url",
-  "scrubbed_recording_url",
-  "scrubbed_recording_multi_channel_url",
-] as const;
-
-/** Pure: whether Retell's call object says it kept a recording. Reads presence only. */
-export function retellCallHasRecording(call: unknown): boolean {
-  if (!call || typeof call !== "object") return false;
-  const c = call as Record<string, unknown>;
-  return RECORDING_URL_FIELDS.some((field) => typeof c[field] === "string" && (c[field] as string).trim().length > 0);
-}
-
-const ACTOR: ActorContext = { type: "agent", serviceName: "retell-recording-alerts" };
 
 /**
- * Record that Retell kept a recording of this call, once per call: a second
- * webhook (call_analyzed after call_ended, Retell's retries, the backstop's
- * read) finds the row and adds nothing. Returns whether this call wrote it.
- * A clinic id that names no clinic writes nothing. Throws only when the
- * database does, so the webhook can answer 503 and Retell retries.
+ * How long after a call ends its data may stay at Retell before that is an
+ * alert. The backstop job first runs BACKSTOP_DELAY_SECONDS (ten minutes)
+ * after Retell's call-ended webhook and retries with doubling delays, its
+ * last try at least 41 minutes after the webhook, so a delete that fails on
+ * every try is always alerted (pinned by tests/recording-alerts.test.ts).
  */
-export async function recordRecordingAlert(clinicId: string, callId: string): Promise<boolean> {
+export const RETELL_DELETION_WINDOW_MS = 30 * 60_000;
+
+const ACTOR: ActorContext = { type: "agent", serviceName: "retell-call-deletion" };
+
+/**
+ * Record that the call's data is still at Retell past the window, once per
+ * call: a later failure finds the row and only adds to its bookkeeping (one
+ * more attempt, the newest reason) while it is open. Returns whether this
+ * call wrote the row. A clinic id that names no clinic writes nothing.
+ * Throws only when the database does.
+ */
+export async function recordRecordingAlert(
+  clinicId: string,
+  callId: string,
+  failure?: { reason: string; at: Date },
+): Promise<boolean> {
   if (!isRetellCallId(callId)) return false;
   return withTenant({ clinicId, actor: ACTOR }, async (tx) => {
     const [clinic] = await tx.db.select({ id: clinics.id }).from(clinics).where(eq(clinics.id, clinicId)).limit(1);
     if (!clinic) return false;
+    const bookkeeping = failure
+      ? { attempts: 1, lastAttemptAt: failure.at, lastError: failure.reason.slice(0, 200) }
+      : {};
     const inserted = await tx.db
       .insert(retellRecordingAlerts)
-      .values({ clinicId, retellCallId: callId })
+      .values({ clinicId, retellCallId: callId, ...bookkeeping })
       .onConflictDoNothing({ target: [retellRecordingAlerts.clinicId, retellRecordingAlerts.retellCallId] })
       .returning({ id: retellRecordingAlerts.id });
-    if (inserted.length === 0) return false;
+    if (inserted.length === 0) {
+      if (failure) {
+        await tx.db
+          .update(retellRecordingAlerts)
+          .set({ attempts: sql`${retellRecordingAlerts.attempts} + 1`, lastAttemptAt: failure.at, lastError: failure.reason.slice(0, 200) })
+          .where(
+            and(
+              eq(retellRecordingAlerts.clinicId, tx.clinicId),
+              eq(retellRecordingAlerts.retellCallId, callId),
+              isNull(retellRecordingAlerts.resolvedAt),
+            ),
+          );
+      }
+      return false;
+    }
     tx.audit.record({ action: "create", resourceType: "retell_recording_alert", resourceId: inserted[0]!.id });
-    log.warn("retell kept a call recording", { clinicId, callId });
+    log.warn("retell still holds a call past the deletion window", { clinicId, callId });
     return true;
   });
 }
@@ -135,7 +157,7 @@ export async function listRecordingAlerts(
       }
     } catch (error) {
       unreadClinics += 1;
-      log.error("recording alerts not read", { clinicId: clinic.id, error: describeError(error) });
+      log.error("retell deletion alerts not read", { clinicId: clinic.id, error: describeError(error) });
     }
   }
   alerts.sort((a, b) =>
@@ -145,10 +167,13 @@ export async function listRecordingAlerts(
 }
 
 /**
- * Long enough that the backstop has read the call, or given up: its first
- * read is BACKSTOP_DELAY_SECONDS (ten minutes) after the call, and five
- * retries with doubling delays from a minute take about another hour. Two
+ * The manual delete of a call not recorded here waits this long after the
+ * alert, so the backstop has read the call or given up: its first read is
+ * BACKSTOP_DELAY_SECONDS (ten minutes) after the call, and five retries
+ * with doubling delays from a minute take at most about another hour. Two
  * hours, pinned against those numbers by tests/recording-alerts.test.ts.
+ * Alerts are raised only for recorded calls, so this guards an alert whose
+ * conversation has since gone (a patient's erasure, say).
  */
 export const DELETE_NOT_BEFORE_MS = 2 * 60 * 60_000;
 
@@ -169,8 +194,13 @@ export type DeleteDeps = {
   now?: Date;
 };
 
-/** Retell's delete for one call. Our own words come back, never Retell's body. */
-async function deleteAtRetell(callId: string, deps: DeleteDeps): Promise<{ gone: true } | { gone: false; reason: string }> {
+/**
+ * Retell's delete for one call. Idempotent: 204 (deleted) and 404 (Retell
+ * has no such call, which is what deleting wanted) are both gone; any other
+ * answer leaves it to be tried again. Our own words come back, never
+ * Retell's body.
+ */
+export async function deleteAtRetell(callId: string, deps: DeleteDeps): Promise<{ gone: true } | { gone: false; reason: string }> {
   const key = deps.apiKey === undefined ? retellApiKey() : deps.apiKey;
   if (!key) return { gone: false, reason: "HEALDESK_RETELL_API_KEY is not set on apps/app" };
   let response: Response;
@@ -184,9 +214,63 @@ async function deleteAtRetell(callId: string, deps: DeleteDeps): Promise<{ gone:
     const name = error instanceof Error ? error.name : "error";
     return { gone: false, reason: name === "TimeoutError" ? "Retell did not answer within 10 seconds" : "Retell could not be reached" };
   }
-  // 204: deleted. 404: Retell has no such call, which is what deleting wanted.
   if (response.status === 204 || response.status === 200 || response.status === 404) return { gone: true };
   return { gone: false, reason: `Retell answered ${response.status}` };
+}
+
+export type RetellCallDeletion =
+  /** Retell no longer has the call. */
+  | { status: "deleted" }
+  /** No conversation for the call here: our copy is not committed, so Retell's is kept. */
+  | { status: "not_recorded" }
+  /** Retell did not delete it; `alerted` when the window had passed and the alert is written or updated. */
+  | { status: "failed"; reason: string; alerted: boolean };
+
+/**
+ * The automatic step: delete the call at Retell, but only once the call has
+ * a conversation here. The conversation and its sealed transcript outbox row
+ * commit in the same transaction (./ingest.ts), so a conversation is proof
+ * our copy is safe; without one (an ingest that failed or never ran) nothing
+ * is asked of Retell. A failure past RETELL_DELETION_WINDOW_MS after the
+ * call ended is an alert, once per call; before it, the caller retries. A
+ * delete that goes through resolves any open alert for the call.
+ */
+export async function deleteRetellCallAfterIngest(clinicId: string, callId: string, deps: DeleteDeps = {}): Promise<RetellCallDeletion> {
+  if (!isRetellCallId(callId)) return { status: "not_recorded" };
+  const recorded = await withTenant({ clinicId, actor: ACTOR }, async (tx) => {
+    const [row] = await tx.db
+      .select({ id: conversations.id, startedAt: conversations.startedAt, endedAt: conversations.endedAt })
+      .from(conversations)
+      .where(and(eq(conversations.clinicId, tx.clinicId), eq(conversations.externalCallId, callId)))
+      .limit(1);
+    return row ?? null;
+  });
+  if (!recorded) return { status: "not_recorded" };
+
+  const result = await deleteAtRetell(callId, deps);
+  const now = deps.now ?? new Date();
+  if (result.gone) {
+    await withTenant({ clinicId, actor: ACTOR }, async (tx) => {
+      await tx.db
+        .update(retellRecordingAlerts)
+        .set({ resolvedAt: now, lastError: null, lastAttemptAt: now, attempts: sql`${retellRecordingAlerts.attempts} + 1` })
+        .where(
+          and(
+            eq(retellRecordingAlerts.clinicId, tx.clinicId),
+            eq(retellRecordingAlerts.retellCallId, callId),
+            isNull(retellRecordingAlerts.resolvedAt),
+          ),
+        );
+      tx.audit.record({ action: "delete", resourceType: "retell_call", resourceId: recorded.id, metadata: { outcome: "deleted" } });
+    });
+    return { status: "deleted" };
+  }
+
+  const endedAt = recorded.endedAt ?? recorded.startedAt;
+  const late = now.getTime() >= endedAt.getTime() + RETELL_DELETION_WINDOW_MS;
+  log.error("retell call not deleted after ingest", { clinicId, callId, code: result.reason, status: late ? "alerted" : "retrying" });
+  if (late) await recordRecordingAlert(clinicId, callId, { reason: result.reason, at: now });
+  return { status: "failed", reason: result.reason, alerted: late };
 }
 
 /**

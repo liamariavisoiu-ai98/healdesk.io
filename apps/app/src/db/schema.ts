@@ -6813,21 +6813,23 @@ export const handovers = pgTable(
 );
 
 // -----------------------------------------------------------------------------
-// Retell recordings found (NOAUDIO-01, the owner's design of 21 October 2026)
+// Retell call data still held (NOAUDIO-01; reversed by the owner on 21 October 2026)
 // -----------------------------------------------------------------------------
 
 /**
- * One row per call Retell DID keep a recording of, though every clinic's
- * agent is meant to keep none (lib/voice/retell-agent.ts,
- * data_storage_setting basic_attributes_only): found on Retell's call-ended
- * or call-analyzed webhook, or on the backstop's read of the call, by the
- * presence of a recording URL (lib/voice/recording-alerts.ts). The URL
- * itself is never stored, followed or fetched.
+ * One row per call whose data Retell still holds past the deletion window
+ * (lib/voice/recording-alerts.ts, RETELL_DELETION_WINDOW_MS). Retell keeps
+ * a call's transcript and recording until the call has ended; once our copy
+ * is committed (the conversation and its sealed transcript, in one
+ * transaction) the backstop job deletes the call at Retell. A row is
+ * written only when that delete has not gone through in time, so the table
+ * name is older than its meaning: a recording URL on a call is expected, not
+ * an alert.
  *
- * An opaque alert: the clinic, Retell's call id and when, and, once the
- * operator pressed delete in /admin/recordings, when Retell deleted the call
- * (resolved_at) or the short reason it did not (last_error, written by our
- * code, never Retell's body). No transcript, no number, no words.
+ * An opaque alert: the clinic, Retell's call id and when, and the delete
+ * bookkeeping: when Retell deleted the call (resolved_at), or the short
+ * reason it did not (last_error, written by our code, never Retell's body).
+ * No transcript, no number, no words, no URL.
  */
 export const retellRecordingAlerts = pgTable(
   "retell_recording_alerts",
@@ -6838,7 +6840,7 @@ export const retellRecordingAlerts = pgTable(
       .references(() => clinics.id, { onDelete: "cascade" }),
     retellCallId: text("retell_call_id").notNull(),
     detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
-    /** How many times the operator asked Retell to delete it. */
+    /** How many times Retell was asked to delete it since the alert, by the job or the operator. */
     attempts: integer("attempts").notNull().default(0),
     lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
     /** Why the last delete did not go, in our words; cleared when it does. */

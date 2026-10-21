@@ -14,21 +14,24 @@ import {
 } from "./api";
 
 /**
- * The ops operations for Retell recordings found (NOAUDIO-01), kept beside
- * the ops API's dispatch rather than in it (lib/ops/api.ts names them and
- * calls these):
+ * The ops operations for Retell calls not deleted in time, kept beside the
+ * ops API's dispatch rather than in it (lib/ops/api.ts names them and calls
+ * these). Retell keeps each call's transcript and recording until the
+ * backstop job deletes the call once it is recorded here
+ * (lib/voice/recording-alerts.ts); an alert is a call Retell still held
+ * RETELL_DELETION_WINDOW_MS after it ended.
  *
  *   - `listRecordingAlerts`, a read for /admin/recordings: every alert, open
  *     first. A hand-written projection of ids and times (the clinic's id and
- *     slug, Retell's call id, when it was found, the delete attempts and our
+ *     slug, Retell's call id, when it was raised, the delete attempts and our
  *     own reason for the last failure). Never a recording URL, a transcript
  *     or a number: the table holds none (drizzle/0105).
- *   - `deleteRecordedCall`, the button: apps/app, which alone holds
- *     HEALDESK_RETELL_API_KEY, asks Retell to delete the call
- *     (lib/voice/recording-alerts.ts), and the alert resolves when Retell
- *     answers 204, or 404 for a call it no longer has. A resolved alert
- *     answers `already` without asking again; a failure stays open with the
- *     reason. Each press is a security event naming the operator.
+ *   - `deleteRecordedCall`, the manual backstop's button: apps/app, which
+ *     alone holds HEALDESK_RETELL_API_KEY, asks Retell to delete the call,
+ *     and the alert resolves when Retell answers 204, or 404 for a call it
+ *     no longer has. A resolved alert answers `already` without asking
+ *     again; a failure stays open with the reason. Each press is a security
+ *     event naming the operator.
  */
 
 let depsForTests: DeleteDeps | undefined;
@@ -42,8 +45,8 @@ export async function opListRecordingAlerts(operator: Operator): Promise<OpsOutc
   try {
     return ok(await listRecordingAlerts(actorFor(operator), operator.request));
   } catch (error) {
-    log.error("recording alerts not listed", { error: describeError(error) });
-    return opsProblem("The recording alerts could not be read.", 500, "failed");
+    log.error("retell deletion alerts not listed", { error: describeError(error) });
+    return opsProblem("The Retell deletion alerts could not be read.", 500, "failed");
   }
 }
 

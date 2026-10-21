@@ -110,7 +110,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     status: "building",
     left: "Each clinic's Retell agent is being created with recording storage off in code, so the promise does not depend on the Retell console.",
     evidence:
-      "docs/counsel/state-disclosure.md decision 2; apps/app lib/voice/retell-agent.ts (agents written and read back with data_storage_setting basic_attributes_only; not yet called), lib/voice/recording-alerts.ts and /admin/recordings (a recording Retell keeps anyway is alerted per call and deleted at Retell), tests/recording-alerts.test.ts",
+      "docs/counsel/state-disclosure.md decision 2, written for no audio kept, which the owner reversed on 21 October 2026: Retell now keeps each call's transcript and recording until the call has been processed. apps/app lib/voice/retell-agent.ts (agents written and read back with data_storage_setting everything and data_storage_retention_days 1, Retell's own deletion a day later; not yet called), lib/voice/backstop.ts and lib/voice/recording-alerts.ts (once the call and its sealed transcript are committed here, the backstop job deletes the call at Retell, retried; a call still at Retell 30 minutes after it ended is one alert on /admin/recordings, with a Delete at Retell button), tests/recording-alerts.test.ts and tests/voice-backstop.test.ts. The promise's wording still says no audio is kept and needs the owner and counsel.",
     blocksGoLive: true,
   },
   {

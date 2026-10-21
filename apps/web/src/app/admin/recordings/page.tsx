@@ -12,17 +12,19 @@ import {
 import { isHostUnreachable } from "@/lib/host/state";
 
 /**
- * /admin/recordings: calls Retell kept a recording of (NOAUDIO-01).
+ * /admin/recordings: calls whose data Retell still held after the deletion
+ * window, the manual backstop to an automatic delete.
  *
- * We promise no call audio is kept, and every clinic's Retell agent is set to
- * keep none. apps/app checks each finished call Retell tells it about, and a
- * call carrying a recording becomes one alert here: the clinic, Retell's call
- * id and when. The button has apps/app, which alone holds the Retell key,
- * delete the call at Retell (its recording, transcript and logs), and the
- * alert resolves when Retell says it is gone. The clinic's own transcript is
- * ours, sealed in the outbox, so nothing here needs Retell's copy; apps/app
- * waits two hours after a call it has not recorded, so the backstop can still
- * read it.
+ * Retell keeps each call's transcript, and with it the recording, until the
+ * call has ended (the owner's decision of 21 October 2026). Once apps/app
+ * has recorded the call, its transcript sealed in the outbox, the backstop
+ * job deletes the call at Retell. A recording at Retell before that is
+ * expected. Only a call Retell still holds 30 minutes after it ended, with
+ * the automatic delete failing, becomes an alert here: the clinic, Retell's
+ * call id and when. The button has apps/app, which alone holds the Retell
+ * key, delete the call at Retell (its recording, transcript and logs), and
+ * the alert resolves when Retell says it is gone; so does a later automatic
+ * delete that goes through.
  *
  * What this page shows is ids, counts and times, as the ops API sends them:
  * never the recording or its address, which apps/app does not keep, and
@@ -31,7 +33,7 @@ import { isHostUnreachable } from "@/lib/host/state";
  */
 
 export const metadata: Metadata = {
-  title: "Recordings",
+  title: "Retell deletions",
 };
 
 export const dynamic = "force-dynamic";
@@ -75,7 +77,7 @@ function Row({ alert }: { alert: RecordingAlertView }) {
     <li className="border-line rounded-md border bg-white p-5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="font-mono text-[15px] font-semibold">{alert.callId}</span>
-        <span className="text-muted text-sm">found {when(alert.detectedAt)}</span>
+        <span className="text-muted text-sm">still at Retell {when(alert.detectedAt)}</span>
       </div>
       <p className="text-muted mt-1 text-sm">
         Clinic{" "}
@@ -113,7 +115,7 @@ export default async function RecordingsPage({
   if (!(await requireOperator())) redirect("/admin/sign-in");
   const { result } = await searchParams;
   const loaded = await fetchRecordingAlerts();
-  if (!loaded.ok && isHostUnreachable(loaded)) return <HostStandbyPage title="Recordings" />;
+  if (!loaded.ok && isHostUnreachable(loaded)) return <HostStandbyPage title="Retell deletions" />;
 
   const open = loaded.ok ? loaded.data.alerts.filter((a) => !a.resolvedAt) : [];
   const resolved = loaded.ok ? loaded.data.alerts.filter((a) => a.resolvedAt) : [];
@@ -121,12 +123,14 @@ export default async function RecordingsPage({
   return (
     <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
       <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">
-        Recordings
+        Retell deletions
       </h1>
       <p className="text-muted mt-3 max-w-[70ch] text-[15.6px]">
-        Calls Retell kept a recording of, though every clinic&apos;s agent is set to keep none.
-        Each one breaks our promise that no call audio is kept: delete it at Retell, then check
-        the clinic&apos;s agent settings in Retell&apos;s console.
+        Retell keeps a call&apos;s transcript and recording only until the call has been
+        processed here; then the call is deleted at Retell automatically. These are calls
+        Retell still held 30 minutes after they ended because that delete did not go
+        through: delete each at Retell. Retell removes anything left after a day on its
+        own.
       </p>
 
       {result && RESULTS[result] ? (
@@ -150,7 +154,7 @@ export default async function RecordingsPage({
           ) : null}
           <h2 className="mt-8 text-[19.2px] font-bold">To delete ({open.length})</h2>
           {open.length === 0 ? (
-            <p className="text-muted mt-3 text-[15.6px]">No recording is waiting.</p>
+            <p className="text-muted mt-3 text-[15.6px]">No call is waiting to be deleted.</p>
           ) : (
             <ul className="mt-3 grid gap-3">
               {open.map((a) => (

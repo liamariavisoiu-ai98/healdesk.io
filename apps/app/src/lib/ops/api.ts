@@ -597,11 +597,12 @@ const OPERATIONS = [
   "issueDeviceRecovery",
   "endDeviceRecovery",
   "removeClinicDevices",
-  // Retell recordings found (NOAUDIO-01; lib/ops/recording-alerts-ops.ts):
-  // the calls Retell kept a recording of though every agent is set to keep
-  // none, as ids and times; and the button, which has this host delete the
-  // call at Retell with HEALDESK_RETELL_API_KEY and resolve the alert. Never
-  // a recording URL, a transcript or a number, either way.
+  // Retell calls not deleted in time (lib/ops/recording-alerts-ops.ts): the
+  // calls whose data Retell still held 30 minutes after they ended, though
+  // the backstop job deletes each once it is recorded here, as ids and
+  // times; and the button, which has this host delete the call at Retell
+  // with HEALDESK_RETELL_API_KEY and resolve the alert. Never a recording
+  // URL, a transcript or a number, either way.
   "listRecordingAlerts",
   "deleteRecordedCall",
 ] as const;

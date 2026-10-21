@@ -101,6 +101,25 @@ async function open(
   );
 }
 
+/**
+ * A weekday morning in the seeded clinics' zone (15:00Z: 10:00 in New York),
+ * the first at least an hour ahead of the database's clock. A queued notice's
+ * send_after defaults to the database's now(), and deliverNotice({ now }) sends
+ * only what is due by `now`, so a fixed date stops sending the day the real
+ * clock passes it.
+ */
+async function weekdayMorningAhead(): Promise<Date> {
+  const { rows } = await getMigratorPool().query<{ t: Date }>(
+    `select now() + interval '1 hour' as t`,
+  );
+  const ahead = rows[0]!.t;
+  let at = new Date(Date.UTC(ahead.getUTCFullYear(), ahead.getUTCMonth(), ahead.getUTCDate(), 15));
+  while (at.getTime() <= ahead.getTime() || at.getUTCDay() === 0 || at.getUTCDay() === 6) {
+    at = new Date(at.getTime() + 86_400_000);
+  }
+  return at;
+}
+
 async function setJobs(enabled: boolean): Promise<void> {
   await getMigratorPool().query(
     `update scheduled_jobs set enabled = $1 where name = 'billing-notices'`,
@@ -707,7 +726,7 @@ describeDb("the operator's notices and the incidents page (WP7)", () => {
       expect(
         await deliverNotice(c.clinicId, row!.id, {
           transport,
-          now: new Date("2027-01-05T15:00:00Z"),
+          now: await weekdayMorningAhead(),
         }),
       ).toBe("sent");
       expect(transport.calls[0]!.message.headers?.["List-Unsubscribe"]).toBeUndefined();
@@ -802,7 +821,7 @@ describeDb("the operator's notices and the incidents page (WP7)", () => {
         actionUrl: `${ORIGIN}/c/${on.slug}/conversations`,
       });
 
-      const now = new Date("2027-01-05T15:00:00Z");
+      const now = await weekdayMorningAhead();
       const transport = new FakeTransport();
       expect(await deliverNotice(on.clinicId, onRow!.id, { transport, now })).toBe("sent");
       const headers = transport.calls[0]!.message.headers ?? {};

@@ -25,7 +25,7 @@
 # postgres 17.11 on Alpine 3.24 (the multi-architecture index, 17 September
 # 2026): the client matches RDS's major version. Pinned so a rebuild cannot
 # change what runs against the production database without a diff here.
-FROM postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+FROM postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
 
 # The AWS CLI v2 for init-secrets, from Alpine's own package: AWS publishes no
 # build for musl. Held to the 2.34 line this image was tested with (2.34.63

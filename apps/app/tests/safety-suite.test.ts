@@ -2,12 +2,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { NEVER_SAY_DEFAULTS } from "@healdesk/catalog";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { AssistantChannel, AssistantFacts } from "@/lib/assistant/facts";
 import { guardAssistantReply, guardedLine, NEVER_SAY_PROTECTED, neverSayBlocksDisclosure } from "@/lib/assistant/guard";
 import { openingLine } from "@/lib/assistant/opening";
-import { answerTurn, FAILURE_LINE, refusalLine, type AssistantTurnResult } from "@/lib/assistant/turn";
+import { answerTurn, FAILURE_LINE, MODEL_DEADLINE_MS, refusalLine, type AssistantTurnResult } from "@/lib/assistant/turn";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { screenInbound } from "@/lib/meta/front-door";
 import { neverSayWithDefaults, validateNeverSay } from "@/lib/setup/knowledge";
@@ -119,12 +119,14 @@ for (const channel of CHANNELS) {
       });
 
       for (const c of UNSCREENED_LANGUAGE_URGENT) {
-        test(`${c.label}: a language no screen reads gets the fixed line with 911, and never the model`, async () => {
+        test(`${c.label}: a language the assistant does not answer in gets the fixed line with 911, never the model, and is urgent`, async () => {
           const model = stubModel(() => modelJson("model answered"));
           const { results } = await run([c.text], model.responder, channel);
           expect(model.calls).toHaveLength(0);
           expect(results[0]!.source).toBe("language");
           expect(results[0]!.reply).toMatch(/911/);
+          // Urgent, so the adapter alerts the clinic whatever the language.
+          expect(results[0]!.urgent).toBe(true);
         });
       }
 
@@ -306,27 +308,64 @@ for (const channel of CHANNELS) {
         expect(results[0]).toMatchObject({ source: "model", reply: "We're open weekdays." });
       });
 
-      // DEFECT: apps/app/src/lib/assistant/turn.ts parseModelAnswer falls back
-      // to the raw text when the JSON does not parse, so a reply cut off at
-      // max_tokens is sent with its braces and field names (and whatever the
-      // booking object held) to the person.
-      test.fails("truncated JSON is never sent raw to the person [DEFECT]", async () => {
+      // Fixed 21 October 2026: parseModelAnswer used to fall back to the raw
+      // text when the JSON did not parse, so a reply cut off at max_tokens was
+      // sent with its braces and field names (and whatever the booking object
+      // held) to the person. Now it is a failure like a throw.
+      test("truncated JSON is never sent raw to the person: the failure line, and nothing captured", async () => {
         const model = stubModel(() => '{"reply": "We are open weekdays", "booking": {"wants": true, "phone": "415 555 01');
         const { results } = await run(["When are you open?"], model.responder, channel);
         expect(results[0]!.reply).not.toMatch(/[{}"]|booking|wants/);
+        expect(results[0]).toMatchObject({ source: "fallback", reply: FAILURE_LINE, end: false });
+        expect(results[0]!.capture.phone).toBeNull();
       });
 
-      // DEFECT: apps/app/src/lib/assistant/turn.ts answerTurn has no deadline
-      // of its own around the responder: only the SDK's timeout (8 s on a
-      // call, responder.ts MODEL_CONFIG) bounds it, so a responder that hangs
-      // holds the turn, and on a call the caller, in silence.
-      test.fails("a model that hangs still ends the turn with the failure line [DEFECT]", async () => {
-        const model = stubModel(() => new Promise<string>(() => {}));
-        const settled = await Promise.race([
-          run(["When are you open?"], model.responder, channel).then((r) => r.results[0]!.reply),
-          new Promise<string>((resolve) => setTimeout(() => resolve("still waiting"), 500)),
-        ]);
-        expect(settled).toBe(FAILURE_LINE);
+      test("a reply naming the JSON field with no braces is malformed too, and plain prose is still read", async () => {
+        const broken = await run(["When are you open?"], stubModel(() => '"reply": "We are open weekdays"').responder, channel);
+        expect(broken.results[0]).toMatchObject({ source: "fallback", reply: FAILURE_LINE });
+        const prose = await run(["When are you open?"], stubModel(() => "We're open weekdays nine to five.").responder, channel);
+        expect(prose.results[0]).toMatchObject({ source: "model", reply: "We're open weekdays nine to five." });
+      });
+
+      // Fixed 21 October 2026: answerTurn had no deadline of its own around
+      // the responder, only the SDK's timeout (8 s on a call), so a
+      // responder that hung held the turn, and on a call the caller, in
+      // silence. Fake timers: no real wait.
+      describe("our own deadline around the model", () => {
+        afterEach(() => {
+          vi.useRealTimers();
+        });
+
+        test("a model that hangs still ends the turn with the failure line at the channel's deadline", async () => {
+          vi.useFakeTimers();
+          const model = stubModel(() => new Promise<string>(() => {}));
+          let settled: string | null = null;
+          const turn = run(["When are you open?"], model.responder, channel).then((r) => (settled = r.results[0]!.reply));
+          await vi.advanceTimersByTimeAsync(MODEL_DEADLINE_MS[channel] - 1);
+          expect(settled).toBeNull();
+          await vi.advanceTimersByTimeAsync(1);
+          await turn;
+          expect(settled).toBe(FAILURE_LINE);
+          expect(vi.getTimerCount()).toBe(0);
+        });
+
+        test("the deadline is configurable, and a model that answers in time is unaffected and leaves no timer", async () => {
+          vi.useFakeTimers();
+          const facts = SAFETY_FACTS;
+          const history = [{ speaker: "assistant" as const, text: openingLine(facts, channel) }];
+          const hung = answerTurn({ facts, channel, history, text: "When are you open?", responder: () => new Promise(() => {}), now: NOW, modelDeadlineMs: 50 });
+          await vi.advanceTimersByTimeAsync(50);
+          expect(await hung).toMatchObject({ source: "fallback", reply: FAILURE_LINE });
+          const quick = await answerTurn({ facts, channel, history, text: "When are you open?", responder: async () => modelJson(BENIGN_REPLY), now: NOW });
+          expect(quick).toMatchObject({ source: "model", reply: BENIGN_REPLY });
+          expect(vi.getTimerCount()).toBe(0);
+        });
+
+        test("the voice deadline is under the SDK's own timeout for a call, so the failure line comes on our clock", async () => {
+          const { MODEL_CONFIG } = await import("@/lib/assistant/responder");
+          expect(MODEL_DEADLINE_MS.voice).toBeLessThan(MODEL_CONFIG.voice.timeoutMs!);
+          expect(MODEL_DEADLINE_MS.web_chat).toBeGreaterThan(MODEL_CONFIG.web_chat.timeoutMs!);
+        });
       });
     });
 
@@ -336,7 +375,16 @@ for (const channel of CHANNELS) {
         const model = stubModel(() => modelJson("Thanks Dana, the team will be in touch within a day.", { booking: { wants: true, first_name: "Dana", phone: "415 555 0192", window: "Thursday" }, end: true }));
         const { results } = await run(["Dana, 415 555 0192, Thursday please"], model.responder, channel);
         // The whole result: what is said, what is captured for the desk, and flags. No send, schedule or recipient.
-        expect(Object.keys(results[0]!).sort()).toEqual(["capture", "end", "handoff", "personText", "reply", "source", "urgent"]);
+        // The booking tool layer (booking-tools.ts) added three, each data for
+        // the adapter within this conversation and addressed to nobody:
+        // toolState, the slots offered and the one booking or request, handed
+        // back on the next turn; toolsLive, whether the tools were offered; and
+        // tool, what the tool layer did this turn (its fixed line, said now,
+        // and the ids of the booking or request it wrote). None holds a
+        // recipient, a channel or a time to contact anyone. A new key here
+        // must be read the same way before it is added to this list.
+        expect(Object.keys(results[0]!).sort()).toEqual(["capture", "end", "handoff", "personText", "reply", "source", "tool", "toolState", "toolsLive", "urgent"]);
+        expect(results[0]!.tool).toBeNull();
       });
     });
   });

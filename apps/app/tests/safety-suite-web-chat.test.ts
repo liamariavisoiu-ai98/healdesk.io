@@ -14,7 +14,7 @@ import { withTenant } from "@/lib/tenant";
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { bindAgreementInEffect, inTenant, queuedNotices, seedClinic, seedEntitled, setWeekdayHours } from "./setup/factories";
 import { attestPlatform } from "./setup/platform";
-import { BENIGN_REPLY, FORBIDDEN_OUTPUT_CASES, INJECTION_CASES, modelJson, SAFETY_FACTS, stubModel, URGENT_CASES, type ModelCall } from "./setup/safety-cases";
+import { BENIGN_REPLY, FORBIDDEN_OUTPUT_CASES, INJECTION_CASES, modelJson, SAFETY_FACTS, stubModel, UNSCREENED_LANGUAGE_URGENT, URGENT_CASES, type ModelCall } from "./setup/safety-cases";
 
 /**
  * THE SAFETY SUITE, web chat: the cases of tests/setup/safety-cases.ts
@@ -172,16 +172,22 @@ describeDb("safety suite: web chat, end to end", () => {
       expect(JSON.stringify(alerts[0]!.payload)).not.toMatch(/throat|breathe/);
     });
 
-    // DEFECT: apps/app/src/lib/assistant/turn.ts answers a language no
-    // screen reads with the language line (911 and the clinic's number) and
-    // no alert: an urgent message in French or German is not escalated to the
-    // clinic, because only English and Spanish are screened.
-    test.fails("urgent words in a language no screen reads are still escalated to the clinic [DEFECT]", async () => {
-      const r = await chat(clinic, ["J'ai du mal à respirer"], () => modelJson("model answered"), transport);
-      expect(r.calls).toHaveLength(0);
-      expect(r.replies[0]).toMatch(/911/);
-      expect(await conversation(clinic.clinicId, r.conversationId)).toMatchObject({ urgent: true });
-    });
+    // Fixed 21 October 2026: a language the assistant does not answer in
+    // got the language line (911 and the clinic's number) and no alert,
+    // because only English and Spanish were screened. The urgent screen now
+    // reads French, German, Italian and Portuguese fragments, and the turn is
+    // urgent whatever the language (lib/assistant/turn.ts).
+    for (const c of UNSCREENED_LANGUAGE_URGENT) {
+      test(`${c.label}: urgent words in a language the assistant does not answer in are escalated to the clinic`, async () => {
+        const r = await chat(clinic, [c.text], () => modelJson("model answered"), transport);
+        expect(r.calls).toHaveLength(0);
+        expect(r.replies[0]).toMatch(/911/);
+        expect(r.replies[0]).toMatch(/I can only help in English or Spanish/);
+        expect(await conversation(clinic.clinicId, r.conversationId)).toMatchObject({ urgent: true, outcome: "escalated_to_human" });
+        const alerts = await queuedNotices(clinic.clinicId, ["urgent"]);
+        expect(alerts.map((a) => a.dedupe_key)).toContain(`urgent:conversation:${r.conversationId}`);
+      });
+    }
   });
 
   // ---------------------------------------------------------------------------

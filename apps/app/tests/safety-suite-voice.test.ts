@@ -17,7 +17,7 @@ import { CLOSED_LINE, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE, t
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { inTenant, queuedNotices, seedClinic } from "./setup/factories";
-import { BENIGN_REPLY, FORBIDDEN_OUTPUT_CASES, INJECTION_CASES, modelJson, SAFETY_FACTS, stubModel, URGENT_CASES, type ModelCall } from "./setup/safety-cases";
+import { BENIGN_REPLY, FORBIDDEN_OUTPUT_CASES, INJECTION_CASES, modelJson, SAFETY_FACTS, stubModel, UNSCREENED_LANGUAGE_URGENT, URGENT_CASES, type ModelCall } from "./setup/safety-cases";
 
 /**
  * THE SAFETY SUITE, voice: the cases of tests/setup/safety-cases.ts through
@@ -190,6 +190,19 @@ describeDb("safety suite: voice, end to end", () => {
         const alerts = await queuedNotices(clinic.clinicId, ["urgent"]);
         expect(alerts.map((a) => a.dedupe_key)).toContain(`urgent:call:${r.callId}`);
         expect(r.event).toMatchObject({ urgent: true, outcome: "escalated_to_human", isCallback: false });
+        expect(await conversationFor(clinic.clinicId, r.callId)).toMatchObject({ urgent: true, outcome: "escalated_to_human" });
+      });
+    }
+
+    // Fixed 21 October 2026: urgent words in a language the assistant does
+    // not answer in got the language line and no alert (lib/assistant/turn.ts).
+    for (const c of UNSCREENED_LANGUAGE_URGENT) {
+      test(`${c.label}: urgent words in a language the assistant does not answer in alert the clinic`, async () => {
+        const r = await call(clinic.clinicId, [c.text], () => modelJson("model answered"), transport);
+        expect(r.calls).toHaveLength(0);
+        expect(r.responses[1]!.content).toMatch(/911/);
+        const alerts = await queuedNotices(clinic.clinicId, ["urgent"]);
+        expect(alerts.map((a) => a.dedupe_key)).toContain(`urgent:call:${r.callId}`);
         expect(await conversationFor(clinic.clinicId, r.callId)).toMatchObject({ urgent: true, outcome: "escalated_to_human" });
       });
     }

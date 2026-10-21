@@ -7,6 +7,7 @@ import { MAX_WRITE_ATTEMPTS } from "@/lib/booking/calendar";
 import { channelLabel, DECIDABLE_FROM, type BookingRequestView } from "@/lib/meta/booking-requests";
 import {
   BOOKED_LOOKBACK_DAYS,
+  bookingDepositLine,
   bookingRequestPath,
   bookingsPath,
   handoverWords,
@@ -482,23 +483,6 @@ function depositAmount(a: BookedAppointment): string {
     : "A deposit";
 }
 
-function depositLine(a: BookedAppointment): string {
-  const usd = a.depositUsd === null ? NaN : Number(a.depositUsd);
-  const amount = Number.isFinite(usd) && usd > 0 ? ` of ${portalMoney(Math.round(usd * 100))}` : "";
-  switch (a.depositStatus) {
-    case "pending_front_desk":
-      return `Deposit${amount} to collect: call them`;
-    case "pending_link":
-      return `Deposit${amount}: payment link sent, not paid yet`;
-    case "paid":
-      return `Deposit${amount} paid`;
-    case "waived":
-      return "Deposit waived";
-    default:
-      return "No deposit";
-  }
-}
-
 function calendarLine(a: BookedAppointment): string | null {
   const w = a.calendarWrite;
   if (w.status === "written" || w.status === "none") return null;
@@ -532,7 +516,7 @@ function BookedRow(props: {
           ? `AYA booked it through ${channelLabel(a.channel, a.platform)}.`
           : `${a.decidedByLabel ? `Confirmed by ${a.decidedByLabel}` : "Your team confirmed it"} from AYA's request.`}
       </p>
-      <p className="mt-1 text-sm font-medium">{depositLine(a)}</p>
+      <p className="mt-1 text-sm font-medium">{bookingDepositLine(a)}</p>
       {calendar ? <p className="mt-1 text-sm font-medium">{calendar}</p> : null}
       <Amendments items={a.amendments} zone={zone} now={now} />
       {a.depositStatus === "pending_front_desk" ? (

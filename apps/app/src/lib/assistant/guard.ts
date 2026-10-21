@@ -926,7 +926,15 @@ const OTHER_PARTY: readonly RegExp[] = [
 ];
 const COMPARATIVE =
   /\b(?:cheaper|better|more affordable|less expensive|lower[- ]priced|more experienced|safer|more qualified|nicer|cleaner|faster|friendlier|more professional|superior)\s+(?:to|than)\s+(\S+(?:\s+\S+)?)/gi;
-const NOT_A_RIVAL = /^(?:expected|usual|average|before|ever|last|that|this|you|we|it|they|most of|anything|nothing|the (?:price|cost|list|menu|average|usual|last|first)|a (?:year|month|week)|\$|\d|i |what|people|waiting|paying|going|doing)/i;
+// A day, a month or a time of day is capitalised or plain, and no rival:
+// "Would Monday be better than Tuesday?", "Are mornings better than other
+// days?" are scheduling, and RIVAL's capital letter would otherwise read them.
+const NOT_A_RIVAL = new RegExp(
+  "^(?:expected|usual|average|before|ever|last|that|this|you|we|it|they|most of|anything|nothing|the (?:price|cost|list|menu|average|usual|last|first)|a (?:year|month|week)|\\$|\\d|i |what|people|waiting|paying|going|doing" +
+    "|(?:mon|tues|wednes|thurs|fri|satur|sun)days?\\b|(?:january|february|march|april|may|june|july|august|september|october|november|december)\\b" +
+    "|(?:today|tomorrow|tonight|mornings?|afternoons?|evenings?|weekends?|weekdays?|next|later|earlier|now)\\b|other (?:days?|times?|slots?|dates?|weeks?|months?)\\b)",
+  "i",
+);
 const RIVAL = /^(?:other|another|any(?:one|where)? other|most (?:other )?(?:clinics|spas|places|practices)|the (?:competition|competitors?|clinic|spa|place|practice|guys|one) |competitors?|the rest|everyone else|places|clinics|spas|practices|\p{Lu})/u;
 
 export function mentionsOtherParty(reply: string, facts: { clinicName?: string | null } = {}): boolean {

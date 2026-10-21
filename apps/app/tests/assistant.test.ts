@@ -747,7 +747,7 @@ describe("the guard: the rules added after the safety suite", () => {
       rule: "another patient, or another practice",
       reason: "other_party",
       blocked: ["Another patient, Jane, had the same thing last week.", "One of our clients had that too.", "We're cheaper than Glow Med Spa down the road.", "We're better than other clinics."],
-      passes: ["I can't share anything about other patients.", "That came out better than expected.", "Other questions? Just ask.", "Radiance Med Spa is on Main St."],
+      passes: ["I can't share anything about other patients.", "That came out better than expected.", "Other questions? Just ask.", "Radiance Med Spa is on Main St.", "Would Monday be better than Tuesday for you?", "Is the morning better than the afternoon?", "Is Thursday better than other days?", "Is March better than April for you?"],
     },
     {
       rule: "a booking claimed in other words",

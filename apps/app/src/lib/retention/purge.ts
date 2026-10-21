@@ -1,5 +1,5 @@
 import { agreementStatesThePurge } from "@/lib/agreements/what-it-says";
-import { and, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, lt, lte, or, sql } from "drizzle-orm";
 
 import {
   appointments,
@@ -15,6 +15,7 @@ import {
   patientRequests,
   reconciliationExceptions,
   recordAmendments,
+  retellRecordingAlerts,
   slotHolds,
   syncRuns,
   transactions,
@@ -226,6 +227,8 @@ export const PURGE_COVERAGE: Readonly<{
     slot_holds: "a week once it no longer blocks, or the record clock if shorter",
     handovers: "with its conversation or thread (cascade), and in any case the record clock after it was asked",
     patient_requests: "the record clock after it reached healdesk, marked received or not",
+    retell_recording_alerts:
+      "once resolved (Retell deleted the call), the record clock after it was found; an open one stays, the only trace of a recording Retell still holds, until resolved or the clinic's destruction",
   },
   notPurged: {
     conversation_flags:
@@ -296,6 +299,8 @@ export type PurgeResult = {
   handoversDeleted: number;
   /** Patients' requests passed to the practice, past the record clock (drizzle/0094). */
   patientRequestsDeleted: number;
+  /** Resolved Retell recording alerts past the record clock (drizzle/0105). */
+  recordingAlertsDeleted: number;
 };
 
 const promised = new Map<string, boolean>();
@@ -365,6 +370,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     metaMessageRefsDeleted: 0,
     handoversDeleted: 0,
     patientRequestsDeleted: 0,
+    recordingAlertsDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -614,6 +620,24 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: patientRequests.id });
   result.patientRequestsDeleted = requestsPassed.length;
 
+  // 3c. Retell recording alerts (drizzle/0105): one of the clinic's calls by
+  //     Retell's id and time. A resolved one (Retell deleted the call) on the
+  //     record clock after it was found, as the call's own record would go;
+  //     an open one is kept, since it is the only trace of a recording Retell
+  //     still holds, until the operator's delete resolves it or the clinic's
+  //     destruction takes it.
+  const oldRecordingAlerts = await tx.db
+    .delete(retellRecordingAlerts)
+    .where(
+      and(
+        eq(retellRecordingAlerts.clinicId, tx.clinicId),
+        isNotNull(retellRecordingAlerts.resolvedAt),
+        lt(retellRecordingAlerts.detectedAt, recordBefore),
+      ),
+    )
+    .returning({ id: retellRecordingAlerts.id });
+  result.recordingAlertsDeleted = oldRecordingAlerts.length;
+
   // 4. Contacts nothing refers to any more, and that are themselves old. A
   //    request still inside the clock keeps its person: a Meta request reuses
   //    the contact without touching updated_at, and a person a request names
@@ -730,7 +754,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.depositsDeleted +
     result.metaMessageRefsDeleted +
     result.handoversDeleted +
-    result.patientRequestsDeleted;
+    result.patientRequestsDeleted +
+    result.recordingAlertsDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -751,6 +776,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         metaMessageRefs: result.metaMessageRefsDeleted,
         handovers: result.handoversDeleted,
         patientRequests: result.patientRequestsDeleted,
+        recordingAlerts: result.recordingAlertsDeleted,
         mediaDays: clinic.mediaDays,
         transcriptDays,
         recordDays: clinic.recordDays,

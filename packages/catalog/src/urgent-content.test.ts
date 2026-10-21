@@ -721,3 +721,51 @@ describe("the safety suite's misses (21 October 2026): plain words, misspellings
     expect(findUrgentContent("how long does swelling last after lip filler?", "med-spa")).toMatchObject({ label: "swelling" });
   });
 });
+
+describe("review of the widened screen (21 October 2026): ordinary questions it caught, and what it must still read", () => {
+  // Skin tone, pigmentation and marks are the ordinary business of a laser
+  // or skin clinic; a name, a distance and Rioplatense "sos" are not cries for help.
+  test.each([
+    "My skin is dark, is laser hair removal safe for me?",
+    "my skin type is dark, can I get IPL?",
+    "I have a spot on my cheek that is dark, can you remove it?",
+    "my skin is blotchy and red, would a facial help?",
+    "my skin is patchy, do you do chemical peels?",
+    "my face is getting dark spots, do you treat pigmentation?",
+    "Hi, this is Socorro, I'd like to book Botox",
+    "Socorro Martinez",
+    "vos sos la clínica de Palermo?",
+    "how many kms is it from the airport?",
+    "it's 5 kms from my house",
+    "help me please book an appointment",
+    "can you help me please with a booking",
+  ])("%j is not urgent", (text) => {
+    expect(findUrgentContent(text, "med-spa")).toBeNull();
+  });
+
+  test.each([
+    ["my lip went white after the filler", "a change in the skin or in sight"],
+    ["my face went pale", "a change in the skin or in sight"],
+    ["my lip is white", "a change in the skin or in sight"],
+    ["my lip looks pale", "a change in the skin or in sight"],
+    ["my skin has gone grey", "a change in the skin or in sight"],
+    ["my skin is very pale", "a change in the skin or in sight"],
+    ["the skin is turning dark where she injected", "a change in the skin or in sight"],
+    ["since the filler my lip looks white", "a change in the skin or in sight"],
+    ["my lips are blue", "a change in the skin or in sight"],
+    ["the area looks mottled", "a change in the skin or in sight"],
+    ["Will the filler look blue under my eyes?", "a change in the skin or in sight"],
+    ["SOS", "an emergency"],
+    ["help me please", "an emergency"],
+    ["help me now!", "an emergency"],
+    ["kms", "a crisis"],
+    ["i want to kms", "a crisis"],
+  ])("%j is still urgent (%s)", (text, label) => {
+    expect(findUrgentContent(text, "med-spa")).toMatchObject({ label });
+  });
+
+  test("socorro as a cry is still read", () => {
+    expect(findUrgentContent("socorro!", "med-spa")).not.toBeNull();
+    expect(findUrgentContent("¡socorro, mi hija!", "med-spa")).not.toBeNull();
+  });
+});

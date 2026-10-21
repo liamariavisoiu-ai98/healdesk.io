@@ -823,6 +823,8 @@ describeDb("Settings", () => {
       const off = await alertsCard();
       expect(off).toContain("Urgent alerts are not switched on yet, so none reach you today.");
       expect(off).toContain("Everything will go to");
+      // A person's practice: 911. A veterinary one is given the emergency numbers instead (the wizard's wording).
+      expect(off).toMatch(/gives anyone reporting something urgent(<!-- -->)? ?(<!-- -->)?911/);
       expect(await save("daily_summary", false)).toMatchObject({ ok: true, toast: expect.stringContaining("Urgent alerts are not switched on yet") });
 
       await setJobEnabled(JOB_BILLING_NOTICES, true, portal.userId);

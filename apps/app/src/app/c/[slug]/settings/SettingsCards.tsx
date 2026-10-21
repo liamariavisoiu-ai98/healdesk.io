@@ -597,7 +597,8 @@ export function AlertsCard({ view }: { view: SettingsView }) {
         {alerts.urgentAlertsReady ? null : (
           <p className="mt-2 text-sm font-semibold" data-urgent-alerts="off">
             Urgent alerts are not switched on yet, so none reach you today. Until they are, AYA
-            tells anyone reporting something urgent to call 911 and gives them your number for
+            gives anyone reporting something urgent{" "}
+            {view.audience === "clients" ? "the emergency numbers" : "911"} and your number for
             urgent help, and does not say your team has been told.
           </p>
         )}

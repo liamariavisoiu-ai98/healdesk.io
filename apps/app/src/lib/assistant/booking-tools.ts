@@ -15,6 +15,7 @@ import {
 import {
   bookedLine,
   DEPOSIT_HOLD_LINE,
+  askLine,
   DEPOSIT_REQUEST_LINE,
   depositLine,
   detailsBeforeHoldLine,
@@ -200,6 +201,17 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
     return { reply: say(reply), state, bookingWritten: false, requestId: null, appointmentId: null, ...extra };
   }
 
+  /**
+   * TOOL_FAILURE_LINE offers to take the person's details for the clinic, so
+   * the conversation leaves the tools for the request flow (manual), as a
+   * broken connection does: otherwise the website chat, which files the
+   * capture only while the tools are not live, would promise a request and
+   * file none.
+   */
+  function failed(state: BookingToolState): ToolTurn {
+    return turn(TOOL_FAILURE_LINE, { ...state, manual: true, offered: [], chosen: null, held: false });
+  }
+
   function offered(state: BookingToolState, slots: readonly { at: Date; providerId: string | null }[], service: string | null): BookingToolState {
     return {
       ...state,
@@ -224,9 +236,9 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       });
     } catch (error) {
       log.error("booking tool find_times failed", { clinicId: context.clinicId, error: describeError(error) });
-      return turn(TOOL_FAILURE_LINE, state);
+      return failed(state);
     }
-    if (answer.status === "unavailable") return turn(TOOL_FAILURE_LINE, state);
+    if (answer.status === "unavailable") return failed(state);
     if (answer.status === "request_only") {
       // Manual booking in the same turn: the request flow takes the time.
       const next = { ...state, manual: true, offered: [], chosen: null, held: false };
@@ -237,7 +249,11 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
     return turn(offerLine(next.offered.map((s) => label(s.at))), next);
   }
 
-  async function hold(state: BookingToolState, chosen: OfferedSlot, now: Date): Promise<{ held: true } | { turn: ToolTurn }> {
+  async function hold(
+    state: BookingToolState,
+    chosen: OfferedSlot,
+    now: Date,
+  ): Promise<{ held: true } | { held: false; reasons: string[] } | { turn: ToolTurn }> {
     let placed: PlacedHold;
     try {
       placed = await engine.placeHold(context.clinicId, {
@@ -252,7 +268,7 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       });
     } catch (error) {
       log.error("booking tool hold failed", { clinicId: context.clinicId, error: describeError(error) });
-      return { turn: turn(TOOL_FAILURE_LINE, state) };
+      return { turn: failed(state) };
     }
     switch (placed.kind) {
       case "held":
@@ -265,12 +281,13 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
         // Auto-confirm off, a deposit the channel cannot take, a calendar that
         // stopped allowing the write: no hold; the engine logs the request
         // when the details are in (bookConversation answers it as one).
-        return { held: true };
+        // Nothing is held, so HOLD_LINE must not be said.
+        return { held: false, reasons: placed.reasons };
       }
       case "in_progress":
         return { turn: turn(IN_PROGRESS_LINE, state) };
       case "unavailable":
-        return { turn: turn(TOOL_FAILURE_LINE, state) };
+        return { turn: failed(state) };
     }
   }
 
@@ -316,7 +333,7 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
         return turn(MISSING_DETAIL_LINES[result.field], state);
       case "unavailable":
       case "refused":
-        return turn(TOOL_FAILURE_LINE, state);
+        return failed(state);
     }
   }
 
@@ -369,8 +386,16 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       // A call holds the time while the caller gives their details.
       const held = await hold(state, chosen, now);
       if ("turn" in held) return held.turn;
-      state = { ...state, held: true };
-      if (missing) return turn(heldAskLine(missing), state);
+      if (held.held) {
+        state = { ...state, held: true };
+        if (missing) return turn(heldAskLine(missing), state);
+      } else if (missing) {
+        // Nothing was held (the engine answered request_only): the time
+        // becomes a request once the details are in, and is never said to
+        // be held. Asked once, when the time is chosen.
+        const why = held.reasons.includes("deposit_required") ? DEPOSIT_REQUEST_LINE : MANUAL_BOOKING_LINE;
+        return chosenNow ? turn(`${why} ${askLine(missing)}`, state) : null;
+      }
     }
     if (missing) {
       // The details are still to come: asked for once, when the time is chosen;
@@ -401,7 +426,7 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       });
     } catch (error) {
       log.error("booking tool book failed", { clinicId: context.clinicId, error: describeError(error) });
-      return turn(TOOL_FAILURE_LINE, state);
+      return failed(state);
     }
     const answered = answerBooking(result, state, chosen);
     if (context.channel !== "web_chat" || result.kind !== "booked" || !result.appointmentId) return answered;

@@ -411,6 +411,43 @@ describeDb("addLocation", () => {
     expect(world.fake.callsTo("subscriptions.update")).toHaveLength(0);
   });
 
+  test("an ended step-up, or a person with no grant, is refused in words of its own, with nothing written or charged", async () => {
+    const clinic = await seedBilling("loc-step-up-ended", { started: true, inService: ["web"] });
+    const base = { clinicId: clinic.clinicId, actorLabel: "owner" };
+
+    // The step-up ended (signed out on that device) between the tick and the add.
+    const ended = await added(clinic);
+    await getMigratorPool().query(`update step_ups set revoked_at = now() where id = $1`, [
+      ended.acceptance.stepUp.stepUpId,
+    ]);
+    expect(await addLocation({ ...base, requestId: randomUUID(), ...ended }, { now: NOW })).toEqual({
+      status: "refused",
+      message: expect.stringMatching(/passkey confirmation has ended.*Nothing was changed and nothing was charged/),
+    });
+
+    // The person's grant on the account was revoked.
+    const noGrant = await added(clinic);
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(
+        `update clinic_memberships set revoked_at = now() where clinic_id = $1 and user_id = $2`,
+        [clinic.clinicId, clinic.staffUserId],
+      ),
+    );
+    expect(await addLocation({ ...base, requestId: randomUUID(), ...noGrant }, { now: NOW })).toEqual({
+      status: "refused",
+      message: expect.stringMatching(/Only someone who can sign in to this account/),
+    });
+
+    expect(await locationsOf(clinic.clinicId)).toHaveLength(1);
+    expect(await acknowledgementsOf(clinic.clinicId)).toEqual([]);
+    expect(await rowOf(clinic.clinicId)).toMatchObject({
+      locations: 1,
+      pendingLocationRequestId: null,
+      stripeMutationLeaseOwner: null,
+    });
+    expect(world.fake.callsTo("subscriptions.update")).toHaveLength(0);
+  });
+
   test("a decline clears the pending request, retires its location and charges nothing; a retry takes the next place", async () => {
     const clinic = await seedBilling("loc-decline", { started: true, inService: ["web"] });
     world.state.declineNextUpdate = true;

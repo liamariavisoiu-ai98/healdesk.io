@@ -1330,7 +1330,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "stripe",
     title: "The engine runs each clinic's subscription",
-    carries: "Plan changes, metered usage, refunds and extra-usage invoices, and the link to Stripe's billing page for the clinic",
+    carries: "Plan changes, metered usage, refunds and extra-usage invoices, the link to Stripe's billing page for the clinic, and an hourly read (off until you switch it on) that checks each subscription bills for as many locations as the account has, telling you once when they differ and never changing the subscription",
     example: "The day AYA first answers a patient for a clinic, the engine swaps that clinic's $0 placeholder for its real monthly price.",
     keys: ["aws.STRIPE_SECRET_KEY"],
     phi: false,

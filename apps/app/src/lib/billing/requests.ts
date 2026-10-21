@@ -45,8 +45,9 @@ import { getStripe, StripeNotConfiguredError } from "@/lib/billing/stripe-client
 import { stripeRefId, workerRequestOptions } from "@/lib/billing/stripe-helpers";
 import { channelsInService, readChannelStates, type ChannelState } from "@/lib/channels/state";
 import { THIRD_PARTY_LINK_ORIGINS } from "@/lib/email/lint";
+import { phoneHeldByLocations } from "@/lib/locations";
 import { log } from "@/lib/log";
-import { notifyOps } from "@/lib/ops/notify";
+import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import {
   getJob,
   JOB_BILLING_REQUESTS,
@@ -1335,7 +1336,24 @@ async function stepUpWorker(attempt: Attempt): Promise<WorkerResult> {
   if (!item) return { type: "fail", code: "no_package_item", permanent: false };
   const current = item.plan;
   const interval = item.interval;
-  const target = planForChannels(bought, [...channelList(current), ...group.inService, channel]);
+  // Phone is per location (lib/locations.ts phoneHeldByLocations): while the
+  // account has more than one location, or one being added, no step-up
+  // prices phone in. A step-up for phone itself is skipped and ops are told;
+  // one for another channel still goes, without phone. The reconcile holds
+  // the phone step-up rather than re-arming it.
+  const holdPhone = !current.channels.voice && phoneHeldByLocations(row);
+  if (holdPhone && channel === "voice") {
+    return skip("phone_needs_one_location", () =>
+      notifyOpsOnce("step_up_phone_held", {
+        clinicId: claim.clinicId,
+        channel,
+        count: row.locations,
+      }));
+  }
+  const wanted = [...channelList(current), ...group.inService, channel].filter(
+    (c) => !holdPhone || c !== "voice",
+  );
+  const target = planForChannels(bought, wanted);
   if (!target) return skip("nothing_to_bill");
   if (target.id === current.id) {
     // Our own marker: an earlier attempt's update went through and its

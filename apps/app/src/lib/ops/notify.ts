@@ -252,6 +252,21 @@ export const OPS_EVENTS = [
   // apps/web, once per address and day and ten a day in all, with the
   // agreement's id and the code.
   "agreement_copy_withheld",
+  // The hourly location-quantity check (lib/billing/location-quantity.ts):
+  // Stripe bills an account for a number of locations other than its active
+  // ones (plus one being added whose charge is recorded), once per episode,
+  // keyed on the clinic and when the episode was first seen (`windowStart`),
+  // with both counts; and the end of that episode, once, the first hour the
+  // two agree again. The check only reads Stripe: a person decides which
+  // side is wrong.
+  "location_quantity_drift",
+  "location_quantity_agrees",
+  // Phone joined an account's package (in service, or due after its wait)
+  // while the account has more than one location or one being added, so
+  // the step-up into phone is held, never charged: phone per location is the
+  // extra-locations plan's slice 2. Once per account and channel, by the
+  // hourly reconcile or the billing-requests worker.
+  "step_up_phone_held",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 
@@ -345,6 +360,8 @@ const NOT_IDENTITY = new Set([
   "ms",
   "units",
   "lateDays",
+  "locationCount",
+  "billedCount",
 ]);
 
 /** What the email may carry: each field the payload allowlist accepts on its own. */

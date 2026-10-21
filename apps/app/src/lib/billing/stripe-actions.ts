@@ -32,6 +32,7 @@ import { readCoverageMode, type CoverageMode } from "@/lib/billing/answering";
 import {
   activatePendingLocation,
   isLocationRequestId,
+  LocationAcceptanceRefused,
   retireUnpaidLocation,
   writePendingLocation,
   type LocationAcceptance,
@@ -1649,6 +1650,11 @@ export async function addLocation(
     });
   } catch (error) {
     if (error instanceof LocationAddRefused) return { status: error.status, message: error.message };
+    // The database refused the acceptance (an ended step-up, a person with no
+    // grant): rolled back with everything else, and said in its own words.
+    if (error instanceof LocationAcceptanceRefused) {
+      return { status: "refused", message: error.message };
+    }
     throw error;
   }
   if (!claim.ok) return { status: claim.status, message: claim.message };

@@ -96,7 +96,53 @@ export const LOCATION_ADD_MESSAGES = {
     "Tick the acknowledgement that AYA answers for every location as one assistant, then try again.",
   invalid:
     "Give the location's name and street address, without special characters. Nothing was charged.",
+  stepUpEnded:
+    "Your passkey confirmation has ended, so the location wasn't added. Nothing was changed and nothing was charged. Confirm with your passkey again, then add the location.",
+  noGrant:
+    "Only someone who can sign in to this account can accept for it, so the location wasn't added. Nothing was changed and nothing was charged.",
 } as const;
+
+/**
+ * The database refused the acceptance (app_location_acknowledgement_guard,
+ * drizzle/0108): the step-up it names has ended, or is not the person's or
+ * the device's, or the person no longer has a grant on the account. Thrown
+ * from inside the add's transaction, which the refusal has already aborted,
+ * so everything written in it goes; addLocation turns it into a refusal
+ * with this message instead of the generic "no answer" one.
+ */
+export class LocationAcceptanceRefused extends Error {
+  constructor(
+    readonly code: "step_up_ended" | "no_grant",
+    message: string,
+  ) {
+    super(message);
+    this.name = "LocationAcceptanceRefused";
+  }
+}
+
+// The guard's own words, matched on the driver's error (drizzle wraps it in
+// `cause`). Matched on text because both share 23514 with the hash check,
+// which is a fault of ours and stays an error.
+const STEP_UP_REFUSED = "an acceptance is made under a live passkey step-up";
+const GRANT_REFUSED = "an acceptance is made by a person with a live grant";
+
+/** Which refusal of the acceptance guard `error` is, if it is one. */
+export function acceptanceRefusalOf(error: unknown): LocationAcceptanceRefused | null {
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const message = (current as { message?: unknown }).message;
+    if ((current as { code?: unknown }).code === "23514" && typeof message === "string") {
+      if (message.includes(STEP_UP_REFUSED)) {
+        return new LocationAcceptanceRefused("step_up_ended", LOCATION_ADD_MESSAGES.stepUpEnded);
+      }
+      if (message.includes(GRANT_REFUSED)) {
+        return new LocationAcceptanceRefused("no_grant", LOCATION_ADD_MESSAGES.noGrant);
+      }
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return null;
+}
 
 /** Whether `id` can be an add's request id: the pending location keys on it as a uuid. */
 export function isLocationRequestId(id: string): boolean {
@@ -129,6 +175,10 @@ async function practiceLegalName(
  *
  * Idempotent on the request: a pending location already written for it is
  * returned as it is.
+ *
+ * The database's refusal of an ended step-up, or of a person without a grant
+ * on the account, is thrown as LocationAcceptanceRefused, with the words the
+ * practice is shown.
  */
 export async function writePendingLocation(
   tx: TenantTx,
@@ -192,17 +242,24 @@ export async function writePendingLocation(
   const name = input.location.name.replace(/\s+/g, " ").trim();
   const address = input.location.address.replace(/\s+/g, " ").trim();
   const locationId = randomUUID();
-  const recorded = await recordLocationAcknowledgement(tx, {
-    locationId,
-    documentVersion: prepared.version,
-    renderedText: prepared.text,
-    acceptedBy: {
-      userId: input.acceptance.userId,
-      label: input.acceptance.acceptedByLabel,
-      stepUp: input.acceptance.stepUp,
-    },
-    ...(input.acceptance.request ? { request: input.acceptance.request } : {}),
-  });
+  let recorded: Awaited<ReturnType<typeof recordLocationAcknowledgement>>;
+  try {
+    recorded = await recordLocationAcknowledgement(tx, {
+      locationId,
+      documentVersion: prepared.version,
+      renderedText: prepared.text,
+      acceptedBy: {
+        userId: input.acceptance.userId,
+        label: input.acceptance.acceptedByLabel,
+        stepUp: input.acceptance.stepUp,
+      },
+      ...(input.acceptance.request ? { request: input.acceptance.request } : {}),
+    });
+  } catch (error) {
+    // Still thrown: the refusal aborted the transaction, which has to roll
+    // back. Only its type changes, so the caller can say why.
+    throw acceptanceRefusalOf(error) ?? error;
+  }
 
   // The next place after every location the account has had, retired ones
   // included: a declined add keeps its place, so a retry takes the next.

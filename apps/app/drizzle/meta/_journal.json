@@ -750,6 +750,13 @@
       "when": 1792603864288,
       "tag": "0108_locations_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1792606245942,
+      "tag": "0110_location_quantity_check",
+      "breakpoints": true
     }
   ]
 }

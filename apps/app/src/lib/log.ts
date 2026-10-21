@@ -131,6 +131,10 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "attempt",
   "units",
   "lateDays",
+  // The location-quantity check (lib/billing/location-quantity.ts): the
+  // locations an account has and the quantity Stripe bills it for. Counts.
+  "locationCount",
+  "billedCount",
   // Short free text, scrubbed on the way out.
   "reason",
   "error",

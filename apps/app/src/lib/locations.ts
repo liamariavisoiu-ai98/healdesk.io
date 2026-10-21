@@ -5,6 +5,7 @@ import {
   clinicLocations,
   MAIN_LOCATION_POSITION,
   type ClinicLocationRow,
+  type Entitlements,
   type LocationStatus,
 } from "@/db/schema";
 import type { TenantTx } from "@/lib/tenant";
@@ -178,3 +179,33 @@ export function locationsReady(boughtPlan: Plan | string | null | undefined): bo
 export function anyLocationsReady(): boolean {
   return LOCATIONS_READY_PACKAGES.length > 0;
 }
+
+// -----------------------------------------------------------------------------
+// Phone, while an account has more than one location
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether phone may not be priced into this account's plan yet: it has more
+ * than one location, or one being added. Phone is per location (each needs
+ * its own AYA number and forwarded line), which the extra-locations plan's
+ * slice 2 builds; until then a package with phone would be billed once per
+ * location for one number that answers for none of the others.
+ *
+ * One predicate for every door into phone: a plan change (checkPlanChange),
+ * the hourly reconcile's step-ups and the billing-requests worker
+ * (lib/billing/reconcile.ts, lib/billing/requests.ts), and the console's
+ * retry of a step-up (lib/ops/billing.ts).
+ */
+export function phoneHeldByLocations(
+  row: Pick<Entitlements, "locations" | "pendingLocationRequestId">,
+): boolean {
+  return row.locations > 1 || row.pendingLocationRequestId !== null;
+}
+
+/** What a practice is told when a plan change would move it into phone. */
+export const PHONE_NEEDS_ONE_LOCATION =
+  "A plan with phone can't be chosen while this account has more than one location: each location needs its own AYA number, which isn't available yet.";
+
+/** What an operator is told when a retry would price phone into such an account. */
+export const PHONE_STEP_UP_HELD =
+  "This step-up would add phone to the plan of an account with more than one location (or one being added), and phone can't be billed per location until each location has its own AYA number. It was not retried and nothing was charged.";

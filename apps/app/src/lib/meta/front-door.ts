@@ -1292,10 +1292,16 @@ export function parseModelReply(raw: string): ModelReply {
   const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
-  if (start === -1 || end <= start) return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
+  // Text meant as the object (a brace, or the reply field named) that does
+  // not parse, or parses with no reply, is never sent: a reply cut off at the
+  // token limit would otherwise go out with its braces, field names and the
+  // booking it held. An empty reply fails the guard, so the hand-off line goes.
+  const malformed = { reply: "", handoff: false, booking: { ...NO_BOOKING } };
+  const meantAsJson = trimmed.includes("{") || /"reply"\s*:/.test(trimmed);
+  if (start === -1 || end <= start) return meantAsJson ? malformed : { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
   try {
     const parsed = JSON.parse(trimmed.slice(start, end + 1)) as { reply?: unknown; handoff?: unknown; booking?: Record<string, unknown> };
-    if (typeof parsed.reply !== "string") return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
+    if (typeof parsed.reply !== "string") return malformed;
     const b = parsed.booking ?? {};
     const s = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
     const alt_windows = Array.isArray(b.alt_windows) ? b.alt_windows.map(s).filter((v): v is string => v !== null).slice(0, 2) : [];
@@ -1312,7 +1318,7 @@ export function parseModelReply(raw: string): ModelReply {
       booking: { wants: b.wants === true, first_name: s(b.first_name), phone: s(b.phone), window: s(b.window), alt_windows, fields },
     };
   } catch {
-    return { reply: raw.trim(), handoff: false, booking: { ...NO_BOOKING } };
+    return malformed;
   }
 }
 

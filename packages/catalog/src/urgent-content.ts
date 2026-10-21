@@ -134,7 +134,8 @@ const SELF_HARM_EN = new RegExp(
   [
     "\\bsuicid\\w*",
     // Text speak: "kms" (kill myself), "unalive", "killmyself".
-    "\\bkms\\b",
+    // Not kilometres: "5 kms", "how many kms", "kms from the airport".
+    "(?<!(\\d|\\bmany|\\bfew|\\bthe|\\bof)\\s?)\\bkms\\b(?!\\s+(from|away|to|of|drive|north|south|east|west)\\b)",
     "\\bunaliv\\w*",
     "\\bkill(ing)?my ?self\\b",
     "\\bkill(ing|ed)? (my|him|her|them)sel(f|ves)\\b",
@@ -210,12 +211,12 @@ const EMERGENCY_WORDS: UrgentFamily = {
   label: "an emergency",
   // A cry for help in text speak: "SOS", "help!", "someone help", "help me
   // please", "pls hlp". Not "can you help me with a booking?".
-  en: /\b(sos|mayday|hlp)\b|\bhelp+\s*!|\b(somebody|someone|anybody|anyone) help\b|\bhelp me+\s*(!|please\b|pls\b|plz\b|now\b|asap\b)|\b(pls|plz|please) (help|hlp)\s*(!|me\s*!|$)|\b(emergenc(y|ies)|ambulance|paramedics?|urgent care)\b|\b(go(ing)? to|in|at|take (me|him|her|them|it) to|bring (him|her|them|it) (in )?to) (the |an |a )?((animal|pet|vet|veterinary|emergency) )?(hospital|ER|A&E|emergency room|emergency vet)\b|(?<!\b(not|non|isn't|nothing)[\s-]?)\burgent(ly)?\b|(?<![\d-])\b911\b(?![\d-])/i,
+  en: /(?<!\b(vos|que|tu|tú|si|no|ya) )\b(sos|mayday|hlp)\b|\bhelp+\s*!|\b(somebody|someone|anybody|anyone) help\b|\bhelp me+\s*(!|(please|pls|plz|now|asap)\b(?!\s*,?\s*(to|with|book|schedule|make|find|get|choose|pick|understand|figure|decide|reschedule|cancel|change)\b))|\b(pls|plz|please) (help|hlp)\s*(!|me\s*!|$)|\b(emergenc(y|ies)|ambulance|paramedics?|urgent care)\b|\b(go(ing)? to|in|at|take (me|him|her|them|it) to|bring (him|her|them|it) (in )?to) (the |an |a )?((animal|pet|vet|veterinary|emergency) )?(hospital|ER|A&E|emergency room|emergency vet)\b|(?<!\b(not|non|isn't|nothing)[\s-]?)\burgent(ly)?\b|(?<![\d-])\b911\b(?![\d-])/i,
   es: es(
     "emergencias?|ambulancia|param[ée]dicos?|urgencias|(?<!(nada|no es|no) )urgente|(ir|voy|vamos|ll[ée]vame|llevarme|llevarlo|llevarla|lo llevo|la llevo) (al|a la|a) (hospital|sala de emergencias|urgencias)|(?<![\\d-])911(?![\\d-])",
   ),
   other: es(
-    "urgence|au secours|(à|a) l'aide|aidez-moi|notfall|notarzt|krankenwagen|rettungswagen|hilfe|emergenza|ambulanza|aiuto|pronto soccorso|emerg[êe]ncia|socorro|ajuda|ambul[âa]ncia",
+    "urgence|au secours|(à|a) l'aide|aidez-moi|notfall|notarzt|krankenwagen|rettungswagen|hilfe|emergenza|ambulanza|aiuto|pronto soccorso|emerg[êe]ncia|socorro(?=\\s*!)|¡\\s*socorro|(pe[çc]o|pido|preciso de|necesito|pedir) socorro|ajuda|ambul[âa]ncia",
   ),
 };
 
@@ -232,6 +233,25 @@ const CANNOT =
 
 /** A part of the body where a filler's occlusion shows as a change of colour. */
 const SKIN_SUBJECT = "(lips?|skin|area|spot|site|nose|cheeks?|chin|face|forehead|tissue|bump|filler|tip of (my|the) nose)";
+/**
+ * Colours a vascular occlusion shows and no one describes their skin tone
+ * or a mark with: read after any verb.
+ */
+const SKIN_VASCULAR = "(blue|bluish|blueish|purple|purplish|dusky|mottled|cold)";
+/**
+ * Colours that are also how a person describes their skin type, tone or a
+ * mark ("my skin is dark, is laser safe?", "a spot that is dark", "my skin
+ * is blotchy"): read after a verb of change ("went white", "turning grey"),
+ * or after a verb of state only where the message ties it to a treatment
+ * ("pale where the filler went"). Never before a feature ("getting dark spots").
+ */
+const SKIN_TONE = "(white|whiter|pale|paler|grey|gray|greyish|grayish|black|dark|blotchy|patchy)";
+const SKIN_CHANGE = "(went|gone|going|turned|turning|turns|getting|got|became|become|becoming)";
+const SKIN_STATE = "(is|are|has|have|been|looks?|looking|seems|feels?)";
+const SKIN_ADVERB = "(very |really |all |completely |kind of |kinda |a bit |so |super )?";
+const SKIN_NOT_A_FEATURE = "(?!\\s+(spots?|patch(es)?|circles?|marks?|freckles?|hairs?|heads?|lines?|rings?|skin|complexion|tone)\\b)";
+const SKIN_TREATMENT = "(filler|fillers|injections?|injected|botox|treatment|procedure|needle|jab|shot)";
+const SKIN_AFTER_TREATMENT = `(?:(?=.*\\b(where|after|since|around|from|near|at)\\b(?:\\s+[\\w']+){0,3}?\\s+${SKIN_TREATMENT}\\b)|(?<=\\b(after|since|from)\\s+(the |my |her |his |a |an |that |this )?${SKIN_TREATMENT}\\b.*))`;
 const SKIN_COLOUR =
   "(white|whiter|pale|paler|blue|bluish|blueish|grey|gray|greyish|grayish|purple|purplish|dusky|black|dark|mottled|blotchy|cold|patchy)";
 
@@ -306,7 +326,9 @@ const HUMAN_FAMILIES: UrgentFamily[] = [
     en: new RegExp(
       [
         "\\b(blanch\\w*|mottl\\w*|necro\\w*|turn(ed|ing|s)? (white|blue|purple|black)|(lost|losing|loss of|blurr(y|ed)|double) (my |his |her )?(vision|sight)|vision loss)\\b",
-        `\\b${SKIN_SUBJECT}\\b(?:\\s+[\\w']+){0,3}?\\s+((is|are|has|have|looks?|went|gone|going|turned|turning|turns|getting|got|became|looking|seems|feels?) )+(very |really |all |completely |kind of |kinda |a bit |so |super )?${SKIN_COLOUR}\\b`,
+        `\\b${SKIN_SUBJECT}\\b(?:\\s+[\\w']+){0,3}?\\s+(${SKIN_STATE} )*${SKIN_CHANGE} ${SKIN_ADVERB}${SKIN_COLOUR}\\b${SKIN_NOT_A_FEATURE}`,
+        `\\b${SKIN_SUBJECT}\\b(?:\\s+[\\w']+){0,3}?\\s+(${SKIN_STATE} )+${SKIN_ADVERB}${SKIN_VASCULAR}\\b${SKIN_NOT_A_FEATURE}`,
+        `\\b${SKIN_SUBJECT}\\b(?:\\s+[\\w']+){0,3}?\\s+(${SKIN_STATE} )+${SKIN_ADVERB}${SKIN_TONE}\\b${SKIN_NOT_A_FEATURE}${SKIN_AFTER_TREATMENT}`,
         "\\b(white|blue|bluish|purple|purplish|grey|gray|dusky) (patch|spot|area|mark|blotch)(es|s)? (appeared |showed up |came up |came out )?(after|since|where|around the (filler|injection))\\b",
         "\\bdiscolou?r(ed|ation) (after|since|where|around)\\b|\\b(lacy|net-?like) (pattern|rash|marks?|discolou?ration)\\b",
         "\\b(vision|eyesight|sight)\\b(?: (in|on|of) (my|the|one|her|his) (left |right )?eye)?\\s+((is|went|has gone|gone|going|getting|became|turned|seems|feels|looks) )*(really |very |a bit |kind of |kinda |all |so )?(blur\\w*|dim\\w*|dark|black|grey|gray|fuzzy|cloudy|hazy|weird|funny|strange|wrong|worse|double|spotty|patchy)\\b",

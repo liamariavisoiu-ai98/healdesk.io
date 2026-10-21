@@ -23,6 +23,7 @@ import {
   metaInboundMessages,
   patientRequests,
   providerConnections,
+  retellRecordingAlerts,
   reconciliationExceptions,
   securityEvents,
   slotHolds,
@@ -661,6 +662,26 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // their cascade would take the list anyway; deleted here first so the
   // count is in the record and the stamp's check names it.
   await del("incident_affected_contacts", () => tx.db.delete(incidentAffectedContacts).where(eq(incidentAffectedContacts.clinicId, c)).returning({ id: incidentAffectedContacts.contactId }));
+  // The Retell recording alerts (drizzle/0105): one of the clinic's calls by
+  // Retell's id and time, no words, destroyed with the clinic's patient rows
+  // as the more conservative rule. One still open names a recording Retell
+  // may still hold, and this row is the only trace of it: ops is told, with
+  // the call ids, to delete those calls at Retell by hand.
+  const recordingAlerts = await tx.db
+    .delete(retellRecordingAlerts)
+    .where(eq(retellRecordingAlerts.clinicId, c))
+    .returning({ id: retellRecordingAlerts.id, callId: retellRecordingAlerts.retellCallId, resolvedAt: retellRecordingAlerts.resolvedAt });
+  deleted.retell_recording_alerts = recordingAlerts.length;
+  const stillAtRetell = recordingAlerts.filter((a) => a.resolvedAt === null).map((a) => a.callId);
+  if (stillAtRetell.length > 0) {
+    log.error("destruction took open Retell recording alerts: delete these calls at Retell by hand", {
+      clinicId: c,
+      // Allowlisted keys only (lib/log.ts throws on any other): the ids,
+      // comma-joined, under callId.
+      count: stillAtRetell.length,
+      callId: stillAtRetell.join(","),
+    });
+  }
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
   // The records of the clinic's deletion requests (drizzle/0063): dates,

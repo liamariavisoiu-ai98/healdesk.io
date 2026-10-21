@@ -865,7 +865,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     both: true,
     title: "The shop window hands work to the engine",
     carries:
-      "Paid purchases to set up, every Stripe billing change after that, email delivery reports (the shop window's own counted for the morning ops digest), a signer's agreement copy held back for a person to send (its id and why, once per address a day), review and welcome checks, and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses, times and attempt counts, never the words), Reviews (the practice questions waiting for you), Host and this map; the engine answers with what those pages show",
+      "Paid purchases to set up, every Stripe billing change after that, email delivery reports (the shop window's own counted for the morning ops digest), a signer's agreement copy held back for a person to send (its id and why, once per address a day), review and welcome checks, and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses, times and attempt counts, never the words), Reviews (the practice questions waiting for you), Recordings (calls Retell kept a recording of, as ids and times, and the button that has the engine delete one), Host and this map; the engine answers with what those pages show",
     example: "A clinic's first invoice is paid. The shop window posts its signed agreement to the engine in an envelope sealed with a stamp only the two of them own; the engine checks the seal and opens the clinic's account.",
     keys: ["vercel.HEALDESK_PROVISION_SECRET", "aws.HEALDESK_PROVISION_SECRET", "vercel.HEALDESK_APP_URL", "aws.HEALDESK_ADMIN_EMAIL"],
     phi: false,
@@ -1204,6 +1204,22 @@ export const BRIDGES: readonly BridgeDef[] = [
     build: "built",
     buildNote:
       "Wherever the clinic has set a direct line: when AYA is paused, capped or suspended, when the model fails twice, when answering a turn fails, and when a call starts while the database is down (the engine remembers each clinic's line from its last call, and otherwise reads it back from Retell). In Retell's outage mode, untested here, Retell would dial it without us. With no line known, the caller hears a closing line. The engine never puts a call through to a number that would bring it back to AYA: a direct line equal to the clinic's published number, its AYA number or the number called counts as no line, AYA answers with the safe script (or closes the call once the Services have ended), and you are emailed (voice_direct_line_loops).",
+  },
+  {
+    id: "app-retell-recordings",
+    theme: "running",
+    from: "app",
+    to: "retell",
+    title: "The engine has Retell delete a call it recorded",
+    carries:
+      "Retell's call id, when you press Delete at Retell on Recordings; Retell answers that the call (its recording, transcript and logs) is deleted, or why not",
+    example:
+      "A clinic's agent was switched back to keeping recordings in Retell's console. After the next call, Recordings shows that call's id; you press Delete at Retell, the engine asks Retell to delete it with its own key, and the alert turns resolved.",
+    keys: ["aws.HEALDESK_RETELL_API_KEY"],
+    phi: false,
+    build: "built",
+    buildNote:
+      "Every clinic's agent is meant to keep no recording, transcript or logs at Retell (data storage Basic Attributes Only), and the engine has the code to write and read back that setting (lib/voice/retell-agent.ts), though nothing calls it yet: agents are still set up by hand. The engine checks each finished call Retell tells it about, and one carrying a recording becomes an alert on Recordings: the clinic, Retell's call id and when, never the recording or its address. It waits two hours before deleting a call it has not recorded itself, so the backstop can still read it. Your browser never sees the Retell key.",
   },
   {
     id: "patients-widget",

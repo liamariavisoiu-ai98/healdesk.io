@@ -329,7 +329,13 @@ type OperatorOp =
   | "getClinicDevices"
   | "issueDeviceRecovery"
   | "endDeviceRecovery"
-  | "removeClinicDevices";
+  | "removeClinicDevices"
+  // Retell recordings found (NOAUDIO-01; /admin/recordings): the calls Retell
+  // kept a recording of though every agent is set to keep none, as ids and
+  // times; and the button, which has apps/app delete the call at Retell with
+  // its own key. Never a recording URL, a transcript or a number.
+  | "listRecordingAlerts"
+  | "deleteRecordedCall";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -1004,6 +1010,93 @@ export function markSupportReplied(
     if (status === "already") {
       return { status, repliedAt: isoInstant(data.repliedAt, "markSupportReplied.repliedAt") };
     }
+    return { status };
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Retell recordings found (NOAUDIO-01)
+// -----------------------------------------------------------------------------
+
+/**
+ * One call Retell kept a recording of, as /admin/recordings lists it: ids,
+ * counts and times, and apps/app's own words for a delete that failed. The
+ * recording's URL never leaves apps/app; it is not even kept there.
+ */
+export type RecordingAlertView = {
+  alertId: string;
+  clinicId: string;
+  clinicSlug: string;
+  /** Retell's own call id, which its dashboard searches by. */
+  callId: string;
+  detectedAt: string;
+  attempts: number;
+  lastAttemptAt: string | null;
+  lastError: string | null;
+  resolvedAt: string | null;
+};
+
+export type RecordingAlerts = { alerts: RecordingAlertView[]; unreadClinics: number };
+
+/** Retell's call ids, as apps/app checks them. */
+function retellCallId(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) throw new ShapeError(at);
+  return value;
+}
+
+/** Every recording alert, open first, then newest. */
+export function fetchRecordingAlerts(): Promise<OpsResult<RecordingAlerts>> {
+  return callOps("listRecordingAlerts", "read", {}, (value) => {
+    const data = object(value, "listRecordingAlerts");
+    return {
+      alerts: list(data.alerts, "listRecordingAlerts.alerts").map((row, i) => {
+        const r = object(row, `listRecordingAlerts.alerts[${i}]`);
+        return {
+          alertId: id(r.alertId, "alert.alertId"),
+          clinicId: id(r.clinicId, "alert.clinicId"),
+          clinicSlug: text(r.clinicSlug, "alert.clinicSlug"),
+          callId: retellCallId(r.callId, "alert.callId"),
+          detectedAt: isoInstant(r.detectedAt, "alert.detectedAt"),
+          attempts: count(r.attempts, "alert.attempts"),
+          lastAttemptAt: optionalIsoInstant(r.lastAttemptAt, "alert.lastAttemptAt"),
+          lastError: optionalText(r.lastError, "alert.lastError"),
+          resolvedAt: optionalIsoInstant(r.resolvedAt, "alert.resolvedAt"),
+        };
+      }),
+      unreadClinics: count(data.unreadClinics, "listRecordingAlerts.unreadClinics"),
+    };
+  });
+}
+
+export type DeleteRecordedCallOutcome =
+  | { status: "deleted"; resolvedAt: string }
+  | { status: "already"; resolvedAt: string }
+  | { status: "too_soon"; notBefore: string }
+  | { status: "failed"; reason: string }
+  | { status: "not_found" };
+
+/**
+ * The button: apps/app asks Retell to delete the call (recording,
+ * transcript and logs) and resolves the alert when Retell answers that it
+ * is gone. A second press changes nothing. One security event per attempt
+ * that reached Retell, naming the operator.
+ */
+export function deleteRecordedCall(
+  clinicId: string,
+  alertId: string,
+): Promise<OpsResult<DeleteRecordedCallOutcome>> {
+  return callOps("deleteRecordedCall", "write", { clinicId, alertId }, (value) => {
+    const data = object(value, "deleteRecordedCall");
+    const status = literal(
+      data.status,
+      ["deleted", "already", "too_soon", "failed", "not_found"] as const,
+      "deleteRecordedCall.status",
+    );
+    if (status === "deleted" || status === "already") {
+      return { status, resolvedAt: isoInstant(data.resolvedAt, "deleteRecordedCall.resolvedAt") };
+    }
+    if (status === "too_soon") return { status, notBefore: isoInstant(data.notBefore, "deleteRecordedCall.notBefore") };
+    if (status === "failed") return { status, reason: text(data.reason, "deleteRecordedCall.reason") };
     return { status };
   });
 }

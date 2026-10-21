@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { clinics, clinicSettings } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { bookingTools, EMPTY_TOOL_STATE, type BookingTools, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
@@ -62,9 +63,14 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *                   and queues the transcript for the clinic, all idempotent on
  *                   the call id.
  *
- * Booking stays with the desk: the assistant takes a request and books
- * nothing itself; direct booking through the booking engine
- * (lib/booking/engine.ts) waits for counsel and the owner.
+ * Booking: while direct booking is on for the location (the owner's switch,
+ * counsel's addendum and a calendar that can offer times), the booking tool
+ * layer (lib/assistant/booking-tools.ts) offers free times, holds the one
+ * chosen for 60 seconds while the caller gives their details and books it
+ * into Google under the key "retell:" + call id + ":1"; the ingest links
+ * that booking or request to the call's conversation and files no second
+ * one. Otherwise the assistant takes a request and books nothing itself.
+ * A call never sends a link: a deposit is said, and left to the front desk.
  *
  * Until real calls are switched on (HEALDESK_VOICE_REAL_CALLS, lib/voice/
  * test-calls.ts), a call is taken only for a made-up clinic: any other is
@@ -126,6 +132,8 @@ export type RetellSessionDeps = {
   callDetailsWaitMs?: number;
   /** How long the gate and the clinic's facts may take before the call falls through. */
   startDeadlineMs?: number;
+  /** The booking tool layer; unset builds the shared one for the call (lib/assistant/booking-tools.ts). */
+  tools?: (facts: AssistantFacts) => BookingTools | null;
 };
 
 /**
@@ -144,6 +152,8 @@ const LATE_START_GRACE_MS = 5_000;
 const LINE_ALONE_DEADLINE_MS = 1_500;
 /** The urgent and handover alerts' writes; past it the reply is said without them. */
 const ALERT_DEADLINE_MS = 2_000;
+/** How long a caller waits for Google to take a booking before it becomes a request. */
+const BOOKING_BUDGET_MS = 6_000;
 
 /** `promise`, or a rejection once `ms` have passed. Never leaves a timer behind. */
 function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -186,6 +196,8 @@ export class RetellCallSession {
   private facts: AssistantFacts | null = null;
   private turns: TranscriptTurn[] = [];
   private capture: BookingCapture = EMPTY_CAPTURE;
+  private toolState: BookingToolState = EMPTY_TOOL_STATE;
+  private tools: BookingTools | null = null;
   private openedAt: Date;
   private startedAt: Date | null = null;
   private disclosurePlayedAt: Date | null = null;
@@ -623,13 +635,37 @@ export class RetellCallSession {
     if (!words) return;
 
     const facts = this.facts;
-    const turn = await answerTurn({ facts, channel: "voice", history: this.turns, text: words, capture: this.capture, responder: this.deps.responder, now: this.now() });
+    this.tools ??= this.deps.tools
+      ? this.deps.tools(facts)
+      : bookingTools({
+          clinicId: this.clinicId,
+          channel: "voice",
+          holderKey: `retell:${this.callId}`,
+          bookingKey: `retell:${this.callId}:1`,
+          conversationId: null,
+          timeZone: facts.timeZone,
+          actor: ACTOR,
+          budgetMs: BOOKING_BUDGET_MS,
+        });
+    const turn = await answerTurn({
+      facts,
+      channel: "voice",
+      history: this.turns,
+      text: words,
+      capture: this.capture,
+      responder: this.deps.responder,
+      now: this.now(),
+      tools: this.tools,
+      toolState: this.toolState,
+      callerPhone: this.callerPhone,
+    });
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.
     if (responseId !== this.latestResponseId || this.closing) return;
 
     this.turns.push({ speaker: "person", text: turn.personText });
     this.capture = turn.capture;
+    this.toolState = turn.toolState;
     this.handoff ||= turn.handoff;
 
     let urgentQueued = false;
@@ -730,6 +766,11 @@ export class RetellCallSession {
   /** What the caller asked the desk for, as the ingest reads it. */
   private requestFor(): Pick<VoiceCallEvent, "outcome" | "booking" | "collectedFields" | "callerName"> {
     const c = this.capture;
+    // The tool layer booked or logged it during the call, under the call's
+    // key: the ingest links it to the conversation and files nothing more.
+    // Nothing booked or logged by it (the caller hung up first): what they
+    // asked for still reaches the desk, as below.
+    if (this.toolState.done) return { outcome: "booked", callerName: c.firstName ?? undefined };
     // A request needs the caller's number, which is how the desk reaches
     // them (bookingRequestFrom refuses one without a contact), and a time.
     if (c.wants && c.window && this.callerPhone) {

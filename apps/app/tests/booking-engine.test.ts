@@ -460,11 +460,15 @@ describeDb("the booking engine (C13)", () => {
         providerId: null,
         replayed: false,
         deposit: null,
+        appointmentId: expect.any(String),
+        requestId: expect.any(String),
       });
 
       const { appointments, requests, holds } = await rows(f.clinicId);
       expect(appointments).toHaveLength(1);
       const [appointment] = appointments;
+      expect(booked.kind === "booked" && booked.appointmentId).toBe(appointment!.id);
+      expect(booked.kind === "booked" && booked.requestId).toBe(requests[0]!.id);
       expect(appointment).toMatchObject({
         scheduled_for: at,
         duration_minutes: 60,
@@ -1732,6 +1736,7 @@ describeDb("the booking engine (C13)", () => {
           reason: "deposit_required",
           replayed: false,
           deposit: { action: "decline_and_alert", amountUsd: 100 },
+          requestId: expect.any(String),
         });
         const { appointments, requests, holds } = await rows(f.clinicId);
         expect(appointments).toEqual([]);

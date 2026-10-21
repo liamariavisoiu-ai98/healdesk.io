@@ -761,7 +761,7 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_KMS_KEY_ID: "Names the key in the key safe; not the key.",
   HEALDESK_LOCAL_KEK: "Development only: production refuses it and uses the key safe.",
   HEALDESK_DIRECT_BOOKING_ENABLED:
-    "Your switch for AYA booking by herself rather than asking the clinic. No channel calls the booking engine yet, so today it changes only the buy page's wording and reports; never set from Terraform.",
+    "Your switch for AYA booking by herself rather than asking the clinic. On, together with counsel's release of the Direct booking addendum, the call and website chat book through the booking engine; it also changes the buy page's wording and reports. Never set from Terraform.",
   HEALDESK_PHASE_TWO_ATTRIBUTION: "The phase-two switch, off in v1.",
   HEALDESK_CHAT_MODEL: "Which model answers website chat: one of PATIENT_MODEL_IDS (@healdesk/catalog model-retention.ts); any other value is ignored with a warning, because the agreements state the provider's retention for those models only.",
   HEALDESK_VOICE_MODEL: "Which model answers calls: one of PATIENT_MODEL_IDS (@healdesk/catalog model-retention.ts); any other value is ignored with a warning, because the agreements state the provider's retention for those models only.",
@@ -1294,9 +1294,9 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "gcal",
     both: true,
-    title: "Bookings the desk confirms go into the clinic's calendar",
+    title: "Bookings go into the clinic's calendar",
     carries:
-      "Free times one way, for a request the desk opens on Bookings and for the clinic's own Talk to your AYA preview, which holds and books nothing; the booking the desk confirms on Bookings the other",
+      "Free times one way, for a request the desk opens on Bookings, for the clinic's own Talk to your AYA preview, which holds and books nothing, and, once direct booking is switched on, for AYA on a call or in website chat; the booking the desk confirms, or AYA makes, the other",
     example:
       "Maria asks for Thursday afternoon. The receptionist follows the emailed link, signs in and unlocks Bookings with a passkey, sees Thursday 3pm free in the clinic's Google Calendar, confirms it, and the engine writes it there.",
     // The Google login's return address is built from the portal's address,
@@ -1306,7 +1306,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "AYA does not book by herself yet: every channel takes a request and the desk confirms it. Holding and booking a time herself is built (lib/booking/engine.ts) but no channel calls it; it waits on HEALDESK_DIRECT_BOOKING_ENABLED, which is for counsel and you.",
+      "AYA does not book by herself yet: every channel takes a request and the desk confirms it. The call and website chat now reach the booking engine through one tool layer (lib/assistant/booking-tools.ts): AYA offers the calendar's free times, holds the one chosen for a minute and books it into Google, in fixed words, one booking per conversation. It stays off until both HEALDESK_DIRECT_BOOKING_ENABLED (yours) and counsel's release of the Direct booking addendum are on, and the clinic's calendar can offer times; tested against the fake Google only, never a real calendar. Instagram, Messenger and WhatsApp still take requests.",
   },
   {
     id: "app-stripe",

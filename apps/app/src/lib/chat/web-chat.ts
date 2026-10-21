@@ -6,6 +6,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import { conversations } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { bookingTools, EMPTY_TOOL_STATE, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine as assistantOpeningLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
@@ -58,6 +59,14 @@ import { CLOSED_FORM, contactFormOffer, type ContactFormOffer } from "./contact-
  *            one booking request is written for the desk (channel web_chat),
  *            and the clinic's booking-request alert (L7) is queued with it:
  *            a pointer into Bookings, never the details.
+ *   booking  while direct booking is on for the location (the owner's switch,
+ *            counsel's addendum and a calendar that can offer times,
+ *            lib/assistant/booking-tools.ts), the booking tool layer offers
+ *            the calendar's free times instead, holds the time chosen once
+ *            the visitor has given a name and a number, and books it into
+ *            Google, under the key "web:" + conversation id + ":1". Its
+ *            booking or request is the conversation's one request; nothing
+ *            else is filed for the desk.
  *   alerts   an urgent message queues L12 (critical: sent in-process once
  *            the message's transaction commits) and a request for a person
  *            queues L11, each once per conversation
@@ -98,6 +107,8 @@ type ChatState = {
   urgent?: boolean;
   /** L11 was queued for this conversation. Absent on a chat opened before package F, which reads as not yet. */
   handoverAlerted?: boolean;
+  /** The booking tool layer's state (lib/assistant/booking-tools.ts). Absent on a chat opened before it, which reads as empty. */
+  tools?: BookingToolState;
   openedAt: string;
 };
 
@@ -117,6 +128,8 @@ const ACTOR: ActorContext = { type: "agent", serviceName: "web-chat" };
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 /** A chat longer than this many turns is ended and a new one begins. */
 const MAX_TURNS = 120;
+/** How long a visitor waits for Google to take a booking before it becomes a request. */
+const BOOKING_BUDGET_MS = 15_000;
 
 // -----------------------------------------------------------------------------
 // The clinic and the browser
@@ -336,7 +349,31 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
     : { capture: EMPTY_CAPTURE, requestId: null, urgentAlerted: false, openedAt: new Date(token.issuedAt).toISOString() };
   const history: TranscriptTurn[] = continuing ? existing!.payload.turns : [{ speaker: "assistant", text: openingLine(facts) }];
 
-  const turn = await answerTurn({ facts, channel: "web_chat", history, text, capture: state.capture, responder: deps.responder, now });
+  // The booking tool layer, while the conversation has no request yet; the
+  // conversation row is the request's only while it exists (a continuing chat).
+  const tools = state.requestId
+    ? null
+    : bookingTools({
+        clinicId: clinic.clinicId,
+        channel: "web_chat",
+        holderKey: `web:${conversationId}`,
+        bookingKey: `web:${conversationId}:1`,
+        conversationId: continuing ? conversationId : null,
+        timeZone: facts.timeZone,
+        actor: ACTOR,
+        budgetMs: BOOKING_BUDGET_MS,
+      });
+  const turn = await answerTurn({
+    facts,
+    channel: "web_chat",
+    history,
+    text,
+    capture: state.capture,
+    responder: deps.responder,
+    now,
+    tools,
+    toolState: state.tools ?? EMPTY_TOOL_STATE,
+  });
   // After an urgent message, the first later message once the chat holds a
   // number to call back on (given then, or earlier) ends the chat, so its
   // transcript, the only copy of that number, reaches the clinic now and
@@ -374,7 +411,9 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
         localTest: isLocalOrigin(deps.origin),
         conversationId,
       });
-      const next: ChatState = { ...state, capture: turn.capture };
+      const next: ChatState = { ...state, capture: turn.capture, tools: turn.toolState };
+      // The tool layer's booking or request is the conversation's request.
+      if (!next.requestId && turn.toolState.done?.requestId) next.requestId = turn.toolState.done.requestId;
       if (turn.urgent) next.urgent = true;
       if (turn.urgent && !state.urgentAlerted) {
         // False when the row could not be queued: ops has been told
@@ -396,7 +435,9 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
       if (next.handoverAlerted) {
         await attachHandoverCaller(tx, { conversationId, capture: turn.capture });
       }
-      if (!next.requestId) {
+      // While the tools are live they take the booking; the capture is filed
+      // for the desk only when they are not.
+      if (!next.requestId && !turn.toolsLive) {
         next.requestId = await takeRequest(tx, facts, conversationId, turn.capture);
       }
       await tx.db

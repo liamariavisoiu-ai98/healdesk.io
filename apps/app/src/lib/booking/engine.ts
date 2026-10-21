@@ -1,4 +1,6 @@
-// No channel calls this yet: the assistant takes requests for the desk, and direct booking waits on HEALDESK_DIRECT_BOOKING_ENABLED.
+// The call and the web chat call this through one tool layer (lib/assistant/booking-tools.ts), and only while
+// HEALDESK_DIRECT_BOOKING_ENABLED and counsel's Direct booking addendum both allow it; otherwise they take requests.
+// The Meta channels do not call it (lib/meta/front-door.ts takes booking requests).
 
 import type { SlotHoldChannel } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
@@ -13,9 +15,10 @@ import { bookingModeFor } from "./mode";
 
 /**
  * The booking engine (plan §7.4; the design record's §6): what the Retell
- * process (launch plan 2.1) and the web-chat and Meta adapters will call
- * once direct booking is switched on. Nothing else writes the assistant's
- * bookings, and Google is never called inside a database transaction.
+ * process and the web chat call through the shared tool layer
+ * (lib/assistant/booking-tools.ts) while direct booking is switched on.
+ * Nothing else writes the assistant's bookings, and Google is never called
+ * inside a database transaction.
  *
  *   offerTimes          free start times for a service, each with the named
  *                       provider whose calendar it is on, while the location
@@ -35,7 +38,9 @@ import { bookingModeFor } from "./mode";
  *
  * The keys (plan §7.13): Retell's holder is "retell:" + call id and its
  * booking key "retell:" + call id + ":" + n, n growing only when the caller
- * asks for another booking. A booking key is unique per clinic
+ * asks for another booking; the web chat's are "web:" + conversation id and
+ * "web:" + conversation id + ":" + n. The tool layer books one per
+ * conversation, so n is always 1. A booking key is unique per clinic
  * (booking_requests.vendor_call_id): a retried tool call, a duplicate
  * webhook or a repeated tool call under it returns the original booking,
  * and a different booking asked for under it is refused (`key_reused`).

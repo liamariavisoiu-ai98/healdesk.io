@@ -2,7 +2,7 @@ import { allPlans } from "@healdesk/catalog";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { Transaction } from "@/db";
-import { createLocationClinic } from "@/lib/location-clinic";
+import { currentCentralAssistantAcknowledgement } from "@healdesk/catalog";
 import { anyLocationsReady, locationsReady, LOCATIONS_READY_PACKAGES } from "@/lib/locations";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { notifyCalendarState } from "@/lib/notices/calendar-state";
@@ -117,12 +117,12 @@ describe("the portal guards", () => {
 });
 
 describe("extra locations", () => {
-  // addLocation charges before it creates the location, and refuses while
-  // locationsReady is false for the package bought. The switch and the add
-  // that creates a location row (the plan's step 8) must change together: a
-  // true switch over the stub would take a clinic's money for a location that
-  // then fails to exist.
-  test("are refused for every package while createLocationClinic is still a stub", async () => {
+  // addLocation charges after it writes the pending location and the
+  // practice's acceptance, and refuses while locationsReady is false for the
+  // package bought or the acknowledgement is not released. Both stay off
+  // until the owner decides the rollout: a switch turned on in passing would
+  // offer an add whose wording has not passed its audit.
+  test("are refused for every package, and the acknowledgement is not released", () => {
     expect(LOCATIONS_READY_PACKAGES).toEqual([]);
     expect(anyLocationsReady()).toBe(false);
     for (const plan of allPlans()) {
@@ -131,12 +131,6 @@ describe("extra locations", () => {
     }
     expect(locationsReady(null)).toBe(false);
     expect(locationsReady("not-a-plan")).toBe(false);
-    await expect(
-      createLocationClinic({
-        billingClinicId: CLINIC,
-        locationNumber: 2,
-        actor: { type: "service", serviceName: "test" },
-      }),
-    ).rejects.toThrow(/provisioning rewrite/);
+    expect(currentCentralAssistantAcknowledgement().released).toBe(false);
   });
 });

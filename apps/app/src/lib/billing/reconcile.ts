@@ -44,7 +44,7 @@ import {
   type BillingRequestChannelKey,
 } from "@/lib/billing/requests";
 import { resumePlanChange, STALE_PLAN_CHANGE_MS } from "@/lib/billing/stripe-actions";
-import { createLocationClinic } from "@/lib/location-clinic";
+import { activatePendingLocation } from "@/lib/location-add";
 import { locationsReady } from "@/lib/locations";
 import { describeError, log } from "@/lib/log";
 import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
@@ -76,8 +76,8 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  *     plan start, never sooner than a week after that notice was queued;
  *   - a setup closure at the end of the 30-day setup window, when nothing is
  *     live anywhere in the group and the plan has not started;
- *   - an extra location charged but not yet created, resumed once the
- *     funnel's createLocationClinic is ready;
+ *   - an extra location charged but not yet active, activated once its
+ *     package may add locations (locationsReady);
  *   - an extra location left pending with no charge on record, settled from
  *     Stripe's evidence once nobody holds the mutation lease;
  *   - a request pending for more than a day, told to ops once;
@@ -602,14 +602,14 @@ async function settleUnchargedLocation(
 export type LocationResume = "resumed" | "not_ready" | "nothing_pending" | "busy" | "failed";
 
 /**
- * Finish an extra location that was charged but never created (R14 step 4
- * onwards): create its clinic, clear the pending marker and queue
+ * Finish an extra location that was charged but never made active (R14
+ * step 4 onwards): activate the location row the add wrote before its charge
+ * (lib/location-add.ts), clear the pending marker and queue
  * `location_added`. Under the billing clinic's Stripe mutation lease, so it
- * never races addLocation resuming the same request. While the funnel's
- * createLocationClinic is still the stub (`locationsReady` false for the
- * package bought) the location stays pending, untouched; addLocation refuses
- * before any charge in that state, so nothing new can arrive here until it
- * flips.
+ * never races addLocation resuming the same request. While the package
+ * bought may not add locations (`locationsReady` false) the location stays
+ * pending, untouched; addLocation refuses before any charge in that state,
+ * so nothing new can arrive here until it is switched on.
  *
  * Exported for the console's retry (R35 retryLocationSetup), so there is one
  * way to resume a location.
@@ -642,14 +642,18 @@ export async function resumePendingLocation(
   if (typeof pending === "string") return pending;
 
   try {
-    // Idempotent on (billing clinic, location number): a clinic the first
-    // attempt made comes back rather than being made twice.
-    await createLocationClinic({ billingClinicId, locationNumber: pending.count, actor });
+    // Idempotent: a location the first attempt activated returns the same
+    // time rather than anything being made twice. An add with no location
+    // row (marked pending before 0108) cannot be finished here.
+    const activated = await withTenant({ clinicId: billingClinicId, actor }, (tx) =>
+      activatePendingLocation(tx, pending.requestId),
+    );
+    if (!activated) throw new Error("the add has no pending location to activate");
   } catch (error) {
     await withTenant({ clinicId: billingClinicId, actor }, (tx) =>
       releaseStripeMutationLease(tx.db, billingClinicId, pending.owner),
     );
-    log.warn("extra location still not created", {
+    log.warn("extra location still not active", {
       clinicId: billingClinicId,
       error: describeError(error),
     });

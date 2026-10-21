@@ -14,7 +14,6 @@ import { withTenant } from "@/lib/tenant";
 
 import {
   closePools,
-  getMigratorPool,
   hasTestDatabase,
   runMigrations,
   truncateAll,
@@ -382,6 +381,9 @@ describeDb("Billing", () => {
       await addLocationAction(portal.clinicSlug, {
         requestId: "req-location-1",
         name: "Glow Med Spa, Round Rock",
+        address: "1 Main St, Round Rock",
+        acceptedBy: "Laura Owner, owner",
+        accepted: true,
       }),
     ).toEqual({
       ok: false,
@@ -389,13 +391,16 @@ describeDb("Billing", () => {
       stepUpHref: `/c/${portal.clinicSlug}/step-up?next=${encodeURIComponent(`/c/${portal.clinicSlug}/billing`)}`,
     });
     expect(touched).not.toHaveBeenCalled();
-    // Nothing reached Stripe, and no clinic names this one as its billing clinic.
+    // Nothing reached Stripe, and the account has only its main location.
     expect(world.fake.calls).toEqual([]);
-    const locations = await getMigratorPool().query<{ n: number }>(
-      `select count(*)::int as n from clinics where billing_clinic_id = $1 and id <> $1`,
-      [clinic.clinicId],
+    // clinic_locations is FORCEd, so it is read inside the clinic's tenant.
+    const locations = await inTenant(clinic.clinicId, (c) =>
+      c.query<{ n: number }>(
+        `select count(*)::int as n from clinic_locations where clinic_id = $1`,
+        [clinic.clinicId],
+      ),
     );
-    expect(locations.rows).toEqual([{ n: 0 }]);
+    expect(locations.rows).toEqual([{ n: 1 }]);
   });
 
   test("the card and the invoices open Stripe's own portal, made on the click", async () => {

@@ -248,6 +248,18 @@ export function checkPlanChange(
   if (!pending && newPlan.id === boughtPlan.id && input.interval === row.billingInterval) {
     return refusal("That's already your plan.");
   }
+  // Phone is per location (its own AYA number and forwarded line), which the
+  // extra-locations plan's slice 2 builds; until then an account with more
+  // than one location, or one being added, cannot move into phone.
+  if (
+    newPlan.channels.voice &&
+    !boughtPlan.channels.voice &&
+    (row.locations > 1 || row.pendingLocationRequestId !== null)
+  ) {
+    return refusal(
+      "A plan with phone can't be chosen while this account has more than one location: each location needs its own AYA number, which isn't available yet.",
+    );
+  }
   const isStarted = hasPlanStarted(row);
   if (isStarted && planForChannels(newPlan, inService) === null) {
     return refusal(

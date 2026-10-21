@@ -44,8 +44,8 @@ import {
  * rules on their own (decideReconcile, pure), then the job end to end
  * against the database: what it records, what it re-arms and when, the
  * waiting channel's week of notice, the setup closure, stuck requests, and an
- * extra location left pending while the funnel's createLocationClinic is not
- * ready.
+ * extra location left pending while its package may not add locations
+ * (locationsReady).
  */
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -692,7 +692,7 @@ describeDb("the billing reconcile job", () => {
     ]);
   });
 
-  test("an extra location charged but not created stays pending while createLocationClinic is not ready", async () => {
+  test("an extra location charged but not active stays pending while its package may not add locations", async () => {
     const billing = await seedBilling("rec-location", {
       planStartAppliedAt: at(-3 * DAY),
       locations: 2,

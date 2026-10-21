@@ -847,6 +847,61 @@ $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_activate_location(uuid) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_activate_location(uuid) TO healdesk_app;--> statement-breakpoint
 
+-- The other end of an add that was never charged: its pending location
+-- retired, once the add is no longer pending on the account's entitlements
+-- (a decline, a refusal, or the resume finding no charge, each of which
+-- clears the pending request first). An add still pending is refused, so
+-- nothing retires a location whose charge may yet go through; a location
+-- already active is refused, so this never undoes a paid one. A location
+-- already retired returns false; a pending one retired here returns true.
+-- The pending row and its acceptance stay, as the record that the practice
+-- accepted and then did not pay; a retry is a new add at the next position.
+CREATE OR REPLACE FUNCTION app_retire_unpaid_location(target_request uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
+AS $$
+DECLARE
+  tenant uuid := app_current_clinic_id();
+  loc record;
+BEGIN
+  IF tenant IS NULL THEN
+    RAISE EXCEPTION 'app_retire_unpaid_location: no tenant is declared for this transaction'
+      USING ERRCODE = '42501';
+  END IF;
+  SELECT l.id, l.status
+    INTO loc
+    FROM clinic_locations l
+   WHERE l.clinic_id = tenant AND l.add_request_id = target_request
+     FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+  IF loc.status = 'retired' THEN
+    RETURN false;
+  END IF;
+  IF loc.status <> 'pending' THEN
+    RAISE EXCEPTION 'app_retire_unpaid_location: the location of add % is %, and only an unpaid pending one is retired here', target_request, loc.status
+      USING ERRCODE = '23514';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM entitlements e
+     WHERE e.clinic_id = tenant
+       AND e.pending_location_request_id = target_request::text
+  ) THEN
+    RAISE EXCEPTION 'app_retire_unpaid_location: add % is still pending, and its charge may yet go through', target_request
+      USING ERRCODE = '23514';
+  END IF;
+  UPDATE clinic_locations l SET status = 'retired' WHERE l.id = loc.id;
+  RETURN true;
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_retire_unpaid_location(uuid) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_retire_unpaid_location(uuid) TO healdesk_app;--> statement-breakpoint
+
 -- 0096's app_close_clinic_account, copied whole, with the account's locations
 -- added to what it deletes (after the settings, whose own trigger copies the
 -- defaults onto the main location first). tests/booking-request-destruction
@@ -1078,6 +1133,8 @@ COMMENT ON TABLE location_acknowledgements IS
   'The client''s acceptance, for one added location, of one central AYA for every location: the rendered text, its version and SHA-256, who accepted it under which passkey step-up and on which device, and when by the database''s clock. Append-only for every role; kept with the agreement through destruction and the closure. Contract evidence, no patient.';--> statement-breakpoint
 COMMENT ON FUNCTION app_activate_location(uuid) IS
   'Makes a pending location of the tenant active, once, by the database''s clock, while the add that bought it is recorded as charged on entitlements; returns activated_at, unchanged for a location already active. Refuses a retired location, another tenant''s, and one never charged.';--> statement-breakpoint
+COMMENT ON FUNCTION app_retire_unpaid_location(uuid) IS
+  'Retires the tenant''s pending location of an add that is no longer pending on entitlements (declined, refused, or found uncharged); refuses an add still pending and a location already active. The row and its acceptance stay. Returns true when it retired one.';--> statement-breakpoint
 COMMENT ON FUNCTION app_assign_main_location() IS
   'BEFORE INSERT on the seven tables with a location_id: the placeholder default replaced with the row''s clinic''s main location. Fires first on each table.';--> statement-breakpoint
 COMMENT ON COLUMN clinic_locations.timezone IS

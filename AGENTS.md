@@ -30,14 +30,14 @@ The one rule to carry even if you read nothing else:
 ## Handoff snapshot
 | Field | Current value |
 | --- | --- |
-| Last updated (UTC) | 2026-10-21 |
-| Current task | `WAVE0-01` read-only inventory: DONE (code and test files read; no suite run). Backlog: [docs/wave0-audit-2026-10-21.md](./docs/wave0-audit-2026-10-21.md) |
-| Status | AWAITING OWNER: approve the first implementation package |
-| Branch / HEAD | `main` at 6cd6b190 (DPA 1.0.0 release on GitHub main, migration 0104); this handoff is a later local commit |
-| Worktree | Main checkout clean before this handoff. Local-only, not on GitHub: extra-locations L1 (`healdesk-m3b`, dirty), `locations/copy-terms`, vet wording (`healdesk-vet-wording`, dirty), billing step 8 not started. Its migration 0104 now clashes: renumber to 0105+ |
-| Approved scope | Read-only audit done. Product edits need an approved package |
-| Next action | Owner picks the first package; recommended `ALERT-01` (small, P0, makes the "I've told the team" claim true), then `NOAUDIO-01` |
-| Blocker | Owner rulings and actions listed in the audit doc |
+| Last updated (UTC) | 2026-10-21 (end of a long multi-agent session) |
+| Current task | Launch-readiness handover H0 to H8: [docs/design/launch-readiness-handover-2026-10-21.md](./docs/design/launch-readiness-handover-2026-10-21.md). First: review every branch diff against a fresh database, starting with `pkg/alert-noaudio` |
+| Status | Session work is on GitHub as BRANCHES (`integ/wave0-fixes` merges eight of them; `check/wave0-integration` runs CI). Merged code NOT verified locally. `pkg/voice-provisioning` and `pkg/ended-early-redial` are unfinished WIP |
+| Branch / HEAD | `main` at 2221a669 before any landing; integration branch `integ/wave0-fixes` at c6820b04 (see the handover table for every branch HEAD) |
+| Worktree | Main checkout: this handoff and two design docs uncommitted or local until pushed; `apps/app/Dockerfile` modified by another session, leave it. Builder worktrees `../healdesk-*` hold the branches listed in the handover |
+| Approved scope | Packages H0 to H8 in the handover; no deploy, no owner switches, no push to `main` without the owner |
+| Next action | New session: H0, review each branch diff on a fresh test database, `pkg/alert-noaudio` first, then H1 finish the two WIP builders, H2 voice eval, H3 patch "no call audio is kept", H4 Spanish urgent screen |
+| Blocker | Owner actions: deploy the app image after any web deploy that carries the amended agreement text (hash-check hazard), vendor attestations, switches; see handover section 4 |
 
 ## Last verified / reported evidence
 - **Owner-reported:** Retell and Anthropic agreements signed, database coverage confirmed. Do not request repeat signatures.
@@ -57,6 +57,7 @@ The one rule to carry even if you read nothing else:
 ### Owner rulings (2026-10-21)
 - **Window-gated replies to a patient's open request are allowed** (a Meta reply deciding or rescheduling a booking request, sent by `sendMetaReply` inside the 24-hour window). `CLAUDE.md` "Inbound only" now says so. The spec's "Outbound" rows are unchanged; the source doc may need the same clarification before the next re-export.
 - **ALERT-01:** `urgent-alert` stays `on` in the launch register. The owner is adding `RESEND_API_KEY` in AWS Parameter Store and will switch on `billing-notices`; the code must make the "I've told the team" claim depend on them.
+- **Voice engine (later 21 Oct):** the product voice agent STAYS on the custom-LLM WebSocket endpoint; Retell's native LLM is not being pursued (assessment kept in `docs/design/voice-native-llm-migration-2026-10-21.md`). The spec and `CLAUDE.md` voice sections are not changed. Retell keeps a call's transcript/recording only until our copy is committed, then we delete it (1-day retention backstop); legal text for this was minimally amended on branch `fix/legal-retell`. No call-backs: a call that ends early is flagged to the clinic and a redial is recognised.
 - **NOAUDIO-01:** create or update Retell agents with call-data storage restricted in code. No fail-closed check on real calls; instead an admin-console alert when a call was recorded, with a button that deletes that recording through the Retell API from `apps/app`.
 
 ### Hard stops

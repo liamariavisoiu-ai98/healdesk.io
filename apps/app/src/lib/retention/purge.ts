@@ -235,6 +235,8 @@ export const PURGE_COVERAGE: Readonly<{
       "no clock of its own: goes with the conversation or thread it flags, by cascade, when the purge deletes that",
     incident_affected_contacts:
       "no clock of its own: goes with the contact it names, by cascade, when the purge deletes that, never holding the contact back; the incident keeps the count recorded (incidents.affected_recorded)",
+    voice_redial_contexts:
+      "its own clock: two hours on the database's clock, deleted on first use and by the minute sweep (app_sweep_redial_contexts), and with its conversation by cascade (lib/voice/redial.ts)",
     transcript_emails:
       "its own clock: the outbox job deletes each sealed copy on delivery and never keeps one past 30 days, and the receipt goes with its conversation by cascade (lib/conversations/transcript-outbox.ts)",
     erasure_requests: "its own clock: expireErasureRecords, hourly, BACKUP_RETENTION_DAYS after the deletion",

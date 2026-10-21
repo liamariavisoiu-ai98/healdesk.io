@@ -1,6 +1,7 @@
 import { describeError, log } from "@/lib/log";
 import { verifyRetellSignature } from "@/lib/voice/retell-signature";
 import { BACKSTOP_EVENTS, isRetellCallId, retellApiKey, scheduleCallBackstop } from "@/lib/voice/backstop";
+import { isEndedEarlyReason, recordRetellEnding } from "@/lib/voice/ended-early";
 
 /**
  * POST /api/webhooks/retell/<clinic id>: Retell's call events for one
@@ -16,11 +17,19 @@ import { BACKSTOP_EVENTS, isRetellCallId, retellApiKey, scheduleCallBackstop } f
  * HEALDESK_RETELL_API_KEY, at most five minutes old. The clinic id in the
  * path is not a secret; it only names which clinic to check, and the job
  * records nothing unless Retell's own record of the call shows it reached
- * that clinic's Retell number. Nothing in the body is kept or queued but
- * the call id, and nothing logged but the event's name: the job reads the
- * call back from Retell itself, and deletes the call at Retell once it is
- * recorded here (lib/voice/recording-alerts.ts). A recording URL on the
- * call is expected until then and is not read here at all.
+ * that clinic's Retell number. Nothing in the body is queued but the call
+ * id, and nothing logged but the event's name: the job reads the call back
+ * from Retell itself, and deletes the call at Retell once it is recorded
+ * here (lib/voice/recording-alerts.ts). A recording URL on the call is
+ * expected until then and is not read here at all.
+ *
+ * One exception, for a call that ended unexpectedly (lib/voice/ended-early.ts):
+ * Retell's disconnection reason is read from the body, and when it names a
+ * fault the recorded call is flagged, the clinic's L35 alert queued and,
+ * from the body's last turns and caller number, the short-lived sealed
+ * redial record kept (lib/voice/redial.ts). A call not yet recorded passes
+ * the reason, a code and nothing more, to the backstop's job. Nothing of a
+ * call that ended normally is read.
  *
  * Answers in milliseconds (Retell waits ten seconds, then retries three
  * times): 204 for an event handled or ignored, 401 for a bad signature, 503
@@ -55,18 +64,34 @@ export async function POST(request: Request, { params }: { params: Promise<{ cli
 
   let event: unknown;
   let callId: unknown;
+  let call: Parameters<typeof recordRetellEnding>[1] = {};
   try {
-    const body = JSON.parse(raw) as { event?: unknown; call?: { call_id?: unknown } };
+    const body = JSON.parse(raw) as { event?: unknown; call?: Parameters<typeof recordRetellEnding>[1] };
     event = body.event;
-    callId = body.call?.call_id;
+    call = body.call && typeof body.call === "object" ? body.call : {};
+    callId = call.call_id;
   } catch {
     return new Response(null, { status: 400 });
   }
   if (typeof event !== "string" || !BACKSTOP_EVENTS.has(event)) return new Response(null, { status: 204 });
   if (!isRetellCallId(callId)) return new Response(null, { status: 400 });
 
+  // A call that ended early: flagged now when it is recorded, else its reason
+  // goes to the backstop. A failure here still queues the backstop, with the
+  // reason, which flags the call when it runs.
+  let endedEarlyReason: string | undefined;
   try {
-    await scheduleCallBackstop({ clinicId, callId });
+    const ending = await recordRetellEnding(clinicId, call);
+    if (ending.status === "pending") endedEarlyReason = ending.reason;
+    if (ending.status === "flagged") log.info("retell call flagged as ended early", { clinicId, event });
+  } catch (error) {
+    log.error("retell webhook could not record the call's ending", { clinicId, event, error: describeError(error) });
+    const reason = typeof call.disconnection_reason === "string" ? call.disconnection_reason : undefined;
+    if (isEndedEarlyReason(reason)) endedEarlyReason = reason;
+  }
+
+  try {
+    await scheduleCallBackstop({ clinicId, callId, ...(endedEarlyReason ? { endedEarlyReason } : {}) });
   } catch (error) {
     log.error("retell webhook could not queue the backstop", { clinicId, event, error: describeError(error) });
     return new Response(null, { status: 503 });

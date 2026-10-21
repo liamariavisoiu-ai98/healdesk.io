@@ -123,6 +123,8 @@ export type PlanNoticePayloads = {
   website_message: BookingAlertPayload;
   /** Dedupe `calendar_check:request:<id>`: once per request. */
   calendar_check: BookingAlertPayload;
+  /** Dedupe `ended_early:conversation:<id>`: once per call (lib/voice/ended-early.ts). */
+  ended_early: BookingAlertPayload;
   /** Dedupe `daily_summary:<clinic-local date>`: once per working day (lib/scheduler/daily-summary.ts). */
   daily_summary: DailySummaryPayload;
   /** Dedupe `weekly_recap:<ISO week of last week's Monday>`: once per week (lib/scheduler/weekly-recap.ts). */

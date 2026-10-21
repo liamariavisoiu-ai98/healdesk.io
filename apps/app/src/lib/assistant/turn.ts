@@ -410,6 +410,12 @@ export async function answerTurn(input: {
   callerPhone?: string | null;
   /** Our own bound on the model's answer; MODEL_DEADLINE_MS for the channel when absent. */
   modelDeadlineMs?: number;
+  /**
+   * The block for a call back after a call that was cut off (lib/voice/redial.ts),
+   * in the turn context after the cached prefix. The screens above run first
+   * on this call's words as on any other.
+   */
+  resumed?: string | null;
 }): Promise<AssistantTurnResult> {
   const { facts, channel } = input;
   const capture = input.capture ?? EMPTY_CAPTURE;
@@ -452,7 +458,7 @@ export async function answerTurn(input: {
   const opening = input.history.find((t) => t.speaker === "assistant")?.text;
   const system = {
     stable: buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),
-    turn: assistantTurnContext(facts, now, opening, toolsLive ? toolTurnContext(toolState, facts.timeZone) : null),
+    turn: assistantTurnContext(facts, now, opening, toolsLive ? toolTurnContext(toolState, facts.timeZone) : null, input.resumed ?? null),
   };
   let raw: Awaited<ReturnType<AssistantResponder>>;
   try {

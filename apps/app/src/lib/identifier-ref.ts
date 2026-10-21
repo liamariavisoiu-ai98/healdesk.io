@@ -44,6 +44,11 @@ import { env } from "@/lib/env";
  * ("email:" + the lower-cased address) that a deletion found, kept on the
  * request only to delete the person again after a restore, and never used to
  * find anyone for any other purpose.
+ *
+ * `redial_caller` is a caller's E.164 number at a clinic, the key of the
+ * short-lived record of a call that ended unexpectedly
+ * (voice_redial_contexts, lib/voice/redial.ts), so a call from the same
+ * number soon after finds it without the number being stored.
  */
 export type IdentifierRefKind =
   | "chat_party"
@@ -51,7 +56,8 @@ export type IdentifierRefKind =
   | "call"
   | "chat_conversation"
   | "slot_holder"
-  | "erasure";
+  | "erasure"
+  | "redial_caller";
 
 export const IDENTIFIER_REF_KINDS: readonly IdentifierRefKind[] = [
   "chat_party",
@@ -60,6 +66,7 @@ export const IDENTIFIER_REF_KINDS: readonly IdentifierRefKind[] = [
   "chat_conversation",
   "slot_holder",
   "erasure",
+  "redial_caller",
 ];
 
 export const IDENTIFIER_REF_HKDF_INFO = "healdesk.identifier-ref.v1";

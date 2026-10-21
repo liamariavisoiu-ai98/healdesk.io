@@ -750,6 +750,13 @@
       "when": 1792598273930,
       "tag": "0106_voice_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1792600000000,
+      "tag": "0107_voice_ended_early",
+      "breakpoints": true
     }
   ]
 }

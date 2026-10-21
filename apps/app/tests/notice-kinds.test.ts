@@ -51,6 +51,7 @@ const REGISTERED_AHEAD: Record<
   urgent: ["L12", "critical", null, "any_hour"],
   website_message: ["L20", "normal", null, "any_hour"],
   calendar_check: ["L34", "normal", null, "any_hour"],
+  ended_early: ["L35", "normal", null, "any_hour"],
   daily_summary: ["L13", "normal", "daily_summary", "any_hour"],
   weekly_recap: ["L14", "normal", null, "daytime"],
   ai_paused: ["L15", "normal", null, "any_hour"],
@@ -155,6 +156,7 @@ describe("the notice kind registry", () => {
       "urgent",
       "website_message",
       "calendar_check",
+      "ended_early",
     ] as const satisfies readonly BookingAlertKind[];
     const registered: readonly NoticeKind[] = alerts;
     for (const kind of registered) {

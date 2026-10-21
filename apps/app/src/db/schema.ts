@@ -1077,8 +1077,25 @@ export const conversations = pgTable(
      * counted twice inflates the one figure the clinic judges us on — twice.
      */
     externalCallId: text("external_call_id"),
+
+    /**
+     * The call ended unexpectedly (lib/voice/ended-early.ts): Retell's
+     * technical disconnection reason, or `unexplained` for a call only the
+     * backstop recorded with no reason given. Null for every call that ended
+     * normally, and for every web chat. Set once, never cleared: the
+     * transcript email carries a banner, Conversations marks the row, Home
+     * counts it, and the clinic's L35 alert points at it, so staff can call
+     * the person back themselves. healdesk contacts nobody (drizzle/0107).
+     */
+    endedEarlyReason: text("ended_early_reason"),
+    /** When the flag was set, by the database's clock. */
+    endedEarlyAt: timestamp("ended_early_at", { withTimezone: true }),
   },
   (t) => [
+    check(
+      "conversations_ended_early_check",
+      sql`(${t.endedEarlyReason} is null) = (${t.endedEarlyAt} is null) and (${t.endedEarlyReason} is null or ${t.endedEarlyReason} ~ '^[a-z_]{1,64}$')`,
+    ),
     index("conversations_clinic_idx").on(t.clinicId, t.startedAt),
     // Partial: NULLs are distinct in Postgres, so an unqualified unique index
     // would neither prevent duplicates nor support ON CONFLICT.
@@ -6267,6 +6284,7 @@ export const TENANT_SCOPED_TABLES = [
   "incident_affected_contacts",
   "retell_recording_alerts",
   "voice_agents",
+  "voice_redial_contexts",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -6969,4 +6987,52 @@ export const voiceNumberOrderDays = pgTable(
     ordered: integer("ordered").notNull().default(0),
   },
   (t) => [check("voice_number_order_days_ordered_check", sql`${t.ordered} >= 0`)],
+);
+
+// -----------------------------------------------------------------------------
+// Redial recognition (drizzle/0107, 21 October 2026)  ⚠️ PHI
+// -----------------------------------------------------------------------------
+
+/**
+ * The last few turns of a call that ended unexpectedly, kept sealed for a
+ * short while so that, if the same number calls again, AYA knows it was cut
+ * off and can carry on (lib/voice/redial.ts). Inbound only: nothing here
+ * contacts anyone; the record waits for the caller to ring back.
+ *
+ * At most REDIAL_MAX_TURNS turns, sealed under the KMS key with the lock
+ * label's login `redial`; one row per clinic and caller, the newest call's;
+ * the caller only as a keyed reference (identifierRef("redial_caller", ...),
+ * never the number). The database sets both clocks: expires_at is
+ * created_at plus two hours, and nothing moves it. Deleted when it is used,
+ * by the minute sweep once expired (app_sweep_redial_contexts), with its
+ * conversation by cascade, by a person's erasure, and at a clinic's
+ * destruction. Never in the ops projection, a log or Retell.
+ */
+export const voiceRedialContexts = pgTable(
+  "voice_redial_contexts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** identifierRef("redial_caller", clinic, the caller's E.164): never the number. */
+    callerRef: text("caller_ref").notNull(),
+    /** The call that ended early. */
+    conversationId: uuid("conversation_id").notNull(),
+    sealed: jsonb("sealed").$type<SealedPayload>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    /** created_at plus two hours, set by the database (drizzle/0107). */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("voice_redial_contexts_caller_idx").on(t.clinicId, t.callerRef),
+    index("voice_redial_contexts_expiry_idx").on(t.expiresAt),
+    foreignKey({
+      name: "voice_redial_contexts_conversation_fk",
+      columns: [t.clinicId, t.conversationId],
+      foreignColumns: [conversations.clinicId, conversations.id],
+    }).onDelete("cascade"),
+    check("voice_redial_contexts_caller_ref_check", sql`${t.callerRef} ~ '^v1:[0-9a-f]{64}$'`),
+    check("voice_redial_contexts_expiry_check", sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '2 hours'`),
+  ],
 );

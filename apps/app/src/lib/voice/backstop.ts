@@ -14,6 +14,7 @@ import { enqueue, getBoss, QUEUE_VOICE_CALL_BACKSTOP } from "@/lib/queue/boss";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
+import { classifyCallEnding, isEndedEarlyReason, markEndedEarly } from "./ended-early";
 import { ingestCall, VoiceIngestError, type IngestResult, type VoiceCallEvent } from "./ingest";
 import { deleteRetellCallAfterIngest, type RetellCallDeletion } from "./recording-alerts";
 import { voiceRealCallsAllowed } from "./test-calls";
@@ -115,7 +116,16 @@ const CALL_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const MAX_TURNS = 400;
 const MAX_TURN_CHARS = 4_000;
 
-export type CallBackstopPayload = { clinicId: string; callId: string };
+export type CallBackstopPayload = {
+  clinicId: string;
+  callId: string;
+  /**
+   * Retell's reason for a call that ended early (lib/voice/ended-early.ts),
+   * when its webhook found the call not yet recorded: a code from a closed
+   * list, never anything about the caller. The job flags the call with it.
+   */
+  endedEarlyReason?: string;
+};
 
 /** The engine's Retell key: signs the webhooks and reads calls back. Unset (or the placeholder) is null. */
 export function retellApiKey(source: Record<string, string | undefined> = process.env): string | null {
@@ -138,7 +148,8 @@ export async function scheduleCallBackstop(
   send: typeof enqueue = enqueue,
   queueInstalled: () => Promise<boolean> = async () => Boolean(await (await getBoss()).getQueue(QUEUE_VOICE_CALL_BACKSTOP)),
 ): Promise<void> {
-  const id = await send(QUEUE_VOICE_CALL_BACKSTOP, { clinicId: payload.clinicId, callId: payload.callId }, {
+  const reason = isEndedEarlyReason(payload.endedEarlyReason) ? { endedEarlyReason: payload.endedEarlyReason } : {};
+  const id = await send(QUEUE_VOICE_CALL_BACKSTOP, { clinicId: payload.clinicId, callId: payload.callId, ...reason }, {
     startAfter: BACKSTOP_DELAY_SECONDS,
     singletonKey: `${payload.clinicId}:${payload.callId}`,
     // Retell's API down for a while is the likely failure. pg-boss doubles
@@ -168,6 +179,8 @@ export type RetellCall = {
   end_timestamp?: unknown;
   duration_ms?: unknown;
   transcript_object?: unknown;
+  /** Why the call ended (lib/voice/ended-early.ts reads it). */
+  disconnection_reason?: unknown;
 };
 
 /** Read a call back from Retell. Throws on anything but a 200 with a JSON object, so the job retries. */
@@ -294,6 +307,9 @@ export function callEventFromRetell(
   const durationSeconds =
     typeof call.duration_ms === "number" && Number.isFinite(call.duration_ms) && call.duration_ms >= 0 ? Math.round(call.duration_ms / 1000) : undefined;
   const from = typeof call.from_number === "string" && call.from_number.trim() ? call.from_number.trim() : undefined;
+  // Recorded here, so the live socket never did: with no reason Retell
+  // knows as normal, the call ended early (lib/voice/ended-early.ts).
+  const ending = classifyCallEnding({ disconnectionReason: call.disconnection_reason, recordedByBackstop: true });
   return {
     event: {
       externalCallId: clinic.callId,
@@ -308,6 +324,7 @@ export function callEventFromRetell(
       ...(clinic.raised?.urgent || clinic.raised?.handover ? { outcome: "escalated_to_human" as const } : {}),
       disclosurePlayedAt: openedWithDisclosure(turns) ? startedAt : undefined,
       transcriptTurns: turns.some((t) => t.speaker === "person") ? turns : undefined,
+      ...(ending.endedEarly ? { endedEarlyReason: ending.reason } : {}),
     },
   };
 }
@@ -386,6 +403,21 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
     return { status: "open" as const, assistantNumber: clinic.assistantNumber, raised: { urgent: Boolean(urgentAlert), handover: Boolean(handover) } };
   });
   if (state.status === "recorded_here") {
+    // Retell's webhook said the call ended early before the live socket had
+    // recorded it: flagged now, once (markEndedEarly sets it only while
+    // unset). The redial record needs the turns, which this path no longer
+    // reads, so a call flagged this way has none.
+    if (isEndedEarlyReason(payload.endedEarlyReason)) {
+      const reason = payload.endedEarlyReason;
+      await withTenant({ clinicId, actor: ACTOR }, async (tx) => {
+        const [row] = await tx.db
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(and(eq(conversations.clinicId, clinicId), eq(conversations.externalCallId, callId)))
+          .limit(1);
+        if (row) await markEndedEarly(tx, { conversationId: row.id, reason, via: "backstop" });
+      });
+    }
     // The usual case: the live socket recorded the call, and its transcript
     // is sealed with it. Retell's copy goes now.
     await deleteAtRetellOrRetry(clinicId, callId, deps);

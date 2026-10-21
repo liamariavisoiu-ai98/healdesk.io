@@ -892,6 +892,8 @@ describeDb("Conversations", () => {
       // Not flagged, and it opens (Flag this answer, wave 2 R2).
       flag: null,
       openable: true,
+      // Only a call ends early (lib/voice/ended-early.ts).
+      endedEarly: false,
     });
     expect(byId.get(quiet.conversationId)).toMatchObject({
       source: "meta_thread",

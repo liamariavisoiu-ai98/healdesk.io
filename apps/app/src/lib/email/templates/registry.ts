@@ -13,6 +13,7 @@ import {
   BOOKING_REQUEST_ENTRY,
   CALENDAR_CHECK_ENTRY,
   DEPOSIT_TO_COLLECT_ENTRY,
+  ENDED_EARLY_ENTRY,
   HANDOVER_ENTRY,
   REQUEST_MISSED_ENTRY,
   REQUEST_STILL_OPEN_ENTRY,
@@ -164,6 +165,7 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   urgent: URGENT_ENTRY,
   website_message: WEBSITE_MESSAGE_ENTRY,
   calendar_check: CALENDAR_CHECK_ENTRY,
+  ended_early: ENDED_EARLY_ENTRY,
   // The operator's notices from /admin (WP7): L28, L29's two, L30's two,
   // L31 and L33, each from fixed fields only.
   terms_notice: TERMS_NOTICE_ENTRY,
@@ -280,7 +282,8 @@ type LiveAlertKind =
   | "handover"
   | "urgent"
   | "website_message"
-  | "calendar_check";
+  | "calendar_check"
+  | "ended_early";
 /** The operator's notices templated above (WP7), kept out of the pending list's type. */
 type OperatorTemplatedKind =
   | "terms_notice"

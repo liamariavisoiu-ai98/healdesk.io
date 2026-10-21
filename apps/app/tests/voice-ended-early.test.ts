@@ -101,7 +101,7 @@ describe("which endings count as ended early", () => {
 describe("the transcript email's banner", () => {
   const base = {
     conversationId: "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f99",
-    clinic: { id: "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f60", name: "Ended Early Clinic", timeZone: "America/Los_Angeles" },
+    clinic: { id: "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f60", name: "Ended Early Clinic", timeZone: "America/Los_Angeles", audience: "patients" as const },
     channel: "voice" as const,
     startedAt: new Date("2026-10-21T15:00:00Z"),
     turns: [

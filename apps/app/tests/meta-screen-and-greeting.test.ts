@@ -138,6 +138,7 @@ describe("the screen, before any model", () => {
       vetReferralPhone: "+14155550911",
       openingHours: { sun: [], mon: [["09:00", "17:00"]], tue: [["09:00", "17:00"]], wed: [], thu: [], fri: [], sat: [] } as const,
       timeZone: "America/Los_Angeles",
+      urgentAlertsReady: true,
     };
     // Tuesday 10:00 in Los Angeles, then the Sunday before.
     const open = urgentLine(facts, { emergency: "veterinary" }, new Date("2026-10-13T17:00:00Z"));
@@ -222,19 +223,26 @@ describe("the screen, before any model", () => {
   });
 
   test("the urgent line says it is an AI assistant, sends an emergency to 911 and gives the clinic's direct line, else its published one", () => {
-    const direct = urgentLine({ clinicName: "Radiance", phone: PUBLISHED, urgentPhone: DIRECT });
+    const direct = urgentLine({ clinicName: "Radiance", phone: PUBLISHED, urgentPhone: DIRECT, urgentAlertsReady: true });
     expect(direct).toBe(
       `I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, call 911 now. Otherwise, please call Radiance on ${DIRECT}. I've told the team.`,
     );
-    expect(urgentLine({ clinicName: "Radiance", phone: PUBLISHED, urgentPhone: null })).toMatch(
+    expect(urgentLine({ clinicName: "Radiance", phone: PUBLISHED, urgentPhone: null, urgentAlertsReady: true })).toMatch(
       new RegExp(`call Radiance on \\${PUBLISHED}\\. I've told the team\\.$`),
     );
-    expect(urgentLine({ clinicName: "Radiance", phone: PUBLISHED })).toMatch(
+    expect(urgentLine({ clinicName: "Radiance", phone: PUBLISHED, urgentAlertsReady: true })).toMatch(
       new RegExp(`call Radiance on \\${PUBLISHED}\\. I've told the team\\.$`),
     );
-    expect(urgentLine({ clinicName: "Radiance", phone: null, urgentPhone: null })).toMatch(
+    expect(urgentLine({ clinicName: "Radiance", phone: null, urgentPhone: null, urgentAlertsReady: true })).toMatch(
       /call Radiance\. I've told the team\.$/,
     );
+    // While the alert would not reach the clinic (or readiness is unknown),
+    // the same fixed lines without the promise: 911 and the number.
+    for (const ready of [false, undefined]) {
+      expect(urgentLine({ clinicName: "Radiance", phone: PUBLISHED, urgentPhone: DIRECT, urgentAlertsReady: ready })).toBe(
+        `I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, call 911 now. Otherwise, please call Radiance on ${DIRECT}.`,
+      );
+    }
     // It promises only what is built: the team is told because the front
     // door queues L12 with the answer and the webhook sends it in-process
     // (package F), and nothing more than that (no call, no time).

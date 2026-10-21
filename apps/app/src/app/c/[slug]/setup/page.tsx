@@ -15,7 +15,7 @@ import { connectConfigured } from "@/lib/billing/connect";
 import { getDepositSettings } from "@/lib/billing/deposits";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { disclosureFor } from "@/lib/compliance/disclosure";
-import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
+import { urgentAlertReadiness } from "@/lib/notices/urgent-readiness";
 import { MAX_PROVIDERS } from "@/lib/connections/google-calendar";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
@@ -429,16 +429,19 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
       // when the number is read, so it is never frozen as a copy.
       const field = urgentHelpField(state);
       return (
-        <UrgentScreen
-          {...common}
-          urgentHelp={field.value}
-          urgentPlaceholder={field.placeholder}
-          urgentHint={field.hint}
-          vet={clinic.regulatoryRegime === "non-hipaa"}
-          vetReferral={settings.vetReferralE164 ? formatPhone(settings.vetReferralE164) : ""}
-          audience={audience}
-          address={state.address}
-          teamAlerted={URGENT_ALERT_DELIVERED}
+        <UrgentStep
+          state={state}
+          actor={nav.actor}
+          screen={{
+            ...common,
+            urgentHelp: field.value,
+            urgentPlaceholder: field.placeholder,
+            urgentHint: field.hint,
+            vet: clinic.regulatoryRegime === "non-hipaa",
+            vetReferral: settings.vetReferralE164 ? formatPhone(settings.vetReferralE164) : "",
+            audience,
+            address: state.address,
+          }}
         />
       );
     }
@@ -508,6 +511,26 @@ async function DepositsStep({
       })}
     />
   );
+}
+
+/**
+ * Step 2.5, urgent help, with whether an urgent alert would reach the
+ * clinic today (urgentAlertReadiness: the sender's switch, an email
+ * transport and the clinic's address), read here because setup's own state
+ * does not carry it. The screen promises the alert only when it would go,
+ * and otherwise says plainly that urgent alerts are not switched on yet.
+ */
+async function UrgentStep({
+  state,
+  actor,
+  screen,
+}: {
+  state: SetupState;
+  actor: ActorContext;
+  screen: Omit<Parameters<typeof UrgentScreen>[0], "teamAlerted">;
+}) {
+  const readiness = await withTenant({ clinicId: state.clinic.id, actor }, (tx) => urgentAlertReadiness(tx));
+  return <UrgentScreen {...screen} teamAlerted={readiness.ready} />;
 }
 
 /**

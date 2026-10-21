@@ -44,7 +44,6 @@ import {
   dedupeKey,
   notifyBookingAlert,
   queueRequestsStillOpen,
-  URGENT_ALERT_DELIVERED,
   withoutTeamTold,
   type BookingAlertKind,
 } from "@/lib/notices/booking-alerts";
@@ -185,8 +184,6 @@ describe("the live alerts' templates", () => {
       expect(NOTICE_KIND_REGISTRY[kind].quietHours, kind).toBe("any_hour");
       expect(CRITICAL_NOTICE_KINDS.includes(kind), kind).toBe(kind === "urgent");
     }
-    // The fixed urgent reply may say "I've told the team" now that it is so.
-    expect(URGENT_ALERT_DELIVERED).toBe(true);
   });
 
   for (const kind of LIVE_KINDS) {
@@ -275,7 +272,7 @@ describe("the live alerts' templates", () => {
       for (const language of ["en", "es"] as const) {
         for (const emergency of ["911", "veterinary"] as const) {
           const input = { channel, language, emergency, clinicName: "Radiance", clinicNumber: "(415) 555-0123" };
-          const told = fixedUrgentReply({ ...input, teamAlerted: URGENT_ALERT_DELIVERED });
+          const told = fixedUrgentReply({ ...input, teamAlerted: true });
           const untold = fixedUrgentReply({ ...input, teamAlerted: false });
           const what = `${channel} ${language} ${emergency}`;
           expect(told, what).not.toBe(untold);
@@ -497,6 +494,29 @@ describeDb("the live alerts' hooks", () => {
       await pool.query(`drop function if exists live_alerts_refuse()`);
     }
   }
+
+  test("web chat: with the sender off the alert is still queued, unsent, and the reply never says the team was told", async () => {
+    const { seeded, clinic } = await webClinic("alert-web-urgent-off");
+    await senderOn(seeded, false);
+    const transport = new FakeTransport();
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("no chat");
+    const answer = await sendWebChatMessage(clinic, start.token, URGENT_WORDS, {
+      responder: scripted(() => ({ reply: "Happy to help." })),
+      transport,
+    });
+    if (answer.mode !== "chat") throw new Error("no chat");
+    expect(answer.reply).toMatch(/call 911/);
+    expect(answer.reply).toContain("Otherwise, please call");
+    expect(answer.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
+    // Queued exactly as before, so it goes the moment the sender is switched on.
+    const queued = await queuedNotices(seeded.clinicId);
+    expect(queued.map((n) => [n.kind, n.sent_at])).toEqual([["urgent", null]]);
+    expect(transport.notices()).toEqual([]);
+    await senderOn(seeded);
+    await sendPendingNotices({ clinicId: seeded.clinicId, transport });
+    expect(transport.notices().map((s) => s.target.to)).toEqual([seeded.staffEmail]);
+  });
 
   test("web chat: an urgent alert that cannot be queued is told to ops, the reply never says the team was told, and the next urgent message tries again", async () => {
     const { seeded, clinic } = await webClinic("alert-web-urgent-miss");

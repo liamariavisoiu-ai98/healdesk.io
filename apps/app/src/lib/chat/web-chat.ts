@@ -328,7 +328,9 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
     log.error("web chat conversation not counted", { clinicId: clinic.clinicId, error: describeError(error) });
   }
 
-  const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
+  const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) =>
+    (await clinicHasLeft(tx)) ? null : assistantFacts(tx, { alertTransport: deps.transport }),
+  );
   if (!facts) return { mode: "contact_form", reason: "clinic_left", form: CLOSED_FORM };
 
   const state: ChatState = continuing

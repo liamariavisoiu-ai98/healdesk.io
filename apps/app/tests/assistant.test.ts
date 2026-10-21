@@ -1,6 +1,7 @@
 import {
   NEVER_SAY_DEFAULTS,
   PATIENT_MODEL_IDS,
+  URGENT_AI_LINE,
   URGENT_LEAVE_NUMBER_LINE,
   URGENT_TEAM_TOLD_LINE,
 } from "@healdesk/catalog";
@@ -36,7 +37,6 @@ import {
 } from "@/lib/assistant/turn";
 import { requestReceivedLine } from "@/lib/meta/booking-requests";
 import { guardContextFor, guardReply } from "@/lib/meta/front-door";
-import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
 import { neverSayWithDefaults } from "@/lib/setup/knowledge";
 import { spokenPhone } from "@/lib/voice/spoken";
 
@@ -922,12 +922,23 @@ describe("answerTurn", () => {
     expect(result.reply).toContain(URGENT_LEAVE_NUMBER_LINE);
   });
 
-  test("the urgent line says the team was told, now that the urgent alert reaches it", async () => {
+  test("the urgent line says the team was told only while the urgent alert would reach it", async () => {
     // Package F sends L12 through the outbox, in-process after commit, from
-    // voice, web chat and Meta (tests/live-alerts.test.ts).
-    expect(URGENT_ALERT_DELIVERED).toBe(true);
-    const result = await answerTurn({ facts: FACTS, channel: "web_chat", history: [], text: "it won't stop bleeding", responder: null });
-    expect(result.reply).toContain(URGENT_TEAM_TOLD_LINE);
+    // voice, web chat and Meta (tests/live-alerts.test.ts), but only while
+    // the sender, a transport and the clinic's address exist
+    // (urgentAlertReadiness, tests/urgent-readiness.test.ts).
+    const ready = await answerTurn({ facts: { ...FACTS, urgentAlertsReady: true }, channel: "web_chat", history: [], text: "it won't stop bleeding", responder: null });
+    expect(ready.reply).toContain(URGENT_TEAM_TOLD_LINE);
+    for (const facts of [{ ...FACTS, urgentAlertsReady: false }, FACTS]) {
+      for (const channel of ["web_chat", "voice"] as const) {
+        const result = await answerTurn({ facts, channel, history: [], text: "it won't stop bleeding", responder: null });
+        // Honest: no promise, still the AI line, 911 and a number to call.
+        expect(result.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
+        expect(result.reply).toContain(URGENT_AI_LINE);
+        expect(result.reply).toMatch(/911/);
+        expect(result.reply).toMatch(/Otherwise, please call Radiance Med Spa/);
+      }
+    }
   });
 
   test("a veterinary practice: an animal's emergency gets the emergency vet, never 911, and its own number only while open", async () => {
@@ -982,7 +993,7 @@ describe("answerTurn", () => {
   test("a Spanish urgent message gets the Spanish reply, and never the model", async () => {
     let asked = false;
     const result = await answerTurn({
-      facts: { ...FACTS, languages: ["en", "es"] },
+      facts: { ...FACTS, languages: ["en", "es"], urgentAlertsReady: true },
       channel: "web_chat",
       history: [],
       text: "No puedo respirar",

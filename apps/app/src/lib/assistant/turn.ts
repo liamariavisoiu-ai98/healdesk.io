@@ -9,7 +9,6 @@ import {
 
 import { isOpenAt } from "@/lib/clinic/opening-hours";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
-import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
 import { formatPhone } from "@/lib/setup/help";
 import { spokenPhone } from "@/lib/voice/spoken";
 
@@ -128,11 +127,13 @@ function openNow(facts: Pick<AssistantFacts, "openingHours" | "timeZone">, now: 
  * clinic's numbers written for the channel (personNumber), in the language
  * the person wrote in, and at a veterinary practice the emergency referral
  * clinic, with the practice's own number only while it is open. "I've told
- * the team" only once the urgent alert reaches the clinic
- * (URGENT_ALERT_DELIVERED).
+ * the team" only while an urgent alert would reach the clinic
+ * (facts.urgentAlertsReady, read by assistantFacts); otherwise the same
+ * fixed lines without it: 911 (or the emergency vet) and the number that
+ * reaches a person.
  */
 export function urgentReply(
-  facts: ReplyFacts & Partial<Pick<AssistantFacts, "specialty">>,
+  facts: ReplyFacts & Partial<Pick<AssistantFacts, "specialty" | "urgentAlertsReady">>,
   channel: AssistantChannel,
   finding: Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">>,
   now: Date,
@@ -146,7 +147,7 @@ export function urgentReply(
     clinicNumber: personNumber(facts, channel),
     referralNumber: numberFor(channel, facts.vetReferralPhone),
     clinicOpen: openNow(facts, now),
-    teamAlerted: URGENT_ALERT_DELIVERED,
+    teamAlerted: facts.urgentAlertsReady === true,
   });
 }
 

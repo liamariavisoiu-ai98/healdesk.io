@@ -250,6 +250,9 @@ export async function POST(request: Request): Promise<Response> {
             onUrgent: () => {
               urgentScreened = true;
             },
+            // The transport the urgent alert is sent with below, so the
+            // urgent line's "I've told the team" is read against it.
+            alertTransport: transportForTests,
           }),
         );
       } catch (error) {

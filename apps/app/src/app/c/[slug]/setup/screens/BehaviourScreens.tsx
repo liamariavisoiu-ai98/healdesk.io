@@ -351,8 +351,9 @@ export function UrgentScreen(
     audience: "patients" | "clients";
     address: string | null;
     /**
-     * Whether the urgent alert reaches the clinic today (URGENT_ALERT_DELIVERED):
-     * the screen says AYA tells the team only when it does.
+     * Whether an urgent alert would reach the clinic today (urgentAlertReadiness,
+     * lib/notices/urgent-readiness.ts): the screen says AYA tells the team only
+     * when it would, and otherwise that urgent alerts are not switched on yet.
      */
     teamAlerted?: boolean;
   },
@@ -404,6 +405,16 @@ export function UrgentScreen(
           type="tel"
           inputMode="tel"
         />
+      )}
+      {props.teamAlerted ? null : (
+        <div className="rounded-xl border border-line bg-white px-4 py-3 text-sm">
+          <p className="font-semibold">Urgent alerts are not switched on yet</p>
+          <p className="text-muted mt-1">
+            Until they are, AYA does not alert your team about an urgent message and does not say
+            it has. It gives the person {props.vet ? "the emergency numbers" : "911"} and the number
+            below.
+          </p>
+        </div>
       )}
       <div className="rounded-xl border border-line bg-white px-4 py-3 text-sm">
         <p className="font-semibold">Where alerts go</p>

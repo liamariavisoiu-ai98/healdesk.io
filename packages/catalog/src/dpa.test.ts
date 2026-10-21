@@ -111,17 +111,21 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
  * it, Anthropic's agreement signed before any client's information reaches
  * it, and the state-law clause's two exceptions to deletion as BAA 1.6.0
  * states them (stateLawClauseBody160; the sample was 88d592a2…3cc0).
- * Released unchanged on 20 October 2026: these are the signed bytes.
+ * Released on 20 October 2026 with the hashes above unchanged by the release,
+ * and regenerated on 21 October 2026, before the text was pushed or signed by
+ * any practice, for the party block's label of the Delaware address ("with a
+ * mailing address for notices and correspondence at", where it said "of"; the
+ * sample was b4246144…3a08). From the first signature these are the signed bytes.
  */
 const GOLDEN: Record<string, string> = {
-  sample: "b4246144e9915532193c7d25be8dee92a8a9e398c499c0441d77a46cdc4e3a08",
-  notcovered_live_covered: "0d87f4aa71f05a76f8f3090e2bff552ab450fa72a17d7853ac63793aa6b41e02",
-  notcovered_live_uncovered: "5cf3aa2a5d61013ced0f9d7285545214bd1b0974e5ab86092b9baff166d4f521",
-  notcovered_live_personal: "76903e405a470e113f66240dcfe861504f590fb17dd8f69238755414f7afd67d",
-  notcovered_notused_other: "0113fd7d7a8d8244a3a606728de7a96395a9094d6cb66957de50e7cb32909e51",
-  vet_live_covered: "0b6caea0c7fa9427150ea7a8aa22a1dfc8ebbb1a20dba79c79d07bf1f628a8f0",
-  vet_live_personal: "7fd8a2691e64ce08cd1076b87129d9ee6270945ca725eded09dd75e0ac71650a",
-  vet_notused_mindbody: "d9fbd69e354eaf6d92a2fb0c40abf76fd7c86d3c389f697523164a3b7f24c54b",
+  sample: "70260470a14d788e1913afd22d4e0f0dfeac09075921d19400237b186a533c73",
+  notcovered_live_covered: "8a146b1ebf756d18d19586e6dcfcf8a8287a15490adce28b99515c6ff1c6e76c",
+  notcovered_live_uncovered: "ee07a47f79236c52dce38966bd17c062e0b8b2c77e3ce560db0a63f0a2e14bcf",
+  notcovered_live_personal: "49414c47801a62f9a4392b89efc32375a6dada65e99da189eb45df89e0257d02",
+  notcovered_notused_other: "fa7b1e2ea3ec3a907ab2a05807bef86f58cc8715e433720381800648ca73ca1d",
+  vet_live_covered: "66a38ec12326820334fde803300bf99f909391ba8055ad22c9a92cfe863101f9",
+  vet_live_personal: "19173f673b2c92ce0adc828d0674064cecbf3e3697b0698113a25bb582756b0a",
+  vet_notused_mindbody: "e625e788e36006f899afc9e0320bc0bea2d2561377bbf7bc1f8d6531ac39d5f3",
 };
 
 const template = () => currentDpaTemplate();
@@ -649,7 +653,7 @@ describe("what the DPA says", () => {
   test("names the party, notice address and Delaware law the BAA names", () => {
     const text = unwrap(render({}).text);
     expect(text).toContain(
-      'Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates ("healdesk"), of 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to hello@healdesk.io',
+      'Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates ("healdesk"), with a mailing address for notices and correspondence at 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to hello@healdesk.io',
     );
     // hello@ is healdesk's only email address (owner, 9 October 2026), as BAA 1.2.2 prints it.
     expect(text).not.toMatch(/legal@|privacy@/);

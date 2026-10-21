@@ -139,7 +139,10 @@ import { wrap } from "./wrap";
  * account bound to an unreleased DPA. The owner released dpa/1.0.0 on 20
  * October 2026, without external counsel; the text carried no draft marker,
  * so the release moved no hash (dpa.test.ts), and docs/dpa-v1.0.0.txt is the
- * released copy.
+ * released copy. On 21 October 2026, before it was pushed or signed by any
+ * practice, the party block's label for the Delaware address changed from
+ * "of" to "with a mailing address for notices and correspondence at", and the
+ * golden hashes were regenerated.
  *
  * To publish a revision after release: add a new version at DPA_TEMPLATES[0],
  * never edit a released one. Someone has signed it.
@@ -1221,7 +1224,10 @@ function preamble100(v: DpaVariables): string {
     ``,
     `BETWEEN`,
     wrap(`${v.clinicLegalName} ("Practice"), ${descriptor}`),
-    wrap(`${ENTITY}, ${ENTITY_FORM} ("healdesk"), of ${NOTICE_ADDRESS}`),
+    wrap(
+      `${ENTITY}, ${ENTITY_FORM} ("healdesk"), with a mailing address for notices and ` +
+        `correspondence at ${NOTICE_ADDRESS}`,
+    ),
     ``,
     `SIGNED FOR PRACTICE BY`,
     wrap(`${v.signatoryName}${title}`),

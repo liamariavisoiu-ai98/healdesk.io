@@ -9,8 +9,13 @@ gives a practice that answers "No" this agreement where it gave the business
 associate agreement, checkout offers a veterinary practice, which it refused
 while there was no agreement for it to sign, and provisioning, and go-live's
 agreement check, accept an account bound to it. Drafted 6 October 2026;
-nothing in the text marked it a draft, so the release moved no hash. It is
-frozen now: a change is a new version, never an edit, and
+nothing in the text marked it a draft, so the release moved no hash. On 21
+October 2026, before the text was pushed or any practice had signed it, the
+party block's label for healdesk's Delaware address changed from "of" to "with
+a mailing address for notices and correspondence at", so the text no longer
+describes a mailbox as where healdesk is; the party's identity, the Notices
+clause and every other sentence are unchanged, and the golden hashes were
+regenerated. It is frozen now: a change is a new version, never an edit, and
 packages/catalog/src/dpa.test.ts holds this file and the golden hashes to the
 renderer.
 
@@ -28,7 +33,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 b4246144e9915532193c7d25be8dee92a8a9e398c499c0441d77a46cdc4e3a08).
+(SHA-256 70260470a14d788e1913afd22d4e0f0dfeac09075921d19400237b186a533c73).
 The clauses that render only for some practices follow in Appendix A, numbered
 as they render; nothing else in the text varies. Appendix B is the calendar
 election that names this agreement, which its Definitions clause and its
@@ -54,8 +59,9 @@ BETWEEN
   Glow Med Spa LLC ("Practice"), a medical spa, dermatology or aesthetics
   practice
   Viixi FZC, a company registered under the Sharjah Publishing City Free Zone,
-  United Arab Emirates ("healdesk"), of 800 N King Street, Suite 304-1426,
-  Wilmington, DE 19801, United States, and by email to hello@healdesk.io
+  United Arab Emirates ("healdesk"), with a mailing address for notices and
+  correspondence at 800 N King Street, Suite 304-1426, Wilmington, DE 19801,
+  United States, and by email to hello@healdesk.io
 
 SIGNED FOR PRACTICE BY
   Alex Chen, Owner

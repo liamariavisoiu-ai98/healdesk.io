@@ -188,6 +188,26 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The hourly sync could not set the fallback number of the clinic's AYA number in Retell to its direct line. The code says why: duplicate (two clinics name the same AYA number, whose fallback is cleared; fix the wrong one in Ops), missing (Retell has no such number), not_kept (Retell answered but did not keep it, or failed while setting it), rejected, unreachable or database; key_refused (Retell refused HEALDESK_RETELL_API_KEY) and retell_unreachable (three numbers in a row timed out) stop the run for every clinic. Until it is fixed, outage mode and a voice task started during a database outage cannot send that clinic's calls to its direct line. Check the number in Retell's dashboard and HEALDESK_RETELL_API_KEY.",
   },
+  voice_provision_failed: {
+    title: "A clinic's Retell set-up stopped",
+    action:
+      "Setting up the clinic's Retell agent and AYA number stopped, and the code says why: not_implemented (the clinic is set to Retell's own engine, which is not built), no_voice (HEALDESK_RETELL_VOICE_ID is not set), config (the public origin or the line password is not usable), number_missing (the clinic's AYA number is not in this Retell workspace), unsupported_country (Retell sells US and Canadian numbers only), not_kept (Retell answered but did not keep a setting) or rejected (Retell refused the request). Phase sync means a settings change was not written to Retell. Fix the cause, then run retryVoiceAgent from Ops.",
+  },
+  voice_provision_cap_reached: {
+    title: "The day's cap on AYA numbers is reached",
+    action:
+      "Provisioning has ordered as many AYA numbers from Retell today as HEALDESK_VOICE_PROVISION_DAILY_CAP allows, so the next clinics wait until midnight UTC, when they are set up on their own. If that many clinics really paid for voice today, raise the cap; if not, find out what ordered the numbers before anything else spends.",
+  },
+  voice_agent_drift: {
+    title: "A clinic's Retell agent drifted",
+    action:
+      "The nightly read-back found the clinic's Retell agent or number different from what our code wrote, and the code names the first difference (storage, engine, webhook, voice, language, number_agent, number_outbound, fallback, agent_missing or number_missing). Status repaired means it was written again; flagged means it drifted again after three repairs, or the agent or number is gone, and is left for you: check who changes it in Retell's dashboard.",
+  },
+  voice_deprovision_failed: {
+    title: "A departed clinic's Retell number was not released",
+    action:
+      "The clinic's service and its forwarding pass-through have ended, but releasing its AYA number or deleting its agent at Retell failed. Retell bills the number until it goes. The sweep tries again every hour; if it keeps failing, release the number and delete the agent in Retell's dashboard.",
+  },
   voice_direct_line_loops: {
     title: "A clinic's direct line forwards back to AYA",
     action:

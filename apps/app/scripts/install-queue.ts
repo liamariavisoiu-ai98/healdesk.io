@@ -1,7 +1,7 @@
 import { Client } from "pg";
 import PgBoss from "pg-boss";
 
-import { QUEUE_VOICE_CALL_BACKSTOP, QUEUES } from "../src/lib/queue/boss";
+import { QUEUE_VOICE_CALL_BACKSTOP, QUEUE_VOICE_PROVISION, QUEUES } from "../src/lib/queue/boss";
 
 /**
  * Install pg-boss's schema and queues. Run once per environment, as the
@@ -77,11 +77,14 @@ async function main(): Promise<void> {
     // singletonKey at enqueue time is what prevents pile-ups.
     // The voice call backstop is the exception: `short` keeps one waiting
     // job per call, so call_ended, call_analyzed and Retell's retries
-    // collapse onto it (lib/voice/backstop.ts).
-    await boss.createQueue(queue, queue === QUEUE_VOICE_CALL_BACKSTOP ? { name: queue, policy: "short" } : undefined);
-    // createQueue keeps an existing queue as it is, so a backstop queue
-    // created under another policy is put right here, every install.
-    if (queue === QUEUE_VOICE_CALL_BACKSTOP && (await boss.getQueue(queue))?.policy !== "short") {
+    // collapse onto it (lib/voice/backstop.ts). Voice provisioning likewise
+    // keeps one waiting job per clinic, so the hourly sweep's sends collapse
+    // (lib/voice/provision-job.ts).
+    const short = queue === QUEUE_VOICE_CALL_BACKSTOP || queue === QUEUE_VOICE_PROVISION;
+    await boss.createQueue(queue, short ? { name: queue, policy: "short" } : undefined);
+    // createQueue keeps an existing queue as it is, so a short queue created
+    // under another policy is put right here, every install.
+    if (short && (await boss.getQueue(queue))?.policy !== "short") {
       await boss.updateQueue(queue, { name: queue, policy: "short" });
     }
     console.info(`[healdesk]   queue ready: ${queue}`);

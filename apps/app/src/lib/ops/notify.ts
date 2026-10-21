@@ -66,6 +66,15 @@ export const OPS_EVENTS = [
   // line (lib/voice/retell-fallback-sync.ts).
   "voice_call_start_failed",
   "retell_fallback_unsynced",
+  // Each clinic's Retell agent and AYA number, set up by code
+  // (lib/voice/provision.ts): a run that stopped with our reason; the day's
+  // cap on numbers bought reached, once a day; a ready agent or number that
+  // drifted from what we wrote, once per drift (repaired, or flagged for a
+  // person after three repairs); and a release that failed.
+  "voice_provision_failed",
+  "voice_provision_cap_reached",
+  "voice_agent_drift",
+  "voice_deprovision_failed",
   // A clinic's direct line is its published number or its AYA number, so
   // a call put through to it would come straight back: the answer gate
   // treats it as no line (lib/billing/answering.ts), once an hour per clinic

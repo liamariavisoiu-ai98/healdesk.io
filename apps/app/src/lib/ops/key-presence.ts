@@ -67,6 +67,9 @@ export const KEY_PRESENCE_NAMES = [
   // Set with voice_real_calls: the voice endpoint answers real patients, not
   // only the demo clinic (lib/voice/test-calls.ts).
   "HEALDESK_VOICE_REAL_CALLS",
+  // The owner's switch for automatic Retell set-up (lib/voice/provision.ts):
+  // with it off, provisioning buys nothing and calls Retell not at all.
+  "HEALDESK_VOICE_PROVISION_ENABLED",
 ] as const;
 
 export type KeyPresenceName = (typeof KEY_PRESENCE_NAMES)[number];

@@ -6266,6 +6266,7 @@ export const TENANT_SCOPED_TABLES = [
   "patient_requests",
   "incident_affected_contacts",
   "retell_recording_alerts",
+  "voice_agents",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -6861,3 +6862,111 @@ export const retellRecordingAlerts = pgTable(
 );
 
 export type RetellRecordingAlertRow = typeof retellRecordingAlerts.$inferSelect;
+
+// -----------------------------------------------------------------------------
+// Each clinic's Retell agent and AYA number, written by code (21 October 2026)
+// -----------------------------------------------------------------------------
+
+/**
+ * Which response engine a clinic's Retell agent runs (owner, 21 October
+ * 2026): `custom`, our custom-LLM WebSocket endpoint (src/voice/server.ts),
+ * the default and the only one built; `native`, Retell's own LLM, a later
+ * package, which provisioning refuses with an honest reason until it exists
+ * (docs/design/voice-native-llm-migration-2026-10-21.md).
+ */
+export const VOICE_ENGINES = ["custom", "native"] as const;
+export type VoiceEngine = (typeof VOICE_ENGINES)[number];
+
+/**
+ * Where a clinic's Retell set-up stands (lib/voice/provision.ts):
+ *   pending         owed and not started (or waiting on the daily cap)
+ *   provisioning    a run is under way, or crashed part-way and will resume
+ *   ready           agent and number exist, wired together, config recorded
+ *   failed          stopped with a reason in our own words; retried by hand or by a later run
+ *   deprovisioning  the clinic has left and its number and agent are being released
+ *   released        number released and agent deleted at Retell
+ */
+export const VOICE_AGENT_STATUSES = [
+  "pending",
+  "provisioning",
+  "ready",
+  "failed",
+  "deprovisioning",
+  "released",
+] as const;
+export type VoiceAgentStatus = (typeof VOICE_AGENT_STATUSES)[number];
+
+/**
+ * One row per clinic that bought voice: Retell's ids for its agent (and,
+ * under the native engine, its Retell LLM), the AYA number bought for it,
+ * where the set-up stands, and a hash of the configuration last written to
+ * Retell, so a settings change is written once and an unchanged one never.
+ *
+ * Business data about healdesk's own vendor set-up: no caller, no call, no
+ * words. `last_error` is our own short reason, never Retell's body.
+ * `number_ordered_at` is set before a number is bought, so a run that
+ * crashed between buying and recording looks the number up by its nickname
+ * instead of buying a second (lib/voice/provision.ts).
+ */
+export const voiceAgents = pgTable(
+  "voice_agents",
+  {
+    clinicId: uuid("clinic_id")
+      .primaryKey()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    engine: text("engine").$type<VoiceEngine>().notNull().default("custom"),
+    status: text("status").$type<VoiceAgentStatus>().notNull().default("pending"),
+    retellAgentId: text("retell_agent_id"),
+    retellLlmId: text("retell_llm_id"),
+    phoneNumberE164: text("phone_number_e164"),
+    /** sha256 hex of the configuration last written to Retell and read back as kept. */
+    configHash: text("config_hash"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    /** Why the last run stopped, in our words; cleared when one succeeds. */
+    lastError: text("last_error"),
+    attempts: integer("attempts").notNull().default(0),
+    /** Set just before a number is bought: the crash-safe marker and the daily cap's count. */
+    numberOrderedAt: timestamp("number_ordered_at", { withTimezone: true }),
+    /** Drift repairs since the last clean read-back; past the limit, flagged and left for a person. */
+    driftRepairs: integer("drift_repairs").notNull().default(0),
+    driftFlaggedAt: timestamp("drift_flagged_at", { withTimezone: true }),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    check("voice_agents_engine_check", sql`${t.engine} in (${sqlList(VOICE_ENGINES)})`),
+    check("voice_agents_status_check", sql`${t.status} in (${sqlList(VOICE_AGENT_STATUSES)})`),
+    check("voice_agents_agent_id_check", sql`${t.retellAgentId} is null or ${t.retellAgentId} ~ '^[A-Za-z0-9_-]{1,128}$'`),
+    check("voice_agents_llm_id_check", sql`${t.retellLlmId} is null or ${t.retellLlmId} ~ '^[A-Za-z0-9_-]{1,128}$'`),
+    check("voice_agents_number_check", sql`${t.phoneNumberE164} is null or ${t.phoneNumberE164} ~ '^\\+[1-9][0-9]{6,14}$'`),
+    check("voice_agents_hash_check", sql`${t.configHash} is null or ${t.configHash} ~ '^[0-9a-f]{64}$'`),
+    check("voice_agents_error_check", sql`${t.lastError} is null or char_length(${t.lastError}) between 1 and 200`),
+    check("voice_agents_attempts_check", sql`${t.attempts} >= 0 and ${t.driftRepairs} >= 0`),
+    // Ready means wired: an agent and a number, and the configuration recorded.
+    check(
+      "voice_agents_ready_check",
+      sql`${t.status} <> 'ready' or (${t.retellAgentId} is not null and ${t.phoneNumberE164} is not null and ${t.configHash} is not null)`,
+    ),
+    check("voice_agents_released_check", sql`(${t.status} = 'released') = (${t.releasedAt} is not null)`),
+  ],
+);
+
+export type VoiceAgentRow = typeof voiceAgents.$inferSelect;
+
+/**
+ * How many AYA numbers were ordered from Retell on each UTC day, across every
+ * clinic: the daily spend cap's counter (HEALDESK_VOICE_PROVISION_DAILY_CAP,
+ * lib/voice/provision.ts). A day and a count, nothing else; no clinic_id,
+ * because the cap is across tenants and a SECURITY DEFINER function does not
+ * bypass a FORCEd policy (drizzle/0024's note). One conditional upsert takes
+ * a slot or finds the day full, so two runs cannot both pass the cap.
+ */
+export const voiceNumberOrderDays = pgTable(
+  "voice_number_order_days",
+  {
+    day: date("day").primaryKey(),
+    ordered: integer("ordered").notNull().default(0),
+  },
+  (t) => [check("voice_number_order_days_ordered_check", sql`${t.ordered} >= 0`)],
+);

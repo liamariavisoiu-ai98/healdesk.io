@@ -29,6 +29,7 @@ import { runAddressChangesJob } from "@/lib/sign-in/address-change";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 import { runSiteReadsSweep, runWebsiteDriftJob } from "@/lib/website/job";
 import { syncRetellFallbacks } from "@/lib/voice/retell-fallback-sync";
+import { runVoiceAgentsSweep } from "@/lib/voice/provision-job";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
@@ -259,6 +260,12 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // task that cannot read the database (lib/voice/retell-fallback-sync.ts).
   // Not a switched job: it does nothing until HEALDESK_RETELL_API_KEY is set.
   await record("retell-fallback", () => syncRetellFallbacks());
+  // Each clinic's Retell agent and AYA number, by code (lib/voice/
+  // provision-job.ts): provisioning queued while the owner's switch
+  // HEALDESK_VOICE_PROVISION_ENABLED is on, changed configuration written by
+  // hash, the 03 UTC drift check, and the release of a clinic's number and
+  // agent once its pass-through has ended. Nothing without the Retell key.
+  await record("voice-agents", () => runVoiceAgentsSweep({ now }));
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));

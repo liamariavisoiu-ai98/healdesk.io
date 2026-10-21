@@ -118,6 +118,14 @@ COPY --from=build --chown=healdesk:healdesk /repo/apps/app/.next/static ./apps/a
 
 # The worker needs the full workspace install (tsx, pg-boss, the packages).
 COPY --from=build --chown=healdesk:healdesk /repo/node_modules ./node_modules
+# npm installs better-auth under apps/app/node_modules, not the root one
+# (package-lock.json: "apps/app/node_modules/better-auth"). The standalone
+# output carries only the copy Next traced for the web server, so the worker,
+# which imports lib/auth through the portal and billing code, died on
+# "Cannot find module 'better-auth'" at start (task definition :9, 21 October
+# 2026) and, being essential, took its task down three times until the circuit
+# breaker rolled the deploy back.
+COPY --from=build --chown=healdesk:healdesk /repo/apps/app/node_modules ./apps/app/node_modules
 COPY --from=build --chown=healdesk:healdesk /repo/package.json ./package.json
 COPY --from=build --chown=healdesk:healdesk /repo/apps/app/package.json ./apps/app/package.json
 COPY --from=build --chown=healdesk:healdesk /repo/apps/app/src ./apps/app/src

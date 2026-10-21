@@ -1,5 +1,54 @@
 # healdesk.io
 
+## Mandatory Delivery Plan and Session Continuity
+
+For all Healdesk development sessions, including sessions started under a different Claude Code account:
+
+### Authority
+1. `docs/v1-product-spec.md` defines product behavior and scope.
+2. `CLAUDE.md` defines architecture, security, engineering standards and permanent project rules.
+3. `HEALDESK_CLAUDE_CODE_LAUNCH_EXECUTION_PLAN.md` is the master engineering delivery plan, subject to the two documents above.
+4. `AGENTS.md` is the continuously maintained session handoff, not a source of product requirements.
+
+### At the start of every session
+- Read this file, the product specification, the execution plan and `AGENTS.md`.
+- Inspect the current Git branch, commit, working tree and relevant recent changes.
+- Check that the handoff agrees with the actual code and test results.
+- Identify the current approved task, its dependencies and acceptance criteria.
+- Do not start new implementation work until the current state is understood.
+- If `AGENTS.md` is missing or outdated, reconstruct it from available evidence. Do not invent previous progress.
+
+### During every task
+- Work from the master execution plan.
+- Use a unique task ID for each work package.
+- Record what is implemented, what is tested and what remains.
+- Keep Owner-only actions separate from Claude Code actions.
+- Never mark a task complete solely because code exists.
+- Never bypass compliance, safety or launch restrictions.
+
+### Before ending every session
+- Update `AGENTS.md` with the current task, completed work, modified files, test results, failures, blockers and next action.
+- Record the current branch, commit SHA and uncommitted changes.
+- Update the delivery plan's task statuses only when supported by evidence.
+- State whether work is local, committed, pushed, deployed or live-verified.
+- Provide a concise handoff summary for the next session.
+
+### Mandatory stopping rules
+Do not merge, deploy, apply infrastructure changes, alter production credentials, activate patient traffic or grant final launch approval without explicit Owner authorization.
+
+If the session is interrupted before the handoff is written, the next session must reconstruct progress from Git and tests before continuing.
+
+## Mandatory delivery documentation and automatic checks
+
+- The repository must contain `HEALDESK_CLAUDE_CODE_LAUNCH_EXECUTION_PLAN.md`, `AGENTS.md`, and `docs/claude-session-start.md`. Do not delete or replace the existing architectural guidance in either `CLAUDE.md` or `AGENTS.md`.
+- GitHub Actions must run `scripts/check-delivery-handoff.mjs` on pull requests and pushes to `main`. The check verifies these files exist, the session handoff has its required headings, and changes to delivery-related code include a corresponding `AGENTS.md` update or a documented exemption. A green check verifies documentation hygiene, **not** that an agent read a file or that production is ready.
+- PRs should name a delivery task ID, list the tests actually run, link to evidence, identify Owner-only blockers, and say whether the change was deployed or live-tested. Use `.github/pull_request_template.md`.
+- Never claim that CI has passed until the GitHub run has completed successfully. Repository branch protection and required checks must be enabled by the Owner in GitHub settings; adding a workflow alone does not make it mandatory for merging.
+- For routine unrelated commits, documentation-only changes, and dependency automation, the check may allow a narrowly documented exemption. Do not fabricate a handoff update merely to satisfy CI.
+- Before stopping or switching sessions, refresh `AGENTS.md` with the actual Git state and the next approved work item. If interrupted, reconstruct from Git rather than trusting stale notes.
+
+
+
 One AI assistant for cash-pay elective clinics, sold as three inbound-only
 products that launch together: an AI voice agent (on Retell), a web chat widget
 on the clinic's own site, and a Meta bot covering Instagram, Facebook Messenger

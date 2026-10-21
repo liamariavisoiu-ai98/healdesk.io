@@ -18,6 +18,8 @@ import { POST as opsRoute } from "@/app/api/ops/route";
 import { POST as retellWebhook } from "@/app/api/webhooks/retell/[clinicId]/route";
 import { isMutating, isOpName, runOperation, type Operator } from "@/lib/ops/api";
 import { __setRecordingDeleteDepsForTests } from "@/lib/ops/recording-alerts-ops";
+import { purgeClinic } from "@/lib/retention/purge";
+import { withTenant } from "@/lib/tenant";
 import { BACKSTOP_DELAY_SECONDS, runCallBackstop, type RetellCall } from "@/lib/voice/backstop";
 import {
   DELETE_NOT_BEFORE_MS,
@@ -270,6 +272,23 @@ describeDb("recording alerts, against the real tables", () => {
   test("a clinic id that names no clinic records nothing", async () => {
     expect(await recordRecordingAlert(CLINIC, "call_rec_1")).toBe(false);
     expect((await webhook(CLINIC, { event: "call_ended", call: { call_id: "call_rec_1", recording_url: RECORDING } })).status).toBe(204);
+  });
+
+  test("the nightly purge takes a resolved alert on the record clock and never an open one", async () => {
+    // Review of 21 October 2026: an open alert is the only trace of a
+    // recording Retell still holds, so only a resolved one goes.
+    expect(await recordRecordingAlert(c.clinicId, "call_rec_open")).toBe(true);
+    expect(await recordRecordingAlert(c.clinicId, "call_rec_done")).toBe(true);
+    await inTenant(c.clinicId, (client) =>
+      client.query(`update retell_recording_alerts set resolved_at = now() where retell_call_id = 'call_rec_done'`),
+    );
+    const purge = (now: Date) =>
+      withTenant({ clinicId: c.clinicId, actor: { type: "agent", serviceName: "retention-purge" } }, (tx) => purgeClinic(tx, now));
+    // Inside the record clock: both stay.
+    expect((await purge(new Date())).recordingAlertsDeleted).toBe(0);
+    // Long past it: the resolved one goes, the open one stays.
+    expect((await purge(new Date(Date.now() + 800 * 24 * 60 * 60_000))).recordingAlertsDeleted).toBe(1);
+    expect((await alertRows(c.clinicId)).map((r) => r.retell_call_id)).toEqual(["call_rec_open"]);
   });
 
   test("the backstop's read of the call raises the alert too", async () => {

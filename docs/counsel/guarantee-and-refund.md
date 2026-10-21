@@ -50,6 +50,17 @@ terms § 5 to the same words, with nothing above the block but its heading.
 mentions the guarantee must render the same block in full, or say nothing
 about it.
 
+**"Routed to it", from 20 October 2026.** The owner decided that day that
+one AYA answers for every location of a practice as a central assistant,
+and that each location with phone forwards its line to its own AYA number
+(the extra-locations plan, decisions 1 and 2). `GUARANTEE_TEXT` therefore
+counts "a phone call your carrier forwards to a healdesk number assigned to
+one of your locations", where the adopted text below says "the healdesk
+number assigned to your practice", which would have left a second
+location's forwarded calls outside the guarantee. Nothing else in the block
+changed: "One refund per practice, meaning one account, however many
+locations or channels it has" already covered several locations.
+
 ## The adopted text
 
 One block. The same words go on `/pricing` and into terms § 5. Numbers in

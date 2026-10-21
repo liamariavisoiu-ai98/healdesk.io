@@ -6,12 +6,14 @@ import { describe, expect, test } from "vitest";
 import {
   BACKUP_RETENTION_DAYS,
   getBaaTemplate,
+  NO_CALL_AUDIO_KEPT,
   PAYMENTS_CLAUSE_BODY,
   PAYMENTS_CLAUSE_HEADING,
   prepareBaa,
   STATE_LAW_CLAUSE_HEADING,
   stateLawClauseBody160,
   TRANSCRIPT_RETENTION_DAYS,
+  VOICE_PROVIDER_RETENTION,
   type BaaVariables,
 } from "./baa";
 import {
@@ -115,17 +117,23 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
  * and regenerated on 21 October 2026, before the text was pushed or signed by
  * any practice, for the party block's label of the Delaware address ("with a
  * mailing address for notices and correspondence at", where it said "of"; the
- * sample was b4246144…3a08). From the first signature these are the signed bytes.
+ * sample was b4246144…3a08), and regenerated again on 21 October 2026, on
+ * the owner's explicit authorisation for this change alone and with the
+ * version number unchanged, for what the voice provider holds of a call
+ * (clause 10: NO_CALL_AUDIO_KEPT in place of "No call audio is kept at all.",
+ * and VOICE_PROVIDER_RETENTION after the Anthropic sentence;
+ * agreement-changes.md §19, not reviewed by counsel; the sample was
+ * 70260470…3c73). From the first signature these are the signed bytes.
  */
 const GOLDEN: Record<string, string> = {
-  sample: "70260470a14d788e1913afd22d4e0f0dfeac09075921d19400237b186a533c73",
-  notcovered_live_covered: "8a146b1ebf756d18d19586e6dcfcf8a8287a15490adce28b99515c6ff1c6e76c",
-  notcovered_live_uncovered: "ee07a47f79236c52dce38966bd17c062e0b8b2c77e3ce560db0a63f0a2e14bcf",
-  notcovered_live_personal: "49414c47801a62f9a4392b89efc32375a6dada65e99da189eb45df89e0257d02",
-  notcovered_notused_other: "fa7b1e2ea3ec3a907ab2a05807bef86f58cc8715e433720381800648ca73ca1d",
-  vet_live_covered: "66a38ec12326820334fde803300bf99f909391ba8055ad22c9a92cfe863101f9",
-  vet_live_personal: "19173f673b2c92ce0adc828d0674064cecbf3e3697b0698113a25bb582756b0a",
-  vet_notused_mindbody: "e625e788e36006f899afc9e0320bc0bea2d2561377bbf7bc1f8d6531ac39d5f3",
+  sample: "01db94b7ecda5d7d29d6311d299a2ee8e68f2b29fe07ec993c0678fbc01c40a5",
+  notcovered_live_covered: "4e100a50a408678d5dfd9c76dd0517b95c714f71d3a85f9d0cfd7184da8381fd",
+  notcovered_live_uncovered: "6de2bc291d14ffc52d9e2fde485fabe09854c971115ecad9d704072743a67115",
+  notcovered_live_personal: "c61270da2826c4c68937c0f764866f6c293ccf42cba9e704b94b4c01ee28dc56",
+  notcovered_notused_other: "1b74517f9382ac26fec9eac811bdef66e365a85616a7131ddbadf709f0a5267b",
+  vet_live_covered: "866ac3a866b1c1b5c7de17b5c7c37cab5c4a030ff702b1619fdb881fbf741635",
+  vet_live_personal: "98c90edbf6746026c0c9658beaa1392bf1fc105e21ae3354f4bfd27c633197d5",
+  vet_notused_mindbody: "66096105d262139e06c11d35a4c0869e079fcd0ec860f80ac697a14d28dbb26e",
 };
 
 const template = () => currentDpaTemplate();
@@ -597,7 +605,11 @@ describe("what the DPA says", () => {
       "It does not ask for a history, a medication or a diagnosis, and it never takes a card number.",
     );
     expect(minimum).toContain("its opening line says that it is an AI assistant");
-    expect(minimum).toContain("No call audio is kept at all.");
+    // Since 21 October 2026 (agreement-changes.md §19): healdesk keeps no call
+    // audio, and the voice provider holds a call only as the clause says.
+    expect(minimum).toContain(NO_CALL_AUDIO_KEPT);
+    expect(minimum).toContain(VOICE_PROVIDER_RETENTION);
+    expect(minimum).not.toContain("No call audio is kept at all.");
     expect(minimum).toContain("It discloses Client Information to no one else.");
   });
 
@@ -930,10 +942,12 @@ describe("retention during the term", () => {
 
   // The owner's decisions of 13 and 14 October 2026, as BAA 1.5.0 clauses 11
   // and 14 state them (apps/app lib/conversations/transcript-outbox.ts,
-  // drizzle/0069 and 0072).
+  // drizzle/0069 and 0072). Compared with BAA 1.5.1 since 21 October 2026,
+  // when both gained the voice provider's sentence (agreement-changes.md
+  // §19); 1.5.0 is frozen without it.
   test("emails each transcript to Practice's one address, holds one copy only until delivery is confirmed, and says who answers for it after", () => {
     const baa = unwrap(
-      prepareBaa(getBaaTemplate("1.5.0")!, {
+      prepareBaa(getBaaTemplate("1.5.1")!, {
         clinicLegalName: "Glow Med Spa LLC",
         specialty: "Med spa",
         signatoryName: "Alex Chen",
@@ -951,7 +965,9 @@ describe("retention during the term", () => {
       const text = render(overrides).text;
       const minimum = unwrap(section(text, "Minimum necessary, and who receives Client Information"));
       const transcripts =
-        "healdesk does not keep transcripts. When a call or a website chat ends, healdesk emails its transcript to the email address on Practice's healdesk account, and to no other address, only over an encrypted connection, as the Safeguards clause provides. So that an email that fails or is returned can be sent again, healdesk holds one encrypted copy of the transcript only until Practice's mail server confirms that it has received the email, and then deletes the copy at once. If a send fails or the email is returned, healdesk keeps the copy and sends the email again until it is delivered. If the email is accepted for delivery but neither its delivery nor its failure is confirmed within 72 hours of its last sending, healdesk deletes the copy then. In no case does healdesk hold the copy for more than 30 days after the transcript was queued for sending: a copy whose email has not been delivered by then is deleted. While it holds the copy, healdesk may also send the email again when Practice asks. healdesk keeps a record of each transcript's delivery, without what was said or written in it, for as long as it keeps the record of that conversation. It keeps no other copy of a transcript, apart from the backups described below; what Anthropic keeps is what the Subcontractors clause describes. Once healdesk's copy is deleted, the email is Practice's own record of what was said, and Practice is responsible for keeping, protecting and deleting it.";
+        "healdesk does not keep transcripts. When a call or a website chat ends, healdesk emails its transcript to the email address on Practice's healdesk account, and to no other address, only over an encrypted connection, as the Safeguards clause provides. So that an email that fails or is returned can be sent again, healdesk holds one encrypted copy of the transcript only until Practice's mail server confirms that it has received the email, and then deletes the copy at once. If a send fails or the email is returned, healdesk keeps the copy and sends the email again until it is delivered. If the email is accepted for delivery but neither its delivery nor its failure is confirmed within 72 hours of its last sending, healdesk deletes the copy then. In no case does healdesk hold the copy for more than 30 days after the transcript was queued for sending: a copy whose email has not been delivered by then is deleted. While it holds the copy, healdesk may also send the email again when Practice asks. healdesk keeps a record of each transcript's delivery, without what was said or written in it, for as long as it keeps the record of that conversation. It keeps no other copy of a transcript, apart from the backups described below; what Anthropic keeps is what the Subcontractors clause describes. " +
+        `${VOICE_PROVIDER_RETENTION} ` +
+        "Once healdesk's copy is deleted, the email is Practice's own record of what was said, and Practice is responsible for keeping, protecting and deleting it.";
       // The BAA's paragraph, word for word: it names no patient.
       expect(baa, name).toContain(transcripts);
       expect(minimum, name).toContain(transcripts);

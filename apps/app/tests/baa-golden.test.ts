@@ -13,12 +13,14 @@ import {
   isBaaVersionAcceptable,
   MIN_ACCEPTABLE_BAA_VERSION,
   MODEL_RETENTION_AGREEMENT,
+  NO_CALL_AUDIO_KEPT,
   prepareBaa,
   renderCalendarElection,
   renderDirectBookingAddendum,
   selectCalendarClause,
   stateLawClauseBody140,
   subprocessorNoticeClauseBody,
+  VOICE_PROVIDER_RETENTION,
   type BaaVariables,
   type CalendarElectionVariables,
 } from "@healdesk/catalog";
@@ -46,7 +48,13 @@ import { describe, expect, test } from "vitest";
  *   test and copy the "received" value for the NEW version only.
  *
  * 1.5.1 was released on 2026-10-19 and is what clinics sign; its hashes are
- * the record from that day on (docs/counsel/agreement-changes.md §16). 1.6.0
+ * the record from that day on (docs/counsel/agreement-changes.md §16), with
+ * one exception: on 2026-10-21, on the owner's explicit authorisation for
+ * that change alone and with the version number unchanged, its Minimum
+ * necessary clause was edited to say what the voice provider holds of a call
+ * (§19, not reviewed by counsel), and its hashes and 1.6.0's were
+ * regenerated (1.5.1 / covered_estimated was e5b849c7…af69, 1.6.0's
+ * 93bb381e…f73c). No other version's hash moved. 1.6.0
  * was drafted on 2026-10-19 and is not released (§17): its hashes below move
  * with the draft until the owner releases it, and never after. 1.5.0
  * was released on 2026-10-14 and replaced outright by 1.5.1 on 2026-10-19,
@@ -112,25 +120,27 @@ const GOLDEN: Record<string, Record<string, string>> = {
   // release; from then on they are the record. No covered_verified_boulevard,
   // as in 1.3.0 to 1.5.1: it refuses verified reporting.
   "1.6.0": {
-    covered_estimated: "93bb381e707af83c815dde22b9923e2d5a0d42a7b3aa9e532b8075b7689bf73c",
-    notcovered_estimated: "32049affb67872fa9860aecf2c59ccb33005e7bf8e045baf352fda72d7385edb",
-    unknown_estimated: "093161040651eee93a8db8722831b759be1ec93f58ce4a24059d56579c50f90a",
+    covered_estimated: "2e75509a8d9d5bd315e7e95ada8fa7e12ba58f1a8efbde73a3d9abf103324d07",
+    notcovered_estimated: "e3021fede64593d8513ad525ac422784303f9a5fd4f4db52dce9433394ddcb2e",
+    unknown_estimated: "c716a6abc69a3e47c863dffbcd1979e9be60a4f47667253b1e256089507cdec9",
     // Identical to covered_estimated by design, as in 1.2.x to 1.5.1: no
     // clause reads outboundMessaging.
-    covered_outbound: "93bb381e707af83c815dde22b9923e2d5a0d42a7b3aa9e532b8075b7689bf73c",
+    covered_outbound: "2e75509a8d9d5bd315e7e95ada8fa7e12ba58f1a8efbde73a3d9abf103324d07",
   },
   // Released on 2026-10-19 and offered from that day (agreement-changes.md
   // §16): 1.5.0 with the optional booking details asked in a website chat as
   // well as on a call. Frozen from the release: these are the bytes clinics
-  // sign. No covered_verified_boulevard, as in 1.3.0, 1.4.0 and 1.5.0: it
-  // refuses verified reporting.
+  // sign. Regenerated on 2026-10-21 for the voice provider's sentences in
+  // clause 11 (owner's authorisation, version unchanged; §19). No
+  // covered_verified_boulevard, as in 1.3.0, 1.4.0 and 1.5.0: it refuses
+  // verified reporting.
   "1.5.1": {
-    covered_estimated: "e5b849c7bd30fc922bc597f4b08cea02b388ce9a2289e8945d2446cdeb91af69",
-    notcovered_estimated: "98413549c405846fbecd3981c3f8dc472ed86b421c662f1ee4219d9f5106bfb0",
-    unknown_estimated: "8d13db1a4751aac43807bd7ebacaae2a2896b49959a455e8fdac41d39d8b2b2b",
+    covered_estimated: "532c4b6bbe5d0cfb44fec7d3865fadb6fe1da67b96ca93e2de1bc67d323bddc5",
+    notcovered_estimated: "c43ea3a8558537ff4c7b43c93d608bd6b42f99db42cb25dba0442d9f2ff450c8",
+    unknown_estimated: "51d0e65ae458930352ebc5bd76b520858aaa031515d518305b35b9e16167e877",
     // Identical to covered_estimated by design, as in 1.2.x, 1.3.0, 1.4.0
     // and 1.5.0: no clause reads outboundMessaging.
-    covered_outbound: "e5b849c7bd30fc922bc597f4b08cea02b388ce9a2289e8945d2446cdeb91af69",
+    covered_outbound: "532c4b6bbe5d0cfb44fec7d3865fadb6fe1da67b96ca93e2de1bc67d323bddc5",
   },
   // Released on 2026-10-14 and offered until 1.5.1 replaced it on 2026-10-19
   // (agreement-changes.md §15, §16): 1.4.0 with the transcript's copy deleted
@@ -1761,15 +1771,20 @@ describe("1.5.0: the transcript's copy deleted once delivery is confirmed", () =
  */
 const V151 = "1.5.1";
 
-/** variant → sha256, for 1.5.1, over 1.3.0's own variants. Frozen from the release (19 October 2026), and recorded in §16. */
+/**
+ * variant → sha256, for 1.5.1, over 1.3.0's own variants. Frozen from the
+ * release (19 October 2026), and recorded in §16; regenerated on 21 October
+ * 2026 for the voice provider's sentences in clause 11, on the owner's
+ * authorisation and with the version unchanged (§19).
+ */
 const GOLDEN_1_5_1: Record<string, string> = {
-  uncovered_nobaa: "f637d7c5aa9adec642dbae7ddff7481a7c908df3f376cb9f40fbb099e30e6a8c",
-  uncovered_personal: "8e38e7e165cec6bbf90a23dca3849a4ad43462ca6f717b1c454523325fd78031",
-  notused_mindbody: "02f8b009430d11accc7dd9d7c64c0583647dd39a12eb1308d96e945c5461501a",
-  notused_other: "88919a9f870e0fadaf823ba39b119957e07753bd850dcb8547ccd18b200b0f5b",
-  live_calcom: "b3c70e37eaa41081e9b97e05e11e956bd734f79d01a0c15a187c9545b10f7dbc",
-  live_highlevel_personal: "cad1d1741a29298a9bd42208a2460d5bb01057bdbba3b99609b4d0ec2ead8400",
-  live_calendly_nobaa: "23aa5529b7684a39d8bd90c5b8229594e3d25de7c73ac98b5b5d20e18dee3de8",
+  uncovered_nobaa: "0791d48b47947c6ef358e7a2df1def2f53c7438fb1862e7f468e541156cabe47",
+  uncovered_personal: "668fd77c12d878ebd6537b857acb29717b27082d1b6944ec36eeeb4d9d0d8081",
+  notused_mindbody: "2cafb17c7e282431a7cefcc04cf802b1fad2ea15bc2ddd629a41714ad9763191",
+  notused_other: "94000e49b9429c4b6d6ea25715d68237bc55d36f6675c171eb0ecc044ed6883f",
+  live_calcom: "7aefa64767c2531cd3f4502d4a46d0b909ce2a478b3ec5d7070ee5d171f60ae3",
+  live_highlevel_personal: "9a9ea1b316a955c104784d3b379669dd8e4b6132ece1e4879768ad2ba6e8945a",
+  live_calendly_nobaa: "50b6a4f6a15f45bc6eda76658960dc7c9f2e1910efffecf95bf886b35d4a743c",
 };
 
 describe("1.5.1: the optional booking details asked in a website chat too", () => {
@@ -1794,6 +1809,16 @@ describe("1.5.1: the optional booking details asked in a website chat too", () =
       calendarAccount: "personal",
     },
   ];
+  /**
+   * The two sentences 1.5.1 has said since 21 October 2026 (§19), where
+   * 1.5.0 says "No call audio is kept at all." and names only Anthropic.
+   */
+  const ANTHROPIC_KEEPS = "what Anthropic keeps is what the Subcontractors clause describes.";
+  const NO_AUDIO_150 = "No call audio is kept at all.";
+  const voice151 = (text: string) =>
+    text
+      .replace(ANTHROPIC_KEEPS, `${ANTHROPIC_KEEPS} ${VOICE_PROVIDER_RETENTION}`)
+      .replace(NO_AUDIO_150, NO_CALL_AUDIO_KEPT);
   /** Items (b) and (c), as 1.5.0 and 1.5.1 word them. */
   const B150 =
     "b. on a call, where Practice's settings or its specialty's defaults ask for them: a last name and the service asked about; and";
@@ -1847,17 +1872,22 @@ describe("1.5.1: the optional booking details asked in a website chat too", () =
     expect(v151().preamble(BASE)).toBe(
       v150().preamble(BASE).replace("Version 1.5.0 —", "Version 1.5.1 —"),
     );
-    // Minimum necessary: six paragraphs, only the third (the list) new, and
-    // in the list only (b) and (c).
+    // Minimum necessary: six paragraphs. The third (the list) is new in (b)
+    // and (c); since 21 October 2026 the fifth (the transcript) and sixth
+    // (the periods) carry the voice provider's sentences (§19).
     const min150 = body(V150, "minimum-necessary").split("\n\n");
     const min151 = body(V151, "minimum-necessary").split("\n\n");
     expect(min151).toHaveLength(6);
     expect(min150).toHaveLength(6);
     min151.forEach((paragraph, i) => {
-      if (i === 2) expect(paragraph).not.toBe(min150[i]);
+      if (i === 2 || i === 4 || i === 5) expect(paragraph).not.toBe(min150[i]);
       else expect(paragraph, `paragraph ${i}`).toBe(min150[i]);
     });
     expect(unwrap(min151[2]!)).toBe(unwrap(min150[2]!).replace(B150, B151).replace(C150, C151));
+    expect(unwrap(min151[4]!)).toBe(voice151(unwrap(min150[4]!)));
+    expect(unwrap(min151[5]!)).toBe(voice151(unwrap(min150[5]!)));
+    expect(unwrap(min151[4]!)).toContain(VOICE_PROVIDER_RETENTION);
+    expect(unwrap(min151[5]!)).toContain(NO_CALL_AUDIO_KEPT);
     // The render guard is 1.3.0's, naming 1.5.1.
     expect(() => render(VARIANTS.covered_verified_boulevard!)).toThrow(
       /Version 1\.5\.1 has no verified-reporting clause/,
@@ -1901,15 +1931,19 @@ describe("1.5.1: the optional booking details asked in a website chat too", () =
       expect(text, label).toContain(
         "healdesk does not keep the messages a person sends on Instagram, Messenger or WhatsApp. From those channels it keeps only the details in (a)",
       );
-      // The whole document is 1.5.0's but for the version line and the two
-      // items: the transcript's copy, the periods, the Meta scoping, the
+      // The whole document is 1.5.0's but for the version line, the two
+      // items and, since 21 October 2026, the voice provider's two sentences
+      // (§19): the transcript's copy, the periods, the Meta scoping, the
       // announcement and every other clause read as they did.
       const versionLine = (version: string) => `Version ${version} — executed electronically`;
+      expect(text, label).not.toContain(NO_AUDIO_150);
       expect(text, label).toBe(
-        before
-          .replace(versionLine(V150), versionLine(V151))
-          .replace(B150, B151)
-          .replace(C150, C151),
+        voice151(
+          before
+            .replace(versionLine(V150), versionLine(V151))
+            .replace(B150, B151)
+            .replace(C150, C151),
+        ),
       );
       expect(text, label).not.toMatch(/revenue/i);
     }
@@ -1970,15 +2004,19 @@ describe("1.5.1: the optional booking details asked in a website chat too", () =
  */
 const V160 = "1.6.0";
 
-/** variant → sha256, for 1.6.0, over 1.3.0's own variants. A draft's: they move with it until its release. */
+/**
+ * variant → sha256, for 1.6.0, over 1.3.0's own variants. A draft's: they
+ * move with it until its release. Moved on 21 October 2026 with 1.5.1's
+ * clause 11, which 1.6.0 carries (§19).
+ */
 const GOLDEN_1_6: Record<string, string> = {
-  uncovered_nobaa: "a4345bec22c83bcdb7900e0a8da8ae221b16b725f8138d515336e0cf8958d776",
-  uncovered_personal: "33f50e123695e2da2a89f85d024eaf80b9b767c38fb5d5f3f504fb1557d79711",
-  notused_mindbody: "74a073fa9786ea19017bc7cf9cdd9cc8cae6a64adbf31a2de25d80f2d2096551",
-  notused_other: "0670bb3da1c674956221536a23f4447455e9b719b0fb70a083a8e0118c51d9c4",
-  live_calcom: "eb9211d48652aadc8f71147c89cb03cbf17c65f0a146e0190e4752e4e048e5f8",
-  live_highlevel_personal: "fd57d28d5d014b5aa79388a287ce35f64112827c84d6adf8e0443cdd759d1e19",
-  live_calendly_nobaa: "4eab63861059254438c8817a96403d154eb8793ae9e916c37ed1c62a21a17122",
+  uncovered_nobaa: "f2891b614b2d55513a3a9047899779412d9ef8030b34afa1dcfff8701c9bc81e",
+  uncovered_personal: "efd05f71f35693f1970ba59ef9a2f8e25547bba9841e0237b03568d96f7a3f48",
+  notused_mindbody: "d4a45bcfcdf9514d734607e56464685aeb9d87850ad6bf1ae23e87039b864d80",
+  notused_other: "0c8e02016b7d83c223f4d76d2bc2e9e7b3b3b210da62e5a7b3819653da32308a",
+  live_calcom: "5fe5c29cb3f99e8d51b03630ec0b72095e1cafcb674b8a6a4597d9e468e19195",
+  live_highlevel_personal: "d016bc7ee2286c9b5550e891d944524b1b013ebf3a126e53fa62966623fe395c",
+  live_calendly_nobaa: "df5cb9c75b1d53d8ec4bd7c8aae0468d2f368c9253dbc7acfd63adfecc4922a6",
 };
 
 describe("1.6.0: Anthropic's retention as Anthropic documents it (a draft)", () => {

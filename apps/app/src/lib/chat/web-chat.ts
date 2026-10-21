@@ -438,8 +438,10 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
         await attachHandoverCaller(tx, { conversationId, capture: turn.capture });
       }
       // While the tools are live they take the booking; the capture is filed
-      // for the desk only when they are not.
-      if (!next.requestId && !turn.toolsLive) {
+      // for the desk only when they are not, or when they handed the
+      // conversation to the request flow on this turn (manual: a broken
+      // connection or TOOL_FAILURE_LINE, which offers to take the details).
+      if (!next.requestId && (!turn.toolsLive || turn.toolState.manual)) {
         next.requestId = await takeRequest(tx, facts, conversationId, turn.capture);
       }
       await tx.db

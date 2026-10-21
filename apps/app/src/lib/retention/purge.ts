@@ -15,6 +15,7 @@ import {
   patientRequests,
   reconciliationExceptions,
   recordAmendments,
+  retellRecordingAlerts,
   slotHolds,
   syncRuns,
   transactions,
@@ -187,6 +188,16 @@ import type { TenantTx } from "@/lib/tenant";
 export const WEBHOOK_PAYLOAD_RETENTION_DAYS = 30;
 /** A slot hold that has stopped blocking is kept a week at most (plan §11.8), less on a shorter record clock. */
 export const SLOT_HOLD_RETENTION_DAYS = 7;
+/**
+ * A Retell call alert (drizzle/0105) once resolved, that is once Retell no
+ * longer holds the call, is kept thirty days after it was resolved, so the
+ * operator can still see on /admin/recordings what was fixed, and then goes.
+ * It never held a patient's words or number, only Retell's call id, times and
+ * our own reason. An open alert is never purged: it is the only sign that
+ * Retell still holds a call, and it goes only when resolved, or with the
+ * clinic's destruction (drizzle/0106).
+ */
+export const RECORDING_ALERT_RESOLVED_RETENTION_DAYS = 30;
 
 /**
  * A sync run started longer ago than this is a crashed one, not one in
@@ -226,6 +237,8 @@ export const PURGE_COVERAGE: Readonly<{
     slot_holds: "a week once it no longer blocks, or the record clock if shorter",
     handovers: "with its conversation or thread (cascade), and in any case the record clock after it was asked",
     patient_requests: "the record clock after it reached healdesk, marked received or not",
+    retell_recording_alerts:
+      "thirty days after it was resolved (RECORDING_ALERT_RESOLVED_RETENTION_DAYS); an open one never, since it is the only sign Retell still holds a call",
   },
   notPurged: {
     conversation_flags:
@@ -294,6 +307,8 @@ export type PurgeResult = {
   handoversDeleted: number;
   /** Patients' requests passed to the practice, past the record clock (drizzle/0094). */
   patientRequestsDeleted: number;
+  /** Retell call alerts resolved more than RECORDING_ALERT_RESOLVED_RETENTION_DAYS ago (drizzle/0105). */
+  recordingAlertsDeleted: number;
 };
 
 const promised = new Map<string, boolean>();
@@ -363,6 +378,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     metaMessageRefsDeleted: 0,
     handoversDeleted: 0,
     patientRequestsDeleted: 0,
+    recordingAlertsDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -713,6 +729,24 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ ref: metaInboundMessages.messageRef });
   result.metaMessageRefsDeleted = refs.length;
 
+  // 9. Retell call alerts resolved more than thirty days ago
+  //    (RECORDING_ALERT_RESOLVED_RETENTION_DAYS): Retell no longer holds the
+  //    call, and the row is only the operator's record that it was fixed. An
+  //    open alert is never purged, however old: it is the only sign that
+  //    Retell still holds a call, and it goes when resolved or at the
+  //    clinic's destruction (drizzle/0106).
+  const resolvedAlerts = await tx.db
+    .delete(retellRecordingAlerts)
+    .where(
+      and(
+        eq(retellRecordingAlerts.clinicId, tx.clinicId),
+        sql`${retellRecordingAlerts.resolvedAt} is not null`,
+        lt(retellRecordingAlerts.resolvedAt, daysAgo(now, RECORDING_ALERT_RESOLVED_RETENTION_DAYS)),
+      ),
+    )
+    .returning({ id: retellRecordingAlerts.id });
+  result.recordingAlertsDeleted = resolvedAlerts.length;
+
   // The audit row says what kind and how many — never which person.
   const total =
     result.mediaCleared +
@@ -728,7 +762,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.depositsDeleted +
     result.metaMessageRefsDeleted +
     result.handoversDeleted +
-    result.patientRequestsDeleted;
+    result.patientRequestsDeleted +
+    result.recordingAlertsDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -749,6 +784,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         metaMessageRefs: result.metaMessageRefsDeleted,
         handovers: result.handoversDeleted,
         patientRequests: result.patientRequestsDeleted,
+        recordingAlerts: result.recordingAlertsDeleted,
         mediaDays: clinic.mediaDays,
         transcriptDays,
         recordDays: clinic.recordDays,

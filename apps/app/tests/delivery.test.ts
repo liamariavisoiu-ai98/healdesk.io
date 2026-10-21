@@ -423,6 +423,10 @@ describeDb("delivery", () => {
           "channel-states",
           // The header's pause: a sweep that records a timed pause's end.
           "ai-pause",
+          // A chat deposit whose link was never made goes to the front desk
+          // (lib/billing/deposit-sweep.ts): the minute queue's backstop, a
+          // sweep, not a switched job, because the booking already owes it.
+          "deposit-links",
           // L22's reminders and the 7-day ops alert (WP9): a sweep, not a
           // switched job, because the practice was told AYA is paused until
           // it signs.
@@ -454,6 +458,7 @@ describeDb("delivery", () => {
         if (job === "channel-states") continue; // a sweep: moves production clinics' channels on as their inputs allow
         if (job === "meta-token-watch") continue; // a check, not a switched job: marks only logins Meta says are dead
         if (job === "ai-pause") continue; // a sweep: records the end of a timed pause the clinic set
+        if (job === "deposit-links") continue; // a sweep: hands a deposit whose link was never made to the front desk
         if (job === "destruction-notices") continue; // a sweep: E6 to an address captured at destruction
         if (job === "after-cancellation") continue; // a sweep: queues E3–E5 for clinics whose service ended
         if (job === "agreement-resigns") continue; // a sweep: L22's reminders for the open re-signs only
@@ -469,6 +474,7 @@ describeDb("delivery", () => {
       expect(jobs["address-changes"]).toBe("ok");
       expect(jobs["channel-states"]).toBe("ok");
       expect(jobs["ai-pause"]).toBe("ok");
+      expect(jobs["deposit-links"]).toBe("ok");
       expect(jobs["destruction-notices"]).toBe("ok");
       expect(jobs["after-cancellation"]).toBe("ok");
       expect(jobs["agreement-resigns"]).toBe("ok");

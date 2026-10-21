@@ -24,6 +24,7 @@ import {
   patientRequests,
   providerConnections,
   reconciliationExceptions,
+  retellRecordingAlerts,
   securityEvents,
   slotHolds,
   transactions,
@@ -661,6 +662,10 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // their cascade would take the list anyway; deleted here first so the
   // count is in the record and the stamp's check names it.
   await del("incident_affected_contacts", () => tx.db.delete(incidentAffectedContacts).where(eq(incidentAffectedContacts.clinicId, c)).returning({ id: incidentAffectedContacts.contactId }));
+  // The Retell call alerts (drizzle/0105): Retell's call ids and our own
+  // reasons, no content, but each ties a call to the clinic, so they go with
+  // its data, open or resolved, and the stamp's check names them (0106).
+  await del("retell_recording_alerts", () => tx.db.delete(retellRecordingAlerts).where(eq(retellRecordingAlerts.clinicId, c)).returning({ id: retellRecordingAlerts.id }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
   // The records of the clinic's deletion requests (drizzle/0063): dates,

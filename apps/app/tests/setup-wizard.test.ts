@@ -1153,6 +1153,19 @@ describeDb("the setup wizard", () => {
       expect(payload).toMatchObject({ reminderCount: 1, stepsLeftCount: 4 });
       expect(() => assertPayloadAllowed(payload, "setup_reminder")).not.toThrow();
 
+      // The outbox stamps send_after with the DATABASE's now(), which no fake
+      // clock reaches. With the fixed `noon` above in the past (it was the
+      // day before this test first failed, 21 October 2026) the row looked
+      // not yet due and the sender answered "not_due". Queue it "at" the
+      // test's own noon, as the job would have, so the test reads no
+      // wall clock at all.
+      await inTenant(clinic.clinicId, (c) =>
+        c.query(`update billing_notices set send_after = $1 where id = $2`, [
+          noon,
+          rows[0]!.id,
+        ]),
+      );
+
       // The sender renders it from the stored payload and sends it.
       await setJobEnabled("billing-notices", true, await opsUser());
       const transport = new FakeTransport();

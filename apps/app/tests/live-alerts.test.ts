@@ -263,9 +263,10 @@ describe("the live alerts' templates", () => {
     expect(render(payload, ctx("clients")).text).toContain("no client details");
   });
 
-  test("an urgent alert links Conversations, which marks an urgent call or chat; every other live alert links Bookings", () => {
-    const { urgent, ...rest } = ALERT_SECTION;
+  test("an urgent alert links Conversations, which marks an urgent call or chat, as does a call that ended early; every other live alert links Bookings", () => {
+    const { urgent, ended_early: endedEarly, ...rest } = ALERT_SECTION;
     expect(urgent).toBe("conversations");
+    expect(endedEarly).toBe("conversations");
     expect(new Set(Object.values(rest))).toEqual(new Set(["bookings"]));
   });
 
@@ -998,6 +999,7 @@ describeDb("the live alerts' hooks", () => {
       await notifyBookingAlert(tx, "urgent", { conversationId: randomUUID(), channel: "web" });
       await notifyBookingAlert(tx, "website_message", { bookingRequestId: (await request()).id });
       await notifyBookingAlert(tx, "calendar_check", { bookingRequestId: (await request()).id });
+      await notifyBookingAlert(tx, "ended_early", { conversationId: randomUUID(), channel: "voice" });
       await queueRequestsStillOpen(tx, { localDate: "2026-10-19", openCount: 2, closesAfterDays: 7 });
     });
     const queued = await queuedNotices(c.clinicId);
@@ -1011,6 +1013,7 @@ describeDb("the live alerts' hooks", () => {
         "2 booking requests are still waiting",
         "A booking may not be in your calendar",
         "A booking request is waiting for your team",
+        "A call ended unexpectedly",
         "A deposit to collect",
         "A message was left on your website",
         "Missed: they were told you'd call",

@@ -175,14 +175,14 @@ async function main(): Promise<void> {
       // The ops watch's purchase checks (WP5): a paid order with no account
       // ten minutes on, and B3's follow-up past its day (lib/ops/watch.ts).
       ["ops-watch", () => runOpsWatchJob()],
-      // A chat deposit whose link was never made, handed to the front desk
-      // once its grace has passed (lib/billing/deposit-sweep.ts). Unswitched.
       // The redial records of calls that ended early (lib/voice/redial.ts):
       // each deleted at its two hours, whatever any switch says. Unswitched.
       [
         "redial-sweep",
         async () => ({ status: "ok" as const, note: `${await sweepRedialContexts()} deleted` }),
       ],
+      // A chat deposit whose link was never made, handed to the front desk
+      // once its grace has passed (lib/billing/deposit-sweep.ts). Unswitched.
       [
         "deposit-links",
         async () => {

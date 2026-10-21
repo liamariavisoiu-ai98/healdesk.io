@@ -60,7 +60,20 @@ import { voiceRealCallsAllowed } from "./test-calls";
  * the Conversations mark still say it.
  */
 
-/** Retell's reasons that mean a fault cut the call (docs.retellai.com, call object). */
+/**
+ * Retell's reasons that mean a fault cut the call. Checked against Retell's
+ * docs on 21 October 2026 (Context7, docs.retellai.com: the call object's
+ * `disconnection_reason` enum and "Debug call disconnect"), where each of
+ * these is listed with call status `error` or `not_connected`, except
+ * max_duration_reached (see below).
+ *
+ * The four error_llm_websocket_* reasons are our own signal that the live
+ * socket died: Retell sends them once its reconnects to our endpoint are
+ * used up (lost_connection), when our process closed the socket with an
+ * unexpected code or crashed mid-call (runtime; a close with no code is
+ * reported as _open), or when it never opened. A close with 1000 is
+ * reported as agent_hangup instead, so a deliberate end is never flagged.
+ */
 export const TECHNICAL_ENDINGS: ReadonlySet<string> = new Set([
   "error_llm_websocket_open",
   "error_llm_websocket_lost_connection",
@@ -75,10 +88,11 @@ export const TECHNICAL_ENDINGS: ReadonlySet<string> = new Set([
   "telephony_provider_unavailable",
   "sip_routing_error",
   "concurrency_limit_reached",
-  "no_concurrency_fallback",
   // Retell's own account could not pay for the call: not the caller's doing.
   "no_valid_payment",
-  // The agent's maximum call length cut the caller off mid-conversation.
+  // Retell calls this expected behaviour, but for the caller it is a cut
+  // mid-conversation at the agent's maximum length: flagged, the more
+  // conservative choice for a person who may still need the clinic.
   "max_duration_reached",
 ]);
 
@@ -87,25 +101,32 @@ export const NORMAL_ENDINGS: ReadonlySet<string> = new Set([
   "user_hangup",
   "agent_hangup",
   "call_transfer",
-  "transfer_bridged",
   "voicemail_reached",
   "ivr_reached",
   "inactivity",
   "scam_detected",
   "marked_as_spam",
   "user_declined",
+  // An inbound call Retell had no concurrency slot for, transferred to the
+  // clinic's fallback number (the direct line): the caller reached the
+  // clinic, so it is not a call cut off.
+  "no_concurrency_fallback",
   // Outbound-only reasons: healdesk places no calls, so none should arrive.
   "dial_busy",
   "dial_failed",
   "dial_no_answer",
   "invalid_destination",
   "telephony_provider_permission_denied",
-  // Someone stopped or took over the call on purpose (Retell's dashboard or
-  // API); not a fault, and UNCONFIRMED for an inbound call.
-  "manual_stopped",
+  // In "Debug call disconnect" but not in the call object's enum.
+  "network_blocked",
+  // A human took over the call on purpose: Retell lists it as expected.
   "call_take_over",
-  // A transfer that did not complete. UNCONFIRMED in Retell's docs whether
-  // the caller stays on with AYA; left unflagged until a test call shows it.
+  // Someone stopped the call on purpose (Retell's dashboard or API). In the
+  // enum, with no description in Retell's docs: UNCONFIRMED, left unflagged.
+  "manual_stopped",
+  // Both are on the transfer agent's own call of an agentic warm transfer,
+  // not the caller's (Retell's docs); healdesk uses no such transfer.
+  "transfer_bridged",
   "transfer_cancelled",
 ]);
 

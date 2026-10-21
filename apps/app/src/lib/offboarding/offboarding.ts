@@ -649,7 +649,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("conversation_flags", () => tx.db.delete(conversationFlags).where(eq(conversationFlags.clinicId, c)).returning({ id: conversationFlags.id }));
   // The redial records of calls that ended early (drizzle/0107): two hours
   // at most, and gone with their conversations by cascade; deleted here
-  // first so the count is in the record.
+  // first so the count is in the record and the stamp's check names it.
   await del("voice_redial_contexts", () => tx.db.delete(voiceRedialContexts).where(eq(voiceRedialContexts.clinicId, c)).returning({ id: voiceRedialContexts.id }));
   await del("conversations", () => tx.db.delete(conversations).where(eq(conversations.clinicId, c)).returning({ id: conversations.id }));
   // Who messaged the clinic, as keyed hashes of their sender ids (see the header).

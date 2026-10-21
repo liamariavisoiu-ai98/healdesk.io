@@ -50,7 +50,7 @@ The one rule to carry even if you read nothing else:
 ## Next actions — ordered
 1. **Owner:** approve the first package (`ALERT-01` recommended) and rule on the Meta follow-up question in the audit doc.
 2. **Claude Code:** implement it on a branch with tests; no deploy, no push without approval.
-3. **Owner:** run `deploy-app.yml` for migration 0104 when ready; record vendor attestations; the other actions in the audit doc.
+3. **Owner, pre-launch:** switch on `billing-notices` in `/admin/ops` (Scheduled jobs; tracked as `alert-sender-on` in the launch register, which blocks go-live; `RESEND_API_KEY` is set in Parameter Store as of 2026-10-21 and the services were restarted); `deploy-app.yml` for migration 0104 is blocked, see below; record vendor attestations; the other actions in the audit doc.
 
 ## Owner approvals and restrictions
 

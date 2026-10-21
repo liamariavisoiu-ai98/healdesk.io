@@ -788,6 +788,277 @@ export const clinicMemberships = pgTable(
 );
 
 // -----------------------------------------------------------------------------
+// Locations (drizzle/0105): one AYA for every location of the account
+// -----------------------------------------------------------------------------
+
+/**
+ * What a writer leaves in a row's `location_id` when it names none: the
+ * column's default, which a BEFORE INSERT trigger replaces with the main
+ * location of the row's clinic (app_location_default, drizzle/0105), as
+ * calendar_elections.sequence is replaced. A row can never keep it: the
+ * foreign key to clinic_locations refuses an id no location has.
+ */
+export const LOCATION_UNSET = "00000000-0000-0000-0000-000000000000";
+
+/** A location of the account: added pending, active once paid for, retired (later) when removed. */
+export const LOCATION_STATUSES = ["pending", "active", "retired"] as const;
+export type LocationStatus = (typeof LOCATION_STATUSES)[number];
+
+/** The main location's place: the location set up at checkout, under the signed agreement. */
+export const MAIN_LOCATION_POSITION = 1;
+
+/**
+ * The client's acceptance, for one added location, of one central AYA for
+ * every location (the extra-locations plan, section 3): the server-rendered
+ * acknowledgement as it was shown, its version and SHA-256, who accepted it
+ * (the portal user, the name they typed, and the passkey step-up they passed,
+ * named as the access log names one: the step-up's and the passkey's ids and
+ * the device's label) and when, by the database's clock.
+ *
+ * Contract evidence, not PHI, so no BAA gate. Append-only for every role
+ * (app_location_acknowledgement_guard), and kept for good with the
+ * agreement: neither destruction nor the account's closure deletes one, and
+ * the location row it was accepted for, which the closure does delete,
+ * points here rather than the other way round. Written before the charge, in
+ * the same transaction as the pending location row
+ * (lib/location-acknowledgements.ts), so a location never exists without it.
+ */
+export const locationAcknowledgements = pgTable(
+  "location_acknowledgements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** RESTRICT: an acceptance outlives nothing that could delete it. */
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "restrict" }),
+    /**
+     * The location it was accepted for: the id the pending location row is
+     * then written with. No foreign key, because the record outlives the
+     * location row; the location's own (clinic_id, id, acknowledgement_id)
+     * foreign key is what binds the two.
+     */
+    locationId: uuid("location_id").notNull(),
+    /** The document's version, `<document>/<semver>`. */
+    documentVersion: text("document_version").notNull(),
+    /** SHA-256 hex of `renderedText` (the guard checks). */
+    documentHash: text("document_hash").notNull(),
+    /** The acknowledgement as shown, rendered by the server: the evidence. */
+    renderedText: text("rendered_text").notNull(),
+    /** The name (and title) the person typed as someone with authority to bind the practice. */
+    acceptedByLabel: text("accepted_by_label").notNull(),
+    /** The portal user. No foreign key: the record outlives the user. */
+    acceptedByUserId: text("accepted_by_user_id").notNull(),
+    /** The passkey step-up it was accepted under (step_ups.id), and its passkey (user_factors.id). No foreign keys, for the same reason. */
+    stepUpId: uuid("step_up_id").notNull(),
+    passkeyId: uuid("passkey_id").notNull(),
+    /** The device's label as the step-up holds it: what the access log names. */
+    deviceLabel: text("device_label").notNull(),
+    ipAddress: inet("ip_address"),
+    userAgent: text("user_agent"),
+    /** The database's clock; whatever a writer passes is replaced. */
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The target of clinic_locations' foreign key: a location names an
+    // acceptance of its own clinic, recorded for it.
+    unique("location_acknowledgements_clinic_location_id_key").on(t.clinicId, t.locationId, t.id),
+    index("location_acknowledgements_location_idx").on(t.clinicId, t.locationId),
+    check(
+      "location_acknowledgements_version_check",
+      sql`${t.documentVersion} ~ '^[a-z][a-z0-9-]{0,63}/[0-9]+\\.[0-9]+\\.[0-9]+$'`,
+    ),
+    check("location_acknowledgements_hash_check", sql`${t.documentHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      "location_acknowledgements_text_check",
+      sql`char_length(btrim(${t.renderedText})) between 1 and 20000`,
+    ),
+    check(
+      "location_acknowledgements_label_check",
+      sql`char_length(btrim(${t.acceptedByLabel})) between 2 and 200 and ${t.acceptedByLabel} !~ '[[:cntrl:]]'`,
+    ),
+    check(
+      "location_acknowledgements_device_check",
+      sql`char_length(${t.deviceLabel}) between 1 and ${sql.raw(String(DEVICE_LABEL_MAX))} and ${t.deviceLabel} !~ '[[:cntrl:]]'`,
+    ),
+    check(
+      "location_acknowledgements_user_agent_check",
+      sql`${t.userAgent} is null or char_length(${t.userAgent}) <= 512`,
+    ),
+  ],
+);
+
+export type LocationAcknowledgementRow = typeof locationAcknowledgements.$inferSelect;
+
+/**
+ * A location of the account. The clinics row stays the one tenant: one
+ * knowledge base, one sign-in, one email address, one subscription whose
+ * quantity is the number of locations, and one AYA that answers for all of
+ * them (the owner's decision of 20 October 2026: "a centralizer, like a call
+ * center"). This row holds what differs from site to site.
+ *
+ * Location 1, the main location, exists for every open account: a trigger
+ * on clinics creates it with the clinic (app_clinic_locations_follow_clinic),
+ * 0105 backfilled it for every clinic before that, and the account's closure
+ * deletes every location with the rest of its business data. A later
+ * location is added pending, with its acknowledgement and the add's request
+ * id, before the charge, and only app_activate_location() makes it active,
+ * once, after the charge is recorded; the runtime role cannot insert an
+ * active one, or move a status at all.
+ *
+ * ONE SOURCE OF TRUTH. Until the portal's Locations card moves their writers
+ * (the plan's step 12), the main location's facts are written where they
+ * always were, on clinics (address, published number, hours, time zone,
+ * carrier, phone system, call routing) and clinic_settings (direct line,
+ * transfer, urgent-help and vet referral numbers, coverage mode), and every
+ * reader keeps reading them there. Location 1's columns below are the
+ * database's copy of them, kept equal by triggers on both tables, which the
+ * runtime role cannot write. A later location's columns are its only
+ * record. The time zone is the account's for every location in this
+ * release, so the trigger keeps every location's equal to the clinic's.
+ * AYA's own number stays on clinics (`assistant_number_e164`) until phone
+ * per location (the plan's step 15) moves it.
+ *
+ * Business data, no patient: no BAA gate. Tenant RLS, forced.
+ */
+export const clinicLocations = pgTable(
+  "clinic_locations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** 1 is the main location; a later location takes the next free place. Never changes. */
+    position: integer("position").notNull(),
+    /** The location's own name ("Downtown"); null on the main location means the account's name. */
+    label: text("label"),
+    status: text("status").$type<LocationStatus>().notNull().default("pending"),
+    /**
+     * The add that bought it: entitlements.pending_location_request_id while
+     * the add is pending. Null on the main location, set on every other.
+     */
+    addRequestId: uuid("add_request_id"),
+    /** Its acceptance (location_acknowledgements). Null on the main location, set on every other. */
+    acknowledgementId: uuid("acknowledgement_id"),
+    /** The clinic's time zone, for every location in this release (enforced at insert and kept by the trigger). */
+    timezone: text("timezone").notNull(),
+    address: text("address"),
+    publishedPhoneE164: text("published_phone_e164"),
+    openingHours: jsonb("opening_hours").$type<OpeningHours>(),
+    directLineE164: text("direct_line_e164"),
+    transferE164: text("transfer_e164"),
+    urgentHelpE164: text("urgent_help_e164"),
+    vetReferralE164: text("vet_referral_e164"),
+    coverageMode: text("coverage_mode")
+      .$type<CoverageModeId>()
+      .notNull()
+      .default("overflow_after_hours"),
+    carrier: text("carrier"),
+    phoneSystemType: text("phone_system_type")
+      .$type<(typeof phoneSystemTypeEnum.enumValues)[number]>()
+      .notNull()
+      .default("unknown"),
+    callRouting: text("call_routing")
+      .$type<(typeof callRoutingEnum.enumValues)[number]>()
+      .notNull()
+      .default("conditional"),
+    /** The database's clock, set by the guard. */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** When it became active: the database's clock, at pending → active, once. */
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The target of every location_id foreign key: (clinic_id, location_id)
+    // names a location of the row's own clinic, or nothing.
+    unique("clinic_locations_clinic_id_id_key").on(t.clinicId, t.id),
+    uniqueIndex("clinic_locations_position_idx").on(t.clinicId, t.position),
+    uniqueIndex("clinic_locations_add_request_idx").on(t.clinicId, t.addRequestId),
+    foreignKey({
+      name: "clinic_locations_acknowledgement_fk",
+      columns: [t.clinicId, t.id, t.acknowledgementId],
+      foreignColumns: [
+        locationAcknowledgements.clinicId,
+        locationAcknowledgements.locationId,
+        locationAcknowledgements.id,
+      ],
+    }).onDelete("restrict"),
+    check("clinic_locations_position_check", sql`${t.position} >= 1`),
+    check(
+      "clinic_locations_status_check",
+      sql`${t.status} in (${sqlList(LOCATION_STATUSES)})`,
+    ),
+    // The main location came with the signed agreement; every other was
+    // added from Billing, under an acceptance of its own.
+    check(
+      "clinic_locations_added_check",
+      sql`(${t.position} = 1) = (${t.addRequestId} is null) and (${t.position} = 1) = (${t.acknowledgementId} is null)`,
+    ),
+    check(
+      "clinic_locations_lifecycle_check",
+      sql`(${t.status} <> 'pending' or (${t.activatedAt} is null and ${t.retiredAt} is null))
+        and (${t.status} <> 'active' or (${t.activatedAt} is not null and ${t.retiredAt} is null))
+        and (${t.status} <> 'retired' or ${t.retiredAt} is not null)
+        and (${t.position} > 1 or ${t.status} = 'active')`,
+    ),
+    check(
+      "clinic_locations_label_check",
+      sql`(${t.position} = 1 or ${t.label} is not null) and (${t.label} is null or (char_length(${t.label}) between 1 and 120 and ${t.label} = btrim(${t.label}) and ${t.label} !~ '[[:cntrl:]]'))`,
+    ),
+    check("clinic_locations_timezone_check", sql`btrim(${t.timezone}) <> ''`),
+    // The main location's columns copy clinics' and clinic_settings', so
+    // they take exactly what those take; a later location's numbers are E.164.
+    check(
+      "clinic_locations_address_check",
+      sql`${t.address} is null or (char_length(${t.address}) between 1 and 300 and ${t.address} !~ '[[:cntrl:]]')`,
+    ),
+    check(
+      "clinic_locations_published_phone_check",
+      sql`${t.position} = 1 or ${t.publishedPhoneE164} is null or ${t.publishedPhoneE164} ~ '^\\+[1-9][0-9]{6,14}$'`,
+    ),
+    check(
+      "clinic_locations_carrier_check",
+      sql`${t.position} = 1 or ${t.carrier} is null or (char_length(${t.carrier}) between 1 and 80 and ${t.carrier} !~ '[[:cntrl:]]')`,
+    ),
+    check(
+      "clinic_locations_numbers_check",
+      sql`(${t.directLineE164} is null or ${t.directLineE164} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.transferE164} is null or ${t.transferE164} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.urgentHelpE164} is null or ${t.urgentHelpE164} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.vetReferralE164} is null or ${t.vetReferralE164} ~ '^\\+[1-9][0-9]{6,14}$')`,
+    ),
+    check(
+      "clinic_locations_coverage_mode_check",
+      sql`${t.coverageMode} in (${sqlList(COVERAGE_MODES)})`,
+    ),
+    check(
+      "clinic_locations_phone_system_check",
+      sql`${t.phoneSystemType} in ('landline', 'voip', 'unknown')`,
+    ),
+    check(
+      "clinic_locations_call_routing_check",
+      sql`${t.callRouting} in ('conditional', 'always')`,
+    ),
+  ],
+);
+
+export type ClinicLocationRow = typeof clinicLocations.$inferSelect;
+
+/**
+ * The location column the conversations, booking requests, bookings,
+ * handovers, slot holds, Meta booking drafts and closed days carry: which
+ * location of the account the row is about. NOT NULL; a writer that names
+ * none gets the main location (LOCATION_UNSET above), because until the
+ * tool layer learns locations (the plan's step 9) every row is the main
+ * location's. The foreign key (clinic_id, location_id) to clinic_locations
+ * (clinic_id, id), written by hand in drizzle/0105 after the backfill, stops
+ * a row naming another account's location, and a trigger on each table
+ * freezes it once written, for every role.
+ */
+function locationColumn() {
+  return uuid("location_id")
+    .notNull()
+    .default(sql.raw(`'${LOCATION_UNSET}'::uuid`));
+}
+
+// -----------------------------------------------------------------------------
 // Credential vault
 // -----------------------------------------------------------------------------
 
@@ -1001,6 +1272,8 @@ export const conversations = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     contactId: uuid("contact_id").references(() => contacts.id),
 
     channel: channelEnum("channel").notNull(),
@@ -1105,6 +1378,8 @@ export const appointments = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     contactId: uuid("contact_id")
       .notNull()
       .references(() => contacts.id),
@@ -1875,6 +2150,8 @@ export const bookingRequests = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     // NO ACTION, not the cascade it had until the
     // booking_request_destruction migration: the app role may DELETE
     // contacts and re-point appointments and calls, so with a cascade it
@@ -2046,6 +2323,8 @@ export const metaBookingDrafts = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     platform: text("platform").notNull(),
     senderId: text("sender_id").notNull(),
     externalId: text("external_id").notNull(),
@@ -4723,11 +5002,18 @@ export const clinicClosures = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     closedOn: date("closed_on", { mode: "string" }).notNull(),
     label: text("label"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    // Still one row per day for the account: no writer names a location yet,
+    // so every closed day is the main location's. The key gains location_id
+    // with the first writer that does (the portal's Locations card, the
+    // plan's step 12): drizzle-kit would add that key before the column it
+    // names if both came in one migration.
     primaryKey({ columns: [t.clinicId, t.closedOn] }),
     check(
       "clinic_closures_label_check",
@@ -5769,6 +6055,8 @@ export const slotHolds = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     channel: text("channel").$type<SlotHoldChannel>().notNull(),
     /**
      * holderRefOf (lib/booking/holds.ts): a keyed HMAC of the holder key (e.g.
@@ -6262,6 +6550,8 @@ export const TENANT_SCOPED_TABLES = [
   "conversation_flags",
   "patient_requests",
   "incident_affected_contacts",
+  "clinic_locations",
+  "location_acknowledgements",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -6734,6 +7024,8 @@ export const handovers = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     channel: text("channel").$type<HandoverChannel>().notNull(),
     /** Meta only: which of the three. */
     platform: text("platform").$type<HandoverPlatform>(),

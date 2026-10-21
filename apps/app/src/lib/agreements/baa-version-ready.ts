@@ -17,7 +17,7 @@
  * nothing. WP9's DPA→BAA re-sign, the misclassification signal and the list
  * of who an incident affected are untouched. Read through
  * `baaVersionResignsReady`, so a test can stand in for either setting, as the
- * billing tests do for LOCATION_CLINICS_READY; nothing in production sets it
+ * billing tests do for locationsReady; nothing in production sets it
  * but this line.
  */
 export const BAA_VERSION_RESIGNS_READY = true;

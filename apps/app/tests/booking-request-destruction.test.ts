@@ -1575,7 +1575,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     expect(left).toEqual({ requests: [fresh], contacts: [called, asked] });
   });
 
-  test("a data-only restore loads an offboarded clinic and its requests once the two insert triggers are off, as docs/handover.md says, and every key comes back", async () => {
+  test("a data-only restore loads an offboarded clinic, its location and its requests once the insert triggers are off, as docs/handover.md says, and every key comes back", async () => {
     const client = await getMigratorPool().connect();
     const q = <T = Record<string, unknown>>(text: string, values?: unknown[]) =>
       client.query(text, values) as unknown as Promise<{ rows: T[] }>;
@@ -1585,7 +1585,8 @@ describeDb("booking requests at destruction, erasure and purge", () => {
           `select tgname, tgenabled from pg_trigger
             where not tgisinternal
               and tgname in ('clinics_insert_guard', 'clinics_record_clock',
-                             'booking_requests_keys_once')
+                             'booking_requests_keys_once', 'clinics_main_location',
+                             'clinic_locations_guard', 'location_acknowledgements_guard')
             order by tgname`,
         )
       ).rows;
@@ -1631,8 +1632,15 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       );
       const requestId = request[0]!.id;
       const dump = (
-        await q<{ clinic: unknown; contact: unknown; request: unknown; key: unknown }>(
+        await q<{
+          clinic: unknown;
+          location: { id: string; created_at: string; activated_at: string };
+          contact: unknown;
+          request: unknown;
+          key: unknown;
+        }>(
           `select (select to_jsonb(c) from clinics c where c.id = $1) as clinic,
+                  (select to_jsonb(l) from clinic_locations l where l.clinic_id = $1) as location,
                   (select to_jsonb(p) from contacts p where p.id = $2) as contact,
                   (select to_jsonb(r) from booking_requests r where r.id = $3) as request,
                   (select to_jsonb(k) from booking_request_keys k where k.id = $3) as key`,
@@ -1640,6 +1648,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
         )
       ).rows[0]!;
       expect(dump.key).not.toBeNull();
+      expect(dump.location).not.toBeNull();
 
       // The empty, migrated database a data-only restore loads into.
       await q(`delete from booking_requests where id = $1`, [requestId]);
@@ -1652,6 +1661,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       const loadAll = async () => {
         await load("booking_request_keys", dump.key);
         await load("clinics", dump.clinic);
+        await load("clinic_locations", dump.location);
         await load("contacts", dump.contact);
         await load("booking_requests", dump.request);
       };
@@ -1671,19 +1681,50 @@ describeDb("booking requests at destruction, erasure and purge", () => {
         refused(/written before/),
       );
       await q("rollback to savepoint plain");
-
-      // The steps the handover gives: both off by name, every table loaded,
-      // the keys included, both on again, and the triggers checked.
+      // And the clinic, loaded with 0105's trigger on, makes a main location
+      // of its own, which the dump's then meets (one per account).
       await q(`alter table clinics disable trigger clinics_insert_guard`);
-      await q(`alter table booking_requests disable trigger booking_requests_keys_once`);
+      await load("clinics", dump.clinic);
+      await expect(load("clinic_locations", dump.location)).rejects.toMatchObject({ code: "23505" });
+      await q("rollback to savepoint plain");
+
+      // The steps the handover gives: each off by name, every table loaded,
+      // the keys and the location included, each on again, and the triggers
+      // checked.
+      const steps = [
+        ["clinics", "clinics_insert_guard"],
+        ["booking_requests", "booking_requests_keys_once"],
+        ["clinics", "clinics_main_location"],
+        ["clinic_locations", "clinic_locations_guard"],
+        ["location_acknowledgements", "location_acknowledgements_guard"],
+      ] as const;
+      for (const [table, trigger] of steps) await q(`alter table ${table} disable trigger ${trigger}`);
       await loadAll();
-      await q(`alter table clinics enable trigger clinics_insert_guard`);
-      await q(`alter table booking_requests enable trigger booking_requests_keys_once`);
+      for (const [table, trigger] of steps) await q(`alter table ${table} enable trigger ${trigger}`);
       expect(await enabled()).toEqual([
         { tgname: "booking_requests_keys_once", tgenabled: "O" },
+        { tgname: "clinic_locations_guard", tgenabled: "O" },
         { tgname: "clinics_insert_guard", tgenabled: "O" },
+        { tgname: "clinics_main_location", tgenabled: "O" },
         { tgname: "clinics_record_clock", tgenabled: "O" },
+        { tgname: "location_acknowledgements_guard", tgenabled: "O" },
       ]);
+      // The location came back as it was, its dates included (the guard,
+      // left on, would have stamped them with the moment of the load).
+      const location = (
+        await q<{ id: string; created_at: Date; activated_at: Date; mains: number }>(
+          `select l.id, l.created_at, l.activated_at,
+                  (select count(*)::int from clinic_locations m where m.clinic_id = $1 and m.position = 1) as mains
+             from clinic_locations l where l.clinic_id = $1`,
+          [clinicId],
+        )
+      ).rows;
+      expect(location).toHaveLength(1);
+      expect(location[0]).toMatchObject({ id: dump.location.id, mains: 1 });
+      expect(location[0]!.created_at.getTime()).toBe(new Date(dump.location.created_at).getTime());
+      expect(location[0]!.activated_at.getTime()).toBe(
+        new Date(dump.location.activated_at).getTime(),
+      );
       const restored = (
         await q<{ started: Date | null; status: string; keys: number }>(
           `select (select offboarding_started_at from clinics where id = $1) as started,

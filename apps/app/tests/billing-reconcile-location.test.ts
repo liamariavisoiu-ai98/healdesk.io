@@ -31,8 +31,8 @@ import { createStripeWorld, type StripeWorld } from "./setup/stripe-world";
  * never charged is cleared for the clinic to add again, and one that cannot
  * be settled is told to ops once.
  *
- * Its own file, because the flag is a module constant and only a module mock
- * can turn it on.
+ * Its own file, because the switch is a module's (lib/locations.ts) and only
+ * a module mock can turn it on.
  */
 
 const location = vi.hoisted(() => ({
@@ -42,8 +42,13 @@ const location = vi.hoisted(() => ({
   })),
 }));
 
+vi.mock("@/lib/locations", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/locations")>()),
+  locationsReady: () => true,
+  anyLocationsReady: () => true,
+}));
+
 vi.mock("@/lib/location-clinic", () => ({
-  LOCATION_CLINICS_READY: true,
   createLocationClinic: location.create,
 }));
 

@@ -921,7 +921,7 @@ export type SupersedingTerms = {
  * signature. Those locations are left alone: their elections stay under the
  * old agreement and they read `needs_election` until they record one. The
  * owner has not decided whether elections carry across agreements, and no
- * such location exists yet (LOCATION_CLINICS_READY is false).
+ * such location exists yet (locationsReady is false for every package).
  *
  * The tenant setting is moved to that location for the write, as
  * signAgreementResign moves it, and put back to what the caller had before

@@ -736,6 +736,13 @@
       "when": 1792476057883,
       "tag": "0104_dpa_release_1_0_0",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1792476063559,
+      "tag": "0105_locations_foundation",
+      "breakpoints": true
     }
   ]
 }

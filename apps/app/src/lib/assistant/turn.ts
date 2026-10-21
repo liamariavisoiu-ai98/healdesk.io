@@ -12,6 +12,15 @@ import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { formatPhone } from "@/lib/setup/help";
 import { spokenPhone } from "@/lib/voice/spoken";
 
+import {
+  EMPTY_TOOL_STATE,
+  parseToolAction,
+  toolTurnContext,
+  type BookingTools,
+  type BookingToolState,
+  type ToolAction,
+  type ToolTurn,
+} from "./booking-tools";
 import type { AssistantChannel, AssistantFacts } from "./facts";
 import { cardNumberIn, guardAssistantReply, guardedLine, type GuardRefusal } from "./guard";
 import { assistantTurnContext, buildAssistantPrompt } from "./prompt";
@@ -47,6 +56,14 @@ export type { AssistantMessage, AssistantPrompt, AssistantResponder, ModelRefusa
  * returned as a capture, cleaned, and the adapter decides what to do with it
  * (the post-call ingest for a call, the request writer for a chat). A model
  * that fails or times out gives the fixed failure line, never silence.
+ *
+ * Where the adapter passes the booking tool layer (booking-tools.ts) and it
+ * is live this turn, the model may also ask for an action (free times, or
+ * the time chosen). The tool layer runs the booking engine, and when it
+ * answers, its fixed line is said instead of the model's words: the tool's
+ * result, never the model, decides what is said about a booking. A reply of
+ * the model's own that says a booking is made is refused on every turn
+ * (guard.ts, confirmsBooking), because only the tool layer's line may say it.
  */
 
 export type BookingCapture = {
@@ -61,7 +78,7 @@ export type BookingCapture = {
 
 export const EMPTY_CAPTURE: BookingCapture = { wants: false, firstName: null, phone: null, window: null, altWindows: [], service: null, fields: {} };
 
-export type TurnSource = "model" | "urgent" | "guard" | "card" | "fallback" | "refusal" | "language";
+export type TurnSource = "model" | "urgent" | "guard" | "card" | "fallback" | "refusal" | "language" | "tool";
 
 export type AssistantTurnResult = {
   /** What the assistant says next. */
@@ -74,14 +91,20 @@ export type AssistantTurnResult = {
   end: boolean;
   urgent: boolean;
   guard?: GuardRefusal;
+  /** The tool layer's state after the turn: what to pass back on the next. */
+  toolState: BookingToolState;
+  /** The tools were offered to the model on this turn: the tool layer, not the adapter, takes any booking. */
+  toolsLive: boolean;
+  /** What the tool layer did, when it answered the turn. */
+  tool: ToolTurn | null;
 };
 
 
 /**
- * What the tool layer wrote on a turn: never a booking. The brain has no
- * booking tools: it takes a request and the adapter files it, so a reply
- * that says a booking is made is refused (guard.ts, confirmsBooking). The
- * tool layer, once it exists, says per turn whether it wrote one.
+ * What the guard is told of the model's own words: never that a booking was
+ * written. Only the tool layer's fixed line may say that (booking-tools.ts),
+ * and it is said in place of the model's reply, so the model's reply is
+ * always read as written on a turn that booked nothing.
  */
 const NO_BOOKING_WRITTEN = { bookingWritten: false } as const;
 
@@ -206,7 +229,7 @@ function clean(value: unknown, max = MAX_FIELD): string | null {
   return text.length > 0 ? text : null;
 }
 
-type ModelAnswer = { reply: string; booking: Partial<BookingCapture>; handoff: boolean; end: boolean };
+type ModelAnswer = { reply: string; booking: Partial<BookingCapture>; handoff: boolean; end: boolean; action: ToolAction | null };
 
 /** The model's JSON, read leniently: the first object in the text, or the text itself as the reply. */
 export function parseModelAnswer(raw: string): ModelAnswer {
@@ -236,12 +259,13 @@ export function parseModelAnswer(raw: string): ModelAnswer {
         },
         handoff: parsed.handoff === true,
         end: parsed.end === true,
+        action: parseToolAction(parsed.action),
       };
     } catch {
       // fall through to the text itself
     }
   }
-  return { reply: clean(raw, MAX_TEXT) ?? "", booking: {}, handoff: false, end: false };
+  return { reply: clean(raw, MAX_TEXT) ?? "", booking: {}, handoff: false, end: false, action: null };
 }
 
 /** Later values win; an empty value never erases one already captured. */
@@ -316,12 +340,18 @@ export async function answerTurn(input: {
   capture?: BookingCapture;
   responder: AssistantResponder | null;
   now?: Date;
+  /** The booking tool layer, for a channel that books; absent, the turn takes requests only. */
+  tools?: BookingTools | null;
+  toolState?: BookingToolState;
+  /** A call's caller id, for a booking whose caller gave no other number. */
+  callerPhone?: string | null;
 }): Promise<AssistantTurnResult> {
   const { facts, channel } = input;
   const capture = input.capture ?? EMPTY_CAPTURE;
+  const toolState = input.toolState ?? EMPTY_TOOL_STATE;
   const card = cardNumberIn(input.text.slice(0, MAX_TEXT));
   const personText = card.text;
-  const base = { personText, capture, handoff: false, end: false, urgent: false };
+  const base = { personText, capture, handoff: false, end: false, urgent: false, toolState, toolsLive: false, tool: null };
 
   const now = input.now ?? new Date();
   const finding = findUrgentContent(personText, facts.specialty, { clinicName: facts.clinicName });
@@ -339,8 +369,14 @@ export async function answerTurn(input: {
     return { ...base, reply: FAILURE_LINE, source: "fallback" };
   }
 
+  // Asked fresh each turn: a switch pulled or a connection that broke since
+  // the last turn takes the tools away from this one.
+  const toolsLive = Boolean(input.tools) && !toolState.manual && !toolState.done && (await input.tools!.available());
   const opening = input.history.find((t) => t.speaker === "assistant")?.text;
-  const system = { stable: buildAssistantPrompt(facts, channel), turn: assistantTurnContext(facts, now, opening) };
+  const system = {
+    stable: buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),
+    turn: assistantTurnContext(facts, now, opening, toolsLive ? toolTurnContext(toolState, facts.timeZone) : null),
+  };
   let raw: Awaited<ReturnType<AssistantResponder>>;
   try {
     raw = await input.responder({
@@ -357,9 +393,17 @@ export async function answerTurn(input: {
   }
   const answer = parseModelAnswer(raw);
   const merged = mergeCapture(capture, answer.booking);
+  const live = { ...base, toolsLive };
+  if (toolsLive && !answer.handoff) {
+    // The tool layer, on what the model asked for and what is now known.
+    const tool = await input.tools!.run({ action: answer.action, capture: merged, state: toolState, callerPhone: input.callerPhone ?? null, now });
+    if (tool) {
+      return { ...live, capture: merged, toolState: tool.state, tool, reply: tool.reply, source: "tool" };
+    }
+  }
   const verdict = guardAssistantReply(answer.reply, facts, NO_BOOKING_WRITTEN);
   if (!verdict.ok) {
-    return { ...base, capture: merged, handoff: answer.handoff, reply: guardedLine(verdict.reason, facts.clinicName), source: "guard", guard: verdict.reason };
+    return { ...live, capture: merged, handoff: answer.handoff, reply: guardedLine(verdict.reason, facts.clinicName), source: "guard", guard: verdict.reason };
   }
-  return { ...base, capture: merged, handoff: answer.handoff, end: answer.end, reply: answer.reply, source: "model" };
+  return { ...live, capture: merged, handoff: answer.handoff, end: answer.end, reply: answer.reply, source: "model" };
 }

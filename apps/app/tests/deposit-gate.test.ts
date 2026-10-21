@@ -50,7 +50,8 @@ describe("the deposit gate", () => {
     expect(depositBranch("book")).toBe("write");
     expect(depositBranch("book_and_flag")).toBe("write");
     expect(depositBranch("hold_and_alert")).toBe("reserve");
-    expect(depositBranch("collect")).toBe("reserve");
+    // The chat's link is made for the booked appointment, so `collect` books first.
+    expect(depositBranch("collect")).toBe("write");
     expect(depositBranch("decline_and_alert")).toBe("decline");
   });
 

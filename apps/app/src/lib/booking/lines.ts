@@ -88,6 +88,38 @@ export function slotGoneLine(alternatives: readonly string[]): string {
   return `${SLOT_GONE_LINE} The nearest times I have are ${joinOr(alternatives)}.`;
 }
 
+/** Free times on offer, already written for the channel; the person picks one. */
+export function offerLine(times: readonly string[]): string {
+  if (times.length === 0) return NO_FREE_TIME_LINE;
+  return `I have ${joinOr(times)}. Which would suit you?`;
+}
+
+/**
+ * The website chat holds nothing for a visitor it cannot name (spec, "How a
+ * session runs" step 3: name and phone before any slot is held), so a time
+ * chosen before the details waits for them.
+ */
+export function detailsBeforeHoldLine(when: string): string {
+  return `Before I hold ${when} for you, could I take your first name and a mobile number the clinic can reach you on?`;
+}
+
+/** The voice HOLD_LINE, and the one detail still to take. */
+export function heldAskLine(missing: "first_name" | "phone"): string {
+  return `${HOLD_LINE} ${missing === "first_name" ? "Could I take your first name?" : "What's the best number for the clinic to reach you on?"}`;
+}
+
+/**
+ * A line written for a call, as the website chat says it: the chat is not a
+ * call, and cannot be called back.
+ */
+export function forChat(line: string): string {
+  return line
+    .replace(/please call back or ask the clinic/g, "please ask the clinic")
+    .replace(/\bon this call\b/g, "in this chat")
+    .replace(/\bper call\b/g, "per chat")
+    .replace(/\bthis call\b/g, "this chat");
+}
+
 function joinOr(items: readonly string[]): string {
   if (items.length === 1) return items[0]!;
   if (items.length === 2) return `${items[0]} or ${items[1]}`;

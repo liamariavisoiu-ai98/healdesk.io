@@ -44,9 +44,10 @@ import type { AssistantFacts } from "./facts";
  *     may say otherwise;
  *   - says a booking is made, or that the assistant is making one ("you're
  *     booked", "confirmed for Tuesday", "I'll book you in"), on a turn where
- *     the tool layer wrote no booking (ReplyTurn, confirmsBooking): the
- *     brain has no booking tools yet, so it takes a request and the team
- *     confirms it, and a reply saying otherwise becomes that line.
+ *     the tool layer wrote no booking (ReplyTurn, confirmsBooking). The
+ *     model never words a booking: when the tool layer books, its own fixed
+ *     line is said instead of the model's reply (turn.ts, booking-tools.ts),
+ *     so a model's reply that says a booking is made is always refused.
  * A refused reply is replaced by a fixed line; nothing of it is sent.
  *
  * The limit of the never-say list: its entries are the clinic's own words, in
@@ -77,8 +78,9 @@ export type GuardVerdict = { ok: true } | { ok: false; reason: GuardRefusal };
  * What the tool layer did on the turn the reply answers. A reply may say a
  * booking is made only on a turn where the tool layer wrote one (CLAUDE.md:
  * bookings are written only by the fixed tool layer, and the slot is held
- * before anything confirming is said). The brain has no booking tools yet
- * (turn.ts), so no turn writes one, and every confirmation is refused.
+ * before anything confirming is said). turn.ts passes the model's own words
+ * with bookingWritten false on every turn: the tool layer's booked line
+ * (booking-tools.ts) replaces them rather than passing through here.
  */
 export type ReplyTurn = { bookingWritten?: boolean };
 

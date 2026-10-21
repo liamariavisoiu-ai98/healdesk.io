@@ -12,6 +12,7 @@ import { previewAddLocation, previewChangePlan } from "@/lib/billing/summary";
 import { acknowledgementShown } from "@/lib/location-add";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
+import { locationDetailsPath } from "@/lib/portal/location-details";
 import { isBillingSwitchKey, setBillingSwitch } from "@/lib/portal/billing";
 import { stepUpPath, touchStepUp } from "@/lib/portal/step-up";
 import { withTenant } from "@/lib/tenant";
@@ -29,7 +30,8 @@ import { publicUrl } from "@/lib/public-url";
  */
 
 export type BillingActionResult =
-  { ok: true; toast: string; href?: string } | { ok: false; message: string; stepUpHref?: string };
+  | { ok: true; toast: string; href?: string; link?: { href: string; label: string } }
+  | { ok: false; message: string; stepUpHref?: string };
 
 const STEP_UP = "This change needs Face ID or your screen lock on a device you've added.";
 
@@ -190,6 +192,11 @@ export async function addLocationAction(
     return {
       ok: true,
       toast: "The location is added. Next, confirm its address, hours and phone numbers, so AYA can answer for it.",
+      // The page the toast's "Next" names (lib/portal/location-details.ts).
+      link: {
+        href: locationDetailsPath(portal.clinicSlug, result.locationId),
+        label: "Confirm them now",
+      },
     };
   }
   return result.status === "pending_setup"

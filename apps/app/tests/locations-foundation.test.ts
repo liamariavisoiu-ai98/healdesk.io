@@ -1028,6 +1028,9 @@ describeDb("locations, the foundation (0108)", () => {
         "call_routing",
         "carrier",
         "coverage_mode",
+        // 0109: the practice confirms a later location's details; its guard
+        // stamps the database's clock once (tests/location-details.test.ts).
+        "details_confirmed_at",
         "direct_line_e164",
         "label",
         "opening_hours",

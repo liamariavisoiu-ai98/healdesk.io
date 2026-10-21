@@ -8,6 +8,7 @@ import { getCalendarConnection } from "@/lib/connections/google-calendar";
 import { readMetaConnectView } from "@/lib/meta/reconnect";
 import { requirePortal } from "@/lib/portal/access";
 import { needsAttention } from "@/lib/portal/attention";
+import { readLaterLocations } from "@/lib/portal/location-details";
 import { portalDay } from "@/lib/portal/format";
 import { readHomeFacts, readHomePatientRequests } from "@/lib/portal/home";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
@@ -91,7 +92,20 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
         readMetaConnectView(tx.db, tx.clinicId),
       )
     : null;
-  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts, live, calendar, meta });
+  const locationsToConfirm = (
+    await withTenant({ clinicId: portal.clinicId, actor: page.actorContext }, (tx) =>
+      readLaterLocations(tx),
+    )
+  ).filter((l) => !l.confirmed);
+  const attention = needsAttention({
+    slug: portal.clinicSlug,
+    state,
+    ...facts,
+    live,
+    calendar,
+    meta,
+    locationsToConfirm,
+  });
   const bookingsHref = isBuiltSection("bookings") ? sectionPath(portal.clinicSlug, "bookings") : null;
   const week = facts.week ? claimLines(claimsPayload(facts.week)) : [];
   const tracker = buildTracker(state, calendar, facts.practice, facts.goLive ?? undefined);

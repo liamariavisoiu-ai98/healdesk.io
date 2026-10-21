@@ -439,6 +439,11 @@ describeDb("delivery", () => {
           // The voice fall-through: each AYA number's Retell fallback kept on
           // the clinic's direct line; not switched, idle without its key.
           "retell-fallback",
+          // A chat deposit whose link was never made (lib/billing/deposit-sweep.ts):
+          // every minute from the billing-minute queue, and hourly here. A sweep,
+          // not a switched job: it only hands the front desk a deposit the
+          // booking already owes, once, and contacts no patient.
+          "deposit-links",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -460,6 +465,7 @@ describeDb("delivery", () => {
         if (job === "meta-revoke") continue; // a sweep: revokes Meta access only for clinics whose service ended
         if (job === "patient-requests") continue; // a sweep: L32's reminders for the unmarked requests only
         if (job === "retell-fallback") continue; // not switched: does nothing until HEALDESK_RETELL_API_KEY is set
+        if (job === "deposit-links") continue; // a sweep: flags to the front desk only a pending_link deposit with no link, past its grace
         expect(status, job).toBe("disabled");
       }
       expect(jobs["offboarding-destroy"]).toBe("ok");
@@ -474,6 +480,7 @@ describeDb("delivery", () => {
       expect(jobs["agreement-resigns"]).toBe("ok");
       expect(jobs["meta-revoke"]).toBe("ok");
       expect(jobs["patient-requests"]).toBe("ok");
+      expect(jobs["deposit-links"]).toBe("ok");
       expect(jobs["retell-fallback"]).toBe("skipped");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });

@@ -31,14 +31,15 @@ as BRANCHES. Merge order and migration numbers matter.
 | `fix/deposit-gap` | 6314219c | `collect` booking stored as `pending_link` in its own transaction + a sweep that flags unlinked deposits for staff after 10 min | own DB | none |
 | `fix/retell-transcript` | d8ba9bff | Retell keeps the transcript until our copy is committed, then we delete the call (`everything`, retention 1 day); alert only if a delete still fails after 30 min; `/admin/recordings` kept as backstop | mocked fetch, own DB | none |
 | `fix/legal-retell` | 05d99304 | minimal agreement edit: Retell holds a call's transcript/recording only until we have our copy (BAA 1.5.1, 1.6.0, DPA 1.0.0; hashes regenerated; counsel NOT reviewed) | catalog 1749/1750 (one 30 s timeout), app 348 passed | none |
-| `pkg/voice-provisioning` | a5897cd6 | **WIP, unfinished, untested**: automated Retell number + agent per clinic, engine field default `custom`, spend guard, drift check | not run | 0106 `voice_agents` |
-| `pkg/ended-early-redial` | 3a4baa16 | **WIP, unfinished, untested**: "ended early" flag + banner + short-lived redial record | not run | 0107 |
-| `locations/foundation` | a33e8f18 | extra-locations L1 (per-location table, ack table), 2 stale tests fixed; **incomplete** | targeted | its own is now clashing: renumber to 0108 |
+| `pkg/voice-provisioning` | a5897cd6 | **WIP, unfinished, untested**: automated Retell number + agent per clinic, engine field default `custom`, spend guard, drift check | not run | was 0106 `voice_agents`: renumber to **0107** |
+| `pkg/ended-early-redial` | 3a4baa16 | **WIP, unfinished, untested**: "ended early" flag + banner + short-lived redial record | not run | was 0107: renumber to **0108** |
+| `locations/foundation` | a33e8f18 | extra-locations L1 (per-location table, ack table), 2 stale tests fixed; **incomplete** | targeted | its own is now clashing: renumber to **0109** |
 | `locations/copy-terms` | f0cf8480 | acknowledgement copy + "one central AYA" Terms, LEGAL_VERSION 2026-10-21.1 | complete, app/web/catalog tests | none |
 | `copy/vet-dpa-wording` | fd08bef2 | veterinary/DPA wording across portal, email, checkout, demo | complete by its builder's test | none |
 
-Migration plan (current highest on `main`: 0104): 0105 recording alerts (already
-in `integ/wave0-fixes`), 0106 voice agents, 0107 ended-early, 0108 locations.
+Migration plan (current highest on `main`: 0104): 0105 recording alerts and 0106
+recording-alert rules (both in `integ/wave0-fixes` via `fix/ci-seams`), then 0107
+voice agents, 0108 ended-early, 0109 locations.
 Renumber at merge time if the order changes; prove each with a fresh-DB migrate
 from zero and `npx drizzle-kit generate` reporting no change.
 
@@ -230,3 +231,7 @@ The first three are a real gap, not only stale tests: a table holding a clinic's
 data must have a stated destruction, purge or freeze rule. Decide the rule for
 `retell_recording_alerts` (it holds a Retell call id, times and our own reason,
 no content) and add it in all three places.
+
+### Update (same day): the seven CI failures were fixed on two branches, now merged into `integ/wave0-fixes`
+- `fix/ci-seams` (9f381f5d): `retell_recording_alerts` rules (destruction deletes all of a clinic's alerts; nightly purge deletes resolved alerts after 30 days, never open ones; erasure leaves them on purpose because an open alert is how erasure's own Retell step is done) via migration **0106_recording_alerts_rules.sql**; the two Meta tests now use Polish for "a language no screen reads" and assert fr/de/it/pt are urgent; `deposit-links` added to the hourly tick test.
+- `fix/setup-wizard-day5` (2345d423): root cause was a test bug (the queued notice's `send_after` took the real database clock while the test delivered at a fixed 2026-10-20); the test, two neighbours that would fail after 7 Nov 2026, and two `operator-notices` tests that would fail on 5 Jan 2027 now derive their times from one clock. Proven under libfaketime on five dates. NOT swept: the other ~81 database-backed files with hard-coded dates (H7).

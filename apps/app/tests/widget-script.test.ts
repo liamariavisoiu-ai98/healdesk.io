@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { GET, HEAD } from "@/app/widget/v1.js/route";
 import { WIDGET_SCRIPT_PATH, widgetSnippet } from "@/lib/setup/snippet";
 
+import { axeViolations } from "./setup/axe";
+
 /**
  * The website chat bubble (src/widget/v1.js), the script the line a clinic
  * pastes loads, and the route that serves it (app/widget/v1.js/route.ts).
@@ -713,6 +715,282 @@ describe("when the chat is not answering", () => {
     expect(q(root, ".form")).toBeTruthy();
   });
 
+});
+
+/** The stylesheet's text, as the source writes it: one rule per string. */
+const STYLESHEET = SOURCE.slice(SOURCE.indexOf("function css("));
+
+/** The declarations of the rule whose selector is written exactly so, or fail. */
+function rule(selector: string): string {
+  const at = STYLESHEET.indexOf(`"${selector}{`);
+  if (at < 0) throw new Error(`no rule ${selector}`);
+  const from = at + selector.length + 2;
+  return STYLESHEET.slice(from, STYLESHEET.indexOf("}", from));
+}
+
+function px(declarations: string, property: string): number | null {
+  const m = new RegExp(`(?:^|;)${property}:(\\d+(?:\\.\\d+)?)px`).exec(declarations);
+  return m ? Number(m[1]) : null;
+}
+
+/** The name a screen reader gives a control: aria-label, aria-labelledby, its label, or its own text. */
+function accessibleName(root: ShadowRoot, node: Element): string {
+  const label = node.getAttribute("aria-label");
+  if (label) return label;
+  const by = node.getAttribute("aria-labelledby");
+  if (by) return by.split(/\s+/).map((id) => root.getElementById(id)?.textContent ?? "").join(" ").trim();
+  const own = node.id ? root.querySelector(`label[for="${node.id}"]`) : null;
+  if (own) return own.textContent!.trim();
+  return (node.textContent ?? "").trim();
+}
+
+const CONTACT = { status: 200, body: { mode: "contact_form", reason: "paused", form: { takesMessages: true, times: TIMES } } };
+
+/** The page the bubble is on, taken down so a second one may be drawn in the same test. */
+async function newPage() {
+  window.dispatchEvent(new Event("pagehide"));
+  await settle();
+  delete (window as unknown as { __healdeskChat?: boolean }).__healdeskChat;
+  document.body.replaceChildren();
+}
+
+describe("the bubble for people who use a keyboard or a screen reader", () => {
+  test("the chat passes axe (WCAG 2.2 A and AA, as far as a render without CSS can decide)", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "We open at nine.", token: "t1", ended: false } });
+    const root = await load();
+    await open(root);
+    await type(root, "When do you open?");
+    expect(await axeViolations(root.innerHTML)).toEqual([]);
+    // The check is not vacuous: a button with no name is found by the same run.
+    expect(await axeViolations("<button></button>")).not.toEqual([]);
+  });
+
+  test("the contact form passes axe, and so does the page that thanks the visitor", async () => {
+    answer("start", CONTACT);
+    answer("contact", { status: 200, body: { mode: "received", reply: "Thanks. Your message is with Radiance Clinic." } });
+    const root = await load();
+    await open(root);
+    expect(await axeViolations(root.innerHTML)).toEqual([]);
+    q<HTMLInputElement>(root, "#first").value = "Jamie";
+    q<HTMLInputElement>(root, "#phone").value = "415 555 0199";
+    q<HTMLFormElement>(root, ".form").dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(await axeViolations(root.innerHTML)).toEqual([]);
+  });
+
+  test("every control, in the chat and in the form, has a name a screen reader can say", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    const chat = await load();
+    await open(chat);
+    for (const node of chat.querySelectorAll("button, textarea, input")) {
+      expect(accessibleName(chat, node), node.outerHTML).not.toBe("");
+    }
+    expect(accessibleName(chat, q(chat, ".send"))).toBe("Send message");
+    expect(accessibleName(chat, q(chat, ".icon-button"))).toBe("Close chat");
+    expect(accessibleName(chat, q(chat, "textarea"))).toBe("Your message");
+
+    await newPage();
+    answer("start", CONTACT);
+    const form = await load();
+    await open(form);
+    for (const node of form.querySelectorAll("button, textarea, input")) {
+      expect(accessibleName(form, node), node.outerHTML).not.toBe("");
+    }
+    expect([...form.querySelectorAll("input[type=radio]")].map((r) => accessibleName(form, r))).toEqual(["Any time", "Mornings"]);
+  });
+
+  test("the dialog is named by its heading, the launcher says what it will do, and the icons are hidden from readers", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    const root = await load();
+    const panel = q(root, ".panel");
+    expect(accessibleName(root, panel)).toBe("Chat with us");
+    expect(q(root, ".launcher").hasAttribute("aria-label")).toBe(false);
+    await open(root);
+    expect(q(root, ".launcher").getAttribute("aria-label")).toBe("Close chat");
+    for (const svg of root.querySelectorAll("svg")) expect(svg.getAttribute("aria-hidden"), "an icon with no name").toBe("true");
+    q<HTMLButtonElement>(root, ".icon-button").click();
+    expect(q(root, ".launcher").getAttribute("aria-label")).toBe("Chat with us");
+  });
+
+  test("the conversation and its status are live regions that speak politely, never interrupt", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    const root = await load();
+    await open(root);
+    const log = q(root, ".log");
+    expect([log.getAttribute("role"), log.getAttribute("aria-live"), log.getAttribute("aria-label")]).toEqual(["log", "polite", "Conversation"]);
+    const status = q(root, ".status");
+    expect([status.getAttribute("role"), status.getAttribute("aria-live")]).toEqual(["status", "polite"]);
+    expect(root.querySelector("[aria-live=assertive], [role=alert]")).toBeNull();
+    // Each message says who spoke, to a reader only.
+    expect(q(root, ".msg .sr").textContent).toBe("Assistant: ");
+  });
+
+  test("each form field is labelled, required, and tied to the error that will name its fault", async () => {
+    answer("start", CONTACT);
+    const root = await load();
+    await open(root);
+    for (const id of ["first", "phone"]) {
+      const input = q<HTMLInputElement>(root, `#${id}`);
+      expect(root.querySelector(`label[for="${id}"]`), id).not.toBeNull();
+      expect(input.hasAttribute("required"), id).toBe(true);
+      const error = root.getElementById(input.getAttribute("aria-describedby")!);
+      expect(error?.id, id).toBe(`${id}-error`);
+    }
+    // The radios sit in a named group, and the group points at its own error line.
+    const group = q(root, "fieldset");
+    expect(group.getAttribute("role")).toBe("radiogroup");
+    expect(q(root, "legend").textContent).toBe("Best time to call");
+    expect(root.getElementById(group.getAttribute("aria-describedby")!)).not.toBeNull();
+    expect(q(root, ".form").getAttribute("aria-labelledby")).toBe("form-title");
+    expect(q(root, "#phone").getAttribute("type")).toBe("tel");
+    expect(q(root, "#first").getAttribute("autocomplete")).toBe("given-name");
+  });
+
+  test("tab order is the page's own: nothing takes a positive tabindex, and only words to be read are focused by script", async () => {
+    answer("start", CONTACT);
+    answer("contact", { status: 200, body: { mode: "received", reply: "Thanks." } });
+    const root = await load();
+    await open(root);
+    q<HTMLInputElement>(root, "#first").value = "Jamie";
+    q<HTMLInputElement>(root, "#phone").value = "415 555 0199";
+    q<HTMLFormElement>(root, ".form").dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const indexes = [...root.querySelectorAll("[tabindex]")].map((n) => n.getAttribute("tabindex"));
+    expect(indexes.length).toBeGreaterThan(0);
+    expect(indexes.every((t) => t === "-1")).toBe(true);
+    expect(root.activeElement?.textContent).toMatch(/^Thanks/);
+  });
+
+  test("a keyboard user sees where focus is, in the stylesheet and on a forced-colours display", () => {
+    expect(rule(":focus-visible")).toMatch(/outline:3px solid/);
+    // The one outline taken away belongs to a line of words focused by script (tabindex -1), never to a control.
+    expect([...STYLESHEET.matchAll(/"([^"]*)\{[^}]*outline:none/g)].map((m) => m[1])).toEqual([".call:focus"]);
+    expect(STYLESHEET).toContain("@media (forced-colors:active)");
+  });
+
+  test("no text is set smaller than 13px, and the page's own font settings cannot reach in", () => {
+    const sizes = [...STYLESHEET.matchAll(/font-size:(\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]));
+    expect(sizes.length).toBeGreaterThan(5);
+    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(13);
+    expect(STYLESHEET).toContain(":host{all:initial}");
+  });
+});
+
+describe("the bubble on a phone", () => {
+  /** A phone-sized screen: the query the script asks about, answered yes or no. */
+  function screen(matches: boolean) {
+    const asked: string[] = [];
+    vi.stubGlobal("matchMedia", (query: string) => {
+      asked.push(query);
+      return { matches };
+    });
+    return asked;
+  }
+
+  test("the script asks about the same small screen the stylesheet is written for", async () => {
+    const asked = screen(true);
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    await load();
+    expect(asked).toEqual(["(max-width: 480px), (max-height: 500px)"]);
+    // The stylesheet's media query is the same one, so the panel fills the screen exactly where the dialog turns modal.
+    expect(STYLESHEET).toContain("@media (max-width:480px),(max-height:500px){");
+  });
+
+  test("on a phone the panel fills the screen, clears the home indicator, and the launcher gives way to it", () => {
+    const small = STYLESHEET.slice(STYLESHEET.indexOf("@media (max-width:480px)"));
+    const panel = small.slice(0, small.indexOf("}") + 1);
+    for (const needed of ["inset:0", "width:100%", "max-width:none", "height:100vh;height:100dvh", "border-radius:0", "padding-bottom:env(safe-area-inset-bottom)"]) {
+      expect(panel, needed).toContain(needed);
+    }
+    expect(small.slice(0, small.indexOf("@media (prefers-reduced-motion")), "the launcher while the panel is open").toContain(":host([data-open=true]) .launcher{display:none}");
+  });
+
+  test("on a larger screen the panel never outgrows a narrow window, and the launcher keeps off the screen's corners", () => {
+    const desktop = rule(".panel");
+    expect(desktop).toContain("width:380px");
+    expect(desktop).toContain("max-width:calc(100vw - 32px)");
+    expect(desktop).toContain("height:min(600px,calc(100dvh - 120px))");
+    const launcher = rule(".launcher");
+    expect(launcher).toContain("right:max(16px,env(safe-area-inset-right))");
+    expect(launcher).toContain("bottom:max(16px,env(safe-area-inset-bottom))");
+  });
+
+  test("every control is at least 44px to touch, and a radio row at least 24px (WCAG 2.5.8)", () => {
+    for (const selector of [".icon-button,.text-button", "textarea", "input[type=text],input[type=tel]", ".primary"]) {
+      expect(px(rule(selector), "min-height"), selector).toBeGreaterThanOrEqual(44);
+    }
+    expect(px(rule(".icon-button,.text-button"), "min-width")).toBeGreaterThanOrEqual(44);
+    const send = rule(".send");
+    expect([px(send, "width"), px(send, "height")]).toEqual([44, 44]);
+    expect(px(rule(".launcher"), "min-height")).toBeGreaterThanOrEqual(56);
+    expect(px(rule(".option"), "min-height")).toBeGreaterThanOrEqual(24);
+    expect(px(rule("input[type=radio]"), "width")).toBeGreaterThanOrEqual(20);
+  });
+
+  test("fields are 16px or larger, so a phone's browser does not zoom the page when one is focused", () => {
+    expect(px(rule(".launcher,.panel"), "font-size")).toBe(16);
+    // The fields take the panel's size by inheriting it, and none sets its own below 16.
+    for (const selector of ["textarea", "input[type=text],input[type=tel]"]) expect(rule(selector), selector).toContain("font:inherit");
+  });
+
+  test("long words and addresses wrap inside the message rather than push the panel sideways", () => {
+    const msg = rule(".msg");
+    expect(msg).toContain("overflow-wrap:anywhere");
+    expect(msg).toContain("max-width:85%");
+    expect(rule(".body")).toContain("overflow-y:auto");
+    expect(rule("*,*::before,*::after")).toContain("box-sizing:border-box");
+  });
+
+  test("on a phone the dialog is modal while it is open and not after, and a larger screen is never trapped", async () => {
+    screen(true);
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    const phone = await load();
+    expect(q(phone, ".panel").hasAttribute("aria-modal")).toBe(false);
+    await open(phone);
+    expect(q(phone, ".panel").getAttribute("aria-modal")).toBe("true");
+    q(phone, ".panel").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(q(phone, ".panel").hasAttribute("aria-modal")).toBe(false);
+    expect(phone.activeElement).toBe(q(phone, ".launcher"));
+
+    await newPage();
+    screen(false);
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t1" } });
+    const desktop = await load();
+    await open(desktop);
+    expect(q(desktop, ".panel").hasAttribute("aria-modal")).toBe(false);
+    // Tab off the last control is the page's to take: the script does not stop it.
+    const send = q<HTMLButtonElement>(desktop, ".send");
+    send.focus();
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    send.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
+  });
+
+  test("a whole conversation works on a phone: open, send, read the reply, close", async () => {
+    screen(true);
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "We open at nine.", token: "t1", ended: false } });
+    const root = await load();
+    await open(root);
+    await type(root, "When do you open?");
+    expect(messages(root)).toEqual([`Assistant: ${OPENING}`, "You: When do you open?", "Assistant: We open at nine."]);
+    expect(root.activeElement).toBe(q(root, "textarea"));
+    q<HTMLButtonElement>(root, ".icon-button").click();
+    expect(q(root, ".panel").hidden).toBe(true);
+    expect(root.activeElement).toBe(q(root, ".launcher"));
+  });
+
+  test("the contact form is usable on a phone: the number field raises the phone keypad and the first name offers autofill", async () => {
+    screen(true);
+    answer("start", CONTACT);
+    const root = await load();
+    await open(root);
+    expect(q(root, "#phone").getAttribute("inputmode")).toBe("tel");
+    expect(q(root, "#phone").getAttribute("autocomplete")).toBe("tel");
+    expect(q(root, "#first").getAttribute("autocomplete")).toBe("given-name");
+    expect(q(root, ".fine").textContent).toBe("If it's an emergency, call 911.");
+  });
 });
 
 describe("the script's source", () => {

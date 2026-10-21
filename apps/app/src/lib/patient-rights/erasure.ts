@@ -138,6 +138,15 @@ export const ERASURE_DEADLINE_BUSINESS_DAYS = 10;
  * window reach. Meta is the practice's own service, not ours. A new
  * subcontractor that holds patient data is a new entry here and in the
  * erasure_requests_vendor_steps_check constraint.
+ *
+ * A Retell call alert (retell_recording_alerts, drizzle/0105) is left by an
+ * erasure on purpose: it holds Retell's call id, times and our own reason,
+ * never the person's words or number, and an open one is the sign that
+ * Retell still holds one of the person's calls, which is what this step
+ * deletes (the /admin/recordings button does it at Retell, and resolves the
+ * alert; deleteRecordedCall works with the conversation gone). A resolved
+ * alert goes thirty days later by the purge, and every alert at the clinic's
+ * destruction (drizzle/0106).
  */
 export const ERASURE_VENDOR_STEPS = [
   {

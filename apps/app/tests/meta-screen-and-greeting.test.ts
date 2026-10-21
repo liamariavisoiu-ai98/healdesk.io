@@ -157,8 +157,15 @@ describe("the screen, before any model", () => {
   });
 
   test("a message in a language no screen reads is screened as such, and its fixed line passes the guard", () => {
-    for (const text of ["Je n'arrive pas à respirer", "Não consigo respirar", "Bonjour, je voudrais un rendez-vous"]) {
+    // Polish is a language no screen reads, its emergencies included. Until
+    // fix/screen-turn (21 October 2026) French and Portuguese were too; now
+    // the screen reads their emergencies as urgent, and only those: a French
+    // booking question is still turned away for its language.
+    for (const text of ["Nie mogę oddychać", "Dzień dobry, chciałabym umówić wizytę", "Bonjour, je voudrais un rendez-vous"]) {
       expect(screenInbound(text), text).toBe("language");
+    }
+    for (const text of ["Je n'arrive pas à respirer", "Não consigo respirar", "Ich kann nicht atmen", "Non riesco a respirare"]) {
+      expect(screenInbound(text), text).toBe("urgent");
     }
     // Spanish is screened, so it is never turned away for its language.
     expect(screenInbound("¿Cuánto cuesta una consulta?")).toBeNull();
@@ -1276,11 +1283,18 @@ describeDb("the screen and the greeting, end to end", () => {
   test("a message in another language never reaches the model, and a reply in anything but English is never sent", async () => {
     const c = await doorOpen("screen-language", [{ platform: "messenger", externalId: "910000000000073" }]);
     const responder = vi.fn<FrontDoorResponder>(async () => modelJson("We're open weekdays 9 to 5 — call the practice to book."));
+    // Polish: no screen reads it, so it is turned away for its language.
+    const polish = (await answerSent(c.clinicId, { platform: "messenger", text: "Nie mogę oddychać", responder }))!;
+    expect(responder).not.toHaveBeenCalled();
+    expect(polish).toMatchObject({ source: "handoff", screened: "language" });
+    expect(polish.text).toContain("I can only help in English or Spanish.");
+    expect(polish.text).toContain("Si es una emergencia, llame al 911 ahora.");
+
+    // A French emergency is read by the screen (fix/screen-turn): it gets the
+    // urgent line on Meta, and never reaches the model either.
     const french = (await answerSent(c.clinicId, { platform: "messenger", text: "Je n'arrive pas à respirer", responder }))!;
     expect(responder).not.toHaveBeenCalled();
-    expect(french).toMatchObject({ source: "handoff", screened: "language" });
-    expect(french.text).toContain("I can only help in English or Spanish.");
-    expect(french.text).toContain("Si es una emergencia, llame al 911 ahora.");
+    expect(french).toMatchObject({ source: "urgent", screened: "urgent" });
 
     // A Spanish message is screened, so it reaches the model; a Spanish reply is not sent.
     const spanish = vi.fn<FrontDoorResponder>(async () => modelJson("Abrimos de lunes a viernes, de 9 a 5. Llame a la clínica para reservar."));

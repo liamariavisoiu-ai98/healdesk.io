@@ -743,6 +743,13 @@
       "when": 1792580908482,
       "tag": "0105_retell_recording_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1792600092015,
+      "tag": "0106_recording_alerts_rules",
+      "breakpoints": true
     }
   ]
 }

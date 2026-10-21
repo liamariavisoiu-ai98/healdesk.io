@@ -1410,6 +1410,80 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     }
   });
 
+  // drizzle/0106: the Retell call alerts (0105) hold a call id, times and our
+  // own reason, never content, but each ties a call to the clinic. All of a
+  // clinic's go at its destruction, open or resolved; the purge takes a
+  // resolved one thirty days after it was resolved and never an open one.
+
+  /** A Retell call alert, resolved `resolvedDaysAgo` days ago, or open when null. */
+  async function seedRecordingAlert(clinicId: string, resolvedDaysAgo: number | null): Promise<string> {
+    const callId = `call_${randomBytes(8).toString("hex")}`;
+    await inTenant(clinicId, (client) =>
+      client.query(
+        `insert into retell_recording_alerts (clinic_id, retell_call_id, detected_at, resolved_at)
+         values ($1, $2, now() - interval '60 days',
+                 case when $3::int is null then null else now() - make_interval(days => $3::int) end)`,
+        [clinicId, callId, resolvedDaysAgo],
+      ),
+    );
+    return callId;
+  }
+
+  async function recordingAlertCalls(clinicId: string): Promise<string[]> {
+    return inTenant(clinicId, async (client) =>
+      (
+        await client.query<{ retell_call_id: string }>(
+          `select retell_call_id from retell_recording_alerts where clinic_id = $1 order by retell_call_id`,
+          [clinicId],
+        )
+      ).rows.map((r) => r.retell_call_id),
+    );
+  }
+
+  test("destruction takes every Retell call alert of the clinic, open or resolved, is recorded only once they are gone, and touches no other clinic's", async () => {
+    const leaving = await seedClinic("destroy-alerts");
+    const staying = await seedClinic("destroy-alerts-stay");
+    await seedRecordingAlert(leaving.clinicId, null);
+    await seedRecordingAlert(leaving.clinicId, 2);
+    const theirs = [await seedRecordingAlert(staying.clinicId, null), await seedRecordingAlert(staying.clinicId, 45)].sort();
+    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "operator"));
+    await backdateOffboarding(leaving.clinicId, 31);
+    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
+      markExportDelivered(tx, "bundle handed to the practice manager"),
+    );
+
+    // Due, and holding nothing but the alerts: the database will not record
+    // a destruction that left them.
+    await expect(
+      asApp(leaving.clinicId, (q) => q.query(`select app_mark_clinic_destroyed($1::uuid)`, [leaving.clinicId])),
+    ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/still holds/) });
+
+    const results = (await destroyDueClinics()).filter((r) => r.clinicId === leaving.clinicId);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.deleted).toMatchObject({ retell_recording_alerts: 2 });
+    expect(await recordingAlertCalls(leaving.clinicId)).toEqual([]);
+    expect(await recordingAlertCalls(staying.clinicId)).toEqual(theirs);
+    const { rows } = await getMigratorPool().query<{ destroyed_at: Date | null }>(
+      `select destroyed_at from clinics where id = $1`,
+      [leaving.clinicId],
+    );
+    expect(rows[0]!.destroyed_at).not.toBeNull();
+  });
+
+  test("the purge takes a Retell call alert thirty days after it was resolved, never an open one however old, and no other clinic's", async () => {
+    const c = await seedClinic("purge-alerts");
+    const other = await seedClinic("purge-alerts-other");
+    const open = await seedRecordingAlert(c.clinicId, null);
+    const recent = await seedRecordingAlert(c.clinicId, 29);
+    await seedRecordingAlert(c.clinicId, 31);
+    const others = [await seedRecordingAlert(other.clinicId, null), await seedRecordingAlert(other.clinicId, 31)].sort();
+
+    const result = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, new Date()));
+    expect(result.recordingAlertsDeleted).toBe(1);
+    expect(await recordingAlertCalls(c.clinicId)).toEqual([open, recent].sort());
+    expect(await recordingAlertCalls(other.clinicId)).toEqual(others);
+  });
+
   test("the database stamps a change when it is written, not when its transaction began", async () => {
     const c = await seedClinic("stamp-at-write");
     // A transaction that waited before writing, as one opened a day or thirty

@@ -13,25 +13,31 @@ import { LAUNCH_PROMISES } from "./launch";
  * the switch"): the spec sells each further location from Billing, on the
  * same plan, at the plan's price again plus its setup fee (spec, "More than
  * one location"), and the pricing page and the purchase say so. Production
- * cannot add one yet: apps/app's createLocationClinic is a stub, and
- * LOCATION_CLINICS_READY keeps addLocation refusing until healdesk-io-58's
- * Package C lands it. So while that flag is false the promise is an open
- * item in LAUNCH_PROMISES, shown at /admin/seo, and it does not hold go-live,
- * because one location works without it.
+ * cannot add one yet: apps/app's locationsReady (lib/locations.ts) is false
+ * for every package, so addLocation refuses, until the add creates a
+ * location of the account (the extra-locations plan's step 8) and switch 1
+ * turns it on for the chat packages. So while no package may add one the
+ * promise is an open item in LAUNCH_PROMISES, shown at /admin/seo, and it
+ * does not hold go-live, because one location works without it.
  */
 
 const REPO = join(__dirname, "..", "..", "..", "..", "..", "..");
 
-/** apps/app's flag, read from its source: apps/web may not import apps/app. */
-function locationClinicsReady(): boolean {
-  const source = readFileSync(
-    join(REPO, "apps", "app", "src", "lib", "location-clinic.ts"),
-    "utf8",
-  );
-  const found = /export const LOCATION_CLINICS_READY = (true|false);/.exec(source);
+/**
+ * The packages apps/app lets add a location (LOCATIONS_READY_PACKAGES), read
+ * from its source: apps/web may not import apps/app.
+ */
+function locationsReadyPackages(): string[] {
+  const source = readFileSync(join(REPO, "apps", "app", "src", "lib", "locations.ts"), "utf8");
+  const found =
+    /export const LOCATIONS_READY_PACKAGES: readonly PackageId\[\] = \[([^\]]*)\];/.exec(source);
   if (!found)
-    throw new Error("LOCATION_CLINICS_READY is no longer a plain boolean in location-clinic.ts");
-  return found[1] === "true";
+    throw new Error("LOCATIONS_READY_PACKAGES is no longer a plain array in lib/locations.ts");
+  const ids = [...found[1]!.matchAll(/"([a-z-]+)"/g)].map((m) => m[1]!);
+  for (const id of ids) {
+    if (!PACKAGES.some((p) => p.id === id)) throw new Error(`${id} is not a package`);
+  }
+  return ids;
 }
 
 describe("extra locations are promised as designed, and tracked until production adds them", () => {
@@ -68,14 +74,14 @@ describe("extra locations are promised as designed, and tracked until production
     expect(item!.left).not.toMatch(/hello@/);
   });
 
-  test("while apps/app cannot add a location, the item is open and does not hold go-live", () => {
-    // Once the flag flips, the item moves to On when that release is live in
-    // production, which no test here can see.
-    if (locationClinicsReady()) return;
+  test("while apps/app lets no package add a location, the item is open and does not hold go-live", () => {
+    // Once switch 1 turns the chat packages on, the item moves to On when
+    // that release is live in production, which no test here can see.
+    if (locationsReadyPackages().length > 0) return;
     expect(item).toBeDefined();
     expect(item!.status).toBe("building");
     expect(item!.blocksGoLive).toBe(false);
-    expect(item!.evidence).toContain("apps/app/src/lib/location-clinic.ts");
+    expect(item!.evidence).toContain("apps/app/src/lib/locations.ts");
   });
 });
 

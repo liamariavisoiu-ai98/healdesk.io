@@ -44,7 +44,8 @@ import {
   type BillingRequestChannelKey,
 } from "@/lib/billing/requests";
 import { resumePlanChange, STALE_PLAN_CHANGE_MS } from "@/lib/billing/stripe-actions";
-import { createLocationClinic, LOCATION_CLINICS_READY } from "@/lib/location-clinic";
+import { createLocationClinic } from "@/lib/location-clinic";
+import { locationsReady } from "@/lib/locations";
 import { describeError, log } from "@/lib/log";
 import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import {
@@ -605,9 +606,10 @@ export type LocationResume = "resumed" | "not_ready" | "nothing_pending" | "busy
  * onwards): create its clinic, clear the pending marker and queue
  * `location_added`. Under the billing clinic's Stripe mutation lease, so it
  * never races addLocation resuming the same request. While the funnel's
- * createLocationClinic is still the stub (`LOCATION_CLINICS_READY` false) the
- * location stays pending, untouched; addLocation refuses before any charge in
- * that state, so nothing new can arrive here until it flips.
+ * createLocationClinic is still the stub (`locationsReady` false for the
+ * package bought) the location stays pending, untouched; addLocation refuses
+ * before any charge in that state, so nothing new can arrive here until it
+ * flips.
  *
  * Exported for the console's retry (R35 retryLocationSetup), so there is one
  * way to resume a location.
@@ -630,7 +632,7 @@ export async function resumePendingLocation(
     ) {
       return "nothing_pending" as const;
     }
-    if (!LOCATION_CLINICS_READY) return "not_ready" as const;
+    if (!locationsReady(row.boughtPlanId)) return "not_ready" as const;
     const owner = `location:${row.pendingLocationRequestId}`;
     if (!(await claimStripeMutationLease(tx.db, billingClinicId, owner, { now: leaseNow }))) {
       return "busy" as const;

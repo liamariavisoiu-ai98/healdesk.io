@@ -28,13 +28,13 @@ export type CreateLocationClinicInput = {
   actor: ActorContext;
 };
 
-/**
- * Whether createLocationClinic can make a clinic yet. `addLocation` refuses
- * with "not_available" while this is false, so no clinic is charged for a
- * location the stub below would then fail to create. Flipped in the same
- * commit as the real body.
+/*
+ * Whether a location can be added is no longer a flag here: it is
+ * locationsReady(plan) in lib/locations.ts, keyed on the package bought, and
+ * false for every package until the add creates a location row of the
+ * account (clinic_locations, drizzle/0108) instead of calling the stub below,
+ * which the extra-locations plan retires with billing_clinic_id (step 8).
  */
-export const LOCATION_CLINICS_READY = false;
 
 export async function createLocationClinic(
   input: CreateLocationClinicInput,

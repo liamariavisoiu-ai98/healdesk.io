@@ -9,7 +9,7 @@ import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { getBillingSummary } from "@/lib/billing/summary";
 import { copyProblems, visibleText } from "@/lib/email/lint";
 import { optionalEmailAllowed } from "@/lib/email/stop";
-import { LOCATION_CLINICS_READY } from "@/lib/location-clinic";
+import { locationsReady } from "@/lib/locations";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -227,9 +227,9 @@ describeDb("Billing", () => {
     expect(words).not.toMatch(/\b(soon|yet|shortly|coming|not available)\b/i);
     expect(words).not.toMatch(/\b(20\d\d|January|February|March|April|May|June|July|August|September|October|November|December)\b/);
     expect(copyProblems(words)).toEqual([]);
-    // The button only once a location's clinic can be made: before that it
-    // would ask Stripe for a price and then refuse.
-    expect(LOCATION_CLINICS_READY).toBe(false);
+    // The button only once the package bought may add a location: before
+    // that it would ask Stripe for a price and then refuse.
+    expect(locationsReady(plan)).toBe(false);
     expect(card).not.toMatch(/<button[^>]*>[^<]*Add a location/);
   });
 

@@ -359,7 +359,7 @@ describeDb("re-signing a newer BAA over an older one", () => {
 
   /**
    * A second location of the practice, as add-location will make one
-   * (LOCATION_CLINICS_READY is false, so it is seeded as the billing tests
+   * (locationsReady is false for every package, so it is seeded as the billing tests
    * seed one): in its organisation, billed on it, production, with phone
    * live and a direct line of its own.
    */

@@ -49,8 +49,8 @@ import { releaseNumberAfterPassThrough } from "./offboarding";
  * invitations and organisation memberships, and their user row becomes a
  * tombstone: an address under RFC 2606's `.invalid`, no name. Then the
  * setup (agent configuration, settings and their history, report recipients,
- * the practice questions, the website re-reads, the clinic row's setup
- * columns), our own notes and
+ * the practice questions, the website re-reads, the account's locations, the
+ * clinic row's setup columns), our own notes and
  * phase-two runs, and the checkout the clinic was bought through. The
  * function's own list, which tests/booking-request-destruction.test.ts holds
  * to the catalog beside destruction's and KEPT_FOR_GOOD; after it, those
@@ -86,6 +86,8 @@ export const KEPT_FOR_GOOD: Readonly<Record<string, string>> = {
   // The agreement.
   calendar_elections:
     "part of the signed agreement: each election is a term the practice recorded for a location's calendar (0057); append-only for every role, no patient",
+  location_acknowledgements:
+    "part of the agreement: the practice's acceptance, for each location it added, of one central assistant for all of them, as shown, hashed and under whose step-up (0108); append-only for every role, no patient",
   connection_links:
     "only the links a calendar election was signed through or an OAuth state names (the closure deletes every other): part of that election's record (0057)",
   agreement_resigns:

@@ -29,7 +29,8 @@ import {
 } from "@/db/schema";
 import { assertNoPhi, type ActorContext } from "@/lib/audit";
 import { readCoverageMode, type CoverageMode } from "@/lib/billing/answering";
-import { createLocationClinic, LOCATION_CLINICS_READY } from "@/lib/location-clinic";
+import { createLocationClinic } from "@/lib/location-clinic";
+import { anyLocationsReady, locationsReady } from "@/lib/locations";
 import { log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
 import { publicOrigin } from "@/lib/public-url";
@@ -1518,8 +1519,9 @@ async function clearPendingLocation(db: Transaction, clinicId: string, requestId
  * then a clinic of its own for the location (`createLocationClinic`), billed
  * on this one.
  *
- * Refused with `not_available` before anything else while
- * `LOCATION_CLINICS_READY` is false: until the location's clinic can be
+ * Refused with `not_available` before anything else while no package may
+ * add a location (`anyLocationsReady`), and by `checkAddLocation` while the
+ * package bought may not (`locationsReady`): until the location can be
  * created, a charge would buy something that cannot exist.
  *
  * Every step is resumable, all under the billing clinic's mutation lease:
@@ -1543,7 +1545,7 @@ export async function addLocation(
   input: AddLocationInput,
   options: BillingActionOptions = {},
 ): Promise<AddLocationResult> {
-  if (!LOCATION_CLINICS_READY) {
+  if (!anyLocationsReady()) {
     return {
       status: "not_available",
       message:
@@ -1903,7 +1905,7 @@ export async function resumeLocationSetup(
         await setLocations(tx.db, billingClinicId, claim.count);
       });
     }
-    if (!LOCATION_CLINICS_READY) {
+    if (!locationsReady(claim.row.boughtPlanId)) {
       return {
         status: "pending_setup",
         message:

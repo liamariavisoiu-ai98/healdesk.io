@@ -20,9 +20,10 @@ import { createStripeWorld, type StripeWorld } from "./setup/stripe-world";
 
 /**
  * addLocation (BD13, R14, spec §13) and its resume. createLocationClinic
- * belongs to the funnel session and is still a stub behind
- * LOCATION_CLINICS_READY, so the module is replaced here: the flag is
- * switchable per test, and the function records what it was asked.
+ * belongs to the funnel session and is still a stub, and locationsReady is
+ * false for every package, so both modules are replaced here: the switch is
+ * switchable per test (for every package at once), and the function records
+ * what it was asked.
  */
 
 const location = vi.hoisted(() => ({
@@ -31,10 +32,13 @@ const location = vi.hoisted(() => ({
   fail: false,
 }));
 
+vi.mock("@/lib/locations", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/locations")>()),
+  locationsReady: () => location.ready,
+  anyLocationsReady: () => location.ready,
+}));
+
 vi.mock("@/lib/location-clinic", () => ({
-  get LOCATION_CLINICS_READY() {
-    return location.ready;
-  },
   createLocationClinic: async (input: {
     billingClinicId: string;
     locationNumber: number;
@@ -140,7 +144,7 @@ describeDb("addLocation", () => {
     await closePools();
   });
 
-  test("while LOCATION_CLINICS_READY is false it is not available, before anything is written or charged", async () => {
+  test("while locationsReady is false it is not available, before anything is written or charged", async () => {
     location.ready = false;
     const clinic = await seedClinic("loc-flag");
     await seedEntitled(clinic.clinicId, { planId: "voice-webchat-1000-1000", planStartedAt: STARTED });

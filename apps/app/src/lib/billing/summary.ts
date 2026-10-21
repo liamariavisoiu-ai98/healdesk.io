@@ -18,7 +18,7 @@ import { unsafeDb } from "@/db";
 import type { BillingStatus, Entitlements, UsageMeter } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { channelsInService, readChannelStates } from "@/lib/channels/state";
-import { LOCATION_CLINICS_READY } from "@/lib/location-clinic";
+import { anyLocationsReady, locationsReady } from "@/lib/locations";
 import { log } from "@/lib/log";
 import { withTenant } from "@/lib/tenant";
 
@@ -271,22 +271,21 @@ export type AddLocationCheck =
   | { ok: true; row: Entitlements; boughtPlan: Plan; isStarted: boolean; locations: number }
   | CheckRefusal;
 
+const LOCATIONS_NOT_AVAILABLE =
+  "Adding a location from Billing isn't available yet. Nothing was changed and nothing was charged.";
+
 /**
- * Whether `addLocation` may go ahead (BD13, R14): the location clinic can
- * actually be created (until it can, nothing is charged), a row bought under
- * the deferred start, in good standing and renewing.
+ * Whether `addLocation` may go ahead (BD13, R14): the package bought may add
+ * a location (locationsReady; until it may, nothing is charged), a row bought
+ * under the deferred start, in good standing and renewing.
  */
 export function checkAddLocation(row: Entitlements | null, now: Date): AddLocationCheck {
-  if (!LOCATION_CLINICS_READY) {
-    return refusal(
-      "Adding a location from Billing isn't available yet. Nothing was changed and nothing was charged.",
-      "not_available",
-    );
-  }
+  if (!anyLocationsReady()) return refusal(LOCATIONS_NOT_AVAILABLE, "not_available");
   if (!row) return refusal(MESSAGES.noAccount);
   if (!row.boughtPlanId) return refusal(MESSAGES.legacy);
   const boughtPlan = getPlan(row.boughtPlanId);
   if (!boughtPlan) return refusal(MESSAGES.legacy);
+  if (!locationsReady(boughtPlan)) return refusal(LOCATIONS_NOT_AVAILABLE, "not_available");
   if (!row.stripeSubscriptionId || !row.stripeCustomerId) {
     return refusal(MESSAGES.noStripe, "not_available");
   }

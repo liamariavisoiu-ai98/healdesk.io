@@ -84,8 +84,15 @@ export function audienceLine(audience: Audience): string {
     : "The people who contact the practice are its patients, or people thinking of becoming one.";
 }
 
-/** How the clinic's tone setting reads to the model (spec, "Tone": changes how the assistant speaks on every channel). */
-const TONE: Record<AssistantTone, string> = {
+/**
+ * How the clinic's tone setting reads to the model (spec, "Tone": changes how
+ * the assistant speaks on every channel). Exported for the voice eval
+ * (scripts/voice-eval), whose hill-climb may propose a replacement for this
+ * one sentence and nothing else in the prompt: it swaps the sentence in the
+ * built prompt and checks every other byte is unchanged. Production reads it
+ * only here.
+ */
+export const TONE: Readonly<Record<AssistantTone, string>> = {
   warm: "Be warm, welcoming and unhurried, like the best person at the front desk, and keep it brief and useful.",
   clinical: "Be calm, brief and precise: professional rather than chatty, and still kind.",
 };

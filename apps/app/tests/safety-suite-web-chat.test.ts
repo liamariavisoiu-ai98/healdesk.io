@@ -14,7 +14,7 @@ import { withTenant } from "@/lib/tenant";
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { bindAgreementInEffect, inTenant, queuedNotices, seedClinic, seedEntitled, setWeekdayHours } from "./setup/factories";
 import { attestPlatform } from "./setup/platform";
-import { BENIGN_REPLY, FORBIDDEN_OUTPUT_CASES, INJECTION_CASES, modelJson, SAFETY_FACTS, stubModel, UNSCREENED_LANGUAGE_URGENT, URGENT_CASES, type ModelCall } from "./setup/safety-cases";
+import { BENIGN_REPLY, FORBIDDEN_OUTPUT_CASES, INJECTION_CASES, modelJson, SAFETY_FACTS, stubModel, SPANISH_URGENT_CASES, UNSCREENED_LANGUAGE_URGENT, URGENT_CASES, type ModelCall } from "./setup/safety-cases";
 
 /**
  * THE SAFETY SUITE, web chat: the cases of tests/setup/safety-cases.ts
@@ -177,6 +177,18 @@ describeDb("safety suite: web chat, end to end", () => {
     // because only English and Spanish were screened. The urgent screen now
     // reads French, German, Italian and Portuguese fragments, and the turn is
     // urgent whatever the language (lib/assistant/turn.ts).
+    // H4, 21 October 2026: Spanish as it is typed, each a miss before.
+    for (const c of SPANISH_URGENT_CASES) {
+      test(`${c.label}: the Spanish fixed line, and the clinic alerted`, async () => {
+        const r = await chat(clinic, [c.text], () => modelJson("model answered"), transport);
+        expect(r.calls).toHaveLength(0);
+        expect(r.replies[0]).toMatch(/llame al 911/);
+        expect(await conversation(clinic.clinicId, r.conversationId)).toMatchObject({ urgent: true, outcome: "escalated_to_human" });
+        const alerts = await queuedNotices(clinic.clinicId, ["urgent"]);
+        expect(alerts.map((a) => a.dedupe_key)).toContain(`urgent:conversation:${r.conversationId}`);
+      });
+    }
+
     for (const c of UNSCREENED_LANGUAGE_URGENT) {
       test(`${c.label}: urgent words in a language the assistant does not answer in are escalated to the clinic`, async () => {
         const r = await chat(clinic, [c.text], () => modelJson("model answered"), transport);

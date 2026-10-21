@@ -19,6 +19,8 @@ import {
   modelJson,
   SAFETY_FACTS,
   stubModel,
+  SPANISH_NOT_URGENT,
+  SPANISH_URGENT_CASES,
   UNSCREENED_LANGUAGE_URGENT,
   URGENT_CASES,
 } from "./setup/safety-cases";
@@ -117,6 +119,27 @@ for (const channel of CHANNELS) {
         expect(model.calls).toHaveLength(2);
         expect(JSON.stringify(model.calls[1]!.messages)).not.toContain(urgent);
       });
+
+      // H4, 21 October 2026: Spanish as it is typed, each a miss before.
+      for (const c of SPANISH_URGENT_CASES) {
+        test(`${c.label}: the Spanish fixed line with 911, never the model, and urgent`, async () => {
+          const model = stubModel(() => modelJson("model answered"));
+          const { results } = await run([c.text], model.responder, channel);
+          expect(model.calls).toHaveLength(0);
+          expect(results[0]!.source).toBe("urgent");
+          expect(results[0]!.urgent).toBe(true);
+          expect(results[0]!.reply).toMatch(/llame al 911/);
+        });
+      }
+
+      for (const text of SPANISH_NOT_URGENT) {
+        test(`ordinary Spanish is not urgent: ${text}`, async () => {
+          const model = stubModel(() => modelJson(BENIGN_REPLY));
+          const { results } = await run([text], model.responder, channel);
+          expect(results[0]!.source).not.toBe("urgent");
+          expect(results[0]!.urgent).toBe(false);
+        });
+      }
 
       for (const c of UNSCREENED_LANGUAGE_URGENT) {
         test(`${c.label}: a language the assistant does not answer in gets the fixed line with 911, never the model, and is urgent`, async () => {

@@ -124,6 +124,51 @@ export const URGENT_CASES: readonly UrgentCase[] = [
 ];
 
 /**
+ * Spanish as a person in trouble types it: no accents, dropped letters, text
+ * speak, Latin American and Peninsular forms. Each was a miss before 21
+ * October 2026 (H4): the model answered it, or, where the language check
+ * could not read the words, the language line went out and no alert was
+ * queued. Now urgent, with the Spanish fixed line ("llame al 911") and the
+ * clinic alerted. The assistant still converses only as the clinic's
+ * languages allow; this table is the screen, not the conversation.
+ */
+export const SPANISH_URGENT_CASES: readonly UrgentCase[] = [
+  { label: "Spanish: lip white after filler, no accent", text: "labio blanco despues del relleno" },
+  { label: "Spanish: lip pale", text: "tengo el labio pálido" },
+  { label: "Spanish: lip went blue", text: "se me puso el labio azul" },
+  { label: "Spanish: blurred sight", text: "veo borroso desde el relleno" },
+  { label: "Spanish: cannot see", text: "no veo nada de un ojo" },
+  { label: "Spanish: cannot breathe, misspelt", text: "no pueo respirsr" },
+  { label: "Spanish: short of breath", text: "me falta el aire" },
+  { label: "Spanish: throat closing", text: "se me cierra la garganta" },
+  { label: "Spanish: swelling without the h", text: "tengo la cara inchada" },
+  { label: "Spanish: chest pain, bare", text: "dolor pecho" },
+  { label: "Spanish: fainted, misspelt", text: "me desmalle" },
+  { label: "Spanish: severe pain, Mexican", text: "me duele un chingo" },
+  { label: "Spanish: severe pain, Peninsular", text: "me duele un huevo" },
+  { label: "Spanish: infection, no accent", text: "creo que tengo una infeccion" },
+  { label: "Spanish: bleeding that will not stop", text: "no para de salir sangre" },
+  { label: "Spanish: allergic reaction, misspelt", text: "reacion alerjica" },
+  { label: "Spanish: a cry for help", text: "ayúdenme por favor" },
+];
+
+/**
+ * Ordinary Spanish at a front desk: never urgent, so never the urgent line
+ * and never an alert. Booking, prices, parking, and an aftercare question
+ * that names no symptom. (A question naming swelling before treatment is
+ * urgent by the owner's decision, as in English: urgent-content.test.ts.)
+ */
+export const SPANISH_NOT_URGENT: readonly string[] = [
+  "¿Cuánto cuesta el botox?",
+  "quiero una cita el martes",
+  "¿puedo hacer ejercicio después del relleno?",
+  "tengo dolor de cabeza y quiero reservar",
+  "¿me ayuda a reservar una cita?",
+  "¿Hay riesgo de infección?",
+  "¿Tienen estacionamiento en la zona azul?",
+];
+
+/**
  * Urgent words in a language the assistant does not answer in: the fixed
  * language line (with 911), never the model, and urgent, so the clinic is
  * alerted (the urgent screen's French, German, Italian and Portuguese

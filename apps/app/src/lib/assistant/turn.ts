@@ -436,6 +436,9 @@ export async function answerTurn(input: {
     return { ...base, reply: CARD_LINE, source: "card" };
   }
   // A language the screens cannot read: no model, a fixed line in English and Spanish.
+  // Not urgent, so no clinic alert: the language alone raises none. That is
+  // the owner's default until answered (H4, 21 October 2026, open question
+  // 1); urgent words the screen can read in it alert, as above.
   if (messageLanguage(personText, { knownTerms: languageTerms(facts) }) === "other") {
     return { ...base, reply: languageLine(facts, channel), source: "language" };
   }

@@ -326,6 +326,7 @@ function publicHost(clinicId: string, options: RetellAgentOptions): string {
 /** Our reason, never Retell's body or a URL. */
 function reasonOf(error: unknown): { code: VoiceProvisionFailure; reason: string; transient: boolean } {
   if (error instanceof VoiceProvisionError) return { code: error.code, reason: error.message.slice(0, 200), transient: false };
+  if (error instanceof VoiceProvisionBusy) return { code: "rejected", reason: error.message, transient: true };
   if (error instanceof RetellAgentConfigError) return { code: "config", reason: error.message.slice(0, 200), transient: false };
   if (error instanceof RetellApiError) {
     const transient = error.status === 429 || error.status >= 500;
@@ -380,7 +381,7 @@ export async function provisionVoiceAgent(clinicId: string, deps: ProvisionDeps 
   if (row.engine !== "custom") {
     const reason = "the native engine is not built yet: set the clinic back to custom";
     await update(clinicId, { status: "failed", lastError: reason, attempts: row.attempts + 1 }, "failed");
-    await notifyOpsOnce("voice_provision_failed", { clinicId, code: "not_implemented" });
+    await notifyOpsOnce("voice_provision_failed", { clinicId, code: "not_implemented", windowStart: now().toISOString().slice(0, 10) });
     return { outcome: "failed", code: "not_implemented", reason };
   }
 
@@ -426,7 +427,7 @@ export async function provisionVoiceAgent(clinicId: string, deps: ProvisionDeps 
     if (!number && !view) {
       const where = areaCodeOf(f.publishedPhone);
       if (!where) throw new VoiceProvisionError("unsupported_country", "Retell sells US and Canadian numbers only, and the clinic's number is neither");
-      const reserved = await reserveOrder(clinicId, voiceProvisionDailyCap(env), now());
+      const reserved = await reserveOrder(clinicId, voiceProvisionDailyCap(env), now(), row.numberOrderedAt);
       if (!reserved) {
         await update(clinicId, { status: "pending", lastError: "waiting: the daily cap on numbers bought is reached" });
         await notifyOpsOnce("voice_provision_cap_reached", { windowStart: now().toISOString().slice(0, 10), count: voiceProvisionDailyCap(env) });
@@ -458,28 +459,68 @@ async function fail(clinicId: string, row: VoiceAgentRow, error: unknown): Promi
     return { outcome: "retry", reason: r.reason };
   }
   await update(clinicId, { status: "failed", lastError: r.reason }, "failed");
-  await notifyOpsOnce("voice_provision_failed", { clinicId, code: r.code, count: row.attempts });
+  await notifyOpsOnce("voice_provision_failed", { clinicId, code: r.code, count: row.attempts, windowStart: new Date().toISOString().slice(0, 10) });
   return { outcome: "failed", code: r.code, reason: r.reason };
 }
 
+/** Thrown inside reserveOrder's transaction to roll back the marker when the day is full. */
+class CapReached extends Error {}
+
 /**
- * Write number_ordered_at before buying, under a transaction-wide lock so
- * two runs cannot both pass the cap. False when the day's cap is reached.
+ * Another run for the same clinic (the job and an operator's retry at once)
+ * wrote number_ordered_at between our read and our order: it is buying, so
+ * this run stops and retries, and the retry finds that number by its
+ * nickname. Transient, so pg-boss retries it.
  */
-async function reserveOrder(clinicId: string, cap: number, at: Date): Promise<boolean> {
-  const dayStart = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
-  return withTenant({ clinicId, actor: ACTOR }, async (tx) => {
-    await tx.db.execute(sql`select pg_advisory_xact_lock(hashtext('voice_agents.number_ordered_at'))`);
-    const result = await tx.db.execute<{ n: number }>(sql`select app_voice_numbers_ordered_since(${dayStart.toISOString()}::timestamptz) as n`);
-    const ordered = Number(result.rows[0]?.n ?? 0);
-    if (ordered >= cap) return false;
-    await tx.db
-      .update(voiceAgents)
-      .set({ numberOrderedAt: at, updatedAt: sql`clock_timestamp()` })
-      .where(eq(voiceAgents.clinicId, tx.clinicId));
-    tx.audit.record({ action: "update", resourceType: "voice_agent", resourceId: tx.clinicId, metadata: { step: "number_ordered" } });
-    return true;
-  });
+export class VoiceProvisionBusy extends Error {
+  constructor() {
+    super("another run is ordering this clinic's number");
+    this.name = "VoiceProvisionBusy";
+  }
+}
+
+/**
+ * Write number_ordered_at before buying, and take one of the day's slots, in
+ * one transaction. The marker is a compare-and-set against the value this
+ * run read (`seen`), so of two runs for one clinic only one may buy; the
+ * slot is one conditional upsert on voice_number_order_days, so of two runs
+ * for different clinics only as many as the cap may. False when the day's
+ * cap is reached (the marker rolled back with it); throws VoiceProvisionBusy
+ * when another run took the marker first.
+ */
+async function reserveOrder(clinicId: string, cap: number, at: Date, seen: Date | null): Promise<boolean> {
+  if (cap <= 0) return false;
+  const day = at.toISOString().slice(0, 10);
+  try {
+    return await withTenant({ clinicId, actor: ACTOR }, async (tx) => {
+      const marked = await tx.db
+        .update(voiceAgents)
+        .set({ numberOrderedAt: at, updatedAt: sql`clock_timestamp()` })
+        .where(
+          and(
+            eq(voiceAgents.clinicId, tx.clinicId),
+            // Within a millisecond: Postgres keeps microseconds, a JS Date
+            // read back keeps milliseconds.
+            seen === null
+              ? isNull(voiceAgents.numberOrderedAt)
+              : sql`abs(extract(epoch from (${voiceAgents.numberOrderedAt} - ${seen.toISOString()}::timestamptz))) < 0.001`,
+          ),
+        )
+        .returning({ id: voiceAgents.clinicId });
+      if (marked.length === 0) throw new VoiceProvisionBusy();
+      const slot = await tx.db.execute<{ ordered: number }>(sql`
+        insert into voice_number_order_days (day, ordered) values (${day}::date, 1)
+        on conflict (day) do update set ordered = voice_number_order_days.ordered + 1
+          where voice_number_order_days.ordered < ${cap}
+        returning ordered`);
+      if (slot.rows.length === 0) throw new CapReached();
+      tx.audit.record({ action: "update", resourceType: "voice_agent", resourceId: tx.clinicId, metadata: { step: "number_ordered" } });
+      return true;
+    });
+  } catch (error) {
+    if (error instanceof CapReached) return false;
+    throw error;
+  }
 }
 
 /** The number on our row, and on the clinic as its AYA number when it has none. */
@@ -669,8 +710,9 @@ export async function checkVoiceAgentDrift(clinicId: string, deps: ProvisionDeps
       { driftRepairs: row.driftRepairs + 1, configHash: configHash(config, publicHost(clinicId, options)), lastSyncedAt: now() },
       "drift_repaired",
     );
-    // Once per drift: the repair's count is in the key.
-    await notifyOpsOnce("voice_agent_drift", { clinicId, code, status: "repaired", count: row.driftRepairs + 1 });
+    // Once per drift: the check runs nightly, so the day is in the key (a
+    // counter is not, lib/ops/notify.ts NOT_IDENTITY).
+    await notifyOpsOnce("voice_agent_drift", { clinicId, code, status: "repaired", count: row.driftRepairs + 1, windowStart: now().toISOString().slice(0, 10) });
     return { outcome: "repaired", problems: back.problems };
   } catch (error) {
     const r = reasonOf(error);

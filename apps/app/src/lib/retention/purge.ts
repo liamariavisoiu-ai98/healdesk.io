@@ -238,6 +238,8 @@ export const PURGE_COVERAGE: Readonly<{
     suppressions: "a person's \"stop\", which must outlast what it stopped: goes with the person's erasure, or the clinic's destruction",
     consent_records: "append-only evidence: goes with the person's erasure, or the clinic's destruction",
     contact_attempts: "append-only evidence: goes with the person's erasure, or the clinic's destruction",
+    voice_agents:
+      "no patient and no clock: the clinic's Retell agent and AYA number (0106), one row it needs while it answers calls and, after it leaves, the record that the number was released; kept for good (KEPT_FOR_GOOD)",
     clinic_closures: "the clinic's closed days, no patient: go with its destruction",
     clinic_providers: "the clinic's providers, no patient: go with its destruction",
     clinic_provider_services: "which services each provider offers, no patient: go with its destruction",

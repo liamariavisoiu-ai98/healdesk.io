@@ -92,6 +92,10 @@ export const KEPT_FOR_GOOD: Readonly<Record<string, string>> = {
     "which agreement covered the practice, and from when: the record of each re-sign from the DPA to the BAA (0088), contract metadata, no patient",
   sign_in_address_changes:
     "the written record of each notice address the practice gave (the agreements' Notices clause): what proves where a notice was due; business contact data, no patient",
+  // Not in FROZEN_AT_CLOSURE on purpose: the release at Retell
+  // (deprovisionVoiceAgent) writes `released` on this row after the
+  // pass-through ends, which is when the account closes, and a frozen row
+  // would leave the number billed at Retell with no record of why.
   voice_agents:
     "the record of the practice's Retell agent and AYA number and of their release at the end (0106, lib/voice/provision.ts): healdesk's own vendor ids and dates, no caller, no call, no patient",
   incidents:

@@ -588,20 +588,6 @@ export const KEYS: readonly KeyDef[] = [
     rotation: { kind: "public" },
   },
   {
-    // Not a secret: the owner's switch for buying each clinic's AYA number
-    // and creating its Retell agent by code (apps/app src/lib/voice/
-    // provision.ts). Exactly "1" is on; anything else is off, and with it off
-    // provisioning makes no Retell call at all. Not set by Terraform yet.
-    id: "aws.HEALDESK_VOICE_PROVISION_ENABLED",
-    env: "HEALDESK_VOICE_PROVISION_ENABLED",
-    home: "aws",
-    label: "Automatic Retell set-up for each clinic (your switch)",
-    need: "later",
-    waitsFor:
-      "you decide the engine may buy AYA numbers from Retell by itself: each one is billed by Retell. Set HEALDESK_VOICE_PROVISION_ENABLED=1 on the worker and web tasks (with HEALDESK_RETELL_VOICE_ID naming the voice), and keep HEALDESK_VOICE_PROVISION_DAILY_CAP (20 by default) at what a day's paid clinics can need. Until then each clinic's agent and number are set up by hand",
-    rotation: { kind: "public" },
-  },
-  {
     id: "aws.META_APP_SECRET",
     env: "META_APP_SECRET",
     home: "aws",
@@ -777,6 +763,8 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_DIRECT_BOOKING_ENABLED:
     "Your switch for AYA booking by herself rather than asking the clinic. On, together with counsel's release of the Direct booking addendum, the call and website chat book through the booking engine; it also changes the buy page's wording and reports. Never set from Terraform.",
   HEALDESK_PHASE_TWO_ATTRIBUTION: "The phase-two switch, off in v1.",
+  HEALDESK_VOICE_PROVISION_ENABLED:
+    "Your switch for the engine buying each paid voice clinic's AYA number from Retell and creating its agent by itself (apps/app lib/voice/provision.ts). Exactly 1 is on; anything else is off, and off makes no Retell call at all. Each number is billed by Retell. Set it, with HEALDESK_RETELL_VOICE_ID, on the worker and web tasks when you decide; until then agents and numbers are set up by hand. Never set from Terraform.",
   HEALDESK_VOICE_PROVISION_DAILY_CAP:
     "How many AYA numbers automatic voice provisioning may order from Retell in one UTC day, across every clinic: 20 by default. Over it, clinics wait for the next day and you are emailed once.",
   HEALDESK_RETELL_VOICE_ID:
@@ -1249,7 +1237,7 @@ export const BRIDGES: readonly BridgeDef[] = [
       "The clinic's id, its agent's settings (our voice endpoint's address, storage kept at most a day, the call-ended webhook, the voice and language), an order for an AYA number, the number's binding to the agent for inbound calls only and its fallback, the clinic's direct line; Retell answers with its ids",
     example:
       "A clinic pays its first invoice for Voice + Web Chat. Within the hour the engine creates its Retell agent, buys an AYA number in the clinic's area code, binds it to the agent and sets its fallback to the front desk, reads it all back and marks it ready; the clinic then forwards its line to that number.",
-    keys: ["aws.HEALDESK_VOICE_PROVISION_ENABLED", "aws.HEALDESK_RETELL_API_KEY"],
+    keys: ["aws.HEALDESK_RETELL_API_KEY"],
     phi: false,
     build: "built",
     buildNote:

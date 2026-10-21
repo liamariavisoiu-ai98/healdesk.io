@@ -439,6 +439,9 @@ describeDb("delivery", () => {
           // The voice fall-through: each AYA number's Retell fallback kept on
           // the clinic's direct line; not switched, idle without its key.
           "retell-fallback",
+          // Each clinic's Retell agent and number by code (lib/voice/
+          // provision-job.ts); idle without the Retell key.
+          "voice-agents",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -460,6 +463,7 @@ describeDb("delivery", () => {
         if (job === "meta-revoke") continue; // a sweep: revokes Meta access only for clinics whose service ended
         if (job === "patient-requests") continue; // a sweep: L32's reminders for the unmarked requests only
         if (job === "retell-fallback") continue; // not switched: does nothing until HEALDESK_RETELL_API_KEY is set
+        if (job === "voice-agents") continue; // behind the owner's HEALDESK_VOICE_PROVISION_ENABLED, and idle without the Retell key
         expect(status, job).toBe("disabled");
       }
       expect(jobs["offboarding-destroy"]).toBe("ok");
@@ -475,6 +479,7 @@ describeDb("delivery", () => {
       expect(jobs["meta-revoke"]).toBe("ok");
       expect(jobs["patient-requests"]).toBe("ok");
       expect(jobs["retell-fallback"]).toBe("skipped");
+      expect(jobs["voice-agents"]).toBe("skipped");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

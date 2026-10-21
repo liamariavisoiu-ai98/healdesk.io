@@ -39,7 +39,12 @@ const PUBLISHED = "+14155550142";
 const DIRECT = "+14155550177";
 const OPERATOR: Operator = { email: "ops@healdesk.test", request: {} };
 
-type FakeOptions = { failCreateNumberAfterStore?: boolean; down?: boolean };
+type FakeOptions = {
+  failCreateNumberAfterStore?: boolean;
+  down?: boolean;
+  /** Runs once, inside create-agent: a second run acting while this one waits on Retell. */
+  onCreateAgent?: () => Promise<void>;
+};
 
 /** Retell, in memory: the calls provisioning makes, answered as its reference shows them. */
 class FakeRetell {
@@ -63,6 +68,9 @@ class FakeRetell {
       const id = `agent_${++this.seq}`;
       const agent = { ...body, agent_id: id };
       this.agents.set(id, agent);
+      const hook = this.opts.onCreateAgent;
+      this.opts.onCreateAgent = undefined;
+      if (hook) await hook();
       return json(agent, 201);
     }
     if ((m = /^\/(update|get|delete)-agent\/(.+)$/.exec(path))) {
@@ -147,9 +155,15 @@ async function paidVoiceClinic(label: string, options: { planId?: string; paid?:
   return c;
 }
 
+/** The clinic's row, read in its tenant: the table forces its policy on the migrator too. */
 async function row(clinicId: string) {
-  const { rows } = await getMigratorPool().query(`select * from voice_agents where clinic_id = $1`, [clinicId]);
+  const { rows } = await inTenant(clinicId, (q) => q.query(`select * from voice_agents where clinic_id = $1`, [clinicId]));
   return rows[0] as Record<string, unknown> | undefined;
+}
+
+/** The test's own write to the row, in its tenant. */
+async function setRow(clinicId: string, set: string, values: unknown[] = []) {
+  await inTenant(clinicId, (q) => q.query(`update voice_agents set ${set} where clinic_id = $1`, [clinicId, ...values]));
 }
 
 async function alerts(event: string): Promise<number> {
@@ -188,6 +202,8 @@ describeDb("automated voice provisioning", () => {
 
   beforeEach(async () => {
     await truncateAll();
+    // The ops log has no clinic, so truncateAll leaves it: each test counts its own alerts.
+    await getMigratorPool().query(`truncate ops_alerts`);
     retell = new FakeRetell();
     __setVoiceAgentDepsForTests(undefined);
   });
@@ -257,6 +273,42 @@ describeDb("automated voice provisioning", () => {
     expect(retell.bought).toBe(1);
     expect(await row(c.clinicId)).toMatchObject({ status: "ready", phone_number_e164: [...retell.numbers.keys()][0] });
     expect(retell.agents.size).toBe(1);
+  });
+
+  test("two runs for one clinic at once: only the one that took the order marker buys, the other retries and adopts", async () => {
+    const c = await paidVoiceClinic("vp-race");
+    // While this run waits on Retell for its agent, another run (an
+    // operator's retry beside the job) marks the order first.
+    retell.opts.onCreateAgent = () => setRow(c.clinicId, `number_ordered_at = now()`);
+    const first = await provisionVoiceAgent(c.clinicId, deps());
+    expect(first).toEqual({ outcome: "retry", reason: "another run is ordering this clinic's number" });
+    expect(retell.bought).toBe(0);
+    // Nothing was bought, so the retry finds no number by its nickname and
+    // orders one, against the marker it read; exactly one in all.
+    expect((await provisionVoiceAgent(c.clinicId, deps())).outcome).toBe("ready");
+    expect(retell.bought).toBe(1);
+    expect(retell.agents.size).toBe(1);
+  });
+
+  test("the hourly sweep queues an owed clinic only with the switch on and the key set, and never a failed one", async () => {
+    const owed = await paidVoiceClinic("vp-sweep-owed");
+    const failed = await paidVoiceClinic("vp-sweep-failed");
+    const unpaid = await paidVoiceClinic("vp-sweep-unpaid", { paid: false });
+    await inTenant(failed.clinicId, (q) =>
+      q.query(`insert into voice_agents (clinic_id, status, last_error) values ($1, 'failed', 'stopped')`, [failed.clinicId]),
+    );
+    const queued: string[] = [];
+    const schedule = async (id: string) => void queued.push(id);
+    expect((await runVoiceAgentsSweep({ deps: deps({}, { key: null }), schedule })).status).toBe("skipped");
+    expect(queued).toEqual([]);
+    const sweep = await runVoiceAgentsSweep({ deps: deps(), schedule });
+    // Queued, not run: provisioning itself re-checks the paid invoice, so an
+    // unpaid clinic queued here is refused there with no Retell call.
+    expect(queued).toContain(owed.clinicId);
+    expect(queued).not.toContain(failed.clinicId);
+    expect(sweep.queued).toBe(queued.length);
+    expect(await provisionVoiceAgent(unpaid.clinicId, deps())).toMatchObject({ outcome: "not_eligible" });
+    expect(retell.calls).toEqual([]);
   });
 
   test("with the owner's switch off, provisioning makes no Retell call at all", async () => {
@@ -364,11 +416,11 @@ describeDb("automated voice provisioning", () => {
     const number = [...retell.numbers.values()][0]!;
     for (let i = 0; i < MAX_DRIFT_REPAIRS; i += 1) {
       number.fallback_number = "+14155550000";
-      await getMigratorPool().query(`update voice_agents set drift_repairs = $2 where clinic_id = $1`, [c.clinicId, i]);
+      await setRow(c.clinicId, `drift_repairs = $2`, [i]);
       expect((await checkVoiceAgentDrift(c.clinicId, deps())).outcome).toBe("repaired");
     }
     number.fallback_number = "+14155550000";
-    await getMigratorPool().query(`update voice_agents set drift_repairs = $2 where clinic_id = $1`, [c.clinicId, MAX_DRIFT_REPAIRS]);
+    await setRow(c.clinicId, `drift_repairs = $2`, [MAX_DRIFT_REPAIRS]);
     expect(await checkVoiceAgentDrift(c.clinicId, deps())).toEqual({ outcome: "flagged", problems: ["fallback"] });
     expect((await row(c.clinicId))!.drift_flagged_at).not.toBeNull();
     // Flagged: left alone from then on, no repair, no Retell call.

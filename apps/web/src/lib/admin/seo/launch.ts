@@ -109,7 +109,8 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     where: "Opening line on every call, privacy page, How AYA is built to behave",
     status: "building",
     left: "Each clinic's Retell agent is being created with recording storage off in code, so the promise does not depend on the Retell console.",
-    evidence: "docs/counsel/state-disclosure.md decision 2",
+    evidence:
+      "docs/counsel/state-disclosure.md decision 2; apps/app lib/voice/retell-agent.ts (agents written and read back with data_storage_setting basic_attributes_only; not yet called), lib/voice/recording-alerts.ts and /admin/recordings (a recording Retell keeps anyway is alerted per call and deleted at Retell), tests/recording-alerts.test.ts",
     blocksGoLive: true,
   },
   {

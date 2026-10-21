@@ -137,6 +137,7 @@ import {
   opSetupRepliesPastDue,
 } from "@/lib/ops/promise-ops";
 import { keyPresence } from "@/lib/ops/key-presence";
+import { opDeleteRecordedCall, opListRecordingAlerts } from "@/lib/ops/recording-alerts-ops";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -596,6 +597,13 @@ const OPERATIONS = [
   "issueDeviceRecovery",
   "endDeviceRecovery",
   "removeClinicDevices",
+  // Retell recordings found (NOAUDIO-01; lib/ops/recording-alerts-ops.ts):
+  // the calls Retell kept a recording of though every agent is set to keep
+  // none, as ids and times; and the button, which has this host delete the
+  // call at Retell with HEALDESK_RETELL_API_KEY and resolve the alert. Never
+  // a recording URL, a transcript or a number, either way.
+  "listRecordingAlerts",
+  "deleteRecordedCall",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -725,6 +733,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "issueDeviceRecovery",
   "endDeviceRecovery",
   "removeClinicDevices",
+  // Mutating: a call deleted at Retell and its alert resolved.
+  "deleteRecordedCall",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1338,6 +1348,10 @@ export async function runOperation(
       return opEndDeviceRecovery(args, operator);
     case "removeClinicDevices":
       return opRemoveClinicDevices(args, operator);
+    case "listRecordingAlerts":
+      return opListRecordingAlerts(operator);
+    case "deleteRecordedCall":
+      return opDeleteRecordedCall(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

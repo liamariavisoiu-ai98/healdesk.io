@@ -29,7 +29,9 @@ import { raiseHandover } from "@/lib/handovers/record";
 import { describeError, log } from "@/lib/log";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { isOpenAt, parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
-import { notifyBookingAlert, URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
+import { notifyBookingAlert, withoutTeamTold } from "@/lib/notices/booking-alerts";
+import { urgentAlertReadiness } from "@/lib/notices/urgent-readiness";
+import type { EmailTransport } from "@/lib/reporting/deliver";
 import { neverSayWithDefaults } from "@/lib/setup/knowledge";
 import { urgentHelpNumber } from "@/lib/setup/urgent";
 import type { TenantTx } from "@/lib/tenant";
@@ -235,6 +237,12 @@ export type FrontDoorFacts = {
    * list behind.
    */
   neverSay: string[];
+  /**
+   * Whether an urgent alert raised now would reach the clinic
+   * (urgentAlertReadiness, lib/notices/urgent-readiness.ts): the urgent line
+   * says "I've told the team" only when this is true. Absent counts as false.
+   */
+  urgentAlertsReady?: boolean;
 };
 
 export function handoffLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone">): string {
@@ -251,13 +259,15 @@ export function handoffLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone">)
  * is also why the person is being moved; 911, or at a veterinary practice
  * the emergency vet it refers to; then the clinic's urgent-help number as
  * lib/setup/urgent.ts resolves it, or its published one. It says the team
- * has been told only once the urgent alert it raises (L12) reaches the
- * clinic (URGENT_ALERT_DELIVERED): the line must not promise what has not
- * happened. It never asks for a number, which a Meta channel must not carry.
+ * has been told only while the urgent alert it raises (L12) would reach the
+ * clinic (facts.urgentAlertsReady), and answerFrontDoor drops even that when
+ * this message's alert could not be queued: the line must not promise what
+ * has not happened. It never asks for a number, which a Meta channel must
+ * not carry.
  */
 export function urgentLine(
   facts: Pick<FrontDoorFacts, "clinicName" | "phone" | "urgentPhone"> &
-    Partial<Pick<FrontDoorFacts, "vetReferralPhone" | "openingHours" | "timeZone" | "specialty">>,
+    Partial<Pick<FrontDoorFacts, "vetReferralPhone" | "openingHours" | "timeZone" | "specialty" | "urgentAlertsReady">>,
   finding: Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">> = { emergency: "911" },
   now: Date = new Date(),
 ): string {
@@ -276,7 +286,7 @@ export function urgentLine(
     clinicNumber: facts.urgentPhone ?? facts.phone,
     referralNumber: facts.vetReferralPhone ?? null,
     clinicOpen: open,
-    teamAlerted: URGENT_ALERT_DELIVERED,
+    teamAlerted: facts.urgentAlertsReady === true,
   });
 }
 
@@ -1331,7 +1341,12 @@ export function anthropicResponder(): FrontDoorResponder | null {
  */
 export async function frontDoorFacts(
   tx: TenantTx,
-  options: { asApproved?: boolean; ignoreSwitch?: boolean } = {},
+  options: {
+    asApproved?: boolean;
+    ignoreSwitch?: boolean;
+    /** The transport the webhook hands the outbox for this message's alert, when it hands one (tests). */
+    alertTransport?: EmailTransport;
+  } = {},
 ): Promise<FrontDoorFacts | null> {
   const [clinic] = await tx.db
     .select({
@@ -1407,6 +1422,7 @@ export async function frontDoorFacts(
     // the defaults and the clinic's own entries, as lib/assistant/facts.ts
     // reads them for a call and a web chat, even with no script at all.
     neverSay: neverSayWithDefaults(agent?.neverSay ?? []),
+    urgentAlertsReady: (await urgentAlertReadiness(tx, { transport: options.alertTransport })).ready,
   };
 }
 
@@ -1530,9 +1546,11 @@ export async function answerFrontDoor(
      * caller whose transaction then fails knows the alert went with it.
      */
     onUrgent?: () => void;
+    /** The transport the caller hands the outbox for the urgent alert, when it hands one (tests). */
+    alertTransport?: EmailTransport;
   },
 ): Promise<FrontDoorAnswer | null> {
-  const facts = await frontDoorFacts(tx);
+  const facts = await frontDoorFacts(tx, { alertTransport: input.alertTransport });
   if (!facts) return null;
   // A clinic that has left keeps nothing new (lib/clinic/leaving.ts). Asked
   // here without holding the clinic's row, because the model call below can
@@ -1567,7 +1585,10 @@ export async function answerFrontDoor(
   // L12, queued with the writes: once per conversation, and sent in-process
   // by the webhook once this transaction has committed.
   if (screened === "urgent") {
-    await notifyBookingAlert(tx, "urgent", { conversationId: conversation?.conversationId, channel: "meta" });
+    const queued = await notifyBookingAlert(tx, "urgent", { conversationId: conversation?.conversationId, channel: "meta" });
+    // Not queued: ops has been told (notifyBookingAlert), and the reply,
+    // not sent yet, must not say the team was.
+    if (!queued) answer = { ...answer, text: withoutTeamTold(answer.text) };
   }
   // L11: they asked for a person. Kept for Bookings' Needs you, once per
   // conversation, by the thread's keyed reference and never their words

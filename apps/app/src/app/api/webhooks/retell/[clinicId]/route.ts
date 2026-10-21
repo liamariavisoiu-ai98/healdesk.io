@@ -1,6 +1,7 @@
 import { describeError, log } from "@/lib/log";
 import { verifyRetellSignature } from "@/lib/voice/retell-signature";
 import { BACKSTOP_EVENTS, isRetellCallId, retellApiKey, scheduleCallBackstop } from "@/lib/voice/backstop";
+import { recordRecordingAlert, retellCallHasRecording } from "@/lib/voice/recording-alerts";
 
 /**
  * POST /api/webhooks/retell/<clinic id>: Retell's call events for one
@@ -18,7 +19,10 @@ import { BACKSTOP_EVENTS, isRetellCallId, retellApiKey, scheduleCallBackstop } f
  * records nothing unless Retell's own record of the call shows it reached
  * that clinic's Retell number. Nothing in the body is kept or queued but
  * the call id, and nothing logged but the event's name: the job reads the
- * call back from Retell itself.
+ * call back from Retell itself. One thing more is read: whether the call
+ * carries a recording URL, which means Retell kept audio the agent is set
+ * not to keep, and raises one opaque alert for the call (clinic, call id,
+ * time; lib/voice/recording-alerts.ts). The URL itself is never kept.
  *
  * Answers in milliseconds (Retell waits ten seconds, then retries three
  * times): 204 for an event handled or ignored, 401 for a bad signature, 503
@@ -53,10 +57,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ cli
 
   let event: unknown;
   let callId: unknown;
+  let recorded = false;
   try {
     const body = JSON.parse(raw) as { event?: unknown; call?: { call_id?: unknown } };
     event = body.event;
     callId = body.call?.call_id;
+    // Whether Retell kept a recording, by the presence of its URL alone; the
+    // URL is never read further, kept or followed.
+    recorded = retellCallHasRecording(body.call);
   } catch {
     return new Response(null, { status: 400 });
   }
@@ -68,6 +76,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ cli
   } catch (error) {
     log.error("retell webhook could not queue the backstop", { clinicId, event, error: describeError(error) });
     return new Response(null, { status: 503 });
+  }
+  if (recorded) {
+    // The agent is set to keep no audio (lib/voice/retell-agent.ts): a
+    // recording here is one Retell kept anyway. One opaque alert per call,
+    // for /admin/recordings to delete (lib/voice/recording-alerts.ts).
+    try {
+      await recordRecordingAlert(clinicId, callId);
+    } catch (error) {
+      log.error("retell webhook could not record a recording alert", { clinicId, event, error: describeError(error) });
+      return new Response(null, { status: 503 });
+    }
   }
   return new Response(null, { status: 204 });
 }

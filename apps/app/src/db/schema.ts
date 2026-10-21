@@ -6262,6 +6262,7 @@ export const TENANT_SCOPED_TABLES = [
   "conversation_flags",
   "patient_requests",
   "incident_affected_contacts",
+  "retell_recording_alerts",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -6807,3 +6808,51 @@ export const handovers = pgTable(
     ),
   ],
 );
+
+// -----------------------------------------------------------------------------
+// Retell recordings found (NOAUDIO-01, the owner's design of 21 October 2026)
+// -----------------------------------------------------------------------------
+
+/**
+ * One row per call Retell DID keep a recording of, though every clinic's
+ * agent is meant to keep none (lib/voice/retell-agent.ts,
+ * data_storage_setting basic_attributes_only): found on Retell's call-ended
+ * or call-analyzed webhook, or on the backstop's read of the call, by the
+ * presence of a recording URL (lib/voice/recording-alerts.ts). The URL
+ * itself is never stored, followed or fetched.
+ *
+ * An opaque alert: the clinic, Retell's call id and when, and, once the
+ * operator pressed delete in /admin/recordings, when Retell deleted the call
+ * (resolved_at) or the short reason it did not (last_error, written by our
+ * code, never Retell's body). No transcript, no number, no words.
+ */
+export const retellRecordingAlerts = pgTable(
+  "retell_recording_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    retellCallId: text("retell_call_id").notNull(),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    /** How many times the operator asked Retell to delete it. */
+    attempts: integer("attempts").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    /** Why the last delete did not go, in our words; cleared when it does. */
+    lastError: text("last_error"),
+    /** Retell answered that the call is deleted, or that it has no such call. */
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("retell_recording_alerts_call_idx").on(t.clinicId, t.retellCallId),
+    index("retell_recording_alerts_open_idx").on(t.clinicId, t.detectedAt).where(sql`${t.resolvedAt} is null`),
+    check("retell_recording_alerts_call_id_check", sql`${t.retellCallId} ~ '^[A-Za-z0-9_-]{1,128}$'`),
+    check("retell_recording_alerts_attempts_check", sql`${t.attempts} >= 0`),
+    check(
+      "retell_recording_alerts_error_check",
+      sql`${t.lastError} is null or char_length(${t.lastError}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type RetellRecordingAlertRow = typeof retellRecordingAlerts.$inferSelect;

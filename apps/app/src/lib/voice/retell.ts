@@ -303,7 +303,9 @@ export class RetellCallSession {
       gated = decision;
       // The one write before the deadline: it only ever keeps less.
       if (decision.decision === "pass_through" && patientDataRefused(decision.reason)) this.keepsNothing = true;
-      const facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
+      const facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) =>
+        (await clinicHasLeft(tx)) ? null : assistantFacts(tx, { alertTransport: this.deps.transport }),
+      );
       return { decision, facts };
     })();
     let result: Started;
@@ -692,8 +694,9 @@ export class RetellCallSession {
       this.disclosurePlayedAt = null;
       this.openingOwed = true;
     }
-    // The fixed urgent reply says the team was told; while the alert is not
-    // known to be queued, it must not (URGENT_ALERT_DELIVERED).
+    // The fixed urgent reply says the team was told only while the alert
+    // would reach the clinic (facts.urgentAlertsReady); while this call's
+    // alert is not known to be queued, it must not say so either.
     let reply = turn.urgent && this.urgentUntold ? withoutTeamTold(turn.reply) : turn.reply;
     if (this.openingOwed && !turn.urgent) {
       reply = `${openingLine(facts, "voice")} ${reply}`;

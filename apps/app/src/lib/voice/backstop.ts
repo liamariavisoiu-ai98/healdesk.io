@@ -15,6 +15,7 @@ import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import { ingestCall, VoiceIngestError, type IngestResult, type VoiceCallEvent } from "./ingest";
+import { recordRecordingAlert, retellCallHasRecording } from "./recording-alerts";
 import { voiceRealCallsAllowed } from "./test-calls";
 
 /**
@@ -75,9 +76,16 @@ import { voiceRealCallsAllowed } from "./test-calls";
  * session records the call from the reconnect on, and the backstop, seeing
  * a conversation, leaves the first half unrecorded.
  *
- * It needs Retell to have kept the call's transcript. An agent set to opt
- * out of Retell storing sensitive data leaves the backstop the call's times
- * and minutes but no words, and no transcript is emailed.
+ * It needs Retell to have kept the call's transcript. Every agent our code
+ * writes is set to keep none (lib/voice/retell-agent.ts,
+ * data_storage_setting basic_attributes_only, NOAUDIO-01), and then the
+ * call has no agent turn to read: the backstop refuses it as
+ * `never_answered` and records nothing of a call whose voice task died. An
+ * owner question (NOAUDIO-01): keeping Retell's transcript would keep the
+ * backstop's words, and also keep a copy of the call at Retell.
+ *
+ * It also reads whether Retell kept a recording anyway, and raises one
+ * opaque alert for the call if so (./recording-alerts.ts).
  */
 
 /** Long after any live socket has recorded its call; short enough that the clinic's transcript is still timely. */
@@ -305,6 +313,8 @@ export type BackstopDeps = {
   fetchCall?: (callId: string, apiKey: string) => Promise<RetellCall>;
   ingest?: (event: VoiceCallEvent) => Promise<IngestResult>;
   transport?: EmailTransport;
+  /** Defaults to recordRecordingAlert (./recording-alerts.ts). */
+  recordAlert?: (clinicId: string, callId: string) => Promise<boolean>;
 };
 
 /**
@@ -354,6 +364,16 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
   const apiKey = deps.apiKey === undefined ? retellApiKey() : deps.apiKey;
   if (!apiKey) throw new Error("HEALDESK_RETELL_API_KEY is unset: the call cannot be read back from Retell");
   const call = await (deps.fetchCall ?? fetchRetellCall)(callId, apiKey);
+  // Retell kept a recording though the agent is set to keep none: one opaque
+  // alert for the call (./recording-alerts.ts), whatever happens next. A
+  // failure to write it is logged, never a reason to drop the record.
+  if (retellCallHasRecording(call)) {
+    try {
+      await (deps.recordAlert ?? recordRecordingAlert)(clinicId, callId);
+    } catch (error) {
+      log.error("voice call backstop could not record a recording alert", { clinicId, error: describeError(error) });
+    }
+  }
 
   const mapped = callEventFromRetell(call, { clinicId, callId, assistantNumber: state.assistantNumber, raised: state.raised });
   if ("refused" in mapped) {

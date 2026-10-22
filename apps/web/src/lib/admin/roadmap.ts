@@ -32,14 +32,15 @@
  * than a board that is confidently incomplete. So: no parser. Load it or say
  * you could not.
  *
- * ## What that costs, stated plainly
+ * ## How it gets onto a deploy
  *
- * `scripts/` is not part of the web app's output file tracing, so on a
- * standalone or serverless deploy this module will not find tasks.mjs and the
- * roadmap will be empty with a warning attached. That is the expected state off
- * a full checkout, not a bug to hunt. Fixing it means either tracing the file
- * into the build or moving the list behind an API, both are decisions for
- * whoever deploys this, not defaults to smuggle in here.
+ * `scripts/` is outside the web app, so Next's output file tracing cannot see
+ * a file that is only reached through the ignored dynamic import above.
+ * next.config.ts lists tasks.mjs and the root package.json (the finder's
+ * proof of the repo root) under `outputFileTracingIncludes` for the two
+ * routes that call this, so a deploy carries both. If a future route calls
+ * `loadRoadmap`, add it there too, or that route will show the empty board
+ * with the "could not find the repo root" warning.
  *
  * ## Honesty rules this module follows
  *
@@ -225,7 +226,7 @@ async function importTaskList(): Promise<SourceResult> {
   } catch {
     return {
       ok: false,
-      warning: `${TASKS_LABEL} is not present at ${tasksPath}. scripts/ is not traced into the web app's build output, so the roadmap is unavailable anywhere but a full checkout.`,
+      warning: `${TASKS_LABEL} is not present at ${tasksPath}. next.config.ts is meant to trace it into the build (outputFileTracingIncludes); check that the route calling this is listed there.`,
     };
   }
 

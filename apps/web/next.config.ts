@@ -12,6 +12,21 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
 
   /**
+   * The admin roadmap reads scripts/docs-site/tasks.mjs at runtime
+   * (lib/admin/roadmap.ts), and that file is outside apps/web and imported
+   * only through a `turbopackIgnore` dynamic import, so Next's file tracing
+   * cannot see it. Without this the Vercel function had no copy, and /admin
+   * said the repo root could not be found. Two files, not the folder:
+   * tasks.mjs has no imports, and the root package.json is what the finder
+   * checks (name "healdesk") before it trusts a directory. Keep these narrow;
+   * the docs warn against broad patterns at the repository root.
+   */
+  outputFileTracingIncludes: {
+    "/admin": ["../../package.json", "../../scripts/docs-site/tasks.mjs"],
+    "/api/admin/roadmap": ["../../package.json", "../../scripts/docs-site/tasks.mjs"],
+  },
+
+  /**
    * Pages retired on 9 October 2026 (owner's decisions), kept answering so an
    * old link, a bookmark or a search result lands somewhere real rather than
    * on the 404.

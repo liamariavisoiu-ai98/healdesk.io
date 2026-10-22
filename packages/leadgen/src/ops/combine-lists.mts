@@ -2,6 +2,11 @@
  * One file from the first list's low-enrichment tab and the Apollo list.
  *
  *   npx tsx src/ops/combine-lists.mts <out.csv> --first leads-low-enrichment.csv --apollo apollo-contacts-compiled.csv
+ *       [--main leads-main.csv --main-out fully-enriched.csv]
+ *
+ * With --main, the fully enriched list is written too, with the same core columns
+ * (plus a specialty and a top service), and an Apollo contact who is already in
+ * it is left out of <out.csv>, so the two files never share an address.
  *
  * The two lists have different columns. The first came through the enrichment
  * (hours, booking platform, hooks, scenes); the second is a raw Apollo export
@@ -59,8 +64,10 @@ const args = process.argv.slice(2);
 const flag = (name: string) => { const at = args.indexOf(name); return at >= 0 ? args.splice(at, 2)[1] : undefined; };
 const firstPath = flag("--first");
 const apolloPath = flag("--apollo");
+const mainPath = flag("--main");
+const mainOut = flag("--main-out");
 const [out] = args;
-if (!out || !firstPath || !apolloPath) {
+if (!out || !firstPath || !apolloPath || (mainPath && !mainOut)) {
   console.error("usage: npx tsx src/ops/combine-lists.mts <out.csv> --first leads-low-enrichment.csv --apollo apollo-contacts-compiled.csv");
   process.exit(1);
 }
@@ -83,19 +90,32 @@ const APOLLO_MAPPED = new Set(["First Name", "Last Name", "Email", "Company Name
 const first = parseCsv(readFileSync(firstPath, "utf8"));
 const apollo = parseCsv(readFileSync(apolloPath, "utf8"));
 
+/** Specialty and top service for a row of the first list, from its segment where it has one. */
+function firstListSpecialty(r: Row) {
+  const mapped = LABEL_BY_SEGMENT.get(r.segment);
+  if (mapped) return { label: mapped.label, top: r.top_service || mapped.topService, basis: "first list's classifier" };
+  const g = guessSpecialty({ company: r.company, title: "", industry: "medical practice", keywords: r.classifier_evidence ?? "" });
+  return { label: g.label, top: r.top_service || g.topService, basis: g.basis as string };
+}
+
+// The fully enriched list, when asked for. Its addresses are taken out of the other file.
+const inMain = new Set<string>();
+const mainRows: Row[] = [];
+if (mainPath && mainOut) {
+  for (const r of parseCsv(readFileSync(mainPath, "utf8"))) {
+    inMain.add(r.email.toLowerCase());
+    const sp = firstListSpecialty(r);
+    mainRows.push({ ...r, source: "First list: main campaign", specialty: sp.label, top_service: sp.top, specialty_basis: sp.basis, title: "", already_in_first_list: "", size_flag: "" });
+  }
+}
+
 const combined: Row[] = [];
 const inFirst = new Set<string>();
 
 for (const r of first) {
   inFirst.add(r.email.toLowerCase());
   const unreadable = r.list === "unreadable";
-  let label: string, top: string, basis = "first list's classifier";
-  const mapped = LABEL_BY_SEGMENT.get(r.segment);
-  if (mapped) { label = mapped.label; top = r.top_service || mapped.topService; }
-  else {
-    const g = guessSpecialty({ company: r.company, title: "", industry: "medical practice", keywords: r.classifier_evidence ?? "" });
-    label = g.label; top = r.top_service || g.topService; basis = g.basis;
-  }
+  const { label, top, basis } = firstListSpecialty(r);
   combined.push({
     ...r,
     source: unreadable ? "First list: unreadable site" : "First list: low enrichment",
@@ -105,8 +125,17 @@ for (const r of first) {
 }
 
 let both = 0;
+let inMainCount = 0;
 for (const a of apollo) {
   const email = (a.Email ?? "").toLowerCase();
+  if (email && inMain.has(email)) {
+    // Already in the fully enriched list: it belongs there, with its Apollo title.
+    const held = mainRows.find((r) => r.email.toLowerCase() === email)!;
+    held.source = `${held.source} (also in Apollo list)`;
+    held.title = held.title || a.Title;
+    inMainCount += 1;
+    continue;
+  }
   if (email && inFirst.has(email)) {
     const held = combined.find((r) => r.email.toLowerCase() === email)!;
     held.source = `${held.source} (also in Apollo list)`;
@@ -143,6 +172,14 @@ for (const a of apollo) {
 const rank = (r: Row) =>
   !r.email ? 4 : r.source.startsWith("First list: unreadable") ? 3 : r.source.startsWith("First list") ? 0 : r.segment === "not-a-target" ? 2 : 1;
 combined.sort((x, y) => rank(x) - rank(y) || (rank(x) === 1 ? x.specialty.localeCompare(y.specialty) : 0));
+
+if (mainPath && mainOut) {
+  const mainExtra = new Set<string>();
+  for (const r of mainRows) for (const k of Object.keys(r)) if (!CORE.includes(k)) mainExtra.add(k);
+  mainRows.sort((x, y) => x.specialty.localeCompare(y.specialty));
+  writeFileSync(mainOut, toCsv(mainRows, [...CORE, ...mainExtra]));
+  console.log(`${mainRows.length} fully enriched contacts written to ${mainOut}; ${inMainCount} Apollo contacts were already in it and are left out of ${out}`);
+}
 
 const extra = new Set<string>();
 for (const r of combined) for (const k of Object.keys(r)) if (!CORE.includes(k)) extra.add(k);

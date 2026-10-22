@@ -31,6 +31,7 @@ import {
   ONE_REQUEST_PER_CALL_LINE,
   oneBookingPerCallLine,
   REQUEST_TAKEN_LINE,
+  requestAskLine,
   slotGoneLine,
   TOOL_FAILURE_LINE,
 } from "@/lib/booking/lines";
@@ -112,6 +113,12 @@ export type BookingToolState = {
   chosen: OfferedSlot | null;
   /** A call's hold on `chosen` was placed. */
   held: boolean;
+  /**
+   * A call's hold on `chosen` was refused as request-only (placeHold's
+   * `request_only`): nothing is held, and the time becomes a request.
+   * Optional, so a state sealed before it existed still reads.
+   */
+  asRequest?: boolean;
   /** The location stopped offering times in this conversation: the request flow takes over. */
   manual: boolean;
   /** The conversation's one booking or request, once the engine has it. */
@@ -191,6 +198,15 @@ export type BookingEngine = {
 
 const ENGINE: BookingEngine = { offerTimes, placeHold, bookConversation, chatDepositFor, logRequest };
 
+/** The answer gate threw: the clinic's state is unknown, so nothing is written for it. */
+class GateUnreadable extends Error {
+  constructor(cause: unknown) {
+    super("the answer gate could not be read");
+    this.name = "GateUnreadable";
+    this.cause = cause;
+  }
+}
+
 /** At most this many times are offered at once. */
 const OFFERED = 3;
 
@@ -202,16 +218,24 @@ export function bookingTools(
   const say = (line: string) => (context.channel === "web_chat" ? forChat(line) : line);
   const label = (iso: string) => slotLabel(new Date(iso), context.timeZone);
   // B's gate, as the engine asks it before a write: true only when it would answer now.
-  const gate = (now: Date) => async () =>
-    (
-      await mayAnswer({
+  // A gate that cannot be read is its own failure (GateUnreadable): nobody knows
+  // whether the clinic may answer, so the website chat's request-on-failure
+  // below must not log a request for it either.
+  const gate = (now: Date) => async () => {
+    let decision: Awaited<ReturnType<typeof mayAnswer>>;
+    try {
+      decision = await mayAnswer({
         clinicId: context.clinicId,
         channel: context.channel === "voice" ? "voice" : "web",
         ...context.answering,
         now,
         actor: context.actor,
-      })
-    ).decision === "answer";
+      });
+    } catch (error) {
+      throw new GateUnreadable(error);
+    }
+    return decision.decision === "answer";
+  };
 
   async function available(): Promise<boolean> {
     if (!directBookingToolsAllowed()) return false;
@@ -235,6 +259,7 @@ export function bookingTools(
       service,
       chosen: null,
       held: false,
+      asRequest: false,
     };
   }
 
@@ -319,7 +344,11 @@ export function bookingTools(
     return turn(REQUEST_TAKEN_LINE, { ...state, done, chosen: null, held: false }, { requestId });
   }
 
-  async function hold(state: BookingToolState, chosen: OfferedSlot, now: Date): Promise<{ held: true } | { turn: ToolTurn }> {
+  async function hold(
+    state: BookingToolState,
+    chosen: OfferedSlot,
+    now: Date,
+  ): Promise<{ held: true } | { asRequest: true; deposit: boolean } | { turn: ToolTurn }> {
     let placed: PlacedHold;
     try {
       placed = await engine.placeHold(context.clinicId, {
@@ -347,7 +376,8 @@ export function bookingTools(
         // Auto-confirm off, a deposit the channel cannot take, a calendar that
         // stopped allowing the write: no hold; the engine logs the request
         // when the details are in (bookConversation answers it as one).
-        return { held: true };
+        // Nothing is held, so the caller is never told it is.
+        return { asRequest: true, deposit: placed.reasons.includes("deposit_required") };
       }
       case "in_progress":
         return { turn: turn(IN_PROGRESS_LINE, state) };
@@ -392,7 +422,7 @@ export function bookingTools(
         );
       case "invalid":
         if (result.field === "at") {
-          const next = { ...state, chosen: null, held: false };
+          const next = { ...state, chosen: null, held: false, asRequest: false };
           return turn(state.offered.length > 0 ? offerLine(state.offered.map((s) => label(s.at))) : MISSING_DETAIL_LINES.at, next);
         }
         return turn(MISSING_DETAIL_LINES[result.field], state);
@@ -439,7 +469,8 @@ export function bookingTools(
         // Never a time the engine did not offer: offer again.
         return state.offered.length > 0 ? turn(offerLine(state.offered.map((s) => label(s.at))), state) : turn(MISSING_DETAIL_LINES.at, state);
       }
-      state = { ...state, chosen: match, held: state.chosen?.at === match.at ? state.held : false };
+      const same = state.chosen?.at === match.at;
+      state = { ...state, chosen: match, held: same ? state.held : false, asRequest: same ? state.asRequest : false };
       chosenNow = true;
     }
     const chosen = state.chosen;
@@ -449,12 +480,17 @@ export function bookingTools(
     const phone = (capture.phone ? toE164(capture.phone) : null) ?? (input.callerPhone ? toE164(input.callerPhone) : null);
     const missing = !firstName ? ("first_name" as const) : !phone ? ("phone" as const) : null;
 
-    if (context.channel === "voice" && !state.held) {
+    if (context.channel === "voice" && !state.held && !state.asRequest) {
       // A call holds the time while the caller gives their details.
       const held = await hold(state, chosen, now);
       if ("turn" in held) return held.turn;
-      state = { ...state, held: true };
-      if (missing) return turn(heldAskLine(missing), state);
+      if ("asRequest" in held) {
+        state = { ...state, asRequest: true };
+        if (missing) return turn(requestAskLine(missing, held.deposit), state);
+      } else {
+        state = { ...state, held: true };
+        if (missing) return turn(heldAskLine(missing), state);
+      }
     }
     if (missing) {
       // The details are still to come: asked for once, when the time is chosen;
@@ -486,7 +522,9 @@ export function bookingTools(
       });
     } catch (error) {
       log.error("booking tool book failed", { clinicId: context.clinicId, error: describeError(error) });
-      if (context.channel === "web_chat") return requestInstead(state, chosen, { firstName: firstName!, phone: phone!, fields: capture.fields }, now);
+      if (context.channel === "web_chat" && !(error instanceof GateUnreadable)) {
+        return requestInstead(state, chosen, { firstName: firstName!, phone: phone!, fields: capture.fields }, now);
+      }
       return turn(TOOL_FAILURE_LINE, state);
     }
     if (result.kind === "unavailable" && context.channel === "web_chat") {

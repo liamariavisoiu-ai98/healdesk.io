@@ -35,6 +35,7 @@ function fakeEngine(options: { replay?: boolean } = {}) {
     offerTimes: vi.fn(),
     placeHold: vi.fn(async () => ({ kind: "held" }) as never),
     chatDepositFor: vi.fn(async () => ({ kind: "none" }) as never),
+    logRequest: vi.fn(async () => ({ kind: "request_logged", replayed: false, requestId: "req-1" }) as never),
     bookConversation: vi.fn(async (_clinicId: string, input: BookConversationInput): Promise<BookConversationResult> => {
       const booked: BookConversationResult = { kind: "booked", startsAt: input.startsAt, minutes: 30, canonicalService: null, providerId: null, replayed: Boolean(options.replay), appointmentId: "appt-1", requestId: "req-1", deposit: null };
       if (options.replay) return booked;

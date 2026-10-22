@@ -50,6 +50,8 @@ The one rule to carry even if you read nothing else:
 - Tests: Vercel check was successful on PR head; post-merge Vercel check pending at last observation. No application tests or delivery-handoff Actions result verified.
 - Evidence: [PR #11](https://github.com/liamariavisoiu-ai98/healdesk.io/pull/11).
 
+- **BOOK-01 review fixes combined (22 Oct 2026), CODE and TESTED without a database, local only:** branch `fix/book-deposit-review-combined`, cut from `pkg/book-deposit` (90af34a0): the answer gate on the booking write, the website chat's request when the calendar cannot book, and no false "held" on calls. Not pushed or merged. The only conflict was `apps/app/src/lib/assistant/booking-tools.ts` (both sides kept). The combination changed one behaviour, so a test came first (`tests/booking-tools-combined.test.ts`): a gate that throws now writes nothing and logs no request, on both channels. Ran: the four new files (22 tests), `tests/assistant` (233), `deposit-gate`, `tsc` clean on the touched files. Skipped: every database-backed test (no `TEST_APP_URL`), so a CI run with the database is still owed. Open: a call refused mid-call is not transferred to the direct line; on the safe-script path the tools are still offered (only the write is refused); voice may lose requests as web chat did.
+
 ## Next actions — ordered
 1. **Owner:** Pull latest `main` into the existing local checkout **without discarding unfinished changes**; inspect Actions and configure required handoff status check in branch protection.
 2. **Claude Code, once authorized:** First reconcile any previous local session's uncommitted files, branch and unfinished tasks; then run Wave 0 read-only audit and propose evidence-backed work packages.

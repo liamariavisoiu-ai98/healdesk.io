@@ -313,7 +313,7 @@ describe("every apps/web email before a purchase", () => {
       expect(email.text).toMatch(
         /Replies reach the healdesk team\. Please leave out (?:patient details|your clients' details)\./,
       );
-      expect(email.text).toContain("healdesk is a service of Viixi FZC");
+      expect(email.text).not.toContain("is a service of");
       // apps/web's words, or apps/app's in the agreement copy both apps send (P6).
       expect(email.text).toMatch(/You're (?:getting|receiving) this because /);
     },

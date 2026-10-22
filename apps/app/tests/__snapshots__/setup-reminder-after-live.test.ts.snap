@@ -29,8 +29,7 @@ exports[`the reminder once a channel is live > for clients: the snapshot 1`] = `
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
-<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
-<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
 </div>
 </body>
 </html>",
@@ -51,8 +50,7 @@ Questions? Reply to this email, or write to hello@healdesk.io. Or leave a messag
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
 Replies reach the healdesk team. Please leave out patient details.
-healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
-US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
 ",
 }
 `;
@@ -86,8 +84,7 @@ exports[`the reminder once a channel is live > for patients: the snapshot 1`] = 
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
-<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
-<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
 </div>
 </body>
 </html>",
@@ -108,8 +105,7 @@ Questions? Reply to this email, or write to hello@healdesk.io. Or leave a messag
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
 Replies reach the healdesk team. Please leave out patient details.
-healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
-US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
 ",
 }
 `;

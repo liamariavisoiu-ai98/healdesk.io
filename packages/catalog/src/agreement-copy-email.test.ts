@@ -27,10 +27,9 @@ describe("renderAgreementCopy", () => {
         "You're receiving this because this address was given for the signatory when an agreement with healdesk was signed.",
       );
       expect(body).toContain("Replies reach the healdesk team. Please leave out patient details.");
-      expect(body).toContain("healdesk is a service of Viixi FZC");
-      expect(body).toContain(
-        "US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States",
-      );
+      expect(body).not.toContain("is a service of");
+      expect(body).not.toContain("correspondence only");
+      expect(body).toContain("800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States");
     }
     // A DPA's never calls its clients patients, the footer included.
     const dpa = renderAgreementCopy({ ...COPY, version: "dpa/1.0.0" });

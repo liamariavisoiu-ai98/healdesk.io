@@ -1,6 +1,6 @@
 {
-  "id": "bd0be2f4-5508-4f59-a8a7-4572e8cb26c3",
-  "prevId": "9178f757-8b1c-4937-94fc-e600d20a8087",
+  "id": "9178f757-8b1c-4937-94fc-e600d20a8087",
+  "prevId": "6bb2fb72-9ab8-4de5-b1fa-d60646f25582",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -395,13 +395,6 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
-        },
-        "location_id": {
-          "name": "location_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'00000000-0000-0000-0000-000000000000'::uuid"
         },
         "contact_id": {
           "name": "contact_id",
@@ -2080,13 +2073,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "location_id": {
-          "name": "location_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'00000000-0000-0000-0000-000000000000'::uuid"
-        },
         "contact_id": {
           "name": "contact_id",
           "type": "uuid",
@@ -3271,13 +3257,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "location_id": {
-          "name": "location_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'00000000-0000-0000-0000-000000000000'::uuid"
-        },
         "closed_on": {
           "name": "closed_on",
           "type": "date",
@@ -3329,300 +3308,6 @@
         "clinic_closures_label_check": {
           "name": "clinic_closures_label_check",
           "value": "\"clinic_closures\".\"label\" is null or char_length(\"clinic_closures\".\"label\") <= 80"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.clinic_locations": {
-      "name": "clinic_locations",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "add_request_id": {
-          "name": "add_request_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "acknowledgement_id": {
-          "name": "acknowledgement_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "timezone": {
-          "name": "timezone",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "address": {
-          "name": "address",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "published_phone_e164": {
-          "name": "published_phone_e164",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "opening_hours": {
-          "name": "opening_hours",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "direct_line_e164": {
-          "name": "direct_line_e164",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "transfer_e164": {
-          "name": "transfer_e164",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "urgent_help_e164": {
-          "name": "urgent_help_e164",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "vet_referral_e164": {
-          "name": "vet_referral_e164",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "coverage_mode": {
-          "name": "coverage_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'overflow_after_hours'"
-        },
-        "carrier": {
-          "name": "carrier",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "phone_system_type": {
-          "name": "phone_system_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'unknown'"
-        },
-        "call_routing": {
-          "name": "call_routing",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'conditional'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "activated_at": {
-          "name": "activated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "retired_at": {
-          "name": "retired_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "clinic_locations_position_idx": {
-          "name": "clinic_locations_position_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "position",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "clinic_locations_add_request_idx": {
-          "name": "clinic_locations_add_request_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "add_request_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "clinic_locations_clinic_id_clinics_id_fk": {
-          "name": "clinic_locations_clinic_id_clinics_id_fk",
-          "tableFrom": "clinic_locations",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "clinic_locations_acknowledgement_fk": {
-          "name": "clinic_locations_acknowledgement_fk",
-          "tableFrom": "clinic_locations",
-          "tableTo": "location_acknowledgements",
-          "columnsFrom": [
-            "clinic_id",
-            "id",
-            "acknowledgement_id"
-          ],
-          "columnsTo": [
-            "clinic_id",
-            "location_id",
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "clinic_locations_clinic_id_id_key": {
-          "name": "clinic_locations_clinic_id_id_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "clinic_id",
-            "id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "clinic_locations_position_check": {
-          "name": "clinic_locations_position_check",
-          "value": "\"clinic_locations\".\"position\" >= 1"
-        },
-        "clinic_locations_status_check": {
-          "name": "clinic_locations_status_check",
-          "value": "\"clinic_locations\".\"status\" in ('pending', 'active', 'retired')"
-        },
-        "clinic_locations_added_check": {
-          "name": "clinic_locations_added_check",
-          "value": "(\"clinic_locations\".\"position\" = 1) = (\"clinic_locations\".\"add_request_id\" is null) and (\"clinic_locations\".\"position\" = 1) = (\"clinic_locations\".\"acknowledgement_id\" is null)"
-        },
-        "clinic_locations_lifecycle_check": {
-          "name": "clinic_locations_lifecycle_check",
-          "value": "(\"clinic_locations\".\"status\" <> 'pending' or (\"clinic_locations\".\"activated_at\" is null and \"clinic_locations\".\"retired_at\" is null))\n        and (\"clinic_locations\".\"status\" <> 'active' or (\"clinic_locations\".\"activated_at\" is not null and \"clinic_locations\".\"retired_at\" is null))\n        and (\"clinic_locations\".\"status\" <> 'retired' or \"clinic_locations\".\"retired_at\" is not null)\n        and (\"clinic_locations\".\"position\" > 1 or \"clinic_locations\".\"status\" = 'active')"
-        },
-        "clinic_locations_label_check": {
-          "name": "clinic_locations_label_check",
-          "value": "(\"clinic_locations\".\"position\" = 1 or \"clinic_locations\".\"label\" is not null) and (\"clinic_locations\".\"label\" is null or (char_length(\"clinic_locations\".\"label\") between 1 and 120 and \"clinic_locations\".\"label\" = btrim(\"clinic_locations\".\"label\") and \"clinic_locations\".\"label\" !~ '[[:cntrl:]]'))"
-        },
-        "clinic_locations_timezone_check": {
-          "name": "clinic_locations_timezone_check",
-          "value": "btrim(\"clinic_locations\".\"timezone\") <> ''"
-        },
-        "clinic_locations_address_check": {
-          "name": "clinic_locations_address_check",
-          "value": "\"clinic_locations\".\"address\" is null or (char_length(\"clinic_locations\".\"address\") between 1 and 300 and \"clinic_locations\".\"address\" !~ '[[:cntrl:]]')"
-        },
-        "clinic_locations_published_phone_check": {
-          "name": "clinic_locations_published_phone_check",
-          "value": "\"clinic_locations\".\"position\" = 1 or \"clinic_locations\".\"published_phone_e164\" is null or \"clinic_locations\".\"published_phone_e164\" ~ '^\\+[1-9][0-9]{6,14}$'"
-        },
-        "clinic_locations_carrier_check": {
-          "name": "clinic_locations_carrier_check",
-          "value": "\"clinic_locations\".\"position\" = 1 or \"clinic_locations\".\"carrier\" is null or (char_length(\"clinic_locations\".\"carrier\") between 1 and 80 and \"clinic_locations\".\"carrier\" !~ '[[:cntrl:]]')"
-        },
-        "clinic_locations_numbers_check": {
-          "name": "clinic_locations_numbers_check",
-          "value": "(\"clinic_locations\".\"direct_line_e164\" is null or \"clinic_locations\".\"direct_line_e164\" ~ '^\\+[1-9][0-9]{6,14}$') and (\"clinic_locations\".\"transfer_e164\" is null or \"clinic_locations\".\"transfer_e164\" ~ '^\\+[1-9][0-9]{6,14}$') and (\"clinic_locations\".\"urgent_help_e164\" is null or \"clinic_locations\".\"urgent_help_e164\" ~ '^\\+[1-9][0-9]{6,14}$') and (\"clinic_locations\".\"vet_referral_e164\" is null or \"clinic_locations\".\"vet_referral_e164\" ~ '^\\+[1-9][0-9]{6,14}$')"
-        },
-        "clinic_locations_coverage_mode_check": {
-          "name": "clinic_locations_coverage_mode_check",
-          "value": "\"clinic_locations\".\"coverage_mode\" in ('all_calls', 'overflow_after_hours', 'after_hours_only')"
-        },
-        "clinic_locations_phone_system_check": {
-          "name": "clinic_locations_phone_system_check",
-          "value": "\"clinic_locations\".\"phone_system_type\" in ('landline', 'voip', 'unknown')"
-        },
-        "clinic_locations_call_routing_check": {
-          "name": "clinic_locations_call_routing_check",
-          "value": "\"clinic_locations\".\"call_routing\" in ('conditional', 'always')"
         }
       },
       "isRLSEnabled": false
@@ -5904,13 +5589,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "location_id": {
-          "name": "location_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'00000000-0000-0000-0000-000000000000'::uuid"
-        },
         "contact_id": {
           "name": "contact_id",
           "type": "uuid",
@@ -7436,13 +7114,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "location_id": {
-          "name": "location_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'00000000-0000-0000-0000-000000000000'::uuid"
-        },
         "channel": {
           "name": "channel",
           "type": "text",
@@ -8075,176 +7746,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.location_acknowledgements": {
-      "name": "location_acknowledgements",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "location_id": {
-          "name": "location_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "document_version": {
-          "name": "document_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "document_hash": {
-          "name": "document_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "rendered_text": {
-          "name": "rendered_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "accepted_by_label": {
-          "name": "accepted_by_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "accepted_by_user_id": {
-          "name": "accepted_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "step_up_id": {
-          "name": "step_up_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "passkey_id": {
-          "name": "passkey_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "device_label": {
-          "name": "device_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ip_address": {
-          "name": "ip_address",
-          "type": "inet",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "user_agent": {
-          "name": "user_agent",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "accepted_at": {
-          "name": "accepted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "location_acknowledgements_location_idx": {
-          "name": "location_acknowledgements_location_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "location_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "location_acknowledgements_clinic_id_clinics_id_fk": {
-          "name": "location_acknowledgements_clinic_id_clinics_id_fk",
-          "tableFrom": "location_acknowledgements",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "location_acknowledgements_clinic_location_id_key": {
-          "name": "location_acknowledgements_clinic_location_id_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "clinic_id",
-            "location_id",
-            "id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "location_acknowledgements_version_check": {
-          "name": "location_acknowledgements_version_check",
-          "value": "\"location_acknowledgements\".\"document_version\" ~ '^[a-z][a-z0-9-]{0,63}/[0-9]+\\.[0-9]+\\.[0-9]+$'"
-        },
-        "location_acknowledgements_hash_check": {
-          "name": "location_acknowledgements_hash_check",
-          "value": "\"location_acknowledgements\".\"document_hash\" ~ '^[0-9a-f]{64}$'"
-        },
-        "location_acknowledgements_text_check": {
-          "name": "location_acknowledgements_text_check",
-          "value": "char_length(btrim(\"location_acknowledgements\".\"rendered_text\")) between 1 and 20000"
-        },
-        "location_acknowledgements_label_check": {
-          "name": "location_acknowledgements_label_check",
-          "value": "char_length(btrim(\"location_acknowledgements\".\"accepted_by_label\")) between 2 and 200 and \"location_acknowledgements\".\"accepted_by_label\" !~ '[[:cntrl:]]'"
-        },
-        "location_acknowledgements_device_check": {
-          "name": "location_acknowledgements_device_check",
-          "value": "char_length(\"location_acknowledgements\".\"device_label\") between 1 and 60 and \"location_acknowledgements\".\"device_label\" !~ '[[:cntrl:]]'"
-        },
-        "location_acknowledgements_user_agent_check": {
-          "name": "location_acknowledgements_user_agent_check",
-          "value": "\"location_acknowledgements\".\"user_agent\" is null or char_length(\"location_acknowledgements\".\"user_agent\") <= 512"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.meta_booking_drafts": {
       "name": "meta_booking_drafts",
       "schema": "",
@@ -8254,13 +7755,6 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
-        },
-        "location_id": {
-          "name": "location_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'00000000-0000-0000-0000-000000000000'::uuid"
         },
         "platform": {
           "name": "platform",
@@ -11322,13 +10816,6 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
-        },
-        "location_id": {
-          "name": "location_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'00000000-0000-0000-0000-000000000000'::uuid"
         },
         "channel": {
           "name": "channel",

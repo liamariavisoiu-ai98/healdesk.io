@@ -54,8 +54,8 @@ const REPLY_LINE: Readonly<Record<AgreementKind, string>> = {
 };
 
 /**
- * The footer, as lines: why the email came, who reads a reply, and who sent
- * it (the operating entity and the US mailing address, as on the site). No
+ * The footer, as lines: why the email came, who reads a reply, and the US
+ * mailing address, printed bare (owner, 22 October 2026). No
  * opt-out: this is a transactional message, the copy of a contract the reader
  * signed, sent once.
  */
@@ -63,8 +63,7 @@ export function agreementCopyFooter(kind: AgreementKind = "baa"): readonly strin
   return [
     AGREEMENT_COPY_REASON,
     REPLY_LINE[kind],
-    SENDER_IDENTITY.entityLine,
-    `${SENDER_IDENTITY.postalAddressLabel}: ${SENDER_IDENTITY.postalAddress}`,
+    SENDER_IDENTITY.postalAddress,
   ];
 }
 

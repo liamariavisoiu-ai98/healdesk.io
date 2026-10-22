@@ -1,5 +1,5 @@
 import { agreementStatesThePurge } from "@/lib/agreements/what-it-says";
-import { and, eq, gt, inArray, isNotNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm";
 
 import {
   appointments,
@@ -189,6 +189,16 @@ import type { TenantTx } from "@/lib/tenant";
 export const WEBHOOK_PAYLOAD_RETENTION_DAYS = 30;
 /** A slot hold that has stopped blocking is kept a week at most (plan §11.8), less on a shorter record clock. */
 export const SLOT_HOLD_RETENTION_DAYS = 7;
+/**
+ * A Retell call alert (drizzle/0105) once resolved, that is once Retell no
+ * longer holds the call, is kept thirty days after it was resolved, so the
+ * operator can still see on /admin/recordings what was fixed, and then goes.
+ * It never held a patient's words or number, only Retell's call id, times and
+ * our own reason. An open alert is never purged: it is the only sign that
+ * Retell still holds a call, and it goes only when resolved, or with the
+ * clinic's destruction (drizzle/0106).
+ */
+export const RECORDING_ALERT_RESOLVED_RETENTION_DAYS = 30;
 
 /**
  * A sync run started longer ago than this is a crashed one, not one in
@@ -229,7 +239,7 @@ export const PURGE_COVERAGE: Readonly<{
     handovers: "with its conversation or thread (cascade), and in any case the record clock after it was asked",
     patient_requests: "the record clock after it reached healdesk, marked received or not",
     retell_recording_alerts:
-      "once resolved (Retell deleted the call), the record clock after it was found; an open one stays, the only trace of a recording Retell still holds, until resolved or the clinic's destruction",
+      "thirty days after it was resolved (RECORDING_ALERT_RESOLVED_RETENTION_DAYS); an open one never, since it is the only sign Retell still holds a call",
   },
   notPurged: {
     conversation_flags:
@@ -304,7 +314,7 @@ export type PurgeResult = {
   handoversDeleted: number;
   /** Patients' requests passed to the practice, past the record clock (drizzle/0094). */
   patientRequestsDeleted: number;
-  /** Resolved Retell recording alerts past the record clock (drizzle/0105). */
+  /** Retell call alerts resolved more than RECORDING_ALERT_RESOLVED_RETENTION_DAYS ago (drizzle/0105). */
   recordingAlertsDeleted: number;
 };
 
@@ -625,24 +635,6 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: patientRequests.id });
   result.patientRequestsDeleted = requestsPassed.length;
 
-  // 3c. Retell recording alerts (drizzle/0105): one of the clinic's calls by
-  //     Retell's id and time. A resolved one (Retell deleted the call) on the
-  //     record clock after it was found, as the call's own record would go;
-  //     an open one is kept, since it is the only trace of a recording Retell
-  //     still holds, until the operator's delete resolves it or the clinic's
-  //     destruction takes it.
-  const oldRecordingAlerts = await tx.db
-    .delete(retellRecordingAlerts)
-    .where(
-      and(
-        eq(retellRecordingAlerts.clinicId, tx.clinicId),
-        isNotNull(retellRecordingAlerts.resolvedAt),
-        lt(retellRecordingAlerts.detectedAt, recordBefore),
-      ),
-    )
-    .returning({ id: retellRecordingAlerts.id });
-  result.recordingAlertsDeleted = oldRecordingAlerts.length;
-
   // 4. Contacts nothing refers to any more, and that are themselves old. A
   //    request still inside the clock keeps its person: a Meta request reuses
   //    the contact without touching updated_at, and a person a request names
@@ -743,6 +735,24 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .where(and(eq(metaInboundMessages.clinicId, tx.clinicId), lt(metaInboundMessages.receivedAt, refsBefore)))
     .returning({ ref: metaInboundMessages.messageRef });
   result.metaMessageRefsDeleted = refs.length;
+
+  // 9. Retell call alerts resolved more than thirty days ago
+  //    (RECORDING_ALERT_RESOLVED_RETENTION_DAYS): Retell no longer holds the
+  //    call, and the row is only the operator's record that it was fixed. An
+  //    open alert is never purged, however old: it is the only sign that
+  //    Retell still holds a call, and it goes when resolved or at the
+  //    clinic's destruction (drizzle/0106).
+  const resolvedAlerts = await tx.db
+    .delete(retellRecordingAlerts)
+    .where(
+      and(
+        eq(retellRecordingAlerts.clinicId, tx.clinicId),
+        sql`${retellRecordingAlerts.resolvedAt} is not null`,
+        lt(retellRecordingAlerts.resolvedAt, daysAgo(now, RECORDING_ALERT_RESOLVED_RETENTION_DAYS)),
+      ),
+    )
+    .returning({ id: retellRecordingAlerts.id });
+  result.recordingAlertsDeleted = resolvedAlerts.length;
 
   // The audit row says what kind and how many — never which person.
   const total =

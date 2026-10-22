@@ -84,8 +84,10 @@ describe("nurture sequence", () => {
       expect(footer).toMatch(/Stop these emails: https?:\/\/\S+\/api\/email\/unsubscribe\?t=/);
       // A lead's practice may be a vet's, whose people are clients.
       expect(footer).toContain("Replies reach the healdesk team. Please leave out patient or client details.");
-      expect(footer).toContain("healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.");
-      expect(footer).toContain("US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States");
+      // Only the mailing address, with no entity line and no label (owner, 22 October 2026).
+      expect(footer).not.toContain("is a service of");
+      expect(footer).not.toContain("correspondence only");
+      expect(footer).toContain("800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States");
     }
   });
 
@@ -180,7 +182,7 @@ describe("P7: the purchase is still open", () => {
     expect(text).toContain("You're getting this because you started a purchase for Radiance at healdesk.io. Stop these emails: ");
     // The lead never said its specialty, so the footer names both.
     expect(text).toContain("Replies reach the healdesk team. Please leave out patient or client details.");
-    expect(text).toContain("healdesk is a service of Viixi FZC");
+    expect(text).not.toContain("is a service of");
     expect(text).toContain("Wilmington, DE");
     // One that did is named in its own word: a vet's people are clients.
     expect(

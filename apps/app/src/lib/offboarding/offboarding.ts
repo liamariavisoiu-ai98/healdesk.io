@@ -23,8 +23,8 @@ import {
   metaInboundMessages,
   patientRequests,
   providerConnections,
-  retellRecordingAlerts,
   reconciliationExceptions,
+  retellRecordingAlerts,
   securityEvents,
   slotHolds,
   transactions,
@@ -667,11 +667,12 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // their cascade would take the list anyway; deleted here first so the
   // count is in the record and the stamp's check names it.
   await del("incident_affected_contacts", () => tx.db.delete(incidentAffectedContacts).where(eq(incidentAffectedContacts.clinicId, c)).returning({ id: incidentAffectedContacts.contactId }));
-  // The Retell recording alerts (drizzle/0105): one of the clinic's calls by
-  // Retell's id and time, no words, destroyed with the clinic's patient rows
-  // as the more conservative rule. One still open names a recording Retell
-  // may still hold, and this row is the only trace of it: ops is told, with
-  // the call ids, to delete those calls at Retell by hand.
+  // The Retell call alerts (drizzle/0105): Retell's call ids and our own
+  // reasons, no content, but each ties a call to the clinic, so they go with
+  // its data, open or resolved, and the stamp's check names them (0106). One
+  // still open names a recording Retell may still hold, and this row is its
+  // only trace: ops is told, with the call ids, to delete those calls at
+  // Retell by hand.
   const recordingAlerts = await tx.db
     .delete(retellRecordingAlerts)
     .where(eq(retellRecordingAlerts.clinicId, c))

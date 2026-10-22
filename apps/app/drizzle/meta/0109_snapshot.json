@@ -1,6 +1,6 @@
 {
-  "id": "e9ff3303-c11a-49a9-b19d-6bf6247154e3",
-  "prevId": "bd0be2f4-5508-4f59-a8a7-4572e8cb26c3",
+  "id": "bd0be2f4-5508-4f59-a8a7-4572e8cb26c3",
+  "prevId": "9178f757-8b1c-4937-94fc-e600d20a8087",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3475,12 +3475,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "details_confirmed_at": {
-          "name": "details_confirmed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
@@ -3629,10 +3623,6 @@
         "clinic_locations_call_routing_check": {
           "name": "clinic_locations_call_routing_check",
           "value": "\"clinic_locations\".\"call_routing\" in ('conditional', 'always')"
-        },
-        "clinic_locations_details_confirmed_check": {
-          "name": "clinic_locations_details_confirmed_check",
-          "value": "\"clinic_locations\".\"details_confirmed_at\" is null or (\"clinic_locations\".\"position\" > 1 and \"clinic_locations\".\"address\" is not null and \"clinic_locations\".\"opening_hours\" is not null and \"clinic_locations\".\"published_phone_e164\" is not null)"
         }
       },
       "isRLSEnabled": false

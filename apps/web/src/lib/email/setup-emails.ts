@@ -1,6 +1,6 @@
 import type { Audience } from "@healdesk/catalog";
 
-import { ENTITY, entityLine } from "@/lib/legal";
+import { ENTITY } from "@/lib/legal";
 import { SETUP_CHANNELS } from "@/lib/setup-channels";
 import { site } from "@/lib/site";
 import type { SetupRequest } from "@/lib/sheets/schema";
@@ -55,12 +55,12 @@ export function firstName(name: string): string {
 }
 
 /**
- * The sender identity, as on the site (Annex X1.9): the operating entity and
- * the US mailing address for correspondence, which is also the postal
- * address CAN-SPAM asks of commercial mail.
+ * The sender identity (Annex X1.9): the US mailing address, which is also the
+ * postal address CAN-SPAM asks of commercial mail. The footer prints the bare
+ * address, with no entity line and no label (owner, 22 October 2026).
  */
 function identity(): string[] {
-  return [entityLine(), `${ENTITY.postalAddressLabel}: ${ENTITY.postalAddress}`];
+  return [ENTITY.postalAddress];
 }
 
 /**

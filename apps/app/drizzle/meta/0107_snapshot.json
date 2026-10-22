@@ -1,6 +1,6 @@
 {
-  "id": "9178f757-8b1c-4937-94fc-e600d20a8087",
-  "prevId": "6bb2fb72-9ab8-4de5-b1fa-d60646f25582",
+  "id": "6bb2fb72-9ab8-4de5-b1fa-d60646f25582",
+  "prevId": "628bde3a-45f0-40d1-b21a-ce1ce20455ad",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1695,7 +1695,7 @@
       "checkConstraints": {
         "billing_notices_kind_check": {
           "name": "billing_notices_kind_check",
-          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'channel_live', 'booking_request', 'request_still_open', 'request_missed', 'deposit_to_collect', 'handover', 'urgent', 'website_message', 'calendar_check', 'ended_early', 'daily_summary', 'weekly_recap', 'ai_paused', 'outage_started', 'outage_ended', 'guarantee_miss', 'website_changes', 'support_request', 'terms_notice', 'subprocessor_notice', 'incident_report', 'guarantee_claim_received', 'guarantee_finding', 'suspended_for_cause', 'patient_request', 'product_update', 'pass_through_ending', 'export_ready', 'export_reminder', 'assistant_ready', 'practice_questions_failed')"
+          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'channel_live', 'booking_request', 'request_still_open', 'request_missed', 'deposit_to_collect', 'handover', 'urgent', 'website_message', 'calendar_check', 'daily_summary', 'weekly_recap', 'ai_paused', 'outage_started', 'outage_ended', 'guarantee_miss', 'website_changes', 'support_request', 'terms_notice', 'subprocessor_notice', 'incident_report', 'guarantee_claim_received', 'guarantee_finding', 'suspended_for_cause', 'patient_request', 'product_update', 'pass_through_ending', 'export_ready', 'export_reminder', 'assistant_ready', 'practice_questions_failed')"
         }
       },
       "isRLSEnabled": false
@@ -5671,18 +5671,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "ended_early_reason": {
-          "name": "ended_early_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ended_early_at": {
-          "name": "ended_early_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -5791,12 +5779,7 @@
         }
       },
       "policies": {},
-      "checkConstraints": {
-        "conversations_ended_early_check": {
-          "name": "conversations_ended_early_check",
-          "value": "(\"conversations\".\"ended_early_reason\" is null) = (\"conversations\".\"ended_early_at\" is null) and (\"conversations\".\"ended_early_reason\" is null or \"conversations\".\"ended_early_reason\" ~ '^[a-z_]{1,64}$')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.deposit_payments": {
@@ -9717,7 +9700,7 @@
       "checkConstraints": {
         "report_deliveries_kind_check": {
           "name": "report_deliveries_kind_check",
-          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'channel_live', 'booking_request', 'request_still_open', 'request_missed', 'deposit_to_collect', 'handover', 'urgent', 'website_message', 'calendar_check', 'ended_early', 'daily_summary', 'weekly_recap', 'ai_paused', 'outage_started', 'outage_ended', 'guarantee_miss', 'website_changes', 'support_request', 'terms_notice', 'subprocessor_notice', 'incident_report', 'guarantee_claim_received', 'guarantee_finding', 'suspended_for_cause', 'patient_request', 'product_update', 'pass_through_ending', 'export_ready', 'export_reminder', 'assistant_ready', 'practice_questions_failed', 'welcome', 'steps_sent', 'address_change_confirm', 'address_changing', 'agreement_to_sign', 'data_destroyed')"
+          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'channel_live', 'booking_request', 'request_still_open', 'request_missed', 'deposit_to_collect', 'handover', 'urgent', 'website_message', 'calendar_check', 'daily_summary', 'weekly_recap', 'ai_paused', 'outage_started', 'outage_ended', 'guarantee_miss', 'website_changes', 'support_request', 'terms_notice', 'subprocessor_notice', 'incident_report', 'guarantee_claim_received', 'guarantee_finding', 'suspended_for_cause', 'patient_request', 'product_update', 'pass_through_ending', 'export_ready', 'export_reminder', 'assistant_ready', 'practice_questions_failed', 'welcome', 'steps_sent', 'address_change_confirm', 'address_changing', 'agreement_to_sign', 'data_destroyed')"
         },
         "report_deliveries_delivery_status_check": {
           "name": "report_deliveries_delivery_status_check",
@@ -12934,138 +12917,6 @@
         "voice_number_order_days_ordered_check": {
           "name": "voice_number_order_days_ordered_check",
           "value": "\"voice_number_order_days\".\"ordered\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.voice_redial_contexts": {
-      "name": "voice_redial_contexts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "caller_ref": {
-          "name": "caller_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "conversation_id": {
-          "name": "conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sealed": {
-          "name": "sealed",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "clock_timestamp()"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "voice_redial_contexts_caller_idx": {
-          "name": "voice_redial_contexts_caller_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "caller_ref",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "voice_redial_contexts_expiry_idx": {
-          "name": "voice_redial_contexts_expiry_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "voice_redial_contexts_clinic_id_clinics_id_fk": {
-          "name": "voice_redial_contexts_clinic_id_clinics_id_fk",
-          "tableFrom": "voice_redial_contexts",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "voice_redial_contexts_conversation_fk": {
-          "name": "voice_redial_contexts_conversation_fk",
-          "tableFrom": "voice_redial_contexts",
-          "tableTo": "conversations",
-          "columnsFrom": [
-            "clinic_id",
-            "conversation_id"
-          ],
-          "columnsTo": [
-            "clinic_id",
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "voice_redial_contexts_caller_ref_check": {
-          "name": "voice_redial_contexts_caller_ref_check",
-          "value": "\"voice_redial_contexts\".\"caller_ref\" ~ '^v1:[0-9a-f]{64}$'"
-        },
-        "voice_redial_contexts_expiry_check": {
-          "name": "voice_redial_contexts_expiry_check",
-          "value": "\"voice_redial_contexts\".\"expires_at\" > \"voice_redial_contexts\".\"created_at\" and \"voice_redial_contexts\".\"expires_at\" <= \"voice_redial_contexts\".\"created_at\" + interval '2 hours'"
         }
       },
       "isRLSEnabled": false

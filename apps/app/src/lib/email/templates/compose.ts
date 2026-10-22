@@ -106,8 +106,7 @@ export function footerLines(
     ctx.reason,
     replyLine === "write_new" ? WRITE_NEW_LINES[audience] : REPLY_LINES[audience],
     ...(ctx.unsubscribeUrl ? [`Stop these emails: ${ctx.unsubscribeUrl}`] : []),
-    SENDER_IDENTITY.entityLine,
-    `${SENDER_IDENTITY.postalAddressLabel}: ${SENDER_IDENTITY.postalAddress}`,
+    SENDER_IDENTITY.postalAddress,
   ];
 }
 

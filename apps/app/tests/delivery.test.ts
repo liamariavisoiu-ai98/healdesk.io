@@ -488,12 +488,12 @@ describeDb("delivery", () => {
       expect(jobs["channel-states"]).toBe("ok");
       expect(jobs["ai-pause"]).toBe("ok");
       expect(jobs["redial-sweep"]).toBe("ok");
+      expect(jobs["deposit-links"]).toBe("ok");
       expect(jobs["destruction-notices"]).toBe("ok");
       expect(jobs["after-cancellation"]).toBe("ok");
       expect(jobs["agreement-resigns"]).toBe("ok");
       expect(jobs["meta-revoke"]).toBe("ok");
       expect(jobs["patient-requests"]).toBe("ok");
-      expect(jobs["deposit-links"]).toBe("ok");
       expect(jobs["retell-fallback"]).toBe("skipped");
       expect(jobs["voice-agents"]).toBe("skipped");
       expect(out.some((o) => o.status === "threw")).toBe(false);

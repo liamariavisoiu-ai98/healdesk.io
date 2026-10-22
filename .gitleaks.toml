@@ -73,7 +73,9 @@ regexes = ['''^a-test-key-that-is-long-enough-to-pass-''']
 # HEALDESK_RETELL_LLM_SECRET, which in production comes only from Parameter
 # Store. Each is named by its exact value in the files that declare it, so
 # any other value in these files, or this value in any other file, is still
-# found.
+# found. (main's first full-history scan had allowed the declaration line
+# by its `llm_secr` prefix; the exact value replaces it, so a different value
+# declared on that line is caught too.)
 [[allowlists]]
 description = "Voice provisioning and recording-alert tests: made-up Retell LLM secret, by exact value"
 targetRules = ["generic-api-key"]

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { allVariants, buildInstantlyFiles, lowEnrichmentReason, renderTouch, TOUCHES } from "../src/enrich/instantly.ts";
+import { allVariants, buildInstantlyFiles, greetingName, lowEnrichmentReason, renderTouch, TOUCHES } from "../src/enrich/instantly.ts";
 import { copyViolations } from "../src/enrich/copy-guard.ts";
 
 const lead = (o: Record<string, string> = {}) => ({
@@ -65,3 +65,27 @@ describe("the Instantly files", () => {
     expect(main.length + lowEnrichment.length).toBe(0);
   });
 });
+
+describe("the name after 'Hi'", () => {
+  test("a doctor is Dr. and the surname, never Dr. and the given name", () => {
+    expect(greetingName("Dr. Jacob", "Smith")).toBe("Dr. Smith");
+    expect(greetingName("Dr. Mark R.", "Lee")).toBe("Dr. Lee");
+    expect(greetingName("Dr. Zen", "")).toBe("there");
+    expect(greetingName("Dr.", "")).toBe("there");
+    // The last-name field often holds a credential.
+    for (const credential of ["L.Ac", "Lmt", "LMT", "Bsee", "DDS", "MD", "D.C."]) {
+      expect(greetingName("Dr. Dom", credential), credential).toBe("there");
+    }
+    expect(greetingName("Dr. Dom", "McDonald")).toBe("Dr. McDonald");
+  });
+  test("initials, emoji and bare initialisms come off or become 'there'", () => {
+    expect(greetingName("Jill M.", "Hart")).toBe("Jill");
+    expect(greetingName("Matthew J", "Park")).toBe("Matthew");
+    expect(greetingName("🏆 Jason", "Cole")).toBe("Jason");
+    expect(greetingName("AJ", "Ray")).toBe("there");
+    expect(greetingName("", "")).toBe("there");
+    expect(greetingName("Monét", "")).toBe("Monét");
+    expect(greetingName("Mary-Anne", "")).toBe("Mary-Anne");
+  });
+});
+

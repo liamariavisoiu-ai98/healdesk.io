@@ -809,6 +809,9 @@ describe("names and words a person would use", () => {
     expect(companyShort("The Skin Co")).toBe("The Skin Co");
     expect(companyShort("Dermatology Associates, P.A.")).toBe("Dermatology Associates");
     expect(companyShort("The Laser Place")).toBe("The Laser Place");
+    expect(companyShort("hellosmile")).toBe("Hellosmile");
+    expect(companyShort("the renaissance center for plastic surgery")).toBe("The Renaissance Center For Plastic Surgery");
+    expect(companyShort("AZSFCC")).toBe("AZSFCC");
   });
 
   test("a website is written as a domain", async () => {
@@ -949,6 +952,29 @@ describe("the greeting", () => {
     const spa = new Set(emails.map((e) => greetingFor("injectables", e)));
     expect([...spa].sort()).toEqual(["Hey", "Hi"]);
     expect(greetingFor("dental", "a@b.com")).toBe(greetingFor("dental", "A@b.com"));
+  });
+});
+
+describe("US time and plain fallbacks", () => {
+  test("half hours use a colon", async () => {
+    const { clockTime } = await import("../src/enrich/outreach.ts");
+    expect(clockTime("09:30")).toBe("9:30am");
+    expect(clockTime("17:00")).toBe("5pm");
+    expect(clockTime("19:45")).toBe("7:45pm");
+  });
+
+  test("a scene with no known service says 'to book an appointment'", async () => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    const r = buildOutreachRow(
+      { clinicId: "c", segment: "dental", confidence: "high", evidence: "", opensAt: null, closesAt: null, hoursByDay: null,
+        topService: null, offersOnlineBooking: false, mentionsWeightLoss: false, isChainOrFranchise: false } as never,
+      undefined,
+      { closedDays: ["Saturday", "Sunday"], closedHoursPerWeek: 120, closesAt: "17:00",
+        gap: { hours: 63, startsDay: "Friday", startsAt: "17:00", endsDay: "Monday", endsAt: "09:30" } } as never,
+      { jobTitle: "Owner", email: "j@c.com", social: [] },
+    );
+    expect(r.scenario).toMatch(/^Picture someone calling to book an appointment on a Friday night\./);
+    expect(r.hook).toContain("Monday 9:30am");
   });
 });
 

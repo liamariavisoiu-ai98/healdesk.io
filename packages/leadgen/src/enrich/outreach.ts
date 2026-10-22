@@ -47,7 +47,7 @@ export function clockTime(hhmm: string): string {
   const m = hhmm.slice(3);
   const suffix = h < 12 ? "am" : "pm";
   const hour = h % 12 === 0 ? 12 : h % 12;
-  return m === "00" ? `${hour}${suffix}` : `${hour}.${m}${suffix}`;
+  return m === "00" ? `${hour}${suffix}` : `${hour}:${m}${suffix}`;
 }
 
 /**
@@ -793,7 +793,13 @@ export function companyShort(name: string): string {
     .replace(/[,\s]+(?:L\.?L\.?C\.?|P\.?L\.?L\.?C\.?|P\.?C\.?|P\.?A\.?|Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|LLP)$/i, "")
     .replace(/\s+/g, " ")
     .trim();
-  return out || name.trim();
+  const short = out || name.trim();
+  // "hellosmile" and "the renaissance center" came in lower case. A subject
+  // line in all lower case reads as a typo; an all-caps name may be a brand
+  // (AZSFCC), so only the lower case is repaired.
+  return short === short.toLowerCase()
+    ? short.replace(/(^|[\s-])([a-z])/g, (_, sep: string, c: string) => sep + c.toUpperCase())
+    : short;
 }
 
 /** "https://www.glowaesthetics.com/home" -> "glowaesthetics.com", as a person types it. */
@@ -897,7 +903,10 @@ function buildScenario(
         ? "messaging your Facebook page"
         : "calling";
 
-  const about = serviceTopic(phrase, service) ?? "booking an appointment";
+  const topic = serviceTopic(phrase, service);
+  // "calling to book an appointment", not "calling about booking an
+  // appointment": where no service is known the sentence still has to scan.
+  const about = topic ? ` about ${topic}` : " to book an appointment";
 
   const outcome =
     mode === "live"
@@ -908,6 +917,6 @@ function buildScenario(
 
   // The time goes last, so the fallback reads "about booking an appointment
   // while your team is busy" rather than splitting the sentence in two.
-  return `Picture someone ${how} about ${about}${when}. ${outcome}`;
+  return `Picture someone ${how}${about}${when}. ${outcome}`;
 }
 

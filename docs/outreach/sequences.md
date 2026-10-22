@@ -30,6 +30,11 @@ in `packages/leadgen/data/`, and each one is its own campaign:
 | `instantly-main.csv` | Primary contacts whose hook stands on measured hours, closed days or sites, and whose service we found | Main, sent first, strongest rows at the top |
 | `instantly-low-enrichment.csv` | Primary contacts with no opening hours or no service found (`enrichment_note` says which) | Second, judged on its own reply rate |
 
+A list enriched before this copy existed (an old `all-leads.csv`) is rebuilt
+without crawling anything, with
+`npx tsx src/ops/instantly-from-leads.mts <all-leads.csv> <out-dir>` from
+`packages/leadgen`. The outputs hold real contacts: keep them out of Git.
+
 Second contacts and unreadable sites are in neither file: the first go in a
 later wave, the second have no preview to offer.
 

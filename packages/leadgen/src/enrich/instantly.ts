@@ -145,6 +145,37 @@ function hash(s: string): number {
   return h;
 }
 
+/**
+ * What to put after "Hi": the name as a person would be addressed, or "there".
+ *
+ * Real exports carry "Dr. Jacob", "Jill M.", "Matthew J", "AJ" and "🏆 Jason".
+ * "Hi Dr. Jacob," is wrong (a doctor is Dr. and the surname), "Hi Jill M.," is
+ * a database talking, and an emoji is a spam signal. A doctor with no usable
+ * surname, a lone initial or anything left empty becomes "there": a plain
+ * greeting beats a wrong one.
+ */
+export function greetingName(first: string, last = ""): string {
+  const clean = (x: string) =>
+    x.replace(/[^\p{L}\p{M}.'’ -]/gu, "").replace(/\s+/g, " ").trim();
+  const f = clean(first);
+  const l = clean(last).replace(/\.$/, "");
+  const doctor = /^(?:dr|doctor)\.?\s*/i.test(f);
+  const given = f.replace(/^(?:dr|doctor)\.?\s*/i, "").replace(/\s+[A-Za-z]\.?$/, "").replace(/\.$/, "").trim();
+  if (doctor) {
+    // A surname, not a credential: the last-name field often holds "L.Ac",
+    // "LMT", "DDS" or "BSEE". Only a capitalised word of three letters or more,
+    // with no dots and some lower case, passes.
+    const surname = l.split(" ").pop() ?? "";
+    const CREDENTIAL = /^(?:l\.?ac|lmt|bsee|dds|dmd|md|do|dc|dpt|dpm|dvm|np|pa|rn|phd|od|lcsw|cpa|facs|faad|ms|msn|dnp|aprn|cnm|pt)$/i;
+    return /^[A-Z][a-z'’-]{2,}$|^[A-Z][a-z]+[A-Z][a-z]+$/.test(surname) && /[aeiouy]/i.test(surname) && !CREDENTIAL.test(surname)
+      ? `Dr. ${surname}`
+      : "there";
+  }
+  if (given.length < 2) return "there";
+  if (given.length <= 3 && given === given.toUpperCase()) return "there";
+  return given;
+}
+
 /** One touch for one lead: a greeting line, then its paragraphs. */
 export function renderTouch(touch: Part[][], lead: Lead, touchNo: number): string {
   const seed = (lead.email ?? "").toLowerCase();
@@ -159,7 +190,7 @@ export function renderTouch(touch: Part[][], lead: Lead, touchNo: number): strin
       })
       .join(""),
   );
-  const greeting = `${lead.greeting || "Hi"} ${lead.first_name?.trim() || "there"},`;
+  const greeting = `${lead.greeting || "Hi"} ${greetingName(lead.first_name ?? "", lead.last_name ?? "")},`;
   return [greeting, ...paragraphs].join("\n\n");
 }
 
@@ -187,7 +218,7 @@ const COLUMNS = [
   "subject_1", "body_1", "body_2", "body_3", "body_4",
   "greeting", "subject_line", "hook", "chat_surface", "closing_question", "scenario",
   "client_term", "company_short", "site_host",
-  "state", "segment", "booking_mode", "enrichment_note",
+  "city", "state", "segment", "booking_mode", "enrichment_note",
 ] as const;
 
 export type InstantlyFiles = { main: Lead[]; lowEnrichment: Lead[]; refused: string[] };

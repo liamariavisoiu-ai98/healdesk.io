@@ -2,7 +2,7 @@
 --
 -- An account's subscription carries one package item whose quantity is the
 -- number of locations it pays for, and since the central model of
--- 20 October 2026 (drizzle/0108) the locations themselves are rows of
+-- 20 October 2026 (drizzle/0109) the locations themselves are rows of
 -- clinic_locations. Nothing compared the two: a quantity changed by hand in
 -- the Stripe Dashboard, or an add whose charge went through while its
 -- location never became active, would bill a practice for locations it does

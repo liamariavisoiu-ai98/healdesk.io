@@ -690,7 +690,7 @@ export async function resumePendingLocation(
   try {
     // Idempotent: a location the first attempt activated returns the same
     // time rather than anything being made twice. An add with no location
-    // row (marked pending before 0108) cannot be finished here.
+    // row (marked pending before 0109) cannot be finished here.
     const activated = await withTenant({ clinicId: billingClinicId, actor }, (tx) =>
       activatePendingLocation(tx, pending.requestId),
     );

@@ -75,7 +75,7 @@ export async function truncateAll(): Promise<void> {
   // named: an attestation left by one file would let the next file's
   // synthetic clinics go live by themselves (lib/onboarding/go-live.ts).
   // email_events (0099) has no clinic either: one file's counted sends would
-  // be the next file's digest. voice_number_order_days (0106) has no clinic
+  // be the next file's digest. voice_number_order_days (0107) has no clinic
   // either: one test's numbers bought would fill the next one's daily cap.
   await pool.query(`
     truncate table

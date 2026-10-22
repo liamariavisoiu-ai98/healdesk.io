@@ -25,8 +25,8 @@ ALTER TABLE "report_deliveries" ADD CONSTRAINT "report_deliveries_kind_check" CH
 -- A call that ended early, and the short-lived record that lets AYA pick it
 -- up when the caller rings back (ENDED-EARLY-REDIAL, 21 October 2026). The
 -- statements above were generated from schema.ts; everything below is the
--- part drizzle cannot express. Numbered 0107 because a parallel package holds
--- 0106: one of the two renumbers when they merge.
+-- part drizzle cannot express. Written as 0107 and renumbered 0108 when main's
+-- 0106_recording_alerts_rules, already applied in production, came first.
 --
 -- conversations.ended_early_reason / ended_early_at: set once, by the voice
 -- ingest (a call the backstop records), by the Retell webhook or by the
@@ -106,9 +106,9 @@ COMMENT ON TABLE voice_redial_contexts IS
 -- closed account takes no new one; the nightly purge leaves it to its own
 -- two-hour clock (lib/retention/purge.ts, PURGE_COVERAGE.notPurged).
 --
--- The H0 review's definition (0105 on integ/wave0-reviewed, which carries
--- retell_recording_alerts) with voice_redial_contexts added. Both are named
--- here so this redefinition, which runs after 0105, never drops either.
+-- 0106's definition (which added retell_recording_alerts) with
+-- voice_redial_contexts added. Both are named here so this redefinition,
+-- which runs after 0106, never drops either.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION app_mark_clinic_destroyed(target_clinic uuid)
 RETURNS timestamptz
@@ -182,7 +182,7 @@ BEGIN
 END
 $$;--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
-  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Locks the clinic row, then refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: deposits included (0065), the transcript outbox (0069), handovers (0092), the flags on conversations (0093), the patient requests passed to it (0094), the list of who an incident affected (0098), the Retell recording alerts (0105) and the redial records of calls that ended early (0107), with suppressions, consent records, contact attempts, erasure requests, record amendments, the setup screens, slot holds, providers and provider services. Returns destroyed_at.';--> statement-breakpoint
+  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Locks the clinic row, then refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: deposits included (0065), the transcript outbox (0069), handovers (0092), the flags on conversations (0093), the patient requests passed to it (0094), the list of who an incident affected (0098), the Retell call alerts (0106) and the redial records of calls that ended early (0108), with suppressions, consent records, contact attempts, erasure requests, record amendments, the setup screens, slot holds, providers and provider services. Returns destroyed_at.';--> statement-breakpoint
 CREATE TRIGGER voice_redial_contexts_closed_account
   BEFORE INSERT OR UPDATE ON voice_redial_contexts
   FOR EACH ROW EXECUTE FUNCTION app_refuse_after_account_closure();

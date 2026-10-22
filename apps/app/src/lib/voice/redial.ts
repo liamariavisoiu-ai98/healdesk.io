@@ -30,7 +30,7 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  *     HEALDESK_IDENTIFIER_REF_KEY, never the number, and only within the
  *     clinic: another clinic's caller can never match it;
  *   - one row per clinic and caller, the newest call's;
- *   - two hours (REDIAL_RETENTION_MS), on the database's clock (drizzle/0107);
+ *   - two hours (REDIAL_RETENTION_MS), on the database's clock (drizzle/0108);
  *   - deleted on first use, on expiry by the minute sweep, with its
  *     conversation, by the person's erasure and at the clinic's destruction;
  *   - never logged, never in the ops projection, never sent to Retell: the
@@ -42,7 +42,7 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
 
 /** The most turns kept: the last ones of the call that was cut off. */
 export const REDIAL_MAX_TURNS = 6;
-/** How long the record waits for the caller to ring back. drizzle/0107 holds the database to it. */
+/** How long the record waits for the caller to ring back. drizzle/0108 holds the database to it. */
 export const REDIAL_RETENTION_MS = 2 * 60 * 60 * 1000;
 /** A kept turn is cut to this many characters. */
 const MAX_TURN_CHARS = 600;
@@ -96,7 +96,7 @@ export async function keepRedialContext(
     callerRef: ref,
     conversationId: input.conversationId,
     sealed,
-    // The database sets both clocks (drizzle/0107); this is a placeholder.
+    // The database sets both clocks (drizzle/0108); this is a placeholder.
     expiresAt: new Date(Date.now() + REDIAL_RETENTION_MS),
   });
   tx.audit.record({
@@ -188,7 +188,7 @@ export async function takeRedialContext(
 
 /**
  * Delete every expired record, at every clinic, through the definer
- * (app_sweep_redial_contexts, drizzle/0107), on the database's clock.
+ * (app_sweep_redial_contexts, drizzle/0108), on the database's clock.
  * Idempotent: a second run finds nothing. Returns how many went.
  */
 export async function sweepRedialContexts(): Promise<number> {

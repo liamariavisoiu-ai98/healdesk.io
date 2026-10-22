@@ -423,7 +423,7 @@ describeDb("delivery", () => {
           "channel-states",
           // The header's pause: a sweep that records a timed pause's end.
           "ai-pause",
-          // The redial records of calls that ended early (drizzle/0107): a
+          // The redial records of calls that ended early (drizzle/0108): a
           // deletion at their two hours, never behind a switch.
           "redial-sweep",
           // L22's reminders and the 7-day ops alert (WP9): a sweep, not a
@@ -450,7 +450,7 @@ describeDb("delivery", () => {
           // not a switched job: it only hands the front desk a deposit the
           // booking already owes, once, and contacts no patient.
           "deposit-links",
-          // The location-quantity check (drizzle/0110), hourly behind its
+          // The location-quantity check (drizzle/0111), hourly behind its
           // switch, which ships off: Stripe's quantity for locations against
           // the active locations, read-only, told to ops once per episode.
           "location-quantity",

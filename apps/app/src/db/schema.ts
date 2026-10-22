@@ -788,13 +788,13 @@ export const clinicMemberships = pgTable(
 );
 
 // -----------------------------------------------------------------------------
-// Locations (drizzle/0108): one AYA for every location of the account
+// Locations (drizzle/0109): one AYA for every location of the account
 // -----------------------------------------------------------------------------
 
 /**
  * What a writer leaves in a row's `location_id` when it names none: the
  * column's default, which a BEFORE INSERT trigger replaces with the main
- * location of the row's clinic (app_location_default, drizzle/0108), as
+ * location of the row's clinic (app_location_default, drizzle/0109), as
  * calendar_elections.sequence is replaced. A row can never keep it: the
  * foreign key to clinic_locations refuses an id no location has.
  */
@@ -898,7 +898,7 @@ export type LocationAcknowledgementRow = typeof locationAcknowledgements.$inferS
  *
  * Location 1, the main location, exists for every open account: a trigger
  * on clinics creates it with the clinic (app_clinic_locations_follow_clinic),
- * 0108 backfilled it for every clinic before that, and the account's closure
+ * 0109 backfilled it for every clinic before that, and the account's closure
  * deletes every location with the rest of its business data. A later
  * location is added pending, with its acknowledgement and the add's request
  * id, before the charge, and only app_activate_location() makes it active,
@@ -968,7 +968,7 @@ export const clinicLocations = pgTable(
     retiredAt: timestamp("retired_at", { withTimezone: true }),
     /**
      * When the practice confirmed this later location's address, hours and
-     * phone numbers on its Settings page (drizzle/0109,
+     * phone numbers on its Settings page (drizzle/0110,
      * lib/portal/location-details.ts): the database's clock, stamped once by
      * the guard and never cleared or moved. Null on the main location, whose
      * facts the setup wizard confirms on clinics, and on a later one until
@@ -1064,7 +1064,7 @@ export type ClinicLocationRow = typeof clinicLocations.$inferSelect;
  * none gets the main location (LOCATION_UNSET above), because until the
  * tool layer learns locations (the plan's step 9) every row is the main
  * location's. The foreign key (clinic_id, location_id) to clinic_locations
- * (clinic_id, id), written by hand in drizzle/0108 after the backfill, stops
+ * (clinic_id, id), written by hand in drizzle/0109 after the backfill, stops
  * a row naming another account's location, and a trigger on each table
  * freezes it once written, for every role.
  */
@@ -1374,7 +1374,7 @@ export const conversations = pgTable(
      * normally, and for every web chat. Set once, never cleared: the
      * transcript email carries a banner, Conversations marks the row, Home
      * counts it, and the clinic's L35 alert points at it, so staff can call
-     * the person back themselves. healdesk contacts nobody (drizzle/0107).
+     * the person back themselves. healdesk contacts nobody (drizzle/0108).
      */
     endedEarlyReason: text("ended_early_reason"),
     /** When the flag was set, by the database's clock. */
@@ -7298,7 +7298,7 @@ export const voiceNumberOrderDays = pgTable(
 );
 
 // -----------------------------------------------------------------------------
-// Redial recognition (drizzle/0107, 21 October 2026)  ⚠️ PHI
+// Redial recognition (drizzle/0108, 21 October 2026)  ⚠️ PHI
 // -----------------------------------------------------------------------------
 
 /**
@@ -7329,7 +7329,7 @@ export const voiceRedialContexts = pgTable(
     conversationId: uuid("conversation_id").notNull(),
     sealed: jsonb("sealed").$type<SealedPayload>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
-    /** created_at plus two hours, set by the database (drizzle/0107). */
+    /** created_at plus two hours, set by the database (drizzle/0108). */
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (t) => [

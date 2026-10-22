@@ -21,7 +21,7 @@ import type { TenantTx } from "@/lib/tenant";
  *
  * It replaces createLocationClinic, which made a clinic per location joined
  * by clinics.billing_clinic_id and was never more than a stub. A location is
- * now a row of clinic_locations (drizzle/0108), written in three moves that
+ * now a row of clinic_locations (drizzle/0109), written in three moves that
  * addLocation (lib/billing/stripe-actions.ts) makes around Stripe:
  *
  *   1. before any charge, in the transaction that marks the add pending on
@@ -104,7 +104,7 @@ export const LOCATION_ADD_MESSAGES = {
 
 /**
  * The database refused the acceptance (app_location_acknowledgement_guard,
- * drizzle/0108): the step-up it names has ended, or is not the person's or
+ * drizzle/0109): the step-up it names has ended, or is not the person's or
  * the device's, or the person no longer has a grant on the account. Thrown
  * from inside the add's transaction, which the refusal has already aborted,
  * so everything written in it goes; addLocation turns it into a refusal

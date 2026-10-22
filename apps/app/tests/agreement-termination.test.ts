@@ -774,7 +774,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
       await assistantMayAnswer({ clinicId: a.locationId, channel: "voice", actor: ACTOR }),
     ).toEqual({ decision: "answer" });
     // A pointer already in the data: the runtime role has had no UPDATE on
-    // billing_clinic_id since drizzle/0108, so it is written as the migrator.
+    // billing_clinic_id since drizzle/0109, so it is written as the migrator.
     await getMigratorPool().query(`update clinics set billing_clinic_id = $2 where id = $1`, [
       a.locationId,
       b.billingClinicId,
@@ -797,7 +797,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     const other = await seedPractice("term-pointer-b");
     worldFor(ended);
     // A's second location pointed at B's billing clinic: a pointer left from
-    // before drizzle/0108, which took the runtime role's UPDATE on
+    // before drizzle/0109, which took the runtime role's UPDATE on
     // billing_clinic_id, so it is written as the migrator.
     await getMigratorPool().query(`update clinics set billing_clinic_id = $2 where id = $1`, [
       ended.locationId,

@@ -22,7 +22,7 @@ import { createStripeWorld, type StripeWorld } from "./setup/stripe-world";
 /**
  * addLocation (BD13, R14, spec §13) and its resume, on the owner's central
  * model of 20 October 2026: a further location is a row of the account's own
- * clinic_locations (drizzle/0108), written pending with the practice's
+ * clinic_locations (drizzle/0109), written pending with the practice's
  * acceptance of one central AYA before the charge, made active by
  * app_activate_location() after it, and retired when the add is cleared
  * without one (lib/location-add.ts).
@@ -647,7 +647,7 @@ describeDb("addLocation", () => {
     expect(world.fake.callsTo("invoices.pay")).toHaveLength(0);
   });
 
-  test("a charged add with no location row, from before 0108, stays pending and ops are told", async () => {
+  test("a charged add with no location row, from before 0109, stays pending and ops are told", async () => {
     const legacy = await seedBilling("loc-legacy", { started: true, inService: ["web"] });
     const legacyId = randomUUID();
     world.state.subscription.metadata.hd_location = legacyId;

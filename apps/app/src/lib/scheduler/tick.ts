@@ -100,7 +100,7 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // request's own lease makes the overlap harmless.
   await record("billing-reconcile", () => runBillingReconcileJob({ now }));
   await record("billing-requests", () => runBillingRequestsJob({ now }));
-  // The location-quantity check (drizzle/0110), hourly behind its switch,
+  // The location-quantity check (drizzle/0111), hourly behind its switch,
   // which ships off: each account's Stripe quantity for locations against
   // its active locations, read-only, a mismatch told to ops once per episode
   // (lib/billing/location-quantity.ts). After the reconcile and the worker,

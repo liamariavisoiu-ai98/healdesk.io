@@ -87,7 +87,7 @@ export const KEPT_FOR_GOOD: Readonly<Record<string, string>> = {
   calendar_elections:
     "part of the signed agreement: each election is a term the practice recorded for a location's calendar (0057); append-only for every role, no patient",
   location_acknowledgements:
-    "part of the agreement: the practice's acceptance, for each location it added, of one central assistant for all of them, as shown, hashed and under whose step-up (0108); append-only for every role, no patient",
+    "part of the agreement: the practice's acceptance, for each location it added, of one central assistant for all of them, as shown, hashed and under whose step-up (0109); append-only for every role, no patient",
   connection_links:
     "only the links a calendar election was signed through or an OAuth state names (the closure deletes every other): part of that election's record (0057)",
   agreement_resigns:
@@ -99,7 +99,7 @@ export const KEPT_FOR_GOOD: Readonly<Record<string, string>> = {
   // pass-through ends, which is when the account closes, and a frozen row
   // would leave the number billed at Retell with no record of why.
   voice_agents:
-    "the record of the practice's Retell agent and AYA number and of their release at the end (0106, lib/voice/provision.ts): healdesk's own vendor ids and dates, no caller, no call, no patient",
+    "the record of the practice's Retell agent and AYA number and of their release at the end (0107, lib/voice/provision.ts): healdesk's own vendor ids and dates, no caller, no call, no patient",
   incidents:
     "the record of each security incident and of the notice given for it: a breach notice the business associate must be able to prove (45 CFR 164.414(b)), kept six years (164.316(b)(2))",
 

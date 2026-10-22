@@ -28,8 +28,8 @@ ALTER TABLE "clinic_locations" ADD CONSTRAINT "clinic_locations_details_confirme
 --
 -- Business contact data, no patient: no BAA gate. Destruction: none of its
 -- own. The column lives and dies with its row, which the account's closure
--- deletes (app_close_account, 0108); retention has nothing to purge in it.
--- The runtime role gets UPDATE on the column, beside the facts 0108 granted.
+-- deletes (app_close_account, 0109); retention has nothing to purge in it.
+-- The runtime role gets UPDATE on the column, beside the facts 0109 granted.
 --
 -- Safe to apply in place: a nullable column added with no default, a CHECK
 -- every existing row passes (the column is null on all of them), one column

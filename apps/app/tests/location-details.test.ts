@@ -30,7 +30,7 @@ import {
 import { inTenant, seedClinic, seedEntitled, type SeededClinic } from "./setup/factories";
 
 /**
- * A later location's details, confirmed (drizzle/0109; the owner's decision
+ * A later location's details, confirmed (drizzle/0110; the owner's decision
  * of 21 October 2026 to keep the toast after a location is added, "Next,
  * confirm its address, hours and phone numbers", and build the page it
  * names). What it pins: each field is validated on the server and saved
@@ -143,7 +143,7 @@ async function row(clinicId: string, id: string) {
   return withTenant({ clinicId, actor: { type: "system" } }, (tx) => locationById(tx, id));
 }
 
-describeDb("a later location's details, confirmed (0109)", () => {
+describeDb("a later location's details, confirmed (0110)", () => {
   let chat: SeededClinic;
   let voice: SeededClinic;
   let other: SeededClinic;

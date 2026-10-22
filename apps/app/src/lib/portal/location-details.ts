@@ -23,7 +23,7 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  * Next, as lib/portal/settings.ts is for the rest of Settings.
  *
  * Each field saves the moment it is changed; "Confirm these details" stamps
- * clinic_locations.details_confirmed_at (drizzle/0109), which the database
+ * clinic_locations.details_confirmed_at (drizzle/0110), which the database
  * sets once, from its own clock, and only on a later location that has an
  * address, its hours and its own number. Until then Home and Settings show
  * the location as waiting on its details.
@@ -321,7 +321,7 @@ export async function saveLocationDetail(
  * The practice says a later location's details are right. Refused, naming
  * what is missing, until it has an address, its hours and its own number,
  * and its direct line too when the account bought phone. Confirming again is
- * a no-op that says so; the database stamps the time once (drizzle/0109).
+ * a no-op that says so; the database stamps the time once (drizzle/0110).
  *
  * No step-up of its own: confirming moves nothing. Every gated field was
  * guarded when it was saved.

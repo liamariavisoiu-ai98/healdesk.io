@@ -169,7 +169,7 @@ describeDb("database audit (0031)", () => {
     // closure with the notice address it keeps, which only
     // app_close_clinic_account and app_expire_notice_addresses write (0096),
     // and the billing pointer, retired as the way locations are made and
-    // given no new writer (0108).
+    // given no new writer (0109).
     expect(locked).toEqual([
       "account_closed_at",
       "agreement_kind",
@@ -816,7 +816,7 @@ describeDb("database audit (0031)", () => {
     // 0092 the handovers, which point at a caller's conversation or thread;
     // 0093 the flags staff put on conversations; 0094 a patient's request to
     // healdesk, passed to the practice (L32); 0098 the list of who an incident
-    // affected, which names contacts; 0107 the redial records of calls that
+    // affected, which names contacts; 0108 the redial records of calls that
     // ended early, sealed turns keyed to a caller.
     const expected = [
       "appointments",

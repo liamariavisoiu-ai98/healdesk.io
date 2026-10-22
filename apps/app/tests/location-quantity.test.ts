@@ -34,7 +34,7 @@ import { priceFor } from "./setup/stripe-world";
 
 /**
  * The hourly location-quantity check (lib/billing/location-quantity.ts,
- * drizzle/0110): Stripe's quantity on the package item against the active
+ * drizzle/0111): Stripe's quantity on the package item against the active
  * locations, plus a pending one whose charge is recorded. Stripe here is a
  * fake that can only READ a subscription: any write the check attempted
  * would throw, and every call is recorded so the tests can say there was
@@ -364,7 +364,7 @@ describeDb("the location-quantity check", () => {
     const { stripe, calls } = readOnlyStripe(new Map([[account.subscriptionId, 4]]));
     // Seeded off by its migration.
     const seed = readFileSync(
-      fileURLToPath(new URL("../drizzle/0110_location_quantity_check.sql", import.meta.url)),
+      fileURLToPath(new URL("../drizzle/0111_location_quantity_check.sql", import.meta.url)),
       "utf8",
     );
     expect(seed).toMatch(/\('location-quantity', '(?:[^']|'')+', false\)/);

@@ -17,7 +17,7 @@ import type { TenantTx } from "@/lib/tenant";
  * The owner decided on 20 October 2026 that AYA is one central assistant for
  * every location of an account, "like a call center", not an assistant per
  * location. The clinics row stays the one tenant; each location is a row of
- * clinic_locations inside it (drizzle/0108), position 1 the main location,
+ * clinic_locations inside it (drizzle/0109), position 1 the main location,
  * which every open account has.
  *
  * Nothing in the product reads these yet: the main location's facts are still
@@ -53,7 +53,7 @@ export type Location = {
   retiredAt: Date | null;
   /**
    * When the practice confirmed a later location's address, hours and phone
-   * numbers (drizzle/0109, lib/portal/location-details.ts); null on the main
+   * numbers (drizzle/0110, lib/portal/location-details.ts); null on the main
    * location and on a later one not yet confirmed.
    */
   detailsConfirmedAt: Date | null;
@@ -113,7 +113,7 @@ export async function readLocations(
 
 /**
  * The tenant's main location. Every open account has exactly one (the trigger
- * that makes it with the clinic, and 0108's backfill); a closed account has
+ * that makes it with the clinic, and 0109's backfill); a closed account has
  * none, and this throws for it, as for a clinic that does not exist.
  */
 export async function mainLocation(tx: TenantTx): Promise<Location> {

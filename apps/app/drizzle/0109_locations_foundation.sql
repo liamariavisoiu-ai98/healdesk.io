@@ -1044,7 +1044,7 @@ BEGIN
   GET DIAGNOSTICS n = ROW_COUNT; done := done || jsonb_build_object('website_changes', n);
   DELETE FROM site_rereads x WHERE x.clinic_id = target_clinic;
   GET DIAGNOSTICS n = ROW_COUNT; done := done || jsonb_build_object('site_rereads', n);
-  -- The account's locations (0108): their addresses, lines and hours,
+  -- The account's locations (0109): their addresses, lines and hours,
   -- business data, no patient. The acceptance each later one was added
   -- under is kept with the agreement (location_acknowledgements).
   DELETE FROM clinic_locations x WHERE x.clinic_id = target_clinic;
@@ -1122,13 +1122,13 @@ BEGIN
 END
 $$;--> statement-breakpoint
 COMMENT ON FUNCTION app_close_clinic_account(uuid, text) IS
-  'Closes a clinic''s account once app_account_closure_waiting_on() says nothing is left: revokes its memberships and, for each person whose last live grant it held, deletes every way in (sessions, accounts, verifications, factors, codes, challenges, step-ups, lockouts, sign-in links, device recovery links, invitations, organisation memberships) and tombstones the user row, which the audit log keeps naming; deletes its setup, its locations (0108), touches, sync runs, unnamed connection links and checkout intents; clears the clinic row''s setup columns; keeps the notice address for six years after the service ended; stamps clinics.account_closed_at. Returns what it did by table, or NULL when already closed. No patient data.';--> statement-breakpoint
+  'Closes a clinic''s account once app_account_closure_waiting_on() says nothing is left: revokes its memberships and, for each person whose last live grant it held, deletes every way in (sessions, accounts, verifications, factors, codes, challenges, step-ups, lockouts, sign-in links, device recovery links, invitations, organisation memberships) and tombstones the user row, which the audit log keeps naming; deletes its setup, its locations (0109), touches, sync runs, unnamed connection links and checkout intents; clears the clinic row''s setup columns; keeps the notice address for six years after the service ended; stamps clinics.account_closed_at. Returns what it did by table, or NULL when already closed. No patient data.';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- Comments
 -- -----------------------------------------------------------------------------
 COMMENT ON TABLE clinic_locations IS
-  'One row per location of the account (the clinics row is the one tenant): what differs from site to site. Position 1, the main location, exists for every open account, made with its clinic by clinics_main_location and backfilled by 0108, its facts the database''s copy of clinics'' and clinic_settings'' (clinics_locations_follow, clinic_settings_main_location*), which the runtime role cannot write. A later location is added pending with its acceptance and add before the charge, and made active only by app_activate_location(). Business data, no patient. Deleted by the account''s closure.';--> statement-breakpoint
+  'One row per location of the account (the clinics row is the one tenant): what differs from site to site. Position 1, the main location, exists for every open account, made with its clinic by clinics_main_location and backfilled by 0109, its facts the database''s copy of clinics'' and clinic_settings'' (clinics_locations_follow, clinic_settings_main_location*), which the runtime role cannot write. A later location is added pending with its acceptance and add before the charge, and made active only by app_activate_location(). Business data, no patient. Deleted by the account''s closure.';--> statement-breakpoint
 COMMENT ON TABLE location_acknowledgements IS
   'The client''s acceptance, for one added location, of one central AYA for every location: the rendered text, its version and SHA-256, who accepted it under which passkey step-up and on which device, and when by the database''s clock. Append-only for every role; kept with the agreement through destruction and the closure. Contract evidence, no patient.';--> statement-breakpoint
 COMMENT ON FUNCTION app_activate_location(uuid) IS

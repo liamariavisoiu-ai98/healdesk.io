@@ -13,7 +13,7 @@ import { JOB_LOCATION_QUANTITY, runJob, type JobOutcome } from "@/lib/scheduler/
 import { withTenant } from "@/lib/tenant";
 
 /**
- * The hourly location-quantity check (drizzle/0110, its job seeded off).
+ * The hourly location-quantity check (drizzle/0111, its job seeded off).
  *
  * Since the owner's central model of 20 October 2026, an account's locations
  * are rows of clinic_locations, and its subscription's package item carries
@@ -288,7 +288,7 @@ export async function checkLocationQuantities(
   return summary;
 }
 
-/** The job: hourly from the tick, behind its own switch (seeded off by drizzle/0110). */
+/** The job: hourly from the tick, behind its own switch (seeded off by drizzle/0111). */
 export async function runLocationQuantityJob(
   options: { now?: Date; stripe?: Stripe } = {},
 ): Promise<JobOutcome> {

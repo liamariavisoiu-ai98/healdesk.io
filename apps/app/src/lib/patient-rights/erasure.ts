@@ -700,7 +700,7 @@ async function eraseSurveyed(
     threadRefs: partyRefs(tx.clinicId, s.threads),
   });
 
-  // A redial record of a call of theirs that ended early (drizzle/0107,
+  // A redial record of a call of theirs that ended early (drizzle/0108,
   // lib/voice/redial.ts), by each number of theirs, whichever conversation
   // it belongs to; the rest go with their conversations by cascade. Two
   // hours at most and not part of the record, so not counted.

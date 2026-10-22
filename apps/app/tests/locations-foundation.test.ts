@@ -22,10 +22,10 @@ import {
 import { inTenant, seedClinic, seedEntitled, type SeededClinic } from "./setup/factories";
 
 /**
- * Locations, the foundation (drizzle/0108; the extra-locations plan's steps 6
+ * Locations, the foundation (drizzle/0109; the extra-locations plan's steps 6
  * and 7 and step 5's table). One AYA for every location of the account: the
  * clinics row is the one tenant and each location a row of clinic_locations
- * inside it. Every test here fails on the code before 0108, where none of the
+ * inside it. Every test here fails on the code before 0109, where none of the
  * tables, columns, triggers or functions it reads exists.
  *
  * What it pins: every clinic has its main location, made with it and kept
@@ -183,7 +183,7 @@ async function addPendingLocation(clinic: SeededClinic, label = "Downtown"): Pro
   return { locationId, acknowledgementId, requestId };
 }
 
-describeDb("locations, the foundation (0108)", () => {
+describeDb("locations, the foundation (0109)", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
@@ -1028,7 +1028,7 @@ describeDb("locations, the foundation (0108)", () => {
         "call_routing",
         "carrier",
         "coverage_mode",
-        // 0109: the practice confirms a later location's details; its guard
+        // 0110: the practice confirms a later location's details; its guard
         // stamps the database's clock once (tests/location-details.test.ts).
         "details_confirmed_at",
         "direct_line_e164",

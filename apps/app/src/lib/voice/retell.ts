@@ -646,6 +646,9 @@ export class RetellCallSession {
           timeZone: facts.timeZone,
           actor: ACTOR,
           budgetMs: BOOKING_BUDGET_MS,
+          // A call the gate let in is not cut off by the cap (R18); the safe
+          // script's call is asked about the cap again, and a pause stops both.
+          answering: { continuing: this.gateAnswered },
         });
     const turn = await answerTurn({
       facts,

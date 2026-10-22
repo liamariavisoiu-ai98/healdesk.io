@@ -362,6 +362,8 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
         timeZone: facts.timeZone,
         actor: ACTOR,
         budgetMs: BOOKING_BUDGET_MS,
+        // Counted above, so the cap lets this conversation book; a pause does not.
+        answering: { usage },
       });
   const turn = await answerTurn({
     facts,

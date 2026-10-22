@@ -2,6 +2,7 @@ import { currentDirectBookingAddendum } from "@healdesk/catalog";
 import { toE164 } from "@healdesk/connectors";
 
 import type { ActorContext } from "@/lib/audit";
+import { assistantMayAnswer, type AssistantMayAnswerInput } from "@/lib/billing/answering";
 import { slotLabel } from "@/lib/booking/calendar";
 import { chatDepositFor, type ChatDeposit } from "@/lib/booking/deposit-gate";
 import {
@@ -14,6 +15,7 @@ import {
 } from "@/lib/booking/engine";
 import {
   bookedLine,
+  BOOKING_REFUSED_LINE,
   DEPOSIT_HOLD_LINE,
   DEPOSIT_REQUEST_LINE,
   depositLine,
@@ -84,6 +86,13 @@ import type { BookingCapture } from "./turn";
  *
  * One booking per conversation: the booking key ends ":1", so a second
  * booking asked for under it is the engine's `key_reused`.
+ *
+ * The answer gate (assistantMayAnswer) is asked again by the engine before
+ * anything is written, after its replay (book.ts, step 1): a pause, a cap,
+ * a suspension or an ending that began after the conversation opened writes
+ * nothing, says BOOKING_REFUSED_LINE and offers the tools no more. The
+ * adapter's usage reference or `continuing` keeps the cap from cutting off a
+ * conversation it already let in (R18).
  */
 
 export type ToolAction =
@@ -142,6 +151,8 @@ export type BookingToolsContext = {
   actor: ActorContext;
   /** How long the person can wait for Google. */
   budgetMs: number;
+  /** What the answer gate is told about this conversation, as the adapter's own gate was. */
+  answering?: Pick<AssistantMayAnswerInput, "usage" | "continuing">;
 };
 
 export type BookingTools = {
@@ -181,9 +192,24 @@ const ENGINE: BookingEngine = { offerTimes, placeHold, bookConversation, chatDep
 /** At most this many times are offered at once. */
 const OFFERED = 3;
 
-export function bookingTools(context: BookingToolsContext, engine: BookingEngine = ENGINE): BookingTools {
+export function bookingTools(
+  context: BookingToolsContext,
+  engine: BookingEngine = ENGINE,
+  mayAnswer: typeof assistantMayAnswer = assistantMayAnswer,
+): BookingTools {
   const say = (line: string) => (context.channel === "web_chat" ? forChat(line) : line);
   const label = (iso: string) => slotLabel(new Date(iso), context.timeZone);
+  // B's gate, as the engine asks it before a write: true only when it would answer now.
+  const gate = (now: Date) => async () =>
+    (
+      await mayAnswer({
+        clinicId: context.clinicId,
+        channel: context.channel === "voice" ? "voice" : "web",
+        ...context.answering,
+        now,
+        actor: context.actor,
+      })
+    ).decision === "answer";
 
   async function available(): Promise<boolean> {
     if (!directBookingToolsAllowed()) return false;
@@ -315,8 +341,11 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
         }
         return turn(MISSING_DETAIL_LINES[result.field], state);
       case "unavailable":
-      case "refused":
         return turn(TOOL_FAILURE_LINE, state);
+      case "refused":
+        // Paused, capped, suspended or ended since the conversation opened:
+        // nothing written, the person sent to the clinic, no tools again.
+        return turn(BOOKING_REFUSED_LINE, { ...state, manual: true, chosen: null, held: false });
     }
   }
 
@@ -395,6 +424,7 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
         providerId: chosen.providerId,
         fields: capture.fields,
         budgetMs: context.budgetMs,
+        gate: gate(now),
         now,
         actor: context.actor,
       });

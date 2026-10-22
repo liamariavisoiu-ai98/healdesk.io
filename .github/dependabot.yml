@@ -4,11 +4,20 @@
 # written, and an advisory against one of them reached us only if somebody
 # happened to read it.
 #
-# One schedule for everything (Monday, off-peak, UTC) and one pull request per
-# ecosystem for minor and patch releases, because the free reviewer is one
-# person: a week's patches are read together, and a major release arrives on
-# its own so it is read on its own. The open-pull-request limits are low on
-# purpose, for the same reason.
+# One schedule for everything (Monday, off-peak, UTC), and a pull request only
+# for a minor or patch release, grouped, because the free reviewer is one
+# person: a week's patches are read together. A major release (TypeScript 7,
+# ESLint 10, Stripe 23, a new Postgres or Node base image) is a decision with a
+# migration behind it, so it is taken by hand, on purpose, and not offered as a
+# pull request every week. The first version of this file let majors through
+# and opened 23 pull requests in its first run, most of them majors; the
+# open-pull-request limit counts per directory, and npm below names six.
+#
+# `allow` with `update-types` limits VERSION updates only. GitHub's own
+# reference says security updates "will always be created regardless of the
+# update-types setting", so a fix that needs a major version still arrives as a
+# security update once Dependabot security updates are on. `ignore` is not used
+# for this because it applies to security updates as well.
 #
 # Dependabot only opens pull requests; it never merges one. Turning on
 # Dependabot alerts and security updates is a repository setting that only the
@@ -18,7 +27,8 @@ version: 2
 updates:
   # The npm workspaces share the root package-lock.json. Dependabot reads the
   # lock from the root, and each workspace's package.json is named here so a
-  # range in one of them is updated too.
+  # range in one of them is updated too. The group makes it one pull request
+  # per directory at most, so the limit is a ceiling that is not reached.
   - package-ecosystem: npm
     directories:
       - "/"
@@ -32,7 +42,12 @@ updates:
       day: monday
       time: "05:30"
       timezone: Etc/UTC
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
@@ -47,7 +62,12 @@ updates:
       day: monday
       time: "05:30"
       timezone: Etc/UTC
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     groups:
       actions-minor-patch:
         update-types: [minor, patch]
@@ -55,6 +75,7 @@ updates:
 
   # infra/aws: the providers pinned in .terraform.lock.hcl. The Terraform CLI
   # version is pinned in the workflows (setup-terraform) and is not Dependabot's.
+  # A provider major (aws 6 to 7) is a plan to read, not a weekly pull request.
   - package-ecosystem: terraform
     directory: "/infra/aws"
     schedule:
@@ -62,14 +83,20 @@ updates:
       day: monday
       time: "05:30"
       timezone: Etc/UTC
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 1
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     groups:
       terraform-minor-patch:
         update-types: [minor, patch]
     labels: [dependencies, infra]
 
   # The base images of the product image and of the two sidecar images the AWS
-  # host builds (db-admin, tls-proxy).
+  # host builds (db-admin, tls-proxy). A new Postgres or Node major is a
+  # migration of its own and is done by hand.
   - package-ecosystem: docker
     directories:
       - "/apps/app"
@@ -79,7 +106,12 @@ updates:
       day: monday
       time: "05:30"
       timezone: Etc/UTC
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 1
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     groups:
       docker-minor-patch:
         update-types: [minor, patch]

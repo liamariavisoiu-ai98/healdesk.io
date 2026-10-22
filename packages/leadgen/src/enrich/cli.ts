@@ -11,7 +11,7 @@ import {
   type BookingPageFinding,
 } from "./booking-page.ts";
 import { assertSendableCopy } from "./copy-guard.ts";
-import { buildInstantlyFiles } from "./instantly.ts";
+import { splitLeads } from "./instantly.ts";
 import { buildOutreachRow, companyShort, excludeReason, hookDiversity, siteHost } from "./outreach.ts";
 import { buildUnreadableRow } from "./unreadable.ts";
 import { fetchPlaceHours, type PlaceHours } from "./places.ts";
@@ -1272,28 +1272,28 @@ async function main(): Promise<void> {
       "    with a primary row and must go out in a later wave, not beside it.",
   );
 
-  // The two files uploaded to Instantly: the main campaign, and the clinics we
-  // could not enrich fully, run as their own campaign (src/enrich/instantly.ts,
-  // docs/outreach/sequences.md).
-  const instantly = buildInstantlyFiles(merged);
-  if (instantly.refused.length) {
+  // The spreadsheet's four tabs, as separate files: main, low enrichment,
+  // second contacts (a later wave) and unreadable sites. Each row keeps every
+  // column above and gains greeting_name, enrichment_note and primary_contact.
+  // The emails are written in Instantly from the templates in templates.ts
+  // (docs/outreach/sequences.md).
+  const tabs = splitLeads(merged);
+  if (tabs.refused.length) {
     throw new Error(
-      `Refusing to write the Instantly files: ${instantly.refused.length} sent phrase(s) v1 cannot claim.\n  ` +
-        instantly.refused.slice(0, 10).join("\n  "),
+      `Refusing to write the lead tabs: ${tabs.refused.length} sent phrase(s) v1 cannot claim.\n  ` +
+        tabs.refused.slice(0, 10).join("\n  "),
     );
   }
-  const mainPath = join(DATA, "instantly-main.csv");
-  const lowPath = join(DATA, "instantly-low-enrichment.csv");
-  await writeFile(mainPath, toCsv(instantly.main));
-  await writeFile(lowPath, toCsv(instantly.lowEnrichment));
-  const secondPath2 = join(DATA, "instantly-second-contacts.csv");
-  const unreadablePath = join(DATA, "instantly-unreadable.csv");
-  await writeFile(secondPath2, toCsv(instantly.secondContacts));
-  await writeFile(unreadablePath, toCsv(instantly.unreadable));
-  console.log(`\n  Instantly, main campaign        ${String(instantly.main.length).padStart(5)}  ${mainPath}`);
-  console.log(`  Instantly, low enrichment       ${String(instantly.lowEnrichment.length).padStart(5)}  ${lowPath}`);
-  console.log(`  Instantly, second contacts      ${String(instantly.secondContacts.length).padStart(5)}  ${secondPath2}  (a later wave)`);
-  console.log(`  Instantly, unreadable sites     ${String(instantly.unreadable.length).padStart(5)}  ${unreadablePath}  (one email, no preview)`);
+  for (const [file, label, rows] of [
+    ["leads-main.csv", "main campaign", tabs.main],
+    ["leads-low-enrichment.csv", "low enrichment", tabs.lowEnrichment],
+    ["leads-second-contacts.csv", "second contacts (a later wave)", tabs.secondContacts],
+    ["leads-unreadable.csv", "unreadable sites (one email, no preview)", tabs.unreadable],
+  ] as const) {
+    const path = join(DATA, file);
+    await writeFile(path, toCsv(rows));
+    console.log(`  ${label.padEnd(40)} ${String(rows.length).padStart(5)}  ${path}`);
+  }
 
   console.log(
     "\n  Rank on the high-confidence column, not the total — and read the\n" +

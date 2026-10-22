@@ -22,42 +22,35 @@ preview is built from the clinic's site, and theirs would not load.
 
 ## Uploading to Instantly
 
-`npm run enrich -w @healdesk/leadgen` writes four files next to `all-leads.csv`
-in `packages/leadgen/data/`, and each one is its own campaign:
+The spreadsheet keeps every column the enrichment wrote (the scrape, the hours,
+the best service, the booking platform) and gains the columns the templates
+use. It has four tabs, and each is its own campaign:
 
-| File | Who | Campaign |
+| Tab | Who | Campaign |
 | --- | --- | --- |
-| `instantly-main.csv` | Primary contacts whose hook stands on measured hours, closed days or sites, and whose service we found | Main, sent first, strongest rows at the top |
-| `instantly-low-enrichment.csv` | Primary contacts with no opening hours or no service found (`enrichment_note` says which) | Second, judged on its own reply rate |
-| `instantly-second-contacts.csv` | Another contact at a clinic already in one of the two above (`primary_contact` names who) | A later wave, so one clinic never has two threads in flight |
-| `instantly-unreadable.csv` | Clinics whose site would not load | One email, no preview (there is no site to build it from) |
+| Main campaign | Primary contacts whose hook stands on measured hours, closed days or sites, and whose service we found | Sent first, strongest rows at the top |
+| Low enrichment | Primary contacts with no opening hours or no service found (`enrichment_note` says which) | Second, judged on its own reply rate |
+| Second contacts (later) | Another contact at a clinic already in one of the two above (`primary_contact` names who) | A later wave, so one clinic never has two threads in flight |
+| Unreadable sites | Clinics whose site would not load | One email, no preview (there is no site to build it from) |
 
-The unreadable file is the one place the sequence does not apply: its email
-says the site would not load, says what AYA does, and asks who is catching the
-calls. `body_2` to `body_4` are blank, so it is a single step in Instantly.
-
-A list enriched before this copy existed (an old `all-leads.csv`) is rebuilt
-without crawling anything, with
+`npm run enrich -w @healdesk/leadgen` writes the same four tabs as
+`leads-main.csv`, `leads-low-enrichment.csv`, `leads-second-contacts.csv` and
+`leads-unreadable.csv` next to `all-leads.csv`. A list enriched before this
+copy existed is refreshed without crawling anything, with
 `npx tsx src/ops/instantly-from-leads.mts <all-leads.csv> <out-dir>` from
 `packages/leadgen`. The outputs hold real contacts: keep them out of Git.
 
-Each row carries `subject_1` and `body_1` to `body_4`, already written for that
-clinic, with the spintax already picked (a hash of the address chooses each
-variant, so the list varies and one clinic's thread stays fixed;
-`src/enrich/instantly.ts`). In Instantly:
+In Instantly:
 
-1. Upload the CSV. `email`, `first_name`, `last_name`, `company_name`, `website`
-   and `phone` map to Instantly's own fields; everything else imports as a
-   custom variable.
-2. Make four steps. Step 1's subject is `{{subject_1}}` and its body
-   `{{body_1}}`; steps 2 to 4 have a blank subject (so they thread) and bodies
-   `{{body_2}}` to `{{body_4}}`, on days 1, 3, 6 and 10.
-3. Put the footer from [footers.md](./footers.md) in each mailbox's
-   signature, not in the bodies.
-4. Send a test to yourself from two mailboxes and check that the paragraph
-   breaks in `body_1` survive. If Instantly flattens them, build the steps
-   from the templates below instead: the same merge columns are in the file,
-   and the `{{RANDOM}}` version gives the same copy.
+1. Upload each tab's CSV as its own campaign. `email`, `first_name`,
+   `last_name`, `company` and `phone` map to Instantly's own fields; every other
+   column imports as a custom variable you can use as `{{column_name}}`.
+2. Build four steps from the templates below, on days 1, 3, 6 and 10. Only step
+   1 has a subject; leave it blank on steps 2 to 4 so they thread.
+3. Put the footer from [footers.md](./footers.md) in each mailbox's signature,
+   not in the bodies.
+4. Send a test to yourself from two mailboxes. Check that `{{...}}` variables
+   fill, that `{a|b|c}` picks one choice, and that the paragraph breaks hold.
 
 ## Who gets it
 
@@ -68,57 +61,76 @@ variant, so the list varies and one clinic's thread stays fixed;
 
 ## The four touches
 
-Plain text, **no links, no images**, open and click tracking off. Touches 2 to
-4 reply in the same thread with the subject left blank. Each touch ends with
-the footer from [footers.md](./footers.md).
+Plain text, **no links, no images**, open and click tracking off. Each touch
+ends with the footer from [footers.md](./footers.md).
 
-**Spintax:** Instantly's `{{RANDOM | a | b | c}}`. Every fixed sentence has two
-or three variants, so no two clinics get the same body. Merge tags stay
-**outside** the `RANDOM` blocks: send a test from two mailboxes before the
-first batch to check both render.
+**Syntax.** `{{name}}` is a column of the spreadsheet. `{a|b|c}` is Instantly's
+spintax and picks one choice per send. Variables never sit inside a choice, and
+`greeting_name` is already "there" where no usable first name exists, so no
+fallback syntax is needed.
 
 ### Touch 1, day 1
 
-Subject: `{{subject_line}}` (e.g. "Weekend calls at Glow Aesthetics")
+Subject: `{{subject_line}}`
 
 ```
-{{greeting}} {{first_name|there}},
+{{greeting}} {{greeting_name}},
 
 {{hook}}
 
-{{RANDOM | So I built | So I put together | So I set up}} a private preview of AYA, our AI assistant, trained on {{site_host}} and dressed in your branding. {{RANDOM | One link: call her, then chat with her as she'd appear on | It's one link. Call her, then chat with her as she'd look on | One link lets you call her, then chat with her as she'd appear on}} {{chat_surface}}.
+{So I built|So I put together|So I set up} a private preview of AYA, our AI assistant, trained on {{site_host}} and dressed in your branding. {One link: call her, then chat with her as she'd appear on|It's one link. Call her, then chat with her as she'd look on|One link lets you call her, then chat with her as she'd appear on} {{chat_surface}}.
 
-{{closing_question}} {{RANDOM | Reply "yes" and you'll have it in two minutes. | A "yes" gets it to you in two minutes. | Just reply "yes" and it's yours in two minutes.}}
+{{closing_question}} {Reply "yes" and you'll have it in two minutes.|A "yes" gets it to you in two minutes.|Just reply "yes" and it's yours in two minutes.}
 ```
 
 ### Touch 2, day 3
 
+Subject: Blank, so it threads under touch 1.
+
 ```
-{{greeting}} {{first_name|there}},
+{{greeting}} {{greeting_name}},
 
-{{scenario}} {{RANDOM | So your team starts the day with every inquiry handled, not a stack of voicemails. | So you can stay with the person in front of you while she handles it. | So the morning starts with inquiries handled, not voicemails to return.}}
+{{scenario}} {So your team starts the day with every inquiry handled, not a stack of voicemails.|So you can stay with the person in front of you while she handles it.|So the morning starts with inquiries handled, not voicemails to return.}
 
-{{RANDOM | In website chat she can also send your deposit link. | On your website chat she can send your deposit link too. | She can also send your deposit link in website chat.}} {{RANDOM | That's what your preview does, with your own services. | Your preview does exactly that, with your own services. | That's your preview, running on your own services.}} {{RANDOM | Want it? | Should I send it? | Want me to send it over?}}
+{In website chat she can also send your deposit link.|On your website chat she can send your deposit link too.|She can also send your deposit link in website chat.} {That's what your preview does, with your own services.|Your preview does exactly that, with your own services.|That's your preview, running on your own services.} {Want it?|Should I send it?|Want me to send it over?}
 ```
 
 ### Touch 3, day 6
 
+Subject: Blank, so it threads under touch 1.
+
 ```
-{{greeting}} {{first_name|there}},
+{{greeting}} {{greeting_name}},
 
-{{RANDOM | Two quick things before you try her. | Two things worth knowing before you try her. | Before you try her, two quick things.}} She never gives medical advice and only quotes the prices you set. And we sign a business associate agreement and handle {{client_term}}' data under it.
+{Two quick things before you try her.|Two things worth knowing before you try her.|Before you try her, two quick things.} She never gives medical advice and only quotes the prices you set. And we sign a business associate agreement and handle {{client_term}}' data under it.
 
-{{RANDOM | Don't take my word for how natural she sounds. Call her yourself. | The best test is to call her and hear how natural she sounds. | Call her yourself and judge how natural she sounds.}}
+{Don't take my word for how natural she sounds. Call her yourself.|The best test is to call her and hear how natural she sounds.|Call her yourself and judge how natural she sounds.}
 
-{{RANDOM | If someone else at | If another person at | In case someone else at}} {{company_short}} {{RANDOM | looks after the phones, who should I send the preview to? | handles the phones, who's best to send the preview to?}}
+{If someone else at|If another person at|In case someone else at} {{company_short}} {looks after the phones, who should I send the preview to?|handles the phones, who's best to send the preview to?}
 ```
 
 ### Touch 4, day 10
 
-```
-{{greeting}} {{first_name|there}},
+Subject: Blank, so it threads under touch 1.
 
-{{RANDOM | I'm tidying up previews this week. | I'm clearing out old previews this week. | I'm closing out this week's previews.}} {{RANDOM | Should I archive the one for | Want me to archive the one for}} {{company_short}}, {{RANDOM | or send it over first? | or would you like it first?}}
+```
+{{greeting}} {{greeting_name}},
+
+{I'm tidying up previews this week.|I'm clearing out old previews this week.|I'm closing out this week's previews.} {Should I archive the one for|Want me to archive the one for} {{company_short}}, {or send it over first?|or would you like it first?}
+```
+
+### Unreadable sites, one email
+
+Subject: `{{subject_line}}`. Upload the *Unreadable sites* tab as its own campaign with this single step.
+
+```
+{{greeting}} {{greeting_name}},
+
+{{hook}}
+
+{{top_offer}}
+
+{{closing_question}}
 ```
 
 ## The reply to a "yes" (within two minutes)
@@ -127,11 +139,11 @@ Sent by hand, from the same mailbox, in the same thread. This is the only email
 with a link.
 
 ```
-{{RANDOM | Here you go | Here it is | All yours}}: <preview link>
+{Here you go|Here it is|All yours}: <preview link>
 
-{{RANDOM | Talk to her as if you were a new client looking to book. | Try her the way one of your new clients would, and ask to book. | Pretend you're a new client and try to book with her.}} {{RANDOM | Call her first, then try the chat. | Give her a call, then try the chat. | Start with a call, then open the chat.}} {{RANDOM | It works best on your phone. | Your phone is the best place to try it.}}
+{Talk to her as if you were a new client looking to book.|Try her the way one of your new clients would, and ask to book.|Pretend you're a new client and try to book with her.} {Call her first, then try the chat.|Give her a call, then try the chat.|Start with a call, then open the chat.} {It works best on your phone.|Your phone is the best place to try it.}
 
-{{RANDOM | What's the best number to reach you if you have questions? | If questions come up, what's the best number for you?}}
+{What's the best number to reach you if you have questions?|If questions come up, what's the best number for you?}
 ```
 
 The last line gets the owner's own number for the call an hour later. The
@@ -160,6 +172,10 @@ number on the list is usually the front desk's.
 | `site_host` | glowaesthetics.com |
 | `client_term` | clients (med spa, laser, body contouring, IV, massage, vets) or patients |
 | `greeting` | Hi or Hey for clients, Hi or Hello for patients, fixed per address so a thread keeps one |
+| `greeting_name` | Sophie · Dr. Smith · there (from "Dr. Jacob", "Jill M.", "AJ" or a credential in the last-name field) |
+| `top_offer` | AYA answers your calls and website chat, then books straight into your calendar, since IV clients often want a same-day visit. Not used in the four touches; the Unreadable email uses it. |
+| `enrichment_note` | Empty on the Main tab. On Low enrichment: no opening hours found, no service found on the site, or both. |
+| `primary_contact` | Second-contacts tab only: the other contact at the same clinic. |
 
 The scene and the offer follow `booking_mode`. Only `live` rows hear "books it
 straight into your calendar". Every other row hears "passes it to your desk to

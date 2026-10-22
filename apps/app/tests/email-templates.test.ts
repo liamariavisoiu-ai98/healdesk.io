@@ -372,7 +372,8 @@ describe("each template's output", () => {
           // that would quote it to us, so its footer says the same.
           expect(body).toContain(kind === "device_recovery_link" ? WRITE_NEW_LINE : REPLY_LINE);
           if (kind === "device_recovery_link") expect(body).not.toContain(REPLY_LINE);
-          expect(body).toContain(SENDER_IDENTITY.entityLine);
+          expect(body).not.toContain(SENDER_IDENTITY.entityLine);
+          expect(body).not.toContain(SENDER_IDENTITY.postalAddressLabel);
           expect(body).toContain(SENDER_IDENTITY.postalAddress);
           expect(body).toContain("You're receiving this because");
         }

@@ -475,7 +475,8 @@ describe("sendAgreementCopy", () => {
     );
     expect(message.replyTo).toBe("hello@healdesk.io");
     expect(message.text).toContain("Replies reach the healdesk team. Please leave out patient details.");
-    expect(message.text).toContain("healdesk is a service of Viixi FZC");
+    expect(message.text).not.toContain("is a service of");
+    expect(message.text).toContain("Wilmington, DE 19801");
     // The id finds the row; it is never in the words.
     expect(message.text).not.toContain(ACCEPTANCE.agreementId);
     expect(message.html).not.toMatch(/href=/);

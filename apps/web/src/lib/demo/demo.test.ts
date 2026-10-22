@@ -345,7 +345,7 @@ describe("what the demo says", () => {
     expect(text).toMatch(/Wilmington, DE/);
     // Commercial (it can carry the setup offer): the opt-out and the X1.9 footer.
     expect(text).toContain(`Stop these emails: ${OPT_OUT}`);
-    expect(text).toContain("healdesk is a service of Viixi FZC");
+    expect(text).not.toContain("is a service of");
     expect(text).toContain("Replies reach the healdesk team. Please leave out patient details.");
     expect(text).toContain("You're getting this because a demo was built for Smith Dental");
   });

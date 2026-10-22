@@ -212,7 +212,7 @@ describe("the handoff gate", () => {
     expect(lead!.marketingConsent).toBe(false);
     expect(message.unsubscribeUrl).toBe(unsubscribeUrl(lead!.id));
     expect(message.text).toContain(`Stop these emails: ${message.unsubscribeUrl}`);
-    expect(message.text).toContain("healdesk is a service of Viixi FZC");
+    expect(message.text).not.toContain("is a service of");
     expect(message.text).toContain("Wilmington, DE 19801");
     expect(message.tag).toBe("demo-ready");
     expect(message.idempotencyKey).toBe(`hd-demo-ready-${demo.id}-1`);

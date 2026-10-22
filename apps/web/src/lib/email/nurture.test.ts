@@ -83,8 +83,9 @@ describe("nurture sequence", () => {
       expect(footer, `touch ${touch.step}`).toContain(`You're getting this because you ticked "email me about AYA" on healdesk.io.`);
       expect(footer).toMatch(/Stop these emails: https?:\/\/\S+\/api\/email\/unsubscribe\?t=/);
       expect(footer).toContain("Replies reach the healdesk team. Please leave out patient details.");
-      expect(footer).toContain("healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.");
-      expect(footer).toContain("US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States");
+      expect(footer).not.toContain("is a service of");
+      expect(footer).not.toContain("correspondence only");
+      expect(footer).toContain("800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States");
     }
   });
 
@@ -178,7 +179,7 @@ describe("P7: the purchase is still open", () => {
     const text = stillOpenEmail(lead(), { clinicName: "Radiance", agreementKind: "baa", setupLink: LINK }).text;
     expect(text).toContain("You're getting this because you started a purchase for Radiance at healdesk.io. Stop these emails: ");
     expect(text).toContain("Replies reach the healdesk team. Please leave out patient details.");
-    expect(text).toContain("healdesk is a service of Viixi FZC");
+    expect(text).not.toContain("is a service of");
     expect(text).toContain("Wilmington, DE");
   });
 

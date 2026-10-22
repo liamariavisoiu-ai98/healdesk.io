@@ -50,6 +50,9 @@ describe("specialty and top service from an Apollo row", () => {
     expect(g("Empower Pharmacy", "CEO", "pharmaceuticals").label).toBe("Not a clinic");
     expect(g("ADvance Media", "Managing Partner", "marketing & advertising").label).toBe("Not a clinic");
     expect(g("Capital Laser & Skin Care", "Founder and Director").label).toBe("Laser & skin clinic");
+    // "Lab" at the front of a name is a brand, "Labs" at the end is a company.
+    expect(g("Lab Fit Physical Therapy And Wellness Center", "Owner").label).toBe("Physical therapy & rehab");
+    expect(g("Opu Labs", "Founder").label).toBe("Not a clinic");
     expect(g("Capital Center for Oral and Maxillofacial Surgery", "Oral & Maxillofacial Surgeon", "hospital & health care").label).toBe("Dental & orthodontics");
   });
 

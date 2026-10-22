@@ -185,7 +185,7 @@ const CLINIC_INDUSTRY = new Set([
 ]);
 
 /** Words in a company name that mark a vendor, an agency or a lab, never a clinic. */
-const VENDOR_NAME = i("\\b(pharmacy|software|technolog(y|ies)|digital|marketing|media|agency|consulting|ventures|insurance|supply|supplies|distribution|manufactur\\w*|biotech|therapeutics|genomics|health ?tech|saas|labs?|diagnostics|logistics)\\b|\\.ai\\b");
+const VENDOR_NAME = i("\\b(pharmacy|software|technolog(y|ies)|digital|marketing|media|agency|consulting|ventures|insurance|supply|supplies|distribution|manufactur\\w*|biotech|therapeutics|genomics|health ?tech|saas|labs|laboratories|diagnostics|logistics)\\b|\\.ai\\b");
 
 /**
  * Keywords that mean the company sells a product, a software service or a

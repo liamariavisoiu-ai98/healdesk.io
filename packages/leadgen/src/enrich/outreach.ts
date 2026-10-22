@@ -92,6 +92,25 @@ export function clientTerm(segment: string): "clients" | "patients" {
   return CLIENT_SEGMENTS.has(segment) ? "clients" : "patients";
 }
 
+/**
+ * The service as a bare noun, for "booking dental implants" and "about lip
+ * filler", or null when there is none worth naming.
+ *
+ * The clinic's own word, plural and all. servicePhrase() singularises it,
+ * because there it sits before "appointment"; used on its own the singular
+ * reads wrong ("booking dental implant"). Where servicePhrase() fell back, so
+ * does this, and where the service already names the encounter ("OB-GYN
+ * appointment") the encounter word is dropped rather than doubled.
+ */
+export function serviceTopic(phrase: string, topService: string | null): string | null {
+  if (phrase === "an appointment") return null;
+  const raw = (topService ?? "").trim();
+  if (!raw || /\b(appointment|visit|consult|consultation|session|treatment|exam|scan|screening)$/i.test(raw)) {
+    return phrase.replace(/^an? /, "").replace(/ appointment$/, "");
+  }
+  return raw;
+}
+
 export function servicePhrase(topService: string | null): string {
   let s = (topService ?? "").trim();
   if (!s) return "an appointment";
@@ -415,7 +434,7 @@ export function buildOutreachRow(
     clientTerm: clientTerm(label.segment),
     subjectLine: buildSubject(companyShort(contact.company ?? ""), window, weekendClosed, hours, sites, noBooking),
     chatSurface: chatSurface(social),
-    scenario: buildScenario(phrase, social, window, weekendClosed, hours, bookingMode),
+    scenario: buildScenario(phrase, label.topService, social, window, weekendClosed, hours, bookingMode),
     capability: offer.capability,
     bookingMode,
     assistantTerm: assistant,
@@ -426,7 +445,7 @@ export function buildOutreachRow(
       ? `${window.startsDay} ${window.startsAt} to ${window.endsDay} ${window.endsAt}`
       : "",
     angle,
-    hook: buildHook(noBooking, weekendClosed, hours, gap, phrase, window, hasAutomation, sites),
+    hook: buildHook(noBooking, weekendClosed, hours, gap, phrase, label.topService, window, hasAutomation, sites),
     closedHoursPerWeek: gap === null ? "" : String(gap),
     closedDays: closed.join(", "),
     excludeReason: "",
@@ -461,6 +480,7 @@ function buildHook(
   hours: PlaceHours | undefined,
   gap: number | null,
   phrase: string,
+  service: string | null,
   window: BookingGap | undefined,
   hasAutomation: boolean,
   sites: number | null,
@@ -494,9 +514,7 @@ function buildHook(
   //
   // The bare service, "lip filler", not "lip filler appointments": "booking
   // lip filler" is how a clinic says it.
-  const topic = phrase === "an appointment"
-    ? null
-    : phrase.replace(/^an? /, "").replace(/ appointment$/, "");
+  const topic = serviceTopic(phrase, service);
   const booking = topic ?? "appointments";
   const about = topic ?? "booking an appointment";
 
@@ -834,6 +852,7 @@ function buildSubject(
  */
 function buildScenario(
   phrase: string,
+  service: string | null,
   social: readonly string[],
   window: BookingGap | undefined,
   weekendClosed: string[],
@@ -862,9 +881,7 @@ function buildScenario(
         ? "messaging your Facebook page"
         : "calling";
 
-  const about = phrase === "an appointment"
-    ? "booking an appointment"
-    : phrase.replace(/^an? /, "").replace(/ appointment$/, "");
+  const about = serviceTopic(phrase, service) ?? "booking an appointment";
 
   const outcome =
     mode === "live"

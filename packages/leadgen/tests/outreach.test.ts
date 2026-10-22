@@ -928,3 +928,15 @@ describe("the subject, the chat surface and the scene", () => {
   });
 });
 
+describe("the service as a bare noun", () => {
+  test("keeps the clinic's plural, which only the appointment phrase singularises", async () => {
+    const { serviceTopic, servicePhrase } = await import("../src/enrich/outreach.ts");
+    const t = (s: string | null) => serviceTopic(servicePhrase(s), s);
+    expect(t("dental implants")).toBe("dental implants");
+    expect(t("lip filler")).toBe("lip filler");
+    expect(t("botox and fillers")).toBeNull();
+    expect(t(null)).toBeNull();
+    expect(t("OB-GYN appointment")).toBe("OB-GYN");
+  });
+});
+

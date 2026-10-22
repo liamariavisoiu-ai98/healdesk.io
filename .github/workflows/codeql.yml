@@ -1,0 +1,61 @@
+name: CodeQL
+
+# GitHub's CodeQL static analysis for the TypeScript and JavaScript in this
+# monorepo (apps/web, apps/app, packages/*). Findings appear in the repository's
+# code scanning alerts; nothing here deploys or changes anything.
+#
+# The repository is public, so code scanning is free. This workflow is the
+# "advanced setup" (a file in the repository) rather than the default setup
+# toggled in the GitHub settings, so the pinned actions, the triggers and the
+# permissions are reviewed in git like the rest of the pipeline.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Tuesdays at 04:43 UTC: a different day and minute from security.yml's
+    # Monday 05:17, so the two scans do not start together. The weekly run
+    # picks up new CodeQL queries, which can flag code nobody has touched.
+    - cron: "43 4 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # security-events: write is the only elevation: it lets the analyze step
+    # upload its results as code scanning alerts. GitHub's starter workflow
+    # also lists `actions: read` ("only required for workflows in private
+    # repositories") and `packages: read` ("to fetch internal or private
+    # CodeQL packs"). This repository is public and uses only the standard
+    # query packs, so neither is granted. If a run fails with a 403 naming one
+    # of them, add it then, with the error as the reason.
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # build-mode none: JavaScript and TypeScript are interpreted, so CodeQL
+      # reads the source directly and no install or build step is needed. The
+      # default query suite (code-scanning) is used on purpose: the extended
+      # and quality suites add many lower-confidence alerts, and a noisy first
+      # run trains people to ignore the tab. Widen it later with `queries:
+      # security-extended` once the baseline is clean.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          category: "/language:javascript-typescript"

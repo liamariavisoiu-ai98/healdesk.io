@@ -1,0 +1,115 @@
+name: Security
+
+# Repository hygiene checks that need no secret and no vendor setting: a scan
+# of the full history for committed secrets, and an audit of the production
+# dependencies. They share this file's triggers and read-only token.
+#
+# Nothing here uploads a report, comments on a pull request or needs a
+# GitHub secret, so the workflow token only ever reads the repository.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Mondays at 05:17 UTC: off the hour, so it does not queue with the
+    # many jobs GitHub starts at :00, and before the working day in
+    # either of the owner's time zones. The weekly run catches a rule added
+    # to gitleaks since the last push, which re-reads old history.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    name: secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # The tool is pinned by exact version AND by the SHA-256 of the release
+      # archive, so a re-uploaded or tampered archive fails the job instead of
+      # running. The digest is the one in the release's own
+      # gitleaks_8.30.1_checksums.txt (also shown by `gh release view
+      # v8.30.1 -R gitleaks/gitleaks --json assets`). To upgrade, change both
+      # together, from that file.
+      #
+      # This runs the release binary rather than gitleaks/gitleaks-action
+      # because the action needs a GITLEAKS_LICENSE secret as soon as the
+      # repository belongs to an organisation (it does not today, but moving
+      # it would turn this check red for a reason unrelated to any secret),
+      # and a binary pinned by checksum is a smaller thing to trust than an
+      # action that downloads its own copy of the tool at run time.
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+    steps:
+      # Full history, not the tip: a secret that was committed and later
+      # removed is still in every clone, and still has to be rotated. The
+      # token is not kept in .git/config, where the scan (and anything else in
+      # the job) could read it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install gitleaks (checksum verified)
+        run: |
+          set -euo pipefail
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          dir="${RUNNER_TEMP}/gitleaks"
+          mkdir -p "${dir}"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            --output "${dir}/${archive}" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          # sha256sum -c exits non-zero, and `set -e` stops the job, on any
+          # difference at all.
+          echo "${GITLEAKS_SHA256}  ${dir}/${archive}" | sha256sum --check --strict -
+          tar --extract --gzip --file "${dir}/${archive}" --directory "${dir}" gitleaks
+          echo "${dir}" >> "${GITHUB_PATH}"
+
+      # --redact (100%) replaces every matched secret in the log with REDACTED,
+      # so a finding in a public run log names the rule, file, line, commit and
+      # fingerprint but never the value. --log-opts="--all" walks every ref the
+      # checkout fetched (all branches and tags), not just the commit being
+      # tested. The config extends the built-in ruleset; its allowlist holds
+      # only the synthetic fixtures named in .gitleaks.toml. Exit code 1 on any
+      # finding fails the job.
+      - name: Scan full history for secrets
+        run: |
+          set -euo pipefail
+          gitleaks version
+          gitleaks detect \
+            --source . \
+            --config .gitleaks.toml \
+            --log-opts="--all" \
+            --redact \
+            --no-banner \
+            --verbose
+
+  # What we ship, checked against the advisory database. npm audit reads
+  # package-lock.json and asks the registry; nothing is installed, so the job
+  # needs no Node setup and no secret. The weekly run matters here more than
+  # in the scan above: an advisory is published against a lock file that did
+  # not change.
+  #
+  # npm's own exit code is not the verdict. It is non-zero for any finding and
+  # for a registry that did not answer alike, and the only way to accept a
+  # finding with it is to delete the job. scripts/check-npm-audit.mjs reads the
+  # JSON instead: it fails on every high or critical advisory not listed in
+  # audit-exceptions.json with a reason and an expiry date, and fails closed on
+  # a report it cannot read. The report goes to the runner's temp directory and
+  # is not uploaded.
+  npm-audit:
+    name: npm audit (production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Audit production dependencies
+        run: |
+          npm audit --omit=dev --audit-level=high --json > "${RUNNER_TEMP}/audit.json" || true
+          node scripts/check-npm-audit.mjs "${RUNNER_TEMP}/audit.json" audit-exceptions.json

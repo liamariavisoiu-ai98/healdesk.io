@@ -31,13 +31,13 @@ The one rule to carry even if you read nothing else:
 | Field | Current value |
 | --- | --- |
 | Last updated (UTC) | 2026-10-21 |
-| Current task | `WAVE0-01` read-only inventory: DONE (code and test files read; no suite run). Backlog: [docs/wave0-audit-2026-10-21.md](./docs/wave0-audit-2026-10-21.md) |
-| Status | AWAITING OWNER: approve the first implementation package |
-| Branch / HEAD | `main` at 6cd6b190 (DPA 1.0.0 release on GitHub main, migration 0104); this handoff is a later local commit |
-| Worktree | Main checkout clean before this handoff. Local-only, not on GitHub: extra-locations L1 (`healdesk-m3b`, dirty), `locations/copy-terms`, vet wording (`healdesk-vet-wording`, dirty), billing step 8 not started. Its migration 0104 now clashes: renumber to 0105+ |
-| Approved scope | Read-only audit done. Product edits need an approved package |
-| Next action | Owner picks the first package; recommended `ALERT-01` (small, P0, makes the "I've told the team" claim true), then `NOAUDIO-01` |
-| Blocker | Owner rulings and actions listed in the audit doc |
+| Current task | `SEC-01` security hygiene (P1), five deliverables, one commit each: CODE complete and TESTED locally; NOT run on GitHub. Brief: [docs/design/security-hygiene-brief-2026-10-21.md](./docs/design/security-hygiene-brief-2026-10-21.md) |
+| Status | AWAITING OWNER: review `pkg/security-hygiene`, decide how to land it, and switch on the GitHub settings below. The new `npm-audit` job will be red on its first run (18 high/critical production advisories, three critical, all in `next`) until dependencies are upgraded or the Owner accepts named advisories |
+| Branch / HEAD | `pkg/security-hygiene` in worktree `/Users/liamariavisoiu/projects/healdesk-sec01`, from `main` at 9909f5c0. Deliverables e7c2d152, 396cf99e, 905da99d, 4abdd282, 8a489755; this handoff is the next commit. Not pushed |
+| Worktree | Own worktree, clean after the handoff commit. `main` checkout untouched by this session. Other local-only branches and worktrees as before |
+| Approved scope | SEC-01 only, by the Owner's instruction this session. No dependency upgrades, no push, no GitHub setting |
+| Next action | Owner reviews the branch (`git log 9909f5c0..pkg/security-hygiene`), then the Owner-only actions below. Claude Code next: a separate package to upgrade `next` (>=16.3.8), `axios`, `sharp` and the rest, then `ALERT-01` as before |
+| Blocker | Owner rulings and actions listed in the audit doc; plus the SEC-01 Owner actions below |
 
 ## Last verified / reported evidence
 - **Owner-reported:** Retell and Anthropic agreements signed, database coverage confirmed. Do not request repeat signatures.
@@ -45,9 +45,11 @@ The one rule to carry even if you read nothing else:
 - **Not verified:** deployment, production behaviour, Owner approvals.
 
 ## Last completed work package
+- **SEC-01 (local, not pushed):** a failing-test guard for the PHI boundary (`apps/web/src/lib/boundary.test.ts`) and portability (`apps/app/tests/portability.test.ts`); CI step "Assert the named security suites ran" naming seven suites (`ci.yml`, with tests in `ci-db-guard.test.ts`); `security.yml` (gitleaks 8.30.1 by checksum, and `npm-audit` via `scripts/check-npm-audit.mjs` + `audit-exceptions.json`, empty); `.gitleaks.toml`; `dependabot.yml`; `codeql.yml`. Tests run this session: boundary 9 passed, portability 10 passed, ci-db-guard 9 passed, audit-gate 12 passed, 0 skipped; `npm run lint` clean; gitleaks full history with config: no leaks. Not run: full suites, `actionlint` (not installed), anything on GitHub. `/admin/map` unchanged on purpose: no new key, variable or vendor entry.
 - DPA address relabel (`6cd6b190`, owner's middle option) rebased and pushed to `main` with the DPA 1.0.0 release (`caa32895`, `f0c3ee19`) on the owner's instruction. The epic branch `claude/epic-babbage-n9g119` was NOT updated and sits at fdbbd696.
 
 ## Next actions — ordered
+0. **Owner, SEC-01:** in GitHub, enable secret scanning and push protection, Dependabot alerts and security updates, private vulnerability reporting; protect `main` (require PRs and the checks `test`, `delivery-handoff`, `secret scan`, `npm audit (production)`, `analyze (javascript-typescript)`; block force pushes), which ends direct pushes to `main`, a deliberate choice; decide who triages Dependabot and CodeQL alerts; commission the independent assessment and restore drill (`SECURITY`, `OPS`). Review the red `npm-audit` job and the `next` advisories. Unpinned actions remain in `ci.yml`, `delivery-handoff.yml` and `indexnow.yml` (`@v4`).
 1. **Owner:** approve the first package (`ALERT-01` recommended) and rule on the Meta follow-up question in the audit doc.
 2. **Claude Code:** implement it on a branch with tests; no deploy, no push without approval.
 3. **Owner, pre-launch:** switch on `billing-notices` in `/admin/ops` (Scheduled jobs; tracked as `alert-sender-on` in the launch register, which blocks go-live; `RESEND_API_KEY` is set in Parameter Store as of 2026-10-21 and the services were restarted); `deploy-app.yml` for migration 0104 is blocked, see below; record vendor attestations; the other actions in the audit doc.

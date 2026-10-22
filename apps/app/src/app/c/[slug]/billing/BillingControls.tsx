@@ -37,7 +37,7 @@ function useBillingAnnounce() {
   return (result: BillingActionResult) =>
     announce(
       result.ok
-        ? { text: result.toast, tone: "ok" }
+        ? { text: result.toast, tone: "ok", ...(result.link ? { link: result.link } : {}) }
         : { text: result.message, tone: "problem", stepUpHref: result.stepUpHref },
     );
 }

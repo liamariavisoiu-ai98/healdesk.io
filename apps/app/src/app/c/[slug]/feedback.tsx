@@ -10,7 +10,13 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
  * step-up when that is what it needs.
  */
 
-export type Toast = { text: string; tone: "ok" | "problem"; stepUpHref?: string } | null;
+export type Toast = {
+  text: string;
+  tone: "ok" | "problem";
+  stepUpHref?: string;
+  /** Where the confirmation's next step is done, e.g. a new location's details. */
+  link?: { href: string; label: string };
+} | null;
 
 export const AnnounceContext = createContext<(toast: Toast) => void>(() => undefined);
 
@@ -21,7 +27,9 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<Toast>(null);
 
   useEffect(() => {
-    if (!toast || toast.tone !== "ok") return;
+    // A confirmation with a next step to take stays, like a problem, so its
+    // link is not gone before it can be followed.
+    if (!toast || toast.tone !== "ok" || toast.link) return;
     const timer = setTimeout(() => setToast(null), TOAST_MS);
     return () => clearTimeout(timer);
   }, [toast]);
@@ -49,6 +57,14 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
                   {" "}
                   <a href={toast.stepUpHref} className="font-semibold underline">
                     Confirm it&rsquo;s you
+                  </a>
+                </>
+              ) : null}
+              {toast.link ? (
+                <>
+                  {" "}
+                  <a href={toast.link.href} className="font-semibold underline">
+                    {toast.link.label}
                   </a>
                 </>
               ) : null}

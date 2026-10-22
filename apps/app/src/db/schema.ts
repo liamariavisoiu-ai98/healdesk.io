@@ -966,6 +966,16 @@ export const clinicLocations = pgTable(
     /** When it became active: the database's clock, at pending → active, once. */
     activatedAt: timestamp("activated_at", { withTimezone: true }),
     retiredAt: timestamp("retired_at", { withTimezone: true }),
+    /**
+     * When the practice confirmed this later location's address, hours and
+     * phone numbers on its Settings page (drizzle/0109,
+     * lib/portal/location-details.ts): the database's clock, stamped once by
+     * the guard and never cleared or moved. Null on the main location, whose
+     * facts the setup wizard confirms on clinics, and on a later one until
+     * the practice confirms it. Business data; deleted with the row by the
+     * account's closure.
+     */
+    detailsConfirmedAt: timestamp("details_confirmed_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -1035,6 +1045,12 @@ export const clinicLocations = pgTable(
     check(
       "clinic_locations_call_routing_check",
       sql`${t.callRouting} in ('conditional', 'always')`,
+    ),
+    // A confirmed location has what confirming checked: an address, its
+    // hours and its own number. The main location is never confirmed here.
+    check(
+      "clinic_locations_details_confirmed_check",
+      sql`${t.detailsConfirmedAt} is null or (${t.position} > 1 and ${t.address} is not null and ${t.openingHours} is not null and ${t.publishedPhoneE164} is not null)`,
     ),
   ],
 );

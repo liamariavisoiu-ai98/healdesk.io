@@ -50,6 +50,12 @@ export type Location = {
   createdAt: Date;
   activatedAt: Date | null;
   retiredAt: Date | null;
+  /**
+   * When the practice confirmed a later location's address, hours and phone
+   * numbers (drizzle/0109, lib/portal/location-details.ts); null on the main
+   * location and on a later one not yet confirmed.
+   */
+  detailsConfirmedAt: Date | null;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -76,6 +82,7 @@ function asLocation(row: ClinicLocationRow): Location {
     createdAt: row.createdAt,
     activatedAt: row.activatedAt,
     retiredAt: row.retiredAt,
+    detailsConfirmedAt: row.detailsConfirmedAt,
   };
 }
 

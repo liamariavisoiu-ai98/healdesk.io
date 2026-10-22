@@ -8,6 +8,7 @@ import { requirePortal } from "@/lib/portal/access";
 import { readSignInFactors } from "@/lib/portal/devices";
 import { portalDay, portalMoment } from "@/lib/portal/format";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
+import { locationDetailsPath, readLaterLocations } from "@/lib/portal/location-details";
 import { readCalendarCard } from "@/lib/portal/settings-calendar";
 import { readSettingsView } from "@/lib/portal/settings-view";
 import { sessionBinding } from "@/lib/portal/step-up";
@@ -92,6 +93,10 @@ export default async function SettingsPage({
   const ayaNumber = await withTenant({ clinicId: portal.clinicId, actor: page.actorContext }, (tx) =>
     readPhoneStepsNumber(tx.db, tx.clinicId),
   );
+  const laterLocations = await withTenant(
+    { clinicId: portal.clinicId, actor: page.actorContext },
+    (tx) => readLaterLocations(tx),
+  );
   const forwarding = ayaNumber
     ? await settingsForwarding(portal.clinicId, page.actorContext, ayaNumber, page.state)
     : null;
@@ -118,6 +123,9 @@ export default async function SettingsPage({
       <p className="text-muted mt-2">Every switch saves the moment you change it.</p>
       <FeedbackProvider>
         <div className="mt-6 grid gap-6">
+          {laterLocations.length > 0 ? (
+            <LocationsCard slug={portal.clinicSlug} locations={laterLocations} />
+          ) : null}
           <ChannelsCard
             view={view}
             phoneSteps={ayaNumber ? { numberLabel: formatPhone(ayaNumber) } : null}
@@ -150,6 +158,64 @@ export default async function SettingsPage({
         </div>
       </FeedbackProvider>
     </PortalShell>
+  );
+}
+
+/**
+ * Locations (21 October 2026): each location added after the main one, with
+ * whether its address, hours and phone numbers still wait on the practice,
+ * and one tap to its page (settings/locations/[id]). Shown only once the
+ * account has a later location; the main location's details stay where they
+ * always were, in Knowledge and the cards below.
+ */
+function LocationsCard(props: {
+  slug: string;
+  locations: Awaited<ReturnType<typeof readLaterLocations>>;
+}) {
+  const waiting = props.locations.filter((l) => !l.confirmed).length;
+  return (
+    <section
+      id="locations"
+      aria-labelledby="locations-heading"
+      className="border-line scroll-mt-6 rounded-2xl border bg-white px-5 py-4"
+    >
+      <h2 id="locations-heading" className="text-lg font-semibold">
+        Locations
+      </h2>
+      <p className="text-muted mt-1 text-sm">
+        {waiting === 0
+          ? "Every location you added has its details confirmed."
+          : waiting === 1
+            ? "One location is waiting for you to confirm its address, hours and phone numbers."
+            : `${waiting} locations are waiting for you to confirm their address, hours and phone numbers.`}
+      </p>
+      <ul className="mt-3 grid gap-2">
+        {props.locations.map((l) => (
+          <li
+            key={l.id}
+            className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3"
+          >
+            <span>
+              <span className="block font-semibold">{l.name}</span>
+              <span className="text-muted block text-sm">
+                {l.confirmed ? "Details confirmed" : "Details to confirm"}
+                {l.address ? ` · ${l.address}` : ""}
+              </span>
+            </span>
+            <a
+              href={locationDetailsPath(props.slug, l.id)}
+              className={
+                l.confirmed
+                  ? "border-line inline-flex min-h-11 items-center rounded-full border px-5 text-sm font-semibold"
+                  : "bg-ink inline-flex min-h-11 items-center rounded-full px-5 text-sm font-bold text-white"
+              }
+            >
+              {l.confirmed ? "Edit details" : "Confirm details"}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

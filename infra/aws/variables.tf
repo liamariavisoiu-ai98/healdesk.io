@@ -264,6 +264,17 @@ variable "voice_real_calls" {
   }
 }
 
+variable "voice_provision_enabled" {
+  description = "The owner's spend switch for automatic voice provisioning: sets HEALDESK_VOICE_PROVISION_ENABLED=1 on the worker, wherever worker_placement puts it, and on the web task, whose ops API runs retryVoiceAgent (apps/app/src/lib/voice/provision.ts, provision-job.ts, ops/voice-agent-ops.ts). On, the engine buys each paid voice clinic's AYA number from Retell and creates its agent (Retell bills every number), at most HEALDESK_VOICE_PROVISION_DAILY_CAP a day (20 by default; a plain setting for app_environment, like HEALDESK_RETELL_VOICE_ID). Off, provisioning makes no Retell call of any kind, and agents and numbers are set up by hand. It needs enable_voice because every agent it creates points at the voice endpoint's address: a number bought with no endpoint behind it would bill for nothing. The voice task does not carry it: it provisions nothing. Turn it on only when the owner decides to spend; off in production.tfvars until then."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.voice_provision_enabled || var.enable_voice
+    error_message = "voice_provision_enabled needs enable_voice: the agents it creates point at the voice endpoint, which would not exist. To turn voice off, set both to false in the same change."
+  }
+}
+
 variable "voice_desired" {
   description = "Intended number of voice tasks while enable_voice is on. Terraform creates the service at 0 and the deploy workflow sets this count after the first good migration; it is also the alarm's floor for healthy voice tasks. A deploy drops no call either way (the old tasks drain first, alb.tf). One, the lean default, is a single point of failure: losing that task mid-call drops every call on it and leaves Retell nothing to reach until ECS replaces it. Two survive the loss of one task mid-call (only its own calls drop, and the other answers the next), at the cost of a second task."
   type        = number

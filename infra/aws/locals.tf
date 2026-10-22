@@ -118,6 +118,11 @@ locals {
     # And whether it answers real patients or only the demo clinic. The voice
     # task and the worker (below) carry the same switch and act on it.
     var.voice_real_calls ? { HEALDESK_VOICE_REAL_CALLS = "1" } : {},
+    # The owner's provisioning switch. The web task runs retryVoiceAgent from
+    # the ops API (lib/ops/voice-agent-ops.ts), under the same guard a
+    # scheduled run has, so without it there a retry would answer "switched
+    # off" while the worker bought numbers.
+    var.voice_provision_enabled ? { HEALDESK_VOICE_PROVISION_ENABLED = "1" } : {},
     {
       for k, v in {
         META_APP_ID              = var.meta_app_id
@@ -141,6 +146,12 @@ locals {
     local.app_environment_common,
     { for k, v in { STRIPE_CONNECT_CLIENT_ID = var.stripe_connect_client_id } : k => v if v != "" },
     var.voice_real_calls ? { HEALDESK_VOICE_REAL_CALLS = "1" } : {},
+    # And HEALDESK_VOICE_PROVISION_ENABLED (voice_provision_enabled): the
+    # hourly sweep that queues each paid clinic's Retell agent and number, and
+    # the voice-provision job that buys it, run here (lib/voice/
+    # provision-job.ts, workers/index.ts), in either placement. The voice task
+    # runs neither.
+    var.voice_provision_enabled ? { HEALDESK_VOICE_PROVISION_ENABLED = "1" } : {},
   )
 
   # The voice endpoint (enable_voice, src/voice/server.ts): the common
@@ -178,6 +189,7 @@ locals {
     "HEALDESK_SES_CONFIGURATION_SET",
     "HEALDESK_SES_EVENTS_TOPIC_ARN",
     "HEALDESK_VOICE_ENABLED",
+    "HEALDESK_VOICE_PROVISION_ENABLED",
     "HEALDESK_VOICE_REAL_CALLS",
     "HOSTNAME",
     "KEEP_ALIVE_TIMEOUT",

@@ -53,12 +53,13 @@ web_memory            = 1024
 web_desired           = 1
 worker_desired        = 1
 
-# The Retell voice endpoint: off until HEALDESK_RETELL_LLM_SECRET is pasted,
-# for a test call on the demo clinic or, with voice_real_calls, a clinic that
-# has bought voice. Turned on, one task of a quarter vCPU
-# and 1 GB, about $8.51 a month; voice_desired = 2 survives losing a task
-# mid-call.
-enable_voice  = false
+# The Retell voice endpoint: set on 22 October 2026 (owner; live once infra.yml applies it), after the
+# deploy of eecd2199 and with HEALDESK_RETELL_LLM_SECRET and
+# HEALDESK_RETELL_API_KEY pasted, for a test call on the demo clinic: with
+# voice_real_calls off, the endpoint answers only that made-up clinic. One
+# task of a quarter vCPU and 1 GB, about $8.61 a month; voice_desired = 2
+# survives losing a task mid-call.
+enable_voice  = true
 voice_desired = 1
 voice_cpu     = 256
 voice_memory  = 1024
@@ -70,6 +71,14 @@ voice_memory  = 1024
 # and voice tasks all carry the switch. It needs enable_voice: turning voice
 # off means setting both to false in the same change.
 voice_real_calls = false
+
+# Automatic voice provisioning, the owner's spend switch: off until the owner
+# decides to spend. On, the worker buys each paid voice clinic's AYA number
+# from Retell and creates its agent (Retell bills every number); off, it makes
+# no Retell call and agents and numbers are set up by hand. The variable
+# exists (22 October 2026) but nobody has a paid voice plan yet. It needs
+# enable_voice. Never switched on by an agent.
+voice_provision_enabled = false
 
 # Database.
 postgres_version     = "17.11"

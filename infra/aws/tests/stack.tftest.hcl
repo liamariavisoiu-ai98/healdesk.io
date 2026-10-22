@@ -1587,6 +1587,122 @@ run "voice_real_calls_on_with_a_separate_worker" {
   }
 }
 
+# The owner's provisioning switch, off by default: no task carries it, so the
+# worker's hourly sweep queues nothing and no Retell number is bought, even
+# with the voice endpoint on (production.tfvars today).
+run "voice_provision_off_delivers_nothing" {
+  command = plan
+
+  variables {
+    enable_voice = true
+  }
+
+  assert {
+    condition = alltrue([
+      for td in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.voice[0].container_definitions, aws_ecs_task_definition.worker.container_definitions] :
+      !strcontains(td, "HEALDESK_VOICE_PROVISION_ENABLED")
+    ])
+    error_message = "With voice_provision_enabled off, no task may carry HEALDESK_VOICE_PROVISION_ENABLED: provisioning must make no Retell call."
+  }
+}
+
+# On: the worker, in the shared placement its container in the web task, and
+# the web task's app container (the ops API's retryVoiceAgent), carry exactly
+# "1"; the voice task provisions nothing and does not.
+run "voice_provision_on_reaches_the_worker_and_web_only" {
+  command = plan
+
+  variables {
+    enable_voice            = true
+    voice_provision_enabled = true
+  }
+
+  assert {
+    condition = (
+      contains([for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "worker"]).environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_PROVISION_ENABLED=1") &&
+      contains([for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_PROVISION_ENABLED=1")
+    )
+    error_message = "With voice_provision_enabled on, the web task's worker container (the sweep and the job) and its app container (retryVoiceAgent) must carry HEALDESK_VOICE_PROVISION_ENABLED=1."
+  }
+
+  assert {
+    condition     = !strcontains(aws_ecs_task_definition.voice[0].container_definitions, "HEALDESK_VOICE_PROVISION_ENABLED")
+    error_message = "The voice task provisions nothing and must not carry HEALDESK_VOICE_PROVISION_ENABLED."
+  }
+
+  # It is the owner's spend switch only: the real-calls switch stays off.
+  assert {
+    condition = alltrue([
+      for td in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.voice[0].container_definitions, aws_ecs_task_definition.worker.container_definitions] :
+      !strcontains(td, "HEALDESK_VOICE_REAL_CALLS")
+    ])
+    error_message = "voice_provision_enabled must not turn real patients' calls on."
+  }
+}
+
+# Separate placement: the worker's own task carries it, the web task too.
+run "voice_provision_on_with_a_separate_worker" {
+  command = plan
+
+  variables {
+    enable_voice            = true
+    voice_provision_enabled = true
+    worker_placement        = "separate"
+  }
+
+  assert {
+    condition = (
+      contains([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_PROVISION_ENABLED=1") &&
+      contains([for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_PROVISION_ENABLED=1") &&
+      !strcontains(aws_ecs_task_definition.voice[0].container_definitions, "HEALDESK_VOICE_PROVISION_ENABLED")
+    )
+    error_message = "With worker_placement separate, the worker task and the web task carry HEALDESK_VOICE_PROVISION_ENABLED=1 and the voice task does not."
+  }
+}
+
+run "refuses_voice_provision_without_voice" {
+  command = plan
+
+  variables {
+    voice_provision_enabled = true
+  }
+
+  expect_failures = [var.voice_provision_enabled]
+}
+
+run "refuses_voice_provision_through_app_environment" {
+  command = plan
+
+  variables {
+    enable_voice    = true
+    app_environment = { HEALDESK_VOICE_PROVISION_ENABLED = "1" }
+  }
+
+  expect_failures = [var.app_environment]
+}
+
+# The daily cap and the voice are plain settings the owner may tune through
+# app_environment; the stack does not own them.
+run "voice_provision_cap_and_voice_are_app_environment_settings" {
+  command = plan
+
+  variables {
+    enable_voice = true
+    app_environment = {
+      HEALDESK_VOICE_PROVISION_DAILY_CAP = "5"
+      HEALDESK_RETELL_VOICE_ID           = "retell-Sloane"
+    }
+  }
+
+  assert {
+    condition = (
+      contains([for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "worker"]).environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_PROVISION_DAILY_CAP=5") &&
+      !strcontains(aws_ecs_task_definition.worker.container_definitions, "HEALDESK_VOICE_PROVISION_ENABLED")
+    )
+    error_message = "The cap reaches the worker through app_environment, and setting it does not switch provisioning on."
+  }
+}
+
 run "refuses_real_calls_without_voice" {
   command = plan
 

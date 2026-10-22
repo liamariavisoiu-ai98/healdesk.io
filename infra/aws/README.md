@@ -124,7 +124,7 @@ Why each piece is shaped the way it is:
 | --- | --- | --- |
 | `versions.tf`, `providers.tf`, `.terraform.lock.hcl` | Terraform `~> 1.16`; aws `~> 6.67`, cloudflare `~> 5.27`, locked with hashes for linux and macOS on both architectures; no random provider. The aws provider refuses any account but `865780386982`; default tags `Project`, `Environment`, `ManagedBy` | No other account is covered by the BAA. Nothing here generates a secret, so a `random_password` added later fails the read-only inits until someone adds the provider on purpose. The Cloudflare token comes from the `CLOUDFLARE_API_TOKEN` environment variable, never a Terraform variable, so it is never written into a saved plan |
 | `backend.tf` | S3 backend, key `healdesk/production/terraform.tfstate`, native locking (`use_lockfile`); bucket and KMS key passed with `-backend-config` | The state holds no secret value (below) but maps the whole account, so it lives in the bootstrap stack's private, versioned, KMS-encrypted bucket |
-| `variables.tf`, `locals.tf`, `production.tfvars` | Every setting, with validation (region pinned, environment 2 to 12 characters, the two hostnames under healdesk.io and different, exact main-branch OIDC subjects, Fargate sizes for web and voice, `app_environment` refusing secrets, the stack's own names and the two counsel-gated switches); the per-task environment and secret maps; the signed paths; the never-set list | `production.tfvars` holds nothing secret and nothing personal. `alarm_email`, `healdesk_admin_email`, `healdesk_ops_email` and `cloudflare_zone_id` come from GitHub repository variables as `TF_VAR_*`, so they stay out of git |
+| `variables.tf`, `locals.tf`, `production.tfvars` | Every setting, with validation (region pinned, environment 2 to 12 characters, the two hostnames under healdesk.io and different, exact main-branch OIDC subjects, Fargate sizes for web and voice, `app_environment` refusing secrets, the stack's own names, the two counsel-gated switches and the voice switches, `voice_real_calls` and `voice_provision_enabled`, each refused without `enable_voice`); the per-task environment and secret maps; the signed paths; the never-set list | `production.tfvars` holds nothing secret and nothing personal. `alarm_email`, `healdesk_admin_email`, `healdesk_ops_email` and `cloudflare_zone_id` come from GitHub repository variables as `TF_VAR_*`, so they stay out of git |
 | `network.tf` | VPC `10.40.0.0/16` over us-east-1a and 1b; public subnets for the ALB and the way out; private subnets for tasks and RDS, routed to the NAT instance (`nat_mode = "instance"`) or to `nat_gateways` NAT gateways (`"gateway"`); default security group stripped; flow logs and VPC endpoints behind variables, both off | The tasks call vendors on the internet, so NAT is needed whatever else is chosen. Endpoints only take AWS API traffic off the NAT |
 | `nat.tf`, `templates/nat-instance.sh.tftpl` | The NAT instance: one `t4g.nano` (`nat_instance_type`) on the newest minimal Amazon Linux 2023 arm64 image, in the first public subnet with its own public address; source/destination check off; security group admitting 443 from the tasks only and sending 443 only; nftables forwarding new connections to 443 from the VPC and dropping everything else; IMDSv2 only, no key pair, no instance role, standard CPU credits, an encrypted root volume, automatic recovery; `dnf-automatic` security updates; alarm `nat-instance-status` | About $7 a month against about $37 for a NAT gateway, for the same job: only the app's own TLS crosses it. See "The NAT instance" below |
 | `kms.tf` | One customer-managed key, `alias/healdesk-production`: symmetric, single-region, rotating, `prevent_destroy`. Key policy: account root (delegating to IAM), CloudWatch Logs for this account's log groups, CloudTrail for this trail by `aws:SourceArn` | It encrypts the credential vault (`HEALDESK_KMS_KEY_ID`), RDS storage, the master secret, Performance Insights, every SSM parameter, ECR, every log group and the trail. The app pins its ARN, so it is never replaced. The key policy names the app's task role nowhere, and must never: a statement naming it without the lock-label conditions would make them moot |
@@ -144,7 +144,7 @@ Why each piece is shaped the way it is:
 | `ses.tf` | **On** (`enable_ses`): the SES configuration set `healdesk-production-phi` with `TlsPolicy=REQUIRE`, the domain identity and its DKIM records at Cloudflare, `HEALDESK_SES_CONFIGURATION_SET` on the tasks and the task role's send rights on that set only; the set's events (delivery, bounce, complaint, rejection) to the SNS topic `healdesk-production-ses-events`, signed (v2), subscribed over HTTPS at `/api/webhooks/ses` (`subscribe_ses_events`, which the workflows turn off while the app does not answer), whose ARN the web task gets as `HEALDESK_SES_EVENTS_TOPIC_ARN`. No copy of a transcript goes anywhere else: the archive copy went on 14 October 2026, and `app_environment` refuses its two names | A conversation's transcript is emailed to the clinic, never kept (the owner's decision of 13 October 2026; `apps/app/src/lib/conversations/transcript-email.ts`). That email is classed `may-carry-phi`, so the app sends it, and only it, through SES; everything else stays on Resend. The account must leave the SES sandbox before it reaches a clinic (First run, step 9) |
 | `storage.tf` | The transcript bucket (`enable_transcript_bucket`). **Off, and now superseded**: transcripts are emailed, not stored | See "Deliberately not built" |
 | `outputs.tf` | `standby`, `alb_dns_name`, `app_url`, `internal_url`, `github_deploy_role_arn`, `ecr_repository_urls`, `rds_endpoint`, `rds_master_secret_arn`, `kms_key_arn`, `alarm_topic_arn`, `parameters_to_fill`, `internal_parameters`, `transcript_bucket`, `ses_configuration_set`, `voice_websocket_url`, `voice_service` | What the next steps need. None is a secret. Those naming something standby removes are null in standby |
-| `tests/stack.tftest.hcl`, `tests/restore.tftest.hcl` | 36 plan-only runs with both providers mocked: production defaults, lock labels off, the bucket and SES on, the shape first built, voice on (with the encrypted hop, and without it under the longest environment name), plain HTTP to tasks, public ids, an imported GuardDuty detector, standby's two applies (lean, and with every switch on), the way back from a snapshot, and 24 refusals; and, in a state of its own, a restore applied and two plans after it (another snapshot named, none named) that must keep the database | CI's `infra` job runs both; they need no credentials. The second file applies, so its mocks fill values at apply time and it targets the database alone |
+| `tests/stack.tftest.hcl`, `tests/restore.tftest.hcl` | 46 plan-only runs with both providers mocked: production defaults, lock labels off, the bucket and SES on, the shape first built, voice on (with the encrypted hop, and without it under the longest environment name), plain HTTP to tasks, public ids, an imported GuardDuty detector, standby's two applies (lean, and with every switch on), the way back from a snapshot, and 27 refusals; and, in a state of its own, a restore applied and two plans after it (another snapshot named, none named) that must keep the database | CI's `infra` job runs both; they need no credentials. The second file applies, so its mocks fill values at apply time and it targets the database alone |
 | `bootstrap/bootstrap.yaml` | CloudFormation stack `healdesk-bootstrap`: state bucket `healdesk-terraform-state-865780386982` with its own key (`alias/healdesk-terraform-state`), the GitHub OIDC provider, role `healdesk-github-terraform` | What Terraform cannot create for itself. The stack refuses any other account or region; bucket and key are kept if the stack is deleted, and removed if the launch that created them rolls back (`RetainExceptOnCreate`) |
 | `images/tls-proxy/` | nginx 1.30.5 (pinned by digest), an entrypoint making the key and configuration under `/tmp/tls-proxy` (or `TLS_PROXY_RUN_DIR`), keep-alive from `TLS_PROXY_KEEPALIVE_SECONDS` (`alb_idle_timeout + 10`), a health-check script | See "The request paths" |
 | `images/db-admin/` | postgres 17 alpine client (pinned by digest), the AWS CLI and Python 3, the RDS CA bundle, `apps/app/scripts/provision-roles.sql`, `scram-verifier.py`, an entrypoint that takes no arguments | The app image has no psql, and the RDS master user is not a superuser. See "The database" |
@@ -248,7 +248,12 @@ same conversation code.
   with `enable_voice`, `HEALDESK_VOICE_ENABLED=1`, which tells `/admin/map` the voice endpoint
   exists (the pasted secret cannot: the web tier holds every `app/` parameter; like any task
   change, it reaches the running web tasks with the next full deploy); the voice task
-  (`enable_voice`) adds only `PORT=3001` and `HOSTNAME=0.0.0.0`. With `voice_real_calls`, the
+  (`enable_voice`) adds only `PORT=3001` and `HOSTNAME=0.0.0.0`.
+  With `voice_provision_enabled`, the web task (whose ops API runs `retryVoiceAgent`) and the
+  worker, in either `worker_placement` (its hourly sweep and the `voice-provision` job), get
+  `HEALDESK_VOICE_PROVISION_ENABLED=1`; the voice task never does. The daily cap
+  (`HEALDESK_VOICE_PROVISION_DAILY_CAP`) and the voice (`HEALDESK_RETELL_VOICE_ID`) are plain
+  settings, for `app_environment`. With `voice_real_calls`, the
   web, the worker and the voice task get `HEALDESK_VOICE_REAL_CALLS=1`: the voice process answers
   real patients only with it, the worker's backstop for a call the voice task never recorded
   records a real clinic's call only with it (in either `worker_placement`), and `/admin/map` reads
@@ -1085,7 +1090,8 @@ profile the owner chose on 13 October 2026:
 | AWS Config, small | 3.00 |
 | GuardDuty, foundational | 4.00 |
 | SES: the transcript emails, $0.10 per 1,000 (more on SES's newer bundled plans) | under 0.10 |
-| **Total, running** | **≈ 70** |
+| The voice task and its alarm (`enable_voice`, set on in `production.tfvars` on 22 October 2026, live once applied; "The voice endpoint") | 8.61 |
+| **Total, running** | **≈ 79** (≈ 70 without voice) |
 
 In standby ("Standby") the account costs **about $4 a month**: the two KMS keys, the images, the
 database's snapshot and, for 35 days, its automated backups, and a little Config, GuardDuty and
@@ -1115,7 +1121,8 @@ weeks; the next step up for each is one variable.
 | `web_desired = 2` (multiplies the in-memory rate limits; turn the WAF on first) | +8.51 |
 | `vpc_endpoints = true` (six interface endpoints in two AZs, plus S3) | +87.60, plus $0.01 a GB |
 | `enable_flow_logs = true` | CloudWatch ingestion, by traffic |
-| `enable_voice = true` (one voice task, 0.25 vCPU and 1 GB on ARM64, and its alarm; "The voice endpoint") | +8.61 |
+| `enable_voice = true` (one voice task, 0.25 vCPU and 1 GB on ARM64, and its alarm; "The voice endpoint", set on in `production.tfvars` on 22 October 2026 and so in the running figure once applied) | +8.61 |
+| `voice_provision_enabled = true` (no AWS resource; it lets the engine buy a Retell number for each paid voice clinic, which Retell bills, up to the daily cap) | +0.00 on AWS, Retell's number fee per clinic |
 | `voice_desired = 2` (a second voice task, so losing one mid-call drops only its own calls) | +8.51 more |
 | `container_insights = true`, Database Insights advanced | extra CloudWatch charges |
 
@@ -1156,7 +1163,7 @@ holds patient data in the clear; unlike a gateway, it is an instance to look aft
 
 ## The voice endpoint
 
-`enable_voice` (off in `production.tfvars`) runs the Retell custom-LLM endpoint,
+`enable_voice` (set on in `production.tfvars` on 22 October 2026, live once applied, for a test call on the demo clinic; `voice_real_calls` and `voice_provision_enabled` stay false) runs the Retell custom-LLM endpoint,
 `apps/app/src/voice/server.ts`: a plain Node HTTP and WebSocket server from the app image, one
 WebSocket per call, held for the whole call. A Next route handler cannot accept the upgrade, so it
 is a process and a service of its own. Turning it on creates:
@@ -1268,13 +1275,22 @@ calls drop and the other answers the next.
    `restart_only`: the flag is in the web, worker and voice task definitions, and the worker's
    backstop reads it as the voice line does). Then each real clinic's agent may get the address.
    Turning it back off is the same three steps with `false`.
+9. Automatic provisioning, the owner's spend switch: `voice_provision_enabled = true` in
+   `production.tfvars`, merge, run `infra.yml` with `apply`, then a full `deploy-app.yml` (the flag
+   is in the web and worker task definitions). It needs `enable_voice` (the plan refuses it
+   without) and `HEALDESK_RETELL_API_KEY`; set `HEALDESK_RETELL_VOICE_ID` and, to lower the
+   default 20 numbers a day, `HEALDESK_VOICE_PROVISION_DAILY_CAP` in `app_environment` first.
+   Each number Retell sells is billed to the owner, so it is turned on when the owner decides to
+   spend, and no agent turns it on. Off, provisioning makes no Retell call (apps/app
+   `lib/voice/provision.ts`).
 
 **Rotating the secret**: paste a new value, run `restart_only`, then update every agent's URL;
 calls to an agent not yet updated are refused in between, so do it in a quiet hour.
 
 **Turning it off**: point each clinic's forwarding back to its own line, set `enable_voice = false`
-and, if real calls were on, `voice_real_calls = false` in the same change (the plan refuses
-`voice_real_calls` without `enable_voice`), and apply. The apply waits while the voice tasks drain, up to an hour (the service's delete
+and, if real calls or provisioning were on, `voice_real_calls = false` and
+`voice_provision_enabled = false` in the same change (the plan refuses either without
+`enable_voice`), and apply. The apply waits while the voice tasks drain, up to an hour (the service's delete
 timeout is 65 minutes, inside `infra.yml`'s 90), so do it in a quiet hour. Then run a full
 `deploy-app.yml` (not `restart_only`): the web tasks keep the revision the last deploy registered,
 so until then they still carry `HEALDESK_VOICE_ENABLED` (and, with the worker, any

@@ -12,6 +12,7 @@ export type CostLine = { item: string; dollars: number; note?: string };
 export const ACTIVE_COSTS: readonly CostLine[] = [
   { item: "Load balancer: hours, a little LCU, two public IPv4 addresses", dollars: 25.19 },
   { item: "One web task (ARM64, 0.25 vCPU, 1 GB): app, TLS sidecar, worker", dollars: 8.51 },
+  { item: "One voice task (ARM64, 0.25 vCPU, 1 GB) and its alarm: enable_voice, set on 22 October 2026 and live once applied", dollars: 8.61 },
   { item: "RDS db.t4g.micro, single-AZ, 20 GiB gp3", dollars: 13.98 },
   { item: "NAT instance t4g.nano, its public address and disk", dollars: 7.36 },
   { item: "KMS: the product key and the state key", dollars: 2.2 },

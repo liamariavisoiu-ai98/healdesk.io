@@ -949,6 +949,7 @@ async function main(): Promise<void> {
       closing_question: out.closingQuestion,
       // Touch 1's subject and touch 2's scene, built on the same facts as the
       // hook; chat_surface is what the preview's chat is dressed as.
+      greeting: out.greeting,
       subject_line: out.subjectLine,
       chat_surface: out.chatSurface,
       scenario: out.scenario,

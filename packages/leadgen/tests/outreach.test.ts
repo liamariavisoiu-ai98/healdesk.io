@@ -940,3 +940,15 @@ describe("the service as a bare noun", () => {
   });
 });
 
+describe("the greeting", () => {
+  test("medical practices never get 'Hey', and one address keeps one greeting", async () => {
+    const { greetingFor } = await import("../src/enrich/outreach.ts");
+    const emails = Array.from({ length: 40 }, (_, i) => `person${i}@clinic.com`);
+    const dental = new Set(emails.map((e) => greetingFor("dental", e)));
+    expect([...dental].sort()).toEqual(["Hello", "Hi"]);
+    const spa = new Set(emails.map((e) => greetingFor("injectables", e)));
+    expect([...spa].sort()).toEqual(["Hey", "Hi"]);
+    expect(greetingFor("dental", "a@b.com")).toBe(greetingFor("dental", "A@b.com"));
+  });
+});
+

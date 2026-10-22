@@ -88,6 +88,13 @@ const CLIENT_SEGMENTS: ReadonlySet<string> = new Set([
   "injectables", "laser-skin", "body-contouring", "wellness-iv", "massage-therapy", "veterinary",
 ]);
 
+export function greetingFor(segment: string, email: string): string {
+  let h = 0;
+  for (const ch of email.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const pair = clientTerm(segment) === "clients" ? ["Hi", "Hey"] : ["Hi", "Hello"];
+  return pair[h % 2]!;
+}
+
 export function clientTerm(segment: string): "clients" | "patients" {
   return CLIENT_SEGMENTS.has(segment) ? "clients" : "patients";
 }
@@ -197,6 +204,13 @@ export type OutreachRow = {
    * what AYA does with it, which follows bookingMode.
    */
   scenario: string;
+  /**
+   * The greeting word. "Hey" suits a med spa and reads oddly to a dentist, so
+   * medical practices get "Hi" or "Hello" and the rest "Hi" or "Hey". Which of
+   * the two is fixed per address, so one thread keeps one greeting while the
+   * list as a whole varies.
+   */
+  greeting: string;
   /** "clients" for aesthetics, wellness, massage and vets, "patients" otherwise. */
   clientTerm: "clients" | "patients";
   /** Hours in the longest stretch nobody answers. The number the email turns on. */
@@ -327,6 +341,7 @@ export function buildOutreachRow(
       topService: label.topService ?? "",
       topOffer: "",
       closingQuestion: "",
+      greeting: "",
       subjectLine: "",
       chatSurface: "",
       scenario: "",
@@ -432,6 +447,7 @@ export function buildOutreachRow(
     topOffer: offer.offer,
     closingQuestion: buildQuestion(angle, sites, clientTerm(label.segment), social),
     clientTerm: clientTerm(label.segment),
+    greeting: greetingFor(label.segment, contact.email),
     subjectLine: buildSubject(companyShort(contact.company ?? ""), window, weekendClosed, hours, sites, noBooking),
     chatSurface: chatSurface(social),
     scenario: buildScenario(phrase, label.topService, social, window, weekendClosed, hours, bookingMode),

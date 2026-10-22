@@ -112,3 +112,56 @@ BEGIN
   EXECUTE format('GRANT CONNECT, CREATE ON DATABASE %I TO healdesk_migrator', current_database());
 END
 $$;
+
+-- =============================================================================
+-- healdesk_readonly: the role of the db-query task (docs/design/db-access-
+-- 2026-10-22.md). Created only when the caller passes -v readonly_password,
+-- which the db-bootstrap task does and CI and dev-db.sh do not, so a database
+-- without the variable is left exactly as it was.
+--
+-- It reads business and configuration tables and nothing else: the SELECT
+-- grants are not here (only a table's owner can grant on it) but in
+-- scripts/readonly-grants.ts, which the migrate task runs as the migrator after
+-- every migration, from scripts/readonly-tables.ts. This role owns nothing, has
+-- no BYPASSRLS, and its sessions are read only with short time limits whatever
+-- the client asks for.
+-- =============================================================================
+\if :{?readonly_password}
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'healdesk_readonly') THEN
+    CREATE ROLE healdesk_readonly LOGIN;
+  END IF;
+END
+$$;
+
+ALTER ROLE healdesk_readonly PASSWORD :'readonly_password';
+ALTER ROLE healdesk_readonly NOCREATEDB NOCREATEROLE;
+ALTER ROLE healdesk_readonly SET default_transaction_read_only = on;
+ALTER ROLE healdesk_readonly SET statement_timeout = '30s';
+ALTER ROLE healdesk_readonly SET idle_in_transaction_session_timeout = '30s';
+
+-- As for the other two roles: found otherwise, the script stops rather than
+-- trusting a role that existed before with other attributes.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles
+              WHERE rolname = 'healdesk_readonly'
+                AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb)) THEN
+    RAISE EXCEPTION 'healdesk_readonly is SUPERUSER, BYPASSRLS, CREATEROLE or CREATEDB: drop the role and re-run this file';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_auth_members m
+               JOIN pg_roles u ON u.oid = m.member
+              WHERE u.rolname = 'healdesk_readonly') THEN
+    RAISE EXCEPTION 'healdesk_readonly is a member of another role: revoke the membership and re-run this file';
+  END IF;
+
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO healdesk_readonly', current_database());
+END
+$$;
+
+GRANT USAGE ON SCHEMA public TO healdesk_readonly;
+
+\endif

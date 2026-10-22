@@ -4,7 +4,7 @@
 # credentials never reach application code. The task roles are what the code
 # itself can do: the app may use the credential vault's key (and, when they
 # exist, the transcript bucket and SES), the db-admin task may generate and
-# read the six internal secrets and nothing else, and the migrate task has no
+# read the eight internal secrets and nothing else, and the migrate task has no
 # task role.
 # ---------------------------------------------------------------------------
 
@@ -65,8 +65,8 @@ data "aws_iam_policy_document" "ecs_execution" {
     resources = [for group in aws_cloudwatch_log_group.app : "${group.arn}:*"]
   }
 
-  # Only the two paths a task definition names: app/ (web and worker) and
-  # migrator/ (the migrate task). Not db/, which the db-bootstrap task reads
+  # Only the three paths a task definition names: app/ (web and worker),
+  # migrator/ (the migrate task) and readonly/ (the db-query task). Not db/, which the db-bootstrap task reads
   # through its own role, and never ci/, where the Cloudflare token infra.yml
   # uses lives: a task definition that names either, whoever registers it,
   # fails to start.
@@ -76,6 +76,7 @@ data "aws_iam_policy_document" "ecs_execution" {
     resources = [
       "arn:aws:ssm:${var.region}:${local.account_id}:parameter${local.param_prefix}/app/*",
       "arn:aws:ssm:${var.region}:${local.account_id}:parameter${local.param_prefix}/migrator/*",
+      "arn:aws:ssm:${var.region}:${local.account_id}:parameter${local.param_prefix}/readonly/*",
     ]
   }
 
@@ -229,17 +230,17 @@ resource "aws_iam_role_policy" "app_task" {
   policy = data.aws_iam_policy_document.app_task.json
 }
 
-# The db-bootstrap task's role: generate the six internal secrets that are
+# The db-bootstrap task's role: generate the eight internal secrets that are
 # still "__unset__", read the two role passwords back, and nothing else
-# (ssm.tf). GetParameter and PutParameter on exactly those six ARNs; the key
-# only through SSM and only for those six parameters' own encryption context,
+# (ssm.tf). GetParameter and PutParameter on exactly those eight ARNs; the key
+# only through SSM and only for those eight parameters' own encryption context,
 # so the role can neither read nor write any other parameter's value. The
 # master credentials still arrive through the execution role's secrets, and
 # psql talks only to the database. A role of its own keeps the task from ever
 # being given the app's.
 resource "aws_iam_role" "db_admin_task" {
   name               = "${local.name}-db-admin-task"
-  description        = "db-bootstrap task: generate and read the six internal secrets, nothing else"
+  description        = "db-bootstrap task: generate and read the eight internal secrets, nothing else"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
 }
 
@@ -375,6 +376,7 @@ locals {
     reapply_erasures  = "${local.name}-reapply-erasures"
     demo_clinic       = "${local.name}-demo-clinic"
     channels_link     = "${local.name}-channels-link"
+    db_query          = "${local.name}-db-query"
   }
 
   task_definition_arn_prefix = "arn:aws:ecs:${var.region}:${local.account_id}:task-definition"

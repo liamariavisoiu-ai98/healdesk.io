@@ -47,10 +47,14 @@ The one rule to carry even if you read nothing else:
 ## Last completed work package
 - DPA address relabel (`6cd6b190`, owner's middle option) rebased and pushed to `main` with the DPA 1.0.0 release (`caa32895`, `f0c3ee19`) on the owner's instruction. The epic branch `claude/epic-babbage-n9g119` was NOT updated and sits at fdbbd696.
 
+- **DB-ACCESS-01 (22 Oct 2026), CODE and partly TESTED, nothing applied or pushed:** branch `infra/db-access-plan` (worktree `../healdesk-db-access`). A way to read the production database without anyone holding its credentials: read-only role `healdesk_readonly`, a `db-query` one-off task, `db-query.yml` behind a GitHub environment approval, and a narrow SSO read window for Claude. Design, rollout order and the list of what was **not** checked: [docs/design/db-access-2026-10-22.md](./docs/design/db-access-2026-10-22.md). Run: guard test (3), system map test (36), `sh -n`/`bash -n`, JSON and YAML parse. Not run: terraform validate/test, any Postgres, any AWS call. No write path is built; see the design doc for why.
+- **BOOK-01 review fixes (22 Oct 2026), CODE and TESTED without a database, local branches only:** `fix/book-answer-gate` (89b578cb, pause and cap gate on the booking write), `fix/webchat-calendar-failure` (4baf849d, web chat logs the request when the calendar cannot book), `fix/voice-held-wording` (b81eff78, no false "held" on calls), each cut from `pkg/book-deposit`. The first two merge cleanly together; the third conflicts with them in `apps/app/src/lib/assistant/booking-tools.ts`. Their database-backed tests were skipped (no `TEST_APP_URL`); a CI run is still owed.
+
 ## Next actions — ordered
 1. **Owner:** approve the first package (`ALERT-01` recommended) and rule on the Meta follow-up question in the audit doc.
 2. **Claude Code:** implement it on a branch with tests; no deploy, no push without approval.
-3. **Owner, pre-launch:** switch on `billing-notices` in `/admin/ops` (Scheduled jobs; tracked as `alert-sender-on` in the launch register, which blocks go-live; `RESEND_API_KEY` is set in Parameter Store as of 2026-10-21 and the services were restarted); `deploy-app.yml` for migration 0104 is blocked, see below; record vendor attestations; the other actions in the audit doc.
+3. **Owner:** review `READONLY_TABLES` in `apps/app/scripts/readonly-tables.ts` and the rollout order in the DB-ACCESS-01 design doc before anything is applied. **Claude Code:** combine the three BOOK-01 fix branches (resolve the `booking-tools.ts` conflict) and run them with a database.
+4. **Owner, pre-launch:** switch on `billing-notices` in `/admin/ops` (Scheduled jobs; tracked as `alert-sender-on` in the launch register, which blocks go-live; `RESEND_API_KEY` is set in Parameter Store as of 2026-10-21 and the services were restarted); `deploy-app.yml` for migration 0104 is blocked, see below; record vendor attestations; the other actions in the audit doc.
 
 ## Owner approvals and restrictions
 

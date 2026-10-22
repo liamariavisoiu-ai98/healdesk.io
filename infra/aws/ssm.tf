@@ -19,7 +19,7 @@
 #     provisions the roles. It generates each one still "__unset__" (keeping
 #     any already set, because rotating a database password without
 #     re-provisioning the role would lock everything out) and composes both
-#     database URLs from the RDS endpoint. Its task role may write these six
+#     database URLs from the RDS endpoint. Its task role may write these eight
 #     and nothing else (iam.tf);
 #   - external: the owner, in AWS CloudShell, with
 #     infra/aws/scripts/put-external-secrets.sh (the parameters_to_fill
@@ -57,6 +57,8 @@ locals {
     HEALDESK_IDENTIFIER_REF_KEY = "app/HEALDESK_IDENTIFIER_REF_KEY"
     DATABASE_URL                = "app/DATABASE_URL"
     MIGRATION_DATABASE_URL      = "migrator/MIGRATION_DATABASE_URL"
+    READONLY_PASSWORD           = "db/READONLY_PASSWORD"
+    READONLY_DATABASE_URL       = "readonly/READONLY_DATABASE_URL"
   }
 
   internal_parameter_descriptions = {
@@ -66,6 +68,8 @@ locals {
     HEALDESK_IDENTIFIER_REF_KEY = "Keys the identifier references stored instead of phone numbers. Generated once by the db-bootstrap task. Never rotate it without a re-key plan."
     DATABASE_URL                = "Runtime connection for web and worker, as healdesk_app (no BYPASSRLS, owns nothing), TLS verified. Composed by the db-bootstrap task from the RDS endpoint."
     MIGRATION_DATABASE_URL      = "Migrations and the queue install only, as healdesk_migrator. Composed by the db-bootstrap task; given to the migrate task and nothing else."
+    READONLY_PASSWORD           = "Password of the healdesk_readonly role (inside READONLY_DATABASE_URL). Generated once by the db-bootstrap task, which sets the role's password from it."
+    READONLY_DATABASE_URL       = "The db-query task only, as healdesk_readonly: SELECT on the tables in apps/app/scripts/readonly-tables.ts, no BYPASSRLS, read-only sessions. Composed by the db-bootstrap task; under readonly/, not app/, so no web, worker or voice task is ever given it."
   }
 
   # Pasted by the owner. All of them live under app/ and reach the web tier

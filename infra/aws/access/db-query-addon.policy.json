@@ -1,0 +1,32 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RunTheDbQueryTaskOnly",
+      "Effect": "Allow",
+      "Action": ["ecs:RunTask"],
+      "Resource": "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-db-query:*",
+      "Condition": {
+        "ArnEquals": { "ecs:cluster": "arn:aws:ecs:us-east-1:865780386982:cluster/healdesk-production" }
+      }
+    },
+    {
+      "Sid": "PassOnlyTheExecutionRoleToEcsTasks",
+      "Effect": "Allow",
+      "Action": ["iam:PassRole"],
+      "Resource": "arn:aws:iam::865780386982:role/healdesk-production-ecs-execution",
+      "Condition": {
+        "StringEquals": { "iam:PassedToService": "ecs-tasks.amazonaws.com" }
+      }
+    },
+    {
+      "Sid": "NeverEcsExecOnARunTask",
+      "Effect": "Deny",
+      "Action": ["ecs:RunTask"],
+      "Resource": "*",
+      "Condition": {
+        "StringEqualsIgnoreCase": { "ecs:enable-execute-command": "true" }
+      }
+    }
+  ]
+}

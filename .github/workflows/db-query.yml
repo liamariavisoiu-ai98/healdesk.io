@@ -1,0 +1,106 @@
+name: Read-only database query (AWS)
+
+# Runs one reviewed query from apps/app/scripts/db-queries/ against the
+# production database, as the read-only role, in a one-off task inside the VPC
+# (docs/design/db-access-2026-10-22.md). Nothing here ever holds a database
+# credential: the task reads its own secret, and the run-task.sh this calls
+# starts it and reports only how it ended.
+#
+# Two locks, and the second does not depend on a GitHub setting. First, the job
+# names the db-query environment, whose required reviewer (the owner,
+# configured on GitHub: Settings, Environments, db-query, "Required reviewers"
+# and "Deployment branches: main only") must approve each run. Second, AWS
+# gives the role healdesk-production-github-db-query only to a token whose
+# subject is this repository's db-query environment, whose ref is main and
+# whose actor is the owner (infra/aws/db-query.tf), and the role can run that
+# one task family and nothing else. So a branch, a fork or another actor
+# cannot reach the database through this file, whatever it says.
+#
+# What a run may read is what healdesk_readonly may SELECT: the business and
+# configuration tables in apps/app/scripts/readonly-tables.ts, never a patient
+# or a credential. The rows go to the task's log group in CloudWatch, never to
+# this log: this repository is public, and so is every line printed here.
+#
+# The query must be in the image the last deploy-app.yml run built, which is
+# what the task runs. A query merged to main after that deploy fails with "no
+# query named" until the next deploy.
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "A query's file name in apps/app/scripts/db-queries/, without .sql"
+        required: true
+        type: string
+      clinic:
+        description: "A clinic's uuid, only for a query on a tenant table (row-level security); otherwise empty"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: healdesk-db-query
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: "865780386982"
+  DB_QUERY_ROLE: arn:aws:iam::865780386982:role/healdesk-production-github-db-query
+
+jobs:
+  query:
+    name: Run the query
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: db-query
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The inputs reach the shell as environment variables, never spliced into
+      # the script, and are checked here as run-task.sh checks them again.
+      - name: Check the inputs
+        env:
+          QUERY: ${{ inputs.query }}
+          CLINIC: ${{ inputs.clinic }}
+        run: |
+          if ! printf '%s' "$QUERY" | grep -Eq '^[a-z0-9][a-z0-9-]{0,63}$'; then
+            echo "::error::The query is a file name without .sql: lower-case letters, digits and hyphens."
+            exit 1
+          fi
+          if [ ! -f "apps/app/scripts/db-queries/$QUERY.sql" ]; then
+            echo "::error::No query named $QUERY in apps/app/scripts/db-queries/ on main."
+            exit 1
+          fi
+          if [ -n "$CLINIC" ] && ! printf '%s' "$CLINIC" | grep -Eqi '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+            echo "::error::The clinic is a uuid."
+            exit 1
+          fi
+
+      - name: Assume the db-query role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.DB_QUERY_ROLE }}
+          role-session-name: healdesk-db-query-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+          role-duration-seconds: 3600
+
+      # Prints the task's ending and where its output is, never the output.
+      - name: Run the task
+        env:
+          QUERY: ${{ inputs.query }}
+          CLINIC: ${{ inputs.clinic }}
+          RUN_TASK_TIMEOUT_MINUTES: "10"
+        run: |
+          if [ -n "$CLINIC" ]; then
+            bash infra/aws/scripts/run-task.sh db-query "$QUERY" "$CLINIC"
+          else
+            bash infra/aws/scripts/run-task.sh db-query "$QUERY"
+          fi

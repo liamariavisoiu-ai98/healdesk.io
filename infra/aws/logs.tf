@@ -14,7 +14,7 @@ resource "aws_cloudwatch_log_group" "app" {
   # "voice" exists whether or not enable_voice is on, as "worker" does with
   # a shared worker: an empty group costs nothing, and turning the switch
   # never creates or removes one.
-  for_each = toset(["web", "worker", "voice", "migrate", "db-bootstrap", "destroy-due", "patient-export", "erase-person", "amend-contact", "patient-request", "incident-affected", "reapply-erasures", "demo-clinic", "channels-link", "tls-proxy"])
+  for_each = toset(["web", "worker", "voice", "migrate", "db-bootstrap", "destroy-due", "patient-export", "erase-person", "amend-contact", "patient-request", "incident-affected", "reapply-erasures", "demo-clinic", "channels-link", "db-query", "tls-proxy"])
 
   name              = "${local.log_prefix}/${each.key}"
   kms_key_id        = aws_kms_key.main.arn

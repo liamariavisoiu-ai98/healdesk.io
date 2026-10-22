@@ -670,6 +670,19 @@ export const KEYS: readonly KeyDef[] = [
     },
   },
   {
+    id: "aws-ci.READONLY_DATABASE_URL",
+    env: "READONLY_DATABASE_URL",
+    home: "aws-ci",
+    label: "The database's read-only password (the query task only)",
+    need: "required",
+    rotation: {
+      kind: "every",
+      days: 180,
+      how: "Set db/READONLY_PASSWORD and readonly/READONLY_DATABASE_URL to __unset__, then run deploy-app.yml with bootstrap_db (infra/aws/README.md, Rotating secrets).",
+      impact: "None for patients or clinics: only the read-only query task uses it.",
+    },
+  },
+  {
     id: "aws-ci.CLOUDFLARE_API_TOKEN",
     env: "CLOUDFLARE_API_TOKEN",
     home: "aws-ci",
@@ -743,6 +756,8 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_CHECKOUT_MODE: "Your switch for who may buy: public opens checkout to anyone; anything else keeps it to people you sent a setup link.",
   HEALDESK_SETUP_LINKS: "Your switch that lets Setup send setup links in production (open), once the launch checklist is done.",
   HEALDESK_APP_URL: "The engine's private address. The engine reads it only to refuse it in any email it sends.",
+  HEALDESK_DB_QUERY: "Which reviewed query file the db-query task runs: a name, passed by db-query.yml or run-task.sh.",
+  HEALDESK_DB_QUERY_CLINIC: "Which clinic's rows a db-query run may see on a tenant table: a uuid, optional.",
   HEALDESK_SUPPORT_PHONE: "Our public support number, shown in the portal's Help.",
   HEALDESK_CALL_BOOKING_URL: "The public page clinics book their set-up call on.",
   HEALDESK_OPS_EMAIL: "Where operator alerts are emailed: an address.",
@@ -1412,7 +1427,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     carries: "Clinics, bookings, conversations, settings",
     example:
       "Bookings and conversations live in the database, with each person's name and phone number, so the front desk can press \"Call Maria\" on Bookings. The ids Meta, Retell and the website chat use to tell people, calls and messages apart are kept only as scrambled fingerprints.",
-    keys: ["aws.DATABASE_URL", "aws.HEALDESK_IDENTIFIER_REF_KEY", "aws-ci.MIGRATION_DATABASE_URL"],
+    keys: ["aws.DATABASE_URL", "aws.HEALDESK_IDENTIFIER_REF_KEY", "aws-ci.MIGRATION_DATABASE_URL", "aws-ci.READONLY_DATABASE_URL"],
     phi: true,
     build: "built",
   },
@@ -1825,6 +1840,8 @@ function addHow(key: KeyDef): string {
 const AWS_CI_UNSEEN: Record<string, string> = {
   "aws-ci.MIGRATION_DATABASE_URL":
     "Given only to the one-off migrate task a deploy (or run-task.sh) starts inside AWS. GitHub never sees it and no running service has it, so this page cannot check it.",
+  "aws-ci.READONLY_DATABASE_URL":
+    "Given only to the one-off db-query task that db-query.yml (after your approval) or run-task.sh starts inside AWS, which reads the business and configuration tables and nothing a patient said. GitHub never sees it and no running service has it, so this page cannot check it.",
   "aws-ci.CLOUDFLARE_API_TOKEN": "Read only by infra.yml and host.yml runs on GitHub, after AWS lets them in. No running service has it, so this page cannot check it.",
 };
 

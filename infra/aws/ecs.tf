@@ -403,6 +403,19 @@ locals {
         secrets     = ["DATABASE_URL"]
         environment = { BETTER_AUTH_URL = local.app_url }
       }
+      # Read-only SQL for the operator, from a query file reviewed in git
+      # (scripts/db-query.ts; docs/design/db-access-2026-10-22.md). Its one
+      # secret is the healdesk_readonly URL: a role that can SELECT the
+      # business and configuration tables in scripts/readonly-tables.ts and
+      # nothing else, so even a run-task override of this task's command can
+      # read no more than that. Its output goes to its own log group, which is
+      # for data that is not a patient's. run-task.sh and db-query.yml pass one
+      # query name, and optionally a clinic's uuid, as overrides.
+      "db-query" = {
+        script      = "scripts/db-query.ts"
+        secrets     = ["READONLY_DATABASE_URL"]
+        environment = {}
+      }
       } : name => {
       name             = "app"
       image            = local.app_image
@@ -417,7 +430,7 @@ locals {
           NODE_EXTRA_CA_CERTS = local.rds_ca_bundle
         }) : { name = k, value = v }
       ]
-      secrets = [for k in spec.secrets : { name = k, valueFrom = local.app_secret_arns[k] }]
+      secrets = [for k in spec.secrets : { name = k, valueFrom = local.parameter_arns[k] }]
 
       linuxParameters = { initProcessEnabled = true }
 
@@ -436,11 +449,13 @@ locals {
   # secrets, no KMS settings, no task role. npm keeps its cache and logs under
   # $HOME, which is /repo and not the image user's to write, so both go to
   # /tmp, and npm does not ask the registry whether it is out of date.
+  # The last step re-grants healdesk_readonly its SELECTs from
+  # scripts/readonly-tables.ts, which only the table owner can do.
   migrate_container = {
     name      = "app"
     image     = local.app_image
     essential = true
-    command   = ["sh", "-c", "npm run db:migrate -w @healdesk/app && npm run queue:install -w @healdesk/app"]
+    command   = ["sh", "-c", "npm run db:migrate -w @healdesk/app && npm run queue:install -w @healdesk/app && npm run db:readonly-grants -w @healdesk/app"]
 
     environment = [
       { name = "NODE_EXTRA_CA_CERTS", value = local.rds_ca_bundle },
@@ -461,7 +476,7 @@ locals {
   }
 
   # Run as the RDS master user, on a new database and after a password is
-  # reset. First init-secrets: it generates, inside AWS, each of the six
+  # reset. First init-secrets: it generates, inside AWS, each of the eight
   # internal parameters still "__unset__" (ssm.tf) and composes both URLs from
   # PGHOST, writing them with the key named here. Then provision-roles.sql
   # (RDS-safe) creates healdesk_migrator and healdesk_app with the two

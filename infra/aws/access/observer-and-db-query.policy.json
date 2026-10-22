@@ -1,0 +1,185 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadClusterState",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeServices",
+        "ecs:DescribeTasks",
+        "ecs:ListTasks"
+      ],
+      "Resource": [
+        "arn:aws:ecs:us-east-1:865780386982:service/healdesk-production/*",
+        "arn:aws:ecs:us-east-1:865780386982:task/healdesk-production/*"
+      ]
+    },
+    {
+      "Sid": "ReadClusterAndTaskDefinitionsWhichTakeNoResourceScope",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeClusters",
+        "ecs:DescribeTaskDefinition",
+        "ecs:ListTaskDefinitions",
+        "ecs:ListServices"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadDatabaseInstanceStateNotData",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBSnapshots"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ListParameterNamesNeverValues",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:DescribeParameters"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "FindLogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadTheDbQueryLogOnly",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query:*"
+    },
+    {
+      "Sid": "DecryptThatLogGroupThroughCloudWatchLogsOnly",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "arn:aws:kms:us-east-1:865780386982:key/*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "logs.us-east-1.amazonaws.com"
+        },
+        "StringLike": {
+          "kms:EncryptionContext:aws:logs:arn": "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query"
+        }
+      }
+    },
+    {
+      "Sid": "NeverAnyOtherUseOfAnyKey",
+      "Effect": "Deny",
+      "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey*",
+        "kms:ReEncrypt*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "kms:ViaService": "logs.us-east-1.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "NeverASecretOrAParameterValue",
+      "Effect": "Deny",
+      "Action": [
+        "secretsmanager:*",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath",
+        "ssm:GetParameterHistory",
+        "ssm:PutParameter"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NeverAShellOnAContainerOrAnyPatientBundle",
+      "Effect": "Deny",
+      "Action": [
+        "ecs:ExecuteCommand",
+        "s3:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NeverTheLogsOfTheOtherTasks",
+      "Effect": "Deny",
+      "Action": [
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "logs:StartQuery",
+        "logs:GetQueryResults",
+        "logs:StartLiveTail"
+      ],
+      "NotResource": "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query:*"
+    },
+    {
+      "Sid": "NeverChangeAnything",
+      "Effect": "Deny",
+      "Action": [
+        "iam:*",
+        "ecs:UpdateService",
+        "ecs:RegisterTaskDefinition",
+        "ecs:StopTask",
+        "rds:Modify*",
+        "rds:Delete*",
+        "rds:Reboot*",
+        "rds:Restore*",
+        "rds:Create*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RunTheDbQueryTaskOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:RunTask"
+      ],
+      "Resource": "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-db-query:*",
+      "Condition": {
+        "ArnEquals": {
+          "ecs:cluster": "arn:aws:ecs:us-east-1:865780386982:cluster/healdesk-production"
+        }
+      }
+    },
+    {
+      "Sid": "PassOnlyTheExecutionRoleToEcsTasks",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::865780386982:role/healdesk-production-ecs-execution",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ecs-tasks.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "NeverEcsExecOnARunTask",
+      "Effect": "Deny",
+      "Action": [
+        "ecs:RunTask"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEqualsIgnoreCase": {
+          "ecs:enable-execute-command": "true"
+        }
+      }
+    }
+  ]
+}

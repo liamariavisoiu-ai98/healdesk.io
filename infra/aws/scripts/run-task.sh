@@ -22,6 +22,10 @@
 #                                                     healdesk's one demo clinic (scripts/demo-clinic.ts)
 #   bash infra/aws/scripts/run-task.sh channels-link <clinic id> [meta|whatsapp] [days]
 #                                                     a clinic's single-use Meta connect links
+#   bash infra/aws/scripts/run-task.sh db-query <query name> [clinic id]
+#                                                     a reviewed read-only query from
+#                                                     apps/app/scripts/db-queries/, as
+#                                                     healdesk_readonly (docs/design/db-access-2026-10-22.md)
 #
 # It runs the family's newest revision that names a deployed image, never
 # Terraform's own revisions: those name the image tag terraform-placeholder,
@@ -101,6 +105,7 @@ usage() {
   echo "       $0 incident-affected <clinic id> <incident id> <contact ids, comma-separated, at most 150> <you@healdesk.io> [add|remove]" >&2
   echo "       $0 demo-clinic \"<fictional practice>\" \"<your name>\" <you@healdesk.io>" >&2
   echo "       $0 channels-link <clinic id> [meta|whatsapp] [days the link lasts, 1 to 30]" >&2
+  echo "       $0 db-query <query name> [clinic id]" >&2
   exit 64
 }
 
@@ -114,6 +119,7 @@ case "$1" in
   incident-affected) [ "$#" -eq 5 ] || [ "$#" -eq 6 ] || usage ;;
   demo-clinic) [ "$#" -eq 4 ] || usage ;;
   channels-link) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage ;;
+  db-query) [ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage ;;
   *) [ "$#" -eq 1 ] || usage ;;
 esac
 case "$1" in
@@ -159,6 +165,10 @@ case "$1" in
     ;;
   channels-link)
     family=healdesk-production-channels-link
+    container=app
+    ;;
+  db-query)
+    family=healdesk-production-db-query
     container=app
     ;;
   *) usage ;;
@@ -312,6 +322,20 @@ if [ "$1" = channels-link ]; then
   done
   overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[%s]}]}' "$link_env")
 fi
+# A query's name is a file in the image (apps/app/scripts/db-queries/<name>.sql),
+# never SQL: lower-case letters, digits and hyphens, and optionally the clinic
+# whose rows a query on a tenant table may see.
+if [ "$1" = db-query ]; then
+  if ! printf '%s' "$2" | grep -Eq '^[a-z0-9][a-z0-9-]{0,63}$'; then
+    fail "the query name is the file's name without .sql: lower-case letters, digits and hyphens"
+  fi
+  query_env=$(printf '{"name":"HEALDESK_DB_QUERY","value":"%s"}' "$2")
+  if [ "$#" -eq 3 ]; then
+    is_uuid "$3" || fail "the clinic id must be the clinic's uuid (the ops console shows it)"
+    query_env="$query_env$(printf ',{"name":"HEALDESK_DB_QUERY_CLINIC","value":"%s"}' "$(lower "$3")")"
+  fi
+  overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[%s]}]}' "$query_env")
+fi
 case "$TIMEOUT_MINUTES" in
   '' | *[!0-9]* | 0) fail "RUN_TASK_TIMEOUT_MINUTES must be a whole number of minutes" ;;
 esac
@@ -340,7 +364,7 @@ fi
 
 # --- destroy-due: the image the worker runs ----------------------------------
 want_image=""
-if [ "$1" != migrate ] && [ "$1" != db-bootstrap ]; then
+if [ "$1" != migrate ] && [ "$1" != db-bootstrap ] && [ "$1" != db-query ]; then
   # The worker's own service when it has one (worker_placement = "separate");
   # otherwise it is the web task's "worker" container (infra/aws/ecs.tf).
   worker_td=$(aws_ ecs describe-services --cluster "$CLUSTER" --services "$WORKER_SERVICE" \
@@ -466,6 +490,11 @@ if [ "$1" = incident-affected ]; then
 fi
 if [ "$1" = patient-request ]; then
   say "its result (the request's id, the day the practice is asked to mark it received by, and what is left to do by hand) is in that log stream"
+fi
+if [ "$1" = db-query ]; then
+  say "its rows (business and configuration data only; the role cannot read a patient's) are in that log stream. Read it with:"
+  printf "  aws logs get-log-events --region %s --log-group-name %s --log-stream-name %s --query 'events[].message' --output text\n" \
+    "$REGION" "$log_group" "$log_prefix/$container/$task_id"
 fi
 if [ "$1" = demo-clinic ] || [ "$1" = channels-link ]; then
   if [ "$1" = demo-clinic ]; then

@@ -239,6 +239,7 @@ locals {
   # exactly what lib/email/lint.ts must refuse in a mailed link.)
   never_on_app_tasks = [
     "MIGRATION_DATABASE_URL",
+    "READONLY_DATABASE_URL",
     "HEALDESK_LOCAL_KEK",
     "HEALDESK_DIRECT_BOOKING_ENABLED",
     "HEALDESK_PHASE_TWO_ATTRIBUTION",

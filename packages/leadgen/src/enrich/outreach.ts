@@ -164,6 +164,20 @@ export type OutreachRow = {
    * reply is the point of the send.
    */
   closingQuestion: string;
+  /**
+   * Touch 1's subject, built on the same fact as the hook: "Weekend calls at
+   * Glow". Under 40 characters so a phone shows all of it; the company is
+   * dropped before the fact is.
+   */
+  subjectLine: string;
+  /** Where the preview's chat is dressed: "your Instagram", or "your website". */
+  chatSurface: string;
+  /**
+   * Touch 2: one scene from this clinic's own week. Someone gets in touch
+   * while they are closed, on the channel they run, about their service, and
+   * what AYA does with it, which follows bookingMode.
+   */
+  scenario: string;
   /** "clients" for aesthetics, wellness, massage and vets, "patients" otherwise. */
   clientTerm: "clients" | "patients";
   /** Hours in the longest stretch nobody answers. The number the email turns on. */
@@ -288,7 +302,7 @@ export function buildOutreachRow(
   label: Label,
   booking: BookingDetection | undefined,
   hours: PlaceHours | undefined,
-  contact: { jobTitle: string; email: string; social?: readonly string[] } = {
+  contact: { jobTitle: string; email: string; social?: readonly string[]; company?: string } = {
     jobTitle: "",
     email: "",
   },
@@ -303,6 +317,9 @@ export function buildOutreachRow(
       topService: label.topService ?? "",
       topOffer: "",
       closingQuestion: "",
+      subjectLine: "",
+      chatSurface: "",
+      scenario: "",
       clientTerm: clientTerm(label.segment),
       gapHours: "",
       gapWindow: "",
@@ -405,6 +422,9 @@ export function buildOutreachRow(
     topOffer: offer.offer,
     closingQuestion: buildQuestion(angle, window, weekendClosed, hours, sites, clientTerm(label.segment)),
     clientTerm: clientTerm(label.segment),
+    subjectLine: buildSubject(companyShort(contact.company ?? ""), window, weekendClosed, hours, sites, noBooking),
+    chatSurface: chatSurface(social),
+    scenario: buildScenario(phrase, social, window, weekendClosed, hours, bookingMode),
     capability: offer.capability,
     bookingMode,
     assistantTerm: assistant,
@@ -761,3 +781,107 @@ export function siteHost(url: string): string {
     return s.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/.*$/, "").toLowerCase();
   }
 }
+
+/**
+ * The channel the preview's chat is dressed as, in the words of touch 1:
+ * "chat with her as she'd appear on your Instagram". Naming the one they run
+ * lets them picture the preview before asking for it.
+ */
+export function chatSurface(social: readonly string[]): string {
+  if (social.includes("instagram")) return "your Instagram";
+  if (social.includes("whatsapp")) return "your WhatsApp";
+  if (social.includes("facebook")) return "your Facebook page";
+  return "your website";
+}
+
+const SUBJECT_MAX = 40;
+
+/**
+ * Short, specific, about them. A subject naming their own fact ("Weekend
+ * calls at Glow") is opened as mail about the clinic; "preview for Glow" is
+ * opened as a pitch, or not at all.
+ */
+function buildSubject(
+  company: string,
+  window: BookingGap | undefined,
+  weekendClosed: string[],
+  hours: PlaceHours | undefined,
+  sites: number | null,
+  noBooking: boolean,
+): string {
+  const close = hours?.closesAt;
+  const fact = sites
+    ? `${sites} phones`
+    : window && window.hours >= 24
+      ? `${window.startsDay} calls`
+      : weekendClosed.length === 2
+        ? "Weekend calls"
+        : weekendClosed.length === 1
+          ? `${weekendClosed[0]} calls`
+          : close && Number(close.slice(0, 2)) <= 17
+            ? `After-${clockTime(close)} calls`
+            : noBooking
+              ? "Phone bookings"
+              : null;
+
+  if (!fact) {
+    const full = `AYA for ${company}`;
+    return company && full.length <= SUBJECT_MAX ? full : "AYA for your clinic";
+  }
+  const full = `${fact} at ${company}`;
+  return company && full.length <= SUBJECT_MAX ? full : fact;
+}
+
+/**
+ * "Picture someone messaging your Instagram on a Saturday night about lip
+ * filler. AYA answers, offers a time and books it straight into your calendar."
+ *
+ * A feature list is skimmed; a scene from their own week is read. Every part
+ * is a fact we have: when they are closed, the channel they run (the phone
+ * when they run no Meta channel), the service, and what happens to the
+ * booking, which never promises more than bookingMode allows.
+ */
+function buildScenario(
+  phrase: string,
+  social: readonly string[],
+  window: BookingGap | undefined,
+  weekendClosed: string[],
+  hours: PlaceHours | undefined,
+  mode: BookingMode,
+): string {
+  const close = hours?.closesAt;
+  const when =
+    window && window.hours >= 24
+      ? Number(window.startsAt.slice(0, 2)) >= 15
+        ? ` on a ${window.startsDay} night`
+        : ` on a ${window.startsDay}`
+      : weekendClosed.length === 2
+        ? " on a Sunday"
+        : weekendClosed.length === 1
+          ? ` on a ${weekendClosed[0]}`
+          : close && Number(close.slice(0, 2)) <= 17
+            ? ` at ${clockTime(`${String(Number(close.slice(0, 2)) + 3).padStart(2, "0")}:00`)}`
+            : " while your team is busy";
+
+  const how = social.includes("instagram")
+    ? "messaging your Instagram"
+    : social.includes("whatsapp")
+      ? "messaging you on WhatsApp"
+      : social.includes("facebook")
+        ? "messaging your Facebook page"
+        : "calling";
+
+  const about = phrase === "an appointment"
+    ? "booking an appointment"
+    : phrase.replace(/^an? /, "").replace(/ appointment$/, "");
+
+  const outcome =
+    mode === "live"
+      ? "AYA answers, offers a time and books it straight into your calendar."
+      : mode === "manual"
+        ? "AYA answers, takes the time they want and passes it to your desk to confirm in Mindbody."
+        : "AYA answers, takes the time they want and passes it to your desk to confirm.";
+
+  return `Picture someone ${how}${when} about ${about}. ${outcome}`;
+}
+

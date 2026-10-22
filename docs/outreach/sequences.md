@@ -1,153 +1,148 @@
 # Cold sequence: the preview sequence
 
-One four-touch sequence for clinics whose site we could read, built from the
-owner's drafts B and C of 22 October 2026 and rewritten after an audit for
-conversion, deliverability, mobile and fit with the clinics we write to.
+The owner's preview strategy (22 October 2026). It has one goal: getting a
+clinic to reply "yes" so we can send them its AYA preview. After a yes:
+
+1. The link goes out within two minutes. It opens AYA's voice on the left
+   (call her, or have her call you) and AYA's chat on the right, dressed as
+   the clinic's website, Instagram, Messenger or WhatsApp.
+2. The preview's 48-hour setup offer starts when the preview is ready, which
+   is the same moment. The offer is not mentioned before that: it is the
+   surprise for a qualified buyer.
+3. The owner phones on the spot or an hour later.
+4. Two emails go out, at 24 and 40 hours, plus one last call.
+
 Text outside `{{…}}` is the Instantly template; the merged columns come from
 `npm run enrich` (`packages/leadgen/src/enrich/outreach.ts`). Step 18 of
-[STEP-BY-STEP.md](./STEP-BY-STEP.md) still applies to the template text.
+[STEP-BY-STEP.md](./STEP-BY-STEP.md) applies to the template text, and every
+spintax variant below passes the same copy guard as the merged columns.
 
-The unreadable-site list (`unreadable.csv`) does not get this sequence: the
-preview is built from the clinic's site, and theirs would not load. It keeps
-its one touch.
+The unreadable-site list (`unreadable.csv`) does not get this sequence. The
+preview is built from the clinic's site, and theirs would not load.
 
-## The sequence
+## Who gets it
 
-Every touch is plain text with **no links and no images**. The preview link
-goes out only in a reply to someone who asked for it. Touches 2 to 4 reply in
-the same thread, with the subject left blank so Instantly threads them. End
-each touch with the footer from [footers.md](./footers.md): "A cold sales
-note" on touch 1, "Still a sales note" after.
+| Campaign | Rows | Why |
+| --- | --- | --- |
+| **Main** | no `exclude_reason`; `gap_hours` or `closed_days` set; owner, founder or director title; highest `score` first | Their hook is a measured fact, and they decide |
+| **Second** | no `exclude_reason`, nothing measured (the hook is about the booking page) | A weaker hook. Send later and judge it on its own reply rate |
 
-**Touch 1, day 1.** Subject, A/B: `preview for {{company_short}}` / `built this for {{company_short}}`
+## The four touches
 
-> Hi {{first_name|there}},
->
-> {{hook}}
->
-> So I set up a private preview of AYA, our AI assistant, trained on {{site_host}}. You can call her and chat with her from your phone, with nothing to set up.
->
-> {{closing_question}} A "yes" is enough.
+Plain text, **no links, no images**, open and click tracking off. Touches 2 to
+4 reply in the same thread with the subject left blank. Each touch ends with
+the footer from [footers.md](./footers.md).
 
-**Touch 2, day 3.** Same thread.
+**Spintax:** Instantly's `{{RANDOM | a | b | c}}`. Every fixed sentence has two
+or three variants, so no two clinics get the same body. Merge tags stay
+**outside** the `RANDOM` blocks: send a test from two mailboxes before the
+first batch to check both render.
 
-> Hi {{first_name|there}},
->
-> {{top_offer}}
->
-> The preview runs on what's on {{site_host}}, so you'd hear her talk about your own services.
->
-> Want me to send it over?
+### Touch 1, day 1
 
-**Touch 3, day 5.** Same thread.
+Subject: `{{subject_line}}` (e.g. "Weekend calls at Glow Aesthetics")
 
-> Hi {{first_name|there}},
->
-> {{RANDOM | Two things worth knowing | Two quick things}} before you try her. She never gives medical advice and only quotes the prices you set. And we sign a business associate agreement and handle {{client_term}}' data under it.
->
-> Want the preview link?
+```
+{{RANDOM | Hi | Hey | Hello}} {{first_name|there}},
 
-**Touch 4, day 7.** Same thread.
+{{hook}}
 
-> Hi {{first_name|there}},
->
-> {{RANDOM | Your {{company_short}} preview expires tomorrow, so this is my last note about it. | The preview I built for {{company_short}} expires tomorrow, and this is the last you'll hear from me about it.}}
->
-> Want the link before it goes?
+{{RANDOM | So I built | So I put together | So I set up}} a private preview of AYA, our AI assistant, trained on {{site_host}}. {{RANDOM | One link: call her, then chat with her as she'd appear on | It's one link. Call her, then chat with her as she'd look on | One link lets you call her, then chat with her as she'd appear on}} {{chat_surface}}.
 
-## Running it
+{{closing_question}} {{RANDOM | Reply "yes" and you'll have it in two minutes. | A "yes" gets it to you in two minutes. | Just reply "yes" and it's yours in two minutes.}}
+```
 
-- **Build each preview the morning touch 1 sends**, from `/admin/demos`.
-  Touch 1 says it exists. A preview lasts 7 days (`DEMO_LIFETIME_MS`,
-  `apps/web/src/lib/demo/sessions.ts`), so it expires on day 8 and touch 4's
-  "expires tomorrow" is true on day 7. A preview the audit holds is not sent
-  until released, so leave that clinic out of the batch until it is.
-- **Answer a "yes" within the hour**, with the link and one line. The reply is
-  the conversion, and it cools fast.
-- **Skip** any row with an `exclude_reason`.
-- **Tracking off.** Turn off open tracking (a pixel) and link tracking in
-  Instantly. Both are spam signals and neither is needed: the metric is replies.
-- Send Tuesday to Thursday, 8 to 11am in the clinic's own time zone (`state`).
+### Touch 2, day 3
+
+```
+{{RANDOM | Hi | Hey}} {{first_name|there}},
+
+{{scenario}}
+
+{{RANDOM | That's what your preview does, with your own services. | Your preview does exactly that, with your own services. | That's your preview, running on your own services.}} {{RANDOM | Want it? | Should I send it? | Want me to send it over?}}
+```
+
+### Touch 3, day 6
+
+```
+{{RANDOM | Hi | Hey}} {{first_name|there}},
+
+{{RANDOM | Two quick things before you try her. | Two things worth knowing before you try her. | Before you try her, two quick things.}} She never gives medical advice and only quotes the prices you set. And we sign a business associate agreement and handle {{client_term}}' data under it.
+
+{{RANDOM | If someone else at | If another person at | In case someone else at}} {{company_short}} {{RANDOM | looks after the phones, who should I send the preview to? | handles the phones, who's best to send the preview to?}}
+```
+
+### Touch 4, day 10
+
+```
+{{RANDOM | Hi | Hey}} {{first_name|there}},
+
+{{RANDOM | I'm tidying up previews this week. | I'm clearing out old previews this week. | I'm closing out this week's previews.}} {{RANDOM | Should I archive the one for | Want me to archive the one for}} {{company_short}}, {{RANDOM | or send it over first? | or would you like it first?}}
+```
+
+## The reply to a "yes" (within two minutes)
+
+Sent by hand, from the same mailbox, in the same thread. This is the only email
+with a link.
+
+```
+{{RANDOM | Here you go | Here it is | All yours}}: <preview link>
+
+{{RANDOM | Call her first, then try the chat. | Give her a call, then try the chat on the right. | Start with a call, then open the chat.}} {{RANDOM | It works best on your phone. | Your phone is the best place to try it.}}
+
+{{RANDOM | What's the best number to reach you if you have questions? | If questions come up, what's the best number for you?}}
+```
+
+The last line gets the owner's own number for the call an hour later. The
+number on the list is usually the front desk's.
 
 ## Merge columns
 
 | Column | Example |
 | --- | --- |
-| `hook` | From Saturday 4pm to Monday 6am, that's 38 hours your phone could still be booking lip filler. |
-| `top_offer` | AYA answers your calls and website chat, then books straight into your calendar, since IV clients often want a same-day visit. |
+| `subject_line` | Weekend calls at Glow Aesthetics · Sunday calls · After-5pm calls at Revive · 3 phones at Smile Dental · AYA for Glow |
+| `hook` | You close at 5pm, right when most people get off work and call about IV therapy. |
+| `chat_surface` | your Instagram · your WhatsApp · your Facebook page · your website |
 | `closing_question` | Want the link to call her after 4pm on a Saturday? |
+| `scenario` | Picture someone messaging your Instagram on a Saturday night about lip filler. AYA answers, takes the time they want and passes it to your desk to confirm. |
 | `company_short` | Glow Aesthetics (from "Glow Aesthetics, LLC") |
-| `site_host` | glowaesthetics.com (from "https://www.glowaesthetics.com/home") |
-| `client_term` | clients for med spas, laser, body contouring, IV, massage and vets; patients for the rest |
+| `site_host` | glowaesthetics.com |
+| `client_term` | clients (med spa, laser, body contouring, IV, massage, vets) or patients |
 
-The template uses `{{first_name|there}}`, Instantly's fallback, because role
-addresses (info@, frontdesk@) have no first name and "Hi ," is the first thing
-the reader sees.
+The scene and the offer follow `booking_mode`. Only `live` rows hear "books it
+straight into your calendar". Mindbody rows hear "passes it to your desk to
+confirm in Mindbody", and every other booking system hears "passes it to your
+desk to confirm". The template itself makes no booking claim, so it needs no
+branch.
 
-## What the audit found, and what changed
+## Why it is built this way
 
-### Conversion: getting them to ask for the preview
-
-| Shortcoming | Change |
-| --- | --- |
-| The email opened on us ("I spent a few minutes on…"), and the clinic-specific fact came second. | The hook is the first line. It states something about their clinic they can check: "You close at 5pm". |
-| AYA was never explained. A stranger's email naming "AYA" reads as a person they are meant to know. | Touch 1 says "AYA, our AI assistant" once. |
-| All four emails made the same pitch and the same ask. | Each touch has its own job: the fact (1), what she does (2), the two objections (3), the expiry (4). |
-| The ask needed composing a reply. | "A 'yes' is enough." Replying takes one word. |
-| The closing question and the stock "Mind if I send the link?" were two questions in one email. | The closing question is the ask, and it names the moment this clinic would test her. |
-| Compliance and medical-advice worries, the main objections for a medical team, came up only as "medical guardrails". | Touch 3 gives the two things the product actually does, and the approved business-associate-agreement line. |
-
-### Deliverability
-
-| Shortcoming | Change |
-| --- | --- |
-| "Re:" typed into a fresh subject fakes a reply. Filters and readers both notice, and CAN-SPAM forbids misleading subject lines. | Touches 2 to 4 thread under touch 1, subject blank. |
-| Touches 3 and 4 had no merged text, so every recipient got the same body. Filters cluster identical bodies. | `{{RANDOM}}` variants, plus `company_short` and `client_term`. |
-| Spam-weighted words: "test link", "Stripe", "deposits", "delete". | Gone from the template. |
-| "Mind if I text…" | Gone. The copy gate refuses texting. |
-| Nothing said whether links, pixels or images were allowed. | No links, no images, tracking off. The link only goes in a reply. |
-| No footer or opt-out was mentioned. | The CAN-SPAM footer from footers.md on every touch. |
-
-### Mobile
-
-| Shortcoming | Change |
-| --- | --- |
-| A phone's preview line showed "Hi Jenna, I spent a few minutes on…", which tells the reader nothing. | The hook comes right after the greeting, so the preview line shows their own hours. |
-| "Call her on the left, chat on the right." On a phone the preview stacks voice above chat (`lg:grid-cols-2`). | "Call her and chat with her from your phone." |
-| Subjects like "custom voice & chat preview for Glow Aesthetics & Wellness, LLC" get cut off. | Subjects of three or four words, and `company_short`. |
-| The merged sentences ran to three lines on a phone (offers averaged 36 words). | Hooks about 15 words, offers under 30, questions under 12. |
-| "https://www.glowaesthetics.com/" in the body. | `site_host`: glowaesthetics.com. |
-
-### Fit with the clinics we write to
-
-| Shortcoming | Change |
-| --- | --- |
-| British phrasing ("ringing round", "get round to", "Shall I", "had a look") to US clinics. | US English, and a test fails the build on the old words. |
-| "Patients" to med spas, which say clients. | `client_term`, and the merged lines use the segment's word. |
-| "Your new front desk" lands on a receptionist (role addresses go to whoever staffs the desk) as "you're being replaced", and the email goes nowhere. | Subjects about the preview, not the desk. |
-| "Lip filler appointments", "Instagram" as something AYA "picks up". | "Booking lip filler", "Instagram DMs", "Facebook messages". |
-| "Glow Aesthetics, LLC" in a greeting reads as a database. | `company_short`. |
-| For Mindbody, Boulevard and unknown systems, the line "if your system reads Google" made an owner stop and decode it. | "Passes each booking request to your desk to confirm" (in Mindbody, where it is Mindbody). It is true for all of them, and onboarding can upgrade it. |
-
-### Claims, corrected to what v1 does
-
-| Draft said | Now | Why |
-| --- | --- | --- |
-| "secures booking deposits via Stripe" | "can send a deposit link in chat" (offer, where it fits) | Deposits go through the clinic's own gateway, in chat only. |
-| "pushing bookings directly into {{booking_platform}}" | Google Calendar for `live` rows, the desk for the rest | v1 writes to nothing but Google Calendar. |
-| "naturally suggests add-ons" | not claimed | Add-on suggestions are a switch that ships off. |
-| "trained on your brand voice" | "trained on {{site_host}}" | The preview is built from the public site. |
-| "clearing out our staging servers" | "expires tomorrow" | It does expire, after 7 days. |
-
-## Still open, for the owner
-
-- **The 50% setup discount on an operator-built preview runs 48 hours from the
-  moment the preview is ready** (`CLAUDE.md`, "Setup discounts"). Built on day
-  1, it has lapsed before most clinics reply. Starting that clock when the
-  clinic first opens the link would make the discount land when they are
-  looking. That is a pricing decision, not a copy change.
-- **No social proof.** There are no live clinics to quote yet, and the
-  sequence invents none. Add one line to touch 2 once a real clinic agrees to
-  be named.
-- **The A/B subject.** Run both for the first 200 sends, then keep the one with
-  more replies, not more opens (opens are not tracked).
+- **Conversion.**
+  - The subject and the first line are about the clinic's own week.
+  - Touch 1 shows what the preview is before they ask for it.
+  - Saying yes costs one word, and "two minutes" says nothing is being set
+    in motion.
+  - Touch 2 is a scene, not a feature list.
+  - Touch 3 answers the two objections a medical team has, and turns an
+    info@ or front-desk address into a referral.
+  - Touch 4 is your loss-aversion close, with no date to check.
+- **Deliverability.**
+  - No links or images before a yes, and no tracking.
+  - Follow-ups threaded, never a fake "Re:".
+  - Spintax on every fixed sentence, plus five merged columns, so bodies do
+    not cluster.
+  - The days are spaced 1, 3, 6 and 10.
+  - The CAN-SPAM footer on every touch.
+- **Mobile.**
+  - Subjects of 40 characters or fewer, with the company dropped before the fact.
+  - The hook is the preview line.
+  - Paragraphs of one or two lines, and no "left and right" (the preview
+    stacks on a phone).
+- **Fit with the clinics.** US English, clients or patients by segment, no
+  "LLC" in the subject or greeting, and no "your new front desk" to a
+  receptionist.
+- **Truth.**
+  - Deposits are never said to go through Stripe, and nothing is said to
+    write into the clinic's booking platform.
+  - Add-ons are not promised, and nothing is texted.
+  - The 50% is not mentioned before the preview.

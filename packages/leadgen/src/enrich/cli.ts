@@ -902,6 +902,7 @@ async function main(): Promise<void> {
       jobTitle: contact.jobTitle,
       email: contact.email,
       social: detectSocial(crawlById.get(clinic.id)?.links ?? []),
+      company: clinic.companyName,
     });
 
     const key = out.excludeReason ? "excluded" : label.segment;
@@ -946,6 +947,11 @@ async function main(): Promise<void> {
       // Every message ends on a question. A close that states rather than asks
       // gives the reader nothing to do, and the reply is the point of sending.
       closing_question: out.closingQuestion,
+      // Touch 1's subject and touch 2's scene, built on the same facts as the
+      // hook; chat_surface is what the preview's chat is dressed as.
+      subject_line: out.subjectLine,
+      chat_surface: out.chatSurface,
+      scenario: out.scenario,
       // "clients" or "patients", so the sequence's own text uses the word this
       // segment uses.
       client_term: out.clientTerm,
@@ -1030,6 +1036,7 @@ async function main(): Promise<void> {
           jobTitle: extra.jobTitle,
           email: extra.email,
           social: detectSocial(crawlById.get(clinic.id)?.links ?? []),
+          company: clinic.companyName,
         });
         secondContacts.push({
           ...bucket[bucket.length - 1]!,

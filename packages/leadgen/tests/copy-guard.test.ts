@@ -107,12 +107,14 @@ describe("every sentence the generator can produce", () => {
                     } as never,
                     { hasOnlineBooking: online || platform !== null, platform } as never,
                     hours as never,
-                    { ...contact, social },
+                    { ...contact, social, company: "Glow Aesthetics, LLC" },
                   );
                   for (const [column, text] of [
                     ["hook", row.hook],
                     ["top_offer", row.topOffer],
                     ["closing_question", row.closingQuestion],
+                    ["subject_line", row.subjectLine],
+                    ["scenario", row.scenario],
                   ] as const) {
                     expect(copyViolations(text), `${segment}/${platform}/${column}: ${text}`).toEqual([]);
                   }

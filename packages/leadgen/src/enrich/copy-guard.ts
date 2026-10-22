@@ -43,7 +43,7 @@ export function copyViolations(text: string): string[] {
 }
 
 /** The columns of a CSV row that a recipient reads. */
-export const SENT_COLUMNS = ["hook", "top_offer", "closing_question"] as const;
+export const SENT_COLUMNS = ["hook", "top_offer", "closing_question", "subject_line", "scenario"] as const;
 
 /**
  * Throw before a CSV is written if any row would send a refused phrase.

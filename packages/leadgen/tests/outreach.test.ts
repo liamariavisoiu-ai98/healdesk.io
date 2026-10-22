@@ -841,10 +841,82 @@ describe("names and words a person would use", () => {
           h as never,
           { jobTitle: "Owner", email: "j@c.com", social: ["instagram"] },
         );
-        const all = `${r.hook} ${r.topOffer} ${r.closingQuestion}`;
+        const all = `${r.hook} ${r.topOffer} ${r.closingQuestion} ${r.subjectLine} ${r.scenario}`;
         expect(BRITISH.test(all), all).toBe(false);
       }
     }
+  });
+});
+
+describe("the subject, the chat surface and the scene", () => {
+  const L = (o: Record<string, unknown> = {}) => ({
+    clinicId: "c", segment: "injectables", confidence: "high", evidence: "",
+    opensAt: null, closesAt: null, hoursByDay: null, topService: "lip filler",
+    offersOnlineBooking: false, mentionsWeightLoss: false, isChainOrFranchise: false, ...o,
+  }) as never;
+  const weekend = {
+    closedDays: ["Saturday", "Sunday"], closedHoursPerWeek: 128, closesAt: "17:00",
+    gap: { hours: 64, startsDay: "Friday", startsAt: "17:00", endsDay: "Monday", endsAt: "09:00" },
+  } as never;
+  const build = async (label: never, booking: unknown, hours: unknown, social: string[] = [], company = "Glow Aesthetics, LLC") => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    return buildOutreachRow(label, booking as never, hours as never, { jobTitle: "Owner", email: "j@c.com", social, company });
+  };
+
+  test("the subject names their own fact and fits a phone", async () => {
+    expect((await build(L(), undefined, weekend)).subjectLine).toBe("Friday calls at Glow Aesthetics");
+    const sunday = { closedDays: ["Sunday"], closedHoursPerWeek: 90, closesAt: "19:00", gap: null };
+    expect((await build(L(), undefined, sunday)).subjectLine).toBe("Sunday calls at Glow Aesthetics");
+    const early = { closedDays: [], closedHoursPerWeek: 80, closesAt: "17:00", gap: null };
+    expect((await build(L(), undefined, early)).subjectLine).toBe("After-5pm calls at Glow Aesthetics");
+    // A long name drops before the fact does.
+    const long = await build(L(), undefined, weekend, [], "The Aesthetic & Laser Institute of North Scottsdale PLLC");
+    expect(long.subjectLine).toBe("Friday calls");
+    // Nothing known: the product and the clinic.
+    const none = await build(L({ offersOnlineBooking: true }), { hasOnlineBooking: true }, undefined);
+    expect(none.subjectLine).toBe("AYA for Glow Aesthetics");
+  });
+
+  test("every subject is 40 characters or fewer", async () => {
+    for (const company of ["", "Glow", "Glow Aesthetics, LLC", "A Very Long Clinic Name That Goes On and On, Inc."]) {
+      for (const h of [undefined, weekend]) {
+        const r = await build(L(), undefined, h, [], company);
+        expect(r.subjectLine.length, r.subjectLine).toBeLessThanOrEqual(40);
+        expect(r.subjectLine).not.toMatch(/LLC|Inc\b|  /);
+      }
+    }
+  });
+
+  test("the chat is dressed as the channel they run", async () => {
+    const { chatSurface } = await import("../src/enrich/outreach.ts");
+    expect(chatSurface(["instagram", "facebook"])).toBe("your Instagram");
+    expect(chatSurface(["whatsapp"])).toBe("your WhatsApp");
+    expect(chatSurface(["facebook"])).toBe("your Facebook page");
+    expect(chatSurface(["tiktok"])).toBe("your website");
+  });
+
+  test("the scene is their week, their channel and their service", async () => {
+    const r = await build(L(), undefined, weekend, ["instagram"]);
+    expect(r.scenario).toBe(
+      "Picture someone messaging your Instagram on a Friday night about lip filler. " +
+        "AYA answers, offers a time and books it straight into your calendar.",
+    );
+    const phone = await build(L(), undefined, { closedDays: [], closedHoursPerWeek: 80, closesAt: "17:00", gap: null });
+    expect(phone.scenario).toMatch(/^Picture someone calling at 8pm about lip filler\./);
+  });
+
+  test("the scene never promises a booking the clinic's system cannot take", async () => {
+    const mindbody = await build(L({ offersOnlineBooking: true }), { platform: "mindbody", hasOnlineBooking: true }, weekend);
+    expect(mindbody.scenario).toContain("passes it to your desk to confirm in Mindbody");
+    expect(mindbody.scenario).not.toMatch(/books it/);
+    const boulevard = await build(L({ offersOnlineBooking: true }), { platform: "boulevard", hasOnlineBooking: true }, weekend);
+    expect(boulevard.scenario).toContain("passes it to your desk to confirm.");
+    expect(boulevard.scenario).not.toMatch(/books it/);
+  });
+
+  test("an excluded row has none of them", async () => {
+    const r = await build(L({ segment: "not-a-target" }), undefined, weekend);
+    expect([r.subjectLine, r.chatSurface, r.scenario]).toEqual(["", "", ""]);
   });
 });
 

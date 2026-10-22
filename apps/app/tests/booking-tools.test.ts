@@ -218,6 +218,41 @@ describeDb("the booking tool layer in the web chat and the call", () => {
     SLOW,
   );
 
+  test(
+    "web chat: Google's re-check failing for now takes the visitor's request for the desk, once, under the booking key, with its L7, and says nothing booked",
+    async () => {
+      const f = await location("tools-web-recheck-down");
+      const at = deskTime(3, 10);
+      const { responder } = scripted([
+        () => ({ reply: "Let me look.", booking: { wants: true, service: "Facial" }, action: { type: "find_times", service: "Facial", day: dayOf(at) } }),
+        ({ system }) => ({ reply: "Great choice.", action: { type: "choose_time", at: offeredIn(system).find((v) => new Date(v).getTime() === at.getTime()) } }),
+        () => ({ reply: "You're booked!", booking: { first_name: "Ana", phone: "415 555 0188" } }),
+        () => ({ reply: "Anything else?" }),
+      ]);
+      const say = await chat(f.web, responder);
+      await say("Can I book a facial?");
+      await say("The ten o'clock please");
+
+      // Google answers the re-check with server errors: transient, not a break.
+      google.failNext({ on: "freeBusy", status: 503, times: 10 });
+      expect(await say("My name is Ana and my number is 415 555 0188")).toBe(forChat(REQUEST_TAKEN_LINE));
+
+      const { appointments, requests } = await rows(f.clinicId);
+      expect(appointments).toEqual([]);
+      expect(inserts()).toHaveLength(0);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({ status: "requested", channel: "web_chat" });
+      expect(requests[0]!.vendor_call_id).toBe(`web:${requests[0]!.conversation_id}:1`);
+      expect(await queuedNotices(f.clinicId, ["booking_request"])).toHaveLength(1);
+
+      // The next message files nothing more and alerts no one again.
+      await say("Thanks");
+      expect((await rows(f.clinicId)).requests).toHaveLength(1);
+      expect(await queuedNotices(f.clinicId, ["booking_request"])).toHaveLength(1);
+    },
+    SLOW,
+  );
+
   /** A call on the session, with the gate answering and the record captured instead of ingested. */
   async function callSession(clinicId: string, responder: AssistantResponder) {
     const sent: RetellOutbound[] = [];

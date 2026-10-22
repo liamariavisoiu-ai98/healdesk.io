@@ -65,7 +65,7 @@ npm run discover -w @healdesk/leadgen -- --location "Austin, Texas"
 ## ⚠️ The PHI boundary
 
 `apps/web` handles **no PHI** and can deploy anywhere. `apps/app` handles every patient
-conversation: call transcripts (no call audio is kept), web chats, and Meta DMs that are
+conversation: call transcripts (healdesk keeps no call audio; the voice provider holds a call's recording for a day at most), web chats, and Meta DMs that are
 kept non-clinical by design. It also holds bookings, deposit status and the clinic portal,
 so it needs **BAA-covered infrastructure**. POS read-back for attribution is phase two.
 

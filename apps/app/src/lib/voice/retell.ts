@@ -37,7 +37,7 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *   on connect      `config` (auto-reconnect pings, call details), then the
  *                   answer gate, then response 0: the locked AI line, said
  *                   before anything else, with the call's transcription and
- *                   that no audio is kept (lib/compliance/disclosure.ts),
+ *                   that healdesk keeps no audio and the provider holds a recording for a day at most (lib/compliance/disclosure.ts),
  *                   then the clinic's phone greeting. The time it was sent is
  *                   the call's disclosure_played_at. A caller who spoke
  *                   before it went out never heard it: it is said again

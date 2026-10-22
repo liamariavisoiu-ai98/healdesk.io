@@ -102,7 +102,7 @@ describe("the product's commitments the policy repeats", () => {
       "Inside the product, a clinic's patient conversations: we keep no transcript. When a call or a website chat ends, its transcript is emailed to the clinic, and the one encrypted copy we hold so that a failed email can be sent again is deleted as soon as the clinic's mail server confirms delivery. If the email cannot be delivered we keep trying for at most 30 days after the transcript was queued, and if its delivery is never confirmed we delete the copy 72 hours after it was sent. We keep a record that each transcript was delivered, without what was said.",
     );
     expect(text).toContain(
-      `The record of each conversation, without what was said, is deleted automatically ${TRANSCRIPT_RETENTION_DAYS} days after it took place, and no call audio is kept at all.`,
+      `The record of each conversation, without what was said, is deleted automatically ${TRANSCRIPT_RETENTION_DAYS} days after it took place. We keep no call audio: our voice provider holds a call's transcript and recording only until we have the transcript, and for no more than a day.`,
     );
     // The portal's setting to shorten transcripts is gone, and nothing says otherwise.
     expect(text).not.toMatch(/each conversation and its transcript|chooses a shorter period|or sooner if the clinic chooses/);

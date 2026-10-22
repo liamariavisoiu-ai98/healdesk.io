@@ -126,7 +126,7 @@ describeDb("the Retell voice endpoint", () => {
     const opening = responses(c.received)[0]!;
     expect(opening.response_id).toBe(0);
     expect(opening.content).toMatch(/^Hi, I'm an AI assistant for retell-call Clinic — not a human\. This call is transcribed/);
-    expect(opening.content).toMatch(/no audio recording is kept/);
+    expect(opening.content).toMatch(/we keep no audio, and they hold a recording for no more than a day/);
 
     c.send({ interaction_type: "call_details", call: { call_id: "call_abc123", from_number: "+14155550192", direction: "inbound", start_timestamp: Date.now() - 60_000 } });
     c.send({ interaction_type: "ping_pong", timestamp: 1234 });

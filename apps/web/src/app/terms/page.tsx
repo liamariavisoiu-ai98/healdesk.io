@@ -238,7 +238,8 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * every remaining use of the defined term to a passage where the BAA itself
  * is meant (docs/counsel/agreement-changes.md §18).
  *
- * Revised again on 21 October 2026 as LEGAL_VERSION 2026-10-21.1, for the
+ * Revised again on 21 October 2026 (numbered 2026-10-21.1 until the revision
+ * below, and never published under it), for the
  * owner's decision of 20 October 2026 that one AYA answers for every location of a practice as
  * a central assistant, like a call centre, not a separate assistant for each
  * (the extra-locations plan, section 3). Section 2's pass-through goes to the
@@ -254,6 +255,18 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * annex says the locations of one account are not kept apart from each
  * other. The Business Associate Agreement needs no new version for these
  * (plan, section 3), subject to the wording audit's reading of its clause 11.
+ *
+ * Revised on 22 October 2026 as LEGAL_VERSION 2026-10-22.1, with the central
+ * assistant revision above, for the owner's decision of 22 October 2026 that
+ * "no call audio is kept" is not wholly true: the voice provider (Retell)
+ * holds a call's transcript and recording until healdesk has its own copy of
+ * the transcript, then healdesk has it delete them, and its own retention for
+ * anything left is one day. Section 3's list of what the assistant does and
+ * the closing annex's account of the opening line now say that we keep no call
+ * audio and that the provider holds a recording for no more than a day, and
+ * the privacy policy's retention section says it in the same words. The
+ * Business Associate Agreement and the Data Protection Agreement were edited
+ * in place for it (docs/counsel/agreement-changes.md §19).
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -310,8 +323,9 @@ export default function TermsPage() {
             contact you name. You will not configure it to diagnose, recommend treatment or
             triage, and you will not rely on it for emergencies. On every channel the assistant's
             first line says it is an AI assistant; on calls the same line says the call is
-            transcribed, and no call audio is kept. You cannot switch that off or edit it out
-            through the greeting.
+            transcribed, that we keep no call audio and that our voice provider holds a recording
+            for no more than a day. You cannot switch that off or edit it out through the
+            greeting.
           </li>
           <li>
             <strong>It works on your instructions.</strong> The services it offers, the prices it
@@ -901,9 +915,10 @@ export default function TermsPage() {
           <li>
             <strong>The AI says it is an AI, first.</strong> Every call, chat and message opens
             with a line saying the patient is talking to an AI assistant; on the phone the same
-            line says the call is transcribed, and no call audio is kept. The clinic cannot switch
-            it off or edit it out through the greeting, and the record of each call notes when it
-            was given.
+            line says the call is transcribed, that we keep no call audio and that our voice
+            provider holds a recording for no more than a day. The clinic cannot switch it off or
+            edit it out through the greeting, and the record of each call notes when it was
+            given.
           </li>
           <li>
             <strong>Transcripts are emailed to the clinic, not kept.</strong> When a call or a

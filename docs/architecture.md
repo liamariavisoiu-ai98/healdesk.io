@@ -198,8 +198,10 @@ and tool layer.
   mode the clinic picked: all calls; overflow and after hours (the default); after hours
   only. The clinic keeps its published number. The Healdesk number is allocated at
   payment, in the clinic's area code.
-- **Vendor-side recording off**, transcript retention set per agent (Retell allows 1 day
-  to 2 years) to the minimum, and per-agent PII controls set. The working transcript
+- **Vendor-side storage on, for one day**: Retell holds a call's transcript and recording
+  only until healdesk has the transcript and deletes the call there, and the per-agent
+  retention (Retell allows 1 day to 2 years) is set to the minimum, 1 day, as its own
+  backstop (22 October 2026; healdesk keeps no call audio). The working transcript
   lives in Healdesk under the clinic's retention policy.
 - **Languages** come from the platform: 55 languages across 63 locales. The clinic picks
   which its agent handles; the agent answers in the caller's language and stays in it.

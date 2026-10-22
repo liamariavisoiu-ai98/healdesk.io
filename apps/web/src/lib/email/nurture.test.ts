@@ -103,7 +103,7 @@ describe("nurture sequence", () => {
 
   test("every touch describes v1, and nothing it does not do", () => {
     // docs/v1-product-spec.md: inbound only, no SMS, no reminders, calls are
-    // transcribed and never recorded, and v1 claims booked value, never
+    // transcribed with no audio kept by healdesk, and v1 claims booked value, never
     // revenue. Each of these phrases was in the sequence before 30 September.
     for (const touch of TOUCHES) {
       const text = touch.text(lead());
@@ -116,7 +116,7 @@ describe("nurture sequence", () => {
       expect(text).not.toMatch(/two minutes/i);
     }
     const all = TOUCHES.map((touch) => touch.text(lead())).join("\n");
-    expect(all).toContain("transcribed, not recorded");
+    expect(all).toContain("transcribed and that we keep no audio");
     expect(all).toContain("Google Calendar");
     expect(all).toContain("/why-wait");
   });

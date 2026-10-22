@@ -15,8 +15,9 @@
 Voice, `apps/app/src/lib/compliance/disclosure.ts` `voiceDisclosure()`:
 
 > "Hi, I'm an AI assistant for {clinic} — not a human. This call is
-> transcribed by an automated system; no audio recording is kept. Say
-> "representative" at any time and I'll pass you to the practice team, who
+> transcribed by an automated system run by our service providers; we keep
+> no audio, and they hold a recording for no more than a day. Say
+> "representative" at any time and I'll pass your details to the practice team, who
 > will get back to you within a day."
 
 Web chat: "You're chatting with an AI assistant for {clinic}. Ask for a
@@ -37,7 +38,8 @@ check that the one line is enough, state by state.
 
 1. **Recording consent.** About a dozen states require every party's consent
    to record a call; the rest, and the District of Columbia, need one
-   party's. The product keeps no audio, but
+   party's. The product keeps no audio of its own (the voice vendor holds a recording
+   for a day at most, below), but
    the voice vendor processes audio live to transcribe it, and Illinois'
    statute names "transcription" expressly, so the product is treated as
    recording everywhere. The decided line gives notice of transcription in
@@ -107,6 +109,15 @@ The product announces on every call regardless.
    The line is true only with recording storage off on every agent,
    verified by screenshot (risk analysis T5). A disclosure that understates
    what happens is worse than none.
+   **Changed 22 October 2026 (owner).** The owner reversed the storage-off
+   setting on 21 October 2026: Retell now holds a call's transcript, and with
+   it the recording, until healdesk has its own copy of the transcript, then
+   healdesk deletes the call there, and Retell's own retention for anything
+   left is one day. The line therefore no longer says "no audio recording is
+   kept". It says that healdesk keeps no audio and that the providers hold a
+   recording for no more than a day (`voiceDisclosure()`, its Spanish mirror
+   and the written notice in decision 8). Counsel has not reviewed the new
+   wording.
 3. **Washington and Connecticut: the record of the announcement.** Decision:
    the disclosure is written into the transcript verbatim with its timestamp
    (`disclosure_played_at`), the fixed audio asset the line is synthesised
@@ -162,7 +173,8 @@ The product announces on every call regardless.
    plain-language notice for its website and intake form ("{clinic} uses an
    AI assistant to answer calls and messages and to book appointments. It is
    not a person and gives no medical advice. Calls it answers are
-   transcribed; no recording is kept. To reach a person, call {direct
+   transcribed, and its provider holds any recording for no more than a day.
+   To reach a person, call {direct
    line}."), and the terms keep the duty where it is: § 8 "Your own
    notices". The notice is a convenience, not a warranty that it satisfies
    any state.

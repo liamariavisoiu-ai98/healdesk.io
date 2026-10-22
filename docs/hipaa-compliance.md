@@ -50,7 +50,9 @@ concretely:
 - A caller's or messager's name or phone number plus the treatment they asked about and
   their preferred time — the callback-slip fields. Do not assume a callback slip is
   exempt because it feels administrative.
-- Call transcripts (no audio recording is kept, by decision of 21 September 2026; a
+- Call transcripts (healdesk keeps no audio recording, by decision of 21 September 2026, and the voice
+  provider holds a call's transcript and recording only until healdesk has the transcript, for
+  no more than a day, by decision of 21 October 2026; a
   transcript tied to a number is still PHI) and web chat transcripts
 - A booking tied to a named person, in our database and as an event in the clinic's own
   Google Calendar
@@ -87,7 +89,7 @@ by scoping.
 | Hosting (product) | Vercel | **Enterprise plan only** ⚠️ — not the plan |
 | Hosting (product) | AWS (`us-east-1`, account `865780386982`) | **Accepted 22 September 2026** (account agreement in AWS Artifact). Covers only that account and HIPAA-eligible services; record in [policies/aws-hipaa-account.md](./policies/aws-hipaa-account.md) |
 | Database (product) | AWS RDS for PostgreSQL, or Neon on its Scale plan | **Not chosen.** RDS is covered by the AWS agreement already held; Neon signs its own (self-serve) and its Data API sits outside it. Sign, then apply the settings the agreement requires |
-| Voice telephony and speech | Retell | **Pending — self-serve.** Sign the BAA and DPA in Retell's click-agreements portal and confirm the executed text names the services in use; then set per-agent retention to the minimum, PII controls on and recording off. PHI subprocessor: caller audio in transit, transcript, number |
+| Voice telephony and speech | Retell | **Pending — self-serve.** Sign the BAA and DPA in Retell's click-agreements portal and confirm the executed text names the services in use; then set per-agent retention to the minimum (1 day), with storage on so the backstop can read a call whose voice task died, and have healdesk delete each call there once it has the transcript. PHI subprocessor: caller audio in transit, transcript, number |
 | LLM, every channel | Anthropic (Claude API) | **Pending.** The primary owner signs and arranges activation. Patient traffic runs in its own HIPAA-ready organisation, never the marketing org. The models in use, `claude-opus-5-5` and `claude-sonnet-5-5` (`PATIENT_MODEL_IDS`, `packages/catalog/src/model-retention.ts`), are not Anthropic's Covered Models (Claude Fable and Mythos, which require 30-day retention): under the HIPAA-ready organisation's standard retention they keep conversation content **no more than 30 days**, flagged content up to two years, and law-required content as long as the law requires. The clinic agreement must disclose it (BAA 1.6.0, drafted; `docs/counsel/agreement-changes.md` § 17). The responder refuses a model override outside that list. Batch, Files, web fetch, compaction and context editing are excluded from coverage (blockers-runbook §3) |
 | Calendar | Google Calendar (the clinic's own) | Between the **clinic and Google**, on a paid Workspace plan; confirm per clinic at onboarding. The clinic's OAuth token, granted to Healdesk's Google Cloud app, is stored in `apps/app` (not built yet) |
 | Payments (our subscription) | Stripe | **Never, on any tier.** Not needed: the buyer's name, work email and invoice are business contact data |

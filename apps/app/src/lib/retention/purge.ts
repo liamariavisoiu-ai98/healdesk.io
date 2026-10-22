@@ -43,9 +43,10 @@ import type { TenantTx } from "@/lib/tenant";
  * `clinics.retention_media_days` (default 90) removes the transcript
  * REFERENCE from a conversation, sooner when the practice has shortened its
  * transcripts in the portal (`clinic_settings.transcript_retention_days`,
- * 30 or 7 days; it can only shorten, and reaches no other record). No audio is kept anywhere (decision of
- * 21 September 2026; the vendor's recording storage is off in its console,
- * docs/hipaa-risk-analysis.md T5). The transcript text itself lives with the
+ * 30 or 7 days; it can only shorten, and reaches no other record). healdesk keeps no audio (decision of
+ * 21 September 2026); the voice vendor holds a call's recording with its
+ * transcript until healdesk has the transcript, and the backstop deletes the
+ * call there within a day (22 October 2026, docs/hipaa-risk-analysis.md T5). The transcript text itself lives with the
  * voice vendor under its own retention setting, which must be at most this
  * window. Nulling the reference here is what stops the product from ever
  * pointing at it again; it is not, and does not claim to be, the deletion of

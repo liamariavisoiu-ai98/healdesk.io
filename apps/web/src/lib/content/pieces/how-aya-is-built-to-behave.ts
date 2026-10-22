@@ -47,7 +47,7 @@ export const piece: Piece = {
           kind: "p",
           text:
             "AYA is built to open its side of every conversation it holds by saying it is an AI assistant, before it says anything else. " +
-            "On a call the same line says the call is transcribed and that no audio recording is kept, and on Instagram, Messenger and WhatsApp it says the channel is not secure. " +
+            "On a call the same line says the call is transcribed, that healdesk keeps no audio and that the voice provider holds a recording for no more than a day. On Instagram, Messenger and WhatsApp it says the channel is not secure. " +
             "The line is fixed in the product, so the clinic cannot switch it off or edit it out through the greeting it writes, which follows the line. " +
             "The record of each call notes when the line was given. " +
             "A call AYA does not hold, because it passes the call to the clinic's direct line or cannot take calls, hears only a fixed line saying so.",
@@ -55,12 +55,12 @@ export const piece: Piece = {
         },
         {
           kind: "table",
-          caption: "AYA's opening lines as built on 19 October 2026, with [practice name] standing for the clinic's name",
+          caption: "AYA's opening lines as built on 22 October 2026, with [practice name] standing for the clinic's name",
           head: ["Channel", "Opening line"],
           rows: [
             [
               "Phone",
-              "Hi, I'm an AI assistant for [practice name] — not a human. This call is transcribed by an automated system run by our service providers; no audio recording is kept. Say \"representative\" at any time and I'll pass your details to the practice team, who will get back to you within a day.",
+              "Hi, I'm an AI assistant for [practice name] — not a human. This call is transcribed by an automated system run by our service providers; we keep no audio, and they hold a recording for no more than a day. Say \"representative\" at any time and I'll pass your details to the practice team, who will get back to you within a day.",
             ],
             [
               "Website chat",
@@ -235,8 +235,7 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "AYA is designed to keep no call audio: the product creates each clinic's voice agent with recording storage off at the voice provider. " +
-            "The voice provider transcribes each call, and the same setting governs how long it keeps that transcript. " +
+            "AYA is designed to leave healdesk with no call audio. The voice provider transcribes each call and holds its transcript and recording only until healdesk has the transcript, and for no more than a day. The product creates each clinic's voice agent with that one-day limit and is designed to have the provider delete the call once healdesk has its own copy. " +
             "healdesk keeps no message from Instagram, Messenger or WhatsApp, apart from the details of a booking request, and what Meta keeps of a message is outside healdesk's control. " +
             "Under the business associate agreement healdesk is to sign with the AI model provider before any patient's information reaches it, the provider keeps conversation content for up to 30 days. " +
             "The exceptions are content the law requires it to keep and content its automated trust-and-safety systems flag, and flagged content may be kept for up to two years.",

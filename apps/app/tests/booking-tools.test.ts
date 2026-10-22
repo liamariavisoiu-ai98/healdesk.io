@@ -35,17 +35,17 @@ import { clampDepositExpiry, depositLinkText } from "@/lib/billing/deposit-link"
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { slotLabel } from "@/lib/booking/calendar";
 import {
-  askLine,
   BOOKING_LINES_EN,
   BOOKING_LINES_ES,
+  BOOKING_REFUSED_LINE,
   bookedLine,
   depositLine,
   detailsBeforeHoldLine,
   forChat,
-  HOLD_LINE,
   heldAskLine,
   MANUAL_BOOKING_LINE,
   REQUEST_TAKEN_LINE,
+  requestAskLine,
   TOOL_FAILURE_LINE,
 } from "@/lib/booking/lines";
 import { sendWebChatMessage, startWebChat, type WebChatClinic } from "@/lib/chat/web-chat";
@@ -121,7 +121,7 @@ describeDb("the booking tool layer in the web chat and the call", () => {
     await closePools();
   });
 
-  /** A live location (covered terms, Google connected, production, script approved) that has bought the web chat. */
+  /** A live location (covered terms, Google connected, production, script approved) that has bought the web chat and the voice agent. */
   async function location(label: string): Promise<DeskLocation & { web: WebChatClinic }> {
     const f = await deskLocation(google, label);
     await bindAgreementInEffect(f.clinicId);
@@ -129,7 +129,16 @@ describeDb("the booking tool layer in the web chat and the call", () => {
       `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`,
       [f.clinicId],
     );
-    await seedEntitled(f.clinicId, { planId: "webchat-1000", planStartedAt: WINDOW_START, channelRows: [{ channel: "web", liveAt: WINDOW_START }] });
+    // Both channels bought and live: the tool layer now asks the answer gate before it
+    // writes (booking-tools.ts), and a call is answered only once its channel is live.
+    await seedEntitled(f.clinicId, {
+      planId: "voice-webchat-1000-1000",
+      planStartedAt: WINDOW_START,
+      channelRows: [
+        { channel: "web", liveAt: WINDOW_START },
+        { channel: "voice", liveAt: WINDOW_START },
+      ],
+    });
     await withTenant({ clinicId: f.clinicId, actor: ACTOR }, async (tx) => {
       await setPhoneSettings(tx, { publishedPhoneE164: "+14155550199" });
       await approveAgentConfig(tx, "Dr Chen");
@@ -228,6 +237,41 @@ describeDb("the booking tool layer in the web chat and the call", () => {
       expect(retried).toMatchObject({ bookingWritten: true, appointmentId: appointments[0]!.id, reply: bookedLine(slotLabel(at, DESK_TZ), "Facial") });
       expect(inserts()).toHaveLength(1);
       expect((await rows(f.clinicId)).appointments).toHaveLength(1);
+    },
+    SLOW,
+  );
+
+  test(
+    "web chat: Google's re-check failing for now takes the visitor's request for the desk, once, under the booking key, with its L7, and says nothing booked",
+    async () => {
+      const f = await location("tools-web-recheck-down");
+      const at = deskTime(3, 10);
+      const { responder } = scripted([
+        () => ({ reply: "Let me look.", booking: { wants: true, service: "Facial" }, action: { type: "find_times", service: "Facial", day: dayOf(at) } }),
+        ({ system }) => ({ reply: "Great choice.", action: { type: "choose_time", at: offeredIn(system).find((v) => new Date(v).getTime() === at.getTime()) } }),
+        () => ({ reply: "You're booked!", booking: { first_name: "Ana", phone: "415 555 0188" } }),
+        () => ({ reply: "Anything else?" }),
+      ]);
+      const say = await chat(f.web, responder);
+      await say("Can I book a facial?");
+      await say("The ten o'clock please");
+
+      // Google answers the re-check with server errors: transient, not a break.
+      google.failNext({ on: "freeBusy", status: 503, times: 10 });
+      expect(await say("My name is Ana and my number is 415 555 0188")).toBe(forChat(REQUEST_TAKEN_LINE));
+
+      const { appointments, requests } = await rows(f.clinicId);
+      expect(appointments).toEqual([]);
+      expect(inserts()).toHaveLength(0);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({ status: "requested", channel: "web_chat" });
+      expect(requests[0]!.vendor_call_id).toBe(`web:${requests[0]!.conversation_id}:1`);
+      expect(await queuedNotices(f.clinicId, ["booking_request"])).toHaveLength(1);
+
+      // The next message files nothing more and alerts no one again.
+      await say("Thanks");
+      expect((await rows(f.clinicId)).requests).toHaveLength(1);
+      expect(await queuedNotices(f.clinicId, ["booking_request"])).toHaveLength(1);
     },
     SLOW,
   );
@@ -402,7 +446,8 @@ describeDb("the booking tool layer in the web chat and the call", () => {
       const say = await chat(f.web, responder);
       // Google answers 500 to every free/busy read of this turn.
       google.failNext({ on: "freeBusy", status: 500, times: 20 });
-      expect(await say("A consultation please")).toBe(forChat(TOOL_FAILURE_LINE));
+      // BOOK-01 (main): the chat says it will take the time as a request, not the failure line.
+      expect(await say("A consultation please")).toBe(forChat(MANUAL_BOOKING_LINE));
       expect(await say("Friday morning, I'm Ida, 415 555 0133")).toBe("Thanks Ida. The team will confirm Friday morning within a day.");
       // The request flow from here: no tools on offer, and the desk has the request.
       expect(seen[1]!.system.stable).not.toContain("find_times");
@@ -702,24 +747,15 @@ describe("the booking tool layer's lines, on a scripted engine", () => {
     return { offerTimes: never, placeHold: never, bookConversation: never, chatDepositFor: never, ...overrides } as BookingEngine;
   }
 
-  test("a call whose time the engine will not hold is never told it is held", async () => {
-    const tools = bookingTools(context, engine({ placeHold: async () => ({ kind: "request_only", reasons: ["calendar_broken"] }) }));
-    const said = await tools.run({ action: { type: "choose_time", at }, capture: EMPTY_CAPTURE, state: chosenState, callerPhone: PHONE, now: new Date("2026-11-01T12:00:00Z") });
-    expect(said!.reply).toBe(`${MANUAL_BOOKING_LINE} ${askLine("first_name")}`);
-    expect(said!.reply).not.toContain(HOLD_LINE);
+  // The English shapes of a time not held and a time held are main's
+  // voice-held-wording.test.ts (BOOK-01), which covers every reason; here,
+  // only that a Spanish call hears the same request, in Spanish.
+  test("a Spanish call whose time the engine will not hold hears the Spanish request line, never the hold", async () => {
+    const tools = bookingTools(context, engine({ placeHold: async () => ({ kind: "request_only", reasons: ["deposit_required"] }) }));
+    const said = await tools.run({ action: { type: "choose_time", at }, capture: EMPTY_CAPTURE, state: chosenState, callerPhone: PHONE, now: new Date("2026-11-01T12:00:00Z"), language: "es" });
+    expect(said!.reply).toBe(BOOKING_LINES_ES.requestAsk("first_name", true));
+    expect(said!.reply).not.toContain(BOOKING_LINES_ES.hold);
     expect(said!.state.held).toBe(false);
-  });
-
-  test("a call whose time is held hears the hold line", async () => {
-    const tools = bookingTools(
-      context,
-      engine({
-        placeHold: async () => ({ kind: "held", holdId: randomUUID(), expiresAt: new Date(), startsAt: new Date(at), minutes: 30, providerId: null }),
-      }),
-    );
-    const said = await tools.run({ action: { type: "choose_time", at }, capture: EMPTY_CAPTURE, state: chosenState, callerPhone: PHONE, now: new Date("2026-11-01T12:00:00Z") });
-    expect(said!.reply).toBe(heldAskLine("first_name"));
-    expect(said!.state.held).toBe(true);
   });
 
   test("a call in Spanish hears the Spanish hold line, times and booked line; the deposit is said in Spanish, never a link", async () => {
@@ -751,21 +787,27 @@ describe("the booking tool layer's lines, on a scripted engine", () => {
   test("the website chat stays English whatever language is passed, and the English set is the English lines themselves", async () => {
     const tools = bookingTools({ ...context, channel: "web_chat" }, engine({ offerTimes: async () => ({ status: "unavailable" }) as never }));
     const said = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now: new Date(), language: "es" });
-    expect(said!.reply).toBe(forChat(TOOL_FAILURE_LINE));
+    // A failed find_times on the chat is taken as a request (BOOK-01), in English.
+    expect(said!.reply).toBe(forChat(MANUAL_BOOKING_LINE));
     expect(BOOKING_LINES_EN.toolFailure).toBe(TOOL_FAILURE_LINE);
+    expect(BOOKING_LINES_EN.refused).toBe(BOOKING_REFUSED_LINE);
+    expect(BOOKING_LINES_EN.requestAsk("phone", true)).toBe(requestAskLine("phone", true));
     expect(BOOKING_LINES_EN.booked("Tue 3 Nov, 7:00 AM", null)).toBe(bookedLine("Tue 3 Nov, 7:00 AM", null));
     // Every Spanish line differs from its English one: none was left untranslated.
-    for (const key of ["manual", "hold", "noFreeTime", "requestTaken", "depositHold", "depositRequest", "oneRequestPerCall", "inProgress", "toolFailure"] as const) {
+    for (const key of ["manual", "hold", "noFreeTime", "requestTaken", "depositHold", "depositRequest", "oneRequestPerCall", "inProgress", "toolFailure", "refused"] as const) {
       expect(BOOKING_LINES_ES[key], key).not.toBe(BOOKING_LINES_EN[key]);
     }
   });
 
-  test("a tool failure hands the conversation to the request flow", async () => {
+  test("a tool failure on a call says the failure line, in the call's language, and leaves the tools on", async () => {
+    // BOOK-01 (main): only the website chat turns to taking a request in
+    // words when find_times fails (booking-tools-calendar-failure.test.ts);
+    // a call keeps its tools and offers the clinic or the details.
     const tools = bookingTools(context, engine({ offerTimes: async () => ({ status: "unavailable" }) as never }));
     const said = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now: new Date() });
     expect(said!.reply).toBe(TOOL_FAILURE_LINE);
-    expect(said!.state.manual).toBe(true);
-    // And the next turn is the model's own (the request flow).
-    expect(await tools.run({ action: { type: "find_times", service: null, day: null }, capture: EMPTY_CAPTURE, state: said!.state, now: new Date() })).toBeNull();
+    expect(said!.state.manual).toBe(false);
+    const spanish = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now: new Date(), language: "es" });
+    expect(spanish!.reply).toBe(BOOKING_LINES_ES.toolFailure);
   });
 });

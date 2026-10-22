@@ -59,6 +59,13 @@ export const IN_PROGRESS_LINE =
 export const TOOL_FAILURE_LINE =
   "I'm sorry, I couldn't complete that just now. I can put you through to the clinic, or take your details so they can confirm with you.";
 
+/**
+ * The answer gate refused the booking (paused, stopped at the allowance,
+ * suspended, ended): nothing is written, and the person is sent to the clinic.
+ */
+export const BOOKING_REFUSED_LINE =
+  "I'm not able to book appointments right now. Please contact the clinic directly, and their team will arrange a time with you.";
+
 /** A detail the assistant must ask for again, by the field the engine refused. */
 export const MISSING_DETAIL_LINES = {
   first_name: "I didn't catch your first name. Could you tell me again?",
@@ -103,14 +110,29 @@ export function detailsBeforeHoldLine(when: string): string {
   return `Before I hold ${when} for you, could I take your first name and a mobile number the clinic can reach you on?`;
 }
 
+const ASK_DETAIL = {
+  first_name: "Could I take your first name?",
+  phone: "What's the best number for the clinic to reach you on?",
+} as const;
+
 /** The one detail still to take, asked on its own. */
 export function askLine(missing: "first_name" | "phone"): string {
-  return missing === "first_name" ? "Could I take your first name?" : "What's the best number for the clinic to reach you on?";
+  return ASK_DETAIL[missing];
 }
 
-/** The voice HOLD_LINE, and the one detail still to take: only once a hold is placed. */
+/** The voice HOLD_LINE, and the one detail still to take. */
 export function heldAskLine(missing: "first_name" | "phone"): string {
-  return `${HOLD_LINE} ${askLine(missing)}`;
+  return `${HOLD_LINE} ${ASK_DETAIL[missing]}`;
+}
+
+/**
+ * A time chosen on a call that the engine would not hold (Auto-confirm off, a
+ * deposit the call cannot take, a calendar that stopped allowing the write):
+ * nothing is held, so it is worded as the request it will become, and the
+ * one detail still to take.
+ */
+export function requestAskLine(missing: "first_name" | "phone", deposit: boolean): string {
+  return `${deposit ? DEPOSIT_REQUEST_LINE : MANUAL_BOOKING_LINE} ${ASK_DETAIL[missing]}`;
 }
 
 /**
@@ -179,6 +201,7 @@ export type BookingLines = {
   oneRequestPerCall: string;
   inProgress: string;
   toolFailure: string;
+  refused: string;
   missing: Readonly<Record<keyof typeof MISSING_DETAIL_LINES, string>>;
   booked: (when: string, service: string | null) => string;
   oneBookingPerCall: (when: string | null) => string;
@@ -187,6 +210,7 @@ export type BookingLines = {
   detailsBeforeHold: (when: string) => string;
   ask: (missing: "first_name" | "phone") => string;
   heldAsk: (missing: "first_name" | "phone") => string;
+  requestAsk: (missing: "first_name" | "phone", deposit: boolean) => string;
   deposit: typeof depositLine;
 };
 
@@ -200,6 +224,7 @@ export const BOOKING_LINES_EN: BookingLines = {
   oneRequestPerCall: ONE_REQUEST_PER_CALL_LINE,
   inProgress: IN_PROGRESS_LINE,
   toolFailure: TOOL_FAILURE_LINE,
+  refused: BOOKING_REFUSED_LINE,
   missing: MISSING_DETAIL_LINES,
   booked: bookedLine,
   oneBookingPerCall: oneBookingPerCallLine,
@@ -208,6 +233,7 @@ export const BOOKING_LINES_EN: BookingLines = {
   detailsBeforeHold: detailsBeforeHoldLine,
   ask: askLine,
   heldAsk: heldAskLine,
+  requestAsk: requestAskLine,
   deposit: depositLine,
 };
 
@@ -252,6 +278,8 @@ export const BOOKING_LINES_ES: BookingLines = {
   oneRequestPerCall: "Ya pasé una solicitud a la clínica en esta llamada. Cuando le llamen, pueden gestionar la otra cita también.",
   inProgress: "No puedo tomar otra reserva en esta llamada mientras la primera se sigue confirmando. La clínica puede gestionar cualquier otra cosa con usted.",
   toolFailure: "Lo siento, no pude completarlo en este momento. Puedo comunicarle con la clínica, o tomar sus datos para que se lo confirmen.",
+  refused:
+    "No puedo reservar citas en este momento. Comuníquese directamente con la clínica, y su equipo le dará un horario.",
   missing: {
     first_name: "No entendí su nombre. ¿Me lo podría repetir?",
     at: "No tengo un horario que pueda reservar. ¿Qué día y hora le vendría bien?",
@@ -269,6 +297,8 @@ export const BOOKING_LINES_ES: BookingLines = {
   detailsBeforeHold: (when) => `Antes de reservarle el ${when}, ¿me podría dar su nombre y un número de celular en el que la clínica pueda localizarle?`,
   ask: askLineEs,
   heldAsk: (missing) => `${HOLD_LINE_ES} ${askLineEs(missing)}`,
+  requestAsk: (missing, deposit) =>
+    `${deposit ? "Esa cita necesita un depósito, así que pasaré su solicitud a la clínica y le llamarán para gestionarlo." : "No puedo reservar eso directamente ahora, así que tomaré el horario que prefiere y la clínica se lo confirmará."} ${askLineEs(missing)}`,
   deposit: depositLineEs,
 };
 

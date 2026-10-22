@@ -1,4 +1,4 @@
-import { isE164, RETELL_API_ORIGIN, RetellApiError, retellApiKey, type RetellApiOptions } from "./retell-api";
+import { isE164, isRetellNotFound, RETELL_API_ORIGIN, RetellApiError, retellApiKey, type RetellApiOptions } from "./retell-api";
 
 /**
  * Retell's phone-number calls that automated voice provisioning makes
@@ -136,7 +136,7 @@ export async function createRetellPhoneNumber(
 /** The number in full; null when Retell has no such number (404, or its documented 422). */
 export async function getRetellNumber(number: string, options: RetellApiOptions): Promise<RetellNumberView | null> {
   const response = await call(numberPath("get-phone-number", number), { method: "GET" }, options);
-  if (response.status === 404 || response.status === 422) return null;
+  if (response.status === 422 || (await isRetellNotFound(response))) return null;
   if (!response.ok) throw new RetellApiError(response.status);
   return readNumber(await jsonOf(response));
 }
@@ -199,7 +199,7 @@ export async function bindRetellNumber(
 /** Release the number (DELETE /delete-phone-number/<n>, 204). "absent" when Retell has none. */
 export async function deleteRetellNumber(number: string, options: RetellApiOptions): Promise<"deleted" | "absent"> {
   const response = await call(numberPath("delete-phone-number", number), { method: "DELETE" }, options);
-  if (response.status === 404 || response.status === 422) return "absent";
+  if (response.status === 422 || (await isRetellNotFound(response))) return "absent";
   if (!response.ok) throw new RetellApiError(response.status);
   return "deleted";
 }

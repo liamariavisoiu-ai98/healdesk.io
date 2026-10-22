@@ -1,4 +1,4 @@
-import { RETELL_API_ORIGIN, RetellApiError, retellApiKey, type RetellApiOptions } from "./retell-api";
+import { isRetellNotFound, RETELL_API_ORIGIN, RetellApiError, retellApiKey, type RetellApiOptions } from "./retell-api";
 
 /**
  * A clinic's Retell agent, written by code so its storage does not rest on a
@@ -208,7 +208,7 @@ async function send(path: string, init: RequestInit, options: RetellApiOptions):
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" },
     signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
   });
-  if (!response.ok) throw new RetellApiError(response.status);
+  if (!response.ok) throw new RetellApiError(response.status, await isRetellNotFound(response));
   try {
     return await response.json();
   } catch {
@@ -366,7 +366,7 @@ export async function getRetellAgent(agentId: string, options: RetellApiOptions)
   try {
     return await send(`/get-agent/${agentPath(agentId)}`, { method: "GET" }, options);
   } catch (error) {
-    if (error instanceof RetellApiError && (error.status === 404 || error.status === 422)) return null;
+    if (error instanceof RetellApiError && (error.missing || error.status === 422)) return null;
     throw error;
   }
 }
@@ -385,7 +385,7 @@ export async function deleteRetellAgent(agentId: string, options: RetellApiOptio
     headers: { authorization: `Bearer ${key}` },
     signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
   });
-  if (response.status === 404 || response.status === 422) return "absent";
+  if (response.status === 422 || (await isRetellNotFound(response))) return "absent";
   if (!response.ok) throw new RetellApiError(response.status);
   return "deleted";
 }

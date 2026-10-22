@@ -28,6 +28,8 @@ import {
   type RetellCall,
 } from "@/lib/voice/backstop";
 import type { VoiceCallEvent } from "@/lib/voice/ingest";
+import { getRetellPhoneNumber } from "@/lib/voice/retell-api";
+import { deleteRetellNumber, getRetellNumber } from "@/lib/voice/retell-numbers";
 import {
   DELETE_NOT_BEFORE_MS,
   deleteRetellCallAfterIngest,
@@ -37,6 +39,8 @@ import {
 import {
   checkRetellAgent,
   createRetellAgent,
+  deleteRetellAgent,
+  getRetellAgent,
   RETELL_DATA_RETENTION_DAYS,
   RETELL_DATA_STORAGE_SETTING,
   RetellAgentConfigError,
@@ -381,16 +385,95 @@ describeDb("recording alerts, against the real tables", () => {
     expect(await alertRows(c.clinicId)).toEqual([]);
   });
 
-  test("a recorded call is deleted at Retell; 204 and 404 are both done, and a retry is harmless", async () => {
+  test("a recorded call is deleted at Retell; 204 and Retell's JSON 404 are both done, and a retry is harmless", async () => {
     await recordConversation(c.clinicId, "call_done");
     const deleting = fakeFetch(() => new Response(null, { status: 204 }));
     expect(await deleteRetellCallAfterIngest(c.clinicId, "call_done", { fetch: deleting.fetch, apiKey: KEY, now: at(10) })).toEqual({ status: "deleted" });
     expect(deleting.seen).toEqual([
       { url: "https://api.retellai.com/v2/delete-call/call_done", method: "DELETE", body: null, authorization: `Bearer ${KEY}` },
     ]);
-    const gone = fakeFetch(() => json({ status: "error" }, 404));
+    const gone = fakeFetch(() => json({ status: "error", message: "Not Found" }, 404));
     expect(await deleteRetellCallAfterIngest(c.clinicId, "call_done", { fetch: gone.fetch, apiKey: KEY, now: at(11) })).toEqual({ status: "deleted" });
     expect(await alertRows(c.clinicId)).toEqual([]);
+  });
+
+  // What live Retell answered to DELETE /v2/delete-call (22 October 2026):
+  // a missing call on the right route is 404 with {"status":"error","message":
+  // "Not Found"}; a wrong route is 404 with an HTML page; a call still in
+  // progress is 400 {"status":"error","message":"Cannot delete a live call.
+  // Please wait until the call is completed."}. Mocked fetch only.
+  const HTML_404 = () => new Response("<!DOCTYPE html><html><body><pre>Cannot DELETE /v2/delete-call/call_x</pre></body></html>", { status: 404, headers: { "content-type": "text/html" } });
+  const LIVE_400 = () => json({ status: "error", message: "Cannot delete a live call. Please wait until the call is completed." }, 400);
+
+  test("only Retell's own JSON 404 means already deleted: an HTML, empty or unparseable 404 is a failure, alerted after the window", async () => {
+    await recordConversation(c.clinicId, "call_404s");
+    for (const [name, answer] of [
+      ["html", HTML_404],
+      ["empty", () => new Response(null, { status: 404 })],
+      ["unparseable", () => new Response("not json {", { status: 404 })],
+      ["json without status error", () => json({ message: "Not Found" }, 404)],
+    ] as const) {
+      const wrong = fakeFetch(answer);
+      expect(await deleteRetellCallAfterIngest(c.clinicId, "call_404s", { fetch: wrong.fetch, apiKey: KEY, now: at(10) }), name).toEqual({
+        status: "failed",
+        reason: "Retell answered 404 without its not-found body",
+        alerted: false,
+      });
+    }
+    expect(await alertRows(c.clinicId)).toEqual([]);
+    const html = fakeFetch(HTML_404);
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_404s", { fetch: html.fetch, apiKey: KEY, now: at(31) })).toMatchObject({ status: "failed", alerted: true });
+    expect((await alertRows(c.clinicId)).map((r) => [r.retell_call_id, r.last_error, r.resolved_at])).toEqual([
+      ["call_404s", "Retell answered 404 without its not-found body", null],
+    ]);
+    // Retell's JSON 404 then resolves that alert.
+    const gone = fakeFetch(() => json({ status: "error", message: "Not Found" }, 404));
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_404s", { fetch: gone.fetch, apiKey: KEY, now: at(40) })).toEqual({ status: "deleted" });
+    expect((await alertRows(c.clinicId))[0]!.resolved_at).not.toBeNull();
+  });
+
+  test("a call still live (400) is retried later with no alert at once, and is alerted once the window passes; any other 400 is a plain failure", async () => {
+    await recordConversation(c.clinicId, "call_live");
+    const live = fakeFetch(LIVE_400);
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_live", { fetch: live.fetch, apiKey: KEY, now: at(10) })).toEqual({
+      status: "failed",
+      reason: "Retell says the call is still live",
+      alerted: false,
+      retryLater: true,
+    });
+    expect(await alertRows(c.clinicId)).toEqual([]);
+    expect(await deleteRetellCallAfterIngest(c.clinicId, "call_live", { fetch: live.fetch, apiKey: KEY, now: at(31) })).toMatchObject({
+      status: "failed",
+      alerted: true,
+      retryLater: true,
+    });
+    expect((await alertRows(c.clinicId)).map((r) => [r.retell_call_id, r.last_error, r.resolved_at])).toEqual([
+      ["call_live", "Retell says the call is still live", null],
+    ]);
+
+    // Another 400 (a different message, or no JSON) is a failure, not a wait.
+    for (const answer of [() => json({ status: "error", message: "Invalid call id" }, 400), () => new Response("bad", { status: 400 })]) {
+      const other = fakeFetch(answer);
+      const result = await deleteRetellCallAfterIngest(c.clinicId, "call_live", { fetch: other.fetch, apiKey: KEY, now: at(12) });
+      expect(result).toMatchObject({ status: "failed", reason: "Retell answered 400" });
+      expect(result).not.toHaveProperty("retryLater");
+    }
+  });
+
+  test("the other Retell lookups agree: only the JSON 404 is 'absent', an HTML 404 throws", async () => {
+    const jsonMissing = fakeFetch(() => json({ status: "error", message: "Not Found" }, 404));
+    const html = fakeFetch(HTML_404);
+    const opts = { key: KEY };
+    expect(await deleteRetellAgent("agent_abc123", { ...opts, fetch: jsonMissing.fetch })).toBe("absent");
+    await expect(deleteRetellAgent("agent_abc123", { ...opts, fetch: html.fetch })).rejects.toThrow(/404/);
+    expect(await getRetellAgent("agent_abc123", { ...opts, fetch: jsonMissing.fetch })).toBeNull();
+    await expect(getRetellAgent("agent_abc123", { ...opts, fetch: html.fetch })).rejects.toThrow(/404/);
+    expect(await getRetellNumber("+14155550100", { ...opts, fetch: jsonMissing.fetch })).toBeNull();
+    await expect(getRetellNumber("+14155550100", { ...opts, fetch: html.fetch })).rejects.toThrow(/404/);
+    expect(await deleteRetellNumber("+14155550100", { ...opts, fetch: jsonMissing.fetch })).toBe("absent");
+    await expect(deleteRetellNumber("+14155550100", { ...opts, fetch: html.fetch })).rejects.toThrow(/404/);
+    expect(await getRetellPhoneNumber("+14155550100", { ...opts, fetch: jsonMissing.fetch })).toBeNull();
+    await expect(getRetellPhoneNumber("+14155550100", { ...opts, fetch: html.fetch })).rejects.toThrow(/404/);
   });
 
   test("a failed delete is an alert only after the window, once per call, and a later delete resolves it", async () => {
@@ -596,7 +679,7 @@ describeDb("recording alerts, against the real tables", () => {
     expect(new Set(events.map((e) => e.actor_label))).toEqual(new Set([OPERATOR.email]));
   });
 
-  test("a call Retell no longer has (404) resolves; a recorded call may be deleted at once; a missing key stays open", async () => {
+  test("a call Retell no longer has (its JSON 404) resolves; a recorded call may be deleted at once; a missing key stays open", async () => {
     await recordRecordingAlert(c.clinicId, "call_rec_4");
     await recordRecordingAlert(c.clinicId, "call_rec_5");
     const rows = await alertRows(c.clinicId);

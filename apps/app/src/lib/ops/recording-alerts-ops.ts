@@ -28,7 +28,7 @@ import {
  *     or a number: the table holds none (drizzle/0105).
  *   - `deleteRecordedCall`, the manual backstop's button: apps/app, which
  *     alone holds HEALDESK_RETELL_API_KEY, asks Retell to delete the call,
- *     and the alert resolves when Retell answers 204, or 404 for a call it
+ *     and the alert resolves when Retell answers 204, or its own JSON 404 (status "error") for a call it
  *     no longer has. A resolved alert answers `already` without asking
  *     again; a failure stays open with the reason. Each press is a security
  *     event naming the operator.

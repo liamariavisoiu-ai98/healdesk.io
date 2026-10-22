@@ -6,7 +6,7 @@ import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
 import { withTenant } from "@/lib/tenant";
 
-import { RETELL_API_ORIGIN, retellApiKey } from "./retell-api";
+import { isRetellNotFound, RETELL_API_ORIGIN, retellApiKey } from "./retell-api";
 
 /** Retell's call ids, as the backstop takes them (./backstop.ts, isRetellCallId; not imported, which would make a cycle). */
 const CALL_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -178,7 +178,7 @@ export async function listRecordingAlerts(
 export const DELETE_NOT_BEFORE_MS = 2 * 60 * 60_000;
 
 export type DeleteRecordedCallOutcome =
-  /** Retell deleted the call (204), or had no such call (404): resolved now. */
+  /** Retell deleted the call (204), or answered its own JSON 404 for a call it does not have: resolved now. */
   | { status: "deleted"; resolvedAt: string }
   /** Resolved before: Retell was not asked again. */
   | { status: "already"; resolvedAt: string }
@@ -195,12 +195,26 @@ export type DeleteDeps = {
 };
 
 /**
- * Retell's delete for one call. Idempotent: 204 (deleted) and 404 (Retell
- * has no such call, which is what deleting wanted) are both gone; any other
- * answer leaves it to be tried again. Our own words come back, never
- * Retell's body.
+ * Retell's delete for one call. Idempotent: 204 (deleted) and Retell's own
+ * "no such call" 404 are both gone; any other answer leaves it to be tried
+ * again. Our own words come back, never Retell's body.
+ *
+ * What live Retell answers to DELETE /v2/delete-call/<id> (checked 22 October
+ * 2026):
+ *   - 404 with a JSON body {"status":"error","message":"Not Found"}: a call
+ *     that does not exist, on the right route. This alone counts as gone.
+ *   - 404 with an HTML page ("Cannot DELETE /..."): a wrong route. It is a
+ *     failure, never "already deleted": a path typo would otherwise report
+ *     every delete as done while Retell kept every recording.
+ *   - 400 {"status":"error","message":"Cannot delete a live call. Please
+ *     wait until the call is completed."}: the call is still in progress.
+ *     Not a failure of ours: `retryLater`, so the job's retries (and the
+ *     alert only once the window has passed) apply without an error log.
  */
-export async function deleteAtRetell(callId: string, deps: DeleteDeps): Promise<{ gone: true } | { gone: false; reason: string }> {
+export async function deleteAtRetell(
+  callId: string,
+  deps: DeleteDeps,
+): Promise<{ gone: true } | { gone: false; reason: string; retryLater?: boolean }> {
   const key = deps.apiKey === undefined ? retellApiKey() : deps.apiKey;
   if (!key) return { gone: false, reason: "HEALDESK_RETELL_API_KEY is not set on apps/app" };
   let response: Response;
@@ -214,8 +228,25 @@ export async function deleteAtRetell(callId: string, deps: DeleteDeps): Promise<
     const name = error instanceof Error ? error.name : "error";
     return { gone: false, reason: name === "TimeoutError" ? "Retell did not answer within 10 seconds" : "Retell could not be reached" };
   }
-  if (response.status === 204 || response.status === 200 || response.status === 404) return { gone: true };
+  if (response.status === 204 || response.status === 200) return { gone: true };
+  if (response.status === 404) {
+    if (await isRetellNotFound(response)) return { gone: true };
+    return { gone: false, reason: "Retell answered 404 without its not-found body" };
+  }
+  if (response.status === 400 && (await isLiveCallRefusal(response))) {
+    return { gone: false, reason: "Retell says the call is still live", retryLater: true };
+  }
   return { gone: false, reason: `Retell answered ${response.status}` };
+}
+
+/** Retell's 400 for deleting a call that has not ended: {"status":"error","message":"Cannot delete a live call. ..."}. */
+async function isLiveCallRefusal(response: Response): Promise<boolean> {
+  try {
+    const body = JSON.parse(await response.clone().text()) as { status?: unknown; message?: unknown } | null;
+    return body?.status === "error" && typeof body.message === "string" && /cannot delete a live call/i.test(body.message);
+  } catch {
+    return false;
+  }
 }
 
 export type RetellCallDeletion =
@@ -224,7 +255,7 @@ export type RetellCallDeletion =
   /** No conversation for the call here: our copy is not committed, so Retell's is kept. */
   | { status: "not_recorded" }
   /** Retell did not delete it; `alerted` when the window had passed and the alert is written or updated. */
-  | { status: "failed"; reason: string; alerted: boolean };
+  | { status: "failed"; reason: string; alerted: boolean; retryLater?: boolean };
 
 /**
  * The automatic step: delete the call at Retell, but only once the call has
@@ -268,9 +299,12 @@ export async function deleteRetellCallAfterIngest(clinicId: string, callId: stri
 
   const endedAt = recorded.endedAt ?? recorded.startedAt;
   const late = now.getTime() >= endedAt.getTime() + RETELL_DELETION_WINDOW_MS;
-  log.error("retell call not deleted after ingest", { clinicId, callId, code: result.reason, status: late ? "alerted" : "retrying" });
+  // A call Retell says is still live is retried like any failure and alerted
+  // only once the window has passed, but before then it is not an error.
+  const retryLater = "retryLater" in result && result.retryLater === true;
+  (retryLater && !late ? log.info : log.error)("retell call not deleted after ingest", { clinicId, callId, code: result.reason, status: late ? "alerted" : "retrying" });
   if (late) await recordRecordingAlert(clinicId, callId, { reason: result.reason, at: now });
-  return { status: "failed", reason: result.reason, alerted: late };
+  return { status: "failed", reason: result.reason, alerted: late, ...(retryLater ? { retryLater: true } : {}) };
 }
 
 /**

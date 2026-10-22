@@ -51,9 +51,37 @@ export function retellApiKey(): string | null {
 }
 
 export class RetellApiError extends Error {
-  constructor(readonly status: number) {
+  /**
+   * `missing`: a 404 that is Retell's own "no such thing" answer
+   * (isRetellNotFound), as opposed to a 404 from a wrong route or a proxy.
+   */
+  constructor(
+    readonly status: number,
+    readonly missing = false,
+  ) {
     super(`Retell API answered ${status}`);
     this.name = "RetellApiError";
+  }
+}
+
+/**
+ * Is this 404 Retell's own answer for a thing that does not exist?
+ *
+ * Live Retell, 22 October 2026: a call that does not exist, on the right
+ * route, answers 404 with a JSON body {"status":"error","message":"Not
+ * Found"}. A wrong route answers 404 with an HTML page ("Cannot DELETE
+ * /..."). Only the first means "already gone". An HTML, empty or unparseable
+ * 404 is a mistake of ours (a wrong path) or a proxy's, and treating it as
+ * success would report a delete that never happened. The body is read from a
+ * clone and never kept or logged.
+ */
+export async function isRetellNotFound(response: Response): Promise<boolean> {
+  if (response.status !== 404) return false;
+  try {
+    const body: unknown = JSON.parse(await response.clone().text());
+    return typeof body === "object" && body !== null && (body as { status?: unknown }).status === "error";
+  } catch {
+    return false;
   }
 }
 
@@ -81,7 +109,7 @@ function parse(body: unknown): RetellPhoneNumber | null {
 /** The number as Retell holds it; null when Retell has no such number. Throws on any other failure. */
 export async function getRetellPhoneNumber(number: string, options: RetellApiOptions = {}): Promise<RetellPhoneNumber | null> {
   const response = await request(numberPath("get-phone-number", number), { method: "GET" }, options);
-  if (response.status === 404) return null;
+  if (await isRetellNotFound(response)) return null;
   if (!response.ok) throw new RetellApiError(response.status);
   let body: unknown;
   try {

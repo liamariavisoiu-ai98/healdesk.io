@@ -79,8 +79,8 @@ export const TEMPLATES: readonly Template[] = [
 ];
 
 /**
- * The one email for a clinic whose site would not load (the "Unreadable sites"
- * tab). It has no preview to offer, because the preview is built from the
+ * The one email for a clinic whose site would not load (the rows with
+ * list = "unreadable", at the end of the Low enrichment tab). It has no preview to offer, because the preview is built from the
  * site, and no follow-up: see the note at the top of unreadable.ts.
  */
 export const UNREADABLE_TEMPLATE: Template = {

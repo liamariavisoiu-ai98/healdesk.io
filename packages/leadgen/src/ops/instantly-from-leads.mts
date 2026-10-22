@@ -10,8 +10,9 @@
  * closing question, angle, capability, and the new subject, scene, chat
  * surface, greeting, client word, short company name and bare domain.
  *
- * Writes leads-main.csv, leads-low-enrichment.csv and leads-unreadable.csv (a
- * second contact sits in the tab its clinic's enrichment puts it in), plus templates.json (the four touches and the
+ * Writes leads-main.csv and leads-low-enrichment.csv (a second contact sits in
+ * the tab its clinic's enrichment puts it in; the clinics whose site would not
+ * load close the low-enrichment tab), plus templates.json (the four touches and the
  * unreadable email, for the spreadsheet's Templates tab). The emails are
  * written in Instantly from those templates.
  */
@@ -146,7 +147,6 @@ if (tabs.refused.length) {
 await mkdir(outDir, { recursive: true });
 await writeFile(join(outDir, "leads-main.csv"), toCsv(tabs.main));
 await writeFile(join(outDir, "leads-low-enrichment.csv"), toCsv(tabs.lowEnrichment));
-await writeFile(join(outDir, "leads-unreadable.csv"), toCsv(tabs.unreadable));
 await writeFile(join(outDir, "templates.json"), JSON.stringify([...TEMPLATES, UNREADABLE_TEMPLATE], null, 2));
 console.log(`read ${rows.length} rows, rebuilt ${rebuilt.length}, left out ${skipped} (no email, no segment, excluded)`);
-console.log(`main ${tabs.main.length}  low enrichment ${tabs.lowEnrichment.length}  unreadable ${tabs.unreadable.length}`);
+console.log(`main ${tabs.main.length}  low enrichment ${tabs.lowEnrichment.length} (${tabs.lowEnrichment.filter((r) => r.list === "unreadable").length} of them unreadable sites, at the end)`);

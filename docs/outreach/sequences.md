@@ -24,13 +24,12 @@ preview is built from the clinic's site, and theirs would not load.
 
 The spreadsheet keeps every column the enrichment wrote (the scrape, the hours,
 the best service, the booking platform) and gains the columns the templates
-use. It has three tabs, and each is its own campaign:
+use. It has two tabs, and each is its own campaign:
 
 | Tab | Who | Campaign |
 | --- | --- | --- |
 | Main campaign | Contacts whose hook stands on measured hours, closed days or sites, and whose service we found | Sent first, strongest rows at the top |
-| Low enrichment | Contacts with no opening hours or no service found (`enrichment_note` says which) | Second, judged on its own reply rate |
-| Unreadable sites | Clinics whose site would not load | One email, no preview (there is no site to build it from) |
+| Low enrichment | Contacts with no opening hours or no service found, then, in one block at the end, the clinics whose site would not load (`enrichment_note` says which) | Second, judged on its own reply rate |
 
 A second contact (another person at a clinic already in the list) sits in the
 same tab as the primary contact at that clinic, because the enrichment belongs
@@ -38,16 +37,23 @@ to the clinic. The `list` column says `primary` or `second-contact`, and
 `primary_contact` names the other person, so either kind can be held back.
 Sending both at once means one clinic has two threads in flight.
 
-`npm run enrich -w @healdesk/leadgen` writes the same three tabs as
-`leads-main.csv`, `leads-low-enrichment.csv` and `leads-unreadable.csv` next to
-`all-leads.csv`. A list enriched before this
+**The block at the end of Low enrichment is not for the four-touch sequence.**
+Its rows have `list = unreadable`: the site would not load, so there is no
+preview, no scene and no chat surface, and touches 1 and 2 would print blanks
+and promise a preview that cannot be built. Cut that block off (they are
+contiguous, last in the tab) and send it as its own campaign with the single
+*Unreadable sites* email below.
+
+`npm run enrich -w @healdesk/leadgen` writes the same two tabs as
+`leads-main.csv` and `leads-low-enrichment.csv` next to `all-leads.csv`. A list
+enriched before this
 copy existed is refreshed without crawling anything, with
 `npx tsx src/ops/instantly-from-leads.mts <all-leads.csv> <out-dir>` from
 `packages/leadgen`. The outputs hold real contacts: keep them out of Git.
 
 In Instantly:
 
-1. Upload each tab's CSV as its own campaign. `email`, `first_name`,
+1. Upload each tab's CSV as its own campaign (and cut the unreadable block off the end of Low enrichment, as above). `email`, `first_name`,
    `last_name`, `company` and `phone` map to Instantly's own fields; every other
    column imports as a custom variable you can use as `{{column_name}}`.
 2. Build four steps from the templates below, on days 1, 3, 6 and 10. Only step
@@ -126,7 +132,7 @@ Subject: Blank, so it threads under touch 1.
 
 ### Unreadable sites, one email
 
-Subject: `{{subject_line}}`. Upload the *Unreadable sites* tab as its own campaign with this single step.
+Subject: `{{subject_line}}`. The rows with `list = unreadable`, at the end of the Low enrichment tab, as their own campaign with this single step.
 
 ```
 {{greeting}} {{greeting_name}},

@@ -11,14 +11,18 @@ import { siteHost } from "./outreach.ts";
  * (`primary_contact`). The emails themselves are written in Instantly from
  * templates.ts, so no email body is stored here.
  *
- * Three tabs, because the clinics are not equally well known:
+ * Two tabs, because the clinics are not equally well known:
  *
  *   main             a contact whose hook rests on a measured fact (hours,
  *                    closed days, sites) and whose service we found
  *   lowEnrichment    a contact with no hours, or no service, or neither; the
  *                    copy still reads correctly, since every branch has a
- *                    fallback, but it is the weaker send and is judged separately
- *   unreadable       a site that would not load; there is no preview to offer
+ *                    fallback, but it is the weaker send and is judged
+ *                    separately. A clinic whose site would not load is the
+ *                    least enriched of all, so it is here too, in one block at
+ *                    the end with list = "unreadable". Those rows have no
+ *                    scene, chat surface or preview, so they take the one-email
+ *                    template (templates.ts), never the four-touch sequence.
  *
  * A second contact sits in the same tab as the primary contact at its clinic,
  * because the enrichment belongs to the clinic, not the person. The `list`
@@ -94,11 +98,10 @@ const SENT = ["hook", "top_offer", "closing_question", "subject_line", "scenario
 export type LeadTabs = {
   main: Lead[];
   lowEnrichment: Lead[];
-  unreadable: Lead[];
   refused: string[];
 };
 
-/** Split the spreadsheet's rows into its three tabs. Excluded rows are in none. */
+/** Split the spreadsheet's rows into its two tabs. Excluded rows are in neither. */
 export function splitLeads(rows: readonly Lead[]): LeadTabs {
   const main: Lead[] = [];
   const lowEnrichment: Lead[] = [];
@@ -132,5 +135,6 @@ export function splitLeads(rows: readonly Lead[]): LeadTabs {
   // Strongest first: a measured window, then a clinic-specific subject.
   const strength = (r: Lead) => ((r.hook ?? "").includes(" hours ") ? 2 : 0) + ((r.subject_line ?? "").startsWith("AYA for") ? 0 : 1);
   main.sort((a, b) => strength(b) - strength(a));
-  return { main, lowEnrichment, unreadable, refused };
+  // The unreadable block goes last, so splitting it off is one cut.
+  return { main, lowEnrichment: [...lowEnrichment, ...unreadable], refused };
 }

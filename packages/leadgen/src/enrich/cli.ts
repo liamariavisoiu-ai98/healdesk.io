@@ -1272,9 +1272,9 @@ async function main(): Promise<void> {
       "    with a primary row and must go out in a later wave, not beside it.",
   );
 
-  // The spreadsheet's three tabs, as separate files: main, low enrichment and
-  // unreadable sites. A second contact sits in the tab its clinic's enrichment
-  // puts it in. Each row keeps every
+  // The spreadsheet's two tabs, as separate files: main and low enrichment. A
+  // second contact sits in the tab its clinic's enrichment puts it in, and the
+  // clinics whose site would not load close the low-enrichment tab. Each row keeps every
   // column above and gains greeting_name, enrichment_note and primary_contact.
   // The emails are written in Instantly from the templates in templates.ts
   // (docs/outreach/sequences.md).
@@ -1287,8 +1287,7 @@ async function main(): Promise<void> {
   }
   for (const [file, label, rows] of [
     ["leads-main.csv", "main campaign (second contacts included)", tabs.main],
-    ["leads-low-enrichment.csv", "low enrichment (second contacts included)", tabs.lowEnrichment],
-    ["leads-unreadable.csv", "unreadable sites (one email, no preview)", tabs.unreadable],
+    ["leads-low-enrichment.csv", "low enrichment (second contacts, then unreadable sites)", tabs.lowEnrichment],
   ] as const) {
     const path = join(DATA, file);
     await writeFile(path, toCsv(rows));

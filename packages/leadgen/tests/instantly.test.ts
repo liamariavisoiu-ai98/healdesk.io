@@ -55,25 +55,30 @@ describe("the tabs", () => {
     expect(u.lowEnrichment.map((r) => r.email)).toEqual(["a@thin.com", "b@thin.com"]);
   });
 
-  test("a site that would not load is its own tab, with a subject and the one-email template", () => {
+  test("a site that would not load closes the low-enrichment tab, after every thin contact", () => {
     const t = splitLeads([
       lead({
         list: "unreadable", clinic_id: "u1", email: "dr@crawford.com", first_name: "Marcus", segment: "", subject_line: "", greeting: "",
         site_host: "crawfordplasticsurgery.com",
         hook: "I went to look at crawfordplasticsurgery.com but couldn't get it to load properly.",
       }),
+      lead({ clinic_id: "k3", email: "thin@clinic.com", top_service: "", gap_hours: "", closed_days: "", closes_at: "" }),
       lead({ list: "unreadable", clinic_id: "u2", email: "x@y.com", greeting: "", subject_line: "", site_host: "tiny.com", hook: "I went to look at tiny.com but couldn't find much on it." }),
     ]);
-    expect(t.unreadable).toHaveLength(2);
-    expect(t.unreadable[0]!.subject_line).toBe("crawfordplasticsurgery.com not loading");
-    expect(t.unreadable[0]!.greeting).toBe("Hi");
-    expect(t.unreadable[1]!.subject_line).toBe("Quick question about tiny.com");
+    expect(t.main).toHaveLength(0);
+    expect(t.lowEnrichment.map((r) => r.email)).toEqual(["thin@clinic.com", "dr@crawford.com", "x@y.com"]);
+    const [, a, b] = t.lowEnrichment;
+    expect([a!.list, b!.list]).toEqual(["unreadable", "unreadable"]);
+    expect(a!.subject_line).toBe("crawfordplasticsurgery.com not loading");
+    expect(a!.greeting).toBe("Hi");
+    expect(a!.enrichment_note).toBe("site could not be read: one email, no preview");
+    expect(b!.subject_line).toBe("Quick question about tiny.com");
     expect(unreadableSubject({ site_host: "a-very-long-clinic-domain-name-for-a-practice.com", hook: "x" })).toBe("Your website");
   });
 
   test("excluded rows are in no tab, and a refused phrase is reported", () => {
     const e = splitLeads([lead({ exclude_reason: "chain or franchise" })]);
-    expect(e.main.length + e.lowEnrichment.length + e.unreadable.length).toBe(0);
+    expect(e.main.length + e.lowEnrichment.length).toBe(0);
     expect(splitLeads([lead({ hook: "We text your lapsed patients back." })]).refused.length).toBeGreaterThan(0);
   });
 });

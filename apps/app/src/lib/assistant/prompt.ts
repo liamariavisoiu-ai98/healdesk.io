@@ -215,10 +215,13 @@ export function assistantTurnContext(
   opening?: string | null,
   /** booking-tools.ts toolTurnContext, on a turn the tools are live. */
   tools?: string | null,
+  /** turn.ts SPANISH_CALL, on a turn of a call being spoken in Spanish. */
+  language?: string | null,
 ): string {
   const time = now.toLocaleString("en-US", { timeZone: facts.timeZone, weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
   const lines = [`Now it is ${time} in the practice's time zone.`];
   if (opening) lines.push(`You opened the conversation with: "${opening}"`);
   if (tools) lines.push(tools);
+  if (language) lines.push(language);
   return lines.join("\n");
 }

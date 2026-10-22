@@ -76,7 +76,8 @@ const LLM_ID = /^[A-Za-z0-9_-]{1,128}$/;
  * The agent's speech-recognition language, as Retell names it: one locale
  * ("en-US"), or, for an agent that answers in several, the locale array
  * Retell took in place of the removed scalar "multi" (its deprecation notice
- * of 31 July 2026).
+ * of 31 July 2026; re-read on 22 October 2026: "Accepts either a single
+ * locale (e.g. en-US) or an array of locales", es-419 among them).
  */
 export type RetellLanguage = string | readonly string[];
 
@@ -86,6 +87,21 @@ function languageBody(language: RetellLanguage): string | string[] {
   const list = typeof language === "string" ? [language] : [...language];
   if (list.length === 0 || !list.every((l) => LOCALE.test(l))) throw new RetellAgentConfigError("not a Retell language");
   return list.length === 1 ? list[0]! : list;
+}
+
+/**
+ * Retell's `boosted_keywords` (string[], create- and update-agent): words
+ * its transcriber is biased towards. Checked so a clinic's words cannot
+ * become a request body of any size or shape: at most 100, each 1 to 80
+ * characters with no control characters, and no `{{`, which Retell reads as
+ * a dynamic variable.
+ */
+function keywordsBody(keywords: readonly string[]): string[] {
+  const list = keywords.map((k) => k.trim());
+  if (list.length > 100 || !list.every((k) => k.length >= 1 && k.length <= 80 && !/[\u0000-\u001f\u007f]/.test(k) && !k.includes("{{"))) {
+    throw new RetellAgentConfigError("not a list of Retell keywords");
+  }
+  return list;
 }
 
 export class RetellAgentConfigError extends Error {
@@ -244,7 +260,7 @@ function mustHold(check: RetellAgentCheck): void {
  */
 export async function createRetellAgent(
   clinicId: string,
-  input: { voiceId: string; agentName?: string; language?: RetellLanguage },
+  input: { voiceId: string; agentName?: string; language?: RetellLanguage; boostedKeywords?: readonly string[] },
   options: RetellAgentOptions,
 ): Promise<{ agentId: string; check: RetellAgentCheck }> {
   if (!/^[A-Za-z0-9_.-]{1,128}$/.test(input.voiceId)) throw new RetellAgentConfigError("not a Retell voice id");
@@ -256,6 +272,7 @@ export async function createRetellAgent(
         ...retellAgentSettings(clinicId, options),
         voice_id: input.voiceId,
         ...(input.language !== undefined ? { language: languageBody(input.language) } : {}),
+        ...(input.boostedKeywords !== undefined ? { boosted_keywords: keywordsBody(input.boostedKeywords) } : {}),
         // The clinic id, never its name: the agent list is Retell's dashboard.
         agent_name: (input.agentName ?? `healdesk ${clinicId}`).slice(0, 120),
       }),
@@ -276,7 +293,7 @@ export async function updateRetellAgent(
   agentId: string,
   clinicId: string,
   options: RetellAgentOptions,
-  fields: { voiceId?: string; language?: RetellLanguage } = {},
+  fields: { voiceId?: string; language?: RetellLanguage; boostedKeywords?: readonly string[] } = {},
 ): Promise<RetellAgentCheck> {
   if (fields.voiceId !== undefined && !/^[A-Za-z0-9_.-]{1,128}$/.test(fields.voiceId)) {
     throw new RetellAgentConfigError("not a Retell voice id");
@@ -289,6 +306,7 @@ export async function updateRetellAgent(
         ...retellAgentSettings(clinicId, options),
         ...(fields.voiceId !== undefined ? { voice_id: fields.voiceId } : {}),
         ...(fields.language !== undefined ? { language: languageBody(fields.language) } : {}),
+        ...(fields.boostedKeywords !== undefined ? { boosted_keywords: keywordsBody(fields.boostedKeywords) } : {}),
       }),
     },
     options,

@@ -103,10 +103,16 @@ const ACTOR: ActorContext = { type: "service", serviceName: "voice-provisioning"
 export const MAX_DRIFT_REPAIRS = 3;
 export const DEFAULT_DAILY_CAP = 20;
 
-/** Retell's speech locale for each language AYA answers in. Retell's locale support beyond its examples is UNCONFIRMED. */
+/**
+ * Retell's speech locale for each language a clinic may choose. Spanish is
+ * Latin American Spanish, es-419 (owner, 22 October 2026), which Retell's
+ * create-agent reference lists beside es-ES. Only English and Spanish reach
+ * an agent (languageOf): the screens read no other language, so AYA answers
+ * in no other.
+ */
 export const RETELL_LOCALE: Readonly<Record<AssistantLanguage, string>> = {
   en: "en-US",
-  es: "es-ES",
+  es: "es-419",
   fr: "fr-FR",
   pt: "pt-PT",
   zh: "zh-CN",
@@ -265,17 +271,37 @@ export type VoiceAgentConfig = {
   language: RetellLanguage;
   /** The clinic's direct line as the number's fallback, or null when it cannot be one. */
   fallback: string | null;
+  /**
+   * Words Retell's transcriber is biased towards (its `boosted_keywords`).
+   * A hook: nothing fills it yet. Written, hashed and compared only when
+   * non-empty, so an agent without them is written and hashed as before.
+   */
+  boostedKeywords?: readonly string[];
 };
 
-function languageOf(languages: AssistantLanguage[]): RetellLanguage {
-  const locales = [...new Set(languages.map((l) => RETELL_LOCALE[l]).filter(Boolean))];
-  if (locales.length === 0) return RETELL_LOCALE.en;
-  return locales.length === 1 ? locales[0]! : locales;
+/**
+ * The agent's speech language (owner, 22 October 2026): English always,
+ * since every call opens with the English AI line, and Latin American
+ * Spanish beside it, as Retell's locale array, when the clinic answers in
+ * Spanish: ["en-US", "es-419"]. Otherwise "en-US" alone, which Retell
+ * stores as a scalar and the hash reads as ["en-US"], as it always has.
+ * Whether the voice speaks Spanish well is the owner's to check on Retell's
+ * dashboard before a Spanish-speaking clinic goes live.
+ */
+export function languageOf(languages: readonly AssistantLanguage[]): RetellLanguage {
+  return languages.includes("es") ? [RETELL_LOCALE.en, RETELL_LOCALE.es] : RETELL_LOCALE.en;
 }
 
 /** Pure: what Retell should hold for this clinic. */
 export function expectedConfig(
-  input: { engine: VoiceEngine; languages: AssistantLanguage[]; directLine: string | null; assistantNumber: string | null; publishedPhone: string | null },
+  input: {
+    engine: VoiceEngine;
+    languages: AssistantLanguage[];
+    directLine: string | null;
+    assistantNumber: string | null;
+    publishedPhone: string | null;
+    boostedKeywords?: readonly string[];
+  },
   env: Env,
 ): VoiceAgentConfig {
   const voiceId = retellVoiceId(env);
@@ -285,6 +311,7 @@ export function expectedConfig(
     voiceId,
     language: languageOf(input.languages),
     fallback: wantedFallback({ assistantNumber: input.assistantNumber, publishedPhone: input.publishedPhone, directLine: input.directLine }),
+    ...(input.boostedKeywords && input.boostedKeywords.length > 0 ? { boostedKeywords: [...input.boostedKeywords] } : {}),
   };
 }
 
@@ -304,6 +331,8 @@ export function configHash(config: VoiceAgentConfig, publicHost: string): string
     voiceId: config.voiceId,
     language: typeof config.language === "string" ? [config.language] : [...config.language],
     fallback: config.fallback,
+    // Only when there are some, so every hash recorded before them still matches.
+    ...(config.boostedKeywords && config.boostedKeywords.length > 0 ? { boostedKeywords: [...config.boostedKeywords] } : {}),
   });
   return createHash("sha256").update(canonical).digest("hex");
 }
@@ -408,7 +437,11 @@ export async function provisionVoiceAgent(clinicId: string, deps: ProvisionDeps 
   try {
     // 1. The agent: free, so a crash before recording leaves an unused agent, never a charge.
     if (!agentId) {
-      const created = await createRetellAgent(clinicId, { voiceId: config.voiceId, language: config.language }, options);
+      const created = await createRetellAgent(
+        clinicId,
+        { voiceId: config.voiceId, language: config.language, ...(config.boostedKeywords ? { boostedKeywords: config.boostedKeywords } : {}) },
+        options,
+      );
       agentId = created.agentId;
       await update(clinicId, { retellAgentId: agentId }, "agent_created");
     }
@@ -565,12 +598,17 @@ export type VoiceAgentProblem =
   | "webhook"
   | "voice"
   | "language"
+  | "keywords"
   | "number_missing"
   | "number_agent"
   | "number_outbound"
   | "fallback";
 
 type ReadBack = { agentExists: boolean; numberExists: boolean; problems: VoiceAgentProblem[] };
+
+function sameKeywords(actual: unknown, expected: readonly string[]): boolean {
+  return Array.isArray(actual) && actual.length === expected.length && actual.every((k, i) => k === expected[i]);
+}
 
 function sameLanguage(actual: unknown, expected: RetellLanguage): boolean {
   const want = typeof expected === "string" ? [expected] : [...expected];
@@ -594,9 +632,10 @@ async function readBack(
     if (!check.storageAsWritten) problems.push("storage");
     if (!check.engineIsOurs) problems.push("engine");
     if (!check.webhookIsOurs) problems.push("webhook");
-    const a = agent as { voice_id?: unknown; language?: unknown };
+    const a = agent as { voice_id?: unknown; language?: unknown; boosted_keywords?: unknown };
     if (a.voice_id !== config.voiceId) problems.push("voice");
     if (!sameLanguage(a.language, config.language)) problems.push("language");
+    if (config.boostedKeywords && config.boostedKeywords.length > 0 && !sameKeywords(a.boosted_keywords, config.boostedKeywords)) problems.push("keywords");
   }
   const n = await getRetellNumber(number, api);
   if (!n) problems.push("number_missing");
@@ -657,7 +696,11 @@ async function reapply(
   options: RetellAgentOptions,
   api: RetellApiOptions,
 ): Promise<void> {
-  await updateRetellAgent(agentId, clinicId, options, { voiceId: config.voiceId, language: config.language });
+  await updateRetellAgent(agentId, clinicId, options, {
+    voiceId: config.voiceId,
+    language: config.language,
+    ...(config.boostedKeywords ? { boostedKeywords: config.boostedKeywords } : {}),
+  });
   await applyNumberAndVerify(clinicId, agentId, number, config, options, api);
 }
 

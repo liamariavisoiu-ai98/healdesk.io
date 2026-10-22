@@ -181,6 +181,25 @@ describe("a clinic's Retell agent", () => {
     await expect(updateRetellAgent("../etc", CLINIC, { ...OPTIONS, fetch: good.fetch })).rejects.toThrow(RetellAgentConfigError);
   });
 
+  test("the speech language goes to create and update as Retell's locale array, keywords when given; a bad one is refused before any request", async () => {
+    const { fetch, seen } = fakeFetch((s) => json({ agent_id: "agent_abc123", ...(s.body as object) }, 201));
+    await createRetellAgent(CLINIC, { voiceId: "retell-Voice", language: ["en-US", "es-419"], boostedKeywords: ["Radiance", " Botox "] }, { ...OPTIONS, fetch });
+    expect(seen[0]!.body).toMatchObject({ language: ["en-US", "es-419"], boosted_keywords: ["Radiance", "Botox"] });
+    await updateRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch }, { voiceId: "retell-Voice", language: ["en-US", "es-419"] });
+    expect(seen[1]!.body).toMatchObject({ voice_id: "retell-Voice", language: ["en-US", "es-419"] });
+    expect(seen[1]!.body).not.toHaveProperty("boosted_keywords");
+    // One locale is sent as Retell's scalar, as before.
+    await updateRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch }, { language: ["en-US"] });
+    expect(seen[2]!.body).toMatchObject({ language: "en-US" });
+    for (const language of ["multi", "es", [], ["en-US", "multi"]] as const) {
+      await expect(createRetellAgent(CLINIC, { voiceId: "retell-Voice", language }, { ...OPTIONS, fetch })).rejects.toThrow(RetellAgentConfigError);
+    }
+    for (const boostedKeywords of [["{{caller}}"], [""], ["a\nb"], Array.from({ length: 101 }, (_, i) => `w${i}`)]) {
+      await expect(updateRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch }, { boostedKeywords })).rejects.toThrow(RetellAgentConfigError);
+    }
+    expect(seen).toHaveLength(3);
+  });
+
   test("verify reads the agent back and reports, as yes or no, never a URL", async () => {
     const { fetch, seen } = fakeFetch(() => json({ agent_id: "agent_abc123", ...settings }));
     const check = await verifyRetellAgent("agent_abc123", CLINIC, { ...OPTIONS, fetch });

@@ -7,6 +7,7 @@ import {
   configHash,
   deprovisionVoiceAgent,
   expectedConfig,
+  languageOf,
   MAX_DRIFT_REPAIRS,
   provisionVoiceAgent,
   syncVoiceAgent,
@@ -192,6 +193,24 @@ describe("the switch and the cap, read from the environment", () => {
     expect(configHash(expectedConfig({ ...base, directLine: "+14155550188" }, env), "app.healdesk.test")).not.toBe(a);
     expect(configHash(expectedConfig(base, { HEALDESK_RETELL_VOICE_ID: "retell-Other" }), "app.healdesk.test")).not.toBe(a);
     expect(() => expectedConfig(base, {})).toThrow(/HEALDESK_RETELL_VOICE_ID/);
+  });
+
+  test("the speech language is English, and English with Latin American Spanish when the clinic answers in Spanish", () => {
+    const env = { HEALDESK_RETELL_VOICE_ID: VOICE };
+    const base = { engine: "custom" as const, languages: ["en" as const], directLine: DIRECT, assistantNumber: "+14155551001", publishedPhone: PUBLISHED };
+    expect(languageOf(["en"])).toBe("en-US");
+    expect(languageOf(["en", "es"])).toEqual(["en-US", "es-419"]);
+    expect(languageOf(["es"])).toEqual(["en-US", "es-419"]);
+    // A language no screen reads never reaches the agent.
+    expect(languageOf(["en", "fr", "pt"])).toBe("en-US");
+    expect(expectedConfig({ ...base, languages: ["en", "es"] }, env).language).toEqual(["en-US", "es-419"]);
+    // An English clinic's hash is the one recorded before Spanish existed: the
+    // same canonical object, so no agent is rewritten for this change.
+    const english = expectedConfig(base, env);
+    expect(english).not.toHaveProperty("boostedKeywords");
+    expect(configHash(english, "app.healdesk.test")).toBe(configHash({ ...english, boostedKeywords: [] }, "app.healdesk.test"));
+    // Keywords, once something gives them, move the hash so the agent syncs.
+    expect(configHash(expectedConfig({ ...base, boostedKeywords: ["Radiance"] }, env), "app.healdesk.test")).not.toBe(configHash(english, "app.healdesk.test"));
   });
 });
 
@@ -384,7 +403,7 @@ describeDb("automated voice provisioning", () => {
     await inTenant(c.clinicId, (q) => q.query(`update clinic_settings set languages = array['en','es'] where clinic_id = $1`, [c.clinicId]));
     expect(await syncVoiceAgent(c.clinicId, deps())).toEqual({ outcome: "synced" });
     const agent = [...retell.agents.values()][0]!;
-    expect(agent.language).toEqual(["en-US", "es-ES"]);
+    expect(agent.language).toEqual(["en-US", "es-419"]);
     expect((await row(c.clinicId))!.config_hash).not.toBe(hash);
     const afterSync = retell.calls.length;
     expect(await syncVoiceAgent(c.clinicId, deps())).toEqual({ outcome: "unchanged" });
@@ -427,6 +446,18 @@ describeDb("automated voice provisioning", () => {
     const calls = retell.calls.length;
     expect(await checkVoiceAgentDrift(c.clinicId, deps())).toEqual({ outcome: "skipped", reason: "flagged for a person" });
     expect(retell.calls.length).toBe(calls);
+  });
+
+  test("a Spanish clinic's agent whose speech language was narrowed by hand is drift, and is written back as the locale array", async () => {
+    const c = await paidVoiceClinic("vp-drift-es");
+    await inTenant(c.clinicId, (q) => q.query(`update clinic_settings set languages = array['en','es'] where clinic_id = $1`, [c.clinicId]));
+    await provisionVoiceAgent(c.clinicId, deps());
+    const agent = [...retell.agents.values()][0]!;
+    expect(agent.language).toEqual(["en-US", "es-419"]);
+    expect(await checkVoiceAgentDrift(c.clinicId, deps())).toEqual({ outcome: "clean" });
+    agent.language = "en-US";
+    expect(await checkVoiceAgentDrift(c.clinicId, deps())).toEqual({ outcome: "repaired", problems: ["language"] });
+    expect(agent.language).toEqual(["en-US", "es-419"]);
   });
 
   test("deprovision waits for the pass-through, then releases the number and deletes the agent, once", async () => {

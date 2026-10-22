@@ -12,30 +12,12 @@ import {
   type OfferTimes,
   type PlacedHold,
 } from "@/lib/booking/engine";
-import {
-  bookedLine,
-  DEPOSIT_HOLD_LINE,
-  askLine,
-  DEPOSIT_REQUEST_LINE,
-  depositLine,
-  detailsBeforeHoldLine,
-  forChat,
-  heldAskLine,
-  IN_PROGRESS_LINE,
-  MANUAL_BOOKING_LINE,
-  MISSING_DETAIL_LINES,
-  NO_FREE_TIME_LINE,
-  offerLine,
-  ONE_REQUEST_PER_CALL_LINE,
-  oneBookingPerCallLine,
-  REQUEST_TAKEN_LINE,
-  slotGoneLine,
-  TOOL_FAILURE_LINE,
-} from "@/lib/booking/lines";
+import { BOOKING_LINES_EN, BOOKING_LINES_ES, bookingLinesFor, depositLine, forChat, type BookingLines } from "@/lib/booking/lines";
 import { bookingModeFor } from "@/lib/booking/mode";
 import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
 import { withTenant } from "@/lib/tenant";
+import { spokenSlotEs } from "@/lib/voice/spoken";
 
 import type { BookingCapture } from "./turn";
 
@@ -157,6 +139,8 @@ export type BookingTools = {
     /** The number the call came from, when the caller has given no other. */
     callerPhone?: string | null;
     now: Date;
+    /** The language a call is being spoken in (lib/voice/call-language.ts); English when absent, and always on the website chat. */
+    language?: "en" | "es";
   }): Promise<ToolTurn | null>;
 };
 
@@ -184,7 +168,8 @@ const OFFERED = 3;
 
 export function bookingTools(context: BookingToolsContext, engine: BookingEngine = ENGINE): BookingTools {
   const say = (line: string) => (context.channel === "web_chat" ? forChat(line) : line);
-  const label = (iso: string) => slotLabel(new Date(iso), context.timeZone);
+  const labelIn = (L: BookingLines) => (iso: string) =>
+    L === BOOKING_LINES_ES ? spokenSlotEs(new Date(iso), context.timeZone) : slotLabel(new Date(iso), context.timeZone);
 
   async function available(): Promise<boolean> {
     if (!directBookingToolsAllowed()) return false;
@@ -202,14 +187,14 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
   }
 
   /**
-   * TOOL_FAILURE_LINE offers to take the person's details for the clinic, so
+   * TOOL_FAILURE_LINE (or its Spanish line) offers to take the person's details for the clinic, so
    * the conversation leaves the tools for the request flow (manual), as a
    * broken connection does: otherwise the website chat, which files the
    * capture only while the tools are not live, would promise a request and
    * file none.
    */
-  function failed(state: BookingToolState): ToolTurn {
-    return turn(TOOL_FAILURE_LINE, { ...state, manual: true, offered: [], chosen: null, held: false });
+  function failed(state: BookingToolState, L: BookingLines): ToolTurn {
+    return turn(L.toolFailure, { ...state, manual: true, offered: [], chosen: null, held: false });
   }
 
   function offered(state: BookingToolState, slots: readonly { at: Date; providerId: string | null }[], service: string | null): BookingToolState {
@@ -222,7 +207,8 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
     };
   }
 
-  async function findTimes(action: Extract<ToolAction, { type: "find_times" }>, state: BookingToolState, now: Date): Promise<ToolTurn> {
+  async function findTimes(action: Extract<ToolAction, { type: "find_times" }>, state: BookingToolState, now: Date, L: BookingLines): Promise<ToolTurn> {
+    const label = labelIn(L);
     const service = action.service ?? state.service;
     let answer: OfferTimes;
     try {
@@ -236,24 +222,26 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       });
     } catch (error) {
       log.error("booking tool find_times failed", { clinicId: context.clinicId, error: describeError(error) });
-      return failed(state);
+      return failed(state, L);
     }
-    if (answer.status === "unavailable") return failed(state);
+    if (answer.status === "unavailable") return failed(state, L);
     if (answer.status === "request_only") {
       // Manual booking in the same turn: the request flow takes the time.
       const next = { ...state, manual: true, offered: [], chosen: null, held: false };
-      return turn(answer.reasons.includes("deposit_required") ? DEPOSIT_REQUEST_LINE : MANUAL_BOOKING_LINE, next);
+      return turn(answer.reasons.includes("deposit_required") ? L.depositRequest : L.manual, next);
     }
-    if (answer.slots.length === 0) return turn(NO_FREE_TIME_LINE, offered(state, [], service));
+    if (answer.slots.length === 0) return turn(L.noFreeTime, offered(state, [], service));
     const next = offered(state, answer.slots, service);
-    return turn(offerLine(next.offered.map((s) => label(s.at))), next);
+    return turn(L.offer(next.offered.map((s) => label(s.at))), next);
   }
 
   async function hold(
     state: BookingToolState,
     chosen: OfferedSlot,
     now: Date,
+    L: BookingLines,
   ): Promise<{ held: true } | { held: false; reasons: string[] } | { turn: ToolTurn }> {
+    const label = labelIn(L);
     let placed: PlacedHold;
     try {
       placed = await engine.placeHold(context.clinicId, {
@@ -268,14 +256,14 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       });
     } catch (error) {
       log.error("booking tool hold failed", { clinicId: context.clinicId, error: describeError(error) });
-      return { turn: failed(state) };
+      return { turn: failed(state, L) };
     }
     switch (placed.kind) {
       case "held":
         return { held: true };
       case "slot_taken": {
         const next = offered(state, placed.alternatives.map((at) => ({ at, providerId: null })), state.service);
-        return { turn: turn(slotGoneLine(next.offered.map((s) => label(s.at))), next) };
+        return { turn: turn(L.slotGone(next.offered.map((s) => label(s.at))), next) };
       }
       case "request_only": {
         // Auto-confirm off, a deposit the channel cannot take, a calendar that
@@ -285,20 +273,21 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
         return { held: false, reasons: placed.reasons };
       }
       case "in_progress":
-        return { turn: turn(IN_PROGRESS_LINE, state) };
+        return { turn: turn(L.inProgress, state) };
       case "unavailable":
-        return { turn: failed(state) };
+        return { turn: failed(state, L) };
     }
   }
 
-  function answerBooking(result: BookConversationResult, state: BookingToolState, chosen: OfferedSlot): ToolTurn {
+  function answerBooking(result: BookConversationResult, state: BookingToolState, chosen: OfferedSlot, L: BookingLines): ToolTurn {
+    const label = labelIn(L);
     switch (result.kind) {
       case "booked": {
         const at = result.startsAt.toISOString();
         const done = { kind: "booked" as const, at, requestId: result.requestId, appointmentId: result.appointmentId };
         // A call says the deposit the front desk will take; never a link.
-        const deposit = context.channel === "voice" && result.deposit ? depositLine({ ...result.deposit, scope: "booking" }) : "";
-        return turn([bookedLine(label(at), result.canonicalService), deposit].filter(Boolean).join(" "), { ...state, done, chosen: null, held: false }, {
+        const deposit = context.channel === "voice" && result.deposit ? L.deposit({ ...result.deposit, scope: "booking" }) : "";
+        return turn([L.booked(label(at), result.canonicalService), deposit].filter(Boolean).join(" "), { ...state, done, chosen: null, held: false }, {
           bookingWritten: true,
           requestId: result.requestId,
           appointmentId: result.appointmentId,
@@ -307,33 +296,33 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       case "request_logged": {
         const done = { kind: "request" as const, at: chosen.at, requestId: result.requestId ?? null, appointmentId: null };
         const next = { ...state, done, chosen: null, held: false, manual: state.manual || result.reason === "calendar_broken" };
-        let line = REQUEST_TAKEN_LINE;
-        if (result.reason === "deposit_hold") line = DEPOSIT_HOLD_LINE;
+        let line = L.requestTaken;
+        if (result.reason === "deposit_hold") line = L.depositHold;
         else if (result.reason === "deposit_required") {
-          line = context.channel === "voice" && result.deposit ? depositLine({ ...result.deposit, scope: "booking" }) : DEPOSIT_REQUEST_LINE;
+          line = context.channel === "voice" && result.deposit ? L.deposit({ ...result.deposit, scope: "booking" }) : L.depositRequest;
         }
         return turn(line, next, { requestId: result.requestId ?? null });
       }
       case "slot_taken": {
         const next = offered(state, result.alternatives.map((at) => ({ at, providerId: null })), state.service);
-        return turn(slotGoneLine(next.offered.map((s) => label(s.at))), next);
+        return turn(L.slotGone(next.offered.map((s) => label(s.at))), next);
       }
       case "in_progress":
-        return turn(IN_PROGRESS_LINE, state);
+        return turn(L.inProgress, state);
       case "key_reused":
         return turn(
-          result.first === "booked" ? oneBookingPerCallLine(result.firstStartsAt ? label(result.firstStartsAt.toISOString()) : null) : ONE_REQUEST_PER_CALL_LINE,
+          result.first === "booked" ? L.oneBookingPerCall(result.firstStartsAt ? label(result.firstStartsAt.toISOString()) : null) : L.oneRequestPerCall,
           state,
         );
       case "invalid":
         if (result.field === "at") {
           const next = { ...state, chosen: null, held: false };
-          return turn(state.offered.length > 0 ? offerLine(state.offered.map((s) => label(s.at))) : MISSING_DETAIL_LINES.at, next);
+          return turn(state.offered.length > 0 ? L.offer(state.offered.map((s) => label(s.at))) : L.missing.at, next);
         }
-        return turn(MISSING_DETAIL_LINES[result.field], state);
+        return turn(L.missing[result.field], state);
       case "unavailable":
       case "refused":
-        return failed(state);
+        return failed(state, L);
     }
   }
 
@@ -356,21 +345,24 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
 
   async function run(input: Parameters<BookingTools["run"]>[0]): Promise<ToolTurn | null> {
     const { action, capture, now } = input;
+    // A call in Spanish hears the Spanish lines; the website chat never passes a language.
+    const L = context.channel === "voice" ? bookingLinesFor(input.language ?? "en") : BOOKING_LINES_EN;
+    const label = labelIn(L);
     let state = input.state;
     if (state.manual) return null;
     if (state.done) {
       // The conversation's one booking or request is made: a second is the desk's.
       if (!action) return null;
-      return turn(state.done.kind === "booked" ? oneBookingPerCallLine(state.done.at ? label(state.done.at) : null) : ONE_REQUEST_PER_CALL_LINE, state);
+      return turn(state.done.kind === "booked" ? L.oneBookingPerCall(state.done.at ? label(state.done.at) : null) : L.oneRequestPerCall, state);
     }
-    if (action?.type === "find_times") return findTimes(action, state, now);
+    if (action?.type === "find_times") return findTimes(action, state, now, L);
 
     let chosenNow = false;
     if (action?.type === "choose_time") {
       const match = state.offered.find((s) => s.at === action.at);
       if (!match) {
         // Never a time the engine did not offer: offer again.
-        return state.offered.length > 0 ? turn(offerLine(state.offered.map((s) => label(s.at))), state) : turn(MISSING_DETAIL_LINES.at, state);
+        return state.offered.length > 0 ? turn(L.offer(state.offered.map((s) => label(s.at))), state) : turn(L.missing.at, state);
       }
       state = { ...state, chosen: match, held: state.chosen?.at === match.at ? state.held : false };
       chosenNow = true;
@@ -384,23 +376,23 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
 
     if (context.channel === "voice" && !state.held) {
       // A call holds the time while the caller gives their details.
-      const held = await hold(state, chosen, now);
+      const held = await hold(state, chosen, now, L);
       if ("turn" in held) return held.turn;
       if (held.held) {
         state = { ...state, held: true };
-        if (missing) return turn(heldAskLine(missing), state);
+        if (missing) return turn(L.heldAsk(missing), state);
       } else if (missing) {
         // Nothing was held (the engine answered request_only): the time
         // becomes a request once the details are in, and is never said to
         // be held. Asked once, when the time is chosen.
-        const why = held.reasons.includes("deposit_required") ? DEPOSIT_REQUEST_LINE : MANUAL_BOOKING_LINE;
-        return chosenNow ? turn(`${why} ${askLine(missing)}`, state) : null;
+        const why = held.reasons.includes("deposit_required") ? L.depositRequest : L.manual;
+        return chosenNow ? turn(`${why} ${L.ask(missing)}`, state) : null;
       }
     }
     if (missing) {
       // The details are still to come: asked for once, when the time is chosen;
       // otherwise the model's own reply stands.
-      return chosenNow ? turn(detailsBeforeHoldLine(label(chosen.at)), state) : null;
+      return chosenNow ? turn(L.detailsBeforeHold(label(chosen.at)), state) : null;
     }
 
     // The chat's hold is the engine's own claim (book.ts, step 6): the visitor
@@ -426,9 +418,9 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       });
     } catch (error) {
       log.error("booking tool book failed", { clinicId: context.clinicId, error: describeError(error) });
-      return failed(state);
+      return failed(state, L);
     }
-    const answered = answerBooking(result, state, chosen);
+    const answered = answerBooking(result, state, chosen, L);
     if (context.channel !== "web_chat" || result.kind !== "booked" || !result.appointmentId) return answered;
     // The booking is in the calendar and said; its deposit after it, as the
     // appointment stands: the clinic's own payment link, or the front desk.

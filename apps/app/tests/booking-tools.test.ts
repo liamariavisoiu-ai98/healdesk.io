@@ -36,6 +36,8 @@ import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { slotLabel } from "@/lib/booking/calendar";
 import {
   askLine,
+  BOOKING_LINES_EN,
+  BOOKING_LINES_ES,
   bookedLine,
   depositLine,
   detailsBeforeHoldLine,
@@ -53,6 +55,7 @@ import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { withTenant } from "@/lib/tenant";
 import type { IngestResult, VoiceCallEvent } from "@/lib/voice/ingest";
 import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
+import { spokenSlotEs } from "@/lib/voice/spoken";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { DESK_TZ, deskLocation, deskTime, freshGoogle, installGoogleEnv, restoreGoogleEnv, type DeskLocation } from "./setup/desk-calendar";
@@ -717,6 +720,44 @@ describe("the booking tool layer's lines, on a scripted engine", () => {
     const said = await tools.run({ action: { type: "choose_time", at }, capture: EMPTY_CAPTURE, state: chosenState, callerPhone: PHONE, now: new Date("2026-11-01T12:00:00Z") });
     expect(said!.reply).toBe(heldAskLine("first_name"));
     expect(said!.state.held).toBe(true);
+  });
+
+  test("a call in Spanish hears the Spanish hold line, times and booked line; the deposit is said in Spanish, never a link", async () => {
+    const now = new Date("2026-11-01T12:00:00Z");
+    const tools = bookingTools(
+      context,
+      engine({
+        offerTimes: async () => ({ status: "ok", timeZone: context.timeZone, serviceMinutes: 30, canonicalService: "Consultation", slots: [{ at: new Date(at), providerId: null }] }) as never,
+        placeHold: async () => ({ kind: "held", holdId: randomUUID(), expiresAt: new Date(), startsAt: new Date(at), minutes: 30, providerId: null }),
+        bookConversation: async () =>
+          ({ kind: "booked", startsAt: new Date(at), minutes: 30, canonicalService: "Consultation", providerId: null, replayed: false, appointmentId: randomUUID(), requestId: randomUUID(), deposit: { action: "book_and_flag", amountUsd: 50 } }) as never,
+      }),
+    );
+    const offered = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now, language: "es" });
+    expect(offered!.reply).toBe(`Tengo el ${spokenSlotEs(new Date(at), context.timeZone)}. ¿Cuál le viene mejor?`);
+    expect(offered!.reply).toBe("Tengo el martes 3 de noviembre a las siete de la mañana. ¿Cuál le viene mejor?");
+    const held = await tools.run({ action: { type: "choose_time", at }, capture: EMPTY_CAPTURE, state: offered!.state, callerPhone: PHONE, now, language: "es" });
+    expect(held!.reply).toBe(BOOKING_LINES_ES.heldAsk("first_name"));
+    const booked = await tools.run({ action: null, capture: { ...EMPTY_CAPTURE, firstName: "Ana" }, state: held!.state, callerPhone: PHONE, now, language: "es" });
+    expect(booked!.reply).toBe(
+      "Su cita está reservada para el martes 3 de noviembre a las siete de la mañana para Consultation. Está en el calendario de la clínica. Se requiere un depósito de 50 dólares para reservar la cita. La recepción le llamará para cobrarlo; no se cobra nada en esta llamada.",
+    );
+    expect(booked!.reply).not.toMatch(/https?:|link/i);
+    // English, or no language, is the English line byte for byte.
+    const english = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now });
+    expect(english!.reply).toBe(`I have ${slotLabel(new Date(at), context.timeZone)}. Which would suit you?`);
+  });
+
+  test("the website chat stays English whatever language is passed, and the English set is the English lines themselves", async () => {
+    const tools = bookingTools({ ...context, channel: "web_chat" }, engine({ offerTimes: async () => ({ status: "unavailable" }) as never }));
+    const said = await tools.run({ action: { type: "find_times", service: "Consultation", day: null }, capture: EMPTY_CAPTURE, state: EMPTY_TOOL_STATE, now: new Date(), language: "es" });
+    expect(said!.reply).toBe(forChat(TOOL_FAILURE_LINE));
+    expect(BOOKING_LINES_EN.toolFailure).toBe(TOOL_FAILURE_LINE);
+    expect(BOOKING_LINES_EN.booked("Tue 3 Nov, 7:00 AM", null)).toBe(bookedLine("Tue 3 Nov, 7:00 AM", null));
+    // Every Spanish line differs from its English one: none was left untranslated.
+    for (const key of ["manual", "hold", "noFreeTime", "requestTaken", "depositHold", "depositRequest", "oneRequestPerCall", "inProgress", "toolFailure"] as const) {
+      expect(BOOKING_LINES_ES[key], key).not.toBe(BOOKING_LINES_EN[key]);
+    }
   });
 
   test("a tool failure hands the conversation to the request flow", async () => {

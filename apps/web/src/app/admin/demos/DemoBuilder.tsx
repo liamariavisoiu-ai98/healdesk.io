@@ -146,6 +146,26 @@ export function RefreshWhileAnyBuilding({ active }: { active: boolean }) {
   return null;
 }
 
+/** A value an operator needs to quote (an id), selectable, with a one-click copy. */
+export function CopyValue({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2">
+      <span>{label}</span>
+      <code className="font-mono select-all">{value}</code>
+      <button
+        type="button"
+        onClick={() => {
+          void navigator.clipboard.writeText(value).then(() => setCopied(true));
+        }}
+        className="text-red-deep hover:text-red font-semibold"
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </span>
+  );
+}
+
 export function CopyLink({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
   return (

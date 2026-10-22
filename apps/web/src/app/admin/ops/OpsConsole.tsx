@@ -351,6 +351,30 @@ function ClinicsSection({
   );
 }
 
+/**
+ * A clinic's id, selectable and one click to copy: the id every operator task
+ * needs (run-task.sh, the db-apply and db-query workflows) and that used to
+ * appear only inside this page's link addresses.
+ */
+export function ClinicId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <p className="text-muted mt-1.5 flex flex-wrap items-center gap-x-2 text-[13px]">
+      <span>Clinic id</span>
+      <code className="font-mono select-all">{id}</code>
+      <button
+        type="button"
+        onClick={() => {
+          void navigator.clipboard.writeText(id).then(() => setCopied(true));
+        }}
+        className="text-red-deep hover:text-red font-semibold"
+      >
+        {copied ? "Copied" : "Copy id"}
+      </button>
+    </p>
+  );
+}
+
 function ClinicCard({
   clinic,
   card,
@@ -396,6 +420,7 @@ function ClinicCard({
         <ConnectionTag state={clinic.connection} />
         <span className="text-muted ml-auto text-sm">{clinic.timezone}</span>
       </div>
+      <ClinicId id={clinic.id} />
 
       {worst ? (
         <p className="text-red-deep mt-3 text-sm font-semibold">{worst.message}</p>

@@ -59,6 +59,13 @@ export const IN_PROGRESS_LINE =
 export const TOOL_FAILURE_LINE =
   "I'm sorry, I couldn't complete that just now. I can put you through to the clinic, or take your details so they can confirm with you.";
 
+/**
+ * The answer gate refused the booking (paused, stopped at the allowance,
+ * suspended, ended): nothing is written, and the person is sent to the clinic.
+ */
+export const BOOKING_REFUSED_LINE =
+  "I'm not able to book appointments right now. Please contact the clinic directly, and their team will arrange a time with you.";
+
 /** A detail the assistant must ask for again, by the field the engine refused. */
 export const MISSING_DETAIL_LINES = {
   first_name: "I didn't catch your first name. Could you tell me again?",

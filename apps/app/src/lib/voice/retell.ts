@@ -5,9 +5,10 @@ import type { ActorContext } from "@/lib/audit";
 import { bookingTools, EMPTY_TOOL_STATE, type BookingTools, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
-import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
+import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantFallbackRefused, patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
+import { voiceDisclosureEs } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { raiseHandover } from "@/lib/handovers/record";
@@ -17,10 +18,12 @@ import { notifyOps } from "@/lib/ops/notify";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
+import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
 import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, type FallbackLookup } from "./fallback-line";
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
 import { redialPromptBlock, takeRedialContext, welcomeBackLine, type RedialContext } from "./redial";
+import type { SpokenLanguage } from "./spoken";
 import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./test-calls";
 
 /**
@@ -103,6 +106,16 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  * carries the earlier turns as a record. No number, or a lookup that fails
  * or is slow, is an ordinary call.
  *
+ * Language (owner, 22 October 2026). Every call opens in English. A caller
+ * who speaks Spanish, to a clinic that answers in Spanish, turns the call to
+ * Spanish (call-language.ts: two Spanish utterances in a row, or one long
+ * one), and the first time it does, the Spanish AI and transcription line
+ * (voiceDisclosureEs) is said before the next reply that is not urgent, once
+ * per call. From then on every fixed line this call says is the Spanish one
+ * (CLOSED_LINE_ES and its siblings, the failure, card, refusal and booking lines, the spoken
+ * digits) until the caller turns it back to English. A line said before the
+ * caller has spoken (the transfer or closing line at the start) is English.
+ *
  * Nothing here is written to disk or a log but ids, counts and outcomes. The
  * call's words live in this object until the ingest seals them.
  */
@@ -113,6 +126,18 @@ export const CLOSED_LINE = "I'm sorry, this line can't take calls right now. Ple
 export const TRANSFER_LINE = "Let me put you through to the practice team now.";
 export const TROUBLE_TRANSFER_LINE = "I'm having trouble on my end, so let me put you through to the practice team.";
 export const REMINDER_LINE = "Are you still there? I'm happy to help with anything else.";
+
+/** The lines above, for a call the caller has taken into Spanish. Awaiting a native speaker's review. */
+export const CLOSED_LINE_ES = "Lo siento, esta línea no puede atender llamadas en este momento. Por favor, intente llamar a la clínica más tarde. Adiós.";
+export const TRANSFER_LINE_ES = "Le comunico ahora con el equipo de la clínica.";
+export const TROUBLE_TRANSFER_LINE_ES = "Estoy teniendo problemas de mi lado, así que le comunico con el equipo de la clínica.";
+export const REMINDER_LINE_ES = "¿Sigue ahí? Con gusto le ayudo con cualquier otra cosa.";
+
+type VoiceLines = { closed: string; transfer: string; troubleTransfer: string; reminder: string };
+const VOICE_LINES: Readonly<Record<SpokenLanguage, VoiceLines>> = {
+  en: { closed: CLOSED_LINE, transfer: TRANSFER_LINE, troubleTransfer: TROUBLE_TRANSFER_LINE, reminder: REMINDER_LINE },
+  es: { closed: CLOSED_LINE_ES, transfer: TRANSFER_LINE_ES, troubleTransfer: TROUBLE_TRANSFER_LINE_ES, reminder: REMINDER_LINE_ES },
+};
 
 type RetellTranscriptEntry = { role?: unknown; content?: unknown };
 type RetellEvent = {
@@ -216,6 +241,10 @@ export class RetellCallSession {
   private openedAt: Date;
   private startedAt: Date | null = null;
   private disclosurePlayedAt: Date | null = null;
+  /** The language the call is being spoken in, and the evidence for it (call-language.ts). */
+  private callLanguage: CallLanguageState = START_LANGUAGE;
+  /** The Spanish AI and transcription line has been said on this call. */
+  private spanishDisclosed = false;
   private callerPhone: string | null = null;
   /** The AYA number the call came in on, from call details. */
   private calledNumber: string | null = null;
@@ -303,6 +332,16 @@ export class RetellCallSession {
     return this.deps.now?.() ?? new Date();
   }
 
+  /** The fixed lines in the language the call is being spoken in. */
+  private get lines(): VoiceLines {
+    return VOICE_LINES[this.callLanguage.language];
+  }
+
+  /** The language the call is being spoken in: English until the caller turns it (call-language.ts). */
+  get language(): SpokenLanguage {
+    return this.callLanguage.language;
+  }
+
   private say(responseId: number, content: string, options: { endCall?: boolean; transferTo?: string | null } = {}): void {
     this.turns.push({ speaker: "assistant", text: content });
     if (options.endCall || options.transferTo) this.final = { content, endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
@@ -382,7 +421,7 @@ export class RetellCallSession {
       // pass-through, sections 2 and 7): the caller goes to a person, never
       // to silence. Every degradation path ends at the direct line.
       this.closing = true;
-      this.say(responseId, TRANSFER_LINE, { transferTo: passTo });
+      this.say(responseId, this.lines.transfer, { transferTo: passTo });
       return;
     }
     // No direct line, and the clinic has left, its Services have ended, its
@@ -391,7 +430,7 @@ export class RetellCallSession {
     // answered by the safe script, which is AYA herself.
     if (!facts || (decision.decision === "pass_through" && assistantFallbackRefused(decision.reason))) {
       this.closing = true;
-      this.say(responseId, CLOSED_LINE, { endCall: true });
+      this.say(responseId, this.lines.closed, { endCall: true });
       return;
     }
     this.gateAnswered = decision.decision === "answer";
@@ -503,10 +542,10 @@ export class RetellCallSession {
     const responseId = Math.max(this.latestResponseId, 0);
     const line = found ? usableLine(found.line, [this.calledNumber]) : null;
     if (found && line) {
-      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: line });
+      this.say(responseId, this.lines.troubleTransfer, { transferTo: line });
     } else {
       found = null;
-      this.say(responseId, CLOSED_LINE, { endCall: true });
+      this.say(responseId, this.lines.closed, { endCall: true });
     }
     // Not awaited: with the database hanging, the alert's own write could
     // hold the call's record, and the process's drain, until it gave up.
@@ -681,7 +720,7 @@ export class RetellCallSession {
     if (!this.facts) return;
 
     if (event.interaction_type === "reminder_required") {
-      this.say(responseId, REMINDER_LINE);
+      this.say(responseId, this.lines.reminder);
       return;
     }
     const words = latestCallerWords(event.transcript);
@@ -689,6 +728,13 @@ export class RetellCallSession {
 
     const facts = this.facts;
     const resumed = await this.redialContext();
+    // The language these words leave the call in. Kept only once this
+    // answer is said: a newer request carries these words again, and must
+    // not count them twice.
+    const language = nextCallLanguage(this.callLanguage, words, {
+      knownTerms: languageTerms(facts),
+      spanishAllowed: facts.languages.includes("es"),
+    });
     this.tools ??= this.deps.tools
       ? this.deps.tools(facts)
       : bookingTools({
@@ -713,10 +759,12 @@ export class RetellCallSession {
       toolState: this.toolState,
       callerPhone: this.callerPhone,
       resumed: resumed ? redialPromptBlock(resumed) : null,
+      language: language.language,
     });
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.
     if (responseId !== this.latestResponseId || this.closing) return;
+    this.callLanguage = language;
 
     this.turns.push({ speaker: "person", text: turn.personText });
     this.capture = turn.capture;
@@ -764,7 +812,7 @@ export class RetellCallSession {
       const line = this.usable(this.directLine);
       if (this.failures >= 2 && line) {
         this.closing = true;
-        this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: line });
+        this.say(responseId, this.lines.troubleTransfer, { transferTo: line });
         return;
       }
     } else {
@@ -794,6 +842,15 @@ export class RetellCallSession {
       reply = `${welcomeBackLine(resumed, facts.urgentAlertsReady === true)} ${reply}`;
       this.welcomedBack = true;
     }
+    // The call has turned to Spanish for the first time: the AI and
+    // transcription line in Spanish, before the reply and once per call.
+    // Like the opening line, never in front of an urgent reply, which says
+    // it is an AI itself (in Spanish, for Spanish words): it stays owed.
+    if (this.callLanguage.language === "es" && !this.spanishDisclosed && !turn.urgent) {
+      reply = `${voiceDisclosureEs({ clinicName: facts.clinicName })} ${reply}`;
+      this.spanishDisclosed = true;
+      log.info("retell spanish disclosure said", { clinicId: this.clinicId });
+    }
     if (this.openingOwed && !turn.urgent) {
       reply = `${openingLine(facts, "voice")} ${reply}`;
       this.openingOwed = false;
@@ -819,11 +876,11 @@ export class RetellCallSession {
     const line = this.usable(this.directLine);
     if (line) {
       this.closing = true;
-      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: line });
+      this.say(responseId, this.lines.troubleTransfer, { transferTo: line });
       return;
     }
     this.failures += 1;
-    this.say(responseId, FAILURE_LINE);
+    this.say(responseId, failureLine(this.callLanguage.language));
   }
 
   /** What the caller asked the desk for, as the ingest reads it. */

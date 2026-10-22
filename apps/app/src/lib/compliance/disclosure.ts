@@ -70,6 +70,30 @@ export function voiceDisclosure(context: DisclosureContext): string {
 }
 
 /**
+ * The voice opener in Spanish (owner, 22 October 2026).
+ *
+ * A call always opens with the English line above: nothing is known of the
+ * caller's language before they speak. The first time a call is taken into
+ * Spanish (lib/voice/call-language.ts), this line is said before the next
+ * reply, once per call, so a caller who did not follow the English notice
+ * hears it in words they do. It says exactly what the English line says, the
+ * same four facts and no others: AI and not a human; transcribed by an
+ * automated system run by our service providers; no audio recording kept;
+ * "representante" and the details passed to the practice team, who get back
+ * within a day. It is not configurable either, and a change to the English
+ * line must change this one in the same commit (tests/compliance.test.ts
+ * pins both). Awaiting review by a native speaker and by counsel.
+ */
+export function voiceDisclosureEs(context: Pick<DisclosureContext, "clinicName">): string {
+  return (
+    `Le informo que soy un asistente de inteligencia artificial de ${context.clinicName}, no una persona. ` +
+    `Esta llamada se transcribe con un sistema automatizado operado por nuestros proveedores de servicios; no se guarda ninguna grabación de audio. ` +
+    `Diga "representante" en cualquier momento y pasaré sus datos al equipo de la clínica, ` +
+    `que se comunicará con usted en un plazo de un día.`
+  );
+}
+
+/**
  * California AB 3030 addendum.
  *
  * Applies when a health facility uses generative AI for patient communications

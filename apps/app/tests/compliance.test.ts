@@ -14,6 +14,7 @@ import {
   disclosureFor,
   metaChannelGreeting,
   voiceDisclosure,
+  voiceDisclosureEs,
 } from "@/lib/compliance/disclosure";
 import { consentRecords } from "@/db/schema";
 import { guardReply } from "@/lib/meta/front-door";
@@ -101,6 +102,25 @@ describe("disclosure", () => {
     const chat = disclosureFor({ clinicName: "Radiance", channel: "web_chat" });
     expect(chat).toMatch(/pass your details to the practice team, who will get back to you within a day/);
     expect(chat).not.toMatch(/pass you to/i);
+  });
+
+  test("the Spanish voice line mirrors the English one's claims, word for word, and adds none", () => {
+    const text = voiceDisclosureEs({ clinicName: "Radiance" });
+    expect(text).toBe(
+      `Le informo que soy un asistente de inteligencia artificial de Radiance, no una persona. Esta llamada se transcribe con un sistema automatizado operado por nuestros proveedores de servicios; no se guarda ninguna grabación de audio. Diga "representante" en cualquier momento y pasaré sus datos al equipo de la clínica, que se comunicará con usted en un plazo de un día.`,
+    );
+    // The same four facts as the English line, each present.
+    expect(text).toMatch(/inteligencia artificial/);
+    expect(text).toMatch(/no una persona/);
+    expect(text).toMatch(/se transcribe/);
+    expect(text).toMatch(/operado por nuestros proveedores de servicios/);
+    expect(text).toMatch(/no se guarda ninguna grabación de audio/);
+    expect(text).toMatch(/pasaré sus datos al equipo/);
+    expect(text).toMatch(/en un plazo de un día/);
+    // And no claim the English line does not make: no recording, no live transfer, no person now.
+    expect(text).not.toMatch(/se graba|grabada|le comunico con|le paso con|una persona ahora/i);
+    // Both lines change together: a change to the English line must reach this pin too.
+    expect(voiceDisclosure({ clinicName: "Radiance", channel: "voice" })).toMatch(/no audio recording is kept/);
   });
 
   test("the voice and web chat lines are the decided text, word for word, and the Meta greeting is unchanged", () => {

@@ -4,7 +4,8 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import type { ActorContext } from "@/lib/audit";
 import { guardedLine } from "@/lib/assistant/guard";
-import { FAILURE_LINE } from "@/lib/assistant/turn";
+import { FAILURE_LINE, FAILURE_LINE_ES, SPANISH_CALL } from "@/lib/assistant/turn";
+import { voiceDisclosureEs } from "@/lib/compliance/disclosure";
 import type { AnswerDecision } from "@/lib/billing/answering";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
@@ -13,7 +14,7 @@ import { neverSayWithDefaults } from "@/lib/setup/knowledge";
 import { withTenant } from "@/lib/tenant";
 import { ingestCall, type VoiceCallEvent } from "@/lib/voice/ingest";
 import { spokenPhone } from "@/lib/voice/spoken";
-import { CLOSED_LINE, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE, type RetellOutbound } from "@/lib/voice/retell";
+import { CLOSED_LINE, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE, TROUBLE_TRANSFER_LINE_ES, type RetellOutbound } from "@/lib/voice/retell";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { inTenant, queuedNotices, seedClinic } from "./setup/factories";
@@ -377,6 +378,98 @@ describeDb("safety suite: voice, end to end", () => {
       expect(r.responses[0]).toMatchObject({ content: CLOSED_LINE, end_call: true });
       expect(r.responses[0]!.transfer_number).toBeUndefined();
       expect(r.calls).toHaveLength(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Owner, 22 October 2026: a call taken into Spanish, at a clinic that
+  // answers in Spanish, hears the AI and transcription line again in
+  // Spanish, once, and every fixed line in Spanish from then on.
+  describe("7. a call in Spanish", () => {
+    let spanish: { clinicId: string; name: string };
+    const LONG_ES = "Hola, quisiera saber si tienen citas disponibles para la próxima semana por favor";
+    const disclosureEs = () => voiceDisclosureEs({ clinicName: spanish.name });
+
+    beforeAll(async () => {
+      spanish = await voiceClinic("safety-voice-es");
+      await inTenant(spanish.clinicId, (client) => client.query(`update clinic_settings set languages = array['en','es'] where clinic_id = $1`, [spanish.clinicId]));
+    });
+
+    test("the call opens in English; the Spanish line is said once, before the first reply after the call turns, and the model is told", async () => {
+      const r = await call(spanish.clinicId, ["Hola, buenos días", "¿Tienen citas mañana?", "¿Y el precio de la consulta?"], () => modelJson("Claro, con gusto le ayudo."), transport);
+      expect(r.responses[0]!.content).toMatch(OPENING);
+      // One short Spanish utterance: not yet.
+      expect(r.responses[1]!.content).toBe("Claro, con gusto le ayudo.");
+      // The second turns the call: the Spanish line first, then the reply.
+      expect(r.responses[2]!.content).toBe(`${disclosureEs()} Claro, con gusto le ayudo.`);
+      // Once per call.
+      expect(r.responses[3]!.content).toBe("Claro, con gusto le ayudo.");
+      expect(r.calls[0]!.system.turn).not.toContain(SPANISH_CALL);
+      expect(r.calls[1]!.system.turn).toContain(SPANISH_CALL);
+      // The prefix is the same whatever the language: cacheable, and every guardrail in it.
+      expect(r.calls[1]!.system.stable).toBe(r.calls[0]!.system.stable);
+      // The record keeps the Spanish line as said, and the English opening's time.
+      expect(keptAssistant(r).filter((t) => t.startsWith(disclosureEs()))).toHaveLength(1);
+      expect(await conversationFor(spanish.clinicId, r.callId)).toMatchObject({ disclosure_played_at: expect.any(Date) });
+    });
+
+    test("a refused Spanish reply is replaced by the Spanish fixed line", async () => {
+      const r = await call(spanish.clinicId, [LONG_ES], () => modelJson("El bótox cuesta $5 la unidad y le garantizo resultados perfectos."), transport);
+      const said = r.responses[1]!.content;
+      expect(said.startsWith(`${disclosureEs()} `)).toBe(true);
+      const line = said.slice(disclosureEs().length + 1);
+      const fixed = (["never_say", "price", "payment_details", "hipaa_claim", "clinical", "language", "booking_confirmation", "human_claim", "outbound_promise", "alert_claim", "other_party", "empty"] as const).map((g) =>
+        guardedLine(g, spanish.name, "es"),
+      );
+      expect(fixed).toContain(line);
+      expect(keptAssistant(r).join(" ")).not.toContain("$5");
+    });
+
+    test("urgent Spanish words still get the fixed 911 line and the alert, with the Spanish line kept for the next reply, never in front of the urgent one", async () => {
+      const r = await call(spanish.clinicId, ["Hola, tengo una pregunta sobre mi cita de la próxima semana por favor", "no puedo respirar", "Gracias, ¿y el horario?"], () => modelJson("Claro."), transport);
+      // The first turned the call, so the Spanish line went with its reply.
+      expect(r.responses[1]!.content).toBe(`${disclosureEs()} Claro.`);
+      expect(r.responses[2]!.content).toMatch(/^Soy un asistente de IA/);
+      expect(r.responses[2]!.content).toMatch(/cuelgue y llame al 911/);
+      expect(r.responses[2]!.content).not.toContain(disclosureEs());
+      expect(r.calls).toHaveLength(2);
+      expect(JSON.stringify(r.calls[1]!.messages)).not.toContain("no puedo respirar");
+      const alerts = await queuedNotices(spanish.clinicId, ["urgent"]);
+      expect(alerts.map((a) => a.dedupe_key)).toContain(`urgent:call:${r.callId}`);
+
+      const first = await call(spanish.clinicId, ["Hola, no puedo respirar bien desde el relleno de labios de ayer por la tarde", "Gracias, ¿y el horario?"], () => modelJson("Claro."), transport);
+      // The urgent line first, the Spanish line owed past it to the next reply.
+      expect(first.responses[1]!.content).toMatch(/cuelgue y llame al 911/);
+      expect(first.responses[1]!.content).not.toContain(disclosureEs());
+      expect(first.responses[2]!.content).toBe(`${disclosureEs()} Claro.`);
+    });
+
+    test("a model that fails twice: the Spanish failure line, then the Spanish transfer to the direct line", async () => {
+      const r = await call(spanish.clinicId, [LONG_ES, "¿Hola? ¿Sigue ahí?"], () => { throw new Error("upstream 529"); }, transport);
+      expect(r.responses[1]!.content).toBe(`${disclosureEs()} ${FAILURE_LINE_ES}`);
+      expect(r.responses[2]).toMatchObject({ content: TROUBLE_TRANSFER_LINE_ES, transfer_number: DIRECT_LINE });
+    });
+
+    test("the model declines: the Spanish refusal line, with the direct line's digits in Spanish", async () => {
+      const r = await call(spanish.clinicId, [LONG_ES], () => ({ refused: true, category: null }), transport);
+      expect(r.responses[1]!.content).toBe(`${disclosureEs()} Lo siento, eso no es algo con lo que pueda ayudarle. El equipo de ${spanish.name} sí puede: por favor, llámelos al ${spokenPhone(DIRECT_LINE, "es")}.`);
+    });
+
+    test("a caller who goes back to English hears English lines again, and no second disclosure", async () => {
+      const r = await call(spanish.clinicId, [LONG_ES, "Sorry, can we continue in English please?", "I would like to book a consultation next week"], (made) => {
+        if (made.messages.length >= 5) throw new Error("upstream 529");
+        return modelJson("Claro.");
+      }, transport);
+      expect(r.responses[1]!.content).toBe(`${disclosureEs()} Claro.`);
+      expect(r.responses[2]!.content).toBe("Claro.");
+      expect(r.responses[3]!.content).toBe(FAILURE_LINE);
+    });
+
+    test("a clinic that does not answer in Spanish: no Spanish line, and English fixed lines", async () => {
+      const r = await call(clinic.clinicId, [LONG_ES, "¿Tienen citas mañana?"], () => { throw new Error("upstream 529"); }, transport);
+      expect(r.responses.map((x) => x.content).join(" ")).not.toContain(disclosureEs().slice(0, 30));
+      expect(r.responses[1]!.content).toBe(FAILURE_LINE);
+      expect(r.responses[2]).toMatchObject({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT_LINE });
     });
   });
 

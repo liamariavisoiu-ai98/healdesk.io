@@ -11,7 +11,7 @@ import { isOpenAt } from "@/lib/clinic/opening-hours";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { log } from "@/lib/log";
 import { formatPhone } from "@/lib/setup/help";
-import { spokenPhone } from "@/lib/voice/spoken";
+import { spokenPhone, type SpokenLanguage } from "@/lib/voice/spoken";
 
 import {
   EMPTY_TOOL_STATE,
@@ -117,6 +117,15 @@ const NO_BOOKING_WRITTEN = { bookingWritten: false } as const;
 export const FAILURE_LINE =
   "Sorry, I'm having trouble on my end. Please try again in a moment, or contact the practice directly.";
 
+/** FAILURE_LINE for a call the caller has taken into Spanish (lib/voice/call-language.ts). */
+export const FAILURE_LINE_ES =
+  "Lo siento, estoy teniendo problemas de mi lado. Inténtelo de nuevo en un momento, o comuníquese directamente con la clínica.";
+
+/** The failure line in a call's language: English unless the call is in Spanish. */
+export function failureLine(language: SpokenLanguage = "en"): string {
+  return language === "es" ? FAILURE_LINE_ES : FAILURE_LINE;
+}
+
 /**
  * Our own wall-clock bound on one model answer, per channel, beside the
  * SDK's (responder.ts, MODEL_CONFIG): a responder that never settles, or
@@ -147,9 +156,9 @@ async function withinDeadline<T>(answer: Promise<T>, ms: number): Promise<T> {
   }
 }
 
-function numberFor(channel: AssistantChannel, e164: string | null): string | null {
+function numberFor(channel: AssistantChannel, e164: string | null, language: SpokenLanguage = "en"): string | null {
   if (!e164) return null;
-  return channel === "voice" ? spokenPhone(e164) : formatPhone(e164);
+  return channel === "voice" ? spokenPhone(e164, language) : formatPhone(e164);
 }
 
 /**
@@ -162,10 +171,11 @@ function numberFor(channel: AssistantChannel, e164: string | null): string | nul
 function personNumber(
   facts: Pick<AssistantFacts, "urgentPhone" | "phone" | "directLine">,
   channel: AssistantChannel,
+  language: SpokenLanguage = "en",
 ): string | null {
   if (channel !== "voice") return numberFor(channel, facts.urgentPhone ?? facts.phone);
   const number = [facts.urgentPhone, facts.directLine].find((n) => n && n !== facts.phone) ?? null;
-  return numberFor(channel, number);
+  return numberFor(channel, number, language);
 }
 
 type ReplyFacts = Pick<
@@ -189,7 +199,8 @@ function openNow(facts: Pick<AssistantFacts, "openingHours" | "timeZone">, now: 
  * the team" only while an urgent alert would reach the clinic
  * (facts.urgentAlertsReady, read by assistantFacts); otherwise the same
  * fixed lines without it: 911 (or the emergency vet) and the number that
- * reaches a person.
+ * reaches a person. On a call, the numbers are spoken in the reply's own
+ * language: Spanish digits in the Spanish reply.
  */
 export function urgentReply(
   facts: ReplyFacts & Partial<Pick<AssistantFacts, "specialty" | "urgentAlertsReady">>,
@@ -197,14 +208,15 @@ export function urgentReply(
   finding: Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">>,
   now: Date,
 ): string {
+  const language = finding.language ?? "en";
   return fixedUrgentReply({
     channel,
     emergency: finding.emergency,
-    language: finding.language ?? "en",
+    language,
     veterinary: urgentSetFor(facts.specialty) === "veterinary",
     clinicName: facts.clinicName,
-    clinicNumber: personNumber(facts, channel),
-    referralNumber: numberFor(channel, facts.vetReferralPhone),
+    clinicNumber: personNumber(facts, channel, language),
+    referralNumber: numberFor(channel, facts.vetReferralPhone, language),
     clinicOpen: openNow(facts, now),
     teamAlerted: facts.urgentAlertsReady === true,
   });
@@ -219,8 +231,17 @@ export function urgentReply(
 export function refusalLine(
   facts: Pick<AssistantFacts, "clinicName" | "phone" | "urgentPhone" | "directLine">,
   channel: AssistantChannel,
+  language: SpokenLanguage = "en",
 ): string {
-  const number = channel === "voice" ? personNumber(facts, channel) : numberFor(channel, facts.phone ?? facts.urgentPhone);
+  const number = channel === "voice" ? personNumber(facts, channel, language) : numberFor(channel, facts.phone ?? facts.urgentPhone);
+  if (language === "es") {
+    return (
+      `Lo siento, eso no es algo con lo que pueda ayudarle. ` +
+      (number
+        ? `El equipo de ${facts.clinicName} sí puede: por favor, llámelos al ${number}.`
+        : `El equipo de ${facts.clinicName} puede ayudarle, y responde en un plazo de un día.`)
+    );
+  }
   return (
     `Sorry, that's not something I can help with. ` +
     (number
@@ -255,6 +276,15 @@ export function languageLine(facts: ReplyFacts & Pick<AssistantFacts, "specialty
 }
 
 const CARD_LINE = "Please don't share card details with me: I've left that number out. The practice handles payment securely itself.";
+const CARD_LINE_ES = "Por favor, no me dé datos de tarjeta: dejé ese número fuera. La clínica gestiona los pagos de forma segura.";
+
+/**
+ * What the model is told on a turn of a call being spoken in Spanish, after
+ * the cached prefix (assistantTurnContext): the prefix itself is unchanged,
+ * byte for byte, for every call.
+ */
+export const SPANISH_CALL =
+  "The caller is speaking Spanish: answer in Spanish, using \"usted\", and say numbers, prices, days and times the way a Spanish speaker says them aloud. A caller who says \"representante\" is asking for a person.";
 
 const MAX_TEXT = 2_000;
 const MAX_FIELD = 120;
@@ -416,8 +446,16 @@ export async function answerTurn(input: {
    * on this call's words as on any other.
    */
   resumed?: string | null;
+  /**
+   * The language a call is being spoken in (lib/voice/call-language.ts),
+   * which picks the fixed lines: the failure, card, refusal and booking
+   * lines, and the spoken digits. English when absent, as it always was;
+   * the website chat never passes one.
+   */
+  language?: SpokenLanguage;
 }): Promise<AssistantTurnResult> {
   const { facts, channel } = input;
+  const language: SpokenLanguage = input.language ?? "en";
   const capture = input.capture ?? EMPTY_CAPTURE;
   const toolState = input.toolState ?? EMPTY_TOOL_STATE;
   const card = cardNumberIn(input.text.slice(0, MAX_TEXT));
@@ -439,7 +477,7 @@ export async function answerTurn(input: {
     return { ...base, reply: urgentReply(facts, channel, finding, now), source: "urgent", urgent: true };
   }
   if (card.found) {
-    return { ...base, reply: CARD_LINE, source: "card" };
+    return { ...base, reply: language === "es" ? CARD_LINE_ES : CARD_LINE, source: "card" };
   }
   // A language the screens cannot read: no model, a fixed line in English and Spanish.
   // Not urgent, so no clinic alert: the language alone raises none. That is
@@ -449,7 +487,7 @@ export async function answerTurn(input: {
     return { ...base, reply: languageLine(facts, channel), source: "language" };
   }
   if (!input.responder) {
-    return { ...base, reply: FAILURE_LINE, source: "fallback" };
+    return { ...base, reply: failureLine(language), source: "fallback" };
   }
 
   // Asked fresh each turn: a switch pulled or a connection that broke since
@@ -458,7 +496,7 @@ export async function answerTurn(input: {
   const opening = input.history.find((t) => t.speaker === "assistant")?.text;
   const system = {
     stable: buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),
-    turn: assistantTurnContext(facts, now, opening, toolsLive ? toolTurnContext(toolState, facts.timeZone) : null, input.resumed ?? null),
+    turn: assistantTurnContext(facts, now, opening, toolsLive ? toolTurnContext(toolState, facts.timeZone) : null, input.resumed ?? null, language === "es" ? SPANISH_CALL : null),
   };
   let raw: Awaited<ReturnType<AssistantResponder>>;
   try {
@@ -470,24 +508,31 @@ export async function answerTurn(input: {
     raw = await withinDeadline(answer, input.modelDeadlineMs ?? MODEL_DEADLINE_MS[channel]);
   } catch (error) {
     if (error instanceof ModelDeadline) log.warn("model answer past its deadline", { channel, kind: "deadline" });
-    return { ...base, reply: FAILURE_LINE, source: "fallback" };
+    return { ...base, reply: failureLine(language), source: "fallback" };
   }
   if (isModelRefusal(raw)) {
     // Its own outcome: not a reply the guard refused, not a failure to answer.
-    return { ...base, reply: refusalLine(facts, channel), source: "refusal" };
+    return { ...base, reply: refusalLine(facts, channel, language), source: "refusal" };
   }
   const answer = parseModelAnswer(raw);
   if (answer.malformed) {
     // A failure to answer, like a throw: the fixed line, never the raw text,
     // and nothing it held is captured. Logged by kind, never with the text.
     log.warn("model answer not valid JSON", { channel, kind: "malformed" });
-    return { ...base, reply: FAILURE_LINE, source: "fallback" };
+    return { ...base, reply: failureLine(language), source: "fallback" };
   }
   const merged = mergeCapture(capture, answer.booking);
   const live = { ...base, toolsLive };
   if (toolsLive && !answer.handoff) {
     // The tool layer, on what the model asked for and what is now known.
-    const tool = await input.tools!.run({ action: answer.action, capture: merged, state: toolState, callerPhone: input.callerPhone ?? null, now });
+    const tool = await input.tools!.run({
+      action: answer.action,
+      capture: merged,
+      state: toolState,
+      callerPhone: input.callerPhone ?? null,
+      now,
+      ...(input.language ? { language: input.language } : {}),
+    });
     if (tool) {
       return { ...live, capture: merged, toolState: tool.state, tool, reply: tool.reply, source: "tool" };
     }
@@ -496,9 +541,11 @@ export async function answerTurn(input: {
   if (!verdict.ok) {
     // The fixed line in the language of the reply it replaces, Spanish only
     // where that reply (or, for a reply in no screened language, the person)
-    // was Spanish; English otherwise, as it always was.
+    // was Spanish, or where the call is being spoken in Spanish; English
+    // otherwise, as it always was.
     const said = messageLanguage(answer.reply, { knownTerms: languageTerms(facts) });
-    const spanish = said === "es" || (said === "other" && messageLanguage(personText, { knownTerms: languageTerms(facts) }) === "es");
+    const spanish =
+      language === "es" || said === "es" || (said === "other" && messageLanguage(personText, { knownTerms: languageTerms(facts) }) === "es");
     const line = guardedLine(verdict.reason, facts.clinicName, spanish ? "es" : "en");
     return { ...live, capture: merged, handoff: answer.handoff, reply: line, source: "guard", guard: verdict.reason };
   }

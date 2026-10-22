@@ -38,24 +38,30 @@ export type BookingAlertKind =
    * was never confirmed, or a later desk decision won); staff check it in
    * Bookings. Sent at once, at any hour.
    */
-  | "calendar_check";
+  | "calendar_check"
+  /**
+   * L35: a call ended unexpectedly (lib/voice/ended-early.ts), so staff can
+   * call the person back themselves. Once per conversation.
+   */
+  | "ended_early";
 
 /**
- * Whether an urgent alert (L12) reaches the clinic: true since package F,
- * which queues it in the outbox in the transaction that answers the urgent
- * message and sends it in-process right after commit
- * (deliverCriticalAfterCommit), with /api/health red if it is still unsent
- * ten minutes later. The fixed urgent reply says "I've told the team" only
- * while this is true (@healdesk/catalog, fixedUrgentReply), so the line never
- * promises an alert that was not sent, and the wizard's urgent screen says
- * AYA "tells your team at once".
+ * Whether an urgent alert (L12) reaches the clinic is no longer a constant:
+ * package F queues it in the outbox in the transaction that answers the
+ * urgent message and sends it in-process right after commit
+ * (deliverCriticalAfterCommit), but only while the sender's switch, an email
+ * transport and the clinic's address all exist. urgentAlertReadiness
+ * (./urgent-readiness.ts) reads the three for each clinic when a
+ * conversation's facts are read, and the fixed urgent reply says "I've told
+ * the team" only when they hold (AssistantFacts and FrontDoorFacts,
+ * urgentAlertsReady), as the wizard's urgent screen says AYA "tells your team
+ * at once" only then.
  *
  * One turn's alert can still fail to queue (the database errs on the
  * insert): notifyBookingAlert then returns false and tells ops
  * (urgentAlertNotQueued), and a caller whose reply has not gone yet drops
  * the line from it (withoutTeamTold).
  */
-export const URGENT_ALERT_DELIVERED = true;
 
 /** Every language the fixed urgent reply is written in: a new one fails the typecheck until it is here. */
 const URGENT_LANGUAGES: Readonly<Record<UrgentLanguage, true>> = { en: true, es: true };
@@ -75,7 +81,7 @@ const TEAM_TOLD_LINES: readonly string[] = (Object.keys(URGENT_LANGUAGES) as Urg
   .filter((line) => line.length > 0);
 
 /**
- * A fixed urgent reply built while URGENT_ALERT_DELIVERED held, as it reads
+ * A fixed urgent reply built while the alert was ready, as it reads
  * once that turn's alert turned out not to be queued: the same lines
  * without "I've told the team", in whichever language it was written. For a
  * caller that learns the alert failed after the reply was built and before
@@ -128,6 +134,9 @@ export const ALERT_SECTION: Readonly<Record<BookingAlertKind, PortalSection>> = 
   urgent: "conversations",
   website_message: "bookings",
   calendar_check: "bookings",
+  // A call, marked "Ended early" in Conversations, which is where staff find
+  // who it was and the time it came in.
+  ended_early: "conversations",
 };
 
 const REQUEST_CHANNEL: Readonly<Record<"voice" | "meta" | "web_chat", Channel>> = {

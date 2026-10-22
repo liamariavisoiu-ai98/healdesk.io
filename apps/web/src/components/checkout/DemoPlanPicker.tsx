@@ -1,6 +1,6 @@
 "use client";
 
-import { type BillingInterval, PACKAGES, type PackageId } from "@healdesk/catalog";
+import { type Audience, type BillingInterval, PACKAGES, type PackageId } from "@healdesk/catalog";
 
 import { type FunnelState, planAt, sellableTo } from "@/lib/checkout/funnel";
 import { includedLine, type SetupOffer } from "@/lib/checkout/review";
@@ -26,6 +26,7 @@ export function DemoPlanPicker({
   offer,
   noWebsite = false,
   includes,
+  audience,
 }: {
   interval: BillingInterval;
   steps: Pick<FunnelState, "voiceMinutes" | "chatConversations">;
@@ -38,6 +39,8 @@ export function DemoPlanPicker({
   noWebsite?: boolean;
   /** What the setup fee buys, one line. */
   includes: string;
+  /** Who the clinic serves: a vet's new people are clients. */
+  audience: Audience;
 }) {
   return (
     <div className="mt-5 space-y-2">
@@ -110,7 +113,7 @@ export function DemoPlanPicker({
                     <p className="text-[12.6px] font-semibold">A clinic like yours is likely to book</p>
                     <p className="font-display text-[22px] leading-tight font-semibold">≈ {usd.format(est.bookedValueUsd)} a month</p>
                     <p>
-                      about {est.patientsPerMonth} new patients · {est.multiple}× its price
+                      about {est.patientsPerMonth} new {audience} · {est.multiple}× its price
                     </p>
                     {est.yearValueUsd !== null ? (
                       <p className="mt-0.5 font-semibold">≈ {usd.format(est.yearValueUsd)} a year once they come back</p>

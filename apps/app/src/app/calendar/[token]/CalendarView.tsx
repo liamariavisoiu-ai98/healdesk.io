@@ -65,7 +65,7 @@ const OUTCOME_COPY: Record<Exclude<GoogleConnectOutcome, "mismatch">, string> = 
   election_needed:
     "That account is a different kind of Google account, or in another Workspace domain, from the one connected now, so the practice owner records a calendar election for it first. Nothing changed.",
   account_in_use:
-    "That Google account is already connected to another healdesk location. Each location connects its own account; nothing was stored.",
+    "That Google account is already connected to another healdesk account; nothing was stored.",
   already_connected: "This link was already used to connect a calendar.",
   terms: "This location's calendar terms don't let healdesk use a calendar.",
   disclosure: "Please tick the box under the notice before signing in with Google.",

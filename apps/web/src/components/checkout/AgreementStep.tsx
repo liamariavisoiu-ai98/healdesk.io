@@ -564,10 +564,12 @@ export function AgreementStep({
         <div className="border-line bg-paper-2/50 mt-6 rounded-sm border p-4">
           <p className="text-[15.6px] font-bold">Inbound only</p>
           <p className="text-muted mt-1.5 text-[15.6px] leading-relaxed">
-            healdesk only answers. It never calls or texts your patients, and sends no
-            reminders, follow-ups, win-backs or call-backs: every conversation it has is one a
-            patient started. It says it is an AI assistant first, on every channel. You give no
-            consent warranty, because nothing is ever placed in your name.
+            {/* In the practice's word (audienceFor): the covered-entity question is
+                skipped exactly where HIPAA cannot reach, a vet's, whose people are clients. */}
+            healdesk only answers. It never calls or texts your {asks ? "patients" : "clients"}, and
+            sends no reminders, follow-ups, win-backs or call-backs: every conversation it has is
+            one a {asks ? "patient" : "client"} started. It says it is an AI assistant first, on
+            every channel. You give no consent warranty, because nothing is ever placed in your name.
           </p>
         </div>
 

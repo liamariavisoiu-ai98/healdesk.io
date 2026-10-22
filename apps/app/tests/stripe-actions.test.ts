@@ -15,6 +15,7 @@ import {
 } from "@/lib/billing/stripe-actions";
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { assertPayloadAllowed } from "@/lib/email/lint";
+import { PHONE_NEEDS_ONE_LOCATION } from "@/lib/locations";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -213,13 +214,13 @@ describeDb("billing actions", () => {
   // ---------------------------------------------------------------------------
 
   describe("changePlan after the start", () => {
-    test("a new billed price or interval is ONE update: package at quantity = locations, metered swap, the setup difference, the marker", async () => {
+    test("a new billed price or interval is ONE update: package at quantity = locations (one), metered swap, the setup difference, the marker", async () => {
       const seeded = await seedBilling("cp-interval", {
         bought: "webchat-1000",
-        locations: 2,
+        locations: 1,
         inService: ["web"],
       });
-      startedWorld(seeded, { bought: "webchat-1000", billed: "webchat-1000", locations: 2 });
+      startedWorld(seeded, { bought: "webchat-1000", billed: "webchat-1000", locations: 1 });
       const packageItem = itemId("healdesk_webchat-1000_month_40000")!;
       const meteredItem = itemId("healdesk_meter_chat_conversations_block100_5200")!;
 
@@ -245,8 +246,10 @@ describeDb("billing actions", () => {
       expect(updates[0]!.args[1]).toEqual({
         items: [
           // The voice channel is bought but not in service: billing stays on
-          // the web package, now at the annual price, for both locations.
-          { id: packageItem, price: "price_healdesk_webchat-1000_year_384000", quantity: 2 },
+          // the web package, now at the annual price, for its one location.
+          // (A plan with phone is refused at more than one location: the
+          // paired test below.)
+          { id: packageItem, price: "price_healdesk_webchat-1000_year_384000", quantity: 1 },
           // Annual plans carry no metered items: overage is invoiced monthly.
           { id: meteredItem, deleted: true },
         ],
@@ -254,7 +257,7 @@ describeDb("billing actions", () => {
           {
             // The package's setup product: AYA Web Chat's $259 to Voice + Web Chat's $956.
             price_data: { currency: "usd", product: "prod_voice-webchat", unit_amount: 69_700 },
-            quantity: 2,
+            quantity: 1,
           },
         ],
         proration_behavior: "always_invoice",
@@ -288,8 +291,8 @@ describeDb("billing actions", () => {
       expect(notices[0]!.payload).toEqual({
         planName: getPlan("voice-webchat-1000-1000")!.name,
         interval: "year",
-        locations: 2,
-        setupFeeDeltaCents: 139_400,
+        locations: 1,
+        setupFeeDeltaCents: 69_700,
         hostedInvoiceUrl: expect.stringMatching(/^https:\/\/invoice\.stripe\.com\//),
         hasDroppedChannels: false,
         isBeforeStart: false,
@@ -301,6 +304,38 @@ describeDb("billing actions", () => {
         reason: "plan_change",
         actor: "client",
       });
+    });
+
+    test("the same change into a plan with phone is refused at two locations, and nothing is written to Stripe", async () => {
+      // Phone is per location and each location needs its own AYA number,
+      // which is not built yet (lib/locations.ts phoneHeldByLocations), so
+      // checkPlanChange refuses before anything is charged or changed.
+      const seeded = await seedBilling("cp-interval-two", {
+        bought: "webchat-1000",
+        locations: 2,
+        inService: ["web"],
+      });
+      startedWorld(seeded, { bought: "webchat-1000", billed: "webchat-1000", locations: 2 });
+
+      const result = await changePlan(
+        {
+          clinicId: seeded.clinicId,
+          planId: "voice-webchat-1000-1000",
+          interval: "year",
+          requestId: "req-interval-two",
+          actorLabel: "owner@clinic.test",
+        },
+        { now: NOW },
+      );
+
+      expect(result).toEqual({ status: "refused", message: PHONE_NEEDS_ONE_LOCATION });
+      expect(world.fake.callsTo("subscriptions.update")).toHaveLength(0);
+      expect(await rowOf(seeded.clinicId)).toMatchObject({
+        boughtPlanId: "webchat-1000",
+        billingInterval: "month",
+        stripeMutationLeaseOwner: null,
+      });
+      expect(await noticesOf(seeded.clinicId)).toEqual([]);
     });
 
     test("a downgrade drops a channel in service from the price, and the email carries the forwarding facts", async () => {

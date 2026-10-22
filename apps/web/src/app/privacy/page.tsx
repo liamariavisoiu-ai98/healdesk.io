@@ -119,6 +119,12 @@ export const metadata: Metadata = {
  * hours after it was sent, and that a record of each transcript's delivery
  * is kept without the words, where it said seven days after the email was
  * first accepted.
+ *
+ * Revised on 22 October 2026 as LEGAL_VERSION 2026-10-22.1 (see the terms): section 6's
+ * "no call audio is kept at all" is "We keep no call audio: our voice
+ * provider holds a call's transcript and recording only until we have the
+ * transcript, and for no more than a day." The demo call's line is unchanged:
+ * the demo agents keep only a basic record, no recording or transcript.
  */
 export default function PrivacyPage() {
   return (
@@ -447,8 +453,9 @@ export default function PrivacyPage() {
             never confirmed we delete the copy 72 hours after it was sent. We keep a record that
             each transcript was delivered, without what was said. The record of each conversation,
             without what was said, is deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after
-            it took place, and no call audio is kept at all. The clinic&apos;s Business Associate
-            Agreement with us governs the rest.
+            it took place. We keep no call audio: our voice provider holds a call&apos;s transcript
+            and recording only until we have the transcript, and for no more than a day. The
+            clinic&apos;s Business Associate Agreement with us governs the rest.
           </li>
         </ul>
       </Section>

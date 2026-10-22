@@ -1,5 +1,8 @@
+import { and, eq, inArray } from "drizzle-orm";
 import type Stripe from "stripe";
 
+import { appointments } from "@/db/schema";
+import type { ActorContext } from "@/lib/audit";
 import { createDepositLink, depositLinkText } from "@/lib/billing/deposit-link";
 import {
   depositDecision,
@@ -10,7 +13,9 @@ import {
   type DepositChannel,
   type DepositOutcome,
 } from "@/lib/billing/deposits";
-import type { TenantTx } from "@/lib/tenant";
+import { describeError, log } from "@/lib/log";
+import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { withTenant, type TenantTx } from "@/lib/tenant";
 
 /**
  * The booking engine's deposit gate (plan §7.6, as the design record's §6
@@ -19,10 +24,14 @@ import type { TenantTx } from "@/lib/tenant";
  * the clinic's deposit switches, and the engine takes one of three branches
  * from its answer, before anything is held or written:
  *
- *   write    `book`, `book_and_flag`: the booking is written to Google; a
- *            flagged deposit is left to the front desk, with the L10 alert;
- *   reserve  `hold_and_alert`, and chat's `collect`: the slot is reserved for
- *            the clinic's deposit hold window and staff confirm it;
+ *   write    `book`, `book_and_flag`, and chat's `collect`: the booking is
+ *            written to Google; a flagged deposit is left to the front desk,
+ *            with the L10 alert; a `collect` deposit is the chat's payment
+ *            link, sent once the booking is in (chatDepositFor, below: the
+ *            spec's web chat "the slot is held, the booking is written ...
+ *            a hosted checkout link opens ... the booking flips to paid");
+ *   reserve  `hold_and_alert`: the slot is reserved for the clinic's
+ *            deposit hold window and staff confirm it;
  *   decline  `decline_and_alert`: a request is logged, nothing is held or
  *            written, and staff are alerted.
  *
@@ -35,15 +44,22 @@ import type { TenantTx } from "@/lib/tenant";
  *
  * Voice never collects: a call hears depositLine (lib/booking/lines.ts) and is
  * never sent a link. The chat channels send one only through
+ * chatDepositFor (the website chat's booking tool layer) or
  * depositLinkMessage below: createDepositLink's URL inside depositLinkText,
  * nothing more.
  */
 
 export type DepositBranch = "write" | "reserve" | "decline";
 
+/**
+ * `collect` was a reservation until the chat sent links (21 October 2026):
+ * a reservation has no appointment, and a deposit link is made for an
+ * appointment's own amount (createDepositLink), so a reserved `collect` could
+ * never have been sent a link at all.
+ */
 export function depositBranch(action: DepositAction): DepositBranch {
-  if (action === "book" || action === "book_and_flag") return "write";
-  if (action === "hold_and_alert" || action === "collect") return "reserve";
+  if (action === "book" || action === "book_and_flag" || action === "collect") return "write";
+  if (action === "hold_and_alert") return "reserve";
   return "decline";
 }
 
@@ -104,6 +120,95 @@ export type DepositLineFacts = { action: DepositAction; amountUsd: number | null
  * "cannot be collected" setting. Voice has no branch here: a call is never
  * sent a link.
  */
+export type ChatDeposit =
+  /** Nothing to say: no deposit, already paid or waived, or a link another request is opening. */
+  | { kind: "none" }
+  /** The clinic's own payment link, inside depositLinkText's fixed words. */
+  | { kind: "link"; text: string; reused: boolean }
+  /** Left to the front desk, with the L10 alert: the chat says so, never a link. */
+  | { kind: "flagged"; amountUsd: number | null };
+
+/**
+ * What the website chat says about a booking's deposit, once the booking is
+ * in the calendar (lib/assistant/booking-tools.ts): the appointment's own
+ * state decides, so a repeated tool call gets the same answer.
+ *
+ *   none, with an amount, or pending_link   the link: created once, and the
+ *                                           open one returned after that
+ *                                           (createDepositLink's one live
+ *                                           link per appointment);
+ *   pending_front_desk                      the front desk takes it;
+ *   paid, waived, or no amount              nothing.
+ *
+ * A link that cannot be made (deposits switched off or the clinic's Stripe
+ * disconnected since the booking, Stripe unavailable, a service name that
+ * would reach Stripe) leaves the deposit to the front desk instead, with the
+ * L10 alert, in the same transaction that moves it there. If this never runs
+ * or never finishes (the process dies after the booking commits), the
+ * booking was written `pending_link`, and lib/billing/deposit-sweep.ts hands
+ * it to the front desk once its grace has passed.
+ */
+export async function chatDepositFor(
+  clinicId: string,
+  appointmentId: string,
+  options: { channel: "web" | "meta"; actor: ActorContext; now?: Date; stripe?: Stripe },
+): Promise<ChatDeposit> {
+  const read = await withTenant({ clinicId, actor: options.actor }, async (tx) => {
+    const [row] = await tx.db
+      .select({ status: appointments.depositStatus, usd: appointments.depositUsd })
+      .from(appointments)
+      .where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)))
+      .limit(1);
+    return row ?? null;
+  });
+  if (!read) return { kind: "none" };
+  const amountUsd = read.usd === null ? null : Number(read.usd);
+  if (read.status === "pending_front_desk") return { kind: "flagged", amountUsd };
+  if (read.status !== "pending_link" && !(read.status === "none" && amountUsd !== null && amountUsd > 0)) {
+    return { kind: "none" };
+  }
+  let link: Awaited<ReturnType<typeof createDepositLink>>;
+  try {
+    link = await createDepositLink(clinicId, appointmentId, {
+      channel: options.channel,
+      now: options.now,
+      stripe: options.stripe,
+    });
+  } catch (error) {
+    // A fault of our own, not Stripe's answer: the deposit still has to be
+    // collected by someone, so it goes to the front desk as below.
+    log.error("deposit link failed", { clinicId, error: describeError(error) });
+    link = { status: "unavailable", reason: "stripe_error" };
+  }
+  if (link.status === "open") return { kind: "link", text: depositLinkText(link.url), reused: link.reused };
+  if (link.reason === "already_paid" || link.reason === "in_progress") return { kind: "none" };
+  const flagged = await withTenant({ clinicId, actor: options.actor }, async (tx) => {
+    const moved = await tx.db
+      .update(appointments)
+      .set({ depositStatus: "pending_front_desk" })
+      .where(
+        and(
+          eq(appointments.id, appointmentId),
+          eq(appointments.clinicId, tx.clinicId),
+          inArray(appointments.depositStatus, ["none", "pending_link"]),
+        ),
+      )
+      .returning({ id: appointments.id });
+    if (moved.length > 0) {
+      tx.audit.record({
+        action: "update",
+        resourceType: "appointment",
+        resourceId: appointmentId,
+        metadata: { outcome: "deposit_to_front_desk", reason: link.reason },
+      });
+      await notifyBookingAlert(tx, "deposit_to_collect", { appointmentId });
+    }
+    return moved.length > 0;
+  });
+  log.warn("deposit link not made: left to the front desk", { clinicId, code: link.reason });
+  return flagged ? { kind: "flagged", amountUsd } : { kind: "none" };
+}
+
 export async function depositLinkMessage(
   clinicId: string,
   appointmentId: string,

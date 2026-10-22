@@ -520,6 +520,10 @@ const GREETING_REFUSED: Record<GreetingRefusal, string> = {
     "The greeting can't say an appointment is booked: the team confirms every booking.",
   human_claim:
     "The greeting can't say AYA is a person or not an AI: it comes right after the line that says she's an AI assistant.",
+  outbound_promise:
+    "The greeting can't promise a text, a reminder, a follow-up or a call back: AYA only answers, and your team gets back to people.",
+  alert_claim: "The greeting can't say your team has already been told: nothing has been sent when it is said.",
+  other_party: "The greeting can't mention other patients or compare the practice with another one.",
   empty: "Write the greeting as text.",
 };
 

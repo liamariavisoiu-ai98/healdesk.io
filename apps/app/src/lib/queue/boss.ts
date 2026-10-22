@@ -85,6 +85,15 @@ export const QUEUE_SITE_READS = "site-reads";
  * one job per call waits at a time.
  */
 export const QUEUE_VOICE_CALL_BACKSTOP = "voice-call-backstop";
+/**
+ * A clinic's Retell agent and AYA number set up by code
+ * (lib/voice/provision-job.ts): one job per clinic at a time (its
+ * singletonKey), retried by pg-boss with a doubling delay when Retell does
+ * not answer. Queued by the hourly sweep only while the owner's switch
+ * HEALDESK_VOICE_PROVISION_ENABLED is on. Added 21 October 2026: re-run
+ * `npm run queue:install`, then restart the worker.
+ */
+export const QUEUE_VOICE_PROVISION = "voice-provision";
 
 /**
  * scripts/install-queue.ts creates exactly these, and pg-boss v10 refuses to
@@ -109,6 +118,7 @@ export const QUEUES = [
   QUEUE_PRACTICE_QUESTIONS,
   QUEUE_SITE_READS,
   QUEUE_VOICE_CALL_BACKSTOP,
+  QUEUE_VOICE_PROVISION,
 ] as const;
 
 export type QueueName = (typeof QUEUES)[number];

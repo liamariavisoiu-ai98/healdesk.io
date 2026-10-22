@@ -115,6 +115,7 @@ export type HandoverRecord = Omit<typeof handovers.$inferSelect, "handledByUserI
 const HANDOVER_COLUMNS = {
   id: handovers.id,
   clinicId: handovers.clinicId,
+  locationId: handovers.locationId,
   channel: handovers.channel,
   platform: handovers.platform,
   externalCallId: handovers.externalCallId,

@@ -14,7 +14,16 @@ import {
   sign,
   type ClinicProfile,
 } from "@healdesk/catalog";
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  onTestFinished,
+  test,
+  vi,
+} from "vitest";
 
 import { publicUrl } from "@/lib/public-url";
 import { POST as postProvision } from "@/app/api/provision/route";
@@ -1129,9 +1138,26 @@ describeDb("the setup wizard", () => {
       return boughtAt(label, new Date(now.getTime() - daysAgo * 86_400_000));
     }
 
-    // Noon in New York, where provisionDirect's clinics are.
-    const noon = new Date("2026-10-20T16:00:00Z");
-    const night = new Date("2026-10-20T07:00:00Z");
+    // Noon in New York (16:00Z: 12:00 EDT, 11:00 EST), where provisionDirect's
+    // clinics are, and 07:00Z the same day, 02:00 or 03:00 there. Taken from
+    // the database's clock, not a fixed date: a queued notice's send_after
+    // defaults to the database's now(), and deliverNotice({ now: noon }) sends
+    // only what is due by noon, so a fixed noon stopped sending the day the
+    // real clock passed it (21 October 2026). The first noon at least an hour
+    // ahead of the database is always after the row is queued.
+    let noon: Date;
+    let night: Date;
+    beforeAll(async () => {
+      const { rows } = await getMigratorPool().query<{ t: Date }>(
+        `select now() + interval '1 hour' as t`,
+      );
+      const ahead = rows[0]!.t;
+      noon = new Date(
+        Date.UTC(ahead.getUTCFullYear(), ahead.getUTCMonth(), ahead.getUTCDate(), 16),
+      );
+      if (noon.getTime() <= ahead.getTime()) noon = new Date(noon.getTime() + 86_400_000);
+      night = new Date(noon.getTime() - 9 * 3_600_000);
+    });
 
     test("one on day 5, in the clinic's daytime, once, naming what is left", async () => {
       const clinic = await boughtDaysAgo("remind", 5, noon);
@@ -1152,6 +1178,19 @@ describeDb("the setup wizard", () => {
       const payload = rows[0]!.payload as Record<string, unknown>;
       expect(payload).toMatchObject({ reminderCount: 1, stepsLeftCount: 4 });
       expect(() => assertPayloadAllowed(payload, "setup_reminder")).not.toThrow();
+
+      // The outbox stamps send_after with the DATABASE's now(), which no fake
+      // clock reaches. With the fixed `noon` above in the past (it was the
+      // day before this test first failed, 21 October 2026) the row looked
+      // not yet due and the sender answered "not_due". Queue it "at" the
+      // test's own noon, as the job would have, so the test reads no
+      // wall clock at all.
+      await inTenant(clinic.clinicId, (c) =>
+        c.query(`update billing_notices set send_after = $1 where id = $2`, [
+          noon,
+          rows[0]!.id,
+        ]),
+      );
 
       // The sender renders it from the stored payload and sends it.
       await setJobEnabled("billing-notices", true, await opsUser());
@@ -1202,6 +1241,13 @@ describeDb("the setup wizard", () => {
     });
 
     test("a corrected time zone keeps the named last day, and the sixth reminder goes on it", async () => {
+      // The correction moves only a deadline still ahead of the clock it reads
+      // (new Date()), so the clock is pinned inside this window: unpinned, the
+      // test stopped passing once the real date passed 7 November 2026.
+      vi.setSystemTime(new Date("2026-10-09T16:00:00Z"));
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
       // Bought at 22:00 in Los Angeles on 7 October (01:00 on the 8th in New
       // York), with no address read: provisioning guessed the browser's zone.
       const clinic = await boughtAt(
@@ -1259,6 +1305,11 @@ describeDb("the setup wizard", () => {
     });
 
     test("the ops console's time zone correction moves the deadline the same way", async () => {
+      // Pinned inside the window, as above: setClinicTimezone reads new Date().
+      vi.setSystemTime(new Date("2026-10-09T16:00:00Z"));
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
       const clinic = await boughtAt(
         "ops-zone",
         new Date("2026-10-08T02:00:00Z"),

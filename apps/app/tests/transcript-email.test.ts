@@ -20,7 +20,12 @@ import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } fr
 
 const INPUT: TranscriptEmailInput = {
   conversationId: "6b0f8a52-3f7e-4d2a-9a51-2a0c1f0e9d11",
-  clinic: { id: "c0ffee00-0000-4000-8000-000000000001", name: "Radiance Med Spa", timeZone: "America/New_York" },
+  clinic: {
+    id: "c0ffee00-0000-4000-8000-000000000001",
+    name: "Radiance Med Spa",
+    timeZone: "America/New_York",
+    audience: "patients",
+  },
   channel: "voice",
   startedAt: new Date("2026-10-13T20:05:00Z"),
   turns: [

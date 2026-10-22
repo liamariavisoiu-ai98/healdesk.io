@@ -188,6 +188,26 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The hourly sync could not set the fallback number of the clinic's AYA number in Retell to its direct line. The code says why: duplicate (two clinics name the same AYA number, whose fallback is cleared; fix the wrong one in Ops), missing (Retell has no such number), not_kept (Retell answered but did not keep it, or failed while setting it), rejected, unreachable or database; key_refused (Retell refused HEALDESK_RETELL_API_KEY) and retell_unreachable (three numbers in a row timed out) stop the run for every clinic. Until it is fixed, outage mode and a voice task started during a database outage cannot send that clinic's calls to its direct line. Check the number in Retell's dashboard and HEALDESK_RETELL_API_KEY.",
   },
+  voice_provision_failed: {
+    title: "A clinic's Retell set-up stopped",
+    action:
+      "Setting up the clinic's Retell agent and AYA number stopped, and the code says why: not_implemented (the clinic is set to Retell's own engine, which is not built), no_voice (HEALDESK_RETELL_VOICE_ID is not set), config (the public origin or the line password is not usable), number_missing (the clinic's AYA number is not in this Retell workspace), unsupported_country (Retell sells US and Canadian numbers only), not_kept (Retell answered but did not keep a setting) or rejected (Retell refused the request). Phase sync means a settings change was not written to Retell. Fix the cause, then run retryVoiceAgent from Ops.",
+  },
+  voice_provision_cap_reached: {
+    title: "The day's cap on AYA numbers is reached",
+    action:
+      "Provisioning has ordered as many AYA numbers from Retell today as HEALDESK_VOICE_PROVISION_DAILY_CAP allows, so the next clinics wait until midnight UTC, when they are set up on their own. If that many clinics really paid for voice today, raise the cap; if not, find out what ordered the numbers before anything else spends.",
+  },
+  voice_agent_drift: {
+    title: "A clinic's Retell agent drifted",
+    action:
+      "The nightly read-back found the clinic's Retell agent or number different from what our code wrote, and the code names the first difference (storage, engine, webhook, voice, language, number_agent, number_outbound, fallback, agent_missing or number_missing). Status repaired means it was written again; flagged means it drifted again after three repairs, or the agent or number is gone, and is left for you: check who changes it in Retell's dashboard.",
+  },
+  voice_deprovision_failed: {
+    title: "A departed clinic's Retell number was not released",
+    action:
+      "The clinic's service and its forwarding pass-through have ended, but releasing its AYA number or deleting its agent at Retell failed. Retell bills the number until it goes. The sweep tries again every hour; if it keeps failing, release the number and delete the agent in Retell's dashboard.",
+  },
   voice_direct_line_loops: {
     title: "A clinic's direct line forwards back to AYA",
     action:
@@ -470,6 +490,22 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Someone signed at the checkout, and the copy of the agreement was not emailed to the address they gave. The code says why: a copy already went to that address today, the names on it carry something not safe to mail to an address nobody confirmed, the day's copies to such addresses are spent, or the send failed or had no transport. The signature is on record under the agreement id below. If the signer is genuine, send them the copy by hand from hello@.",
   },
+  // The hourly location-quantity check (lib/billing/location-quantity.ts).
+  location_quantity_drift: {
+    title: "Stripe bills a different number of locations",
+    action:
+      "The quantity Stripe bills this account for locations is not the number of locations it has active (counting one being added whose charge is recorded). Nothing was changed: the check only reads. Open the account's Billing page and its subscription in Stripe, decide which side is wrong, and put it right by hand: too many billed may be a refund owed, too few an add to finish. You will hear once more when the two agree again.",
+  },
+  location_quantity_agrees: {
+    title: "Stripe's location count matches again",
+    action:
+      "The quantity Stripe bills this account for locations matches its active locations again, so the mismatch reported earlier for the time below has ended. Nothing more to do unless a refund or a credit for the period it lasted is still owed.",
+  },
+  step_up_phone_held: {
+    title: "Phone held off a plan with more than one location",
+    action:
+      "Phone is answering, or is due to join the price, for an account that has more than one location or one being added. Phone is billed per location and each location needs its own AYA number, which isn't built yet, so the step-up into phone was held and nothing was charged. Decide with the practice whether phone stays on; the step-up stays held until phone per location exists.",
+  },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
     action:
@@ -512,6 +548,8 @@ const LABELS: Record<string, string> = {
   lateDays: "Days late",
   conversationId: "Conversation id",
   channel: "Channel",
+  locationCount: "Locations active",
+  billedCount: "Locations billed in Stripe",
 };
 
 function wordingFor(payload: OpsAlertPayload): Wording {

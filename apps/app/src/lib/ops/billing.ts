@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { MAX_SKEW_SECONDS, type Channel } from "@healdesk/catalog";
+import { getPlan, MAX_SKEW_SECONDS, type Channel } from "@healdesk/catalog";
 import { and, desc, eq, gt, inArray } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -78,6 +78,7 @@ import {
 import { usageSnapshot } from "@/lib/billing/usage";
 import { updateClinicSettingsRecordingPause } from "@/lib/channels/pause";
 import { isPaused, type ChannelStatus } from "@/lib/channels/state";
+import { PHONE_STEP_UP_HELD, phoneHeldByLocations } from "@/lib/locations";
 import { scrub } from "@/lib/log";
 import { listClinics as listClinicOverviews } from "@/lib/ops/clinics";
 import { getJob, JOB_SETUP_CLOSURE } from "@/lib/scheduler/jobs";
@@ -1513,13 +1514,30 @@ export async function opRetryBillingRequest(
     { clinicId: billingClinicId, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       const [row] = await tx.db
-        .select({ kind: billingRequests.kind, outcome: billingRequests.outcome })
+        .select({
+          kind: billingRequests.kind,
+          outcome: billingRequests.outcome,
+          channelKey: billingRequests.channelKey,
+        })
         .from(billingRequests)
         .where(
           and(eq(billingRequests.id, requestId), eq(billingRequests.clinicId, billingClinicId)),
         )
         .limit(1);
       if (!row) return { found: false as const };
+      // A step-up into phone stays held while the account has more than one
+      // location (lib/locations.ts): retried, the worker would only skip it
+      // again, so the operator is told why here instead.
+      if (row.kind === "step_up" && row.channelKey === "voice") {
+        const billing = await getEntitlements(tx.db, billingClinicId);
+        if (
+          billing &&
+          getPlan(billing.planCode)?.channels.voice !== true &&
+          phoneHeldByLocations(billing)
+        ) {
+          return { found: true as const, phoneHeld: true as const };
+        }
+      }
       const rearmed = await rearmBillingRequest(tx, requestId, "ops", now);
       if (rearmed) {
         tx.audit.record({
@@ -1533,6 +1551,7 @@ export async function opRetryBillingRequest(
     },
   );
   if (!outcome.found) return refusal("No such billing request on this clinic's account.");
+  if ("phoneHeld" in outcome) return refusal(PHONE_STEP_UP_HELD);
   if (!outcome.rearmed) {
     return refusal("A worker is carrying that request out right now. Reload in a minute.");
   }

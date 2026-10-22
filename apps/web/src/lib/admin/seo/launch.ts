@@ -105,11 +105,12 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
   },
   {
     id: "no-audio",
-    promise: "No call audio is kept",
+    promise: "healdesk keeps no call audio, and the voice provider holds a call for a day at most",
     where: "Opening line on every call, privacy page, How AYA is built to behave",
     status: "building",
-    left: "Each clinic's Retell agent is being created with recording storage off in code, so the promise does not depend on the Retell console.",
-    evidence: "docs/counsel/state-disclosure.md decision 2",
+    left: "Each clinic's Retell agent is being created in code with Retell's storage on and a one-day limit, and the backstop deletes the call at Retell once healdesk has the transcript, so the promise does not depend on the Retell console. The wording on the opening line, the terms and privacy pages, the support chat and the guides now says this (22 October 2026); the opening line, the Spanish line and the written notice change in code with this wording, so the item stays building until the agent code is called and a test call proves the deletion.",
+    evidence:
+      "docs/counsel/state-disclosure.md decision 2, written for no audio kept, which the owner reversed on 21 October 2026: Retell now keeps each call's transcript and recording until the call has been processed. apps/app lib/voice/retell-agent.ts (agents written and read back with data_storage_setting everything and data_storage_retention_days 1, Retell's own deletion a day later; not yet called), lib/voice/backstop.ts and lib/voice/recording-alerts.ts (once the call and its sealed transcript are committed here, the backstop job deletes the call at Retell, retried; a call still at Retell 30 minutes after it ended is one alert on /admin/recordings, with a Delete at Retell button), tests/recording-alerts.test.ts and tests/voice-backstop.test.ts. The promise is now worded as: healdesk keeps no call audio, and the voice provider holds a call's transcript and recording only until healdesk has the transcript, and for no more than a day (22 October 2026, owner-approved); counsel has not reviewed it.",
     blocksGoLive: true,
   },
   {
@@ -135,7 +136,7 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     promise: "We sign a business associate agreement and handle patient data under it",
     where: "Every page that states it",
     status: "owner",
-    left: "Countersign the business associate agreements with the model provider, Retell and the database host before the first real patient.",
+    left: "Countersign the business associate agreements with the model provider, Retell, the database host and AWS before the first real patient, and record each on /admin/compliance: go-live and the answer gate read all four.",
     evidence: "docs/hipaa-compliance.md, CLAUDE.md (BAA coverage)",
     blocksGoLive: true,
   },
@@ -170,13 +171,37 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
   {
     id: "extra-locations",
     promise:
-      "Each further location is added to the same plan from Billing, at the plan's price again plus its own setup fee, renewing on the same date",
+      "One AYA answers for every location of a practice, as one central assistant like a call centre, and each further location is added to the same plan from Billing, at the plan's price again plus its setup fee once, renewing on the same date",
     where:
-      "Pricing (Prices are per location), Get AYA's package step and Review and pay, terms (More than one location), the portal's Billing (Add a location)",
+      "Pricing (Prices are per location), Get AYA's package step and Review and pay, terms (More than one location), the portal's Billing (Add a location), the location-added email, the set-up wizard's first question",
     status: "building",
-    left: "healdesk-io-58's Package C: addLocation is written, but createLocationClinic is a stub and LOCATION_CLINICS_READY is false, so addLocation refuses, and no path, the ops console's included, can add a location to a plan yet. Billing's Add a location card states the price and that locations are added from Billing, and offers its button only once the flag is on. It moves to On in the commit that flips the flag, once that release is deployed. One location works without it, so it does not hold go-live.",
+    left: "Locations are being built as rows inside one account, for the AYA Web Chat and AYA Meta Chat packages bought first (the extra-locations plan, slice 1). The account's locations table and the append-only acknowledgement table exist (drizzle/0109), every open account has its main location, and addLocation creates a pending location and records the acknowledgement before it charges anything; but AYA still knows one address and one set of hours, no conversation or booking request records a location, the acknowledgement is drafted and marked not released until its wording audit passes, and locationsReady is false for every package, so addLocation refuses and Billing's Add a location card states the price and the central model and offers no button. It moves to On in the commit that switches locations on for the chat packages, once that release is deployed. One location works without it, so it does not hold go-live.",
     evidence:
-      "apps/app/src/lib/location-clinic.ts (LOCATION_CLINICS_READY), apps/app/src/lib/billing/stripe-actions.ts (addLocation), apps/app/src/app/c/[slug]/billing/page.tsx",
+      "apps/app/src/lib/locations.ts (locationsReady), apps/app/src/lib/billing/stripe-actions.ts (addLocation), apps/app/src/app/c/[slug]/billing/page.tsx, packages/catalog/src/central-assistant-acknowledgement.ts",
+    blocksGoLive: false,
+  },
+  {
+    id: "location-phone",
+    promise:
+      "Each location of a practice that buys phone forwards its own line to its own AYA number, and whenever AYA is not answering, that location's calls go to that location's own direct line",
+    where:
+      "Terms sections 2 and 8 and the first-month guarantee (Routed to it), the central-assistant acknowledgement",
+    status: "building",
+    left: "The extra-locations plan's slice 2, for the three packages with phone: an AYA number per location on the account's one agent; the answer gate reading the number dialled and that location's hours, direct line and coverage mode; Retell's fallback, the line the voice process remembers for a database outage and the loop guard kept per number; and each location's forwarding proved on its own line. Then your Retell check, on a made-up clinic, that the number dialled arrives on a forwarded call, and a number bought for each added location. Until then a package with phone shows a location's price in Billing and offers no button, and an account with several locations cannot move into one. One location works without it, so it does not hold go-live.",
+    evidence:
+      "apps/app/src/lib/voice/fallback-line.ts, apps/app/src/lib/voice/retell-fallback-sync.ts, apps/app/src/lib/billing/answering.ts, apps/app/src/lib/voice/backstop.ts",
+    blocksGoLive: false,
+  },
+  {
+    id: "location-calendar",
+    promise:
+      "A location after the first takes booking requests your team confirms, and nothing about it reaches Google Calendar",
+    where:
+      "The central-assistant acknowledgement (its requests-only statement), the business associate agreement's calendar paragraph",
+    status: "building",
+    left: "The calendar guard of the extra-locations plan (step 11): booking mode, offered times, holds, the engine's bookings and the desk's confirm refuse Google for any location after the first, a confirmed booking there is recorded with no calendar so it occupies none of the first location's times, and the database's calendar write guard refuses such a row too. Until locations exist no account has a second one, so nothing is wrong today. Calendars per location, each under its own calendar election, are a later item. One location works without it, so it does not hold go-live.",
+    evidence:
+      "apps/app/src/lib/booking/mode.ts, apps/app/src/lib/meta/booking-requests.ts (deskSpanFree), apps/app/src/lib/booking/calendar.ts, packages/catalog/src/central-assistant-acknowledgement.ts",
     blocksGoLive: false,
   },
   {

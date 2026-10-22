@@ -183,6 +183,33 @@ describeDb("the device email (O3)", () => {
     }
   });
 
+  test("a vet's sign-in reads its clients' details, in the body and the footer; everyone else's reads patient", async () => {
+    const vet = await seedClinic("paws");
+    await getMigratorPool().query(`update clinics set specialty = 'veterinary' where id = $1`, [
+      vet.clinicId,
+    ]);
+    const vetOwner = await seedPortalUser(vet.clinicId, "owner");
+    const people = await seedClinic("glow");
+    const peopleOwner = await seedPortalUser(people.clinicId, "owner");
+    const { sent, transport } = fakeTransport();
+
+    for (const owner of [vetOwner, peopleOwner]) {
+      await notifyDeviceChange(
+        { userId: owner.userId, kind: "added", factorId: await seedPasskey(owner.userId) },
+        { transport, now: NOW },
+      );
+    }
+
+    const [toVet, toPeople] = sent as [Sent, Sent];
+    expect(toVet.message.text).toContain("It can now open client details");
+    expect(toVet.message.text).toContain("Please leave out your clients' details.");
+    for (const body of [toVet.message.subject, toVet.message.text, toVet.message.html]) {
+      expect(body).not.toMatch(/\bpatients?\b/i);
+    }
+    expect(toPeople.message.text).toContain("It can now open patient details");
+    expect(toPeople.message.text).toContain("Please leave out patient details.");
+  });
+
   test("never throws, whatever the provider or the database does", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});

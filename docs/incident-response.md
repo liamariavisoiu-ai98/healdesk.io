@@ -72,7 +72,7 @@ categories; never paste patient data into it.
    and the DPA), and our internal 24-hour target, which is never quoted to a
    clinic as a promise.
 3. **Preserve.** Do not delete the webhook payload, the transcript reference or
-   the audit rows involved (no call audio is kept, so there is no recording).
+   the audit rows involved (healdesk keeps no call audio, and the voice provider's copy of a call is deleted within a day, so the ids of the calls involved are what can be preserved).
    The retention purge skips nothing on its own; if the evidence is inside its
    window, note the ids in the incident and, if needed, extend the clinic's
    retention window for the period.

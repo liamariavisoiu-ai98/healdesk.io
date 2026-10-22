@@ -44,7 +44,8 @@ import {
   type BillingRequestChannelKey,
 } from "@/lib/billing/requests";
 import { resumePlanChange, STALE_PLAN_CHANGE_MS } from "@/lib/billing/stripe-actions";
-import { createLocationClinic, LOCATION_CLINICS_READY } from "@/lib/location-clinic";
+import { activatePendingLocation } from "@/lib/location-add";
+import { locationsReady, phoneHeldByLocations } from "@/lib/locations";
 import { describeError, log } from "@/lib/log";
 import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import {
@@ -75,8 +76,8 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  *     plan start, never sooner than a week after that notice was queued;
  *   - a setup closure at the end of the 30-day setup window, when nothing is
  *     live anywhere in the group and the plan has not started;
- *   - an extra location charged but not yet created, resumed once the
- *     funnel's createLocationClinic is ready;
+ *   - an extra location charged but not yet active, activated once its
+ *     package may add locations (locationsReady);
  *   - an extra location left pending with no charge on record, settled from
  *     Stripe's evidence once nobody holds the mutation lease;
  *   - a request pending for more than a day, told to ops once;
@@ -137,6 +138,12 @@ export type ReconcileAction =
       amountCents: number;
     }
   | { type: "stuck"; request: RequestRef }
+  /**
+   * Phone is in service (or waiting) and the bought package has it, but the
+   * account has more than one location, or one being added: no step-up is
+   * recorded and no reminder promises a date; ops are told once.
+   */
+  | { type: "phone_held"; channel: Channel }
   | { type: "resume_location" }
   | { type: "settle_location"; requestId: string; count: number };
 
@@ -241,6 +248,23 @@ export function decideReconcile(input: ReconcileInput): ReconcileAction[] {
     ensure(find("plan_start"), { type: "record", kind: "plan_start" }, "reconcile", false);
   }
 
+  // Phone is per location, which the extra-locations plan's slice 2 builds:
+  // while the account has more than one location, or one being added, a
+  // step-up into phone is held (phoneHeldByLocations) rather than recorded,
+  // so it is neither charged nor skipped by the worker and re-armed here
+  // every hour; ops are told once.
+  const phoneHeld = phoneHeldByLocations(row);
+  // What a reminder may price in: phone, while it is held, only if already billed.
+  const pricedInService = [...group.inService].filter(
+    (channel) => channel !== "voice" || !phoneHeld || billed.has("voice"),
+  );
+  let toldPhoneHeld = false;
+  const holdPhone = (channel: Channel) => {
+    if (toldPhoneHeld) return;
+    toldPhoneHeld = true;
+    actions.push({ type: "phone_held", channel });
+  };
+
   // Step-ups for channels in service that the billed package lacks (R6),
   // only once the plan has started: before that the start itself prices in
   // every channel in service. A finished step-up whose channel is still
@@ -249,6 +273,10 @@ export function decideReconcile(input: ReconcileInput): ReconcileAction[] {
     for (const channel of CHANNELS) {
       if (!group.inService.has(channel) || !bought.channels[channel] || billed.has(channel))
         continue;
+      if (channel === "voice" && phoneHeld) {
+        holdPhone(channel);
+        continue;
+      }
       ensure(
         find("step_up", channel),
         { type: "record", kind: "step_up", channel, reason: "reconcile" },
@@ -269,6 +297,10 @@ export function decideReconcile(input: ReconcileInput): ReconcileAction[] {
   ) {
     for (const [channel, waiting] of waitingChannels(group)) {
       if (!bought.channels[channel] || billed.has(channel)) continue;
+      if (channel === "voice" && phoneHeld) {
+        holdPhone(channel);
+        continue;
+      }
       const due = startOfJoinDay(
         new Date(
           Math.max(waiting.readyAt.getTime(), startedAt.getTime()) + WAITING_JOIN_DAYS * DAY_MS,
@@ -289,7 +321,7 @@ export function decideReconcile(input: ReconcileInput): ReconcileAction[] {
               startOfJoinDay(new Date(now.getTime() + STEP_UP_NOTICE_DAYS * DAY_MS)).getTime(),
             ),
           );
-          const plan = planForChannels(bought, [...billed, ...group.inService, channel]);
+          const plan = planForChannels(bought, [...billed, ...pricedInService, channel]);
           if (plan) {
             actions.push({
               type: "remind",
@@ -365,6 +397,8 @@ export type ReconcileSummary = {
   rearmed: number;
   reminders: number;
   stuck: number;
+  /** Accounts whose step-up into phone is held because they have more than one location. */
+  phoneHeld: number;
   locationsResumed: number;
   locationsHeld: number;
   /** Pending locations Stripe shows were never charged: cleared, for the clinic to add again. */
@@ -468,6 +502,7 @@ async function reconcileClinic(
 
   const rearmedDeadLetters: RequestRef[] = [];
   const stuck: RequestRef[] = [];
+  const phoneHeld: Channel[] = [];
   await withTenant({ clinicId: billingClinicId, actor: ACTOR }, async (tx) => {
     for (const action of actions) {
       switch (action.type) {
@@ -510,6 +545,9 @@ async function reconcileClinic(
         case "stuck":
           stuck.push(action.request);
           break;
+        case "phone_held":
+          phoneHeld.push(action.channel);
+          break;
         case "resume_location":
         case "settle_location":
           break;
@@ -533,6 +571,15 @@ async function reconcileClinic(
     // Once per request, ever: every hour would find it again until it moves.
     await notifyOpsOnce("billing_request_stuck", fieldsOf(request));
     summary.stuck += 1;
+  }
+  for (const channel of phoneHeld) {
+    // Once per account, ever: it stays held until phone per location exists.
+    await notifyOpsOnce("step_up_phone_held", {
+      clinicId: billingClinicId,
+      channel,
+      count: snapshot.row.locations,
+    });
+    summary.phoneHeld += 1;
   }
 
   if (actions.some((action) => action.type === "resume_location")) {
@@ -601,13 +648,14 @@ async function settleUnchargedLocation(
 export type LocationResume = "resumed" | "not_ready" | "nothing_pending" | "busy" | "failed";
 
 /**
- * Finish an extra location that was charged but never created (R14 step 4
- * onwards): create its clinic, clear the pending marker and queue
+ * Finish an extra location that was charged but never made active (R14
+ * step 4 onwards): activate the location row the add wrote before its charge
+ * (lib/location-add.ts), clear the pending marker and queue
  * `location_added`. Under the billing clinic's Stripe mutation lease, so it
- * never races addLocation resuming the same request. While the funnel's
- * createLocationClinic is still the stub (`LOCATION_CLINICS_READY` false) the
- * location stays pending, untouched; addLocation refuses before any charge in
- * that state, so nothing new can arrive here until it flips.
+ * never races addLocation resuming the same request. While the package
+ * bought may not add locations (`locationsReady` false) the location stays
+ * pending, untouched; addLocation refuses before any charge in that state,
+ * so nothing new can arrive here until it is switched on.
  *
  * Exported for the console's retry (R35 retryLocationSetup), so there is one
  * way to resume a location.
@@ -630,7 +678,7 @@ export async function resumePendingLocation(
     ) {
       return "nothing_pending" as const;
     }
-    if (!LOCATION_CLINICS_READY) return "not_ready" as const;
+    if (!locationsReady(row.boughtPlanId)) return "not_ready" as const;
     const owner = `location:${row.pendingLocationRequestId}`;
     if (!(await claimStripeMutationLease(tx.db, billingClinicId, owner, { now: leaseNow }))) {
       return "busy" as const;
@@ -640,14 +688,18 @@ export async function resumePendingLocation(
   if (typeof pending === "string") return pending;
 
   try {
-    // Idempotent on (billing clinic, location number): a clinic the first
-    // attempt made comes back rather than being made twice.
-    await createLocationClinic({ billingClinicId, locationNumber: pending.count, actor });
+    // Idempotent: a location the first attempt activated returns the same
+    // time rather than anything being made twice. An add with no location
+    // row (marked pending before 0109) cannot be finished here.
+    const activated = await withTenant({ clinicId: billingClinicId, actor }, (tx) =>
+      activatePendingLocation(tx, pending.requestId),
+    );
+    if (!activated) throw new Error("the add has no pending location to activate");
   } catch (error) {
     await withTenant({ clinicId: billingClinicId, actor }, (tx) =>
       releaseStripeMutationLease(tx.db, billingClinicId, pending.owner),
     );
-    log.warn("extra location still not created", {
+    log.warn("extra location still not active", {
       clinicId: billingClinicId,
       error: describeError(error),
     });
@@ -758,6 +810,7 @@ export async function reconcileBilling(now: Date = new Date()): Promise<Reconcil
     rearmed: 0,
     reminders: 0,
     stuck: 0,
+    phoneHeld: 0,
     locationsResumed: 0,
     locationsHeld: 0,
     locationsCleared: 0,
@@ -817,6 +870,7 @@ export async function runBillingReconcileJob(options: { now?: Date } = {}): Prom
       return (
         `${s.clinics} billing clinics: ${s.recorded} requests recorded, ${s.rearmed} re-armed, ` +
         `${s.reminders} step-up reminders queued, ${s.stuck} stuck` +
+        (s.phoneHeld ? `, ${s.phoneHeld} phone step-ups held for more than one location` : "") +
         (s.locationsResumed ? `, ${s.locationsResumed} locations resumed` : "") +
         (s.locationsHeld ? `, ${s.locationsHeld} locations still pending` : "") +
         (s.locationsCleared ? `, ${s.locationsCleared} uncharged location requests cleared` : "") +

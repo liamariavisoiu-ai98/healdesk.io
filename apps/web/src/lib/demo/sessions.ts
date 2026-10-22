@@ -1,6 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
 import {
+  type Audience,
+  audienceFor,
   DEMO_SETUP_CREDIT,
   isSetupCreditLive,
   isSpecialtyId,
@@ -164,6 +166,20 @@ export function isDemoExpired(session: DemoSession, now: number = Date.now()): b
 /** The stored profile, decoded, or null for a row still building or one that failed. */
 export function profileOf(session: DemoSession): ClinicProfile | null {
   return session.profile ? normalizeProfile(session.profile, session.clinicName) : null;
+}
+
+/**
+ * Who the demo's clinic serves, in its own word (audienceFor): a veterinary
+ * practice's people are clients, since its patients are animals. The
+ * specialty the demo was asked for, else the one its website read found, as
+ * the purchase opened from it reads them (demoCheckout); a demo that names
+ * neither is a practice whose patients are people, as that purchase assumes.
+ */
+export function demoAudience(session: DemoSession): Audience {
+  const specialty = isSpecialtyId(session.specialty)
+    ? session.specialty
+    : (profileOf(session)?.specialty ?? null);
+  return audienceFor(specialty);
 }
 
 /**

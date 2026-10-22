@@ -15,7 +15,19 @@ party block's label for healdesk's Delaware address changed from "of" to "with
 a mailing address for notices and correspondence at", so the text no longer
 describes a mailbox as where healdesk is; the party's identity, the Notices
 clause and every other sentence are unchanged, and the golden hashes were
-regenerated. It is frozen now: a change is a new version, never an edit, and
+regenerated. Later on 21 October 2026, on the owner's explicit authorisation
+for this change alone and with the version number unchanged, clause 10
+(Minimum necessary) changed in two sentences to say what healdesk's voice
+provider holds of a call: "No call audio is kept at all." became "healdesk
+keeps no call audio; its voice provider holds a call's recording only as this
+clause describes.", and the transcript paragraph gained, after the sentence on
+what Anthropic keeps, that the provider holds a call's transcript and
+recording only while the call runs and until healdesk has taken its own copy
+of the transcript, that healdesk then has the provider delete them, and that
+the provider's own retention for anything left is one day
+(docs/counsel/agreement-changes.md §19; counsel has not reviewed it). Every
+other sentence is unchanged, and the golden hashes were regenerated. It is
+frozen now: a change is a new version, never an edit, and
 packages/catalog/src/dpa.test.ts holds this file and the golden hashes to the
 renderer.
 
@@ -33,7 +45,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 70260470a14d788e1913afd22d4e0f0dfeac09075921d19400237b186a533c73).
+(SHA-256 01db94b7ecda5d7d29d6311d299a2ee8e68f2b29fe07ec993c0678fbc01c40a5).
 The clauses that render only for some practices follow in Appendix A, numbered
 as they render; nothing else in the text varies. Appendix B is the calendar
 election that names this agreement, which its Definitions clause and its
@@ -381,7 +393,8 @@ EFFECTIVE 6 October 2026
   does not ask for a history, a medication or a diagnosis, and it never takes
   a card number. On every channel its opening line says that it is an AI
   assistant and, on a call, that the call is transcribed; Practice cannot
-  switch that statement off or edit it out. No call audio is kept at all.
+  switch that statement off or edit it out. healdesk keeps no call audio; its
+  voice provider holds a call's recording only as this clause describes.
 
   healdesk does not keep transcripts. When a call or a website chat ends,
   healdesk emails its transcript to the email address on Practice's healdesk
@@ -400,9 +413,13 @@ EFFECTIVE 6 October 2026
   delivery, without what was said or written in it, for as long as it keeps
   the record of that conversation. It keeps no other copy of a transcript,
   apart from the backups described below; what Anthropic keeps is what the
-  Subcontractors clause describes. Once healdesk's copy is deleted, the email
-  is Practice's own record of what was said, and Practice is responsible for
-  keeping, protecting and deleting it.
+  Subcontractors clause describes. healdesk's voice provider holds the
+  transcript and recording of a call only while the call runs and until
+  healdesk has taken its own copy of the transcript, and healdesk then has the
+  provider delete them; the provider's own retention for anything left is one
+  day. Once healdesk's copy is deleted, the email is Practice's own record of
+  what was said, and Practice is responsible for keeping, protecting and
+  deleting it.
 
   healdesk keeps the record of each conversation, without what was said or
   written in it, for 90 days after it took place, and each appointment record
@@ -771,7 +788,8 @@ veterinary practice or pet spa"):
   medication or a diagnosis, and it never takes a card number. On every
   channel its opening line says that it is an AI assistant and, on a call,
   that the call is transcribed; Practice cannot switch that statement off or
-  edit it out. No call audio is kept at all.
+  edit it out. healdesk keeps no call audio; its voice provider holds a call's
+  recording only as this clause describes.
 
   healdesk does not keep transcripts. When a call or a website chat ends,
   healdesk emails its transcript to the email address on Practice's healdesk
@@ -790,9 +808,13 @@ veterinary practice or pet spa"):
   delivery, without what was said or written in it, for as long as it keeps
   the record of that conversation. It keeps no other copy of a transcript,
   apart from the backups described below; what Anthropic keeps is what the
-  Subcontractors clause describes. Once healdesk's copy is deleted, the email
-  is Practice's own record of what was said, and Practice is responsible for
-  keeping, protecting and deleting it.
+  Subcontractors clause describes. healdesk's voice provider holds the
+  transcript and recording of a call only while the call runs and until
+  healdesk has taken its own copy of the transcript, and healdesk then has the
+  provider delete them; the provider's own retention for anything left is one
+  day. Once healdesk's copy is deleted, the email is Practice's own record of
+  what was said, and Practice is responsible for keeping, protecting and
+  deleting it.
 
   healdesk keeps the record of each conversation, without what was said or
   written in it, for 90 days after it took place, and each appointment record

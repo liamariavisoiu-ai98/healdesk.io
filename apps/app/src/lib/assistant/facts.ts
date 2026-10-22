@@ -10,6 +10,8 @@ import { and, eq } from "drizzle-orm";
 import { agentConfigs, clinicChannels, clinicProviders, clinics, type AgentService, type KnowledgeAnswer } from "@/db/schema";
 import { DAY_KEYS, DAY_LABELS, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
+import { urgentAlertReadiness } from "@/lib/notices/urgent-readiness";
+import type { EmailTransport } from "@/lib/reporting/deliver";
 import { neverSayWithDefaults, readKnowledge } from "@/lib/setup/knowledge";
 import { readSetupSettings } from "@/lib/setup/settings";
 import { urgentHelpNumber } from "@/lib/setup/urgent";
@@ -84,6 +86,14 @@ export type AssistantFacts = {
   suggestAddOns: boolean;
   /** The practice's providers, as it names them: words the language check reads as no language. */
   providerNames: string[];
+  /**
+   * Whether an urgent alert raised now would reach the clinic (the sender's
+   * switch, an email transport and the clinic's address: urgentAlertReadiness,
+   * lib/notices/urgent-readiness.ts). The fixed urgent reply says "I've told
+   * the team" only when this is true; absent counts as false, so facts built
+   * anywhere else never promise an alert.
+   */
+  urgentAlertsReady?: boolean;
 };
 
 
@@ -107,7 +117,11 @@ function hoursLines(hours: OpeningHours | null): string[] {
  */
 export async function assistantFacts(
   tx: TenantTx,
-  options: { asApproved?: boolean } = {},
+  options: {
+    asApproved?: boolean;
+    /** The transport this conversation hands the outbox for its alerts, when it hands one (tests). */
+    alertTransport?: EmailTransport;
+  } = {},
 ): Promise<AssistantFacts | null> {
   const [clinic] = await tx.db
     .select({
@@ -183,5 +197,6 @@ export async function assistantFacts(
     languages: screenedLanguages(settings.languages),
     suggestAddOns: settings.suggestAddOns,
     providerNames: providers.map((p) => p.name),
+    urgentAlertsReady: (await urgentAlertReadiness(tx, { transport: options.alertTransport })).ready,
   };
 }

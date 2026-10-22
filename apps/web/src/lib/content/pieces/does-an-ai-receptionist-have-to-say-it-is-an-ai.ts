@@ -427,7 +427,7 @@ export const piece: Piece = {
     },
   ],
   aya: [
-    "AYA is designed to open each call it answers by saying that it is an AI assistant, not a human, and that the call is transcribed with no audio recording kept.",
+    "AYA is designed to open each call it answers by saying that it is an AI assistant, not a human, and that the call is transcribed. The same line says healdesk keeps no audio and the voice provider holds a recording for no more than a day.",
     "AYA is designed to open each website chat with a line saying the visitor is chatting with an AI assistant, and to say the same in its first reply on Instagram, Messenger and WhatsApp.",
     "AYA is designed so that the clinic cannot switch these lines off or edit them out through its greeting.",
   ],

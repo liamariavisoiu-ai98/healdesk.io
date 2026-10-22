@@ -112,7 +112,9 @@ function fakeRetell(numbers: Record<string, { fallback_number?: string | null }>
     if (options.status) return new Response("{}", { status: options.status });
     const number = decodeURIComponent(url.split("/").pop()!);
     const known = numbers[number];
-    if (!known) return new Response("{}", { status: 404 });
+    // Retell's own "no such number" answer: a 404 with a JSON body whose
+    // status is "error" (live, 22 October 2026). A bare 404 is not it.
+    if (!known) return Response.json({ status: "error", message: "Not Found" }, { status: 404 });
     if (init?.method === "PATCH" && !options.ignoresPatch) {
       known.fallback_number = (JSON.parse(String(init.body)) as { fallback_number: string }).fallback_number;
       return Response.json({ phone_number: number, ...known });
@@ -606,10 +608,17 @@ describe("a turn that throws", () => {
 });
 
 describe("the Retell API", () => {
-  test("404 is no such number, and the path carries the + encoded", async () => {
+  test("Retell's JSON 404 is no such number, and the path carries the + encoded", async () => {
     const retell = fakeRetell({});
     expect(await getRetellPhoneNumber(AYA, { key: KEY, fetch: retell.fetcher })).toBeNull();
     expect(retell.calls[0]!.url).toBe("https://api.retellai.com/get-phone-number/%2B15125550142");
+  });
+
+  test("a 404 without Retell's JSON body (a wrong route) is an error, not no such number", async () => {
+    for (const body of ["{}", "<html>Cannot GET /get-phone-number/x</html>", ""]) {
+      const fetcher = (async () => new Response(body, { status: 404 })) as unknown as typeof fetch;
+      await expect(getRetellPhoneNumber(AYA, { key: KEY, fetch: fetcher })).rejects.toThrow(/404/);
+    }
   });
 
   test("a fallback Retell answers 200 to but does not keep is a failure, not a success", async () => {

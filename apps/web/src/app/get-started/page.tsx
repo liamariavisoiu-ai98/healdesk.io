@@ -237,7 +237,7 @@ function WhatHappensNext({ replyBy }: { replyBy: string }) {
     },
     {
       title: "Your setup link opens the purchase",
-      body: `Choose a package, tell us about your clinic, sign the agreement and pay the setup fee. Your plan starts the day ${site.agent} first answers a patient.`,
+      body: `Choose a package, tell us about your clinic, sign the agreement and pay the setup fee. Your plan starts the day ${site.agent} first answers a patient or client.`,
     },
     {
       title: "Each channel goes live on its own",

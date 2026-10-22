@@ -329,7 +329,19 @@ type OperatorOp =
   | "getClinicDevices"
   | "issueDeviceRecovery"
   | "endDeviceRecovery"
-  | "removeClinicDevices";
+  | "removeClinicDevices"
+  // Retell deletions (/admin/recordings): the calls Retell still held 30
+  // minutes after they ended, though apps/app deletes each once it is
+  // recorded, as ids and times; and the button, which has apps/app delete
+  // the call at Retell with its own key. Never a recording URL, a transcript
+  // or a number.
+  | "listRecordingAlerts"
+  | "deleteRecordedCall"
+  // Each clinic's Retell agent and AYA number, set up by code (apps/app
+  // lib/voice/provision.ts): ids, status and times only, never a caller, a
+  // number or a secret. A read; the retry stays in apps/app's ops envelope
+  // until a page with the operator's fresh code is built for it.
+  | "voiceAgentStatus";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -1005,6 +1017,145 @@ export function markSupportReplied(
       return { status, repliedAt: isoInstant(data.repliedAt, "markSupportReplied.repliedAt") };
     }
     return { status };
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Retell calls not deleted in time
+// -----------------------------------------------------------------------------
+
+/**
+ * One call Retell still held past the deletion window, as /admin/recordings lists it: ids,
+ * counts and times, and apps/app's own words for a delete that failed. The
+ * recording's URL never leaves apps/app; it is not even kept there.
+ */
+export type RecordingAlertView = {
+  alertId: string;
+  clinicId: string;
+  clinicSlug: string;
+  /** Retell's own call id, which its dashboard searches by. */
+  callId: string;
+  detectedAt: string;
+  attempts: number;
+  lastAttemptAt: string | null;
+  lastError: string | null;
+  resolvedAt: string | null;
+};
+
+export type RecordingAlerts = { alerts: RecordingAlertView[]; unreadClinics: number };
+
+/** Retell's call ids, as apps/app checks them. */
+function retellCallId(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) throw new ShapeError(at);
+  return value;
+}
+
+/** Every Retell deletion alert, open first, then newest. */
+export function fetchRecordingAlerts(): Promise<OpsResult<RecordingAlerts>> {
+  return callOps("listRecordingAlerts", "read", {}, (value) => {
+    const data = object(value, "listRecordingAlerts");
+    return {
+      alerts: list(data.alerts, "listRecordingAlerts.alerts").map((row, i) => {
+        const r = object(row, `listRecordingAlerts.alerts[${i}]`);
+        return {
+          alertId: id(r.alertId, "alert.alertId"),
+          clinicId: id(r.clinicId, "alert.clinicId"),
+          clinicSlug: text(r.clinicSlug, "alert.clinicSlug"),
+          callId: retellCallId(r.callId, "alert.callId"),
+          detectedAt: isoInstant(r.detectedAt, "alert.detectedAt"),
+          attempts: count(r.attempts, "alert.attempts"),
+          lastAttemptAt: optionalIsoInstant(r.lastAttemptAt, "alert.lastAttemptAt"),
+          lastError: optionalText(r.lastError, "alert.lastError"),
+          resolvedAt: optionalIsoInstant(r.resolvedAt, "alert.resolvedAt"),
+        };
+      }),
+      unreadClinics: count(data.unreadClinics, "listRecordingAlerts.unreadClinics"),
+    };
+  });
+}
+
+export type DeleteRecordedCallOutcome =
+  | { status: "deleted"; resolvedAt: string }
+  | { status: "already"; resolvedAt: string }
+  | { status: "too_soon"; notBefore: string }
+  | { status: "failed"; reason: string }
+  | { status: "not_found" };
+
+/**
+ * The button: apps/app asks Retell to delete the call (recording,
+ * transcript and logs) and resolves the alert when Retell answers that it
+ * is gone. A second press changes nothing. One security event per attempt
+ * that reached Retell, naming the operator.
+ */
+export function deleteRecordedCall(
+  clinicId: string,
+  alertId: string,
+): Promise<OpsResult<DeleteRecordedCallOutcome>> {
+  return callOps("deleteRecordedCall", "write", { clinicId, alertId }, (value) => {
+    const data = object(value, "deleteRecordedCall");
+    const status = literal(
+      data.status,
+      ["deleted", "already", "too_soon", "failed", "not_found"] as const,
+      "deleteRecordedCall.status",
+    );
+    if (status === "deleted" || status === "already") {
+      return { status, resolvedAt: isoInstant(data.resolvedAt, "deleteRecordedCall.resolvedAt") };
+    }
+    if (status === "too_soon") return { status, notBefore: isoInstant(data.notBefore, "deleteRecordedCall.notBefore") };
+    if (status === "failed") return { status, reason: text(data.reason, "deleteRecordedCall.reason") };
+    return { status };
+  });
+}
+
+/**
+ * One clinic's Retell set-up, as apps/app projects it (lib/voice/provision.ts,
+ * voiceAgentStatusView): Retell's agent id, whether a number is held (never
+ * the number), the status, attempts, our own last reason and times.
+ */
+export type VoiceAgentStatusView = {
+  clinicId: string;
+  clinicSlug: string;
+  engine: "custom" | "native";
+  status: "pending" | "provisioning" | "ready" | "failed" | "deprovisioning" | "released";
+  retellAgentId: string | null;
+  hasNumber: boolean;
+  attempts: number;
+  lastError: string | null;
+  lastSyncedAt: string | null;
+  numberOrderedAt: string | null;
+  driftRepairs: number;
+  driftFlaggedAt: string | null;
+  releasedAt: string | null;
+  updatedAt: string;
+};
+
+/** Every clinic's voice set-up, or one clinic's when `clinicId` is given. */
+export function fetchVoiceAgentStatus(clinicId?: string): Promise<OpsResult<VoiceAgentStatusView[]>> {
+  return callOps("voiceAgentStatus", "read", clinicId ? { clinicId } : {}, (value) => {
+    const data = object(value, "voiceAgentStatus");
+    return list(data.agents, "voiceAgentStatus.agents").map((row, i) => {
+      const r = object(row, `voiceAgentStatus.agents[${i}]`);
+      return {
+        clinicId: id(r.clinicId, "agent.clinicId"),
+        clinicSlug: text(r.clinicSlug, "agent.clinicSlug"),
+        engine: literal(r.engine, ["custom", "native"] as const, "agent.engine"),
+        status: literal(
+          r.status,
+          ["pending", "provisioning", "ready", "failed", "deprovisioning", "released"] as const,
+          "agent.status",
+        ),
+        retellAgentId: r.retellAgentId === null ? null : retellCallId(r.retellAgentId, "agent.retellAgentId"),
+        hasNumber: bool(r.hasNumber, "agent.hasNumber"),
+        attempts: count(r.attempts, "agent.attempts"),
+        lastError: optionalText(r.lastError, "agent.lastError"),
+        lastSyncedAt: optionalIsoInstant(r.lastSyncedAt, "agent.lastSyncedAt"),
+        numberOrderedAt: optionalIsoInstant(r.numberOrderedAt, "agent.numberOrderedAt"),
+        driftRepairs: count(r.driftRepairs, "agent.driftRepairs"),
+        driftFlaggedAt: optionalIsoInstant(r.driftFlaggedAt, "agent.driftFlaggedAt"),
+        releasedAt: optionalIsoInstant(r.releasedAt, "agent.releasedAt"),
+        updatedAt: isoInstant(r.updatedAt, "agent.updatedAt"),
+      };
+    });
   });
 }
 

@@ -309,11 +309,12 @@ describe("every apps/web email before a purchase", () => {
   test.each(EMAILS.filter((e) => e.external).map((e) => [e.name, e] as const))(
     "%s: the footer every email to someone outside carries",
     (_name, email) => {
-      // A DPA's copy (P6) names the practice's clients, never patients.
+      // A DPA's copy (P6) names the practice's clients, never patients; an
+      // email to a practice whose kind nobody has said yet names both.
       expect(email.text).toMatch(
-        /Replies reach the healdesk team\. Please leave out (?:patient details|your clients' details)\./,
+        /Replies reach the healdesk team\. Please leave out (?:patient details|your clients' details|patient or client details)\./,
       );
-      expect(email.text).toContain("healdesk is a service of Viixi FZC");
+      expect(email.text).not.toContain("is a service of");
       // apps/web's words, or apps/app's in the agreement copy both apps send (P6).
       expect(email.text).toMatch(/You're (?:getting|receiving) this because /);
     },

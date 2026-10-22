@@ -30,8 +30,8 @@ import {
  * the bump fails the build.
  */
 
-export const LEGAL_VERSION = "2026-10-20.1";
-export const LEGAL_LAST_UPDATED = "20 October 2026";
+export const LEGAL_VERSION = "2026-10-22.1";
+export const LEGAL_LAST_UPDATED = "22 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */
@@ -216,7 +216,7 @@ export const GUARANTEE_TEXT = {
     {
       lead: "Routed to it",
       body:
-        "means: a phone call your carrier forwards to the healdesk number assigned to your practice, from the moment your carrier's record or ours shows the forward; a message a visitor sends from the healdesk widget on your website; and an Instagram, Messenger or WhatsApp message sent to an account you connected while that channel was switched on. A call or message that was routed to us and that our systems or our suppliers failed to receive still counts as routed.",
+        "means: a phone call your carrier forwards to a healdesk number assigned to one of your locations, from the moment your carrier's record or ours shows the forward; a message a visitor sends from the healdesk widget on your website; and an Instagram, Messenger or WhatsApp message sent to an account you connected while that channel was switched on. A call or message that was routed to us and that our systems or our suppliers failed to receive still counts as routed.",
     },
     {
       lead: "Answered",

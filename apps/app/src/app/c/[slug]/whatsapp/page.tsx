@@ -60,7 +60,7 @@ export default async function PortalWhatsAppPage({
       </p>
       <ul className="text-muted mt-3 list-disc space-y-1 pl-5">
         <li>The Facebook account that manages your business on Meta.</li>
-        <li>The phone number you want patients to message, and that phone, to receive a verification code by text or call.</li>
+        <li>The phone number you want {shell.audience} to message, and that phone, to receive a verification code by text or call.</li>
         <li>
           A card to add to your WhatsApp account in Meta. <span className="text-ink font-semibold">Meta bills you directly</span>{" "}
           for WhatsApp messages, healdesk does not resell them, and your number cannot send a reply until a card is added.

@@ -4,6 +4,7 @@ import { removePasskey } from "@/lib/factors/passkeys";
 import { someoneLeft } from "@/lib/factors/someone-left";
 import { regenerateBackupCodes } from "@/lib/factors/totp";
 import { requirePortal } from "@/lib/portal/access";
+import { portalAudience } from "@/lib/portal/audience";
 import { sessionBinding, stepUpPath } from "@/lib/portal/step-up";
 
 import { requestMeta } from "../request-meta";
@@ -46,11 +47,13 @@ export async function removeDeviceAction(
         )
       : { ok: false, message: "That device isn't on this sign-in any more. Reload the page." };
   }
+  // A vet's devices open its clients' details, as Settings words them.
+  const one = (await portalAudience(portal)) === "clients" ? "client" : "patient";
   return {
     ok: true,
     toast: result.endedThisSession
       ? "Device removed. This browser stepped up with it, so it's signed out too."
-      : "Device removed. It can no longer open patient details, and its sessions have ended.",
+      : `Device removed. It can no longer open ${one} details, and its sessions have ended.`,
     signedOut: result.endedThisSession,
   };
 }

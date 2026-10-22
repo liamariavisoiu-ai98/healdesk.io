@@ -229,6 +229,12 @@ export type ConversationListItem = {
   bookingRequestId: string | null;
   /** The practice directed an amendment to this record or its request. */
   amended: boolean;
+  /**
+   * The call ended unexpectedly (conversations.ended_early_reason,
+   * lib/voice/ended-early.ts): marked "Ended early", so staff can call the
+   * person back. False for every chat and Meta thread.
+   */
+  endedEarly: boolean;
   /** Staff's "Flag this answer" on it, and where its correction stands. */
   flag: FlagSummary | null;
   /**
@@ -293,6 +299,7 @@ async function callRows(tx: TenantTx, where: SQL[], limit: number) {
       endedAt: conversations.endedAt,
       outcome: conversations.outcome,
       urgent: conversations.urgent,
+      endedEarlyReason: conversations.endedEarlyReason,
       contactId: sql<string | null>`coalesce(${contacts.id}, ${requestContact.id})`,
       callerName: sql<string | null>`coalesce(${contacts.fullName}, ${requestContact.fullName})`,
       callerPhone: sql<string | null>`coalesce(${contacts.phone}, ${requestContact.phone})`,
@@ -406,6 +413,7 @@ async function callsAndChats(
     callerPhone: row.callerPhone,
     bookingRequestId: row.requestId,
     amended: row.amended === true,
+    endedEarly: row.endedEarlyReason !== null,
     flag: null,
     openable: true,
   }));
@@ -537,6 +545,7 @@ function threadItem({ thread, request }: MatchedThread): ConversationListItem {
     callerPhone: request?.phone ?? null,
     bookingRequestId: request?.id ?? null,
     amended: request?.amended === true,
+    endedEarly: false,
     flag: null,
     openable: true,
   };
@@ -577,6 +586,7 @@ function flagOnlyItem(flag: ConversationFlagRow, summary: FlagSummary): Conversa
     callerPhone: null,
     bookingRequestId: null,
     amended: false,
+    endedEarly: false,
     flag: summary,
     openable: false,
   };

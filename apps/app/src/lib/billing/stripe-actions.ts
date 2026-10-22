@@ -29,7 +29,16 @@ import {
 } from "@/db/schema";
 import { assertNoPhi, type ActorContext } from "@/lib/audit";
 import { readCoverageMode, type CoverageMode } from "@/lib/billing/answering";
-import { createLocationClinic, LOCATION_CLINICS_READY } from "@/lib/location-clinic";
+import {
+  activatePendingLocation,
+  isLocationRequestId,
+  LocationAcceptanceRefused,
+  retireUnpaidLocation,
+  writePendingLocation,
+  type LocationAcceptance,
+  type NewLocation,
+} from "@/lib/location-add";
+import { anyLocationsReady, locationsReady } from "@/lib/locations";
 import { log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
 import { publicOrigin } from "@/lib/public-url";
@@ -1446,14 +1455,20 @@ async function planChangeEvidence(
 
 export type AddLocationInput = {
   clinicId: string;
-  /** Fresh per user attempt; the pending-location columns resume a failed attempt by it. */
+  /**
+   * Fresh per user attempt (a lower-case uuid); the pending-location columns
+   * and the pending location row resume a failed attempt by it.
+   */
   requestId: string;
   actorLabel: string;
-  name?: string;
+  /** The location being added. Required for a new request; a resume reads the row it wrote. */
+  location?: NewLocation;
+  /** The central-assistant acknowledgement, ticked under a passkey step-up. Required for a new request. */
+  acceptance?: LocationAcceptance;
 };
 
 export type AddLocationResult =
-  | { status: "added"; clinicId: string; slug: string }
+  | { status: "added"; locationId: string }
   | {
       status: "pending_setup" | "refused" | "busy" | "payment_failed" | "not_available";
       message: string;
@@ -1463,6 +1478,20 @@ const LOCATION_IN_PROGRESS =
   "Another location is still being added to this account. Wait for it to finish, then try again.";
 const PENDING_SETUP =
   "The location is paid for and is being set up. We've been told, and it will appear here shortly; there's no need to add it again.";
+
+const ADD_LOCATION_DETAILS =
+  "Give the location's name and address, and tick the acknowledgement, then try again. Nothing was charged.";
+
+/** A refusal from inside the claim's transaction, thrown so the transaction rolls back. */
+class LocationAddRefused extends Error {
+  constructor(
+    readonly status: "refused" | "not_available",
+    message: string,
+  ) {
+    super(message);
+    this.name = "LocationAddRefused";
+  }
+}
 
 /** The pending-location columns, written only here and in the resume (R14). */
 async function setPendingLocation(
@@ -1515,25 +1544,31 @@ async function clearPendingLocation(db: Transaction, clinicId: string, requestId
 /**
  * Add a location (BD13, R14): one more of the package price on the same
  * subscription and renewal date, plus the bought package's setup fee once,
- * then a clinic of its own for the location (`createLocationClinic`), billed
- * on this one.
+ * for a further location of this same account, answered by the account's one
+ * AYA (the owner's central model of 20 October 2026; lib/location-add.ts).
  *
- * Refused with `not_available` before anything else while
- * `LOCATION_CLINICS_READY` is false: until the location's clinic can be
+ * Refused with `not_available` before anything else while no package may
+ * add a location (`anyLocationsReady`), and by `checkAddLocation` while the
+ * package bought may not (`locationsReady`): until the location can be
  * created, a charge would buy something that cannot exist.
  *
  * Every step is resumable, all under the billing clinic's mutation lease:
- *   1. the billing row records the pending request and the count it makes
- *      (`pending_location_*`); a different request while one is pending is
- *      refused, the same request resumes;
+ *   1. in one transaction, before any charge: the central-assistant
+ *      acknowledgement recorded under the person's step-up and the pending
+ *      location naming it (`writePendingLocation`, which refuses a DPA
+ *      practice and an unreleased acknowledgement), and the billing row's
+ *      pending request and the count it makes (`pending_location_*`); a
+ *      different request while one is pending is refused, the same request
+ *      resumes;
  *   2. the charge: after the start, one subscription update (quantity n,
  *      the setup price as an invoice item, invoiced and paid at once or
  *      refused, `metadata.hd_location = requestId`, which a retry finds);
  *      before the start, a one-off invoice (R13a), found again by `hd_ref`;
- *      a decline clears the pending request;
+ *      a decline clears the pending request and retires its location;
  *   3. `pending_location_charged_at` and the new location count;
- *   4. `createLocationClinic`, idempotent on (billing clinic, location
- *      number), so a resume never makes two;
+ *   4. the pending location made active (`activatePendingLocation`, through
+ *      app_activate_location(), which refuses it until step 3 is recorded
+ *      and returns the same time when repeated), so a resume never makes two;
  *   5. the pending request cleared and `location_added` enqueued.
  * A failure after step 3 leaves the request pending: the hourly reconcile
  * or the console's `retryLocationSetup` finishes it (`resumeLocationSetup`),
@@ -1543,7 +1578,7 @@ export async function addLocation(
   input: AddLocationInput,
   options: BillingActionOptions = {},
 ): Promise<AddLocationResult> {
-  if (!LOCATION_CLINICS_READY) {
+  if (!anyLocationsReady()) {
     return {
       status: "not_available",
       message:
@@ -1551,13 +1586,12 @@ export async function addLocation(
     };
   }
   const now = options.now ?? new Date();
-  if (!REQUEST_ID.test(input.requestId)) {
+  if (!REQUEST_ID.test(input.requestId) || !isLocationRequestId(input.requestId)) {
     return {
       status: "refused",
       message: "That request couldn't be read. Reload the page and try again.",
     };
   }
-  const name = input.name?.trim() ? input.name.trim().slice(0, 120) : undefined;
   const actor = actorFor(input.actorLabel);
   const group = await readBillingGroup(input.clinicId, { now, actor });
   const stripe = stripeFor(options);
@@ -1565,34 +1599,64 @@ export async function addLocation(
   const billingClinicId = group.billingClinicId;
   const owner = `add_location:${input.requestId}`;
 
-  const claim = await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
-    const row = await getEntitlementsForUpdate(tx.db, billingClinicId);
-    const pendingId = row?.pendingLocationRequestId ?? null;
-    if (row && pendingId !== null && pendingId !== input.requestId) {
-      return { ok: false as const, status: "refused" as const, message: LOCATION_IN_PROGRESS };
+  let claim;
+  try {
+    claim = await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
+      const row = await getEntitlementsForUpdate(tx.db, billingClinicId);
+      const pendingId = row?.pendingLocationRequestId ?? null;
+      if (row && pendingId !== null && pendingId !== input.requestId) {
+        return { ok: false as const, status: "refused" as const, message: LOCATION_IN_PROGRESS };
+      }
+      const resumingCharged =
+        row !== null && pendingId === input.requestId && row.pendingLocationChargedAt !== null;
+      const check = checkAddLocation(row, now);
+      // A request that has already been charged is finished whatever the
+      // account's standing now: the money was taken for this location.
+      if (!check.ok && !resumingCharged) return check;
+      if (!(await claimStripeMutationLease(tx.db, billingClinicId, owner))) {
+        return { ok: false as const, status: "busy" as const, message: BUSY };
+      }
+      const current = row as Entitlements;
+      const count = current.pendingLocationCount ?? current.locations + 1;
+      if (pendingId === null) {
+        // The acknowledgement and the pending location, before anything is
+        // charged and in this transaction: a refusal rolls back the lease and
+        // the pending marker with them (LocationAddRefused, caught below).
+        if (!input.location || !input.acceptance) {
+          throw new LocationAddRefused("refused", ADD_LOCATION_DETAILS);
+        }
+        const written = await writePendingLocation(tx, {
+          requestId: input.requestId,
+          boughtPlan: getPlan(current.boughtPlanId as string) as Plan,
+          location: input.location,
+          acceptance: input.acceptance,
+        });
+        if (!written.ok) {
+          throw new LocationAddRefused(
+            written.code === "dpa" || written.code === "not_released" ? "not_available" : "refused",
+            written.message,
+          );
+        }
+        await setPendingLocation(tx.db, billingClinicId, input.requestId, count);
+      }
+      return {
+        ok: true as const,
+        row: current,
+        boughtPlan: getPlan(current.boughtPlanId as string) as Plan,
+        isStarted: hasPlanStarted(current),
+        count,
+        isCharged: current.pendingLocationChargedAt !== null,
+      };
+    });
+  } catch (error) {
+    if (error instanceof LocationAddRefused) return { status: error.status, message: error.message };
+    // The database refused the acceptance (an ended step-up, a person with no
+    // grant): rolled back with everything else, and said in its own words.
+    if (error instanceof LocationAcceptanceRefused) {
+      return { status: "refused", message: error.message };
     }
-    const resumingCharged =
-      row !== null && pendingId === input.requestId && row.pendingLocationChargedAt !== null;
-    const check = checkAddLocation(row, now);
-    // A request that has already been charged is finished whatever the
-    // account's standing now: the money was taken for this location.
-    if (!check.ok && !resumingCharged) return check;
-    if (!(await claimStripeMutationLease(tx.db, billingClinicId, owner))) {
-      return { ok: false as const, status: "busy" as const, message: BUSY };
-    }
-    const current = row as Entitlements;
-    const count = current.pendingLocationCount ?? current.locations + 1;
-    if (pendingId === null)
-      await setPendingLocation(tx.db, billingClinicId, input.requestId, count);
-    return {
-      ok: true as const,
-      row: current,
-      boughtPlan: getPlan(current.boughtPlanId as string) as Plan,
-      isStarted: hasPlanStarted(current),
-      count,
-      isCharged: current.pendingLocationChargedAt !== null,
-    };
-  });
+    throw error;
+  }
   if (!claim.ok) return { status: claim.status, message: claim.message };
 
   let releaseOnExit = true;
@@ -1611,6 +1675,7 @@ export async function addLocation(
       if (charge.status === "declined") {
         await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
           await clearPendingLocation(tx.db, billingClinicId, input.requestId);
+          await retireUnpaidLocation(tx, input.requestId);
           await releaseStripeMutationLease(tx.db, billingClinicId, owner);
         });
         releaseOnExit = false;
@@ -1619,6 +1684,7 @@ export async function addLocation(
       if (charge.status === "not_available") {
         await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
           await clearPendingLocation(tx.db, billingClinicId, input.requestId);
+          await retireUnpaidLocation(tx, input.requestId);
           await releaseStripeMutationLease(tx.db, billingClinicId, owner);
         });
         releaseOnExit = false;
@@ -1635,7 +1701,6 @@ export async function addLocation(
       billingClinicId,
       requestId: input.requestId,
       count: claim.count,
-      name,
       actor,
       billingActor: "client",
       owner,
@@ -1751,15 +1816,14 @@ async function chargeLocation(
 }
 
 /**
- * Steps 4 and 5: create the location's clinic, then clear the pending
- * request and enqueue `location_added`. Releases the lease either way; on a
- * creation failure the request stays pending and ops are told.
+ * Steps 4 and 5: activate the add's location, then clear the pending
+ * request and enqueue `location_added`. Releases the lease either way; on an
+ * activation failure the request stays pending and ops are told.
  */
 async function finishLocationSetup(input: {
   billingClinicId: string;
   requestId: string;
   count: number;
-  name?: string;
   actor: ActorContext;
   /** Who the billing history names: the clinic's own request, or support finishing it. */
   billingActor: "client" | "support";
@@ -1775,16 +1839,16 @@ async function finishLocationSetup(input: {
     // operator's): the request is charged and pending, and they finish it.
     return { status: "pending_setup", message: PENDING_SETUP };
   }
-  let created: { clinicId: string; slug: string };
+  let created: { locationId: string; activatedAt: Date } | null;
   try {
-    created = await createLocationClinic({
-      billingClinicId,
-      locationNumber: count,
-      ...(input.name ? { name: input.name } : {}),
-      actor,
-    });
+    // The location the add wrote before its charge, made active now that the
+    // charge is recorded: app_activate_location() refuses it otherwise.
+    created = await withTenant({ clinicId: billingClinicId, actor }, (tx) =>
+      activatePendingLocation(tx, requestId),
+    );
+    if (!created) throw new Error("the add has no pending location to activate");
   } catch (error) {
-    log.warn("location clinic not created after its charge", {
+    log.warn("location not activated after its charge", {
       clinicId: billingClinicId,
       requestId,
       code: stripeErrorCode(error),
@@ -1821,11 +1885,11 @@ async function finishLocationSetup(input: {
     });
     await releaseStripeMutationLease(tx.db, billingClinicId, owner);
   });
-  return { status: "added", clinicId: created.clinicId, slug: created.slug };
+  return { status: "added", locationId: created.locationId };
 }
 
 export type ResumeLocationSetupResult =
-  | { status: "added"; clinicId: string; slug: string }
+  | { status: "added"; locationId: string }
   /** The pending request was never charged, so it was cleared: the clinic can add the location again. */
   | { status: "cleared" }
   | { status: "pending_setup" | "refused" | "busy" | "not_available"; message: string };
@@ -1834,13 +1898,13 @@ export type ResumeLocationSetupResult =
  * Finish a pending location (R14): the shared resume behind the console's
  * `retryLocationSetup`, and the logic the hourly reconcile's resume follows.
  *
- * Charged already (`pending_location_charged_at`): create the clinic and
+ * Charged already (`pending_location_charged_at`): activate the location and
  * enqueue `location_added`, exactly as addLocation's last two steps do.
  * Not charged on record: ask Stripe whether the charge went through (the
  * subscription's `hd_location` marker, or a paid one-off invoice for the
  * request); if it did, record it and finish; if it did not, clear the
- * pending request, because charging now would take money the clinic did not
- * just agree to. Never charges.
+ * pending request and retire its location, because charging now would take
+ * money the clinic did not just agree to. Never charges.
  *
  * Holds the lease under its own name, so it is `busy` while the original
  * request (or anything else) is still mid-flight.
@@ -1892,6 +1956,7 @@ export async function resumeLocationSetup(
         }
         await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
           await clearPendingLocation(tx.db, billingClinicId, claim.requestId);
+          await retireUnpaidLocation(tx, claim.requestId);
           await recordBillingNote(tx, { actor: "support", reason: "location_request_cleared" });
           await releaseStripeMutationLease(tx.db, billingClinicId, owner);
         });
@@ -1903,11 +1968,11 @@ export async function resumeLocationSetup(
         await setLocations(tx.db, billingClinicId, claim.count);
       });
     }
-    if (!LOCATION_CLINICS_READY) {
+    if (!locationsReady(claim.row.boughtPlanId)) {
       return {
         status: "pending_setup",
         message:
-          "The location is paid for, but location clinics can't be created yet. It stays pending.",
+          "The location is paid for, but locations can't be switched on for this package yet. It stays pending.",
       };
     }
     const finished = await finishLocationSetup({

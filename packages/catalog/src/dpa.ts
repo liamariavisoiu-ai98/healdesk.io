@@ -3,10 +3,12 @@ import { createHash } from "node:crypto";
 import {
   AGREEMENT_PARTY,
   BACKUP_RETENTION_DAYS,
+  NO_CALL_AUDIO_KEPT,
   PAYMENTS_CLAUSE_BODY,
   PAYMENTS_CLAUSE_HEADING,
   STATE_LAW_CLAUSE_HEADING,
   TRANSCRIPT_RETENTION_DAYS,
+  VOICE_PROVIDER_RETENTION,
   stateLawClauseBody160,
 } from "./baa";
 import {
@@ -142,7 +144,10 @@ import { wrap } from "./wrap";
  * released copy. On 21 October 2026, before it was pushed or signed by any
  * practice, the party block's label for the Delaware address changed from
  * "of" to "with a mailing address for notices and correspondence at", and the
- * golden hashes were regenerated.
+ * golden hashes were regenerated. Later that day, on the owner's explicit
+ * authorisation and with the version number unchanged, the Minimum necessary
+ * clause was edited to say what the voice provider holds of a call
+ * (agreement-changes.md §19), and the golden hashes were regenerated again.
  *
  * To publish a revision after release: add a new version at DPA_TEMPLATES[0],
  * never edit a released one. Someone has signed it.
@@ -614,6 +619,17 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * was queued; a record of each transcript's delivery stays, without its
    * words, with the conversation's record (drizzle/0072). Edited in place
    * again, the goldens and docs/dpa-v1.0.0.txt with it.
+   *
+   * ⚖️ On 21 October 2026, after the release, edited in place once more on
+   * the owner's explicit authorisation for this change alone, with the version
+   * number unchanged (agreement-changes.md §19): "No call audio is kept at
+   * all." became NO_CALL_AUDIO_KEPT, and the transcript paragraph gained
+   * VOICE_PROVIDER_RETENTION after the Anthropic sentence, both baa.ts's
+   * constants, as BAA 1.5.1 and 1.6.0 say them. The voice provider (Retell)
+   * holds a call's transcript and recording until healdesk has its own copy,
+   * then deletes them at healdesk's request, with its own one-day retention as
+   * the backstop. Golden hashes and docs/dpa-v1.0.0.txt regenerated; counsel
+   * has not reviewed it.
    */
   {
     id: "minimum-necessary",
@@ -636,7 +652,7 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `It does not ask for a history, a medication or a diagnosis, and it never takes a card ` +
           `number. On every channel its opening line says that it is an AI assistant and, on a ` +
           `call, that the call is transcribed; Practice cannot switch that statement off or edit ` +
-          `it out. No call audio is kept at all.`,
+          `it out. ${NO_CALL_AUDIO_KEPT}`,
       ) +
       "\n\n" +
       wrap(
@@ -655,8 +671,9 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `each transcript's delivery, without what was said or written in it, for as long as it ` +
           `keeps the record of that conversation. It keeps no other copy of a transcript, apart ` +
           `from the backups described below; what Anthropic keeps is what the Subcontractors ` +
-          `clause describes. Once healdesk's copy is deleted, the email is Practice's own record ` +
-          `of what was said, and Practice is responsible for keeping, protecting and deleting it.`,
+          `clause describes. ${VOICE_PROVIDER_RETENTION} Once healdesk's copy is deleted, the ` +
+          `email is Practice's own record of what was said, and Practice is responsible for ` +
+          `keeping, protecting and deleting it.`,
       ) +
       "\n\n" +
       wrap(

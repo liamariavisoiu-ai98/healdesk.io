@@ -3222,6 +3222,118 @@ to these. `AGREEMENT_PARTY` (baa.ts) is frozen with the DPA the same way.
 
 ---
 
+## 19. What the voice provider holds of a call: BAA 1.5.1, the 1.6.0 draft and DPA 1.0.0 edited in place (21 October 2026)
+
+> **Not legal advice, and not reviewed by counsel.** The owner authorised
+> this edit explicitly on 21 October 2026, for this change alone, as an
+> exception to the rule that a released text is never edited: **no version
+> number moved.** The wording was drafted by an AI assistant. Counsel has
+> not reviewed it. **Recommended: counsel reviews it with the points in
+> § 19.4 before the first live clinic.**
+
+### 19.1 What was wrong
+
+BAA 1.5.1 (the version checkout offers), the 1.6.0 draft, which carries
+1.5.1's clause 11 as its own object, and DPA 1.0.0 said "No call audio is
+kept at all." and, of transcripts, that healdesk keeps no copy apart from
+its backups, naming only Anthropic beside it. The voice provider, Retell,
+holds each call's transcript and recording while the call runs and until
+healdesk has taken its own copy of the transcript; healdesk then has Retell
+delete the call, and Retell's own retention, set to its minimum of one day,
+is the backstop (the code is on branch `fix/retell-transcript`, another
+builder's). Read alone, the texts told a practice that no recording exists
+anywhere.
+
+### 19.2 The text
+
+One sentence, held once as `VOICE_PROVIDER_RETENTION` in
+`packages/catalog/src/baa.ts` and printed by all three documents, after
+the sentence on what Anthropic keeps in the transcript paragraph of the
+Minimum necessary clause (BAA clause 11, DPA clause 10):
+
+> healdesk's voice provider holds the transcript and recording of a call
+> only while the call runs and until healdesk has taken its own copy of the
+> transcript, and healdesk then has the provider delete them; the
+> provider's own retention for anything left is one day.
+
+And the promise "No call audio is kept at all." became
+`NO_CALL_AUDIO_KEPT`:
+
+> healdesk keeps no call audio; its voice provider holds a call's recording
+> only as this clause describes.
+
+Nothing else moved: no obligation, number, date, price or defined term.
+The transcript's email, healdesk's sealed copy and its deletion once
+delivery is confirmed, the 72 hours, the 30 days, the 90-day records, the
+35-day backups, the Subcontractors clause (Retell is not named; the
+flow-down already covers "telephony, speech recognition"), the state-law
+clause and the Term clause are as they were.
+
+### 19.3 What was left alone, and why
+
+- **BAA 1.0.0 to 1.5.0** still say no call audio is kept. They are below
+  the go-live floor (`MIN_ACCEPTABLE_BAA_VERSION` 1.5.1), never offered
+  again, and record what was offered on their dates; the code says no clinic
+  signed 1.2.1 to 1.5.0. Editing them would rewrite history for no reader.
+- **The state-law clause's data paragraph** ("emails to Practice as a
+  transcript, with no call audio") is `stateLawClauseBody140` and
+  `stateLawClauseBody160`, shared with 1.4.0, 1.5.0 and the DPA. It
+  describes what is emailed, which carries no audio, so it stays true; it is
+  listed in § 19.4 for counsel.
+
+### 19.4 For the owner and counsel
+
+- **Same version, different text.** Any practice that signed BAA 1.5.1 or
+  DPA 1.0.0 before this edit holds a stored hash that this text no longer
+  reproduces. The repository cannot show whether any real practice has
+  signed; apps/app is documented as holding synthetic data only. If one has,
+  this change should instead be BAA 1.5.2 / DPA 1.0.1 with a re-sign.
+- Whether "with no call audio" in the state-law clause's data paragraph
+  should name the provider's brief hold too.
+- The Terms, the Privacy page and the site copy still say no call audio is
+  kept (outside this change; they follow the legal-version flow).
+
+### 19.5 Golden hashes
+
+Regenerated in `apps/app/tests/baa-golden.test.ts` and
+`packages/catalog/src/dpa.test.ts`; the review documents
+`docs/baa-v1.5.1.txt`, `docs/baa-v1.6.0.txt` and `docs/dpa-v1.0.0.txt`
+re-rendered and their headers say so. No other version's hash moved, and
+the calendar elections reproduce as before.
+
+| Document and variant | Was | Now |
+| --- | --- | --- |
+| 1.5.1 covered_estimated (the sample, and covered_outbound) | `e5b849c7…af69` | `532c4b6bbe5d0cfb44fec7d3865fadb6fe1da67b96ca93e2de1bc67d323bddc5` |
+| 1.5.1 notcovered_estimated | `98413549…bfb0` | `c43ea3a8558537ff4c7b43c93d608bd6b42f99db42cb25dba0442d9f2ff450c8` |
+| 1.5.1 unknown_estimated | `8d13db1a…2b2b` | `51d0e65ae458930352ebc5bd76b520858aaa031515d518305b35b9e16167e877` |
+| 1.5.1 uncovered_nobaa | `f637d7c5…6a8c` | `0791d48b47947c6ef358e7a2df1def2f53c7438fb1862e7f468e541156cabe47` |
+| 1.5.1 uncovered_personal | `8e38e7e1…8031` | `668fd77c12d878ebd6537b857acb29717b27082d1b6944ec36eeeb4d9d0d8081` |
+| 1.5.1 notused_mindbody | `02f8b009…501a` | `2cafb17c7e282431a7cefcc04cf802b1fad2ea15bc2ddd629a41714ad9763191` |
+| 1.5.1 notused_other | `88919a9f…0f5b` | `94000e49b9429c4b6d6ea25715d68237bc55d36f6675c171eb0ecc044ed6883f` |
+| 1.5.1 live_calcom | `b3c70e37…7dbc` | `7aefa64767c2531cd3f4502d4a46d0b909ce2a478b3ec5d7070ee5d171f60ae3` |
+| 1.5.1 live_highlevel_personal | `cad1d174…8400` | `9a9ea1b316a955c104784d3b379669dd8e4b6132ece1e4879768ad2ba6e8945a` |
+| 1.5.1 live_calendly_nobaa | `23aa5529…3de8` | `50b6a4f6a15f45bc6eda76658960dc7c9f2e1910efffecf95bf886b35d4a743c` |
+| 1.6.0 covered_estimated (the sample, and covered_outbound) | `93bb381e…f73c` | `2e75509a8d9d5bd315e7e95ada8fa7e12ba58f1a8efbde73a3d9abf103324d07` |
+| 1.6.0 notcovered_estimated | `32049aff…5edb` | `e3021fede64593d8513ad525ac422784303f9a5fd4f4db52dce9433394ddcb2e` |
+| 1.6.0 unknown_estimated | `09316104…f90a` | `c716a6abc69a3e47c863dffbcd1979e9be60a4f47667253b1e256089507cdec9` |
+| 1.6.0 uncovered_nobaa | `a4345bec…d776` | `f2891b614b2d55513a3a9047899779412d9ef8030b34afa1dcfff8701c9bc81e` |
+| 1.6.0 uncovered_personal | `33f50e12…9711` | `efd05f71f35693f1970ba59ef9a2f8e25547bba9841e0237b03568d96f7a3f48` |
+| 1.6.0 notused_mindbody | `74a073fa…6551` | `d4a45bcfcdf9514d734607e56464685aeb9d87850ad6bf1ae23e87039b864d80` |
+| 1.6.0 notused_other | `0670bb3d…d9c4` | `0c8e02016b7d83c223f4d76d2bc2e9e7b3b3b210da62e5a7b3819653da32308a` |
+| 1.6.0 live_calcom | `eb9211d4…e5f8` | `5fe5c29cb3f99e8d51b03630ec0b72095e1cafcb674b8a6a4597d9e468e19195` |
+| 1.6.0 live_highlevel_personal | `fd57d28d…1e19` | `d016bc7ee2286c9b5550e891d944524b1b013ebf3a126e53fa62966623fe395c` |
+| 1.6.0 live_calendly_nobaa | `4eab6386…7122` | `df5cb9c75b1d53d8ec4bd7c8aae0468d2f368c9253dbc7acfd63adfecc4922a6` |
+| dpa/1.0.0 sample | `70260470…3c73` | `01db94b7ecda5d7d29d6311d299a2ee8e68f2b29fe07ec993c0678fbc01c40a5` |
+| dpa/1.0.0 notcovered_live_covered | `8a146b1e…e76c` | `4e100a50a408678d5dfd9c76dd0517b95c714f71d3a85f9d0cfd7184da8381fd` |
+| dpa/1.0.0 notcovered_live_uncovered | `ee07a47f…4bcf` | `6de2bc291d14ffc52d9e2fde485fabe09854c971115ecad9d704072743a67115` |
+| dpa/1.0.0 notcovered_live_personal | `49414c47…7d02` | `c61270da2826c4c68937c0f764866f6c293ccf42cba9e704b94b4c01ee28dc56` |
+| dpa/1.0.0 notcovered_notused_other | `fa7b1e2e…ca1d` | `1b74517f9382ac26fec9eac811bdef66e365a85616a7131ddbadf709f0a5267b` |
+| dpa/1.0.0 vet_live_covered | `66a38ec1…01f9` | `866ac3a866b1c1b5c7de17b5c7c37cab5c4a030ff702b1619fdb881fbf741635` |
+| dpa/1.0.0 vet_live_personal | `19173f67…6b0a` | `98c90edbf6746026c0c9658beaa1392bf1fc105e21ae3354f4bfd27c633197d5` |
+| dpa/1.0.0 vet_notused_mindbody | `e625e788…d5f3` | `66096105d262139e06c11d35a4c0869e079fcd0ec860f80ac697a14d28dbb26e` |
+
+---
+
 ## Review log (2026-10-01)
 
 Adversarial pass on the 1 October draft, then on BAA 1.2.0 and the terms as

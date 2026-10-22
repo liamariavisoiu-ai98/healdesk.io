@@ -1,4 +1,6 @@
-import { ENTITY, entityLine } from "@/lib/legal";
+import type { Audience } from "@healdesk/catalog";
+
+import { ENTITY } from "@/lib/legal";
 import { SETUP_CHANNELS } from "@/lib/setup-channels";
 import { site } from "@/lib/site";
 import type { SetupRequest } from "@/lib/sheets/schema";
@@ -19,9 +21,10 @@ import type { SetupRequest } from "@/lib/sheets/schema";
  *   must not become a way to mail chosen text to a stranger. P4 and P5 may
  *   name the clinic, because an operator has read the request first;
  * - the footer names the sender as the site does, says replies reach a
- *   person and asks them to leave out patient details, and, on the two
- *   commercial ones (P4, P5), carries a one-click way to stop them and the
- *   postal address CAN-SPAM requires.
+ *   person and asks them to leave out patient details (a vet's clients'
+ *   details, or both words where the practice is not yet known), and, on
+ *   the two commercial ones (P4, P5), carries a one-click way to stop them
+ *   and the postal address CAN-SPAM requires.
  */
 
 export type RenderedEmail = { subject: string; text: string };
@@ -52,32 +55,46 @@ export function firstName(name: string): string {
 }
 
 /**
- * The sender identity, as on the site (Annex X1.9): the operating entity and
- * the US mailing address for correspondence, which is also the postal
- * address CAN-SPAM asks of commercial mail.
+ * The sender identity (Annex X1.9): the US mailing address, which is also the
+ * postal address CAN-SPAM asks of commercial mail. The footer prints the bare
+ * address, with no entity line and no label (owner, 22 October 2026).
  */
 function identity(): string[] {
-  return [entityLine(), `${ENTITY.postalAddressLabel}: ${ENTITY.postalAddress}`];
+  return [ENTITY.postalAddress];
+}
+
+/**
+ * Who replies, and what to leave out, in the practice's word when it is known
+ * (a vet's people are its clients, as apps/app's footers say it) and in both
+ * words when it is not: these emails mostly go to a practice before anyone has
+ * said what kind it is.
+ */
+export function replyLine(audience: Audience | null = null): string {
+  const leaveOut =
+    audience === "clients"
+      ? "your clients' details"
+      : audience === "patients"
+        ? "patient details"
+        : "patient or client details";
+  return `Replies reach the healdesk team. Please leave out ${leaveOut}.`;
 }
 
 /** The footer of every apps/web email that offers no opt-out: why it came, who replies, who sent it. */
-export function transactionalFooter(why: string): string {
-  return [
-    "",
-    "--",
-    why,
-    "Replies reach the healdesk team. Please leave out patient details.",
-    ...identity(),
-  ].join("\n");
+export function transactionalFooter(why: string, audience: Audience | null = null): string {
+  return ["", "--", why, replyLine(audience), ...identity()].join("\n");
 }
 
 /** The footer of every commercial email (P1, P4, P5, P7): the same, plus the one-click way to stop them. */
-export function commercialFooter(why: string, unsubscribeUrl: string): string {
+export function commercialFooter(
+  why: string,
+  unsubscribeUrl: string,
+  audience: Audience | null = null,
+): string {
   return [
     "",
     "--",
     `${why} Stop these emails: ${unsubscribeUrl}`,
-    "Replies reach the healdesk team. Please leave out patient details.",
+    replyLine(audience),
     ...identity(),
   ].join("\n");
 }
@@ -143,7 +160,7 @@ export function setupLinkEmail(
     text:
       `Hi ${firstName(request.name)},\n\n` +
       `Here is your setup link for ${request.clinicName}:\n\n${opts.link}\n\n` +
-      `It takes you through four short steps: choose your package, tell us about your clinic, sign the data agreement your practice needs, and pay the setup fee. Your monthly plan starts the day AYA first answers a patient.\n\n` +
+      `It takes you through four short steps: choose your package, tell us about your clinic, sign the data agreement your practice needs, and pay the setup fee. Your monthly plan starts the day AYA first answers a patient or client.\n\n` +
       credit +
       `The link works until ${longDate(opts.expiresAt)}, for ${request.email}. If someone else at the clinic should complete the purchase, reply and we'll send them one.\n\n` +
       `Reply to this email with any question and a person answers.` +

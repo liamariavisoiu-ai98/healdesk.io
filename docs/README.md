@@ -81,8 +81,8 @@ and booked value.
 
 ## Conventions
 
-- These are living documents. Edit them directly — except `v1-product-spec.md`, which is an
-  export: change the source doc and re-export it. The archive keeps the original working doc.
+- These are living documents. Edit them directly, `v1-product-spec.md` included (since 22 October 2026 it is the
+  source of truth, no longer re-exported). The archive keeps the original working doc.
 - The roadmap is the source doc's "Launch plan" tab. No file here is a second task list.
 - Dollar figures are approximate industry ranges, not quotes. Firm them up before they
   go on a sales deck or a pricing page.

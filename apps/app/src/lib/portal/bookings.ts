@@ -7,6 +7,7 @@ import {
   clinics,
   contacts,
   conversations,
+  depositPayments,
   handovers,
   type BookedVia,
   type CalendarWriteStatus,
@@ -29,6 +30,7 @@ import type { MetaPlatform } from "@/lib/meta/front-door";
 import { amendmentsFor } from "@/lib/patient-rights/amendments";
 import type { TenantTx } from "@/lib/tenant";
 
+import { portalMoney } from "./format";
 import { logPatientAccess, type PatientPage, type PatientTx } from "./patient-page";
 
 /**
@@ -130,6 +132,14 @@ export type BookedAppointment = {
   depositStatus: DepositStatus;
   /** Dollars as the column holds them ("50.00"), or null. */
   depositUsd: string | null;
+  /**
+   * Whether a payment link exists for the deposit (an open or paid one). A
+   * chat booking is written `pending_link` in its own transaction and the link
+   * is made after it (lib/booking/deposit-gate.ts), so for up to the sweep's
+   * grace (UNLINKED_DEPOSIT_GRACE_MS, ten minutes) `pending_link` means the
+   * link is still being made, or never will be, and the desk is told then.
+   */
+  depositLinkMade: boolean;
   /** AYA booked it on the call, or staff confirmed AYA's request. */
   bookedBy: "assistant" | "team";
   decidedByLabel: string | null;
@@ -375,6 +385,34 @@ async function clinicZone(tx: TenantTx): Promise<string> {
 }
 
 /**
+ * What a booking's deposit line says. `pending_link` is not "the link was
+ * sent": the booking is written owing it, and the link is made after, so until
+ * one exists the line says it is being prepared. If it is never made the
+ * sweep hands the deposit to the front desk (`pending_front_desk`), and the
+ * line changes to "to collect: call them".
+ */
+export function bookingDepositLine(
+  a: Pick<BookedAppointment, "depositStatus" | "depositUsd" | "depositLinkMade">,
+): string {
+  const usd = a.depositUsd === null ? NaN : Number(a.depositUsd);
+  const amount = Number.isFinite(usd) && usd > 0 ? ` of ${portalMoney(Math.round(usd * 100))}` : "";
+  switch (a.depositStatus) {
+    case "pending_front_desk":
+      return `Deposit${amount} to collect: call them`;
+    case "pending_link":
+      return a.depositLinkMade
+        ? `Deposit${amount}: payment link sent, not paid yet`
+        : `Deposit${amount}: payment link being prepared, not paid yet`;
+    case "paid":
+      return `Deposit${amount} paid`;
+    case "waived":
+      return "Deposit waived";
+    default:
+      return "No deposit";
+  }
+}
+
+/**
  * The appointments AYA's conversations produced: every healdesk appointment
  * comes from a request (lib/meta/booking-requests.ts is its one writer), so
  * the join keeps out anything a phase-two sync might have read back.
@@ -392,6 +430,12 @@ async function readBookedAppointments(tx: TenantTx, now: Date): Promise<BookedAp
       status: appointments.status,
       depositStatus: appointments.depositStatus,
       depositUsd: appointments.depositUsd,
+      depositLinkMade: sql<boolean>`exists (
+        select 1 from ${depositPayments}
+        where ${depositPayments.clinicId} = ${appointments.clinicId}
+          and ${depositPayments.appointmentId} = ${appointments.id}
+          and ${depositPayments.status} in ('open', 'paid')
+      )`,
       bookingOrigin: appointments.bookingOrigin,
       decidedByLabel: bookingRequests.decidedByLabel,
       bookedVia: bookingRequests.bookedVia,
@@ -429,6 +473,7 @@ async function readBookedAppointments(tx: TenantTx, now: Date): Promise<BookedAp
     status: r.status,
     depositStatus: r.depositStatus,
     depositUsd: r.depositUsd,
+    depositLinkMade: r.depositLinkMade === true,
     bookedBy: r.bookingOrigin === "assistant" ? "assistant" : "team",
     decidedByLabel: r.decidedByLabel,
     bookedVia: r.bookedVia,

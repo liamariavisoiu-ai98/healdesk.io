@@ -1,0 +1,216 @@
+# gitleaks configuration for the Security workflow (.github/workflows/security.yml)
+# and for a local run: gitleaks detect --redact --no-banner --config .gitleaks.toml
+#
+# Written against gitleaks 8.30.1 (the version the workflow pins). `[[allowlists]]`
+# with `targetRules` needs 8.25 or later.
+#
+# The default ruleset stays on in full. Everything below is an exception for a
+# value that is in the repository on purpose and is not a credential: a test
+# fixture, a public key, or a placeholder. Each exception names its rule,
+# the file it lives in and the exact shape of the value, so a real key pasted
+# next to one is still found. Do not widen a path to a directory or a regex to
+# a prefix without a reason written beside it, and do not add an exception
+# for a value that has ever been issued by a vendor: rotate it instead.
+#
+# How a match is tested here:
+# - `condition = "AND"` means the path AND the regex must both match.
+# - `regexTarget` unset tests the regex against the extracted secret itself;
+#   `"line"` tests the whole source line (used where the secret is a random
+#   fixture and only the declaration around it can be recognised).
+
+title = "healdesk gitleaks configuration"
+
+[extend]
+useDefault = true
+
+# --- Email template fixtures ---------------------------------------------
+# Each template module renders its own preview with a "token-shaped and never
+# issued" string (the comment above each constant says so); the snapshot tests
+# and the seed script show it. It is a made-up string, not a sign-in or
+# agreement token, so it opens nothing. The constant is declared on one line
+# and its string may sit on the next (agreement_to_sign.ts), so the line is
+# matched on the declaration.
+[[allowlists]]
+description = "Email template preview fixtures: FIXTURE_TOKEN is never issued"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^apps/app/src/lib/email/templates/[a-z_]+\.ts$''']
+regexes = ['''^\s*const FIXTURE_TOKEN\b''']
+
+[[allowlists]]
+description = "Email template test fixture: the same made-up token shape, declared as TOKEN"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^apps/app/tests/email-templates\.test\.ts$''']
+regexes = ['''^\s*const TOKEN = "''']
+
+# --- Test-only shared secrets for the voice endpoint and key derivation ----
+# "test-retell-llm-secret-..." is the made-up value the voice server tests
+# pass to createVoiceServer(); the production secret comes from Parameter
+# Store (HEALDESK_RETELL_LLM_SECRET) and never appears in a test.
+[[allowlists]]
+description = "Voice tests: made-up HEALDESK_RETELL_LLM_SECRET stand-in"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/app/tests/(retell-voice|voice-backstop|voice-fall-through)\.test\.ts$''']
+regexes = ['''^test-retell-llm-secret-''']
+
+# "a-test-key-that-is-long-enough-to-pass-..." is spelled out as a test value:
+# it only has to be long enough to satisfy the key-length check in the code
+# under test.
+[[allowlists]]
+description = "Reference-hashing tests: a test key that is only long enough to pass the length check"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/app/tests/(holder-refs|identifier-ref)\.test\.ts$''']
+regexes = ['''^a-test-key-that-is-long-enough-to-pass-''']
+
+# The voice-provisioning and recording-alert tests sign their own requests
+# with "llm_secret_for_tests_0123456789", and the ended-early test hands the
+# voice server "test-retell-llm-secret-0123456789": made-up stand-ins for
+# HEALDESK_RETELL_LLM_SECRET, which in production comes only from Parameter
+# Store. Each is named by its exact value in the files that declare it, so
+# any other value in these files, or this value in any other file, is still
+# found. (main's first full-history scan had allowed the declaration line
+# by its `llm_secr` prefix; the exact value replaces it, so a different value
+# declared on that line is caught too.)
+[[allowlists]]
+description = "Voice provisioning and recording-alert tests: made-up Retell LLM secret, by exact value"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/app/tests/(voice-provision|recording-alerts)\.test\.ts$''']
+regexes = ['''^llm_secret_for_tests_0123456789$''']
+
+[[allowlists]]
+description = "Ended-early test: made-up Retell LLM secret handed to the voice server, by exact value"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/app/tests/voice-ended-early\.test\.ts$''']
+regexes = ['''^test-retell-llm-secret-0123456789$''']
+
+# --- Operator sign-in tests -------------------------------------------------
+# GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ is the base32 of "12345678901234567890":
+# the published RFC 6238 test secret, a public vector and not an authenticator
+# secret for any account. The operator console reads its real one from a
+# Vercel variable.
+[[allowlists]]
+description = "RFC 6238 public TOTP test vector used by the operator sign-in tests"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^apps/web/src/lib/admin/operator-session\.test\.ts$''',
+  '''^apps/web/src/app/api/admin/session/route\.test\.ts$''',
+]
+regexes = ['''^GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ$''']
+
+# --- Agreement download tests ----------------------------------------------
+# The tests set an env var to long random-looking strings ("which is what this
+# env var is meant to hold", per the comment above them) to prove a token for
+# one agreement does not open another. They are declared as SECRET and
+# OTHER_SECRET in these two files only; the deployed value is a Vercel
+# variable.
+[[allowlists]]
+description = "Agreement download tests: made-up signing secrets declared as SECRET / OTHER_SECRET"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^apps/web/src/lib/agreement-download\.test\.ts$''',
+  '''^apps/web/src/app/api/agreement/pdf/route\.test\.ts$''',
+]
+regexes = ['''^\s*const (OTHER_)?SECRET = "''']
+
+# --- Public or non-secret identifiers that look like keys --------------------
+# The IndexNow key is public by design: the protocol requires the same string
+# to be served at /<key>.txt (apps/web/public/efe7223f...txt) so search engines
+# can verify ownership. It grants only the right to suggest URLs for crawling
+# (see the comment above INDEXNOW_KEY).
+[[allowlists]]
+description = "IndexNow key: published at /<key>.txt on purpose and checked by indexnow.test.ts"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/web/src/lib/indexnow\.ts$''']
+regexes = ['''^efe7223f3eb6aa8926367180bd12a2f4$''']
+
+# A browser storage key name ("healdesk.agreement.v1"), not a credential.
+[[allowlists]]
+description = "localStorage key name for the agreement draft"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/web/src/lib/agreement-recovery\.ts$''']
+regexes = ['''^healdesk\.agreement\.v1$''']
+
+# Stripe price lookup keys (healdesk_voice_minutes, healdesk_chat_conversations,
+# healdesk_voice_...) are names the code creates and looks prices up by. They
+# are identifiers, not keys. Limited to test files.
+[[allowlists]]
+description = "Stripe price lookup keys in tests are names, not credentials"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''\.test\.ts$''']
+regexes = ['''^healdesk_[a-z0-9_-]+$''']
+
+# The test passes an env var NAME and a value in one call
+# (vi.stubEnv("HEALDESK_...", "a-test-key...")); the name alone is flagged when
+# the engine takes it as the secret. A variable name is not a secret.
+[[allowlists]]
+description = "Environment variable names stubbed in tests"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''\.test\.ts$''']
+regexes = ['''^HEALDESK_[A-Z0-9_]+$''']
+
+# --- AWS KMS identifiers and sealed-envelope fixtures ----------------------
+# 1234abcd-12ab-34cd-56ef-1234567890ab and mrk-1234abcd12ab34cd56ef1234567890ab
+# are the example key ids from AWS's own KMS documentation; the test feeds them
+# to the key-id validator to prove a bare id (not an ARN) is refused. A key id
+# is also not a secret: it names a key, it does not unlock it.
+[[allowlists]]
+description = "AWS documentation example KMS key ids, used to test the key-id validator"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/app/tests/kms\.test\.ts$''']
+regexes = ['''^(1234abcd-12ab-34cd-56ef-1234567890ab|mrk-1234abcd12ab34cd56ef1234567890ab)$''']
+
+# An AES-GCM auth tag from an envelope sealed by old code under a throwaway
+# KEK of 32 bytes of 0x5a; the comment above BEFORE_LABELS says "Synthetic
+# throughout". A tag verifies a ciphertext, it does not decrypt it, and the
+# KEK that sealed it is a documented constant.
+[[allowlists]]
+description = "AES-GCM auth tag in a synthetic sealed-envelope fixture (throwaway KEK)"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/app/tests/lock-labels\.test\.ts$''']
+regexes = ['''^hzaAatYS9SZYbjfk1b83yw$''']
+
+# The Retell key in the put-external-secrets test ends in TEST and is piped to
+# a fake `aws` binary that records the call; it never leaves the temp dir.
+[[allowlists]]
+description = "put-external-secrets test: Retell key stand-in handed to a fake aws"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/app/tests/put-external-secrets\.test\.ts$''']
+regexes = ['''^key_01[A-Za-z0-9]*TEST$''']
+
+# --- Google OAuth test grants ------------------------------------------------
+# "ya29.synthetic..." is the Google access-token prefix followed by the word
+# synthetic, returned by the fake token endpoint in the test.
+[[allowlists]]
+description = "Google OAuth tests: fake access token returned by a stub endpoint"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^packages/connectors/tests/google-oauth\.test\.ts$''']
+regexes = ['''^ya29\.synthetic''']
+
+# --- Documentation placeholders ----------------------------------------------
+# docs/blockers-runbook.md showed curl examples as `-u "<TEST_SECRET_KEY>:"`
+# and `-u "<LIVE_KEY>:"`: angle-bracket placeholders the reader replaces, not
+# a key. (Found in history only; the current text no longer has these lines.)
+[[allowlists]]
+description = "Runbook curl examples with an angle-bracket placeholder instead of a key"
+targetRules = ["curl-auth-user"]
+condition = "AND"
+paths = ['''^docs/blockers-runbook\.md$''']
+regexes = ['''^"<[A-Z_]+>:"$''']

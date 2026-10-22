@@ -205,7 +205,7 @@ export const PHI_SUBCONTRACTORS = {
   retell: {
     name: "Retell",
     receives:
-      "each forwarded call's audio while the call is live, the caller's number and the call's transcript",
+      "each forwarded call's audio while the call is live, the caller's number, the call's transcript and a recording of the call, held only until healdesk has the transcript and for no more than a day",
     why: "to answer and transcribe the calls you forward to AYA",
   },
   anthropic: {

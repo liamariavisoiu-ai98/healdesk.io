@@ -185,6 +185,14 @@ export const JOB_OPS_WATCH = "ops-watch";
 export const JOB_SITE_READS = "site-reads";
 export const JOB_WEBSITE_DRIFT = "website-drift";
 /**
+ * The location-quantity check (lib/billing/location-quantity.ts), seeded OFF
+ * by drizzle/0111: hourly from the tick, each account's Stripe quantity for
+ * locations against its active locations, plus one being added whose charge
+ * is recorded. Read-only on Stripe; a mismatch is told to ops once per
+ * episode. The owner switches it on with extra locations.
+ */
+export const JOB_LOCATION_QUANTITY = "location-quantity";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

@@ -82,9 +82,12 @@ describe("nurture sequence", () => {
       const footer = text.slice(text.lastIndexOf("\n--\n"));
       expect(footer, `touch ${touch.step}`).toContain(`You're getting this because you ticked "email me about AYA" on healdesk.io.`);
       expect(footer).toMatch(/Stop these emails: https?:\/\/\S+\/api\/email\/unsubscribe\?t=/);
-      expect(footer).toContain("Replies reach the healdesk team. Please leave out patient details.");
-      expect(footer).toContain("healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.");
-      expect(footer).toContain("US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States");
+      // A lead's practice may be a vet's, whose people are clients.
+      expect(footer).toContain("Replies reach the healdesk team. Please leave out patient or client details.");
+      // Only the mailing address, with no entity line and no label (owner, 22 October 2026).
+      expect(footer).not.toContain("is a service of");
+      expect(footer).not.toContain("correspondence only");
+      expect(footer).toContain("800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States");
     }
   });
 
@@ -102,7 +105,7 @@ describe("nurture sequence", () => {
 
   test("every touch describes v1, and nothing it does not do", () => {
     // docs/v1-product-spec.md: inbound only, no SMS, no reminders, calls are
-    // transcribed and never recorded, and v1 claims booked value, never
+    // transcribed with no audio kept by healdesk, and v1 claims booked value, never
     // revenue. Each of these phrases was in the sequence before 30 September.
     for (const touch of TOUCHES) {
       const text = touch.text(lead());
@@ -115,7 +118,7 @@ describe("nurture sequence", () => {
       expect(text).not.toMatch(/two minutes/i);
     }
     const all = TOUCHES.map((touch) => touch.text(lead())).join("\n");
-    expect(all).toContain("transcribed, not recorded");
+    expect(all).toContain("transcribed and that we keep no audio");
     expect(all).toContain("Google Calendar");
     expect(all).toContain("/why-wait");
   });
@@ -177,9 +180,17 @@ describe("P7: the purchase is still open", () => {
   test("carries the footer every commercial email does", () => {
     const text = stillOpenEmail(lead(), { clinicName: "Radiance", agreementKind: "baa", setupLink: LINK }).text;
     expect(text).toContain("You're getting this because you started a purchase for Radiance at healdesk.io. Stop these emails: ");
-    expect(text).toContain("Replies reach the healdesk team. Please leave out patient details.");
-    expect(text).toContain("healdesk is a service of Viixi FZC");
+    // The lead never said its specialty, so the footer names both.
+    expect(text).toContain("Replies reach the healdesk team. Please leave out patient or client details.");
+    expect(text).not.toContain("is a service of");
     expect(text).toContain("Wilmington, DE");
+    // One that did is named in its own word: a vet's people are clients.
+    expect(
+      stillOpenEmail(lead({ specialty: "veterinary" }), { clinicName: "Paws", agreementKind: "dpa", setupLink: LINK }).text,
+    ).toContain("Please leave out your clients' details.");
+    expect(
+      stillOpenEmail(lead({ specialty: "med-spa" }), { clinicName: "Radiance", agreementKind: "baa", setupLink: LINK }).text,
+    ).toContain("Please leave out patient details.");
   });
 
   test("a long clinic name is cut so the subject stays within 70 characters", () => {

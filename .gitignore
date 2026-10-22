@@ -38,6 +38,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# voice eval output (synthetic transcripts, scores, spend; apps/app/scripts/voice-eval)
+apps/app/.voice-eval/
+
 # claude code local settings
 .claude/settings.local.json
 test-results.json

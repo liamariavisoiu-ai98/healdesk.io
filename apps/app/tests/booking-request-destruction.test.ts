@@ -1410,6 +1410,152 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     }
   });
 
+  // drizzle/0106: the Retell call alerts (0105) hold a call id, times and our
+  // own reason, never content, but each ties a call to the clinic. All of a
+  // clinic's go at its destruction, open or resolved; the purge takes a
+  // resolved one thirty days after it was resolved and never an open one.
+
+  /** A Retell call alert, resolved `resolvedDaysAgo` days ago, or open when null. */
+  async function seedRecordingAlert(clinicId: string, resolvedDaysAgo: number | null): Promise<string> {
+    const callId = `call_${randomBytes(8).toString("hex")}`;
+    await inTenant(clinicId, (client) =>
+      client.query(
+        `insert into retell_recording_alerts (clinic_id, retell_call_id, detected_at, resolved_at)
+         values ($1, $2, now() - interval '60 days',
+                 case when $3::int is null then null else now() - make_interval(days => $3::int) end)`,
+        [clinicId, callId, resolvedDaysAgo],
+      ),
+    );
+    return callId;
+  }
+
+  async function recordingAlertCalls(clinicId: string): Promise<string[]> {
+    return inTenant(clinicId, async (client) =>
+      (
+        await client.query<{ retell_call_id: string }>(
+          `select retell_call_id from retell_recording_alerts where clinic_id = $1 order by retell_call_id`,
+          [clinicId],
+        )
+      ).rows.map((r) => r.retell_call_id),
+    );
+  }
+
+  test("destruction takes every Retell call alert of the clinic, open or resolved, is recorded only once they are gone, and touches no other clinic's", async () => {
+    const leaving = await seedClinic("destroy-alerts");
+    const staying = await seedClinic("destroy-alerts-stay");
+    await seedRecordingAlert(leaving.clinicId, null);
+    await seedRecordingAlert(leaving.clinicId, 2);
+    const theirs = [await seedRecordingAlert(staying.clinicId, null), await seedRecordingAlert(staying.clinicId, 45)].sort();
+    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "operator"));
+    await backdateOffboarding(leaving.clinicId, 31);
+    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
+      markExportDelivered(tx, "bundle handed to the practice manager"),
+    );
+
+    // Due, and holding nothing but the alerts: the database will not record
+    // a destruction that left them.
+    await expect(
+      asApp(leaving.clinicId, (q) => q.query(`select app_mark_clinic_destroyed($1::uuid)`, [leaving.clinicId])),
+    ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/still holds/) });
+
+    const results = (await destroyDueClinics()).filter((r) => r.clinicId === leaving.clinicId);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.deleted).toMatchObject({ retell_recording_alerts: 2 });
+    expect(await recordingAlertCalls(leaving.clinicId)).toEqual([]);
+    expect(await recordingAlertCalls(staying.clinicId)).toEqual(theirs);
+    const { rows } = await getMigratorPool().query<{ destroyed_at: Date | null }>(
+      `select destroyed_at from clinics where id = $1`,
+      [leaving.clinicId],
+    );
+    expect(rows[0]!.destroyed_at).not.toBeNull();
+  });
+
+  // The last definition of app_mark_clinic_destroyed (drizzle/0108) must keep
+  // every check before it: main's 0106 added the Retell call alerts, and 0108
+  // the redial records of calls that ended early. Each table alone holds the
+  // stamp back. A redial record cannot outlive its conversation (a cascading
+  // foreign key), so inside one rolled-back transaction the migrator, which
+  // owns the table, drops that key to leave the record on its own.
+  test("the stamp refuses while a single Retell call alert, or a single redial record, is left, and records once it is gone", async () => {
+    const alertOnly = await seedClinic("stamp-alert-only");
+    const redialOnly = await seedClinic("stamp-redial-only");
+    await seedRecordingAlert(alertOnly.clinicId, null);
+    const { conversationId } = await seedConversation(redialOnly.clinicId, { startedAt: new Date(Date.now() - 40 * DAY) });
+    await inTenant(redialOnly.clinicId, (client) =>
+      client.query(
+        `insert into voice_redial_contexts (clinic_id, caller_ref, conversation_id, sealed)
+         values ($1, $2, $3, '{}'::jsonb)`,
+        [redialOnly.clinicId, `v1:${randomBytes(32).toString("hex")}`, conversationId],
+      ),
+    );
+    for (const c of [alertOnly, redialOnly]) {
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "operator"));
+      await backdateOffboarding(c.clinicId, 31);
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        markExportDelivered(tx, "bundle handed to the practice manager"),
+      );
+    }
+
+    const stamp = async (
+      clinicId: string,
+      leaveOnly: (q: Client) => Promise<unknown>,
+      table: string,
+    ): Promise<void> => {
+      const client = await getMigratorPool().connect();
+      try {
+        await client.query("begin");
+        await client.query(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
+        await leaveOnly(client as unknown as Client);
+        await client.query("savepoint held");
+        await expect(client.query(`select app_mark_clinic_destroyed($1::uuid)`, [clinicId])).rejects.toMatchObject({
+          code: "23514",
+          message: expect.stringMatching(/still holds/),
+        });
+        await client.query("rollback to savepoint held");
+        await client.query(`delete from ${table} where clinic_id = $1`, [clinicId]);
+        const { rows } = await client.query<{ at: Date | null }>(`select app_mark_clinic_destroyed($1::uuid) as at`, [clinicId]);
+        expect(rows[0]!.at).not.toBeNull();
+      } finally {
+        await client.query("rollback").catch(() => {});
+        client.release();
+      }
+    };
+
+    await stamp(alertOnly.clinicId, async () => {}, "retell_recording_alerts");
+    await stamp(
+      redialOnly.clinicId,
+      async (q) => {
+        await q.query(`alter table voice_redial_contexts drop constraint voice_redial_contexts_conversation_fk`);
+        await q.query(`delete from conversations where clinic_id = $1`, [redialOnly.clinicId]);
+        const { rows } = await q.query<{ n: number }>(
+          `select count(*)::int as n from voice_redial_contexts where clinic_id = $1`,
+          [redialOnly.clinicId],
+        );
+        expect(rows[0]!.n).toBe(1);
+      },
+      "voice_redial_contexts",
+    );
+    // Rolled back: the key is still there.
+    const { rows } = await getMigratorPool().query(
+      `select 1 from pg_constraint where conname = 'voice_redial_contexts_conversation_fk'`,
+    );
+    expect(rows).toHaveLength(1);
+  });
+
+  test("the purge takes a Retell call alert thirty days after it was resolved, never an open one however old, and no other clinic's", async () => {
+    const c = await seedClinic("purge-alerts");
+    const other = await seedClinic("purge-alerts-other");
+    const open = await seedRecordingAlert(c.clinicId, null);
+    const recent = await seedRecordingAlert(c.clinicId, 29);
+    await seedRecordingAlert(c.clinicId, 31);
+    const others = [await seedRecordingAlert(other.clinicId, null), await seedRecordingAlert(other.clinicId, 31)].sort();
+
+    const result = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, new Date()));
+    expect(result.recordingAlertsDeleted).toBe(1);
+    expect(await recordingAlertCalls(c.clinicId)).toEqual([open, recent].sort());
+    expect(await recordingAlertCalls(other.clinicId)).toEqual(others);
+  });
+
   test("the database stamps a change when it is written, not when its transaction began", async () => {
     const c = await seedClinic("stamp-at-write");
     // A transaction that waited before writing, as one opened a day or thirty
@@ -1575,7 +1721,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     expect(left).toEqual({ requests: [fresh], contacts: [called, asked] });
   });
 
-  test("a data-only restore loads an offboarded clinic and its requests once the two insert triggers are off, as docs/handover.md says, and every key comes back", async () => {
+  test("a data-only restore loads an offboarded clinic, its location and its requests once the insert triggers are off, as docs/handover.md says, and every key comes back", async () => {
     const client = await getMigratorPool().connect();
     const q = <T = Record<string, unknown>>(text: string, values?: unknown[]) =>
       client.query(text, values) as unknown as Promise<{ rows: T[] }>;
@@ -1585,7 +1731,8 @@ describeDb("booking requests at destruction, erasure and purge", () => {
           `select tgname, tgenabled from pg_trigger
             where not tgisinternal
               and tgname in ('clinics_insert_guard', 'clinics_record_clock',
-                             'booking_requests_keys_once')
+                             'booking_requests_keys_once', 'clinics_main_location',
+                             'clinic_locations_guard', 'location_acknowledgements_guard')
             order by tgname`,
         )
       ).rows;
@@ -1631,8 +1778,15 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       );
       const requestId = request[0]!.id;
       const dump = (
-        await q<{ clinic: unknown; contact: unknown; request: unknown; key: unknown }>(
+        await q<{
+          clinic: unknown;
+          location: { id: string; created_at: string; activated_at: string };
+          contact: unknown;
+          request: unknown;
+          key: unknown;
+        }>(
           `select (select to_jsonb(c) from clinics c where c.id = $1) as clinic,
+                  (select to_jsonb(l) from clinic_locations l where l.clinic_id = $1) as location,
                   (select to_jsonb(p) from contacts p where p.id = $2) as contact,
                   (select to_jsonb(r) from booking_requests r where r.id = $3) as request,
                   (select to_jsonb(k) from booking_request_keys k where k.id = $3) as key`,
@@ -1640,6 +1794,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
         )
       ).rows[0]!;
       expect(dump.key).not.toBeNull();
+      expect(dump.location).not.toBeNull();
 
       // The empty, migrated database a data-only restore loads into.
       await q(`delete from booking_requests where id = $1`, [requestId]);
@@ -1652,6 +1807,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       const loadAll = async () => {
         await load("booking_request_keys", dump.key);
         await load("clinics", dump.clinic);
+        await load("clinic_locations", dump.location);
         await load("contacts", dump.contact);
         await load("booking_requests", dump.request);
       };
@@ -1671,19 +1827,50 @@ describeDb("booking requests at destruction, erasure and purge", () => {
         refused(/written before/),
       );
       await q("rollback to savepoint plain");
-
-      // The steps the handover gives: both off by name, every table loaded,
-      // the keys included, both on again, and the triggers checked.
+      // And the clinic, loaded with 0109's trigger on, makes a main location
+      // of its own, which the dump's then meets (one per account).
       await q(`alter table clinics disable trigger clinics_insert_guard`);
-      await q(`alter table booking_requests disable trigger booking_requests_keys_once`);
+      await load("clinics", dump.clinic);
+      await expect(load("clinic_locations", dump.location)).rejects.toMatchObject({ code: "23505" });
+      await q("rollback to savepoint plain");
+
+      // The steps the handover gives: each off by name, every table loaded,
+      // the keys and the location included, each on again, and the triggers
+      // checked.
+      const steps = [
+        ["clinics", "clinics_insert_guard"],
+        ["booking_requests", "booking_requests_keys_once"],
+        ["clinics", "clinics_main_location"],
+        ["clinic_locations", "clinic_locations_guard"],
+        ["location_acknowledgements", "location_acknowledgements_guard"],
+      ] as const;
+      for (const [table, trigger] of steps) await q(`alter table ${table} disable trigger ${trigger}`);
       await loadAll();
-      await q(`alter table clinics enable trigger clinics_insert_guard`);
-      await q(`alter table booking_requests enable trigger booking_requests_keys_once`);
+      for (const [table, trigger] of steps) await q(`alter table ${table} enable trigger ${trigger}`);
       expect(await enabled()).toEqual([
         { tgname: "booking_requests_keys_once", tgenabled: "O" },
+        { tgname: "clinic_locations_guard", tgenabled: "O" },
         { tgname: "clinics_insert_guard", tgenabled: "O" },
+        { tgname: "clinics_main_location", tgenabled: "O" },
         { tgname: "clinics_record_clock", tgenabled: "O" },
+        { tgname: "location_acknowledgements_guard", tgenabled: "O" },
       ]);
+      // The location came back as it was, its dates included (the guard,
+      // left on, would have stamped them with the moment of the load).
+      const location = (
+        await q<{ id: string; created_at: Date; activated_at: Date; mains: number }>(
+          `select l.id, l.created_at, l.activated_at,
+                  (select count(*)::int from clinic_locations m where m.clinic_id = $1 and m.position = 1) as mains
+             from clinic_locations l where l.clinic_id = $1`,
+          [clinicId],
+        )
+      ).rows;
+      expect(location).toHaveLength(1);
+      expect(location[0]).toMatchObject({ id: dump.location.id, mains: 1 });
+      expect(location[0]!.created_at.getTime()).toBe(new Date(dump.location.created_at).getTime());
+      expect(location[0]!.activated_at.getTime()).toBe(
+        new Date(dump.location.activated_at).getTime(),
+      );
       const restored = (
         await q<{ started: Date | null; status: string; keys: number }>(
           `select (select offboarding_started_at from clinics where id = $1) as started,

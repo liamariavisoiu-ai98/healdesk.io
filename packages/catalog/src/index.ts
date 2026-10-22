@@ -16,6 +16,7 @@
  * `/checkout-record` (node:zlib).
  */
 
+export * from "./agreement-claim";
 export * from "./agreement-copy";
 export * from "./agreement-copy-email";
 export * from "./agreement-kind";
@@ -29,6 +30,7 @@ export * from "./baa-selections";
 export * from "./booking-requirements";
 export * from "./booking-systems";
 export * from "./calendar-terms";
+export * from "./central-assistant-acknowledgement";
 export * from "./checkout-intent";
 export * from "./clinic-profile";
 export * from "./clinical-content";

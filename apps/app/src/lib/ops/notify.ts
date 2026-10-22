@@ -66,6 +66,15 @@ export const OPS_EVENTS = [
   // line (lib/voice/retell-fallback-sync.ts).
   "voice_call_start_failed",
   "retell_fallback_unsynced",
+  // Each clinic's Retell agent and AYA number, set up by code
+  // (lib/voice/provision.ts): a run that stopped with our reason; the day's
+  // cap on numbers bought reached, once a day; a ready agent or number that
+  // drifted from what we wrote, once per drift (repaired, or flagged for a
+  // person after three repairs); and a release that failed.
+  "voice_provision_failed",
+  "voice_provision_cap_reached",
+  "voice_agent_drift",
+  "voice_deprovision_failed",
   // A clinic's direct line is its published number or its AYA number, so
   // a call put through to it would come straight back: the answer gate
   // treats it as no line (lib/billing/answering.ts), once an hour per clinic
@@ -252,6 +261,21 @@ export const OPS_EVENTS = [
   // apps/web, once per address and day and ten a day in all, with the
   // agreement's id and the code.
   "agreement_copy_withheld",
+  // The hourly location-quantity check (lib/billing/location-quantity.ts):
+  // Stripe bills an account for a number of locations other than its active
+  // ones (plus one being added whose charge is recorded), once per episode,
+  // keyed on the clinic and when the episode was first seen (`windowStart`),
+  // with both counts; and the end of that episode, once, the first hour the
+  // two agree again. The check only reads Stripe: a person decides which
+  // side is wrong.
+  "location_quantity_drift",
+  "location_quantity_agrees",
+  // Phone joined an account's package (in service, or due after its wait)
+  // while the account has more than one location or one being added, so
+  // the step-up into phone is held, never charged: phone per location is the
+  // extra-locations plan's slice 2. Once per account and channel, by the
+  // hourly reconcile or the billing-requests worker.
+  "step_up_phone_held",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 
@@ -345,6 +369,8 @@ const NOT_IDENTITY = new Set([
   "ms",
   "units",
   "lateDays",
+  "locationCount",
+  "billedCount",
 ]);
 
 /** What the email may carry: each field the payload allowlist accepts on its own. */

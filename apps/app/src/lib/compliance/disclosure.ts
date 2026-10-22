@@ -13,10 +13,12 @@
  *   1. It is FIRST — before any audio reaches transcription, so the notice
  *      precedes the interception it is giving notice of.
  *   2. It is recorded as given, and timed: `conversations.disclosure_played_at`,
- *      with the fixed asset the line is played from. No audio is kept, so
- *      there is no recording to carry it, and since 13 October 2026 healdesk
- *      keeps no transcript either (it is emailed to the clinic; BAA 1.4.0),
- *      so the timestamp is the evidence healdesk holds that notice was given
+ *      with the fixed asset the line is played from. healdesk keeps no
+ *      audio, so there is no recording of its own to carry it (the voice
+ *      provider holds one for at most a day, until healdesk has the
+ *      transcript), and since 13 October 2026 healdesk keeps no transcript
+ *      either (it is emailed to the clinic; BAA 1.4.0), so the timestamp is
+ *      the evidence healdesk holds that notice was given
  *      (state-disclosure.md, decision 3).
  *   3. It is not configurable. If a clinic can switch it off, a clinic will,
  *      and we become a co-defendant.
@@ -38,12 +40,16 @@ export type DisclosureContext = {
 /**
  * The voice opener.
  *
- * Says AI, says transcribed and by whom, says no audio is kept, and says how
- * a person gets involved — in one breath. "Transcribed" is the operative word
- * for the statutes below; "no audio is kept" is true since 21 September 2026
- * (conversations carries no recording reference and the vendor's recording
- * storage is off) and must stay true, because a disclosure that understates
- * what happens is worse than none.
+ * Says AI, says transcribed and by whom, says healdesk keeps no audio and the
+ * providers hold a recording for a day at most, and says how a person gets
+ * involved — in one breath. "Transcribed" is the operative word for the
+ * statutes below. Until 22 October 2026 the line said "no audio recording is
+ * kept", true of healdesk since 21 September 2026 (conversations carries no
+ * recording reference) but not of the voice provider, which holds a call's
+ * transcript and recording until healdesk has its own copy and deletes the
+ * call then (one day at the longest, the backstop in lib/voice/backstop.ts).
+ * The line says both halves, because a disclosure that understates what
+ * happens is worse than none.
  * "Transcribed" is not decoration: the CIPA §631(a) exposure in *Ambriz v.
  * Google* is about a third party intercepting call CONTENTS, which is what
  * transcription is. Disclosing recording alone does not describe it, and
@@ -63,9 +69,34 @@ export type DisclosureContext = {
 export function voiceDisclosure(context: DisclosureContext): string {
   return (
     `Hi, I'm an AI assistant for ${context.clinicName} — not a human. ` +
-    `This call is transcribed by an automated system run by our service providers; no audio recording is kept. ` +
+    `This call is transcribed by an automated system run by our service providers; we keep no audio, and they hold a recording for no more than a day. ` +
     `Say "representative" at any time and I'll pass your details to the practice team, ` +
     `who will get back to you within a day.`
+  );
+}
+
+/**
+ * The voice opener in Spanish (owner, 22 October 2026).
+ *
+ * A call always opens with the English line above: nothing is known of the
+ * caller's language before they speak. The first time a call is taken into
+ * Spanish (lib/voice/call-language.ts), this line is said before the next
+ * reply, once per call, so a caller who did not follow the English notice
+ * hears it in words they do. It says exactly what the English line says, the
+ * same four facts and no others: AI and not a human; transcribed by an
+ * automated system run by our service providers; healdesk keeps no audio and
+ * they hold a recording for no more than a day;
+ * "representante" and the details passed to the practice team, who get back
+ * within a day. It is not configurable either, and a change to the English
+ * line must change this one in the same commit (tests/compliance.test.ts
+ * pins both). Awaiting review by a native speaker and by counsel.
+ */
+export function voiceDisclosureEs(context: Pick<DisclosureContext, "clinicName">): string {
+  return (
+    `Le informo que soy un asistente de inteligencia artificial de ${context.clinicName}, no una persona. ` +
+    `Esta llamada se transcribe con un sistema automatizado operado por nuestros proveedores de servicios; nosotros no guardamos audio, y ellos conservan una grabación durante un día como máximo. ` +
+    `Diga "representante" en cualquier momento y pasaré sus datos al equipo de la clínica, ` +
+    `que se comunicará con usted en un plazo de un día.`
   );
 }
 
@@ -155,7 +186,7 @@ export function clinicAiNotice(context: Pick<DisclosureContext, "clinicName">): 
   return (
     `${context.clinicName} uses an AI assistant to answer calls and messages and to book appointments. ` +
     `It is not a person and gives no medical advice. ` +
-    `Calls it answers are transcribed; no recording is kept. ` +
+    `Calls it answers are transcribed, and its provider holds any recording for no more than a day. ` +
     `To reach a person, call [your direct line].`
   );
 }

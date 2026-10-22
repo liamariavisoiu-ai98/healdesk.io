@@ -15,6 +15,7 @@ import {
   patientRequests,
   reconciliationExceptions,
   recordAmendments,
+  retellRecordingAlerts,
   slotHolds,
   syncRuns,
   transactions,
@@ -42,9 +43,10 @@ import type { TenantTx } from "@/lib/tenant";
  * `clinics.retention_media_days` (default 90) removes the transcript
  * REFERENCE from a conversation, sooner when the practice has shortened its
  * transcripts in the portal (`clinic_settings.transcript_retention_days`,
- * 30 or 7 days; it can only shorten, and reaches no other record). No audio is kept anywhere (decision of
- * 21 September 2026; the vendor's recording storage is off in its console,
- * docs/hipaa-risk-analysis.md T5). The transcript text itself lives with the
+ * 30 or 7 days; it can only shorten, and reaches no other record). healdesk keeps no audio (decision of
+ * 21 September 2026); the voice vendor holds a call's recording with its
+ * transcript until healdesk has the transcript, and the backstop deletes the
+ * call there within a day (22 October 2026, docs/hipaa-risk-analysis.md T5). The transcript text itself lives with the
  * voice vendor under its own retention setting, which must be at most this
  * window. Nulling the reference here is what stops the product from ever
  * pointing at it again; it is not, and does not claim to be, the deletion of
@@ -187,6 +189,16 @@ import type { TenantTx } from "@/lib/tenant";
 export const WEBHOOK_PAYLOAD_RETENTION_DAYS = 30;
 /** A slot hold that has stopped blocking is kept a week at most (plan §11.8), less on a shorter record clock. */
 export const SLOT_HOLD_RETENTION_DAYS = 7;
+/**
+ * A Retell call alert (drizzle/0105) once resolved, that is once Retell no
+ * longer holds the call, is kept thirty days after it was resolved, so the
+ * operator can still see on /admin/recordings what was fixed, and then goes.
+ * It never held a patient's words or number, only Retell's call id, times and
+ * our own reason. An open alert is never purged: it is the only sign that
+ * Retell still holds a call, and it goes only when resolved, or with the
+ * clinic's destruction (drizzle/0106).
+ */
+export const RECORDING_ALERT_RESOLVED_RETENTION_DAYS = 30;
 
 /**
  * A sync run started longer ago than this is a crashed one, not one in
@@ -226,18 +238,24 @@ export const PURGE_COVERAGE: Readonly<{
     slot_holds: "a week once it no longer blocks, or the record clock if shorter",
     handovers: "with its conversation or thread (cascade), and in any case the record clock after it was asked",
     patient_requests: "the record clock after it reached healdesk, marked received or not",
+    retell_recording_alerts:
+      "thirty days after it was resolved (RECORDING_ALERT_RESOLVED_RETENTION_DAYS); an open one never, since it is the only sign Retell still holds a call",
   },
   notPurged: {
     conversation_flags:
       "no clock of its own: goes with the conversation or thread it flags, by cascade, when the purge deletes that",
     incident_affected_contacts:
       "no clock of its own: goes with the contact it names, by cascade, when the purge deletes that, never holding the contact back; the incident keeps the count recorded (incidents.affected_recorded)",
+    voice_redial_contexts:
+      "its own clock: two hours on the database's clock, deleted on first use and by the minute sweep (app_sweep_redial_contexts), and with its conversation by cascade (lib/voice/redial.ts)",
     transcript_emails:
       "its own clock: the outbox job deletes each sealed copy on delivery and never keeps one past 30 days, and the receipt goes with its conversation by cascade (lib/conversations/transcript-outbox.ts)",
     erasure_requests: "its own clock: expireErasureRecords, hourly, BACKUP_RETENTION_DAYS after the deletion",
     suppressions: "a person's \"stop\", which must outlast what it stopped: goes with the person's erasure, or the clinic's destruction",
     consent_records: "append-only evidence: goes with the person's erasure, or the clinic's destruction",
     contact_attempts: "append-only evidence: goes with the person's erasure, or the clinic's destruction",
+    voice_agents:
+      "no patient and no clock: the clinic's Retell agent and AYA number (0107), one row it needs while it answers calls and, after it leaves, the record that the number was released; kept for good (KEPT_FOR_GOOD)",
     clinic_closures: "the clinic's closed days, no patient: go with its destruction",
     clinic_providers: "the clinic's providers, no patient: go with its destruction",
     clinic_provider_services: "which services each provider offers, no patient: go with its destruction",
@@ -256,6 +274,7 @@ export const PURGE_COVERAGE: Readonly<{
     practice_question_results: "synthetic cases and answers, no patient: go when the account closes",
     audit_review_queue: "ops decisions on synthetic runs, no patient: go when the account closes",
     site_rereads: "reads of the clinic's public website, no patient: go when the account closes",
+    clinic_locations: "the account's locations (addresses, lines, hours), no patient: go when the account closes",
     website_changes: "what those reads found, no patient: go when the account closes",
     entitlements: "a billing record, kept (lib/offboarding/account-closure.ts, KEPT_FOR_GOOD)",
     billing_transitions: "a billing record, kept",
@@ -267,6 +286,7 @@ export const PURGE_COVERAGE: Readonly<{
     channel_events: "a billing record, kept",
     clinic_channels: "a billing record, kept",
     calendar_elections: "part of the signed agreement, kept",
+    location_acknowledgements: "part of the agreement: each added location's acceptance of one central assistant, kept",
     agreement_resigns: "contract metadata, kept",
     sign_in_address_changes: "the record of the notice addresses, kept",
     incidents: "the record of each incident and its notice, kept",
@@ -294,6 +314,8 @@ export type PurgeResult = {
   handoversDeleted: number;
   /** Patients' requests passed to the practice, past the record clock (drizzle/0094). */
   patientRequestsDeleted: number;
+  /** Retell call alerts resolved more than RECORDING_ALERT_RESOLVED_RETENTION_DAYS ago (drizzle/0105). */
+  recordingAlertsDeleted: number;
 };
 
 const promised = new Map<string, boolean>();
@@ -363,6 +385,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     metaMessageRefsDeleted: 0,
     handoversDeleted: 0,
     patientRequestsDeleted: 0,
+    recordingAlertsDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -713,6 +736,24 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ ref: metaInboundMessages.messageRef });
   result.metaMessageRefsDeleted = refs.length;
 
+  // 9. Retell call alerts resolved more than thirty days ago
+  //    (RECORDING_ALERT_RESOLVED_RETENTION_DAYS): Retell no longer holds the
+  //    call, and the row is only the operator's record that it was fixed. An
+  //    open alert is never purged, however old: it is the only sign that
+  //    Retell still holds a call, and it goes when resolved or at the
+  //    clinic's destruction (drizzle/0106).
+  const resolvedAlerts = await tx.db
+    .delete(retellRecordingAlerts)
+    .where(
+      and(
+        eq(retellRecordingAlerts.clinicId, tx.clinicId),
+        sql`${retellRecordingAlerts.resolvedAt} is not null`,
+        lt(retellRecordingAlerts.resolvedAt, daysAgo(now, RECORDING_ALERT_RESOLVED_RETENTION_DAYS)),
+      ),
+    )
+    .returning({ id: retellRecordingAlerts.id });
+  result.recordingAlertsDeleted = resolvedAlerts.length;
+
   // The audit row says what kind and how many — never which person.
   const total =
     result.mediaCleared +
@@ -728,7 +769,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.depositsDeleted +
     result.metaMessageRefsDeleted +
     result.handoversDeleted +
-    result.patientRequestsDeleted;
+    result.patientRequestsDeleted +
+    result.recordingAlertsDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -749,6 +791,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         metaMessageRefs: result.metaMessageRefsDeleted,
         handovers: result.handoversDeleted,
         patientRequests: result.patientRequestsDeleted,
+        recordingAlerts: result.recordingAlertsDeleted,
         mediaDays: clinic.mediaDays,
         transcriptDays,
         recordDays: clinic.recordDays,

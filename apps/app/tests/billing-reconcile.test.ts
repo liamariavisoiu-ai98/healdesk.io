@@ -44,8 +44,8 @@ import {
  * rules on their own (decideReconcile, pure), then the job end to end
  * against the database: what it records, what it re-arms and when, the
  * waiting channel's week of notice, the setup closure, stuck requests, and an
- * extra location left pending while the funnel's createLocationClinic is not
- * ready.
+ * extra location left pending while its package may not add locations
+ * (locationsReady).
  */
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -254,6 +254,52 @@ describe("decideReconcile: step-ups (R6)", () => {
     ]);
     const pending = request("step_up", { channelKey: "voice" });
     expect(decideReconcile(input({ row: started, states, requests: [pending] }))).toEqual([]);
+  });
+
+  test("holds a step-up into phone while the account has more than one location, or one being added", () => {
+    const states = [answered("web"), answered("voice")];
+    const two = row({ ...started, locations: 2 });
+    expect(decideReconcile(input({ row: two, states }))).toEqual([
+      { type: "phone_held", channel: "voice" },
+    ]);
+    const adding = row({
+      ...started,
+      pendingLocationRequestId: randomUUID(),
+      pendingLocationCount: 2,
+    });
+    // (The add itself is settled from Stripe's evidence beside it.)
+    expect(types(decideReconcile(input({ row: adding, states })))).toEqual([
+      "phone_held",
+      "settle_location",
+    ]);
+    // A phone step-up the worker skipped is not re-armed while it is held.
+    const skipped = request("step_up", {
+      channelKey: "voice",
+      doneAt: at(-HOUR),
+      outcome: "skipped",
+      outcomeReason: "phone_needs_one_location",
+    });
+    expect(decideReconcile(input({ row: two, states, requests: [skipped] }))).toEqual([
+      { type: "phone_held", channel: "voice" },
+    ]);
+    // Back to one location: it is re-armed and goes.
+    expect(decideReconcile(input({ row: started, states, requests: [skipped] }))).toEqual([
+      { type: "rearm", request: skipped, reason: "reconcile", wasDeadLetter: false },
+    ]);
+  });
+
+  test("a waiting phone gets no reminder and no step-up while the account has more than one location", () => {
+    const readyAt = at(-38 * DAY);
+    const two = row({ planCode: "webchat-1000", planStartedAt: at(-40 * DAY), locations: 2 });
+    const states = [answered("web"), state("voice", { readyAt, waitingOn: "forwarding" })];
+    const due = startOfJoinDay(new Date(readyAt.getTime() + 30 * DAY));
+    const promised = new Map<Channel, Date>([["voice", due]]);
+    expect(decideReconcile(input({ row: two, states, now: due }))).toEqual([
+      { type: "phone_held", channel: "voice" },
+    ]);
+    expect(decideReconcile(input({ row: two, states, promised, now: due }))).toEqual([
+      { type: "phone_held", channel: "voice" },
+    ]);
   });
 
   test("none for the website on a Meta Chat bill: AYA Meta Chat already prices it in", () => {
@@ -586,13 +632,30 @@ describeDb("the billing reconcile job", () => {
     ]);
   });
 
+  test("holds a step-up into phone for an account with two locations, and tells ops once", async () => {
+    const billing = await seedBilling("rec-phone-held", {
+      planId: "webchat-1000",
+      boughtPlanId: "voice-webchat-1000-1000",
+      planStartAppliedAt: at(-10 * DAY),
+      locations: 2,
+      channelRows: [inService("web"), inService("voice")],
+    });
+
+    expect(await reconcileBilling(NOW)).toMatchObject({ recorded: 0, phoneHeld: 1 });
+    await reconcileBilling(at(HOUR));
+    expect(await requestsOf(billing.clinicId)).toEqual([]);
+    const alerts = await opsAlerts("step_up_phone_held", billing.clinicId);
+    expect(alerts).toEqual([expect.objectContaining({ channel: "voice", count: 2 })]);
+    expect(() => assertPayloadAllowed(alerts[0]!, "ops_alert")).not.toThrow();
+  });
+
   test("a waiting channel gets a week's notice, once, and then its step-up on the promised date", async () => {
     const startedAt = at(-40 * DAY);
     const readyAt = at(-38 * DAY);
+    // One location: phone is held for an account with more than one.
     const billing = await seedBilling("rec-wait", {
       planId: "webchat-1000",
       boughtPlanId: "voice-webchat-1000-1000",
-      locations: 2,
       planStartedAt: startedAt,
       channelRows: [inService("web"), { channel: "voice", readyAt, waitingOn: "forwarding" }],
     });
@@ -617,7 +680,7 @@ describeDb("the billing reconcile job", () => {
           joinsOn: isoDate(due),
           planName: getPlan("voice-webchat-1000-1000")!.name,
           amountCents:
-            Math.round(recurringUsd(getPlan("voice-webchat-1000-1000")!, "month") * 100) * 2,
+            Math.round(recurringUsd(getPlan("voice-webchat-1000-1000")!, "month") * 100),
           interval: "month",
           waitingOn: "forwarding",
         },
@@ -692,7 +755,7 @@ describeDb("the billing reconcile job", () => {
     ]);
   });
 
-  test("an extra location charged but not created stays pending while createLocationClinic is not ready", async () => {
+  test("an extra location charged but not active stays pending while its package may not add locations", async () => {
     const billing = await seedBilling("rec-location", {
       planStartAppliedAt: at(-3 * DAY),
       locations: 2,

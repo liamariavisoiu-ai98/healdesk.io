@@ -6,7 +6,7 @@ import { findLeadByEmail } from "@/lib/leads";
 import { getSpecialty } from "@/lib/specialties";
 
 import { REPEAT_VISITS, typicalVisit } from "./roi";
-import { displayName, profileOf, type DemoSession } from "./sessions";
+import { demoAudience, displayName, profileOf, type DemoSession } from "./sessions";
 
 /**
  * What the purchase knows from the demo a buyer came from, worked out once
@@ -26,6 +26,7 @@ export function demoCheckout(session: DemoSession): DemoCheckout {
   const visit = typicalVisit(profile, specialty.economics);
   return {
     clinicName: displayName(session),
+    audience: demoAudience(session),
     roi: {
       ...visit,
       bookingRate: specialty.economics.bookingRate,

@@ -13,6 +13,7 @@ import {
 } from "@/lib/email/templates/device_changed";
 import { describeError, log } from "@/lib/log";
 import { portalGrants } from "@/lib/portal/access";
+import { signInAudience } from "@/lib/portal/audience";
 import { withTenant } from "@/lib/tenant";
 
 /**
@@ -95,14 +96,16 @@ export async function notifyDeviceChange(
       ...(change.kind === "signed_out" ? { removedCount: change.removedCount ?? 0 } : {}),
       ...(change.source ? { source: change.source } : {}),
     };
+    const grants = await portalGrants(change.userId);
     const rendered = renderDeviceChanged(
       payload,
       {
         clinicName: null,
-        audience: "patients",
+        // Whose details its devices open: a vet's sign-in reads "client details".
+        audience: await signInAudience(grants),
         reason: ACCOUNT_REASON,
         raisedAt: now,
-        timeZone: await timeZoneOf(change.userId),
+        timeZone: await timeZoneOf(grants),
       },
     );
 
@@ -132,8 +135,8 @@ export async function notifyDeviceChange(
 }
 
 /** The clinic's own time, for "on Tuesday, October 6 at 2:32 PM EDT": the first clinic the sign-in opens. */
-async function timeZoneOf(userId: string): Promise<string> {
-  const [grant] = await portalGrants(userId);
+async function timeZoneOf(grants: Awaited<ReturnType<typeof portalGrants>>): Promise<string> {
+  const [grant] = grants;
   if (!grant) return "America/New_York";
   return withTenant({ clinicId: grant.clinicId, actor: { type: "system" } }, async (tx) => {
     const [row] = await tx.db

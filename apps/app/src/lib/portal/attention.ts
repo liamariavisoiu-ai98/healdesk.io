@@ -1,4 +1,4 @@
-import type { Channel } from "@healdesk/catalog";
+import { audienceFor, audienceSingular, type Channel } from "@healdesk/catalog";
 
 import {
   SCREEN_DEFINITIONS,
@@ -66,7 +66,8 @@ export type AttentionId =
   | "quiet_channel"
   | "meta_facebook_dropped"
   | "meta_whatsapp_dropped"
-  | "double_checking";
+  | "double_checking"
+  | "location_details";
 
 export type AttentionItem = {
   /** Unique within the list: a quiet channel's carries its channel, `quiet_channel:voice`. */
@@ -101,6 +102,11 @@ export type AttentionFacts = {
   live?: boolean;
   /** Live channels nothing has reached for a week (readQuietChannels). */
   quietChannels?: readonly Channel[];
+  /**
+   * Locations added after the main one whose address, hours and phone
+   * numbers the practice has not confirmed yet (lib/portal/location-details.ts).
+   */
+  locationsToConfirm?: readonly { id: string; name: string }[];
 };
 
 export function needsAttention(facts: AttentionFacts): AttentionItem[] {
@@ -182,9 +188,11 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
   }
 
   if (!state.hasPasskey) {
+    // A vet's are its clients' details: the animal's owner is the person.
+    const one = audienceSingular(audienceFor(state.clinic.specialty));
     items.push({
       id: "passkey",
-      text: "No device can open patient details yet. Conversations and Bookings need one.",
+      text: `No device can open ${one} details yet. Conversations and Bookings need one.`,
       action: {
         label: "Add this device",
         href: `${home}/protect?next=${encodeURIComponent(home)}`,
@@ -240,6 +248,17 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
       id: "meta_whatsapp_dropped",
       text: "Meta dropped the WhatsApp connection, so AYA can't reply there.",
       action: screenLink(slug, "settings", "#meta-connections", "Reconnect it in Settings"),
+    });
+  }
+
+  // A location added from Billing waits on its details at any stage: the
+  // toast after the add points to the same page.
+  for (const location of facts.locationsToConfirm ?? []) {
+    items.push({
+      key: `location_details:${location.id}`,
+      id: "location_details",
+      text: `${location.name} is waiting for you to confirm its address, hours and phone numbers.`,
+      action: { label: "Confirm its details", href: `${home}/settings/locations/${location.id}` },
     });
   }
 

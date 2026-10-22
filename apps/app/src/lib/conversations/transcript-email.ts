@@ -1,4 +1,4 @@
-import { SENDER_IDENTITY } from "@healdesk/catalog";
+import { SENDER_IDENTITY, type Audience } from "@healdesk/catalog";
 
 import { cutCardNumbersAcrossTurns } from "@/lib/assistant/guard";
 import { escapeHtml } from "@/lib/email/templates/compose";
@@ -79,10 +79,18 @@ export type TranscriptEmailInput = {
     name: string;
     /** IANA time zone, for the conversation's time. */
     timeZone: string;
+    /** Who the practice serves (audienceFor): a vet's callers are its clients. */
+    audience: Audience;
   };
   channel: TranscriptChannel;
   startedAt: Date;
   turns: readonly TranscriptTurn[];
+  /**
+   * The call ended unexpectedly (conversations.ended_early_reason, read when
+   * the email is sent): the email opens with ENDED_EARLY_BANNER. The subject
+   * does not change, and still names nobody.
+   */
+  endedEarly?: boolean;
 };
 
 export type RenderedTranscriptEmail = { subject: string; text: string; html: string };
@@ -90,11 +98,27 @@ export type RenderedTranscriptEmail = { subject: string; text: string; html: str
 /** Fixed, and about nobody: the subject shows on a locked phone. */
 export const TRANSCRIPT_SUBJECT = "Conversation transcript from your healdesk assistant";
 
-const DO_NOT_REPLY =
-  "Please don't reply to this email: a reply would send this transcript to healdesk's general inbox, which isn't meant to hold patient information.";
+/** What the email holds, and where it belongs, in the practice's word: a vet's are its clients'. */
+const WORDS: Readonly<Record<Audience, { information: string; records: string }>> = {
+  patients: { information: "patient information", records: "patient records" },
+  clients: { information: "your clients' information", records: "client records" },
+};
 
-const KEEP_IT =
-  "This email holds patient information. healdesk deletes its own encrypted copy as soon as your mail server confirms it has received this email, so this email is the record of what was said: file it where your practice keeps patient records, and then delete it from this inbox.";
+function doNotReply(audience: Audience): string {
+  return `Please don't reply to this email: a reply would send this transcript to healdesk's general inbox, which isn't meant to hold ${WORDS[audience].information}.`;
+}
+
+function keepIt(audience: Audience): string {
+  const words = WORDS[audience];
+  return `This email holds ${words.information}. healdesk deletes its own encrypted copy as soon as your mail server confirms it has received this email, so this email is the record of what was said: file it where your practice keeps ${words.records}, and then delete it from this inbox.`;
+}
+
+/**
+ * The fixed line at the top of a transcript whose call ended unexpectedly
+ * (lib/voice/ended-early.ts). It says nothing about the caller: the
+ * transcript below is what the team reads. healdesk calls nobody back.
+ */
+export const ENDED_EARLY_BANNER = "This call ended unexpectedly. The caller may want a call back.";
 
 /** A conversation longer than this is cut, with a note, rather than refused. */
 export const MAX_TRANSCRIPT_CHARACTERS = 200_000;
@@ -172,13 +196,20 @@ export function renderTranscriptEmail(input: TranscriptEmailInput): RenderedTran
   const last = turns.length - 1;
   const cut = turns.length < spoken.length || turns[last]?.text.length !== spoken[last]?.text.length;
 
+  const audience: Audience = input.clinic.audience === "clients" ? "clients" : "patients";
+  const KEEP_IT = keepIt(audience);
+  const DO_NOT_REPLY = doNotReply(audience);
   const kind = input.channel === "voice" ? "call" : "web chat";
   const intro = `Your assistant's transcript of a ${kind} on ${when(input)}.`;
   const reference = `Reference: ${input.conversationId}`;
   const cutNote = "The transcript was longer than this email can carry and is cut here.";
   const why = `You get this email because ${input.clinic.name} uses healdesk's assistant, and each transcript goes to this address instead of being stored.`;
 
+  // Only a call ends early: a web chat has no such flag.
+  const banner = input.endedEarly === true && input.channel === "voice" ? [ENDED_EARLY_BANNER] : [];
+
   const text = [
+    ...banner,
     intro,
     KEEP_IT,
     DO_NOT_REPLY,
@@ -194,6 +225,7 @@ export function renderTranscriptEmail(input: TranscriptEmailInput): RenderedTran
   const html = [
     "<!doctype html>",
     '<html><body style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f1f1f;">',
+    ...banner.map((line) => paragraph(line, "font-weight:700;color:#8a1c1c;")),
     paragraph(intro),
     paragraph(KEEP_IT, "font-weight:600;"),
     paragraph(DO_NOT_REPLY),

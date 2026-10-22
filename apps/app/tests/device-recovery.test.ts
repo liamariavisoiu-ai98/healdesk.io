@@ -399,6 +399,7 @@ describe("the Protect page", () => {
     codeRoute: false,
     initialDevice: "mac" as const,
     stepUpHref: "/c/glow/step-up?next=%2Fc%2Fglow",
+    audience: "patients" as const,
   };
   const text = (html: string) =>
     html

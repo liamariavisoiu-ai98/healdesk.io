@@ -12,6 +12,7 @@ import type { MetaPlatform } from "@/lib/meta/front-door";
 import { hashSessionToken } from "@/lib/factors/step-ups";
 import { unsubscribeToken } from "@/lib/email/unsubscribe";
 import { NOT_A_DEVICE_LABEL } from "@/lib/notices/setting-changed";
+import { JOB_BILLING_NOTICES, setJobEnabled } from "@/lib/scheduler/jobs";
 import { SIGN_IN_ACTOR_LABEL } from "@/lib/portal/actor";
 import { SETTING_CHANNELS } from "@/lib/portal/settings";
 import { failureLines } from "@/lib/portal/settings-view";
@@ -800,6 +801,45 @@ describeDb("Settings", () => {
     } finally {
       await withTenant({ clinicId: portal.clinicId, actor: ACTOR }, (tx) => saveNeverSay(tx, []));
       await save("phone_greeting", null);
+    }
+  });
+
+  // The Alerts card said urgent alerts arrive "the moment AYA hears something
+  // urgent" while ALERT-01 made their delivery conditional: it now reads the
+  // same urgentAlertReadiness as the wizard's urgent screen and the urgent
+  // reply, and says plainly when alerts are not switched on.
+  test("the Alerts card says urgent alerts are not switched on until the sender, a transport and the address all hold", async () => {
+    const { default: SettingsPage } = await import("@/app/c/[slug]/settings/page");
+    const alertsCard = async () => {
+      const html = renderToStaticMarkup(
+        await SettingsPage({ params: Promise.resolve({ slug: portal.clinicSlug }), searchParams: Promise.resolve({}) }),
+      );
+      const start = html.indexOf('id="alerts"');
+      return html.slice(start, html.indexOf("</section>", start) > 0 ? html.indexOf("</section>", start) : start + 4000);
+    };
+    try {
+      // Jobs ship off: nothing is sent, so the card must not say alerts arrive.
+      await setJobEnabled(JOB_BILLING_NOTICES, false, portal.userId);
+      const off = await alertsCard();
+      expect(off).toContain("Urgent alerts are not switched on yet, so none reach you today.");
+      expect(off).toContain("Everything will go to");
+      // A person's practice: 911. A veterinary one is given the emergency numbers instead (the wizard's wording).
+      expect(off).toMatch(/gives anyone reporting something urgent(<!-- -->)? ?(<!-- -->)?911/);
+      expect(await save("daily_summary", false)).toMatchObject({ ok: true, toast: expect.stringContaining("Urgent alerts are not switched on yet") });
+
+      await setJobEnabled(JOB_BILLING_NOTICES, true, portal.userId);
+      vi.stubEnv("HEALDESK_EMAIL_TRANSPORT", "resend");
+      vi.stubEnv("RESEND_API_KEY", "re_test_presence_only");
+      vi.stubEnv("HEALDESK_EMAIL_FROM", "healdesk <hello@example.test>");
+      const on = await alertsCard();
+      expect(on).not.toContain("not switched on");
+      expect(on).toContain("Everything goes to");
+      expect(on).toContain("urgent alerts, the moment AYA hears something urgent");
+      expect(await save("daily_summary", false)).toMatchObject({ ok: true, toast: expect.stringContaining("urgent alerts still arrive") });
+    } finally {
+      vi.unstubAllEnvs();
+      await setJobEnabled(JOB_BILLING_NOTICES, false, portal.userId);
+      await save("daily_summary", true);
     }
   });
 

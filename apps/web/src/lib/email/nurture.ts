@@ -1,4 +1,4 @@
-import { type AgreementKind, COHORT_SETUP_CREDIT } from "@healdesk/catalog";
+import { type AgreementKind, type Audience, audienceFor, COHORT_SETUP_CREDIT, isSpecialtyId } from "@healdesk/catalog";
 
 import type { Lead } from "@/lib/leads";
 
@@ -54,8 +54,18 @@ function footer(lead: Lead): string {
     commercialFooter(
       `You're getting this because you ticked "email me about ${site.agent}" on ${site.domain}.`,
       unsubscribeUrl(lead.id),
+      leadAudience(lead),
     )
   );
+}
+
+/**
+ * Who the lead's practice serves, when the lead said its specialty (a vet's
+ * people are its clients), so the footer can name them; null, and both words,
+ * when it did not.
+ */
+function leadAudience(lead: Lead): Audience | null {
+  return isSpecialtyId(lead.specialty) ? audienceFor(lead.specialty) : null;
 }
 
 export const TOUCHES: readonly Touch[] = [
@@ -79,7 +89,7 @@ export const TOUCHES: readonly Touch[] = [
       `Hi ${firstName(lead)},\n\n` +
       `Two things clinic owners ask first, answered plainly.\n\n` +
       `1. It does not give medical advice. Ask it whether a treatment is safe during pregnancy and it says it can't answer that and offers to book a consultation with your provider instead. That is the product, not a limitation.\n\n` +
-      `2. It does not pretend to be a person. Every call, chat and DM opens by saying it is an AI assistant, and on the phone that the call is transcribed, not recorded. You cannot switch that off.\n\n` +
+      `2. It does not pretend to be a person. Every call, chat and DM opens by saying it is an AI assistant, and on the phone that the call is transcribed and that we keep no audio. You cannot switch that off.\n\n` +
       `What it does do: answer the calls you forward to it, and your chats and DMs, day or night; qualify; book straight into your Google Calendar during the conversation; take deposits in chat through your own checkout link; and show you what it handled and booked. Every product, its price per step of 100 and its setup fee are on one page: ${site.url}/pricing\n\n` +
       `Reply with your booking system and I'll tell you whether it reads Google Calendar for conflicts, which decides whether she books live for you or your staff confirm each booking.` +
       footer(lead),
@@ -179,6 +189,7 @@ export function stillOpenEmail(lead: Lead, facts: StillOpenFacts): { subject: st
       commercialFooter(
         `You're getting this because you started a purchase${clinic ? ` for ${clinic}` : ""} at ${site.domain}.`,
         unsubscribeUrl(lead.id),
+        leadAudience(lead),
       ),
   };
 }

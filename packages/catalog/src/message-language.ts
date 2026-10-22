@@ -82,9 +82,62 @@ const ES = words(
     "hola buenos buenas días dia día tardes tarde noches noche gracias favor perdón disculpe adiós saludos señor señora señorita claro vale bueno bien mal hoy mañana ayer semana fin lunes martes miércoles jueves viernes sábado domingo hora horas minutos mes meses año años cita citas consulta consultas horario horarios precio precios costo costos cuesta cuestan pagar pago depósito tarjeta efectivo seguro dirección estacionamiento llamar llame llamada teléfono número correo reservar reserva agendar cancelar cambiar disponible abierto cerrado clínica doctor doctora médico enfermera tratamiento tratamientos servicio servicios relleno labios cara piel facial depilación láser bótox dientes limpieza ortodoncia",
     "ayuda ayúdeme ayúdenme urgente emergencia ambulancia hospital dolor duele respirar respira sangre sangrando hinchado hinchada hinchazón alergia alérgica reacción desmayo desmayé mareo vómito vomitando fiebre pecho garganta labio ojo ojos hijo hija hijos esposo esposa marido mujer bebé niño niña mamá papá madre padre perro perra perrito gato gata gatito mascota veterinario pastillas comió tomó no",
     "tomo tomar toma tomando problema problemas efecto efectos dura durar duran quedar quedan van poner ponerme ponga póngase hacerme hacer quitar quitarme lunar bulto bultos embarazada embarazo lactando lactancia pecho frente unidades unidad jeringa normal peligroso peligrosa seguro segura riesgo riesgos cáncer diabetes medicamento medicamentos medicina medicinas resultados resultado meses semanas días después antes durante hielo ejercicio alcohol maquillaje moretones moretón sol crema dolor algún alguna ningún ninguna mucho poquito poco cómo puedo podemos podría debo debe deben tiene tengo sale salió pusieron puso marcas efecto piel cara labios relleno láser",
+    // Irregular forms of the commonest verbs, and the words of a reply about a booking, a visit or a way there.
+    "esté estén estará estarán estaría será serán sería sea sean fueron fuera sido estado tendrá tendrán tendría pondrá pondrán podrá podrán podría podríamos hará harán haría dirá dirán vendrá vendrán saldrá querrá sabrá habrá hubo puse puso pude pudo hice hizo dije dijo vino vine tuve tuvo quise",
+    "equipo solicitud solicitudes vuelta coche carro auto transporte público pública edificio entrada piso oficina calle avenida esquina cerca lejos detrás delante enfrente junto lado metro autobús camión taxi parada estación ascensor elevador escaleras recepción sala espera consultorio local horario disponibilidad anticipación aviso política políticas cancelación reprogramar formulario formularios documento identificación correo electrónico mensaje mensajes llamada llamadas enlace pago pagos depósito tarjeta crédito débito efectivo transferencia factura recibo descuento promoción oferta paquete membresía precio total opción opciones pregunta preguntas respuesta información detalles nombre completo preferencia especialista evaluación valoración primera visita revisión seguimiento cuidado cuidados momento rato día tarde noche mañana semana próximo próxima siguiente último última anterior pronto luego después ahorita enseguida rápido lamentablemente desafortunadamente claramente directamente gusta gustan prácticamente practicamente indoloro indolora doler dolerá libras esterlinas pesos euros encantado encantada amable paciencia comprensión disculpe disculpa perdone tranquilo tranquila listo lista agendado agendada confirmado confirmada recibido recibida",
     "quiero queremos necesitamos gustaría podrían pueden ayudar ayudarme llamar llamarme llámeme escribir confirmar confirmo cancelo cambio cambiar mover nombre apellido número teléfono correo dirección ciudad casa trabajo esposo esposa familia amigo amiga primera vez nuevo nueva paciente pacientes clienta cliente gracias muchas muchos todos todas mismo misma otra vez cuál cuáles qué tal bien muy listo lista perfecto ok",
   ].join(" "),
 );
+
+/**
+ * Spanish verbs a front desk uses, as infinitives, read with their regular
+ * forms (isSpanishVerbForm): "responderá", "quedó", "agendada", "avisará",
+ * "llamarle". A closed list, not open morphology, so a word of Portuguese
+ * or Italian that merely ends like Spanish is not taken for Spanish on that
+ * alone; the replies of the 21 October review that read as another language
+ * ("el equipo le responderá en un día", "ya quedó agendada su cita") were
+ * made of these.
+ */
+const ES_VERBS = words(
+  [
+    "agendar ayudar avisar buscar cambiar cancelar confirmar consultar contactar contestar dejar depositar descansar desear empezar encontrar enviar esperar evaluar explicar firmar ganar hablar indicar informar intentar llamar llegar llenar mandar marcar mirar necesitar notificar olvidar pagar pasar preguntar preparar programar quedar reagendar recomendar registrar reservar revisar sacar separar solicitar tardar terminar tomar trabajar tratar usar visitar anotar apuntar apartar acompañar aceptar cobrar costar durar entrar estacionar asegurar alertar organizar retrasar adelantar dudar preocupar presentar agradecer",
+    "atender comer conocer creer deber entender leer meter ofrecer parecer poder querer responder resolver ver vender volver aparecer establecer mantener obtener proceder recorrer suceder tener hacer poner saber traer",
+    "abrir asistir compartir cubrir decidir describir dirigir escribir existir incluir permitir recibir referir repetir seguir sentir subir vivir venir pedir decir salir elegir corregir medir servir preferir sugerir conseguir",
+  ].join(" "),
+);
+
+/** The regular endings of an -ar verb, then an -er or -ir verb, longest first, each with the infinitive's ending it stands for. */
+const ES_VERB_ENDINGS: readonly (readonly [string, readonly string[]])[] = [
+  // Future and conditional: the infinitive and an ending.
+  ...["emos", "eis", "iamos", "ias", "ian", "ia", "as", "an", "e", "a"].map((e) => [`r${e}`, ["r"]] as const),
+  // Participles, gerunds, the preterite, the present and the subjunctive.
+  ...["ados", "adas", "ado", "ada", "ando", "amos", "aron", "aste", "aba", "aban", "abamos", "ar", "an", "as", "en", "es", "o", "a", "e"].map((e) => [e, ["ar"]] as const),
+  ...["idos", "idas", "ido", "ida", "iendo", "imos", "emos", "ieron", "iste", "io", "ia", "ian", "er", "ir", "en", "es", "an", "as", "o", "e", "a", "i"].map((e) => [e, ["er", "ir"]] as const),
+];
+
+/** Pronouns that join a verb's end: "llamarle", "confirmarselo", "ayudarles". */
+const ES_ENCLITIC = /(?:selos|selas|selo|sela|les|los|las|le|lo|la|me|te|nos|se)$/;
+
+/** Whether a word is a regular form of one of ES_VERBS, accents aside: "responderá", "quedó", "agendada", "llamarle". */
+function isSpanishVerbForm(word: string): boolean {
+  const bare = word.normalize("NFD").replace(/\p{M}+/gu, "");
+  if (bare.length < 4 || !/^[a-zñ]+$/.test(bare)) return false;
+  const forms = [bare];
+  const clitic = ES_ENCLITIC.exec(bare);
+  if (clitic && bare.length - clitic[0].length >= 4) forms.push(bare.slice(0, -clitic[0].length));
+  for (const form of forms) {
+    for (const [ending, infinitives] of ES_VERB_ENDINGS) {
+      if (!form.endsWith(ending) || form.length - ending.length < 2) continue;
+      const stem = form.slice(0, form.length - ending.length);
+      for (const inf of infinitives) {
+        // The future and conditional keep the infinitive whole: "responder" + "á".
+        const candidate = inf === "r" ? `${stem}r` : `${stem}${inf}`;
+        if (ES_VERBS.has(candidate)) return true;
+      }
+    }
+  }
+  return false;
+}
 
 /** Words of the other Latin-script languages met most often, none of them English or Spanish. */
 const OTHER = words(
@@ -93,7 +146,7 @@ const OTHER = words(
     // some of them as English ("sans", "pendant", "pour", "tout").
     "je j' tu nous vous il elle est suis sommes êtes pas ne n' c' ça qu' des du au aux et avec très oui combien coûte être avoir fait faire peut peux veux mon ma mes ton votre vos notre dans chez alors aussi où quel quelle quoi demain plaît voudrais respire respirer chien chat sans pendant pour tout toute tous comme donc toujours jamais rien sur leur cette ces",
     // Portuguese
-    "não você vocês eu estou tenho quanto muito também uma isso isto meu minha seu sua custa quero posso bom boa noite hoje amanhã horário consigo respirar cachorro está abrem abre aberto aberta fechado fechada queria gostaria marcar filho filha marido esposa dor doendo dente dentes unha cabelo rosto preço tudo vocês obrigada onde tem pode fazer mais agora depois ainda nossa nosso efeitos",
+    "não você vocês eu estou tenho foi vai sua seu equipe unidade passar quanto muito também uma isso isto meu minha seu sua custa quero posso bom boa noite hoje amanhã horário consigo respirar cachorro está abrem abre aberto aberta fechado fechada queria gostaria marcar filho filha marido esposa dor doendo dente dentes unha cabelo rosto preço tudo vocês obrigada onde tem pode fazer mais agora depois ainda nossa nosso efeitos",
     // German
     "ich nicht und ist sind sie das ein eine einen mit bitte kann können haben wir mein meine hallo guten wie viel kostet termin heute morgen hilfe atmen atmet hund auch noch schon aber oder wenn dann muss habe hast sehr dein ihr von für auf",
     // Italian
@@ -282,6 +335,7 @@ function isMisspeltEnglish(word: string): boolean {
 function isSpanish(word: string): boolean {
   if (ES.has(word)) return true;
   if (OTHER.has(word)) return false;
+  if (isSpanishVerbForm(word)) return true;
   if (word.endsWith("es") && ES.has(word.slice(0, -2))) return true;
   return word.endsWith("s") && ES.has(word.slice(0, -1));
 }

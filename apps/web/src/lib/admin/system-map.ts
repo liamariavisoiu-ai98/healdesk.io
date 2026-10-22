@@ -776,8 +776,14 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_KMS_KEY_ID: "Names the key in the key safe; not the key.",
   HEALDESK_LOCAL_KEK: "Development only: production refuses it and uses the key safe.",
   HEALDESK_DIRECT_BOOKING_ENABLED:
-    "Your switch for AYA booking by herself rather than asking the clinic. No channel calls the booking engine yet, so today it changes only the buy page's wording and reports; never set from Terraform.",
+    "Your switch for AYA booking by herself rather than asking the clinic. On, together with counsel's release of the Direct booking addendum, the call and website chat book through the booking engine; it also changes the buy page's wording and reports. Never set from Terraform.",
   HEALDESK_PHASE_TWO_ATTRIBUTION: "The phase-two switch, off in v1.",
+  HEALDESK_VOICE_PROVISION_ENABLED:
+    "Your switch for the engine buying each paid voice clinic's AYA number from Retell and creating its agent by itself (apps/app lib/voice/provision.ts). Exactly 1 is on; anything else is off, and off makes no Retell call at all. Each number is billed by Retell. Set it, with HEALDESK_RETELL_VOICE_ID, on the worker and web tasks when you decide; until then agents and numbers are set up by hand. Never set from Terraform.",
+  HEALDESK_VOICE_PROVISION_DAILY_CAP:
+    "How many AYA numbers automatic voice provisioning may order from Retell in one UTC day, across every clinic: 20 by default. Over it, clinics wait for the next day and you are emailed once.",
+  HEALDESK_RETELL_VOICE_ID:
+    "Which of Retell's voices every clinic's agent speaks with, by Retell's voice id. Unset, it is retell-Sloane, the demo agent's voice. A voice starting xai- is refused: Retell does not accept it on our agents. Whether retell-Sloane speaks Latin American Spanish well is yours to check on Retell's dashboard.",
   HEALDESK_CHAT_MODEL: "Which model answers website chat: one of PATIENT_MODEL_IDS (@healdesk/catalog model-retention.ts); any other value is ignored with a warning, because the agreements state the provider's retention for those models only.",
   HEALDESK_VOICE_MODEL: "Which model answers calls: one of PATIENT_MODEL_IDS (@healdesk/catalog model-retention.ts); any other value is ignored with a warning, because the agreements state the provider's retention for those models only.",
   // One-off jobs (apps/app/scripts), started by hand inside AWS.
@@ -788,6 +794,11 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_EXPORT_REQUESTED_BY: "Who asked for the export: a word.",
   HEALDESK_RUNTIME_ROLE: "The database role the queue is installed for: a name.",
   USER: "Set by the shell: who ran the job, for its audit row.",
+  // The voice eval (apps/app/scripts/voice-eval), run by hand on a developer's computer on synthetic calls only. Never set on Vercel or AWS.
+  VOICE_EVAL_ANTHROPIC_API_KEY:
+    "A developer's own Anthropic key for the voice eval on their computer, never the HIPAA organisation's ANTHROPIC_API_KEY and never on Vercel or AWS: synthetic test calls only. Rotate or revoke it in the Anthropic console.",
+  VOICE_EVAL_CONFIRM_SPEND: "Your approval of one voice-eval run's printed cost estimate: an id, not a secret. Without it the eval makes no paid call.",
+  VOICE_EVAL_OUT_DIR: "Where the voice eval writes its results on your computer: a folder.",
 };
 
 // -----------------------------------------------------------------------------
@@ -880,8 +891,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     both: true,
     title: "The shop window hands work to the engine",
     carries:
-      "Paid purchases to set up, every Stripe billing change after that, email delivery reports (the shop window's own counted for the morning ops digest), a signer's agreement copy held back for a person to send (its id and why, once per address a day), review and welcome checks, and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses, times and attempt counts, never the words), Reviews (the practice questions waiting for you), Host and this map; the engine answers with what those pages show",
-    example: "A clinic's first invoice is paid. The shop window posts its signed agreement to the engine in an envelope sealed with a stamp only the two of them own; the engine checks the seal and opens the clinic's account.",
+      "Paid purchases to set up, every Stripe billing change after that, email delivery reports (the shop window's own counted for the morning ops digest), a signer's agreement copy held back for a person to send (its id and why, once per address a day), review and welcome checks, and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses, times and attempt counts, never the words), Reviews (the practice questions waiting for you), Retell deletions (calls Retell still held 30 minutes after they ended, as ids and times, and the button that has the engine delete one), Host and this map; the engine answers with what those pages show",
+    example: "A clinic's first invoice is paid. The shop window posts its signed agreement, a business associate agreement or, for a practice HIPAA does not cover, a data protection agreement, to the engine in an envelope sealed with a stamp only the two of them own; the engine checks the seal, records which of the two it is and opens the clinic's account.",
     keys: ["vercel.HEALDESK_PROVISION_SECRET", "aws.HEALDESK_PROVISION_SECRET", "vercel.HEALDESK_APP_URL", "aws.HEALDESK_ADMIN_EMAIL"],
     phi: false,
     build: "built",
@@ -897,7 +908,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "prospects",
     to: "web",
     title: "Clinic owners look around, try AYA, sign and pay",
-    carries: "Their work email, their clinic's website, the agreement they sign",
+    carries: "Their work email, their clinic's website, the agreement they sign (a business associate agreement, or a data protection agreement for a practice HIPAA does not cover, such as a veterinary practice)",
     example: "The owner of a med spa in Austin unlocks the demo with a work email. The site stamps that browser with a pass, so the demo is still unlocked when they come back tomorrow.",
     keys: ["vercel.HEALDESK_GATE_SECRET"],
     phi: false,
@@ -1183,7 +1194,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. Retell has no setting that sends a call on when our voice endpoint cannot be reached: after about 27 seconds of nothing it gives up and the call drops. So when the endpoint is down, you put Retell in outage mode, which by Retell's support material sends each number's calls to its fallback, the clinic's direct line, kept there every hour by the engine (that needs the Retell key). Outage mode has not been tried here: check the plan has it and make one test call before relying on it. If Retell itself is down, nothing of Retell's runs, and each clinic has to remove its forwarding by hand: nothing tells them automatically.",
+      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard until your switch for automatic set-up is on (app-retell-provisioning). Retell has no setting that sends a call on when our voice endpoint cannot be reached: after about 27 seconds of nothing it gives up and the call drops. So when the endpoint is down, you put Retell in outage mode, which by Retell's support material sends each number's calls to its fallback, the clinic's direct line, kept there every hour by the engine (that needs the Retell key). Outage mode has not been tried here: check the plan has it and make one test call before relying on it. If Retell itself is down, nothing of Retell's runs, and each clinic has to remove its forwarding by hand: nothing tells them automatically.",
   },
   {
     id: "retell-app",
@@ -1199,7 +1210,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. Until real calls are switched on (voice_real_calls, once every agreement is signed), the engine itself answers only the demo clinic: a call for any other clinic goes to its direct line, or is refused, before AYA speaks, nothing of it is kept, and you are emailed each time (voice_test_mode_refused); a check that cannot answer within the three-second start deadline is a refusal too. So the line password may be pasted before the agreements. The demo clinic is answered by AYA even with a direct line set, though its phone channel can never go live, and its calls never start billing. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. If the voice task crashes mid-call, Retell's signed call-ended message (each clinic's agent webhook, https://app.healdesk.io/api/webhooks/retell/<clinic id>) queues a backstop that, ten minutes later, reads the call back from Retell and records it with its words, emailed to the clinic, and its minutes, marked urgent when its urgent alert went out, unless the live line already did; in test mode it does so for the demo clinic alone. A call AYA never spoke on (put through to the direct line or closed before her opening line, on either path) is recorded but bills no minutes and is left out of what Home and the summaries claim. What the caller asked for is not rebuilt: the clinic reads it in the transcript, and the call makes no booking request.",
+      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. Until real calls are switched on (voice_real_calls, once every agreement is signed), the engine itself answers only the demo clinic: a call for any other clinic goes to its direct line, or is refused, before AYA speaks, nothing of it is kept, and you are emailed each time (voice_test_mode_refused); a check that cannot answer within the three-second start deadline is a refusal too. So the line password may be pasted before the agreements. The demo clinic is answered by AYA even with a direct line set, though its phone channel can never go live, and its calls never start billing. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. If the voice task crashes mid-call, Retell's signed call-ended message (each clinic's agent webhook, https://app.healdesk.io/api/webhooks/retell/<clinic id>) queues a backstop that, ten minutes later, reads the call back from Retell and records it with its words, emailed to the clinic, and its minutes, marked urgent when its urgent alert went out, unless the live line already did, and either way then has Retell delete its copy of the call (app-retell-recordings); in test mode it does so for the demo clinic alone. A call AYA never spoke on (put through to the direct line or closed before her opening line, on either path) is recorded but bills no minutes and is left out of what Home and the summaries claim. What the caller asked for is not rebuilt: the clinic reads it in the transcript, and the call makes no booking request. A call Retell says a fault cut off (its disconnection reason, or a call only the backstop recorded with no reason) is marked Ended early: the transcript email opens with a fixed line saying the caller may want a call back, Conversations marks it, Home counts it, and the clinic gets an alert. Nobody is called back by healdesk. For two hours its last few turns wait sealed, keyed by a keyed hash of the caller's number, never the number; if the same number rings again, AYA says it was cut off after her opening line and carries on, and the record is deleted as it is used, or by the minute sweep.. Every call opens with the English AI line; at a clinic that answers in Spanish, a caller who speaks Spanish turns the call to Spanish, hears the same AI and transcription line once in Spanish, and from then on every fixed line (the failure, transfer, refusal, card and booking lines, and numbers read out) in Spanish, until they go back to English (built 22 October 2026, tested with a fake model only; the Spanish lines await a native speaker's and counsel's review, and the Spanish voice your check on Retell's dashboard).",
   },
   {
     id: "retell-clinic",
@@ -1219,6 +1230,38 @@ export const BRIDGES: readonly BridgeDef[] = [
     build: "built",
     buildNote:
       "Wherever the clinic has set a direct line: when AYA is paused, capped or suspended, when the model fails twice, when answering a turn fails, and when a call starts while the database is down (the engine remembers each clinic's line from its last call, and otherwise reads it back from Retell). In Retell's outage mode, untested here, Retell would dial it without us. With no line known, the caller hears a closing line. The engine never puts a call through to a number that would bring it back to AYA: a direct line equal to the clinic's published number, its AYA number or the number called counts as no line, AYA answers with the safe script (or closes the call once the Services have ended), and you are emailed (voice_direct_line_loops).",
+  },
+  {
+    id: "app-retell-recordings",
+    theme: "running",
+    from: "app",
+    to: "retell",
+    title: "The engine has Retell delete each call once it is recorded",
+    carries:
+      "Retell's call id, once the call and its transcript are safely recorded here, and again when you press Delete at Retell on Retell deletions; Retell answers that the call (its recording, transcript and logs) is deleted, or why not",
+    example:
+      "Maria's call ends. Ten minutes later the engine finds it recorded, its transcript sealed for the clinic's email, and asks Retell to delete the call with its own key. Had Retell been down for the next half hour, the call would show on Retell deletions for you to delete by hand.",
+    keys: ["aws.HEALDESK_RETELL_API_KEY"],
+    phi: false,
+    build: "built",
+    buildNote:
+      "Since 21 October 2026 Retell keeps each call's transcript, and with it the recording, until the call is processed (data storage Everything, kept at most one day), so the backstop can read a call whose voice task died. The engine writes and reads back those settings when it sets up a clinic's agent (lib/voice/provision.ts, app-retell-provisioning), which waits on your switch; until it is on, agents are set up by hand. The backstop job, ten minutes after Retell's call-ended message, deletes the call at Retell once it has a conversation here with its sealed transcript, without waiting for the email to be delivered; a failure is retried for about an hour. A call never recorded here is left to Retell's one-day deletion. A call still at Retell 30 minutes after it ended becomes one alert on Retell deletions: the clinic, Retell's call id and when, never the recording or its address. Your browser never sees the Retell key.",
+  },
+  {
+    id: "app-retell-provisioning",
+    theme: "running",
+    from: "app",
+    to: "retell",
+    title: "The engine sets up each clinic's Retell agent and number",
+    carries:
+      "The clinic's id, its agent's settings (our voice endpoint's address, storage kept at most a day, the call-ended webhook, the voice and language: English, with Latin American Spanish beside it when the clinic answers in Spanish), an order for an AYA number, the number's binding to the agent for inbound calls only and its fallback, the clinic's direct line; Retell answers with its ids",
+    example:
+      "A clinic pays its first invoice for Voice + Web Chat. Within the hour the engine creates its Retell agent, buys an AYA number in the clinic's area code, binds it to the agent and sets its fallback to the front desk, reads it all back and marks it ready; the clinic then forwards its line to that number.",
+    keys: ["aws.HEALDESK_RETELL_API_KEY"],
+    phi: false,
+    build: "built",
+    buildNote:
+      "Built on 21 October 2026 and off: nothing is bought until your switch HEALDESK_VOICE_PROVISION_ENABLED is 1, and then only for a clinic whose first invoice is paid and whose package has voice, and at most HEALDESK_VOICE_PROVISION_DAILY_CAP numbers a day. A run that crashed after buying finds the number by its nickname rather than buying another. A voice or language change is written to Retell within the hour, only when its hash changed; knowledge, prices, hours and the greeting live here and need no Retell write. Every night at 03 UTC the engine reads each agent and number back, writes them again where they drifted and emails you once per drift, and after three repairs leaves it for you. Once a departed clinic's pass-through has ended, its number is released and its agent deleted (the care page's Retell step is still yours to record). Only the custom engine is built; a clinic set to Retell's own engine fails with that reason. Tested against a fake Retell only: Retell's list-numbers paging and its delete-agent answer are not confirmed in its reference.",
   },
   {
     id: "patients-widget",
@@ -1309,9 +1352,9 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "gcal",
     both: true,
-    title: "Bookings the desk confirms go into the clinic's calendar",
+    title: "Bookings go into the clinic's calendar",
     carries:
-      "Free times one way, for a request the desk opens on Bookings and for the clinic's own Talk to your AYA preview, which holds and books nothing; the booking the desk confirms on Bookings the other",
+      "Free times one way, for a request the desk opens on Bookings, for the clinic's own Talk to your AYA preview, which holds and books nothing, and, once direct booking is switched on, for AYA on a call or in website chat; the booking the desk confirms, or AYA makes, the other",
     example:
       "Maria asks for Thursday afternoon. The receptionist follows the emailed link, signs in and unlocks Bookings with a passkey, sees Thursday 3pm free in the clinic's Google Calendar, confirms it, and the engine writes it there.",
     // The Google login's return address is built from the portal's address,
@@ -1321,7 +1364,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "AYA does not book by herself yet: every channel takes a request and the desk confirms it. Holding and booking a time herself is built (lib/booking/engine.ts) but no channel calls it; it waits on HEALDESK_DIRECT_BOOKING_ENABLED, which is for counsel and you.",
+      "AYA does not book by herself yet: every channel takes a request and the desk confirms it. The call and website chat now reach the booking engine through one tool layer (lib/assistant/booking-tools.ts): AYA offers the calendar's free times, holds the one chosen for a minute and books it into Google, in fixed words, one booking per conversation. It stays off until both HEALDESK_DIRECT_BOOKING_ENABLED (yours) and counsel's release of the Direct booking addendum are on, and the clinic's calendar can offer times; tested against the fake Google only, never a real calendar. Instagram, Messenger and WhatsApp still take requests.",
   },
   {
     id: "app-stripe",
@@ -1329,7 +1372,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "stripe",
     title: "The engine runs each clinic's subscription",
-    carries: "Plan changes, metered usage, refunds and extra-usage invoices, and the link to Stripe's billing page for the clinic",
+    carries: "Plan changes, metered usage, refunds and extra-usage invoices, the link to Stripe's billing page for the clinic, and an hourly read (off until you switch it on) that checks each subscription bills for as many locations as the account has, telling you once when they differ and never changing the subscription",
     example: "The day AYA first answers a patient for a clinic, the engine swaps that clinic's $0 placeholder for its real monthly price.",
     keys: ["aws.STRIPE_SECRET_KEY"],
     phi: false,
@@ -1350,7 +1393,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "partial",
     buildNote:
-      "Clinics can connect their Stripe from the deposits step of set-up (if they bought a chat channel) or in Settings, and disconnect it in Settings. The deposit link is built (lib/billing/deposit-link.ts) but no chat sends one yet: it needs a booking, and no channel books yet. Set-up already tells a clinic that has connected that AYA sends the link in chat.",
+      "Clinics can connect their Stripe from the deposits step of set-up (if they bought a chat channel) or in Settings, and disconnect it in Settings. Website chat sends the link once it books a service that needs a deposit (lib/booking/deposit-gate.ts chatDepositFor, after the booking is in the calendar, which is written owing the deposit; a link that cannot be made, or is never made because the process stopped first, goes to the front desk with its alert, the second from the worker's sweep, lib/billing/deposit-sweep.ts), and a call books and flags the deposit for staff, never a link. Neither happens until direct booking is switched on (the booking bridge to Google Calendar), so no chat sends one yet; tested against a fake Stripe only. Set-up already tells a clinic that has connected that AYA sends the link in chat.",
   },
   {
     id: "clinic-stripe-app",
@@ -1368,7 +1411,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     phiNote:
       "Stripe signs no business associate agreement. The clinic's own Stripe account sends every sale it takes through Stripe Checkout or a Payment Link, patients' details included; the engine acts only on its own deposits and a disconnect, and drops the rest on arrival without keeping it.",
     build: "built",
-    buildNote: "Only disconnects act until a chat sends deposit links.",
+    buildNote:
+      "Only disconnects act until a chat sends deposit links, which waits on direct booking. A link that expires or fails unpaid moves its deposit to the front desk, with its alert.",
   },
   {
     id: "app-resend",
@@ -1383,7 +1427,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "built",
     buildNote:
-      "Every booking alert is queued in the outbox in the same transaction as what it reports, so nothing goes for work that rolled back, and each is only a pointer to Bookings (Conversations for an urgent one) after sign-in and the passkey. They go to the clinic's account address; an urgent one goes in-process the moment its transaction commits. If an urgent alert cannot be queued, you are emailed at once (urgent_alert_not_queued) to phone the clinic, and neither the call nor website chat tells the person the team was told. Nothing goes while the billing-notices job is off, and go-live does not check it: switching it on before the first clinic goes live is an open item on /admin/seo; the opening-hour \"still open\" email also needs the requests-still-open job. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. The daily summary goes at each clinic's opening time on its working days, and the weekly recap alone on Mondays while the summary is off, once their two jobs are switched on; each counts what AYA did and lists every booking and request only as a link.",
+      "Every booking alert is queued in the outbox in the same transaction as what it reports, so nothing goes for work that rolled back, and each is only a pointer to Bookings (Conversations for an urgent one) after sign-in and the passkey. They go to the clinic's account address; an urgent one goes in-process the moment its transaction commits. If an urgent alert cannot be queued, you are emailed at once (urgent_alert_not_queued) to phone the clinic, and no channel tells the person the team was told. AYA says \"I've told the team\" only while an urgent alert would really go out: the billing-notices job on, Resend set up (its key and sender address present) and the clinic's account address there (apps/app lib/notices/urgent-readiness.ts); otherwise the urgent reply gives 911 and the clinic's number without it, the alert is still queued for when they are, and the clinic's set-up wizard and the Alerts card in its Settings say urgent alerts are not switched on yet. An urgent message in French, German, Italian or Portuguese, which AYA does not answer in, gets the line for another language and the urgent alert all the same. Nothing goes while the billing-notices job is off, and go-live does not check it: switching it on before the first clinic goes live is an open item on /admin/seo; the opening-hour \"still open\" email also needs the requests-still-open job. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. The daily summary goes at each clinic's opening time on its working days, and the weekly recap alone on Mondays while the summary is off, once their two jobs are switched on; each counts what AYA did and lists every booking and request only as a link.",
   },
   {
     id: "app-ses",
@@ -1622,7 +1666,7 @@ export const STORIES: readonly StoryDef[] = [
       { bridge: "web-sheets", text: "The owner asks to be set up; the request is kept in the company's Google Sheet." },
       { bridge: "web-stripe", text: "The owner signs and presses Pay; Stripe shows its card page." },
       { bridge: "stripe-web", text: "Stripe tells the shop window, signed, that the first invoice is paid." },
-      { bridge: "web-app", text: "The shop window hands the signed agreement to the clinic engine in a sealed envelope." },
+      { bridge: "web-app", text: "The shop window hands the signed agreement (a business associate agreement, or a data protection agreement where HIPAA does not cover the practice) to the clinic engine in a sealed envelope." },
       { bridge: "app-resend", text: "The engine emails the clinic its welcome and its sign-in link." },
     ],
   },

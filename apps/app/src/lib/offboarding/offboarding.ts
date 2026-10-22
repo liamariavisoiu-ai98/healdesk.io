@@ -24,10 +24,12 @@ import {
   patientRequests,
   providerConnections,
   reconciliationExceptions,
+  retellRecordingAlerts,
   securityEvents,
   slotHolds,
   transactions,
   transcriptEmails,
+  voiceRedialContexts,
   webhookEvents,
 } from "@/db/schema";
 import { agreementStatesTheExportRule } from "@/lib/agreements/what-it-says";
@@ -646,6 +648,10 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // deleted here first, as the transcript outbox is, so the count is in the
   // record and the stamp's check names it.
   await del("conversation_flags", () => tx.db.delete(conversationFlags).where(eq(conversationFlags.clinicId, c)).returning({ id: conversationFlags.id }));
+  // The redial records of calls that ended early (drizzle/0108): two hours
+  // at most, and gone with their conversations by cascade; deleted here
+  // first so the count is in the record and the stamp's check names it.
+  await del("voice_redial_contexts", () => tx.db.delete(voiceRedialContexts).where(eq(voiceRedialContexts.clinicId, c)).returning({ id: voiceRedialContexts.id }));
   await del("conversations", () => tx.db.delete(conversations).where(eq(conversations.clinicId, c)).returning({ id: conversations.id }));
   // Who messaged the clinic, as keyed hashes of their sender ids (see the header).
   await del("chat_threads", () => tx.db.delete(chatThreads).where(eq(chatThreads.clinicId, c)).returning({ id: chatThreads.partyRef }));
@@ -661,6 +667,27 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // their cascade would take the list anyway; deleted here first so the
   // count is in the record and the stamp's check names it.
   await del("incident_affected_contacts", () => tx.db.delete(incidentAffectedContacts).where(eq(incidentAffectedContacts.clinicId, c)).returning({ id: incidentAffectedContacts.contactId }));
+  // The Retell call alerts (drizzle/0105): Retell's call ids and our own
+  // reasons, no content, but each ties a call to the clinic, so they go with
+  // its data, open or resolved, and the stamp's check names them (0106). One
+  // still open names a recording Retell may still hold, and this row is its
+  // only trace: ops is told, with the call ids, to delete those calls at
+  // Retell by hand.
+  const recordingAlerts = await tx.db
+    .delete(retellRecordingAlerts)
+    .where(eq(retellRecordingAlerts.clinicId, c))
+    .returning({ id: retellRecordingAlerts.id, callId: retellRecordingAlerts.retellCallId, resolvedAt: retellRecordingAlerts.resolvedAt });
+  deleted.retell_recording_alerts = recordingAlerts.length;
+  const stillAtRetell = recordingAlerts.filter((a) => a.resolvedAt === null).map((a) => a.callId);
+  if (stillAtRetell.length > 0) {
+    log.error("destruction took open Retell recording alerts: delete these calls at Retell by hand", {
+      clinicId: c,
+      // Allowlisted keys only (lib/log.ts throws on any other): the ids,
+      // comma-joined, under callId.
+      count: stillAtRetell.length,
+      callId: stillAtRetell.join(","),
+    });
+  }
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
   // The records of the clinic's deletion requests (drizzle/0063): dates,

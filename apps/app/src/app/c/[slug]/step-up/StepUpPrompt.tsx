@@ -22,6 +22,8 @@ export function StepUpPrompt(props: {
   hasPasskey: boolean;
   protectHref: string;
   initialDevice: DeviceKind;
+  /** Who the practice serves: a vet's details are its clients'. */
+  audience: "patients" | "clients";
 }) {
   const [device, setDevice] = useState<DeviceKind>(props.initialDevice);
   const [working, setWorking] = useState(false);
@@ -36,6 +38,7 @@ export function StepUpPrompt(props: {
   }, []);
 
   const word = unlockWord(device);
+  const details = props.audience === "clients" ? "Client details" : "Patient details";
 
   async function confirm(): Promise<void> {
     setWorking(true);
@@ -76,8 +79,8 @@ export function StepUpPrompt(props: {
       <div>
         <h1 className="text-2xl font-semibold">Add {word} first</h1>
         <p className="text-muted mt-3">
-          Patient details open only after {word} on a device you&rsquo;ve added, and this sign-in
-          has none yet.
+          {details} open only after {word} on a device you&rsquo;ve added, and this sign-in has
+          none yet.
         </p>
         <a
           href={props.protectHref}
@@ -92,7 +95,9 @@ export function StepUpPrompt(props: {
   return (
     <div>
       <h1 className="text-2xl font-semibold">Confirm it&rsquo;s you</h1>
-      <p className="text-muted mt-3">Patient details need {word} on a device you&rsquo;ve added.</p>
+      <p className="text-muted mt-3">
+        {details} need {word} on a device you&rsquo;ve added.
+      </p>
       {!supported ? (
         <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3 text-sm">
           This browser can&rsquo;t use passkeys. Open this page in Safari or Chrome, or on your

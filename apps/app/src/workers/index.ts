@@ -1,8 +1,10 @@
 import { reconcilePeriod } from "@/lib/sync/reconcile-store";
 import { monthContaining, previousMonth } from "@/lib/attribution/period";
+import { sweepUnlinkedDeposits } from "@/lib/billing/deposit-sweep";
 import { runBillingRequestsJob } from "@/lib/billing/requests";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
+import { sweepRedialContexts } from "@/lib/voice/redial";
 import { runBillingNoticesJob } from "@/lib/email/outbox";
 import {
   getBoss,
@@ -16,6 +18,7 @@ import {
   QUEUE_SYNC_CONNECTION,
   QUEUE_TICK,
   QUEUE_VOICE_CALL_BACKSTOP,
+  QUEUE_VOICE_PROVISION,
   startGuardedClock,
   stopBoss,
   type ProcessWebhookPayload,
@@ -31,6 +34,7 @@ import { runPracticeQuestionsJob } from "@/lib/engine/practice/job";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSiteReadsJob } from "@/lib/website/job";
 import { handleCallBackstopJob, type CallBackstopPayload } from "@/lib/voice/backstop";
+import { handleVoiceProvisionJob, type VoiceProvisionPayload } from "@/lib/voice/provision-job";
 import { runTick } from "@/lib/scheduler/tick";
 import { syncConnection } from "@/lib/sync/run";
 import { processWebhookEvent } from "@/lib/sync/webhooks";
@@ -173,6 +177,23 @@ async function main(): Promise<void> {
       // The ops watch's purchase checks (WP5): a paid order with no account
       // ten minutes on, and B3's follow-up past its day (lib/ops/watch.ts).
       ["ops-watch", () => runOpsWatchJob()],
+      // The redial records of calls that ended early (lib/voice/redial.ts):
+      // each deleted at its two hours, whatever any switch says. Unswitched.
+      [
+        "redial-sweep",
+        async () => ({ status: "ok" as const, note: `${await sweepRedialContexts()} deleted` }),
+      ],
+      // A chat deposit whose link was never made, handed to the front desk
+      // once its grace has passed (lib/billing/deposit-sweep.ts). Unswitched.
+      [
+        "deposit-links",
+        async () => {
+          const r = await sweepUnlinkedDeposits();
+          return r.failures
+            ? { status: "failed" as const, note: `${r.failures} clinics failed` }
+            : { status: "ok" as const, note: `${r.flagged} flagged` };
+        },
+      ],
     ] as const) {
       try {
         const outcome = await run();
@@ -257,6 +278,21 @@ async function main(): Promise<void> {
   } else {
     log.error("queue not worked: run `npm run queue:install` as the migrator, then restart the worker", {
       job: QUEUE_VOICE_CALL_BACKSTOP,
+    });
+  }
+
+  // Each clinic's Retell agent and AYA number (lib/voice/provision-job.ts),
+  // queued by the hourly sweep only while HEALDESK_VOICE_PROVISION_ENABLED is
+  // on. A run Retell did not answer throws, and pg-boss retries it with the
+  // backoff set at enqueue; every run is idempotent. Looked up first, like
+  // the backstop, so a queue never installed is logged with its fix.
+  if (await boss.getQueue(QUEUE_VOICE_PROVISION)) {
+    await boss.work<VoiceProvisionPayload>(QUEUE_VOICE_PROVISION, { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await handleVoiceProvisionJob(job.data);
+    });
+  } else {
+    log.error("queue not worked: run `npm run queue:install` as the migrator, then restart the worker", {
+      job: QUEUE_VOICE_PROVISION,
     });
   }
 

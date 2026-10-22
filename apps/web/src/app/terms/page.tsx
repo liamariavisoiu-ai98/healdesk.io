@@ -237,6 +237,36 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * what it says of the BAA it says of that agreement. terms-copy.test.ts holds
  * every remaining use of the defined term to a passage where the BAA itself
  * is meant (docs/counsel/agreement-changes.md §18).
+ *
+ * Revised again on 21 October 2026 (numbered 2026-10-21.1 until the revision
+ * below, and never published under it), for the
+ * owner's decision of 20 October 2026 that one AYA answers for every location of a practice as
+ * a central assistant, like a call centre, not a separate assistant for each
+ * (the extra-locations plan, section 3). Section 2's pass-through goes to the
+ * direct line given for that location, where it said the one given at setup;
+ * section 3's "More than one location" says one assistant answers for all of
+ * them, with one knowledge base, price list and sign-in, and that only the
+ * Practice's own locations join its account, a different business needing its
+ * own; section 3's setup fee says what a further location's fee is charged for
+ * and when, which "charged once, on your first invoice" did not; section 8
+ * asks for a direct number for each location; the guarantee's "Routed to it"
+ * counts a call forwarded to a healdesk number assigned to any of the
+ * Practice's locations, where it named one number for the practice; and the
+ * annex says the locations of one account are not kept apart from each
+ * other. The Business Associate Agreement needs no new version for these
+ * (plan, section 3), subject to the wording audit's reading of its clause 11.
+ *
+ * Revised on 22 October 2026 as LEGAL_VERSION 2026-10-22.1, with the central
+ * assistant revision above, for the owner's decision of 22 October 2026 that
+ * "no call audio is kept" is not wholly true: the voice provider (Retell)
+ * holds a call's transcript and recording until healdesk has its own copy of
+ * the transcript, then healdesk has it delete them, and its own retention for
+ * anything left is one day. Section 3's list of what the assistant does and
+ * the closing annex's account of the opening line now say that we keep no call
+ * audio and that the provider holds a recording for no more than a day, and
+ * the privacy policy's retention section says it in the same words. The
+ * Business Associate Agreement and the Data Protection Agreement were edited
+ * in place for it (docs/counsel/agreement-changes.md §19).
  */
 export default function TermsPage() {
   const products = productsForTerms();
@@ -293,8 +323,9 @@ export default function TermsPage() {
             contact you name. You will not configure it to diagnose, recommend treatment or
             triage, and you will not rely on it for emergencies. On every channel the assistant's
             first line says it is an AI assistant; on calls the same line says the call is
-            transcribed, and no call audio is kept. You cannot switch that off or edit it out
-            through the greeting.
+            transcribed, that we keep no call audio and that our voice provider holds a recording
+            for no more than a day. You cannot switch that off or edit it out through the
+            greeting.
           </li>
           <li>
             <strong>It works on your instructions.</strong> The services it offers, the prices it
@@ -308,7 +339,8 @@ export default function TermsPage() {
             paused it, because the service is suspended for non-payment, because your monthly
             allowance has run out and your setting is "Stop and fall back", or because the
             service has ended or failed — forwarded calls are passed straight through to the
-            direct line you gave us at setup (section 8) rather than answered by the agent, and
+            direct line you gave us for that location (section 8) rather than answered by the
+            agent, and
             website chat becomes a contact form. Each time, we also tell you how to remove the
             forwarding so calls reach your Practice exactly as they did before.
           </li>
@@ -410,11 +442,17 @@ export default function TermsPage() {
         <p>
           <strong>More than one location.</strong> Each further location is added to your
           subscription at your plan&apos;s price again, on the same renewal date and prorated to
-          it, plus the package&apos;s setup fee once.
+          it, plus the package&apos;s setup fee once. One {site.agent} answers for all of your
+          locations as a central assistant, like a call centre: one knowledge base, one price list
+          and one sign-in, not a separate assistant for each location. Every location you add must
+          be operated by the Practice that accepted these terms; a location run by a different
+          business needs its own account.
         </p>
         <p>
           <strong>The setup fee</strong> is charged once, on your first invoice, and pays for
-          building, configuring and testing your agent. That work starts as soon as it is paid,
+          building, configuring and testing your agent. A further location&apos;s setup fee is
+          charged when the location is added, and pays for setting that location up, its number
+          where your package has phone, and a QA pass. That work starts as soon as it is paid,
           so the setup fee is never refunded. Moving to a package with a higher setup fee charges
           only the difference. A setup credit, where one was offered to you by email, with a
           personalised demo, or on our website, is taken off the setup fee at
@@ -566,7 +604,8 @@ export default function TermsPage() {
           <li>
             <strong>Call forwarding and your direct line.</strong> You set and keep the call
             forwarding on your own line, with your carrier, in the coverage mode you chose. You
-            give us a direct phone number for your Practice that is not itself forwarded to us,
+            give us a direct phone number for each of your locations that is not itself forwarded
+            to us,
             keep it staffed, and tell us when it changes: it is where calls go whenever the agent
             is not answering (sections 2, 6 and 7).
           </li>
@@ -870,14 +909,16 @@ export default function TermsPage() {
             <strong>One clinic cannot see another.</strong> Every table that holds patient
             information carries row-level security that the application role cannot bypass and the
             table owner cannot skip. A test suite asserts, for every such table, that the policy
-            exists, is forced, and names the clinic column.
+            exists, is forced, and names the clinic column. The locations of one account share
+            that account, so they are not kept apart from each other.
           </li>
           <li>
             <strong>The AI says it is an AI, first.</strong> Every call, chat and message opens
             with a line saying the patient is talking to an AI assistant; on the phone the same
-            line says the call is transcribed, and no call audio is kept. The clinic cannot switch
-            it off or edit it out through the greeting, and the record of each call notes when it
-            was given.
+            line says the call is transcribed, that we keep no call audio and that our voice
+            provider holds a recording for no more than a day. The clinic cannot switch it off or
+            edit it out through the greeting, and the record of each call notes when it was
+            given.
           </li>
           <li>
             <strong>Transcripts are emailed to the clinic, not kept.</strong> When a call or a

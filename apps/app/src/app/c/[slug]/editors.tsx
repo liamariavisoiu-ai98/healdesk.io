@@ -37,18 +37,21 @@ export const WEEKDAY_HOURS: HoursInitial = {
 export function HoursEditor(props: {
   hours: HoursInitial;
   onHours: (hours: HoursInitial) => void;
-  closures: ClosureRow[];
-  onClosures: (closures: ClosureRow[]) => void;
+  /** The closed days; left out (with onClosures), the editor shows the week alone. */
+  closures?: ClosureRow[];
+  onClosures?: (closures: ClosureRow[]) => void;
   /** Today on the clinic's calendar: no closed day before it. */
-  today: string;
+  today?: string;
   /** The closed days' heading: h2 on a wizard screen, h3 inside Knowledge's Hours section. */
   closuresHeading?: "h2" | "h3";
 }) {
-  const { hours, closures } = props;
+  const { hours } = props;
+  const closures = props.closures ?? [];
+  const onClosures = props.onClosures;
   const ClosuresHeading = props.closuresHeading ?? "h2";
   const setDay = (day: DayKey, ranges: Range[]) => props.onHours({ ...hours, [day]: ranges });
   const setClosure = (i: number, patch: Partial<ClosureRow>) =>
-    props.onClosures(closures.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+    onClosures?.(closures.map((c, j) => (j === i ? { ...c, ...patch } : c)));
 
   return (
     <>
@@ -135,49 +138,51 @@ export function HoursEditor(props: {
         })}
       </div>
 
-      <div className="grid gap-2">
-        <ClosuresHeading className="text-sm font-semibold">
-          Days you&rsquo;re closed
-        </ClosuresHeading>
-        <p className="text-muted text-xs">
-          Holidays and training days. AYA tells callers, and phone treats them as after hours.
-        </p>
-        {closures.map((closure, i) => (
-          <div key={i} className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              aria-label="Closed on"
-              min={props.today}
-              value={closure.closedOn}
-              onChange={(event) => setClosure(i, { closedOn: event.target.value })}
-              className="border-line min-h-11 rounded-lg border bg-white px-2"
-            />
-            <input
-              type="text"
-              aria-label="What it's for"
-              placeholder="e.g. Thanksgiving"
-              maxLength={80}
-              value={closure.label}
-              onChange={(event) => setClosure(i, { label: event.target.value })}
-              className="border-line min-h-11 flex-1 rounded-lg border bg-white px-3"
-            />
-            <button
-              type="button"
-              onClick={() => props.onClosures(closures.filter((_, j) => j !== i))}
-              className="text-muted min-h-11 px-2 text-sm underline"
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={() => props.onClosures([...closures, { closedOn: "", label: "" }])}
-          className="border-line min-h-11 w-fit rounded-full border px-4 py-2 text-sm font-semibold"
-        >
-          Add a closed day
-        </button>
-      </div>
+      {onClosures ? (
+        <div className="grid gap-2">
+          <ClosuresHeading className="text-sm font-semibold">
+            Days you&rsquo;re closed
+          </ClosuresHeading>
+          <p className="text-muted text-xs">
+            Holidays and training days. AYA tells callers, and phone treats them as after hours.
+          </p>
+          {closures.map((closure, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                aria-label="Closed on"
+                min={props.today}
+                value={closure.closedOn}
+                onChange={(event) => setClosure(i, { closedOn: event.target.value })}
+                className="border-line min-h-11 rounded-lg border bg-white px-2"
+              />
+              <input
+                type="text"
+                aria-label="What it's for"
+                placeholder="e.g. Thanksgiving"
+                maxLength={80}
+                value={closure.label}
+                onChange={(event) => setClosure(i, { label: event.target.value })}
+                className="border-line min-h-11 flex-1 rounded-lg border bg-white px-3"
+              />
+              <button
+                type="button"
+                onClick={() => onClosures(closures.filter((_, j) => j !== i))}
+                className="text-muted min-h-11 px-2 text-sm underline"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => onClosures([...closures, { closedOn: "", label: "" }])}
+            className="border-line min-h-11 w-fit rounded-full border px-4 py-2 text-sm font-semibold"
+          >
+            Add a closed day
+          </button>
+        </div>
+      ) : null}
     </>
   );
 }

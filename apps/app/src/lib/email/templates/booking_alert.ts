@@ -9,7 +9,8 @@ import type { EmailTemplate, TemplateContext } from "./types";
 /**
  * The live alerts (Annex X5 of the funnel and portal plan): L7 booking
  * request, L8 request still open, L9 missed, L10 deposit to collect, L11
- * handover, L12 urgent, L20 website message and L34 calendar check. Queued by
+ * handover, L12 urgent, L20 website message, L34 calendar check and L35 a
+ * call that ended early. Queued by
  * lib/notices/booking-alerts.ts in the transaction that makes each one true,
  * sent at once, at any hour; L12 is critical and goes in-process right after
  * commit.
@@ -323,6 +324,37 @@ export const renderCalendarCheck: EmailTemplate<BookingAlertPayload> = (payload,
   );
 
 // -----------------------------------------------------------------------------
+// L35: a call that ended unexpectedly
+// -----------------------------------------------------------------------------
+
+/**
+ * A call cut off by a fault, not by the caller or AYA (lib/voice/ended-early.ts).
+ * healdesk contacts nobody: the email says the caller may want a call back,
+ * and leaves that to the team. Nothing about who called or what was said.
+ */
+export const renderEndedEarly: EmailTemplate<BookingAlertPayload> = (payload, ctx) =>
+  compose(
+    {
+      subject: "A call ended unexpectedly",
+      preheader: "The caller may want a call back from your team.",
+      blocks: [
+        {
+          type: "paragraph",
+          text: `A call to ${clinicOf(ctx)} ended unexpectedly, before AYA and the caller had finished. The caller may want a call back from your team.`,
+        },
+        {
+          type: "paragraph",
+          text: "It is marked Ended early in Conversations, where you can see who called and when.",
+        },
+        ...whereTheDetailsAre("voice"),
+        ...openAction(payload.portalUrl),
+        pointerLine(ctx),
+      ],
+    },
+    ctx,
+  );
+
+// -----------------------------------------------------------------------------
 // The registry's entries
 // -----------------------------------------------------------------------------
 
@@ -407,5 +439,12 @@ export const CALENDAR_CHECK_ENTRY: TemplateEntry<BookingAlertPayload> = {
   render: renderCalendarCheck,
   get fixture() {
     return alertFixture({ channel: null, bookingRequestId: REQUEST_ID });
+  },
+};
+
+export const ENDED_EARLY_ENTRY: TemplateEntry<BookingAlertPayload> = {
+  render: renderEndedEarly,
+  get fixture() {
+    return alertFixture({ channel: "voice", conversationId: CONVERSATION_ID, portalUrl: publicUrl("/c/radiance-med-spa/conversations") });
   },
 };

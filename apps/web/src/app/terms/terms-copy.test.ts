@@ -64,17 +64,23 @@ describe("the terms describe v1 as the spec defines it", () => {
     expect(text).not.toContain("console");
     // Pause, suspension, the allowance cap and the end of the service all pass
     // calls straight through to the Practice's own direct line.
-    expect(text).toContain("passed straight through to the direct line you gave us at setup");
+    // Each location's calls go to that location's own line (owner, 20
+    // October 2026): one direct line "given at setup" would send a second
+    // location's callers to the first location's desk.
+    expect(text).toContain("passed straight through to the direct line you gave us for that location");
+    expect(text).not.toContain("the direct line you gave us at setup");
     expect(text).toContain("forwarded calls are passed straight through to your direct line (section 8) rather than answered");
     expect(text).toContain(
       `at least ${POLICY.forwardingPassThroughDays} days after the service ends or until you remove call forwarding, whichever is first`,
     );
-    expect(text).toContain("a direct phone number for your Practice that is not itself forwarded to us");
+    expect(text).toContain("a direct phone number for each of your locations that is not itself forwarded to us");
   });
 
   test("the AI line opens every channel and says calls are transcribed", () => {
     expect(text).toContain("On every channel the assistant's first line says it is an AI assistant");
-    expect(text).toContain("on calls the same line says the call is transcribed, and no call audio is kept");
+    expect(text).toContain(
+      "on calls the same line says the call is transcribed, that we keep no call audio and that our voice provider holds a recording for no more than a day",
+    );
   });
 
   test("the model's 30-day retention is disclosed as Anthropic documents it, and liability is allocated once", () => {
@@ -274,6 +280,27 @@ describe("section 3 states the step pricing of 13 October 2026", () => {
     );
   });
 
+  test("one AYA answers for every location, and only the Practice's own locations join its account", () => {
+    // The owner's decision of 20 October 2026, and the extra-locations
+    // plan's section 3: a location is part of one account answered by one
+    // central assistant. A sister company is a separate business, which the
+    // agreement's one named Practice does not cover.
+    expect(text).toContain(
+      "One AYA answers for all of your locations as a central assistant, like a call centre: one knowledge base, one price list and one sign-in, not a separate assistant for each location.",
+    );
+    expect(text).toContain(
+      "Every location you add must be operated by the Practice that accepted these terms; a location run by a different business needs its own account.",
+    );
+  });
+
+  test("a further location's setup fee says when it is charged and what it pays for", () => {
+    // "Charged once, on your first invoice" is the first location's fee; a
+    // further location's is charged when it is added (decision 4).
+    expect(text).toContain(
+      "The setup fee is charged once, on your first invoice, and pays for building, configuring and testing your agent. A further location's setup fee is charged when the location is added, and pays for setting that location up, its number where your package has phone, and a QA pass.",
+    );
+  });
+
   test("one setup credit applies to a purchase, and to the setup fee alone", () => {
     expect(text).toContain(
       "A setup credit, where one was offered to you by email, with a personalised demo, or on our website, is taken off the setup fee at checkout while the offer holds and is applied to nothing else; only one applies to a purchase.",
@@ -347,6 +374,17 @@ describe("the first-month guarantee", () => {
     for (const para of GUARANTEE_TEXT.paragraphs) {
       expect(text).toContain(`${para.lead} ${para.body}`);
     }
+  });
+
+  test("a call is routed to it when it is forwarded to the healdesk number of any of the Practice's locations", () => {
+    // With one AYA number per location (decision 1), "the healdesk number
+    // assigned to your practice" would leave a second location's forwarded
+    // calls outside the guarantee.
+    const routed = GUARANTEE_TEXT.paragraphs.find((p) => p.lead === "Routed to it")!.body;
+    expect(routed).toContain(
+      "means: a phone call your carrier forwards to a healdesk number assigned to one of your locations, from the moment your carrier's record or ours shows the forward;",
+    );
+    expect(routed).not.toContain("assigned to your practice");
   });
 
   test("quotes the thresholds and the claim route from POLICY and ENTITY, with no placeholder left", () => {
@@ -442,6 +480,15 @@ describe("the annex on how we protect data", () => {
   test("is the last thing on the page, after section 20, under its own anchor", () => {
     expect(markup.indexOf('id="security"')).toBeGreaterThan(markup.indexOf('id="entity"'));
     expect(annex.startsWith("How we protect data")).toBe(true);
+  });
+
+  test("says the locations of one account are not kept apart from each other", () => {
+    // Row-level security separates accounts. Under one central AYA the
+    // locations of an account share it, and anyone with its sign-in sees
+    // every location's conversations and bookings (owner, 20 October 2026).
+    expect(annex).toContain(
+      "names the clinic column. The locations of one account share that account, so they are not kept apart from each other.",
+    );
   });
 
   test("opens by saying it is not a term of the agreement", () => {

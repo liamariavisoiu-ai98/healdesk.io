@@ -553,3 +553,77 @@ describe("the reply guard: a claim to be a person", () => {
   });
 });
 
+
+/**
+ * The 22 October 2026 diagnosis against the real model: the guard refused
+ * honest hand-offs, so a clinic's patient got the fixed line where a good
+ * answer had been written. Each relaxation below is paired with the unsafe
+ * replies it must still refuse.
+ */
+describe("the reply guard: honest hand-offs pass, and what each relaxation must still refuse", () => {
+  /** The QA gate's clinic: open Monday to Friday 9 to 5, Saturday 10 to 2. */
+  const GATE = { clinicName: "Radiance Med Spa", publishedTimes: [540, 1020, 600, 840], prices: [0, 300, 900, 150, 400] };
+
+  test.each([
+    // The hours a person answers the phone, quoted in a hand-off.
+    "The team can help with that on the phone at +1 415 555 0199, Monday to Friday 9 to 5.",
+    "Please call +1 415 555 0199 (Monday to Friday 9 to 5) or use radiancemedspa.example. I can also take a booking request here and the practice will call you to confirm.",
+    "A person answers the phone Mon-Fri, from 9am until 5pm. Call the practice to book.",
+    // "Visit" as a word, away from any day.
+    "We're open Monday to Friday 9 to 5. There's free parking behind the building if you're planning a visit.",
+    // "You can" that only says how to reach the practice.
+    "You can reach the practice by phone at +1 415 555 0199.",
+    "You can also call the team on +1 415 555 0199 or visit radiancemedspa.example.",
+    "You can also visit radiancemedspa.example, or talk to the team on +1 415 555 0199.",
+    "You can find more on the website, radiancemedspa.example.",
+    // The booking question the prompt asks for.
+    "Are there one or two other times that could also work for you? The practice will call you to confirm.",
+    "Any other days that might work for you would help. The practice will call you to confirm.",
+  ])("passes: %s", (reply) => {
+    expect(guardReply(reply, GATE)).toEqual({ ok: true });
+  });
+
+  test.each([
+    // A day after a booking word, a visit or a confirmation.
+    ["See you Tuesday", /appointment day|booking/],
+    ["Your visit is Tuesday afternoon", /appointment day/],
+    ["We're open Tuesday, so we look forward to your visit then", /appointment day/],
+    ["We have you down for Monday to Friday 9 to 5", /booking confirmation|appointment/],
+    // A span whose times are not the clinic's.
+    ["Please call (Monday to Friday 7 to 9)", /appointment/],
+    ["Call us Monday to Friday 9 to 7.", /appointment/],
+    // A span outside any sentence about reaching the practice or its hours.
+    ["See you Monday to Friday 9 to 5", /appointment day/],
+    // A day agreed to, or a suitability claim.
+    ["Tuesday works for you", /suitability|appointment day/],
+    ["It works well for you", /suitability/],
+    ["Does Tuesday work for you?", /suitability|appointment day/],
+    ["That treatment works for you.", /suitability/],
+    // Guidance.
+    ["You can apply ice", /guidance/],
+    ["You can take ibuprofen", /guidance/],
+    ["You can also try a cold compress.", /guidance/],
+    ["You can find that a cold compress helps.", /guidance/],
+    ["You can speak up if it stings.", /guidance/],
+    ["You can visit a pharmacy for that.", /guidance/],
+    // A part of the day said back.
+    ["Got it, mornings", /appointment day/],
+  ])("refuses: %s", (reply, reason) => {
+    const verdict = guardReply(reply, GATE);
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) expect(verdict.reason).toMatch(reason);
+  });
+
+  test("a long run of near-spans is read in linear time", () => {
+    // Up to the 700-character cap, each built to start a span and fail it late.
+    const inputs = [
+      `Call us ${"Monday to Friday 9 to ".repeat(40)}`,
+      `Call us ${"Mon - Fri, from 9:00 ".repeat(40)}`,
+      `Phone ${"mon-tue-wed-thu-".repeat(60)}`,
+      `Call ${"9 ".repeat(400)}`,
+    ].map((text) => text.slice(0, 699));
+    const started = performance.now();
+    for (let i = 0; i < 25; i++) for (const text of inputs) guardReply(text, GATE);
+    expect(performance.now() - started).toBeLessThan(5000);
+  });
+});

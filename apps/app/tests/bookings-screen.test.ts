@@ -407,6 +407,49 @@ describeDb("Bookings", () => {
     expect(JSON.stringify(rows)).not.toMatch(/Maria|Ben|Cleo|0134|Thursday/);
   });
 
+  test("a deposit whose link is not made yet is not called sent: it is being prepared until a link exists", async () => {
+    const booked = await voiceRequest(a.clinicId, { name: "Cleo Park", phone: "+14155550199" });
+    const decided = await deskDecideById(a.clinicId, booked.id, "confirmed", {
+      decidedByLabel: "Jo",
+      deskNote: null,
+      confirmedFor: new Date(Date.now() + 3 * DAY),
+    });
+    const appointmentId = decided.appointmentId!;
+    // A chat booking is written owing its deposit; the link is made after.
+    await inTenant(a.clinicId, (client) =>
+      client.query(
+        `update appointments set deposit_status = 'pending_link', deposit_usd = 50 where id = $1`,
+        [appointmentId],
+      ),
+    );
+    const link = await signIn(a.userId);
+    await stepUpWithPasskey(link);
+    browse(link, `/c/${a.clinicSlug}/bookings`);
+
+    const during = await renderBookings(a.clinicSlug);
+    expect(during).toContain("Deposit of $50: payment link being prepared, not paid yet");
+    expect(during).not.toContain("payment link sent");
+
+    // A link that is still being created is not sent either.
+    await inTenant(a.clinicId, (client) =>
+      client.query(
+        `insert into deposit_payments (clinic_id, appointment_id, channel, amount_cents, stripe_account_id, status)
+         values ($1, $2, 'web', 5000, 'acct_test_bookings', 'creating')`,
+        [a.clinicId, appointmentId],
+      ),
+    );
+    expect(await renderBookings(a.clinicSlug)).toContain("payment link being prepared");
+
+    await inTenant(a.clinicId, (client) =>
+      client.query(`update deposit_payments set status = 'open' where appointment_id = $1`, [
+        appointmentId,
+      ]),
+    );
+    const sent = await renderBookings(a.clinicSlug);
+    expect(sent).toContain("Deposit of $50: payment link sent, not paid yet");
+    expect(sent).not.toContain("being prepared");
+  });
+
   test("Confirm, Propose and Decline go through the core as the sign-in and its passkey; none without a step-up", async () => {
     const first = await voiceRequest(a.clinicId, { name: "Maria Lopez", phone: "+14155550134" });
     const second = await voiceRequest(a.clinicId, { name: "Ben Ortiz", phone: "+14155550177" });

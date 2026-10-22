@@ -138,7 +138,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     name: "Amazon Web Services",
     category: "cloud-hosting",
     purpose: "Hosting the product and its storage, in the AWS account designated under our AWS agreement",
-    data: "Patient information the product holds: contacts, conversation records, appointments, and each transcript only until the clinic's mail server confirms delivery of the email Amazon SES sends it, and never more than 30 days (no call audio is kept)",
+    data: "Patient information the product holds: contacts, conversation records, appointments, and each transcript only until the clinic's mail server confirms delivery of the email Amazon SES sends it, and never more than 30 days (healdesk keeps no call audio)",
     region: "United States (single region)",
     handlesPhi: true,
     // The AWS Business Associate Addendum, accepted click-through in AWS
@@ -153,7 +153,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     name: "Retell",
     category: "voice",
     purpose: "The voice agent's telephony and speech: answers the calls a clinic forwards to it, and transcribes them",
-    data: "Caller audio and caller number during the call, and the call transcript. Call recording is kept off",
+    data: "Caller audio and caller number during the call, and the call transcript. It holds a call's transcript and recording only until healdesk has the transcript, and for no more than a day",
     // Not confirmed. Fill in once the agreement and the account settings are.
     region: "",
     handlesPhi: true,

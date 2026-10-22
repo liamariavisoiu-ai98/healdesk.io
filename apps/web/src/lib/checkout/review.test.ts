@@ -219,12 +219,12 @@ describe("each month", () => {
 });
 
 describe("locations", () => {
-  test("one per purchase, more from Billing at the plan's price plus its setup fee", () => {
+  test("one per purchase, more from Billing at the plan's price plus its setup fee, all answered by one AYA", () => {
     expect(locationsLine(plan("voice-webchat-500-300"), "month")).toBe(
-      "This sets up one location. Add more from Billing after setup: $520/mo + $956 setup fee each.",
+      "This sets up one location. Add more from Billing after setup: $520/mo + $956 setup fee each. One AYA answers for all of them.",
     );
     expect(locationsLine(plan("webchat-300"), "year")).toBe(
-      "This sets up one location. Add more from Billing after setup: $1,152/yr + $259 setup fee each.",
+      "This sets up one location. Add more from Billing after setup: $1,152/yr + $259 setup fee each. One AYA answers for all of them.",
     );
   });
 });

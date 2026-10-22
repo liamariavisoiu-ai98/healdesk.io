@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  audienceFor,
   type BillingInterval,
   BOOKING_SYSTEMS,
   type BookingSystemId,
@@ -41,14 +42,20 @@ import { PrimaryButton, RadioGroup, Reassurance, StepShell, TextField } from "./
  * live, said in one sentence the moment it is chosen.
  */
 
-const NO_WEBSITE_DESCRIPTIONS: Record<string, string> = {
-  voice:
-    "AYA answers your phone. A practice without a website takes most of its bookings by phone.",
-  "voice-metachat":
-    "AYA answers your phone, and, if your patients already message you on Instagram, Facebook or WhatsApp, answers them there too.",
-  metachat:
-    "For a practice whose patients already message it on Instagram, Facebook or WhatsApp: AYA answers them there. You connect your Facebook Page and Instagram account in setup.",
-};
+/**
+ * In the practice's own word for its people once its specialty is chosen (a
+ * vet's are clients, audienceFor), and true of both before then: the website
+ * question comes before the specialty on this step.
+ */
+function noWebsiteDescriptions(specialty: SpecialtyId | null): Record<string, string> {
+  const people = specialty === null ? "patients or clients" : audienceFor(specialty);
+  return {
+    voice:
+      "AYA answers your phone. A practice without a website takes most of its bookings by phone.",
+    "voice-metachat": `AYA answers your phone, and, if your ${people} already message you on Instagram, Facebook or WhatsApp, answers them there too.`,
+    metachat: `For a practice whose ${people} already message it on Instagram, Facebook or WhatsApp: AYA answers them there. You connect your Facebook Page and Instagram account in setup.`,
+  };
+}
 
 /**
  * A replacement package at the steps already chosen, priced for the billing
@@ -193,7 +200,7 @@ export function ClinicStep({
                 options={noWebsiteOptions(state).map((option) => ({
                   id: option.id,
                   label: noWebsiteOptionLabel(option, state.interval, offer),
-                  description: NO_WEBSITE_DESCRIPTIONS[option.packageId],
+                  description: noWebsiteDescriptions(state.specialty)[option.packageId],
                 }))}
                 value={null}
                 onChange={onPlan}

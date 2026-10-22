@@ -585,7 +585,8 @@ export function AlertsCard({ view }: { view: SettingsView }) {
     <Card id="alerts" title="Alerts">
       <div className="py-3">
         <p className="font-semibold">
-          Everything goes to {alerts.address ?? "your practice's address"}
+          {alerts.urgentAlertsReady ? "Everything goes to " : "Everything will go to "}
+          {alerts.address ?? "your practice's address"}
         </p>
         <ul className="text-muted mt-1 grid list-disc gap-1 pl-5 text-sm">
           <li>urgent alerts, the moment AYA hears something urgent;</li>
@@ -593,6 +594,14 @@ export function AlertsCard({ view }: { view: SettingsView }) {
           <li>booking requests and deposits to collect;</li>
           <li>the daily summary, and billing.</li>
         </ul>
+        {alerts.urgentAlertsReady ? null : (
+          <p className="mt-2 text-sm font-semibold" data-urgent-alerts="off">
+            Urgent alerts are not switched on yet, so none reach you today. Until they are, AYA
+            gives anyone reporting something urgent{" "}
+            {view.audience === "clients" ? "the emergency numbers" : "911"} and your number for
+            urgent help, and does not say your team has been told.
+          </p>
+        )}
         <p className="text-muted mt-2 text-sm">
           Read it on a phone with notifications on. Emails point into healdesk and never carry{" "}
           {view.audience === "clients" ? "client" : "patient"} details.

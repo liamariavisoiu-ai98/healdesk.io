@@ -550,7 +550,7 @@ describe("POST /api/agreement holds the copy to an address nobody confirmed to P
     const [email] = emails();
     expect([...String(email!.subject)].length).toBeLessThanOrEqual(70);
     expect(String(email!.text)).toContain("Replies reach the healdesk team. Please leave out patient details.");
-    expect(String(email!.text)).toContain("healdesk is a service of Viixi FZC");
+    expect(String(email!.text)).not.toContain("is a service of");
     expect(String(email!.text)).toContain("Wilmington, DE 19801");
     expect(String(email!.html)).not.toMatch(/href=/);
   });

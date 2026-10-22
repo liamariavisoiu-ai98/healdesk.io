@@ -3,11 +3,14 @@ import { runAnnualOverageJob } from "@/lib/billing/annual-overage";
 import { sweepChannelStates } from "@/lib/channels/events";
 import { sweepEndedPauses } from "@/lib/channels/pause";
 import { runCardExpiringJob } from "@/lib/billing/card-expiring";
+import { sweepUnlinkedDeposits } from "@/lib/billing/deposit-sweep";
 import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
 import { runBillingReconcileJob } from "@/lib/billing/reconcile";
 import { runBillingRequestsJob } from "@/lib/billing/requests";
+import { runLocationQuantityJob } from "@/lib/billing/location-quantity";
 import { runPracticeQuestionsSweep } from "@/lib/engine/practice/job";
 import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
+import { sweepRedialContexts } from "@/lib/voice/redial";
 import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
@@ -28,6 +31,7 @@ import { runAddressChangesJob } from "@/lib/sign-in/address-change";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 import { runSiteReadsSweep, runWebsiteDriftJob } from "@/lib/website/job";
 import { syncRetellFallbacks } from "@/lib/voice/retell-fallback-sync";
+import { runVoiceAgentsSweep } from "@/lib/voice/provision-job";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
@@ -96,6 +100,12 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // request's own lease makes the overlap harmless.
   await record("billing-reconcile", () => runBillingReconcileJob({ now }));
   await record("billing-requests", () => runBillingRequestsJob({ now }));
+  // The location-quantity check (drizzle/0111), hourly behind its switch,
+  // which ships off: each account's Stripe quantity for locations against
+  // its active locations, read-only, a mismatch told to ops once per episode
+  // (lib/billing/location-quantity.ts). After the reconcile and the worker,
+  // so an add they finish this hour is counted as finished.
+  await record("location-quantity", () => runLocationQuantityJob({ now }));
   // Phase two: runJob() reports it "disabled" in v1 whatever its switch says.
   await record("monthly-report", () => runMonthlyReportJob({ now, send: true }));
   // The daily summary (L13) and, while none can carry it, the weekly recap
@@ -223,6 +233,21 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
       note: `${r.clinics} clinics, ${r.resumed} resumed${r.failures ? `, ${r.failures} failed` : ""}`,
     };
   });
+  // The redial records of calls that ended early (lib/voice/redial.ts): every
+  // minute from the billing-minute queue, and here as its backstop. A
+  // deletion, so never behind a switch.
+  await record("redial-sweep", async () => ({ status: "ok", note: `${await sweepRedialContexts()} deleted` }));
+  // A chat deposit whose link was never made (lib/billing/deposit-sweep.ts):
+  // every minute from the billing-minute queue, and here as its backstop.
+  // Not a switched job, like the channel-states sweep: it only hands a
+  // deposit the booking already owes to the front desk, once.
+  await record("deposit-links", async () => {
+    const r = await sweepUnlinkedDeposits(now);
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.clinics} clinics, ${r.flagged} flagged${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
   // The internal health flags (WP5), hourly behind their switch, which ships
   // off: a clinic quiet for 48 hours after going live, a phone line with no
   // call for 14 days, each raised to ops once (lib/ops/health-flags.ts).
@@ -247,6 +272,12 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // task that cannot read the database (lib/voice/retell-fallback-sync.ts).
   // Not a switched job: it does nothing until HEALDESK_RETELL_API_KEY is set.
   await record("retell-fallback", () => syncRetellFallbacks());
+  // Each clinic's Retell agent and AYA number, by code (lib/voice/
+  // provision-job.ts): provisioning queued while the owner's switch
+  // HEALDESK_VOICE_PROVISION_ENABLED is on, changed configuration written by
+  // hash, the 03 UTC drift check, and the release of a clinic's number and
+  // agent once its pass-through has ended. Nothing without the Retell key.
+  await record("voice-agents", () => runVoiceAgentsSweep({ now }));
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));

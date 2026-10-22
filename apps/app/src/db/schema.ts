@@ -464,7 +464,7 @@ export const clinics = pgTable(
      * of data have different value and different risk:
      *
      *   media   — transcript references. Pure liability after the dispute
-     *             window closes; 90 days by default. (No audio is kept.)
+     *             window closes; 90 days by default. (healdesk keeps no audio.)
      *   records — the conversation, appointment and transaction rows. 90
      *             days by default too, because the BAA says "healdesk keeps
      *             transcripts and conversation records for 90 days"
@@ -788,6 +788,293 @@ export const clinicMemberships = pgTable(
 );
 
 // -----------------------------------------------------------------------------
+// Locations (drizzle/0109): one AYA for every location of the account
+// -----------------------------------------------------------------------------
+
+/**
+ * What a writer leaves in a row's `location_id` when it names none: the
+ * column's default, which a BEFORE INSERT trigger replaces with the main
+ * location of the row's clinic (app_location_default, drizzle/0109), as
+ * calendar_elections.sequence is replaced. A row can never keep it: the
+ * foreign key to clinic_locations refuses an id no location has.
+ */
+export const LOCATION_UNSET = "00000000-0000-0000-0000-000000000000";
+
+/** A location of the account: added pending, active once paid for, retired (later) when removed. */
+export const LOCATION_STATUSES = ["pending", "active", "retired"] as const;
+export type LocationStatus = (typeof LOCATION_STATUSES)[number];
+
+/** The main location's place: the location set up at checkout, under the signed agreement. */
+export const MAIN_LOCATION_POSITION = 1;
+
+/**
+ * The client's acceptance, for one added location, of one central AYA for
+ * every location (the extra-locations plan, section 3): the server-rendered
+ * acknowledgement as it was shown, its version and SHA-256, who accepted it
+ * (the portal user, the name they typed, and the passkey step-up they passed,
+ * named as the access log names one: the step-up's and the passkey's ids and
+ * the device's label) and when, by the database's clock.
+ *
+ * Contract evidence, not PHI, so no BAA gate. Append-only for every role
+ * (app_location_acknowledgement_guard), and kept for good with the
+ * agreement: neither destruction nor the account's closure deletes one, and
+ * the location row it was accepted for, which the closure does delete,
+ * points here rather than the other way round. Written before the charge, in
+ * the same transaction as the pending location row
+ * (lib/location-acknowledgements.ts), so a location never exists without it.
+ */
+export const locationAcknowledgements = pgTable(
+  "location_acknowledgements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** RESTRICT: an acceptance outlives nothing that could delete it. */
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "restrict" }),
+    /**
+     * The location it was accepted for: the id the pending location row is
+     * then written with. No foreign key, because the record outlives the
+     * location row; the location's own (clinic_id, id, acknowledgement_id)
+     * foreign key is what binds the two.
+     */
+    locationId: uuid("location_id").notNull(),
+    /** The document's version, `<document>/<semver>`. */
+    documentVersion: text("document_version").notNull(),
+    /** SHA-256 hex of `renderedText` (the guard checks). */
+    documentHash: text("document_hash").notNull(),
+    /** The acknowledgement as shown, rendered by the server: the evidence. */
+    renderedText: text("rendered_text").notNull(),
+    /** The name (and title) the person typed as someone with authority to bind the practice. */
+    acceptedByLabel: text("accepted_by_label").notNull(),
+    /** The portal user. No foreign key: the record outlives the user. */
+    acceptedByUserId: text("accepted_by_user_id").notNull(),
+    /** The passkey step-up it was accepted under (step_ups.id), and its passkey (user_factors.id). No foreign keys, for the same reason. */
+    stepUpId: uuid("step_up_id").notNull(),
+    passkeyId: uuid("passkey_id").notNull(),
+    /** The device's label as the step-up holds it: what the access log names. */
+    deviceLabel: text("device_label").notNull(),
+    ipAddress: inet("ip_address"),
+    userAgent: text("user_agent"),
+    /** The database's clock; whatever a writer passes is replaced. */
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The target of clinic_locations' foreign key: a location names an
+    // acceptance of its own clinic, recorded for it.
+    unique("location_acknowledgements_clinic_location_id_key").on(t.clinicId, t.locationId, t.id),
+    index("location_acknowledgements_location_idx").on(t.clinicId, t.locationId),
+    check(
+      "location_acknowledgements_version_check",
+      sql`${t.documentVersion} ~ '^[a-z][a-z0-9-]{0,63}/[0-9]+\\.[0-9]+\\.[0-9]+$'`,
+    ),
+    check("location_acknowledgements_hash_check", sql`${t.documentHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      "location_acknowledgements_text_check",
+      sql`char_length(btrim(${t.renderedText})) between 1 and 20000`,
+    ),
+    check(
+      "location_acknowledgements_label_check",
+      sql`char_length(btrim(${t.acceptedByLabel})) between 2 and 200 and ${t.acceptedByLabel} !~ '[[:cntrl:]]'`,
+    ),
+    check(
+      "location_acknowledgements_device_check",
+      sql`char_length(${t.deviceLabel}) between 1 and ${sql.raw(String(DEVICE_LABEL_MAX))} and ${t.deviceLabel} !~ '[[:cntrl:]]'`,
+    ),
+    check(
+      "location_acknowledgements_user_agent_check",
+      sql`${t.userAgent} is null or char_length(${t.userAgent}) <= 512`,
+    ),
+  ],
+);
+
+export type LocationAcknowledgementRow = typeof locationAcknowledgements.$inferSelect;
+
+/**
+ * A location of the account. The clinics row stays the one tenant: one
+ * knowledge base, one sign-in, one email address, one subscription whose
+ * quantity is the number of locations, and one AYA that answers for all of
+ * them (the owner's decision of 20 October 2026: "a centralizer, like a call
+ * center"). This row holds what differs from site to site.
+ *
+ * Location 1, the main location, exists for every open account: a trigger
+ * on clinics creates it with the clinic (app_clinic_locations_follow_clinic),
+ * 0109 backfilled it for every clinic before that, and the account's closure
+ * deletes every location with the rest of its business data. A later
+ * location is added pending, with its acknowledgement and the add's request
+ * id, before the charge, and only app_activate_location() makes it active,
+ * once, after the charge is recorded; the runtime role cannot insert an
+ * active one, or move a status at all.
+ *
+ * ONE SOURCE OF TRUTH. Until the portal's Locations card moves their writers
+ * (the plan's step 12), the main location's facts are written where they
+ * always were, on clinics (address, published number, hours, time zone,
+ * carrier, phone system, call routing) and clinic_settings (direct line,
+ * transfer, urgent-help and vet referral numbers, coverage mode), and every
+ * reader keeps reading them there. Location 1's columns below are the
+ * database's copy of them, kept equal by triggers on both tables, which the
+ * runtime role cannot write. A later location's columns are its only
+ * record. The time zone is the account's for every location in this
+ * release, so the trigger keeps every location's equal to the clinic's.
+ * AYA's own number stays on clinics (`assistant_number_e164`) until phone
+ * per location (the plan's step 15) moves it.
+ *
+ * Business data, no patient: no BAA gate. Tenant RLS, forced.
+ */
+export const clinicLocations = pgTable(
+  "clinic_locations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** 1 is the main location; a later location takes the next free place. Never changes. */
+    position: integer("position").notNull(),
+    /** The location's own name ("Downtown"); null on the main location means the account's name. */
+    label: text("label"),
+    status: text("status").$type<LocationStatus>().notNull().default("pending"),
+    /**
+     * The add that bought it: entitlements.pending_location_request_id while
+     * the add is pending. Null on the main location, set on every other.
+     */
+    addRequestId: uuid("add_request_id"),
+    /** Its acceptance (location_acknowledgements). Null on the main location, set on every other. */
+    acknowledgementId: uuid("acknowledgement_id"),
+    /** The clinic's time zone, for every location in this release (enforced at insert and kept by the trigger). */
+    timezone: text("timezone").notNull(),
+    address: text("address"),
+    publishedPhoneE164: text("published_phone_e164"),
+    openingHours: jsonb("opening_hours").$type<OpeningHours>(),
+    directLineE164: text("direct_line_e164"),
+    transferE164: text("transfer_e164"),
+    urgentHelpE164: text("urgent_help_e164"),
+    vetReferralE164: text("vet_referral_e164"),
+    coverageMode: text("coverage_mode")
+      .$type<CoverageModeId>()
+      .notNull()
+      .default("overflow_after_hours"),
+    carrier: text("carrier"),
+    phoneSystemType: text("phone_system_type")
+      .$type<(typeof phoneSystemTypeEnum.enumValues)[number]>()
+      .notNull()
+      .default("unknown"),
+    callRouting: text("call_routing")
+      .$type<(typeof callRoutingEnum.enumValues)[number]>()
+      .notNull()
+      .default("conditional"),
+    /** The database's clock, set by the guard. */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** When it became active: the database's clock, at pending → active, once. */
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    /**
+     * When the practice confirmed this later location's address, hours and
+     * phone numbers on its Settings page (drizzle/0110,
+     * lib/portal/location-details.ts): the database's clock, stamped once by
+     * the guard and never cleared or moved. Null on the main location, whose
+     * facts the setup wizard confirms on clinics, and on a later one until
+     * the practice confirms it. Business data; deleted with the row by the
+     * account's closure.
+     */
+    detailsConfirmedAt: timestamp("details_confirmed_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The target of every location_id foreign key: (clinic_id, location_id)
+    // names a location of the row's own clinic, or nothing.
+    unique("clinic_locations_clinic_id_id_key").on(t.clinicId, t.id),
+    uniqueIndex("clinic_locations_position_idx").on(t.clinicId, t.position),
+    uniqueIndex("clinic_locations_add_request_idx").on(t.clinicId, t.addRequestId),
+    foreignKey({
+      name: "clinic_locations_acknowledgement_fk",
+      columns: [t.clinicId, t.id, t.acknowledgementId],
+      foreignColumns: [
+        locationAcknowledgements.clinicId,
+        locationAcknowledgements.locationId,
+        locationAcknowledgements.id,
+      ],
+    }).onDelete("restrict"),
+    check("clinic_locations_position_check", sql`${t.position} >= 1`),
+    check(
+      "clinic_locations_status_check",
+      sql`${t.status} in (${sqlList(LOCATION_STATUSES)})`,
+    ),
+    // The main location came with the signed agreement; every other was
+    // added from Billing, under an acceptance of its own.
+    check(
+      "clinic_locations_added_check",
+      sql`(${t.position} = 1) = (${t.addRequestId} is null) and (${t.position} = 1) = (${t.acknowledgementId} is null)`,
+    ),
+    check(
+      "clinic_locations_lifecycle_check",
+      sql`(${t.status} <> 'pending' or (${t.activatedAt} is null and ${t.retiredAt} is null))
+        and (${t.status} <> 'active' or (${t.activatedAt} is not null and ${t.retiredAt} is null))
+        and (${t.status} <> 'retired' or ${t.retiredAt} is not null)
+        and (${t.position} > 1 or ${t.status} = 'active')`,
+    ),
+    check(
+      "clinic_locations_label_check",
+      sql`(${t.position} = 1 or ${t.label} is not null) and (${t.label} is null or (char_length(${t.label}) between 1 and 120 and ${t.label} = btrim(${t.label}) and ${t.label} !~ '[[:cntrl:]]'))`,
+    ),
+    check("clinic_locations_timezone_check", sql`btrim(${t.timezone}) <> ''`),
+    // The main location's columns copy clinics' and clinic_settings', so
+    // they take exactly what those take; a later location's numbers are E.164.
+    check(
+      "clinic_locations_address_check",
+      sql`${t.address} is null or (char_length(${t.address}) between 1 and 300 and ${t.address} !~ '[[:cntrl:]]')`,
+    ),
+    check(
+      "clinic_locations_published_phone_check",
+      sql`${t.position} = 1 or ${t.publishedPhoneE164} is null or ${t.publishedPhoneE164} ~ '^\\+[1-9][0-9]{6,14}$'`,
+    ),
+    check(
+      "clinic_locations_carrier_check",
+      sql`${t.position} = 1 or ${t.carrier} is null or (char_length(${t.carrier}) between 1 and 80 and ${t.carrier} !~ '[[:cntrl:]]')`,
+    ),
+    check(
+      "clinic_locations_numbers_check",
+      sql`(${t.directLineE164} is null or ${t.directLineE164} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.transferE164} is null or ${t.transferE164} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.urgentHelpE164} is null or ${t.urgentHelpE164} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.vetReferralE164} is null or ${t.vetReferralE164} ~ '^\\+[1-9][0-9]{6,14}$')`,
+    ),
+    check(
+      "clinic_locations_coverage_mode_check",
+      sql`${t.coverageMode} in (${sqlList(COVERAGE_MODES)})`,
+    ),
+    check(
+      "clinic_locations_phone_system_check",
+      sql`${t.phoneSystemType} in ('landline', 'voip', 'unknown')`,
+    ),
+    check(
+      "clinic_locations_call_routing_check",
+      sql`${t.callRouting} in ('conditional', 'always')`,
+    ),
+    // A confirmed location has what confirming checked: an address, its
+    // hours and its own number. The main location is never confirmed here.
+    check(
+      "clinic_locations_details_confirmed_check",
+      sql`${t.detailsConfirmedAt} is null or (${t.position} > 1 and ${t.address} is not null and ${t.openingHours} is not null and ${t.publishedPhoneE164} is not null)`,
+    ),
+  ],
+);
+
+export type ClinicLocationRow = typeof clinicLocations.$inferSelect;
+
+/**
+ * The location column the conversations, booking requests, bookings,
+ * handovers, slot holds, Meta booking drafts and closed days carry: which
+ * location of the account the row is about. NOT NULL; a writer that names
+ * none gets the main location (LOCATION_UNSET above), because until the
+ * tool layer learns locations (the plan's step 9) every row is the main
+ * location's. The foreign key (clinic_id, location_id) to clinic_locations
+ * (clinic_id, id), written by hand in drizzle/0109 after the backfill, stops
+ * a row naming another account's location, and a trigger on each table
+ * freezes it once written, for every role.
+ */
+function locationColumn() {
+  return uuid("location_id")
+    .notNull()
+    .default(sql.raw(`'${LOCATION_UNSET}'::uuid`));
+}
+
+// -----------------------------------------------------------------------------
 // Credential vault
 // -----------------------------------------------------------------------------
 
@@ -1001,6 +1288,8 @@ export const conversations = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     contactId: uuid("contact_id").references(() => contacts.id),
 
     channel: channelEnum("channel").notNull(),
@@ -1049,8 +1338,8 @@ export const conversations = pgTable(
      * keeps neither the transcript nor a link to one, so every new row has
      * null here. BAA 1.4.0 and the DPA describe no stored transcript (13
      * October 2026); the column, and the retention purge that clears it,
-     * stay until the spec that still describes one changes. No audio is kept
-     * either (21 September 2026; `recording_uri` was dropped in 0038).
+     * stay until the spec that still describes one changes. healdesk keeps no
+     * audio either (21 September 2026; `recording_uri` was dropped in 0038).
      */
     transcriptUri: text("transcript_uri"),
 
@@ -1077,8 +1366,25 @@ export const conversations = pgTable(
      * counted twice inflates the one figure the clinic judges us on — twice.
      */
     externalCallId: text("external_call_id"),
+
+    /**
+     * The call ended unexpectedly (lib/voice/ended-early.ts): Retell's
+     * technical disconnection reason, or `unexplained` for a call only the
+     * backstop recorded with no reason given. Null for every call that ended
+     * normally, and for every web chat. Set once, never cleared: the
+     * transcript email carries a banner, Conversations marks the row, Home
+     * counts it, and the clinic's L35 alert points at it, so staff can call
+     * the person back themselves. healdesk contacts nobody (drizzle/0108).
+     */
+    endedEarlyReason: text("ended_early_reason"),
+    /** When the flag was set, by the database's clock. */
+    endedEarlyAt: timestamp("ended_early_at", { withTimezone: true }),
   },
   (t) => [
+    check(
+      "conversations_ended_early_check",
+      sql`(${t.endedEarlyReason} is null) = (${t.endedEarlyAt} is null) and (${t.endedEarlyReason} is null or ${t.endedEarlyReason} ~ '^[a-z_]{1,64}$')`,
+    ),
     index("conversations_clinic_idx").on(t.clinicId, t.startedAt),
     // Partial: NULLs are distinct in Postgres, so an unqualified unique index
     // would neither prevent duplicates nor support ON CONFLICT.
@@ -1105,6 +1411,8 @@ export const appointments = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     contactId: uuid("contact_id")
       .notNull()
       .references(() => contacts.id),
@@ -1123,7 +1431,10 @@ export const appointments = pgTable(
     /**
      * Where the deposit stands. "pending_front_desk" is the fallback path: the
      * agent said the desk will call to collect, and the desk owes the call.
-     * "pending_link" is a Stripe Connect payment link awaiting payment.
+     * "pending_link" is owed through a Stripe Connect payment link: written
+     * with the booking, so it holds from the moment the booking commits until
+     * the link opens and is paid; one whose link was never made is handed to
+     * the front desk by lib/billing/deposit-sweep.ts.
      */
     depositStatus: text("deposit_status").$type<DepositStatus>().notNull().default("none"),
 
@@ -1875,6 +2186,8 @@ export const bookingRequests = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     // NO ACTION, not the cascade it had until the
     // booking_request_destruction migration: the app role may DELETE
     // contacts and re-point appointments and calls, so with a cascade it
@@ -2046,6 +2359,8 @@ export const metaBookingDrafts = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     platform: text("platform").notNull(),
     senderId: text("sender_id").notNull(),
     externalId: text("external_id").notNull(),
@@ -4723,11 +5038,18 @@ export const clinicClosures = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     closedOn: date("closed_on", { mode: "string" }).notNull(),
     label: text("label"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    // Still one row per day for the account: no writer names a location yet,
+    // so every closed day is the main location's. The key gains location_id
+    // with the first writer that does (the portal's Locations card, the
+    // plan's step 12): drizzle-kit would add that key before the column it
+    // names if both came in one migration.
     primaryKey({ columns: [t.clinicId, t.closedOn] }),
     check(
       "clinic_closures_label_check",
@@ -5769,6 +6091,8 @@ export const slotHolds = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     channel: text("channel").$type<SlotHoldChannel>().notNull(),
     /**
      * holderRefOf (lib/booking/holds.ts): a keyed HMAC of the holder key (e.g.
@@ -6262,6 +6586,11 @@ export const TENANT_SCOPED_TABLES = [
   "conversation_flags",
   "patient_requests",
   "incident_affected_contacts",
+  "retell_recording_alerts",
+  "voice_agents",
+  "voice_redial_contexts",
+  "clinic_locations",
+  "location_acknowledgements",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -6734,6 +7063,8 @@ export const handovers = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Which location of the account (locationColumn): the main one unless a writer names another. */
+    locationId: locationColumn(),
     channel: text("channel").$type<HandoverChannel>().notNull(),
     /** Meta only: which of the three. */
     platform: text("platform").$type<HandoverPlatform>(),
@@ -6805,5 +7136,211 @@ export const handovers = pgTable(
       "handovers_handled_check",
       sql`(${t.handledAt} is null) = (${t.handledByLabel} is null) and (${t.handledAt} is null) = (${t.handledByUserId} is null) and (${t.handledByLabel} is null or char_length(${t.handledByLabel}) between 1 and 200)`,
     ),
+  ],
+);
+
+// -----------------------------------------------------------------------------
+// Retell call data still held (NOAUDIO-01; reversed by the owner on 21 October 2026)
+// -----------------------------------------------------------------------------
+
+/**
+ * One row per call whose data Retell still holds past the deletion window
+ * (lib/voice/recording-alerts.ts, RETELL_DELETION_WINDOW_MS). Retell keeps
+ * a call's transcript and recording until the call has ended; once our copy
+ * is committed (the conversation and its sealed transcript, in one
+ * transaction) the backstop job deletes the call at Retell. A row is
+ * written only when that delete has not gone through in time, so the table
+ * name is older than its meaning: a recording URL on a call is expected, not
+ * an alert.
+ *
+ * An opaque alert: the clinic, Retell's call id and when, and the delete
+ * bookkeeping: when Retell deleted the call (resolved_at), or the short
+ * reason it did not (last_error, written by our code, never Retell's body).
+ * No transcript, no number, no words, no URL.
+ */
+export const retellRecordingAlerts = pgTable(
+  "retell_recording_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    retellCallId: text("retell_call_id").notNull(),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    /** How many times Retell was asked to delete it since the alert, by the job or the operator. */
+    attempts: integer("attempts").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    /** Why the last delete did not go, in our words; cleared when it does. */
+    lastError: text("last_error"),
+    /** Retell answered that the call is deleted, or that it has no such call. */
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("retell_recording_alerts_call_idx").on(t.clinicId, t.retellCallId),
+    index("retell_recording_alerts_open_idx").on(t.clinicId, t.detectedAt).where(sql`${t.resolvedAt} is null`),
+    check("retell_recording_alerts_call_id_check", sql`${t.retellCallId} ~ '^[A-Za-z0-9_-]{1,128}$'`),
+    check("retell_recording_alerts_attempts_check", sql`${t.attempts} >= 0`),
+    check(
+      "retell_recording_alerts_error_check",
+      sql`${t.lastError} is null or char_length(${t.lastError}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type RetellRecordingAlertRow = typeof retellRecordingAlerts.$inferSelect;
+
+// -----------------------------------------------------------------------------
+// Each clinic's Retell agent and AYA number, written by code (21 October 2026)
+// -----------------------------------------------------------------------------
+
+/**
+ * Which response engine a clinic's Retell agent runs (owner, 21 October
+ * 2026): `custom`, our custom-LLM WebSocket endpoint (src/voice/server.ts),
+ * the default and the only one built; `native`, Retell's own LLM, a later
+ * package, which provisioning refuses with an honest reason until it exists
+ * (docs/design/voice-native-llm-migration-2026-10-21.md).
+ */
+export const VOICE_ENGINES = ["custom", "native"] as const;
+export type VoiceEngine = (typeof VOICE_ENGINES)[number];
+
+/**
+ * Where a clinic's Retell set-up stands (lib/voice/provision.ts):
+ *   pending         owed and not started (or waiting on the daily cap)
+ *   provisioning    a run is under way, or crashed part-way and will resume
+ *   ready           agent and number exist, wired together, config recorded
+ *   failed          stopped with a reason in our own words; retried by hand or by a later run
+ *   deprovisioning  the clinic has left and its number and agent are being released
+ *   released        number released and agent deleted at Retell
+ */
+export const VOICE_AGENT_STATUSES = [
+  "pending",
+  "provisioning",
+  "ready",
+  "failed",
+  "deprovisioning",
+  "released",
+] as const;
+export type VoiceAgentStatus = (typeof VOICE_AGENT_STATUSES)[number];
+
+/**
+ * One row per clinic that bought voice: Retell's ids for its agent (and,
+ * under the native engine, its Retell LLM), the AYA number bought for it,
+ * where the set-up stands, and a hash of the configuration last written to
+ * Retell, so a settings change is written once and an unchanged one never.
+ *
+ * Business data about healdesk's own vendor set-up: no caller, no call, no
+ * words. `last_error` is our own short reason, never Retell's body.
+ * `number_ordered_at` is set before a number is bought, so a run that
+ * crashed between buying and recording looks the number up by its nickname
+ * instead of buying a second (lib/voice/provision.ts).
+ */
+export const voiceAgents = pgTable(
+  "voice_agents",
+  {
+    clinicId: uuid("clinic_id")
+      .primaryKey()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    engine: text("engine").$type<VoiceEngine>().notNull().default("custom"),
+    status: text("status").$type<VoiceAgentStatus>().notNull().default("pending"),
+    retellAgentId: text("retell_agent_id"),
+    retellLlmId: text("retell_llm_id"),
+    phoneNumberE164: text("phone_number_e164"),
+    /** sha256 hex of the configuration last written to Retell and read back as kept. */
+    configHash: text("config_hash"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    /** Why the last run stopped, in our words; cleared when one succeeds. */
+    lastError: text("last_error"),
+    attempts: integer("attempts").notNull().default(0),
+    /** Set just before a number is bought: the crash-safe marker and the daily cap's count. */
+    numberOrderedAt: timestamp("number_ordered_at", { withTimezone: true }),
+    /** Drift repairs since the last clean read-back; past the limit, flagged and left for a person. */
+    driftRepairs: integer("drift_repairs").notNull().default(0),
+    driftFlaggedAt: timestamp("drift_flagged_at", { withTimezone: true }),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    check("voice_agents_engine_check", sql`${t.engine} in (${sqlList(VOICE_ENGINES)})`),
+    check("voice_agents_status_check", sql`${t.status} in (${sqlList(VOICE_AGENT_STATUSES)})`),
+    check("voice_agents_agent_id_check", sql`${t.retellAgentId} is null or ${t.retellAgentId} ~ '^[A-Za-z0-9_-]{1,128}$'`),
+    check("voice_agents_llm_id_check", sql`${t.retellLlmId} is null or ${t.retellLlmId} ~ '^[A-Za-z0-9_-]{1,128}$'`),
+    check("voice_agents_number_check", sql`${t.phoneNumberE164} is null or ${t.phoneNumberE164} ~ '^\\+[1-9][0-9]{6,14}$'`),
+    check("voice_agents_hash_check", sql`${t.configHash} is null or ${t.configHash} ~ '^[0-9a-f]{64}$'`),
+    check("voice_agents_error_check", sql`${t.lastError} is null or char_length(${t.lastError}) between 1 and 200`),
+    check("voice_agents_attempts_check", sql`${t.attempts} >= 0 and ${t.driftRepairs} >= 0`),
+    // Ready means wired: an agent and a number, and the configuration recorded.
+    check(
+      "voice_agents_ready_check",
+      sql`${t.status} <> 'ready' or (${t.retellAgentId} is not null and ${t.phoneNumberE164} is not null and ${t.configHash} is not null)`,
+    ),
+    check("voice_agents_released_check", sql`(${t.status} = 'released') = (${t.releasedAt} is not null)`),
+  ],
+);
+
+export type VoiceAgentRow = typeof voiceAgents.$inferSelect;
+
+/**
+ * How many AYA numbers were ordered from Retell on each UTC day, across every
+ * clinic: the daily spend cap's counter (HEALDESK_VOICE_PROVISION_DAILY_CAP,
+ * lib/voice/provision.ts). A day and a count, nothing else; no clinic_id,
+ * because the cap is across tenants and a SECURITY DEFINER function does not
+ * bypass a FORCEd policy (drizzle/0024's note). One conditional upsert takes
+ * a slot or finds the day full, so two runs cannot both pass the cap.
+ */
+export const voiceNumberOrderDays = pgTable(
+  "voice_number_order_days",
+  {
+    day: date("day").primaryKey(),
+    ordered: integer("ordered").notNull().default(0),
+  },
+  (t) => [check("voice_number_order_days_ordered_check", sql`${t.ordered} >= 0`)],
+);
+
+// -----------------------------------------------------------------------------
+// Redial recognition (drizzle/0108, 21 October 2026)  ⚠️ PHI
+// -----------------------------------------------------------------------------
+
+/**
+ * The last few turns of a call that ended unexpectedly, kept sealed for a
+ * short while so that, if the same number calls again, AYA knows it was cut
+ * off and can carry on (lib/voice/redial.ts). Inbound only: nothing here
+ * contacts anyone; the record waits for the caller to ring back.
+ *
+ * At most REDIAL_MAX_TURNS turns, sealed under the KMS key with the lock
+ * label's login `redial`; one row per clinic and caller, the newest call's;
+ * the caller only as a keyed reference (identifierRef("redial_caller", ...),
+ * never the number). The database sets both clocks: expires_at is
+ * created_at plus two hours, and nothing moves it. Deleted when it is used,
+ * by the minute sweep once expired (app_sweep_redial_contexts), with its
+ * conversation by cascade, by a person's erasure, and at a clinic's
+ * destruction. Never in the ops projection, a log or Retell.
+ */
+export const voiceRedialContexts = pgTable(
+  "voice_redial_contexts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** identifierRef("redial_caller", clinic, the caller's E.164): never the number. */
+    callerRef: text("caller_ref").notNull(),
+    /** The call that ended early. */
+    conversationId: uuid("conversation_id").notNull(),
+    sealed: jsonb("sealed").$type<SealedPayload>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    /** created_at plus two hours, set by the database (drizzle/0108). */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("voice_redial_contexts_caller_idx").on(t.clinicId, t.callerRef),
+    index("voice_redial_contexts_expiry_idx").on(t.expiresAt),
+    foreignKey({
+      name: "voice_redial_contexts_conversation_fk",
+      columns: [t.clinicId, t.conversationId],
+      foreignColumns: [conversations.clinicId, conversations.id],
+    }).onDelete("cascade"),
+    check("voice_redial_contexts_caller_ref_check", sql`${t.callerRef} ~ '^v1:[0-9a-f]{64}$'`),
+    check("voice_redial_contexts_expiry_check", sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '2 hours'`),
   ],
 );

@@ -2,11 +2,13 @@ import { eq } from "drizzle-orm";
 
 import { clinics, clinicSettings } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { bookingTools, EMPTY_TOOL_STATE, type BookingTools, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
-import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
+import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantFallbackRefused, patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
+import { voiceDisclosureEs } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { raiseHandover } from "@/lib/handovers/record";
@@ -16,9 +18,12 @@ import { notifyOps } from "@/lib/ops/notify";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
+import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
 import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, type FallbackLookup } from "./fallback-line";
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
+import { redialPromptBlock, takeRedialContext, welcomeBackLine, type RedialContext } from "./redial";
+import type { SpokenLanguage } from "./spoken";
 import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./test-calls";
 
 /**
@@ -32,7 +37,7 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *   on connect      `config` (auto-reconnect pings, call details), then the
  *                   answer gate, then response 0: the locked AI line, said
  *                   before anything else, with the call's transcription and
- *                   that no audio is kept (lib/compliance/disclosure.ts),
+ *                   that healdesk keeps no audio and the provider holds a recording for a day at most (lib/compliance/disclosure.ts),
  *                   then the clinic's phone greeting. The time it was sent is
  *                   the call's disclosure_played_at. A caller who spoke
  *                   before it went out never heard it: it is said again
@@ -62,9 +67,14 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *                   and queues the transcript for the clinic, all idempotent on
  *                   the call id.
  *
- * Booking stays with the desk: the assistant takes a request and books
- * nothing itself; direct booking through the booking engine
- * (lib/booking/engine.ts) waits for counsel and the owner.
+ * Booking: while direct booking is on for the location (the owner's switch,
+ * counsel's addendum and a calendar that can offer times), the booking tool
+ * layer (lib/assistant/booking-tools.ts) offers free times, holds the one
+ * chosen for 60 seconds while the caller gives their details and books it
+ * into Google under the key "retell:" + call id + ":1"; the ingest links
+ * that booking or request to the call's conversation and files no second
+ * one. Otherwise the assistant takes a request and books nothing itself.
+ * A call never sends a link: a deposit is said, and left to the front desk.
  *
  * Until real calls are switched on (HEALDESK_VOICE_REAL_CALLS, lib/voice/
  * test-calls.ts), a call is taken only for a made-up clinic: any other is
@@ -86,6 +96,26 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  * holds for the clinic's AYA number); only with neither does it close. A
  * fault while answering a turn is a failure like the model's, never silence.
  *
+ * A call back after a call that ended unexpectedly (lib/voice/redial.ts):
+ * once the call is answered and the caller's number is known, the session
+ * takes the sealed record of that call's last turns, if one is waiting for
+ * the number, and deletes it as it does. The opening line is said as on any
+ * call; the first reply that is not urgent then starts with a fixed
+ * welcome-back line (saying the team was told only when the earlier call's
+ * alert is queued and alerts reach the clinic), and every turn's context
+ * carries the earlier turns as a record. No number, or a lookup that fails
+ * or is slow, is an ordinary call.
+ *
+ * Language (owner, 22 October 2026). Every call opens in English. A caller
+ * who speaks Spanish, to a clinic that answers in Spanish, turns the call to
+ * Spanish (call-language.ts: two Spanish utterances in a row, or one long
+ * one), and the first time it does, the Spanish AI and transcription line
+ * (voiceDisclosureEs) is said before the next reply that is not urgent, once
+ * per call. From then on every fixed line this call says is the Spanish one
+ * (CLOSED_LINE_ES and its siblings, the failure, card, refusal and booking lines, the spoken
+ * digits) until the caller turns it back to English. A line said before the
+ * caller has spoken (the transfer or closing line at the start) is English.
+ *
  * Nothing here is written to disk or a log but ids, counts and outcomes. The
  * call's words live in this object until the ingest seals them.
  */
@@ -96,6 +126,18 @@ export const CLOSED_LINE = "I'm sorry, this line can't take calls right now. Ple
 export const TRANSFER_LINE = "Let me put you through to the practice team now.";
 export const TROUBLE_TRANSFER_LINE = "I'm having trouble on my end, so let me put you through to the practice team.";
 export const REMINDER_LINE = "Are you still there? I'm happy to help with anything else.";
+
+/** The lines above, for a call the caller has taken into Spanish. Awaiting a native speaker's review. */
+export const CLOSED_LINE_ES = "Lo siento, esta línea no puede atender llamadas en este momento. Por favor, intente llamar a la clínica más tarde. Adiós.";
+export const TRANSFER_LINE_ES = "Le comunico ahora con el equipo de la clínica.";
+export const TROUBLE_TRANSFER_LINE_ES = "Estoy teniendo problemas de mi lado, así que le comunico con el equipo de la clínica.";
+export const REMINDER_LINE_ES = "¿Sigue ahí? Con gusto le ayudo con cualquier otra cosa.";
+
+type VoiceLines = { closed: string; transfer: string; troubleTransfer: string; reminder: string };
+const VOICE_LINES: Readonly<Record<SpokenLanguage, VoiceLines>> = {
+  en: { closed: CLOSED_LINE, transfer: TRANSFER_LINE, troubleTransfer: TROUBLE_TRANSFER_LINE, reminder: REMINDER_LINE },
+  es: { closed: CLOSED_LINE_ES, transfer: TRANSFER_LINE_ES, troubleTransfer: TROUBLE_TRANSFER_LINE_ES, reminder: REMINDER_LINE_ES },
+};
 
 type RetellTranscriptEntry = { role?: unknown; content?: unknown };
 type RetellEvent = {
@@ -126,6 +168,10 @@ export type RetellSessionDeps = {
   callDetailsWaitMs?: number;
   /** How long the gate and the clinic's facts may take before the call falls through. */
   startDeadlineMs?: number;
+  /** The booking tool layer; unset builds the shared one for the call (lib/assistant/booking-tools.ts). */
+  tools?: (facts: AssistantFacts) => BookingTools | null;
+  /** The redial lookup (lib/voice/redial.ts, takeRedialContext); unset uses it. */
+  redial?: (clinicId: string, callerPhone: string) => Promise<RedialContext | null>;
 };
 
 /**
@@ -144,6 +190,10 @@ const LATE_START_GRACE_MS = 5_000;
 const LINE_ALONE_DEADLINE_MS = 1_500;
 /** The urgent and handover alerts' writes; past it the reply is said without them. */
 const ALERT_DEADLINE_MS = 2_000;
+/** How long the first reply waits for the redial lookup before answering as an ordinary call. */
+const REDIAL_DEADLINE_MS = 1_000;
+/** How long a caller waits for Google to take a booking before it becomes a request. */
+const BOOKING_BUDGET_MS = 6_000;
 
 /** `promise`, or a rejection once `ms` have passed. Never leaves a timer behind. */
 function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -186,9 +236,15 @@ export class RetellCallSession {
   private facts: AssistantFacts | null = null;
   private turns: TranscriptTurn[] = [];
   private capture: BookingCapture = EMPTY_CAPTURE;
+  private toolState: BookingToolState = EMPTY_TOOL_STATE;
+  private tools: BookingTools | null = null;
   private openedAt: Date;
   private startedAt: Date | null = null;
   private disclosurePlayedAt: Date | null = null;
+  /** The language the call is being spoken in, and the evidence for it (call-language.ts). */
+  private callLanguage: CallLanguageState = START_LANGUAGE;
+  /** The Spanish AI and transcription line has been said on this call. */
+  private spanishDisclosed = false;
   private callerPhone: string | null = null;
   /** The AYA number the call came in on, from call details. */
   private calledNumber: string | null = null;
@@ -256,6 +312,12 @@ export class RetellCallSession {
    */
   private keepsNothing = false;
   private finished: Promise<IngestResult | null> | null = null;
+  /** The redial lookup, started once the call is answered and the number is known. */
+  private redialLookup: Promise<RedialContext | null> | null = null;
+  /** What the lookup found: the earlier call's last turns. In memory for this call only. */
+  private redial: RedialContext | null = null;
+  /** The welcome-back line has been said. */
+  private welcomedBack = false;
 
   constructor(
     readonly clinicId: string,
@@ -268,6 +330,16 @@ export class RetellCallSession {
 
   private now(): Date {
     return this.deps.now?.() ?? new Date();
+  }
+
+  /** The fixed lines in the language the call is being spoken in. */
+  private get lines(): VoiceLines {
+    return VOICE_LINES[this.callLanguage.language];
+  }
+
+  /** The language the call is being spoken in: English until the caller turns it (call-language.ts). */
+  get language(): SpokenLanguage {
+    return this.callLanguage.language;
   }
 
   private say(responseId: number, content: string, options: { endCall?: boolean; transferTo?: string | null } = {}): void {
@@ -303,7 +375,9 @@ export class RetellCallSession {
       gated = decision;
       // The one write before the deadline: it only ever keeps less.
       if (decision.decision === "pass_through" && patientDataRefused(decision.reason)) this.keepsNothing = true;
-      const facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
+      const facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) =>
+        (await clinicHasLeft(tx)) ? null : assistantFacts(tx, { alertTransport: this.deps.transport }),
+      );
       return { decision, facts };
     })();
     let result: Started;
@@ -347,7 +421,7 @@ export class RetellCallSession {
       // pass-through, sections 2 and 7): the caller goes to a person, never
       // to silence. Every degradation path ends at the direct line.
       this.closing = true;
-      this.say(responseId, TRANSFER_LINE, { transferTo: passTo });
+      this.say(responseId, this.lines.transfer, { transferTo: passTo });
       return;
     }
     // No direct line, and the clinic has left, its Services have ended, its
@@ -356,10 +430,11 @@ export class RetellCallSession {
     // answered by the safe script, which is AYA herself.
     if (!facts || (decision.decision === "pass_through" && assistantFallbackRefused(decision.reason))) {
       this.closing = true;
-      this.say(responseId, CLOSED_LINE, { endCall: true });
+      this.say(responseId, this.lines.closed, { endCall: true });
       return;
     }
     this.gateAnswered = decision.decision === "answer";
+    this.startRedialLookup();
     if (options.opening === false) {
       this.openingOwed = true;
       return;
@@ -467,10 +542,10 @@ export class RetellCallSession {
     const responseId = Math.max(this.latestResponseId, 0);
     const line = found ? usableLine(found.line, [this.calledNumber]) : null;
     if (found && line) {
-      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: line });
+      this.say(responseId, this.lines.troubleTransfer, { transferTo: line });
     } else {
       found = null;
-      this.say(responseId, CLOSED_LINE, { endCall: true });
+      this.say(responseId, this.lines.closed, { endCall: true });
     }
     // Not awaited: with the database hanging, the alert's own write could
     // hold the call's record, and the process's drain, until it gave up.
@@ -577,6 +652,7 @@ export class RetellCallSession {
     if (typeof call.start_timestamp === "number") this.startedAt = new Date(call.start_timestamp);
 
     this.forwardedFrom = forwardedFromCall(event.call);
+    if (call.direction !== "outbound") this.startRedialLookup();
     if (call.direction === "outbound") {
       // healdesk places no calls. A call the vendor says we placed is a
       // misconfiguration: say nothing more, end it, and let the ingest
@@ -588,6 +664,34 @@ export class RetellCallSession {
       this.final = { content: "", endCall: true, transferTo: null };
       this.send({ response_type: "response", response_id: Math.max(this.latestResponseId, 0), content: "", content_complete: true, end_call: true });
     }
+  }
+
+  /**
+   * Look for a cut-off call from this number, once: only on a call AYA is
+   * answering (the facts are read and nothing is closing it), never a
+   * refused test call, and only with the caller's number.
+   */
+  private startRedialLookup(): void {
+    if (this.redialLookup || !this.facts || this.closing || this.unrecorded || this.keepsNothing || this.outbound || !this.callerPhone) return;
+    const lookup = this.deps.redial ?? ((clinicId, phone) => takeRedialContext(clinicId, phone, ACTOR));
+    this.redialLookup = lookup(this.clinicId, this.callerPhone).catch((error) => {
+      log.error("redial lookup failed", { clinicId: this.clinicId, error: describeError(error) });
+      return null;
+    });
+  }
+
+  /** The lookup's answer, waited for briefly on the first reply; null afterwards is an ordinary call. */
+  private async redialContext(): Promise<RedialContext | null> {
+    if (this.redial || !this.redialLookup) return this.redial;
+    const lookup = this.redialLookup;
+    try {
+      this.redial = await withDeadline(lookup, REDIAL_DEADLINE_MS);
+    } catch {
+      this.redial = null;
+    }
+    // Asked once: a lookup that answered late is not used.
+    this.redialLookup = Promise.resolve(this.redial);
+    return this.redial;
   }
 
   private async respond(event: RetellEvent): Promise<void> {
@@ -616,20 +720,58 @@ export class RetellCallSession {
     if (!this.facts) return;
 
     if (event.interaction_type === "reminder_required") {
-      this.say(responseId, REMINDER_LINE);
+      this.say(responseId, this.lines.reminder);
       return;
     }
     const words = latestCallerWords(event.transcript);
     if (!words) return;
 
     const facts = this.facts;
-    const turn = await answerTurn({ facts, channel: "voice", history: this.turns, text: words, capture: this.capture, responder: this.deps.responder, now: this.now() });
+    const resumed = await this.redialContext();
+    // The language these words leave the call in. Kept only once this
+    // answer is said: a newer request carries these words again, and must
+    // not count them twice.
+    const language = nextCallLanguage(this.callLanguage, words, {
+      knownTerms: languageTerms(facts),
+      spanishAllowed: facts.languages.includes("es"),
+    });
+    this.tools ??= this.deps.tools
+      ? this.deps.tools(facts)
+      : bookingTools({
+          clinicId: this.clinicId,
+          channel: "voice",
+          holderKey: `retell:${this.callId}`,
+          bookingKey: `retell:${this.callId}:1`,
+          conversationId: null,
+          timeZone: facts.timeZone,
+          actor: ACTOR,
+          budgetMs: BOOKING_BUDGET_MS,
+          // A call the gate let in is not cut off by the cap (R18); the safe
+          // script's call is asked about the cap again, and a pause stops both.
+          answering: { continuing: this.gateAnswered },
+        });
+    const turn = await answerTurn({
+      facts,
+      channel: "voice",
+      history: this.turns,
+      text: words,
+      capture: this.capture,
+      responder: this.deps.responder,
+      now: this.now(),
+      tools: this.tools,
+      toolState: this.toolState,
+      callerPhone: this.callerPhone,
+      resumed: resumed ? redialPromptBlock(resumed) : null,
+      language: language.language,
+    });
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.
     if (responseId !== this.latestResponseId || this.closing) return;
+    this.callLanguage = language;
 
     this.turns.push({ speaker: "person", text: turn.personText });
     this.capture = turn.capture;
+    this.toolState = turn.toolState;
     this.handoff ||= turn.handoff;
 
     let urgentQueued = false;
@@ -673,7 +815,7 @@ export class RetellCallSession {
       const line = this.usable(this.directLine);
       if (this.failures >= 2 && line) {
         this.closing = true;
-        this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: line });
+        this.say(responseId, this.lines.troubleTransfer, { transferTo: line });
         return;
       }
     } else {
@@ -692,9 +834,26 @@ export class RetellCallSession {
       this.disclosurePlayedAt = null;
       this.openingOwed = true;
     }
-    // The fixed urgent reply says the team was told; while the alert is not
-    // known to be queued, it must not (URGENT_ALERT_DELIVERED).
+    // The fixed urgent reply says the team was told only while the alert
+    // would reach the clinic (facts.urgentAlertsReady); while this call's
+    // alert is not known to be queued, it must not say so either.
     let reply = turn.urgent && this.urgentUntold ? withoutTeamTold(turn.reply) : turn.reply;
+    // A call back after a cut-off call: the fixed welcome-back line, once,
+    // before the first reply that is not urgent, after the opening line.
+    // It says the team was told only while that is true (welcomeBackLine).
+    if (resumed && !this.welcomedBack && !turn.urgent) {
+      reply = `${welcomeBackLine(resumed, facts.urgentAlertsReady === true)} ${reply}`;
+      this.welcomedBack = true;
+    }
+    // The call has turned to Spanish for the first time: the AI and
+    // transcription line in Spanish, before the reply and once per call.
+    // Like the opening line, never in front of an urgent reply, which says
+    // it is an AI itself (in Spanish, for Spanish words): it stays owed.
+    if (this.callLanguage.language === "es" && !this.spanishDisclosed && !turn.urgent) {
+      reply = `${voiceDisclosureEs({ clinicName: facts.clinicName })} ${reply}`;
+      this.spanishDisclosed = true;
+      log.info("retell spanish disclosure said", { clinicId: this.clinicId });
+    }
     if (this.openingOwed && !turn.urgent) {
       reply = `${openingLine(facts, "voice")} ${reply}`;
       this.openingOwed = false;
@@ -720,16 +879,21 @@ export class RetellCallSession {
     const line = this.usable(this.directLine);
     if (line) {
       this.closing = true;
-      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: line });
+      this.say(responseId, this.lines.troubleTransfer, { transferTo: line });
       return;
     }
     this.failures += 1;
-    this.say(responseId, FAILURE_LINE);
+    this.say(responseId, failureLine(this.callLanguage.language));
   }
 
   /** What the caller asked the desk for, as the ingest reads it. */
   private requestFor(): Pick<VoiceCallEvent, "outcome" | "booking" | "collectedFields" | "callerName"> {
     const c = this.capture;
+    // The tool layer booked or logged it during the call, under the call's
+    // key: the ingest links it to the conversation and files nothing more.
+    // Nothing booked or logged by it (the caller hung up first): what they
+    // asked for still reaches the desk, as below.
+    if (this.toolState.done) return { outcome: "booked", callerName: c.firstName ?? undefined };
     // A request needs the caller's number, which is how the desk reaches
     // them (bookingRequestFrom refuses one without a contact), and a time.
     if (c.wants && c.window && this.callerPhone) {
@@ -752,6 +916,9 @@ export class RetellCallSession {
   private async record(): Promise<IngestResult | null> {
     this.recording = true;
     this.closing = true;
+    // The earlier call's turns were for this call's replies only.
+    this.redial = null;
+    this.redialLookup = null;
     if (this.unrecorded) {
       this.turns = [];
       this.callerPhone = null;

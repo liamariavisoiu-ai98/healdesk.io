@@ -14,6 +14,7 @@ import {
   disclosureFor,
   metaChannelGreeting,
   voiceDisclosure,
+  voiceDisclosureEs,
 } from "@/lib/compliance/disclosure";
 import { consentRecords } from "@/db/schema";
 import { guardReply } from "@/lib/meta/front-door";
@@ -77,13 +78,15 @@ describe("stop request detection", () => {
 });
 
 describe("disclosure", () => {
-  test("the voice opener states AI, transcription, and that no audio is kept", () => {
+  test("the voice opener states AI, transcription, that healdesk keeps no audio and that the provider holds a recording for a day at most", () => {
     const text = voiceDisclosure({ clinicName: "Radiance", channel: "voice" });
 
     expect(text).toMatch(/not a human/i);
-    // No audio is kept (21 September 2026): the opener must say so and must
-    // not claim the call is recorded.
-    expect(text).toMatch(/no audio recording is kept/i);
+    // healdesk keeps no audio (21 September 2026), but the voice provider holds
+    // a call's recording until healdesk has the transcript (22 October 2026): the
+    // opener says both, and must not claim the call is recorded.
+    expect(text).toMatch(/we keep no audio, and they hold a recording for no more than a day/i);
+    expect(text).not.toMatch(/no audio recording is kept/i);
     expect(text).not.toMatch(/is recorded/i);
     // Transcription specifically: the CIPA exposure in Ambriz is about a third
     // party intercepting call CONTENTS, which disclosing "recording" alone
@@ -103,9 +106,28 @@ describe("disclosure", () => {
     expect(chat).not.toMatch(/pass you to/i);
   });
 
+  test("the Spanish voice line mirrors the English one's claims, word for word, and adds none", () => {
+    const text = voiceDisclosureEs({ clinicName: "Radiance" });
+    expect(text).toBe(
+      `Le informo que soy un asistente de inteligencia artificial de Radiance, no una persona. Esta llamada se transcribe con un sistema automatizado operado por nuestros proveedores de servicios; nosotros no guardamos audio, y ellos conservan una grabación durante un día como máximo. Diga "representante" en cualquier momento y pasaré sus datos al equipo de la clínica, que se comunicará con usted en un plazo de un día.`,
+    );
+    // The same four facts as the English line, each present.
+    expect(text).toMatch(/inteligencia artificial/);
+    expect(text).toMatch(/no una persona/);
+    expect(text).toMatch(/se transcribe/);
+    expect(text).toMatch(/operado por nuestros proveedores de servicios/);
+    expect(text).toMatch(/nosotros no guardamos audio, y ellos conservan una grabación durante un día como máximo/);
+    expect(text).toMatch(/pasaré sus datos al equipo/);
+    expect(text).toMatch(/en un plazo de un día/);
+    // And no claim the English line does not make: no recording, no live transfer, no person now.
+    expect(text).not.toMatch(/se graba|grabada|le comunico con|le paso con|una persona ahora/i);
+    // Both lines change together: a change to the English line must reach this pin too.
+    expect(voiceDisclosure({ clinicName: "Radiance", channel: "voice" })).toMatch(/we keep no audio, and they hold a recording for no more than a day/);
+  });
+
   test("the voice and web chat lines are the decided text, word for word, and the Meta greeting is unchanged", () => {
     expect(voiceDisclosure({ clinicName: "Radiance", channel: "voice" })).toBe(
-      `Hi, I'm an AI assistant for Radiance — not a human. This call is transcribed by an automated system run by our service providers; no audio recording is kept. Say "representative" at any time and I'll pass your details to the practice team, who will get back to you within a day.`,
+      `Hi, I'm an AI assistant for Radiance — not a human. This call is transcribed by an automated system run by our service providers; we keep no audio, and they hold a recording for no more than a day. Say "representative" at any time and I'll pass your details to the practice team, who will get back to you within a day.`,
     );
     expect(disclosureFor({ clinicName: "Radiance", channel: "web_chat" })).toBe(
       `You're chatting with an AI assistant for Radiance. Ask for a person any time and I'll pass your details to the practice team, who will get back to you within a day.`,
@@ -120,7 +142,7 @@ describe("disclosure", () => {
     expect(notice).toBe(
       "Radiance uses an AI assistant to answer calls and messages and to book appointments. " +
         "It is not a person and gives no medical advice. " +
-        "Calls it answers are transcribed; no recording is kept. " +
+        "Calls it answers are transcribed, and its provider holds any recording for no more than a day. " +
         "To reach a person, call [your direct line].",
     );
     // It travels in a phiClass "none" email, and the clinic fills in the

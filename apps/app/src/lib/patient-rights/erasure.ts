@@ -12,12 +12,14 @@ import {
   handovers,
   metaBookingDrafts,
   suppressions,
+  voiceRedialContexts,
   webhookEvents,
   type ErasureVendorStamp,
 } from "@/db/schema";
 import { clearHoldsForErasure } from "@/lib/booking/holds";
 import { linkCallHandovers, namedHandover } from "@/lib/handovers/record";
 import { identifierRef } from "@/lib/identifier-ref";
+import { redialCallerRef } from "@/lib/voice/redial";
 import { addBusinessDays } from "@/lib/incidents/incidents";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
@@ -131,13 +133,22 @@ export const ERASURE_DEADLINE_BUSINESS_DAYS = 10;
 /**
  * The subcontractors that can hold a person's information, each deleted in
  * the vendor's own console by the operator and stamped here. Retell holds the
- * person's calls and transcripts (no call audio is kept). Anthropic is not a
+ * person's calls and transcripts (healdesk keeps no call audio; Retell holds a recording until the call is deleted there). Anthropic is not a
  * step: what it keeps it keeps under the exception clause 4(c) names (the
  * Subcontractors clause's abuse-detection and legal retention), and AWS holds
  * only the database and its backups, which this deletion and the backup
  * window reach. Meta is the practice's own service, not ours. A new
  * subcontractor that holds patient data is a new entry here and in the
  * erasure_requests_vendor_steps_check constraint.
+ *
+ * A Retell call alert (retell_recording_alerts, drizzle/0105) is left by an
+ * erasure on purpose: it holds Retell's call id, times and our own reason,
+ * never the person's words or number, and an open one is the sign that
+ * Retell still holds one of the person's calls, which is what this step
+ * deletes (the /admin/recordings button does it at Retell, and resolves the
+ * alert; deleteRecordedCall works with the conversation gone). A resolved
+ * alert goes thirty days later by the purge, and every alert at the clinic's
+ * destruction (drizzle/0106).
  */
 export const ERASURE_VENDOR_STEPS = [
   {
@@ -688,6 +699,17 @@ async function eraseSurveyed(
     phones: s.phones,
     threadRefs: partyRefs(tx.clinicId, s.threads),
   });
+
+  // A redial record of a call of theirs that ended early (drizzle/0108,
+  // lib/voice/redial.ts), by each number of theirs, whichever conversation
+  // it belongs to; the rest go with their conversations by cascade. Two
+  // hours at most and not part of the record, so not counted.
+  const redialRefs = s.phones.map((p) => redialCallerRef(tx.clinicId, p)).filter((r): r is string => Boolean(r));
+  if (redialRefs.length) {
+    await tx.db
+      .delete(voiceRedialContexts)
+      .where(and(eq(voiceRedialContexts.clinicId, tx.clinicId), inArray(voiceRedialContexts.callerRef, redialRefs)));
+  }
 
   // The people, by every number and address the survey made theirs (not
   // only the ones asked), with their own requests whatever thread they came

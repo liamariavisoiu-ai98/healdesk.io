@@ -533,7 +533,7 @@ describe("the package step", () => {
 
   test("the locations line, once a package is chosen", () => {
     expect(text(packageStep(initialFunnel({ plan: "voice-metachat" })))).toContain(
-      "This sets up one location. Add more from Billing after setup: $580/mo + $1,394 setup fee each.",
+      "This sets up one location. Add more from Billing after setup: $580/mo + $1,394 setup fee each. One AYA answers for all of them.",
     );
   });
 
@@ -544,6 +544,7 @@ describe("the package step", () => {
     // from sales" for more locations two lines above a fixed price for them.
     const demo: DemoCheckout = {
       clinicName: "Glow Med Spa",
+      audience: "patients",
       roi: { priceUsd: 450, priceSource: "the clinic's site", bookingRate: 0.3, repeat: null },
     };
     const words = text(
@@ -628,6 +629,19 @@ describe("the clinic step", () => {
     expect(both).toBeGreaterThan(phone);
     expect(meta).toBeGreaterThan(both);
     expect(words).toContain("whose patients already message it on Instagram, Facebook or WhatsApp");
+    expect(words).toContain("if your patients already message you on Instagram, Facebook or WhatsApp");
+  });
+
+  test("no website: a vet's packages say clients, and before the specialty is chosen both words", () => {
+    const vet = text(clinicStep(answered({ noWebsite: true, specialty: "veterinary", covered: null })));
+    expect(vet).toContain("whose clients already message it on Instagram, Facebook or WhatsApp");
+    expect(vet).toContain("if your clients already message you on Instagram, Facebook or WhatsApp");
+    expect(vet).not.toMatch(/\bpatients?\b/i);
+
+    const unknown = text(clinicStep(answered({ noWebsite: true, specialty: null })));
+    expect(unknown).toContain(
+      "whose patients or clients already message it on Instagram, Facebook or WhatsApp",
+    );
   });
 
   test("no website: each package offered is priced for the billing period already chosen", () => {
@@ -668,6 +682,13 @@ describe("the agreement step", () => {
     const said = text(agreementStep(answered()));
     expect(said).toContain("A copy is emailed to you, and this page says if it can't be.");
     expect(said).not.toMatch(/sent by a person/i);
+  });
+
+  test("the Inbound only box names a practice's patients (AgreementStep.audience.test.ts: a vet's clients)", () => {
+    const said = text(agreementStep(answered()));
+    const box = said.slice(said.indexOf("Inbound only"), said.indexOf("placed in your name"));
+    expect(box).toContain("It never calls or texts your patients");
+    expect(box).toContain("every conversation it has is one a patient started");
   });
 
   test("asks the covered-entity question in terms of billing", () => {

@@ -12,6 +12,7 @@ import {
 } from "@/lib/engine/practice/cases";
 import {
   listedPriceChecks,
+  onlyFiguresFrom,
   sectionsNaming,
   spokenAmountsIn,
   wordsToNumber,
@@ -333,6 +334,18 @@ describe("the deterministic checks", () => {
       false,
       false,
     ]);
+  });
+
+  test("an amount in another currency is named as one, never as a negative cent figure", () => {
+    const botox = FACTS.services[0]!;
+    // The guard reads "€650" as an amount no menu holds (amountsIn); the detail
+    // used to print it as "$-0.01".
+    const details = listedPriceChecks("Botox is €650 per unit.", botox).map((c) => c.detail ?? "");
+    expect(details.join(" ")).toContain("an amount in another currency");
+    expect(details.join(" ")).not.toMatch(/-0\.01|-\$/);
+    expect(onlyFiguresFrom("A consultation is 650 euros.", new Set([15000])).detail).toBe(
+      "named an amount in another currency",
+    );
   });
 
   test("a wrong figure the clinic's own words state is found in the section that states it", () => {

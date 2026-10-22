@@ -84,8 +84,15 @@ export function audienceLine(audience: Audience): string {
     : "The people who contact the practice are its patients, or people thinking of becoming one.";
 }
 
-/** How the clinic's tone setting reads to the model (spec, "Tone": changes how the assistant speaks on every channel). */
-const TONE: Record<AssistantTone, string> = {
+/**
+ * How the clinic's tone setting reads to the model (spec, "Tone": changes how
+ * the assistant speaks on every channel). Exported for the voice eval
+ * (scripts/voice-eval), whose hill-climb may propose a replacement for this
+ * one sentence and nothing else in the prompt: it swaps the sentence in the
+ * built prompt and checks every other byte is unchanged. Production reads it
+ * only here.
+ */
+export const TONE: Readonly<Record<AssistantTone, string>> = {
   warm: "Be warm, welcoming and unhurried, like the best person at the front desk, and keep it brief and useful.",
   clinical: "Be calm, brief and precise: professional rather than chatty, and still kind.",
 };
@@ -107,31 +114,52 @@ function addOnsLine(facts: Pick<AssistantFacts, "suggestAddOns">): string {
 
 const BOOKING = `Booking: you do not book appointments yourself. When someone wants an appointment, collect what the practice needs (listed below) one or two questions at a time, then confirm back the day and time they asked for and tell them the practice team will confirm it within a day. Never say an appointment is confirmed or booked. If they ask for a person ("representative", "human", "staff"), collect their first name and number and say the team will get back to them within a day.`;
 
+/**
+ * Booking while the tool layer is live (booking-tools.ts): the model asks
+ * for times and passes on the one chosen; the tool layer holds, books and
+ * says so in its own fixed words. Only on a turn the tools are offered, so a
+ * location without them reads BOOKING above, byte for byte.
+ */
+const BOOKING_TOOLS = `Booking: the practice's booking system books appointments, never you. When someone wants an appointment, find out which service (from the list below) and roughly when, then ask the system for free times with the action find_times. The system tells the person the times itself: never list or invent times. When the person picks one of the times offered, pass it on with the action choose_time and the exact value given to you for that time; if they want a time that was not offered, ask for free times again. Collect their first name and a phone number (and what the practice needs, listed below), one or two questions at a time. Never say an appointment is booked, held, reserved or confirmed: the system says that itself. If the system says it cannot book, collect the day and time they would like and tell them the practice team will confirm it within a day. If they ask for a person ("representative", "human", "staff"), collect their first name and number and say the team will get back to them within a day.`;
+
+const ACTION = `
+ "action": null, or {"type": "find_times", "service": "the service from the list", "day": "YYYY-MM-DD if they named a day, else empty"}, or {"type": "choose_time", "at": "the exact value of the time they chose"},`;
+
 function format(channel: AssistantChannel): string {
   return channel === "voice"
     ? `Style: this is a phone call. Answer in one to three short spoken sentences. No lists, no markdown, no emojis, no URLs. Say numbers and times the way a person says them aloud.`
     : `Style: this is a chat on the practice's website. Answer in one to four short sentences of plain text. No markdown headings, no tables.`;
 }
 
-const OUTPUT = `Answer with ONE JSON object and nothing else:
+function output(tools: boolean): string {
+  return `Answer with ONE JSON object and nothing else:
 {"reply": "what you say next",
- "booking": {"wants": true or false, "first_name": "", "phone": "", "window": "the day and time they asked for, in their words", "alt_windows": [], "service": "", "fields": {"<field id>": "value"}},
+ "booking": {"wants": true or false, "first_name": "", "phone": "", "window": "the day and time they asked for, in their words", "alt_windows": [], "service": "", "fields": {"<field id>": "value"}},${tools ? ACTION : ""}
  "handoff": true if they asked for a person,
  "end": true only when the person has said goodbye or has nothing more to ask}
 Leave a booking value empty when you do not know it yet. Copy values only from what the person said.`;
+}
 
 /**
  * The stable prefix: everything the model is told that does not change from
  * one turn to the next. No clock, no conversation: see the file header.
+ * `bookingTools` is whether the tool layer is live (booking-tools.ts): it
+ * changes only when the location's booking mode does, so the prefix stays
+ * cacheable.
  */
-export function buildAssistantPrompt(facts: AssistantFacts, channel: AssistantChannel): string {
+export function buildAssistantPrompt(
+  facts: AssistantFacts,
+  channel: AssistantChannel,
+  options: { bookingTools?: boolean } = {},
+): string {
+  const tools = options.bookingTools === true;
   const audience = audienceFor(facts.specialty);
   const lines: string[] = [];
   lines.push(
     `You are the AI assistant answering ${channel === "voice" ? "the phone" : "the website chat"} for ${facts.clinicName}, ${audience === "clients" ? "a veterinary practice" : "a practice"}. ${TONE[facts.tone] ?? TONE.warm}`,
     audienceLine(audience),
   );
-  lines.push(rules(audience), BOOKING, format(channel), languagesLine(facts), addOnsLine(facts));
+  lines.push(rules(audience), tools ? BOOKING_TOOLS : BOOKING, format(channel), languagesLine(facts), addOnsLine(facts));
 
   lines.push(`\nThe practice:`);
   lines.push(`- Name: ${facts.clinicName}`);
@@ -173,7 +201,7 @@ export function buildAssistantPrompt(facts: AssistantFacts, channel: AssistantCh
   }
 
   lines.push(`\nNever-say list (never write or say any of these, in any form):\n${facts.neverSay.map((p) => `- ${p}`).join("\n")}`);
-  lines.push(`\n${OUTPUT}`);
+  lines.push(`\n${output(tools)}`);
   return lines.join("\n");
 }
 
@@ -181,9 +209,22 @@ export function buildAssistantPrompt(facts: AssistantFacts, channel: AssistantCh
  * What only this turn knows, sent after the cached prefix: the time now, in
  * the practice's zone, and the line the conversation opened with.
  */
-export function assistantTurnContext(facts: Pick<AssistantFacts, "timeZone">, now: Date, opening?: string | null): string {
+export function assistantTurnContext(
+  facts: Pick<AssistantFacts, "timeZone">,
+  now: Date,
+  opening?: string | null,
+  /** booking-tools.ts toolTurnContext, on a turn the tools are live. */
+  tools?: string | null,
+  /** A call back after a call that was cut off: lib/voice/redial.ts, redialPromptBlock. */
+  resumed?: string | null,
+  /** turn.ts SPANISH_CALL, on a turn of a call being spoken in Spanish. */
+  language?: string | null,
+): string {
   const time = now.toLocaleString("en-US", { timeZone: facts.timeZone, weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
   const lines = [`Now it is ${time} in the practice's time zone.`];
   if (opening) lines.push(`You opened the conversation with: "${opening}"`);
+  if (resumed) lines.push(resumed);
+  if (tools) lines.push(tools);
+  if (language) lines.push(language);
   return lines.join("\n");
 }

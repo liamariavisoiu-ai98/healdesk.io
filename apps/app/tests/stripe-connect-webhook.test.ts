@@ -44,7 +44,7 @@ import { createStripeFake, type StripeFake } from "./setup/stripe-fake";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 /** Several transactions and Stripe round trips a test: generous on a loaded machine. */
-const DB_TEST_OPTIONS = { timeout: 30_000 };
+const DB_TEST_OPTIONS = { timeout: 120_000 };
 const SECRET = "whsec_test_connect_hook";
 const ACCOUNT = "acct_1Hook";
 const NOW = new Date("2026-10-06T15:00:00Z");

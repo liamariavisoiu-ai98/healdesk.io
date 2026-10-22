@@ -1,6 +1,6 @@
 import { SENDER_IDENTITY } from "@healdesk/catalog";
 
-import type { RenderedEmail, TemplateContext } from "./types";
+import type { EmailAudience, RenderedEmail, TemplateContext } from "./types";
 
 /**
  * The blocks every email is written in, and the footer every email ends with.
@@ -56,16 +56,38 @@ export type EmailContent = {
 /** Gmail clips at 102 KB; this leaves room for the headers Resend adds. */
 export const MAX_HTML_BYTES = 100 * 1024;
 
-/** The line every footer carries, so hello@ stays free of patient details (X1.9). */
-export const REPLY_LINE = "Replies reach the healdesk team. Please leave out patient details.";
+/**
+ * What every footer asks a reply to leave out, so hello@ stays free of
+ * patient details (X1.9), in the practice's own word: a veterinary practice's
+ * people are its clients (ctx.audience), as the email carrying a signed data
+ * protection agreement says it (agreementCopyFooter in @healdesk/catalog).
+ */
+const LEAVE_OUT: Readonly<Record<EmailAudience, string>> = {
+  patients: "Please leave out patient details.",
+  clients: "Please leave out your clients' details.",
+};
+
+/** The line every footer carries (X1.9), by audience. */
+export const REPLY_LINES: Readonly<Record<EmailAudience, string>> = {
+  patients: `Replies reach the healdesk team. ${LEAVE_OUT.patients}`,
+  clients: `Replies reach the healdesk team. ${LEAVE_OUT.clients}`,
+};
 
 /**
  * X1.9's line for the one email whose link must not be quoted back to us
- * (O16): where to write instead of replying, and, as every footer says, to
- * leave out patient details.
+ * (O16): where to write instead of replying, and, as every footer says, what
+ * to leave out.
  */
-export const WRITE_NEW_LINE =
-  "To reach the healdesk team, write a new email to hello@healdesk.io rather than replying. Please leave out patient details.";
+export const WRITE_NEW_LINES: Readonly<Record<EmailAudience, string>> = {
+  patients: `To reach the healdesk team, write a new email to hello@healdesk.io rather than replying. ${LEAVE_OUT.patients}`,
+  clients: `To reach the healdesk team, write a new email to hello@healdesk.io rather than replying. ${LEAVE_OUT.clients}`,
+};
+
+/** The reply line a practice whose patients are people reads. */
+export const REPLY_LINE = REPLY_LINES.patients;
+
+/** O16's line, as a practice whose patients are people reads it. */
+export const WRITE_NEW_LINE = WRITE_NEW_LINES.patients;
 
 export class EmailCompositionError extends Error {
   constructor(message: string) {
@@ -79,12 +101,12 @@ export function footerLines(
   ctx: TemplateContext,
   replyLine: EmailContent["replyLine"] = "reply",
 ): string[] {
+  const audience: EmailAudience = ctx.audience === "clients" ? "clients" : "patients";
   return [
     ctx.reason,
-    replyLine === "write_new" ? WRITE_NEW_LINE : REPLY_LINE,
+    replyLine === "write_new" ? WRITE_NEW_LINES[audience] : REPLY_LINES[audience],
     ...(ctx.unsubscribeUrl ? [`Stop these emails: ${ctx.unsubscribeUrl}`] : []),
-    SENDER_IDENTITY.entityLine,
-    `${SENDER_IDENTITY.postalAddressLabel}: ${SENDER_IDENTITY.postalAddress}`,
+    SENDER_IDENTITY.postalAddress,
   ];
 }
 

@@ -1,0 +1,10 @@
+{
+  "$comment": "Accepted high or critical production advisories, read by scripts/check-npm-audit.mjs. One entry per GHSA id (never per package): { \"id\": \"GHSA-xxxx-xxxx-xxxx\", \"reason\": \"why it does not apply or why it waits, in a sentence\", \"expires\": \"YYYY-MM-DD\" }. An entry expires after at most 90 days and the audit job fails again on its own. Empty on purpose: an entry here is the Owner's accepted risk, not something to add to make a job green.",
+  "exceptions": [
+    {
+      "id": "GHSA-c475-qrg2-pj4r",
+      "reason": "basic-ftp (a ReDoS in the FTP directory-listing parser) is reached only through packages/leadgen > apify-client > proxy-agent > pac-proxy-agent > get-uri. No app depends on leadgen, which is not deployed, and it fetches no ftp: URL. The fix is basic-ftp 6.2.1 or later, which get-uri (^5.3.1, even at its newest release) does not accept, so there is no in-range upgrade. Accepted by the Owner on 21 October 2026 (SEC-02); revisit when get-uri or apify-client moves to basic-ftp 6.",
+      "expires": "2026-12-20"
+    }
+  ]
+}

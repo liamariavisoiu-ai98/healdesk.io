@@ -75,7 +75,8 @@ export async function truncateAll(): Promise<void> {
   // named: an attestation left by one file would let the next file's
   // synthetic clinics go live by themselves (lib/onboarding/go-live.ts).
   // email_events (0099) has no clinic either: one file's counted sends would
-  // be the next file's digest.
+  // be the next file's digest. voice_number_order_days (0107) has no clinic
+  // either: one test's numbers bought would fill the next one's daily cap.
   await pool.query(`
     truncate table
       billing_events, billing_transitions, billing_requests, entitlements,
@@ -86,7 +87,7 @@ export async function truncateAll(): Promise<void> {
       checkout_intents, sign_in_links, stripe_connect_events, stripe_connect_states,
       step_ups, webauthn_challenges, user_backup_codes, user_factors, factor_lockouts,
       invitation, member, organization, session, account, verification, "user",
-      platform_compliance, email_events
+      platform_compliance, email_events, voice_number_order_days
     restart identity cascade
   `);
 
@@ -122,7 +123,8 @@ export async function truncateAll(): Promise<void> {
       ('ops-digest', 'Daily at 07 UTC, or the first hour after it, once a UTC day: emails ops every queue with the age of its oldest item, email health per kind, connection health and Resend''s daily count. Ids and counts only', false),
       ('ops-watch', 'Every minute from the billing-minute queue, and hourly from the tick: raises to ops, once each, a paid order with no account ten minutes after its payment reached the host, an order follow-up (B3) past its day, and, hourly, a support reply (L25) past its day with none marked', false),
       ('site-reads', 'Every minute, from the site-reads queue, and hourly from the tick: reads a clinic''s website again through apps/web''s signed route when it has a website and no profile, after it corrects its website, and when the drift check or an operator asks; reads nothing until HEALDESK_WEB_URL is set', false),
-      ('website-drift', 'Hourly; asks for a read of each live clinic''s website 30 days after its last one, compares it with the purchase-time baseline per Knowledge section, and queues "Changes on your website" (L23) when it finds any. Off until the owner switches it on, before the first clinic''s 30th live day', false)
+      ('website-drift', 'Hourly; asks for a read of each live clinic''s website 30 days after its last one, compares it with the purchase-time baseline per Knowledge section, and queues "Changes on your website" (L23) when it finds any. Off until the owner switches it on, before the first clinic''s 30th live day', false),
+      ('location-quantity', 'Hourly; reads each account''s subscription in Stripe and compares the quantity it bills for locations with the account''s active locations, plus one being added whose charge is recorded. A mismatch is told to ops once until the counts agree again. Reads only: never changes a subscription. Off until the owner switches it on with extra locations', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);
 }

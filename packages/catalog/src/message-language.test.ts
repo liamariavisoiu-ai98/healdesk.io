@@ -63,6 +63,32 @@ describe("messageLanguage", () => {
     expect(leansSpanish("I want to kill myself")).toBe(false);
     expect(leansSpanish("Can you help me?")).toBe(false);
   });
+
+  // The review of 21 October: ordinary Spanish replies were read as another
+  // language, so a Spanish-speaking clinic's assistant was refused for them.
+  test("a front desk's Spanish verbs are read in their regular forms, and the replies they make are Spanish", () => {
+    for (const text of [
+      "El equipo le responderá en un día.",
+      "Ya quedó agendada su cita.",
+      "Su solicitud fue recibida. El equipo la revisará y le escribirá de vuelta.",
+      "Cuando su cita esté confirmada, el equipo le avisará.",
+      "Nuestra dirección es 1 Main St. Puede llegar en coche o en transporte público.",
+      "Con gusto voy a ayudarle a encontrar un horario.",
+    ]) {
+      expect(messageLanguage(text), text).toBe("es");
+    }
+  });
+
+  test("the verb forms are a closed list: Portuguese and Tagalog that end like Spanish stay another language", () => {
+    for (const text of [
+      "O preço do Botox é de 12 dólares por unidade. Posso passar seu pedido para a equipe.",
+      "Gusto ko po magpa-schedule bukas",
+      "Sua consulta foi confirmada para amanhã.",
+      "Vou passar seu pedido para a equipe, que vai responder amanhã.",
+    ]) {
+      expect(messageLanguage(text), text).toBe("other");
+    }
+  });
 });
 
 // -----------------------------------------------------------------------------

@@ -59,6 +59,13 @@ export const IN_PROGRESS_LINE =
 export const TOOL_FAILURE_LINE =
   "I'm sorry, I couldn't complete that just now. I can put you through to the clinic, or take your details so they can confirm with you.";
 
+/**
+ * The answer gate refused the booking (paused, stopped at the allowance,
+ * suspended, ended): nothing is written, and the person is sent to the clinic.
+ */
+export const BOOKING_REFUSED_LINE =
+  "I'm not able to book appointments right now. Please contact the clinic directly, and their team will arrange a time with you.";
+
 /** A detail the assistant must ask for again, by the field the engine refused. */
 export const MISSING_DETAIL_LINES = {
   first_name: "I didn't catch your first name. Could you tell me again?",
@@ -86,6 +93,58 @@ export function oneBookingPerCallLine(when: string | null): string {
 export function slotGoneLine(alternatives: readonly string[]): string {
   if (alternatives.length === 0) return `${SLOT_GONE_LINE} Which other day or time would suit you?`;
   return `${SLOT_GONE_LINE} The nearest times I have are ${joinOr(alternatives)}.`;
+}
+
+/** Free times on offer, already written for the channel; the person picks one. */
+export function offerLine(times: readonly string[]): string {
+  if (times.length === 0) return NO_FREE_TIME_LINE;
+  return `I have ${joinOr(times)}. Which would suit you?`;
+}
+
+/**
+ * The website chat holds nothing for a visitor it cannot name (spec, "How a
+ * session runs" step 3: name and phone before any slot is held), so a time
+ * chosen before the details waits for them.
+ */
+export function detailsBeforeHoldLine(when: string): string {
+  return `Before I hold ${when} for you, could I take your first name and a mobile number the clinic can reach you on?`;
+}
+
+const ASK_DETAIL = {
+  first_name: "Could I take your first name?",
+  phone: "What's the best number for the clinic to reach you on?",
+} as const;
+
+/** The one detail still to take, asked on its own. */
+export function askLine(missing: "first_name" | "phone"): string {
+  return ASK_DETAIL[missing];
+}
+
+/** The voice HOLD_LINE, and the one detail still to take. */
+export function heldAskLine(missing: "first_name" | "phone"): string {
+  return `${HOLD_LINE} ${ASK_DETAIL[missing]}`;
+}
+
+/**
+ * A time chosen on a call that the engine would not hold (Auto-confirm off, a
+ * deposit the call cannot take, a calendar that stopped allowing the write):
+ * nothing is held, so it is worded as the request it will become, and the
+ * one detail still to take.
+ */
+export function requestAskLine(missing: "first_name" | "phone", deposit: boolean): string {
+  return `${deposit ? DEPOSIT_REQUEST_LINE : MANUAL_BOOKING_LINE} ${ASK_DETAIL[missing]}`;
+}
+
+/**
+ * A line written for a call, as the website chat says it: the chat is not a
+ * call, and cannot be called back.
+ */
+export function forChat(line: string): string {
+  return line
+    .replace(/please call back or ask the clinic/g, "please ask the clinic")
+    .replace(/\bon this call\b/g, "in this chat")
+    .replace(/\bper call\b/g, "per chat")
+    .replace(/\bthis call\b/g, "this chat");
 }
 
 function joinOr(items: readonly string[]): string {
@@ -118,4 +177,132 @@ export function depositLine(input: { action: DepositAction; amountUsd: number | 
     return `This appointment needs a deposit${amount !== null ? ` of ${amount} dollars` : ""}, so it can't be booked on this call. I'll pass your request to the team, who will call you to take the deposit and confirm a time; nothing is charged on this call.`;
   }
   return "";
+}
+
+// -----------------------------------------------------------------------------
+// Spanish, for a call the caller has taken into Spanish
+// -----------------------------------------------------------------------------
+
+/**
+ * Every fixed line above, for one language. The English set is the lines
+ * above themselves, byte for byte; the Spanish set is said only on a call
+ * whose caller is speaking Spanish (lib/voice/call-language.ts), and only on
+ * a call: the website chat stays English (forChat rewrites English only).
+ * Same meaning, same promises, nothing added: each Spanish line says what
+ * its English line says, and no more. Awaiting a native speaker's review.
+ */
+export type BookingLines = {
+  manual: string;
+  hold: string;
+  noFreeTime: string;
+  requestTaken: string;
+  depositHold: string;
+  depositRequest: string;
+  oneRequestPerCall: string;
+  inProgress: string;
+  toolFailure: string;
+  refused: string;
+  missing: Readonly<Record<keyof typeof MISSING_DETAIL_LINES, string>>;
+  booked: (when: string, service: string | null) => string;
+  oneBookingPerCall: (when: string | null) => string;
+  slotGone: (alternatives: readonly string[]) => string;
+  offer: (times: readonly string[]) => string;
+  detailsBeforeHold: (when: string) => string;
+  ask: (missing: "first_name" | "phone") => string;
+  heldAsk: (missing: "first_name" | "phone") => string;
+  requestAsk: (missing: "first_name" | "phone", deposit: boolean) => string;
+  deposit: typeof depositLine;
+};
+
+export const BOOKING_LINES_EN: BookingLines = {
+  manual: MANUAL_BOOKING_LINE,
+  hold: HOLD_LINE,
+  noFreeTime: NO_FREE_TIME_LINE,
+  requestTaken: REQUEST_TAKEN_LINE,
+  depositHold: DEPOSIT_HOLD_LINE,
+  depositRequest: DEPOSIT_REQUEST_LINE,
+  oneRequestPerCall: ONE_REQUEST_PER_CALL_LINE,
+  inProgress: IN_PROGRESS_LINE,
+  toolFailure: TOOL_FAILURE_LINE,
+  refused: BOOKING_REFUSED_LINE,
+  missing: MISSING_DETAIL_LINES,
+  booked: bookedLine,
+  oneBookingPerCall: oneBookingPerCallLine,
+  slotGone: slotGoneLine,
+  offer: offerLine,
+  detailsBeforeHold: detailsBeforeHoldLine,
+  ask: askLine,
+  heldAsk: heldAskLine,
+  requestAsk: requestAskLine,
+  deposit: depositLine,
+};
+
+const HOLD_LINE_ES = "Le tengo ese horario reservado por un minuto mientras tomo sus datos.";
+
+function askLineEs(missing: "first_name" | "phone"): string {
+  return missing === "first_name" ? "¿Me podría dar su nombre?" : "¿Cuál es el mejor número para que la clínica se comunique con usted?";
+}
+
+function joinOrEs(items: readonly string[]): string {
+  if (items.length === 1) return items[0]!;
+  // "o" becomes "u" before a word starting with the "o" sound: "siete u ocho".
+  const or = (next: string) => (/^h?o/i.test(next) ? "u" : "o");
+  if (items.length === 2) return `${items[0]} ${or(items[1]!)} ${items[1]}`;
+  const last = items[items.length - 1]!;
+  return `${items.slice(0, -1).join(", ")} ${or(last)} ${last}`;
+}
+
+/** depositLine, in Spanish: the same rule, the same promises, never a link. */
+function depositLineEs(input: Parameters<typeof depositLine>[0]): string {
+  if (!input) return "";
+  const amount = input.amountUsd !== null && Number.isFinite(input.amountUsd) && input.amountUsd > 0 ? input.amountUsd : null;
+  if (input.action === "book_and_flag") {
+    if (input.scope === "some_services") return "Algunas citas necesitan un depósito para reservarlas. Si la suya lo necesita, la recepción le llamará para cobrarlo; no se cobra nada en esta llamada.";
+    return `Se requiere ${amount !== null ? `un depósito de ${amount} dólares` : "un depósito"} para reservar la cita. La recepción le llamará para cobrarlo; no se cobra nada en esta llamada.`;
+  }
+  if (input.action === "decline_and_alert") {
+    if (input.scope === "some_services") return "Algunas citas necesitan un depósito y no se pueden reservar en esta llamada. Para esas, pasaré su solicitud al equipo, que le llamará para cobrar el depósito y confirmar un horario; no se cobra nada en esta llamada.";
+    if (input.scope === "clinic") return `Las citas necesitan un depósito${amount !== null ? ` de ${amount} dólares` : ""}, así que no se pueden reservar en esta llamada. Pasaré su solicitud al equipo, que le llamará para cobrar el depósito y confirmar un horario; no se cobra nada en esta llamada.`;
+    return `Esta cita necesita un depósito${amount !== null ? ` de ${amount} dólares` : ""}, así que no se puede reservar en esta llamada. Pasaré su solicitud al equipo, que le llamará para cobrar el depósito y confirmar un horario; no se cobra nada en esta llamada.`;
+  }
+  return "";
+}
+
+export const BOOKING_LINES_ES: BookingLines = {
+  manual: "No puedo reservar eso directamente ahora, así que tomaré el horario que prefiere y la clínica se lo confirmará.",
+  hold: HOLD_LINE_ES,
+  noFreeTime: "No tengo un horario libre en ese momento. ¿Qué otro día u hora le vendría bien?",
+  requestTaken: "Pasé su solicitud a la clínica, y ellos le confirmarán el horario.",
+  depositHold: "Le reservé ese horario mientras la clínica gestiona el depósito. Le llamarán para cobrarlo y confirmar su cita.",
+  depositRequest: "Esa cita necesita un depósito, así que pasaré su solicitud a la clínica y le llamarán para gestionarlo.",
+  oneRequestPerCall: "Ya pasé una solicitud a la clínica en esta llamada. Cuando le llamen, pueden gestionar la otra cita también.",
+  inProgress: "No puedo tomar otra reserva en esta llamada mientras la primera se sigue confirmando. La clínica puede gestionar cualquier otra cosa con usted.",
+  toolFailure: "Lo siento, no pude completarlo en este momento. Puedo comunicarle con la clínica, o tomar sus datos para que se lo confirmen.",
+  refused:
+    "No puedo reservar citas en este momento. Comuníquese directamente con la clínica, y su equipo le dará un horario.",
+  missing: {
+    first_name: "No entendí su nombre. ¿Me lo podría repetir?",
+    at: "No tengo un horario que pueda reservar. ¿Qué día y hora le vendría bien?",
+    phone: "No entendí un número en el que la clínica pueda localizarle. ¿Me lo podría repetir?",
+    preferred_window: "¿Qué día u hora le vendría mejor?",
+  },
+  booked: (when, service) => `Su cita está reservada para el ${when}${service ? ` para ${service}` : ""}. Está en el calendario de la clínica.`,
+  oneBookingPerCall: (when) =>
+    `Solo puedo reservar una cita por llamada, y la suya ya está reservada${when ? ` para el ${when}` : ""}. Para otra cita, vuelva a llamar o pregunte a la clínica.`,
+  slotGone: (alternatives) =>
+    alternatives.length === 0
+      ? "Ese horario se acaba de ocupar. ¿Qué otro día u hora le vendría bien?"
+      : `Ese horario se acaba de ocupar. Los horarios más cercanos que tengo son el ${joinOrEs(alternatives)}.`,
+  offer: (times) => (times.length === 0 ? "No tengo un horario libre en ese momento. ¿Qué otro día u hora le vendría bien?" : `Tengo el ${joinOrEs(times)}. ¿Cuál le viene mejor?`),
+  detailsBeforeHold: (when) => `Antes de reservarle el ${when}, ¿me podría dar su nombre y un número de celular en el que la clínica pueda localizarle?`,
+  ask: askLineEs,
+  heldAsk: (missing) => `${HOLD_LINE_ES} ${askLineEs(missing)}`,
+  requestAsk: (missing, deposit) =>
+    `${deposit ? "Esa cita necesita un depósito, así que pasaré su solicitud a la clínica y le llamarán para gestionarlo." : "No puedo reservar eso directamente ahora, así que tomaré el horario que prefiere y la clínica se lo confirmará."} ${askLineEs(missing)}`,
+  deposit: depositLineEs,
+};
+
+/** The fixed booking lines in a call's language. */
+export function bookingLinesFor(language: "en" | "es" = "en"): BookingLines {
+  return language === "es" ? BOOKING_LINES_ES : BOOKING_LINES_EN;
 }

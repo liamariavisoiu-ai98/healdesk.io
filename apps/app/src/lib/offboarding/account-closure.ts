@@ -49,8 +49,8 @@ import { releaseNumberAfterPassThrough } from "./offboarding";
  * invitations and organisation memberships, and their user row becomes a
  * tombstone: an address under RFC 2606's `.invalid`, no name. Then the
  * setup (agent configuration, settings and their history, report recipients,
- * the practice questions, the website re-reads, the clinic row's setup
- * columns), our own notes and
+ * the practice questions, the website re-reads, the account's locations, the
+ * clinic row's setup columns), our own notes and
  * phase-two runs, and the checkout the clinic was bought through. The
  * function's own list, which tests/booking-request-destruction.test.ts holds
  * to the catalog beside destruction's and KEPT_FOR_GOOD; after it, those
@@ -86,12 +86,20 @@ export const KEPT_FOR_GOOD: Readonly<Record<string, string>> = {
   // The agreement.
   calendar_elections:
     "part of the signed agreement: each election is a term the practice recorded for a location's calendar (0057); append-only for every role, no patient",
+  location_acknowledgements:
+    "part of the agreement: the practice's acceptance, for each location it added, of one central assistant for all of them, as shown, hashed and under whose step-up (0109); append-only for every role, no patient",
   connection_links:
     "only the links a calendar election was signed through or an OAuth state names (the closure deletes every other): part of that election's record (0057)",
   agreement_resigns:
     "which agreement covered the practice, and from when: the record of each re-sign from the DPA to the BAA (0088), contract metadata, no patient",
   sign_in_address_changes:
     "the written record of each notice address the practice gave (the agreements' Notices clause): what proves where a notice was due; business contact data, no patient",
+  // Not in FROZEN_AT_CLOSURE on purpose: the release at Retell
+  // (deprovisionVoiceAgent) writes `released` on this row after the
+  // pass-through ends, which is when the account closes, and a frozen row
+  // would leave the number billed at Retell with no record of why.
+  voice_agents:
+    "the record of the practice's Retell agent and AYA number and of their release at the end (0107, lib/voice/provision.ts): healdesk's own vendor ids and dates, no caller, no call, no patient",
   incidents:
     "the record of each security incident and of the notice given for it: a breach notice the business associate must be able to prove (45 CFR 164.414(b)), kept six years (164.316(b)(2))",
 

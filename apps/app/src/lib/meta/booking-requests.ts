@@ -1289,7 +1289,14 @@ export async function recordAssistantWrite(
     .update(slotHolds)
     .set({ status: "converted", outcomeReason: late ? "written_late" : "written", releasedAt: sql`clock_timestamp()`, updatedAt: sql`now()` })
     .where(fenced(holdId, fence));
-  const gate = await depositGateFor(tx, { channel: hold.channel === "web_chat" ? "web" : hold.channel, service: request.treatment });
+  // A website chat's booking recorded in its turn sends its own link
+  // (lib/booking/deposit-gate.ts chatDepositFor), so its deposit is
+  // `collect`; one found later, after the chat moved on, is the front desk's.
+  const gate = await depositGateFor(tx, {
+    channel: hold.channel === "web_chat" ? "web" : hold.channel,
+    service: request.treatment,
+    canCollectNow: hold.channel === "web_chat" && !late,
+  });
   const deposit = bookedDepositOutcome(gate.outcome);
   const appointmentId = await insertAppointment(tx, {
     contactId: request.contactId,
@@ -1599,9 +1606,14 @@ async function insertAppointment(tx: TenantTx, input: AppointmentInput): Promise
   const listed = listedPrice(canonical === null ? null : services.find((s) => s.name === canonical));
   const owedAlready =
     input.depositAlerted === true && input.deposit?.isRequired === true && (input.deposit.action === "book_and_flag" || input.deposit.action === "hold_and_alert");
-  // A chat link (`collect`) is priced from the appointment's own amount.
+  // A chat link (`collect`) is priced from the appointment's own amount, and
+  // owed as `pending_link` from this transaction on: the link is made after
+  // it commits, so a crash between the two leaves the obligation on the row
+  // for lib/billing/deposit-sweep.ts to hand to the desk, never a booking
+  // that silently owes nothing.
+  const collect = input.deposit?.action === "collect" && input.deposit.amountUsd != null && input.deposit.amountUsd > 0;
   const engineUsd =
-    (owedAlready || input.deposit?.action === "collect") && input.deposit?.amountUsd != null ? String(input.deposit.amountUsd) : null;
+    (owedAlready || collect) && input.deposit?.amountUsd != null ? String(input.deposit.amountUsd) : null;
   const [appointment] = await tx.db
     .insert(appointments)
     .values({
@@ -1611,7 +1623,7 @@ async function insertAppointment(tx: TenantTx, input: AppointmentInput): Promise
       scheduledFor: input.scheduledFor,
       treatment: input.treatment,
       depositUsd: input.deposit ? engineUsd : depositPolicy?.required && depositPolicy.amountUsd !== null ? String(depositPolicy.amountUsd) : null,
-      depositStatus: owedAlready || (!input.deposit && depositPolicy?.required) ? "pending_front_desk" : "none",
+      depositStatus: owedAlready || (!input.deposit && depositPolicy?.required) ? "pending_front_desk" : collect ? "pending_link" : "none",
       // The desk confirmed it; the clinic's own system has not reported it
       // back to us, and may never. See schema.ts.
       externalConfirmedAt: null,

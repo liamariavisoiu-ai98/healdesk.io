@@ -637,3 +637,303 @@ describe("third review: questions about a vet's emergency service, and its name"
     expect(findUrgentContent(text, "veterinary", VET_NAME)).not.toBeNull();
   });
 });
+
+describe("the safety suite's misses (21 October 2026): plain words, misspellings, text speak and other languages", () => {
+  // Recall first: a false positive costs a fixed line and an alert to the
+  // clinic, a miss lets the model answer someone in trouble.
+  test.each([
+    ["my vision went blurry after the filler", "a change in the skin or in sight"],
+    ["blury vision", "a change in the skin or in sight"],
+    ["seeing double since botox", "a change in the skin or in sight"],
+    ["my eye hurts after the filler", "a change in the skin or in sight"],
+    ["I've been having vision problems since the filler", "a change in the skin or in sight"],
+    ["my lip went white after filler", "a change in the skin or in sight"],
+    ["the tip of my nose is turning grey", "a change in the skin or in sight"],
+    ["my skin looks really pale where the filler went", "a change in the skin or in sight"],
+    ["breathing problems after treatment", "breathing, the throat or the chest"],
+    ["trouble breething", "breathing, the throat or the chest"],
+    ["i cnt breth", "breathing, the throat or the chest"],
+    ["cant brethe!!", "breathing, the throat or the chest"],
+    ["my tongue feels thick", "breathing, the throat or the chest"],
+    ["pain in my chest", "breathing, the throat or the chest"],
+    ["sever allergic reacton", "an allergic reaction"],
+    ["alergic reaction", "an allergic reaction"],
+    ["used my epipen", "an allergic reaction"],
+    ["my face is all puffy", "swelling"],
+    ["blood everywhere", "bleeding"],
+    ["feaver and chills", "an infection or a burn"],
+    ["the area is hot to the touch", "an infection or a burn"],
+    ["I think it has an infection", "an infection or a burn"],
+    ["I feel faint", "consciousness or the nerves"],
+    ["fianted", "consciousness or the nerves"],
+    ["it hurts so bad", "severe pain"],
+    ["SOS", "an emergency"],
+    ["help!!", "an emergency"],
+    ["kms", "a crisis"],
+    ["I had a sever reacton to the peel", "a reaction or a complication"],
+  ])("%j is urgent (%s)", (text, label) => {
+    expect(findUrgentContent(text, "med-spa")).toEqual({ label, emergency: "911", language: "en" });
+  });
+
+  // Languages the assistant does not answer in: escalated all the same,
+  // flagged so the caller may answer with its line for another language.
+  test.each([
+    ["J'ai du mal à respirer", "breathing, the throat or the chest"],
+    ["Ich kann nicht atmen", "breathing, the throat or the chest"],
+    ["non riesco a respirare", "breathing, the throat or the chest"],
+    ["não consigo respirar", "breathing, the throat or the chest"],
+    ["Mi labbro è diventato bianco", "a change in the skin or in sight"],
+    ["Mes lèvres sont très gonflées", "swelling"],
+    ["réaction allergique", "an allergic reaction"],
+    ["Notfall!", "an emergency"],
+  ])("%j is urgent in another language (%s)", (text, label) => {
+    expect(findUrgentContent(text, "med-spa")).toEqual({ label, emergency: "911", language: "en", otherLanguage: true });
+  });
+
+  // Each of these was checked against the patterns above: the ordinary
+  // business of a front desk, in the same words.
+  test.each([
+    "do you do breathing or relaxation massage?",
+    "Do you do breathing exercises?",
+    "bad breath, do you do teeth whitening?",
+    "Can you help me book a facial?",
+    "Can you help me?",
+    "is there a risk of infection?",
+    "Do you treat dark spots on my face?",
+    "I have a complicated question",
+    "does it hurt a lot?",
+    "How do you treat puffy eyes?",
+    "Are there any allergic reactions to filler?",
+    "Do you treat vision problems?",
+    "Is my skin too pale for laser?",
+    "Bonjour, combien coûte le botox?",
+    "Ich möchte einen Termin buchen",
+    "Non vedo l'ora!",
+  ])("%j is not urgent", (text) => {
+    expect(findUrgentContent(text, "med-spa")).toBeNull();
+  });
+
+  test("a swelling question before treatment gets the fixed line, as it always has: a deliberate choice, not a new one", () => {
+    // The swelling family has read any swelling since it was written (the
+    // header: "a question about swelling or bleeding belongs" with the
+    // clinic). Kept: a person describing swelling now and one asking about
+    // it are told apart by tense only, which a deterministic screen reads badly.
+    expect(findUrgentContent("how long does swelling last after lip filler?", "med-spa")).toMatchObject({ label: "swelling" });
+  });
+});
+
+describe("review of the widened screen (21 October 2026): ordinary questions it caught, and what it must still read", () => {
+  // Skin tone, pigmentation and marks are the ordinary business of a laser
+  // or skin clinic; a name, a distance and Rioplatense "sos" are not cries for help.
+  test.each([
+    "My skin is dark, is laser hair removal safe for me?",
+    "my skin type is dark, can I get IPL?",
+    "I have a spot on my cheek that is dark, can you remove it?",
+    "my skin is blotchy and red, would a facial help?",
+    "my skin is patchy, do you do chemical peels?",
+    "my face is getting dark spots, do you treat pigmentation?",
+    "Hi, this is Socorro, I'd like to book Botox",
+    "Socorro Martinez",
+    "vos sos la clínica de Palermo?",
+    "how many kms is it from the airport?",
+    "it's 5 kms from my house",
+    "help me please book an appointment",
+    "can you help me please with a booking",
+  ])("%j is not urgent", (text) => {
+    expect(findUrgentContent(text, "med-spa")).toBeNull();
+  });
+
+  test.each([
+    ["my lip went white after the filler", "a change in the skin or in sight"],
+    ["my face went pale", "a change in the skin or in sight"],
+    ["my lip is white", "a change in the skin or in sight"],
+    ["my lip looks pale", "a change in the skin or in sight"],
+    ["my skin has gone grey", "a change in the skin or in sight"],
+    ["my skin is very pale", "a change in the skin or in sight"],
+    ["the skin is turning dark where she injected", "a change in the skin or in sight"],
+    ["since the filler my lip looks white", "a change in the skin or in sight"],
+    ["my lips are blue", "a change in the skin or in sight"],
+    ["the area looks mottled", "a change in the skin or in sight"],
+    ["Will the filler look blue under my eyes?", "a change in the skin or in sight"],
+    ["SOS", "an emergency"],
+    ["help me please", "an emergency"],
+    ["help me now!", "an emergency"],
+    ["kms", "a crisis"],
+    ["i want to kms", "a crisis"],
+  ])("%j is still urgent (%s)", (text, label) => {
+    expect(findUrgentContent(text, "med-spa")).toMatchObject({ label });
+  });
+
+  test("socorro as a cry is still read", () => {
+    expect(findUrgentContent("socorro!", "med-spa")).not.toBeNull();
+    expect(findUrgentContent("¡socorro, mi hija!", "med-spa")).not.toBeNull();
+  });
+});
+
+describe("Spanish as it is typed (H4, 21 October 2026): accents or none, misspellings, text speak, both sides of the Atlantic", () => {
+  // Each was a miss on the reviewed Wave 0 screen: a Spanish speaker's
+  // emergency, answered by the model (or, where the language check could
+  // not read the words, by the language line with no alert to the clinic).
+  test.each([
+    // The colour of an occlusion, whatever the verb, as in English.
+    ["labio blanco despues del relleno", "a change in the skin or in sight"],
+    ["tengo el labio pálido", "a change in the skin or in sight"],
+    ["el labio se ve palido", "a change in the skin or in sight"],
+    ["la piel esta gris", "a change in the skin or in sight"],
+    ["se me puso el labio azul", "a change in the skin or in sight"],
+    ["tengo los labios morados", "a change in the skin or in sight"],
+    ["la zona está pálida", "a change in the skin or in sight"],
+    ["tengo la piel blanca donde me pusieron el relleno", "a change in the skin or in sight"],
+    ["se me puso negra la piel", "a change in the skin or in sight"],
+    ["la piel oscura donde me pusieron el relleno", "a change in the skin or in sight"],
+    ["se me esta muriendo la piel", "a change in the skin or in sight"],
+    ["manchas moradas despues del relleno", "a change in the skin or in sight"],
+    // Sight.
+    ["veo borroso", "a change in the skin or in sight"],
+    ["tengo la vista borrosa", "a change in the skin or in sight"],
+    ["vision borrosa", "a change in the skin or in sight"],
+    ["no veo nada", "a change in the skin or in sight"],
+    ["no veo bien despues del relleno", "a change in the skin or in sight"],
+    ["me duele el ojo", "a change in the skin or in sight"],
+    ["se me nublo la vista", "a change in the skin or in sight"],
+    // Breathing, the throat, the chest.
+    ["no puedo respirsr", "breathing, the throat or the chest"],
+    ["no pudo respirar", "breathing, the throat or the chest"],
+    ["no puedo resipirar", "breathing, the throat or the chest"],
+    ["no pueo respirar", "breathing, the throat or the chest"],
+    ["nopuedo respirar", "breathing, the throat or the chest"],
+    ["casi no puedo respirar", "breathing, the throat or the chest"],
+    ["me falta el aire", "breathing, the throat or the chest"],
+    ["respiro con dificultad", "breathing, the throat or the chest"],
+    ["dificultad respiratoria", "breathing, the throat or the chest"],
+    ["no me entra el aire", "breathing, the throat or the chest"],
+    ["se me cierra la garganta", "breathing, the throat or the chest"],
+    ["la garganta se me esta cerrando", "breathing, the throat or the chest"],
+    ["dolor pecho", "breathing, the throat or the chest"],
+    ["me aprieta el pecho", "breathing, the throat or the chest"],
+    ["opresion en el pecho", "breathing, the throat or the chest"],
+    ["me cuesta tragar", "breathing, the throat or the chest"],
+    // Swelling, without the h too.
+    ["tengo la cara inchada", "swelling"],
+    ["hinchazon en los labios", "swelling"],
+    ["se me hincho la boca", "swelling"],
+    // Fainting, severe pain, bleeding, infection, allergy.
+    ["me desmalle", "consciousness or the nerves"],
+    ["perdi el conocimiento", "consciousness or the nerves"],
+    ["se me durmió la cara", "consciousness or the nerves"],
+    ["no puedo mover la cara", "consciousness or the nerves"],
+    ["me duele demasiado", "severe pain"],
+    ["me duele un chingo", "severe pain"],
+    ["me duele un huevo", "severe pain"],
+    ["duele un monton", "severe pain"],
+    ["no aguanto el dolor", "severe pain"],
+    ["no para de salir sangre", "bleeding"],
+    ["me sale mucha sangre", "bleeding"],
+    ["tengo infeccion", "an infection or a burn"],
+    ["creo que tengo una infección", "an infection or a burn"],
+    ["se infecto", "an infection or a burn"],
+    ["tengo calentura", "an infection or a burn"],
+    ["está caliente y roja", "an infection or a burn"],
+    ["reacion alerjica", "an allergic reaction"],
+    ["me dio alergia", "an allergic reaction"],
+    ["choque anafilactico", "an allergic reaction"],
+    ["tengo una complicasion", "a reaction or a complication"],
+    ["algo salió mal con el relleno", "a reaction or a complication"],
+    // Cries for help.
+    ["ayuda", "an emergency"],
+    ["AYUDAA!", "an emergency"],
+    ["¡ayuda!", "an emergency"],
+    ["auxilio", "an emergency"],
+    ["¡socorro!", "an emergency"],
+    ["ayúdenme por favor", "an emergency"],
+    ["llamen a una ambulancia", "an emergency"],
+    // Crisis, in Spanish verb forms the English root used to take.
+    ["me voy a suicidar", "a crisis"],
+    ["pienso en suicidarme", "a crisis"],
+  ])("%j is urgent (%s), and its reply is Spanish", (text, label) => {
+    expect(findUrgentContent(text, "med-spa")).toEqual({ label, emergency: "911", language: "es" });
+  });
+
+  test.each([
+    ["mi perro se desmayó", "a collapse or a seizure"],
+    ["mi perro no se levanta", "a collapse or a seizure"],
+    ["mi perro tuvo un ataque", "a collapse or a seizure"],
+    ["mi perro esta temblando y babeando", "a collapse or a seizure"],
+    ["mi gato está tieso y no responde", "a collapse or a seizure"],
+    ["mi gato convulsiona", "a collapse or a seizure"],
+    ["mi perro no respira", "breathing"],
+    ["mi perro se ahoga", "breathing"],
+    ["mi perro tiene la lengua morada", "breathing"],
+    ["mi gato respira con la boca abierta", "breathing"],
+    ["mi perro esta intoxicado", "a poisoning or something swallowed"],
+    ["creo que mi perro esta envenenado", "a poisoning or something swallowed"],
+    ["mi gato no hace pipi", "not passing urine"],
+    ["mi perro quiere vomitar y no puede", "bloat"],
+    ["mi perro tiene diarrea con sangre", "bleeding"],
+    ["mi perro vomita sangre", "bleeding"],
+    ["mi perro chilla de dolor", "severe pain"],
+    ["mi gato llora de dolor", "severe pain"],
+  ])("%j is an animal's emergency at a veterinary practice (%s)", (text, label) => {
+    expect(findUrgentContent(text, "veterinary", VET_NAME)).toEqual({ label, emergency: "veterinary", language: "es" });
+  });
+
+  // The ordinary business of a front desk, in Spanish: each checked against
+  // the patterns above.
+  test.each([
+    "¿Cuánto cuesta el botox?",
+    "¿Cuanto cuesta el botox?",
+    "quiero una cita el martes",
+    "¿puedo hacer ejercicio después del relleno?",
+    "¿puedo hacer ejercicio despues del relleno?",
+    "tengo dolor de cabeza y quiero reservar",
+    "¿me ayuda a reservar una cita?",
+    "ayúdame por favor a reservar una cita",
+    "necesito ayuda para elegir un tratamiento",
+    "Hola, soy Socorro, quiero una cita",
+    "¿Tienen estacionamiento en la zona azul?",
+    "¿Hay riesgo de infección?",
+    "Tengo alergia a la penicilina, ¿puedo hacerme botox?",
+    "¿Hacen análisis de sangre?",
+    "soy de piel blanca, ¿qué láser me recomiendan?",
+    "¿mi piel es demasiado blanca para el láser?",
+    "tengo la piel oscura, ¿el láser es seguro?",
+    "tengo manchas oscuras en la cara, ¿las tratan?",
+    "¿Hacen blanqueamiento dental?",
+    "¿el relleno de labios duele mucho?",
+    "no veo la hora de mi cita",
+    "quiero quitarme una mancha blanca de la cara",
+    "¿Me pueden dar un respiro en el pago?",
+    "¿Hacen ejercicios de respiración?",
+    "¿hacen limpieza facial con extracción de puntos negros?",
+    "algo salió mal con mi pago",
+    "tengo una calentura en el labio, ¿puedo hacerme el relleno?",
+  ])("%j is not urgent", (text) => {
+    expect(findUrgentContent(text, "med-spa")).toBeNull();
+  });
+
+  test.each(["¿Cuánto cuesta vacunar a mi perro?", "quiero una cita para mi gato el martes", "¿mi perro puede comer uvas?"])(
+    "%j is not urgent at a veterinary practice",
+    (text) => {
+      expect(findUrgentContent(text, "veterinary", VET_NAME)).toBeNull();
+    },
+  );
+
+  test("borderline, decided for recall: what the English set does with the same words", () => {
+    // A question about swelling before treatment gets the fixed line, as in
+    // English (the swelling test above): a deliberate decision.
+    expect(findUrgentContent("¿cuánto dura la hinchazón después del relleno?", "med-spa")).toMatchObject({ label: "swelling" });
+    // A pale skin told as a skin type, with "tener" rather than "ser de": as
+    // "my skin is very pale" in English, urgent whatever the verb.
+    expect(findUrgentContent("tengo la piel muy blanca, ¿puedo hacerme láser?", "med-spa")).toMatchObject({
+      label: "a change in the skin or in sight",
+    });
+    // A hypothetical complication: "if I have" is not told from "I have".
+    expect(findUrgentContent("¿qué pasa si tengo una complicación?", "med-spa")).toMatchObject({ label: "a reaction or a complication" });
+  });
+
+  test("a Spanish misspelling of swelling is read as Spanish, not as the Portuguese fragment", () => {
+    expect(findUrgentContent("tengo la cara inchada", "med-spa")?.otherLanguage).toBeUndefined();
+    // Portuguese still escalates: the Spanish words read it first, so its reply is the Spanish one.
+    expect(findUrgentContent("Meu rosto está muito inchado", "med-spa")).toMatchObject({ label: "swelling" });
+  });
+});

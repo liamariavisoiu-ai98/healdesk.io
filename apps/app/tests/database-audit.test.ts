@@ -165,13 +165,16 @@ describeDb("database audit (0031)", () => {
     // offboarding and record-clock columns (0054), the client number every
     // sealed credential is labelled with (migration A, 0057), the export's
     // delivery, which the destruction floor reads (0058), the
-    // organisation, which the agreement gate reads (0066), and the account's
+    // organisation, which the agreement gate reads (0066), the account's
     // closure with the notice address it keeps, which only
-    // app_close_clinic_account and app_expire_notice_addresses write (0096).
+    // app_close_clinic_account and app_expire_notice_addresses write (0096),
+    // and the billing pointer, retired as the way locations are made and
+    // given no new writer (0109).
     expect(locked).toEqual([
       "account_closed_at",
       "agreement_kind",
       "baa_signed_at",
+      "billing_clinic_id",
       "client_number",
       "data_classification",
       "destroy_after",
@@ -813,7 +816,8 @@ describeDb("database audit (0031)", () => {
     // 0092 the handovers, which point at a caller's conversation or thread;
     // 0093 the flags staff put on conversations; 0094 a patient's request to
     // healdesk, passed to the practice (L32); 0098 the list of who an incident
-    // affected, which names contacts.
+    // affected, which names contacts; 0108 the redial records of calls that
+    // ended early, sealed turns keyed to a caller.
     const expected = [
       "appointments",
       "booking_requests",
@@ -834,6 +838,7 @@ describeDb("database audit (0031)", () => {
       "suppressions",
       "transactions",
       "transcript_emails",
+      "voice_redial_contexts",
       "webhook_events",
     ];
     const { rows } = await getMigratorPool().query<{ relname: string }>(`

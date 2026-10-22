@@ -1,3 +1,4 @@
+import { audienceSingular } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -5,22 +6,30 @@ import { redirect } from "next/navigation";
 import { unsafeDb } from "@/db";
 import { passkeyEnrolDecision } from "@/lib/factors/authority";
 import { deviceKindFrom } from "@/lib/factors/device";
-import { requirePortal } from "@/lib/portal/access";
+import { portalOrNull, requirePortal } from "@/lib/portal/access";
+import { portalAudience } from "@/lib/portal/audience";
 import { portalNext, sessionBinding, stepUpPath } from "@/lib/portal/step-up";
 import { isPayingBrowser, PAYING_BROWSER_COOKIE } from "@/lib/sign-in/paying-browser";
 
 import { protectMode } from "./copy";
 import { ProtectDevice } from "./ProtectDevice";
 
-export const metadata: Metadata = {
-  title: "Protect patient details",
-  referrer: "no-referrer",
-};
+/** The tab's title in the practice's word: a vet protects its clients' details. */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const portal = await portalOrNull((await params).slug);
+  const audience = portal ? await portalAudience(portal) : "patients";
+  return { title: `Protect ${audienceSingular(audience)} details`, referrer: "no-referrer" };
+}
 
 export const dynamic = "force-dynamic";
 
 /**
- * /c/<slug>/protect: "Protect patient details: use Face ID", the first screen
+ * /c/<slug>/protect: "Protect patient details: use Face ID" ("client details"
+ * at a veterinary practice, whose customers own the patients), the first screen
  * after /welcome (plan Part D3), and "Add this device" from anywhere else.
  *
  * Whether this session may add a passkey is decided by lib/factors
@@ -73,6 +82,7 @@ export default async function ProtectPage({
         codeRoute={!decision.allowed && decision.codeRoute}
         initialDevice={deviceKindFrom({ userAgent: (await headers()).get("user-agent") })}
         stepUpHref={stepUpPath(portal.clinicSlug, here)}
+        audience={await portalAudience(portal)}
       />
     </main>
   );

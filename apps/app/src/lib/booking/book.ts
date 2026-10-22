@@ -29,8 +29,8 @@ import { bookedDepositLine, writeHeldBooking, type HeldWrite } from "./writer";
 /**
  * Booking a conversation (plan §7.7): hold, re-check, claim, write, record.
  * Called through lib/booking/engine.ts, the only way anything may write the
- * assistant's bookings; no channel calls it yet (lib/booking/engine.ts says
- * why).
+ * assistant's bookings; the call and the web chat reach it through the
+ * shared tool layer (lib/assistant/booking-tools.ts).
  *
  *   0. Validate: a first name (letters, at most 40), a future start, a
  *      phone number; the service resolved against the clinic's own list.
@@ -101,11 +101,17 @@ export type RequestReason =
   | "already_logged";
 
 export type BookConversationInput = {
-  channel: "voice";
-  /** "retell:" + call id. */
+  /** A call, or a web chat (lib/assistant/booking-tools.ts). */
+  channel: "voice" | "web_chat";
+  /** "retell:" + call id; "web:" + conversation id. */
   holderKey: string;
-  /** "retell:" + call id + ":" + n, n growing only when the caller asks for another booking. */
+  /** "retell:" + call id + ":" + n, n growing only when the caller asks for another booking; "web:" + conversation id + ":" + n. */
   bookingKey: string;
+  /**
+   * The chat's conversation, which exists while it runs; null for a call,
+   * whose conversation is written when it ends (the ingest links it).
+   */
+  conversationId?: string | null;
   startsAt: Date;
   firstName: string;
   phoneE164: string;
@@ -136,6 +142,10 @@ export type BookConversationResult =
       /** The named provider whose calendar it is in; null for the location's own. */
       providerId: string | null;
       replayed: boolean;
+      /** The booking recorded, when it is known: a chat's deposit link is made for it. */
+      appointmentId: string | null;
+      /** The request the booking confirmed. */
+      requestId: string | null;
       /** A deposit left for the front desk, for the voice line (depositLine); never a link. */
       deposit: DepositLineFacts | null;
     }
@@ -145,6 +155,8 @@ export type BookConversationResult =
       modeReasons?: BookingModeReasonCode[];
       replayed: boolean;
       deposit: DepositLineFacts | null;
+      /** The request staff confirm, when it is known. */
+      requestId?: string | null;
     }
   | { kind: "slot_taken"; alternatives: Date[] }
   | { kind: "in_progress" }
@@ -155,7 +167,8 @@ export type BookConversationResult =
   | { kind: "invalid"; field: "first_name" | "at" | "phone" | "preferred_window" };
 
 export type LogRequestInput = {
-  channel: "voice";
+  /** A call, or a web chat whose booking the calendar could not take (lib/assistant/booking-tools.ts). */
+  channel: "voice" | "web_chat";
   holderKey: string;
   bookingKey: string;
   firstName: string;
@@ -164,12 +177,14 @@ export type LogRequestInput = {
   alternativeWindows?: string[];
   service: string | null;
   fields?: Record<string, string>;
+  /** The chat's conversation, as for bookConversation; null for a call. */
+  conversationId?: string | null;
   now?: Date;
   actor?: ActorContext;
 };
 
 export type LogRequestResult =
-  | { kind: "request_logged"; replayed: boolean }
+  | { kind: "request_logged"; replayed: boolean; requestId?: string | null }
   | { kind: "key_reused"; first: "booked" | "request_logged"; firstStartsAt?: Date }
   | { kind: "invalid"; field: "first_name" | "phone" | "preferred_window" };
 
@@ -226,7 +241,13 @@ export async function bookConversation(
   // the provider: the one named, else the one whose time the caller holds.
   const state = await withTenant({ clinicId, actor }, async (tx) => ({
     mode: await bookingModeFor(tx),
-    gate: await depositGateFor(tx, { channel: "voice", service: ask.canonical ?? input.service }),
+    // The website chat can send its link in the conversation (DEPOSIT-01):
+    // a deposit due there is `collect`, booked and then linked.
+    gate: await depositGateFor(tx, {
+      channel: depositChannelOf(call.channel),
+      service: ask.canonical ?? input.service,
+      canCollectNow: call.channel === "web_chat",
+    }),
     inFlight: await inFlightUnderOtherKey(tx, holderRef, input.bookingKey),
     providerId: input.providerId ?? (await heldProviderOf(tx, holderRef, input.startsAt)),
   }));
@@ -312,6 +333,7 @@ export async function bookConversation(
       reason: "deposit_hold",
       replayed: false,
       deposit: lineFacts(state.gate.outcome),
+      requestId: claimed.requestId,
     };
   }
 
@@ -332,15 +354,27 @@ export async function bookConversation(
     );
     const seen = await answerAsRequest(clinicId, claimed.holdId, claimed.requestId, actor);
     if (seen === "answered") {
-      return { kind: "request_logged", reason: "budget", replayed: false, deposit: null };
+      return {
+        kind: "request_logged",
+        reason: "budget",
+        replayed: false,
+        deposit: null,
+        requestId: claimed.requestId,
+      };
     }
     // The write settled as the budget ran out: its own answer, a moment late.
-    return answerOf(await writing, ask, span.providerId);
+    return answerOf(await writing, ask, span.providerId, claimed.requestId);
   }
-  return answerOf(outcome, ask, span.providerId);
+  return answerOf(outcome, ask, span.providerId, claimed.requestId);
 }
 
-function answerOf(outcome: HeldWrite, ask: Ask, providerId: string | null): BookConversationResult {
+function answerOf(
+  outcome: HeldWrite,
+  ask: Ask,
+  providerId: string | null,
+  requestId: string,
+): BookConversationResult {
+  const request = { replayed: false, deposit: null, requestId } as const;
   switch (outcome.kind) {
     case "booked":
       return {
@@ -351,16 +385,18 @@ function answerOf(outcome: HeldWrite, ask: Ask, providerId: string | null): Book
         providerId,
         replayed: false,
         deposit: outcome.deposit,
+        appointmentId: outcome.appointmentId,
+        requestId,
       };
     case "unconfirmed":
     case "lost":
-      return { kind: "request_logged", reason: "unconfirmed", replayed: false, deposit: null };
+      return { kind: "request_logged", reason: "unconfirmed", ...request };
     case "calendar_broken":
-      return { kind: "request_logged", reason: "calendar_broken", replayed: false, deposit: null };
+      return { kind: "request_logged", reason: "calendar_broken", ...request };
     case "refused":
-      return { kind: "request_logged", reason: "write_refused", replayed: false, deposit: null };
+      return { kind: "request_logged", reason: "write_refused", ...request };
     case "conflict":
-      return { kind: "request_logged", reason: "record_conflict", replayed: false, deposit: null };
+      return { kind: "request_logged", reason: "record_conflict", ...request };
   }
 }
 
@@ -417,7 +453,9 @@ export async function logRequest(
     alternatives: input.alternativeWindows ?? [],
   });
   if (logged.kind === "key_reused") return logged;
-  return { kind: "request_logged", replayed: logged.kind === "request_logged" && logged.replayed };
+  return logged.kind === "request_logged"
+    ? { kind: "request_logged", replayed: logged.replayed, requestId: logged.requestId ?? null }
+    : { kind: "request_logged", replayed: false };
 }
 
 async function requestReplay(call: Call, ask: Ask, prior: Prior): Promise<LogRequestResult> {
@@ -427,7 +465,7 @@ async function requestReplay(call: Call, ask: Ask, prior: Prior): Promise<LogReq
     // A request asked for under a key that already booked is a different ask.
     return keyReused(prior);
   }
-  return { kind: "request_logged", replayed: true };
+  return { kind: "request_logged", replayed: true, requestId: prior.id };
 }
 
 // -----------------------------------------------------------------------------
@@ -437,7 +475,8 @@ async function requestReplay(call: Call, ask: Ask, prior: Prior): Promise<LogReq
 /** One call to the engine, validated. */
 type Call = {
   clinicId: string;
-  channel: "voice";
+  channel: "voice" | "web_chat";
+  conversationId: string | null;
   holderKey: string;
   bookingKey: string;
   service: string | null;
@@ -462,6 +501,7 @@ function callOf(
     channel: input.channel,
     holderKey: input.holderKey,
     bookingKey: input.bookingKey,
+    conversationId: "conversationId" in input ? (input.conversationId ?? null) : null,
     service: input.service,
     fields: input.fields,
     providerId: "providerId" in input ? (input.providerId ?? null) : null,
@@ -637,6 +677,8 @@ async function replay(
       providerId: prior.hold?.providerId ?? null,
       replayed: true,
       deposit,
+      appointmentId: prior.appointmentId,
+      requestId: prior.id,
     };
   }
   if (
@@ -661,31 +703,42 @@ async function replay(
     // when its own budget runs out, and the alert goes once between them.
     const seen = await answerAsRequest(call.clinicId, prior.hold.id, prior.id, call.actor);
     if (seen === "answered") {
-      return { kind: "request_logged", reason: "budget", replayed: true, deposit: null };
+      return {
+        kind: "request_logged",
+        reason: "budget",
+        replayed: true,
+        deposit: null,
+        requestId: prior.id,
+      };
     }
     const settled = await withTenant({ clinicId: call.clinicId, actor: call.actor }, (tx) =>
       priorOf(tx, call.bookingKey),
     );
     if (settled) return replay(call, ask, settled, false);
   }
+  const logged = { replayed: true, deposit: null, requestId: prior.id } as const;
   if (prior.hold?.status === "reserved") {
-    return { kind: "request_logged", reason: "deposit_hold", replayed: true, deposit: null };
+    return { kind: "request_logged", reason: "deposit_hold", ...logged };
   }
   if (prior.hold?.status === "unknown" || prior.hold?.status === "writing") {
-    return { kind: "request_logged", reason: "unconfirmed", replayed: true, deposit: null };
+    return { kind: "request_logged", reason: "unconfirmed", ...logged };
   }
   // A request taken for a deposit says so again, as the clinic's switches stand.
   const gate = await withTenant({ clinicId: call.clinicId, actor: call.actor }, (tx) =>
-    depositGateFor(tx, { channel: "voice", service: prior.treatment }),
+    depositGateFor(tx, {
+      channel: depositChannelOf(call.channel),
+      service: prior.treatment,
+      canCollectNow: call.channel === "web_chat",
+    }),
   );
   return gate.branch === "decline"
     ? {
         kind: "request_logged",
         reason: "deposit_required",
-        replayed: true,
+        ...logged,
         deposit: lineFacts(gate.outcome),
       }
-    : { kind: "request_logged", reason: "already_logged", replayed: true, deposit: null };
+    : { kind: "request_logged", reason: "already_logged", ...logged };
 }
 
 /** The same booking: its span (or window) and its service. */
@@ -822,9 +875,9 @@ async function claim(
     holdId = placed.holdId;
   }
   const created = await createBookingRequest(tx, {
-    channel: "voice",
+    channel: call.channel,
     contactId,
-    conversationId: null,
+    conversationId: call.conversationId,
     preferredWindow: ask.label,
     treatment: ask.treatment,
     collectedFields: call.fields,
@@ -856,7 +909,10 @@ async function claim(
       resourceId: holdId,
       metadata: { outcome: "reserved", holdMinutes: reserve.holdMinutes },
     });
-    await recordDepositOutcome(tx, reserve.outcome, { bookingRequestId: created.id });
+    await recordDepositOutcome(tx, reserve.outcome, {
+      bookingRequestId: created.id,
+      ...chatRef(call),
+    });
     return { holdId, lease: null, requestId: created.id };
   }
   const lease = randomUUID();
@@ -908,8 +964,9 @@ async function logInCall(
     alternatives?: string[];
   },
 ): Promise<BookConversationResult> {
+  let requestId: string;
   try {
-    await withTenant({ clinicId: call.clinicId, actor: call.actor }, async (tx) => {
+    requestId = await withTenant({ clinicId: call.clinicId, actor: call.actor }, async (tx) => {
       const contactId = await upsertCallerContact(tx.db, {
         clinicId: tx.clinicId,
         phone: call.phone,
@@ -917,9 +974,9 @@ async function logInCall(
         clinicTimezone: timeZone,
       });
       const created = await createBookingRequest(tx, {
-        channel: "voice",
+        channel: call.channel,
         contactId,
-        conversationId: null,
+        conversationId: call.conversationId,
         preferredWindow: ask.label,
         treatment: ask.treatment,
         alternativeWindows: how.alternatives ?? [],
@@ -927,11 +984,13 @@ async function logInCall(
         vendorCallId: call.bookingKey,
       });
       await releaseHeldWithin(tx, call.holderRef, "request_logged");
+      const ref = { bookingRequestId: created.id, ...chatRef(call) };
       if (how.gate) {
-        await recordDepositOutcome(tx, how.gate.outcome, { bookingRequestId: created.id });
+        await recordDepositOutcome(tx, how.gate.outcome, ref);
       } else {
-        await notifyBookingAlert(tx, "booking_request", { bookingRequestId: created.id });
+        await notifyBookingAlert(tx, "booking_request", ref);
       }
+      return created.id;
     });
   } catch (error) {
     const { code, constraint } = pgErrorOf(error);
@@ -949,7 +1008,21 @@ async function logInCall(
     ...(how.modeReasons ? { modeReasons: how.modeReasons } : {}),
     replayed: false,
     deposit: how.gate ? lineFacts(how.gate.outcome) : null,
+    requestId,
   };
+}
+
+/** A chat's alert names its conversation and the website, as the chat's own request does (lib/chat/web-chat.ts). */
+function chatRef(call: Call): { conversationId?: string; channel?: "web" } {
+  if (call.channel !== "web_chat") return {};
+  return {
+    channel: "web",
+    ...(call.conversationId ? { conversationId: call.conversationId } : {}),
+  };
+}
+
+function depositChannelOf(channel: Call["channel"]): "voice" | "web" {
+  return channel === "web_chat" ? "web" : "voice";
 }
 
 /** Let go of this holder's `held` time, with a reason. */

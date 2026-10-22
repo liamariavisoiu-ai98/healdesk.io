@@ -256,9 +256,10 @@ describe("L32, the email: a pointer", () => {
     expect(reminder.subject).toBe("Reminder: a request from a client is waiting");
     expect(reminder.text).toContain("is still waiting for your team to mark it received");
     expect(reminder.text).toContain("To delete their information");
-    // The body, less its link's path; the footer's "Please leave out patient
-    // details" is every email's.
-    expect(reminder.text.split("\n—\n")[0]).not.toMatch(/\bpatient\b(?!-requests)/);
+    // The whole email, footer included, less its link's path: a vet's footer
+    // asks a reply to leave out "your clients' details".
+    expect(reminder.text).not.toMatch(/\bpatients?\b(?!-requests)/);
+    expect(reminder.text).toContain("Please leave out your clients' details.");
     expect(copyProblems([reminder.subject, reminder.preheader, reminder.text].join("\n"))).toEqual(
       [],
     );

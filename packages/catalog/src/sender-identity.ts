@@ -17,13 +17,14 @@
 export const SENDER_IDENTITY = {
   /**
    * The entity line, exactly as `entityLine()` words it. The site footer
-   * stopped printing it on 9 October 2026; the email footers still do.
+   * stopped printing it on 9 October 2026 and the Resend email footers on
+   * 22 October 2026; only the transcript email (SES) still prints it.
    */
   entityLine:
     "healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.",
   /** The US correspondence mailbox (`ENTITY.postalAddress`): CAN-SPAM's physical address. */
   postalAddress: "800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States",
-  /** How the mailbox is labelled wherever it is printed (`ENTITY.postalAddressLabel`). */
+  /** How the legal pages label the mailbox (`ENTITY.postalAddressLabel`); email footers print it bare. */
   postalAddressLabel: "US mailing address (correspondence only)",
   /**
    * Where every reply goes (`ENTITY.email`). hello@ is the only address healdesk

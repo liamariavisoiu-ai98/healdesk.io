@@ -34,7 +34,7 @@ const PROBLEMS: Record<string, string> = {
   no_page:
     "No Facebook Page was chosen. When Facebook asks which Pages to share, choose your clinic's Page. If none is listed, the account you signed in with is not an admin of the Page: ask whoever is to open this link instead.",
   several_pages:
-    "More than one Page was chosen. Each location answers on one Page, so sign in again and choose only this location's Page.",
+    "More than one Page was chosen. Your account answers on one Facebook Page for all your locations, so sign in again and choose only that Page.",
   meta_error: "Facebook didn't finish connecting the Page. Nothing was saved, and your link still works. Try again in a minute.",
   page_taken:
     "That Facebook Page is already connected to another practice on healdesk, so it can't be connected here too. Nothing was saved. Disconnect it there first, or reply to your setup email and we'll sort it out.",

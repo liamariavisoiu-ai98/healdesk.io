@@ -243,8 +243,10 @@ export type DepositRef = {
  * or declined (a call is told with depositLine, lib/booking/lines.ts):
  *
  *   book               nothing;
- *   collect            nothing yet: createDepositLink marks the appointment
- *                      `pending_link` when the link opens;
+ *   collect            nothing more: the appointment was inserted owing
+ *                      `pending_link` with its amount, and the link is made
+ *                      after the transaction (chatDepositFor); one never
+ *                      made goes to the desk (lib/billing/deposit-sweep.ts);
  *   book_and_flag      the appointment owes `pending_front_desk` with its
  *                      amount, and staff get the L10 alert;
  *   hold_and_alert     the same, for the held slot, and the alert;

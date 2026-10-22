@@ -65,7 +65,7 @@ export default async function IncidentPage({
         </p>
         <p className="text-muted mt-2 text-sm">
           Opening this page is logged with the device that opened it. Don&rsquo;t copy the list
-          anywhere less protected than your own patient records.
+          anywhere less protected than your own {person} records.
         </p>
 
         {sizes.pending || (sizes.gone && list.total === 0) ? (

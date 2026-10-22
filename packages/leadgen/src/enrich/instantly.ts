@@ -2,7 +2,7 @@ import { copyViolations } from "./copy-guard.ts";
 import { siteHost } from "./outreach.ts";
 
 /**
- * Splits the lead spreadsheet into the four tabs the owner works from.
+ * Splits the lead spreadsheet into the tabs the owner works from.
  *
  * Every row keeps every column it had: the hook, the best service, the offer,
  * the closing question, the hours, the booking platform and the rest of what
@@ -11,16 +11,19 @@ import { siteHost } from "./outreach.ts";
  * (`primary_contact`). The emails themselves are written in Instantly from
  * templates.ts, so no email body is stored here.
  *
- * Four tabs, because the clinics are not equally well known:
+ * Three tabs, because the clinics are not equally well known:
  *
- *   main             a primary contact whose hook rests on a measured fact
- *                    (hours, closed days, sites) and whose service we found
- *   lowEnrichment    a primary contact with no hours, or no service, or neither;
- *                    the copy still reads correctly, since every branch has a
+ *   main             a contact whose hook rests on a measured fact (hours,
+ *                    closed days, sites) and whose service we found
+ *   lowEnrichment    a contact with no hours, or no service, or neither; the
+ *                    copy still reads correctly, since every branch has a
  *                    fallback, but it is the weaker send and is judged separately
- *   secondContacts   another contact at a clinic already above; a later wave so
- *                    one clinic never has two threads in flight
  *   unreadable       a site that would not load; there is no preview to offer
+ *
+ * A second contact sits in the same tab as the primary contact at its clinic,
+ * because the enrichment belongs to the clinic, not the person. The `list`
+ * column says which kind a row is, and `primary_contact` names the other person,
+ * so the owner can hold either back.
  */
 
 type Lead = Record<string, string>;
@@ -91,16 +94,14 @@ const SENT = ["hook", "top_offer", "closing_question", "subject_line", "scenario
 export type LeadTabs = {
   main: Lead[];
   lowEnrichment: Lead[];
-  secondContacts: Lead[];
   unreadable: Lead[];
   refused: string[];
 };
 
-/** Split the spreadsheet's rows into its four tabs. Excluded rows are in none. */
+/** Split the spreadsheet's rows into its three tabs. Excluded rows are in none. */
 export function splitLeads(rows: readonly Lead[]): LeadTabs {
   const main: Lead[] = [];
   const lowEnrichment: Lead[] = [];
-  const secondContacts: Lead[] = [];
   const unreadable: Lead[] = [];
   const refused: string[] = [];
 
@@ -125,12 +126,11 @@ export function splitLeads(rows: readonly Lead[]): LeadTabs {
     for (const col of SENT) for (const label of copyViolations(out[col] ?? "")) refused.push(`${r.email} ${col}: ${label}`);
 
     if (r.list === "unreadable") unreadable.push(out);
-    else if (r.list === "second-contact") secondContacts.push(out);
     else (out.enrichment_note ? lowEnrichment : main).push(out);
   }
 
   // Strongest first: a measured window, then a clinic-specific subject.
   const strength = (r: Lead) => ((r.hook ?? "").includes(" hours ") ? 2 : 0) + ((r.subject_line ?? "").startsWith("AYA for") ? 0 : 1);
   main.sort((a, b) => strength(b) - strength(a));
-  return { main, lowEnrichment, secondContacts, unreadable, refused };
+  return { main, lowEnrichment, unreadable, refused };
 }

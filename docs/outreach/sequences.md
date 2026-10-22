@@ -24,18 +24,23 @@ preview is built from the clinic's site, and theirs would not load.
 
 The spreadsheet keeps every column the enrichment wrote (the scrape, the hours,
 the best service, the booking platform) and gains the columns the templates
-use. It has four tabs, and each is its own campaign:
+use. It has three tabs, and each is its own campaign:
 
 | Tab | Who | Campaign |
 | --- | --- | --- |
-| Main campaign | Primary contacts whose hook stands on measured hours, closed days or sites, and whose service we found | Sent first, strongest rows at the top |
-| Low enrichment | Primary contacts with no opening hours or no service found (`enrichment_note` says which) | Second, judged on its own reply rate |
-| Second contacts (later) | Another contact at a clinic already in one of the two above (`primary_contact` names who) | A later wave, so one clinic never has two threads in flight |
+| Main campaign | Contacts whose hook stands on measured hours, closed days or sites, and whose service we found | Sent first, strongest rows at the top |
+| Low enrichment | Contacts with no opening hours or no service found (`enrichment_note` says which) | Second, judged on its own reply rate |
 | Unreadable sites | Clinics whose site would not load | One email, no preview (there is no site to build it from) |
 
-`npm run enrich -w @healdesk/leadgen` writes the same four tabs as
-`leads-main.csv`, `leads-low-enrichment.csv`, `leads-second-contacts.csv` and
-`leads-unreadable.csv` next to `all-leads.csv`. A list enriched before this
+A second contact (another person at a clinic already in the list) sits in the
+same tab as the primary contact at that clinic, because the enrichment belongs
+to the clinic. The `list` column says `primary` or `second-contact`, and
+`primary_contact` names the other person, so either kind can be held back.
+Sending both at once means one clinic has two threads in flight.
+
+`npm run enrich -w @healdesk/leadgen` writes the same three tabs as
+`leads-main.csv`, `leads-low-enrichment.csv` and `leads-unreadable.csv` next to
+`all-leads.csv`. A list enriched before this
 copy existed is refreshed without crawling anything, with
 `npx tsx src/ops/instantly-from-leads.mts <all-leads.csv> <out-dir>` from
 `packages/leadgen`. The outputs hold real contacts: keep them out of Git.
@@ -175,7 +180,7 @@ number on the list is usually the front desk's.
 | `greeting_name` | Sophie · Dr. Smith · there (from "Dr. Jacob", "Jill M.", "AJ" or a credential in the last-name field) |
 | `top_offer` | AYA answers your calls and website chat, then books straight into your calendar, since IV clients often want a same-day visit. Not used in the four touches; the Unreadable email uses it. |
 | `enrichment_note` | Empty on the Main tab. On Low enrichment: no opening hours found, no service found on the site, or both. |
-| `primary_contact` | Second-contacts tab only: the other contact at the same clinic. |
+| `primary_contact` | On a second contact: the primary contact at the same clinic. Empty on a primary contact. |
 
 The scene and the offer follow `booking_mode`. Only `live` rows hear "books it
 straight into your calendar". Every other row hears "passes it to your desk to

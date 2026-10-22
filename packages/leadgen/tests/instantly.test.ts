@@ -40,15 +40,19 @@ describe("the tabs", () => {
     expect(t.lowEnrichment[0]!.enrichment_note).toBe("no opening hours found; no service found on the site");
   });
 
-  test("a second contact is its own tab and names the primary contact at the same clinic", () => {
-    const t = splitLeads([
-      lead(),
-      lead({ list: "second-contact", email: "ops@velvet.com", first_name: "Tom", last_name: "Ray" }),
-    ]);
-    expect(t.main).toHaveLength(1);
-    expect(t.secondContacts).toHaveLength(1);
-    expect(t.secondContacts[0]!.primary_contact).toBe("sophie@velvet.com");
-    expect(t.secondContacts[0]!.greeting_name).toBe("Tom");
+  test("a second contact sits in the same tab as the primary contact, by its clinic's enrichment", () => {
+    const second = { list: "second-contact", email: "ops@velvet.com", first_name: "Tom", last_name: "Ray" };
+    const t = splitLeads([lead(), lead(second)]);
+    expect(t.main.map((r) => r.email)).toEqual(["sophie@velvet.com", "ops@velvet.com"]);
+    expect(t.main[1]!.list).toBe("second-contact");
+    expect(t.main[1]!.primary_contact).toBe("sophie@velvet.com");
+    expect(t.main[1]!.greeting_name).toBe("Tom");
+    expect(t.main[0]!.primary_contact).toBe("");
+    // A thin clinic's second contact goes where its primary contact goes.
+    const thin = { clinic_id: "k2", top_service: "", gap_hours: "", closed_days: "", closes_at: "" };
+    const u = splitLeads([lead({ ...thin, email: "a@thin.com" }), lead({ ...thin, ...second, email: "b@thin.com" })]);
+    expect(u.main).toHaveLength(0);
+    expect(u.lowEnrichment.map((r) => r.email)).toEqual(["a@thin.com", "b@thin.com"]);
   });
 
   test("a site that would not load is its own tab, with a subject and the one-email template", () => {
@@ -69,7 +73,7 @@ describe("the tabs", () => {
 
   test("excluded rows are in no tab, and a refused phrase is reported", () => {
     const e = splitLeads([lead({ exclude_reason: "chain or franchise" })]);
-    expect(e.main.length + e.lowEnrichment.length + e.secondContacts.length + e.unreadable.length).toBe(0);
+    expect(e.main.length + e.lowEnrichment.length + e.unreadable.length).toBe(0);
     expect(splitLeads([lead({ hook: "We text your lapsed patients back." })]).refused.length).toBeGreaterThan(0);
   });
 });

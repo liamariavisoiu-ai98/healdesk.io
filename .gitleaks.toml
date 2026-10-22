@@ -67,6 +67,27 @@ condition = "AND"
 paths = ['''^apps/app/tests/(holder-refs|identifier-ref)\.test\.ts$''']
 regexes = ['''^a-test-key-that-is-long-enough-to-pass-''']
 
+# The voice-provisioning and recording-alert tests sign their own requests
+# with "llm_secret_for_tests_0123456789", and the ended-early test hands the
+# voice server "test-retell-llm-secret-0123456789": made-up stand-ins for
+# HEALDESK_RETELL_LLM_SECRET, which in production comes only from Parameter
+# Store. Each is named by its exact value in the files that declare it, so
+# any other value in these files, or this value in any other file, is still
+# found.
+[[allowlists]]
+description = "Voice provisioning and recording-alert tests: made-up Retell LLM secret, by exact value"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/app/tests/(voice-provision|recording-alerts)\.test\.ts$''']
+regexes = ['''^llm_secret_for_tests_0123456789$''']
+
+[[allowlists]]
+description = "Ended-early test: made-up Retell LLM secret handed to the voice server, by exact value"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/app/tests/voice-ended-early\.test\.ts$''']
+regexes = ['''^test-retell-llm-secret-0123456789$''']
+
 # --- Operator sign-in tests -------------------------------------------------
 # GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ is the base32 of "12345678901234567890":
 # the published RFC 6238 test secret, a public vector and not an authenticator

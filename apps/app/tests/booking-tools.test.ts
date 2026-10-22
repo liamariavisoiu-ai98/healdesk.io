@@ -107,7 +107,7 @@ describeDb("the booking tool layer in the web chat and the call", () => {
     await closePools();
   });
 
-  /** A live location (covered terms, Google connected, production, script approved) that has bought the web chat. */
+  /** A live location (covered terms, Google connected, production, script approved) that has bought the web chat and the voice agent. */
   async function location(label: string): Promise<DeskLocation & { web: WebChatClinic }> {
     const f = await deskLocation(google, label);
     await bindAgreementInEffect(f.clinicId);
@@ -115,7 +115,16 @@ describeDb("the booking tool layer in the web chat and the call", () => {
       `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`,
       [f.clinicId],
     );
-    await seedEntitled(f.clinicId, { planId: "webchat-1000", planStartedAt: WINDOW_START, channelRows: [{ channel: "web", liveAt: WINDOW_START }] });
+    // Both channels bought and live: the tool layer now asks the answer gate before it
+    // writes (booking-tools.ts), and a call is answered only once its channel is live.
+    await seedEntitled(f.clinicId, {
+      planId: "voice-webchat-1000-1000",
+      planStartedAt: WINDOW_START,
+      channelRows: [
+        { channel: "web", liveAt: WINDOW_START },
+        { channel: "voice", liveAt: WINDOW_START },
+      ],
+    });
     await withTenant({ clinicId: f.clinicId, actor: ACTOR }, async (tx) => {
       await setPhoneSettings(tx, { publishedPhoneE164: "+14155550199" });
       await approveAgentConfig(tx, "Dr Chen");
@@ -214,6 +223,41 @@ describeDb("the booking tool layer in the web chat and the call", () => {
       expect(retried).toMatchObject({ bookingWritten: true, appointmentId: appointments[0]!.id, reply: bookedLine(slotLabel(at, DESK_TZ), "Facial") });
       expect(inserts()).toHaveLength(1);
       expect((await rows(f.clinicId)).appointments).toHaveLength(1);
+    },
+    SLOW,
+  );
+
+  test(
+    "web chat: Google's re-check failing for now takes the visitor's request for the desk, once, under the booking key, with its L7, and says nothing booked",
+    async () => {
+      const f = await location("tools-web-recheck-down");
+      const at = deskTime(3, 10);
+      const { responder } = scripted([
+        () => ({ reply: "Let me look.", booking: { wants: true, service: "Facial" }, action: { type: "find_times", service: "Facial", day: dayOf(at) } }),
+        ({ system }) => ({ reply: "Great choice.", action: { type: "choose_time", at: offeredIn(system).find((v) => new Date(v).getTime() === at.getTime()) } }),
+        () => ({ reply: "You're booked!", booking: { first_name: "Ana", phone: "415 555 0188" } }),
+        () => ({ reply: "Anything else?" }),
+      ]);
+      const say = await chat(f.web, responder);
+      await say("Can I book a facial?");
+      await say("The ten o'clock please");
+
+      // Google answers the re-check with server errors: transient, not a break.
+      google.failNext({ on: "freeBusy", status: 503, times: 10 });
+      expect(await say("My name is Ana and my number is 415 555 0188")).toBe(forChat(REQUEST_TAKEN_LINE));
+
+      const { appointments, requests } = await rows(f.clinicId);
+      expect(appointments).toEqual([]);
+      expect(inserts()).toHaveLength(0);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({ status: "requested", channel: "web_chat" });
+      expect(requests[0]!.vendor_call_id).toBe(`web:${requests[0]!.conversation_id}:1`);
+      expect(await queuedNotices(f.clinicId, ["booking_request"])).toHaveLength(1);
+
+      // The next message files nothing more and alerts no one again.
+      await say("Thanks");
+      expect((await rows(f.clinicId)).requests).toHaveLength(1);
+      expect(await queuedNotices(f.clinicId, ["booking_request"])).toHaveLength(1);
     },
     SLOW,
   );

@@ -167,7 +167,8 @@ export type BookConversationResult =
   | { kind: "invalid"; field: "first_name" | "at" | "phone" | "preferred_window" };
 
 export type LogRequestInput = {
-  channel: "voice";
+  /** A call, or a web chat whose booking the calendar could not take (lib/assistant/booking-tools.ts). */
+  channel: "voice" | "web_chat";
   holderKey: string;
   bookingKey: string;
   firstName: string;
@@ -176,12 +177,14 @@ export type LogRequestInput = {
   alternativeWindows?: string[];
   service: string | null;
   fields?: Record<string, string>;
+  /** The chat's conversation, as for bookConversation; null for a call. */
+  conversationId?: string | null;
   now?: Date;
   actor?: ActorContext;
 };
 
 export type LogRequestResult =
-  | { kind: "request_logged"; replayed: boolean }
+  | { kind: "request_logged"; replayed: boolean; requestId?: string | null }
   | { kind: "key_reused"; first: "booked" | "request_logged"; firstStartsAt?: Date }
   | { kind: "invalid"; field: "first_name" | "phone" | "preferred_window" };
 
@@ -450,7 +453,9 @@ export async function logRequest(
     alternatives: input.alternativeWindows ?? [],
   });
   if (logged.kind === "key_reused") return logged;
-  return { kind: "request_logged", replayed: logged.kind === "request_logged" && logged.replayed };
+  return logged.kind === "request_logged"
+    ? { kind: "request_logged", replayed: logged.replayed, requestId: logged.requestId ?? null }
+    : { kind: "request_logged", replayed: false };
 }
 
 async function requestReplay(call: Call, ask: Ask, prior: Prior): Promise<LogRequestResult> {
@@ -460,7 +465,7 @@ async function requestReplay(call: Call, ask: Ask, prior: Prior): Promise<LogReq
     // A request asked for under a key that already booked is a different ask.
     return keyReused(prior);
   }
-  return { kind: "request_logged", replayed: true };
+  return { kind: "request_logged", replayed: true, requestId: prior.id };
 }
 
 // -----------------------------------------------------------------------------

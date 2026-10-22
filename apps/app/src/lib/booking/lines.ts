@@ -59,6 +59,13 @@ export const IN_PROGRESS_LINE =
 export const TOOL_FAILURE_LINE =
   "I'm sorry, I couldn't complete that just now. I can put you through to the clinic, or take your details so they can confirm with you.";
 
+/**
+ * The answer gate refused the booking (paused, stopped at the allowance,
+ * suspended, ended): nothing is written, and the person is sent to the clinic.
+ */
+export const BOOKING_REFUSED_LINE =
+  "I'm not able to book appointments right now. Please contact the clinic directly, and their team will arrange a time with you.";
+
 /** A detail the assistant must ask for again, by the field the engine refused. */
 export const MISSING_DETAIL_LINES = {
   first_name: "I didn't catch your first name. Could you tell me again?",
@@ -103,9 +110,24 @@ export function detailsBeforeHoldLine(when: string): string {
   return `Before I hold ${when} for you, could I take your first name and a mobile number the clinic can reach you on?`;
 }
 
+const ASK_DETAIL = {
+  first_name: "Could I take your first name?",
+  phone: "What's the best number for the clinic to reach you on?",
+} as const;
+
 /** The voice HOLD_LINE, and the one detail still to take. */
 export function heldAskLine(missing: "first_name" | "phone"): string {
-  return `${HOLD_LINE} ${missing === "first_name" ? "Could I take your first name?" : "What's the best number for the clinic to reach you on?"}`;
+  return `${HOLD_LINE} ${ASK_DETAIL[missing]}`;
+}
+
+/**
+ * A time chosen on a call that the engine would not hold (Auto-confirm off, a
+ * deposit the call cannot take, a calendar that stopped allowing the write):
+ * nothing is held, so it is worded as the request it will become, and the
+ * one detail still to take.
+ */
+export function requestAskLine(missing: "first_name" | "phone", deposit: boolean): string {
+  return `${deposit ? DEPOSIT_REQUEST_LINE : MANUAL_BOOKING_LINE} ${ASK_DETAIL[missing]}`;
 }
 
 /**

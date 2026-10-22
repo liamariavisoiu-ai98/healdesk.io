@@ -71,7 +71,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // dental practice with a dedicated front desk.
     capability: "around-the-clock",
     because:
-      "even while you're with a patient",
+      "even while you're with a client",
   },
   "weight-loss-glp1": {
     // Almost all new to the practice, comparing on price and start date. The
@@ -99,13 +99,13 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // clinic that answered the price question.
     capability: "around-the-clock",
     because:
-      "since a first course goes to whoever quotes first",
+      "since a first course goes to whoever answers first",
   },
   "wellness-iv": {
     // Same-day intent. They are asking about the next two hours.
     capability: "around-the-clock",
     because:
-      "since most want a slot today",
+      "since IV clients often want a same-day visit",
   },
   "hair-restoration": {
     // Months of working up to the call, and they will not leave a message.
@@ -285,15 +285,15 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
  * and a merged sentence that wraps three times is the one the reader skips.
  */
 export const CAPABILITY_LABEL: Record<Capability, string> = {
-  "around-the-clock": "AYA picks up {surfaces}, day and night, and books them in",
+  "around-the-clock": "AYA answers {surfaces} around the clock, then books them in",
   "calendar-booking": "AYA answers {surfaces}, then books straight into your calendar",
   // In chat, through a payment link. Never "before they ring off": the phone
   // agent cannot collect a deposit, it books and flags it for staff.
-  deposits: "AYA handles {surfaces}, and can send a deposit link in chat",
-  "lead-qualification": "AYA sorts {surfaces} before they reach your desk",
+  deposits: "AYA answers {surfaces}, and can send a deposit link in chat",
+  "lead-qualification": "AYA answers {surfaces}, then sorts them before they reach your desk",
   // Unmapped: no segment selects it. Suggesting add-ons is a portal switch
   // that ships off, so the copy says it is the clinic's choice.
-  upselling: "AYA covers {surfaces}, and can suggest an add-on if you switch that on",
+  upselling: "AYA answers {surfaces}, and can suggest an add-on if you switch that on",
 };
 
 /**
@@ -343,9 +343,15 @@ export function bookingModeFor(
  * promises neither (lead-qualification) is kept, because it is as true for a
  * Mindbody clinic as for any other.
  */
+// "Unverified" no longer explains Google sync in the email (owner's brief, 22
+// October 2026). "If your system reads Google" is a sentence a clinic owner
+// has to stop and decode, and it is the longest clause in the sequence. A cold
+// email promises the conservative case, every request passed to the desk,
+// which is true for every one of these clinics; onboarding checks the sync and
+// may turn it into live booking.
 export const BOOKING_MODE_LABEL: Record<Exclude<BookingMode, "live">, string> = {
-  manual: "AYA picks up {surfaces}, takes the time they want and alerts your desk to confirm in Mindbody",
-  unverified: "AYA picks up {surfaces}, booking if your system reads Google or alerting your desk",
+  manual: "AYA answers {surfaces}, then passes each booking request to your desk to confirm in Mindbody",
+  unverified: "AYA answers {surfaces}, then passes each booking request to your desk to confirm",
 };
 
 const BOOKS_OR_COLLECTS: ReadonlySet<Capability> = new Set<Capability>(["around-the-clock", "calendar-booking", "deposits"]);

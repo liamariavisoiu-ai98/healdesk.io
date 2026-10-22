@@ -63,12 +63,12 @@ export function buildUnreadableRow(
   // unanswered, and these are the recipients least willing to be told
   // something about themselves that we cannot have observed.
   const offer =
-    `If patients are hitting the same thing, they might end up calling ` +
-    `directly without someone to pick up the phone on your end. Our ` +
-    `${assistant} assistant answers it and books them in, day and night, ` +
-    `after hours and during weekends.`;
+    `If visitors hit the same thing, they might call instead, and AYA, our ` +
+    `${assistant} assistant, can answer and book them in around the clock.`;
 
-  const closingQuestion = "Is anyone catching those calls right now?";
+  // No preview offer: the demo is built from the clinic's own site, and this
+  // is the one list whose site we could not read.
+  const closingQuestion = "Who's catching those calls right now?";
 
   return { hook, offer, closingQuestion, assistantTerm: assistant, reason };
 }

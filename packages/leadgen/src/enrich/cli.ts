@@ -11,7 +11,7 @@ import {
   type BookingPageFinding,
 } from "./booking-page.ts";
 import { assertSendableCopy } from "./copy-guard.ts";
-import { buildOutreachRow, excludeReason, hookDiversity } from "./outreach.ts";
+import { buildOutreachRow, companyShort, excludeReason, hookDiversity, siteHost } from "./outreach.ts";
 import { buildUnreadableRow } from "./unreadable.ts";
 import { fetchPlaceHours, type PlaceHours } from "./places.ts";
 import { probeDomains, type DnsFinding } from "./dns-probe.ts";
@@ -919,6 +919,10 @@ async function main(): Promise<void> {
       first_name: contact.firstName,
       last_name: contact.lastName,
       company: clinic.companyName,
+      // The name and the site as a person writes them, for subjects and
+      // greetings: no "LLC", no "https://www.". See companyShort().
+      company_short: companyShort(clinic.companyName),
+      site_host: siteHost(clinic.website),
       city: clinic.city,
       state: clinic.state,
       // Site first: it is the number patients actually dial, and therefore the
@@ -942,6 +946,9 @@ async function main(): Promise<void> {
       // Every message ends on a question. A close that states rather than asks
       // gives the reader nothing to do, and the reply is the point of sending.
       closing_question: out.closingQuestion,
+      // "clients" or "patients", so the sequence's own text uses the word this
+      // segment uses.
+      client_term: out.clientTerm,
       // Which capability this clinic is being pitched. Exported so a sequence
       // can branch on it and so the split is measurable.
       capability: out.capability,
@@ -1148,6 +1155,10 @@ async function main(): Promise<void> {
       first_name: contact.firstName,
       last_name: contact.lastName,
       company: clinic.companyName,
+      // The name and the site as a person writes them, for subjects and
+      // greetings: no "LLC", no "https://www.". See companyShort().
+      company_short: companyShort(clinic.companyName),
+      site_host: siteHost(clinic.website),
       city: clinic.city,
       state: clinic.state,
       phone: clinic.phone ?? "",

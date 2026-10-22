@@ -76,6 +76,22 @@ export function assistantTerm(jobTitle: string, email: string): "smart" | "virtu
   return "virtual";
 }
 
+/**
+ * What this clinic calls the people who book with it.
+ *
+ * A med spa has clients and a dental practice has patients, and each notices
+ * the other's word at once: "patients" from a stranger tells a med spa owner
+ * the email was written for a doctor's office. Exported as `client_term` so
+ * the sequence's own text uses the same word as the merged lines.
+ */
+const CLIENT_SEGMENTS: ReadonlySet<string> = new Set([
+  "injectables", "laser-skin", "body-contouring", "wellness-iv", "massage-therapy", "veterinary",
+]);
+
+export function clientTerm(segment: string): "clients" | "patients" {
+  return CLIENT_SEGMENTS.has(segment) ? "clients" : "patients";
+}
+
 export function servicePhrase(topService: string | null): string {
   let s = (topService ?? "").trim();
   if (!s) return "an appointment";
@@ -148,6 +164,8 @@ export type OutreachRow = {
    * reply is the point of the send.
    */
   closingQuestion: string;
+  /** "clients" for aesthetics, wellness, massage and vets, "patients" otherwise. */
+  clientTerm: "clients" | "patients";
   /** Hours in the longest stretch nobody answers. The number the email turns on. */
   gapHours: string;
   /** "Friday 17:00 to Monday 09:00" — where the gap falls. */
@@ -228,6 +246,7 @@ function buildQuestion(
   weekendClosed: string[],
   hours: PlaceHours | undefined,
   sites: number | null,
+  client: "clients" | "patients",
 ): string {
   if (sites) {
     // Across several offices nobody knows which phone rings out most, so the
@@ -251,9 +270,9 @@ function buildQuestion(
     return `Want the link to call her after ${clockTime(close)}?`;
   }
   if (angle === "phone-only") {
-    return "Want the link to call her as a new patient would?";
+    return `Want the link to call her like a new ${client.slice(0, -1)} would?`;
   }
-  return "Want the link to ask her what a patient would?";
+  return `Want the link to ask her what your ${client} ask?`;
 }
 
 export type Angle =
@@ -284,6 +303,7 @@ export function buildOutreachRow(
       topService: label.topService ?? "",
       topOffer: "",
       closingQuestion: "",
+      clientTerm: clientTerm(label.segment),
       gapHours: "",
       gapWindow: "",
       capability: "around-the-clock",
@@ -383,7 +403,8 @@ export function buildOutreachRow(
     servicePhrase: phrase,
     topService: label.topService ?? "",
     topOffer: offer.offer,
-    closingQuestion: buildQuestion(angle, window, weekendClosed, hours, sites),
+    closingQuestion: buildQuestion(angle, window, weekendClosed, hours, sites, clientTerm(label.segment)),
+    clientTerm: clientTerm(label.segment),
     capability: offer.capability,
     bookingMode,
     assistantTerm: assistant,
@@ -451,18 +472,29 @@ function buildHook(
   // list received an opening line that was true of every clinic in the country.
   // The branch decides which fact about the clinic is worth opening on; the
   // service is what makes it that clinic's sentence rather than a category's.
-  const svc = `${phrase.replace(/^an? /, "")}s`;
-
   //
-  // Since 22 October 2026 each one is a single short sentence, about fifteen
-  // words, because it now sits inside a four-line email (docs/outreach/
-  // sequences.md) and the fact is what carries it, not the clause around it.
+  // Since 22 October 2026 every hook is the email's FIRST line (docs/outreach/
+  // sequences.md), so it is what a phone shows as the preview text under the
+  // subject. Each one therefore states a fact about this clinic the reader can
+  // check ("You close at 5pm"), not a claim about people in general, and it
+  // stands on its own: nothing before it for "this" or "that" to point back at.
+  // About fifteen words, US English, because the list is US clinics and
+  // "ringing round" reads as a stranger from somewhere else.
+  //
+  // The bare service, "lip filler", not "lip filler appointments": "booking
+  // lip filler" is how a clinic says it.
+  const topic = phrase === "an appointment"
+    ? null
+    : phrase.replace(/^an? /, "").replace(/ appointment$/, "");
+  const booking = topic ?? "appointments";
+  const about = topic ?? "booking an appointment";
+
   if (hasAutomation) {
     // Credits the work rather than questioning the judgement. The clinic chose
     // that stack, so anything implying the choice was naive is an insult in the
     // opening line. "The harder half" says their build was the difficult part,
     // which is both flattering and true.
-    return "You've already solved the harder half of this with your automation setup.";
+    return "Your automation setup has already solved the harder half of lead capture.";
   }
 
   if (sites) {
@@ -470,32 +502,32 @@ function buildHook(
     // rather than failure.
     const n = NUMBER_WORDS[sites] ?? String(sites);
     if (window && window.hours >= 24) {
-      return `Across your ${n} locations, that's ${window.hours} hours a week ${n} phones could be booking ${svc}.`;
+      return `From ${window.startsDay} ${clockTime(window.startsAt)} to ${window.endsDay} ${clockTime(window.endsAt)}, all ${n} of your locations could still be booking ${booking}.`;
     }
-    return `${n[0]!.toUpperCase()}${n.slice(1)} locations means ${n} phones that could all be booking ${svc}.`;
+    return `${n[0]!.toUpperCase()}${n.slice(1)} locations means ${n} phones that could all be booking ${booking}.`;
   }
 
   if (window && window.hours >= 24) {
     return (
-      `${window.startsDay.slice(0, 3)} ${clockTime(window.startsAt)} to ` +
-      `${window.endsDay.slice(0, 3)} ${clockTime(window.endsAt)} is ` +
-      `${window.hours} hours your phone could still be booking ${svc}.`
+      `From ${window.startsDay} ${clockTime(window.startsAt)} to ` +
+      `${window.endsDay} ${clockTime(window.endsAt)}, that's ${window.hours} ` +
+      `hours your phone could still be booking ${booking}.`
     );
   }
 
   if (weekendClosed.length === 2) {
-    return `Weekends are when most people finally get round to asking about ${svc}.`;
+    return `You're closed on weekends, when a lot of people finally call about ${about}.`;
   }
   if (weekendClosed.length === 1) {
-    return `${weekendClosed[0]}s are when people shop around for ${svc}.`;
+    return `You're closed ${weekendClosed[0]}s, which is when a lot of people shop around for ${about}.`;
   }
 
   const close = hours?.closesAt;
   if (close && Number(close.slice(0, 2)) <= 17) {
-    return `After ${clockTime(close)} is when most people finish work and ask about ${svc}.`;
+    return `You close at ${clockTime(close)}, right when most people get off work and call about ${about}.`;
   }
   if (gap && gap > 100) {
-    return `That's about ${gap} hours a week your phone could be booking ${svc}.`;
+    return `Outside your opening hours, that's about ${gap} hours a week your phone could be booking ${booking}.`;
   }
   if (noBooking) {
     return `Every ${phrase.replace(/^an? /, "")} you take starts with a phone call.`;
@@ -505,7 +537,9 @@ function buildHook(
   // used to fall through every branch, leaving a hole in the email or silently
   // dropping the personalisation that justified sending it. This claims nothing
   // specific and is true of everyone.
-  return `Your booking page catches people who have decided, not the ones still asking about ${svc}.`;
+  return topic
+    ? `Your booking page works for people who've decided on ${topic}, not the ones still asking questions.`
+    : "Your booking page works for people who've already decided, not the ones still asking questions.";
 }
 
 /**
@@ -609,11 +643,11 @@ function channelPhrase(channels: readonly string[], social: readonly string[]): 
   // Named the way patients name them. A Facebook Page is reached through
   // Messenger, so that is the word.
   const named = social.includes("instagram")
-    ? "Instagram"
+    ? "Instagram DMs"
     : social.includes("facebook")
-      ? "Messenger"
+      ? "Facebook messages"
       : social.includes("whatsapp")
-        ? "WhatsApp"
+        ? "WhatsApp messages"
         : null;
 
   const parts = ["your calls"];
@@ -700,4 +734,30 @@ export function hookDiversity(hooks: string[]): HookDiversity {
       : null;
 
   return { rows: used.length, distinct: counts.size, topShare, topHook, warning };
+}
+
+/**
+ * "Glow Aesthetics & Wellness, LLC" -> "Glow Aesthetics & Wellness".
+ *
+ * The list carries the registered name, and a legal suffix in a subject line
+ * or a greeting is the surest sign a database wrote it. It also costs a phone
+ * the characters it needed for the rest of the subject.
+ */
+export function companyShort(name: string): string {
+  const out = name
+    .replace(/[,\s]+(?:L\.?L\.?C\.?|P\.?L\.?L\.?C\.?|P\.?C\.?|P\.?A\.?|Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|LLP)$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return out || name.trim();
+}
+
+/** "https://www.glowaesthetics.com/home" -> "glowaesthetics.com", as a person types it. */
+export function siteHost(url: string): string {
+  const s = url.trim();
+  if (!s) return "";
+  try {
+    return new URL(/^https?:\/\//i.test(s) ? s : `https://${s}`).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return s.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/.*$/, "").toLowerCase();
+  }
 }

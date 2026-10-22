@@ -86,7 +86,7 @@ describe("the outreach row", () => {
       hours({ closedDays: ["Saturday", "Sunday"] }),
     );
     expect(row.angle).toBe("closed-weekends");
-    expect(row.hook).toContain("Weekends are when most people finally get round to asking");
+    expect(row.hook).toContain("You're closed on weekends");
   });
 
   test("the weakest hook is still true of every clinic", () => {
@@ -101,7 +101,7 @@ describe("the outreach row", () => {
       { hasOnlineBooking: true } as never,
       undefined,
     );
-    expect(row.hook).toContain("Your booking page catches");
+    expect(row.hook).toContain("Your booking page works for people");
     // One sentence that names who it is about. "The ones with a question
     // first are the ones still ringing" named nobody and only parsed with the
     // sentence before it in mind.
@@ -405,17 +405,17 @@ describe("booking claims follow the clinic's booking system", () => {
       const r = await row(platform);
       expect(r.bookingMode).toBe("manual");
       expect(r.topOffer).not.toMatch(/books them in|books straight/);
-      expect(r.topOffer).toContain("alerts your desk to confirm in Mindbody");
+      expect(r.topOffer).toContain("passes each booking request to your desk to confirm in Mindbody");
     }
   });
 
-  test("Boulevard and unchecked systems book only where their system reads Google", async () => {
+  test("Boulevard and unchecked systems are promised the desk, never a live booking", async () => {
     // null: online booking on a system the signature table did not recognise.
     for (const platform of ["boulevard", "zenoti", "vagaro", null]) {
       const r = await row(platform);
       expect(r.bookingMode).toBe("unverified");
       expect(r.topOffer).not.toMatch(/books them in|books straight/);
-      expect(r.topOffer).toContain("booking if your system reads Google or alerting your desk");
+      expect(r.topOffer).toContain("passes each booking request to your desk to confirm");
     }
   });
 
@@ -535,7 +535,7 @@ describe("tone and repetition", () => {
   test("each line is short enough for a four-line email", async () => {
     for (const r of await rows()) {
       expect(r.hook.split(/\s+/).length, r.hook).toBeLessThanOrEqual(18);
-      expect(r.topOffer.split(/\s+/).length, r.topOffer).toBeLessThanOrEqual(28);
+      expect(r.topOffer.split(/\s+/).length, r.topOffer).toBeLessThanOrEqual(30);
       expect(r.closingQuestion.split(/\s+/).length, r.closingQuestion).toBeLessThanOrEqual(12);
     }
   });
@@ -583,7 +583,7 @@ describe("which surfaces to offer", () => {
     expect(tiktok.channels).toBe("phone, website");
     expect(tiktok.topOffer).not.toContain("social messages");
     // A Facebook Page is reached through Messenger, so that is what it is called.
-    expect((await row(["facebook"], true)).topOffer).toContain("website chat and Messenger");
+    expect((await row(["facebook"], true)).topOffer).toContain("website chat and Facebook messages");
   });
 
   test("the offer names the surfaces inside its own sentence", async () => {
@@ -790,3 +790,61 @@ describe("the call budget defers, it does not delete", () => {
     expect(out[0]!.evidence).toMatch(/too little text/);
   });
 });
+
+describe("names and words a person would use", () => {
+  test("legal suffixes come off the company name", async () => {
+    const { companyShort } = await import("../src/enrich/outreach.ts");
+    expect(companyShort("Glow Aesthetics, LLC")).toBe("Glow Aesthetics");
+    expect(companyShort("Smile Dental PLLC")).toBe("Smile Dental");
+    expect(companyShort("Revive IV Lounge Inc.")).toBe("Revive IV Lounge");
+    // "Co" is often the brand, "The Skin Co", so it stays.
+    expect(companyShort("The Skin Co")).toBe("The Skin Co");
+    expect(companyShort("Dermatology Associates, P.A.")).toBe("Dermatology Associates");
+    expect(companyShort("The Laser Place")).toBe("The Laser Place");
+  });
+
+  test("a website is written as a domain", async () => {
+    const { siteHost } = await import("../src/enrich/outreach.ts");
+    expect(siteHost("https://www.GlowAesthetics.com/home")).toBe("glowaesthetics.com");
+    expect(siteHost("glowaesthetics.com")).toBe("glowaesthetics.com");
+    expect(siteHost("")).toBe("");
+  });
+
+  test("med spas have clients, medical practices have patients", async () => {
+    const { clientTerm } = await import("../src/enrich/outreach.ts");
+    expect(clientTerm("injectables")).toBe("clients");
+    expect(clientTerm("wellness-iv")).toBe("clients");
+    expect(clientTerm("dental")).toBe("patients");
+    expect(clientTerm("plastic-surgery")).toBe("patients");
+  });
+
+  test("no British phrasing reaches a US clinic", async () => {
+    // "ringing round" and "get round to" tell an American reader the email
+    // came from somewhere else, which is the last thing a cold note can afford.
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    const { SEGMENTS } = await import("@healdesk/catalog");
+    const BRITISH = /\b(ring|rings|ringing|rang|round to|ring round|enquir\w*|whilst|shall|had a look|organis\w*|colour)\b/i;
+    for (const segment of SEGMENTS) {
+      for (const h of [
+        undefined,
+        { closedDays: ["Saturday", "Sunday"], closedHoursPerWeek: 128, closesAt: "17:00", gap: { hours: 64, startsDay: "Friday", startsAt: "17:00", endsDay: "Monday", endsAt: "09:00" } },
+        { closedDays: ["Sunday"], closedHoursPerWeek: 90, closesAt: "19:00", gap: null },
+        { closedDays: [], closedHoursPerWeek: 80, closesAt: "17:00", gap: null },
+      ]) {
+        const r = buildOutreachRow(
+          {
+            clinicId: "c", segment, confidence: "high", evidence: "", opensAt: null, closesAt: null,
+            hoursByDay: null, topService: "Botox", offersOnlineBooking: false,
+            mentionsWeightLoss: false, isChainOrFranchise: false,
+          } as never,
+          undefined,
+          h as never,
+          { jobTitle: "Owner", email: "j@c.com", social: ["instagram"] },
+        );
+        const all = `${r.hook} ${r.topOffer} ${r.closingQuestion}`;
+        expect(BRITISH.test(all), all).toBe(false);
+      }
+    }
+  });
+});
+

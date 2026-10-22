@@ -6,15 +6,16 @@ name: Read-only database query (AWS)
 # credential: the task reads its own secret, and the run-task.sh this calls
 # starts it and reports only how it ended.
 #
-# Two locks, and the second does not depend on a GitHub setting. First, the job
-# names the db-query environment, whose required reviewer (the owner,
-# configured on GitHub: Settings, Environments, db-query, "Required reviewers"
-# and "Deployment branches: main only") must approve each run. Second, AWS
-# gives the role healdesk-production-github-db-query only to a token whose
+# What lets a run reach the database is AWS's decision, not a GitHub setting.
+# AWS gives the role healdesk-production-github-db-query only to a token whose
 # subject is this repository's db-query environment, whose ref is main and
 # whose actor is the owner (infra/aws/db-query.tf), and the role can run that
 # one task family and nothing else. So a branch, a fork or another actor
-# cannot reach the database through this file, whatever it says.
+# cannot reach the database through this file, whatever it says, and the
+# environment needs no protection rules: GitHub creates it on first use, and a
+# run starts at once. The owner chose that on 22 October 2026 over a required
+# reviewer. If a click per run is wanted later, add "Required reviewers" to the
+# environment (Settings, Environments, db-query): nothing here changes.
 #
 # What a run may read is what healdesk_readonly may SELECT: the business and
 # configuration tables in apps/app/scripts/readonly-tables.ts, never a patient

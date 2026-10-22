@@ -12,8 +12,8 @@ Two files, two permission sets. Make the first; the second is optional.
 | `db-query-addon.policy.json`, or `observer-and-db-query.policy.json` (both together) | Add to the observer: start the `db-query` task directly, with no approval click. Safe because the task's database role can read only business and configuration tables. | Only if the approval click on every query gets in the way |
 
 The default way to run a query is **not** this: it is the `db-query` workflow on
-GitHub, which waits for your approval. The observer set is for reading the
-result.
+GitHub, which runs at once (no approval click, by the owner's choice). The
+observer set is for reading the result.
 
 ## One-time set-up, in the AWS console
 

@@ -5,12 +5,12 @@
 # group and is never printed by the workflow (this repository is public).
 #
 # It is a role of its own, not the deploy role, because the deploy role's trust
-# deliberately names no GitHub environment (iam.tf) and this workflow must: the
-# environment's required reviewer is the approval, one click by the owner for
-# each run. AWS still decides who may assume it, the same four ways as the
+# deliberately names no GitHub environment (iam.tf) and this workflow must, so
+# its subject differs. AWS decides who may assume it, the same four ways as the
 # deploy role: the audience, the subject (the same repository, but its
-# db-query environment), the branch and the actor. The approval is therefore
-# one more lock on top of those, never the only one; a setting on GitHub
+# db-query environment), the branch and the actor. The environment itself needs
+# no protection rules (the owner chose none, 22 October 2026; a required
+# reviewer can be added in GitHub at any time), because a setting on GitHub
 # cannot widen what this role can do, only the policy below can.
 #
 # RunTask takes overrides that IAM cannot see, so anything this role may run it

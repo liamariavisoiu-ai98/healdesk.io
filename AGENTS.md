@@ -48,7 +48,7 @@ The one rule to carry even if you read nothing else:
 ## Last completed work package
 Launch-readiness H0 to H8 on local branches (none pushed to `main`): `pkg/voice-provisioning` (0106), `pkg/ended-early-redial` (0107), `pkg/locations-land` (0108), `pkg/location-confirm` (0109), `pkg/location-stripe-qty` (0110), `pkg/test-debt`, `pkg/voice-eval` (dry-run only; first paid run is the owner's), `pkg/live-checks`, `pkg/urgent-spanish`, `pkg/spanish-guard`, `pkg/spanish-voice`, `pkg/no-audio-copy`, `pkg/meta-frontdoor-fix`, `pkg/security-hygiene` (SEC-01), `pkg/deps-security` (SEC-02); review fixes on `review/alert-noaudio`, `review/book-deposit`, `review/guard`, `review/screen-turn`, `review/deposit-gap`. `pkg/retell-404-fix` is superseded by 4c7f1704 (another session's version). Earlier: DPA 1.0.0 release is on `main`; the epic branch `claude/epic-babbage-n9g119` was NOT updated (fdbbd696).
 
-## Next actions, ordered
+## Next actions — ordered
 1. **Claude Code:** final whole-branch verification, then push `check/launch-ready` (allowed), read CI once; fix only what it shows.
 2. **Claude Code, with the owner's 22 Oct approval:** merge to `main`; `apps/web` auto-deploys on Vercel, so dispatch `deploy-app.yml` straight after (hash-check hazard: the old app image rejects signed agreements while web carries the amended text); then set `enable_voice` in `infra/aws/production.tfvars` and dispatch `infra.yml`; add a `voice_provision` Terraform variable (HEALDESK_VOICE_PROVISION_ENABLED is not delivered by `infra/aws` today).
 3. **Hold:** `voice_real_calls` until a test call passes and the owner says go. Do not set `HEALDESK_DIRECT_BOOKING_ENABLED`.

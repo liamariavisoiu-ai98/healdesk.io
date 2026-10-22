@@ -752,7 +752,7 @@ run "production_defaults" {
   assert {
     condition = (
       local.unset_placeholder == "__unset__" &&
-      length(aws_ssm_parameter.internal) == 8 && length(aws_ssm_parameter.external) == 11 &&
+      length(aws_ssm_parameter.internal) == 10 && length(aws_ssm_parameter.external) == 11 &&
       alltrue([
         for p in concat(values(aws_ssm_parameter.internal), values(aws_ssm_parameter.external)) :
         p.type == "SecureString" && p.key_id == aws_kms_key.main.arn && p.tier == "Standard" &&
@@ -772,8 +772,10 @@ run "production_defaults" {
       "/healdesk/production/migrator/MIGRATION_DATABASE_URL",
       "/healdesk/production/db/READONLY_PASSWORD",
       "/healdesk/production/readonly/READONLY_DATABASE_URL",
+      "/healdesk/production/db/WRITER_PASSWORD",
+      "/healdesk/production/writer/WRITER_DATABASE_URL",
     ])
-    error_message = "The eight internal parameters the db-bootstrap task fills are at the wrong paths."
+    error_message = "The ten internal parameters the db-bootstrap task fills are at the wrong paths."
   }
 
   assert {
@@ -783,7 +785,7 @@ run "production_defaults" {
         "HEALDESK_RETELL_API_KEY", "HEALDESK_RETELL_LLM_SECRET", "META_APP_SECRET",
         "META_VERIFY_TOKEN", "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
       ] : "/healdesk/production/app/${name}"]) &&
-      length(output.internal_parameters) == 8 &&
+      length(output.internal_parameters) == 10 &&
       !contains(output.parameters_to_fill, "/healdesk/production/ci/CLOUDFLARE_API_TOKEN")
     )
     error_message = "parameters_to_fill lists the eleven external keys, without the two retired Synthflow ones (and never the CI token, which Terraform does not manage)."
@@ -800,8 +802,9 @@ run "production_defaults" {
       "arn:aws:ssm:us-east-1:865780386982:parameter/healdesk/production/app/*",
       "arn:aws:ssm:us-east-1:865780386982:parameter/healdesk/production/migrator/*",
       "arn:aws:ssm:us-east-1:865780386982:parameter/healdesk/production/readonly/*",
+      "arn:aws:ssm:us-east-1:865780386982:parameter/healdesk/production/writer/*",
     ])
-    error_message = "The execution role may read app/, migrator/ and readonly/ only: never db/ and never ci/ (the Cloudflare token)."
+    error_message = "The execution role may read app/, migrator/, readonly/ and writer/ only: never db/ and never ci/ (the Cloudflare token)."
   }
 
   assert {
@@ -825,19 +828,21 @@ run "production_defaults" {
         "arn:aws:ssm:us-east-1:865780386982:parameter/healdesk/production/migrator/MIGRATION_DATABASE_URL",
         "arn:aws:ssm:us-east-1:865780386982:parameter/healdesk/production/db/READONLY_PASSWORD",
         "arn:aws:ssm:us-east-1:865780386982:parameter/healdesk/production/readonly/READONLY_DATABASE_URL",
+        "arn:aws:ssm:us-east-1:865780386982:parameter/healdesk/production/db/WRITER_PASSWORD",
+        "arn:aws:ssm:us-east-1:865780386982:parameter/healdesk/production/writer/WRITER_DATABASE_URL",
       ]) &&
       length(data.aws_iam_policy_document.db_admin_task.statement) == 2
     )
-    error_message = "The db-bootstrap task may get and put exactly the eight internal parameters, and nothing else."
+    error_message = "The db-bootstrap task may get and put exactly the ten internal parameters, and nothing else."
   }
 
   assert {
     condition = (
       toset(one([for st in data.aws_iam_policy_document.db_admin_task.statement : st if st.sid == "UseTheKeyThroughSsmForThemOnly"]).actions) == toset(["kms:Encrypt", "kms:GenerateDataKey", "kms:Decrypt"]) &&
       toset(flatten([for c in one([for st in data.aws_iam_policy_document.db_admin_task.statement : st if st.sid == "UseTheKeyThroughSsmForThemOnly"]).condition : c.values if c.variable == "kms:ViaService"])) == toset(["ssm.us-east-1.amazonaws.com"]) &&
-      length(flatten([for c in one([for st in data.aws_iam_policy_document.db_admin_task.statement : st if st.sid == "UseTheKeyThroughSsmForThemOnly"]).condition : c.values if c.variable == "kms:EncryptionContext:PARAMETER_ARN"])) == 8
+      length(flatten([for c in one([for st in data.aws_iam_policy_document.db_admin_task.statement : st if st.sid == "UseTheKeyThroughSsmForThemOnly"]).condition : c.values if c.variable == "kms:EncryptionContext:PARAMETER_ARN"])) == 10
     )
-    error_message = "The db-bootstrap task uses the key through SSM only, for the eight parameters' own encryption context."
+    error_message = "The db-bootstrap task uses the key through SSM only, for the ten parameters' own encryption context."
   }
 
   # --- IAM: the app's task role, lock labels on (the default) ---
@@ -962,7 +967,7 @@ run "production_defaults" {
   # --- the patient-rights operator scripts: ids only, no task role ---
   assert {
     condition = (
-      toset(keys(aws_ecs_task_definition.ops_script)) == toset(["erase-person", "amend-contact", "patient-request", "incident-affected", "reapply-erasures", "demo-clinic", "channels-link", "db-query"]) &&
+      toset(keys(aws_ecs_task_definition.ops_script)) == toset(["erase-person", "amend-contact", "patient-request", "incident-affected", "reapply-erasures", "demo-clinic", "channels-link", "db-query", "db-apply"]) &&
       jsondecode(aws_ecs_task_definition.ops_script["reapply-erasures"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/reapply-erasures.ts"] &&
       [for e in jsondecode(aws_ecs_task_definition.ops_script["reapply-erasures"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"] &&
       jsondecode(aws_ecs_task_definition.ops_script["erase-person"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/ops-erase-person.ts"] &&
@@ -1001,6 +1006,36 @@ run "production_defaults" {
     error_message = "db-query carries the read-only URL and no other secret, no task role, its own log group; no web, worker or voice task may ever be given that URL."
   }
 
+  # --- the change task and the role that starts it (db-apply.tf) ---
+  assert {
+    condition = (
+      [for e in jsondecode(aws_ecs_task_definition.ops_script["db-apply"].container_definitions)[0].secrets : e.name] == ["WRITER_DATABASE_URL"] &&
+      jsondecode(aws_ecs_task_definition.ops_script["db-apply"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/db-apply.ts"] &&
+      jsondecode(aws_ecs_task_definition.ops_script["db-apply"].container_definitions)[0].logConfiguration.options["awslogs-group"] == "/healdesk/production/db-apply" &&
+      aws_ecs_task_definition.ops_script["db-apply"].task_role_arn == null &&
+      !contains(local.web_secret_names, "WRITER_DATABASE_URL") &&
+      !contains(local.worker_secret_names, "WRITER_DATABASE_URL") &&
+      contains(local.never_on_app_tasks, "WRITER_DATABASE_URL")
+    )
+    error_message = "db-apply carries the writer URL and no other secret, no task role, its own log group; no web, worker or voice task may ever be given that URL."
+  }
+
+  assert {
+    condition = (
+      toset(one([for st in data.aws_iam_policy_document.github_db_apply.statement : st if st.sid == "RunTheDbApplyTaskOnThisCluster"]).actions) == toset(["ecs:RunTask"]) &&
+      toset(one([for st in data.aws_iam_policy_document.github_db_apply.statement : st if st.sid == "RunTheDbApplyTaskOnThisCluster"]).resources) == toset(["arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-db-apply:*"]) &&
+      !anytrue([for st in data.aws_iam_policy_document.github_db_apply.statement : strcontains(jsonencode(st.resources), "migrate") || strcontains(jsonencode(st.resources), "db-bootstrap") || strcontains(jsonencode(st.resources), "db-query")]) &&
+      toset(flatten([for c in one(data.aws_iam_policy_document.github_db_apply_assume.statement).condition : c.values if c.variable == "token.actions.githubusercontent.com:sub"])) == toset([
+        "repo:liamariavisoiu-ai98@262780224/healdesk.io@1326499636:environment:db-apply",
+        "repo:liamariavisoiu-ai98@262780224/healdesk.io@1326499636:environment:db-apply-commit",
+      ]) &&
+      toset(flatten([for c in one(data.aws_iam_policy_document.github_db_apply_assume.statement).condition : c.values if c.variable == "token.actions.githubusercontent.com:ref"])) == toset(["refs/heads/main"]) &&
+      length(flatten([for c in one(data.aws_iam_policy_document.github_db_apply_assume.statement).condition : c.values if c.variable == "token.actions.githubusercontent.com:actor_id"])) == 1 &&
+      toset(one([for st in data.aws_iam_policy_document.github_db_apply.statement : st if st.sid == "ReadTheDbApplyLogOnly"]).resources) == toset(["arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-apply:*"])
+    )
+    error_message = "The db-apply workflow's role runs the db-apply family only (never migrate, db-bootstrap or db-query), and is given only to the db-apply and db-apply-commit environments on main, run by the owner."
+  }
+
   assert {
     condition = (
       toset(one([for st in data.aws_iam_policy_document.github_db_query.statement : st if st.sid == "RunTheDbQueryTaskOnThisCluster"]).actions) == toset(["ecs:RunTask"]) &&
@@ -1015,8 +1050,8 @@ run "production_defaults" {
 
   assert {
     condition = (
-      alltrue([for f in ["erase-person", "amend-contact", "patient-request", "incident-affected", "reapply-erasures", "demo-clinic", "channels-link", "db-query"] : contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RegisterOurTaskDefinitions"]).resources, "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-${f}:*")]) &&
-      !anytrue([for st in data.aws_iam_policy_document.github_deploy.statement : anytrue([for f in ["erase-person", "amend-contact", "patient-request", "incident-affected", "reapply-erasures", "demo-clinic", "channels-link", "db-query"] : strcontains(jsonencode(st.resources), f)]) if contains(st.actions, "ecs:RunTask")])
+      alltrue([for f in ["erase-person", "amend-contact", "patient-request", "incident-affected", "reapply-erasures", "demo-clinic", "channels-link", "db-query", "db-apply"] : contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RegisterOurTaskDefinitions"]).resources, "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-${f}:*")]) &&
+      !anytrue([for st in data.aws_iam_policy_document.github_deploy.statement : anytrue([for f in ["erase-person", "amend-contact", "patient-request", "incident-affected", "reapply-erasures", "demo-clinic", "channels-link", "db-query", "db-apply"] : strcontains(jsonencode(st.resources), f)]) if contains(st.actions, "ecs:RunTask")])
     )
     error_message = "The deploy role registers the operator scripts' revisions but may never run one."
   }
@@ -2088,7 +2123,7 @@ run "standby" {
   assert {
     condition = (
       aws_kms_key.main.enable_key_rotation && aws_kms_alias.main.name == "alias/healdesk-production" &&
-      length(aws_ssm_parameter.internal) == 8 && length(aws_ssm_parameter.external) == 11 &&
+      length(aws_ssm_parameter.internal) == 10 && length(aws_ssm_parameter.external) == 11 &&
       toset(keys(aws_ecr_repository.this)) == toset(["app", "db-admin", "tls-proxy"]) &&
       length(aws_ecr_lifecycle_policy.this) == 3
     )
@@ -2116,7 +2151,7 @@ run "standby" {
       aws_s3_bucket.exports.bucket == "healdesk-production-exports-865780386982" &&
       aws_sns_topic.alarms.name == "healdesk-production-alarms" && aws_sns_topic_subscription.alarm_email.protocol == "email" &&
       length(aws_sesv2_email_identity.main) == 1 && length(aws_sns_topic.ses_events) == 1 &&
-      length(aws_cloudwatch_log_group.app) == 16 && aws_cloudwatch_log_group.rds_postgresql.name == "/aws/rds/instance/healdesk-production/postgresql" &&
+      length(aws_cloudwatch_log_group.app) == 17 && aws_cloudwatch_log_group.rds_postgresql.name == "/aws/rds/instance/healdesk-production/postgresql" &&
       aws_budgets_budget.monthly.limit_amount == "250"
     )
     error_message = "Standby keeps the trail, Config, GuardDuty, the buckets, the alarm topic and its subscription, SES's identity and events topic, every log group and the budget."

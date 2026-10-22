@@ -4,7 +4,7 @@
 # deploy-app.yml (bootstrap_db) or infra/aws/scripts/run-task.sh. It takes no
 # arguments and does two things, in this order.
 #
-# 1. init-secrets. Terraform creates the eight internal parameters below holding
+# 1. init-secrets. Terraform creates the ten internal parameters below holding
 #    the literal "__unset__" and never writes their values, so no secret is in
 #    its state or its plans. This step gives each one that still holds
 #    "__unset__" a value, here inside AWS, and keeps every one that is set. It
@@ -21,6 +21,9 @@
 #      db/READONLY_PASSWORD                       48 random letters and digits
 #      readonly/READONLY_DATABASE_URL             healdesk_readonly and its password
 #                                                 (the db-query task; docs/design/db-access-2026-10-22.md)
+#      db/WRITER_PASSWORD                         48 random letters and digits
+#      writer/WRITER_DATABASE_URL                 healdesk_writer and its password
+#                                                 (the db-apply task, same record)
 #
 #    A URL reads postgresql://<role>:<password>@<PGHOST>:<PGPORT>/<PGDATABASE>
 #    ?sslmode=verify-full&sslrootcert=/etc/ssl/rds/us-east-1-bundle.pem, and
@@ -29,7 +32,7 @@
 #    while its URL is set is refused: a new password needs a new URL, so set
 #    both to "__unset__". Both refusals come before anything is written.
 #
-# 2. provision-roles. It reads the three passwords back from Parameter Store,
+# 2. provision-roles. It reads the four passwords back from Parameter Store,
 #    runs apps/app/scripts/provision-roles.sql as the RDS master user, then
 #    signs in as each role with the password Parameter Store holds, so a run
 #    that succeeds shows the two URLs will connect.
@@ -53,7 +56,7 @@
 #                                as a change to Terraform's next plan
 #   HEALDESK_PARAMETER_PREFIX    /healdesk/production unless set
 #   AWS_REGION                   set by ECS; otherwise read from PGHOST
-# The task role may get and put those eight parameters and use the key through
+# The task role may get and put those ten parameters and use the key through
 # Parameter Store, and nothing else.
 #
 # Prints parameter names with "generated" or "kept", psql's command tags, the
@@ -303,19 +306,24 @@ fetch "$prefix/app/DATABASE_URL" "$work/app.url"
 fetch "$prefix/migrator/MIGRATION_DATABASE_URL" "$work/migrator.url"
 fetch "$prefix/db/READONLY_PASSWORD" "$work/readonly.password"
 fetch "$prefix/readonly/READONLY_DATABASE_URL" "$work/readonly.url"
+fetch "$prefix/db/WRITER_PASSWORD" "$work/writer.password"
+fetch "$prefix/writer/WRITER_DATABASE_URL" "$work/writer.url"
 check_role healdesk_app db/APP_PASSWORD app/DATABASE_URL app
 check_role healdesk_migrator db/MIGRATOR_PASSWORD migrator/MIGRATION_DATABASE_URL migrator
 check_role healdesk_readonly db/READONLY_PASSWORD readonly/READONLY_DATABASE_URL readonly
+check_role healdesk_writer db/WRITER_PASSWORD writer/WRITER_DATABASE_URL writer
 
 ensure_password db/APP_PASSWORD app
 ensure_password db/MIGRATOR_PASSWORD migrator
 ensure_password db/READONLY_PASSWORD readonly
+ensure_password db/WRITER_PASSWORD writer
 ensure_secret app/BETTER_AUTH_SECRET 64
 ensure_secret app/HEALDESK_IDENTIFIER_REF_KEY 64
 ensure_url app/DATABASE_URL healdesk_app app
 ensure_url migrator/MIGRATION_DATABASE_URL healdesk_migrator migrator
 ensure_url readonly/READONLY_DATABASE_URL healdesk_readonly readonly
-rm -f "$work/app.url" "$work/migrator.url" "$work/readonly.url"
+ensure_url writer/WRITER_DATABASE_URL healdesk_writer writer
+rm -f "$work/app.url" "$work/migrator.url" "$work/readonly.url" "$work/writer.url"
 
 # --- 2. provision-roles ------------------------------------------------------
 
@@ -339,11 +347,13 @@ read_back() {
 read_back db/APP_PASSWORD app
 read_back db/MIGRATOR_PASSWORD migrator
 read_back db/READONLY_PASSWORD readonly
+read_back db/WRITER_PASSWORD writer
 
 # psql variables, set from a file rather than with -v on the command line.
 python3 "$SCRAM_VERIFIER" migrator_password <"$work/migrator.stored" >"$work/roles.psql"
 python3 "$SCRAM_VERIFIER" app_password <"$work/app.stored" >>"$work/roles.psql"
 python3 "$SCRAM_VERIFIER" readonly_password <"$work/readonly.stored" >>"$work/roles.psql"
+python3 "$SCRAM_VERIFIER" writer_password <"$work/writer.stored" >>"$work/roles.psql"
 
 say "provision-roles: on $PGHOST/$PGDATABASE as $PGUSER, sslmode=$sslmode"
 psql -X -v ON_ERROR_STOP=1 -f "$work/roles.psql" -f "$PROVISION_SQL"
@@ -355,16 +365,16 @@ rm -f "$work/roles.psql"
 # migrator Cc and the app c.
 psql -X -v ON_ERROR_STOP=1 -P pager=off \
   -c "SELECT rolname, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolcanlogin
-        FROM pg_roles WHERE rolname IN ('healdesk_app', 'healdesk_migrator', 'healdesk_readonly') ORDER BY rolname" \
+        FROM pg_roles WHERE rolname IN ('healdesk_app', 'healdesk_migrator', 'healdesk_readonly', 'healdesk_writer') ORDER BY rolname" \
   -c "SELECT nspname, nspacl FROM pg_namespace WHERE nspname = 'public'" \
   -c "SELECT datname, datacl FROM pg_database WHERE datname = current_database()"
 
 # Sign in as each role with the password Parameter Store holds, through a
 # private password file: the master's PGPASSWORD is taken away for these two,
 # because libpq prefers it to the file.
-printf '*:*:*:healdesk_app:%s\n*:*:*:healdesk_migrator:%s\n*:*:*:healdesk_readonly:%s\n' \
-  "$(cat "$work/app.stored")" "$(cat "$work/migrator.stored")" "$(cat "$work/readonly.stored")" >"$work/pgpass"
-for role in healdesk_app healdesk_migrator healdesk_readonly; do
+printf '*:*:*:healdesk_app:%s\n*:*:*:healdesk_migrator:%s\n*:*:*:healdesk_readonly:%s\n*:*:*:healdesk_writer:%s\n' \
+  "$(cat "$work/app.stored")" "$(cat "$work/migrator.stored")" "$(cat "$work/readonly.stored")" "$(cat "$work/writer.stored")" >"$work/pgpass"
+for role in healdesk_app healdesk_migrator healdesk_readonly healdesk_writer; do
   who=$(env -u PGPASSWORD PGUSER="$role" PGPASSFILE="$work/pgpass" \
     psql -X -A -t -v ON_ERROR_STOP=1 -c "SELECT current_user") ||
     fail "$role could not sign in with the password Parameter Store holds for it"

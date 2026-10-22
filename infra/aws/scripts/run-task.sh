@@ -26,6 +26,11 @@
 #                                                     a reviewed read-only query from
 #                                                     apps/app/scripts/db-queries/, as
 #                                                     healdesk_readonly (docs/design/db-access-2026-10-22.md)
+#   bash infra/aws/scripts/run-task.sh db-apply <change name> <clinic id> [dry-run|apply [expected rows]]
+#                                                     one reviewed INSERT or UPDATE from
+#                                                     apps/app/scripts/db-changes/ against one clinic, as
+#                                                     healdesk_writer. dry-run (the default) always rolls back
+#                                                     and prints a row count; apply needs the count the dry run showed
 #
 # It runs the family's newest revision that names a deployed image, never
 # Terraform's own revisions: those name the image tag terraform-placeholder,
@@ -106,6 +111,7 @@ usage() {
   echo "       $0 demo-clinic \"<fictional practice>\" \"<your name>\" <you@healdesk.io>" >&2
   echo "       $0 channels-link <clinic id> [meta|whatsapp] [days the link lasts, 1 to 30]" >&2
   echo "       $0 db-query <query name> [clinic id]" >&2
+  echo "       $0 db-apply <change name> <clinic id> [dry-run | apply <expected rows>]" >&2
   exit 64
 }
 
@@ -120,6 +126,7 @@ case "$1" in
   demo-clinic) [ "$#" -eq 4 ] || usage ;;
   channels-link) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage ;;
   db-query) [ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage ;;
+  db-apply) [ "$#" -ge 3 ] && [ "$#" -le 5 ] || usage ;;
   *) [ "$#" -eq 1 ] || usage ;;
 esac
 case "$1" in
@@ -169,6 +176,10 @@ case "$1" in
     ;;
   db-query)
     family=healdesk-production-db-query
+    container=app
+    ;;
+  db-apply)
+    family=healdesk-production-db-apply
     container=app
     ;;
   *) usage ;;
@@ -336,6 +347,30 @@ if [ "$1" = db-query ]; then
   fi
   overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[%s]}]}' "$query_env")
 fi
+# A change's name is a file in the image (apps/app/scripts/db-changes/<name>.sql),
+# never SQL. The clinic is required: every statement is confined to it. dry-run is
+# the default and always rolls back; apply must say how many rows the dry run showed.
+if [ "$1" = db-apply ]; then
+  if ! printf '%s' "$2" | grep -Eq '^[a-z0-9][a-z0-9-]{0,63}$'; then
+    fail "the change name is the file's name without .sql: lower-case letters, digits and hyphens"
+  fi
+  is_uuid "$3" || fail "the clinic id must be the clinic's uuid (the ops console shows it)"
+  apply_mode=${4:-dry-run}
+  case "$apply_mode" in
+    dry-run) [ "$#" -le 4 ] || fail "dry-run takes no expected row count" ;;
+    apply)
+      [ "$#" -eq 5 ] || fail "apply needs the row count the dry run showed, e.g. apply 3"
+      printf '%s' "$5" | grep -Eq '^[0-9]{1,3}$' || fail "the expected rows are a whole number from 0 to 500"
+      [ "$5" -le 500 ] || fail "the expected rows are a whole number from 0 to 500"
+      ;;
+    *) fail "the mode is dry-run or apply" ;;
+  esac
+  apply_env=$(printf '{"name":"HEALDESK_DB_CHANGE","value":"%s"},{"name":"HEALDESK_DB_CHANGE_CLINIC","value":"%s"},{"name":"HEALDESK_DB_CHANGE_MODE","value":"%s"}' "$2" "$(lower "$3")" "$apply_mode")
+  if [ "$apply_mode" = apply ]; then
+    apply_env="$apply_env$(printf ',{"name":"HEALDESK_DB_CHANGE_EXPECT_ROWS","value":"%s"}' "$5")"
+  fi
+  overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[%s]}]}' "$apply_env")
+fi
 case "$TIMEOUT_MINUTES" in
   '' | *[!0-9]* | 0) fail "RUN_TASK_TIMEOUT_MINUTES must be a whole number of minutes" ;;
 esac
@@ -364,7 +399,7 @@ fi
 
 # --- destroy-due: the image the worker runs ----------------------------------
 want_image=""
-if [ "$1" != migrate ] && [ "$1" != db-bootstrap ] && [ "$1" != db-query ]; then
+if [ "$1" != migrate ] && [ "$1" != db-bootstrap ] && [ "$1" != db-query ] && [ "$1" != db-apply ]; then
   # The worker's own service when it has one (worker_placement = "separate");
   # otherwise it is the web task's "worker" container (infra/aws/ecs.tf).
   worker_td=$(aws_ ecs describe-services --cluster "$CLUSTER" --services "$WORKER_SERVICE" \
@@ -493,6 +528,11 @@ if [ "$1" = patient-request ]; then
 fi
 if [ "$1" = db-query ]; then
   say "its rows (business and configuration data only; the role cannot read a patient's) are in that log stream. Read it with:"
+  printf "  aws logs get-log-events --region %s --log-group-name %s --log-stream-name %s --query 'events[].message' --output text\n" \
+    "$REGION" "$log_group" "$log_prefix/$container/$task_id"
+fi
+if [ "$1" = db-apply ]; then
+  say "its row count, and whether it committed (a dry run never does), are in that log stream; no row is ever printed. Read it with:"
   printf "  aws logs get-log-events --region %s --log-group-name %s --log-stream-name %s --query 'events[].message' --output text\n" \
     "$REGION" "$log_group" "$log_prefix/$container/$task_id"
 fi

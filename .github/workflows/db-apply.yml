@@ -1,0 +1,148 @@
+name: Database change, dry run or apply (AWS)
+
+# Runs one reviewed change file from apps/app/scripts/db-changes/ against one
+# clinic in the production database, as healdesk_writer, in a one-off task
+# inside the VPC (docs/design/db-access-2026-10-22.md, "The write path"). One
+# INSERT or UPDATE on a table in WRITABLE_TABLES (apps/app/scripts/readonly-
+# tables.ts), never a delete, never more than 500 rows, never a row printed.
+#
+# Two modes, and the apply cannot skip the dry run's number:
+#
+#   dry-run  (the default) runs the statement and ALWAYS rolls it back, then
+#            reports how many rows it would change. Environment: db-apply.
+#   apply    needs expect_rows, the count the dry run showed. It commits only
+#            if the statement changes exactly that many rows and rolls back
+#            otherwise. Environment: db-apply-commit.
+#
+# What lets a run reach the database is AWS's decision, not a GitHub setting.
+# AWS gives the role healdesk-production-github-db-apply only to a token whose
+# subject is this repository's db-apply or db-apply-commit environment, whose
+# ref is main and whose actor is the owner (infra/aws/db-apply.tf), and the role
+# can start that one task family and nothing else. The two environments need no
+# protection rules: GitHub creates them on first use, and the owner chose none
+# (22 October 2026). A required reviewer on db-apply-commit would add a click
+# per apply, and nothing here changes if the owner wants one.
+#
+# The file is in the image the last deploy-app.yml run built, which is what the
+# task runs; a change merged to main after that deploy fails with "no change
+# named" until the next deploy. The output is a row count in the task's log
+# group in CloudWatch, never in this log: this repository is public.
+
+on:
+  workflow_dispatch:
+    inputs:
+      change:
+        description: "A change file's name in apps/app/scripts/db-changes/, without .sql"
+        required: true
+        type: string
+      clinic:
+        description: "The clinic's uuid: every statement is confined to this clinic"
+        required: true
+        type: string
+      mode:
+        description: "dry-run rolls back and reports a row count; apply commits if the count matches"
+        required: true
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+      expect_rows:
+        description: "apply only: the row count the dry run showed (0 to 500)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: healdesk-db-apply
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: "865780386982"
+  DB_APPLY_ROLE: arn:aws:iam::865780386982:role/healdesk-production-github-db-apply
+
+jobs:
+  change:
+    name: Run the change
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: ${{ inputs.mode == 'apply' && 'db-apply-commit' || 'db-apply' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The inputs reach the shell as environment variables, never spliced into
+      # the script, and are checked here as run-task.sh checks them again.
+      - name: Check the inputs
+        env:
+          CHANGE: ${{ inputs.change }}
+          CLINIC: ${{ inputs.clinic }}
+          MODE: ${{ inputs.mode }}
+          EXPECT: ${{ inputs.expect_rows }}
+        run: |
+          if ! printf '%s' "$CHANGE" | grep -Eq '^[a-z0-9][a-z0-9-]{0,63}$'; then
+            echo "::error::The change is a file name without .sql: lower-case letters, digits and hyphens."
+            exit 1
+          fi
+          if [ ! -f "apps/app/scripts/db-changes/$CHANGE.sql" ]; then
+            echo "::error::No change named $CHANGE in apps/app/scripts/db-changes/ on main."
+            exit 1
+          fi
+          if ! printf '%s' "$CLINIC" | grep -Eqi '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+            echo "::error::The clinic is a uuid."
+            exit 1
+          fi
+          if [ "$MODE" = apply ]; then
+            if ! printf '%s' "$EXPECT" | grep -Eq '^[0-9]{1,3}$' || [ "$EXPECT" -gt 500 ]; then
+              echo "::error::apply needs expect_rows, the row count the dry run showed (0 to 500)."
+              exit 1
+            fi
+          elif [ -n "$EXPECT" ]; then
+            echo "::error::A dry run takes no expect_rows."
+            exit 1
+          fi
+
+      - name: Assume the db-apply role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.DB_APPLY_ROLE }}
+          role-session-name: healdesk-db-apply-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+          role-duration-seconds: 3600
+
+      # Prints the task's ending and where its output is, never the output.
+      - name: Run the task
+        id: run
+        env:
+          CHANGE: ${{ inputs.change }}
+          CLINIC: ${{ inputs.clinic }}
+          MODE: ${{ inputs.mode }}
+          EXPECT: ${{ inputs.expect_rows }}
+          RUN_TASK_TIMEOUT_MINUTES: "10"
+        run: |
+          if [ "$MODE" = apply ]; then
+            bash infra/aws/scripts/run-task.sh db-apply "$CHANGE" "$CLINIC" apply "$EXPECT" 2>&1 | tee "$RUNNER_TEMP/run-task.txt"
+          else
+            bash infra/aws/scripts/run-task.sh db-apply "$CHANGE" "$CLINIC" dry-run 2>&1 | tee "$RUNNER_TEMP/run-task.txt"
+          fi
+
+      # The one summary line the task prints, so a dry run's row count can be
+      # read from here and a refused apply says why. Only a fixed set of fields is
+      # copied (a change name, a table, a mode, the clinic's id, a count, whether
+      # it committed, a short verdict): never a row, whatever the task printed,
+      # and a line that does not parse is not shown.
+      - name: Show the count
+        if: ${{ always() && steps.run.outcome != 'skipped' }}
+        run: |
+          stream=$(grep -Eo 'stream db-apply/app/[0-9a-f]{32}' "$RUNNER_TEMP/run-task.txt" | head -1 | sed 's/^stream //') || true
+          if [ -z "$stream" ]; then echo "No log stream to read: the task did not start."; exit 0; fi
+          line=$(aws logs get-log-events --region "$AWS_REGION" --log-group-name /healdesk/production/db-apply \
+            --log-stream-name "$stream" --query 'events[].message' --output text 2>/dev/null | grep -E '^\{"change":' | tail -1) || true
+          if [ -z "$line" ]; then echo "The task printed no summary line (see the step above for how it ended)."; exit 0; fi
+          echo "$line" | jq -c '{change, table, verb, mode, clinic, rowCount, committed, verdict}' || echo "The summary line did not parse."

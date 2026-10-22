@@ -16,6 +16,7 @@
     "db:studio": "drizzle-kit studio",
     "queue:install": "tsx --env-file-if-exists=.env.local scripts/install-queue.ts",
     "db:readonly-grants": "tsx --env-file-if-exists=.env.local scripts/readonly-grants.ts",
+    "db:writer-grants": "tsx --env-file-if-exists=.env.local scripts/writer-grants.ts",
     "email:seed": "tsx --env-file-if-exists=.env.local scripts/email-seed.ts",
     "worker": "tsx --env-file-if-exists=.env.local src/workers/index.ts",
     "voice": "tsx --env-file-if-exists=.env.local src/voice/server.ts",

@@ -165,3 +165,55 @@ $$;
 GRANT USAGE ON SCHEMA public TO healdesk_readonly;
 
 \endif
+
+-- =============================================================================
+-- healdesk_writer: the role of the db-apply task (docs/design/db-access-2026-
+-- 10-22.md, "The write path"). Created only when the caller passes -v
+-- writer_password, as for healdesk_readonly above, so a database without the
+-- variable is left as it was.
+--
+-- INSERT and UPDATE on a short list of tables, and SELECT where the read-only
+-- role has it: none of that is granted here (only a table's owner can grant)
+-- but in scripts/writer-grants.ts, from scripts/readonly-tables.ts, run by the
+-- migrate task. It owns nothing, has no BYPASSRLS, and cannot delete. Unlike
+-- the read-only role its sessions are not read only, since writing is the job;
+-- they carry short time limits instead, and every statement it runs is confined
+-- by row-level security to the one clinic the run sets.
+-- =============================================================================
+\if :{?writer_password}
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'healdesk_writer') THEN
+    CREATE ROLE healdesk_writer LOGIN;
+  END IF;
+END
+$$;
+
+ALTER ROLE healdesk_writer PASSWORD :'writer_password';
+ALTER ROLE healdesk_writer NOCREATEDB NOCREATEROLE;
+ALTER ROLE healdesk_writer SET statement_timeout = '30s';
+ALTER ROLE healdesk_writer SET lock_timeout = '5s';
+ALTER ROLE healdesk_writer SET idle_in_transaction_session_timeout = '30s';
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles
+              WHERE rolname = 'healdesk_writer'
+                AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb)) THEN
+    RAISE EXCEPTION 'healdesk_writer is SUPERUSER, BYPASSRLS, CREATEROLE or CREATEDB: drop the role and re-run this file';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_auth_members m
+               JOIN pg_roles u ON u.oid = m.member
+              WHERE u.rolname = 'healdesk_writer') THEN
+    RAISE EXCEPTION 'healdesk_writer is a member of another role: revoke the membership and re-run this file';
+  END IF;
+
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO healdesk_writer', current_database());
+END
+$$;
+
+GRANT USAGE ON SCHEMA public TO healdesk_writer;
+
+\endif

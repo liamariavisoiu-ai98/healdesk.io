@@ -683,6 +683,19 @@ export const KEYS: readonly KeyDef[] = [
     },
   },
   {
+    id: "aws-ci.WRITER_DATABASE_URL",
+    env: "WRITER_DATABASE_URL",
+    home: "aws-ci",
+    label: "The database's change password (the change task only)",
+    need: "required",
+    rotation: {
+      kind: "every",
+      days: 180,
+      how: "Set db/WRITER_PASSWORD and writer/WRITER_DATABASE_URL to __unset__, then run deploy-app.yml with bootstrap_db (infra/aws/README.md, Rotating secrets).",
+      impact: "None for patients or clinics: only the change task uses it.",
+    },
+  },
+  {
     id: "aws-ci.CLOUDFLARE_API_TOKEN",
     env: "CLOUDFLARE_API_TOKEN",
     home: "aws-ci",
@@ -758,6 +771,10 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_APP_URL: "The engine's private address. The engine reads it only to refuse it in any email it sends.",
   HEALDESK_DB_QUERY: "Which reviewed query file the db-query task runs: a name, passed by db-query.yml or run-task.sh.",
   HEALDESK_DB_QUERY_CLINIC: "Which clinic's rows a db-query run may see on a tenant table: a uuid, optional.",
+  HEALDESK_DB_CHANGE: "Which reviewed change file the db-apply task runs: a name, passed by db-apply.yml or run-task.sh.",
+  HEALDESK_DB_CHANGE_CLINIC: "Which clinic a db-apply run is confined to: a uuid, required.",
+  HEALDESK_DB_CHANGE_MODE: "Whether a db-apply run only reports (dry-run, always rolled back) or commits (apply).",
+  HEALDESK_DB_CHANGE_EXPECT_ROWS: "The row count the dry run showed, which an apply must match to commit.",
   HEALDESK_SUPPORT_PHONE: "Our public support number, shown in the portal's Help.",
   HEALDESK_CALL_BOOKING_URL: "The public page clinics book their set-up call on.",
   HEALDESK_OPS_EMAIL: "Where operator alerts are emailed: an address.",
@@ -1471,7 +1488,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     carries: "Clinics, bookings, conversations, settings",
     example:
       "Bookings and conversations live in the database, with each person's name and phone number, so the front desk can press \"Call Maria\" on Bookings. The ids Meta, Retell and the website chat use to tell people, calls and messages apart are kept only as scrambled fingerprints.",
-    keys: ["aws.DATABASE_URL", "aws.HEALDESK_IDENTIFIER_REF_KEY", "aws-ci.MIGRATION_DATABASE_URL", "aws-ci.READONLY_DATABASE_URL"],
+    keys: ["aws.DATABASE_URL", "aws.HEALDESK_IDENTIFIER_REF_KEY", "aws-ci.MIGRATION_DATABASE_URL", "aws-ci.READONLY_DATABASE_URL", "aws-ci.WRITER_DATABASE_URL"],
     phi: true,
     build: "built",
   },
@@ -1886,6 +1903,8 @@ const AWS_CI_UNSEEN: Record<string, string> = {
     "Given only to the one-off migrate task a deploy (or run-task.sh) starts inside AWS. GitHub never sees it and no running service has it, so this page cannot check it.",
   "aws-ci.READONLY_DATABASE_URL":
     "Given only to the one-off db-query task that db-query.yml (after your approval) or run-task.sh starts inside AWS, which reads the business and configuration tables and nothing a patient said. GitHub never sees it and no running service has it, so this page cannot check it.",
+  "aws-ci.WRITER_DATABASE_URL":
+    "Given only to the one-off db-apply task that db-apply.yml or run-task.sh starts inside AWS, which can add and change a few settings tables for one clinic at a time and delete nothing. GitHub never sees it and no running service has it, so this page cannot check it.",
   "aws-ci.CLOUDFLARE_API_TOKEN": "Read only by infra.yml and host.yml runs on GitHub, after AWS lets them in. No running service has it, so this page cannot check it.",
 };
 

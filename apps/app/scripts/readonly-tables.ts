@@ -123,5 +123,31 @@ export const READONLY_WITHHELD: Record<string, "patient" | "credential" | "unrev
   website_changes: "unreviewed",
 };
 
+/**
+ * The role of the db-apply task (docs/design/db-access-2026-10-22.md, "The
+ * write path"). It can SELECT everything the read-only role can, and INSERT and
+ * UPDATE the tables below and nothing else: never DELETE, never TRUNCATE, never
+ * a patient, credential, legal or billing table. Row-level security confines
+ * every statement to the one clinic the run names, and the triggers on these
+ * tables (closed accounts, the BAA gate, "fixed once opened") still fire.
+ *
+ * A name added here is a decision about what a person with a pull request can
+ * change in production, so the owner approves it. It must already be in
+ * READONLY_TABLES: tests/readonly-tables.test.ts checks.
+ */
+export const WRITER_ROLE = "healdesk_writer";
+
+export const WRITABLE_TABLES = ["clinic_closures", "clinic_provider_services", "clinic_providers"] as const;
+
+/**
+ * Tables the writer can read beyond READONLY_TABLES, because a trigger on a
+ * writable table reads them with the caller's own rights (found by running the
+ * write path against the real schema, 22 Oct 2026): clinic_closures' trigger
+ * assigns a closure to the clinic's main location. They stay withheld from the
+ * read-only role; the writer cannot print a row (no RETURNING, counts only), and
+ * row-level security confines it to the one clinic a run names.
+ */
+export const WRITER_ALSO_READS = ["clinic_locations"] as const;
+
 /** The migration journal, in drizzle's own schema: the host's schema version. */
 export const READONLY_JOURNAL = { schema: "drizzle", table: "__drizzle_migrations" } as const;

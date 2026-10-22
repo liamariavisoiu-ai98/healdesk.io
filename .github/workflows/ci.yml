@@ -61,6 +61,7 @@ jobs:
       MIGRATION_DATABASE_URL: postgres://healdesk_migrator:ci@localhost:5432/healdesk_test?sslmode=disable
       TEST_MIGRATOR_URL: postgres://healdesk_migrator:ci@localhost:5432/healdesk_test?sslmode=disable
       TEST_APP_URL: postgres://healdesk_app:ci@localhost:5432/healdesk_test?sslmode=disable
+      TEST_WRITER_URL: postgres://healdesk_writer:ci@localhost:5432/healdesk_test?sslmode=disable
       DATABASE_URL: postgres://healdesk_app:ci@localhost:5432/healdesk_test?sslmode=disable
       BETTER_AUTH_SECRET: ci-only-not-a-real-secret
       HEALDESK_PROVISION_SECRET: ci-only-not-a-real-secret
@@ -86,12 +87,18 @@ jobs:
         run: |
           psql -h localhost -U postgres -d healdesk_test \
             -v migrator_password=ci -v app_password=ci \
+            -v readonly_password=ci -v writer_password=ci \
             -f apps/app/scripts/provision-roles.sql
 
       - name: Generate a KEK for the test suite
         run: echo "HEALDESK_LOCAL_KEK=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
       - run: npm run db:migrate -w @healdesk/app
+
+      # The read-only and change roles' privileges, as the migrate task does on the host.
+      - run: npm run db:readonly-grants -w @healdesk/app && npm run db:writer-grants -w @healdesk/app
+        env:
+          MIGRATION_DATABASE_URL: postgres://healdesk_migrator:ci@localhost:5432/healdesk_test?sslmode=disable
 
       # One run, machine-readable. The previous version ran the suite twice —
       # once for humans, once to grep the count out of coloured terminal output,
@@ -138,6 +145,7 @@ jobs:
       MIGRATION_DATABASE_URL: postgres://healdesk_migrator:ci@localhost:5432/healdesk_test?sslmode=disable
       TEST_MIGRATOR_URL: postgres://healdesk_migrator:ci@localhost:5432/healdesk_test?sslmode=disable
       TEST_APP_URL: postgres://healdesk_app:ci@localhost:5432/healdesk_test?sslmode=disable
+      TEST_WRITER_URL: postgres://healdesk_writer:ci@localhost:5432/healdesk_test?sslmode=disable
       DATABASE_URL: postgres://healdesk_app:ci@localhost:5432/healdesk_test?sslmode=disable
       BETTER_AUTH_SECRET: ci-only-not-a-real-secret
       HEALDESK_PROVISION_SECRET: ci-only-not-a-real-secret
@@ -163,12 +171,18 @@ jobs:
         run: |
           psql -h localhost -U postgres -d healdesk_test \
             -v migrator_password=ci -v app_password=ci \
+            -v readonly_password=ci -v writer_password=ci \
             -f apps/app/scripts/provision-roles.sql
 
       - name: Generate a KEK for the test suite
         run: echo "HEALDESK_LOCAL_KEK=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
       - run: npm run db:migrate -w @healdesk/app
+
+      # The read-only and change roles' privileges, as the migrate task does on the host.
+      - run: npm run db:readonly-grants -w @healdesk/app && npm run db:writer-grants -w @healdesk/app
+        env:
+          MIGRATION_DATABASE_URL: postgres://healdesk_migrator:ci@localhost:5432/healdesk_test?sslmode=disable
 
       - run: npx tsc --noEmit -p apps/app
       - run: npx tsc --noEmit -p apps/web

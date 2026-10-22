@@ -20,9 +20,9 @@
  *
  * The list is fixed and written here. A name the caller sends is never
  * looked up, so this cannot be turned into a way to probe the environment.
- * MIGRATION_DATABASE_URL, READONLY_DATABASE_URL and the three role passwords
- * are deliberately absent: they are given to the migrate, db-query and
- * db-bootstrap tasks and never to the web
+ * MIGRATION_DATABASE_URL, READONLY_DATABASE_URL, WRITER_DATABASE_URL and the
+ * four role passwords are deliberately absent: they are given to the migrate,
+ * db-query, db-apply and db-bootstrap tasks and never to the web
  * task that answers this (infra/aws/locals.tf), so they would read "missing"
  * on a host where they are perfectly in place.
  */

@@ -148,6 +148,7 @@ env:
   DEMO_CLINIC_FAMILY: healdesk-production-demo-clinic
   CHANNELS_LINK_FAMILY: healdesk-production-channels-link
   DB_QUERY_FAMILY: healdesk-production-db-query
+  DB_APPLY_FAMILY: healdesk-production-db-apply
   APP_URL: https://app.healdesk.io
   # ECR tags are immutable, so the commit names one image for good.
   IMAGE_TAG: ${{ github.sha }}
@@ -568,6 +569,7 @@ jobs:
           fetch "$DEMO_CLINIC_FAMILY" demo-clinic
           fetch "$CHANNELS_LINK_FAMILY" channels-link
           fetch "$DB_QUERY_FAMILY" db-query
+          fetch "$DB_APPLY_FAMILY" db-apply
           if [ "$MIGRATE" = true ]; then fetch "$MIGRATE_FAMILY" migrate; fi
           if [ "$BOOTSTRAP_DB" = true ]; then fetch "$DB_BOOTSTRAP_FAMILY" db-bootstrap; fi
           # The TLS sidecar is in the web task only while alb_to_task_tls is on,
@@ -703,12 +705,12 @@ jobs:
       # own; voice: app, plus tls-proxy while the hop is encrypted; worker,
       # destroy-due, patient-export, erase-person, amend-contact,
       # patient-request, incident-affected, reapply-erasures, demo-clinic,
-      # channels-link, db-query and
+      # channels-link, db-query, db-apply and
       # migrate: app;
       # db-bootstrap: db-admin. The
       # execution role everywhere, the app task role on web, worker, voice
       # and destroy-due, the export task role on patient-export, none on the
-      # operator scripts and on db-query, the db-admin task role on db-bootstrap and none on
+      # operator scripts and on db-query and db-apply, the db-admin task role on db-bootstrap and none on
       # migrate (the db-admin role may write the internal secrets; no app
       # container may hold it). No container but migrate's and db-bootstrap's
       # may carry what Terraform refuses the app tasks (never_on_app_tasks in
@@ -718,7 +720,7 @@ jobs:
       - name: Check the task definitions
         if: ${{ steps.run.outputs.mode == 'deploy' || steps.run.outputs.mode == 'rollback' }}
         env:
-          NEVER_ON_APP_TASKS: MIGRATION_DATABASE_URL READONLY_DATABASE_URL HEALDESK_LOCAL_KEK HEALDESK_DIRECT_BOOKING_ENABLED HEALDESK_PHASE_TWO_ATTRIBUTION BETTER_AUTH_SECRETS
+          NEVER_ON_APP_TASKS: MIGRATION_DATABASE_URL READONLY_DATABASE_URL WRITER_DATABASE_URL HEALDESK_LOCAL_KEK HEALDESK_DIRECT_BOOKING_ENABLED HEALDESK_PHASE_TWO_ATTRIBUTION BETTER_AUTH_SECRETS
           MODE: ${{ steps.run.outputs.mode }}
           WORKER_SHARED: ${{ steps.services.outputs.worker_shared }}
           ARCHITECTURE: ${{ steps.services.outputs.architecture }}
@@ -742,7 +744,7 @@ jobs:
                 fi
                 ;;
               voice) [ "$names" = '["app"]' ] || [ "$names" = '["app","tls-proxy"]' ] || refuse "$label" "$file" "containers $names" ;;
-              worker | destroy-due | patient-export | erase-person | amend-contact | patient-request | incident-affected | reapply-erasures | demo-clinic | channels-link | db-query | migrate) [ "$names" = '["app"]' ] || refuse "$label" "$file" "containers $names" ;;
+              worker | destroy-due | patient-export | erase-person | amend-contact | patient-request | incident-affected | reapply-erasures | demo-clinic | channels-link | db-query | db-apply | migrate) [ "$names" = '["app"]' ] || refuse "$label" "$file" "containers $names" ;;
               db-bootstrap) [ "$names" = '["db-admin"]' ] || refuse "$label" "$file" "containers $names" ;;
             esac
             [ "$(jq -r '.executionRoleArn // ""' "$file")" = "$role-ecs-execution" ] \
@@ -751,16 +753,19 @@ jobs:
               web | worker | voice | destroy-due) task_role="$role-app-task" ;;
               patient-export) task_role="$role-export-task" ;;
               db-bootstrap) task_role="$role-db-admin-task" ;;
-              migrate | erase-person | amend-contact | patient-request | incident-affected | reapply-erasures | demo-clinic | channels-link | db-query) task_role="" ;;
+              migrate | erase-person | amend-contact | patient-request | incident-affected | reapply-erasures | demo-clinic | channels-link | db-query | db-apply) task_role="" ;;
             esac
             [ "$(jq -r '.taskRoleArn // ""' "$file")" = "$task_role" ] \
               || refuse "$label" "$file" "task role $(jq -r '.taskRoleArn // "none"' "$file")"
-            if [ "$label" = db-query ]; then
-              # The one family that carries the read-only URL, and only that: a
-              # run-task override can change its command but never add a secret,
-              # so what it can read is what healdesk_readonly can.
+            if [ "$label" = db-query ] || [ "$label" = db-apply ]; then
+              # The one family that carries the read-only URL (db-query), or the
+              # writer URL (db-apply), and only that: a run-task override can
+              # change its command but never add a secret, so what it can reach
+              # is what healdesk_readonly, or healdesk_writer, can.
+              want=READONLY_DATABASE_URL
+              [ "$label" = db-apply ] && want=WRITER_DATABASE_URL
               found=$(jq -r '[.containerDefinitions[] | (.secrets // [])[].name] | sort | join(" ")' "$file")
-              [ "$found" = READONLY_DATABASE_URL ] || refuse "$label" "$file" "carries secrets '$found', not exactly READONLY_DATABASE_URL"
+              [ "$found" = "$want" ] || refuse "$label" "$file" "carries secrets '$found', not exactly $want"
               found=$(jq -r '[.containerDefinitions[] | (.environment // [])[].name
                 | select(test("DATABASE_URL|PASSWORD|SECRET|KEY|TOKEN"))] | join(" ")' "$file")
               [ -z "$found" ] || refuse "$label" "$file" "carries $found as plain environment"
@@ -780,7 +785,7 @@ jobs:
               [ "$found" = "$ARCHITECTURE" ] || refuse "$label" "$file" "declares $found, but the images were built for $ARCHITECTURE"
             fi
           }
-          for label in web worker voice destroy-due patient-export erase-person amend-contact patient-request incident-affected reapply-erasures demo-clinic channels-link db-query migrate db-bootstrap; do
+          for label in web worker voice destroy-due patient-export erase-person amend-contact patient-request incident-affected reapply-erasures demo-clinic channels-link db-query db-apply migrate db-bootstrap; do
             if [ -f "$RUNNER_TEMP/$label.json" ]; then check "$label"; fi
           done
           if [ "$failed" = 1 ]; then
@@ -1042,6 +1047,15 @@ jobs:
         uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
         with:
           task-definition: ${{ runner.temp }}/db-query.json
+          container-name: app
+          image: ${{ steps.images.outputs.app_image }}
+
+      - name: Render db-apply
+        id: render-db-apply
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
+        uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
+        with:
+          task-definition: ${{ runner.temp }}/db-apply.json
           container-name: app
           image: ${{ steps.images.outputs.app_image }}
 
@@ -1340,6 +1354,14 @@ jobs:
           task-definition: ${{ steps.render-db-query.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
 
+      - name: Register db-apply
+        id: register-db-apply
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
+        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        with:
+          task-definition: ${{ steps.render-db-apply.outputs.task-definition }}
+          cluster: ${{ env.CLUSTER }}
+
       # A service this run started from 0 has no good revision to fall back
       # to: its last completed deployment is Terraform's, at 0 tasks, with a
       # placeholder image that was never pushed. The circuit breaker would
@@ -1417,6 +1439,7 @@ jobs:
           DEMO_CLINIC_TASK: ${{ steps.register-demo-clinic.outputs.task-definition-arn }}
           CHANNELS_LINK_TASK: ${{ steps.register-channels-link.outputs.task-definition-arn }}
           DB_QUERY_TASK: ${{ steps.register-db-query.outputs.task-definition-arn }}
+          DB_APPLY_TASK: ${{ steps.register-db-apply.outputs.task-definition-arn }}
           ROLLED_BACK_TO: ${{ steps.rollback.outputs.commit }}
           MIGRATED: ${{ inputs.migrate }}
           BOOTSTRAPPED: ${{ inputs.bootstrap_db }}
@@ -1440,7 +1463,8 @@ jobs:
                 echo "- patient-export: ${PATIENT_EXPORT_TASK##*/} (registered; run by hand at offboarding)"
                 echo "- erase-person: ${ERASE_PERSON_TASK##*/}, amend-contact: ${AMEND_CONTACT_TASK##*/}, patient-request: ${PATIENT_REQUEST_TASK##*/}, incident-affected: ${INCIDENT_AFFECTED_TASK##*/}, reapply-erasures: ${REAPPLY_ERASURES_TASK##*/} (registered; run by hand)"
                 echo "- demo-clinic: ${DEMO_CLINIC_TASK##*/}, channels-link: ${CHANNELS_LINK_TASK##*/} (registered; run by hand with run-task.sh)"
-                echo "- db-query: ${DB_QUERY_TASK##*/} (registered; run by db-query.yml after the owner's approval, or by hand with run-task.sh)"
+                echo "- db-query: ${DB_QUERY_TASK##*/} (registered; run by db-query.yml, or by hand with run-task.sh)"
+                echo "- db-apply: ${DB_APPLY_TASK##*/} (registered; run by db-apply.yml as a dry run or an apply, or by hand with run-task.sh)"
                 echo "- db-bootstrap: $([ "$BOOTSTRAPPED" = true ] && echo ran || echo skipped)"
                 echo "- migrations: $([ "$MIGRATED" = true ] && echo ran || echo skipped)"
                 ;;

@@ -1286,8 +1286,14 @@ async function main(): Promise<void> {
   const lowPath = join(DATA, "instantly-low-enrichment.csv");
   await writeFile(mainPath, toCsv(instantly.main));
   await writeFile(lowPath, toCsv(instantly.lowEnrichment));
+  const secondPath2 = join(DATA, "instantly-second-contacts.csv");
+  const unreadablePath = join(DATA, "instantly-unreadable.csv");
+  await writeFile(secondPath2, toCsv(instantly.secondContacts));
+  await writeFile(unreadablePath, toCsv(instantly.unreadable));
   console.log(`\n  Instantly, main campaign        ${String(instantly.main.length).padStart(5)}  ${mainPath}`);
   console.log(`  Instantly, low enrichment       ${String(instantly.lowEnrichment.length).padStart(5)}  ${lowPath}`);
+  console.log(`  Instantly, second contacts      ${String(instantly.secondContacts.length).padStart(5)}  ${secondPath2}  (a later wave)`);
+  console.log(`  Instantly, unreadable sites     ${String(instantly.unreadable.length).padStart(5)}  ${unreadablePath}  (one email, no preview)`);
 
   console.log(
     "\n  Rank on the high-confidence column, not the total — and read the\n" +

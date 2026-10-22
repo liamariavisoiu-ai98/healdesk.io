@@ -78,7 +78,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // first answer they get is usually the clinic they start with.
     capability: "around-the-clock",
     because:
-      "since new patients go with whoever answers first",
+      "since new patients book whoever answers first",
   },
   "body-contouring": {
     // Free consult, four-figure package, and the consult no-show is the leak.
@@ -343,6 +343,10 @@ export function bookingModeFor(
  * promises neither (lead-qualification) is kept, because it is as true for a
  * Mindbody clinic as for any other.
  */
+// {system} is the clinic's own booking system by name when we found one
+// ("Boulevard", "Zenoti"), and "your booking system" when we did not. Naming
+// the one they use is the proof the sender looked; guessing a name is not.
+//
 // "Unverified" no longer explains Google sync in the email (owner's brief, 22
 // October 2026). "If your system reads Google" is a sentence a clinic owner
 // has to stop and decode, and it is the longest clause in the sequence. A cold
@@ -350,14 +354,14 @@ export function bookingModeFor(
 // which is true for every one of these clinics; onboarding checks the sync and
 // may turn it into live booking.
 export const BOOKING_MODE_LABEL: Record<Exclude<BookingMode, "live">, string> = {
-  manual: "AYA answers {surfaces}, then passes each booking request to your desk to confirm in Mindbody",
-  unverified: "AYA answers {surfaces}, then passes each booking request to your desk to confirm",
+  manual: "AYA answers {surfaces}, then passes each booking request to your desk to confirm in {system}",
+  unverified: "AYA answers {surfaces}, then passes each booking request to your desk to confirm in {system}",
 };
 
 const BOOKS_OR_COLLECTS: ReadonlySet<Capability> = new Set<Capability>(["around-the-clock", "calendar-booking", "deposits"]);
 
 /** The opening clause for this capability, given how this clinic can be booked. */
-export function offerLabel(capability: Capability, mode: BookingMode): string {
-  if (mode !== "live" && BOOKS_OR_COLLECTS.has(capability)) return BOOKING_MODE_LABEL[mode];
+export function offerLabel(capability: Capability, mode: BookingMode, system = "your booking system"): string {
+  if (mode !== "live" && BOOKS_OR_COLLECTS.has(capability)) return BOOKING_MODE_LABEL[mode].replace("{system}", system);
   return CAPABILITY_LABEL[capability];
 }

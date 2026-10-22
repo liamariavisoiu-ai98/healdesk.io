@@ -58,11 +58,45 @@ describe("the Instantly files", () => {
     expect(lowEnrichment[0]!.enrichment_note).toBe("no opening hours found; no service found on the site");
   });
 
-  test("second contacts, unreadable sites and excluded rows are not in either file", () => {
-    const { main, lowEnrichment } = buildInstantlyFiles([
-      lead({ list: "second-contact" }), lead({ list: "unreadable" }), lead({ exclude_reason: "chain or franchise" }),
+  test("excluded rows are in no file", () => {
+    const f = buildInstantlyFiles([lead({ exclude_reason: "chain or franchise" })]);
+    expect(f.main.length + f.lowEnrichment.length + f.secondContacts.length + f.unreadable.length).toBe(0);
+  });
+
+  test("a second contact gets the same four touches, in its own file, naming the primary contact", () => {
+    const f = buildInstantlyFiles([
+      lead({ clinic_id: "k1" }),
+      lead({ list: "second-contact", clinic_id: "k1", email: "ops@velvet.com", first_name: "Tom", last_name: "Ray" }),
     ]);
-    expect(main.length + lowEnrichment.length).toBe(0);
+    expect(f.main).toHaveLength(1);
+    expect(f.secondContacts).toHaveLength(1);
+    const t = f.secondContacts[0]!;
+    expect(t.primary_contact).toBe("sophie@velvet.com");
+    expect(t.body_1.startsWith("Hi Tom,")).toBe(true);
+    expect(t.body_4).toContain("Velvet Aesthetics Studio");
+  });
+
+  test("a site that would not load gets one honest email and no preview", () => {
+    const f = buildInstantlyFiles([
+      lead({
+        list: "unreadable", clinic_id: "u1", email: "dr@crawford.com", first_name: "Marcus", segment: "", site_host: "crawfordplasticsurgery.com",
+        hook: "I went to look at crawfordplasticsurgery.com but couldn't get it to load properly.",
+        top_offer: "If visitors hit the same thing, they might call instead, and AYA, our virtual assistant, can answer and book them in around the clock.",
+        closing_question: "Who's catching those calls right now?",
+      }),
+      lead({ list: "unreadable", clinic_id: "u2", email: "x@y.com", site_host: "tiny.com", hook: "I went to look at tiny.com but couldn't find much on it.", top_offer: "o", closing_question: "q?" }),
+    ]);
+    expect(f.unreadable).toHaveLength(2);
+    const u = f.unreadable[0]!;
+    expect(u.subject_1).toBe("crawfordplasticsurgery.com not loading");
+    expect(u.body_1).toBe(
+      "Hi Marcus,\n\nI went to look at crawfordplasticsurgery.com but couldn't get it to load properly.\n\n" +
+        "If visitors hit the same thing, they might call instead, and AYA, our virtual assistant, can answer and book them in around the clock.\n\n" +
+        "Who's catching those calls right now?",
+    );
+    expect([u.body_2, u.body_3, u.body_4]).toEqual(["", "", ""]);
+    expect(u.body_1).not.toMatch(/preview/i);
+    expect(f.unreadable[1]!.subject_1).toBe("Quick question about tiny.com");
   });
 });
 

@@ -6,7 +6,7 @@ import {
   type Capability,
 } from "./capabilities.ts";
 import type { BookingGap, PlaceHours } from "./places.ts";
-import type { BookingDetection } from "./booking.ts";
+import { platformNameFor, type BookingDetection } from "./booking.ts";
 import type { Label } from "./label.ts";
 
 /**
@@ -439,6 +439,7 @@ export function buildOutreachRow(
     closesEarly(hours),
     channelPhrase(channels, social),
     bookingMode,
+    bookingSystem(booking),
   );
 
   return {
@@ -450,7 +451,7 @@ export function buildOutreachRow(
     greeting: greetingFor(label.segment, contact.email),
     subjectLine: buildSubject(companyShort(contact.company ?? ""), window, weekendClosed, hours, sites, noBooking),
     chatSurface: chatSurface(social),
-    scenario: buildScenario(phrase, label.topService, social, window, weekendClosed, hours, bookingMode),
+    scenario: buildScenario(phrase, label.topService, social, window, weekendClosed, hours, bookingMode, bookingSystem(booking)),
     capability: offer.capability,
     bookingMode,
     assistantTerm: assistant,
@@ -605,6 +606,7 @@ function buildOffer(
   closesEarly: boolean,
   surfaces: string,
   bookingMode: BookingMode,
+  system: string,
 ): { offer: string; capability: Capability } {
   const pitch = selectCapability({
     segment: label.segment,
@@ -624,7 +626,7 @@ function buildOffer(
   // a live booking, because the slot the assistant writes into Google does not
   // block anything in Mindbody (docs/v1-product-spec.md → "What the hub model
   // does and does not guarantee").
-  const opening = offerLabel(pitch.capability, bookingMode).replace("{surfaces}", surfaces);
+  const opening = offerLabel(pitch.capability, bookingMode, system).replace("{surfaces}", surfaces);
 
   // One sentence that keeps going, not two that stop.
   //
@@ -802,6 +804,24 @@ export function companyShort(name: string): string {
     : short;
 }
 
+/**
+ * The clinic's booking system as the email names it: "Boulevard" when we found
+ * one, "your booking system" when we did not.
+ *
+ * "Custom or unrecognised" is a finding about our detector, not a product, and
+ * telling an owner "confirm in Custom or unrecognised" would be absurd. Marks
+ * in brackets and a second product after a slash come off ("Nextech
+ * (myPatientVisit)" is Nextech, "Acuity / Squarespace Scheduling" is Acuity).
+ */
+export function bookingSystem(
+  booking: { platform?: string | null; platformName?: string | null } | undefined,
+): string {
+  const raw = (booking?.platformName ?? (booking?.platform ? platformNameFor(booking.platform) : "") ?? "").trim();
+  if (!raw || /custom|unrecogni[sz]ed|unknown|\bother\b/i.test(raw)) return "your booking system";
+  const name = raw.split(" / ")[0]!.replace(/\s*\(.*?\)/g, "").trim();
+  return /^[a-z0-9-]+$/.test(name) && name === name.toLowerCase() ? "your booking system" : name || "your booking system";
+}
+
 /** "https://www.glowaesthetics.com/home" -> "glowaesthetics.com", as a person types it. */
 export function siteHost(url: string): string {
   const s = url.trim();
@@ -880,6 +900,7 @@ function buildScenario(
   weekendClosed: string[],
   hours: PlaceHours | undefined,
   mode: BookingMode,
+  system: string,
 ): string {
   const close = hours?.closesAt;
   const when =
@@ -912,8 +933,8 @@ function buildScenario(
     mode === "live"
       ? "AYA answers, offers a time and books it straight into your calendar."
       : mode === "manual"
-        ? "AYA answers, takes the time they want and passes it to your desk to confirm in Mindbody."
-        : "AYA answers, takes the time they want and passes it to your desk to confirm.";
+        ? `AYA answers, takes the time they want and passes it to your desk to confirm in ${system}.`
+        : `AYA answers, takes the time they want and passes it to your desk to confirm in ${system}.`;
 
   // The time goes last, so the fallback reads "about booking an appointment
   // while your team is busy" rather than splitting the sentence in two.

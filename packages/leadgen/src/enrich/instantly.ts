@@ -1,4 +1,5 @@
 import { copyViolations } from "./copy-guard.ts";
+import { siteHost } from "./outreach.ts";
 
 /**
  * The two files the owner uploads to Instantly, built from all-leads.csv.
@@ -134,6 +135,25 @@ const TOUCH_4: Part[][] = [
 
 export const TOUCHES = [TOUCH_1, TOUCH_2, TOUCH_3, TOUCH_4] as const;
 
+/**
+ * The one email for a clinic whose site would not load.
+ *
+ * Its three sentences come from buildUnreadableRow (unreadable.ts): what we saw
+ * ("I went to look at x.com but couldn't get it to load properly"), what AYA
+ * does, and a question. There is no preview to offer, because a preview is
+ * built from the clinic's site, and no second touch, because there is nothing
+ * specific to say in it. See the note at the top of unreadable.ts.
+ */
+export const UNREADABLE_TOUCH: Part[][] = [[v("hook")], [v("top_offer")], [v("closing_question")]];
+
+/** "x.com not loading", or a plain question when the page loaded but said little. */
+export function unreadableSubject(lead: Lead): string {
+  const host = lead.site_host || siteHost(lead.website ?? "");
+  const thin = /couldn't find much/i.test(lead.hook ?? "");
+  const subject = thin ? `Quick question about ${host}` : `${host} not loading`;
+  return host && subject.length <= 40 ? subject : "Your website";
+}
+
 /** Every fixed variant, for the copy guard. */
 export function allVariants(): string[] {
   return TOUCHES.flat(2).flatMap((p) => (Array.isArray(p) ? [...p] : typeof p === "string" ? [p] : []));
@@ -218,42 +238,76 @@ const COLUMNS = [
   "subject_1", "body_1", "body_2", "body_3", "body_4",
   "greeting", "subject_line", "hook", "chat_surface", "closing_question", "scenario",
   "client_term", "company_short", "site_host",
-  "city", "state", "segment", "booking_mode", "enrichment_note",
+  "city", "state", "segment", "booking_mode", "enrichment_note", "primary_contact",
 ] as const;
 
-export type InstantlyFiles = { main: Lead[]; lowEnrichment: Lead[]; refused: string[] };
+export type InstantlyFiles = {
+  main: Lead[];
+  lowEnrichment: Lead[];
+  /** Another contact at a clinic already in main or lowEnrichment: send in a later wave. */
+  secondContacts: Lead[];
+  /** Clinics whose site would not load: one email, no preview. */
+  unreadable: Lead[];
+  refused: string[];
+};
 
 /**
- * Split the primary, sendable rows of all-leads.csv into the two files.
+ * Split all-leads.csv into the files Instantly receives.
  *
- * Second contacts and unreadable sites are left out on purpose: the first go
- * in a later wave so one clinic is not emailed twice at once, and the second
- * cannot have a preview because the preview is built from the site.
+ * primary         -> main, or lowEnrichment when no hours or no service were found
+ * second-contact  -> secondContacts, with the primary contact at the same clinic
+ *                    named so the two are never in flight together
+ * unreadable      -> unreadable, one email
  */
 export function buildInstantlyFiles(rows: readonly Lead[]): InstantlyFiles {
   const main: Lead[] = [];
   const lowEnrichment: Lead[] = [];
+  const secondContacts: Lead[] = [];
+  const unreadable: Lead[] = [];
   const refused: string[] = [];
 
+  const primaryByClinic = new Map<string, string>();
+  for (const r of rows) if (r.list === "primary" && r.clinic_id) primaryByClinic.set(r.clinic_id, r.email ?? "");
+
+  const check = (email: string | undefined, lead: Lead, cols: string[]) => {
+    for (const col of cols) for (const label of copyViolations(lead[col] ?? "")) refused.push(`${email} ${col}: ${label}`);
+  };
+  const shape = (r: Lead, lead: Lead): Lead =>
+    Object.fromEntries(
+      COLUMNS.map((c) => [
+        c,
+        c === "company_name" ? r.company_short || r.company || "" : c === "website" ? r.site_host || siteHost(r.website ?? "") || r.website || "" : lead[c] ?? "",
+      ]),
+    );
+
   for (const r of rows) {
-    if (r.list !== "primary" || r.exclude_reason) continue;
+    if (r.exclude_reason) continue;
+
+    if (r.list === "unreadable") {
+      const lead: Lead = { ...r, enrichment_note: "site could not be read: one email, no preview" };
+      lead.subject_1 = unreadableSubject(r);
+      lead.body_1 = renderTouch(UNREADABLE_TOUCH, lead, 1);
+      lead.body_2 = lead.body_3 = lead.body_4 = "";
+      check(r.email, lead, ["subject_1", "body_1"]);
+      unreadable.push(shape(r, lead));
+      continue;
+    }
+    if (r.list !== "primary" && r.list !== "second-contact") continue;
+
     const note = lowEnrichmentReason(r);
     const lead: Lead = { ...r, enrichment_note: note };
     lead.subject_1 = r.subject_line ?? "";
+    if (r.list === "second-contact") lead.primary_contact = primaryByClinic.get(r.clinic_id ?? "") ?? "";
     TOUCHES.forEach((t, i) => (lead[`body_${i + 1}`] = renderTouch(t, lead, i + 1)));
+    check(r.email, lead, ["subject_1", "body_1", "body_2", "body_3", "body_4"]);
 
-    for (const col of ["subject_1", "body_1", "body_2", "body_3", "body_4"]) {
-      for (const label of copyViolations(lead[col] ?? "")) refused.push(`${r.email} ${col}: ${label}`);
-    }
-
-    const out = Object.fromEntries(
-      COLUMNS.map((c) => [c, c === "company_name" ? r.company_short || r.company || "" : c === "website" ? r.site_host || r.website || "" : lead[c] ?? ""]),
-    );
-    (note ? lowEnrichment : main).push(out);
+    const out = shape(r, lead);
+    if (r.list === "second-contact") secondContacts.push(out);
+    else (note ? lowEnrichment : main).push(out);
   }
 
   // Strongest first: a measured window, then a service, then a booking platform.
   const strength = (r: Lead) => ((r.hook ?? "").includes(" hours ") ? 2 : 0) + ((r.subject_line ?? "").startsWith("AYA for") ? 0 : 1);
   main.sort((a, b) => strength(b) - strength(a));
-  return { main, lowEnrichment, refused };
+  return { main, lowEnrichment, secondContacts, unreadable, refused };
 }

@@ -535,7 +535,7 @@ describe("tone and repetition", () => {
   test("each line is short enough for a four-line email", async () => {
     for (const r of await rows()) {
       expect(r.hook.split(/\s+/).length, r.hook).toBeLessThanOrEqual(18);
-      expect(r.topOffer.split(/\s+/).length, r.topOffer).toBeLessThanOrEqual(30);
+      expect(r.topOffer.split(/\s+/).length, r.topOffer).toBeLessThanOrEqual(33);
       expect(r.closingQuestion.split(/\s+/).length, r.closingQuestion).toBeLessThanOrEqual(12);
     }
   });
@@ -921,7 +921,7 @@ describe("the subject, the chat surface and the scene", () => {
     expect(mindbody.scenario).toContain("passes it to your desk to confirm in Mindbody");
     expect(mindbody.scenario).not.toMatch(/books it/);
     const boulevard = await build(L({ offersOnlineBooking: true }), { platform: "boulevard", hasOnlineBooking: true }, weekend);
-    expect(boulevard.scenario).toContain("passes it to your desk to confirm.");
+    expect(boulevard.scenario).toContain("passes it to your desk to confirm in Boulevard.");
     expect(boulevard.scenario).not.toMatch(/books it/);
   });
 
@@ -975,6 +975,34 @@ describe("US time and plain fallbacks", () => {
     );
     expect(r.scenario).toMatch(/^Picture someone calling to book an appointment on a Friday night\./);
     expect(r.hook).toContain("Monday 9:30am");
+  });
+});
+
+describe("naming the booking system", () => {
+  test("the clinic's own system by name, or 'your booking system' when none was found", async () => {
+    const { bookingSystem } = await import("../src/enrich/outreach.ts");
+    expect(bookingSystem({ platform: "boulevard" })).toBe("Boulevard");
+    expect(bookingSystem({ platform: "mindbody", platformName: "Mindbody" })).toBe("Mindbody");
+    expect(bookingSystem({ platformName: "Nextech (myPatientVisit)" })).toBe("Nextech");
+    expect(bookingSystem({ platformName: "Acuity / Squarespace Scheduling" })).toBe("Acuity");
+    expect(bookingSystem({ platformName: "Custom or unrecognised" })).toBe("your booking system");
+    expect(bookingSystem({ platform: "jane-app" })).toBe("your booking system");
+    expect(bookingSystem(undefined)).toBe("your booking system");
+  });
+
+  test("the offer and the scene say it the same way", async () => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    const label = {
+      clinicId: "c", segment: "dental", confidence: "high", evidence: "", opensAt: null, closesAt: null, hoursByDay: null,
+      topService: "Invisalign", offersOnlineBooking: true, mentionsWeightLoss: false, isChainOrFranchise: false,
+    } as never;
+    const hours = { closedDays: ["Sunday"], closedHoursPerWeek: 90, closesAt: "17:00", gap: null } as never;
+    const named = buildOutreachRow(label, { platform: "zenoti", platformName: "Zenoti", hasOnlineBooking: true } as never, hours, { jobTitle: "", email: "j@c.com" });
+    expect(named.topOffer).toContain("to confirm in Zenoti");
+    expect(named.scenario).toContain("to confirm in Zenoti.");
+    const unnamed = buildOutreachRow(label, { platform: "custom", platformName: "Custom or unrecognised", hasOnlineBooking: true } as never, hours, { jobTitle: "", email: "j@c.com" });
+    expect(unnamed.topOffer).toContain("to confirm in your booking system");
+    expect(unnamed.scenario).toContain("to confirm in your booking system.");
   });
 });
 

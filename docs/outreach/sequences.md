@@ -22,21 +22,24 @@ preview is built from the clinic's site, and theirs would not load.
 
 ## Uploading to Instantly
 
-`npm run enrich -w @healdesk/leadgen` writes two files next to `all-leads.csv`
+`npm run enrich -w @healdesk/leadgen` writes four files next to `all-leads.csv`
 in `packages/leadgen/data/`, and each one is its own campaign:
 
 | File | Who | Campaign |
 | --- | --- | --- |
 | `instantly-main.csv` | Primary contacts whose hook stands on measured hours, closed days or sites, and whose service we found | Main, sent first, strongest rows at the top |
 | `instantly-low-enrichment.csv` | Primary contacts with no opening hours or no service found (`enrichment_note` says which) | Second, judged on its own reply rate |
+| `instantly-second-contacts.csv` | Another contact at a clinic already in one of the two above (`primary_contact` names who) | A later wave, so one clinic never has two threads in flight |
+| `instantly-unreadable.csv` | Clinics whose site would not load | One email, no preview (there is no site to build it from) |
+
+The unreadable file is the one place the sequence does not apply: its email
+says the site would not load, says what AYA does, and asks who is catching the
+calls. `body_2` to `body_4` are blank, so it is a single step in Instantly.
 
 A list enriched before this copy existed (an old `all-leads.csv`) is rebuilt
 without crawling anything, with
 `npx tsx src/ops/instantly-from-leads.mts <all-leads.csv> <out-dir>` from
 `packages/leadgen`. The outputs hold real contacts: keep them out of Git.
-
-Second contacts and unreadable sites are in neither file: the first go in a
-later wave, the second have no preview to offer.
 
 Each row carries `subject_1` and `body_1` to `body_4`, already written for that
 clinic, with the spintax already picked (a hash of the address chooses each
@@ -159,9 +162,9 @@ number on the list is usually the front desk's.
 | `greeting` | Hi or Hey for clients, Hi or Hello for patients, fixed per address so a thread keeps one |
 
 The scene and the offer follow `booking_mode`. Only `live` rows hear "books it
-straight into your calendar". Mindbody rows hear "passes it to your desk to
-confirm in Mindbody", and every other booking system hears "passes it to your
-desk to confirm". The template itself makes no booking claim, so it needs no
+straight into your calendar". Every other row hears "passes it to your desk to
+confirm in" and then the clinic's own system by name when we found one
+("Boulevard", "Zenoti", "Mindbody"), or "your booking system" when we did not. The template itself makes no booking claim, so it needs no
 branch.
 
 ## Why it is built this way

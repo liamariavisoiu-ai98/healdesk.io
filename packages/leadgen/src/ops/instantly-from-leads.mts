@@ -7,8 +7,10 @@
  * crawl or call any API. It rebuilds the hook, the offer, the closing question,
  * the subject and the scene with today's generator from the facts the old file
  * already holds (hours, service, booking platform, social channels, sites),
- * then renders the four touches exactly as `npm run enrich` does and writes
- * instantly-main.csv and instantly-low-enrichment.csv.
+ * then renders the touches exactly as `npm run enrich` does and writes four
+ * files: instantly-main.csv, instantly-low-enrichment.csv,
+ * instantly-second-contacts.csv (a later wave) and instantly-unreadable.csv
+ * (one email, no preview, for sites that would not load).
  *
  * What the old file cannot give back: job titles (the new copy no longer
  * depends on one) and the crawl's raw page links. Whether a clinic books
@@ -22,6 +24,7 @@ import { join } from "node:path";
 import { BOOKING_PLATFORMS } from "../enrich/booking.ts";
 import { buildInstantlyFiles } from "../enrich/instantly.ts";
 import { buildOutreachRow, companyShort, siteHost } from "../enrich/outreach.ts";
+import { buildUnreadableRow } from "../enrich/unreadable.ts";
 
 type Row = Record<string, string>;
 
@@ -77,7 +80,23 @@ const rebuilt: Row[] = [];
 let skipped = 0;
 
 for (const r of rows) {
-  if (r.list !== "primary" || !r.email || !r.segment) { skipped += 1; continue; }
+  if (!r.email) { skipped += 1; continue; }
+
+  // A site that would not load has no facts to rebuild from. It gets the one
+  // honest email from unreadable.ts, in the wording the old run's hook shows.
+  if (r.list === "unreadable") {
+    const reason = /couldn't find much/i.test(r.hook ?? "") ? "too little text" : "no pages fetched";
+    const domain = siteHost(r.website);
+    const u = buildUnreadableRow({ domain } as never, { jobTitle: "", email: r.email }, reason);
+    rebuilt.push({
+      list: "unreadable", clinic_id: r.clinic_id, email: r.email, first_name: r.first_name, last_name: r.last_name,
+      company: r.company, company_short: companyShort(r.company), site_host: domain, website: r.website,
+      phone: r.phone || r.phone_from_list || "", city: r.city, state: r.state, segment: "",
+      hook: u.hook, top_offer: u.offer, closing_question: u.closingQuestion, exclude_reason: "",
+    });
+    continue;
+  }
+  if ((r.list !== "primary" && r.list !== "second-contact") || !r.segment) { skipped += 1; continue; }
 
   const platformName = r.booking_platform ?? "";
   const platformId = platformName ? PLATFORM_ID.get(platformName.toLowerCase()) ?? slug(platformName) : undefined;
@@ -107,13 +126,13 @@ for (const r of rows) {
     isChainOrFranchise: false, chainTier: r.chain_tier || undefined, siteCount: sites,
   };
   const social = (r.social_channels ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-  const out = buildOutreachRow(label as never, bookable ? ({ platform: platformId, hasOnlineBooking: true } as never) : undefined, hours as never, {
+  const out = buildOutreachRow(label as never, bookable ? ({ platform: platformId, platformName: platformName || null, hasOnlineBooking: true } as never) : undefined, hours as never, {
     jobTitle: "", email: r.email, social, company: r.company,
   });
   if (out.excludeReason) { skipped += 1; continue; }
 
   rebuilt.push({
-    list: "primary", email: r.email, first_name: r.first_name, last_name: r.last_name,
+    list: r.list, clinic_id: r.clinic_id, email: r.email, first_name: r.first_name, last_name: r.last_name,
     company: r.company, company_short: companyShort(r.company), site_host: siteHost(r.website),
     website: r.website, phone: r.phone || r.phone_from_list || "", city: r.city, state: r.state,
     segment: r.segment, booking_mode: out.bookingMode, greeting: out.greeting, subject_line: out.subjectLine,
@@ -131,5 +150,7 @@ if (files.refused.length) {
 await mkdir(outDir, { recursive: true });
 await writeFile(join(outDir, "instantly-main.csv"), toCsv(files.main));
 await writeFile(join(outDir, "instantly-low-enrichment.csv"), toCsv(files.lowEnrichment));
-console.log(`read ${rows.length} rows, rebuilt ${rebuilt.length} primary contacts, left out ${skipped} (second contacts, unreadable sites, excluded)`);
-console.log(`main ${files.main.length}  low enrichment ${files.lowEnrichment.length}`);
+await writeFile(join(outDir, "instantly-second-contacts.csv"), toCsv(files.secondContacts));
+await writeFile(join(outDir, "instantly-unreadable.csv"), toCsv(files.unreadable));
+console.log(`read ${rows.length} rows, rebuilt ${rebuilt.length}, left out ${skipped} (no email, no segment, excluded)`);
+console.log(`main ${files.main.length}  low enrichment ${files.lowEnrichment.length}  second contacts ${files.secondContacts.length}  unreadable ${files.unreadable.length}`);

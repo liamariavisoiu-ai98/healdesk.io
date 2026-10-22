@@ -766,7 +766,7 @@ Two gaps stay open by design, and both are handled by scoping rather than by pap
 
 - Collect the minimum: what a receptionist would write on a callback slip. Nothing clinical, no history, no medication, no diagnosis.
 - No clinical detail in any payment artifact, any Meta message, or the support chat.
-- Vendor-side call recording and transcript retention off everywhere it can be turned off.
+- Vendor-side call recording and transcript retention kept to the minimum: the voice vendor holds a call's transcript and recording only until Healdesk has the transcript, and for no more than a day, and the call is then deleted there.
 - Transcripts are not stored: each is emailed to the clinic through Amazon SES, with TLS required, when its conversation ends, and Healdesk deletes its encrypted copy the moment Amazon SES reports it delivered, keeping a receipt without the words (when it was sent, when it was delivered, how many attempts). A copy never confirmed is deleted 72 hours after it goes; one that cannot be delivered, after 30 days. No other copy is kept anywhere. The conversation record, without the words, keeps a 90-day clock. Demo sandbox transcripts purge on a 7 to 14 day cycle whether or not the lead ever buys.
 - Second factor before any conversation or booking can be opened, and an access log of who opened what.
 - Offboarding is export first, then destroy, on a clock that matches the agreement text.
@@ -788,7 +788,7 @@ Two gaps stay open by design, and both are handled by scoping rather than by pap
 
 **Breach response is a written procedure or it is nothing.** The agreement commits Healdesk to notifying the clinic without unreasonable delay and inside 60 days. That obligation needs a named person, a defined trigger, a log, a template notice and a rule for vendor notices arriving from Retell, Anthropic or the database provider and flowing upward. Write it before signing an agreement that promises it.
 
-**Call recording and transcription consent.** Recording stays off, but transcription of a call is still capture, and consent rules vary by state, with some requiring all parties to consent. Confirm the position for the states being sold into, and where consent is required, make the disclosure line carry it: the assistant says it is an AI assistant and that the call is being transcribed, in the same breath.
+**Call recording and transcription consent.** Healdesk keeps no call audio and the voice vendor holds a recording for no more than a day, but transcription of a call is still capture, and consent rules vary by state, with some requiring all parties to consent. Confirm the position for the states being sold into, and where consent is required, make the disclosure line carry it: the assistant says it is an AI assistant and that the call is being transcribed, in the same breath.
 
 ### The entity question
 

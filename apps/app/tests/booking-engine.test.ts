@@ -734,13 +734,15 @@ describeDb("the booking engine (C13)", () => {
         alternativeWindows: ["Monday after 4"],
         service: "Consultation",
       };
-      expect(await logRequest(f.clinicId, request)).toEqual({
-        kind: "request_logged",
-        replayed: false,
-      });
-      expect(await logRequest(f.clinicId, request)).toEqual({
+      // requestId is the request's own id, which the website chat files under its
+      // conversation (booking-tools.ts requestInstead); the first answer and the
+      // replay carry the same one.
+      const first = await logRequest(f.clinicId, request);
+      expect(first).toMatchObject({ kind: "request_logged", replayed: false });
+      expect(await logRequest(f.clinicId, request)).toMatchObject({
         kind: "request_logged",
         replayed: true,
+        requestId: (first as { requestId?: string }).requestId,
       });
       expect(
         await logRequest(f.clinicId, { ...request, preferredWindow: "Saturday evening" }),

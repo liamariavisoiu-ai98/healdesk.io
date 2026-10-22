@@ -107,7 +107,7 @@ describeDb("the booking tool layer in the web chat and the call", () => {
     await closePools();
   });
 
-  /** A live location (covered terms, Google connected, production, script approved) that has bought the web chat. */
+  /** A live location (covered terms, Google connected, production, script approved) that has bought the web chat and the voice agent. */
   async function location(label: string): Promise<DeskLocation & { web: WebChatClinic }> {
     const f = await deskLocation(google, label);
     await bindAgreementInEffect(f.clinicId);
@@ -115,7 +115,16 @@ describeDb("the booking tool layer in the web chat and the call", () => {
       `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`,
       [f.clinicId],
     );
-    await seedEntitled(f.clinicId, { planId: "webchat-1000", planStartedAt: WINDOW_START, channelRows: [{ channel: "web", liveAt: WINDOW_START }] });
+    // Both channels bought and live: the tool layer now asks the answer gate before it
+    // writes (booking-tools.ts), and a call is answered only once its channel is live.
+    await seedEntitled(f.clinicId, {
+      planId: "voice-webchat-1000-1000",
+      planStartedAt: WINDOW_START,
+      channelRows: [
+        { channel: "web", liveAt: WINDOW_START },
+        { channel: "voice", liveAt: WINDOW_START },
+      ],
+    });
     await withTenant({ clinicId: f.clinicId, actor: ACTOR }, async (tx) => {
       await setPhoneSettings(tx, { publishedPhoneE164: "+14155550199" });
       await approveAgentConfig(tx, "Dr Chen");

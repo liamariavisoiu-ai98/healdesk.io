@@ -21,7 +21,15 @@ const base = process.env.DELIVERY_DIFF_BASE;
 if (base) {
   try {
     const changed = execFileSync('git', ['diff','--name-only', `${base}...HEAD`], {encoding:'utf8'}).trim().split('\n').filter(Boolean);
-    const isDelivery = (p) => /^(apps\/|packages\/|infra\/|terraform\/|scripts\/|\.github\/workflows\/)/.test(p) && !p.endsWith('.md');
+    // Paths whose change on its own needs no handoff line (Owner's decision, 22 October 2026;
+    // CLAUDE.md allows "a narrowly documented exemption"). Exact shapes, not directories: a
+    // test snapshot is regenerated output, and the three IAM permission-set documents in
+    // infra/aws/access are pasted into the AWS console by the Owner (infra/aws/access/README.md),
+    // who reads them before they take effect. A change that also touches anything else under
+    // the delivery paths still needs the AGENTS.md line.
+    const exemptPath = (p) =>
+      /(^|\/)__snapshots__\/[^/]+\.snap$/.test(p) || /^infra\/aws\/access\/[^/]+\.policy\.json$/.test(p);
+    const isDelivery = (p) => /^(apps\/|packages\/|infra\/|terraform\/|scripts\/|\.github\/workflows\/)/.test(p) && !p.endsWith('.md') && !exemptPath(p);
     const exempt = process.env.DELIVERY_HANDOFF_EXEMPT === 'true';
     if (changed.some(isDelivery) && !changed.includes('AGENTS.md') && !exempt) {
       errors.push('Delivery-related changes require an AGENTS.md handoff update or an explicitly documented DELIVERY_HANDOFF_EXEMPT=true CI exemption.');

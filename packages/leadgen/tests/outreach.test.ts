@@ -86,7 +86,7 @@ describe("the outreach row", () => {
       hours({ closedDays: ["Saturday", "Sunday"] }),
     );
     expect(row.angle).toBe("closed-weekends");
-    expect(row.hook).toContain("Weekends are when people finally get round to ringing");
+    expect(row.hook).toContain("Weekends are when most people finally get round to asking");
   });
 
   test("the weakest hook is still true of every clinic", () => {
@@ -101,11 +101,11 @@ describe("the outreach row", () => {
       { hasOnlineBooking: true } as never,
       undefined,
     );
-    expect(row.hook).toContain("Your booking page already catches");
-    // The second sentence has to name who, what they do, and why it matters.
-    // "The ones with a question first are the ones still ringing" named none of
-    // the three and only parsed if you still had the first sentence in mind.
-    expect(row.hook).toContain("book with you or another clinic");
+    expect(row.hook).toContain("Your booking page catches");
+    // One sentence that names who it is about. "The ones with a question
+    // first are the ones still ringing" named nobody and only parsed with the
+    // sentence before it in mind.
+    expect(row.hook).toContain("not the ones still asking");
   });
 
   test("GoHighLevel clinics are excluded, not celebrated", () => {
@@ -405,7 +405,7 @@ describe("booking claims follow the clinic's booking system", () => {
       const r = await row(platform);
       expect(r.bookingMode).toBe("manual");
       expect(r.topOffer).not.toMatch(/books them in|books straight/);
-      expect(r.topOffer).toContain("alerts your desk to confirm it in Mindbody");
+      expect(r.topOffer).toContain("alerts your desk to confirm in Mindbody");
     }
   });
 
@@ -415,7 +415,7 @@ describe("booking claims follow the clinic's booking system", () => {
       const r = await row(platform);
       expect(r.bookingMode).toBe("unverified");
       expect(r.topOffer).not.toMatch(/books them in|books straight/);
-      expect(r.topOffer).toContain("if your booking system reads it, or alerts your desk");
+      expect(r.topOffer).toContain("booking if your system reads Google or alerting your desk");
     }
   });
 
@@ -453,7 +453,7 @@ describe("copy that must never break", () => {
       { jobTitle: "Owner", email: "j@c.com" },
     );
     expect(row.hook.length).toBeGreaterThan(20);
-    expect(row.topOffer).toContain("smart assistant");
+    expect(row.topOffer).toMatch(/^AYA /);
   });
 
   test("the social offer is blank when they run no social", async () => {
@@ -522,10 +522,21 @@ describe("tone and repetition", () => {
     }
   });
 
-  test("'assistant' appears once, not in every line", async () => {
+  test("AYA is named once, not in every line", async () => {
+    // The sequence names her in its own text, so the merged lines name her
+    // once between them, and never as "our assistant" beside it.
     for (const r of await rows()) {
       const all = `${r.hook} ${r.topOffer}`;
-      expect((all.match(/assistant/gi) ?? []).length, all).toBe(1);
+      expect((all.match(/\bAYA\b/g) ?? []).length, all).toBe(1);
+      expect(all, all).not.toMatch(/assistant/i);
+    }
+  });
+
+  test("each line is short enough for a four-line email", async () => {
+    for (const r of await rows()) {
+      expect(r.hook.split(/\s+/).length, r.hook).toBeLessThanOrEqual(18);
+      expect(r.topOffer.split(/\s+/).length, r.topOffer).toBeLessThanOrEqual(28);
+      expect(r.closingQuestion.split(/\s+/).length, r.closingQuestion).toBeLessThanOrEqual(12);
     }
   });
 
@@ -733,12 +744,12 @@ describe("every message ends on a question", () => {
     expect((await row(L({ segment: "not-a-target" }), undefined, undefined)).closingQuestion).toBe("");
   });
 
-  test("the assistant is named once across the whole message", async () => {
-    // The has-automation hook introduces it, so the offer continues with "It"
-    // rather than saying "Our smart assistant" a second time.
+  test("AYA is named once across the whole message", async () => {
+    // The question calls her "her": the offer has already named her.
     const r = await row(L(), { platform: "gohighlevel", hasOnlineBooking: true }, undefined);
     const all = `${r.hook} ${r.topOffer} ${r.closingQuestion}`;
-    expect((all.match(/assistant/gi) ?? []).length, all).toBe(1);
+    expect((all.match(/\bAYA\b/g) ?? []).length, all).toBe(1);
+    expect(r.closingQuestion).toMatch(/^Want (the|one) link/);
   });
 });
 

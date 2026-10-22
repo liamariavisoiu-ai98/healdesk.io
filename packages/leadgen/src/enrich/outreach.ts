@@ -215,6 +215,12 @@ export type OutreachRow = {
  *
  * Kept to one short line. A question that needs re-reading is not a question,
  * it is a form.
+ *
+ * Since 22 October 2026 it is the sequence's ask as well (owner's brief:
+ * "Mind if I send the test link?", docs/outreach/sequences.md). One question
+ * per email, so it offers the preview link and names the moment this clinic
+ * would test her in, which is the same fact the hook opened on. "Her" is AYA,
+ * whom every email in the sequence names first.
  */
 function buildQuestion(
   angle: Angle,
@@ -224,31 +230,30 @@ function buildQuestion(
   sites: number | null,
 ): string {
   if (sites) {
-    // A single-site owner can usually guess where their calls go. Across four
-    // offices nobody knows, and that is a question an owner actually wants the
-    // answer to rather than one they are being sold.
-    return "Which of your locations misses the most calls?";
+    // Across several offices nobody knows which phone rings out most, so the
+    // preview is offered for all of them at once.
+    return `Want one link to test her for all ${NUMBER_WORDS[sites] ?? sites} locations?`;
   }
   if (angle === "has-automation") {
-    return "Is that the half you'd want covered?";
+    return "Want the link to see how she fits your setup?";
   }
   if (window && window.hours >= 24) {
-    return `Where do those ${window.hours} hours of calls go at the moment?`;
+    return `Want the link to call her after ${clockTime(window.startsAt)} on a ${window.startsDay}?`;
   }
   if (weekendClosed.length === 2) {
-    return "What happens to the weekend callers right now?";
+    return "Want the link to try her as a Sunday caller?";
   }
   if (weekendClosed.length === 1) {
-    return `Who picks up on a ${weekendClosed[0]}?`;
+    return `Want the link to try her as a ${weekendClosed[0]} caller?`;
   }
   const close = hours?.closesAt;
   if (close && Number(close.slice(0, 2)) <= 17) {
-    return `Where do the calls after ${clockTime(close)} go now?`;
+    return `Want the link to call her after ${clockTime(close)}?`;
   }
   if (angle === "phone-only") {
-    return "Who takes those calls when you're with a patient?";
+    return "Want the link to call her as a new patient would?";
   }
-  return "Is your clinic picking up those inquiries right now?";
+  return "Want the link to ask her what a patient would?";
 }
 
 export type Angle =
@@ -370,9 +375,7 @@ export function buildOutreachRow(
     window,
     !noBooking,
     closesEarly(hours),
-    assistant,
     channelPhrase(channels, social),
-    hasAutomation,
     bookingMode,
   );
 
@@ -391,7 +394,7 @@ export function buildOutreachRow(
       ? `${window.startsDay} ${window.startsAt} to ${window.endsDay} ${window.endsAt}`
       : "",
     angle,
-    hook: buildHook(noBooking, weekendClosed, hours, gap, phrase, window, hasAutomation, assistant, sites),
+    hook: buildHook(noBooking, weekendClosed, hours, gap, phrase, window, hasAutomation, sites),
     closedHoursPerWeek: gap === null ? "" : String(gap),
     closedDays: closed.join(", "),
     excludeReason: "",
@@ -428,7 +431,6 @@ function buildHook(
   phrase: string,
   window: BookingGap | undefined,
   hasAutomation: boolean,
-  assistant: "smart" | "virtual",
   sites: number | null,
 ): string {
   // Framed as what is available, not what is going wrong.
@@ -451,67 +453,59 @@ function buildHook(
   // service is what makes it that clinic's sentence rather than a category's.
   const svc = `${phrase.replace(/^an? /, "")}s`;
 
+  //
+  // Since 22 October 2026 each one is a single short sentence, about fifteen
+  // words, because it now sits inside a four-line email (docs/outreach/
+  // sequences.md) and the fact is what carries it, not the clause around it.
   if (hasAutomation) {
     // Credits the work rather than questioning the judgement. The clinic chose
     // that stack, so anything implying the choice was naive is an insult in the
     // opening line. "The harder half" says their build was the difficult part,
     // which is both flattering and true.
-    return (
-      `As far as our research goes, you've already solved the harder half of ` +
-      `this with your current automation setup. What's left is a ${assistant} ` +
-      `assistant that answers when you can't.`
-    );
+    return "You've already solved the harder half of this with your automation setup.";
   }
 
   if (sites) {
     // The site count is the fact they own and we noticed. Framed as capacity
-    // rather than failure: several phones that could be booking, not several
-    // phones going unanswered.
+    // rather than failure.
     const n = NUMBER_WORDS[sites] ?? String(sites);
     if (window && window.hours >= 24) {
-      return (
-        `Across your ${n} locations that is ${window.hours} hours when ${n} ` +
-        `phones could still be booking ${svc} for you.`
-      );
+      return `Across your ${n} locations, that's ${window.hours} hours a week ${n} phones could be booking ${svc}.`;
     }
-    return (
-      `With ${n} locations you have ${n} phones that could each be booking ` +
-      `${svc}, not just the busiest one.`
-    );
+    return `${n[0]!.toUpperCase()}${n.slice(1)} locations means ${n} phones that could all be booking ${svc}.`;
   }
 
   if (window && window.hours >= 24) {
     return (
-      `There are ${window.hours} hours between ${window.startsDay.slice(0, 3)} ` +
-      `${clockTime(window.startsAt)} and ${window.endsDay.slice(0, 3)} ` +
-      `${clockTime(window.endsAt)} when your phone could still be booking ` +
-      `${svc} for you.`
+      `${window.startsDay.slice(0, 3)} ${clockTime(window.startsAt)} to ` +
+      `${window.endsDay.slice(0, 3)} ${clockTime(window.endsAt)} is ` +
+      `${window.hours} hours your phone could still be booking ${svc}.`
     );
   }
 
   if (weekendClosed.length === 2) {
-    return `Weekends are when people finally get round to ringing about ${svc}, and that is a whole market sitting outside your opening hours.`;
+    return `Weekends are when most people finally get round to asking about ${svc}.`;
   }
   if (weekendClosed.length === 1) {
-    return `${weekendClosed[0]}s are when people ring round about ${svc}, so that is a free run at anyone shopping that day.`;
+    return `${weekendClosed[0]}s are when people shop around for ${svc}.`;
   }
 
   const close = hours?.closesAt;
   if (close && Number(close.slice(0, 2)) <= 17) {
-    return `The hours after ${clockTime(close)} are when people finish work and start ringing about ${svc}, and they are yours for the taking.`;
+    return `After ${clockTime(close)} is when most people finish work and ask about ${svc}.`;
   }
   if (gap && gap > 100) {
-    return `There are around ${gap} hours a week your phone could be booking ${svc} while the practice is shut.`;
+    return `That's about ${gap} hours a week your phone could be booking ${svc}.`;
   }
   if (noBooking) {
-    return `Every ${phrase.replace(/^an? /, "")} you take starts with a phone call, so each one answered is a patient booked.`;
+    return `Every ${phrase.replace(/^an? /, "")} you take starts with a phone call.`;
   }
 
   // Never blank. A clinic that books online and whose hours we could not read
   // used to fall through every branch, leaving a hole in the email or silently
   // dropping the personalisation that justified sending it. This claims nothing
   // specific and is true of everyone.
-  return `Your booking page already catches the ones who have decided on ${svc}. Anyone still weighing it up rings to ask first, that call deciding if they book with you or another clinic.`;
+  return `Your booking page catches people who have decided, not the ones still asking about ${svc}.`;
 }
 
 /**
@@ -530,9 +524,7 @@ function buildOffer(
   window: BookingGap | undefined,
   hasBooking: boolean,
   closesEarly: boolean,
-  assistant: "smart" | "virtual",
   surfaces: string,
-  introduced: boolean,
   bookingMode: BookingMode,
 ): { offer: string; capability: Capability } {
   const pitch = selectCapability({
@@ -549,23 +541,11 @@ function buildOffer(
   // versions of the same thing is a capability list that has been broken up,
   // and a reader clocks it instantly. One sentence that happens to name two or
   // three surfaces reads like somebody describing what they built.
-  // "Our smart assistant ..." twice in two sentences reads as a template that
-  // forgot it had already spoken. The has-automation hook names the assistant
-  // itself, so here the offer refers back to it instead of re-introducing it,
-  // which is also just how a person continues a sentence they already started.
-  //
   // The booking mode can swap the label: a Mindbody clinic is never promised
   // a live booking, because the slot the assistant writes into Google does not
   // block anything in Mindbody (docs/v1-product-spec.md → "What the hub model
   // does and does not guarantee").
-  const clause = offerLabel(pitch.capability, bookingMode);
-  const opening = (
-    introduced
-      ? clause.replace(/^Our \{assistant\} assistant/, "It")
-      : clause
-  )
-    .replace("{assistant}", assistant)
-    .replace("{surfaces}", surfaces);
+  const opening = offerLabel(pitch.capability, bookingMode).replace("{surfaces}", surfaces);
 
   // One sentence that keeps going, not two that stop.
   //

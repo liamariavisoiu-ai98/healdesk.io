@@ -71,14 +71,14 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // dental practice with a dedicated front desk.
     capability: "around-the-clock",
     because:
-      "since the desk is empty while you are in a room",
+      "even while you're with a patient",
   },
   "weight-loss-glp1": {
     // Almost all new to the practice, comparing on price and start date. The
     // first answer they get is usually the clinic they start with.
     capability: "around-the-clock",
     because:
-      "since most are new to the practice and start with whoever answers first",
+      "since new patients go with whoever answers first",
   },
   "body-contouring": {
     // Free consult, four-figure package, and the consult no-show is the leak.
@@ -86,32 +86,32 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // books and flags the deposit for staff; it never takes one on a call.
     capability: "deposits",
     because:
-      "which turns a four-figure enquiry into your booking rather than someone else's",
+      "so a four-figure inquiry books with you",
   },
   "plastic-surgery": {
     // The call is an interview and the coordinator is in consults all day.
     capability: "lead-qualification",
     because:
-      "so the ones ready for a surgical consult reach you even while your surgeon is operating",
+      "even while your surgeon is operating",
   },
   "laser-skin": {
     // A first course is a price-led decision, and it usually goes to the
     // clinic that answered the price question.
     capability: "around-the-clock",
     because:
-      "since a first course goes to whichever clinic answers the price question",
+      "since a first course goes to whoever quotes first",
   },
   "wellness-iv": {
     // Same-day intent. They are asking about the next two hours.
     capability: "around-the-clock",
     because:
-      "since they want this afternoon and book with you or the next place that answers",
+      "since most want a slot today",
   },
   "hair-restoration": {
     // Months of working up to the call, and they will not leave a message.
     capability: "lead-qualification",
     because:
-      "since they have thought about it for months, and a live answer makes it your consult",
+      "so months of thinking turn into your consult",
   },
   dental: {
     // A new patient ringing round books with the first practice that answers.
@@ -120,13 +120,13 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // assistant, so the copy must not promise to book them.
     capability: "around-the-clock",
     because:
-      "so a new patient ringing after hours gets a time from you, not from the next practice they try",
+      "so after-hours new patients get a time from you",
   },
   dermatology: {
     // Two different callers on one line, and the cosmetic one leaves quietly.
     capability: "lead-qualification",
     because:
-      "so your medical and cosmetic callers each get the right conversation off the same line",
+      "so medical and cosmetic callers get the right answer",
   },
   chiropractic: {
     // A new patient is ringing down a list and stops at the first clinic that
@@ -135,7 +135,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // the clinic, not booked by the assistant.
     capability: "around-the-clock",
     because:
-      "since a new patient ringing round books with the first clinic that answers",
+      "since new patients book the first clinic that answers",
   },
   "physical-therapy": {
     // The leak is between the referral and the first appointment. The patient
@@ -143,14 +143,14 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // once and got the machine.
     capability: "calendar-booking",
     because:
-      "since a referral that never books is a patient sent to you who never arrived",
+      "so your referrals actually book",
   },
   acupuncture: {
     // First visit is high-consideration and question-heavy — does it hurt, how
     // many sessions, is it covered. Regulars book without thinking.
     capability: "lead-qualification",
     because:
-      "since a first-timer rings with questions, and that call decides whether they commit to you",
+      "since a first-timer's questions decide where they book",
   },
   vision: {
     // Two businesses under one roof. Routine exams are habit; LASIK is a
@@ -158,7 +158,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // the consult booking is the event worth protecting.
     capability: "calendar-booking",
     because:
-      "since a four-figure LASIK decision usually goes to whichever clinic answered first",
+      "since LASIK usually goes to whoever answers first",
   },
   hearing: {
     // The most phone-dependent population in the whole list. Older patients
@@ -166,7 +166,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // so an unanswered call is not deferred, it is lost.
     capability: "around-the-clock",
     because:
-      "since they will not use a form instead, so a call you miss is a patient lost",
+      "since most callers won't use a form instead",
   },
   "mental-health": {
     // Somebody ringing about psychiatry or ketamine has usually spent a while
@@ -174,12 +174,12 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // twice.
     capability: "around-the-clock",
     because:
-      "since someone who worked up to this call will not leave you a voicemail",
+      "since someone who worked up to calling won't leave a voicemail",
   },
   "other-medical": {
     capability: "lead-qualification",
     because:
-      "so the person ringing while your desk is on a long call still gets booked in",
+      "even while your desk is on a long call",
   },
 };
 
@@ -223,7 +223,7 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
       capability: "around-the-clock",
       because:
         reason ??
-        "while the impulse is there, which makes them your patient rather than someone else's",
+        "while the interest is fresh",
     };
   }
 
@@ -232,14 +232,14 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
       capability: "calendar-booking",
       because:
         reason ??
-        "since every booking starts with a phone call, so each one answered is your patient",
+        "so every answered call can become a booking",
     };
   }
 
   if (pain.closesEarly) {
     return {
       capability: "around-the-clock",
-      because: reason ?? "since most people ring after work, and book with whoever is still answering",
+      because: reason ?? "since most people call after work",
     };
   }
 
@@ -247,7 +247,7 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
     BY_SEGMENT[pain.segment] ?? {
       capability: "lead-qualification",
       // The honest fallback: true of any clinic, claims nothing specific.
-      because: "since the calls you cannot get to are usually the ones ready to book",
+      because: "since the calls that slip past are often the ready ones",
     }
   );
 }
@@ -261,9 +261,6 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
  * it as two. Two short sentences read as bullet points with the bullets taken
  * off, and that is the shape people have learned to skim past. One sentence
  * that keeps going is how a person writes to another person.
- *
- * {assistant} is filled with "smart" or "virtual" depending on who is reading —
- * see assistantTerm().
  */
 /**
  * The opening clause of the offer, continued by the reason.
@@ -272,9 +269,6 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
  * the calls your team cannot" is accurate and is still a stranger pointing at a
  * shortcoming; "picks those up and books them in" is the same capability
  * described by its result.
- *
- * {assistant} becomes "smart" or "virtual" depending on who is reading — see
- * assistantTerm().
  */
 /**
  * The opening clause of the offer, continued by the reason.
@@ -284,18 +278,22 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
  * replaced three separate lines about channels, which read as a capability list
  * with the bullets taken off.
  *
- * {assistant} becomes "smart" or "virtual" depending on who is reading.
+ * Each clause names AYA, the product, rather than "our {smart|virtual}
+ * assistant": the sequences it lands in (docs/outreach/sequences.md) call her
+ * AYA in every email, and a different name in the merged line reads as two
+ * writers. Kept short on purpose, because the sequences are four lines each
+ * and a merged sentence that wraps three times is the one the reader skips.
  */
 export const CAPABILITY_LABEL: Record<Capability, string> = {
-  "around-the-clock": "Our {assistant} assistant picks up {surfaces}, then books them in",
-  "calendar-booking": "Our {assistant} assistant answers {surfaces}, then books straight into your calendar",
+  "around-the-clock": "AYA picks up {surfaces}, day and night, and books them in",
+  "calendar-booking": "AYA answers {surfaces}, then books straight into your calendar",
   // In chat, through a payment link. Never "before they ring off": the phone
   // agent cannot collect a deposit, it books and flags it for staff.
-  deposits: "Our {assistant} assistant handles {surfaces}, and takes the deposit in chat where you want one",
-  "lead-qualification": "Our {assistant} assistant sorts {surfaces} before they reach your desk",
+  deposits: "AYA handles {surfaces}, and can send a deposit link in chat",
+  "lead-qualification": "AYA sorts {surfaces} before they reach your desk",
   // Unmapped: no segment selects it. Suggesting add-ons is a portal switch
   // that ships off, so the copy says it is the clinic's choice.
-  upselling: "Our {assistant} assistant covers {surfaces}, and can suggest an add-on if you switch that on",
+  upselling: "AYA covers {surfaces}, and can suggest an add-on if you switch that on",
 };
 
 /**
@@ -346,8 +344,8 @@ export function bookingModeFor(
  * Mindbody clinic as for any other.
  */
 export const BOOKING_MODE_LABEL: Record<Exclude<BookingMode, "live">, string> = {
-  manual: "Our {assistant} assistant picks up {surfaces}, then takes the time they want and alerts your desk to confirm it in Mindbody",
-  unverified: "Our {assistant} assistant picks up {surfaces}, then books into Google Calendar if your booking system reads it, or alerts your desk",
+  manual: "AYA picks up {surfaces}, takes the time they want and alerts your desk to confirm in Mindbody",
+  unverified: "AYA picks up {surfaces}, booking if your system reads Google or alerting your desk",
 };
 
 const BOOKS_OR_COLLECTS: ReadonlySet<Capability> = new Set<Capability>(["around-the-clock", "calendar-booking", "deposits"]);

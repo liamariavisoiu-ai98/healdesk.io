@@ -20,6 +20,37 @@ spintax variant below passes the same copy guard as the merged columns.
 The unreadable-site list (`unreadable.csv`) does not get this sequence. The
 preview is built from the clinic's site, and theirs would not load.
 
+## Uploading to Instantly
+
+`npm run enrich -w @healdesk/leadgen` writes two files next to `all-leads.csv`
+in `packages/leadgen/data/`, and each one is its own campaign:
+
+| File | Who | Campaign |
+| --- | --- | --- |
+| `instantly-main.csv` | Primary contacts whose hook stands on measured hours, closed days or sites, and whose service we found | Main, sent first, strongest rows at the top |
+| `instantly-low-enrichment.csv` | Primary contacts with no opening hours or no service found (`enrichment_note` says which) | Second, judged on its own reply rate |
+
+Second contacts and unreadable sites are in neither file: the first go in a
+later wave, the second have no preview to offer.
+
+Each row carries `subject_1` and `body_1` to `body_4`, already written for that
+clinic, with the spintax already picked (a hash of the address chooses each
+variant, so the list varies and one clinic's thread stays fixed;
+`src/enrich/instantly.ts`). In Instantly:
+
+1. Upload the CSV. `email`, `first_name`, `last_name`, `company_name`, `website`
+   and `phone` map to Instantly's own fields; everything else imports as a
+   custom variable.
+2. Make four steps. Step 1's subject is `{{subject_1}}` and its body
+   `{{body_1}}`; steps 2 to 4 have a blank subject (so they thread) and bodies
+   `{{body_2}}` to `{{body_4}}`, on days 1, 3, 6 and 10.
+3. Put the footer from [footers.md](./footers.md) in each mailbox's
+   signature, not in the bodies.
+4. Send a test to yourself from two mailboxes and check that the paragraph
+   breaks in `body_1` survive. If Instantly flattens them, build the steps
+   from the templates below instead: the same merge columns are in the file,
+   and the `{{RANDOM}}` version gives the same copy.
+
 ## Who gets it
 
 | Campaign | Rows | Why |
@@ -116,7 +147,7 @@ number on the list is usually the front desk's.
 | `hook` | You close at 5pm, right when most people get off work and call about IV therapy. |
 | `chat_surface` | your Instagram · your WhatsApp · your Facebook page · your website |
 | `closing_question` | Want the link to message her like a new client would? · call her like a new patient would? · try booking with her like a new client would? · test her like a new client at any of your three locations? |
-| `scenario` | Picture someone messaging your Instagram on a Saturday night about lip filler. AYA answers, takes the time they want and passes it to your desk to confirm. |
+| `scenario` | Picture someone messaging your Instagram about lip filler on a Saturday night. AYA answers, takes the time they want and passes it to your desk to confirm. |
 | `company_short` | Glow Aesthetics (from "Glow Aesthetics, LLC") |
 | `site_host` | glowaesthetics.com |
 | `client_term` | clients (med spa, laser, body contouring, IV, massage, vets) or patients |

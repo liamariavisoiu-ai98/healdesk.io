@@ -858,8 +858,8 @@ function buildSubject(
 }
 
 /**
- * "Picture someone messaging your Instagram on a Saturday night about lip
- * filler. AYA answers, offers a time and books it straight into your calendar."
+ * "Picture someone messaging your Instagram about lip filler on a Saturday
+ * night. AYA answers, offers a time and books it straight into your calendar."
  *
  * A feature list is skimmed; a scene from their own week is read. Every part
  * is a fact we have: when they are closed, the channel they run (the phone
@@ -906,6 +906,8 @@ function buildScenario(
         ? "AYA answers, takes the time they want and passes it to your desk to confirm in Mindbody."
         : "AYA answers, takes the time they want and passes it to your desk to confirm.";
 
-  return `Picture someone ${how}${when} about ${about}. ${outcome}`;
+  // The time goes last, so the fallback reads "about booking an appointment
+  // while your team is busy" rather than splitting the sentence in two.
+  return `Picture someone ${how} about ${about}${when}. ${outcome}`;
 }
 

@@ -906,11 +906,11 @@ describe("the subject, the chat surface and the scene", () => {
   test("the scene is their week, their channel and their service", async () => {
     const r = await build(L(), undefined, weekend, ["instagram"]);
     expect(r.scenario).toBe(
-      "Picture someone messaging your Instagram on a Friday night about lip filler. " +
+      "Picture someone messaging your Instagram about lip filler on a Friday night. " +
         "AYA answers, offers a time and books it straight into your calendar.",
     );
     const phone = await build(L(), undefined, { closedDays: [], closedHoursPerWeek: 80, closesAt: "17:00", gap: null });
-    expect(phone.scenario).toMatch(/^Picture someone calling at 8pm about lip filler\./);
+    expect(phone.scenario).toMatch(/^Picture someone calling about lip filler at 8pm\./);
   });
 
   test("the scene never promises a booking the clinic's system cannot take", async () => {

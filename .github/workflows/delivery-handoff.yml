@@ -18,7 +18,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      # A pull request opened by Dependabot is exempt from the AGENTS.md rule,
+      # and nothing else is. CLAUDE.md allows "a narrowly documented exemption"
+      # for dependency automation: a version bump has no work package to record
+      # in the handoff, and the bot cannot write one, so without this every
+      # Dependabot pull request failed this check (29 of them in the first day).
+      # The condition is the pull request's author, which a person cannot set to
+      # the bot's name; push events have no pull_request and stay at 'false'.
+      # Everything else still needs a handoff update in the same change.
       - name: Check delivery files and handoff
         env:
           DELIVERY_DIFF_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          DELIVERY_HANDOFF_EXEMPT: ${{ github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]' }}
         run: node scripts/check-delivery-handoff.mjs

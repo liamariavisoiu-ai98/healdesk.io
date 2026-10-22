@@ -67,6 +67,7 @@ export const READONLY_WITHHELD: Record<string, "patient" | "credential" | "unrev
   suppressions: "patient",
   transactions: "patient",
   transcript_emails: "patient",
+  voice_redial_contexts: "patient",
 
   // Sign-in, sessions, factors, tokens and connections.
   account: "credential",
@@ -93,6 +94,11 @@ export const READONLY_WITHHELD: Record<string, "patient" | "credential" | "unrev
 
   // Not yet read column by column. Fail closed until someone does.
   agreement_resigns: "unreviewed",
+  clinic_locations: "unreviewed",
+  location_acknowledgements: "unreviewed",
+  retell_recording_alerts: "unreviewed",
+  voice_agents: "unreviewed",
+  voice_number_order_days: "unreviewed",
   audit_log: "unreviewed",
   audit_review_queue: "unreviewed",
   billing_events: "unreviewed",

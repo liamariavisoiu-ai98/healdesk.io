@@ -816,7 +816,8 @@ describeDb("database audit (0031)", () => {
     // 0092 the handovers, which point at a caller's conversation or thread;
     // 0093 the flags staff put on conversations; 0094 a patient's request to
     // healdesk, passed to the practice (L32); 0098 the list of who an incident
-    // affected, which names contacts.
+    // affected, which names contacts; 0107 the redial records of calls that
+    // ended early, sealed turns keyed to a caller.
     const expected = [
       "appointments",
       "booking_requests",
@@ -837,6 +838,7 @@ describeDb("database audit (0031)", () => {
       "suppressions",
       "transactions",
       "transcript_emails",
+      "voice_redial_contexts",
       "webhook_events",
     ];
     const { rows } = await getMigratorPool().query<{ relname: string }>(`

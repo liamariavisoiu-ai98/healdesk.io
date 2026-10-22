@@ -51,17 +51,20 @@
       "Resource": "*"
     },
     {
-      "Sid": "ReadTheDbQueryLogOnly",
+      "Sid": "ReadTheQueryAndApplyLogsOnly",
       "Effect": "Allow",
       "Action": [
         "logs:DescribeLogStreams",
         "logs:GetLogEvents",
         "logs:FilterLogEvents"
       ],
-      "Resource": "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query:*"
+      "Resource": [
+        "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query:*",
+        "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-apply:*"
+      ]
     },
     {
-      "Sid": "DecryptThatLogGroupThroughCloudWatchLogsOnly",
+      "Sid": "DecryptThoseLogGroupsThroughCloudWatchLogsOnly",
       "Effect": "Allow",
       "Action": [
         "kms:Decrypt"
@@ -72,7 +75,10 @@
           "kms:ViaService": "logs.us-east-1.amazonaws.com"
         },
         "StringLike": {
-          "kms:EncryptionContext:aws:logs:arn": "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query"
+          "kms:EncryptionContext:aws:logs:arn": [
+            "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query",
+            "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-apply"
+          ]
         }
       }
     },
@@ -124,7 +130,10 @@
         "logs:GetQueryResults",
         "logs:StartLiveTail"
       ],
-      "NotResource": "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query:*"
+      "NotResource": [
+        "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query:*",
+        "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-apply:*"
+      ]
     },
     {
       "Sid": "NeverChangeAnything",

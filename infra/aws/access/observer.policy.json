@@ -4,7 +4,11 @@
     {
       "Sid": "ReadClusterState",
       "Effect": "Allow",
-      "Action": ["ecs:DescribeServices", "ecs:DescribeTasks", "ecs:ListTasks"],
+      "Action": [
+        "ecs:DescribeServices",
+        "ecs:DescribeTasks",
+        "ecs:ListTasks"
+      ],
       "Resource": [
         "arn:aws:ecs:us-east-1:865780386982:service/healdesk-production/*",
         "arn:aws:ecs:us-east-1:865780386982:task/healdesk-production/*"
@@ -24,46 +28,74 @@
     {
       "Sid": "ReadDatabaseInstanceStateNotData",
       "Effect": "Allow",
-      "Action": ["rds:DescribeDBInstances", "rds:DescribeDBSnapshots"],
+      "Action": [
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBSnapshots"
+      ],
       "Resource": "*"
     },
     {
       "Sid": "ListParameterNamesNeverValues",
       "Effect": "Allow",
-      "Action": ["ssm:DescribeParameters"],
+      "Action": [
+        "ssm:DescribeParameters"
+      ],
       "Resource": "*"
     },
     {
       "Sid": "FindLogGroups",
       "Effect": "Allow",
-      "Action": ["logs:DescribeLogGroups"],
+      "Action": [
+        "logs:DescribeLogGroups"
+      ],
       "Resource": "*"
     },
     {
-      "Sid": "ReadTheDbQueryLogOnly",
+      "Sid": "ReadTheQueryAndApplyLogsOnly",
       "Effect": "Allow",
-      "Action": ["logs:DescribeLogStreams", "logs:GetLogEvents", "logs:FilterLogEvents"],
-      "Resource": "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query:*"
+      "Action": [
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query:*",
+        "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-apply:*"
+      ]
     },
     {
-      "Sid": "DecryptThatLogGroupThroughCloudWatchLogsOnly",
+      "Sid": "DecryptThoseLogGroupsThroughCloudWatchLogsOnly",
       "Effect": "Allow",
-      "Action": ["kms:Decrypt"],
+      "Action": [
+        "kms:Decrypt"
+      ],
       "Resource": "arn:aws:kms:us-east-1:865780386982:key/*",
       "Condition": {
-        "StringEquals": { "kms:ViaService": "logs.us-east-1.amazonaws.com" },
+        "StringEquals": {
+          "kms:ViaService": "logs.us-east-1.amazonaws.com"
+        },
         "StringLike": {
-          "kms:EncryptionContext:aws:logs:arn": "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query"
+          "kms:EncryptionContext:aws:logs:arn": [
+            "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query",
+            "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-apply"
+          ]
         }
       }
     },
     {
       "Sid": "NeverAnyOtherUseOfAnyKey",
       "Effect": "Deny",
-      "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey*", "kms:ReEncrypt*"],
+      "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey*",
+        "kms:ReEncrypt*"
+      ],
       "Resource": "*",
       "Condition": {
-        "StringNotEquals": { "kms:ViaService": "logs.us-east-1.amazonaws.com" }
+        "StringNotEquals": {
+          "kms:ViaService": "logs.us-east-1.amazonaws.com"
+        }
       }
     },
     {
@@ -82,19 +114,41 @@
     {
       "Sid": "NeverAShellOnAContainerOrAnyPatientBundle",
       "Effect": "Deny",
-      "Action": ["ecs:ExecuteCommand", "s3:*"],
+      "Action": [
+        "ecs:ExecuteCommand",
+        "s3:*"
+      ],
       "Resource": "*"
     },
     {
       "Sid": "NeverTheLogsOfTheOtherTasks",
       "Effect": "Deny",
-      "Action": ["logs:GetLogEvents", "logs:FilterLogEvents", "logs:StartQuery", "logs:GetQueryResults", "logs:StartLiveTail"],
-      "NotResource": "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query:*"
+      "Action": [
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "logs:StartQuery",
+        "logs:GetQueryResults",
+        "logs:StartLiveTail"
+      ],
+      "NotResource": [
+        "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-query:*",
+        "arn:aws:logs:us-east-1:865780386982:log-group:/healdesk/production/db-apply:*"
+      ]
     },
     {
       "Sid": "NeverChangeAnything",
       "Effect": "Deny",
-      "Action": ["iam:*", "ecs:UpdateService", "ecs:RegisterTaskDefinition", "ecs:StopTask", "rds:Modify*", "rds:Delete*", "rds:Reboot*", "rds:Restore*", "rds:Create*"],
+      "Action": [
+        "iam:*",
+        "ecs:UpdateService",
+        "ecs:RegisterTaskDefinition",
+        "ecs:StopTask",
+        "rds:Modify*",
+        "rds:Delete*",
+        "rds:Reboot*",
+        "rds:Restore*",
+        "rds:Create*"
+      ],
       "Resource": "*"
     }
   ]

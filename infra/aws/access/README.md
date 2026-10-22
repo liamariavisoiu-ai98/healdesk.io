@@ -8,7 +8,7 @@ Two files, two permission sets. Make the first; the second is optional.
 
 | File | What it lets the session do | Make it? |
 | --- | --- | --- |
-| `observer.policy.json` | Look: the cluster, services and tasks, the database instance's state, the names (never the values) of parameters, and the **db-query log group only**. Never a secret, never a patient bundle, never another task's logs, never change anything. | Yes |
+| `observer.policy.json` | Look: the cluster, services and tasks, the database instance's state, the names (never the values) of parameters, and the **db-query and db-apply log groups only** (db-apply is the write path's, below; it prints row counts, never rows). Never a secret, never a patient bundle, never another task's logs, never change anything. | Yes |
 | `db-query-addon.policy.json`, or `observer-and-db-query.policy.json` (both together) | Add to the observer: start the `db-query` task directly, with no approval click. Safe because the task's database role can read only business and configuration tables. | Only if the approval click on every query gets in the way |
 
 The default way to run a query is **not** this: it is the `db-query` workflow on

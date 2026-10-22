@@ -59,10 +59,12 @@ npm workspaces monorepo, Turborepo. `apps/web` (marketing + operator console),
 
 **What v1 is lives in [`docs/v1-product-spec.md`](./docs/v1-product-spec.md).**
 It is the source of truth for what the product does, how it behaves, what it
-cannot do and what it may claim. It is exported verbatim from the doc at
-https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ: never edit the export; change
-the doc and re-export. The live task list is that doc's "Launch plan" tab, not a
-file in `docs/`. If a repo doc, a comment or a plan disagrees with the spec about
+cannot do and what it may claim. Since 22 October 2026 this file is the source
+of truth itself: edit it directly, in a commit that explains why (the owner's
+decision; it was exported from the Claude Doc at
+https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ until then, and that doc is no
+longer re-exported over it). The live task list is still the "Launch plan" tab
+of that doc, not a file in `docs/`. If a repo doc, a comment or a plan disagrees with the spec about
 what the product is or does, the spec wins. This file still decides **where code
 goes**.
 
@@ -653,8 +655,8 @@ undeclared variable is invisible to the task.
 - **Verify before claiming something is built.** Read it out of the code, not
   out of a README, a directory listing, or a plan document. The spec says what
   v1 must do, not what exists.
-- `docs/v1-product-spec.md` is an export. Never edit it; change the source doc
-  and re-export.
+- `docs/v1-product-spec.md` is the source of truth for the product (owner,
+  22 October 2026): edit it directly, never re-export the old Claude Doc over it.
 - Commit messages here explain *why*, in prose, and are expected to name the
   failure the change prevents. Match the surrounding style.
 - Tests: `npm test -w @healdesk/web`, `npm test -w @healdesk/app`. The

@@ -19,7 +19,7 @@ where code goes is the root [`CLAUDE.md`](../CLAUDE.md), which also lists what s
 
 | Document | What it is |
 |---|---|
-| [v1-product-spec.md](./v1-product-spec.md) | **Start here.** What v1 is, how it behaves, what it may claim. An export: never edit it, change the source doc and re-export |
+| [v1-product-spec.md](./v1-product-spec.md) | **Start here.** What v1 is, how it behaves, what it may claim. Since 22 October 2026 the source of truth itself: edit it directly |
 | [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ) | The only task list, with owners, dates and status |
 | [`CLAUDE.md`](../CLAUDE.md) | Where code goes (the PHI boundary), the product rules the code enforces, deploy blockers |
 | [architecture.md](./architecture.md) | How the apps fit together, and what is built |

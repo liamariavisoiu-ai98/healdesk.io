@@ -1,7 +1,8 @@
-<!-- Source of truth. Exported verbatim from the "Healdesk v1: Products, Behaviour and Limits" doc,
-     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-10-14.
-     Do not edit this copy: change the doc, then re-export. The "Launch plan" it links to is
-     tab 2 of the same doc, and is the only live task list. -->
+<!-- Source of truth. Exported from the "Healdesk v1: Products, Behaviour and Limits" doc,
+     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-10-14, and edited
+     directly in this repository since 22 October 2026 by the owner's decision: do not
+     re-export that doc over this copy. The "Launch plan" it links to is tab 2 of the same
+     doc, and is the only live task list. -->
 
 
 # Healdesk v1: Products, Behaviour and Limits

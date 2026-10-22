@@ -5,9 +5,9 @@ Read it before adding any surface — it is short, and the first section decides
 where new code is allowed to go.
 
 What the product is and does is decided by
-**[docs/v1-product-spec.md](./docs/v1-product-spec.md)**. It is an export: never
-edit it; change the source doc and re-export. The live task list is that doc's
-"Launch plan" tab. Where any other doc disagrees with the spec about what the
+**[docs/v1-product-spec.md](./docs/v1-product-spec.md)**. Since 22 October 2026
+it is the source of truth itself: edit it directly. The live task list is the
+"Launch plan" tab of the old source doc. Where any other doc disagrees with the spec about what the
 product does, the spec wins.
 
 The one rule to carry even if you read nothing else:
@@ -52,7 +52,7 @@ Launch-readiness H0 to H8 on local branches (none pushed to `main`): `pkg/voice-
 1. **Claude Code:** final whole-branch verification, then push `check/launch-ready` (allowed), read CI once; fix only what it shows.
 2. **Claude Code, with the owner's 22 Oct approval:** merge to `main`; `apps/web` auto-deploys on Vercel, so dispatch `deploy-app.yml` straight after (hash-check hazard: the old app image rejects signed agreements while web carries the amended text); then set `enable_voice` in `infra/aws/production.tfvars` and dispatch `infra.yml`; add a `voice_provision` Terraform variable (HEALDESK_VOICE_PROVISION_ENABLED is not delivered by `infra/aws` today).
 3. **Hold:** `voice_real_calls` until a test call passes and the owner says go. Do not set `HEALDESK_DIRECT_BOOKING_ENABLED`.
-4. **Owner:** switch on `billing-notices` (also `daily-summary`, `weekly-recap`) in `/admin/ops`, set alert recipients; confirm the Anthropic key in AWS is the HIPAA org's; decide the three live demo agents' storage; the spec export line 724 was edited in place on 22 Oct with the owner's permission because the docs connector could not open the source doc F7bKioXheMJwn5Epc65bVQ (not shared with the session's account): make the same three edits in the source doc (export lines 724, 769 and 791, all changed on 22 Oct to say Retell holds a call's transcript and recording until healdesk has the transcript and for no more than a day), or the next re-export reverts them; native-speaker and counsel review of the Spanish lines; give the Retell key of the workspace that holds the product agent; add Anthropic credit as needed; run the first paid voice-eval; GitHub security settings and branch protection (SEC-01 list); vendor attestations on `/admin/compliance`.
+4. **Owner:** switch on `billing-notices` (also `daily-summary`, `weekly-recap`) in `/admin/ops`, set alert recipients; confirm the Anthropic key in AWS is the HIPAA org's; decide the three live demo agents' storage; the spec (`docs/v1-product-spec.md`) is now edited in place and is the source of truth (owner, 22 Oct): lines 724, 769 and 791 say Retell holds a call's transcript and recording until healdesk has the transcript and for no more than a day; the old Claude Doc is stale for the spec text (its Launch plan tab is still the task list); native-speaker and counsel review of the Spanish lines; give the Retell key of the workspace that holds the product agent; add Anthropic credit as needed; run the first paid voice-eval; GitHub security settings and branch protection (SEC-01 list); vendor attestations on `/admin/compliance`.
 5. **Open owner questions:** do messages in a language AYA does not answer in raise a clinic alert (built: no)? Does the practice runner count other-language urgent hits (built: yes)? Which packages go in `LOCATIONS_READY_PACKAGES` (still empty)?
 
 ## Owner approvals and restrictions

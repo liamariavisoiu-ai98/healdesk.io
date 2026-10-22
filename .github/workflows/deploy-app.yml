@@ -1082,7 +1082,7 @@ jobs:
       - name: Register db-bootstrap
         id: register-db-bootstrap
         if: ${{ steps.run.outputs.mode == 'deploy' && inputs.bootstrap_db }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-db-bootstrap.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1090,7 +1090,7 @@ jobs:
       - name: Register migrate
         id: register-migrate
         if: ${{ steps.run.outputs.mode == 'deploy' && inputs.migrate }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-migrate.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1177,7 +1177,7 @@ jobs:
       - name: Deploy the worker
         id: deploy-worker
         if: ${{ steps.run.outputs.mode == 'deploy' && steps.services.outputs.worker_shared != 'true' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-worker.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1190,7 +1190,7 @@ jobs:
       - name: Deploy the web tier
         id: deploy-web
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-web-worker.outputs.task-definition || steps.render-web.outputs.task-definition || steps.render-web-app.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1212,7 +1212,7 @@ jobs:
       - name: Register voice
         id: register-voice
         if: ${{ steps.run.outputs.mode == 'deploy' && steps.services.outputs.voice_on == 'true' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-voice.outputs.task-definition || steps.render-voice-app.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1272,7 +1272,7 @@ jobs:
       - name: Register destroy-due
         id: register-destroy-due
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-destroy-due.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1282,7 +1282,7 @@ jobs:
       - name: Register patient-export
         id: register-patient-export
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-patient-export.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1293,7 +1293,7 @@ jobs:
       - name: Register erase-person
         id: register-erase-person
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-erase-person.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1301,7 +1301,7 @@ jobs:
       - name: Register amend-contact
         id: register-amend-contact
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-amend-contact.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1309,7 +1309,7 @@ jobs:
       - name: Register patient-request
         id: register-patient-request
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-patient-request.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1317,7 +1317,7 @@ jobs:
       - name: Register incident-affected
         id: register-incident-affected
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-incident-affected.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1325,7 +1325,7 @@ jobs:
       - name: Register reapply-erasures
         id: register-reapply-erasures
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-reapply-erasures.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1333,7 +1333,7 @@ jobs:
       - name: Register demo-clinic
         id: register-demo-clinic
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-demo-clinic.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1341,7 +1341,7 @@ jobs:
       - name: Register channels-link
         id: register-channels-link
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-channels-link.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1349,7 +1349,7 @@ jobs:
       - name: Register db-query
         id: register-db-query
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-db-query.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
@@ -1357,7 +1357,7 @@ jobs:
       - name: Register db-apply
         id: register-db-apply
         if: ${{ steps.run.outputs.mode == 'deploy' }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        uses: aws-actions/amazon-ecs-deploy-task-definition@a00d4d57ac0de1a99b39fe469f3d898d38717c2b # v2.6.4
         with:
           task-definition: ${{ steps.render-db-apply.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}

@@ -250,43 +250,34 @@ export type OutreachRow = {
  *
  * Since 22 October 2026 it is the sequence's ask as well (owner's brief:
  * "Mind if I send the test link?", docs/outreach/sequences.md). One question
- * per email, so it offers the preview link and names the moment this clinic
- * would test her in, which is the same fact the hook opened on. "Her" is AYA,
+ * per email, and it says plainly what the link is for: talking to AYA as one
+ * of the clinic's own new clients would, to book. An earlier version named a
+ * moment instead ("call her after 4pm on a Saturday?"), and the owner found it
+ * confusing: it asked the reader to work out why they would. "Her" is AYA,
  * whom every email in the sequence names first.
  */
 function buildQuestion(
   angle: Angle,
-  window: BookingGap | undefined,
-  weekendClosed: string[],
-  hours: PlaceHours | undefined,
   sites: number | null,
   client: "clients" | "patients",
+  social: readonly string[],
 ): string {
+  const one = client.slice(0, -1);
   if (sites) {
-    // Across several offices nobody knows which phone rings out most, so the
-    // preview is offered for all of them at once.
-    return `Want one link to test her for all ${NUMBER_WORDS[sites] ?? sites} locations?`;
+    return `Want one link to test her like a new ${one} at any of your ${NUMBER_WORDS[sites] ?? sites} locations?`;
   }
   if (angle === "has-automation") {
-    return "Want the link to see how she fits your setup?";
+    return "Want the link to see how she'd handle one of your own leads?";
   }
-  if (window && window.hours >= 24) {
-    return `Want the link to call her after ${clockTime(window.startsAt)} on a ${window.startsDay}?`;
-  }
-  if (weekendClosed.length === 2) {
-    return "Want the link to try her as a Sunday caller?";
-  }
-  if (weekendClosed.length === 1) {
-    return `Want the link to try her as a ${weekendClosed[0]} caller?`;
-  }
-  const close = hours?.closesAt;
-  if (close && Number(close.slice(0, 2)) <= 17) {
-    return `Want the link to call her after ${clockTime(close)}?`;
+  // The chat is dressed as their Instagram or WhatsApp, so a clinic that runs
+  // one is asked to message her; one that books only by phone, to call her.
+  if (social.some((s) => s === "instagram" || s === "facebook" || s === "whatsapp")) {
+    return `Want the link to message her like a new ${one} would?`;
   }
   if (angle === "phone-only") {
-    return `Want the link to call her like a new ${client.slice(0, -1)} would?`;
+    return `Want the link to call her like a new ${one} would?`;
   }
-  return `Want the link to ask her what your ${client} ask?`;
+  return `Want the link to try booking with her like a new ${one} would?`;
 }
 
 export type Angle =
@@ -420,7 +411,7 @@ export function buildOutreachRow(
     servicePhrase: phrase,
     topService: label.topService ?? "",
     topOffer: offer.offer,
-    closingQuestion: buildQuestion(angle, window, weekendClosed, hours, sites, clientTerm(label.segment)),
+    closingQuestion: buildQuestion(angle, sites, clientTerm(label.segment), social),
     clientTerm: clientTerm(label.segment),
     subjectLine: buildSubject(companyShort(contact.company ?? ""), window, weekendClosed, hours, sites, noBooking),
     chatSurface: chatSurface(social),

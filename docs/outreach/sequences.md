@@ -88,7 +88,7 @@ with a link.
 ```
 {{RANDOM | Here you go | Here it is | All yours}}: <preview link>
 
-{{RANDOM | Call her first, then try the chat. | Give her a call, then try the chat on the right. | Start with a call, then open the chat.}} {{RANDOM | It works best on your phone. | Your phone is the best place to try it.}}
+{{RANDOM | Talk to her as if you were a new client looking to book. | Try her the way one of your new clients would, and ask to book. | Pretend you're a new client and try to book with her.}} {{RANDOM | Call her first, then try the chat. | Give her a call, then try the chat. | Start with a call, then open the chat.}} {{RANDOM | It works best on your phone. | Your phone is the best place to try it.}}
 
 {{RANDOM | What's the best number to reach you if you have questions? | If questions come up, what's the best number for you?}}
 ```
@@ -103,7 +103,7 @@ number on the list is usually the front desk's.
 | `subject_line` | Weekend calls at Glow Aesthetics · Sunday calls · After-5pm calls at Revive · 3 phones at Smile Dental · AYA for Glow |
 | `hook` | You close at 5pm, right when most people get off work and call about IV therapy. |
 | `chat_surface` | your Instagram · your WhatsApp · your Facebook page · your website |
-| `closing_question` | Want the link to call her after 4pm on a Saturday? |
+| `closing_question` | Want the link to message her like a new client would? · call her like a new patient would? · try booking with her like a new client would? · test her like a new client at any of your three locations? |
 | `scenario` | Picture someone messaging your Instagram on a Saturday night about lip filler. AYA answers, takes the time they want and passes it to your desk to confirm. |
 | `company_short` | Glow Aesthetics (from "Glow Aesthetics, LLC") |
 | `site_host` | glowaesthetics.com |

@@ -721,23 +721,31 @@ describe("every message ends on a question", () => {
     ] as const) {
       const r = await row(L(), b, h);
       expect(r.closingQuestion, `${r.angle}`).toMatch(/\?$/);
-      // One line. A question that needs re-reading is a form, not a question.
-      expect(r.closingQuestion.length, r.closingQuestion).toBeLessThan(60);
+      // One sentence, two lines on a phone at most.
+      expect(r.closingQuestion.length, r.closingQuestion).toBeLessThan(80);
     }
   });
 
-  test("the question is derived, not a stock line", async () => {
-    // A question every recipient gets is a question none of them answers.
-    const seen = new Set<string>();
-    for (const [b, h] of [
-      [undefined, undefined],
-      [{ platform: "gohighlevel", hasOnlineBooking: true }, undefined],
-      [undefined, H({ closedDays: ["Sunday"] })],
-      [undefined, H({ gap: { hours: 90, startsDay: "Friday", startsAt: "15:00", endsDay: "Tuesday", endsAt: "09:00" } })],
-    ] as const) {
-      seen.add((await row(L(), b, h)).closingQuestion);
+  test("the question says what the link is for: talking to her as a new client would", async () => {
+    // The owner's note of 22 October 2026: "call her after 4pm on a
+    // Saturday?" left the reader working out why they would. Every question
+    // now asks them to play their own prospect.
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    const ask = (label: unknown, booking: unknown, social: string[] = []) =>
+      buildOutreachRow(label as never, booking as never, undefined, { jobTitle: "Owner", email: "j@c.com", social }).closingQuestion;
+
+    expect(ask(L(), undefined)).toBe("Want the link to call her like a new client would?");
+    expect(ask(L(), undefined, ["instagram"])).toBe("Want the link to message her like a new client would?");
+    expect(ask(L({ offersOnlineBooking: true }), { hasOnlineBooking: true })).toBe("Want the link to try booking with her like a new client would?");
+    expect(ask(L({ segment: "dental" }), undefined)).toBe("Want the link to call her like a new patient would?");
+    expect(ask(L(), { platform: "gohighlevel", hasOnlineBooking: true })).toBe("Want the link to see how she'd handle one of your own leads?");
+    expect(ask(L({ chainTier: "multi-site-group", siteCount: 3 }), undefined)).toBe(
+      "Want one link to test her like a new client at any of your three locations?",
+    );
+    // No hours riddles.
+    for (const q of [ask(L(), undefined), ask(L(), undefined, ["instagram"])]) {
+      expect(q).not.toMatch(/\d(am|pm)|Saturday|Sunday|caller/);
     }
-    expect(seen.size).toBe(4);
   });
 
   test("an excluded row has none, because it is not being sent", async () => {

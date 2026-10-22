@@ -1470,6 +1470,78 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     expect(rows[0]!.destroyed_at).not.toBeNull();
   });
 
+  // The last definition of app_mark_clinic_destroyed (drizzle/0108) must keep
+  // every check before it: main's 0106 added the Retell call alerts, and 0108
+  // the redial records of calls that ended early. Each table alone holds the
+  // stamp back. A redial record cannot outlive its conversation (a cascading
+  // foreign key), so inside one rolled-back transaction the migrator, which
+  // owns the table, drops that key to leave the record on its own.
+  test("the stamp refuses while a single Retell call alert, or a single redial record, is left, and records once it is gone", async () => {
+    const alertOnly = await seedClinic("stamp-alert-only");
+    const redialOnly = await seedClinic("stamp-redial-only");
+    await seedRecordingAlert(alertOnly.clinicId, null);
+    const { conversationId } = await seedConversation(redialOnly.clinicId, { startedAt: new Date(Date.now() - 40 * DAY) });
+    await inTenant(redialOnly.clinicId, (client) =>
+      client.query(
+        `insert into voice_redial_contexts (clinic_id, caller_ref, conversation_id, sealed)
+         values ($1, $2, $3, '{}'::jsonb)`,
+        [redialOnly.clinicId, `v1:${randomBytes(32).toString("hex")}`, conversationId],
+      ),
+    );
+    for (const c of [alertOnly, redialOnly]) {
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "operator"));
+      await backdateOffboarding(c.clinicId, 31);
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        markExportDelivered(tx, "bundle handed to the practice manager"),
+      );
+    }
+
+    const stamp = async (
+      clinicId: string,
+      leaveOnly: (q: Client) => Promise<unknown>,
+      table: string,
+    ): Promise<void> => {
+      const client = await getMigratorPool().connect();
+      try {
+        await client.query("begin");
+        await client.query(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
+        await leaveOnly(client as unknown as Client);
+        await client.query("savepoint held");
+        await expect(client.query(`select app_mark_clinic_destroyed($1::uuid)`, [clinicId])).rejects.toMatchObject({
+          code: "23514",
+          message: expect.stringMatching(/still holds/),
+        });
+        await client.query("rollback to savepoint held");
+        await client.query(`delete from ${table} where clinic_id = $1`, [clinicId]);
+        const { rows } = await client.query<{ at: Date | null }>(`select app_mark_clinic_destroyed($1::uuid) as at`, [clinicId]);
+        expect(rows[0]!.at).not.toBeNull();
+      } finally {
+        await client.query("rollback").catch(() => {});
+        client.release();
+      }
+    };
+
+    await stamp(alertOnly.clinicId, async () => {}, "retell_recording_alerts");
+    await stamp(
+      redialOnly.clinicId,
+      async (q) => {
+        await q.query(`alter table voice_redial_contexts drop constraint voice_redial_contexts_conversation_fk`);
+        await q.query(`delete from conversations where clinic_id = $1`, [redialOnly.clinicId]);
+        const { rows } = await q.query<{ n: number }>(
+          `select count(*)::int as n from voice_redial_contexts where clinic_id = $1`,
+          [redialOnly.clinicId],
+        );
+        expect(rows[0]!.n).toBe(1);
+      },
+      "voice_redial_contexts",
+    );
+    // Rolled back: the key is still there.
+    const { rows } = await getMigratorPool().query(
+      `select 1 from pg_constraint where conname = 'voice_redial_contexts_conversation_fk'`,
+    );
+    expect(rows).toHaveLength(1);
+  });
+
   test("the purge takes a Retell call alert thirty days after it was resolved, never an open one however old, and no other clinic's", async () => {
     const c = await seedClinic("purge-alerts");
     const other = await seedClinic("purge-alerts-other");
@@ -1755,7 +1827,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
         refused(/written before/),
       );
       await q("rollback to savepoint plain");
-      // And the clinic, loaded with 0108's trigger on, makes a main location
+      // And the clinic, loaded with 0109's trigger on, makes a main location
       // of its own, which the dump's then meets (one per account).
       await q(`alter table clinics disable trigger clinics_insert_guard`);
       await load("clinics", dump.clinic);

@@ -1328,7 +1328,7 @@ data only until every link of the chain is in place.
 | Link or gate | State |
 | --- | --- |
 | Clinic to healdesk | Built: accepted inline at checkout (BAA 1.3.0, released and the floor since 12 October 2026) |
-| healdesk to Retell | **Not done.** Self-sign the BAA and DPA; per-agent retention at the minimum, PII controls on, recording off, each screenshotted; Retell's US region and encryption at rest confirmed in writing (release gate 15). The product's Retell endpoint is defined ("The voice endpoint", `enable_voice` off) and has never run on AWS |
+| healdesk to Retell | **Not done.** Self-sign the BAA and DPA; per-agent retention at the minimum (1 day) and storage on, each screenshotted, the call deleted at Retell once healdesk has the transcript; Retell's US region and encryption at rest confirmed in writing (release gate 15). The product's Retell endpoint is defined ("The voice endpoint", `enable_voice` off) and has never run on AWS |
 | healdesk to Anthropic | **Not done.** A separate HIPAA-ready organisation (the setting is organisation-wide and one-way); 30-day retention disclosed, no zero-retention request (gate 17). Only that organisation's key ever goes into `app/ANTHROPIC_API_KEY` |
 | healdesk to the database | RDS under the AWS BAA, once this module is applied with the settings above |
 | healdesk to AWS | Done 22 September 2026; the Artifact "Active" screenshot is outstanding |

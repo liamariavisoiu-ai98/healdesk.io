@@ -97,7 +97,7 @@ number *plus the treatment they asked about* **is** PHI.
 | `apps/web` — NO PHI (Vercel) | `apps/app` — PHI (BAA-covered host) |
 | --- | --- |
 | Marketing, pricing, specialty/SEO content | Every patient conversation: the Retell custom-LLM WebSocket endpoint, the web chat widget's API, the Meta webhooks and send adapters |
-| Chat + voice demos (they talk to *owners*) | Call and chat transcripts, which are emailed to the clinic through SES when the conversation ends; the only copy is the sealed outbox row, deleted the moment SES reports it delivered and never kept past 30 days, the row staying as a receipt without the words (owner, 14 October 2026; BAA 1.5.0; no call audio is kept) |
+| Chat + voice demos (they talk to *owners*) | Call and chat transcripts, which are emailed to the clinic through SES when the conversation ends; the only copy is the sealed outbox row, deleted the moment SES reports it delivered and never kept past 30 days, the row staying as a receipt without the words (owner, 14 October 2026; BAA 1.5.0; healdesk keeps no call audio, and Retell holds a call's recording for a day at most) |
 | The demo's scraped clinic profile (business data) | Bookings: Google Calendar availability and writes, slot holds, the manual-booking queue |
 | Checkout, Stripe, agreement signing, its emailed copy and PDF; until the first paid invoice, the sealed agreement and purchase records in the marketing Sheet (owner, 14 October 2026; `lib/checkout/records.ts`) | Deposit links through the clinic's own payment gateway |
 | Contact form, reviews (business contacts) | The clinic portal, the onboarding wizard and the portal support chat |
@@ -354,8 +354,8 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   patient did not ask for (`lib/meta/booking-requests.ts`,
   `lib/booking/reschedule.ts`, `sendMetaReply`).
 - **The assistant says it is an AI assistant in its opening line, on every
-  channel.** On calls the same line says the call is transcribed; no call audio
-  is kept. The clinic cannot switch this off or edit it out through the
+  channel.** On calls the same line says the call is transcribed, healdesk keeps no call
+  audio and the voice provider holds a recording for a day at most. The clinic cannot switch this off or edit it out through the
   greeting field.
 - **The Meta 24-hour window is enforced in the adapter, not the prompt.** A
   send attempted outside the window is dropped by the adapter, whatever the

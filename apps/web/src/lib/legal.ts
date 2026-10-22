@@ -30,8 +30,8 @@ import {
  * the bump fails the build.
  */
 
-export const LEGAL_VERSION = "2026-10-21.1";
-export const LEGAL_LAST_UPDATED = "21 October 2026";
+export const LEGAL_VERSION = "2026-10-22.1";
+export const LEGAL_LAST_UPDATED = "22 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */

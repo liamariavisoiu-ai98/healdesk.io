@@ -4,7 +4,7 @@ import { isSpecialtyId, regimeFor, type SpecialtyId } from "./specialties";
  * The deterministic guard against clinical text in the agent's configuration.
  *
  * The agent's greeting, service list and prices are spoken on transcribed
- * calls (no call audio is kept) and sent in chat. Today an operator edits them
+ * calls (healdesk keeps no call audio) and sent in chat. Today an operator edits them
  * with the clinic on the onboarding call. In v1 they start from a scrape of the
  * clinic's own site, which the clinic corrects in the onboarding wizard and
  * edits in the portal, along with its promotions and quick answers

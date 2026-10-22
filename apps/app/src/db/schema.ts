@@ -464,7 +464,7 @@ export const clinics = pgTable(
      * of data have different value and different risk:
      *
      *   media   — transcript references. Pure liability after the dispute
-     *             window closes; 90 days by default. (No audio is kept.)
+     *             window closes; 90 days by default. (healdesk keeps no audio.)
      *   records — the conversation, appointment and transaction rows. 90
      *             days by default too, because the BAA says "healdesk keeps
      *             transcripts and conversation records for 90 days"
@@ -1338,8 +1338,8 @@ export const conversations = pgTable(
      * keeps neither the transcript nor a link to one, so every new row has
      * null here. BAA 1.4.0 and the DPA describe no stored transcript (13
      * October 2026); the column, and the retention purge that clears it,
-     * stay until the spec that still describes one changes. No audio is kept
-     * either (21 September 2026; `recording_uri` was dropped in 0038).
+     * stay until the spec that still describes one changes. healdesk keeps no
+     * audio either (21 September 2026; `recording_uri` was dropped in 0038).
      */
     transcriptUri: text("transcript_uri"),
 

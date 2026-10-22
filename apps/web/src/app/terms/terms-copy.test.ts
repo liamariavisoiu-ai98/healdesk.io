@@ -78,7 +78,9 @@ describe("the terms describe v1 as the spec defines it", () => {
 
   test("the AI line opens every channel and says calls are transcribed", () => {
     expect(text).toContain("On every channel the assistant's first line says it is an AI assistant");
-    expect(text).toContain("on calls the same line says the call is transcribed, and no call audio is kept");
+    expect(text).toContain(
+      "on calls the same line says the call is transcribed, that we keep no call audio and that our voice provider holds a recording for no more than a day",
+    );
   });
 
   test("the model's 30-day retention is disclosed as Anthropic documents it, and liability is allocated once", () => {

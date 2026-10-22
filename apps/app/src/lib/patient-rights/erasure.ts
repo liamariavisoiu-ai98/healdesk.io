@@ -133,7 +133,7 @@ export const ERASURE_DEADLINE_BUSINESS_DAYS = 10;
 /**
  * The subcontractors that can hold a person's information, each deleted in
  * the vendor's own console by the operator and stamped here. Retell holds the
- * person's calls and transcripts (no call audio is kept). Anthropic is not a
+ * person's calls and transcripts (healdesk keeps no call audio; Retell holds a recording until the call is deleted there). Anthropic is not a
  * step: what it keeps it keeps under the exception clause 4(c) names (the
  * Subcontractors clause's abuse-detection and legal retention), and AWS holds
  * only the database and its backups, which this deletion and the backup

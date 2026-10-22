@@ -13,7 +13,8 @@ healdesk is an AI assistant for US cash-pay elective clinics. Inbound only:
 calls the clinic forwards (voice on Retell), chat on the clinic's site, and
 Instagram, Messenger and WhatsApp messages. It books into the clinic's own
 Google Calendar and can send a deposit link through the clinic's own gateway.
-It never contacts a patient first, sends no SMS and keeps no call audio. The
+It never contacts a patient first, sends no SMS and keeps no call audio of its own (its voice provider holds a call's
+recording for a day at most). The
 seller is **Viixi FZC** (Sharjah Publishing City Free Zone, UAE), trading as
 healdesk, signing a business associate agreement with each clinic at
 checkout. No clinic has gone live; no real patient data has been processed.

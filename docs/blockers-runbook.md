@@ -19,8 +19,8 @@
 > - **§5 Boulevard and §6 GoHighLevel** read access is phase two (POS read-back). For
 >   v1, ask Boulevard in writing whether an event in a linked Google Calendar blocks
 >   the slot; until it answers, Boulevard clinics run manual booking mode.
-> - **§7 Insurance**: v1 is inbound only and records no call audio (transcription
->   only); the owner declined insurance on 21 September 2026 (handover.md).
+> - **§7 Insurance**: v1 is inbound only and keeps no call audio of its own (transcription
+>   only; the voice provider holds a recording for a day at most); the owner declined insurance on 21 September 2026 (handover.md).
 > - **§8 Counsel**: the TCPA outbound and text-back questions are withdrawn. The open
 >   counsel items are the spec's: state-by-state AI-disclosure and transcription
 >   consent, the UAE business-associate answer and free-zone licence scope, the

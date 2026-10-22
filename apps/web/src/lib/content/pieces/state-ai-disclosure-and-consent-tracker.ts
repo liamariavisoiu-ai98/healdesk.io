@@ -328,7 +328,7 @@ export const piece: Piece = {
   ],
   aya: [
     "AYA is designed to say the same opening line on every call it answers, in every state, rather than choosing a disclosure by the caller's area code.",
-    "That line says it is an AI assistant, not a human, and that the call is transcribed with no audio recording kept.",
+    "That line says it is an AI assistant, not a human, and that the call is transcribed. It also says healdesk keeps no audio and the voice provider holds a recording for no more than a day.",
     "Website chats are designed to open with a line saying the visitor is chatting with an AI assistant, and the clinic cannot switch either line off.",
   ],
   sources: [

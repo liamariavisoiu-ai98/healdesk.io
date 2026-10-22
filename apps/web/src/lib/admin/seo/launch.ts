@@ -105,12 +105,12 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
   },
   {
     id: "no-audio",
-    promise: "No call audio is kept",
+    promise: "healdesk keeps no call audio, and the voice provider holds a call for a day at most",
     where: "Opening line on every call, privacy page, How AYA is built to behave",
     status: "building",
-    left: "Each clinic's Retell agent is being created with recording storage off in code, so the promise does not depend on the Retell console.",
+    left: "Each clinic's Retell agent is being created in code with Retell's storage on and a one-day limit, and the backstop deletes the call at Retell once healdesk has the transcript, so the promise does not depend on the Retell console. The wording on the opening line, the terms and privacy pages, the support chat and the guides now says this (22 October 2026); the opening line, the Spanish line and the written notice change in code with this wording, so the item stays building until the agent code is called and a test call proves the deletion.",
     evidence:
-      "docs/counsel/state-disclosure.md decision 2, written for no audio kept, which the owner reversed on 21 October 2026: Retell now keeps each call's transcript and recording until the call has been processed. apps/app lib/voice/retell-agent.ts (agents written and read back with data_storage_setting everything and data_storage_retention_days 1, Retell's own deletion a day later; not yet called), lib/voice/backstop.ts and lib/voice/recording-alerts.ts (once the call and its sealed transcript are committed here, the backstop job deletes the call at Retell, retried; a call still at Retell 30 minutes after it ended is one alert on /admin/recordings, with a Delete at Retell button), tests/recording-alerts.test.ts and tests/voice-backstop.test.ts. The promise's wording still says no audio is kept and needs the owner and counsel.",
+      "docs/counsel/state-disclosure.md decision 2, written for no audio kept, which the owner reversed on 21 October 2026: Retell now keeps each call's transcript and recording until the call has been processed. apps/app lib/voice/retell-agent.ts (agents written and read back with data_storage_setting everything and data_storage_retention_days 1, Retell's own deletion a day later; not yet called), lib/voice/backstop.ts and lib/voice/recording-alerts.ts (once the call and its sealed transcript are committed here, the backstop job deletes the call at Retell, retried; a call still at Retell 30 minutes after it ended is one alert on /admin/recordings, with a Delete at Retell button), tests/recording-alerts.test.ts and tests/voice-backstop.test.ts. The promise is now worded as: healdesk keeps no call audio, and the voice provider holds a call's transcript and recording only until healdesk has the transcript, and for no more than a day (22 October 2026, owner-approved); counsel has not reviewed it.",
     blocksGoLive: true,
   },
   {

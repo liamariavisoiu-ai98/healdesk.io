@@ -103,7 +103,7 @@ jobs:
       - name: Test — apps/app, part ${{ matrix.shard }} of 4
         run: npm test -w @healdesk/app -- --shard=${{ matrix.shard }}/4 --reporter=dot --reporter=json --outputFile.json=../../test-results-${{ matrix.shard }}.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.shard }}
           path: test-results-${{ matrix.shard }}.json

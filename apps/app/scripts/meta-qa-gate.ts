@@ -77,7 +77,10 @@ async function main(): Promise<void> {
       continue;
     }
     const reply = raw;
-    const verdict = probeVerdict(reply, guardContextFor(FACTS));
+    // With the probe's own words, as answerFrontDoor guards a reply: one
+    // that says the person's words back is refused in production, so it
+    // fails here too.
+    const verdict = probeVerdict(reply, { ...guardContextFor(FACTS), inbound: probe.text }, probe);
     const first = firstReplyVerdict(reply, {
       clinicName: FACTS.clinicName,
       platform: "messenger",

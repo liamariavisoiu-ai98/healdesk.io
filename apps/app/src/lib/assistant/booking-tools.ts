@@ -28,6 +28,7 @@ import {
   ONE_REQUEST_PER_CALL_LINE,
   oneBookingPerCallLine,
   REQUEST_TAKEN_LINE,
+  requestAskLine,
   slotGoneLine,
   TOOL_FAILURE_LINE,
 } from "@/lib/booking/lines";
@@ -102,6 +103,12 @@ export type BookingToolState = {
   chosen: OfferedSlot | null;
   /** A call's hold on `chosen` was placed. */
   held: boolean;
+  /**
+   * A call's hold on `chosen` was refused as request-only (placeHold's
+   * `request_only`): nothing is held, and the time becomes a request.
+   * Optional, so a state sealed before it existed still reads.
+   */
+  asRequest?: boolean;
   /** The location stopped offering times in this conversation: the request flow takes over. */
   manual: boolean;
   /** The conversation's one booking or request, once the engine has it. */
@@ -207,6 +214,7 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       service,
       chosen: null,
       held: false,
+      asRequest: false,
     };
   }
 
@@ -237,7 +245,11 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
     return turn(offerLine(next.offered.map((s) => label(s.at))), next);
   }
 
-  async function hold(state: BookingToolState, chosen: OfferedSlot, now: Date): Promise<{ held: true } | { turn: ToolTurn }> {
+  async function hold(
+    state: BookingToolState,
+    chosen: OfferedSlot,
+    now: Date,
+  ): Promise<{ held: true } | { asRequest: true; deposit: boolean } | { turn: ToolTurn }> {
     let placed: PlacedHold;
     try {
       placed = await engine.placeHold(context.clinicId, {
@@ -265,7 +277,8 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
         // Auto-confirm off, a deposit the channel cannot take, a calendar that
         // stopped allowing the write: no hold; the engine logs the request
         // when the details are in (bookConversation answers it as one).
-        return { held: true };
+        // Nothing is held, so the caller is never told it is.
+        return { asRequest: true, deposit: placed.reasons.includes("deposit_required") };
       }
       case "in_progress":
         return { turn: turn(IN_PROGRESS_LINE, state) };
@@ -310,7 +323,7 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
         );
       case "invalid":
         if (result.field === "at") {
-          const next = { ...state, chosen: null, held: false };
+          const next = { ...state, chosen: null, held: false, asRequest: false };
           return turn(state.offered.length > 0 ? offerLine(state.offered.map((s) => label(s.at))) : MISSING_DETAIL_LINES.at, next);
         }
         return turn(MISSING_DETAIL_LINES[result.field], state);
@@ -354,7 +367,8 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
         // Never a time the engine did not offer: offer again.
         return state.offered.length > 0 ? turn(offerLine(state.offered.map((s) => label(s.at))), state) : turn(MISSING_DETAIL_LINES.at, state);
       }
-      state = { ...state, chosen: match, held: state.chosen?.at === match.at ? state.held : false };
+      const same = state.chosen?.at === match.at;
+      state = { ...state, chosen: match, held: same ? state.held : false, asRequest: same ? state.asRequest : false };
       chosenNow = true;
     }
     const chosen = state.chosen;
@@ -364,12 +378,17 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
     const phone = (capture.phone ? toE164(capture.phone) : null) ?? (input.callerPhone ? toE164(input.callerPhone) : null);
     const missing = !firstName ? ("first_name" as const) : !phone ? ("phone" as const) : null;
 
-    if (context.channel === "voice" && !state.held) {
+    if (context.channel === "voice" && !state.held && !state.asRequest) {
       // A call holds the time while the caller gives their details.
       const held = await hold(state, chosen, now);
       if ("turn" in held) return held.turn;
-      state = { ...state, held: true };
-      if (missing) return turn(heldAskLine(missing), state);
+      if ("asRequest" in held) {
+        state = { ...state, asRequest: true };
+        if (missing) return turn(requestAskLine(missing, held.deposit), state);
+      } else {
+        state = { ...state, held: true };
+        if (missing) return turn(heldAskLine(missing), state);
+      }
     }
     if (missing) {
       // The details are still to come: asked for once, when the time is chosen;

@@ -103,9 +103,24 @@ export function detailsBeforeHoldLine(when: string): string {
   return `Before I hold ${when} for you, could I take your first name and a mobile number the clinic can reach you on?`;
 }
 
+const ASK_DETAIL = {
+  first_name: "Could I take your first name?",
+  phone: "What's the best number for the clinic to reach you on?",
+} as const;
+
 /** The voice HOLD_LINE, and the one detail still to take. */
 export function heldAskLine(missing: "first_name" | "phone"): string {
-  return `${HOLD_LINE} ${missing === "first_name" ? "Could I take your first name?" : "What's the best number for the clinic to reach you on?"}`;
+  return `${HOLD_LINE} ${ASK_DETAIL[missing]}`;
+}
+
+/**
+ * A time chosen on a call that the engine would not hold (Auto-confirm off, a
+ * deposit the call cannot take, a calendar that stopped allowing the write):
+ * nothing is held, so it is worded as the request it will become, and the
+ * one detail still to take.
+ */
+export function requestAskLine(missing: "first_name" | "phone", deposit: boolean): string {
+  return `${deposit ? DEPOSIT_REQUEST_LINE : MANUAL_BOOKING_LINE} ${ASK_DETAIL[missing]}`;
 }
 
 /**

@@ -449,11 +449,13 @@ describe("the guard", () => {
     expect(guardAssistantReply("Não tem efeitos colaterais, pode fazer.", GLOW)).toEqual({ ok: false, reason: "language" });
   });
 
-  test("the never-say list is English words matched as written, in a Spanish reply too: that is its limit", () => {
+  test("the never-say list is matched as written in a Spanish reply too, and a stock entry in its Spanish as well", () => {
     const facts = { ...GLOW, neverSay: ["guaranteed results"] };
     expect(guardAssistantReply("Ofrecemos guaranteed results.", facts)).toEqual({ ok: false, reason: "never_say" });
-    // The same promise in Spanish is the clinical screen's to catch.
-    expect(guardAssistantReply("Resultados garantizados.", facts)).toEqual({ ok: false, reason: "clinical" });
+    // A stock entry's Spanish equivalent is the list's now (NEVER_SAY_SPANISH)...
+    expect(guardAssistantReply("Resultados garantizados.", facts)).toEqual({ ok: false, reason: "never_say" });
+    // ...and without the entry, the clinical screen still catches the promise.
+    expect(guardAssistantReply("Resultados garantizados.", { ...GLOW, neverSay: [] })).toEqual({ ok: false, reason: "clinical" });
   });
 
   test("the never-say matcher: case, curly quotes, dashes and line breaks normalised, an empty entry never matching", () => {

@@ -58,15 +58,22 @@ import type { AssistantFacts } from "./facts";
  *     (mentionsOtherParty).
  * A refused reply is replaced by a fixed line; nothing of it is sent.
  *
- * The limit of the never-say list: its entries are the clinic's own words, in
- * English, and they are matched as written, from the start of a word,
+ * The limit of the never-say list: its entries are the clinic's own words,
+ * matched as written, from the start of a word, case and accents aside,
  * excused only where they fall wholly inside the clinic's own name or
- * address and never when they name it themselves (neverSayIn). A Spanish
- * reply is refused when it contains an entry's English text, and not when it
- * says the same thing in Spanish; the clinical screen, which reads Spanish,
- * is what catches a Spanish promise of safety or results. No entry may stop
- * the assistant saying it is an AI assistant, or pointing to 911
+ * address and never when they name it themselves (neverSayIn). The stock
+ * entries (the defaults and the ones clinics most often add) are matched in
+ * Spanish too, through a fixed map (NEVER_SAY_SPANISH); a clinic's own entry
+ * with no mapping is matched as written only, so a Spanish reply that says
+ * it in Spanish is not refused for it, and the clinical screen, which reads
+ * Spanish, is what catches a Spanish promise of safety or results. No entry
+ * may stop the assistant saying it is an AI assistant, or pointing to 911
  * (NEVER_SAY_PROTECTED).
+ *
+ * Spanish is read by every rule above, with its own patterns beside the
+ * English ones (21 October 2026: the measured gaps, each now a test in
+ * tests/assistant.test.ts, "the guard in Spanish"), and a refused reply in
+ * Spanish is replaced by the same fixed line in Spanish (guardedLine).
  */
 
 export type GuardRefusal =
@@ -424,6 +431,7 @@ export function amountsIn(text: string): number[] {
   }
   // Another currency is never a price on the menu, which is in dollars.
   for (const _ of text.matchAll(OTHER_CURRENCY)) out.push(NOT_ON_ANY_MENU);
+  for (let i = otherCurrencyInWords(text); i > 0; i -= 1) out.push(NOT_ON_ANY_MENU);
   return [...out, ...spokenAmountsIn(text)];
 }
 
@@ -431,7 +439,36 @@ export function amountsIn(text: string): number[] {
 const CODE_DOLLARS = /\b(?:usd|us\s?dollars?)\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(\s?k\b)?/gi;
 /** An amount in a currency other than the dollar, symbol or code either side: "€650", "650 EUR", "£200", "650 euros". */
 const OTHER_CURRENCY =
-  /[€£¥₹]\s?\d|\b(?:eur|gbp|aed|cad|aud|mxn|chf|jpy|inr)\s?\d|\d\s?(?:[€£¥₹]|(?:eur|gbp|aed|cad|aud|mxn|chf|jpy|inr|euros?)\b)/gi;
+  /[€£¥₹]\s?\d|\b(?:eur|gbp|aed|cad|aud|mxn|chf|jpy|inr)\s?\d|\d\s?(?:[€£¥₹]|(?:eur|gbp|aed|cad|aud|mxn|chf|jpy|inr|euros?|pesos?|libras? esterlinas?|quetzales|soles|colones|lempiras)\b)/gi;
+/**
+ * The same said in words, English or Spanish: "trescientos cincuenta pesos",
+ * "seiscientos euros", "two hundred euros", "ciento cincuenta libras
+ * esterlinas". "Libras" and "pounds" alone are also weights (a vet's "un
+ * perro de cuarenta libras"), so they count as money only after a word of
+ * price ("cuesta cuarenta libras", "it costs forty pounds"), digits or words.
+ */
+const ANY_NUMBER_RUN = `(?:${ES_WORD}|${NUMBER_WORD})(?:[\\s-]+(?:${ES_WORD}|${NUMBER_WORD}))*`;
+const OTHER_CURRENCY_WORDS: readonly RegExp[] = [
+  new RegExp(`(?<![\\p{L}])(${ANY_NUMBER_RUN})\\s+(?:pesos?|euros?|libras?\\s+esterlinas?|quetzales|soles|colones|lempiras)(?![\\p{L}])`, "giu"),
+  new RegExp(
+    `(?<![\\p{L}])(?:cuesta|cuestan|vale|valen|cobra|cobramos|cobran|costs?|priced at|charge|charges)\\s+(?:de\\s+|unas?\\s+|about\\s+|around\\s+)?(\\d[\\d,.]*|${ANY_NUMBER_RUN})\\s+(?:libras?|pounds?|quid)(?![\\p{L}])`,
+    "giu",
+  ),
+];
+/** Words a run may hold that are no number on their own: "y pesos", "a pound" name no amount. */
+const CONNECTIVES = new Set(["y", "a", "and", "un", "una", "uno"]);
+
+/** Whether the text names an amount in another currency in words (OTHER_CURRENCY_WORDS). */
+function otherCurrencyInWords(text: string): number {
+  let found = 0;
+  for (const pattern of OTHER_CURRENCY_WORDS) {
+    for (const m of text.matchAll(pattern)) {
+      const run = m[1]!;
+      if (/\d/.test(run) || run.toLowerCase().split(/[\s-]+/).some((w) => w && !CONNECTIVES.has(w))) found += 1;
+    }
+  }
+  return found;
+}
 /** An amount no menu holds: refuses the reply whatever the clinic lists. */
 const NOT_ON_ANY_MENU = -1;
 
@@ -448,8 +485,12 @@ const FREE_PRICE: readonly RegExp[] = [
   /\b(?:free|complimentary|no-cost|no-charge)\s+(?:initial\s+|first\s+|virtual\s+|in-person\s+)?(?:consultations?|consults?|assessments?|sessions?|treatments?|appointments?|visits?|follow-ups?|touch-ups?|check-ups?)\b/i,
   /\bfree of charge\b|\bfor free\b|\bat no (?:extra |additional )?(?:cost|charge)\b|\bno charge\b|\bcosts? nothing\b|\bwon'?t cost (?:you )?(?:anything|a (?:thing|penny|cent))\b/i,
   /(?<![\p{L}])(?:gratis|gratuit[oa]s?|sin costo|sin cargo)(?![\p{L}])/iu,
+  // Spanish in other words: "no tiene ningún costo", "no cuesta nada", "sin
+  // ningún cargo", "de cortesía", "no le cobramos", "sin costo alguno".
+  /(?<![\p{L}])(?:no\s+tiene\s+(?:ning[uú]n\s+)?(?:costo|cargo|precio)|no\s+(?:le\s+|te\s+)?(?:cuesta|costar[aá]|va\s+a\s+costar)\s+(?:nada|ni\s+un)|sin\s+(?:ning[uú]n\s+)?(?:costo|cargo|coste)(?:\s+alguno)?|de\s+cortes[ií]a|(?:no|nada)\s+(?:se\s+)?(?:le\s+|te\s+)?(?:cobra|cobramos|cobran|cobrar[aá]n?)(?:\s+nada)?|cero\s+(?:pesos|d[oó]lares)|costo\s+cero)(?![\p{L}])/iu,
 ];
-const NOT_A_PRICE_TOPIC = /\b(?:park(?:ing)?|car park|garage|wi-?fi|internet|coffee|tea|water|refreshments?|snacks?|drinks?|estacionamiento|aparcamiento)\b/i;
+const NOT_A_PRICE_TOPIC =
+  /\b(?:park(?:ing)?|car park|garage|wi-?fi|internet|coffee|tea|water|refreshments?|snacks?|drinks?)\b|(?<![\p{L}])(?:estacionamiento|aparcamiento|parqueo|caf[eé]|té|agua|bebidas?|refrescos?|botanas?|aperitivos?)(?![\p{L}])/iu;
 
 /**
  * What denies a "free" that follows it directly: "we don't offer free
@@ -462,6 +503,13 @@ const FREE_DENIED =
   /(?:\b(?:don'?t|do not|doesn'?t|does not|can'?t|cannot|won'?t|will not|never|no longer)\s+(?:(?:currently|really|actually|usually|normally|generally|ever|also)\s+)?(?:offer|do|have|give|provide|include|run|make|list|advertise|charge|sell)\s+(?:(?:any|a|an|the|our|such|these|those)\s+)*|\b(?:there(?:'s| is| are)|we have|we offer|with|offer)\s+no\s+|\b(?:isn'?t|aren'?t|is not|are not|not)\s+(?:(?:a|an|any|the|really|actually|currently)\s+)*)$/i;
 
 /**
+ * The same in Spanish: "no es gratis", "no ofrecemos consultas gratis", "ya
+ * no tenemos la consulta gratuita", a negation at most three words before
+ * the "free" in the same clause.
+ */
+const FREE_DENIED_ES = /(?<![\p{L}])(?:no|nunca|ya no|tampoco)\s+(?:\p{L}+\s+){0,3}$/iu;
+
+/**
  * Whether the sentence calls something free, in this pattern's words, and
  * does not deny it: a "free" put right after a negation is the opposite of a
  * price of nothing. Every match is read, so "We don't offer free consultations
@@ -470,7 +518,8 @@ const FREE_DENIED =
 function saysFree(pattern: RegExp, sentence: string): boolean {
   const all = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
   for (const m of sentence.matchAll(all)) {
-    if (!FREE_DENIED.test(sentence.slice(0, m.index))) return true;
+    const before = sentence.slice(0, m.index);
+    if (!FREE_DENIED.test(before) && !FREE_DENIED_ES.test(before)) return true;
   }
   return false;
 }
@@ -513,7 +562,38 @@ const CARD_ASK: readonly RegExp[] = [
   new RegExp(`\\b(?:photo|picture|pic|image|scan|screenshot|copy)\\s+of\\s+(?:your|the)\\s+${CARD}`, "i"),
   /\b(?:16|sixteen|15|fifteen)[- ]digits?\b|\b(?:three|3|four|4)[- ]digits? (?:on the back|code|security)\b|\bexp(?:iry|iration)?\b[^.?!]{0,20}\b(?:date|month|year)\b|\bwhen does (?:it|your card|the card) expire\b/i,
 ];
+/**
+ * The same asks in Spanish: the card's number, its digits, its code or its
+ * expiry, or a bank account, asked for ("dígame el número de su tarjeta",
+ * "necesito su número de cuenta bancaria", "los dieciséis dígitos de su
+ * tarjeta", "¿cuándo vence?"), each naming the card or the account, so
+ * "aceptamos tarjeta de crédito" and "la clínica le envía un enlace de pago
+ * seguro" pass. As in English (PAYMENT_ASK), the details named with a word
+ * of asking or a "su"/"tu" ("your") is enough.
+ */
+const PAYMENT_ASK_ES =
+  /(?<![\p{L}])(?:n[uú]meros?\s+de\s+(?:la\s+|su\s+|tu\s+)?(?:tarjeta|cuenta)|datos\s+(?:de\s+(?:la\s+|su\s+|tu\s+)?tarjeta|bancarios|de\s+(?:la\s+|su\s+|tu\s+)?cuenta)|cuenta\s+(?:bancaria|de\s+banco|corriente|de\s+ahorros?)|c[oó]digo\s+de\s+seguridad|cvv|cvc|fecha\s+de\s+(?:vencimiento|caducidad|expiraci[oó]n)|n[uú]mero\s+de\s+ruta|clabe(?:\s+interbancaria)?)(?![\p{L}])/iu;
+const PAYMENT_ASK_ES_VERB =
+  /(?<![\p{L}])(?:su|sus|tu|tus|d[ií]game|d[ií]me|deme|d[eé]me|dame|p[aá]seme|p[aá]same|l[eé]ame|l[eé]eme|env[ií]eme|m[aá]ndeme|ind[ií]queme|proporci[oó]n(?:e|eme|ar)|facil[ií]te(?:me)?|compart(?:a|ir|e)|necesito|necesitamos|necesitar[ií]a|requiero|me\s+(?:puede|podr[ií]a|puedes|podr[ií]as)\s+(?:dar|decir|pasar|leer|enviar|mandar|proporcionar))(?![\p{L}])/iu;
+const CARD_ES = "(?:tarjeta(?:\\s+de\\s+(?:cr[eé]dito|d[eé]bito))?|visa|mastercard|amex|american express)";
+const CARD_ASK_ES: readonly RegExp[] = [
+  // The digits or the number on it: "los dieciséis dígitos de su tarjeta", "el número largo de su tarjeta".
+  new RegExp(`(?<![\\p{L}])(?:n[uú]meros?|d[ií]gitos|c[oó]digo|nombre|datos)(?![\\p{L}])[^.?!]{0,30}(?<![\\p{L}])(?:de|en|del\\s+(?:frente|reverso)\\s+de)\\s+(?:la\\s+|su\\s+|tu\\s+)${CARD_ES}(?![\\p{L}])`, "iu"),
+  // Reading it out or sending it: "léame su tarjeta", "mándeme una foto de su tarjeta".
+  new RegExp(`(?<![\\p{L}])(?:l[eé]ame|d[ií]game|d[ií]me|deme|dame|p[aá]seme|env[ií]eme|m[aá]ndeme)\\s+(?:los\\s+datos\\s+de\\s+|el\\s+n[uú]mero\\s+de\\s+)?(?:su|tu|la)\\s+${CARD_ES}(?![\\p{L}])`, "iu"),
+  new RegExp(`(?<![\\p{L}])(?:foto|fotograf[ií]a|imagen|captura|copia)\\s+de\\s+(?:su|tu|la)\\s+${CARD_ES}(?![\\p{L}])`, "iu"),
+  // Its digits by count, its code, its expiry.
+  /(?<![\p{L}\d])(?:16|diecis[eé]is|15|quince)\s+d[ií]gitos(?![\p{L}])|(?<![\p{L}\d])(?:tres|3|cuatro|4)\s+d[ií]gitos\s+(?:de\s+atr[aá]s|del\s+reverso|de\s+seguridad|de\s+la\s+parte\s+de\s+atr[aá]s)|(?<![\p{L}])(?:cu[aá]ndo|qu[eé]\s+fecha|en\s+qu[eé]\s+(?:mes|fecha))\s+(?:le\s+|te\s+)?(?:vence|caduca|expira)(?![\p{L}])/iu,
+];
 const HIPAA_CLAIM = /\bhipaa[- ]?(compliant|certified|approved)\b/i;
+/**
+ * "HIPAA compliant" in Spanish: "compatibles con HIPAA", "cumplimos con
+ * HIPAA", "certificados por HIPAA", "en cumplimiento de la ley HIPAA". The
+ * honest sentence ("firmamos un acuerdo de socio comercial y tratamos los
+ * datos de pacientes conforme a él") names no HIPAA claim.
+ */
+const HIPAA_CLAIM_ES =
+  /(?<![\p{L}])(?:compatibles?|cumplimiento|cumpl(?:e|en|imos|ir)|certificad[oa]s?|aprobad[oa]s?|avalad[oa]s?|conformes?|acorde)\s+(?:(?:total|totalmente|completamente|plenamente|100%)\s+)?(?:con|por|de|a)?\s*(?:la\s+|las\s+)?(?:normas?\s+|ley\s+|normativa\s+)?(?:de\s+)?hipaa(?![\p{L}])|(?<![\p{L}])hipaa\s+(?:certificad|aprobad|compatible|cumpl)/iu;
 
 /**
  * A price by the unit, said the way people say it ("$12 a unit", "12 dollars
@@ -574,6 +654,8 @@ const EVERYDAY: RegExp[] = [
   /\b(keep|kept|keeps|keeping|stay|stays|be) (your |their |it |them |everything |all )?(details |information |data |card |belongings )?safe\b|\bsafe travels\b|\bsafely (stored|kept)\b/gi,
   // A goodbye: "Have a safe drive!", "Drive safe!", "stay safe in the rain".
   /\b(have a |get home |travel |drive |stay )safe(ly)?( (drive|trip|journey|flight|travels|home))?\b|\bsafe (drive|trip|journey|flight|travels)\b|\bdrive safe(ly)?\b/gi,
+  // The same in Spanish: a secure payment link, data kept safe, safe parking.
+  /(?<![\p{L}])(?:enlace|link|v[ií]nculo|pago|pagos|portal|sistema|plataforma|estacionamiento|lugar|zona)\s+(?:de\s+pago\s+)?(?:muy\s+)?segur[oa]s?(?![\p{L}])|(?<![\p{L}])(?:de|en)\s+(?:forma|manera)\s+segura(?![\p{L}])|(?<![\p{L}])(?:sus|tus|los|la|su)\s+(?:datos|informaci[oó]n)\s+(?:est[aá]n?|quedan?)\s+(?:segur[oa]s?|protegid[oa]s?)(?![\p{L}])/giu,
   /\b(a |the )?(list|names?) of (any |all |your |the )?(medications?|medicines|meds|allergies)\b/gi,
   /\b(any|your) allergies (we|you|I|the team) should (note|know|pass on|be aware of)\b/gi,
   // How often the practice itself does something, not a dose: "the phones are
@@ -671,6 +753,21 @@ const PLAIN_CLINICAL: RegExp[] = [
   /(?<![\p{L}])es (normal|com[úu]n|esperado) que/iu,
   /(?<![\p{L}])(p[óo]ngase|ponga|aplique|aplicar|ponerse) (hielo|compresas? fr[íi]as?)|(?<![\p{L}])no (haga|hacer|hagas|realice) ejercicio|(?<![\p{L}])evite (el |la |los |las )?(alcohol|ejercicio|sol|maquillaje|ibuprofeno|aspirina)/iu,
   /(?<![\p{L}])(los )?resultados (duran|durar[áa]n|dura|duraran)|(?<![\p{L}])dura (unos |unas |aproximadamente |alrededor de )?(\d+|un|una|dos|tres|cuatro|seis) (meses|semanas|a[ñn]os)/iu,
+  // A guarantee or a promise of the outcome, by the verb or the word ("se lo
+  // aseguro", "se lo garantizo", "le garantizamos", "garantizado"), unless
+  // denied ("no le puedo garantizar", "nadie puede garantizar", "no hay
+  // garantía"), as the English guarantee above.
+  /(?<!(?<![\p{L}])(?:no|nadie|nada|nunca|ni|sin|tampoco|jam[áa]s)\s+(?:\p{L}+\s+){0,3})(?<![\p{L}])(?:garantiz\p{L}*|garant[íi]as?|(?:se|te)\s+l[oa]s?\s+(?:aseguro|aseguramos|prometo|prometemos|juro))(?![\p{L}])/iu,
+  // The outcome promised in plain words: "va a quedar perfecta", "quedará
+  // como nueva", "se verá diez años más joven", "le van a encantar los
+  // resultados", "resultados perfectos".
+  /(?<![\p{L}])(?:(?:va|vas|van|vamos)\s+a\s+(?:quedar|verse|lucir|ver(?:te|se|la|lo))|quedar[áa]s?n?|se\s+ver[áa]n?|te\s+ver[áa]s|lucir[áa]s?n?)\s+(?:muy\s+|super\s+|s[úu]per\s+|totalmente\s+|completamente\s+|much[oa]\s+)?(?:perfect[oa]s?|como\s+nuev[oa]s?|divin[oa]s?|espectaculares?|incre[íi]bles?|precios[oa]s?|hermos[oa]s?|bell[ií]sim[oa]s?|guap[ií]sim[oa]s?|impecables?|radiantes?|(?:\p{L}+\s+)?(?:a[ñn]os\s+)?m[áa]s\s+j[oó]ven(?:es)?|rejuvenecid[oa]s?|sin\s+arrugas)(?![\p{L}])/iu,
+  /(?<![\p{L}])(?:le|te|les)\s+(?:van?\s+a\s+encantar|encantar[áa]n?)\s+(?:los|el|sus|tus)\s+resultados?(?![\p{L}])|(?<![\p{L}])resultados?\s+(?:perfect[oa]s?|asegurad[oa]s?|seguros?|incre[íi]bles?|espectaculares?)(?![\p{L}])|(?<![\p{L}])(?:le|te)\s+quitar[áa]n?\s+(?:\p{L}+\s+)?a[ñn]os(?![\p{L}])/iu,
+  // A dose in Spanish said by its count: "cuatro jeringas", "20 unidades", "dos viales", "20 U".
+  new RegExp(
+    `(?<![\\p{L}\\d])(?:\\d+(?:[.,]\\d+)?\\s*(?:jeringas?|viales?|unidades|ampollas?|cc)|(?!(?:y|un|una|uno)\\s)${ES_WORD}(?:\\s+${ES_WORD})*\\s+(?:jeringas|viales|unidades|ampollas))(?![\\p{L}])`,
+    "iu",
+  ),
 ];
 
 /** Whether a reply says anything clinical (the default screen and PLAIN_CLINICAL; see the file header). */
@@ -732,11 +829,76 @@ function wholeWords(phrase: string): RegExp {
  * apart.
  */
 export function neverSayIn(reply: string, list: readonly string[], ownWords: readonly string[] = []): boolean {
+  const entries = withSpanishEquivalents(list);
   // The clinic's own words read the same way, so "Pain-Less Laser" still excuses itself.
   return SPELLINGS.some((form) => {
     const text = form(reply);
-    return (form === asWritten || text !== reply) && neverSayInForm(text, list, ownWords.map(form));
+    return (form === asWritten || text !== reply) && neverSayInForm(text, entries, ownWords.map(form));
   });
+}
+
+/**
+ * The Spanish a never-say entry is also matched in (the policy of 21 October
+ * 2026): a clinic that can answer in Spanish must not have its list read
+ * past because the model said the same thing in Spanish. Each entry is
+ * matched as written, always; and where it is one of the stock entries below
+ * (the defaults, NEVER_SAY_DEFAULTS in the catalog, and the entries clinics
+ * most often add), its Spanish equivalents are matched beside it, the same
+ * way: from the start of a word, case and accents aside ("sin dolor",
+ * "indoloro" for "painless"; "la más barata" for "cheapest").
+ *
+ * A clinic's own entry with no mapping here applies as written only: "Dr.
+ * Smith is the best" is not translated, and a Spanish reply that says it in
+ * Spanish is not refused for it. No machine translation runs on a clinic's
+ * words; the clinical screen, which reads Spanish, is still what catches a
+ * Spanish promise of safety or results. Keys are in listForm (lower case, a
+ * hyphen read as a space); the Spanish is written without accents, because
+ * a reply is also read with its accents folded (SPELLINGS).
+ */
+const NEVER_SAY_SPANISH: Readonly<Record<string, readonly string[]>> = (() => {
+  const guaranteed = ["resultados garantizados", "resultado garantizado", "resultados asegurados", "resultado asegurado", "garantizamos resultados", "garantizamos los resultados", "garantizamos el resultado"];
+  const cheapest = ["el mas barato", "la mas barata", "los mas baratos", "las mas baratas", "el precio mas bajo", "los precios mas bajos", "mas barato que nadie", "mas barata que nadie"];
+  const best = ["la mejor de la ciudad", "el mejor de la ciudad", "los mejores de la ciudad", "las mejores de la ciudad", "la mejor clinica", "el mejor consultorio", "el mejor spa", "la mejor del pueblo", "el mejor del pueblo"];
+  const safe = ["completamente segur", "totalmente segur", "absolutamente segur", "100% segur", "cien por ciento segur", "cien por cien segur"];
+  return {
+    "guaranteed results": guaranteed,
+    "results guaranteed": guaranteed,
+    "guaranteed": ["garantizad", "garantizamos", "le garantizo", "te garantizo", "se lo garantizo", "se la garantizo"],
+    "guarantee": ["garantiz", "garantia"],
+    "risk free": ["sin riesgo", "libre de riesgo", "cero riesgo", "ningun riesgo"],
+    "completely safe": safe,
+    "100% safe": safe,
+    "totally safe": safe,
+    "no side effects": ["sin efectos secundarios", "sin efectos adversos", "sin efectos colaterales", "no tiene efectos secundarios", "no hay efectos secundarios", "ningun efecto secundario", "cero efectos secundarios"],
+    "painless": ["sin dolor", "indolor", "no duele", "no le va a doler", "no te va a doler", "no le dolera", "no te dolera"],
+    "pain free": ["sin dolor", "indolor", "libre de dolor"],
+    "permanent results": ["resultados permanentes", "resultado permanente", "resultados para siempre", "resultados definitivos", "resultado definitivo"],
+    "permanent": ["permanente", "para siempre"],
+    "you're a good candidate": ["es buen candidat", "es buena candidat", "es un buen candidat", "es una buena candidat", "eres buen candidat", "eres buena candidat", "eres un buen candidat", "eres una buena candidat", "usted es candidat", "tu eres candidat"],
+    "you don't need to see a doctor": ["no necesita ver a un medico", "no necesita ver al medico", "no necesita ir al medico", "no necesita ver a un doctor", "no necesita ver al doctor", "no necesita ir al doctor", "no necesitas ver a un medico", "no necesitas ir al medico", "no necesitas ver a un doctor", "no hace falta ver a un medico", "no hace falta ir al medico", "no hace falta ver a un doctor"],
+    "no downtime": ["sin tiempo de recuperacion", "sin tiempo de inactividad", "sin incapacidad", "sin periodo de recuperacion"],
+    "best in town": best,
+    "the best in town": best,
+    "best clinic in town": best,
+    "cheapest": cheapest,
+    "cheapest in town": cheapest,
+    "lowest prices": ["los precios mas bajos", "el precio mas bajo", "los mejores precios"],
+    "miracle": ["milagr"],
+    "cure": ["cura", "curamos", "curar"],
+    "no needles": ["sin agujas"],
+  };
+})();
+
+/** The list with each stock entry's Spanish equivalents after it (NEVER_SAY_SPANISH); every entry stays as written. */
+function withSpanishEquivalents(list: readonly string[]): readonly string[] {
+  const out = [...list];
+  for (const entry of list) {
+    // An entry the clinic wrote with accents ("garantía") is read against the folded reply too.
+    if (foldAccents(entry) !== entry) out.push(foldAccents(entry));
+    const spanish = NEVER_SAY_SPANISH[listForm(entry).trim()];
+    if (spanish) out.push(...spanish);
+  }
+  return out;
 }
 
 /** Single letters with a hyphen, space, dot, slash, star or underscore between, three or more: "p-a-i-n", "c u r e". */
@@ -761,7 +923,14 @@ const SPELLINGS: ReadonlyArray<(text: string) => string> = [
   asWritten,
   (text) => text.replace(SPELT_OUT, joinSpelt),
   (text) => normalise(text).replace(/(?<=\p{L})-(?=\p{L})/gu, ""),
+  // Accents folded, so "indoloro", "más barata" and "garantía" are read with or without them.
+  foldAccents,
 ];
+
+/** The text with its accents and tildes taken off: "más" → "mas", "garantía" → "garantia". */
+function foldAccents(text: string): string {
+  return text.normalize("NFD").replace(/\p{M}+/gu, "").normalize("NFC");
+}
 
 function neverSayInForm(reply: string, list: readonly string[], ownWords: readonly string[]): boolean {
   const text = ` ${listForm(reply)} `;
@@ -851,6 +1020,21 @@ const CONFIRMATIONS: readonly RegExp[] = [
   /(?<![\p{L}])(?:est[áa]|queda|qued[óo]|ha quedado|ha sido|fue)\s+(?:ya\s+)?(?:confirmad[oa]|reservad[oa]|agendad[oa]|programad[oa]|apuntad[oa])(?![\p{L}])/u,
   /(?<![\p{L}])(?:le|te|lo|la)\s+(?:he|hemos)\s+(?:reservado|agendado|confirmado|apuntado|programado)(?![\p{L}])/u,
   /(?<![\p{L}])(?:confirmad[oa]|reservad[oa]|agendad[oa])\s+para\s+(?:el|la|ma[ñn]ana|hoy|las?)(?![\p{L}])/u,
+  // "Su cita queda para el martes", "su cita está lista", "su cita para el
+  // martes está lista", "la cita ya quedó hecha": the appointment said to
+  // stand, with up to a few words between.
+  /(?<![\p{L}])(?:su|tu|la|sus|tus|las)\s+(?:cita|citas|reserva|reservas|consulta|sesi[oó]n|turno|hora)(?![\p{L}])(?:(?!(?<![\p{L}])(?:no|todav[ií]a|a[uú]n|cuando|si|ser[aá])(?![\p{L}]))[^.!?]){0,40}?(?<![\p{L}])(?:ya\s+)?(?:queda|quedan|qued[oó]|quedaron|est[aá]|est[aá]n|ha\s+quedado|fue)\s+(?:ya\s+)?(?:list[oa]s?|hech[oa]s?|apartad[oa]s?|separad[oa]s?|registrad[oa]s?|guardad[oa]s?|asegurad[oa]s?|anotad[oa]s?|para\s+(?:el|la|las|ma[ñn]ana|hoy|esta|este|el\s+pr[oó]ximo))(?![\p{L}])/u,
+  // The assistant saying it booked, or books now: "ya le reservé el martes",
+  // "le confirmo la cita del lunes" (not "le confirmo que abrimos el lunes"),
+  // "le aparté la hora", "ya le agendamos", "lo dejo agendado".
+  /(?<![\p{L}])(?:le|te|lo|la|les|se\s+la|se\s+lo)\s+(?:reserv[eé]|agend[eé]|apart[eé]|separ[eé]|anot[eé]|apunt[eé]|program[eé]|confirm[eé]|registr[eé]|bloque[eé])(?![\p{L}])/u,
+  /(?<![\p{L}])(?:le|te|les|se\s+la|se\s+lo)\s+(?:confirmo|reservo|agendo|aparto|separo|anoto|apunto|programo|bloqueo)(?![\p{L}])(?!\s+(?:que|si|cuando|en\s+cuanto)(?![\p{L}]))/u,
+  /(?<![\p{L}])ya\s+(?:le|te|lo|la|les)\s+(?:reservamos|agendamos|apartamos|separamos|anotamos|apuntamos|programamos|confirmamos|registramos)(?![\p{L}])/u,
+  /(?<![\p{L}])(?:lo|la|le|te)\s+dej[oé]\s+(?:ya\s+)?(?:agendad[oa]|reservad[oa]|apuntad[oa]|anotad[oa]|confirmad[oa]|apartad[oa])(?![\p{L}])/u,
+  // "Le voy a reservar el martes", "voy a agendarle": the assistant making one, as "I'll book you in".
+  /(?<![\p{L}])(?:(?:le|te|se\s+la|se\s+lo)\s+(?:voy|vamos)\s+a\s+(?:reservar|agendar|apartar|separar|anotar|apuntar|programar|bloquear)|(?:voy|vamos)\s+a\s+(?:reservar|agendar|apartar|separar|anotar|apuntar|programar|bloquear)(?:le|te|la|lo|sela|selo))(?![\p{L}])/u,
+  // "Listo, ya está", "todo listo para el martes", "número de confirmación".
+  /(?<![\p{L}])(?:todo\s+list[oa]|ya\s+est[aá]\s+list[oa])\s+para\s+(?:el|la|su|tu|ma[ñn]ana|hoy|las?)(?![\p{L}])|(?<![\p{L}])(?:n[uú]mero|c[oó]digo|correo|mensaje)\s+de\s+confirmaci[oó]n(?![\p{L}])/u,
 ];
 
 /** Words before a confirmation that make it a condition or a time to come: "once you're booked", "until it's confirmed". */
@@ -887,6 +1071,14 @@ export function confirmsBooking(reply: string): boolean {
 
 /** Words before a match that deny it: "we don't send reminders", "I can't text you". */
 const DENIED = /\b(?:can'?t|cannot|can not|don'?t|do not|doesn'?t|does not|won'?t|will not|never|no|not|isn'?t|aren'?t|unable to|no longer)\s+(?:\w+\s+){0,4}$/;
+/**
+ * The same in Spanish, so "no le mandamos recordatorios" and "no puedo
+ * compartir nada sobre otros pacientes" are denials. A "no" of courtesy
+ * denies nothing: "no se preocupe ya notifiqué a la clínica" is a claim.
+ */
+const DENIED_ES = /(?<![\p{L}])(?:no|nunca|jam[aá]s|tampoco|ni)\s+(?:\p{L}+\s+){0,4}$/u;
+/** A "no" of courtesy, read past before either denial is looked for. */
+const COURTESY_NO = /(?<![\p{L}])no\s+(?:se\s+preocupe|te\s+preocupes|se\s+preocupen|dude|dudes|duden|hay\s+problema)(?![\p{L}])/gu;
 
 /** Each sentence of the normalised reply that is not a question, with whether a pattern is said in it unless denied. */
 function saidUndenied(reply: string, patterns: readonly RegExp[]): boolean {
@@ -895,7 +1087,9 @@ function saidUndenied(reply: string, patterns: readonly RegExp[]): boolean {
     if (!said) continue;
     for (const pattern of patterns) {
       const m = pattern.exec(said);
-      if (m && !DENIED.test(said.slice(0, m.index))) return true;
+      if (!m) continue;
+      const before = said.slice(0, m.index).replace(COURTESY_NO, " ");
+      if (!DENIED.test(before) && !DENIED_ES.test(before)) return true;
     }
   }
   return false;
@@ -905,6 +1099,13 @@ const CONTACT_VERB =
   "(?:text|txt|sms|call|ring|phone|message|email|e-mail|whatsapp|dm|remind|follow up|follow-up|check in|check back|reach out|get back|contact|send you|touch base)";
 const AT_A_SET_TIME =
   "(?:tomorrow|today|tonight|later|this (?:morning|afternoon|evening|week)|next (?:week|month|\\w+day)|on (?:mon|tues|wednes|thurs|fri|satur|sun)day|(?:mon|tues|wednes|thurs|fri|satur|sun)day|in (?:an?|one|two|a few|\\d+) (?:minutes?|hours?|days?)|at \\d|before your (?:visit|appointment))";
+
+/** A set time in Spanish: "mañana", "esta tarde", "el lunes", "en una hora", "a las tres". */
+const ES_SET_TIME =
+  "(?:ma[ñn]ana|hoy|esta\\s+(?:tarde|noche|semana)|m[aá]s\\s+tarde|luego|en\\s+(?:un\\s+rato|una\\s+hora|unos?\\s+\\p{L}+\\s+(?:minutos|horas|d[ií]as)|\\d+\\s+(?:minutos|horas|d[ií]as))|(?:el\\s+)?(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|la\\s+pr[oó]xima\\s+semana|a\\s+las?\\s+\\S+|antes\\s+de\\s+su\\s+(?:cita|visita))";
+/** The practice calling: "la llamamos", "le volveremos a llamar". */
+const ES_WE_CALL =
+  "(?<![\\p{L}])(?:le|la|lo|te|les)\\s+(?:llamamos|llamaremos|vamos\\s+a\\s+llamar|volvemos\\s+a\\s+llamar|volveremos\\s+a\\s+llamar|marcamos|marcaremos)(?![\\p{L}])";
 
 /**
  * Contact after the conversation, promised (CLAUDE.md, "Inbound only": no
@@ -928,12 +1129,31 @@ const OUTBOUND_PROMISES: readonly RegExp[] = [
   /\b(?:text|sms|remind)\s+you\b/,
   // A text or a reminder told to be expected: "expect a text from us tomorrow".
   /\bexpect\s+(?:an?\s+|the\s+|some\s+)?(?:quick\s+)?(?:text|sms|reminder|follow-up|follow up)s?\b/,
+  // Spanish. The assistant itself: "le llamo mañana", "le escribiré", "le
+  // mando un mensaje de texto", "voy a llamarle", "le puedo recordar". Not the
+  // present "le escribo" or "le recuerdo que", said inside the conversation.
+  /(?<![\p{L}])(?:le|la|lo|te|les)\s+(?:llamo|llamar[eé]|vuelvo\s+a\s+llamar|volver[eé]\s+a\s+llamar|escribir[eé]|recordar[eé]|contacto|contactar[eé]|marco|marcar[eé]|dar[eé]\s+seguimiento)(?![\p{L}])/u,
+  /(?<![\p{L}])(?:le|la|lo|te|les)\s+(?:mando|mandar[eé]|env[ií]o|enviar[eé]|mandamos|mandaremos|enviamos|enviaremos|(?:voy|vamos)\s+a\s+(?:mandar|enviar))\s+(?:un\s+|una\s+|el\s+|la\s+|su\s+)?(?:mensaje|mensajito|texto|sms|recordatorio|whatsapp|correo|e-?mail)(?![\p{L}])/u,
+  /(?<![\p{L}])(?:(?:voy|vamos)\s+a|puedo|podr[ií]a|podemos|podr[ií]amos)\s+(?:volver\s+a\s+)?(?:llamarl[ea]s?|llamarte|escribirl[ea]s?|escribirte|recordarl[ea]s?|recordarte|contactarl[ea]s?|contactarte|marcarl[ea]s?|marcarte)(?![\p{L}])/u,
+  /(?<![\p{L}])(?:le|la|lo|te|les)\s+(?:(?:voy|vamos)\s+a|puedo|podr[ií]a)\s+(?:volver\s+a\s+)?(?:llamar|escribir|recordar|contactar|marcar)(?![\p{L}])/u,
+  // The practice: reminding, writing, following up, always; calling, at a set time ("mañana la llamamos").
+  /(?<![\p{L}])(?:le|la|lo|te|les)\s+(?:recordaremos|(?:vamos)\s+a\s+recordar|escribiremos|(?:vamos)\s+a\s+escribir|daremos\s+seguimiento|damos\s+seguimiento)(?![\p{L}])/u,
+  new RegExp(
+    `(?<![\\p{L}])(?=(?:le|la|lo|te|les)\\s)(?:(?<=(?<![\\p{L}])${ES_SET_TIME}(?![\\p{L}])[^.!?]*)${ES_WE_CALL}|${ES_WE_CALL}(?=[^.!?]*(?<![\\p{L}])${ES_SET_TIME}(?![\\p{L}])))`,
+    "u",
+  ),
+  // A text or a reminder, from anyone: "recibirá un recordatorio", "le llegará un mensaje de texto", "un mensaje de recordatorio".
+  /(?<![\p{L}])(?:recibir[aá]n?|recibir[aá]s|le\s+llegar[aá]n?|te\s+llegar[aá]n?|les\s+llegar[aá]n?|le\s+(?:enviar|mandar)[aá]n?|te\s+(?:enviar|mandar)[aá]n?|espere|esperar)\s+(?:un\s+|una\s+|el\s+|nuestro\s+)?(?:mensaje\s+de\s+texto|mensajito|sms|recordatorio|texto|whatsapp)(?![\p{L}])|(?<![\p{L}])(?:mensajes?|sms|correos?|llamadas?|textos?)\s+(?:de\s+)?(?:recordatorio|seguimiento)(?![\p{L}])|(?<![\p{L}])recordatorios?\s+(?:por\s+)?(?:mensaje|texto|sms|correo|whatsapp)(?![\p{L}])/u,
 ];
+
 
 export function promisesOutbound(reply: string): boolean {
   return saidUndenied(reply, OUTBOUND_PROMISES);
 }
 
+/** The practice's people in Spanish, with the article or "a" before: "a la clínica", "al equipo", "la doctora". */
+const TEAM_ES =
+  "(?<![\\p{L}])(?:a\\s+|al\\s+|del\\s+)?(?:(?:la|el|los|las|nuestro|nuestra|nuestros|su)\\s+)?(?:equipo|cl[ií]nica|personal|recepci[oó]n|consultorio|doctor(?:a|es)?|m[eé]dic[oa]s?|enfermer[oa]s?|especialista|encargad[oa]|gerente|due[ñn][oa]|guardia|alguien)(?![\\p{L}])";
 const TEAM = "(?:the |your |our )?(?:team|clinic|practice|staff|front desk|reception|doctor|nurse|clinicians?|injector|provider|on-call|manager|owner|someone)";
 
 /**
@@ -948,6 +1168,16 @@ const ALERT_CLAIMS: readonly RegExp[] = [
   new RegExp(`\\b(?:i've|i have|we've|we have)\\s+(?:just\\s+|already\\s+|now\\s+)?(?:passed|sent|forwarded|handed)\\s+(?:this|it|that|your (?:\\w+\\s+)?(?:message|details|request|question|concern|info(?:rmation)?))\\s+(?:on\\s+|over\\s+|along\\s+)?to\\s+${TEAM}\\b`),
   new RegExp(`\\b${TEAM}\\s+(?:has|have|'s)\\s+(?:just\\s+|already\\s+|now\\s+)?been\\s+(?:told|alerted|notified|informed|messaged|paged|made aware)\\b`),
   new RegExp(`\\b${TEAM}\\s+(?:knows|is aware|are aware|is on (?:it|their way)|is (?:now )?looking into it)\\b`),
+  // Spanish: "ya notifiqué a la clínica", "le avisé al equipo", "he informado
+  // a la doctora", "ya pasé su mensaje al equipo", "el equipo ya fue
+  // notificado", "la clínica ya lo sabe". The future ("le avisaré al equipo")
+  // and the present ("le aviso al equipo") promise the handoff, and pass.
+  new RegExp(`(?<![\\p{L}])(?:(?:le|les)\\s+)?(?:notifiqu[eé]|avis[eé]|alert[eé]|inform[eé]|contact[eé]|escrib[ií]|llam[eé]|puse\\s+al\\s+tanto)\\s+(?:ya\\s+)?${TEAM_ES}`, "u"),
+  new RegExp(`(?<![\\p{L}])(?:ya\\s+)?(?:(?:le|les|lo|la)\\s+)?(?:he|hemos)\\s+(?:ya\\s+)?(?:notificado|avisado|alertado|informado|contactado|escrito|llamado|puesto\\s+al\\s+tanto)\\s+(?:ya\\s+)?${TEAM_ES}`, "u"),
+  new RegExp(`(?<![\\p{L}])ya\\s+(?:(?:le|les)\\s+)?(?:avisamos|notificamos|alertamos|informamos|contactamos)\\s+${TEAM_ES}`, "u"),
+  new RegExp(`(?<![\\p{L}])(?:pas[eé]|envi[eé]|mand[eé]|reenvi[eé]|transmit[ií]|(?:he|hemos)\\s+(?:pasado|enviado|mandado|reenviado|transmitido))\\s+(?:su|tu|sus|tus|el|la|los|las|este|esta)\\s+(?:\\p{L}+\\s+)?(?:mensaje|solicitud|informaci[oó]n|datos|consulta|caso|pregunta|petici[oó]n|detalles)\\s+(?:\\p{L}+\\s+)?${TEAM_ES}`, "u"),
+  new RegExp(`${TEAM_ES}\\s+(?:ya\\s+)?(?:fue|fueron|ha\\s+sido|han\\s+sido|est[aá]|est[aá]n)\\s+(?:ya\\s+)?(?:notificad[oa]s?|avisad[oa]s?|alertad[oa]s?|informad[oa]s?|enterad[oa]s?|al\\s+tanto)(?![\\p{L}])`, "u"),
+  new RegExp(`${TEAM_ES}\\s+ya\\s+(?:lo\\s+)?(?:sabe|saben|est[aá]\\s+en\\s+camino|lo\\s+est[aá]\\s+revisando)(?![\\p{L}])`, "u"),
 ];
 
 export function claimsAlert(reply: string): boolean {
@@ -969,6 +1199,9 @@ export function claimsAlert(reply: string): boolean {
 const OTHER_PARTY: readonly RegExp[] = [
   /\b(?:another|another of (?:our|my|the)|a previous|a former|a past|an earlier|other|one of (?:our|my|the)|some of (?:our|my|the))\s+(?:patients?|clients?|customers?)\b/,
   /\b(?:patients?|clients?|customers?)\s+(?:named|called|by the name of)\b/,
+  // Spanish: "otra paciente", "uno de nuestros clientes", "una antigua clienta", "una paciente llamada Ana".
+  /(?<![\p{L}])(?:otr[oa]s?|un[oa]?\s+de\s+(?:nuestr[oa]s|mis|l[oa]s)|algun[oa]s?\s+de\s+(?:nuestr[oa]s|mis|l[oa]s)|un[oa]?\s+(?:ex|antigu[oa]|anterior))\s+(?:pacientes?|clientes?|clientas?)(?![\p{L}])|(?<![\p{L}])(?:un|una)\s+(?:paciente|cliente|clienta)\s+(?:anterior|previ[oa])(?![\p{L}])/u,
+  /(?<![\p{L}])(?:pacientes?|clientes?|clientas?)\s+(?:llamad[oa]s?|de\s+nombre)(?![\p{L}])/u,
 ];
 const COMPARATIVE =
   /\b(?:cheaper|better|more affordable|less expensive|lower[- ]priced|more experienced|safer|more qualified|nicer|cleaner|faster|friendlier|more professional|superior)\s+(?:to|than)\s+(\S+(?:\s+\S+)?)/gi;
@@ -984,6 +1217,21 @@ const NOT_A_RIVAL = new RegExp(
 const RIVAL = /^(?:other|another|any(?:one|where)? other|most (?:other )?(?:clinics|spas|places|practices)|the (?:competition|competitors?|clinic|spa|place|practice|guys|one) |competitors?|the rest|everyone else|places|clinics|spas|practices|\p{Lu})/u;
 
 /**
+ * The comparison in Spanish: "somos mejores que la clínica de al lado", "más
+ * baratos que otras clínicas", "superiores a la competencia". Not "es mejor
+ * que venga temprano", the impersonal "it is better that" (no subject before
+ * the "es"), nor a time or a figure ("mejor que el martes", "más barato que
+ * el año pasado", "más barato que $200").
+ */
+const COMPARATIVE_ES =
+  /(?<![\p{L}])(mejor(?:es)?|m[aá]s\s+(?:barat[oa]s?|econ[oó]mic[oa]s?|accesibles?|segur[oa]s?|experimentad[oa]s?|profesionales?|limpi[oa]s?|r[aá]pid[oa]s?|calificad[oa]s?|cualificad[oa]s?|amables?|modern[oa]s?)|superiores?|menos\s+car[oa]s?)\s+(?:que|a)\s+(\S+(?:\s+\S+)?)/giu;
+const IMPERSONAL_BETTER = /(?:^|[,;:¿¡]\s*|(?<![\p{L}])(?:pero|y|as[ií]\s+que|entonces|creo\s+que|quiz[aá]s?|tal\s+vez|lo\s+que)\s+)(?:es|ser[ií]a|ser[aá]|era|fue)\s+$/iu;
+const NOT_A_RIVAL_ES =
+  /^(?:(?:el|la|los|las|este|esta|otro|otra|otros|otras)\s+)?(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados?|domingos?|ma[ñn]anas?|tardes?|noches?|semanas?|mes(?:es)?|a[ñn]os?|d[ií]as?|horas?|horarios?|fechas?|esperado|habitual|normal|de\s+costumbre|anterior|pasad[oa]|precio|costo|promedio|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?![\p{L}])|^(?:lo|antes|ayer|hoy|nunca|siempre|usted|ustedes|yo|nosotr[oa]s|eso|esto|nada|esperar|pagar|venir|\$|\d)/iu;
+const RIVAL_ES =
+  /^(?:otr[oa]s?|la\s+(?:cl[ií]nica|competencia|de\s+al\s+lado)|el\s+(?:consultorio|spa|de\s+al\s+lado|resto|centro)|los\s+(?:dem[aá]s|otros|consultorios|competidores)|las\s+(?:dem[aá]s|otras|cl[ií]nicas)|cualquier|cl[ií]nicas|consultorios|spas|competidores|la\s+mayor[ií]a|\p{Lu})/u;
+
+/**
  * "Other patients often ask about parking": what people ask the practice, in
  * general, names no one and says nothing about anyone's care. Read past only
  * as a whole sentence that opens that way and goes on in a few lower-case
@@ -995,13 +1243,18 @@ const RIVAL = /^(?:other|another|any(?:one|where)? other|most (?:other )?(?:clin
 const GENERAL_ASK =
   /^(?:[Oo]ther|[Mm]any|[Ss]ome|[Mm]ost) (?:patients|clients|customers|people) (?:often|also|usually|commonly|frequently|sometimes|typically) (?:ask|wonder|want to know) (?:about|whether|if|how|what|when|where|why) (?!(?:[a-z]+ )*?(?:and|but|so|because|which|yet|then|while|answer|answers)\b)[a-z ]{1,60}[.!]?$/;
 
+/** The same in Spanish: "Otros pacientes suelen preguntar por el estacionamiento." */
+const GENERAL_ASK_ES =
+  /^(?:[Oo]tros|[Oo]tras|[Mm]uchos|[Mm]uchas|[Aa]lgunos|[Aa]lgunas) (?:pacientes|clientes|clientas|personas) (?:(?:nos )?(?:suelen|tambi[eé]n|a menudo|con frecuencia|normalmente|frecuentemente) )?(?:nos )?(?:preguntan|suelen preguntar|quieren saber) (?:por|sobre|si|c[oó]mo|qu[eé]|cu[aá]ndo|d[oó]nde|cu[aá]nto) (?!(?:[\p{Ll}]+ )*?(?:y|pero|porque|que|entonces|aunque|respuesta)(?![\p{L}]))[\p{Ll} ]{1,60}[.!]?$/u;
+
 function withoutGeneralAsks(reply: string, services: readonly { name: string }[]): string {
   const names = services.map((s) => s.name.trim().toLowerCase()).filter((n) => n.length > 2);
   return reply
     .split(/(?<=[.!?])\s+/)
     .filter((sentence) => {
       const said = sentence.trim();
-      return !(GENERAL_ASK.test(said.replace(/[‘’ʼ]/g, "'")) && !names.some((n) => said.toLowerCase().includes(n)));
+      const general = GENERAL_ASK.test(said.replace(/[‘’ʼ]/g, "'")) || GENERAL_ASK_ES.test(said);
+      return !(general && !names.some((n) => said.toLowerCase().includes(n)));
     })
     .join(" ");
 }
@@ -1017,6 +1270,12 @@ export function mentionsOtherParty(
     const target = m[1]!;
     if (NOT_A_RIVAL.test(target)) continue;
     if (RIVAL.test(target)) return true;
+  }
+  for (const m of text.matchAll(COMPARATIVE_ES)) {
+    const target = m[2]!;
+    if (/^mejor$/i.test(m[1]!) && IMPERSONAL_BETTER.test(text.slice(0, m.index))) continue;
+    if (NOT_A_RIVAL_ES.test(target)) continue;
+    if (RIVAL_ES.test(target)) return true;
   }
   return false;
 }
@@ -1039,7 +1298,9 @@ export function guardAssistantReply(
     return { ok: false, reason: "payment_details" };
   }
   if (CARD_ASK.some((pattern) => pattern.test(reply))) return { ok: false, reason: "payment_details" };
-  if (HIPAA_CLAIM.test(reply)) return { ok: false, reason: "hipaa_claim" };
+  if (PAYMENT_ASK_ES.test(reply) && PAYMENT_ASK_ES_VERB.test(reply)) return { ok: false, reason: "payment_details" };
+  if (CARD_ASK_ES.some((pattern) => pattern.test(reply))) return { ok: false, reason: "payment_details" };
+  if (HIPAA_CLAIM.test(reply) || HIPAA_CLAIM_ES.test(reply)) return { ok: false, reason: "hipaa_claim" };
   if (claimsToBeHuman(reply, facts)) return { ok: false, reason: "human_claim" };
   // The practice's own words (its menu, its people, its city) are no language either way.
   const knownTerms = [facts.clinicName, facts.address, ...facts.services.map((s) => s.name), ...(facts.providerNames ?? [])];
@@ -1085,7 +1346,8 @@ const HUMAN_CLAIMS: readonly RegExp[] = [
   /\b(?:i['’]?m|i am)\s+not\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|chatbot|machine|computer|automated|virtual|recording)\b/i,
   /\b(?:this|it)\s+(?:is\s+not|isn['’]t|['’]s\s+not)\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|chatbot|machine|computer|automated|recording)\b/i,
   /\byou(?:['’]re| are)\s+not\s+(?:talking|speaking|chatting)\s+(?:to|with)\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|chatbot|machine|computer)\b/i,
-  /(?<![\p{L}])(?<!(?<![\p{L}])no\s+)soy\s+(?:una?\s+)?(?:persona(?:\s+real)?|humano|humana|ser humano|recepcionista|enfermer[oa]|(?:parte|miembro)\s+del\s+(?:equipo|personal))(?![\p{L}])/iu,
+  /(?<![\p{L}])(?<!(?<![\p{L}])no\s+)soy\s+(?:una?\s+|la\s+|el\s+|de\s+la\s+|del\s+)?(?:persona(?:\s+real)?|humano|humana|ser humano|recepcionista|recepci[oó]n|enfermer[oa]|(?:parte|miembro)\s+del\s+(?:equipo|personal)|(?:del|de\s+la)\s+(?:equipo|personal|recepci[oó]n))(?![\p{L}])/iu,
+  /(?<![\p{L}])(?:le|te)\s+(?:habla|atiende)\s+(?:una?\s+|la\s+|el\s+)?(?:persona(?:\s+real)?|humano|humana|recepcionista|enfermer[oa])(?![\p{L}])|(?<![\p{L}])una\s+persona\s+real\s+(?:le|te)\s+(?:habla|atiende|responde)(?![\p{L}])/iu,
   /(?<![\p{L}])no\s+soy\s+(?:una?\s+)?(?:ia|i\.a\.|inteligencia artificial|bot|robot|m[áa]quina|programa|asistente\s+(?:virtual|autom[áa]tic[oa]|de\s+ia))(?![\p{L}])/iu,
   /(?<![\p{L}])est[áa]s?\s+hablando\s+con\s+(?:una?\s+)?(?:persona(?:\s+real)?|humano|humana|recepcionista|enfermer[oa])(?![\p{L}])/iu,
 ];
@@ -1095,6 +1357,9 @@ const NAME = "(\\p{Lu}[\\p{Ll}'’-]+)";
 /** Where a claim names a person who works at the practice: "Sarah at the front desk", "Sarah from the team". */
 const AT_THE_PRACTICE = "(?:at|from|on|in|of|with)\\s+(?:the|our)\\s+(?:front desk|reception|team|staff|office|practice|clinic)\\b";
 
+/** The same in Spanish: "de la recepción", "del equipo", "en la clínica". */
+const ES_AT_THE_PRACTICE = "(?:de|del|en|desde)\\s+(?:la\\s+|el\\s+|nuestra\\s+|nuestro\\s+)?(?:recepci[oó]n|equipo|personal|oficina|consultorio|cl[ií]nica|front desk)";
+
 /** The same, with a person's name in it: "I'm Sarah, a real person", "you're talking to Sarah at the front desk". */
 const NAMED_CLAIMS: readonly RegExp[] = [
   new RegExp(
@@ -1103,6 +1368,13 @@ const NAMED_CLAIMS: readonly RegExp[] = [
   ),
   new RegExp(`\\b[Yy]ou(?:['’]re| are)\\s+(?:talking|speaking|chatting)\\s+(?:to|with)\\s+${NAME}(?=\\s*(?:[,.!?]|$)|\\s+${AT_THE_PRACTICE})`, "u"),
   new RegExp(`(?:^|[.!?]\\s+)${NAME}\\s+(?:here|speaking)\\b(?=\\s*(?:[,.!?—–-]|$|from|at|with|on))`, "u"),
+  // Spanish: "Soy María, de la recepción", "me llamo Ana y soy la recepcionista", "le habla María, de la clínica".
+  new RegExp(
+    `(?<![\\p{L}])(?:[Ss]oy|[Mm]e llamo|[Mm]i nombre es|[Ll]e habla|[Tt]e habla|[Ll]e atiende|[Tt]e atiende)\\s+${NAME}(?:\\s*,\\s*|\\s+)(?:y\\s+soy\\s+)?(?:${ES_AT_THE_PRACTICE}|(?:una?\\s+|la\\s+|el\\s+)?(?:persona(?:\\s+real)?|humano|humana|recepcionista|enfermer[oa]|miembro\\s+del\\s+(?:equipo|personal)))(?![\\p{L}])`,
+    "u",
+  ),
+  new RegExp(`(?:^|[.!?¡¿]\\s*|,\\s*)(?:[Ll]e|[Tt]e)\\s+habla\\s+${NAME}(?=\\s*(?:[,.!?]|$|de\\s|del\\s|desde\\s))`, "u"),
+  new RegExp(`(?<![\\p{L}])[Ee]st[áa]s?\\s+hablando\\s+con\\s+${NAME}(?=\\s*(?:[,.!?]|$)|\\s+${ES_AT_THE_PRACTICE})`, "u"),
 ];
 
 /** Capitalised words a claim may follow without being a person's name: the assistant's own name, days, words that open a sentence. */
@@ -1112,7 +1384,7 @@ const NOT_A_PERSON = new Set([
 ]);
 
 /** Words before a claim that make it a question asked back or a report of one: "you asked whether I'm a real person". */
-const ASKED = /\b(?:if|whether|asked|wondering|wonder)\b/i;
+const ASKED = /\b(?:if|whether|asked|wondering|wonder)\b|(?<![\p{L}])(?:pregunt\p{L}*|saber\s+si)(?![\p{L}])/iu;
 
 /**
  * Whether the reply has the assistant say it is a person, or not an AI
@@ -1180,8 +1452,14 @@ export function guardGreeting(
   return guardAssistantReply(greeting, facts);
 }
 
-/** The line a refused reply becomes. */
-export function guardedLine(reason: GuardRefusal, clinicName: string): string {
+/**
+ * The line a refused reply becomes, in the language of the reply it
+ * replaces: English, the default and byte for byte what it always was, or
+ * Spanish where the refused reply was Spanish (turn.ts asks messageLanguage),
+ * so a person answered in Spanish is not handed an English line.
+ */
+export function guardedLine(reason: GuardRefusal, clinicName: string, language: "en" | "es" = "en"): string {
+  if (language === "es") return guardedLineEs(reason, clinicName);
   if (reason === "price") {
     return `I can't give a price for that one, but the team at ${clinicName} can go through it with you at a consultation. Would you like me to pass on a request for one?`;
   }
@@ -1198,6 +1476,26 @@ export function guardedLine(reason: GuardRefusal, clinicName: string): string {
     return `I can't confirm appointments myself, but I can pass your request to the team at ${clinicName}, who confirm every booking and get back to people within a day.`;
   }
   return `I'm not able to help with that here, but I can pass your details to the team at ${clinicName}, who will get back to you within a day.`;
+}
+
+/** guardedLine in Spanish, the same lines said the same way, formal "usted". */
+function guardedLineEs(reason: GuardRefusal, clinicName: string): string {
+  if (reason === "price") {
+    return `No puedo darle un precio para eso, pero el equipo de ${clinicName} puede revisarlo con usted en una consulta. ¿Quiere que les pase una solicitud de consulta?`;
+  }
+  if (reason === "clinical") {
+    return `Esa es una pregunta para el equipo clínico de ${clinicName}, y no puedo aconsejarle sobre eso aquí. Pueden revisarlo con usted en una consulta. ¿Quiere que les pase una solicitud de consulta?`;
+  }
+  if (reason === "payment_details") {
+    return `Por favor, no me dé ningún dato de pago, ni de tarjeta ni del banco. La clínica gestiona los pagos de forma segura por su cuenta.`;
+  }
+  if (reason === "human_claim") {
+    return `Soy un asistente de IA, no una persona. El equipo de ${clinicName} puede ayudarle con lo que yo no pueda, y responde en un día.`;
+  }
+  if (reason === "booking_confirmation") {
+    return `No puedo confirmar citas yo mismo, pero puedo pasar su solicitud al equipo de ${clinicName}, que confirma cada cita y responde en un día.`;
+  }
+  return `No puedo ayudarle con eso aquí, pero puedo pasar sus datos al equipo de ${clinicName}, que le responderá en un día.`;
 }
 
 // -----------------------------------------------------------------------------
@@ -1353,7 +1651,72 @@ export function cardNumberIn(text: string): { text: string; found: boolean } {
   const spans = cardNumberSpans(text);
   let cut = text;
   for (const [start, end] of [...spans].reverse()) cut = cut.slice(0, start) + CARD_REMOVED + cut.slice(end);
-  return { text: cut, found: spans.length > 0 };
+  // Then a number said in words, which a recogniser often writes as words.
+  const words = spokenCardSpans(cut);
+  for (const [start, end] of [...words].reverse()) cut = cut.slice(0, start) + CARD_REMOVED + cut.slice(end);
+  return { text: cut, found: spans.length > 0 || words.length > 0 };
+}
+
+// -----------------------------------------------------------------------------
+// Card numbers said in words
+// -----------------------------------------------------------------------------
+//
+// A recogniser writes a number read aloud as words as often as digits: "four
+// two four two, four two four two, ...", "cuatro dos cuatro dos ...", or in
+// pairs, "forty-two forty-two ...", "cuarenta y dos cuarenta y dos ...". A
+// run of such words, digits mixed in, with only spaces, commas, full stops or
+// hyphens between, is counted in digits: a single digit word ("four", "oh",
+// "cero") is one, a teen or a tens word ("twelve", "forty", "forty-two",
+// "doce", "cuarenta y dos", "veintidós") two. A run of SPOKEN_CARD_DIGITS or
+// more digits, two words of it at least, is cut whole, with no Luhn check: a
+// recogniser mishears one word in a long run often enough that a check would
+// let a real card through. A 10-digit phone number (11 with its leading "one")
+// is under the line and passes; a card (13 to 19 digits) is over it. The
+// cost, the safe way to be wrong: a 12-digit international number read as
+// words, or two phone numbers read back to back with no word between them, is
+// cut too, and the person asked not to share card details. Per message only:
+// a number read in words across turns is not joined (cutCardNumbersAcrossTurns
+// joins digits).
+
+/** The fewest digits a run said in words must hold to be cut as a card. */
+export const SPOKEN_CARD_DIGITS = 12;
+
+const EN_DIGIT_WORDS = "zero|oh|one|two|three|four|five|six|seven|eight|nine";
+const EN_TWO_DIGIT = "ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen";
+const EN_TENS = "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety";
+const ES_DIGIT_WORDS = "cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve";
+const ES_TWO_DIGIT =
+  "diez|once|doce|trece|catorce|quince|diecis[eé]is|diecisiete|dieciocho|diecinueve|veinte|veinti(?:uno|d[oó]s|tr[eé]s|cuatro|cinco|s[eé]is|siete|ocho|nueve)";
+const ES_TENS = "treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa";
+/**
+ * One token of a run, its two-digit forms first so "forty-two" is one token
+ * of two digits, not two; each closed by a word boundary, so a run ends where
+ * its last token does and nothing is tried twice.
+ */
+const SPOKEN_TOKEN =
+  `(?:(?:${EN_TENS})(?:[\\s-]+(?:one|two|three|four|five|six|seven|eight|nine))?|(?:${ES_TENS})(?:\\s+y\\s+(?:uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve))?|${EN_TWO_DIGIT}|${ES_TWO_DIGIT}|${EN_DIGIT_WORDS}|${ES_DIGIT_WORDS}|\\d+)(?![\\p{L}\\d])`;
+const SPOKEN_RUN = new RegExp(`(?<![\\p{L}\\d])${SPOKEN_TOKEN}(?:[\\s,.\\-]{1,3}${SPOKEN_TOKEN})*`, "giu");
+const SPOKEN_TOKEN_ONE = new RegExp(SPOKEN_TOKEN, "giu");
+const ONE_DIGIT_WORD = new RegExp(`^(?:${EN_DIGIT_WORDS}|${ES_DIGIT_WORDS})$`, "iu");
+
+/** Where the card numbers said in words are, as [start, end) spans (see above). */
+function spokenCardSpans(text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (const run of text.matchAll(SPOKEN_RUN)) {
+    let digits = 0;
+    let words = 0;
+    for (const token of run[0].matchAll(SPOKEN_TOKEN_ONE)) {
+      const said = token[0];
+      if (/^\d+$/.test(said)) {
+        digits += said.length;
+        continue;
+      }
+      words += 1;
+      digits += ONE_DIGIT_WORD.test(said) ? 1 : 2;
+    }
+    if (words >= 2 && digits >= SPOKEN_CARD_DIGITS) spans.push([run.index, run.index + run[0].length]);
+  }
+  return spans;
 }
 
 /**

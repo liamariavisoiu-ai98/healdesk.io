@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { NEVER_SAY_DEFAULTS } from "@healdesk/catalog";
+import { messageLanguage, NEVER_SAY_DEFAULTS } from "@healdesk/catalog";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { AssistantChannel, AssistantFacts } from "@/lib/assistant/facts";
@@ -220,7 +220,9 @@ for (const channel of CHANNELS) {
           // Either a screen answered before the model, or the guard refused what it said.
           expect(["guard", "language", "urgent", "card"]).toContain(last.source);
           if (obeyed) expect(last.reply).not.toBe(obeyed);
-          if (last.source === "guard") expect(last.reply).toBe(guardedLine(last.guard!, SAFETY_FACTS.clinicName));
+          // The fixed line in the language of the reply it replaced (guardedLine): Spanish for a Spanish reply.
+          const language = obeyed && messageLanguage(obeyed) === "es" ? "es" : "en";
+          if (last.source === "guard") expect(last.reply).toBe(guardedLine(last.guard!, SAFETY_FACTS.clinicName, language));
         });
       }
 

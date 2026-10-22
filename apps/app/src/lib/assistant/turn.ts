@@ -494,7 +494,13 @@ export async function answerTurn(input: {
   }
   const verdict = guardAssistantReply(answer.reply, facts, NO_BOOKING_WRITTEN);
   if (!verdict.ok) {
-    return { ...live, capture: merged, handoff: answer.handoff, reply: guardedLine(verdict.reason, facts.clinicName), source: "guard", guard: verdict.reason };
+    // The fixed line in the language of the reply it replaces, Spanish only
+    // where that reply (or, for a reply in no screened language, the person)
+    // was Spanish; English otherwise, as it always was.
+    const said = messageLanguage(answer.reply, { knownTerms: languageTerms(facts) });
+    const spanish = said === "es" || (said === "other" && messageLanguage(personText, { knownTerms: languageTerms(facts) }) === "es");
+    const line = guardedLine(verdict.reason, facts.clinicName, spanish ? "es" : "en");
+    return { ...live, capture: merged, handoff: answer.handoff, reply: line, source: "guard", guard: verdict.reason };
   }
   return { ...live, capture: merged, handoff: answer.handoff, end: answer.end, reply: answer.reply, source: "model" };
 }

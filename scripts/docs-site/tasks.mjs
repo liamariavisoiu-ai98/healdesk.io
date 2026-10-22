@@ -597,14 +597,14 @@ export const TASKS = [
     status: "vendor",
     title: "Register healdesk's own 10DLC brand and build the prospect STOP path",
     effort: "a week of calendar time, mostly waiting on carrier approval",
-    blockedBy: "legal-pages",
+    blockedBy: null,
     plain:
       "The funnel delivers the bot link by SMS as well as email. Nothing for this exists. The compliance layer in `apps/app/src/lib/compliance/contact-policy.ts` is real and tested, but every function on it takes a `clinicId` and the `suppressions` table has a NOT NULL `clinic_id` foreign key — it governs a clinic texting its own patients, and cannot be pointed at healdesk texting its prospects.",
     why:
       "Sending a marketing SMS on an unregistered 10DLC campaign gets the traffic filtered by carriers and the number blocked, so the messages simply do not arrive. Sending them without a working STOP path is a TCPA violation at $500-1,500 per message, uncapped, with a ready-made class — and the prospects are business owners, exactly the population that files.",
     steps: [
       "Send from a Retell-issued number — there is no Bandwidth or Twilio account, by decision — and confirm in writing that SMS on that number sits inside Retell's BAA.",
-      "Register healdesk as its own 10DLC Brand under its own EIN and file a marketing campaign, using the /privacy and /terms URLs from `legal-pages`. Budget 1-4 weeks for approval. Use placeholder sample messages containing no real names.",
+      "Register healdesk as its own 10DLC Brand under its own EIN and file a marketing campaign, using the live /privacy and /terms URLs. Budget 1-4 weeks for approval. Use placeholder sample messages containing no real names.",
       "Build a prospect-side suppression store in the marketing lead database — a separate table, not the tenant-scoped `suppressions` one — keyed on E.164 phone with no clinic dimension.",
       "Add an inbound SMS webhook that runs `isStopRequest()` from `apps/app/src/lib/compliance/contact-policy.ts` (import the regex list, do not fork it — it deliberately matches far more than the carrier keywords) and writes suppression synchronously before acknowledging.",
       "Include the STOP/HELP footer and sender identification in every prospect message, and gate the send path on a suppression lookup that fails closed.",
@@ -677,7 +677,7 @@ export const TASKS = [
     status: "vendor",
     title: "Provision each clinic in Retell: agent, number, custom-LLM URL",
     effort: "1 week",
-    blockedBy: "agent-config-store",
+    blockedBy: null,
     plain:
       "Retell is the voice vendor, decided. Even once the configuration exists in our database, something has to create the clinic's agent in Retell, buy or import a Retell number for the clinic, attach the two, and point the agent's custom LLM at our endpoint with the clinic id (wss://app.healdesk.io/llm-websocket/<HEALDESK_RETELL_LLM_SECRET>/<clinic id>). That layer is unwritten: nothing in apps/app provisions anything in Retell (the voice backstop only reads a finished call back, lib/voice/backstop.ts), and an operator types the clinic's number into the ops console, which stores it as assistant_number_e164.",
     why:

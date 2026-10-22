@@ -768,7 +768,7 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_VOICE_PROVISION_DAILY_CAP:
     "How many AYA numbers automatic voice provisioning may order from Retell in one UTC day, across every clinic: 20 by default. Over it, clinics wait for the next day and you are emailed once.",
   HEALDESK_RETELL_VOICE_ID:
-    "Which of Retell's voices every clinic's agent speaks with, by Retell's voice id; automatic provisioning refuses to create an agent without one.",
+    "Which of Retell's voices every clinic's agent speaks with, by Retell's voice id. Unset, it is retell-Sloane, the demo agent's voice. A voice starting xai- is refused: Retell does not accept it on our agents. Whether retell-Sloane speaks Latin American Spanish well is yours to check on Retell's dashboard.",
   HEALDESK_CHAT_MODEL: "Which model answers website chat: one of PATIENT_MODEL_IDS (@healdesk/catalog model-retention.ts); any other value is ignored with a warning, because the agreements state the provider's retention for those models only.",
   HEALDESK_VOICE_MODEL: "Which model answers calls: one of PATIENT_MODEL_IDS (@healdesk/catalog model-retention.ts); any other value is ignored with a warning, because the agreements state the provider's retention for those models only.",
   // One-off jobs (apps/app/scripts), started by hand inside AWS.

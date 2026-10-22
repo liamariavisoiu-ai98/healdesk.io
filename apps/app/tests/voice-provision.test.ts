@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { runOperation, type Operator } from "@/lib/ops/api";
 import { __setVoiceAgentDepsForTests } from "@/lib/ops/voice-agent-ops";
@@ -10,12 +10,14 @@ import {
   languageOf,
   MAX_DRIFT_REPAIRS,
   provisionVoiceAgent,
+  retellVoiceId,
   syncVoiceAgent,
   verifyVoiceAgent,
   voiceProvisionDailyCap,
   voiceProvisionEnabled,
   type ProvisionDeps,
 } from "@/lib/voice/provision";
+import { assertRetellVoiceId, createRetellAgent, RETELL_DEFAULT_VOICE_ID, RetellAgentConfigError, updateRetellAgent } from "@/lib/voice/retell-agent";
 import { handleVoiceProvisionJob, runVoiceAgentsSweep } from "@/lib/voice/provision-job";
 import { numberNickname } from "@/lib/voice/retell-numbers";
 
@@ -192,7 +194,27 @@ describe("the switch and the cap, read from the environment", () => {
     expect(configHash(expectedConfig({ ...base, languages: ["en", "es"] }, env), "app.healdesk.test")).not.toBe(a);
     expect(configHash(expectedConfig({ ...base, directLine: "+14155550188" }, env), "app.healdesk.test")).not.toBe(a);
     expect(configHash(expectedConfig(base, { HEALDESK_RETELL_VOICE_ID: "retell-Other" }), "app.healdesk.test")).not.toBe(a);
-    expect(() => expectedConfig(base, {})).toThrow(/HEALDESK_RETELL_VOICE_ID/);
+    // Unset (or the Parameter Store placeholder), the voice is Retell's
+    // platform voice retell-Sloane, the demo agent's (22 October 2026).
+    expect(RETELL_DEFAULT_VOICE_ID).toBe("retell-Sloane");
+    expect(expectedConfig(base, {}).voiceId).toBe("retell-Sloane");
+    expect(expectedConfig(base, { HEALDESK_RETELL_VOICE_ID: "__unset__" }).voiceId).toBe("retell-Sloane");
+    expect(retellVoiceId({})).toBe("retell-Sloane");
+    // A value that is set but not a voice id is refused, not replaced by the default.
+    expect(() => expectedConfig(base, { HEALDESK_RETELL_VOICE_ID: "not a voice!" })).toThrow(/HEALDESK_RETELL_VOICE_ID/);
+  });
+
+  test("an xai- voice is refused at config time, as a config error, before Retell is asked", async () => {
+    const base = { engine: "custom" as const, languages: ["en" as const], directLine: DIRECT, assistantNumber: "+14155551001", publishedPhone: PUBLISHED };
+    expect(() => expectedConfig(base, { HEALDESK_RETELL_VOICE_ID: "xai-Iris" })).toThrow(RetellAgentConfigError);
+    expect(() => expectedConfig(base, { HEALDESK_RETELL_VOICE_ID: "xai-Iris" })).toThrow(/xai speech-to-speech/);
+    const fetch = vi.fn();
+    const options = { key: "key_test", fetch: fetch as unknown as typeof globalThis.fetch } as never;
+    await expect(createRetellAgent("0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f60", { voiceId: "xai-Iris" }, options)).rejects.toThrow(/xai speech-to-speech/);
+    await expect(updateRetellAgent("agent_abc123", "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f60", options, { voiceId: "xai-Iris" })).rejects.toThrow(RetellAgentConfigError);
+    expect(fetch).not.toHaveBeenCalled();
+    // retell-Sloane and any other platform voice pass.
+    expect(() => assertRetellVoiceId("retell-Sloane")).not.toThrow();
   });
 
   test("the speech language is English, and English with Latin American Spanish when the clinic answers in Spanish", () => {

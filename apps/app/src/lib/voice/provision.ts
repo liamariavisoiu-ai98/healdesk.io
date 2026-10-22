@@ -19,6 +19,8 @@ import {
   getRetellAgent,
   RETELL_DATA_RETENTION_DAYS,
   RETELL_DATA_STORAGE_SETTING,
+  assertRetellVoiceId,
+  RETELL_DEFAULT_VOICE_ID,
   RetellAgentConfigError,
   retellAgentSettings,
   updateRetellAgent,
@@ -135,10 +137,16 @@ export function voiceProvisionDailyCap(env: Env = process.env): number {
   return Number(raw);
 }
 
-/** The Retell voice every agent speaks with, or null while none is chosen. */
+/**
+ * The Retell voice every agent speaks with: HEALDESK_RETELL_VOICE_ID when it
+ * is set, else RETELL_DEFAULT_VOICE_ID (retell-Sloane). A value that is set
+ * but not a usable voice id is null, never silently replaced by the default:
+ * the owner meant something, and expectedConfig refuses it.
+ */
 export function retellVoiceId(env: Env = process.env): string | null {
   const v = env.HEALDESK_RETELL_VOICE_ID?.trim();
-  return v && v !== "__unset__" && /^[A-Za-z0-9_.-]{1,128}$/.test(v) ? v : null;
+  if (!v || v === "__unset__") return RETELL_DEFAULT_VOICE_ID;
+  return /^[A-Za-z0-9_.-]{1,128}$/.test(v) ? v : null;
 }
 
 /** Test seam: everything that reaches outside the process. */
@@ -305,7 +313,10 @@ export function expectedConfig(
   env: Env,
 ): VoiceAgentConfig {
   const voiceId = retellVoiceId(env);
-  if (!voiceId) throw new VoiceProvisionError("no_voice", "HEALDESK_RETELL_VOICE_ID is not set: no voice is chosen for the agent");
+  if (!voiceId) throw new VoiceProvisionError("no_voice", "HEALDESK_RETELL_VOICE_ID is not a usable Retell voice id");
+  // A voice Retell refuses on a custom-LLM agent (xai-...) stops here, as a
+  // config failure, before any number is bought.
+  assertRetellVoiceId(voiceId);
   return {
     engine: input.engine,
     voiceId,

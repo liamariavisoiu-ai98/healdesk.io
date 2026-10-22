@@ -104,6 +104,31 @@ function keywordsBody(keywords: readonly string[]): string[] {
   return list;
 }
 
+/**
+ * The voice every clinic's agent speaks with when HEALDESK_RETELL_VOICE_ID is
+ * not set (owner, 22 October 2026): Retell's platform voice `retell-Sloane`,
+ * the voice of the marketing demo agent (apps/web lib/demo/sloane-voice.ts),
+ * confirmed live on Retell. Unverified: whether it speaks es-419 well enough
+ * for a Spanish-answering clinic. That is an owner check on Retell's
+ * dashboard, not something this code can know.
+ */
+export const RETELL_DEFAULT_VOICE_ID = "retell-Sloane";
+
+/**
+ * A voice id Retell can use on a custom-LLM agent, or a RetellAgentConfigError.
+ * `xai-` voices (xai-Iris and the rest) are refused here, before any call:
+ * live Retell answered 400 "Voice xai-Iris is only supported with xai
+ * speech-to-speech models." for a custom-LLM agent (22 October 2026).
+ */
+export function assertRetellVoiceId(voiceId: string): void {
+  if (!/^[A-Za-z0-9_.-]{1,128}$/.test(voiceId)) throw new RetellAgentConfigError("not a Retell voice id");
+  if (voiceId.startsWith("xai-")) {
+    throw new RetellAgentConfigError(
+      `Voice ${voiceId} is only supported with xai speech-to-speech models, not with our custom-LLM agent: choose another voice`,
+    );
+  }
+}
+
 export class RetellAgentConfigError extends Error {
   constructor(message: string) {
     super(message);
@@ -263,7 +288,7 @@ export async function createRetellAgent(
   input: { voiceId: string; agentName?: string; language?: RetellLanguage; boostedKeywords?: readonly string[] },
   options: RetellAgentOptions,
 ): Promise<{ agentId: string; check: RetellAgentCheck }> {
-  if (!/^[A-Za-z0-9_.-]{1,128}$/.test(input.voiceId)) throw new RetellAgentConfigError("not a Retell voice id");
+  assertRetellVoiceId(input.voiceId);
   const body = await send(
     "/create-agent",
     {
@@ -295,9 +320,7 @@ export async function updateRetellAgent(
   options: RetellAgentOptions,
   fields: { voiceId?: string; language?: RetellLanguage; boostedKeywords?: readonly string[] } = {},
 ): Promise<RetellAgentCheck> {
-  if (fields.voiceId !== undefined && !/^[A-Za-z0-9_.-]{1,128}$/.test(fields.voiceId)) {
-    throw new RetellAgentConfigError("not a Retell voice id");
-  }
+  if (fields.voiceId !== undefined) assertRetellVoiceId(fields.voiceId);
   const body = await send(
     `/update-agent/${agentPath(agentId)}`,
     {

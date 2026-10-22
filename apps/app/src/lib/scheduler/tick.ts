@@ -7,6 +7,7 @@ import { sweepUnlinkedDeposits } from "@/lib/billing/deposit-sweep";
 import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
 import { runBillingReconcileJob } from "@/lib/billing/reconcile";
 import { runBillingRequestsJob } from "@/lib/billing/requests";
+import { runLocationQuantityJob } from "@/lib/billing/location-quantity";
 import { runPracticeQuestionsSweep } from "@/lib/engine/practice/job";
 import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
 import { sweepRedialContexts } from "@/lib/voice/redial";
@@ -99,6 +100,12 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // request's own lease makes the overlap harmless.
   await record("billing-reconcile", () => runBillingReconcileJob({ now }));
   await record("billing-requests", () => runBillingRequestsJob({ now }));
+  // The location-quantity check (drizzle/0110), hourly behind its switch,
+  // which ships off: each account's Stripe quantity for locations against
+  // its active locations, read-only, a mismatch told to ops once per episode
+  // (lib/billing/location-quantity.ts). After the reconcile and the worker,
+  // so an add they finish this hour is counted as finished.
+  await record("location-quantity", () => runLocationQuantityJob({ now }));
   // Phase two: runJob() reports it "disabled" in v1 whatever its switch says.
   await record("monthly-report", () => runMonthlyReportJob({ now, send: true }));
   // The daily summary (L13) and, while none can carry it, the weekly recap

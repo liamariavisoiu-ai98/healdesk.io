@@ -18,7 +18,12 @@ import { unsafeDb } from "@/db";
 import type { BillingStatus, Entitlements, UsageMeter } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { channelsInService, readChannelStates } from "@/lib/channels/state";
-import { anyLocationsReady, locationsReady } from "@/lib/locations";
+import {
+  anyLocationsReady,
+  locationsReady,
+  PHONE_NEEDS_ONE_LOCATION,
+  phoneHeldByLocations,
+} from "@/lib/locations";
 import { log } from "@/lib/log";
 import { withTenant } from "@/lib/tenant";
 
@@ -251,14 +256,8 @@ export function checkPlanChange(
   // Phone is per location (its own AYA number and forwarded line), which the
   // extra-locations plan's slice 2 builds; until then an account with more
   // than one location, or one being added, cannot move into phone.
-  if (
-    newPlan.channels.voice &&
-    !boughtPlan.channels.voice &&
-    (row.locations > 1 || row.pendingLocationRequestId !== null)
-  ) {
-    return refusal(
-      "A plan with phone can't be chosen while this account has more than one location: each location needs its own AYA number, which isn't available yet.",
-    );
+  if (newPlan.channels.voice && !boughtPlan.channels.voice && phoneHeldByLocations(row)) {
+    return refusal(PHONE_NEEDS_ONE_LOCATION);
   }
   const isStarted = hasPlanStarted(row);
   if (isStarted && planForChannels(newPlan, inService) === null) {

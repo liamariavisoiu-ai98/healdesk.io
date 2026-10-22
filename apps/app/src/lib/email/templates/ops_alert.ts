@@ -490,6 +490,22 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Someone signed at the checkout, and the copy of the agreement was not emailed to the address they gave. The code says why: a copy already went to that address today, the names on it carry something not safe to mail to an address nobody confirmed, the day's copies to such addresses are spent, or the send failed or had no transport. The signature is on record under the agreement id below. If the signer is genuine, send them the copy by hand from hello@.",
   },
+  // The hourly location-quantity check (lib/billing/location-quantity.ts).
+  location_quantity_drift: {
+    title: "Stripe bills a different number of locations",
+    action:
+      "The quantity Stripe bills this account for locations is not the number of locations it has active (counting one being added whose charge is recorded). Nothing was changed: the check only reads. Open the account's Billing page and its subscription in Stripe, decide which side is wrong, and put it right by hand: too many billed may be a refund owed, too few an add to finish. You will hear once more when the two agree again.",
+  },
+  location_quantity_agrees: {
+    title: "Stripe's location count matches again",
+    action:
+      "The quantity Stripe bills this account for locations matches its active locations again, so the mismatch reported earlier for the time below has ended. Nothing more to do unless a refund or a credit for the period it lasted is still owed.",
+  },
+  step_up_phone_held: {
+    title: "Phone held off a plan with more than one location",
+    action:
+      "Phone is answering, or is due to join the price, for an account that has more than one location or one being added. Phone is billed per location and each location needs its own AYA number, which isn't built yet, so the step-up into phone was held and nothing was charged. Decide with the practice whether phone stays on; the step-up stays held until phone per location exists.",
+  },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
     action:
@@ -532,6 +548,8 @@ const LABELS: Record<string, string> = {
   lateDays: "Days late",
   conversationId: "Conversation id",
   channel: "Channel",
+  locationCount: "Locations active",
+  billedCount: "Locations billed in Stripe",
 };
 
 function wordingFor(payload: OpsAlertPayload): Wording {

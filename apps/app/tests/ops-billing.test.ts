@@ -1254,6 +1254,34 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
       ).toMatchObject({ status: "error" });
     });
 
+    test("retryBillingRequest refuses a step-up into phone for an account with more than one location, saying why", async () => {
+      const billing = await seedClinic("ob-retry-phone");
+      await seedEntitled(billing.clinicId, {
+        planId: "webchat-1000",
+        boughtPlanId: "voice-webchat-1000-1000",
+        planStartedAt: STARTED,
+        locations: 2,
+      });
+      const held = await inTenant(billing.clinicId, async (c) => {
+        const { rows } = await c.query<{ id: string }>(
+          `insert into billing_requests (clinic_id, kind, channel_key, reason, attempts, done_at, outcome, outcome_reason)
+           values ($1, 'step_up', 'voice', 'first_answer', 1, $2, 'skipped', 'phone_needs_one_location') returning id`,
+          [billing.clinicId, STARTED],
+        );
+        return rows[0]!.id;
+      });
+
+      expect(
+        await run("retryBillingRequest", { clinicId: billing.clinicId, requestId: held }),
+      ).toMatchObject({ status: "error", message: expect.stringMatching(/more than one location/) });
+      const row = await inTenant(
+        billing.clinicId,
+        async (c) =>
+          (await c.query(`select outcome from billing_requests where id = $1`, [held])).rows[0],
+      );
+      expect(row).toEqual({ outcome: "skipped" });
+    });
+
     test("liftSuspension lifts once with the reason on record; a replay finds nothing suspended", async () => {
       const c = await seedClinic("ob-lift");
       await seedEntitled(c.clinicId, { planId: "webchat-1000", planStartedAt: STARTED });

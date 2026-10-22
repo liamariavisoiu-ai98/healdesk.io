@@ -450,6 +450,10 @@ describeDb("delivery", () => {
           // not a switched job: it only hands the front desk a deposit the
           // booking already owes, once, and contacts no patient.
           "deposit-links",
+          // The location-quantity check (drizzle/0110), hourly behind its
+          // switch, which ships off: Stripe's quantity for locations against
+          // the active locations, read-only, told to ops once per episode.
+          "location-quantity",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

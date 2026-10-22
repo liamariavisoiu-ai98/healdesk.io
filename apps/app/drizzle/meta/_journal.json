@@ -771,6 +771,13 @@
       "when": 1792605930744,
       "tag": "0109_location_details_confirmed",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1792606245942,
+      "tag": "0110_location_quantity_check",
+      "breakpoints": true
     }
   ]
 }

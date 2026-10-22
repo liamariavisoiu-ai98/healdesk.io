@@ -1429,11 +1429,12 @@ describeDb("the billing-request worker", () => {
     });
 
     test("an annual step-up is invoiced at once, with the invoice's page in L3", async () => {
+      // One location: a step-up into phone is held for an account with more
+      // than one (lib/locations.ts phoneHeldByLocations).
       const billing = await seedBilling("step-annual", {
         planId: "webchat-1000",
         boughtPlanId: "voice-webchat-1000-1000",
         interval: "year",
-        locations: 2,
         ...STARTED,
         channelRows: [inService("web"), inService("voice")],
       });
@@ -1441,7 +1442,7 @@ describeDb("the billing-request worker", () => {
       const w = world({
         customerId: billing.customerId,
         subscriptionId: billing.subscriptionId,
-        items: [item("si_package", packageKey("webchat-1000", "year"), 2)],
+        items: [item("si_package", packageKey("webchat-1000", "year"), 1)],
         latestInvoice: {
           id: "in_stepup",
           billing_reason: "subscription_update",
@@ -1459,7 +1460,7 @@ describeDb("the billing-request worker", () => {
           {
             id: "si_package",
             price: priceId(packageKey("voice-webchat-1000-1000", "year")),
-            quantity: 2,
+            quantity: 1,
           },
         ],
         proration_behavior: "always_invoice",
@@ -1468,7 +1469,7 @@ describeDb("the billing-request worker", () => {
         expect.objectContaining({
           payload: expect.objectContaining({
             planName: getPlan("voice-webchat-1000-1000")!.name,
-            amountCents: 960 * 12 * 100 * 2,
+            amountCents: 960 * 12 * 100,
             interval: "year",
             isInvoicedNow: true,
             hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_test/test_stepup",
@@ -1541,6 +1542,42 @@ describeDb("the billing-request worker", () => {
       expect(await noticesOf(billing.clinicId, "price_stepped_up")).toEqual([]);
       // Our row follows what Stripe bills.
       expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("voice-webchat-1000-1000");
+    });
+
+    test("never prices phone in for an account with more than one location: phone's own is skipped and ops told, another goes without phone", async () => {
+      const billing = await seedBilling("step-phone-held", {
+        planId: "webchat-1000",
+        boughtPlanId: "voice-metachat-1000-1000",
+        ...STARTED,
+        locations: 2,
+        channelRows: [inService("web"), inService("voice"), inService("meta")],
+      });
+      await record(billing.clinicId, "step_up", { channel: "voice" });
+      const w = world({
+        customerId: billing.customerId,
+        subscriptionId: billing.subscriptionId,
+        items: [item("si_package", packageKey("webchat-1000", "month"), 2)],
+      });
+
+      await drainBillingRequests({ now: NOW, stripe: w.stripe });
+
+      expect(w.fake.callsTo("subscriptions.update")).toHaveLength(0);
+      expect(await requestOf(billing.clinicId, "step_up", "voice")).toMatchObject({
+        outcome: "skipped",
+        outcome_reason: "phone_needs_one_location",
+      });
+      expect(await opsAlerts("step_up_phone_held", billing.clinicId)).toEqual([
+        expect.objectContaining({ channel: "voice", count: 2 }),
+      ]);
+
+      // Meta's step-up still goes, priced without phone.
+      const meta = await record(billing.clinicId, "step_up", { channel: "meta" });
+      await drainBillingRequests({ now: NOW, stripe: w.stripe });
+      expect(w.fake.callsTo("subscriptions.update")[0]!.args[1]).toMatchObject({
+        items: [{ id: "si_package", price: priceId(packageKey("metachat-1000", "month")), quantity: 2 }],
+        metadata: { hd_step_up: meta.id },
+      });
+      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("metachat-1000");
     });
 
     test("an update that went through with its outcome lost finishes as the step-up it was: L3 with its invoice, once (review fix)", async () => {

@@ -6,6 +6,7 @@ import { slotLabel } from "@/lib/booking/calendar";
 import { chatDepositFor, type ChatDeposit } from "@/lib/booking/deposit-gate";
 import {
   bookConversation,
+  logRequest,
   offerTimes,
   placeHold,
   type BookConversationResult,
@@ -174,9 +175,10 @@ export type BookingEngine = {
   placeHold: typeof placeHold;
   bookConversation: typeof bookConversation;
   chatDepositFor: typeof chatDepositFor;
+  logRequest: typeof logRequest;
 };
 
-const ENGINE: BookingEngine = { offerTimes, placeHold, bookConversation, chatDepositFor };
+const ENGINE: BookingEngine = { offerTimes, placeHold, bookConversation, chatDepositFor, logRequest };
 
 /** At most this many times are offered at once. */
 const OFFERED = 3;
@@ -224,9 +226,9 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       });
     } catch (error) {
       log.error("booking tool find_times failed", { clinicId: context.clinicId, error: describeError(error) });
-      return turn(TOOL_FAILURE_LINE, state);
+      return findTimesFailed(state);
     }
-    if (answer.status === "unavailable") return turn(TOOL_FAILURE_LINE, state);
+    if (answer.status === "unavailable") return findTimesFailed(state);
     if (answer.status === "request_only") {
       // Manual booking in the same turn: the request flow takes the time.
       const next = { ...state, manual: true, offered: [], chosen: null, held: false };
@@ -235,6 +237,60 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
     if (answer.slots.length === 0) return turn(NO_FREE_TIME_LINE, offered(state, [], service));
     const next = offered(state, answer.slots, service);
     return turn(offerLine(next.offered.map((s) => label(s.at))), next);
+  }
+
+  /**
+   * Google could not say which times are free. The website chat takes the
+   * request in words from here on (`manual`), so the chat files it for the
+   * desk once it has a name, a number and a time (web-chat.ts takeRequest
+   * runs only while the tools are off); left live, the tools would keep
+   * failing and the details the visitor gives would reach no one.
+   */
+  function findTimesFailed(state: BookingToolState): ToolTurn {
+    if (context.channel !== "web_chat") return turn(TOOL_FAILURE_LINE, state);
+    return turn(MANUAL_BOOKING_LINE, { ...state, manual: true, offered: [], chosen: null, held: false });
+  }
+
+  /**
+   * The engine could not book a visitor who chose a time and gave a name
+   * and a number: Google's re-check failed for now, the hold lapsed, or
+   * something threw. The website chat logs their request for the desk
+   * instead, under the conversation's booking key (logRequest: idempotent
+   * on the key, booking_request L7 in the same transaction; a booking or
+   * request already under the key is answered as it stands), and tells
+   * them the clinic will confirm. Nothing is said as booked. Only if the
+   * request cannot be logged either is the failure line said.
+   */
+  async function requestInstead(
+    state: BookingToolState,
+    chosen: OfferedSlot,
+    details: { firstName: string; phone: string; fields: Record<string, string> | undefined },
+    now: Date,
+  ): Promise<ToolTurn> {
+    let logged: Awaited<ReturnType<typeof logRequest>>;
+    try {
+      logged = await engine.logRequest(context.clinicId, {
+        channel: "web_chat",
+        holderKey: context.holderKey,
+        bookingKey: context.bookingKey,
+        conversationId: context.conversationId,
+        firstName: details.firstName,
+        phoneE164: details.phone,
+        preferredWindow: label(chosen.at),
+        service: state.service,
+        fields: details.fields,
+        now,
+        actor: context.actor,
+      });
+    } catch (error) {
+      log.error("booking tool request after a failed booking not logged", { clinicId: context.clinicId, error: describeError(error) });
+      return turn(TOOL_FAILURE_LINE, state);
+    }
+    if (logged.kind === "key_reused") return answerBooking(logged, state, chosen);
+    if (logged.kind === "invalid") return turn(TOOL_FAILURE_LINE, state);
+    const requestId = logged.requestId ?? null;
+    const done = { kind: "request" as const, at: chosen.at, requestId, appointmentId: null };
+    return turn(REQUEST_TAKEN_LINE, { ...state, done, chosen: null, held: false }, { requestId });
   }
 
   async function hold(state: BookingToolState, chosen: OfferedSlot, now: Date): Promise<{ held: true } | { turn: ToolTurn }> {
@@ -400,7 +456,11 @@ export function bookingTools(context: BookingToolsContext, engine: BookingEngine
       });
     } catch (error) {
       log.error("booking tool book failed", { clinicId: context.clinicId, error: describeError(error) });
+      if (context.channel === "web_chat") return requestInstead(state, chosen, { firstName: firstName!, phone: phone!, fields: capture.fields }, now);
       return turn(TOOL_FAILURE_LINE, state);
+    }
+    if (result.kind === "unavailable" && context.channel === "web_chat") {
+      return requestInstead(state, chosen, { firstName: firstName!, phone: phone!, fields: capture.fields }, now);
     }
     const answered = answerBooking(result, state, chosen);
     if (context.channel !== "web_chat" || result.kind !== "booked" || !result.appointmentId) return answered;

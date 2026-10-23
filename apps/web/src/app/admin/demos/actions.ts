@@ -63,10 +63,10 @@ export async function retryDemoAction(form: FormData): Promise<void> {
   if (running && !isDemoBuildStalled(session)) return;
   // A stalled build started again counts as a retry (lib/demo/sweep.ts), so
   // the sweep's "once, then a person" holds across hand and timer alike; a
-  // rebuild of a finished demo is not a retry.
+  // rebuild of a finished demo is a new run, and starts its count over.
   const marked = isDemoBuildStalled(session)
     ? await retryStalledDemo(session)
-    : await updateDemoSession(slug, { status: "building", buildNote: null, buildStartedAt: new Date() });
+    : await updateDemoSession(slug, { status: "building", buildNote: null, buildStartedAt: new Date(), retryCount: 0 });
   // Null means the row is gone, or the sweep or another press got to it
   // between the read above and the write: its build is already running, and
   // a second one must not start.

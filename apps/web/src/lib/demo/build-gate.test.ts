@@ -160,6 +160,31 @@ describe("the handoff gate", () => {
     expect(alert).toHaveBeenCalledTimes(1);
   });
 
+  it("starts the stall count over whenever a run ends, however it was judged", async () => {
+    // A run that stalled once and was started again (lib/demo/sweep.ts) carries count 1 into the build.
+    const retried = async () => {
+      const demo = await newDemo(false);
+      await updateDemoSession(demo.slug, { retryCount: 1 });
+      __resetDemoCacheForTests();
+      return demo;
+    };
+
+    auditDemo.mockImplementation(async (input) => report(88, input));
+    const ready = await runDemoBuild((await retried()).slug);
+    expect(ready?.status).toBe("ready");
+    expect(ready?.retryCount).toBe(0);
+
+    auditDemo.mockRejectedValue(new AuditUnavailableError("The grading call failed: overloaded"));
+    const held = await runDemoBuild((await retried()).slug);
+    expect(held?.status).toBe("held");
+    expect(held?.retryCount).toBe(0);
+
+    structureProfile.mockImplementationOnce(async () => normalizeProfile({ clinic_name: "Smith Dental" }, "Smith Dental"));
+    const failed = await runDemoBuild((await retried()).slug);
+    expect(failed?.status).toBe("failed");
+    expect(failed?.retryCount).toBe(0);
+  });
+
   it("refuses to mail a demo whose profile changed after its audit", async () => {
     auditDemo.mockImplementation(async (input) => report(88, input));
     const demo = await newDemo(false);

@@ -138,9 +138,10 @@ describe("Retry all stalled", () => {
 });
 
 describe("the per-row Retry", () => {
-  test("counts a stalled build started again, and not a rebuild of a finished one", async () => {
+  test("counts a stalled build started again, and starts the count over on a rebuild by hand", async () => {
     const stalled = await demo("Glow", DEMO_BUILD_STALL_MS + MINUTE);
-    const ready = await demo("Peachy", 30 * MINUTE, { status: "ready", readyAt: ago(20 * MINUTE) });
+    // Finished long ago, after a stall and a retry: the old count must not follow the new run.
+    const ready = await demo("Peachy", 30 * MINUTE, { status: "ready", readyAt: ago(20 * MINUTE), retryCount: 1 });
     const running = await demo("Radiance", 2 * MINUTE);
 
     await retryDemoAction(form(stalled.slug));

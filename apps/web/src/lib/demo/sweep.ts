@@ -58,9 +58,13 @@ import {
  *
  * Neither runs the builds: those take minutes and belong after the
  * response (`after()` in the route and the action), through
- * `runRetriedBuilds`. `retry_count` on the row is how many times a stalled
- * build was started again, by either door or by the per-row Retry on a
- * stalled row; a rebuild of a ready demo is not a retry and leaves it alone.
+ * `runRetriedBuilds`. `retry_count` on the row is how many times the run
+ * that is on was started again after stalling, by either door or by the
+ * per-row Retry on a stalled row. It goes back to 0 whenever a run ends
+ * (lib/demo/build.ts writes ready, held or failed) and when an operator
+ * rebuilds by hand, so the count is about this run, never the demo's
+ * history: a demo that stalled once in October is not failed without a
+ * retry when it stalls again in December.
  */
 
 /** How many times the sweep starts a stalled build again before it stops and asks a person. */

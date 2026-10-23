@@ -163,8 +163,12 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
 
     const profile = await extract();
     if (!isUsableProfile(profile)) {
+      // Every end of a run, this one included, resets the stall count: the
+      // count is about the run that is on, not the demo's history
+      // (lib/demo/sweep.ts), so the next run gets its own retry.
       return await updateDemoSession(slug, {
         status: "failed",
+        retryCount: 0,
         scrapeSource: scraped.source,
         buildNote: `The site was read (${scraped.pages.length} pages) but no services, hours or FAQs were found in it. It may render everything in the browser${process.env.APIFY_TOKEN ? "" : "; setting APIFY_TOKEN enables the rendering crawler"}.`,
       });
@@ -208,7 +212,7 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
       slug,
       error: error instanceof Error ? error.message : String(error),
     });
-    return updateDemoSession(slug, { status: "failed", buildNote: reason }).catch(() => null);
+    return updateDemoSession(slug, { status: "failed", buildNote: reason, retryCount: 0 }).catch(() => null);
   }
 }
 
@@ -270,6 +274,8 @@ async function recordVerdict(slug: string, gated: Gated): Promise<DemoSession | 
     profile: gated.profile as unknown as Record<string, unknown>,
     auditedAt: now,
     auditHash: demoFingerprint(gated.profile),
+    // The run finished, however it was judged: the stall count starts over.
+    retryCount: 0,
   };
 
   if (gated.kind === "unavailable") {

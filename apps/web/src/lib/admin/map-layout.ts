@@ -63,7 +63,7 @@ export const GROUP_AT: Record<GroupId, Point & { w: number; cols: number }> = {
   "phase-two": { x: 1260, y: 380, w: 220, cols: 1 },
   deploys: { x: 628, y: 533, w: 240, cols: 1 },
   payments: { x: 910, y: 533, w: 190, cols: 1 },
-  email: { x: 1120, y: 533, w: 190, cols: 1 },
+  email: { x: 1160, y: 533, w: 260, cols: 2 },
   "shop-people": { x: 145, y: 745, w: 240, cols: 1 },
   selling: { x: 470, y: 905, w: 700, cols: 4 },
   records: { x: 1150, y: 780, w: 240, cols: 1 },

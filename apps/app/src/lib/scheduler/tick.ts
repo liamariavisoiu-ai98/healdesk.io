@@ -262,7 +262,7 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   await record("ops-watch", () => runOpsWatchJob({ now, supportReplies: true }));
   // The Slack copy of each ops alert (lib/ops/slack.ts): every minute from
   // the billing-minute queue, and here as its backstop. Not a switched job:
-  // SLACK_OPS_WEBHOOK_URL is the switch, and without it nothing is touched.
+  // SLACK_WEBHOOK_URL is the switch, and without it nothing is touched.
   await record("ops-slack", () => runOpsSlackSweep(now));
   // Calendar writes that need a person (lib/ops/calendar-write-alerts.ts):
   // each booking whose Google write ended failed, or unknown and no longer

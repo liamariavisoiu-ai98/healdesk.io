@@ -68,7 +68,8 @@ describe("the Slack allow-list", () => {
       fields: { clinicId: CLINIC, noticeId: "n_1", kind: "payment_failed", attempts: 3 },
       clinicName: "Glow & <Co>",
     });
-    expect(text).toContain("*A critical email has not gone out*");
+    // Tagged [app]: the #alerts channel is shared with apps/web's [web] posts.
+    expect(text.startsWith("[app] *A critical email has not gone out*")).toBe(true);
     expect(text).toContain(`Glow &amp; &lt;Co&gt;, clinic id \`${CLINIC}\``);
     expect(text).toContain("Attempts: 3");
     expect(text).toContain("_critical_notice_undelivered_");
@@ -99,8 +100,8 @@ describeDb("the ops-slack sweep", () => {
   }, 60_000);
 
   beforeEach(async () => {
-    saved = process.env.SLACK_OPS_WEBHOOK_URL;
-    process.env.SLACK_OPS_WEBHOOK_URL = WEBHOOK;
+    saved = process.env.SLACK_WEBHOOK_URL;
+    process.env.SLACK_WEBHOOK_URL = WEBHOOK;
     fetchMock.mockReset();
     fetchMock.mockResolvedValue(new Response("ok", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -112,8 +113,8 @@ describeDb("the ops-slack sweep", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    if (saved === undefined) delete process.env.SLACK_OPS_WEBHOOK_URL;
-    else process.env.SLACK_OPS_WEBHOOK_URL = saved;
+    if (saved === undefined) delete process.env.SLACK_WEBHOOK_URL;
+    else process.env.SLACK_WEBHOOK_URL = saved;
   });
 
   afterAll(async () => {
@@ -140,7 +141,7 @@ describeDb("the ops-slack sweep", () => {
   }
 
   test("without the key, Slack is off and no row is touched", async () => {
-    process.env.SLACK_OPS_WEBHOOK_URL = "__unset__";
+    process.env.SLACK_WEBHOOK_URL = "__unset__";
     const now = new Date("2026-10-23T10:00:00Z");
     const id = await raise({ clinicId: CLINIC }, now);
     const result = await runOpsSlackSweep(now);
@@ -160,6 +161,7 @@ describeDb("the ops-slack sweep", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]![0]).toBe(WEBHOOK);
     const [text] = posted();
+    expect(text!.startsWith("[app] ")).toBe(true);
     expect(text).toContain("slackname Clinic");
     expect(text).toContain(clinic.clinicId);
     expect(text).not.toContain("invalid_grant");

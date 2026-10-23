@@ -49,7 +49,7 @@ export const KEY_PRESENCE_NAMES = [
   "GOOGLE_OAUTH_CLIENT_ID",
   "GOOGLE_OAUTH_CLIENT_SECRET",
   // The Slack webhook ops alerts are posted through (lib/ops/slack.ts).
-  "SLACK_OPS_WEBHOOK_URL",
+  "SLACK_WEBHOOK_URL",
   // Generated inside AWS by the db-bootstrap task.
   "BETTER_AUTH_SECRET",
   "HEALDESK_IDENTIFIER_REF_KEY",

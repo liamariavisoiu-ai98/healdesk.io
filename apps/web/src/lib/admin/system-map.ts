@@ -133,11 +133,11 @@ export const GROUPS: readonly GroupDef[] = [
   { id: "bookings", name: "Bookings & deposits", blurb: "Where the bookings the desk confirms land and where patients' deposits will be paid: always the clinic's own accounts.", icon: "calendar", band: "patient" },
   { id: "phase-two", name: "Phase two", blurb: "Built or half built, and parked on purpose: v1 does not claim revenue.", icon: "link", band: "patient" },
   { id: "payments", name: "Payments", blurb: "Our own Stripe: the shop window sells, the engine keeps each subscription right.", icon: "card", band: "shared" },
-  { id: "email", name: "Email", blurb: "Everyday email from hello@healdesk.io, for both apps. Never a patient's details.", icon: "mail", band: "shared" },
+  { id: "email", name: "Email & alerts", blurb: "Everyday email from hello@healdesk.io, and the #alerts channel in Slack, for both apps. Never a patient's details.", icon: "mail", band: "shared" },
   { id: "deploys", name: "Code & addresses", blurb: "Where the code lives, what publishes it, and the web addresses that point at it.", icon: "code", band: "shared" },
   { id: "shop-people", name: "Buyers & you", blurb: "Clinic owners shopping on healdesk.io, and you running the business.", icon: "users", band: "shop" },
   { id: "selling", name: "Selling & demos", blurb: "Everything that finds clinic owners and shows them AYA before they buy.", icon: "megaphone", band: "shop" },
-  { id: "records", name: "Records & alerts", blurb: "Where leads and signed agreements are kept, how you are told, and the daily timer.", icon: "table", band: "shop" },
+  { id: "records", name: "Records & alerts", blurb: "Where leads and signed agreements are kept, and the daily timer.", icon: "table", band: "shop" },
 ];
 
 export type ToolDef = {
@@ -190,7 +190,7 @@ export const TOOLS: readonly ToolDef[] = [
   { id: "calendly", name: "Calendly", role: "Owners book a call with you", kind: "vendor", category: "selling", icon: "calendar", side: "shop" },
   { id: "indexnow", name: "Search engines", role: "IndexNow: Bing and others hear of new pages", kind: "vendor", category: "selling", icon: "search", side: "shop" },
   { id: "sheets", name: "Google Sheets", role: "Leads, requests, agreements", kind: "vendor", category: "records", icon: "table", side: "shop" },
-  { id: "slack", name: "Slack", role: "Alerts for you", kind: "vendor", category: "records", icon: "bell", side: "shop" },
+  { id: "slack", name: "Slack", role: "#alerts, from both apps", kind: "vendor", category: "email", icon: "bell", side: "both" },
   { id: "vercel-cron", name: "Vercel timer", role: "Daily jobs", kind: "vendor", category: "records", icon: "clock", side: "shop" },
 ];
 
@@ -451,7 +451,19 @@ export const KEYS: readonly KeyDef[] = [
     need: "optional",
     rotation: { kind: "expires", how: `A read-only token for this repository. ${VERCEL_HOW}`, impact: "The Changes tab goes empty until the new one is in." },
   },
-  { id: "vercel.SLACK_WEBHOOK_URL", env: "SLACK_WEBHOOK_URL", home: "vercel", label: "The Slack alert address", need: "optional", rotation: { kind: "only-if", when: "the address leaks: anyone holding it can post in that channel", how: `Make a new incoming webhook in Slack. ${VERCEL_HOW}` } },
+  {
+    id: "vercel.SLACK_WEBHOOK_URL",
+    env: "SLACK_WEBHOOK_URL",
+    home: "vercel",
+    label: "The Slack alert address (the same address the engine holds on AWS)",
+    need: "optional",
+    sameAs: "aws.SLACK_WEBHOOK_URL",
+    rotation: {
+      kind: "only-if",
+      when: "the address leaks: anyone holding it can post in #alerts",
+      how: `This is the SAME address as SLACK_WEBHOOK_URL on AWS, stored in both places, so change it in BOTH: make a new incoming webhook in Slack. ${VERCEL_HOW} Then in AWS CloudShell run bash put-external-secrets.sh SLACK_WEBHOOK_URL and restart (deploy-app.yml, restart_only), and remove the old webhook.`,
+    },
+  },
   {
     id: "vercel.APIFY_TOKEN",
     env: "APIFY_TOKEN",
@@ -618,18 +630,20 @@ export const KEYS: readonly KeyDef[] = [
     rotation: { kind: "every", days: 365, how: `Add a new secret to the OAuth client in Google Cloud. ${AWS_HOW("GOOGLE_OAUTH_CLIENT_SECRET")} Then disable the old secret.`, impact: "None while both secrets are enabled." },
   },
   {
-    id: "aws.SLACK_OPS_WEBHOOK_URL",
-    env: "SLACK_OPS_WEBHOOK_URL",
+    id: "aws.SLACK_WEBHOOK_URL",
+    env: "SLACK_WEBHOOK_URL",
     home: "aws",
-    label: "The Slack address the engine posts ops alerts to",
+    label: "The Slack alert address (the engine's copy of the same address Vercel holds)",
     // Optional: every alert is emailed whether or not Slack is set.
     need: "optional",
+    // One #alerts channel, one address, kept in two places (owner, 23
+    // October 2026); each side tags its posts, [app] or [web].
+    sameAs: "vercel.SLACK_WEBHOOK_URL",
     rotation: {
       kind: "only-if",
-      when: "the address leaks: anyone holding it can post in that channel",
-      how: `Make a new incoming webhook in Slack and remove the old one. ${AWS_HOW("SLACK_OPS_WEBHOOK_URL")}`,
+      when: "the address leaks: anyone holding it can post in #alerts",
+      how: `This is the SAME address as SLACK_WEBHOOK_URL in Vercel, stored in both places, so change it in BOTH: make a new incoming webhook in Slack, put it in Vercel and redeploy, then in AWS CloudShell run bash put-external-secrets.sh SLACK_WEBHOOK_URL and restart (deploy-app.yml, restart_only), and remove the old webhook.`,
     },
-    neverSameAs: "vercel.SLACK_WEBHOOK_URL",
   },
   {
     id: "aws.BETTER_AUTH_SECRET",
@@ -1470,7 +1484,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "Ops alerts to your Slack",
     carries: "Each ops alert's title, the clinic's name and id, and its counts; never a patient, an address, a number or anything said",
     example: "A booking could not be written to a clinic's calendar: your phone buzzes with the clinic's name and id a minute after the email is sent.",
-    keys: ["aws.SLACK_OPS_WEBHOOK_URL"],
+    keys: ["aws.SLACK_WEBHOOK_URL"],
     phi: false,
     build: "built",
     buildNote:

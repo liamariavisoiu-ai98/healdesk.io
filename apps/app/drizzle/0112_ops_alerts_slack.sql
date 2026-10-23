@@ -12,7 +12,7 @@ ALTER TABLE "ops_alerts" ADD CONSTRAINT "ops_alerts_slack_attempts_check" CHECK 
 -- Until now an ops alert was a log line, this row and one email. The owner
 -- asked for the same alert in Slack. apps/app posts it itself, from the
 -- worker's every-minute sweep (lib/ops/slack.ts), through an Incoming Webhook
--- held in the SLACK_OPS_WEBHOOK_URL parameter; while that is unset nothing
+-- held in the SLACK_WEBHOOK_URL parameter; while that is unset nothing
 -- posts and these columns keep their defaults.
 --
 -- The four columns are the Slack copy's state: when Slack took it, how many

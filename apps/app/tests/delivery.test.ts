@@ -411,7 +411,7 @@ describeDb("delivery", () => {
           "health-flags",
           "ops-watch",
           // Each ops alert's Slack copy (lib/ops/slack.ts): not switched, idle
-          // without SLACK_OPS_WEBHOOK_URL.
+          // without SLACK_WEBHOOK_URL.
           "ops-slack",
           // Calendar writes that need a person, told to ops once each
           // (lib/ops/calendar-write-alerts.ts): a sweep that only alerts.
@@ -484,7 +484,7 @@ describeDb("delivery", () => {
         if (job === "retell-fallback") continue; // not switched: does nothing until HEALDESK_RETELL_API_KEY is set
         if (job === "voice-agents") continue; // behind the owner's HEALDESK_VOICE_PROVISION_ENABLED, and idle without the Retell key
         if (job === "calendar-write-alerts") continue; // a sweep: tells ops of stuck calendar writes, once each
-        if (job === "ops-slack") continue; // not switched: does nothing until SLACK_OPS_WEBHOOK_URL is set
+        if (job === "ops-slack") continue; // not switched: does nothing until SLACK_WEBHOOK_URL is set
         if (job === "deposit-links") continue; // a sweep: flags to the front desk only a pending_link deposit with no link, past its grace
         expect(status, job).toBe("disabled");
       }

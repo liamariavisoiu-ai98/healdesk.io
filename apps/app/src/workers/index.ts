@@ -179,7 +179,7 @@ async function main(): Promise<void> {
       // ten minutes on, and B3's follow-up past its day (lib/ops/watch.ts).
       ["ops-watch", () => runOpsWatchJob()],
       // Each ops alert's Slack copy, posted and retried (lib/ops/slack.ts).
-      // Unswitched: off until SLACK_OPS_WEBHOOK_URL is set.
+      // Unswitched: off until SLACK_WEBHOOK_URL is set.
       ["ops-slack", () => runOpsSlackSweep()],
       // The redial records of calls that ended early (lib/voice/redial.ts):
       // each deleted at its two hours, whatever any switch says. Unswitched.

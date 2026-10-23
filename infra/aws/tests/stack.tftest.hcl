@@ -296,7 +296,7 @@ run "production_defaults" {
       "ANTHROPIC_API_KEY", "BETTER_AUTH_SECRET", "DATABASE_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
       "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_API_KEY", "HEALDESK_RETELL_LLM_SECRET",
       "META_APP_SECRET", "META_VERIFY_TOKEN",
-      "RESEND_API_KEY", "SLACK_OPS_WEBHOOK_URL", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
+      "RESEND_API_KEY", "SLACK_WEBHOOK_URL", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
     ])
     error_message = "The web app container must get every app/ parameter as a secret, and nothing else."
   }
@@ -360,7 +360,7 @@ run "production_defaults" {
     condition = toset([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].secrets : e.name]) == toset([
       "BETTER_AUTH_SECRET", "DATABASE_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
       "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_API_KEY", "RESEND_API_KEY",
-      "SLACK_OPS_WEBHOOK_URL", "STRIPE_SECRET_KEY",
+      "SLACK_WEBHOOK_URL", "STRIPE_SECRET_KEY",
     ])
     error_message = "The worker's secrets differ from what its code reads (Google included, for the calendar watch, Retell's key, for the voice call backstop, and the Slack webhook, for ops alerts)."
   }
@@ -794,7 +794,7 @@ run "production_defaults" {
       output.parameters_to_fill == sort([for name in [
         "ANTHROPIC_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "HEALDESK_PROVISION_SECRET",
         "HEALDESK_RETELL_API_KEY", "HEALDESK_RETELL_LLM_SECRET", "META_APP_SECRET",
-        "META_VERIFY_TOKEN", "RESEND_API_KEY", "SLACK_OPS_WEBHOOK_URL", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
+        "META_VERIFY_TOKEN", "RESEND_API_KEY", "SLACK_WEBHOOK_URL", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
       ] : "/healdesk/production/app/${name}"]) &&
       length(output.internal_parameters) == 10 &&
       !contains(output.parameters_to_fill, "/healdesk/production/ci/CLOUDFLARE_API_TOKEN")

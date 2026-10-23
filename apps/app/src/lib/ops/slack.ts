@@ -15,24 +15,30 @@ import { opsClinicName, opsConsoleLink, type OpsEvent } from "./notify";
  * same alert to the owner's Slack channel through an Incoming Webhook, from
  * the worker's every-minute sweep, so the web tier, the worker and the voice
  * process need no Slack code and one alert is one post, however many
- * processes raised it. The webhook's address is SLACK_OPS_WEBHOOK_URL, a
+ * processes raised it. The webhook's address is SLACK_WEBHOOK_URL, a
  * secret in Parameter Store (infra/aws/ssm.tf); while it is unset, or still
  * the "__unset__" placeholder, Slack is simply off and the sweep touches no
- * row. apps/web's demo alerts use their own webhook on Vercel
- * (SLACK_WEBHOOK_URL), which this never reads.
+ * row. It is the same address as apps/web's SLACK_WEBHOOK_URL on Vercel,
+ * the owner's #alerts channel (owner, 23 October 2026), so every post here
+ * starts with SLACK_TAG, `[app]`, and apps/web's start with `[web]`
+ * (apps/web lib/demo/alert.ts): the channel says which side spoke.
  *
  * Slack signs no business associate agreement, so what it is sent is an
  * allow-list, built here and nowhere else: the alert's title (our fixed
  * wording) and event name, the clinic's name and id, the alert's counts, the
- * console link its email carries (opsConsoleLink), and nothing more. Never a patient, an address, a phone number, a conversation,
- * a notice or a request id, never free text; a field not on the list is left
+ * console link its email carries (opsConsoleLink), and nothing more. Never a
+ * patient, an address, a phone number, a conversation, a notice or a
+ * request id, never free text; a field not on the list is left
  * out whatever it holds. The webhook's address is never logged or recorded:
  * a failure is kept as an HTTP status or an error's name.
  */
 
+/** The first word of every post from apps/app; apps/web's start with `[web]`. */
+export const SLACK_TAG = "[app]";
+
 /** Read at use time. A value that is not a Slack Incoming Webhook is refused, never posted to. */
 export function slackWebhookUrl(): string | null {
-  const raw = process.env.SLACK_OPS_WEBHOOK_URL?.trim();
+  const raw = process.env.SLACK_WEBHOOK_URL?.trim();
   if (!raw || raw === "__unset__") return null;
   return raw;
 }
@@ -79,7 +85,7 @@ export function slackFields(
 export function slackText(alert: SlackAlert): string {
   const fields = slackFields(alert.fields);
   const title = opsAlertTitle({ ...alert.fields, event: alert.event });
-  const lines = [`*${escapeSlack(title)}*`];
+  const lines = [`${SLACK_TAG} *${escapeSlack(title)}*`];
   if (fields.clinicId) {
     const name = alert.clinicName ? `${escapeSlack(alert.clinicName)}, ` : "";
     lines.push(`${name}clinic id \`${fields.clinicId}\``);
@@ -102,7 +108,7 @@ const POST_TIMEOUT_MS = 5_000;
 /** One post. Never throws; the error is a status or an error's name, never the address. */
 export async function postToSlack(url: string, text: string): Promise<SlackPostResult> {
   if (!WEBHOOK.test(url)) {
-    return { ok: false, error: "SLACK_OPS_WEBHOOK_URL is not a Slack Incoming Webhook address" };
+    return { ok: false, error: "SLACK_WEBHOOK_URL is not a Slack Incoming Webhook address" };
   }
   try {
     const response = await fetch(url, {
@@ -147,7 +153,7 @@ export type SlackSweepResult = { status: "ok" | "failed"; note: string };
  */
 export async function runOpsSlackSweep(now: Date = new Date()): Promise<SlackSweepResult> {
   const url = slackWebhookUrl();
-  if (!url) return { status: "ok", note: "Slack is off: SLACK_OPS_WEBHOOK_URL is not set." };
+  if (!url) return { status: "ok", note: "Slack is off: SLACK_WEBHOOK_URL is not set." };
 
   const claimed = await unsafeDb.execute<{
     id: string;

@@ -36,8 +36,15 @@ describe("postInternalAlert", () => {
   test("posts nothing without a Slack address, or to anything else", async () => {
     vi.stubEnv("SLACK_WEBHOOK_URL", "");
     await postInternalAlert("x");
-    vi.stubEnv("SLACK_WEBHOOK_URL", "https://example.com/hook");
-    await postInternalAlert("x");
+    for (const url of [
+      "https://example.com/hook",
+      "https://hooks.slack.com@evil.example/services/x",
+      "https://hooks.slack.com.evil.example/services/x",
+      "http://hooks.slack.com/services/x",
+    ]) {
+      vi.stubEnv("SLACK_WEBHOOK_URL", url);
+      await postInternalAlert("x");
+    }
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

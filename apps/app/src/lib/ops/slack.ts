@@ -101,14 +101,35 @@ export function slackText(alert: SlackAlert): string {
   return lines.join("\n");
 }
 
-export type SlackPostResult = { ok: true } | { ok: false; error: string };
+export type SlackPostResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error: string;
+      /**
+       * Slack is pushing back (429) or failing (5xx): the rest of the batch
+       * waits rather than spending its tries against the same wall.
+       */
+      throttled: boolean;
+      /** For a 429: how long Slack asked us to wait (Retry-After), bounded. */
+      retryAfterMs?: number;
+    };
 
 const POST_TIMEOUT_MS = 5_000;
+/** A Retry-After is honoured up to this, and taken as a minute when absent or unreadable. */
+export const SLACK_MAX_RETRY_AFTER_MS = 10 * 60_000;
+const DEFAULT_RETRY_AFTER_MS = 60_000;
+
+function retryAfterMs(header: string | null): number {
+  const seconds = header === null ? NaN : Number(header.trim());
+  if (!Number.isFinite(seconds) || seconds <= 0) return DEFAULT_RETRY_AFTER_MS;
+  return Math.min(SLACK_MAX_RETRY_AFTER_MS, Math.ceil(seconds * 1000));
+}
 
 /** One post. Never throws; the error is a status or an error's name, never the address. */
 export async function postToSlack(url: string, text: string): Promise<SlackPostResult> {
   if (!WEBHOOK.test(url)) {
-    return { ok: false, error: "SLACK_WEBHOOK_URL is not a Slack Incoming Webhook address" };
+    return { ok: false, throttled: false, error: "SLACK_WEBHOOK_URL is not a Slack Incoming Webhook address" };
   }
   try {
     const response = await fetch(url, {
@@ -119,21 +140,38 @@ export async function postToSlack(url: string, text: string): Promise<SlackPostR
       redirect: "error",
     });
     if (response.ok) return { ok: true };
-    return { ok: false, error: `http ${response.status}` };
+    if (response.status === 429) {
+      return {
+        ok: false,
+        throttled: true,
+        error: "http 429",
+        retryAfterMs: retryAfterMs(response.headers.get("retry-after")),
+      };
+    }
+    return { ok: false, throttled: response.status >= 500, error: `http ${response.status}` };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.name : "unknown" };
+    return { ok: false, throttled: false, error: error instanceof Error ? error.name : "unknown" };
   }
 }
 
 /**
  * Tries per alert, and the wait before each retry: 1, 5 and 30 minutes, so a
  * Slack outage of up to half an hour still delivers, and an alert Slack never
- * takes is given up after about 36 minutes. The email carried it anyway.
+ * takes is given up after about 36 minutes. The email carried it anyway. A
+ * 429 is not a try: the alert waits as long as Slack asked (Retry-After, at
+ * most SLACK_MAX_RETRY_AFTER_MS) and keeps its four.
  */
 export const SLACK_MAX_ATTEMPTS = 4;
 const RETRY_AFTER_MS = [60_000, 5 * 60_000, 30 * 60_000];
-/** How long a try holds its alert: longer than a batch of posts can take. */
-const LEASE_MS = 2 * 60_000;
+/**
+ * How long a try holds its alert: longer than a batch of posts can take.
+ * Counted from the database's clock (or `now`, when that is later), never
+ * from a `now` the caller read earlier: the hourly tick used to reach this
+ * sweep minutes after it started, and a lease counted from then could
+ * already be over while the minute sweep, on the real clock, claimed the
+ * same alert and posted it twice.
+ */
+const LEASE = "2 minutes";
 /**
  * Only alerts raised within this are posted, so pasting the key, or a
  * restore, never floods the channel with old alerts. Each is still in the
@@ -148,8 +186,14 @@ export type SlackSweepResult = { status: "ok" | "failed"; note: string };
  * The `ops-slack` sweep: every minute from the worker's billing-minute clock,
  * and hourly from the tick as its backstop. Claims a batch of alerts owed to
  * Slack in one statement that also leases them (so two workers never post one
- * alert twice), posts each, and records the outcome on its row. Not a
+ * alert twice: a row another sweep holds is skipped, and one it has leased
+ * no longer matches), posts each, and records the outcome on its row. Not a
  * switched job: the key is the switch.
+ *
+ * Delivery is at least once, not exactly once: a post Slack took whose
+ * outcome could not then be recorded (the database went away between the
+ * two) is posted again when its lease runs out. A rare duplicate in #alerts
+ * is the price of never losing an alert.
  */
 export async function runOpsSlackSweep(now: Date = new Date()): Promise<SlackSweepResult> {
   const url = slackWebhookUrl();
@@ -164,7 +208,7 @@ export async function runOpsSlackSweep(now: Date = new Date()): Promise<SlackSwe
   }>(sql`
     update ops_alerts
        set slack_attempts = slack_attempts + 1,
-           slack_next_at = ${new Date(now.getTime() + LEASE_MS)}
+           slack_next_at = greatest(clock_timestamp(), ${now}::timestamptz) + ${LEASE}::interval
      where id in (
        select id from ops_alerts
         where slack_posted_at is null
@@ -180,11 +224,13 @@ export async function runOpsSlackSweep(now: Date = new Date()): Promise<SlackSwe
 
   let posted = 0;
   let failed = 0;
+  let held = 0;
   // Oldest first, as the channel should read: RETURNING keeps no order.
   const rows = [...claimed.rows].sort(
     (a, b) => new Date(a.raised_at).getTime() - new Date(b.raised_at).getTime(),
   );
-  for (const row of rows) {
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
     const clinicName = await opsClinicName(row.fields.clinicId);
     const text = slackText({ event: row.event as OpsEvent, fields: row.fields, clinicName });
     const result = await postToSlack(url, text);
@@ -196,8 +242,24 @@ export async function runOpsSlackSweep(now: Date = new Date()): Promise<SlackSwe
              set slack_posted_at = ${now}, slack_error = null, slack_next_at = null
            where id = ${row.id}
         `);
+        continue;
+      }
+      failed += 1;
+      log.warn("ops alert not posted to Slack", {
+        event: row.event,
+        attempt: row.slack_attempts,
+        reason: result.error,
+      });
+      if (result.retryAfterMs !== undefined) {
+        // A 429 is not a try: the alert keeps it and waits as Slack asked.
+        await unsafeDb.execute(sql`
+          update ops_alerts
+             set slack_attempts = greatest(slack_attempts - 1, 0),
+                 slack_error = ${result.error},
+                 slack_next_at = ${new Date(now.getTime() + result.retryAfterMs)}
+           where id = ${row.id}
+        `);
       } else {
-        failed += 1;
         const wait = RETRY_AFTER_MS[row.slack_attempts - 1];
         await unsafeDb.execute(sql`
           update ops_alerts
@@ -205,11 +267,26 @@ export async function runOpsSlackSweep(now: Date = new Date()): Promise<SlackSwe
                  slack_next_at = ${wait === undefined ? null : new Date(now.getTime() + wait)}
            where id = ${row.id}
         `);
-        log.warn("ops alert not posted to Slack", {
-          event: row.event,
-          attempt: row.slack_attempts,
-          reason: result.error,
-        });
+      }
+      if (result.throttled) {
+        // Slack is pushing back or down: the rest of the batch was never
+        // tried, so each gets its claim's try back and waits with this one,
+        // instead of spending all four of its tries against the same wall.
+        const rest = rows.slice(index + 1).map((r) => r.id);
+        if (rest.length > 0) {
+          held = rest.length;
+          const pause = result.retryAfterMs ?? RETRY_AFTER_MS[0]!;
+          await unsafeDb.execute(sql`
+            update ops_alerts
+               set slack_attempts = greatest(slack_attempts - 1, 0),
+                   slack_next_at = ${new Date(now.getTime() + pause)}
+             where id in (${sql.join(
+               rest.map((id) => sql`${id}::uuid`),
+               sql`, `,
+             )})
+          `);
+        }
+        break;
       }
     } catch (error) {
       // The lease runs out and the next minute's sweep tries again.
@@ -217,6 +294,9 @@ export async function runOpsSlackSweep(now: Date = new Date()): Promise<SlackSwe
     }
   }
 
-  const note = `${claimed.rows.length} claimed, ${posted} posted${failed ? `, ${failed} failed` : ""}`;
+  const note =
+    `${claimed.rows.length} claimed, ${posted} posted` +
+    (failed ? `, ${failed} failed` : "") +
+    (held ? `, ${held} held while Slack pushes back` : "");
   return { status: failed > 0 && posted === 0 ? "failed" : "ok", note };
 }

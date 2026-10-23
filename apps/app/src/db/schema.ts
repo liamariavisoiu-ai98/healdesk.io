@@ -1863,6 +1863,9 @@ export const opsAlerts = pgTable(
   (t) => [
     index("ops_alerts_dedupe_idx").on(t.event, t.dedupeKey, t.raisedAt),
     check("ops_alerts_slack_attempts_check", sql`${t.slackAttempts} >= 0`),
+    // The Slack sweep's scan, every minute, over a table that only grows:
+    // the alerts not yet posted, by when they were raised.
+    index("ops_alerts_slack_owed_idx").on(t.raisedAt).where(sql`${t.slackPostedAt} is null`),
     check("ops_alerts_event_check", sql`${t.event} ~ '^[a-z0-9]+(_[a-z0-9]+)*$'`),
     check("ops_alerts_dedupe_key_check", sql`char_length(${t.dedupeKey}) <= 400`),
   ],

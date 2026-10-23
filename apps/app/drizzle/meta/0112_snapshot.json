@@ -1,5 +1,5 @@
 {
-  "id": "21b93bc3-563c-4803-b221-267eaf7d1805",
+  "id": "8e38e0a3-538f-4ea3-8893-f3888776ed3c",
   "prevId": "69846cd0-68a0-4665-bcd2-dc45816e279d",
   "version": "7",
   "dialect": "postgresql",
@@ -8555,6 +8555,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ops_alerts_slack_owed_idx": {
+          "name": "ops_alerts_slack_owed_idx",
+          "columns": [
+            {
+              "expression": "raised_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"ops_alerts\".\"slack_posted_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}

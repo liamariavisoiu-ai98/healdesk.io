@@ -2,6 +2,7 @@ ALTER TABLE "ops_alerts" ADD COLUMN "slack_posted_at" timestamp with time zone;-
 ALTER TABLE "ops_alerts" ADD COLUMN "slack_attempts" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "ops_alerts" ADD COLUMN "slack_error" text;--> statement-breakpoint
 ALTER TABLE "ops_alerts" ADD COLUMN "slack_next_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "ops_alerts_slack_owed_idx" ON "ops_alerts" USING btree ("raised_at") WHERE "ops_alerts"."slack_posted_at" is null;--> statement-breakpoint
 ALTER TABLE "ops_alerts" ADD CONSTRAINT "ops_alerts_slack_attempts_check" CHECK ("ops_alerts"."slack_attempts" >= 0);--> statement-breakpoint
 -- =============================================================================
 -- Ops alerts reach Slack (23 October 2026; owner decisions D1 and D2 of the
@@ -26,8 +27,12 @@ ALTER TABLE "ops_alerts" ADD CONSTRAINT "ops_alerts_slack_attempts_check" CHECK 
 -- the alert's clinic id and counts and the clinic's name (business data), by
 -- the allow-list in lib/ops/slack.ts.
 --
+-- The partial index is the sweep's scan: every minute it reads the alerts
+-- not yet posted, by when they were raised, from a table that only grows.
+--
 -- Safe to apply in place: nullable columns, one with a default, a CHECK every
--- existing row passes, and a column grant.
+-- existing row passes, a partial index (built in a moment on a table this
+-- small) and a column grant.
 -- =============================================================================
 
 GRANT UPDATE (slack_posted_at, slack_attempts, slack_error, slack_next_at) ON ops_alerts TO healdesk_app;--> statement-breakpoint

@@ -216,7 +216,7 @@ describe("the clinic table", () => {
     expect(page).toContain("changed, audit ✗");
     expect(page).toContain("broken");
     expect(page).toContain("drift");
-    expect(page).toContain("1 bounced, 2 waiting");
+    expect(page).toContain("1 undelivered, 2 waiting");
     expect(page).toContain("92% voice");
     expect(page).toContain("Covered-entity status not determined.");
     // The same rows twice: a table from 640 px and cards under it.

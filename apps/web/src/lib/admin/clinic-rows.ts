@@ -245,9 +245,15 @@ export function voiceChip(voice: ClinicRow["voice"]): ChipWords {
   }
 }
 
+/**
+ * The strip's `bounced` holds every copy that did not arrive: bounced,
+ * unconfirmed after 72 hours, or deleted undelivered after 30 days
+ * (strip-types.ts, the lead's note of 23 October 2026), so the chip says
+ * "undelivered", the word that covers all three.
+ */
 export function transcriptsChip(transcripts: ClinicRow["transcripts"]): ChipWords {
   if (!transcripts) return NOT_MEASURED;
-  if (transcripts.bounced > 0) return { tone: "bad", words: `${transcripts.bounced} bounced` + (transcripts.waiting > 0 ? `, ${transcripts.waiting} waiting` : "") };
+  if (transcripts.bounced > 0) return { tone: "bad", words: `${transcripts.bounced} undelivered` + (transcripts.waiting > 0 ? `, ${transcripts.waiting} waiting` : "") };
   if (transcripts.waiting > 0) return { tone: "warn", words: `${transcripts.waiting} waiting` };
   return { tone: "ok", words: "none waiting" };
 }

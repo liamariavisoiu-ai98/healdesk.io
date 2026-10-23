@@ -618,6 +618,20 @@ export const KEYS: readonly KeyDef[] = [
     rotation: { kind: "every", days: 365, how: `Add a new secret to the OAuth client in Google Cloud. ${AWS_HOW("GOOGLE_OAUTH_CLIENT_SECRET")} Then disable the old secret.`, impact: "None while both secrets are enabled." },
   },
   {
+    id: "aws.SLACK_OPS_WEBHOOK_URL",
+    env: "SLACK_OPS_WEBHOOK_URL",
+    home: "aws",
+    label: "The Slack address the engine posts ops alerts to",
+    // Optional: every alert is emailed whether or not Slack is set.
+    need: "optional",
+    rotation: {
+      kind: "only-if",
+      when: "the address leaks: anyone holding it can post in that channel",
+      how: `Make a new incoming webhook in Slack and remove the old one. ${AWS_HOW("SLACK_OPS_WEBHOOK_URL")}`,
+    },
+    neverSameAs: "vercel.SLACK_WEBHOOK_URL",
+  },
+  {
     id: "aws.BETTER_AUTH_SECRET",
     env: "BETTER_AUTH_SECRET",
     home: "aws",
@@ -1445,6 +1459,20 @@ export const BRIDGES: readonly BridgeDef[] = [
     build: "built",
     buildNote:
       "Every booking alert is queued in the outbox in the same transaction as what it reports, so nothing goes for work that rolled back, and each is only a pointer to Bookings (Conversations for an urgent one) after sign-in and the passkey. They go to the clinic's account address; an urgent one goes in-process the moment its transaction commits. If an urgent alert cannot be queued, you are emailed at once (urgent_alert_not_queued) to phone the clinic, and no channel tells the person the team was told. AYA says \"I've told the team\" only while an urgent alert would really go out: the billing-notices job on, Resend set up (its key and sender address present) and the clinic's account address there (apps/app lib/notices/urgent-readiness.ts); otherwise the urgent reply gives 911 and the clinic's number without it, the alert is still queued for when they are, and the clinic's set-up wizard and the Alerts card in its Settings say urgent alerts are not switched on yet. An urgent message in French, German, Italian or Portuguese, which AYA does not answer in, gets the line for another language and the urgent alert all the same. Nothing goes while the billing-notices job is off, and go-live does not check it: switching it on before the first clinic goes live is an open item on /admin/seo; the opening-hour \"still open\" email also needs the requests-still-open job. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. The daily summary goes at each clinic's opening time on its working days, and the weekly recap alone on Mondays while the summary is off, once their two jobs are switched on; each counts what AYA did and lists every booking and request only as a link.",
+  },
+  {
+    id: "app-slack",
+    theme: "running",
+    from: "app",
+    to: "slack",
+    title: "Ops alerts to your Slack",
+    carries: "Each ops alert's title, the clinic's name and id, and its counts; never a patient, an address, a number or anything said",
+    example: "A booking could not be written to a clinic's calendar: your phone buzzes with the clinic's name and id a minute after the email is sent.",
+    keys: ["aws.SLACK_OPS_WEBHOOK_URL"],
+    phi: false,
+    build: "built",
+    buildNote:
+      "The worker posts each alert once, from its every-minute sweep, retries at 1, 5 and 30 minutes, and records the outcome on the alert's row; only alerts from the last 24 hours are posted, so pasting the key never floods the channel. What it may carry is an allow-list in apps/app lib/ops/slack.ts. Without the key nothing posts and every alert is still emailed.",
   },
   {
     id: "app-ses",

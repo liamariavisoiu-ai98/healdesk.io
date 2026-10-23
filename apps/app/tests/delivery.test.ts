@@ -410,6 +410,9 @@ describeDb("delivery", () => {
           // hourly behind their switches. The ops digest joins from 07 UTC.
           "health-flags",
           "ops-watch",
+          // Each ops alert's Slack copy (lib/ops/slack.ts): not switched, idle
+          // without SLACK_OPS_WEBHOOK_URL.
+          "ops-slack",
           // The deletion records' own clock (drizzle/0063): a sweep, not a
           // switched job, because "no longer than it needs one" waits for no
           // switch.
@@ -477,6 +480,7 @@ describeDb("delivery", () => {
         if (job === "patient-requests") continue; // a sweep: L32's reminders for the unmarked requests only
         if (job === "retell-fallback") continue; // not switched: does nothing until HEALDESK_RETELL_API_KEY is set
         if (job === "voice-agents") continue; // behind the owner's HEALDESK_VOICE_PROVISION_ENABLED, and idle without the Retell key
+        if (job === "ops-slack") continue; // not switched: does nothing until SLACK_OPS_WEBHOOK_URL is set
         if (job === "deposit-links") continue; // a sweep: flags to the front desk only a pending_link deposit with no link, past its grace
         expect(status, job).toBe("disabled");
       }
@@ -496,6 +500,7 @@ describeDb("delivery", () => {
       expect(jobs["patient-requests"]).toBe("ok");
       expect(jobs["retell-fallback"]).toBe("skipped");
       expect(jobs["voice-agents"]).toBe("skipped");
+      expect(jobs["ops-slack"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

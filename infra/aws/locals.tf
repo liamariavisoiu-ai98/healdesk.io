@@ -225,7 +225,8 @@ locals {
   # stop links), identifier references, provisioning's signature, mail,
   # Stripe, Google for the calendar watch, sync and connection health, and
   # Retell's key for the voice call backstop, which reads a call back, and for
-  # the hourly fallback-number sync (lib/voice/retell-fallback-sync.ts).
+  # the hourly fallback-number sync (lib/voice/retell-fallback-sync.ts), and
+  # the Slack webhook ops alerts are posted through (lib/ops/slack.ts).
   worker_secret_names = [
     "BETTER_AUTH_SECRET",
     "DATABASE_URL",
@@ -235,6 +236,7 @@ locals {
     "HEALDESK_PROVISION_SECRET",
     "HEALDESK_RETELL_API_KEY",
     "RESEND_API_KEY",
+    "SLACK_OPS_WEBHOOK_URL",
     "STRIPE_SECRET_KEY",
   ]
 

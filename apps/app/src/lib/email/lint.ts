@@ -175,6 +175,15 @@ function classOfKey(key: string): ValueClass | null {
   return null;
 }
 
+/**
+ * Whether a payload key holds a count, by the allowlist's own rule. The Slack
+ * copy of an ops alert (lib/ops/slack.ts) carries counts and nothing else of
+ * an alert's fields beside its clinic, so it asks the same question.
+ */
+export function isCountKey(key: string): boolean {
+  return classOfKey(key) === "count";
+}
+
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const CATEGORY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 const ISO_DATE =

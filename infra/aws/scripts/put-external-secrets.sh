@@ -47,6 +47,7 @@ KEYS=(
   ANTHROPIC_API_KEY
   HEALDESK_RETELL_LLM_SECRET
   HEALDESK_RETELL_API_KEY
+  SLACK_OPS_WEBHOOK_URL
   CLOUDFLARE_API_TOKEN
 )
 
@@ -76,6 +77,7 @@ hint_for() {
     ANTHROPIC_API_KEY) echo "a key of the HIPAA-enabled Anthropic organisation, never the marketing one" ;;
     HEALDESK_RETELL_LLM_SECRET) echo "the secret in every clinic's Retell agent URL (wss://app.healdesk.io/llm-websocket/<this>/<clinic id>): 32 to 200 random letters, digits, - or _, such as the output of openssl rand -hex 32; the same value goes into each agent" ;;
     HEALDESK_RETELL_API_KEY) echo "the API key (key_...) of the Retell workspace the clinics' agents are in, under Retell's BAA, the one with the webhook badge (Settings, API Keys): it signs the call-ended webhook, reads a call back, and keeps each AYA number's fallback on the clinic's direct line. Never the marketing site's RETELL_API_KEY or the demo line's workspace" ;;
+    SLACK_OPS_WEBHOOK_URL) echo "a Slack Incoming Webhook (https://hooks.slack.com/services/...) for the channel ops alerts go to; a different webhook from the marketing site's SLACK_WEBHOOK_URL" ;;
     CLOUDFLARE_API_TOKEN) echo "Cloudflare API token (Edit zone DNS, healdesk.io), read by infra.yml and host.yml only" ;;
   esac
 }
@@ -135,6 +137,8 @@ shape_problem() {
     HEALDESK_RETELL_LLM_SECRET) [[ "$2" =~ ^[A-Za-z0-9_-]{32,200}$ ]] || echo "it must be 32 to 200 letters, digits, - or _ (openssl rand -hex 32 makes one)" ;;
     # Sent as a bearer and used as an HMAC key: one word, Retell's key_ prefix.
     HEALDESK_RETELL_API_KEY) [[ "$2" =~ ^key_[A-Za-z0-9_-]{16,196}$ ]] || echo "a Retell API key is one word starting key_, of letters, digits, - or _" ;;
+    # apps/app refuses to post anywhere else (lib/ops/slack.ts).
+    SLACK_OPS_WEBHOOK_URL) [[ "$2" =~ ^https://hooks\.slack\.com/services/[A-Za-z0-9_/-]{10,200}$ ]] || echo "a Slack Incoming Webhook starts with https://hooks.slack.com/services/" ;;
   esac
 }
 

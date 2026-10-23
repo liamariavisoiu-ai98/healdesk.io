@@ -4,7 +4,7 @@ import { and, desc, eq, gt, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { opsAlerts } from "@/db/schema";
-import { assertPayloadAllowed } from "@/lib/email/lint";
+import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
 import { sendEmail } from "@/lib/email/send";
 import { OPS_REASON } from "@/lib/email/templates/context";
 import { renderOpsAlert, type OpsAlertPayload } from "@/lib/email/templates/ops_alert";
@@ -472,6 +472,29 @@ async function claimAlert(
       .returning({ id: opsAlerts.id });
     return inserted?.id ?? null;
   });
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The clinic's name for an alert about it, or null: business data, which the
+ * owner allowed in ops email and Slack beside its id and counts (decision D2,
+ * 23 October 2026). Read when the alert goes out, never stored on its row,
+ * through the scheduler's definer, the one clinic listing the runtime role
+ * may make without a tenant. A name the email rule would refuse (an address,
+ * a link, a long number in it) is left out. Never throws: an alert without
+ * the name still goes.
+ */
+export async function opsClinicName(clinicId: unknown): Promise<string | null> {
+  if (typeof clinicId !== "string" || !UUID.test(clinicId)) return null;
+  try {
+    const result = await unsafeDb.execute<{ name: string | null }>(
+      sql`select name from app_clinics_overview() where id = ${clinicId}::uuid`,
+    );
+    return printableClinicName(result.rows[0]?.name);
+  } catch {
+    return null;
+  }
 }
 
 /** Where alerts go. Never a clinic's address. */

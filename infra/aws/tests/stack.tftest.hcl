@@ -296,7 +296,7 @@ run "production_defaults" {
       "ANTHROPIC_API_KEY", "BETTER_AUTH_SECRET", "DATABASE_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
       "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_API_KEY", "HEALDESK_RETELL_LLM_SECRET",
       "META_APP_SECRET", "META_VERIFY_TOKEN",
-      "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
+      "RESEND_API_KEY", "SLACK_OPS_WEBHOOK_URL", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
     ])
     error_message = "The web app container must get every app/ parameter as a secret, and nothing else."
   }
@@ -349,9 +349,10 @@ run "production_defaults" {
   assert {
     condition = toset([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].secrets : e.name]) == toset([
       "BETTER_AUTH_SECRET", "DATABASE_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
-      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_API_KEY", "RESEND_API_KEY", "STRIPE_SECRET_KEY",
+      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_API_KEY", "RESEND_API_KEY",
+      "SLACK_OPS_WEBHOOK_URL", "STRIPE_SECRET_KEY",
     ])
-    error_message = "The worker's secrets differ from what its code reads (Google included, for the calendar watch, and Retell's key, for the voice call backstop)."
+    error_message = "The worker's secrets differ from what its code reads (Google included, for the calendar watch, Retell's key, for the voice call backstop, and the Slack webhook, for ops alerts)."
   }
 
   assert {
@@ -752,7 +753,7 @@ run "production_defaults" {
   assert {
     condition = (
       local.unset_placeholder == "__unset__" &&
-      length(aws_ssm_parameter.internal) == 10 && length(aws_ssm_parameter.external) == 11 &&
+      length(aws_ssm_parameter.internal) == 10 && length(aws_ssm_parameter.external) == 12 &&
       alltrue([
         for p in concat(values(aws_ssm_parameter.internal), values(aws_ssm_parameter.external)) :
         p.type == "SecureString" && p.key_id == aws_kms_key.main.arn && p.tier == "Standard" &&
@@ -783,12 +784,12 @@ run "production_defaults" {
       output.parameters_to_fill == sort([for name in [
         "ANTHROPIC_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "HEALDESK_PROVISION_SECRET",
         "HEALDESK_RETELL_API_KEY", "HEALDESK_RETELL_LLM_SECRET", "META_APP_SECRET",
-        "META_VERIFY_TOKEN", "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
+        "META_VERIFY_TOKEN", "RESEND_API_KEY", "SLACK_OPS_WEBHOOK_URL", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
       ] : "/healdesk/production/app/${name}"]) &&
       length(output.internal_parameters) == 10 &&
       !contains(output.parameters_to_fill, "/healdesk/production/ci/CLOUDFLARE_API_TOKEN")
     )
-    error_message = "parameters_to_fill lists the eleven external keys, without the two retired Synthflow ones (and never the CI token, which Terraform does not manage)."
+    error_message = "parameters_to_fill lists the twelve external keys, without the two retired Synthflow ones (and never the CI token, which Terraform does not manage)."
   }
 
   assert {
@@ -2123,7 +2124,7 @@ run "standby" {
   assert {
     condition = (
       aws_kms_key.main.enable_key_rotation && aws_kms_alias.main.name == "alias/healdesk-production" &&
-      length(aws_ssm_parameter.internal) == 10 && length(aws_ssm_parameter.external) == 11 &&
+      length(aws_ssm_parameter.internal) == 10 && length(aws_ssm_parameter.external) == 12 &&
       toset(keys(aws_ecr_repository.this)) == toset(["app", "db-admin", "tls-proxy"]) &&
       length(aws_ecr_lifecycle_policy.this) == 3
     )

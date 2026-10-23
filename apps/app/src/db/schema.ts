@@ -1848,9 +1848,21 @@ export const opsAlerts = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }),
     messageId: text("message_id"),
     lastError: text("last_error"),
+    /**
+     * The Slack copy (lib/ops/slack.ts, the ops-slack sweep; owner decision
+     * D1, 23 October 2026): when Slack took it, how many posts were tried,
+     * the last failure as a status or an error name (never the webhook's
+     * address), and when the next try may start, which is also the lease a
+     * try holds while it runs.
+     */
+    slackPostedAt: timestamp("slack_posted_at", { withTimezone: true }),
+    slackAttempts: integer("slack_attempts").notNull().default(0),
+    slackError: text("slack_error"),
+    slackNextAt: timestamp("slack_next_at", { withTimezone: true }),
   },
   (t) => [
     index("ops_alerts_dedupe_idx").on(t.event, t.dedupeKey, t.raisedAt),
+    check("ops_alerts_slack_attempts_check", sql`${t.slackAttempts} >= 0`),
     check("ops_alerts_event_check", sql`${t.event} ~ '^[a-z0-9]+(_[a-z0-9]+)*$'`),
     check("ops_alerts_dedupe_key_check", sql`char_length(${t.dedupeKey}) <= 400`),
   ],

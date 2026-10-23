@@ -559,6 +559,16 @@ function wordingFor(payload: OpsAlertPayload): Wording {
   return WORDING[payload.event] ?? { title: payload.event, action: "Look it up in the console." };
 }
 
+/** The alert's title, as its email's subject prints it: the Slack copy's first line (lib/ops/slack.ts). */
+export function opsAlertTitle(payload: OpsAlertPayload): string {
+  return wordingFor(payload).title;
+}
+
+/** The label a field prints under, in the email and the Slack copy alike. */
+export function opsFieldLabel(key: string): string {
+  return LABELS[key] ?? key;
+}
+
 export const renderOpsAlert: EmailTemplate<OpsAlertPayload> = (payload, ctx) => {
   const wording = wordingFor(payload);
   const facts = Object.entries(payload)

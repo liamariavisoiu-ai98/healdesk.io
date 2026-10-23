@@ -25,6 +25,7 @@ import { expireErasureRecords } from "@/lib/patient-rights/erasure";
 import { sweepPatientRequests } from "@/lib/patient-rights/patient-requests";
 import { runOpsDigestJob } from "@/lib/ops/digest";
 import { runHealthFlagsJob } from "@/lib/ops/health-flags";
+import { runOpsSlackSweep } from "@/lib/ops/slack";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
 import { runAddressChangesJob } from "@/lib/sign-in/address-change";
@@ -258,6 +259,10 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // support replies past their day, which read every clinic's outbox
   // (lib/ops/watch.ts). Every minute from the billing-minute queue as well.
   await record("ops-watch", () => runOpsWatchJob({ now, supportReplies: true }));
+  // The Slack copy of each ops alert (lib/ops/slack.ts): every minute from
+  // the billing-minute queue, and here as its backstop. Not a switched job:
+  // SLACK_OPS_WEBHOOK_URL is the switch, and without it nothing is touched.
+  await record("ops-slack", () => runOpsSlackSweep(now));
   // I2, the ops digest (WP5): at 07 UTC, or the first tick after it, once a
   // UTC day; a tick that finds today's sent does nothing (lib/ops/digest.ts).
   if (hour >= 7) await record("ops-digest", () => runOpsDigestJob({ now }));

@@ -88,6 +88,10 @@ locals {
   # fallback on the clinic's direct line with it, and the voice endpoint reads
   # that fallback back when the database is down
   # (lib/voice/retell-fallback-sync.ts, lib/voice/fallback-line.ts).
+  # SLACK_OPS_WEBHOOK_URL is the Slack Incoming Webhook ops alerts are posted
+  # to (lib/ops/slack.ts, owner decision D1 of 23 October 2026), by the
+  # worker's sweep; a different webhook from apps/web's SLACK_WEBHOOK_URL on
+  # Vercel. While it is unset, Slack is off and alerts are emailed only.
   external_parameter_names = [
     "HEALDESK_PROVISION_SECRET",
     "STRIPE_SECRET_KEY",
@@ -100,6 +104,7 @@ locals {
     "HEALDESK_RETELL_API_KEY",
     "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_OAUTH_CLIENT_SECRET",
+    "SLACK_OPS_WEBHOOK_URL",
   ]
 
   parameter_paths = merge(

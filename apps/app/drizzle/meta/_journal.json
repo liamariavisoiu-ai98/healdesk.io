@@ -785,6 +785,13 @@
       "when": 1792606245942,
       "tag": "0111_location_quantity_check",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1792740857123,
+      "tag": "0112_ops_alerts_slack",
+      "breakpoints": true
     }
   ]
 }

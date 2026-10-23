@@ -112,6 +112,15 @@ import { headers } from "next/headers";
 import { requireOperator } from "@/lib/admin/operator";
 import { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
 import { TRANSCRIPT_STATUSES, type TranscriptStatus } from "@/lib/admin/transcript-status";
+import type {
+  ChannelLevel,
+  ClinicStage,
+  ClinicStripRow,
+  InboxButton,
+  InboxRow,
+  OpsInbox,
+  Tone,
+} from "@/lib/admin/strip-types";
 import { clientKey } from "@/lib/rate-limit";
 
 /**
@@ -341,7 +350,11 @@ type OperatorOp =
   // lib/voice/provision.ts): ids, status and times only, never a caller, a
   // number or a secret. A read; the retry stays in apps/app's ops envelope
   // until a page with the operator's fresh code is built for it.
-  | "voiceAgentStatus";
+  | "voiceAgentStatus"
+  // The redone admin's two reads (ops automation Phase 2, lane A2): the
+  // Clinics table and Home, shaped by lib/admin/strip-types.ts. No argument.
+  | "listClinicStrip"
+  | "opsInbox";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -5766,5 +5779,216 @@ export function removeClinicDevices(
         codesRevoked: count(data.codesRevoked, "removeClinicDevices.codesRevoked"),
       };
     },
+  );
+}
+
+// -----------------------------------------------------------------------------
+// The redone admin's two reads (ops automation Phase 2, lane A2), shaped by
+// lib/admin/strip-types.ts: the Clinics table and Home. Ids, enums, counts,
+// dates and the clinic's own name; every field checked before a screen draws
+// it. A key the contract names must be present (null only where the contract
+// allows null), and a button that is not a path under /admin, or an operation
+// off the allow-list below, is a shape error.
+// -----------------------------------------------------------------------------
+
+const CHANNEL_LEVELS = ["live", "waiting", "off"] as const satisfies readonly ChannelLevel[];
+const TONES = ["ok", "warn", "bad", "info", "muted"] as const satisfies readonly Tone[];
+
+/**
+ * Operations an inbox row's button may call. Empty: every row links to a
+ * page today. A source that needs a button to run an operation adds its name
+ * here, in the same change, and nothing else is accepted.
+ */
+const INBOX_BUTTON_OPS: readonly OperatorOp[] = [];
+
+/** The listClinicStrip read: one strip of the Clinics table. 12 s, the client's usual. */
+const CLINIC_STRIP_TIMEOUT_MS = 12_000;
+
+/** opsInbox reads every source in turn on apps/app (deliberately not in parallel), so it is given longer. */
+const OPS_INBOX_TIMEOUT_MS = 25_000;
+
+/** The value at `key`, which must be present: absent is a shape error, not a null. */
+function field(data: Record<string, unknown>, key: string, at: string): unknown {
+  if (!Object.hasOwn(data, key)) throw new ShapeError(`${at}.${key}`);
+  return data[key];
+}
+
+function readStage(value: unknown, at: string): ClinicStage {
+  const s = object(value, at);
+  const kind = literal(field(s, "kind", at), ["setup", "live", "paused", "offboarding", "closed"] as const, `${at}.kind`);
+  if (kind === "setup") {
+    return {
+      kind,
+      day: count(field(s, "day", at), `${at}.day`),
+      of: count(field(s, "of", at), `${at}.of`),
+      deadlineAt: optionalIsoInstant(field(s, "deadlineAt", at), `${at}.deadlineAt`),
+    };
+  }
+  if (kind === "live") return { kind, since: isoInstant(field(s, "since", at), `${at}.since`) };
+  return { kind, since: optionalIsoInstant(field(s, "since", at), `${at}.since`) };
+}
+
+function readStripRow(value: unknown, i: number): ClinicStripRow {
+  const at = `listClinicStrip.clinics[${i}]`;
+  const r = object(value, at);
+  const channels = object(field(r, "channels", at), `${at}.channels`);
+  const transcripts = object(field(r, "transcripts", at), `${at}.transcripts`);
+  const usage = object(field(r, "usage", at), `${at}.usage`);
+  const rawAvailability = field(r, "availability", at);
+  const availability = rawAvailability === null ? null : object(rawAvailability, `${at}.availability`);
+  const rawReminder = field(r, "lastReminder", at);
+  const lastReminder = rawReminder === null ? null : object(rawReminder, `${at}.lastReminder`);
+  const rawPercent = field(usage, "percent", `${at}.usage`);
+  const rawMeter = field(usage, "meter", `${at}.usage`);
+  // A percent names its meter, and a meter its percent: one without the other is not a reading.
+  if ((rawPercent === null) !== (rawMeter === null)) throw new ShapeError(`${at}.usage`);
+  const blocking = field(r, "blocking", at);
+  return {
+    clinicId: id(field(r, "clinicId", at), `${at}.clinicId`),
+    name: text(field(r, "name", at), `${at}.name`),
+    synthetic: bool(field(r, "synthetic", at), `${at}.synthetic`),
+    stage: readStage(field(r, "stage", at), `${at}.stage`),
+    channels: {
+      web: literal(field(channels, "web", `${at}.channels`), CHANNEL_LEVELS, `${at}.channels.web`),
+      meta: literal(field(channels, "meta", `${at}.channels`), CHANNEL_LEVELS, `${at}.channels.meta`),
+      voice: literal(field(channels, "voice", `${at}.channels`), CHANNEL_LEVELS, `${at}.channels.voice`),
+    },
+    availability: availability && {
+      changedAt: optionalIsoInstant(field(availability, "changedAt", `${at}.availability`), `${at}.availability.changedAt`),
+      audit: literal(
+        field(availability, "audit", `${at}.availability`),
+        ["pass", "warn", "fail", "running", "never"] as const,
+        `${at}.availability.audit`,
+      ),
+    },
+    calendar: literal(field(r, "calendar", at), ["healthy", "degraded", "broken", "none"] as const, `${at}.calendar`),
+    voice: literal(field(r, "voice", at), ["ok", "drift", "failed", "not_provisioned"] as const, `${at}.voice`),
+    transcripts: {
+      waiting: count(field(transcripts, "waiting", `${at}.transcripts`), `${at}.transcripts.waiting`),
+      bounced: count(field(transcripts, "bounced", `${at}.transcripts`), `${at}.transcripts.bounced`),
+    },
+    usage:
+      rawPercent === null
+        ? { percent: null, meter: null }
+        : {
+            percent: count(rawPercent, `${at}.usage.percent`),
+            meter: literal(rawMeter, ["voice", "web", "meta"] as const, `${at}.usage.meter`),
+          },
+    lastReminder: lastReminder && {
+      day: optionalCount(field(lastReminder, "day", `${at}.lastReminder`), `${at}.lastReminder.day`),
+    },
+    blocking: blocking === null ? null : text(blocking, `${at}.blocking`),
+  };
+}
+
+/** listClinicStrip: one row per clinic, newest first, for the Clinics table. */
+export function fetchClinicStrip(): Promise<OpsResult<ClinicStripRow[]>> {
+  return callOps(
+    "listClinicStrip",
+    "read",
+    {},
+    (value) => {
+      const data = object(value, "listClinicStrip");
+      return list(data.clinics, "listClinicStrip.clinics").map(readStripRow);
+    },
+    CLINIC_STRIP_TIMEOUT_MS,
+  );
+}
+
+/**
+ * A path into this console and nothing else: never an origin, never another
+ * app, never a dot segment or an encoded dot, slash or backslash that a
+ * browser would resolve out of /admin. Checked twice: by its characters, and
+ * by resolving it as a browser would and requiring the same path back.
+ */
+function consolePath(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^\/admin(\/[A-Za-z0-9._~%-]+)*\/?(#[A-Za-z0-9._-]+)?$/.test(value)) {
+    throw new ShapeError(at);
+  }
+  if (/%2e|%2f|%5c/i.test(value)) throw new ShapeError(at);
+  const path = value.split("#", 1)[0]!;
+  if (path.split("/").some((segment) => segment === "." || segment === "..")) throw new ShapeError(at);
+  let resolved: URL;
+  try {
+    resolved = new URL(value, "http://console.invalid");
+  } catch {
+    throw new ShapeError(at);
+  }
+  if (resolved.origin !== "http://console.invalid") throw new ShapeError(at);
+  if (resolved.pathname !== path) throw new ShapeError(at);
+  if (resolved.pathname !== "/admin" && !resolved.pathname.startsWith("/admin/")) throw new ShapeError(at);
+  return value;
+}
+
+function readButton(value: unknown, at: string): InboxButton {
+  const b = object(value, at);
+  const label = text(field(b, "label", at), `${at}.label`);
+  const kind = literal(field(b, "kind", at), ["link", "op"] as const, `${at}.kind`);
+  if (kind === "link") return { label, kind, href: consolePath(field(b, "href", at), `${at}.href`) };
+  const op = field(b, "op", at);
+  if (typeof op !== "string" || !(INBOX_BUTTON_OPS as readonly string[]).includes(op)) {
+    throw new ShapeError(`${at}.op`);
+  }
+  const args: Record<string, string | number | boolean> = {};
+  for (const [key, arg] of Object.entries(object(field(b, "args", at), `${at}.args`))) {
+    if (typeof arg !== "string" && typeof arg !== "number" && typeof arg !== "boolean") {
+      throw new ShapeError(`${at}.args.${key}`);
+    }
+    args[key] = arg;
+  }
+  return { label, kind, op, args };
+}
+
+/** A day ("YYYY-MM-DD") or an instant, as each source dates its row; null when nothing is due. */
+function dueAt(value: unknown, at: string): string | null {
+  if (value === null) return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return date(value, at);
+  return isoInstant(value, at);
+}
+
+function readInboxRow(value: unknown, i: number): InboxRow {
+  const at = `opsInbox.rows[${i}]`;
+  const r = object(value, at);
+  const rawClinic = field(r, "clinic", at);
+  const clinic = rawClinic === null ? null : object(rawClinic, `${at}.clinic`);
+  const kind = field(r, "kind", at);
+  if (typeof kind !== "string" || !/^[a-z_]{1,64}$/.test(kind)) throw new ShapeError(`${at}.kind`);
+  return {
+    id: text(field(r, "id", at), `${at}.id`),
+    kind,
+    count: count(field(r, "count", at), `${at}.count`),
+    sentence: text(field(r, "sentence", at), `${at}.sentence`),
+    clinic: clinic && {
+      id: id(field(clinic, "id", `${at}.clinic`), `${at}.clinic.id`),
+      name: text(field(clinic, "name", `${at}.clinic`), `${at}.clinic.name`),
+    },
+    button: readButton(field(r, "button", at), `${at}.button`),
+    tone: literal(field(r, "tone", at), TONES, `${at}.tone`),
+    dueAt: dueAt(field(r, "dueAt", at), `${at}.dueAt`),
+  };
+}
+
+/** opsInbox: what needs the operator today, ordered, with the sources that could not be read. */
+export function fetchOpsInbox(): Promise<OpsResult<OpsInbox>> {
+  return callOps(
+    "opsInbox",
+    "read",
+    {},
+    (value) => {
+      const data = object(value, "opsInbox");
+      return {
+        rows: list(field(data, "rows", "opsInbox"), "opsInbox.rows").map(readInboxRow),
+        checkedAt: isoInstant(field(data, "checkedAt", "opsInbox"), "opsInbox.checkedAt"),
+        unreadable: list(field(data, "unreadable", "opsInbox"), "opsInbox.unreadable").map((entry, i) => {
+          const at = `opsInbox.unreadable[${i}]`;
+          const u = object(entry, at);
+          return {
+            source: text(field(u, "source", at), `${at}.source`),
+            reason: text(field(u, "reason", at), `${at}.reason`),
+          };
+        }),
+      };
+    },
+    OPS_INBOX_TIMEOUT_MS,
   );
 }

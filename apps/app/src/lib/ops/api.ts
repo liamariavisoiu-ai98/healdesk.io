@@ -139,6 +139,8 @@ import {
 import { keyPresence } from "@/lib/ops/key-presence";
 import { opDeleteRecordedCall, opListRecordingAlerts } from "@/lib/ops/recording-alerts-ops";
 import { opRetryVoiceAgent, opVoiceAgentStatus } from "@/lib/ops/voice-agent-ops";
+import { opListClinicStrip } from "@/lib/ops/strip";
+import { opOpsInbox } from "@/lib/ops/inbox/run";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -614,6 +616,14 @@ const OPERATIONS = [
   // number or a secret.
   "voiceAgentStatus",
   "retryVoiceAgent",
+  // The redone admin's two reads (ops automation Phase 2, lane A2): the
+  // Clinics table, one row per clinic (lib/ops/strip.ts), and Home, one row
+  // per thing that needs the operator today (lib/ops/inbox/). Ids, enums,
+  // counts, dates and the clinic's own name; no argument; nothing changed.
+  // opsInbox's first-weeks and Retell reads write the access rows
+  // those readers always write, attributed to the operator.
+  "listClinicStrip",
+  "opsInbox",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -1368,6 +1378,10 @@ export async function runOperation(
       return opVoiceAgentStatus(args);
     case "retryVoiceAgent":
       return opRetryVoiceAgent(args, operator);
+    case "listClinicStrip":
+      return opListClinicStrip(args);
+    case "opsInbox":
+      return opOpsInbox(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

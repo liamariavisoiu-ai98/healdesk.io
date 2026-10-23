@@ -8,6 +8,7 @@ import { requireOperator } from "@/lib/admin/operator";
 import { isHostUnreachable } from "@/lib/host/state";
 
 import { ClinicTabs } from "./ClinicTabs";
+import { IssuePanel } from "./IssuePanel";
 
 /**
  * The clinic panel's shell (E1 §2): one header with the clinic's name, its
@@ -56,6 +57,8 @@ export default async function ClinicLayout({ params, children }: { params: Promi
         {!reads.clinics.ok && !standby ? <Failure failure={reads.clinics} what="the clinic's name and stage" /> : null}
         <ClinicTabs clinicId={id} />
       </header>
+      {/* The issue an alert's link named, when there is one: the prompt to fix it (E7). */}
+      <IssuePanel clinicId={id} />
       {children}
     </main>
   );

@@ -195,10 +195,10 @@ the location to manual booking in the same turn, from the tool layer
 
 | Signal | Where | Healthy | Act when |
 | --- | --- | --- | --- |
-| Heartbeat | `/api/health` → `heartbeatAgeSeconds`; ops console job list, row `heartbeat` | under 3,700 s | over 2 hours: the worker is down or stuck |
+| Heartbeat | `/api/health` → `heartbeatAgeSeconds`; the console's job list (`/admin/system/jobs`), row `heartbeat` | under 3,700 s | over 2 hours: the worker is down or stuck |
 | Queue | `/api/health` → `queue.oldestPendingSeconds`, `queue.failed` | pending under 1 h, failed 0 | pending over 2 h or failed rising: a handler is throwing; read `log.error` lines with `queue error` |
 | Email | `/api/health` → `email.lateCriticalNotices` and `reasons`; ops alert emails (`ops_alerts`); the job list, row `billing-notices` | 0 late | any late: a critical email is still unsent ten minutes after it was due. `/api/health` answers 503 with `"reasons": ["critical_notice_undelivered"]` and ops is emailed once per notice. Check Resend and the job's note, then call the clinic |
-| Jobs | ops console job list: `last_run_status` and `last_run_note` | `ok` | `failed` twice in a row, or `already-running` for over an hour (a stale lock is reclaimed after 60 min; 10 min for `calendar-watch`) |
+| Jobs | the console's job list (`/admin/system/jobs`): `last_run_status` and `last_run_note` | `ok` | `failed` twice in a row, or `already-running` for over an hour (a stale lock is reclaimed after 60 min; 10 min for `calendar-watch`) |
 | Calendar watch | ops alert emails (`calendar_broken`, `calendar_degraded`, `calendar_recovered`, `google_oauth_client_rejected`, `calendar_watch_incomplete`, `calendar_watch_failed`); the job list, row `calendar-watch`, whose note counts each run's checks, breakages, misses, skips and failures and ends with the run's id | `ok` every five minutes once switched on | `google_oauth_client_rejected`: at once, every clinic is affected. `calendar_watch_failed`, or `failed` on the job row, twice in a row: read the worker's `calendar watch` error lines. `calendar_watch_incomplete` on most runs. No `last_run_at` ten minutes after switching it on: the queue was not installed or the worker not restarted (look for `queue clock not running` with `calendar-watch`) |
 | Voice endpoint | The voice target group's healthy-task alarm (`alarms.tf`); ops alerts `voice_call_start_failed`, `retell_fallback_unsynced`, `voice_direct_line_loops` and `voice_test_mode_refused`; the worker's hourly `tick` log line, `retell-fallback=` (the sync is not a row in the job list); Retell's call history for `error_llm_websocket_*` | healthy tasks at `voice_desired`; `retell-fallback=ok` | The alarm, or any `error_llm_websocket_*` call: outage mode on ("Voice endpoint down"). `voice_call_start_failed`: the database, first. `retell_fallback_unsynced`: that clinic's number in Retell, or the key. `voice_direct_line_loops`: the clinic's direct line is its published or AYA number; ask the clinic for a line that reaches a person. `voice_test_mode_refused`, phase `not_made_up`: a clinic other than the demo clinic already has its Retell agent or forwarding pointed at us before the agreements: point it back; phase `check_failed`: the database did not answer within the start deadline |
 | Meta webhooks | The audit rows the front door writes per answered message, the `front door` lines in the logs, and any delivery failures Meta reports for the app | Messages answered | Meta reports failed deliveries, model calls fail, or a clinic with a connected channel goes quiet |
@@ -217,7 +217,7 @@ is up, so a mail outage never gets a healthy task replaced.
    nothing else will work until that does.
 2. The worker's logs for `worker failed to start`, `queue error`, or the last
    `tick` line. A tick line every hour with `status` per job is normal.
-3. The ops console job list: which job failed, and its note. Notes are
+3. The console's job list (`/admin/system/jobs`): which job failed, and its note. Notes are
    truncated error messages with no patient data in them.
 
 ## Restarting the worker safely
@@ -235,3 +235,153 @@ re-registers the hourly schedule as an upsert; you will not get two clocks.
 - `already-running` for a few minutes: two ticks overlapped; the lock is
   released when the first finishes.
 - The `heartbeat` job "enabled": it is the liveness signal, not a job.
+
+## Alert runbook, by event
+
+Every ops alert (`OPS_EVENTS`, `apps/app/src/lib/ops/notify.ts`) belongs to one section
+below; the console's "Fix with Claude" prompt names the section
+(`apps/web/src/lib/admin/fix-with-claude.ts`, `RUNBOOK_ANCHOR`), and the test there fails
+when a section is missing. Each alert links to the clinic's panel on the console
+(`/admin/clinics/<id>/<tab>#<event>-<id>`); an alert's row in `ops_alerts` holds ids,
+counts and categories only, never free text. Read the row, then the code that raised the
+event (`grep -rn '"<event>"' apps/app/src`), then act through the console's typed
+operations where one exists; a data change goes through `db-apply`, dry-run first.
+
+### Provisioning
+
+`provisioning_rejected`, `provisioning_dead_lettered`, `paid_intent_without_clinic`. A paid
+invoice reached `/api/provision` and the clinic was not created, or the request was refused
+(the sealed agreement's hash, a missing field). Read the dead-letter row and the Stripe event
+id; replay from the clinic's Billing tab ("Parked Stripe events") once the cause is fixed.
+Never create a clinic by hand: provisioning is gated on the first paid invoice.
+
+### Billing
+
+`duplicate_subscription`, `billing_event_dead_lettered`, `billing_request_dead_lettered`,
+`billing_request_stuck`, `setup_closure_skipped_live_channel`, `location_charged_not_created`,
+`connect_event_dead_lettered`, `overage_invoice_failed`, `first_period_refund_due`,
+`plan_start_after_cancel`, `billing_pointer_outside_practice`, `refund_cancel_job_off`,
+`agreement_refund_due`, `location_quantity_drift`, `location_quantity_agrees`. The clinic's
+Billing tab shows the request, the parked event or the invoice, each with its retry or replay.
+Money is the owner's: a refund, a credit or a manual charge waits for the owner's word, and
+the console's refund needs the fresh code.
+
+### Usage
+
+`usage_near_cap`, `usage_cap_reached`, `meter_report_failing`. The clinic's Billing tab,
+"Usage and the allowance": the meter, the window and the overage mode. A failing meter report
+means Stripe is not receiving overage; read the `usage-meter-report` job's note. At 90% the
+clinic is emailed if its Usage alerts switch is on; the step-up conversation is a person's.
+
+### Email delivery
+
+`critical_notice_undelivered`, `clinic_address_bounced`, `clinic_address_complained`,
+`clinic_address_suppressed`, `daily_email_count_70`, `welcome_email_unsent`,
+`destruction_notice_undelivered`, `email_refused`, `agreement_copy_withheld`,
+`urgent_alert_not_queued`, `dmarc_review_due`. The clinic's Deliveries tab is the ledger: what
+was queued, sent, bounced. A bounced or suppressed address means the clinic's one address is
+wrong: phone the clinic, then change it from the Account tab with the fresh code. A critical
+notice ten minutes late is also `/api/health` answering 503 ("The signals" above). The daily
+count at 70% is Resend's quota; nothing to do but watch.
+
+### Setup and support
+
+`setup_request_reply_past_due`, `provisioning_follow_up_past_due`, `support_reply_past_due`.
+Queues › Setup requests and Queues › Support: a reply promised by the next business day was
+not marked. Reply from hello@, then mark it. A follow-up past due is a clinic whose setup
+stalled: its Setup tab says what is left.
+
+### Agreements
+
+`agreement_unsigned_7_days`, `agreement_resign_unrenderable`, `agreement_below_floor_unsigned`,
+`agreement_termination_incomplete`, `agreement_termination_finished_late`,
+`agreement_copy_withheld`. Compliance › Agreements register for the signed copy, Compliance ›
+Notices for the re-signs (L22). A clinic below the BAA floor keeps answering while it signs
+(owner, 19 October 2026); the alert at 7 days is for a person to phone. An agreement that
+cannot be rendered again is a code or template fault: read the register row's version.
+
+### Voice
+
+`voice_fallback_no_direct_line`, `voice_call_start_failed`, `retell_fallback_unsynced`,
+`voice_provision_failed`, `voice_provision_cap_reached`, `voice_agent_drift`,
+`voice_deprovision_failed`, `voice_direct_line_loops`, `voice_test_mode_refused`. "Voice:
+where a call goes when something fails" above is the whole runbook; the clinic's Setup tab
+holds the phone line, the direct line and the forwarding test. Drift is repaired by code up to
+three times, then flagged for a person: compare the agent Retell holds with what
+`lib/voice/provision.ts` writes. Outage mode is a dashboard step, never automated.
+
+### Calendar
+
+`calendar_broken`, `calendar_degraded`, `calendar_recovered`, `calendar_watch_incomplete`,
+`calendar_watch_failed`, `google_oauth_client_rejected`, `connection_broken`,
+`calendar_write_stuck`, `calendar_writes_stuck_many`. "What the worker runs" above describes
+the watch; the clinic's Setup tab, "Calendar", shows the connection and offers the link and a
+disconnect, and "Calendar writes" the retry. A broken connection already flipped the clinic to
+manual booking in the same turn: the clinic takes booking requests and is not down. Google
+refusing our OAuth client is every clinic at once: the Google Cloud project, not the clinics.
+
+### Transcripts
+
+`transcript_undelivered`. The clinic's Deliveries tab, "Transcripts": the receipt's status,
+attempts and "Send again" where a sealed copy still exists. A copy unanswered 72 hours after it
+goes, or undelivered after 30 days, is deleted and cannot be sent again; the clinic is told
+nothing was kept. Never ask apps/app for the words: there are none to read.
+
+### Go live
+
+`practice_question_failed`, `practice_question_review_past_due`, `no_interactions_48_hours`,
+`no_inbound_calls_14_days`, `first_answer_not_recorded`, `go_live_held`, `web_widget_to_confirm`.
+Queues › Reviews for a run a judge failed; the clinic's Setup tab, "Go live" and "Channels",
+for what holds it. No calls in 14 days on a live voice plan means the forwarding was never
+set or was undone: phone the clinic. A first answer not recorded is billing's start date
+missing: read `lib/billing/answering.ts` before touching the row.
+
+### Account
+
+`address_change_stalled`, `address_change_failed`, `sign_in_help_unmatched`,
+`access_requests_capped`, `step_up_phone_held`. The clinic's Account tab: the address change
+and its 72-hour clock, the devices, the recovery link. Every act here needs the call back and
+the fresh code. A sign-in help request that matched no clinic is answered by hand from hello@
+with no account detail in it.
+
+### Offboarding
+
+`export_undelivered_before_destruction`, `offboarding_started_late`, `export_due_undelivered`,
+`account_closure_waiting`, `account_closure_failed`. The clinic's Care tab, "Offboarding": the
+rule its agreement sets, the export's due date and the destruction date. The export is a task
+on the host (`patient-export`, `docs/handover.md`), never run from a laptop; record its
+delivery on the tab. Destruction waits for nobody: a late export is the one thing to chase.
+
+### Patient rights
+
+`patient_request_due_soon`, `patient_request_past_due`. The clinic's Care tab, "Deletion
+requests" and "Amendments": counts and dates. The request itself is entered on the host
+(`erase-person`, `amend-contact`, by contact id) because it names a person; nothing on the
+console does. Chase the subcontractor step (Retell) before the due date.
+
+### Incidents
+
+`incident_notice_overdue`. Compliance › Incidents: the agreement's deadline and our internal
+target, and the two decisions. Nothing reaches a practice unless the owner sends the report;
+the people affected are recorded on the host by contact id, never here.
+
+### Vendors
+
+`vendor_agreement_expiring`, `vendor_agreement_lapsed`. Compliance: the business associate
+agreements in the chain. A lapsed vendor agreement stops AYA answering where that vendor
+serves (calls go to each clinic's direct line) until a renewal is recorded with the fresh
+code. The renewal is a document the owner has; the console only records it.
+
+### Meta
+
+`meta_revoke_failed`, `meta_revoke_by_hand`. A clinic's Page or WhatsApp token could not be
+revoked at Meta when it disconnected or left: revoke it in Meta's Business settings by hand
+and mark it on the clinic's Setup tab. Meta signs no BAA; the channel carries nothing clinical,
+so a token that lingers exposes business data only, and still must go.
+
+### Retention
+
+`retention_purge_failed`. The nightly purge (03 UTC) could not delete what an agreement's
+periods say is due. Read the job's note and the `retention` code before anything: a purge
+that did not run is behind the agreement, and a purge run by hand without the job's checks
+can delete what a hold still covers.

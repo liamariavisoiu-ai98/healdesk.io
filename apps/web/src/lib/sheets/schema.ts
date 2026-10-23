@@ -305,6 +305,12 @@ export type DemoSession = {
   auditedAt: Date | null;
   /** Fingerprint of the profile the verdict was given for; a changed profile is unaudited. */
   auditHash: string | null;
+  /**
+   * How many times a stalled build was started again (lib/demo/sweep.ts).
+   * The sweep starts one again once; at the next stall it stops and asks a
+   * person. Rows from before the column read as 0.
+   */
+  retryCount: number;
 };
 
 export const DEMO_SESSIONS: Tab = {
@@ -342,6 +348,7 @@ export const DEMO_SESSIONS: Tab = {
     col("audit_report", "auditReport", "json"),
     col("audited_at", "auditedAt", "timestamp"),
     col("audit_hash", "auditHash", "text"),
+    col("retry_count", "retryCount", "int"),
   ],
 };
 

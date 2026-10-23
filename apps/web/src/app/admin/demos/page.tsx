@@ -18,7 +18,7 @@ import {
 } from "@/lib/demo/sessions";
 import { isMarketingStoreConfigured } from "@/lib/sheets/client";
 
-import { emailDemoAction, releaseDemoAction, retryDemoAction } from "./actions";
+import { emailDemoAction, releaseDemoAction, retryDemoAction, retryStalledDemosAction } from "./actions";
 import { CopyLink, CopyValue, DemoBuilder, RefreshWhileAnyBuilding } from "./DemoBuilder";
 
 /**
@@ -157,7 +157,7 @@ export default async function DemosPage() {
         {AUDIT_THRESHOLDS.floor}, and is held for you below that or with any blocker.
       </p>
 
-      <DemoPipelineRow pipeline={pipeline} />
+      <DemoPipelineRow pipeline={pipeline} retryStalled={retryStalledDemosAction} />
 
       {!configured ? (
         <p className="bg-tint-peach mt-6 rounded-md px-4 py-3 text-[15px] font-medium">

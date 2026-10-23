@@ -1,3 +1,4 @@
+import { retryStalledDemosAction } from "@/app/admin/demos/actions";
 import { claimedShare, DEMO_SOURCES, demoPipeline, PIPELINE_ROWS, type DemoPipeline, type PipelineWindow } from "@/lib/demo/pipeline";
 import { listDemoSessions } from "@/lib/demo/sessions";
 import { isMarketingStoreConfigured } from "@/lib/sheets/client";
@@ -46,12 +47,19 @@ const SOURCE_LABEL: Record<(typeof DEMO_SOURCES)[number], string> = {
 export type DemoPipelineRowProps = {
   /** Null when the register could not be read: every number prints as an em-dash. */
   pipeline: DemoPipeline | null;
+  /**
+   * The server action behind "Retry all stalled" (app/admin/demos/actions.ts),
+   * offered beside the count only while something is stalled. Absent, the
+   * count prints without the button.
+   */
+  retryStalled?: () => Promise<void>;
 };
 
-export function DemoPipelineRow({ pipeline }: DemoPipelineRowProps) {
+export function DemoPipelineRow({ pipeline, retryStalled }: DemoPipelineRowProps) {
   const week = pipeline?.windows.find((w) => w.days === 7) ?? null;
   const month = pipeline?.windows.find((w) => w.days === 30) ?? null;
   const now = pipeline?.now ?? null;
+  const offerRetry = retryStalled !== undefined && now !== null && now.stalled > 0;
 
   return (
     <section aria-label="Demo pipeline" className="border-line mt-6 rounded-md border bg-white px-4 py-3 text-[14.4px] sm:px-5">
@@ -70,6 +78,13 @@ export function DemoPipelineRow({ pipeline }: DemoPipelineRowProps) {
         <span>
           now: {num(now?.live)} live · {num(now?.held)} held · {num(now?.failed)} failed · {num(now?.stalled)} stalled
         </span>
+        {offerRetry ? (
+          <form action={retryStalled} className="inline">
+            <button type="submit" className="text-red-deep hover:text-red font-bold">
+              Retry all stalled
+            </button>
+          </form>
+        ) : null}
       </p>
       <p className="text-muted mt-1">
         Claimed per built, last 30 days, by source:{" "}
@@ -109,7 +124,12 @@ export async function loadDemoPipeline(now: number = Date.now()): Promise<DemoPi
   }
 }
 
-/** The strip, reading the register itself. A server component; place it on any operator page. */
+/**
+ * The strip, reading the register itself, with "Retry all stalled" wired.
+ * A server component; place it on any operator page. The action re-checks
+ * the operator's session itself, so the page needs no guard of its own
+ * beyond the one it already has.
+ */
 export async function LiveDemoPipelineRow() {
-  return <DemoPipelineRow pipeline={await loadDemoPipeline()} />;
+  return <DemoPipelineRow pipeline={await loadDemoPipeline()} retryStalled={retryStalledDemosAction} />;
 }

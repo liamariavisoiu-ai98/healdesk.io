@@ -51,6 +51,7 @@ function row(overrides: Partial<DemoSession> & { createdDaysAgo: number }): Demo
     auditReport: null,
     auditedAt: null,
     auditHash: null,
+    retryCount: 0,
     ...rest,
   };
 }

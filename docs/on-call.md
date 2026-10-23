@@ -241,9 +241,12 @@ re-registers the hourly schedule as an upsert; you will not get two clocks.
 Every ops alert (`OPS_EVENTS`, `apps/app/src/lib/ops/notify.ts`) belongs to one section
 below; the console's "Fix with Claude" prompt names the section
 (`apps/web/src/lib/admin/fix-with-claude.ts`, `RUNBOOK_ANCHOR`), and the test there fails
-when a section is missing. Each alert links to the clinic's panel on the console
-(`/admin/clinics/<id>/<tab>#<event>-<id>`); an alert's row in `ops_alerts` holds ids,
-counts and categories only, never free text. Read the row, then the code that raised the
+when a section is missing. Today an alert's email and Slack line link to
+`/admin/ops/<clinic id>/care` or `/onboarding` (`opsConsoleLink`, lib/ops/notify.ts), which
+redirect to the clinic's panel with no issue named; once the notification rewrite emits
+`/admin/clinics/<id>/<tab>#<event>-<alert id>` (the shape in
+`apps/web/src/lib/admin/issue-link.ts`), the panel shows "Fix with Claude" for that alert.
+An alert's row in `ops_alerts` holds ids, counts and categories only, never free text. Read the row, then the code that raised the
 event (`grep -rn '"<event>"' apps/app/src`), then act through the console's typed
 operations where one exists; a data change goes through `db-apply`, dry-run first.
 

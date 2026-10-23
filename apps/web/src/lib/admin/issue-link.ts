@@ -6,16 +6,18 @@ import { isOpsEvent, type OpsEvent } from "@/lib/admin/ops-events";
  *
  *   /admin/clinics/<clinic id>/<tab>#<event>-<id>
  *
- * Every alert, Home row, Slack line and email button carries it; the tab
- * renders an `IssueAnchor` with the same id (components/admin/ui.tsx), the
- * browser scrolls to it and `:target` lights it. Ids only in the URL: a uuid,
- * an event name from the closed list, a tab from the closed list. Anything
- * else is refused rather than encoded, so a forged or mistyped link cannot
- * carry words into the console's address bar.
+ * The clinic panel reads the fragment and shows "Fix with Claude" for that
+ * alert (app/admin/clinics/[clinicId]/IssuePanel.tsx). Ids only in the URL: a
+ * uuid, an event name from the closed list, a tab from the closed list.
+ * Anything else is refused rather than encoded, so a forged or mistyped link
+ * cannot carry words into the console's address bar.
  *
- * The alerts apps/app built before this (Phase 1) link to
- * `/admin/ops/<id>/care|onboarding`; those routes redirect here forever
- * (app/admin/ops/[clinicId]/*). Pure: client components import it.
+ * Today (23 October 2026) nothing emits this shape yet: apps/app's alerts
+ * link to `/admin/ops/<id>/care|onboarding` (lib/ops/notify.ts,
+ * opsConsoleLink), which redirect to the panel with no issue named
+ * (app/admin/ops/[clinicId]/*). The notification rewrite lane moves apps/app
+ * to this shape; Home rows and Slack lines follow. Pure: client components
+ * import it.
  */
 
 export const ISSUE_TABS = ["setup", "billing", "deliveries", "care", "account"] as const;

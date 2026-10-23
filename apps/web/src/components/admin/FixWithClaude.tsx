@@ -7,7 +7,9 @@ import { claudeCliLink, vscodeLink, type FixPrompt } from "@/lib/admin/fix-with-
 
 /**
  * The "Fix with Claude" panel on an issue view (E7, Tier 1; owner decision
- * D22): the prompt read-only, and three ways to carry it to a Claude Code
+ * D22), drawn by the clinic panel when its address names an alert
+ * (`#<event>-<alert id>`; IssuePanel.tsx says when that starts): the prompt
+ * read-only, and three ways to carry it to a Claude Code
  * session the owner then drives: Open in Claude Code (`claude-cli://`, a
  * terminal on the machine it is clicked on, the prompt pre-filled and not
  * sent until Enter), Copy prompt (for a phone, pasted into a Remote Control

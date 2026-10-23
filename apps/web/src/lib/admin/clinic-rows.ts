@@ -37,6 +37,12 @@ export type ClinicRow = {
   clinicId: string;
   name: string;
   specialty: string | null;
+  /**
+   * The strip's flag (apps/app's `app_clinic_is_demo()`), never
+   * `dataClassification`: every clinic is classed "synthetic" until it goes
+   * live (that is the BAA gate), so a paying clinic in setup would otherwise
+   * be hidden as a demo. False until the strip says so.
+   */
   synthetic: boolean;
   stage: RowStage | null;
   channels: { web: ChannelLevel; meta: ChannelLevel; voice: ChannelLevel } | null;
@@ -48,7 +54,7 @@ export type ClinicRow = {
   usage: { percent: number | null; meter: "voice" | "web" | "meta" | "chat" | null } | null;
   lastReminder: ClinicStripRow["lastReminder"];
   blocking: string | null;
-  /** A blocker below `blocked`, or a chip in a warning tone: the Attention filter. */
+  /** A `blocked` blocker, or a chip in a warning tone: the Attention filter. */
   attention: boolean;
   /** The phase-two read-back credential's state (listClinics), for the Setup tab's disclosure only. */
   connection: ConnectionState;
@@ -129,7 +135,7 @@ export function composeClinicRows(input: {
       clinicId: clinic.id,
       name: s?.name ?? clinic.name,
       specialty: clinic.specialty || null,
-      synthetic: s?.synthetic ?? clinic.dataClassification === "synthetic",
+      synthetic: s?.synthetic ?? false,
       stage: s ? stageFromStrip(s.stage) : stageFromCard(card, seen),
       channels: s?.channels ?? (card ? { web: "off", meta: "off", voice: "off", ...Object.fromEntries(card.channels.map((c) => [c.channel, levelOf(c.status)])) } : null),
       availability: s?.availability ?? null,
@@ -142,9 +148,12 @@ export function composeClinicRows(input: {
       attention: false,
       connection: clinic.connection,
     };
+    // Attention is a `blocked` blocker or a chip in a warning tone, never a
+    // blocker at the `attention` level: after go-live gating every clinic in
+    // setup carries "Synthetic only, not yet accepting real patient data"
+    // at that level, which would make Attention mean "every clinic in setup".
     row.attention =
       row.blocking !== null ||
-      clinic.blockers.some((b) => b.level === "attention") ||
       [availabilityChip(row.availability), calendarChip(row.calendar), voiceChip(row.voice), transcriptsChip(row.transcripts), usageChip(row.usage)].some(
         (chip) => chip.tone === "warn" || chip.tone === "bad",
       );
@@ -152,7 +161,11 @@ export function composeClinicRows(input: {
   });
 }
 
-/** Synthetic clinics are hidden behind their own filter (owner, 23 October 2026). */
+/**
+ * Synthetic clinics are hidden behind their own filter (owner, 23 October
+ * 2026). While the strip is not read no row is synthetic, so every clinic
+ * shows and the Synthetic filter is empty; the page says so.
+ */
 export function filterClinicRows(rows: ClinicRow[], filter: ClinicFilter): ClinicRow[] {
   if (filter === "synthetic") return rows.filter((r) => r.synthetic);
   const real = rows.filter((r) => !r.synthetic);

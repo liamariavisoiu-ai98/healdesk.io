@@ -49,6 +49,7 @@ export default async function ClinicLayout({ params, children }: { params: Promi
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">{row?.name ?? "Clinic"}</h1>
           {stage ? <Chip tone={stage.tone}>{stage.words}</Chip> : null}
+          {/* Only the strip can say a clinic is synthetic (clinic-rows.ts): a clinic in setup is not a demo. */}
           {row?.synthetic ? <Chip tone="muted">synthetic</Chip> : null}
           {row?.specialty ? <span className="text-muted text-sm">{row.specialty}</span> : null}
         </div>
@@ -57,7 +58,7 @@ export default async function ClinicLayout({ params, children }: { params: Promi
         {!reads.clinics.ok && !standby ? <Failure failure={reads.clinics} what="the clinic's name and stage" /> : null}
         <ClinicTabs clinicId={id} />
       </header>
-      {/* The issue an alert's link named, when there is one: the prompt to fix it (E7). */}
+      {/* The alert the address names (`#<event>-<alert id>`), when one does: the prompt to fix it (E7). */}
       <IssuePanel clinicId={id} />
       {children}
     </main>

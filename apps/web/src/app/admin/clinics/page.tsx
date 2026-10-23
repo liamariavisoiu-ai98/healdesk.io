@@ -33,6 +33,8 @@ export default async function ClinicsPage({ searchParams }: { searchParams: Prom
 
   const { clinics, cards, health, strip, rows } = await loadClinicRows();
   if ([clinics, cards, health].every(isHostUnreachable)) return <HostStandbyPage title="Clinics" />;
+  // The strip read landed and answered: its columns, and which clinics are synthetic, are measured.
+  const stripRead = stripReaderPresent() && strip !== null && strip.ok;
 
   const counts = Object.fromEntries(CLINIC_FILTERS.map((f) => [f.id, filterClinicRows(rows, f.id).length])) as Record<ClinicFilter, number>;
 
@@ -44,17 +46,10 @@ export default async function ClinicsPage({ searchParams }: { searchParams: Prom
       {!cards.ok ? <Failure failure={cards} what="the clinics' channel states" /> : null}
       {!health.ok ? <Failure failure={health} what="the clinics' first-weeks usage" /> : null}
       {strip && !strip.ok ? <Failure failure={strip} what="the clinic strip (availability, calendar, voice agent, transcripts, usage, reminders)" /> : null}
-      {!stripReaderPresent() ? (
-        <p className="text-muted mt-4 text-sm">
-          Availability, calendar, voice agent, transcripts, the last reminder, and usage past the first sixty days are not
-          measured yet: the strip read has not landed.
-        </p>
-      ) : null}
-
       {clinics.ok ? (
         <>
-          <ClinicFilters counts={counts} current={filter} />
-          <ClinicTable rows={filterClinicRows(rows, filter)} filter={filter} />
+          <ClinicFilters counts={counts} current={filter} stripRead={stripRead} />
+          <ClinicTable rows={filterClinicRows(rows, filter)} filter={filter} stripRead={stripRead} />
         </>
       ) : null}
     </main>

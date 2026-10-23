@@ -45,15 +45,16 @@ const clinics: OpsResult<OpsClinics> = {
         connection: "unknown",
       },
       {
+        // A paying clinic still in setup: classed "synthetic" until go-live (the BAA gate), not a demo.
         id: DEMO,
-        name: "Demo Clinic",
+        name: "Quiet Clinic",
         specialty: "med-spa",
         timezone: "America/New_York",
         dataClassification: "synthetic",
         attributionMode: "estimated",
         isCoveredEntity: false,
         baaSignedOn: null,
-        blockers: [],
+        blockers: [{ level: "attention", message: "Synthetic only — not yet accepting real patient data." }],
         connection: "unknown",
       },
     ],
@@ -130,6 +131,21 @@ const strip: OpsResult<ClinicStripRow[]> = {
   ok: true,
   data: [
     {
+      // The strip alone says which clinic is a demo (apps/app's app_clinic_is_demo).
+      clinicId: DEMO,
+      name: "Quiet Clinic",
+      synthetic: true,
+      stage: { kind: "setup", day: 4, of: 30, deadlineAt: "2026-11-18T00:00:00.000Z" },
+      channels: { web: "waiting", meta: "off", voice: "off" },
+      availability: null,
+      calendar: "none",
+      voice: "not_provisioned",
+      transcripts: { waiting: 0, bounced: 0 },
+      usage: { percent: null, meter: null },
+      lastReminder: null,
+      blocking: null,
+    },
+    {
       clinicId: CLINIC,
       name: "Radiance Med Spa",
       synthetic: false,
@@ -161,11 +177,15 @@ describe("the clinic rows", () => {
     expect(radiance.lastReminder).toBeNull();
     expect(radiance.attention).toBe(true);
 
-    const demo = rows.find((r) => r.clinicId === DEMO)!;
-    expect(demo.synthetic).toBe(true);
-    expect(demo.stage?.kind).toBe("setup");
-    expect(demo.stage?.day).toBeNull();
-    expect(demo.usage).toBeNull();
+    // A clinic classed "synthetic" by dataClassification is NOT a demo: it is in setup, and it shows.
+    const quiet = rows.find((r) => r.clinicId === DEMO)!;
+    expect(quiet.synthetic).toBe(false);
+    expect(quiet.stage?.kind).toBe("setup");
+    expect(quiet.stage?.day).toBeNull();
+    expect(quiet.usage).toBeNull();
+    // An attention-level blocker is neither Blocking nor Attention.
+    expect(quiet.blocking).toBeNull();
+    expect(quiet.attention).toBe(false);
   });
 
   test("the strip fills the rest and wins where both say something", () => {
@@ -177,6 +197,9 @@ describe("the clinic rows", () => {
     expect(radiance.transcripts).toEqual({ waiting: 2, bounced: 1 });
     expect(radiance.lastReminder).toEqual({ day: null });
     expect(radiance.stage?.since).toBe("2026-10-11T09:00:00.000Z");
+    const quiet = rows.find((r) => r.clinicId === DEMO)!;
+    expect(quiet.synthetic).toBe(true);
+    expect(quiet.stage).toEqual({ kind: "setup", day: 4, of: 30, deadlineAt: "2026-11-18T00:00:00.000Z", since: null });
   });
 
   test("a read that failed costs its columns, never the list", () => {
@@ -192,13 +215,31 @@ describe("the clinic rows", () => {
     expect(composeClinicRows({ clinics: { ok: false, code: "unreachable", message: "x" }, cards, health, strip })).toEqual([]);
   });
 
-  test("synthetic clinics are hidden unless their filter is chosen", () => {
+  test("without the strip no clinic is synthetic: a paying clinic in setup shows under All and Setting up", () => {
     const rows = composeClinicRows({ clinics, cards, health, strip: null });
-    expect(filterClinicRows(rows, "all").map((r) => r.clinicId)).toEqual([CLINIC]);
-    expect(filterClinicRows(rows, "synthetic").map((r) => r.clinicId)).toEqual([DEMO]);
+    expect(filterClinicRows(rows, "all").map((r) => r.clinicId)).toEqual([CLINIC, DEMO]);
+    expect(filterClinicRows(rows, "setup").map((r) => r.clinicId)).toEqual([DEMO]);
+    expect(filterClinicRows(rows, "synthetic")).toEqual([]);
     expect(filterClinicRows(rows, "live").map((r) => r.clinicId)).toEqual([CLINIC]);
+    // Attention is the blocked clinic, not the one carrying the setup-stage attention blocker.
     expect(filterClinicRows(rows, "attention").map((r) => r.clinicId)).toEqual([CLINIC]);
+  });
+
+  test("with the strip, a clinic it flags synthetic is hidden by default and shown under Synthetic", () => {
+    const rows = composeClinicRows({ clinics, cards, health, strip });
+    expect(filterClinicRows(rows, "all").map((r) => r.clinicId)).toEqual([CLINIC]);
     expect(filterClinicRows(rows, "setup")).toEqual([]);
+    expect(filterClinicRows(rows, "synthetic").map((r) => r.clinicId)).toEqual([DEMO]);
+  });
+
+  test("Attention is a blocked blocker or a warning chip from the strip, never the attention-level blocker alone", () => {
+    const quietOnly: OpsResult<OpsClinics> = { ok: true, data: { connectionStateLimit: 50, clinics: [clinics.data.clinics[1]!] } };
+    const calm = composeClinicRows({ clinics: quietOnly, cards, health, strip: null });
+    expect(calm[0]?.attention).toBe(false);
+    expect(calm[0]?.blocking).toBeNull();
+    const drifting = composeClinicRows({ clinics: quietOnly, cards, health, strip: { ok: true, data: [{ ...strip.data[0]!, voice: "drift" }] } });
+    expect(drifting[0]?.attention).toBe(true);
+    expect(drifting[0]?.blocking).toBeNull();
   });
 });
 
@@ -206,7 +247,7 @@ describe("the clinic table", () => {
   const rows: ClinicRow[] = composeClinicRows({ clinics, cards, health, strip });
 
   test("each row is chips linking to their tabs, the name a link to the panel, the id selectable", () => {
-    const html = renderToStaticMarkup(h(ClinicTable, { rows: filterClinicRows(rows, "all"), filter: "all" }));
+    const html = renderToStaticMarkup(h(ClinicTable, { rows: filterClinicRows(rows, "all"), filter: "all", stripRead: true }));
     const page = text(html);
     expect(html).toContain(`href="/admin/clinics/${CLINIC}/setup"`);
     expect(html).toContain(`href="/admin/clinics/${CLINIC}/deliveries"`);
@@ -222,30 +263,43 @@ describe("the clinic table", () => {
     // The same rows twice: a table from 640 px and cards under it.
     expect(html).toContain("<table");
     expect(html).toContain('class="mt-4 grid gap-3 sm:hidden"');
-    expect(page).not.toContain("Demo Clinic");
+    expect(page).not.toContain("Quiet Clinic");
+    expect(page).not.toContain("not measured yet");
   });
 
-  test("a column the strip has not filled says so, in the muted tone, and is never red", () => {
+  test("while the strip is not read, its columns are a dash explained once in a legend, never six muted chips a row", () => {
     const partial = composeClinicRows({ clinics, cards, health, strip: null });
-    const html = renderToStaticMarkup(h(ClinicTable, { rows: filterClinicRows(partial, "all"), filter: "all" }));
-    expect(text(html).match(/not measured yet/g)?.length).toBeGreaterThanOrEqual(5);
+    const html = renderToStaticMarkup(h(ClinicTable, { rows: filterClinicRows(partial, "all"), filter: "all", stripRead: false }));
+    const page = text(html);
+    expect(page.match(/not measured yet/g)?.length).toBe(1);
+    expect(page).toContain("— means not measured yet");
+    expect(html.match(/aria-label="not measured yet"/g)?.length).toBeGreaterThanOrEqual(10);
     const chips = html.match(/<a href="[^"]+" class="[^"]*">/g) ?? [];
-    const red = chips.filter((c) => c.includes("text-red-deep"));
     // Red appears only for the blocking line, not for a column nobody measured.
-    expect(red).toEqual([]);
+    expect(chips.filter((c) => c.includes("text-red-deep"))).toEqual([]);
   });
 
-  test("an empty list says which empty", () => {
-    expect(text(renderToStaticMarkup(h(ClinicTable, { rows: [], filter: "all" })))).toBe("No clinics. They appear here once someone completes checkout.");
-    expect(text(renderToStaticMarkup(h(ClinicTable, { rows: [], filter: "paused" })))).toBe("No clinics under &quot;Paused&quot;.");
+  test("with the strip read, a null it sends is a 'not measured yet' chip, as its contract says", () => {
+    const html = renderToStaticMarkup(h(ClinicTable, { rows: filterClinicRows(rows, "synthetic"), filter: "synthetic", stripRead: true }));
+    // Quiet Clinic's availability and last reminder are null from the strip; the table and the cards each draw them.
+    expect(text(html).match(/not measured yet/g)?.length).toBe(4);
   });
 
-  test("the filter chips carry their counts and mark the current one", () => {
+  test("an empty list says which empty, and the Synthetic filter says it is not measured until the strip lands", () => {
+    expect(text(renderToStaticMarkup(h(ClinicTable, { rows: [], filter: "all", stripRead: false })))).toContain("No clinics. They appear here once someone completes checkout.");
+    expect(text(renderToStaticMarkup(h(ClinicTable, { rows: [], filter: "paused", stripRead: true })))).toBe("No clinics under &quot;Paused&quot;.");
+    expect(text(renderToStaticMarkup(h(ClinicTable, { rows: [], filter: "synthetic", stripRead: false })))).toContain("Which clinics are synthetic is not measured yet");
+  });
+
+  test("the filter chips carry their counts and mark the current one; Synthetic says 'not measured yet' until the strip lands", () => {
     const html = renderToStaticMarkup(
-      h(ClinicFilters, { counts: { all: 1, setup: 0, live: 1, paused: 0, attention: 1, synthetic: 1 }, current: "live" }),
+      h(ClinicFilters, { counts: { all: 1, setup: 0, live: 1, paused: 0, attention: 1, synthetic: 1 }, current: "live", stripRead: true }),
     );
     expect(html).toContain('href="/admin/clinics?filter=synthetic"');
     expect(html).toMatch(/aria-current="page"[^>]*>Live/);
     expect(text(html)).toContain("Synthetic 1");
+    const unread = text(renderToStaticMarkup(h(ClinicFilters, { counts: { all: 2, setup: 1, live: 1, paused: 0, attention: 1, synthetic: 0 }, current: "all", stripRead: false })));
+    expect(unread).toContain("Synthetic not measured yet");
+    expect(unread).not.toContain("Synthetic 0");
   });
 });

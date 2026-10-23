@@ -39,7 +39,11 @@ const COLUMNS: readonly { label: string; tab: IssueTab }[] = [
 
 const CHANNEL_NAMES = { web: "web", meta: "meta", voice: "voice" } as const;
 
-function Cell({ chip, href }: { chip: ChipWords; href: string }) {
+/** An empty cell while the strip is not read: the legend above the table says what it means, once. */
+const DASH = <span className="text-muted" aria-label="not measured yet">—</span>;
+
+function Cell({ chip, href, dash }: { chip: ChipWords; href: string; dash?: boolean }) {
+  if (dash) return DASH;
   return (
     <Chip tone={chip.tone} href={href}>
       {chip.words}
@@ -48,7 +52,7 @@ function Cell({ chip, href }: { chip: ChipWords; href: string }) {
 }
 
 function Channels({ row, href }: { row: ClinicRow; href: string }) {
-  if (!row.channels) return <Cell chip={{ tone: "muted", words: "not measured yet" }} href={href} />;
+  if (!row.channels) return DASH;
   return (
     <span className="inline-flex flex-wrap gap-1">
       {(["web", "meta", "voice"] as const).map((channel) => (
@@ -60,18 +64,25 @@ function Channels({ row, href }: { row: ClinicRow; href: string }) {
   );
 }
 
-/** The eight state cells of one row, in column order, each linking to its tab. */
-function cells(row: ClinicRow): { label: string; node: React.ReactNode }[] {
+/**
+ * The eight state cells of one row, in column order, each linking to its tab.
+ * While the strip is not read (`stripRead` false) the columns only it fills
+ * are a dash, explained once in the legend, rather than six muted chips per
+ * row; once it is read, a null it sends is "not measured yet" in a chip, as
+ * its contract says.
+ */
+function cells(row: ClinicRow, stripRead: boolean): { label: string; node: React.ReactNode }[] {
   const to = (tab: IssueTab) => clinicTabPath(row.clinicId, tab);
+  const unread = !stripRead;
   return [
-    { label: "Stage", node: <Cell chip={stageChip(row.stage)} href={row.stage?.kind === "setup" ? to("setup") : to("billing")} /> },
+    { label: "Stage", node: <Cell chip={stageChip(row.stage)} href={row.stage?.kind === "setup" ? to("setup") : to("billing")} dash={row.stage === null} /> },
     { label: "Channels", node: <Channels row={row} href={to("setup")} /> },
-    { label: "Availability", node: <Cell chip={availabilityChip(row.availability)} href={to("setup")} /> },
-    { label: "Calendar", node: <Cell chip={calendarChip(row.calendar)} href={to("setup")} /> },
-    { label: "Voice agent", node: <Cell chip={voiceChip(row.voice)} href={to("setup")} /> },
-    { label: "Transcripts", node: <Cell chip={transcriptsChip(row.transcripts)} href={to("deliveries")} /> },
-    { label: "Usage", node: <Cell chip={usageChip(row.usage)} href={to("billing")} /> },
-    { label: "Last reminder", node: <Cell chip={reminderChip(row.lastReminder)} href={to("deliveries")} /> },
+    { label: "Availability", node: <Cell chip={availabilityChip(row.availability)} href={to("setup")} dash={unread} /> },
+    { label: "Calendar", node: <Cell chip={calendarChip(row.calendar)} href={to("setup")} dash={unread} /> },
+    { label: "Voice agent", node: <Cell chip={voiceChip(row.voice)} href={to("setup")} dash={unread} /> },
+    { label: "Transcripts", node: <Cell chip={transcriptsChip(row.transcripts)} href={to("deliveries")} dash={unread} /> },
+    { label: "Usage", node: <Cell chip={usageChip(row.usage)} href={to("billing")} dash={unread && row.usage === null} /> },
+    { label: "Last reminder", node: <Cell chip={reminderChip(row.lastReminder)} href={to("deliveries")} dash={unread} /> },
   ];
 }
 
@@ -87,11 +98,13 @@ function Name({ row }: { row: ClinicRow }) {
   );
 }
 
-export function ClinicFilters({ counts, current }: { counts: Record<ClinicFilter, number>; current: ClinicFilter }) {
+export function ClinicFilters({ counts, current, stripRead }: { counts: Record<ClinicFilter, number>; current: ClinicFilter; stripRead: boolean }) {
   return (
     <nav aria-label="Filter clinics" className="mt-6 flex flex-wrap gap-2">
       {CLINIC_FILTERS.map((f) => {
         const on = f.id === current;
+        // Which clinics are synthetic is the strip's to say; until it is read the count is not a zero.
+        const unmeasured = f.id === "synthetic" && !stripRead;
         return (
           <a
             key={f.id}
@@ -102,7 +115,7 @@ export function ClinicFilters({ counts, current }: { counts: Record<ClinicFilter
             }`}
           >
             {f.label}
-            <span className={on ? "text-white/70" : "text-muted"}>{counts[f.id]}</span>
+            <span className={on ? "text-white/70" : "text-muted"}>{unmeasured ? "not measured yet" : counts[f.id]}</span>
           </a>
         );
       })}
@@ -110,7 +123,10 @@ export function ClinicFilters({ counts, current }: { counts: Record<ClinicFilter
   );
 }
 
-export function ClinicTable({ rows, filter }: { rows: ClinicRow[]; filter: ClinicFilter }) {
+export function ClinicTable({ rows, filter, stripRead }: { rows: ClinicRow[]; filter: ClinicFilter; stripRead: boolean }) {
+  if (filter === "synthetic" && !stripRead) {
+    return <Empty>Which clinics are synthetic is not measured yet: the strip read has not landed, so every clinic is listed under All.</Empty>;
+  }
   if (rows.length === 0) {
     return (
       <Empty>
@@ -122,6 +138,12 @@ export function ClinicTable({ rows, filter }: { rows: ClinicRow[]; filter: Clini
   }
   return (
     <>
+      {!stripRead ? (
+        <p className="text-muted mt-4 text-sm">
+          — means not measured yet: availability, calendar, voice agent, transcripts, the last reminder, and usage past the
+          first sixty days wait on the strip read, which has not landed.
+        </p>
+      ) : null}
       {/* 640 px and up: the table. */}
       <div className="border-line mt-4 hidden overflow-x-auto rounded-md border bg-white sm:block">
         <table className="w-full border-collapse text-left text-sm">
@@ -146,7 +168,7 @@ export function ClinicTable({ rows, filter }: { rows: ClinicRow[]; filter: Clini
                 <th scope="row" className="px-4 py-3 font-normal whitespace-nowrap">
                   <Name row={row} />
                 </th>
-                {cells(row).map((cell) => (
+                {cells(row, stripRead).map((cell) => (
                   <td key={cell.label} className="px-3 py-3">
                     {cell.node}
                   </td>
@@ -165,7 +187,7 @@ export function ClinicTable({ rows, filter }: { rows: ClinicRow[]; filter: Clini
             <Name row={row} />
             {row.blocking ? <p className="text-red-deep mt-2 font-semibold">{row.blocking}</p> : null}
             <dl className="mt-3 grid gap-1.5">
-              {cells(row).map((cell) => (
+              {cells(row, stripRead).map((cell) => (
                 <div key={cell.label} className="flex flex-wrap items-center justify-between gap-2">
                   <dt className="text-muted text-xs tracking-[0.06em] uppercase">{cell.label}</dt>
                   <dd>{cell.node}</dd>

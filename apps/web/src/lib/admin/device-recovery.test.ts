@@ -18,7 +18,7 @@ vi.mock("next/headers", () => ({
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { DevicesSection } from "@/app/admin/ops/[clinicId]/account/DevicesSection";
+import { DevicesSection } from "@/app/admin/clinics/[clinicId]/account/DevicesSection";
 import { enterDeviceRecovery, enterDeviceRemoval } from "@/lib/admin/device-recovery";
 import { endDeviceRecovery, fetchClinicDevices } from "@/lib/admin/ops-client";
 import { __resetStepLedgerForTests, base32Decode, hotp, totpStep } from "@/lib/admin/totp";

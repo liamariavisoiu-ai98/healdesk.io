@@ -51,26 +51,21 @@ function describe(result: OpsResult<CareOutcome> | OpsResult<OpenIncidentOutcome
 export function CarePanel({ view, actions }: { view: OpsResult<CareView>; actions: Actions }) {
   if (!view.ok) {
     return (
-      <main className="mx-auto max-w-[900px] px-5 py-10">
+      <div className="py-6">
         <p className="text-red-deep font-semibold">{view.message}</p>
-        <a href="/admin/ops" className="mt-4 inline-block underline">Back to ops</a>
-      </main>
+      </div>
     );
   }
   const v = view.data;
   const open = v.incidents.filter((i) => !i.resolvedAt);
 
   return (
-    <main className="mx-auto max-w-[900px] px-5 py-10 sm:px-8">
-      <a href="/admin/ops" className="text-muted text-sm underline">← Ops</a>
-      <h1 className="font-display mt-3 text-[32px] font-medium tracking-[-0.02em]">{v.clinic.name}</h1>
-      <p className="text-muted mt-1 text-sm">
-        {v.clinic.dataClassification}
-        {v.clinic.wentLiveOn ? ` · live since ${v.clinic.wentLiveOn}` : " · not live"}
-        {v.clinic.isCoveredEntity === false ? " · not a covered entity (state breach law applies)" : ""}
-        {" · "}
-        <a href={`/admin/ops/${v.clinic.id}/onboarding`} className="underline">onboarding</a>
-      </p>
+    /* The shell above carries the name, the id and the stage; the one fact
+       of this tab's own is which breach law an incident falls under. */
+    <div>
+      {v.clinic.isCoveredEntity === false ? (
+        <p className="text-muted mt-6 text-sm">Not a covered entity: state breach law applies to its incidents.</p>
+      ) : null}
 
       <Section title={`Who gets the reports — ${v.recipients.length}`}>
         <p className="text-muted text-sm">
@@ -147,7 +142,7 @@ export function CarePanel({ view, actions }: { view: OpsResult<CareView>; action
       <Section title="Offboarding">
         <Offboarding view={v} actions={actions} />
       </Section>
-    </main>
+    </div>
   );
 }
 

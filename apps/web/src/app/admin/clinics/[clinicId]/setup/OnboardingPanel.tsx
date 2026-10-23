@@ -88,25 +88,19 @@ function describe(result: OpsResult<SimpleOutcome> | OpsResult<GoLiveOutcome> | 
 export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingView>; actions: Actions }) {
   if (!view.ok) {
     return (
-      <main className="mx-auto max-w-[900px] px-5 py-10">
+      <div className="py-6">
         <p className="text-red-deep font-semibold">{view.message}</p>
-        <a href="/admin/ops" className="mt-4 inline-block underline">Back to ops</a>
-      </main>
+      </div>
     );
   }
   const v = view.data;
   const done = v.steps.filter((s) => s.completedAt).length;
 
   return (
-    <main className="mx-auto max-w-[900px] px-5 py-10 sm:px-8">
-      <a href="/admin/ops" className="text-muted text-sm underline">← Ops</a>
-      <h1 className="font-display mt-3 text-[32px] font-medium tracking-[-0.02em]">{v.clinic.name}</h1>
-      <p className="text-muted mt-1 text-sm">
-        {v.clinic.specialty} · {v.clinic.timezone} · {v.clinic.dataClassification}
-        {v.clinic.wentLiveAt ? ` · live since ${v.clinic.wentLiveAt.slice(0, 10)}` : ""}
-        {" · "}<a href={`/admin/ops/${v.clinic.id}/billing`} className="underline">billing</a>
-      </p>
-
+    /* The shell above carries the name, the id, the stage and the specialty
+       (app/admin/clinics/[clinicId]/layout.tsx); the time zone has its own
+       card below. Nothing is said twice. */
+    <div>
       <Section title={`Checklist — ${done} of ${v.steps.length}`}>
         <ol className="grid gap-2">
           {v.steps.map((step) => (
@@ -207,7 +201,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
       <Section title="Channels">
         <ChannelsCard view={v} onRerun={actions.rerunPractice} onConfirmWidget={actions.confirmWidget} />
       </Section>
-    </main>
+    </div>
   );
 }
 
@@ -500,7 +494,7 @@ function GoLiveControl({ view, onGoLive }: { view: OnboardingView; onGoLive: Act
   if (view.clinic.dataClassification === "production") {
     return (
       <div>
-        <p className="text-sm">Live. Patient data is accepted under the bound agreement.</p>
+        <p className="text-sm">{view.clinic.name} is live. Patient data is accepted under the bound agreement.</p>
         {named}
       </div>
     );
@@ -508,7 +502,7 @@ function GoLiveControl({ view, onGoLive }: { view: OnboardingView; onGoLive: Act
   return (
     <div>
       <p className="text-sm">
-        Go-live is automatic: the clinic goes to production by itself, and its first ready channel live,
+        Go-live is automatic: {view.clinic.name} goes to production by itself, and its first ready channel live,
         once nothing below is left. Nobody presses a button for it.
       </p>
       {view.goLive.ok ? (

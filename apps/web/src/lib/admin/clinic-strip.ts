@@ -1,5 +1,6 @@
+import { composeClinicRows, type ClinicRow } from "@/lib/admin/clinic-rows";
 import * as ops from "@/lib/admin/ops-client";
-import type { OpsResult } from "@/lib/admin/ops-client";
+import type { ClinicCards, ClinicHealth, OpsClinics, OpsResult } from "@/lib/admin/ops-client";
 import type { ClinicStripRow, OpsInbox } from "@/lib/admin/strip-types";
 
 /**
@@ -36,4 +37,21 @@ export function readOpsInbox(): Promise<OpsResult<OpsInbox> | null> {
 /** Whether the strip reader has landed: the page says which columns wait on it. */
 export function stripReaderPresent(): boolean {
   return typeof readers.fetchClinicStrip === "function";
+}
+
+export type ClinicReads = {
+  clinics: OpsResult<OpsClinics>;
+  cards: OpsResult<ClinicCards>;
+  health: OpsResult<ClinicHealth[]>;
+  strip: OpsResult<ClinicStripRow[]> | null;
+  rows: ClinicRow[];
+};
+
+/**
+ * The four reads behind the Clinics table and the clinic panel's header,
+ * settled independently: one that fails costs its columns, never the rest.
+ */
+export async function loadClinicRows(): Promise<ClinicReads> {
+  const [clinics, cards, health, strip] = await Promise.all([ops.fetchClinics(), ops.fetchClinicCards(), ops.fetchClinicHealth(), readClinicStrip()]);
+  return { clinics, cards, health, strip, rows: composeClinicRows({ clinics, cards, health, strip }) };
 }

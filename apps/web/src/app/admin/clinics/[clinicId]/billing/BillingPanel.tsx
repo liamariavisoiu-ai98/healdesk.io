@@ -158,18 +158,14 @@ const INPUT = "border-line mt-1 rounded-sm border px-3 py-2";
 export function BillingPanel({ view, actions }: { view: OpsResult<View>; actions: Actions }) {
   if (!view.ok) {
     return (
-      <main className="mx-auto max-w-[900px] px-5 py-10">
+      <div className="py-6">
         <p className="text-red-deep font-semibold">{view.message}</p>
         {view.code === "unauthenticated" ? (
           <a href="/admin/sign-in" className="mt-4 inline-block underline">
             Sign in
           </a>
-        ) : (
-          <a href="/admin/ops" className="mt-4 inline-block underline">
-            Back to ops
-          </a>
-        )}
-      </main>
+        ) : null}
+      </div>
     );
   }
   const v = view.data;
@@ -177,33 +173,18 @@ export function BillingPanel({ view, actions }: { view: OpsResult<View>; actions
   const billingName = v.group.find((g) => g.isBillingClinic)?.name ?? "its billing clinic";
 
   return (
-    <main className="mx-auto max-w-[900px] px-5 py-10 sm:px-8">
-      <a href="/admin/ops" className="text-muted text-sm underline">
-        ← Ops
-      </a>
-      <h1 className="font-display mt-3 text-[32px] font-medium tracking-[-0.02em]">
-        {v.clinic.name}
-      </h1>
-      <p className="text-muted mt-1 text-sm">
-        {v.clinic.dataClassification}
-        {v.clinic.isLocation ? ` · a location, billed on ${billingName}` : ""}
-        {" · "}
-        <a href={`/admin/ops/${v.clinic.id}/onboarding`} className="underline">
-          onboarding
-        </a>
-        {" · "}
-        <a href={`/admin/ops/${v.clinic.id}/care`} className="underline">
-          care
-        </a>
-        {v.clinic.isLocation ? (
-          <>
-            {" · "}
-            <a href={`/admin/ops/${v.clinic.billingClinicId}/billing`} className="underline">
-              billing clinic
-            </a>
-          </>
-        ) : null}
-      </p>
+    /* The shell above carries the name, the id and the stage; the one fact
+       of this tab's own is a location's billing clinic. */
+    <div>
+      {v.clinic.isLocation ? (
+        <p className="text-muted mt-6 text-sm">
+          A location, billed on {billingName}:{" "}
+          <a href={`/admin/clinics/${v.clinic.billingClinicId}/billing`} className="underline">
+            its billing
+          </a>
+          .
+        </p>
+      ) : null}
 
       <Attention view={v} />
 
@@ -307,7 +288,7 @@ export function BillingPanel({ view, actions }: { view: OpsResult<View>; actions
       <Section title={`Status history — last ${v.transitions.length}`}>
         <Transitions view={v} />
       </Section>
-    </main>
+    </div>
   );
 }
 

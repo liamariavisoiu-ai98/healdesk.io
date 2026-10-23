@@ -43,7 +43,7 @@ export function TranscriptsPanel({
 }) {
   if (!view.ok) {
     return (
-      <main className="mx-auto max-w-[900px] px-5 py-10">
+      <div className="py-6">
         <p role="alert" className="text-red-deep font-semibold">
           {view.code === "outdated"
             ? "The engine is older than this page and cannot report transcript receipts yet. Deploy the app, then reload."
@@ -53,36 +53,25 @@ export function TranscriptsPanel({
           <a href="/admin/sign-in" className="mt-4 inline-block underline">
             Sign in
           </a>
-        ) : (
-          <a href="/admin/ops" className="mt-4 inline-block underline">
-            Back to ops
-          </a>
-        )}
-      </main>
+        ) : null}
+      </div>
     );
   }
   const v = view.data;
   const attention = v.counts.bounced + v.counts.unconfirmed + v.counts.expired;
 
   return (
-    <main className="mx-auto max-w-[900px] px-5 py-10 sm:px-8">
-      <a href="/admin/ops" className="text-muted text-sm underline">
-        ← Ops
-      </a>
-      <h1 className="font-display mt-3 text-[32px] font-medium tracking-[-0.02em]">Transcript deliveries</h1>
-      <p className="text-muted mt-1 text-sm">
+    <div>
+      <p className="text-muted mt-6 text-sm">
         Each finished call or chat is emailed to the clinic and our copy is deleted once SES reports it delivered. This
-        is the receipt: no words, no address.{" "}
-        <a href={`/admin/ops/${clinicId}/care`} className="underline">
-          Care
-        </a>
+        is the receipt: no words, no address.
       </p>
 
       <nav aria-label="Time window" className="mt-4 flex gap-3 text-sm">
         {TRANSCRIPT_WINDOWS.map((w) => (
           <a
             key={w}
-            href={`/admin/ops/${clinicId}/transcripts?days=${w}`}
+            href={`/admin/clinics/${clinicId}/deliveries?days=${w}`}
             aria-current={w === days ? "page" : undefined}
             className={w === days ? "font-bold underline" : "underline"}
           >
@@ -144,7 +133,7 @@ export function TranscriptsPanel({
           <p className="text-muted mt-3 text-xs">Only the newest 50 are listed; the counts above cover the whole window.</p>
         ) : null}
       </section>
-    </main>
+    </div>
   );
 }
 

@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 
 import type { ClinicCards, ClinicSignInView, OpsClinics, OpsResult } from "@/lib/admin/ops-client";
 
-import { OpsConsole } from "../../OpsConsole";
+import { OpsConsole } from "../../../ops/OpsConsole";
 import { AccountPanel } from "./AccountPanel";
 
 /**

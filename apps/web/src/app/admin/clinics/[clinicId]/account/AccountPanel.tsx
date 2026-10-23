@@ -49,12 +49,9 @@ export function AccountPanel({
 }) {
   if (!view.ok) {
     return (
-      <main className="mx-auto max-w-[900px] px-5 py-10">
+      <div className="py-6">
         <p className="text-red-deep font-semibold">{view.message}</p>
-        <a href="/admin/ops" className="mt-4 inline-block underline">
-          Back to ops
-        </a>
-      </main>
+      </div>
     );
   }
   const v = view.data;
@@ -63,16 +60,8 @@ export function AccountPanel({
   );
 
   return (
-    <main className="mx-auto max-w-[900px] px-5 py-10 sm:px-8">
-      <a href="/admin/ops" className="text-muted text-sm underline">
-        ← Ops
-      </a>
-      <h1 className="font-display mt-3 text-[32px] font-medium tracking-[-0.02em]">
-        {v.clinicName}
-      </h1>
-      <p className="text-muted mt-1 text-sm">
-        The clinic&rsquo;s one address, its devices, and the agreement it is under.
-      </p>
+    /* The shell above carries the name and the id; the sections say the rest. */
+    <div>
 
       <Section title="The clinic's address">
         <p className="text-sm">
@@ -114,7 +103,7 @@ export function AccountPanel({
       <Section title="Covered entity">
         <CoveredEntity view={v} onSet={actions.setCovered} />
       </Section>
-    </main>
+    </div>
   );
 }
 

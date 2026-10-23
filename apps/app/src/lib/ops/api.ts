@@ -139,6 +139,12 @@ import {
 import { keyPresence } from "@/lib/ops/key-presence";
 import { opDeleteRecordedCall, opListRecordingAlerts } from "@/lib/ops/recording-alerts-ops";
 import { opRetryVoiceAgent, opVoiceAgentStatus } from "@/lib/ops/voice-agent-ops";
+import {
+  opDecideLifecycle,
+  opListLifecycle,
+  opListLifecycleWaves,
+  opSnoozeLifecycle,
+} from "@/lib/ops/lifecycle-ops";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -614,6 +620,14 @@ const OPERATIONS = [
   // number or a secret.
   "voiceAgentStatus",
   "retryVoiceAgent",
+  // The lifecycle watch (lib/ops/lifecycle-ops.ts, lib/lifecycle; design
+  // E2): every billing clinic's stage, decision and recommendation, one
+  // clinic's reminder ledger, and the operator's snooze of its ops waves and
+  // decision about a stalled setup. Ids, counts, dates and closed words.
+  "listLifecycle",
+  "listLifecycleWaves",
+  "snoozeLifecycle",
+  "decideLifecycle",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -747,6 +761,9 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "deleteRecordedCall",
   // Mutating: a Retell agent created and a number bought or adopted.
   "retryVoiceAgent",
+  // Mutating: a clinic's ops waves snoozed, or its setup decision recorded.
+  "snoozeLifecycle",
+  "decideLifecycle",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1368,6 +1385,14 @@ export async function runOperation(
       return opVoiceAgentStatus(args);
     case "retryVoiceAgent":
       return opRetryVoiceAgent(args, operator);
+    case "listLifecycle":
+      return opListLifecycle(args, operator);
+    case "listLifecycleWaves":
+      return opListLifecycleWaves(args, operator);
+    case "snoozeLifecycle":
+      return opSnoozeLifecycle(args, operator);
+    case "decideLifecycle":
+      return opDecideLifecycle(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

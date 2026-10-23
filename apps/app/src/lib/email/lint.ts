@@ -138,6 +138,9 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   // I3's access request (lib/sign-in/help.ts): which billing detail was
   // offered, "card" or "invoice", never the detail itself.
   "detail",
+  // The lifecycle watch's recommended action (lib/lifecycle/recommend.ts
+  // RECOMMENDATIONS), a closed word in an ops alert.
+  "recommendation",
 ]);
 
 /** The class a key's value must belong to, or null when the key is not on the list. */

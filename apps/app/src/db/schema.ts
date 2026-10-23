@@ -6606,6 +6606,8 @@ export const TENANT_SCOPED_TABLES = [
   "voice_redial_contexts",
   "clinic_locations",
   "location_acknowledgements",
+  "clinic_lifecycle",
+  "lifecycle_waves",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -7357,5 +7359,130 @@ export const voiceRedialContexts = pgTable(
     }).onDelete("cascade"),
     check("voice_redial_contexts_caller_ref_check", sql`${t.callerRef} ~ '^v1:[0-9a-f]{64}$'`),
     check("voice_redial_contexts_expiry_check", sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '2 hours'`),
+  ],
+);
+
+// -----------------------------------------------------------------------------
+// The lifecycle watch (drizzle/0115; design E2 of the ops automation plan,
+// 23 October 2026): where each billing clinic stands, and every reminder and
+// ops wave about it in one ledger
+// -----------------------------------------------------------------------------
+
+/** Where a billing clinic stands (lib/lifecycle/stage.ts). Before an account exists there is no row. */
+export const LIFECYCLE_STAGES = [
+  "not_started",
+  "in_setup",
+  "waiting_on_us",
+  "partly_live",
+  "live",
+  "closed",
+] as const;
+export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number];
+
+/** The operator's decision about a stalled setup. `extended` is set when the deadline moves later. */
+export const LIFECYCLE_DECISIONS = ["none", "extension_offered", "let_close", "extended"] as const;
+export type LifecycleDecision = (typeof LIFECYCLE_DECISIONS)[number];
+
+/** Who a wave went to: the clinic (a spec reminder, recorded), the ops address, or Slack. */
+export const LIFECYCLE_TARGETS = ["clinic_email", "ops_email", "slack"] as const;
+export type LifecycleTarget = (typeof LIFECYCLE_TARGETS)[number];
+
+/** What is stored of a wave's outcome; a sent one's is read from its notice or alert. */
+export const LIFECYCLE_DELIVERIES = ["delivered", "bounced", "failed", "skipped"] as const;
+export type LifecycleDelivery = (typeof LIFECYCLE_DELIVERIES)[number];
+
+/**
+ * One row per billing clinic, written by the hourly lifecycle-watch job
+ * (lib/lifecycle/watch.ts): its stage and since when, how many wizard steps
+ * and channel actions it still owes, when it last made progress, the setup
+ * deadline the watch last saw (a later one means it was extended), the
+ * operator's snooze of the ops waves and the decision about a stalled setup.
+ * Ids, counts, dates and closed words; never a patient. Tenant plane, RLS.
+ */
+export const clinicLifecycle = pgTable(
+  "clinic_lifecycle",
+  {
+    clinicId: uuid("clinic_id")
+      .primaryKey()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    stage: text("stage").$type<LifecycleStage>().notNull(),
+    stageSince: timestamp("stage_since", { withTimezone: true }).notNull(),
+    stepsLeft: integer("steps_left").notNull().default(0),
+    channelsWaiting: integer("channels_waiting").notNull().default(0),
+    lastProgressAt: timestamp("last_progress_at", { withTimezone: true }),
+    deadlineAt: timestamp("deadline_at", { withTimezone: true }),
+    /** The window's last day on the clinic's calendar when last seen: a later one is an extension. */
+    lastDay: date("last_day", { mode: "string" }),
+    snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+    snoozedBy: text("snoozed_by"),
+    decision: text("decision").$type<LifecycleDecision>().notNull().default("none"),
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("clinic_lifecycle_stage_check", sql`${t.stage} in (${sqlList(LIFECYCLE_STAGES)})`),
+    check("clinic_lifecycle_decision_check", sql`${t.decision} in (${sqlList(LIFECYCLE_DECISIONS)})`),
+    check("clinic_lifecycle_counts_check", sql`${t.stepsLeft} >= 0 and ${t.channelsWaiting} >= 0`),
+    check(
+      "clinic_lifecycle_labels_check",
+      sql`(${t.snoozedBy} is null or char_length(${t.snoozedBy}) between 1 and 200) and (${t.decidedBy} is null or char_length(${t.decidedBy}) between 1 and 200)`,
+    ),
+  ],
+);
+
+/**
+ * The reminder ledger the admin shows: one row per wave per target, unique on
+ * (clinic, stage, wave, target), so a replayed run records nothing twice. A
+ * clinic row records a spec reminder the setup-reminders job queued
+ * (`notice_id`; the watch never sends one); an ops row points at the ops
+ * alert that carried it (`ops_alert_id`), which Slack posts and, for an
+ * escalation, email sends. `delivery` is stored only when nothing was sent
+ * (`skipped`: snoozed, or let close); a sent wave's outcome is read from its
+ * notice's ledger or its alert. Ids, closed words and dates; never a patient.
+ */
+export const lifecycleWaves = pgTable(
+  "lifecycle_waves",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    stage: text("stage").$type<LifecycleStage>().notNull(),
+    wave: text("wave").notNull(),
+    target: text("target").$type<LifecycleTarget>().notNull(),
+    noticeId: uuid("notice_id").references(() => billingNotices.id, { onDelete: "set null" }),
+    /** The ops alert that carried it (ops_alerts.id). No foreign key: the ops log is the identity plane's, never deleted. */
+    opsAlertId: uuid("ops_alert_id"),
+    queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    providerId: text("provider_id"),
+    delivery: text("delivery").$type<LifecycleDelivery>(),
+    error: text("error"),
+    manualBy: text("manual_by"),
+    escalated: boolean("escalated").notNull().default(false),
+  },
+  (t) => [
+    uniqueIndex("lifecycle_waves_once_idx").on(t.clinicId, t.stage, t.wave, t.target),
+    uniqueIndex("lifecycle_waves_notice_idx")
+      .on(t.clinicId, t.noticeId)
+      .where(sql`${t.noticeId} is not null`),
+    index("lifecycle_waves_queued_idx").on(t.queuedAt),
+    check("lifecycle_waves_stage_check", sql`${t.stage} in (${sqlList(LIFECYCLE_STAGES)})`),
+    check("lifecycle_waves_target_check", sql`${t.target} in (${sqlList(LIFECYCLE_TARGETS)})`),
+    check(
+      "lifecycle_waves_delivery_check",
+      sql`${t.delivery} is null or ${t.delivery} in (${sqlList(LIFECYCLE_DELIVERIES)})`,
+    ),
+    check("lifecycle_waves_wave_check", sql`${t.wave} ~ '^[a-z0-9_]+(:[A-Za-z0-9_.:+-]{1,60})?$'`),
+    check(
+      "lifecycle_waves_text_check",
+      sql`(${t.error} is null or char_length(${t.error}) <= 200) and (${t.manualBy} is null or char_length(${t.manualBy}) between 1 and 200) and (${t.providerId} is null or char_length(${t.providerId}) <= 200)`,
+    ),
+    check(
+      "lifecycle_waves_link_check",
+      sql`(${t.target} = 'clinic_email' and ${t.opsAlertId} is null) or (${t.target} <> 'clinic_email' and ${t.noticeId} is null)`,
+    ),
   ],
 );

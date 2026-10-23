@@ -295,6 +295,27 @@ export const OPS_EVENTS = [
   // each of them is recorded as told.
   "calendar_write_stuck",
   "calendar_writes_stuck_many",
+  // The lifecycle watch (lib/lifecycle/waves.ts; design E2, 23 October
+  // 2026): its ops waves, once each by their own key (raiseOpsAlertKeyed).
+  // Routine ones are Slack alone; the five escalations, a stalled setup's
+  // day-22 decision, two business days waiting on us, a reminder that did
+  // not arrive, two that arrived with nothing moving, and a clinic waiting
+  // on us near its window's end, also go to the ops address (owner decision
+  // D5). Ids, counts and closed words only.
+  "lifecycle_no_progress",
+  "lifecycle_closing_soon",
+  "lifecycle_decision_due",
+  "lifecycle_waiting_on_us",
+  "lifecycle_waiting_on_us_long",
+  "lifecycle_channel_waiting",
+  "lifecycle_reminder_undelivered",
+  "lifecycle_reminders_unanswered",
+  // A clinic waiting on us on day 27 or 30 of its window, which closes it
+  // anyway: an escalation, proposing the days it waited as the extension.
+  "lifecycle_closing_waiting_on_us",
+  // The 07:00 digest's one line in Slack (lib/ops/digest.ts): its counts,
+  // once a UTC day, never emailed (the digest itself is the email).
+  "ops_digest_summary",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 
@@ -536,10 +557,23 @@ const ONBOARDING_PAGE_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "practice_question_failed",
   "practice_question_review_past_due",
   "connection_broken",
+  // The lifecycle watch's waves about setup progress open the onboarding
+  // page; an undelivered reminder opens the care page, with the deliveries.
+  "lifecycle_no_progress",
+  "lifecycle_closing_soon",
+  "lifecycle_decision_due",
+  "lifecycle_waiting_on_us",
+  "lifecycle_waiting_on_us_long",
+  "lifecycle_channel_waiting",
+  "lifecycle_reminders_unanswered",
+  "lifecycle_closing_waiting_on_us",
 ]);
 
 /** Alerts that count across clinics, whose link is the console's clinic list. */
-const SUMMARY_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>(["calendar_writes_stuck_many"]);
+const SUMMARY_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
+  "calendar_writes_stuck_many",
+  "ops_digest_summary",
+]);
 
 /**
  * The one console link for an alert, which its email and its Slack copy
@@ -698,5 +732,56 @@ async function mail(
     await unsafeDb.update(opsAlerts).set(outcome).where(eq(opsAlerts.id, alertId));
   } catch {
     // The row may be the in-memory fallback's, with nothing to update.
+  }
+}
+
+/**
+ * An alert raised once for a key the caller owns, rather than one made from
+ * its fields: the lifecycle watch's waves (lib/lifecycle/watch.ts) and the
+ * digest's Slack line (lib/ops/digest.ts). Returns the alert's row id whether
+ * it was raised now or before, so a wave's ledger row can point at it and a
+ * replayed run raises nothing twice. Emailed to the ops address only with
+ * `email` (an escalation: owner decision D5 keeps routine waves to Slack);
+ * the ops-slack sweep posts every row either way. Null when the ops log
+ * cannot be reached, and the caller tries again on its next run. Never
+ * throws.
+ */
+export async function raiseOpsAlertKeyed(
+  event: OpsEvent,
+  fields: OpsFields,
+  options: { key: string; email: boolean },
+): Promise<string | null> {
+  try {
+    const now = new Date();
+    const kept = loggable(fields);
+    // Stored and mailed by the email's own allowlist, key by key, so a count
+    // the log line does not name (a wave's days, the digest's totals) still
+    // reaches the alert; the log line keeps lib/log.ts's keys.
+    const emailed = emailable(fields);
+    const dedupeKey = `key:${options.key}`.slice(0, 400);
+    const claimed = await unsafeDb.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`ops_alert|${event}|${dedupeKey}`}, 0))`,
+      );
+      const [existing] = await tx
+        .select({ id: opsAlerts.id })
+        .from(opsAlerts)
+        .where(and(eq(opsAlerts.event, event), eq(opsAlerts.dedupeKey, dedupeKey)))
+        .limit(1);
+      if (existing) return { id: existing.id, raised: false };
+      const [inserted] = await tx
+        .insert(opsAlerts)
+        .values({ event, dedupeKey, fields: emailed, raisedAt: now, lastRaisedAt: now })
+        .returning({ id: opsAlerts.id });
+      return { id: inserted!.id, raised: true };
+    });
+    if (claimed.raised) {
+      log.error("ops alert", { ...kept, event });
+      if (options.email) await mail(event, emailed, claimed.id, now);
+    }
+    return claimed.id;
+  } catch (error) {
+    log.warn("ops alert not recorded", { event, error: describeError(error) });
+    return null;
   }
 }

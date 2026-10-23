@@ -60,6 +60,15 @@ export type DigestConnectionRow = {
 
 export type DigestCalendarRow = { status: string; count: number };
 
+/** Production billing clinics in one lifecycle stage (`status`), and the longest stay in it. */
+export type DigestLifecycleRow = { status: string; count: number; oldestDays: number };
+
+/** Lifecycle waves queued in the window, by target (`type`) and outcome. */
+export type DigestWaveRow = { type: string; outcome: string; count: number };
+
+/** Clinics at 90% or more of an allowance, and at all of it, per meter. */
+export type DigestUsageRow = { meter: string; nearCapCount: number; atCapCount: number };
+
 export type OpsDigestPayload = {
   windowStart: string;
   windowEnd: string;
@@ -85,6 +94,18 @@ export type OpsDigestPayload = {
    * Absent from a digest collected before 19 October 2026's follow-ups.
    */
   signInHelpNoAccountCount?: number;
+  /**
+   * The Lifecycle block (design E2, step 7; lib/ops/digest.ts): counts only,
+   * every billing clinic but healdesk's demo one. Absent from a digest collected before 23
+   * October 2026.
+   */
+  lifecycleRows?: DigestLifecycleRow[];
+  lifecycleWaveRows?: DigestWaveRow[];
+  usageRows?: DigestUsageRow[];
+  decisionsOwedCount?: number;
+  waitingOnUsCount?: number;
+  /** Ops alerts Slack never took in the window; null while Slack is off. */
+  slackUnpostedCount?: number | null;
 };
 
 /** Resend's free plan stops at 100 a day; the alarm is at 70 (Annex X2). */
@@ -110,6 +131,83 @@ function plural(n: number, word: string): string {
 
 function percent(value: number | null): string {
   return value === null ? "nothing sent" : `${value.toFixed(2)}%`;
+}
+
+const STAGE_WORDS: Readonly<Record<string, string>> = {
+  not_started: "Not started",
+  in_setup: "In setup",
+  waiting_on_us: "Waiting on us",
+  partly_live: "Partly live",
+  live: "Live",
+};
+
+const TARGET_WORDS: Readonly<Record<string, string>> = {
+  clinic_email: "Setup reminders to clinics",
+  slack: "Slack",
+  ops_email: "Ops email",
+};
+
+const METER_WORDS: Readonly<Record<string, string>> = {
+  voice_minutes: "Voice minutes",
+  chat_conversations: "Chat conversations",
+};
+
+/** The Lifecycle block: what needs a person, then where clinics stand, then what went out. */
+function lifecycleBlocks(payload: OpsDigestPayload): Block[] {
+  if (payload.lifecycleRows === undefined) return [];
+  const owed = payload.decisionsOwedCount ?? 0;
+  const waiting = payload.waitingOnUsCount ?? 0;
+  const blocks: Block[] = [
+    {
+      type: "paragraph",
+      text: `Lifecycle of paying clinics: ${plural(owed, "decision")} owed, ${waiting} waiting on us.`,
+    },
+  ];
+  if (payload.lifecycleRows.length > 0) {
+    blocks.push({
+      type: "facts",
+      rows: payload.lifecycleRows.map(
+        (r) =>
+          [
+            STAGE_WORDS[r.status] ?? r.status,
+            `${plural(r.count, "clinic")}, longest ${plural(r.oldestDays, "day")}`,
+          ] as const,
+      ),
+    });
+  }
+  const waves = payload.lifecycleWaveRows ?? [];
+  blocks.push({
+    type: "paragraph",
+    text: waves.length > 0 ? "Reminders and alerts in the last 24 hours:" : "No reminders or alerts went out in the last 24 hours.",
+  });
+  if (waves.length > 0) {
+    blocks.push({
+      type: "facts",
+      rows: waves.map((w) => [`${TARGET_WORDS[w.type] ?? w.type}, ${w.outcome}`, String(w.count)] as const),
+    });
+  }
+  const usage = payload.usageRows ?? [];
+  if (usage.length > 0) {
+    blocks.push({
+      type: "facts",
+      rows: usage.map(
+        (u) =>
+          [
+            METER_WORDS[u.meter] ?? u.meter,
+            `${plural(u.nearCapCount, "clinic")} at 90% or more, ${u.atCapCount} used up`,
+          ] as const,
+      ),
+    });
+  }
+  if (payload.slackUnpostedCount === null) {
+    blocks.push({ type: "paragraph", text: "Slack is off: alerts went by email only." });
+  } else if ((payload.slackUnpostedCount ?? 0) > 0) {
+    blocks.push({
+      type: "paragraph",
+      text: `${plural(payload.slackUnpostedCount ?? 0, "alert")} could not be posted to Slack after every try. Each is in the ops log.`,
+    });
+  }
+  return blocks;
 }
 
 export const renderOpsDigest: EmailTemplate<OpsDigestPayload> = (payload, ctx) => {
@@ -138,6 +236,7 @@ export const renderOpsDigest: EmailTemplate<OpsDigestPayload> = (payload, ctx) =
       text: `The morning's view of healdesk's queues, email and connections, for the 24 hours to ${payload.windowEnd.replace("T", " ").slice(0, 16)} UTC. Ids and counts only: look them up in the ops console.`,
     },
     ...(warnings.length > 0 ? [{ type: "list" as const, items: warnings }] : []),
+    ...lifecycleBlocks(payload),
     { type: "paragraph", text: "Email sent through Resend, the whole account (both apps):" },
     {
       type: "facts",
@@ -235,7 +334,8 @@ export const renderOpsDigest: EmailTemplate<OpsDigestPayload> = (payload, ctx) =
       : []),
   ];
 
-  const attention = waiting.length + payload.connectionRows.length + warnings.length;
+  const attention =
+    waiting.length + payload.connectionRows.length + warnings.length + (payload.decisionsOwedCount ?? 0);
   return compose(
     {
       subject: `healdesk ops digest, ${day}${attention > 0 ? `: ${attention} to look at` : ""}`,
@@ -317,6 +417,19 @@ export const OPS_DIGEST_FIXTURE: OpsDigestPayload = {
   hasRateWarning: true,
   unreadCount: 0,
   signInHelpNoAccountCount: 3,
+  lifecycleRows: [
+    { status: "in_setup", count: 2, oldestDays: 12 },
+    { status: "waiting_on_us", count: 1, oldestDays: 1 },
+    { status: "live", count: 4, oldestDays: 40 },
+  ],
+  lifecycleWaveRows: [
+    { type: "clinic_email", outcome: "delivered", count: 1 },
+    { type: "slack", outcome: "delivered", count: 2 },
+  ],
+  usageRows: [{ meter: "voice_minutes", nearCapCount: 1, atCapCount: 0 }],
+  decisionsOwedCount: 1,
+  waitingOnUsCount: 1,
+  slackUnpostedCount: 0,
 };
 
 export const OPS_DIGEST_ENTRY: TemplateEntry<OpsDigestPayload> = {

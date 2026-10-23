@@ -284,6 +284,8 @@ export const PURGE_COVERAGE: Readonly<{
     billing_requests: "a billing record, kept",
     billing_notices: "the notices given, no patient: kept",
     report_deliveries: "the ledger of the notices, no patient: kept",
+    lifecycle_waves: "the reminder ledger (drizzle/0115), no patient: kept",
+    clinic_lifecycle: "the account's setup stage and our decision (drizzle/0115), no patient: kept",
     overage_invoices: "a billing record, kept",
     usage_events: "a billing record, kept",
     channel_events: "a billing record, kept",

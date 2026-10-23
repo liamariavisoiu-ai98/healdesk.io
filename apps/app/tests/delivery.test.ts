@@ -466,6 +466,9 @@ describeDb("delivery", () => {
           // fingerprint check and 04 UTC run, behind clinic-audits-hourly.
           "clinic-changes",
           "clinic-audits-hourly",
+          // The lifecycle watch (drizzle/0115), hourly behind its switch,
+          // which ships off: stages, the reminder ledger and the ops waves.
+          "lifecycle-watch",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

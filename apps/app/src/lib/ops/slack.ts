@@ -1,8 +1,11 @@
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
+import { LIFECYCLE_DECISIONS } from "@/db/schema";
 import { isCountKey } from "@/lib/email/lint";
 import { opsAlertTitle, opsFieldLabel } from "@/lib/email/templates/ops_alert";
+import { RECOMMENDATIONS } from "@/lib/lifecycle/recommend";
+import { LIFECYCLE_ESCALATIONS } from "@/lib/lifecycle/waves";
 import { describeError, log } from "@/lib/log";
 
 import { opsClinicName, opsConsoleLink, type OpsEvent } from "./notify";
@@ -56,6 +59,11 @@ const CHANGE_SECTIONS: ReadonlySet<string> = new Set([
   "provider_services",
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The lifecycle watch's closed words (design E2): a setup's decision and the recommended action. */
+const LIFECYCLE_WORDS: Readonly<Record<string, ReadonlySet<string>>> = {
+  decision: new Set(LIFECYCLE_DECISIONS),
+  recommendation: new Set(RECOMMENDATIONS),
+};
 
 export type SlackAlert = {
   event: OpsEvent;
@@ -84,6 +92,8 @@ export function slackFields(
       if (typeof value === "string" && METERS.has(value)) out.meter = value;
     } else if (key === "section") {
       if (typeof value === "string" && CHANGE_SECTIONS.has(value)) out.section = value;
+    } else if (Object.hasOwn(LIFECYCLE_WORDS, key)) {
+      if (typeof value === "string" && LIFECYCLE_WORDS[key]!.has(value)) out[key] = value;
     } else if (isCountKey(key) && typeof value === "number" && Number.isFinite(value) && value >= 0) {
       out[key] = value;
     }
@@ -96,6 +106,8 @@ export function slackText(alert: SlackAlert): string {
   const fields = slackFields(alert.fields);
   const title = opsAlertTitle({ ...alert.fields, event: alert.event });
   const lines = [`${SLACK_TAG} *${escapeSlack(title)}*`];
+  // A lifecycle escalation opens with a siren (design E2): the one a person must act on.
+  if (LIFECYCLE_ESCALATIONS.has(alert.event)) lines[0] = `:rotating_light: ${lines[0]}`;
   if (fields.clinicId) {
     const name = alert.clinicName ? `${escapeSlack(alert.clinicName)}, ` : "";
     lines.push(`${name}clinic id \`${fields.clinicId}\``);

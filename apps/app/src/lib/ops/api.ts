@@ -143,6 +143,12 @@ import { opListClinicStrip } from "@/lib/ops/strip";
 import { opOpsInbox } from "@/lib/ops/inbox/run";
 import { opClinicAudits, opRunClinicAudit } from "@/lib/ops/audit-ops";
 import { opAcknowledgeClinicChange, opListClinicChanges } from "@/lib/ops/change-ops";
+import {
+  opDecideLifecycle,
+  opListLifecycle,
+  opListLifecycleWaves,
+  opSnoozeLifecycle,
+} from "@/lib/ops/lifecycle-ops";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -636,6 +642,14 @@ const OPERATIONS = [
   "clinicAudits",
   "listClinicChanges",
   "acknowledgeClinicChange",
+  // The lifecycle watch (lib/ops/lifecycle-ops.ts, lib/lifecycle; design
+  // E2): every billing clinic's stage, decision and recommendation, one
+  // clinic's reminder ledger, and the operator's snooze of its ops waves and
+  // decision about a stalled setup. Ids, counts, dates and closed words.
+  "listLifecycle",
+  "listLifecycleWaves",
+  "snoozeLifecycle",
+  "decideLifecycle",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -772,6 +786,9 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   // Mutating: an audit run and stored; a change acknowledged.
   "runClinicAudit",
   "acknowledgeClinicChange",
+  // Mutating: a clinic's ops waves snoozed, or its setup decision recorded.
+  "snoozeLifecycle",
+  "decideLifecycle",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1405,6 +1422,14 @@ export async function runOperation(
       return opListClinicChanges(args);
     case "acknowledgeClinicChange":
       return opAcknowledgeClinicChange(args, operator);
+    case "listLifecycle":
+      return opListLifecycle(args, operator);
+    case "listLifecycleWaves":
+      return opListLifecycleWaves(args, operator);
+    case "snoozeLifecycle":
+      return opSnoozeLifecycle(args, operator);
+    case "decideLifecycle":
+      return opDecideLifecycle(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

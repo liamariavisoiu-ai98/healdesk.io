@@ -544,6 +544,59 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Phone is answering, or is due to join the price, for an account that has more than one location or one being added. Phone is billed per location and each location needs its own AYA number, which isn't built yet, so the step-up into phone was held and nothing was charged. Decide with the practice whether phone stays on; the step-up stays held until phone per location exists.",
   },
+  // The lifecycle watch (lib/lifecycle/waves.ts), once per wave. The setup
+  // reminders themselves go to the clinic unchanged; these are ours.
+  lifecycle_no_progress: {
+    title: "A clinic's setup has not moved in days",
+    action:
+      "The clinic below is in its setup window and has made no progress for the days shown, with the steps shown still left. Its own reminders are going out as usual. Open its onboarding page to see what is left, and consider a call if nothing moves before day 22.",
+  },
+  lifecycle_closing_soon: {
+    title: "A clinic's setup window closes soon",
+    action:
+      "The clinic below has the days shown left in its setup window and is close to done. No decision is owed yet: watch it, and extend its deadline from the Billing page only if it asks or stops moving.",
+  },
+  lifecycle_decision_due: {
+    title: "A stalled setup closes soon: decide what to offer",
+    action:
+      "The clinic below has the days shown left in its setup window, with two or more steps left or nobody yet having answered a setup screen. With nothing live at the end of the window its account closes and the setup fee is not refunded. The recommendation below comes from fixed rules over these counts: give it more time with Extend the setup window on its Billing page (by the days shown), or phone the clinic and offer a five-minute call.",
+  },
+  lifecycle_closing_waiting_on_us: {
+    title: "A clinic waiting on us nears the end of its setup",
+    action:
+      "The clinic below has done its part and is waiting on us to finish a channel, and its setup window is about to end: the days left are shown below, and 0 means today is the last day. With nothing live at the end it closes anyway, so extending is likely right: use Extend the setup window on its Billing page, by at least the days it has waited, and finish our side.",
+  },
+  lifecycle_waiting_on_us: {
+    title: "A clinic is waiting on us to finish its setup",
+    action:
+      "The clinic below has done every setup step it can, and a channel is still being prepared on our side for the hours shown. Open its onboarding page and finish our part.",
+  },
+  lifecycle_waiting_on_us_long: {
+    title: "A clinic has waited on us for two business days",
+    action:
+      "The clinic below has done its part and has waited two business days or more for us to finish a channel. Finish our side today. The days it waited do not extend its deadline by themselves: consider extending it by the days shown from its Billing page.",
+  },
+  lifecycle_channel_waiting: {
+    title: "A live clinic still has a channel waiting on it",
+    action:
+      "The clinic below has a channel answering and another still waiting for one step from the clinic, for the days shown. Its one reminder for that channel has gone. A short call usually finishes it.",
+  },
+  lifecycle_reminder_undelivered: {
+    title: "A setup reminder did not reach the clinic",
+    action:
+      "A setup reminder to the clinic below bounced or could not be sent, so its address may be wrong or blocked and it is not hearing from us. Phone the clinic, check the address on its care page, and correct it if needed.",
+  },
+  lifecycle_reminders_unanswered: {
+    title: "Two setup reminders arrived and nothing moved",
+    action:
+      "Two setup reminders in a row were delivered to the clinic below and it has made no progress since the first. Email is not moving it: phone the clinic and offer a five-minute call to finish setup together.",
+  },
+  // The 07:00 digest's line in Slack (lib/ops/digest.ts), never emailed.
+  ops_digest_summary: {
+    title: "Morning digest",
+    action:
+      "The morning digest went to the ops address. These are its counts of what needs a person today: decisions owed, clinics waiting on us, clinics near or at their allowance, and alerts Slack could not take.",
+  },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
     action:
@@ -594,6 +647,23 @@ const LABELS: Record<string, string> = {
   meter: "Meter",
   used: "Used",
   included: "Included",
+  // The lifecycle watch (lib/lifecycle/waves.ts) and the digest's Slack line.
+  setupDays: "Day of setup",
+  remainingDays: "Days left",
+  stepsLeftCount: "Steps left",
+  noProgressDays: "Days without progress",
+  waitedHours: "Hours waiting on us",
+  waitedDays: "Days waiting",
+  extendDays: "Extend by (days)",
+  channelsWaitingCount: "Channels waiting on the clinic",
+  reminderCount: "Reminders delivered",
+  decision: "Decision",
+  recommendation: "Recommended",
+  decisionsOwedCount: "Decisions owed",
+  waitingOnUsCount: "Waiting on us",
+  nearCapCount: "Near allowance",
+  atCapCount: "At allowance",
+  slackUnpostedCount: "Alerts Slack could not take",
 };
 
 function wordingFor(payload: OpsAlertPayload): Wording {

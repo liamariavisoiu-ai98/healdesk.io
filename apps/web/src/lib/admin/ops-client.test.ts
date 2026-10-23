@@ -1860,3 +1860,67 @@ describe("the redone admin's two reads (lane A2)", () => {
     }
   });
 });
+
+describe("the lifecycle watch's operations (design E2)", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    clinicId: CLINIC,
+    clinicSlug: "glow",
+    clinicName: "Glow Med Spa",
+    stage: "in_setup",
+    stageSince: "2026-10-10T16:00:00.000Z",
+    stepsLeft: 2,
+    channelsWaiting: 1,
+    lastProgressAt: "2026-10-12T16:00:00.000Z",
+    deadlineAt: "2026-10-28T04:00:00.000Z",
+    remainingDays: 7,
+    decision: "none",
+    decidedBy: null,
+    decidedAt: null,
+    snoozedUntil: null,
+    snoozedBy: null,
+    undeliveredCount: 0,
+    decisionOwed: true,
+    recommendation: { action: "offer_call", days: null, reason: "3 steps left and no progress for 8 days: offer a five-minute call." },
+    ...over,
+  });
+
+  test("the list is read field by field, and an unknown word is malformed", async () => {
+    reply({ data: { clinics: [row()] } });
+    expect(await opsClient.fetchLifecycle()).toEqual({ ok: true, data: [row()] });
+    expect(sent.at(-1)).toEqual({ op: "listLifecycle", args: {} });
+    reply({ data: { clinics: [row({ stage: "stuck" })] } });
+    expect(await opsClient.fetchLifecycle()).toMatchObject({ ok: false, code: "malformed" });
+    reply({ data: { clinics: [row({ recommendation: { action: "refund", days: null, reason: "x." } })] } });
+    expect(await opsClient.fetchLifecycle()).toMatchObject({ ok: false, code: "malformed" });
+  });
+
+  test("the ledger keeps its wave keys and outcomes, and refuses anything else", async () => {
+    const wave = {
+      id: "5b4a3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d",
+      stage: "in_setup",
+      wave: "setup_reminder:live:meta+voice",
+      target: "clinic_email",
+      queuedAt: "2026-10-20T16:00:00.000Z",
+      sentAt: "2026-10-20T16:01:00.000Z",
+      outcome: "delivered",
+      providerId: "msg_1",
+      escalated: false,
+      manualBy: null,
+      skippedBecause: null,
+    };
+    reply({ data: { waves: [wave] } });
+    expect(await opsClient.fetchLifecycleWaves(CLINIC)).toEqual({ ok: true, data: [wave] });
+    expect(sent.at(-1)).toEqual({ op: "listLifecycleWaves", args: { clinicId: CLINIC } });
+    reply({ data: { waves: [{ ...wave, wave: "a sentence about the clinic" }] } });
+    expect(await opsClient.fetchLifecycleWaves(CLINIC)).toMatchObject({ ok: false, code: "malformed" });
+  });
+
+  test("the snooze and the decision send ids and closed words, and read saved or not watched", async () => {
+    reply({ data: { outcome: "saved", snoozedUntil: "2026-10-27T16:00:00.000Z", auditRecorded: true } });
+    expect(await opsClient.snoozeLifecycle(CLINIC, 7)).toEqual({ ok: true, data: { outcome: "saved" } });
+    expect(sent.at(-1)).toEqual({ op: "snoozeLifecycle", args: { clinicId: CLINIC, days: 7 } });
+    reply({ data: { outcome: "not_watched" } });
+    expect(await opsClient.decideLifecycle(CLINIC, "let_close")).toEqual({ ok: true, data: { outcome: "not_watched" } });
+    expect(sent.at(-1)).toEqual({ op: "decideLifecycle", args: { clinicId: CLINIC, decision: "let_close" } });
+  });
+});

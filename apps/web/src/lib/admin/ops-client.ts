@@ -363,7 +363,15 @@ type OperatorOp =
   | "runClinicAudit"
   | "clinicAudits"
   | "listClinicChanges"
-  | "acknowledgeClinicChange";
+  | "acknowledgeClinicChange"
+  // The lifecycle watch (apps/app lib/ops/lifecycle-ops.ts; design E2): each
+  // paying clinic's stage, decision and recommendation; one clinic's
+  // reminder ledger; the snooze of its ops waves and the decision about a
+  // stalled setup. Ids, counts, dates, closed words and the clinic's name.
+  | "listLifecycle"
+  | "listLifecycleWaves"
+  | "snoozeLifecycle"
+  | "decideLifecycle";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -1462,6 +1470,155 @@ export function fetchVoiceAgentStatus(clinicId?: string): Promise<OpsResult<Voic
         updatedAt: isoInstant(r.updatedAt, "agent.updatedAt"),
       };
     });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The lifecycle watch (design E2)
+// -----------------------------------------------------------------------------
+
+export const LIFECYCLE_STAGES = ["not_started", "in_setup", "waiting_on_us", "partly_live", "live", "closed"] as const;
+export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number];
+export const LIFECYCLE_DECISIONS = ["none", "extension_offered", "let_close", "extended"] as const;
+export type LifecycleDecision = (typeof LIFECYCLE_DECISIONS)[number];
+export const LIFECYCLE_ACTIONS = ["extend", "offer_call", "let_close", "wait", "phone_the_clinic"] as const;
+
+/**
+ * One paying clinic's lifecycle, as apps/app projects it: its stage, what it
+ * still owes, the days left in its setup window, the decision and snooze,
+ * and the recommendation, whose reason is one of apps/app's fixed sentences.
+ */
+export type LifecycleRow = {
+  clinicId: string;
+  clinicSlug: string;
+  clinicName: string;
+  stage: LifecycleStage;
+  stageSince: string;
+  stepsLeft: number;
+  channelsWaiting: number;
+  lastProgressAt: string | null;
+  deadlineAt: string | null;
+  remainingDays: number | null;
+  decision: LifecycleDecision;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  snoozedUntil: string | null;
+  snoozedBy: string | null;
+  undeliveredCount: number;
+  decisionOwed: boolean;
+  recommendation: { action: (typeof LIFECYCLE_ACTIONS)[number]; days: number | null; reason: string };
+};
+
+/**
+ * Every paying clinic the watch has seen, those owing a decision first. A
+ * clinic still classed synthetic before it goes live is one; healdesk's demo
+ * clinic never has a row.
+ */
+export function fetchLifecycle(): Promise<OpsResult<LifecycleRow[]>> {
+  return callOps(
+    "listLifecycle",
+    "read",
+    {},
+    (value) => {
+      const data = object(value, "listLifecycle");
+      return list(data.clinics, "listLifecycle.clinics").map((row, i) => {
+        const r = object(row, `listLifecycle.clinics[${i}]`);
+        const advice = object(r.recommendation, "lifecycle.recommendation");
+        return {
+          clinicId: id(r.clinicId, "lifecycle.clinicId"),
+          clinicSlug: text(r.clinicSlug, "lifecycle.clinicSlug"),
+          clinicName: text(r.clinicName, "lifecycle.clinicName"),
+          stage: literal(r.stage, LIFECYCLE_STAGES, "lifecycle.stage"),
+          stageSince: isoInstant(r.stageSince, "lifecycle.stageSince"),
+          stepsLeft: count(r.stepsLeft, "lifecycle.stepsLeft"),
+          channelsWaiting: count(r.channelsWaiting, "lifecycle.channelsWaiting"),
+          lastProgressAt: optionalIsoInstant(r.lastProgressAt, "lifecycle.lastProgressAt"),
+          deadlineAt: optionalIsoInstant(r.deadlineAt, "lifecycle.deadlineAt"),
+          remainingDays: r.remainingDays === null ? null : count(r.remainingDays, "lifecycle.remainingDays"),
+          decision: literal(r.decision, LIFECYCLE_DECISIONS, "lifecycle.decision"),
+          decidedBy: optionalText(r.decidedBy, "lifecycle.decidedBy"),
+          decidedAt: optionalIsoInstant(r.decidedAt, "lifecycle.decidedAt"),
+          snoozedUntil: optionalIsoInstant(r.snoozedUntil, "lifecycle.snoozedUntil"),
+          snoozedBy: optionalText(r.snoozedBy, "lifecycle.snoozedBy"),
+          undeliveredCount: count(r.undeliveredCount, "lifecycle.undeliveredCount"),
+          decisionOwed: bool(r.decisionOwed, "lifecycle.decisionOwed"),
+          recommendation: {
+            action: literal(advice.action, LIFECYCLE_ACTIONS, "lifecycle.recommendation.action"),
+            days: advice.days === null ? null : count(advice.days, "lifecycle.recommendation.days"),
+            reason: text(advice.reason, "lifecycle.recommendation.reason"),
+          },
+        };
+      });
+    },
+  );
+}
+
+/** One wave of a clinic's reminder ledger: a setup reminder recorded, or an ops wave. */
+export type LifecycleWave = {
+  id: string;
+  stage: LifecycleStage;
+  /** The wave's key: `setup_reminder:3`, `day_22:2026-11-13`, `wait_4h:<when its stage began>`. */
+  wave: string;
+  target: "clinic_email" | "ops_email" | "slack";
+  queuedAt: string;
+  sentAt: string | null;
+  outcome: "delivered" | "sent" | "pending" | "bounced" | "failed" | "skipped";
+  /** Resend's message id; null for Slack. */
+  providerId: string | null;
+  escalated: boolean;
+  manualBy: string | null;
+  skippedBecause: "snoozed" | "let_close" | null;
+};
+
+const WAVE_KEY = /^[a-z0-9_]+(:[A-Za-z0-9_.:+-]{1,60})?$/;
+
+/** The clinic's reminder ledger, oldest first. */
+export function fetchLifecycleWaves(clinicId: string): Promise<OpsResult<LifecycleWave[]>> {
+  return callOps("listLifecycleWaves", "read", { clinicId }, (value) => {
+    const data = object(value, "listLifecycleWaves");
+    return list(data.waves, "listLifecycleWaves.waves").map((row, i) => {
+      const r = object(row, `listLifecycleWaves.waves[${i}]`);
+      if (typeof r.wave !== "string" || !WAVE_KEY.test(r.wave)) throw new ShapeError("wave.wave");
+      return {
+        id: id(r.id, "wave.id"),
+        stage: literal(r.stage, LIFECYCLE_STAGES, "wave.stage"),
+        wave: r.wave,
+        target: literal(r.target, ["clinic_email", "ops_email", "slack"] as const, "wave.target"),
+        queuedAt: isoInstant(r.queuedAt, "wave.queuedAt"),
+        sentAt: optionalIsoInstant(r.sentAt, "wave.sentAt"),
+        outcome: literal(
+          r.outcome,
+          ["delivered", "sent", "pending", "bounced", "failed", "skipped"] as const,
+          "wave.outcome",
+        ),
+        providerId: optionalText(r.providerId, "wave.providerId"),
+        escalated: bool(r.escalated, "wave.escalated"),
+        manualBy: optionalText(r.manualBy, "wave.manualBy"),
+        skippedBecause:
+          r.skippedBecause === null ? null : literal(r.skippedBecause, ["snoozed", "let_close"] as const, "wave.skippedBecause"),
+      };
+    });
+  });
+}
+
+export type LifecycleWriteOutcome = { outcome: "saved" } | { outcome: "not_watched" };
+
+/** Mute the clinic's ops waves for 3, 7 or 14 days. Never the clinic's own reminders. */
+export function snoozeLifecycle(clinicId: string, days: 3 | 7 | 14): Promise<OpsResult<LifecycleWriteOutcome>> {
+  return callOps("snoozeLifecycle", "write", { clinicId, days }, (value) => {
+    const data = object(value, "snoozeLifecycle");
+    return { outcome: literal(data.outcome, ["saved", "not_watched"] as const, "snoozeLifecycle.outcome") };
+  });
+}
+
+/** Record the decision about a stalled setup. `extended` is recorded by apps/app when the deadline moves. */
+export function decideLifecycle(
+  clinicId: string,
+  decision: "none" | "extension_offered" | "let_close",
+): Promise<OpsResult<LifecycleWriteOutcome>> {
+  return callOps("decideLifecycle", "write", { clinicId, decision }, (value) => {
+    const data = object(value, "decideLifecycle");
+    return { outcome: literal(data.outcome, ["saved", "not_watched"] as const, "decideLifecycle.outcome") };
   });
 }
 

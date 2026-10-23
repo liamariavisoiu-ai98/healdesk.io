@@ -525,6 +525,13 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "A booking the clinic confirmed is not in its Google Calendar, and the clinic was already told to add it by hand. Status failed means Google refused it and nothing retries it on its own; unknown means Google never answered and the retries have stopped (five attempts, or a day without one). The code is Google's reason: event_id_taken means an event under our id is already there at another time (look for a duplicate, do not retry); deleted_in_calendar means the clinic deleted it (nothing to do); a target_ code or calendar_not_connected means the calendar or its access changed (send the clinic a calendar link); timeout, network or unconfirmed are passing (retry the write from the clinic's onboarding page). Open the clinic's calendar writes in the console.",
   },
+  // The same sweep, when one run finds more stuck writes than it alerts one
+  // by one: `count` of them, each recorded as told.
+  calendar_writes_stuck_many: {
+    title: "Several bookings could not be written to calendars",
+    action:
+      "The hourly check found the number of bookings below whose Google Calendar write failed or was given up on, more than it reports one by one, so this one alert stands for all of them and none will be sent separately. Each clinic's desk was already told to add its booking by hand. Open the clinics in the console and look at each one's calendar writes on its onboarding page; a new failure after this is reported on its own again.",
+  },
   step_up_phone_held: {
     title: "Phone held off a plan with more than one location",
     action:
@@ -554,6 +561,7 @@ const LABELS: Record<string, string> = {
   clinicId: "Clinic id",
   noticeId: "Notice id",
   appointmentId: "Appointment id",
+  attemptCount: "Write attempts",
   deliveryId: "Delivery id",
   organizationId: "Organisation id",
   agreementId: "Agreement id",

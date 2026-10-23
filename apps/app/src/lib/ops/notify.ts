@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { opsAlerts } from "@/db/schema";
@@ -289,8 +289,12 @@ export const OPS_EVENTS = [
   // `unknown` at its five attempts or past the desk sweep's look-back
   // (lib/ops/calendar-write-alerts.ts, hourly): once per write and state,
   // with the appointment's id, its status, Google's reason as `code` and the
-  // attempts. The desk was already told to add it by hand.
+  // attempts. The desk was already told to add it by hand. When one run
+  // finds more than a handful not yet told (the first run, or a wide
+  // outage), one calendar_writes_stuck_many with the count instead, and
+  // each of them is recorded as told.
   "calendar_write_stuck",
+  "calendar_writes_stuck_many",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 
@@ -534,6 +538,9 @@ const ONBOARDING_PAGE_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "connection_broken",
 ]);
 
+/** Alerts that count across clinics, whose link is the console's clinic list. */
+const SUMMARY_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>(["calendar_writes_stuck_many"]);
+
 /**
  * The one console link for an alert, which its email and its Slack copy
  * both print (owner decision D3, 23 October 2026): the clinic's page on the
@@ -544,10 +551,84 @@ const ONBOARDING_PAGE_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
  */
 export function opsConsoleLink(event: OpsEvent, fields: Readonly<Record<string, unknown>>): string | null {
   const origin = consoleOrigin();
+  if (!origin) return null;
+  // A summary across clinics opens the clinics list.
+  if (SUMMARY_EVENTS.has(event)) return `${origin}/admin/ops`;
   const clinicId = fields.clinicId;
-  if (!origin || typeof clinicId !== "string" || !UUID.test(clinicId)) return null;
+  if (typeof clinicId !== "string" || !UUID.test(clinicId)) return null;
   const page = ONBOARDING_PAGE_EVENTS.has(event) ? "onboarding" : "care";
   return `${origin}/admin/ops/${clinicId.toLowerCase()}/${page}`;
+}
+
+/**
+ * Of these alerts, the ones not yet raised: no ops_alerts row holds their
+ * key, ever. For a sweep that would otherwise mail one alert per row on its
+ * first run (lib/ops/calendar-write-alerts.ts).
+ */
+export async function opsAlertsNotYetRaised(
+  event: OpsEvent,
+  list: readonly OpsFields[],
+): Promise<OpsFields[]> {
+  if (list.length === 0) return [];
+  const keyed = list.map((fields) => ({ fields, key: dedupeKeyOf(emailable(loggable(fields))) }));
+  const rows = await unsafeDb
+    .selectDistinct({ key: opsAlerts.dedupeKey })
+    .from(opsAlerts)
+    .where(
+      and(
+        eq(opsAlerts.event, event),
+        inArray(
+          opsAlerts.dedupeKey,
+          keyed.map((k) => k.key),
+        ),
+      ),
+    );
+  const seen = new Set(rows.map((r) => r.key));
+  return keyed.filter((k) => !seen.has(k.key)).map((k) => k.fields);
+}
+
+/**
+ * Record these alerts as told without telling anyone: a summary alert has
+ * just said how many there are. Each gets its row under its own key, so a
+ * later notifyOpsOnce for it is the no-op it would have been had it gone,
+ * with no email and no Slack post (its next try is never). Returns how many
+ * it recorded; one already there is left alone. Serialised per key as
+ * claimAlert is.
+ */
+export async function coverOpsAlerts(
+  event: OpsEvent,
+  list: readonly OpsFields[],
+  now: Date = new Date(),
+): Promise<number> {
+  let covered = 0;
+  for (const raw of list) {
+    const fields = emailable(loggable(raw));
+    const dedupeKey = dedupeKeyOf(fields);
+    const inserted = await unsafeDb.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`ops_alert|${event}|${dedupeKey}`}, 0))`,
+      );
+      const [existing] = await tx
+        .select({ id: opsAlerts.id })
+        .from(opsAlerts)
+        .where(and(eq(opsAlerts.event, event), eq(opsAlerts.dedupeKey, dedupeKey)))
+        .limit(1);
+      if (existing) return false;
+      await tx.insert(opsAlerts).values({
+        event,
+        dedupeKey,
+        fields,
+        raisedAt: now,
+        lastRaisedAt: now,
+        lastError: "Covered by a summary alert.",
+        slackError: "covered by a summary alert",
+        slackNextAt: sql`'infinity'::timestamptz`,
+      });
+      return true;
+    });
+    if (inserted) covered += 1;
+  }
+  return covered;
 }
 
 /** Where alerts go. Never a clinic's address. */

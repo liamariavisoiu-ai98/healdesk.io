@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { DESK_SWEEP_LOOKBACK_HOURS, MAX_WRITE_ATTEMPTS } from "@/lib/booking/calendar";
-import { ALERT_LOOKBACK_DAYS, alertStuckCalendarWrites } from "@/lib/ops/calendar-write-alerts";
+import { ALERT_LOOKBACK_DAYS, alertStuckCalendarWrites, SUMMARY_ABOVE } from "@/lib/ops/calendar-write-alerts";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { inTenant, seedClinic } from "./setup/factories";
@@ -105,7 +105,7 @@ describeDb("calendar write alerts", () => {
       appointmentId: failed,
       status: "failed",
       code: "event_id_taken",
-      attempts: 1,
+      attemptCount: 1,
     });
 
     // The next hour, and the one after: no new alert.
@@ -129,5 +129,64 @@ describeDb("calendar write alerts", () => {
     await alertStuckCalendarWrites(new Date(NOW.getTime() + HOUR));
     await alertStuckCalendarWrites(new Date(NOW.getTime() + 2 * HOUR));
     expect((await alerts()).map((a) => a.fields.status).sort()).toEqual(["failed", "unknown"]);
+  });
+
+  test("a failed write retried by an operator that fails again, same code, is told again; one failure seen twice is told once", async () => {
+    const clinic = await seedClinic("calwrites-retry");
+    const id = await write(clinic.clinicId, {
+      write: "failed",
+      attempts: 1,
+      error: "event_id_taken",
+      updatedAt: new Date(NOW.getTime() - HOUR),
+    });
+    await alertStuckCalendarWrites(NOW);
+    await alertStuckCalendarWrites(new Date(NOW.getTime() + HOUR));
+    expect(await alerts()).toHaveLength(1);
+    // The operator's retry claims a second attempt, and Google refuses it the same way.
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(`update appointments set calendar_write_attempts = 2 where id = $1`, [id]),
+    );
+    await alertStuckCalendarWrites(new Date(NOW.getTime() + 2 * HOUR));
+    await alertStuckCalendarWrites(new Date(NOW.getTime() + 3 * HOUR));
+    expect((await alerts()).map((a) => a.fields.attemptCount).sort()).toEqual([1, 2]);
+  });
+
+  test("more than five new stuck writes in one run are one summary, and each is recorded as told", async () => {
+    const clinic = await seedClinic("calwrites-flood");
+    const recent = new Date(NOW.getTime() - HOUR);
+    for (let i = 0; i < SUMMARY_ABOVE + 2; i += 1) {
+      await write(clinic.clinicId, { write: "failed", attempts: 1, error: "not_ours", updatedAt: recent });
+    }
+    const result = await alertStuckCalendarWrites(NOW);
+    expect(result).toMatchObject({ found: SUMMARY_ABOVE + 2, covered: SUMMARY_ABOVE + 2 });
+    const { rows: summary } = await getMigratorPool().query<{ fields: Record<string, unknown>; sent_at: Date | null }>(
+      `select fields, sent_at from ops_alerts where event = 'calendar_writes_stuck_many'`,
+    );
+    expect(summary).toHaveLength(1);
+    expect(summary[0]!.fields.count).toBe(SUMMARY_ABOVE + 2);
+    // Each write is on the ops log as told: never emailed, never posted to Slack.
+    const { rows: covered } = await getMigratorPool().query<{
+      last_error: string;
+      slack_next_at: Date | string;
+    }>(`select last_error, slack_next_at::text as slack_next_at from ops_alerts where event = 'calendar_write_stuck'`);
+    expect(covered).toHaveLength(SUMMARY_ABOVE + 2);
+    for (const row of covered) {
+      expect(row.last_error).toMatch(/summary/);
+      expect(row.slack_next_at).toBe("infinity");
+    }
+
+    // The next run tells nothing more; a new failure after it is told on its own.
+    await alertStuckCalendarWrites(new Date(NOW.getTime() + HOUR));
+    await write(clinic.clinicId, { write: "failed", attempts: 1, error: "event_id_taken", updatedAt: NOW });
+    await alertStuckCalendarWrites(new Date(NOW.getTime() + 2 * HOUR));
+    expect(await alerts()).toHaveLength(SUMMARY_ABOVE + 3);
+    const { rows: told } = await getMigratorPool().query<{ n: number }>(
+      `select count(*)::int as n from ops_alerts where event = 'calendar_write_stuck' and last_error is distinct from 'Covered by a summary alert.'`,
+    );
+    expect(told[0]!.n).toBe(1);
+    const { rows: summaries } = await getMigratorPool().query<{ n: number }>(
+      `select count(*)::int as n from ops_alerts where event = 'calendar_writes_stuck_many'`,
+    );
+    expect(summaries[0]!.n).toBe(1);
   });
 });

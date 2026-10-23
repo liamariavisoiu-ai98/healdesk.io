@@ -138,6 +138,9 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   // An appointment's opaque id, for an ops alert about its calendar write
   // (lib/ops/calendar-write-alerts.ts). An id, never the booking.
   "appointmentId",
+  // ...and how many attempts its write has had, which makes a retried
+  // write that fails again a new alert. A count.
+  "attemptCount",
   // The usage alerts to ops (lib/billing/usage-alerts.ts): a meter's units
   // used in its window and the allowance it includes. Counts.
   "used",

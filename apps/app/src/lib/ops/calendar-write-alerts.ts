@@ -10,7 +10,13 @@ import { describeError, log } from "@/lib/log";
 import { withTenant } from "@/lib/tenant";
 
 import { listClinics } from "./clinics";
-import { notifyOpsOnce } from "./notify";
+import {
+  coverOpsAlerts,
+  notifyOps,
+  notifyOpsOnce,
+  opsAlertsNotYetRaised,
+  type OpsFields,
+} from "./notify";
 
 /**
  * Calendar writes that need a person (design E3, "Calendar writes alert
@@ -24,10 +30,10 @@ import { notifyOpsOnce } from "./notify";
  * DESK_SWEEP_LOOKBACK_HOURS. Either way the desk page says to add the
  * booking by hand, and until now nobody at healdesk heard of it.
  *
- * This raises calendar_write_stuck, once per write and state, through
- * notifyOpsOnce (emailed, and posted to Slack, with the clinic's name, the
- * write's ids, its attempts and Google's reason code, and its console link),
- * for each booking still on whose write is:
+ * This raises calendar_write_stuck, once per write, state and attempt
+ * count, through notifyOpsOnce (emailed, and posted to Slack, with the
+ * clinic's name, the write's ids, its attempts and Google's reason code, and
+ * its console link), for each booking still on whose write is:
  *
  *   - `failed`: settled, never retried without an operator;
  *   - `unknown` at the five attempts: the sweep has stopped;
@@ -47,13 +53,23 @@ import { notifyOpsOnce } from "./notify";
 /** How far back a settled or abandoned write is still alerted. Days, not hours: see above. */
 export const ALERT_LOOKBACK_DAYS = 14;
 
-export type CalendarWriteAlertsResult = { clinics: number; found: number; failures: number };
+/** More new stuck writes than this in one run are told as one summary. */
+export const SUMMARY_ABOVE = 5;
+
+export type CalendarWriteAlertsResult = {
+  clinics: number;
+  found: number;
+  /** Writes recorded as told under a summary alert this run. */
+  covered: number;
+  failures: number;
+};
 
 const ACTOR = { type: "service", serviceName: "calendar-write-alerts" } as const;
 const CODE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 
 export async function alertStuckCalendarWrites(now: Date = new Date()): Promise<CalendarWriteAlertsResult> {
-  const result: CalendarWriteAlertsResult = { clinics: 0, found: 0, failures: 0 };
+  const result: CalendarWriteAlertsResult = { clinics: 0, found: 0, covered: 0, failures: 0 };
+  const found: OpsFields[] = [];
   const since = new Date(now.getTime() - ALERT_LOOKBACK_DAYS * 24 * 3_600_000);
   const sweepSince = new Date(now.getTime() - DESK_SWEEP_LOOKBACK_HOURS * 3_600_000);
 
@@ -93,19 +109,39 @@ export async function alertStuckCalendarWrites(now: Date = new Date()): Promise<
       );
       for (const write of stuck) {
         const code = write.error && CODE.test(write.error) ? write.error : null;
-        await notifyOpsOnce("calendar_write_stuck", {
+        // attemptCount is part of the alert's key (attempts would not be: it
+        // is a counter notifyOps leaves out of identity), so a write an
+        // operator retries that fails again, its count one higher, is a new
+        // alert, and the same failure seen by every later run is not.
+        found.push({
           clinicId,
           appointmentId: write.id,
           status: write.status,
           ...(code ? { code } : {}),
-          attempts: write.attempts,
+          attemptCount: write.attempts,
         });
-        result.found += 1;
       }
     } catch (error) {
       result.failures += 1;
       log.error("calendar write alerts failed for a clinic", { clinicId, error: describeError(error) });
     }
   }
+  result.found = found.length;
+
+  // A first run, or a wide outage, would otherwise mail one alert per write:
+  // past a handful not yet told, one summary with the count stands for them
+  // all, and each is recorded as told so none follows it one by one.
+  try {
+    const fresh = await opsAlertsNotYetRaised("calendar_write_stuck", found);
+    if (fresh.length > SUMMARY_ABOVE) {
+      await notifyOps("calendar_writes_stuck_many", { count: fresh.length, windowStart: now.toISOString() });
+      result.covered = await coverOpsAlerts("calendar_write_stuck", fresh, now);
+      return result;
+    }
+  } catch (error) {
+    // Unread, the alerts go one by one: more mail, nothing missed.
+    log.error("calendar write alerts could not read the ops log", { error: describeError(error) });
+  }
+  for (const fields of found) await notifyOpsOnce("calendar_write_stuck", fields);
   return result;
 }

@@ -191,15 +191,37 @@ export async function callModel(input: {
   system: AssistantPrompt;
   messages: AssistantMessage[];
 }): Promise<string | ModelRefusal> {
-  const config = MODEL_CONFIG[input.channel];
-  const { default: AnthropicClient } = await import("@anthropic-ai/sdk");
-  const client = new AnthropicClient({
-    apiKey: input.apiKey,
-    ...(config.timeoutMs !== undefined ? { timeout: config.timeoutMs } : {}),
-    ...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
-  });
+  const client = await clientFor(input.apiKey, input.channel);
   const response = await client.messages.create(modelRequest(input));
   return readModelResponse(input.channel, response);
+}
+
+/**
+ * One client per key and channel, kept for the process: a client made per
+ * turn opened a new TLS connection to the API on every turn of a call,
+ * which the caller heard as dead air before each reply (test calls of 23
+ * October 2026). The SDK keeps the connection alive between requests.
+ */
+const clients = new Map<string, Promise<Anthropic>>();
+
+function clientFor(apiKey: string, channel: ModelChannel): Promise<Anthropic> {
+  const key = `${channel}\u0000${apiKey}`;
+  let client = clients.get(key);
+  if (!client) {
+    const config = MODEL_CONFIG[channel];
+    client = import("@anthropic-ai/sdk").then(
+      ({ default: AnthropicClient }) =>
+        new AnthropicClient({
+          apiKey,
+          ...(config.timeoutMs !== undefined ? { timeout: config.timeoutMs } : {}),
+          ...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
+        }),
+    );
+    // A failed import is not kept: the next turn tries again.
+    client.catch(() => clients.delete(key));
+    clients.set(key, client);
+  }
+  return client;
 }
 
 /** The responder for calls and web chats. */

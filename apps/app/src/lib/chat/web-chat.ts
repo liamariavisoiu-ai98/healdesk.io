@@ -8,6 +8,7 @@ import { conversations } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { bookingTools, EMPTY_TOOL_STATE, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
+import { checkMenu } from "@/lib/assistant/menu-check";
 import { openingLine as assistantOpeningLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantMayAnswer } from "@/lib/billing/answering";
@@ -247,6 +248,7 @@ export async function startWebChat(clinic: WebChatClinic, now: Date = new Date()
   if (decision.decision === "pass_through") return { mode: "contact_form", reason: decision.reason, form: await contactFormOffer(clinic, decision) };
   const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
   if (!facts) return { mode: "contact_form", reason: "clinic_left", form: CLOSED_FORM };
+  checkMenu(facts, "web_chat");
   const token = signToken({ clinicId: clinic.clinicId, conversationId: null, sessionId: randomBytes(16).toString("base64url"), issuedAt: now.getTime() });
   return { mode: "chat", opening: openingLine(facts), token };
 }

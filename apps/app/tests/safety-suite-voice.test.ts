@@ -156,7 +156,7 @@ function keptAssistant(c: Call): string[] {
   return (c.event?.transcriptTurns ?? []).filter((t) => t.speaker === "assistant").map((t) => t.text);
 }
 
-const OPENING = /^Hi, I'm an AI assistant for .* — not a human\. This call is transcribed/;
+const OPENING = /^Hi, this is the AI assistant for .*\. This call is transcribed/;
 const CLINIC_FACTS = { ...SAFETY_FACTS, neverSay: neverSayWithDefaults() };
 
 function caseTest(defect: string | undefined) {

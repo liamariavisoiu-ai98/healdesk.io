@@ -81,26 +81,22 @@ describe("disclosure", () => {
   test("the voice opener states AI, transcription, that healdesk keeps no audio and that the provider holds a recording for a day at most", () => {
     const text = voiceDisclosure({ clinicName: "Radiance", channel: "voice" });
 
-    expect(text).toMatch(/not a human/i);
+    expect(text).toMatch(/AI assistant for Radiance/);
     // healdesk keeps no audio (21 September 2026), but the voice provider holds
     // a call's recording until healdesk has the transcript (22 October 2026): the
     // opener says both, and must not claim the call is recorded.
-    expect(text).toMatch(/we keep no audio, and they hold a recording for no more than a day/i);
+    expect(text).toMatch(/we keep no audio, and they hold a recording for a day at most/i);
     expect(text).not.toMatch(/no audio recording is kept/i);
     expect(text).not.toMatch(/is recorded/i);
     // Transcription specifically: the CIPA exposure in Ambriz is about a third
     // party intercepting call CONTENTS, which disclosing "recording" alone
     // does not describe — so the line also says a third party does it.
-    expect(text).toMatch(/transcribed/i);
-    expect(text).toMatch(/run by our service providers/);
-    expect(text).toMatch(/representative/i);
-    // Live transfer is off by default and v1 has no live staff inbox, so the
-    // opener may promise a handover to staff within a day, never a person
-    // on the line now (decision of 1 October 2026). What is passed on is the
-    // caller's details: "pass you to" sounds like a transfer (3 October).
-    expect(text).toMatch(/get back to you within a day/i);
-    expect(text).toMatch(/pass your details to the practice team/);
-    expect(text).not.toMatch(/reach a person|pass you to/i);
+    expect(text).toMatch(/transcribed by our service providers/);
+    // Shortened by the owner on 23 October 2026: no "not a human", no
+    // "say representative", and so no promise about a person at all.
+    expect(text).not.toMatch(/not a human|representative|reach a person|pass you to/i);
+    // About five seconds of speech: the caller is waiting to talk.
+    expect(text.split(/\s+/).length).toBeLessThanOrEqual(30);
     const chat = disclosureFor({ clinicName: "Radiance", channel: "web_chat" });
     expect(chat).toMatch(/pass your details to the practice team, who will get back to you within a day/);
     expect(chat).not.toMatch(/pass you to/i);
@@ -109,25 +105,21 @@ describe("disclosure", () => {
   test("the Spanish voice line mirrors the English one's claims, word for word, and adds none", () => {
     const text = voiceDisclosureEs({ clinicName: "Radiance" });
     expect(text).toBe(
-      `Le informo que soy un asistente de inteligencia artificial de Radiance, no una persona. Esta llamada se transcribe con un sistema automatizado operado por nuestros proveedores de servicios; nosotros no guardamos audio, y ellos conservan una grabación durante un día como máximo. Diga "representante" en cualquier momento y pasaré sus datos al equipo de la clínica, que se comunicará con usted en un plazo de un día.`,
+      `Le habla el asistente de inteligencia artificial de Radiance. Esta llamada la transcriben nuestros proveedores de servicios; nosotros no guardamos audio, y ellos conservan una grabación un día como máximo.`,
     );
-    // The same four facts as the English line, each present.
+    // The same three facts as the English line, each present.
     expect(text).toMatch(/inteligencia artificial/);
-    expect(text).toMatch(/no una persona/);
-    expect(text).toMatch(/se transcribe/);
-    expect(text).toMatch(/operado por nuestros proveedores de servicios/);
-    expect(text).toMatch(/nosotros no guardamos audio, y ellos conservan una grabación durante un día como máximo/);
-    expect(text).toMatch(/pasaré sus datos al equipo/);
-    expect(text).toMatch(/en un plazo de un día/);
-    // And no claim the English line does not make: no recording, no live transfer, no person now.
-    expect(text).not.toMatch(/se graba|grabada|le comunico con|le paso con|una persona ahora/i);
+    expect(text).toMatch(/la transcriben nuestros proveedores de servicios/);
+    expect(text).toMatch(/nosotros no guardamos audio, y ellos conservan una grabación un día como máximo/);
+    // And no claim the English line does not make: no recording, no live transfer, no person, no handover.
+    expect(text).not.toMatch(/se graba|grabada|le comunico con|le paso con|una persona|representante/i);
     // Both lines change together: a change to the English line must reach this pin too.
-    expect(voiceDisclosure({ clinicName: "Radiance", channel: "voice" })).toMatch(/we keep no audio, and they hold a recording for no more than a day/);
+    expect(voiceDisclosure({ clinicName: "Radiance", channel: "voice" })).toMatch(/we keep no audio, and they hold a recording for a day at most/);
   });
 
   test("the voice and web chat lines are the decided text, word for word, and the Meta greeting is unchanged", () => {
     expect(voiceDisclosure({ clinicName: "Radiance", channel: "voice" })).toBe(
-      `Hi, I'm an AI assistant for Radiance — not a human. This call is transcribed by an automated system run by our service providers; we keep no audio, and they hold a recording for no more than a day. Say "representative" at any time and I'll pass your details to the practice team, who will get back to you within a day.`,
+      `Hi, this is the AI assistant for Radiance. This call is transcribed by our service providers; we keep no audio, and they hold a recording for a day at most.`,
     );
     expect(disclosureFor({ clinicName: "Radiance", channel: "web_chat" })).toBe(
       `You're chatting with an AI assistant for Radiance. Ask for a person any time and I'll pass your details to the practice team, who will get back to you within a day.`,

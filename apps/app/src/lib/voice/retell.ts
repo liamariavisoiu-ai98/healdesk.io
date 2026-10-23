@@ -4,6 +4,7 @@ import { clinics, clinicSettings } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { bookingTools, EMPTY_TOOL_STATE, type BookingTools, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
+import { checkMenu } from "@/lib/assistant/menu-check";
 import { openingLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantFallbackRefused, patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
@@ -60,7 +61,10 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *                   content queues the clinic's L12 alert, sent in-process
  *                   once it has committed, and a caller asking for a person
  *                   queues L11, each once per call
- *                   (lib/notices/booking-alerts.ts).
+ *                   (lib/notices/booking-alerts.ts). An urgent call at a
+ *                   practice with a line that reaches a person (urgentLine)
+ *                   is put through to it as the fixed reply ends (owner,
+ *                   23 October 2026).
  *   close           the call is over: the post-call ingest (lib/voice/ingest.ts)
  *                   records the conversation, turns what the caller asked for
  *                   into one booking request for the desk, counts the minutes
@@ -370,14 +374,19 @@ export class RetellCallSession {
     // Nothing here writes the session but keepsNothing: a start that finishes
     // after its deadline changes nothing else unless the fall-through hands
     // it back.
+    // The gate and the facts are read side by side, not one after the
+    // other: the caller hears nothing until both are in, and reading the
+    // facts of a call the gate then refuses writes nothing.
+    const reading = withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) =>
+      (await clinicHasLeft(tx)) ? null : assistantFacts(tx, { alertTransport: this.deps.transport }),
+    );
+    reading.catch(() => {});
     const started: Promise<Started> = (async () => {
       const decision = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
       gated = decision;
       // The one write before the deadline: it only ever keeps less.
       if (decision.decision === "pass_through" && patientDataRefused(decision.reason)) this.keepsNothing = true;
-      const facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) =>
-        (await clinicHasLeft(tx)) ? null : assistantFacts(tx, { alertTransport: this.deps.transport }),
-      );
+      const facts = await reading;
       return { decision, facts };
     })();
     let result: Started;
@@ -434,6 +443,7 @@ export class RetellCallSession {
       return;
     }
     this.gateAnswered = decision.decision === "answer";
+    checkMenu(facts, "voice");
     this.startRedialLookup();
     if (options.opening === false) {
       this.openingOwed = true;
@@ -453,6 +463,17 @@ export class RetellCallSession {
    */
   private usable(line: string | null | undefined): string | null {
     return usableLine(line, [this.calledNumber, this.facts?.phone, this.facts?.assistantNumber]);
+  }
+
+  /**
+   * Where an urgent call is put through to: the urgent-help number, then the
+   * direct line, whichever is set apart from the published number (the one
+   * the urgent reply would have read out, turn.ts personNumber), and only
+   * if it is usable: never a number that forwards back to us.
+   */
+  private urgentLine(facts: AssistantFacts): string | null {
+    const line = [facts.urgentPhone, facts.directLine].find((n) => n && n !== facts.phone) ?? null;
+    return this.usable(line);
   }
 
   /** The request kept while the start was found, if it is still the newest and has words to answer. */
@@ -763,6 +784,7 @@ export class RetellCallSession {
       callerPhone: this.callerPhone,
       resumed: resumed ? redialPromptBlock(resumed) : null,
       language: language.language,
+      urgentTransferTo: this.urgentLine(facts),
     });
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.
@@ -859,7 +881,11 @@ export class RetellCallSession {
       this.openingOwed = false;
       this.disclosurePlayedAt = this.now();
     }
-    this.say(responseId, reply, { endCall: turn.end });
+    // An urgent turn at a practice with a line that reaches a person: the
+    // fixed reply ends "I'll put you through", and the call is.
+    const transferTo = turn.urgent ? (turn.transferTo ?? null) : null;
+    if (transferTo) this.closing = true;
+    this.say(responseId, reply, { endCall: turn.end && !transferTo, transferTo });
     // The urgent alert is critical: sent in-process once its row has
     // committed, after the caller has heard the reply, so the line never
     // waits on an email. It never rejects; whatever it misses, the minute

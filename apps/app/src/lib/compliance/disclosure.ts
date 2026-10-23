@@ -40,38 +40,37 @@ export type DisclosureContext = {
 /**
  * The voice opener.
  *
- * Says AI, says transcribed and by whom, says healdesk keeps no audio and the
- * providers hold a recording for a day at most, and says how a person gets
- * involved — in one breath. "Transcribed" is the operative word for the
- * statutes below. Until 22 October 2026 the line said "no audio recording is
- * kept", true of healdesk since 21 September 2026 (conversations carries no
- * recording reference) but not of the voice provider, which holds a call's
- * transcript and recording until healdesk has its own copy and deletes the
- * call then (one day at the longest, the backstop in lib/voice/backstop.ts).
- * The line says both halves, because a disclosure that understates what
- * happens is worse than none.
+ * Says AI, says transcribed and by whom, and says healdesk keeps no audio and
+ * the providers hold a recording for a day at most: the facts the statutes
+ * below need, and nothing else, in about five seconds of speech. The clinic's
+ * greeting follows it and asks what the caller wants (lib/setup/greetings.ts).
+ *
+ * Shortened on 23 October 2026 (owner, after test calls in which callers
+ * said "hello?" into a 75-word opener). Dropped, by the owner's decision:
+ *   - "not a human": "the AI assistant" already says it, which is what every
+ *     AI-disclosure statute in state-disclosure.md asks (decision 1, revised);
+ *   - the "say representative" line: a caller who asks for a person still
+ *     gets the handover (prompt.ts, BOOKING; the model's `handoff`), but the
+ *     opener no longer sends callers away before AYA has tried to help;
+ *   - "an automated system run by": "by our service providers" keeps what
+ *     decision 4 needs, that a third party transcribes.
+ * Until 22 October 2026 the line said "no audio recording is kept", true of
+ * healdesk since 21 September 2026 (conversations carries no recording
+ * reference) but not of the voice provider, which holds a call's transcript
+ * and recording until healdesk has its own copy and deletes the call then
+ * (one day at the longest, the backstop in lib/voice/backstop.ts). The line
+ * says both halves, because a disclosure that understates what happens is
+ * worse than none.
  * "Transcribed" is not decoration: the CIPA §631(a) exposure in *Ambriz v.
  * Google* is about a third party intercepting call CONTENTS, which is what
  * transcription is. Disclosing recording alone does not describe it, and
- * "run by our service providers" tells the caller that a third party is the
- * one transcribing (docs/counsel/state-disclosure.md, decision 4).
- *
- * The human line used to say "to reach a person", which promised a live
- * transfer. Live transfer is off by default (v1 spec, "Transfer live calls":
- * Off) and under conditional forwarding the agent only ever gets the calls
- * the clinic did not pick up, so at the moment a caller asks, the clinic has
- * just failed to answer. What the product can keep is the handover: the
- * caller's details are passed to the clinic's staff and they get back to
- * the caller, within a day. "Pass your details to", because "pass you to"
- * can be heard as a transfer (decision 1(b)). The line promises that and
- * nothing more (decisions of 1 and 3 October 2026).
+ * "by our service providers" tells the caller that a third party is the one
+ * transcribing (docs/counsel/state-disclosure.md, decision 4).
  */
 export function voiceDisclosure(context: DisclosureContext): string {
   return (
-    `Hi, I'm an AI assistant for ${context.clinicName} — not a human. ` +
-    `This call is transcribed by an automated system run by our service providers; we keep no audio, and they hold a recording for no more than a day. ` +
-    `Say "representative" at any time and I'll pass your details to the practice team, ` +
-    `who will get back to you within a day.`
+    `Hi, this is the AI assistant for ${context.clinicName}. ` +
+    `This call is transcribed by our service providers; we keep no audio, and they hold a recording for a day at most.`
   );
 }
 
@@ -83,20 +82,16 @@ export function voiceDisclosure(context: DisclosureContext): string {
  * Spanish (lib/voice/call-language.ts), this line is said before the next
  * reply, once per call, so a caller who did not follow the English notice
  * hears it in words they do. It says exactly what the English line says, the
- * same four facts and no others: AI and not a human; transcribed by an
- * automated system run by our service providers; healdesk keeps no audio and
- * they hold a recording for no more than a day;
- * "representante" and the details passed to the practice team, who get back
- * within a day. It is not configurable either, and a change to the English
- * line must change this one in the same commit (tests/compliance.test.ts
- * pins both). Awaiting review by a native speaker and by counsel.
+ * same three facts and no others: an AI assistant; transcribed by our service
+ * providers; healdesk keeps no audio and they hold a recording for a day at
+ * most. It is not configurable either, and a change to the English line must
+ * change this one in the same commit (tests/compliance.test.ts pins both).
+ * Awaiting review by a native speaker and by counsel.
  */
 export function voiceDisclosureEs(context: Pick<DisclosureContext, "clinicName">): string {
   return (
-    `Le informo que soy un asistente de inteligencia artificial de ${context.clinicName}, no una persona. ` +
-    `Esta llamada se transcribe con un sistema automatizado operado por nuestros proveedores de servicios; nosotros no guardamos audio, y ellos conservan una grabación durante un día como máximo. ` +
-    `Diga "representante" en cualquier momento y pasaré sus datos al equipo de la clínica, ` +
-    `que se comunicará con usted en un plazo de un día.`
+    `Le habla el asistente de inteligencia artificial de ${context.clinicName}. ` +
+    `Esta llamada la transcriben nuestros proveedores de servicios; nosotros no guardamos audio, y ellos conservan una grabación un día como máximo.`
   );
 }
 
@@ -152,10 +147,11 @@ export function disclosureFor(context: DisclosureContext): string {
     case "sms":
       return smsDisclosure(context);
     case "web_chat":
-      // Same promise as the voice line, in the same words: the visitor's
-      // details go to staff, not the visitor to a live person. v1 has no
-      // live staff inbox, so "ask for a person any time" on its own would
-      // promise a seat that nobody is sitting in.
+      // The visitor's details go to staff, not the visitor to a live
+      // person. v1 has no live staff inbox, so "ask for a person any time"
+      // on its own would promise a seat that nobody is sitting in. (The
+      // voice opener carried the same promise until 23 October 2026, when
+      // the owner cut it to keep the call's first seconds short.)
       return (
         `You're chatting with an AI assistant for ${context.clinicName}. ` +
         `Ask for a person any time and I'll pass your details to the practice team, who will get back to you within a day.`

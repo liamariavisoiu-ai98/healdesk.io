@@ -55,12 +55,12 @@ export const piece: Piece = {
         },
         {
           kind: "table",
-          caption: "AYA's opening lines as built on 22 October 2026, with [practice name] standing for the clinic's name",
+          caption: "AYA's opening lines as built on 23 October 2026, with [practice name] standing for the clinic's name",
           head: ["Channel", "Opening line"],
           rows: [
             [
               "Phone",
-              "Hi, I'm an AI assistant for [practice name] — not a human. This call is transcribed by an automated system run by our service providers; we keep no audio, and they hold a recording for no more than a day. Say \"representative\" at any time and I'll pass your details to the practice team, who will get back to you within a day.",
+              "Hi, this is the AI assistant for [practice name]. This call is transcribed by our service providers; we keep no audio, and they hold a recording for a day at most.",
             ],
             [
               "Website chat",
@@ -116,6 +116,8 @@ export const piece: Piece = {
             "A message that matches the product's list of complication and urgent-symptom phrases is answered before the AI model sees it, on every channel. " +
             "The reply is a fixed line: it says AYA is an AI assistant that cannot help with anything urgent, tells the person to call 911 in an emergency, and gives the clinic's urgent-help number. " +
             "The clinic sets that number during setup, and where it is left empty AYA gives the clinic's direct line or main number instead. " +
+            "On a call, AYA is designed to put the caller through to the urgent-help number or the direct line after the 911 line. " +
+            "Where the clinic has neither, AYA gives the 911 line alone, since the caller is already on the main number. " +
             "At the same moment the product alerts the contact the clinic named for urgent messages, by email, so a person at the clinic knows to act. " +
             "The list is a filter of known wordings, so a message it does not recognise reaches the model, which is instructed to pass anything medical to the clinic.",
         },

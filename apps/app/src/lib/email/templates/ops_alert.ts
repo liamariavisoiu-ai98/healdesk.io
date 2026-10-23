@@ -532,6 +532,12 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The hourly check found the number of bookings below whose Google Calendar write failed or was given up on, more than it reports one by one, so this one alert stands for all of them and none will be sent separately. Each clinic's desk was already told to add its booking by hand. Open the clinics in the console and look at each one's calendar writes on its onboarding page; a new failure after this is reported on its own again.",
   },
+  // lib/assistant/menu-check.ts, hourly per clinic and channel while it lasts.
+  assistant_knows_no_services: {
+    title: "AYA is answering a clinic with no services",
+    action:
+      "A call or a website chat was just answered for this clinic while AYA knew no service or price, so she can only offer a consultation and cannot say what the practice does. Code none means Knowledge has no services: check the clinic has a website and ask for a site read from the console (or fill Knowledge in the portal). Code awaiting_approval means services are in Knowledge but the practice questions have not passed this version: check the practice-questions job is switched on and look at the clinic's latest run.",
+  },
   step_up_phone_held: {
     title: "Phone held off a plan with more than one location",
     action:

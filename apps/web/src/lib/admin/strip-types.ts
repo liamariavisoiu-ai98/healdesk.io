@@ -42,7 +42,11 @@ export interface ClinicStripRow {
   } | null;
   calendar: "healthy" | "degraded" | "broken" | "none";
   voice: "ok" | "drift" | "failed" | "not_provisioned";
-  /** Last 30 days: copies still waiting and copies that bounced. Counts only. */
+  /**
+   * Last 30 days, counts only. `waiting`: copies held and not yet delivered (pending, sent). `bounced`: copies that
+   * did not arrive: bounced, unconfirmed after 72 hours, or deleted undelivered after 30 days. A chat still in
+   * progress is neither.
+   */
   transcripts: { waiting: number; bounced: number };
   /** The worst meter's share of what the plan includes, whole percent; null when no meter applies. */
   usage: { percent: number | null; meter: "voice" | "web" | "meta" | null };

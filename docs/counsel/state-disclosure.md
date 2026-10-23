@@ -14,11 +14,13 @@
 
 Voice, `apps/app/src/lib/compliance/disclosure.ts` `voiceDisclosure()`:
 
-> "Hi, I'm an AI assistant for {clinic} — not a human. This call is
-> transcribed by an automated system run by our service providers; we keep
-> no audio, and they hold a recording for no more than a day. Say
-> "representative" at any time and I'll pass your details to the practice team, who
-> will get back to you within a day."
+> "Hi, this is the AI assistant for {clinic}. This call is transcribed by
+> our service providers; we keep no audio, and they hold a recording for a
+> day at most."
+
+followed by the clinic's phone greeting, by default "Are you looking to book
+an appointment, or do you have a question?" (shortened 23 October 2026; see
+decision 10).
 
 Web chat: "You're chatting with an AI assistant for {clinic}. Ask for a
 person any time and the practice team will get back to you within a day."
@@ -180,6 +182,19 @@ The product announces on every call regardless.
    any state.
 9. **No state matrix in the product.** The line plays on every call and
    opens every chat. Nothing routes by area code.
+10. **The voice line shortened (owner, 23 October 2026).** After test calls
+   in which callers said "hello?" into the 75-word opener, the owner cut it
+   to the facts the statutes need: an AI assistant, transcribed by our
+   service providers, no audio kept by healdesk and the provider's recording
+   held a day at most. Removed: "not a human" ("the AI assistant" says it,
+   which is what every AI-disclosure statute in the table asks); the "say
+   representative" handover line (a caller who asks for a person still gets
+   the handover, and the transcript email shows it, but the opener no longer
+   offers one before AYA has tried to help); and "an automated system run
+   by", keeping "by our service providers" for decision 4. Decision 1's
+   residual point (a) now applies to the handover AYA offers during the call,
+   not to the opener. The Spanish line changed with it. Counsel has not
+   reviewed the new wording.
 
 ## Review log (2026-10-01)
 

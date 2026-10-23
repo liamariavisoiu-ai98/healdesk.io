@@ -895,6 +895,7 @@ describe("the clinic's greeting", () => {
 
   test.each([
     "Thanks for calling Radiance Med Spa. How can I help you today?",
+    "Are you looking to book an appointment, or do you have a question?",
     "How can I help you today?",
     "Thanks for calling. If you'd rather talk to a real person, just ask.",
     "Thanks for calling! A consultation is $150, and I can help you book one.",
@@ -905,9 +906,9 @@ describe("the clinic's greeting", () => {
   test("a refused greeting is never said: the default follows the AI line instead", () => {
     const sarah = { ...FACTS, greeting: { phone: "I'm Sarah, a real person.", chat: "We're HIPAA compliant!" } };
     const call = openingLine(sarah, "voice");
-    expect(call).toMatch(/^Hi, I'm an AI assistant for Radiance Med Spa/);
+    expect(call).toMatch(/^Hi, this is the AI assistant for Radiance Med Spa/);
     expect(call).not.toContain("Sarah");
-    expect(call.endsWith("Thanks for calling Radiance Med Spa. How can I help you today?")).toBe(true);
+    expect(call.endsWith("Are you looking to book an appointment, or do you have a question?")).toBe(true);
     const chat = openingLine(sarah, "web_chat");
     expect(chat).not.toContain("HIPAA");
     expect(chat.endsWith("How can I help you today?")).toBe(true);
@@ -1257,7 +1258,19 @@ describe("answerTurn", () => {
     const none = { ...FACTS, urgentPhone: FACTS.phone, directLine: null };
     const noNumber = await answerTurn({ facts: none, channel: "voice", history: [], text: "my lips are swelling", responder: null });
     expect(noNumber.reply).not.toContain(spokenPhone("+14155550199"));
-    expect(noNumber.reply).toContain("Otherwise, please call Radiance Med Spa.");
+    // Not "please call Radiance Med Spa": the caller is already calling it,
+    // and that number forwards back here (owner, 23 October 2026). 911 alone.
+    expect(noNumber.reply).not.toMatch(/please call Radiance/);
+    expect(noNumber.reply).toMatch(/hang up and call 911 now/);
+    expect(noNumber.transferTo).toBeUndefined();
+    // With a line the adapter can put the caller through to, it says so and hands the line back.
+    const through = await answerTurn({ facts: forwarded, channel: "voice", history: [], text: "my lips are swelling", responder: null, urgentTransferTo: "+14155550177" });
+    expect(through.reply).toMatch(/stay on the line and I'll put you through to Radiance Med Spa now\.$/);
+    expect(through.reply).not.toContain(spokenPhone("+14155550177"));
+    expect(through.transferTo).toBe("+14155550177");
+    // Never in writing: a chat has no line to put anyone through.
+    const chat = await answerTurn({ facts: forwarded, channel: "web_chat", history: [], text: "my lips are swelling", responder: null, urgentTransferTo: "+14155550177" });
+    expect(chat.transferTo).toBeUndefined();
     expect(refusalLine(none, "voice")).not.toContain(spokenPhone("+14155550199"));
     expect(refusalLine(none, "voice")).toContain("they get back to people within a day");
     // In writing, the published number is the one to call.

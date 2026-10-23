@@ -260,8 +260,8 @@ export const piece: Piece = {
     },
   ],
   aya: [
-    "AYA is designed to open each call it answers by saying it is an AI assistant, not a human, in a line the clinic cannot edit out.",
-    "The same line says: “This call is transcribed by an automated system run by our service providers; we keep no audio, and they hold a recording for no more than a day.”",
+    "AYA is designed to open each call it answers by saying it is an AI assistant, in a line the clinic cannot edit out.",
+    "The same line says: “This call is transcribed by our service providers; we keep no audio, and they hold a recording for a day at most.”",
     "AYA is designed to email each transcript to the clinic when the call ends, deleting healdesk’s copy once delivery is confirmed and never keeping it past 30 days.",
   ],
   sources: [

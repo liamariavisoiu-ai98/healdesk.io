@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  type AssistantLanguage,
   BAA_ASSENT_LABEL,
   CURRENT_BAA_VERSION,
   NO_PLATFORM_ID,
@@ -22,6 +23,7 @@ import {
   validateProvisionRequest,
   type ProvisionRequest,
 } from "@/lib/provisioning";
+import { saveSetupSettings } from "@/lib/setup/settings";
 import { withTenant } from "@/lib/tenant";
 
 /**
@@ -69,6 +71,19 @@ export type DemoClinicInput = {
   /** Kept on the signature for a template that reads them (1.3.0 on). */
   bookingSystem?: BookingSystemId;
   calendarAccount?: CalendarAccount;
+  /**
+   * The practice's website, or null for a demo deliberately built without
+   * one. Given, it is read as a purchase's website is (lib/website, the
+   * `missing` read provisioning queues): services, prices, hours, policies
+   * and answers fill Knowledge, and the practice questions approve them
+   * before AYA says them. Until 23 October 2026 the demo clinic took no
+   * website, so it answered calls knowing no service at all. The script
+   * requires it (or --no-website); absent here, as in the test fixtures, is
+   * no website.
+   */
+  website?: string | null;
+  /** The languages AYA answers in. Default English and Spanish, so a demo can show both. */
+  languages?: AssistantLanguage[];
 };
 
 export type DemoClinic = {
@@ -120,7 +135,29 @@ export async function createDemoClinic(input: DemoClinicInput): Promise<DemoClin
   };
   // And what /api/provision would accept, before the one thing it cannot ask for.
   validateProvisionRequest(purchase);
-  const provisioned = await provisionClinic(purchase, { userAgent: USER_AGENT }, { demo: true });
+  const provisioned = await provisionClinic(
+    purchase,
+    { userAgent: USER_AGENT },
+    {
+      demo: true,
+      // Only with a website: a seed whose website is null means a practice
+      // with none, and provisioning then leaves out the website chat row,
+      // which a demo of every channel must keep.
+      ...(input.website
+        ? {
+            setup: {
+              bookingSystem: request.bookingSystem ?? undefined,
+              calendarAccount: request.calendarAccount ?? undefined,
+              website: input.website,
+            },
+          }
+        : {}),
+    },
+  );
+  await withTenant(
+    { clinicId: provisioned.clinicId, actor: { type: "service", serviceName: "demo-clinic" } },
+    (tx) => saveSetupSettings(tx, { languages: input.languages ?? ["en", "es"] }, "healdesk demo-clinic script"),
+  );
 
   return {
     clinicId: provisioned.clinicId,

@@ -71,6 +71,13 @@ export type AssistantFacts = {
    */
   closures?: Closure[];
   services: AssistantService[];
+  /**
+   * Why `services` is what it is: "said" when the approved script has some,
+   * "awaiting_approval" when Knowledge has services the practice questions
+   * have not passed yet (so AYA says none), "none" when Knowledge has none.
+   * Read by lib/assistant/menu-check.ts; absent counts as "said".
+   */
+  menu?: "said" | "awaiting_approval" | "none";
   policies: string[];
   quickAnswers: KnowledgeAnswer[];
   /** The promotions box, only while "Mention promotions" is on; null otherwise. */
@@ -206,6 +213,7 @@ export async function assistantFacts(
           depositUsd: s.depositUsd ?? null,
         }))
       : [],
+    menu: knowledge.services.length === 0 ? "none" : approved ? "said" : "awaiting_approval",
     policies: approved ? knowledge.policies : [],
     quickAnswers: approved ? [...knowledge.quickAnswers, ...(knowledge.mostAsked ? [knowledge.mostAsked] : [])] : [],
     promotions: approved && settings.mentionPromotions ? knowledge.promotions : null,

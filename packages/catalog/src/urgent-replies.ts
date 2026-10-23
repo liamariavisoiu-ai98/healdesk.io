@@ -25,7 +25,12 @@ import type { UrgentEmergency, UrgentLanguage } from "./urgent-content";
  *      urgent reply there carries both, whichever emergency the matcher read.
  *   3. The practice's own number: its urgent-help number as apps/app's
  *      lib/setup/urgent.ts resolves it, never on a call the number that
- *      forwards back to the assistant. A veterinary practice's own number
+ *      forwards back to the assistant. On a call with no such number,
+ *      nothing: "please call the practice" to a caller already calling it
+ *      sends them in a circle. On a call the adapter is putting through to
+ *      a line that reaches a person (`transferring`, owner, 23 October
+ *      2026), "stay on the line and I'll put you through" instead, said
+ *      last, after "I've told the team". A veterinary practice's own number
  *      comes after the emergency vet's, and only while it is open (or when
  *      it has given no referral clinic), since a closed practice cannot see
  *      an emergency.
@@ -68,6 +73,13 @@ export type UrgentReplyInput = {
   clinicOpen?: boolean | null;
   /** Whether the urgent alert reaches the practice, so "I've told the team" is true. */
   teamAlerted: boolean;
+  /**
+   * On a call, whether the caller is being put through to the practice's
+   * line that reaches a person as this is said (owner, 23 October 2026): the
+   * reply then ends "stay on the line and I'll put you through" in place of
+   * the practice's number. Ignored off a call and at a veterinary practice.
+   */
+  transferring?: boolean;
 };
 
 type Lines = {
@@ -78,6 +90,8 @@ type Lines = {
   /** The emergency vet after 911, when a person's emergency leads at a veterinary practice. */
   vetForAnimal: (referral: string | null) => string;
   clinic: (name: string, number: string | null) => string;
+  /** On a call being put through to the practice: in place of its number. */
+  transfer: (name: string) => string;
   told: string;
   leaveNumber: string;
 };
@@ -107,6 +121,7 @@ const LINES: Readonly<Record<UrgentLanguage, Lines>> = {
         : "If an animal needs emergency care, call your nearest emergency vet.",
     clinic: (name, number) =>
       number ? `Otherwise, please call ${name} on ${number}.` : `Otherwise, please call ${name}.`,
+    transfer: (name) => `Otherwise, stay on the line and I'll put you through to ${name} now.`,
     told: "I've told the team.",
     leaveNumber: "Leave a number for the clinic to call you.",
   },
@@ -134,6 +149,7 @@ const LINES: Readonly<Record<UrgentLanguage, Lines>> = {
         : "Si un animal necesita atención de urgencia, llame al veterinario de urgencias más cercano.",
     clinic: (name, number) =>
       number ? `Si no, llame a ${name} al ${number}.` : `Si no, llame a ${name}.`,
+    transfer: (name) => `Si no, no cuelgue y le comunico ahora con ${name}.`,
     told: "Ya avisé al equipo.",
     leaveNumber: "Deje un número para que la clínica le llame.",
   },
@@ -162,9 +178,21 @@ export function fixedUrgentReply(input: UrgentReplyInput): string {
   // cannot see an emergency, and the emergency vet can. Everywhere else
   // always, because the urgent-help number is the one that reaches a person.
   const withheld = veterinary && referral !== null && input.clinicOpen === false;
+  // On a call the caller is already on the practice's published number,
+  // which forwards to the assistant: "please call the practice" with no
+  // other number sends them round in a circle (test call of 23 October
+  // 2026). The call is put through to a line that reaches a person where
+  // the adapter has one (`transferring`); otherwise the reply is 911 alone.
+  const transferring = voice && input.transferring === true && !veterinary;
+  if (transferring) {
+    // Said last, because the call is put through as it ends.
+    if (input.teamAlerted) lines.push(t.told);
+    lines.push(t.transfer(input.clinicName));
+    return lines.filter((line): line is string => Boolean(line)).join(" ");
+  }
   if (!withheld) {
     if (input.clinicNumber) lines.push(t.clinic(input.clinicName, input.clinicNumber));
-    else if (!veterinary) lines.push(t.clinic(input.clinicName, null));
+    else if (!veterinary && !voice) lines.push(t.clinic(input.clinicName, null));
   }
   if (input.teamAlerted) lines.push(t.told);
   if (input.channel === "web_chat") lines.push(t.leaveNumber);

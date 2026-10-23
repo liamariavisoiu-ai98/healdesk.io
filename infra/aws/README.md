@@ -712,7 +712,7 @@ bash run-task.sh erase-person CLINIC_ID CONTACT_ID WHO_ASKED you@healdesk.io   #
 bash run-task.sh amend-contact CLINIC_ID CONTACT_ID FIELDS_TO_CLEAR WHO_ASKED you@healdesk.io
 bash run-task.sh patient-request CLINIC_ID KIND you@healdesk.io   # [RECEIVED_AT] [CONTACT_ID]
 bash run-task.sh incident-affected CLINIC_ID INCIDENT_ID CONTACT_IDS you@healdesk.io   # [add|remove]
-bash run-task.sh demo-clinic "Fictional Practice" "Your Name" you@healdesk.io   # once, ever
+bash run-task.sh demo-clinic "Fictional Practice" "Your Name" you@healdesk.io https://practice-site.example   # once, ever
 bash run-task.sh channels-link CLINIC_ID   # [meta|whatsapp] [days, 1 to 30]
 ```
 

@@ -99,7 +99,12 @@ describeDb("the one-off tasks run from their environment alone", () => {
       HEALDESK_DEMO_NAME: "Lumen Aesthetics",
       HEALDESK_DEMO_OPERATOR_NAME: "Ops Operator",
       HEALDESK_OPS_OPERATOR: OPERATOR,
+      HEALDESK_DEMO_WEBSITE: "https://lumen-aesthetics.example",
     };
+    // No website, and no --no-website: refused, because the website is what fills its services.
+    const bare = runScript("demo-clinic", [], { ...env, HEALDESK_DEMO_WEBSITE: "" });
+    expect(bare.status).toBe(2);
+    expect(bare.stderr).toMatch(/--website <the practice's website> is required/);
     const first = runScript("demo-clinic", [], env);
     expect(first.status, first.stderr).toBe(0);
     const id = first.stdout.match(/clinic id\s+([0-9a-f-]{36})/)?.[1];
@@ -107,6 +112,13 @@ describeDb("the one-off tasks run from their environment alone", () => {
     expect(first.stdout).toContain(`run-task.sh channels-link ${id}`);
     const clinic = await getMigratorPool().query(`select name from clinics where id = $1`, [id]);
     expect(clinic.rows[0]?.name).toBe("Lumen Aesthetics");
+    // Its website is queued to be read, which fills Knowledge, and AYA answers it in Spanish too.
+    expect(first.stdout).toMatch(/website is queued to be read/);
+    // Both tables are row-level secured, so they are read inside the clinic's tenant.
+    const read = await inTenant(id!, (client) => client.query(`select reason, website from site_rereads where clinic_id = $1`, [id]));
+    expect(read.rows).toEqual([{ reason: "missing", website: "lumen-aesthetics.example" }]);
+    const settings = await inTenant(id!, (client) => client.query(`select languages from clinic_settings where clinic_id = $1`, [id]));
+    expect(settings.rows[0]?.languages).toEqual(["en", "es"]);
 
     const second = runScript("demo-clinic", [], { ...env, HEALDESK_DEMO_NAME: "Another Practice" });
     expect(second.status).toBe(2);
@@ -163,6 +175,7 @@ describeDb("the one-off tasks run from their environment alone", () => {
       HEALDESK_DEMO_NAME: "Lumen Aesthetics",
       HEALDESK_DEMO_OPERATOR_NAME: "Ops Operator",
       HEALDESK_OPS_OPERATOR: "frontdesk@some-real-practice.test",
+      HEALDESK_DEMO_WEBSITE: "none",
     });
     expect(run.status).toBe(2);
     expect(run.stderr).toMatch(/must be the operator's own address/);

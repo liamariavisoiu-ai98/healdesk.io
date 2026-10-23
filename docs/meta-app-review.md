@@ -251,7 +251,7 @@ Make the calls **at least two days before submitting**:
    from AWS CloudShell with `infra/aws/scripts/run-task.sh` uploaded, first
    make the demo clinic, once ever (Stripe holds live keys, so a test
    purchase would be a real one):
-   `bash run-task.sh demo-clinic "<fictional practice>" "<your name>" hello@healdesk.io`
+   `bash run-task.sh demo-clinic "<fictional practice>" "<your name>" hello@healdesk.io <website|none>`
    then issue its links with the clinic id that task logs:
    `bash run-task.sh channels-link <clinic id> meta`
    Each prints the `aws logs get-log-events` command that reads its log

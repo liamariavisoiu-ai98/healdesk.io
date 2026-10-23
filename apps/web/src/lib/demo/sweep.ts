@@ -7,7 +7,6 @@ import { demoConsoleUrl, problemNotice } from "./own-demo";
 import {
   DEMO_BUILD_STALL_MS,
   displayName,
-  getDemoSession,
   isDemoBuildStalled,
   listStalledDemoSessions,
   updateDemoSession,
@@ -40,8 +39,22 @@ import {
  *
  * Both are idempotent against themselves: a retry sets a fresh clock, so a
  * second press or a second run minutes later finds nothing stalled and
- * writes nothing. Both re-read each row before writing it, because a Sheet
- * has no transaction and the cron and the button can meet.
+ * writes nothing.
+ *
+ * ## What is and is not guaranteed when the cron and the button meet
+ *
+ * A Sheet has no transaction, so nothing here is atomic. Each row is
+ * decided on the read that the write is made from (`updateDemoSession`
+ * with a function patch): the row must still be stalled and its count
+ * must be the one the sweep listed, else the writer skips. So a writer
+ * whose read sees the other's write does nothing, and the count goes up
+ * by one per writer that got through. What is not closed is the one Sheet
+ * round-trip between that read and the write: two writers that both read
+ * inside it both write, the later wins, the count reads one short, and two
+ * builds of the same demo run; the second ends as a plain overwrite of the
+ * first's row. The cron runs once a day and the button is pressed by a
+ * person, so the meeting is rare, and its cost is a wasted build, not a
+ * lost one.
  *
  * Neither runs the builds: those take minutes and belong after the
  * response (`after()` in the route and the action), through
@@ -57,19 +70,22 @@ const STALL_MINUTES = Math.round(DEMO_BUILD_STALL_MS / 60_000);
 
 /**
  * Start a stalled build again: `building`, a fresh clock, one more on the
- * count. Re-reads the row first and returns null when it is no longer
- * stalled (someone else got there) or no longer exists. The build itself is
- * the caller's to run (`runRetriedBuilds`).
+ * count. Decided on the read the write is made from: null, and no write,
+ * when the row has gone, is no longer stalled (someone else got there) or
+ * its count is not the one the caller saw (someone else got there and it
+ * stalled again since). The caller must not start a build on null, because
+ * the writer that got through already did. The build itself is the caller's
+ * to run (`runRetriedBuilds`).
  */
-export async function retryStalledDemo(session: Pick<DemoSession, "slug">, now: Date = new Date()): Promise<DemoSession | null> {
-  const fresh = await getDemoSession(session.slug, { fresh: true });
-  if (!fresh || !isDemoBuildStalled(fresh, now.getTime())) return null;
-  return updateDemoSession(fresh.slug, {
-    status: "building",
-    buildNote: null,
-    buildStartedAt: now,
-    retryCount: fresh.retryCount + 1,
-  });
+export async function retryStalledDemo(
+  session: Pick<DemoSession, "slug" | "retryCount">,
+  now: Date = new Date(),
+): Promise<DemoSession | null> {
+  return updateDemoSession(session.slug, (current) =>
+    isDemoBuildStalled(current, now.getTime()) && current.retryCount === session.retryCount
+      ? { status: "building", buildNote: null, buildStartedAt: now, retryCount: current.retryCount + 1 }
+      : null,
+  );
 }
 
 /** The builds owed after a retry, in parallel, none throwing (runDemoBuild ends every failure as a row). */
@@ -117,14 +133,21 @@ export async function sweepStalledDemos(now: Date = new Date()): Promise<StallSw
   return sweep;
 }
 
-/** Stalled again after its retry: a failed row with the reason, so the console offers Retry and the sweep moves on. */
+/**
+ * Stalled again after its retry: a failed row with the reason, so the
+ * console offers Retry and the sweep moves on. Decided on the read it
+ * writes from, as the retry is: null when the row is no longer stalled or
+ * its count moved (an operator pressed Retry all stalled since the listing).
+ */
 async function giveUp(session: DemoSession, now: Date): Promise<DemoSession | null> {
-  const fresh = await getDemoSession(session.slug, { fresh: true });
-  if (!fresh || !isDemoBuildStalled(fresh, now.getTime())) return null;
-  return updateDemoSession(fresh.slug, {
-    status: "failed",
-    buildNote: `The build stalled twice: cut off after ${STALL_MINUTES} minutes, started again, and cut off again. Retry it by hand once the cause is known.`,
-  });
+  return updateDemoSession(session.slug, (current) =>
+    isDemoBuildStalled(current, now.getTime()) && current.retryCount === session.retryCount
+      ? {
+          status: "failed",
+          buildNote: `The build stalled twice: cut off after ${STALL_MINUTES} minutes, started again, and cut off again. Retry it by hand once the cause is known.`,
+        }
+      : null,
+  );
 }
 
 /**

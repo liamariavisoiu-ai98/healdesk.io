@@ -4,7 +4,7 @@ import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
 import { __resetSheetSchemaForTests, DEMO_SESSIONS, ensureSheetSchema } from "@/lib/sheets/schema";
 
 import { __resetDemoCacheForTests, createDemoSession, DEMO_BUILD_STALL_MS, getDemoSession, listDemoSessions, updateDemoSession, type DemoSession } from "./sessions";
-import { retryStalledDemos, runRetriedBuilds, sweepStalledDemos } from "./sweep";
+import { retryStalledDemo, retryStalledDemos, runRetriedBuilds, sweepStalledDemos } from "./sweep";
 
 /**
  * Stalled demo builds (lib/demo/sweep.ts): the sweep starts a stalled build
@@ -147,6 +147,33 @@ describe("the sweep", () => {
     expect(second).toEqual({ retried: [], gaveUp: [] });
     expect(writes()).toBe(before);
     expect((await fresh(stalled.slug)).retryCount).toBe(1);
+  });
+});
+
+describe("when the cron and the button meet on one row", () => {
+  it("a writer whose read sees the other's retry does nothing", async () => {
+    const listed = await demo("Glow Spa", DEMO_BUILD_STALL_MS + MINUTE);
+    // The other door got there first: building on a fresh clock, count 1.
+    await retryStalledDemo(listed, NOW);
+    const before = writes();
+
+    expect(await retryStalledDemo(listed, new Date(NOW.getTime() + MINUTE))).toBeNull();
+    expect(writes()).toBe(before);
+    expect((await fresh(listed.slug)).retryCount).toBe(1);
+  });
+
+  it("a writer holding a stale count does nothing, even if the row stalled again since", async () => {
+    const listed = await demo("Glow Spa", DEMO_BUILD_STALL_MS + MINUTE);
+    // Retried by the other door, then stalled again: still stalled, count moved.
+    await updateDemoSession(listed.slug, { retryCount: 1, buildStartedAt: ago(DEMO_BUILD_STALL_MS + MINUTE) });
+    const before = writes();
+
+    expect(await retryStalledDemo(listed, NOW)).toBeNull();
+    expect(writes()).toBe(before);
+    // The sweep, listing afresh, sees count 1 and gives up rather than retrying twice.
+    const sweep = await sweepStalledDemos(NOW);
+    expect(sweep.retried).toEqual([]);
+    expect(sweep.gaveUp.map((s) => s.slug)).toEqual([listed.slug]);
   });
 });
 

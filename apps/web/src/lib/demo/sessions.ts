@@ -381,21 +381,33 @@ export async function createDemoSession(input: NewDemo, now: Date = new Date()):
   return remember(session);
 }
 
+export type DemoPatch = Partial<Omit<DemoSession, "id" | "slug" | "createdAt">>;
+
 /**
  * Read the row fresh, apply `patch`, write the whole row back. Returns the
  * updated session, or null when no row has that slug. A Sheet has no
  * transaction, so two writers racing on one row means the later one wins;
- * the only concurrent writers are a build and a claim, which touch
+ * the usual concurrent writers are a build and a claim, which touch
  * different columns minutes apart.
+ *
+ * `patch` may be a function of the row as it was just read, returning the
+ * patch or null to leave the row alone. A writer whose decision depends on
+ * the row's state (the stall retry in lib/demo/sweep.ts) decides on the
+ * same read it writes from, so what can change between its look and its
+ * write is one Sheet round-trip rather than two. That is a narrower window,
+ * not a lock: two writers that both read before either writes both write,
+ * and the later one wins.
  */
 export async function updateDemoSession(
   slug: string,
-  patch: Partial<Omit<DemoSession, "id" | "slug" | "createdAt">>,
+  patch: DemoPatch | ((current: DemoSession) => DemoPatch | null),
 ): Promise<DemoSession | null> {
   const client = await store();
   const found = (await readAll(client)).find((r) => r.value.slug === slug);
   if (!found) return null;
-  const next: DemoSession = { ...found.value, ...patch };
+  const change = typeof patch === "function" ? patch(found.value) : patch;
+  if (!change) return null;
+  const next: DemoSession = { ...found.value, ...change };
   await client.updateRange(rowRange(DEMO_SESSIONS, found.row), [recordToRow(DEMO_SESSIONS, next)]);
   return remember(next);
 }

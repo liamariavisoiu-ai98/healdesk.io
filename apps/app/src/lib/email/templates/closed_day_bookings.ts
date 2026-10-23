@@ -5,7 +5,7 @@ import type { TemplateEntry } from "./registry";
 import type { EmailTemplate } from "./types";
 
 /**
- * O17: "A closed day has bookings on it", to the clinic's one address, when
+ * O17: "A closed day has bookings or requests on it", to the clinic's one address, when
  * the clinic saves a closed day in Knowledge → Hours and AYA's bookings or
  * requests still waiting already fall on a day it just closed (owner decision
  * D10: the portal's note at save time, plus this email). Queued after the
@@ -29,11 +29,11 @@ export type ClosedDayBookingsPayload = {
 
 /** Every word the email says, in one place. */
 export const CLOSED_DAY_BOOKINGS_WORDS = {
-  subject: "A closed day has bookings on it",
+  subject: "A closed day has bookings or requests on it",
   preheader: "Nothing has been cancelled and nobody has been contacted.",
   greeting: "Hi,",
   body: [
-    "You've marked a day as closed, and some bookings were already made for it.",
+    "You've marked a day as closed, and some bookings or requests were already made for it.",
     "Nothing has been cancelled and nobody has been contacted.",
     "You can see them in Bookings and decide whether to move them.",
   ],

@@ -81,40 +81,7 @@ export function CarePanel({ view, actions }: { view: OpsResult<CareView>; action
         <AddRecipientForm onAdd={actions.addRecipient} />
       </Section>
 
-      <Section title={`What was sent — last ${v.deliveries.length}`}>
-        {v.deliveries.length === 0 ? (
-          <p className="text-muted text-sm">Nothing yet. The first weekly recap arrives seven days after go-live.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-muted text-left text-xs uppercase">
-                <tr>
-                  <th className="py-1 pr-3">When (UTC)</th>
-                  <th className="py-1 pr-3">Kind</th>
-                  <th className="py-1 pr-3">Period</th>
-                  <th className="py-1 pr-3">To</th>
-                  <th className="py-1 pr-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {v.deliveries.map((d, i) => (
-                  <tr key={i} className="border-line border-t">
-                    <td className="py-1 pr-3 whitespace-nowrap">{d.attemptedAt}</td>
-                    <td className="py-1 pr-3">{d.kind}</td>
-                    <td className="py-1 pr-3">{d.periodKey}</td>
-                    <td className="py-1 pr-3">{d.recipient}</td>
-                    <td className={`py-1 pr-3 ${d.status === "sent" ? "text-done" : d.status === "failed" ? "text-red-deep" : "text-muted"}`}>
-                      {d.status}
-                      {d.reason && d.status !== "sent" ? <span className="text-muted block text-xs">{d.reason}</span> : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
-
+      {/* What was sent is the Deliveries tab (E1 step 7), one ledger for every email. */}
       <Section title={`Incidents — ${open.length} open`}>
         <p className="text-muted text-sm">
           Opening one starts two clocks: the deadline the practice&rsquo;s agreement promises, and our internal target,

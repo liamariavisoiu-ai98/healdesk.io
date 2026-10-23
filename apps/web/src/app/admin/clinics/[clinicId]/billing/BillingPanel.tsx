@@ -281,13 +281,7 @@ export function BillingPanel({ view, actions }: { view: OpsResult<View>; actions
         />
       </Section>
 
-      <Section title={`Billing emails — last ${v.notices.length}`}>
-        <Notices view={v} />
-      </Section>
-
-      <Section title={`Status history — last ${v.transitions.length}`}>
-        <Transitions view={v} />
-      </Section>
+      {/* Billing emails and the status history are the Deliveries tab (E1 step 7). */}
     </div>
   );
 }
@@ -1343,67 +1337,3 @@ function EventRow({
   );
 }
 
-function Notices({ view }: { view: View }) {
-  if (view.notices.length === 0) return <p className="text-muted text-sm">None yet.</p>;
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="text-muted text-left text-xs uppercase">
-          <tr>
-            <th className="py-1 pr-3">Queued (UTC)</th>
-            <th className="py-1 pr-3">Kind</th>
-            <th className="py-1 pr-3">Sent</th>
-            <th className="py-1 pr-3">Attempts</th>
-          </tr>
-        </thead>
-        <tbody>
-          {view.notices.map((n, i) => (
-            <tr key={i} className="border-line border-t">
-              <td className="py-1 pr-3 whitespace-nowrap">{n.createdAt}</td>
-              <td className="py-1 pr-3">{n.kind}</td>
-              <td className={`py-1 pr-3 ${n.sentAt ? "text-done" : "text-muted"}`}>
-                {n.sentAt
-                  ? `${n.sentAt}${n.recipientsCount !== null ? ` (${n.recipientsCount})` : ""}`
-                  : `due ${n.sendAfter}`}
-                {n.lastError ? (
-                  <span className="text-muted block text-xs">{n.lastError}</span>
-                ) : null}
-              </td>
-              <td className="py-1 pr-3">{n.attempts}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Transitions({ view }: { view: View }) {
-  if (view.transitions.length === 0) return <p className="text-muted text-sm">None.</p>;
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="text-muted text-left text-xs uppercase">
-          <tr>
-            <th className="py-1 pr-3">When (UTC)</th>
-            <th className="py-1 pr-3">Change</th>
-            <th className="py-1 pr-3">By</th>
-            <th className="py-1 pr-3">Reason</th>
-          </tr>
-        </thead>
-        <tbody>
-          {view.transitions.map((t, i) => (
-            <tr key={i} className="border-line border-t">
-              <td className="py-1 pr-3 whitespace-nowrap">{t.at}</td>
-              <td className="py-1 pr-3">
-                {t.fromStatus === t.toStatus ? "note" : `${t.fromStatus ?? "—"} → ${t.toStatus}`}
-              </td>
-              <td className="py-1 pr-3">{t.actor}</td>
-              <td className="py-1 pr-3">{t.reason}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}

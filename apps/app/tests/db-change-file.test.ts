@@ -35,6 +35,24 @@ describe("a change file", () => {
     expect(parseChangeFile('UPDATE "clinic_provider_services" SET service_key = \'x\'')).toMatchObject({ table: "clinic_provider_services" });
   });
 
+  test("a Unicode-escaped name or string is refused: it can spell a function the word list cannot see", () => {
+    const id = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+    for (const sql of [
+      `insert into clinic_closures (clinic_id, closed_on, label) select '${id}','2027-04-04','Closed' where U&"!0073et_config" UESCAPE '!'('app.change_emitted','on',true) is not null`,
+      `update clinic_closures set label = U&'!0041' UESCAPE '!'`,
+      `update clinic_closures set label = u&"d!0061te" uescape '!'`,
+      // A dollar-quote of any tag, and the *_to_xml family that runs a query from text.
+      `insert into clinic_closures (clinic_id, closed_on, label) values ('${id}', '2027-05-05', $a$'$a$ || set_config('app.clinic_id', '${id}', true) || $a$'$a$)`,
+      `insert into clinic_closures (clinic_id, closed_on, label) select '${id}', '2027-05-06', 'x' where query_to_xml('select set_config(''app.clinic_id'',''${id}'',true)', true, false, '') is not null`,
+      `update clinic_closures set label = 'x' where cursor_to_xml(null, 1, true, false, '') is null`,
+      `update clinic_closures set label = 'x' where table_to_xmlschema('clinics', true, false, '') is null`,
+    ]) {
+      expect(() => parseChangeFile(sql), sql).toThrow();
+    }
+    expect(() => parseChangeFile(`update clinic_closures set label = 'U& is fine in a value' where false`)).not.toThrow();
+    expect(() => parseChangeFile(`update clinic_closures set label = 'Closed, costs $0' where false`)).not.toThrow();
+  });
+
   test("a word inside a quoted value is data, not a statement", () => {
     expect(() => parseChangeFile("update clinic_closures set label = 'Drop-in day; create a plan' where closed_on = '2026-12-24'")).not.toThrow();
   });

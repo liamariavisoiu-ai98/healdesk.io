@@ -32,6 +32,7 @@ import { readSetupState } from "@/lib/setup/state";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { appliesWhen } from "./applies";
+import { clinicActorOf, readChangeStatusLine, type ChangeOrigin } from "@/lib/clinic/change-events";
 
 /**
  * Knowledge (plan Part F3; spec, "Knowledge: quick edits, no re-scrape
@@ -113,6 +114,7 @@ export async function saveKnowledge(
         state.clinic.timezone,
         now,
         await knowledgeWriteOptions(tx),
+        { source: "portal", actor: clinicActorOf(ctx.actorLabel) },
       );
       await practiceQuestionsSeam(tx, section, now);
       const applies = appliesWhen(state.channels);
@@ -343,6 +345,7 @@ async function write(
   timeZone: string,
   now: Date,
   options: KnowledgeWriteOptions,
+  origin: ChangeOrigin,
 ): Promise<string> {
   switch (section) {
     case "practice":
@@ -412,8 +415,8 @@ async function write(
     }
 
     case "hours":
-      await saveHours(tx, { hours: body.hours, closures: body.closures }, timeZone, now);
-      return "Hours saved. AYA tells people when you're open, and phone follows them.";
+      await saveHours(tx, { hours: body.hours, closures: body.closures }, timeZone, now, origin);
+      return "Hours saved. AYA offers nothing on a closed day and tells people when you're open.";
   }
 }
 
@@ -512,4 +515,18 @@ function rewriteFor(
     return typeof text === "string" ? rewriteWithout(text) : null;
   }
   return null;
+}
+
+/**
+ * The Hours card's status line (design E4 §3.D): "In use since 2:14 pm." for
+ * the newest change to the hours or closed days. Null when the clinic has
+ * changed neither since the record began.
+ */
+export function hoursStatusLine(
+  clinicId: string,
+  actor: ActorContext,
+  timeZone: string,
+  now: Date = new Date(),
+): Promise<string | null> {
+  return readChangeStatusLine(clinicId, actor, ["hours", "closures"], timeZone, now);
 }

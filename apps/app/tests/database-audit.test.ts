@@ -890,6 +890,10 @@ describeDb("database audit (0031)", () => {
     const INTERNAL: Record<string, string> = {
       app_account_closure_waiting_on:
         "called only by app_close_clinic_account and app_accounts_to_close (0096); it reads any clinic's incidents, notices and security events",
+      app_record_direct_clinic_change:
+        "a trigger function only (0114): the statement triggers on clinic_closures, clinic_providers and clinic_provider_services call it to record another session's edit; nothing calls it by name",
+      app_clinics_changed_in_transaction:
+        "db-apply's check (0114) that a change file wrote change rows for its named clinic only: granted to healdesk_writer, the change file's role, and not to the runtime role, which has no use for it",
     };
     for (const fn of rows) {
       const internal = fn.proname in INTERNAL;

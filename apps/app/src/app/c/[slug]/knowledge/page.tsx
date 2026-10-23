@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { requirePortal } from "@/lib/portal/access";
 import { portalDay } from "@/lib/portal/format";
-import { depositShown, readClinicDefaultDeposit } from "@/lib/portal/knowledge";
+import { depositShown, hoursStatusLine, readClinicDefaultDeposit } from "@/lib/portal/knowledge";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { formatPhone } from "@/lib/setup/help";
@@ -78,6 +78,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
     page.actorContext,
   );
   const website = await loadWebsiteChanges(portal.clinicId, page.actorContext);
+  const hoursStatus = await hoursStatusLine(portal.clinicId, page.actorContext, clinic.timezone, now);
   const lastRead = website.lastReadAt ?? (website.baseline ? website.baseline.readAt : null);
 
   return (
@@ -212,7 +213,13 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
           <Section
             id="hours"
             title="Hours"
-            intro="AYA tells people when you're open, and with phone these decide when calls reach her."
+            intro={
+              <>
+                When you&rsquo;re open, and the days you&rsquo;re closed. AYA tells people, offers no
+                appointments on a closed day, and phone follows these hours.
+                {hoursStatus ? <span className="mt-1 block">{hoursStatus}</span> : null}
+              </>
+            }
           >
             <HoursForm
               slug={portal.clinicSlug}

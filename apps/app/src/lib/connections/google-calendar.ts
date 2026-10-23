@@ -20,6 +20,7 @@ import {
 } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/lib/audit";
 import { releaseLiveHolds } from "@/lib/booking/holds";
+import { changeOriginOf, recordClinicChange, type ChangeOrigin } from "@/lib/clinic/change-events";
 import { calendarTermsFor, type CalendarTermsInEffect } from "@/lib/booking/terms";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { eraseCredentials, withCredentials } from "@/lib/connections/store";
@@ -1482,7 +1483,10 @@ async function activeProviders(tx: TenantTx): Promise<ProviderView[]> {
  * own main calendar, whichever account that is. Answers how many were
  * deactivated; the clinic chooses their calendars again (saveProviders).
  */
-export async function retireOtherAccountProviders(tx: TenantTx): Promise<number> {
+export async function retireOtherAccountProviders(
+  tx: TenantTx,
+  origin: ChangeOrigin = { source: "portal", actor: "clinic_signin" },
+): Promise<number> {
   const retired = await tx.db
     .update(clinicProviders)
     .set({ active: false, updatedAt: new Date() })
@@ -1494,6 +1498,19 @@ export async function retireOtherAccountProviders(tx: TenantTx): Promise<number>
       ),
     )
     .returning({ id: clinicProviders.id });
+  // A roster change like any other, for ops (lib/clinic/change-events.ts):
+  // made by the clinic's own reconnect, counted, never named.
+  if (retired.length > 0) {
+    const [left] = await tx.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(clinicProviders)
+      .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)));
+    await recordClinicChange(tx, {
+      kind: "providers",
+      ...origin,
+      summary: { providersActive: Number(left?.n ?? 0) },
+    });
+  }
   return retired.length;
 }
 
@@ -1551,7 +1568,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function saveProviders(
   clinicId: string,
   providers: readonly ProviderInput[],
-  options: CalendarCallOptions = {},
+  options: CalendarCallOptions & { origin?: ChangeOrigin } = {},
 ): Promise<SaveProvidersOutcome> {
   if (!Array.isArray(providers) || providers.length > MAX_PROVIDERS) {
     return { status: "refused", reason: "too_many", index: null };
@@ -1637,6 +1654,14 @@ export async function saveProviders(
       // Everyone off first, so two providers swapping calendars never meet
       // the one-active-provider-per-calendar index halfway.
       const now = new Date();
+      const activeBefore = await tx.db
+        .select({
+          id: clinicProviders.id,
+          displayName: clinicProviders.displayName,
+          calendarId: clinicProviders.calendarId,
+        })
+        .from(clinicProviders)
+        .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)));
       const before = await tx.db
         .update(clinicProviders)
         .set({ active: false, updatedAt: now })
@@ -1686,6 +1711,21 @@ export async function saveProviders(
         resourceId: tx.clinicId,
         metadata: { event: "clinic_providers_saved", count: saved.length, releasedHolds },
       });
+      // For ops (lib/clinic/change-events.ts): counts only, never a name or
+      // a calendar, and only when the active list is not what it was.
+      const roster = (list: readonly { id: string; displayName: string; calendarId: string }[]) =>
+        JSON.stringify(list.map((p) => [p.id, p.displayName, p.calendarId]).sort());
+      if (roster(activeBefore) !== roster(saved)) {
+        await recordClinicChange(
+          tx,
+          {
+            kind: "providers",
+            ...(options.origin ?? changeOriginOf(options.actor)),
+            summary: { providersActive: saved.length, holdsReleased: releasedHolds },
+          },
+          now,
+        );
+      }
       return { status: "saved", providers: saved } as const;
     },
   );
@@ -1712,7 +1752,7 @@ export async function setProviderServices(
   clinicId: string,
   providerId: string,
   services: readonly string[],
-  options: CalendarCallOptions = {},
+  options: CalendarCallOptions & { origin?: ChangeOrigin } = {},
 ): Promise<SetProviderServicesOutcome> {
   if (typeof providerId !== "string" || !UUID.test(providerId)) {
     return { status: "refused", reason: "unknown_provider" };
@@ -1749,6 +1789,15 @@ export async function setProviderServices(
       if (keys.some((key) => key.length === 0 || !offered.has(key))) {
         return { status: "refused", reason: "unknown_service" } as const;
       }
+      const mappedBefore = await tx.db
+        .select({ serviceKey: clinicProviderServices.serviceKey })
+        .from(clinicProviderServices)
+        .where(
+          and(
+            eq(clinicProviderServices.providerId, providerId),
+            eq(clinicProviderServices.clinicId, tx.clinicId),
+          ),
+        );
       await tx.db
         .delete(clinicProviderServices)
         .where(
@@ -1768,6 +1817,16 @@ export async function setProviderServices(
         resourceId: providerId,
         metadata: { event: "clinic_provider_services_set", count: keys.length },
       });
+      // For ops: how many services this provider now offers, only when that changed.
+      if (
+        JSON.stringify(mappedBefore.map((m) => m.serviceKey).sort()) !== JSON.stringify([...keys].sort())
+      ) {
+        await recordClinicChange(tx, {
+          kind: "provider_services",
+          ...(options.origin ?? changeOriginOf(options.actor)),
+          summary: { servicesMapped: keys.length },
+        });
+      }
       return { status: "saved", services: keys.sort() } as const;
     },
   );

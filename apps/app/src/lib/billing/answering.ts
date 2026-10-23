@@ -457,12 +457,7 @@ export function decideAnswer(facts: AnswerFacts): AnswerDecision {
   if (isPaused(facts.pause, now)) return refuse("ai_paused");
 
   // 5. Voice coverage.
-  if (
-    channel === "voice" &&
-    facts.coverageMode === "after_hours_only" &&
-    facts.openNow === true &&
-    !facts.closedToday
-  ) {
+  if (channel === "voice" && voiceOutsideCoverage(facts)) {
     return refuse("outside_coverage");
   }
 
@@ -476,6 +471,47 @@ export function decideAnswer(facts: AnswerFacts): AnswerDecision {
   }
 
   return { decision: "answer" };
+}
+
+/**
+ * Step 5 of decideAnswer on its own: whether the clinic's voice coverage
+ * passes a call through to its own line rather than AYA answering it. Only
+ * "After hours only" does, while the clinic is open by its weekly hours and
+ * today is not one of its closed days. Exported for the ops availability
+ * audit (lib/audits/checks.ts), which asks it about a closed day; decideAnswer
+ * calls this same function, so the audit can never disagree with the gate.
+ */
+export function voiceOutsideCoverage(
+  facts: Pick<AnswerFacts, "coverageMode" | "openNow" | "closedToday">,
+): boolean {
+  return facts.coverageMode === "after_hours_only" && facts.openNow === true && !facts.closedToday;
+}
+
+/**
+ * The gate's voice coverage facts for a clinic at `now`, as runGate reads
+ * them: whether its weekly hours say it is open, and whether today, in its
+ * zone, is one of its closed days. A closure day matters only where it could
+ * change the answer (an After hours only clinic whose weekly hours say it is
+ * open now), so the closures are read only then. Exported for the ops
+ * availability audit, which asks it at noon on a closed day.
+ */
+export async function voiceCoverageFacts(
+  db: Transaction,
+  clinicId: string,
+  input: { coverageMode: CoverageMode; openingHours: unknown; timeZone: string; now: Date },
+): Promise<{ openNow: boolean | null; closedToday: boolean }> {
+  const openNow = openAt(input.openingHours, input.now, input.timeZone);
+  let closedToday = false;
+  if (input.coverageMode === "after_hours_only" && openNow === true) {
+    let today: string | null = null;
+    try {
+      today = clinicLocalDate(input.now, input.timeZone);
+    } catch {
+      today = null;
+    }
+    if (today) closedToday = await closedOn(db, clinicId, today);
+  }
+  return { openNow, closedToday };
 }
 
 /** isOpenAt, or null when the hours are missing, malformed or the time zone is bad. */
@@ -571,19 +607,15 @@ async function runGate(
         : "none";
 
     const coverageMode = coverageModeOf(clinic, settings ?? null);
-    const openNow = channel === "voice" ? openAt(clinic.openingHours, now, clinic.timezone) : null;
-    // A closure day matters only where it could change the answer: an After
-    // hours only clinic whose weekly hours say it is open now.
-    let closedToday = false;
-    if (channel === "voice" && coverageMode === "after_hours_only" && openNow === true) {
-      let today: string | null = null;
-      try {
-        today = clinicLocalDate(now, clinic.timezone);
-      } catch {
-        today = null;
-      }
-      if (today) closedToday = await closedOn(tx.db, tx.clinicId, today);
-    }
+    const { openNow, closedToday } =
+      channel === "voice"
+        ? await voiceCoverageFacts(tx.db, tx.clinicId, {
+            coverageMode,
+            openingHours: clinic.openingHours,
+            timeZone: clinic.timezone,
+            now,
+          })
+        : { openNow: null, closedToday: false };
 
     // A line that would send the caller back to us is no line at all.
     const directLine = usableLine(settings?.directLine, [clinic.publishedPhone, clinic.assistantNumber]);

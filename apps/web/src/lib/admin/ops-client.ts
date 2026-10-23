@@ -354,7 +354,16 @@ type OperatorOp =
   // The redone admin's two reads (ops automation Phase 2, lane A2): the
   // Clinics table and Home, shaped by lib/admin/strip-types.ts. No argument.
   | "listClinicStrip"
-  | "opsInbox";
+  | "opsInbox"
+  // The clinic audits and availability changes (ops automation E3 and E4;
+  // apps/app lib/ops/audit-ops.ts and change-ops.ts): an audit run now, the
+  // latest results, the changes clinics made to hours, closed days and
+  // providers, and an acknowledgement. Codes, counts, dates and the device's
+  // label; never a patient.
+  | "runClinicAudit"
+  | "clinicAudits"
+  | "listClinicChanges"
+  | "acknowledgeClinicChange";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -1125,6 +1134,283 @@ export function deleteRecordedCall(
     if (status === "failed") return { status, reason: text(data.reason, "deleteRecordedCall.reason") };
     return { status };
   });
+}
+
+// -----------------------------------------------------------------------------
+// The clinic audits and availability changes (ops automation E3 and E4)
+// -----------------------------------------------------------------------------
+
+export const AUDIT_PACKS = ["availability", "roster", "golive", "transcripts"] as const;
+export type AuditPack = (typeof AUDIT_PACKS)[number];
+const AUDIT_TRIGGERS = ["change", "change_detected", "scheduled", "manual"] as const;
+const AUDIT_RESULTS = ["pass", "warn", "fail", "error"] as const;
+export type AuditResult = (typeof AUDIT_RESULTS)[number];
+const CHANGE_KINDS = ["hours", "closures", "location_hours", "providers", "provider_services"] as const;
+export type ClinicChangeKind = (typeof CHANGE_KINDS)[number];
+const CHANGE_SOURCES = ["portal", "wizard", "website", "calendar_link", "ops_console", "direct"] as const;
+const CHANGE_AUDIT_STATUSES = ["queued", "running", "passed", "attention", "error"] as const;
+const CHANGE_ACTORS = ["clinic_device", "clinic_signin", "ops", "change_file", "direct"] as const;
+
+/** One check's outcome: its id, result, fixed hint, closed code and counts. */
+export type AuditCheckView = {
+  id: string;
+  result: AuditResult;
+  hint: string | null;
+  counts: Record<string, number>;
+  code: string | null;
+  side: "clinic" | "ours" | null;
+};
+
+/** One stored run of one pack. */
+export type AuditRunView = {
+  id: string;
+  pack: AuditPack;
+  trigger: (typeof AUDIT_TRIGGERS)[number];
+  changeKind: ClinicChangeKind | null;
+  result: AuditResult;
+  startedAt: string;
+  finishedAt: string;
+  checks: AuditCheckView[];
+};
+
+/** Per clinic: the newest result of each pack, an overall state and the last change (design E3 §2.5). */
+export type ClinicAuditSummaryView = {
+  clinicId: string;
+  name: string;
+  /** `audits_off`: changes wait for an audit while the clinic-audits job is switched off; never `running` then. */
+  overall: "pass" | "warn" | "fail" | "running" | "audits_off" | "never";
+  lastChange: { kind: ClinicChangeKind; at: string } | null;
+  packs: Partial<
+    Record<
+      AuditPack,
+      { result: AuditResult; at: string; trigger: AuditRunView["trigger"]; failing: { id: string; hint: string | null }[] }
+    >
+  >;
+};
+
+export type ClinicAuditsView = { clinics: ClinicAuditSummaryView[]; history: AuditRunView[] | null };
+
+export type RunClinicAuditOutcome =
+  | { status: "ran"; result: AuditResult; audits: AuditRunView[]; auditRecorded: boolean }
+  | { status: "too_soon"; notBefore: string }
+  /** Another run for this clinic is under way; nothing ran. */
+  | { status: "busy" }
+  /** The clinic's account has closed: nothing to audit. */
+  | { status: "closed" }
+  | { status: "not_found" };
+
+/** One change a clinic made, as the console lists it. */
+export type ClinicChangeView = {
+  id: string;
+  clinicId: string;
+  clinicName: string;
+  locationId: string | null;
+  kind: ClinicChangeKind;
+  source: (typeof CHANGE_SOURCES)[number];
+  /** Who, coarsely: one of the clinic's devices, its sign-in, ops, a change file, or another direct edit. */
+  actorKind: (typeof CHANGE_ACTORS)[number];
+  summary: {
+    weeklyChanged?: boolean;
+    closuresAdded?: string[];
+    closuresRemoved?: string[];
+    closuresUpcoming?: number;
+    providersActive?: number;
+    servicesMapped?: number;
+    holdsReleased?: number;
+    rows?: number;
+    operation?: "insert" | "update" | "delete";
+    table?: "clinic_closures" | "clinic_providers" | "clinic_provider_services";
+  };
+  changedAt: string;
+  alertedAt: string | null;
+  /**
+   * The ops audit of the change; null while the clinic-audits job is off. A
+   * `direct` change (a change file, psql) waits for its audit like any other.
+   */
+  auditStatus: (typeof CHANGE_AUDIT_STATUSES)[number] | null;
+  auditId: string | null;
+  acknowledgedAt: string | null;
+  acknowledgedBy: string | null;
+};
+
+export type AcknowledgeClinicChangeOutcome =
+  | { status: "acknowledged" | "already"; acknowledgedAt: string; auditRecorded: boolean }
+  | { status: "not_found" };
+
+function readCounts(value: unknown, at: string): Record<string, number> {
+  const data = object(value, at);
+  return Object.fromEntries(Object.entries(data).map(([key, n]) => [key, count(n, `${at}.${key}`)]));
+}
+
+function readAuditCheck(value: unknown, at: string): AuditCheckView {
+  const r = object(value, at);
+  return {
+    id: code(r.id, `${at}.id`),
+    result: literal(r.result, AUDIT_RESULTS, `${at}.result`),
+    hint: optionalText(r.hint, `${at}.hint`),
+    counts: readCounts(r.counts, `${at}.counts`),
+    code: r.code === null || r.code === undefined ? null : code(r.code, `${at}.code`),
+    side: r.side === null || r.side === undefined ? null : literal(r.side, ["clinic", "ours"] as const, `${at}.side`),
+  };
+}
+
+function readAuditRun(value: unknown, at: string): AuditRunView {
+  const r = object(value, at);
+  return {
+    id: id(r.id, `${at}.id`),
+    pack: literal(r.pack, AUDIT_PACKS, `${at}.pack`),
+    trigger: literal(r.trigger, AUDIT_TRIGGERS, `${at}.trigger`),
+    changeKind: r.changeKind === null ? null : literal(r.changeKind, CHANGE_KINDS, `${at}.changeKind`),
+    result: literal(r.result, AUDIT_RESULTS, `${at}.result`),
+    startedAt: isoInstant(r.startedAt, `${at}.startedAt`),
+    finishedAt: isoInstant(r.finishedAt, `${at}.finishedAt`),
+    checks: list(r.checks, `${at}.checks`).map((c, i) => readAuditCheck(c, `${at}.checks[${i}]`)),
+  };
+}
+
+function readAuditSummary(value: unknown, at: string): ClinicAuditSummaryView {
+  const r = object(value, at);
+  const packs: ClinicAuditSummaryView["packs"] = {};
+  const raw = object(r.packs, `${at}.packs`);
+  for (const pack of AUDIT_PACKS) {
+    if (raw[pack] === undefined) continue;
+    const p = object(raw[pack], `${at}.packs.${pack}`);
+    packs[pack] = {
+      result: literal(p.result, AUDIT_RESULTS, `${at}.packs.${pack}.result`),
+      at: isoInstant(p.at, `${at}.packs.${pack}.at`),
+      trigger: literal(p.trigger, AUDIT_TRIGGERS, `${at}.packs.${pack}.trigger`),
+      failing: list(p.failing, `${at}.packs.${pack}.failing`).map((f, i) => {
+        const x = object(f, `${at}.packs.${pack}.failing[${i}]`);
+        return { id: code(x.id, `${at}.failing.id`), hint: optionalText(x.hint, `${at}.failing.hint`) };
+      }),
+    };
+  }
+  const change = r.lastChange === null ? null : object(r.lastChange, `${at}.lastChange`);
+  return {
+    clinicId: id(r.clinicId, `${at}.clinicId`),
+    name: text(r.name, `${at}.name`),
+    overall: literal(r.overall, ["pass", "warn", "fail", "running", "audits_off", "never"] as const, `${at}.overall`),
+    lastChange: change
+      ? { kind: literal(change.kind, CHANGE_KINDS, `${at}.lastChange.kind`), at: isoInstant(change.at, `${at}.lastChange.at`) }
+      : null,
+    packs,
+  };
+}
+
+function readDates(value: unknown, at: string): string[] {
+  return list(value, at).map((d, i) => date(d, `${at}[${i}]`));
+}
+
+function readChangeSummary(value: unknown, at: string): ClinicChangeView["summary"] {
+  const r = object(value, at);
+  const out: ClinicChangeView["summary"] = {};
+  if (r.weeklyChanged !== undefined) out.weeklyChanged = bool(r.weeklyChanged, `${at}.weeklyChanged`);
+  if (r.closuresAdded !== undefined) out.closuresAdded = readDates(r.closuresAdded, `${at}.closuresAdded`);
+  if (r.closuresRemoved !== undefined) out.closuresRemoved = readDates(r.closuresRemoved, `${at}.closuresRemoved`);
+  for (const key of ["closuresUpcoming", "providersActive", "servicesMapped", "holdsReleased", "rows"] as const) {
+    if (r[key] !== undefined) out[key] = count(r[key], `${at}.${key}`);
+  }
+  if (r.operation !== undefined) out.operation = literal(r.operation, ["insert", "update", "delete"] as const, `${at}.operation`);
+  if (r.table !== undefined) {
+    out.table = literal(r.table, ["clinic_closures", "clinic_providers", "clinic_provider_services"] as const, `${at}.table`);
+  }
+  return out;
+}
+
+function readClinicChange(value: unknown, at: string): ClinicChangeView {
+  const r = object(value, at);
+  return {
+    id: id(r.id, `${at}.id`),
+    clinicId: id(r.clinicId, `${at}.clinicId`),
+    clinicName: text(r.clinicName, `${at}.clinicName`),
+    locationId: r.locationId === null ? null : id(r.locationId, `${at}.locationId`),
+    kind: literal(r.kind, CHANGE_KINDS, `${at}.kind`),
+    source: literal(r.source, CHANGE_SOURCES, `${at}.source`),
+    actorKind: literal(r.actorKind, CHANGE_ACTORS, `${at}.actorKind`),
+    summary: readChangeSummary(r.summary, `${at}.summary`),
+    changedAt: isoInstant(r.changedAt, `${at}.changedAt`),
+    alertedAt: optionalIsoInstant(r.alertedAt, `${at}.alertedAt`),
+    auditStatus: r.auditStatus === null ? null : literal(r.auditStatus, CHANGE_AUDIT_STATUSES, `${at}.auditStatus`),
+    auditId: r.auditId === null ? null : id(r.auditId, `${at}.auditId`),
+    acknowledgedAt: optionalIsoInstant(r.acknowledgedAt, `${at}.acknowledgedAt`),
+    acknowledgedBy: optionalText(r.acknowledgedBy, `${at}.acknowledgedBy`),
+  };
+}
+
+/** Run one pack, or all four, for one clinic now. Once a minute per clinic; a security event names the operator. */
+export function runClinicAudit(clinicId: string, pack?: AuditPack): Promise<OpsResult<RunClinicAuditOutcome>> {
+  return callOps("runClinicAudit", "write", pack ? { clinicId, pack } : { clinicId }, (value) => {
+    const data = object(value, "runClinicAudit");
+    const status = literal(
+      data.status,
+      ["ran", "too_soon", "busy", "closed", "not_found"] as const,
+      "runClinicAudit.status",
+    );
+    if (status === "ran") {
+      return {
+        status,
+        result: literal(data.result, AUDIT_RESULTS, "runClinicAudit.result"),
+        audits: list(data.audits, "runClinicAudit.audits").map((a, i) => readAuditRun(a, `runClinicAudit.audits[${i}]`)),
+        auditRecorded: bool(data.auditRecorded, "runClinicAudit.auditRecorded"),
+      };
+    }
+    if (status === "too_soon") return { status, notBefore: isoInstant(data.notBefore, "runClinicAudit.notBefore") };
+    return { status };
+  }, 60_000);
+}
+
+/** Every clinic's latest audit results, or one clinic's with its history. */
+export function fetchClinicAudits(clinicId?: string): Promise<OpsResult<ClinicAuditsView>> {
+  return callOps("clinicAudits", "read", clinicId ? { clinicId } : {}, (value) => {
+    const data = object(value, "clinicAudits");
+    return {
+      clinics: list(data.clinics, "clinicAudits.clinics").map((c, i) => readAuditSummary(c, `clinicAudits.clinics[${i}]`)),
+      history:
+        data.history === null
+          ? null
+          : list(data.history, "clinicAudits.history").map((a, i) => readAuditRun(a, `clinicAudits.history[${i}]`)),
+    };
+  });
+}
+
+/** The changes clinics made to hours, closed days and providers, newest first. */
+export function fetchClinicChanges(
+  filter: { clinicId?: string; since?: string } = {},
+): Promise<OpsResult<{ since: string; changes: ClinicChangeView[] }>> {
+  const args: Record<string, unknown> = {};
+  if (filter.clinicId) args.clinicId = filter.clinicId;
+  if (filter.since) args.since = filter.since;
+  return callOps("listClinicChanges", "read", args, (value) => {
+    const data = object(value, "listClinicChanges");
+    return {
+      since: isoInstant(data.since, "listClinicChanges.since"),
+      changes: list(data.changes, "listClinicChanges.changes").map((c, i) =>
+        readClinicChange(c, `listClinicChanges.changes[${i}]`),
+      ),
+    };
+  });
+}
+
+/** The operator has looked at a change. Once; a security event names them. */
+export function acknowledgeClinicChange(
+  changeId: string,
+  clinicId?: string,
+): Promise<OpsResult<AcknowledgeClinicChangeOutcome>> {
+  return callOps(
+    "acknowledgeClinicChange",
+    "write",
+    clinicId ? { id: changeId, clinicId } : { id: changeId },
+    (value) => {
+      const data = object(value, "acknowledgeClinicChange");
+      const status = literal(data.status, ["acknowledged", "already", "not_found"] as const, "acknowledgeClinicChange.status");
+      if (status === "not_found") return { status };
+      return {
+        status,
+        acknowledgedAt: isoInstant(data.acknowledgedAt, "acknowledgeClinicChange.acknowledgedAt"),
+        auditRecorded: bool(data.auditRecorded, "acknowledgeClinicChange.auditRecorded"),
+      };
+    },
+  );
 }
 
 /**

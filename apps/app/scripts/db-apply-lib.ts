@@ -60,7 +60,24 @@ export async function runChange(input: ChangeInput): Promise<ChangeRun> {
   } catch (error) {
     throw new ChangeRefused(error instanceof Error ? error.message : String(error));
   }
+  return runParsed({ ...input, clinic }, parsed);
+}
 
+/**
+ * Run a statement the fence has passed. Exported so a test can hand it a
+ * statement the fence would refuse, to prove the checks below stand on their
+ * own: after the statement, the transaction must still be the named clinic's
+ * (app.clinic_id unchanged), and every change row the database's safety net
+ * wrote in it (app_clinics_changed_in_transaction, drizzle/0114) must name
+ * that clinic and no other. Otherwise the whole run is rolled back and
+ * refused, dry run or apply.
+ */
+export async function runParsed(
+  input: Omit<ChangeInput, "dir" | "change"> & { change: string },
+  parsed: { statement: string; verb: "insert" | "update"; table: string },
+): Promise<ChangeRun> {
+  const { change, mode, expectRows } = input;
+  const clinic = input.clinic.trim().toLowerCase();
   const client = new Client({
     connectionString: input.connectionString,
     application_name: `db-apply:${change}`.slice(0, 63),
@@ -75,7 +92,15 @@ export async function runChange(input: ChangeInput): Promise<ChangeRun> {
     await client.query("SELECT set_config('app.clinic_id', $1, true)", [clinic]);
     const result = await client.query(parsed.statement);
     rowCount = result.rowCount ?? 0;
-    if (rowCount > MAX_ROWS) {
+    const where = await client.query<{ clinic: string | null }>(
+      "SELECT current_setting('app.clinic_id', true) AS clinic",
+    );
+    const touched = await client.query<{ id: string }>("SELECT app_clinics_changed_in_transaction() AS id");
+    const elsewhere = touched.rows.some((r) => r.id !== clinic);
+    if ((where.rows[0]?.clinic ?? "").toLowerCase() !== clinic || elsewhere) {
+      await client.query("ROLLBACK");
+      verdict = "refused: the statement reached outside the clinic the run names; rolled back";
+    } else if (rowCount > MAX_ROWS) {
       await client.query("ROLLBACK");
       verdict = `refused: ${rowCount} rows is more than ${MAX_ROWS}`;
     } else if (mode === "apply" && rowCount === expectRows) {

@@ -265,6 +265,15 @@ const REASON = /^[a-z0-9_]{1,40}$/;
  * it finds its lease gone and records nothing (plan §7.9), and nothing stays
  * blocked behind a calendar healdesk can no longer read.
  *
+ * With `dates` (YYYY-MM-DD) and the clinic's `timeZone`, only the holds
+ * that start on those local dates; with `heldOnly`, only a conversation's
+ * own minute (`held`, carrying no booking request). saveHours passes both
+ * for the days it has just closed (`closure_added`), so a time a caller held
+ * a moment before the clinic closed its day is let go at once; a hold that
+ * belongs to a booking request (a deposit reservation, a write in flight)
+ * stays as it is, as the clinic's note says, for the clinic to decide in
+ * Bookings. An empty list of dates releases nothing.
+ *
  * Releasing only ever frees time, so it takes no calendar lock: the guard's
  * lock serialises what occupies time, not what lets it go. Returns how many
  * holds it released.
@@ -280,13 +289,32 @@ const REASON = /^[a-z0-9_]{1,40}$/;
 export async function releaseLiveHolds(
   tx: TenantTx,
   reason: string,
-  options: { calendarIds?: readonly string[] } = {},
+  options: {
+    calendarIds?: readonly string[];
+    dates?: readonly string[];
+    timeZone?: string;
+    heldOnly?: boolean;
+  } = {},
 ): Promise<number> {
   if (!REASON.test(reason)) {
     throw new Error("A hold's outcome reason is a short code: lower case, digits and underscores.");
   }
   const calendars = options.calendarIds;
   if (calendars && calendars.length === 0) return 0;
+  const dates = options.dates;
+  if (dates) {
+    if (dates.length === 0) return 0;
+    if (!options.timeZone) throw new Error("Releasing holds by date needs the clinic's time zone.");
+    if (dates.some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d))) {
+      throw new Error("Releasing holds by date takes YYYY-MM-DD dates.");
+    }
+  }
+  const onDates = dates
+    ? sql`((${slotHolds.startsAt} at time zone ${options.timeZone!})::date)::text = any(array[${sql.join(
+        dates.map((d) => sql`${d}`),
+        sql`, `,
+      )}]::text[])`
+    : undefined;
   const live = await tx.db
     .select({
       id: slotHolds.id,
@@ -300,6 +328,10 @@ export async function releaseLiveHolds(
         eq(slotHolds.clinicId, tx.clinicId),
         inArray(slotHolds.status, UNFINISHED),
         calendars ? inArray(slotHolds.calendarId, [...calendars]) : undefined,
+        onDates,
+        options.heldOnly
+          ? and(eq(slotHolds.status, "held"), sql`${slotHolds.bookingRequestId} is null`)
+          : undefined,
       ),
     )
     .for("update");

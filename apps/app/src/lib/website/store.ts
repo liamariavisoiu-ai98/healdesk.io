@@ -49,6 +49,8 @@ import {
 import { toE164 } from "@/lib/setup/settings";
 import { readSetupState, type SetupState } from "@/lib/setup/state";
 import { withTenant, type TenantTx } from "@/lib/tenant";
+import { clinicActorOf } from "@/lib/clinic/change-events";
+import type { ClinicChangeActor } from "@/db/schema";
 
 import type { SiteReadOutcome } from "./client";
 import {
@@ -769,7 +771,7 @@ export async function decideWebsiteChange(
         };
       }
       const change = changeOf(row);
-      await applyChange(tx, change, state, now);
+      await applyChange(tx, change, state, now, clinicActorOf(ctx.actorLabel));
       await practiceQuestionsSeam(tx, change.section as KnowledgeSection, now);
       await tx.db
         .update(websiteChanges)
@@ -807,6 +809,7 @@ async function applyChange(
   change: WebsiteChange,
   state: SetupState,
   now: Date,
+  actor: ClinicChangeActor,
 ): Promise<void> {
   const options = await knowledgeWriteOptions(tx);
   switch (change.section) {
@@ -855,6 +858,8 @@ async function applyChange(
         },
         state.clinic.timezone,
         now,
+        // Recorded for ops as a website change the clinic took (lib/clinic/change-events.ts).
+        { source: "website", actor },
       );
       return;
     }

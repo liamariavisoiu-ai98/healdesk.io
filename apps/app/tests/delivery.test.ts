@@ -460,6 +460,12 @@ describeDb("delivery", () => {
           // switch, which ships off: Stripe's quantity for locations against
           // the active locations, read-only, told to ops once per episode.
           "location-quantity",
+          // Clinics' changes to hours, closed days and providers (drizzle/0114):
+          // the minute sweep's backstop, which tells ops of each change
+          // unswitched and audits behind clinic-audits; and the hourly
+          // fingerprint check and 04 UTC run, behind clinic-audits-hourly.
+          "clinic-changes",
+          "clinic-audits-hourly",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -485,6 +491,7 @@ describeDb("delivery", () => {
         if (job === "voice-agents") continue; // behind the owner's HEALDESK_VOICE_PROVISION_ENABLED, and idle without the Retell key
         if (job === "calendar-write-alerts") continue; // a sweep: tells ops of stuck calendar writes, once each
         if (job === "ops-slack") continue; // not switched: does nothing until SLACK_WEBHOOK_URL is set
+        if (job === "clinic-changes") continue; // tells ops of each recorded change unswitched; its audits stay behind clinic-audits
         if (job === "deposit-links") continue; // a sweep: flags to the front desk only a pending_link deposit with no link, past its grace
         expect(status, job).toBe("disabled");
       }
@@ -506,6 +513,7 @@ describeDb("delivery", () => {
       expect(jobs["voice-agents"]).toBe("skipped");
       expect(jobs["ops-slack"]).toBe("ok");
       expect(jobs["calendar-write-alerts"]).toBe("ok");
+      expect(jobs["clinic-changes"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

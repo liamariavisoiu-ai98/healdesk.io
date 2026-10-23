@@ -1309,7 +1309,14 @@ async function keepSignIn(
     )
     .returning({ iv: providerConnections.iv });
   const releasedHolds = await releaseLiveHolds(tx, "calendar_changed");
-  const retiredProviders = accountChanged ? await retireOtherAccountProviders(tx) : 0;
+  const retiredProviders = accountChanged
+    ? await retireOtherAccountProviders(tx, {
+        // Who reconnected, for ops' change record: the portal's own sign-in
+        // to Google, or the calendar link ops mailed the clinic.
+        source: consumed.initiatedVia === "portal" ? "portal" : "calendar_link",
+        actor: "clinic_signin",
+      })
+    : 0;
 
   tx.audit.record({
     action: before ? "update" : "create",

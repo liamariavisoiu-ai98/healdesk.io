@@ -26,6 +26,10 @@ export const READONLY_TABLES = [
   "agent_configs",
   "baa_acceptances",
   "calendar_elections",
+  // Ops automation E3/E4 (drizzle/0114): codes, counts, dates and fixed hints.
+  "clinic_audit_claims",
+  "clinic_audits",
+  "clinic_change_events",
   "clinic_channels",
   "clinic_closures",
   "clinic_provider_services",

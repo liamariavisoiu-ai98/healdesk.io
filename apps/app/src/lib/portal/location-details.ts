@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { clinicLocations, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { getEntitlements } from "@/lib/billing/entitlements";
+import { canonicalHours, clinicActorOf, recordClinicChange } from "@/lib/clinic/change-events";
 import { OpeningHoursError, parseOpeningHours } from "@/lib/clinic/opening-hours";
 import { locationById, readLocations, type Location } from "@/lib/locations";
 import { formatPhone } from "@/lib/setup/help";
@@ -246,6 +247,18 @@ export async function saveLocationDetail(
             throw error;
           }
           await update({ openingHours: hours });
+          // For ops (lib/clinic/change-events.ts), when the hours differ,
+          // compared in one spelling: the stored jsonb's key order is not
+          // the parsed hours'.
+          if (canonicalHours(location.openingHours) !== canonicalHours(hours)) {
+            await recordClinicChange(tx, {
+              kind: "location_hours",
+              source: "portal",
+              actor: clinicActorOf(ctx.actorLabel),
+              locationId: location.id,
+              summary: { weeklyChanged: true },
+            });
+          }
           return `${name}'s hours are saved.`;
         }
 

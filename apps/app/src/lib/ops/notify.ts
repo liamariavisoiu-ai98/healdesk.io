@@ -295,6 +295,13 @@ export const OPS_EVENTS = [
   // each of them is recorded as told.
   "calendar_write_stuck",
   "calendar_writes_stuck_many",
+  // A clinic changed its weekly hours, its closed days, a location's hours,
+  // its named providers or their services, or a change file or psql edit did
+  // (lib/clinic/change-events.ts; ops automation E4, 23 October 2026). From
+  // the minute sweep after the change committed, one per clinic and kind an
+  // hour: `section` the kind, `count` the changes, and for closed days
+  // `written` added and `deleted` taken off. Never a date or a name.
+  "clinic_availability_changed",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 
@@ -353,6 +360,23 @@ export async function notifyOpsOnce(event: OpsEvent, fields: OpsFields): Promise
   } catch {
     // Nothing reaches the caller; see notifyOps.
   }
+}
+
+/**
+ * notifyOps for a caller that must know the alert was recorded before it
+ * marks its own row as told (lib/clinic/change-events.ts): the same log line,
+ * one-hour dedupe and email, but a database that cannot record the alert
+ * throws here, with no in-memory fallback, so the caller leaves its row for
+ * the next sweep. An email that fails is recorded on the alert's row, as
+ * notifyOps records it, and the alert stands.
+ */
+export async function notifyOpsOrThrow(event: OpsEvent, fields: OpsFields): Promise<void> {
+  const kept = loggable(fields);
+  const now = new Date();
+  const recorded = emailable(kept);
+  const alertId = await claimAlert(event, dedupeKeyOf(recorded), recorded, "hour", now);
+  log.error("ops alert", { ...kept, event });
+  if (alertId) await mail(event, recorded, alertId, now);
 }
 
 /** lib/log.ts's keys only, scalars only; anything else is named in `hint` and left out. */

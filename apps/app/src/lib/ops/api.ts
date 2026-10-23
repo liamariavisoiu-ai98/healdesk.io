@@ -141,6 +141,8 @@ import { opDeleteRecordedCall, opListRecordingAlerts } from "@/lib/ops/recording
 import { opRetryVoiceAgent, opVoiceAgentStatus } from "@/lib/ops/voice-agent-ops";
 import { opListClinicStrip } from "@/lib/ops/strip";
 import { opOpsInbox } from "@/lib/ops/inbox/run";
+import { opClinicAudits, opRunClinicAudit } from "@/lib/ops/audit-ops";
+import { opAcknowledgeClinicChange, opListClinicChanges } from "@/lib/ops/change-ops";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -624,6 +626,16 @@ const OPERATIONS = [
   // those readers always write, attributed to the operator.
   "listClinicStrip",
   "opsInbox",
+  // The clinic audits and availability changes (ops automation E3 and E4,
+  // lib/ops/audit-ops.ts and change-ops.ts): an audit run now for one clinic
+  // (a security event names the operator; once a minute per clinic), every
+  // clinic's latest results, the changes clinics made to hours, closed days
+  // and providers, and an operator's acknowledgement of one. Codes, counts,
+  // dates and the device's label, never a patient.
+  "runClinicAudit",
+  "clinicAudits",
+  "listClinicChanges",
+  "acknowledgeClinicChange",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -757,6 +769,9 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "deleteRecordedCall",
   // Mutating: a Retell agent created and a number bought or adopted.
   "retryVoiceAgent",
+  // Mutating: an audit run and stored; a change acknowledged.
+  "runClinicAudit",
+  "acknowledgeClinicChange",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1382,6 +1397,14 @@ export async function runOperation(
       return opListClinicStrip(args);
     case "opsInbox":
       return opOpsInbox(args, operator);
+    case "runClinicAudit":
+      return opRunClinicAudit(args, operator);
+    case "clinicAudits":
+      return opClinicAudits(args);
+    case "listClinicChanges":
+      return opListClinicChanges(args);
+    case "acknowledgeClinicChange":
+      return opAcknowledgeClinicChange(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

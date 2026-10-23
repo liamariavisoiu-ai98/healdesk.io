@@ -209,6 +209,33 @@ describeDb("a later location's details, confirmed (0110)", () => {
     ]);
   });
 
+  test("a location's hours saved unchanged record no change for ops, whatever order they were stored in", async () => {
+    const ctx = ctxOf(chat, false);
+    const changes = async () =>
+      (
+        await inTenant(chat.clinicId, (c) =>
+          c.query<{ n: number }>(`select count(*)::int as n from clinic_change_events where kind = 'location_hours'`),
+        )
+      ).rows[0]!.n;
+    // Stored with its days and keys in another order than the parsed hours'.
+    const reversed = Object.fromEntries(Object.entries(HOURS).reverse());
+    await inTenant(chat.clinicId, (c) =>
+      c.query(`update clinic_locations set opening_hours = $2::jsonb where id = $1`, [chatLocation, JSON.stringify(reversed)]),
+    );
+    const before = await changes();
+    expect(await saveLocationDetail(ctx, chatLocation, "opening_hours", HOURS)).toMatchObject({ ok: true });
+    expect(await changes()).toBe(before);
+    // A real change is one row.
+    expect(
+      await saveLocationDetail(ctx, chatLocation, "opening_hours", { ...HOURS, sat: [["10:00", "14:00"]] }),
+    ).toMatchObject({ ok: true });
+    expect(await changes()).toBe(before + 1);
+    // Back as the tests after this one expect it: no hours yet.
+    await inTenant(chat.clinicId, (c) =>
+      c.query(`update clinic_locations set opening_hours = null where id = $1`, [chatLocation]),
+    );
+  });
+
   test("validation: hours in the engine's shape, readable E.164 numbers, a non-empty address", async () => {
     const ctx = ctxOf(chat, false);
     const badHours = await saveLocationDetail(ctx, chatLocation, "opening_hours", {

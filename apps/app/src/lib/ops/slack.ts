@@ -47,6 +47,14 @@ const WEBHOOK = /^https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9_/-]{10,200}$
 
 /** Only these reach Slack, besides the alert's title, its event and the clinic's name. */
 const METERS: ReadonlySet<string> = new Set(["voice_minutes", "chat_conversations"]);
+/** What a clinic changed (clinic_availability_changed's `section`): a closed list, never words. */
+const CHANGE_SECTIONS: ReadonlySet<string> = new Set([
+  "hours",
+  "closures",
+  "location_hours",
+  "providers",
+  "provider_services",
+]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type SlackAlert = {
@@ -74,6 +82,8 @@ export function slackFields(
       if (typeof value === "string" && UUID.test(value)) out.clinicId = value;
     } else if (key === "meter") {
       if (typeof value === "string" && METERS.has(value)) out.meter = value;
+    } else if (key === "section") {
+      if (typeof value === "string" && CHANGE_SECTIONS.has(value)) out.section = value;
     } else if (isCountKey(key) && typeof value === "number" && Number.isFinite(value) && value >= 0) {
       out[key] = value;
     }

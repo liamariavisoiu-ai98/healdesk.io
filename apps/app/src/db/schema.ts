@@ -6606,6 +6606,10 @@ export const TENANT_SCOPED_TABLES = [
   "voice_redial_contexts",
   "clinic_locations",
   "location_acknowledgements",
+  // Ops automation lane B (drizzle/0114).
+  "clinic_change_events",
+  "clinic_audits",
+  "clinic_audit_claims",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -7357,5 +7361,230 @@ export const voiceRedialContexts = pgTable(
     }).onDelete("cascade"),
     check("voice_redial_contexts_caller_ref_check", sql`${t.callerRef} ~ '^v1:[0-9a-f]{64}$'`),
     check("voice_redial_contexts_expiry_check", sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '2 hours'`),
+  ],
+);
+
+// -----------------------------------------------------------------------------
+// Availability changes and the ops audits (drizzle/0114; ops automation E3 and
+// E4, 23 October 2026)
+// -----------------------------------------------------------------------------
+
+/** What a clinic changed: its weekly hours, its closed days, a location's hours, its providers or their services. */
+export const CLINIC_CHANGE_KINDS = [
+  "hours",
+  "closures",
+  "location_hours",
+  "providers",
+  "provider_services",
+] as const;
+export type ClinicChangeKind = (typeof CLINIC_CHANGE_KINDS)[number];
+
+/**
+ * Who made it: the portal, the setup wizard, a website change the clinic took
+ * in Knowledge, a reconnect through the calendar link ops mailed, the ops
+ * console, or `direct`, the database's own safety net
+ * (a change file through db-apply, or psql), written by a trigger.
+ */
+export const CLINIC_CHANGE_SOURCES = [
+  "portal",
+  "wizard",
+  "website",
+  "calendar_link",
+  "ops_console",
+  "direct",
+] as const;
+export type ClinicChangeSource = (typeof CLINIC_CHANGE_SOURCES)[number];
+
+/**
+ * Who made a change, coarsely: a clinic device or the clinic's sign-in in
+ * the portal or wizard, ops, a change file (db-apply) or another direct
+ * edit. Never the device's own label, which the clinic's staff typed.
+ */
+export const CLINIC_CHANGE_ACTORS = ["clinic_device", "clinic_signin", "ops", "change_file", "direct"] as const;
+export type ClinicChangeActor = (typeof CLINIC_CHANGE_ACTORS)[number];
+
+/**
+ * Where the ops audit of a change stands. Null when no audit was asked for
+ * (the audits are off). `error` once its audit could not finish in three
+ * attempts.
+ */
+export const CLINIC_CHANGE_AUDIT_STATUSES = ["queued", "running", "passed", "attention", "error"] as const;
+export type ClinicChangeAuditStatus = (typeof CLINIC_CHANGE_AUDIT_STATUSES)[number];
+
+/**
+ * The summary a change row carries: counts and dates (YYYY-MM-DD, the clinic's
+ * own zone), never a name, a calendar id, a label or a patient. Each key is
+ * optional; a direct change carries only `rows` and `operation`.
+ */
+export type ClinicChangeSummary = {
+  weeklyChanged?: boolean;
+  closuresAdded?: string[];
+  closuresRemoved?: string[];
+  closuresUpcoming?: number;
+  providersActive?: number;
+  servicesMapped?: number;
+  holdsReleased?: number;
+  rows?: number;
+  operation?: "insert" | "update" | "delete";
+  table?: "clinic_closures" | "clinic_providers" | "clinic_provider_services";
+};
+
+/**
+ * One change a clinic made to when and with whom AYA books, for ops to see
+ * (design E4): written in the save's own transaction by
+ * lib/clinic/change-events.ts, so a save that rolls back leaves none, and by
+ * a statement trigger on clinic_closures, clinic_providers and
+ * clinic_provider_services for any other session's edit (`direct`). The
+ * minute sweep raises clinic_availability_changed for it once
+ * (`alerted_at`), and the ops audit records how it went (`audit_status`).
+ * Business data about the practice, no patient: counts, dates and a coarse
+ * kind of actor. Tenant plane; the runtime role never deletes one, and they go when
+ * the account closes.
+ */
+export const clinicChangeEvents = pgTable(
+  "clinic_change_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** The location whose hours changed; null for the account's main location. */
+    locationId: uuid("location_id"),
+    kind: text("kind").$type<ClinicChangeKind>().notNull(),
+    source: text("source").$type<ClinicChangeSource>().notNull(),
+    actorKind: text("actor_kind").$type<ClinicChangeActor>().notNull(),
+    summary: jsonb("summary").$type<ClinicChangeSummary>().notNull().default(sql`'{}'::jsonb`),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    /** When the sweep raised its ops alert; null until then. */
+    alertedAt: timestamp("alerted_at", { withTimezone: true }),
+    auditStatus: text("audit_status").$type<ClinicChangeAuditStatus>(),
+    /** How many times an audit claimed it, and when the last claim started (a stale one is claimed again). */
+    auditAttempts: integer("audit_attempts").notNull().default(0),
+    auditStartedAt: timestamp("audit_started_at", { withTimezone: true }),
+    /** The clinic_audits row that checked it. */
+    auditId: uuid("audit_id"),
+    opsAcknowledgedAt: timestamp("ops_acknowledged_at", { withTimezone: true }),
+    opsAcknowledgedBy: text("ops_acknowledged_by"),
+  },
+  (t) => [
+    index("clinic_change_events_clinic_idx").on(t.clinicId, t.changedAt),
+    index("clinic_change_events_unalerted_idx")
+      .on(t.changedAt)
+      .where(sql`${t.alertedAt} is null`),
+    check("clinic_change_events_kind_check", sql`${t.kind} in (${sqlList(CLINIC_CHANGE_KINDS)})`),
+    check("clinic_change_events_source_check", sql`${t.source} in (${sqlList(CLINIC_CHANGE_SOURCES)})`),
+    check(
+      "clinic_change_events_audit_status_check",
+      sql`${t.auditStatus} is null or ${t.auditStatus} in (${sqlList(CLINIC_CHANGE_AUDIT_STATUSES)})`,
+    ),
+    check("clinic_change_events_actor_kind_check", sql`${t.actorKind} in (${sqlList(CLINIC_CHANGE_ACTORS)})`),
+    check("clinic_change_events_audit_attempts_check", sql`${t.auditAttempts} between 0 and 10`),
+    check(
+      "clinic_change_events_acknowledged_check",
+      sql`(${t.opsAcknowledgedAt} is null) = (${t.opsAcknowledgedBy} is null)`,
+    ),
+    check(
+      "clinic_change_events_acknowledged_by_check",
+      sql`${t.opsAcknowledgedBy} is null or char_length(${t.opsAcknowledgedBy}) between 1 and 320`,
+    ),
+    check("clinic_change_events_summary_check", sql`jsonb_typeof(${t.summary}) = 'object'`),
+  ],
+);
+
+export type ClinicChangeEventRow = typeof clinicChangeEvents.$inferSelect;
+
+/** The audit packs (design E3 §2.1). */
+export const AUDIT_PACKS = ["availability", "roster", "golive", "transcripts"] as const;
+export type AuditPack = (typeof AUDIT_PACKS)[number];
+
+/** What started an audit: a clinic's change, a fingerprint that moved, the 04 UTC run, or an operator. */
+export const AUDIT_TRIGGERS = ["change", "change_detected", "scheduled", "manual"] as const;
+export type AuditTrigger = (typeof AUDIT_TRIGGERS)[number];
+
+export const AUDIT_RESULTS = ["pass", "warn", "fail", "error"] as const;
+export type AuditResult = (typeof AUDIT_RESULTS)[number];
+
+/** One check's outcome as stored: its id, result, fixed hint and counts. Never a name, a time or free text. */
+export type AuditCheckOutcome = {
+  id: string;
+  result: AuditResult;
+  hint: string | null;
+  counts: Record<string, number>;
+  /** A closed code the check names (a go-live code, a booking-mode reason, a status). */
+  code?: string | null;
+  side?: "clinic" | "ours" | null;
+};
+
+/**
+ * One run of one audit pack for one clinic (design E3, lib/audits): ids,
+ * codes, counts and a fingerprint, never a name, a time of day, an address
+ * or free text. The last 20 per clinic and pack are kept; the runtime role
+ * deletes older ones (lib/audits/run.ts). Tenant plane, no patient; they go
+ * when the account closes.
+ */
+export const clinicAudits = pgTable(
+  "clinic_audits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    pack: text("pack").$type<AuditPack>().notNull(),
+    trigger: text("trigger").$type<AuditTrigger>().notNull(),
+    changeKind: text("change_kind").$type<ClinicChangeKind>(),
+    /** sha256 of the hours, upcoming closures, active providers with their services, and location hours. */
+    fingerprint: text("fingerprint"),
+    result: text("result").$type<AuditResult>().notNull(),
+    checks: jsonb("checks").$type<AuditCheckOutcome[]>().notNull().default(sql`'[]'::jsonb`),
+    /** The operator's address for a manual run, or the service's name. */
+    requestedBy: text("requested_by").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    index("clinic_audits_clinic_pack_idx").on(t.clinicId, t.pack, t.startedAt),
+    check("clinic_audits_pack_check", sql`${t.pack} in (${sqlList(AUDIT_PACKS)})`),
+    check("clinic_audits_trigger_check", sql`${t.trigger} in (${sqlList(AUDIT_TRIGGERS)})`),
+    check("clinic_audits_result_check", sql`${t.result} in (${sqlList(AUDIT_RESULTS)})`),
+    check(
+      "clinic_audits_change_kind_check",
+      sql`${t.changeKind} is null or ${t.changeKind} in (${sqlList(CLINIC_CHANGE_KINDS)})`,
+    ),
+    check(
+      "clinic_audits_fingerprint_check",
+      sql`${t.fingerprint} is null or ${t.fingerprint} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "clinic_audits_requested_by_check",
+      sql`char_length(${t.requestedBy}) between 1 and 320`,
+    ),
+    check("clinic_audits_checks_check", sql`jsonb_typeof(${t.checks}) = 'array'`),
+  ],
+);
+
+export type ClinicAuditRow = typeof clinicAudits.$inferSelect;
+
+/**
+ * An operator's manual audit of one clinic in progress (lib/ops/audit-ops.ts):
+ * one row per clinic, claimed before the run and deleted after it, so a
+ * second press is refused as busy without holding a database connection for
+ * the run. A claim older than two minutes is stale and may be taken over.
+ * The operator's address and a time; no patient. Tenant plane; goes when the
+ * account closes.
+ */
+export const clinicAuditClaims = pgTable(
+  "clinic_audit_claims",
+  {
+    clinicId: uuid("clinic_id")
+      .primaryKey()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    requestedBy: text("requested_by").notNull(),
+  },
+  (t) => [
+    check(
+      "clinic_audit_claims_requested_by_check",
+      sql`char_length(${t.requestedBy}) between 1 and 320`,
+    ),
   ],
 );

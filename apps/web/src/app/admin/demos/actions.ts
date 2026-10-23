@@ -6,11 +6,12 @@ import { after } from "next/server";
 import { requireOperator } from "@/lib/admin/operator";
 import { releaseHeldDemo, requestDemo, runDemoBuild, sendDemoEmail } from "@/lib/demo/build";
 import { getDemoSession, isDemoBuildStalled, isDemoSlug, updateDemoSession } from "@/lib/demo/sessions";
+import { retryStalledDemo, retryStalledDemos, runRetriedBuilds } from "@/lib/demo/sweep";
 
 /**
- * The console's four actions on personalised demos. Each re-checks the
- * operator session itself: a server action is a public POST endpoint, and the
- * page that renders the form being guarded says nothing about who calls it.
+ * The console's actions on personalised demos. Each re-checks the operator
+ * session itself: a server action is a public POST endpoint, and the page
+ * that renders the form being guarded says nothing about who calls it.
  */
 
 export type CreateDemoState =
@@ -60,8 +61,33 @@ export async function retryDemoAction(form: FormData): Promise<void> {
   // route that ran it (cut off at 300 s) and will never finish.
   const running = session.status === "building" || session.status === "auditing";
   if (running && !isDemoBuildStalled(session)) return;
-  await updateDemoSession(slug, { status: "building", buildNote: null, buildStartedAt: new Date() });
+  // A stalled build started again counts as a retry (lib/demo/sweep.ts), so
+  // the sweep's "once, then a person" holds across hand and timer alike; a
+  // rebuild of a finished demo is a new run, and starts its count over.
+  const marked = isDemoBuildStalled(session)
+    ? await retryStalledDemo(session)
+    : await updateDemoSession(slug, { status: "building", buildNote: null, buildStartedAt: new Date(), retryCount: 0 });
+  // Null means the row is gone, or the sweep or another press got to it
+  // between the read above and the write: its build is already running, and
+  // a second one must not start.
+  if (!marked) return;
   after(() => runDemoBuild(slug).then(() => undefined));
+  revalidatePath("/admin/demos");
+}
+
+/**
+ * "Retry all stalled", from the pipeline strip: every stalled build started
+ * again, whatever its count, and run after this returns. Idempotent: a
+ * retry sets a fresh clock, so a second press finds nothing stalled and
+ * changes nothing. A row that is building, ready, held or failed is never
+ * touched (lib/demo/sweep.ts).
+ */
+export async function retryStalledDemosAction(): Promise<void> {
+  if (!(await requireOperator())) return;
+  // A row that threw is logged by the sweep and left as it was; the rows
+  // that were started again get their builds whatever happened to it.
+  const retried = (await retryStalledDemos()).retried.map((s) => s.slug);
+  if (retried.length > 0) after(() => runRetriedBuilds(retried));
   revalidatePath("/admin/demos");
 }
 

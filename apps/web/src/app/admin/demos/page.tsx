@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
+import { DemoPipelineRow } from "@/components/admin/DemoPipelineRow";
 import { requireOperator } from "@/lib/admin/operator";
 import { isEmailConfigured } from "@/lib/email";
 import { AUDIT_THRESHOLDS, auditReportOf, type AuditIssue } from "@/lib/demo/audit";
 import { handoffBlocker } from "@/lib/demo/build";
+import { demoPipeline } from "@/lib/demo/pipeline";
 import {
   demoUrl,
   displayName,
@@ -16,7 +18,7 @@ import {
 } from "@/lib/demo/sessions";
 import { isMarketingStoreConfigured } from "@/lib/sheets/client";
 
-import { emailDemoAction, releaseDemoAction, retryDemoAction } from "./actions";
+import { emailDemoAction, releaseDemoAction, retryDemoAction, retryStalledDemosAction } from "./actions";
 import { CopyLink, CopyValue, DemoBuilder, RefreshWhileAnyBuilding } from "./DemoBuilder";
 
 /**
@@ -30,6 +32,11 @@ import { CopyLink, CopyValue, DemoBuilder, RefreshWhileAnyBuilding } from "./Dem
  * The list below the form is the `demo_sessions` tab of the marketing Sheet,
  * newest first: what is building, what is live and until when, what failed
  * and why, whether the link was emailed, and which demos turned into a sale.
+ * Above it, one strip counts the same tab over the last 7 and 30 days
+ * (lib/demo/pipeline.ts): requested, built, claimed and the conversion by
+ * where the request came from. The page reads the tab once for both; the
+ * strip counts every row, as the stall sweep reads every row, and the list
+ * shows the newest 50.
  *
  * Every demo passes the handoff audit (lib/demo/audit.ts) before it goes
  * live. A held one shows the audit's blockers here, and "Release anyway"
@@ -115,9 +122,15 @@ export default async function DemosPage() {
   const configured = isMarketingStoreConfigured();
   let sessions: DemoSession[] = [];
   let loadError: string | null = null;
+  // Null until the register has been read: an unconfigured Sheet or a failed
+  // read leaves the strip at em-dashes, never at zeros.
+  let pipeline: ReturnType<typeof demoPipeline> | null = null;
   if (configured) {
     try {
-      sessions = await listDemoSessions(50);
+      // The whole tab, which is what one read costs anyway (lib/demo/sessions.ts).
+      const all = await listDemoSessions(Number.POSITIVE_INFINITY);
+      pipeline = demoPipeline(all);
+      sessions = all.slice(0, 50);
     } catch (error) {
       loadError = error instanceof Error ? error.message : String(error);
     }
@@ -145,6 +158,8 @@ export default async function DemosPage() {
         {AUDIT_THRESHOLDS.ship}/100 with no blockers, gets one repair round from {AUDIT_THRESHOLDS.repairFrom}, ships with a Slack flag from{" "}
         {AUDIT_THRESHOLDS.floor}, and is held for you below that or with any blocker.
       </p>
+
+      <DemoPipelineRow pipeline={pipeline} retryStalled={retryStalledDemosAction} />
 
       {!configured ? (
         <p className="bg-tint-peach mt-6 rounded-md px-4 py-3 text-[15px] font-medium">

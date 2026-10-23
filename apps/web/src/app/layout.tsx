@@ -121,7 +121,7 @@ export default function RootLayout({
             each also printed somewhere on the site (lib/structured-data.ts). */}
         <JsonLd data={[organizationLd(), websiteLd()]} />
         {children}
-        {/* Analytics initialises only after the visitor accepts the notice,
+        {/* Analytics runs unless the visitor opted out (the note only informs),
             and never on /admin or a personalised demo. No advertising pixel or
             tag manager may ever be added here — see src/lib/analytics.ts and
             docs/architecture.md "No conversion attribution to ad platforms". */}

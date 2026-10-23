@@ -14,7 +14,8 @@ import type { InboxButton, InboxRow, OpsInbox } from "@/lib/admin/strip-types";
  * through the page's server action (lib/admin/inbox-ops.ts), ids only.
  */
 
-export type RunInboxOp = (button: Extract<InboxButton, { kind: "op" }>) => Promise<OpsResult<{ status: string; message?: string; auditRecorded?: boolean }>>;
+/** Runs the op of the row with this id: the server rebuilds the row, the browser names it. */
+export type RunInboxOp = (rowId: string) => Promise<OpsResult<{ status: string; message?: string; auditRecorded?: boolean }>>;
 
 /** "09:12", the UTC clock of the read. */
 function clock(iso: string): string {
@@ -22,7 +23,8 @@ function clock(iso: string): string {
   return Number.isNaN(at.getTime()) ? "an unknown time" : `${String(at.getUTCHours()).padStart(2, "0")}:${String(at.getUTCMinutes()).padStart(2, "0")} UTC`;
 }
 
-function Button({ button, run }: { button: InboxButton; run: RunInboxOp }) {
+function Button({ row, run }: { row: InboxRow; run: RunInboxOp }) {
+  const button: InboxButton = row.button;
   if (button.kind === "link") {
     return (
       <a href={button.href} className="border-line-strong hover:border-ink inline-flex min-h-9 shrink-0 items-center rounded-full border px-4 text-sm font-bold transition-colors">
@@ -30,7 +32,15 @@ function Button({ button, run }: { button: InboxButton; run: RunInboxOp }) {
       </a>
     );
   }
-  return <ActionButton label={button.label} run={() => run(button)} done={() => "Done."} />;
+  // An op from Home asks once, as the destructive buttons elsewhere do: it acts on a clinic.
+  return (
+    <ActionButton
+      label={button.label}
+      run={() => run(row.id)}
+      done={() => "Done."}
+      confirm={row.clinic ? `${button.label} for ${row.clinic.name}?` : `${button.label}?`}
+    />
+  );
 }
 
 export function InboxRowView({ row, run }: { row: InboxRow; run: RunInboxOp }) {
@@ -46,7 +56,7 @@ export function InboxRowView({ row, run }: { row: InboxRow; run: RunInboxOp }) {
           </div>
         ) : null}
       </div>
-      <Button button={row.button} run={run} />
+      <Button row={row} run={run} />
     </li>
   );
 }
@@ -60,7 +70,10 @@ export function InboxList({ inbox, run }: { inbox: OpsInbox; run: RunInboxOp }) 
         </p>
       ))}
       {inbox.rows.length === 0 ? (
-        <p className="text-muted mt-4 text-sm">Nothing needs you. Last checked {clock(inbox.checkedAt)}.</p>
+        <p className="text-muted mt-4 text-sm">
+          {inbox.unreadable.length === 0 ? "Nothing needs you." : "Nothing in what could be read; the rest is above."} Last checked{" "}
+          {clock(inbox.checkedAt)}.
+        </p>
       ) : (
         <ul className="mt-4 grid gap-2">
           {inbox.rows.map((row) => (

@@ -1,9 +1,7 @@
-import { readOpsInbox } from "@/lib/admin/clinic-strip";
+import { loadClinicRows, readOpsInbox } from "@/lib/admin/clinic-strip";
 import { composeInbox } from "@/lib/admin/inbox-rows";
 import {
   fetchAgreementReviews,
-  fetchClinicHealth,
-  fetchClinics,
   fetchPracticeReviews,
   fetchRecordingAlerts,
   fetchSiteReadFailures,
@@ -22,15 +20,22 @@ import type { OpsInbox } from "@/lib/admin/strip-types";
  * looks complete when it is not. Seven reads, settled independently: one
  * that fails costs its row, never the list.
  *
+ * The clinic list and the first-weeks rows come from the Clinics table's
+ * cached loader rather than their own reads: the list read runs a
+ * connection-state check per clinic upstream, and one per request is enough.
+ *
  * Server-only: it imports ops-client.
  */
+
+/** What Home cannot show while apps/app's inbox is not read: named, so the list never looks complete. */
+export const INBOX_MISSING_SOURCE = "the alerts, undelivered transcripts and ready-to-go-live rows";
+
 export async function loadOpsInbox(now = new Date()): Promise<OpsInbox> {
   const upstream = await readOpsInbox();
   if (upstream?.ok) return upstream.data;
 
-  const [clinics, health, reviews, agreementChecks, support, recordings, siteReads, setupRequestsWaiting] = await Promise.all([
-    fetchClinics(),
-    fetchClinicHealth(),
+  const [reads, reviews, agreementChecks, support, recordings, siteReads, setupRequestsWaiting] = await Promise.all([
+    loadClinicRows(),
     fetchPracticeReviews(),
     fetchAgreementReviews(),
     fetchSupportRequests(),
@@ -38,11 +43,16 @@ export async function loadOpsInbox(now = new Date()): Promise<OpsInbox> {
     fetchSiteReadFailures(),
     countSetupRequestsWaiting(),
   ]);
+  const clinics = reads.clinics.ok ? { ok: true as const, data: reads.rows } : reads.clinics;
   const inbox = composeInbox(
-    { clinics, health, reviews, agreementChecks, support, recordings, siteReads, launch: LAUNCH_PROMISES, setupRequestsWaiting },
+    { clinics, health: reads.health, reviews, agreementChecks, support, recordings, siteReads, launch: LAUNCH_PROMISES, setupRequestsWaiting },
     now,
   );
-  if (upstream && !upstream.ok) inbox.unreadable.unshift({ source: "the ops inbox (alerts, transcripts, go-live)", reason: upstream.message });
+  inbox.unreadable.unshift(
+    upstream
+      ? { source: INBOX_MISSING_SOURCE, reason: upstream.message }
+      : { source: INBOX_MISSING_SOURCE, reason: "the ops inbox has not landed in this console yet; only the queues and clinics it can read are listed" },
+  );
   return inbox;
 }
 

@@ -2,13 +2,13 @@ import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 
-import { ActionButton, Chip, ClinicId, Empty, Failure, IssueAnchor, Row, Section, Tag, TONES } from "./ui";
+import { ActionButton, Chip, ClinicId, Empty, Failure, Row, Section, Tag, TONES } from "./ui";
 
 /**
  * The admin console's shared pieces (E1 §3): every tone renders, with a
  * different pill and dot per tone, red only for `bad`; a failure names what
  * could not be read and says the ops client's sentence; an id is selectable
- * text with a copy control; an issue anchor carries its id. Static markup,
+ * text with a copy control. Static markup,
  * read as text, as the other admin honesty rules are.
  */
 
@@ -79,12 +79,6 @@ describe("the small pieces", () => {
     expect(html).toContain("Clinic id");
     expect(html).toContain(`<code class="font-mono select-all">${CLINIC}</code>`);
     expect(html).toContain("Copy id");
-  });
-
-  test("an issue anchor carries the id an alert's link names", () => {
-    const html = renderToStaticMarkup(h(IssueAnchor, { id: `transcript_undelivered-${CLINIC}`, children: "the row" }));
-    expect(html).toContain(`id="transcript_undelivered-${CLINIC}"`);
-    expect(html).toContain("the row");
   });
 
   test("an action button is idle with its verb, and a destructive one is not primary", () => {

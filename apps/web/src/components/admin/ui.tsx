@@ -174,7 +174,8 @@ export const UNAUDITED =
  * whose audit row was not written says so: an unrecorded act that looks
  * recorded is what an audit trail exists to stop.
  *
- * `destructive` asks once: the first press shows `confirm` and a second
+ * A button with `confirm` (every `destructive` one, and any other given a
+ * sentence) asks once: the first press shows the sentence and a second
  * button; nothing runs until that is pressed. Anything irreversible to a
  * clinic (a send, a refund, a close) still needs the fresh-code step its
  * panel already has; this button only stops a slip of the hand.
@@ -192,7 +193,7 @@ export function ActionButton<T extends ActionOutcome>({
   /** The sentence to show once it went; null for none. */
   done?: (data: T) => string | null;
   variant?: ActionVariant;
-  /** Required for `destructive`: the sentence shown before the second press. */
+  /** The sentence shown before the second press; a destructive button asks even without one. */
   confirm?: string;
   disabled?: boolean;
 }) {
@@ -235,7 +236,7 @@ export function ActionButton<T extends ActionOutcome>({
           disabled={disabled || working}
           aria-busy={working || undefined}
           onClick={() => {
-            if (variant === "destructive" && state !== "armed") {
+            if ((variant === "destructive" || confirm !== undefined) && state !== "armed") {
               setState("armed");
               return;
             }
@@ -291,18 +292,5 @@ export function ClinicId({ id }: { id: string }) {
   );
 }
 
-/**
- * The target of an issue link, `/admin/clinics/<id>/<tab>#<event>-<id>`
- * (lib/admin/issue-link.ts). The browser scrolls to it and `:target` lights
- * it, so an alert's link lands on the exact row it is about.
- */
-export function IssueAnchor({ id, children }: { id: string; children: React.ReactNode }) {
-  return (
-    <div
-      id={id}
-      className="target:bg-tint-butter target:ring-sun -mx-2 scroll-mt-24 rounded-md px-2 py-1 target:ring-2"
-    >
-      {children}
-    </div>
-  );
-}
+// E1 §3 names an `IssueAnchor` too. Nothing can render one until apps/app's
+// alerts carry an id that a tab's row holds, so it is not here: no dead code.

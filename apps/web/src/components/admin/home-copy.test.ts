@@ -72,6 +72,18 @@ describe("the home list", () => {
     expect(text(renderToStaticMarkup(h(InboxList, { inbox, run: NEVER })))).toBe("Nothing needs you. Last checked 09:12 UTC.");
   });
 
+  test("an empty list with something unread does not claim nothing needs you", () => {
+    const inbox: OpsInbox = {
+      rows: [],
+      checkedAt: "2026-10-23T09:12:00.000Z",
+      unreadable: [{ source: "the alerts", reason: "the ops inbox has not landed in this console yet" }],
+    };
+    const page = text(renderToStaticMarkup(h(InboxList, { inbox, run: NEVER })));
+    expect(page).toContain("Could not read the alerts: the ops inbox has not landed in this console yet");
+    expect(page).toContain("Nothing in what could be read; the rest is above. Last checked 09:12 UTC.");
+    expect(page).not.toContain("Nothing needs you");
+  });
+
   test("a source that could not be read is said, and the rest of the list still shows", () => {
     const inbox: OpsInbox = {
       rows: [ROWS[0]!],
@@ -89,23 +101,25 @@ describe("the composed inbox, while apps/app's is not read", () => {
   const ok = <T,>(data: T) => ({ ok: true as const, data });
   const failed = { ok: false as const, code: "unreachable" as const, message: "Could not reach the ops API." };
   const reads: InboxReads = {
-    clinics: ok({
-      connectionStateLimit: 50,
-      clinics: [
-        {
-          id: CLINIC,
-          name: "Radiance Med Spa",
-          specialty: "med-spa",
-          timezone: "America/New_York",
-          dataClassification: "production" as const,
-          attributionMode: "estimated" as const,
-          isCoveredEntity: null,
-          baaSignedOn: null,
-          blockers: [{ level: "blocked" as const, message: "Covered-entity status not determined." }],
-          connection: "unknown" as const,
-        },
-      ],
-    }),
+    clinics: ok([
+      {
+        clinicId: CLINIC,
+        name: "Radiance Med Spa",
+        specialty: "med-spa",
+        synthetic: false,
+        stage: { kind: "setup" as const, day: null, of: null, deadlineAt: null, since: null },
+        channels: null,
+        availability: null,
+        calendar: null,
+        voice: null,
+        transcripts: null,
+        usage: null,
+        lastReminder: null,
+        blocking: "Covered-entity status not determined.",
+        attention: true,
+        connection: "unknown" as const,
+      },
+    ]),
     health: ok([
       {
         clinicId: CLINIC,
@@ -137,7 +151,7 @@ describe("the composed inbox, while apps/app's is not read", () => {
         status: "open" as const,
         createdAt: { on: "2026-10-22", at: "2026-10-22 10:00 UTC" },
         dueOn: "2026-10-24",
-        pastDue: false,
+        pastDue: true,
         decidedAt: null,
         decidedByLabel: null,
         section: null,
@@ -184,6 +198,7 @@ describe("the composed inbox, while apps/app's is not read", () => {
   test("rows are ordered by deadline, then severity", () => {
     const inbox = composeInbox(reads, new Date("2026-10-23T09:12:00.000Z"));
     expect(inbox.rows[0]?.kind).toBe("reviews_owed");
+    expect(inbox.rows[0]?.sentence).toBe("practice-question run waits for a decision, 1 past its day.");
     const sorted = sortInboxRows([
       { ...ROWS[1]!, id: "b", tone: "ok", dueAt: null },
       { ...ROWS[1]!, id: "a", tone: "bad", dueAt: null },
@@ -192,14 +207,11 @@ describe("the composed inbox, while apps/app's is not read", () => {
     expect(sorted.map((r) => r.id)).toEqual(["c", "a", "b"]);
   });
 
-  test("a synthetic clinic's blocker is not a row", () => {
-    const synthetic: InboxReads = {
-      ...reads,
-      clinics: ok({
-        connectionStateLimit: 50,
-        clinics: [{ ...reads.clinics.ok ? reads.clinics.data.clinics[0]! : (null as never), dataClassification: "synthetic" as const }],
-      }),
-    };
-    expect(composeInbox(synthetic, new Date()).rows.map((r) => r.kind)).not.toContain("clinic_blocked");
+  test("a clinic the strip flags synthetic has no blocked row; one merely classed synthetic in setup does", () => {
+    const row = reads.clinics.ok ? reads.clinics.data[0]! : (null as never);
+    const demo: InboxReads = { ...reads, clinics: ok([{ ...row, synthetic: true }]) };
+    expect(composeInbox(demo, new Date()).rows.map((r) => r.kind)).not.toContain("clinic_blocked");
+    const inSetup: InboxReads = { ...reads, clinics: ok([{ ...row, synthetic: false }]) };
+    expect(composeInbox(inSetup, new Date()).rows.map((r) => r.kind)).toContain("clinic_blocked");
   });
 });

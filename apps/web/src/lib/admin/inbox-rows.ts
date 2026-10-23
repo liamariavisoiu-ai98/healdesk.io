@@ -1,8 +1,8 @@
+import type { ClinicRow } from "@/lib/admin/clinic-rows";
 import type {
   AgreementReview,
   ClinicHealth,
   HealthFlag,
-  OpsClinics,
   OpsResult,
   PracticeReview,
   RecordingAlerts,
@@ -28,7 +28,8 @@ import type { InboxRow, OpsInbox, Tone } from "@/lib/admin/strip-types";
  */
 
 export type InboxReads = {
-  clinics: OpsResult<OpsClinics>;
+  /** The Clinics table's rows (lib/admin/clinic-strip.ts, cached): the strip's synthetic flag rides on them. */
+  clinics: OpsResult<ClinicRow[]>;
   health: OpsResult<ClinicHealth[]>;
   reviews: OpsResult<PracticeReview[]>;
   agreementChecks: OpsResult<AgreementReview[]>;
@@ -81,16 +82,16 @@ export function composeInbox(reads: InboxReads, now: Date): OpsInbox {
   };
 
   if (!failed("the clinic list", reads.clinics) && reads.clinics.ok) {
-    for (const clinic of reads.clinics.data.clinics) {
-      const blocked = clinic.blockers.find((b) => b.level === "blocked");
-      if (!blocked || clinic.dataClassification === "synthetic") continue;
+    for (const clinic of reads.clinics.data) {
+      // `synthetic` is the strip's flag, never dataClassification (clinic-rows.ts).
+      if (clinic.blocking === null || clinic.synthetic) continue;
       rows.push({
-        id: `blocked:${clinic.id}`,
+        id: `blocked:${clinic.clinicId}`,
         kind: "clinic_blocked",
         count: 1,
-        sentence: blocked.message,
-        clinic: { id: clinic.id, name: clinic.name },
-        button: { label: "Open Setup", kind: "link", href: `/admin/clinics/${clinic.id}/setup` },
+        sentence: clinic.blocking,
+        clinic: { id: clinic.clinicId, name: clinic.name },
+        button: { label: "Open Setup", kind: "link", href: `/admin/clinics/${clinic.clinicId}/setup` },
         tone: "bad",
         dueAt: null,
       });
@@ -117,15 +118,16 @@ export function composeInbox(reads: InboxReads, now: Date): OpsInbox {
 
   if (!failed("the review queue", reads.reviews) && reads.reviews.ok) {
     const open = reads.reviews.data.filter((r) => r.status === "open");
+    const late = open.filter((r) => r.pastDue).length;
     if (open.length > 0) {
       rows.push({
         id: "queue:reviews",
         kind: "reviews_owed",
         count: open.length,
-        sentence: `${plural(open.length, "practice-question run waits", "practice-question runs wait")} for a decision${open.some((r) => r.pastDue) ? ", one past its day" : ""}.`,
+        sentence: `${plural(open.length, "practice-question run waits", "practice-question runs wait")} for a decision${late > 0 ? `, ${late} past ${plural(late, "its", "their")} day` : ""}.`,
         clinic: null,
         button: { label: "Open Queues › Reviews", kind: "link", href: "/admin/queues#reviews" },
-        tone: open.some((r) => r.pastDue) ? "bad" : "warn",
+        tone: late > 0 ? "bad" : "warn",
         dueAt: earliest(open.map((r) => r.dueOn)),
       });
     }

@@ -1,4 +1,6 @@
-import { claimedShare, DEMO_SOURCES, PIPELINE_ROWS, type DemoPipeline, type PipelineWindow } from "@/lib/demo/pipeline";
+import { claimedShare, DEMO_SOURCES, demoPipeline, PIPELINE_ROWS, type DemoPipeline, type PipelineWindow } from "@/lib/demo/pipeline";
+import { listDemoSessions } from "@/lib/demo/sessions";
+import { isMarketingStoreConfigured } from "@/lib/sheets/client";
 
 /**
  * The demo pipeline in one strip of plain words, at the top of /admin/demos:
@@ -15,8 +17,10 @@ import { claimedShare, DEMO_SOURCES, PIPELINE_ROWS, type DemoPipeline, type Pipe
  * keeps, components/admin/honesty.test.ts). A share with nothing built to
  * convert from is an em-dash too, not 0%.
  *
- * Presentational, so the admin home can place the same strip from its own
- * loader. No chart: eight numbers a person can read at a glance.
+ * `DemoPipelineRow` is presentational; /admin/demos feeds it from the read
+ * it already makes for the list. `LiveDemoPipelineRow` reads the register
+ * itself, so the admin home can drop the same strip in with no loader of
+ * its own. No chart: eight numbers a person can read at a glance.
  */
 
 /** Shown wherever a number could not be measured. Never a zero. */
@@ -85,4 +89,27 @@ export function DemoPipelineRow({ pipeline }: DemoPipelineRowProps) {
       ) : null}
     </section>
   );
+}
+
+/**
+ * The pipeline from the register, or null when it cannot be read: the Sheet
+ * is not configured on this deployment, or the read failed. The failure is
+ * logged, not thrown, so a page carrying the strip still renders and the
+ * strip itself says what happened.
+ */
+export async function loadDemoPipeline(now: number = Date.now()): Promise<DemoPipeline | null> {
+  if (!isMarketingStoreConfigured()) return null;
+  try {
+    return demoPipeline(await listDemoSessions(PIPELINE_ROWS), now);
+  } catch (error) {
+    console.error("[healdesk] demo pipeline read failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/** The strip, reading the register itself. A server component; place it on any operator page. */
+export async function LiveDemoPipelineRow() {
+  return <DemoPipelineRow pipeline={await loadDemoPipeline()} />;
 }

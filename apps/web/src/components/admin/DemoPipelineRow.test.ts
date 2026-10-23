@@ -1,15 +1,20 @@
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { DemoPipelineRow } from "@/components/admin/DemoPipelineRow";
+import { DemoPipelineRow, LiveDemoPipelineRow } from "@/components/admin/DemoPipelineRow";
 import type { DemoPipeline } from "@/lib/demo/pipeline";
+import { __resetDemoCacheForTests, createDemoSession, updateDemoSession } from "@/lib/demo/sessions";
+import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
+import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
 
 /**
  * The demo pipeline strip states only what the register supports: a read
  * that failed prints an em-dash in every place a number would go and says
  * so, never a zero; a share with nothing built to convert from is an
- * em-dash, never 0%; and a capped read says the month is a floor.
+ * em-dash, never 0%; and a capped read says the month is a floor. The live
+ * variant, which reads the register itself for the admin home, keeps the
+ * same rule when the read throws or the Sheet is not configured.
  */
 
 function text(node: React.ReactElement): string {
@@ -99,5 +104,59 @@ describe("the demo pipeline strip", () => {
   test("a capped read says the month is a floor", () => {
     const strip = text(h(DemoPipelineRow, { pipeline: { ...PIPELINE, truncated: true } }));
     expect(strip).toContain("newest 500 rows only, so the 30-day numbers are a floor");
+  });
+});
+
+describe("the live strip reads the register itself", () => {
+  afterEach(() => {
+    __setSheetsClientForTests(null);
+    vi.restoreAllMocks();
+  });
+
+  async function live(): Promise<string> {
+    return text(await LiveDemoPipelineRow());
+  }
+
+  test("counts the rows it finds", async () => {
+    __setSheetsClientForTests(new FakeSheets());
+    __resetSheetSchemaForTests();
+    __resetDemoCacheForTests();
+    const now = new Date();
+    const built = await createDemoSession({ clinicName: "Glow Spa", websiteUrl: "https://glowspa.test/", createdBy: "webhook" }, now);
+    await updateDemoSession(built.slug, { status: "ready", readyAt: now, auditVerdict: "pass" });
+    await createDemoSession({ clinicName: "Peachy", websiteUrl: "https://peachystudio.test/", createdBy: "homepage" }, now);
+
+    const strip = await live();
+    expect(strip).toContain("7 days: 2 requested → 1 built → 0 claimed (0%)");
+    expect(strip).toContain("outreach 0/1 · homepage 0/0");
+    expect(strip).not.toContain("could not be read");
+  });
+
+  test("a read that throws is em-dashes and a reason, and the page still renders", async () => {
+    const broken = new FakeSheets();
+    broken.getValues = async () => {
+      throw new Error("quota exceeded");
+    };
+    __setSheetsClientForTests(broken);
+    __resetSheetSchemaForTests();
+    __resetDemoCacheForTests();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const strip = await live();
+    expect(strip).toContain("7 days: — requested → — built → — claimed (—)");
+    expect(strip).toContain("could not be read");
+    expect(logged).toHaveBeenCalledWith("[healdesk] demo pipeline read failed", { error: "quota exceeded" });
+  });
+
+  test("an unconfigured Sheet is em-dashes too", async () => {
+    vi.stubEnv("MARKETING_SHEET_ID", "");
+    vi.stubEnv("GOOGLE_SERVICE_ACCOUNT_JSON", "");
+    try {
+      const strip = await live();
+      expect(strip).toContain("now: — live · — held · — failed · — stalled");
+      expect(strip).toContain("could not be read");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

@@ -1,14 +1,20 @@
 /**
- * The greetings a clinic starts with (spec, "Phone greeting: pre-filled from
- * the clinic name"; "Chat greeting: pre-filled"). Each is said after the
- * locked AI line (lib/compliance/disclosure.ts), which no greeting can
- * replace or remove. A clinic that never edits its greeting keeps these,
- * built from its current name, so a corrected name corrects the greeting.
+ * The greetings a clinic starts with (spec, "Phone greeting: pre-filled";
+ * "Chat greeting: pre-filled"). Each is said after the locked AI line
+ * (lib/compliance/disclosure.ts), which no greeting can replace or remove. A
+ * clinic that never edits its greeting keeps these.
  */
 
-/** The phone greeting, said after the locked AI line. */
-export function defaultPhoneGreeting(clinicName: string): string {
-  return `Thanks for calling ${clinicName}. How can I help you today?`;
+/**
+ * The phone greeting, said after the locked AI line. Since 23 October 2026
+ * (owner) a choice of two rather than "Thanks for calling {clinic}. How can I
+ * help you today?": the AI line already names the clinic, and an either-or
+ * question tells a caller what AYA can do and gets an answer at once, where
+ * an open one got "hello?". The parameter is kept so a later greeting can use
+ * the name again without touching every caller.
+ */
+export function defaultPhoneGreeting(_clinicName?: string): string {
+  return "Are you looking to book an appointment, or do you have a question?";
 }
 
 /** The chat greeting, written after the locked AI line. */

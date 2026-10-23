@@ -18,8 +18,9 @@
 #                                                     a patient's own request, passed to the practice (L32)
 #   bash infra/aws/scripts/run-task.sh incident-affected <clinic id> <incident id> <contact ids> <you@healdesk.io> [add|remove]
 #                                                     who an incident affected, for the practice's page (L29)
-#   bash infra/aws/scripts/run-task.sh demo-clinic "<fictional practice>" "<your name>" <you@healdesk.io>
-#                                                     healdesk's one demo clinic (scripts/demo-clinic.ts)
+#   bash infra/aws/scripts/run-task.sh demo-clinic "<fictional practice>" "<your name>" <you@healdesk.io> <website|none>
+#                                                     healdesk's one demo clinic (scripts/demo-clinic.ts);
+#                                                     its website fills Knowledge, "none" builds it without
 #   bash infra/aws/scripts/run-task.sh channels-link <clinic id> [meta|whatsapp] [days]
 #                                                     a clinic's single-use Meta connect links
 #   bash infra/aws/scripts/run-task.sh db-query <query name> [clinic id]
@@ -65,8 +66,8 @@
 # incident's ids, the contacts' ids comma-separated, the operator's work
 # address and add or remove: ids only, at most 150 contacts a run, because
 # ECS takes no more than 8,192 characters of overrides. demo-clinic takes the fictional practice's name, the
-# operator's name and the operator's own address (the script refuses any
-# other), and channels-link the clinic's id, which channel and how many days
+# operator's name, the operator's own address (the script refuses any
+# other) and the practice's website, and channels-link the clinic's id, which channel and how many days
 # the link lasts: nothing of a patient's, and no secret. The bundle lands in the export bucket (infra/aws/exports.tf);
 # on success this prints its key and the commands to download it and, after
 # the handover, delete it.
@@ -108,7 +109,7 @@ usage() {
   echo "       who asked: practice | person_via_practice | representative_via_practice" >&2
   echo "       $0 patient-request <clinic id> <access|amendment|accounting|deletion|other> <you@healdesk.io> [received at, e.g. 2026-10-12] [contact id]" >&2
   echo "       $0 incident-affected <clinic id> <incident id> <contact ids, comma-separated, at most 150> <you@healdesk.io> [add|remove]" >&2
-  echo "       $0 demo-clinic \"<fictional practice>\" \"<your name>\" <you@healdesk.io>" >&2
+  echo "       $0 demo-clinic \"<fictional practice>\" \"<your name>\" <you@healdesk.io> <website|none>" >&2
   echo "       $0 channels-link <clinic id> [meta|whatsapp] [days the link lasts, 1 to 30]" >&2
   echo "       $0 db-query <query name> [clinic id]" >&2
   echo "       $0 db-apply <change name> <clinic id> [dry-run | apply <expected rows>]" >&2
@@ -123,7 +124,7 @@ case "$1" in
   amend-contact) [ "$#" -eq 6 ] || usage ;;
   patient-request) [ "$#" -ge 4 ] && [ "$#" -le 6 ] || usage ;;
   incident-affected) [ "$#" -eq 5 ] || [ "$#" -eq 6 ] || usage ;;
-  demo-clinic) [ "$#" -eq 4 ] || usage ;;
+  demo-clinic) [ "$#" -eq 5 ] || usage ;;
   channels-link) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage ;;
   db-query) [ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage ;;
   db-apply) [ "$#" -ge 3 ] && [ "$#" -le 5 ] || usage ;;
@@ -317,8 +318,12 @@ if [ "$1" = demo-clinic ]; then
   check_name "$2" "the practice's name"
   check_name "$3" "your name"
   check_operator "$4"
-  overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_DEMO_NAME","value":"%s"},{"name":"HEALDESK_DEMO_OPERATOR_NAME","value":"%s"},{"name":"HEALDESK_OPS_OPERATOR","value":"%s"}]}]}' \
-    "$2" "$3" "$(lower "$4")")
+  # A host and path only, so the value cannot break out of the JSON below.
+  if [ "$5" != none ] && { [ "${#5}" -gt 200 ] || ! printf '%s' "$5" | grep -Eq '^(https?://)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/[A-Za-z0-9._~/-]*)?$'; }; then
+    fail "the website is the practice's address, such as https://example-clinic.com, or none"
+  fi
+  overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_DEMO_NAME","value":"%s"},{"name":"HEALDESK_DEMO_OPERATOR_NAME","value":"%s"},{"name":"HEALDESK_OPS_OPERATOR","value":"%s"},{"name":"HEALDESK_DEMO_WEBSITE","value":"%s"}]}]}' \
+    "$2" "$3" "$(lower "$4")" "$5")
 fi
 if [ "$1" = channels-link ]; then
   is_uuid "$2" || fail "the clinic id must be the clinic's uuid (demo-clinic's log, or the ops console, shows it)"

@@ -70,6 +70,7 @@ export function parseIssueHash(hash: string): { event: OpsEvent; id: string } | 
  * agreements, patient rights and offboarding are decided there.
  */
 const SETUP: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
+  "assistant_knows_no_services",
   "clinic_availability_changed",
   "lifecycle_no_progress",
   "lifecycle_closing_soon",

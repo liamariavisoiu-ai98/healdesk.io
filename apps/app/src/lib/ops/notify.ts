@@ -323,6 +323,13 @@ export const OPS_EVENTS = [
   // The 07:00 digest's one line in Slack (lib/ops/digest.ts): its counts,
   // once a UTC day, never emailed (the digest itself is the email).
   "ops_digest_summary",
+  // A call or a website chat answered while AYA knows no service: none in
+  // Knowledge (`code` none: the website was never read, or the read found
+  // none) or none approved yet (`code` awaiting_approval: the practice
+  // questions have not passed the current version). Hourly per clinic and
+  // channel while it lasts (lib/assistant/menu-check.ts). The demo clinic's
+  // test calls of 23 October 2026 ran like this unseen.
+  "assistant_knows_no_services",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

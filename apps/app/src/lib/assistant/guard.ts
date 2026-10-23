@@ -668,6 +668,15 @@ const EVERYDAY: RegExp[] = [
     `(?<!\\b(?:${PRACTICE_NOT_DOSE})\\b[^.?!]*)\\b(?:open|opens|closes?|closed|answer(?:s|ed)?|staffed|check(?:s|ed)?|available|operates?|respond(?:s|ed)?)\\b(?![^.?!]*\\b(?:${PRACTICE_NOT_DOSE})\\b)[^.?!,;]{0,30}?\\b(?:once|twice|\\d+ times|(?:two|three|four) times) (?:a|per) (?:day|week)\\b`,
     "gi",
   ),
+  // Scheduling, not an outcome claim: "what day and time works best for
+  // you?", "whichever morning works well for you". Until 23 October 2026
+  // PLAIN_CLINICAL's "works best for" read this as a claim about a
+  // treatment, so the most ordinary booking question was refused, and a
+  // caller who said yes to the refusal's offer of a consultation was asked
+  // it again and refused again, round and round (test call of that day).
+  // Only after a word of time or a question about one, so "it works best
+  // for you if..." is still read.
+  /\b(?:day|days|time|times|date|dates|slot|slots|morning|mornings|afternoon|afternoons|evening|evenings|appointment|schedule|when|whenever|whichever|what)\b[^.?!]{0,30}?\bworks? (?:best|well|really well|great) for (?:you|me|us|your schedule)\b/gi,
   // A dose the person named, handed back with a refusal and nothing more:
   // "The 3mg figure is not something I can discuss." The whole sentence, so a
   // figure said alongside anything else ("..., but 3mg is typical") is read.
@@ -1476,6 +1485,19 @@ export function guardedLine(reason: GuardRefusal, clinicName: string, language: 
     return `I can't confirm appointments myself, but I can pass your request to the team at ${clinicName}, who confirm every booking and get back to people within a day.`;
   }
   return `I'm not able to help with that here, but I can pass your details to the team at ${clinicName}, who will get back to you within a day.`;
+}
+
+/**
+ * What is said instead of a guard line the person has just heard (turn.ts):
+ * a refusal said twice in a row is a loop, and the person is no closer to
+ * anyone who can help. It hands over instead, and the turn raises the
+ * handover (the clinic's L11 alert and Bookings' Needs you), so "the team
+ * will get back to you" is a promise the clinic is told about.
+ */
+export function movingOnLine(clinicName: string, language: "en" | "es" = "en"): string {
+  return language === "es"
+    ? `Para que le atiendan bien, pasaré sus datos al equipo de ${clinicName}, que le responderá en un día. ¿Hay algo más en lo que pueda ayudarle?`
+    : `Let me make sure you're looked after: I'll pass your details to the team at ${clinicName}, who will get back to you within a day. Is there anything else I can help with?`;
 }
 
 /** guardedLine in Spanish, the same lines said the same way, formal "usted". */

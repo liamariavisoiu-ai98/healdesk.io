@@ -289,10 +289,13 @@ count at 70% is Resend's quota; nothing to do but watch.
 
 ### Setup and support
 
-`setup_request_reply_past_due`, `provisioning_follow_up_past_due`, `support_reply_past_due`.
+`setup_request_reply_past_due`, `provisioning_follow_up_past_due`, `support_reply_past_due`,
+`assistant_knows_no_services`.
 Queues › Setup requests and Queues › Support: a reply promised by the next business day was
 not marked. Reply from hello@, then mark it. A follow-up past due is a clinic whose setup
-stalled: its Setup tab says what is left.
+stalled: its Setup tab says what is left. `assistant_knows_no_services` is AYA answering a
+clinic that has no approved service or price in Knowledge: add the services in its Knowledge page
+or get the practice questions approved, then the alert stops.
 
 ### Agreements
 

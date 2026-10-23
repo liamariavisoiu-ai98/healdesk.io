@@ -6,6 +6,9 @@ import WebSocket from "ws";
 const notified = vi.hoisted(() => [] as { event: string; fields: Record<string, unknown> }[]);
 vi.mock("@/lib/ops/notify", () => ({
   notifyOps: async (event: string, fields: Record<string, unknown>) => {
+    // The empty-menu alert (lib/assistant/menu-check.ts) fires on every call
+    // these fixtures answer, whose facts list no service; it has its own test.
+    if (event === "assistant_knows_no_services") return;
     notified.push({ event, fields });
   },
   notifyOpsOnce: async () => {},
@@ -90,7 +93,7 @@ const FACTS: AssistantFacts = {
   suggestAddOns: false,
   providerNames: [],
 };
-const OPENING = /^Hi, I'm an AI assistant for Fall Clinic — not a human\. This call is transcribed/;
+const OPENING = /^Hi, this is the AI assistant for Fall Clinic\. This call is transcribed/;
 const URGENT_WORDS = "Hello? I'm having a severe reaction to my filler";
 
 type Recorded = Pick<VoiceCallEvent, "urgent" | "disclosurePlayedAt" | "transcriptTurns">;
@@ -483,7 +486,8 @@ describe("a call whose socket closes while the start is read", () => {
 
 describe("the opening line", () => {
   test("left unsaid by an urgent first reply is said before the next reply, and the record says when", async () => {
-    tenant.result = FACTS;
+    // No line that reaches a person, so the urgent reply puts nobody through and the call goes on.
+    tenant.result = { ...FACTS, directLine: null };
     const events: Recorded[] = [];
     const { s, responses } = session({
       gate: async () => ({ decision: "answer" }) as never,
@@ -510,6 +514,31 @@ describe("the opening line", () => {
     expect(responses()[3]!.content).not.toMatch(/AI assistant/);
     await s.finish();
     expect(events[0]!.disclosurePlayedAt).toBeInstanceOf(Date);
+  });
+
+  test("an urgent call at a practice with a direct line is put through to it as the fixed reply ends", async () => {
+    tenant.result = FACTS;
+    const { s, responses } = session({ gate: async () => ({ decision: "answer" }) as never, ingest: async () => ({}) as never });
+    await s.open();
+    await s.handle(said(1, [{ role: "agent", content: responses()[0]!.content }, { role: "user", content: URGENT_WORDS }]));
+    const reply = responses()[1]!;
+    expect(reply.content).toMatch(/hang up and call 911 now/);
+    expect(reply.content).toMatch(/stay on the line and I'll put you through to Fall Clinic now\.$/);
+    expect(reply.content).not.toMatch(/please call Fall Clinic/);
+    expect(reply.transfer_number).toBe(DIRECT);
+    await s.finish();
+  });
+
+  test("an urgent call with no line apart from the published number gets 911 alone, never 'call the practice'", async () => {
+    tenant.result = { ...FACTS, directLine: null };
+    const { s, responses } = session({ gate: async () => ({ decision: "answer" }) as never, ingest: async () => ({}) as never });
+    await s.open();
+    await s.handle(said(1, [{ role: "user", content: URGENT_WORDS }]));
+    const reply = responses()[1]!;
+    expect(reply.content).toMatch(/hang up and call 911 now\.$/);
+    expect(reply.content).not.toMatch(/please call|put you through/);
+    expect(reply.transfer_number).toBeUndefined();
+    await s.finish();
   });
 
   test("a call that ends on the urgent reply is recorded as not having heard the transcription notice", async () => {

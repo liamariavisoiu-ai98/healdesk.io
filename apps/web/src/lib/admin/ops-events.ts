@@ -105,6 +105,7 @@ export const OPS_EVENTS = [
   "lifecycle_reminders_unanswered",
   "lifecycle_closing_waiting_on_us",
   "ops_digest_summary",
+  "assistant_knows_no_services",
 ] as const;
 
 export type OpsEvent = (typeof OPS_EVENTS)[number];

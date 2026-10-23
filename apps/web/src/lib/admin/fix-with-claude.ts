@@ -152,6 +152,7 @@ export const RUNBOOK_ANCHOR: Record<OpsEvent, RunbookAnchor> = {
   lifecycle_reminders_unanswered: "setup-progress",
   lifecycle_closing_waiting_on_us: "setup-progress",
   ops_digest_summary: "morning-digest",
+  assistant_knows_no_services: "setup-and-support",
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

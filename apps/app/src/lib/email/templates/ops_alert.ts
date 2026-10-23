@@ -539,6 +539,12 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The clinic below changed what its section names: its weekly hours (hours), its closed days (closures), a location's hours (location_hours), its named providers (providers) or which services they offer (provider_services). Count is how many changes were saved; for closed days, written is how many days were added and deleted how many were taken off. A change made by a change file or in the database directly is recorded too. AYA uses it at once. Open the clinic's page in the console to see each change, and its audit once the clinic-audits job is on.",
   },
+  // lib/assistant/menu-check.ts, hourly per clinic and channel while it lasts.
+  assistant_knows_no_services: {
+    title: "AYA is answering a clinic with no services",
+    action:
+      "A call or a website chat was just answered for this clinic while AYA knew no service or price, so she can only offer a consultation and cannot say what the practice does. Code none means Knowledge has no services: check the clinic has a website and ask for a site read from the console (or fill Knowledge in the portal). Code awaiting_approval means services are in Knowledge but the practice questions have not passed this version: check the practice-questions job is switched on and look at the clinic's latest run.",
+  },
   step_up_phone_held: {
     title: "Phone held off a plan with more than one location",
     action:

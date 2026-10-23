@@ -117,6 +117,14 @@ async function call(
   return { callId, sent, responses: responses(), calls: model.calls, event: events[0] };
 }
 
+async function setDirectLine(clinicId: string, line: string | null): Promise<void> {
+  // Row-level secured: written inside the clinic's tenant, where the update can see the row.
+  const { rows } = await inTenant(clinicId, (client) =>
+    client.query(`update clinic_settings set direct_line_e164 = $2 where clinic_id = $1 returning clinic_id`, [clinicId, line]),
+  );
+  if (rows.length !== 1) throw new Error("the direct line was not changed");
+}
+
 async function voiceClinic(label: string, notes: string | null = null): Promise<{ clinicId: string; name: string }> {
   const c = await seedClinic(label);
   await getMigratorPool().query(`update clinics set assistant_number_e164 = $2 where id = $1`, [c.clinicId, AYA_NUMBER]);
@@ -156,7 +164,7 @@ function keptAssistant(c: Call): string[] {
   return (c.event?.transcriptTurns ?? []).filter((t) => t.speaker === "assistant").map((t) => t.text);
 }
 
-const OPENING = /^Hi, I'm an AI assistant for .* — not a human\. This call is transcribed/;
+const OPENING = /^Hi, this is the AI assistant for .*\. This call is transcribed/;
 const CLINIC_FACTS = { ...SAFETY_FACTS, neverSay: neverSayWithDefaults() };
 
 function caseTest(defect: string | undefined) {
@@ -166,6 +174,8 @@ function caseTest(defect: string | undefined) {
 
 describeDb("safety suite: voice, end to end", () => {
   let clinic: { clinicId: string; name: string };
+  /** A clinic with no line apart from its published number, so an urgent call is not put through and goes on. */
+  let noLine: { clinicId: string; name: string };
   const transport = new FakeTransport();
 
   beforeAll(async () => {
@@ -173,6 +183,8 @@ describeDb("safety suite: voice, end to end", () => {
     await truncateAll();
     await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'transcript-emails'`);
     clinic = await voiceClinic("safety-voice");
+    noLine = await voiceClinic("safety-voice-no-line");
+    await setDirectLine(noLine.clinicId, null);
   }, 180_000);
 
   afterAll(async () => {
@@ -187,7 +199,9 @@ describeDb("safety suite: voice, end to end", () => {
         expect(r.calls).toHaveLength(0);
         expect(r.responses[0]!.content).toMatch(OPENING);
         expect(r.responses[1]!.content).toMatch(/911/);
-        expect(r.responses[1]!.transfer_number).toBeUndefined();
+        // Put through to the direct line as the fixed reply ends (owner, 23 October 2026), never "please call the practice".
+        expect(r.responses[1]!.content).toMatch(/put you through to .* now\.$|le comunico ahora con .*\.$/);
+        expect(r.responses[1]!.transfer_number).toBe(DIRECT_LINE);
         const alerts = await queuedNotices(clinic.clinicId, ["urgent"]);
         expect(alerts.map((a) => a.dedupe_key)).toContain(`urgent:call:${r.callId}`);
         expect(r.event).toMatchObject({ urgent: true, outcome: "escalated_to_human", isCallback: false });
@@ -222,12 +236,20 @@ describeDb("safety suite: voice, end to end", () => {
 
     test("an urgent turn after a benign one: the model answered only the first, and never sees the urgent words", async () => {
       const urgent = "my throat is closing up";
-      const r = await call(clinic.clinicId, ["When are you open?", urgent, "And is there parking?"], () => modelJson("We're open weekdays."), transport);
+      // At a clinic with no line to put the caller through to, so the call goes on past the urgent reply.
+      const r = await call(noLine.clinicId, ["When are you open?", urgent, "And is there parking?"], () => modelJson("We're open weekdays."), transport);
       expect(r.responses.map((x) => x.content.slice(0, 20))).toHaveLength(4);
       expect(r.responses[2]!.content).toMatch(/911/);
       expect(r.calls).toHaveLength(2);
       expect(JSON.stringify(r.calls[1]!.messages)).not.toContain(urgent);
-      expect((await queuedNotices(clinic.clinicId, ["urgent"])).filter((a) => a.dedupe_key === `urgent:call:${r.callId}`)).toHaveLength(1);
+      expect((await queuedNotices(noLine.clinicId, ["urgent"])).filter((a) => a.dedupe_key === `urgent:call:${r.callId}`)).toHaveLength(1);
+    });
+
+    test("with no line apart from the published number, the urgent reply is 911 alone and the call goes on", async () => {
+      const r = await call(noLine.clinicId, ["my lip went white after the filler"], () => modelJson("model answered"), transport);
+      expect(r.responses[1]!.content).toMatch(/hang up and call 911 now\./);
+      expect(r.responses[1]!.content).not.toMatch(/please call|put you through/);
+      expect(r.responses[1]!.transfer_number).toBeUndefined();
     });
   });
 
@@ -426,6 +448,9 @@ describeDb("safety suite: voice, end to end", () => {
     });
 
     test("urgent Spanish words still get the fixed 911 line and the alert, with the Spanish line kept for the next reply, never in front of the urgent one", async () => {
+      // No line to put the caller through to, so the call goes on past the urgent reply.
+      await setDirectLine(spanish.clinicId, null);
+      try {
       const r = await call(spanish.clinicId, ["Hola, tengo una pregunta sobre mi cita de la próxima semana por favor", "no puedo respirar", "Gracias, ¿y el horario?"], () => modelJson("Claro."), transport);
       // The first turned the call, so the Spanish line went with its reply.
       expect(r.responses[1]!.content).toBe(`${disclosureEs()} Claro.`);
@@ -442,6 +467,9 @@ describeDb("safety suite: voice, end to end", () => {
       expect(first.responses[1]!.content).toMatch(/cuelgue y llame al 911/);
       expect(first.responses[1]!.content).not.toContain(disclosureEs());
       expect(first.responses[2]!.content).toBe(`${disclosureEs()} Claro.`);
+      } finally {
+        await setDirectLine(spanish.clinicId, DIRECT_LINE);
+      }
     });
 
     test("a model that fails twice: the Spanish failure line, then the Spanish transfer to the direct line", async () => {

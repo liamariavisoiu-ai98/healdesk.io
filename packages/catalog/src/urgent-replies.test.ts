@@ -50,6 +50,34 @@ describe("the urgent reply for a person", () => {
     );
   });
 
+  test("on a call being put through to the practice: 911, the team told, then 'stay on the line', and no number read out", () => {
+    const reply = fixedUrgentReply({ ...HUMAN, channel: "voice", clinicNumber: "four one five, five five five", transferring: true });
+    expect(reply).toBe(
+      "I'm an AI assistant, so I can't help with anything urgent here. " +
+        "If this is an emergency, hang up and call 911 now. " +
+        "I've told the team. " +
+        "Otherwise, stay on the line and I'll put you through to Radiance now.",
+    );
+    expect(
+      fixedUrgentReply({ ...HUMAN, channel: "voice", clinicNumber: null, transferring: true, language: "es" }),
+    ).toMatch(/Si no, no cuelgue y le comunico ahora con Radiance\.$/);
+  });
+
+  test("on a call with no number apart from the one they called: 911 alone, never 'please call the practice' (23 October 2026)", () => {
+    const reply = fixedUrgentReply({ ...HUMAN, channel: "voice", clinicNumber: null, teamAlerted: false });
+    expect(reply).toBe(
+      "I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, hang up and call 911 now.",
+    );
+    // In writing the practice is still named: a chat is not a call to it.
+    expect(fixedUrgentReply({ ...HUMAN, clinicNumber: null })).toContain("Otherwise, please call Radiance.");
+  });
+
+  test("transferring means nothing off a call, or at a veterinary practice", () => {
+    expect(fixedUrgentReply({ ...HUMAN, transferring: true })).toBe(fixedUrgentReply(HUMAN));
+    const vet: UrgentReplyInput = { ...HUMAN, channel: "voice", veterinary: true, emergency: "veterinary", referralNumber: "five five five" };
+    expect(fixedUrgentReply({ ...vet, transferring: true })).toBe(fixedUrgentReply(vet));
+  });
+
   test("on a Meta channel: no number to leave, ever", () => {
     expect(fixedUrgentReply({ ...HUMAN, channel: "meta" })).not.toContain(URGENT_LEAVE_NUMBER_LINE);
   });

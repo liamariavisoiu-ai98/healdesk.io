@@ -138,7 +138,7 @@ function output(tools: boolean): string {
  "booking": {"wants": true or false, "first_name": "", "phone": "", "window": "the day and time they asked for, in their words", "alt_windows": [], "service": "", "fields": {"<field id>": "value"}},${tools ? ACTION : ""}
  "handoff": true if they asked for a person,
  "end": true only when the person has said goodbye or has nothing more to ask}
-Leave a booking value empty when you do not know it yet. Copy values only from what the person said.`;
+Leave out "booking" entirely until the person wants an appointment or has given a detail for one, and leave a booking value empty when you do not know it yet. Copy values only from what the person said. Keep the reply short: the person hears it read aloud or waits for it.`;
 }
 
 /**

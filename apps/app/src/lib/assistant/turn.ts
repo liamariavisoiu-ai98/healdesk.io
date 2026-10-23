@@ -23,7 +23,7 @@ import {
   type ToolTurn,
 } from "./booking-tools";
 import type { AssistantChannel, AssistantFacts } from "./facts";
-import { cardNumberIn, guardAssistantReply, guardedLine, type GuardRefusal } from "./guard";
+import { cardNumberIn, guardAssistantReply, guardedLine, movingOnLine, type GuardRefusal } from "./guard";
 import { assistantTurnContext, buildAssistantPrompt } from "./prompt";
 import { isModelRefusal, type AssistantMessage, type AssistantResponder } from "./responder";
 
@@ -103,6 +103,8 @@ export type AssistantTurnResult = {
   toolsLive: boolean;
   /** What the tool layer did, when it answered the turn. */
   tool: ToolTurn | null;
+  /** On a call, the line the caller is put through to as the reply ends: an urgent turn's (urgentTransferTo). */
+  transferTo?: string | null;
 };
 
 
@@ -217,9 +219,12 @@ export function urgentReply(
   channel: AssistantChannel,
   finding: Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">>,
   now: Date,
+  /** On a call, the caller is being put through to the practice as this is said (answerTurn, urgentTransferTo). */
+  transferring = false,
 ): string {
   const language = finding.language ?? "en";
   return fixedUrgentReply({
+    transferring,
     channel,
     emergency: finding.emergency,
     language,
@@ -434,6 +439,12 @@ function push(out: AssistantMessage[], speaker: TranscriptTurn["speaker"], text:
   else out.push({ role, content: text });
 }
 
+/** The last thing the assistant said, or null before it has spoken. */
+function lastAssistantLine(history: readonly TranscriptTurn[]): string | null {
+  for (let i = history.length - 1; i >= 0; i -= 1) if (history[i]!.speaker === "assistant") return history[i]!.text;
+  return null;
+}
+
 export async function answerTurn(input: {
   facts: AssistantFacts;
   channel: AssistantChannel;
@@ -463,6 +474,14 @@ export async function answerTurn(input: {
    * the website chat never passes one.
    */
   language?: SpokenLanguage;
+  /**
+   * On a call, a line that reaches a person at the practice, already checked
+   * by the adapter not to forward back to us (lib/voice/fallback-line.ts,
+   * usableLine). An urgent turn at a practice for people puts the caller
+   * through to it, after the fixed reply's 911 line (owner, 23 October
+   * 2026); without one the reply is 911 alone.
+   */
+  urgentTransferTo?: string | null;
 }): Promise<AssistantTurnResult> {
   const { facts, channel } = input;
   const language: SpokenLanguage = input.language ?? "en";
@@ -484,7 +503,15 @@ export async function answerTurn(input: {
     return { ...base, reply: languageLine(facts, channel), source: "language", urgent: true };
   }
   if (finding) {
-    return { ...base, reply: urgentReply(facts, channel, finding, now), source: "urgent", urgent: true };
+    const transferTo =
+      channel === "voice" && input.urgentTransferTo && urgentSetFor(facts.specialty) !== "veterinary" ? input.urgentTransferTo : null;
+    return {
+      ...base,
+      reply: urgentReply(facts, channel, finding, now, transferTo !== null),
+      source: "urgent",
+      urgent: true,
+      ...(transferTo ? { transferTo } : {}),
+    };
   }
   if (card.found) {
     return { ...base, reply: language === "es" ? CARD_LINE_ES : CARD_LINE, source: "card" };
@@ -557,6 +584,12 @@ export async function answerTurn(input: {
     const spanish =
       language === "es" || said === "es" || (said === "other" && messageLanguage(personText, { knownTerms: languageTerms(facts) }) === "es");
     const line = guardedLine(verdict.reason, facts.clinicName, spanish ? "es" : "en");
+    // The same refusal as the last thing said: the person answered it ("yes,
+    // please") and the model's next try was refused again. Saying it a third
+    // time is a loop (test call of 23 October 2026), so the turn hands over.
+    if (lastAssistantLine(input.history) === line) {
+      return { ...live, capture: merged, handoff: true, reply: movingOnLine(facts.clinicName, spanish ? "es" : "en"), source: "guard", guard: verdict.reason };
+    }
     return { ...live, capture: merged, handoff: answer.handoff, reply: line, source: "guard", guard: verdict.reason };
   }
   return { ...live, capture: merged, handoff: answer.handoff, end: answer.end, reply: answer.reply, source: "model" };

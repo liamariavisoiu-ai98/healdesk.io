@@ -280,11 +280,11 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   {
     name: "PostHog (US cloud)",
     category: "analytics",
-    purpose: "Funnel analytics on this website, after consent",
+    purpose: "Funnel analytics on this website, unless you opt out",
     data: "Page views and named funnel steps; no form contents, no email, no chat text",
     region: "United States",
     handlesPhi: false,
-    baa: { state: "not-needed", because: "Runs only on the marketing site and only after the cookie notice is accepted." },
+    baa: { state: "not-needed", because: "Runs only on the marketing site and and not for a visitor who opted out." },
     scope: "marketing-site",
   },
   {
@@ -375,7 +375,7 @@ export const WEBSITE_PROCESSING: readonly WebsiteProcessing[] = [
   },
   {
     category: "analytics",
-    purpose: "Measures visits to this website, only after you accept the cookie notice",
+    purpose: "Measures visits to this website, unless you opt out",
     receives: "Page views and named funnel steps; no form contents, no email, no chat text",
   },
   {

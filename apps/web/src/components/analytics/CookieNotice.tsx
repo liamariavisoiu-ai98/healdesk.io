@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cookieNoteSeen, markCookieNoteSeen } from "@/lib/consent-store";
 
@@ -8,8 +8,9 @@ import { cookieNoteSeen, markCookieNoteSeen } from "@/lib/consent-store";
  * The cookie note.
  *
  * One quiet line in the bottom corner that says what the site does, and goes
- * the moment the visitor does anything: scrolls, presses, taps, types. It asks
- * nothing, because analytics is opt-out (owner, 23 October 2026; the opt-out
+ * the moment the visitor does anything: scrolls, presses, taps, types. OK is
+ * the plain way to put it away and the one thing on it that stands out; "Opt
+ * out" is the quieter link to the policy's switch. It asks nothing, because analytics is opt-out (owner, 23 October 2026; the opt-out
  * is on /privacy, lib/consent-store.ts). It is not a banner and not a modal:
  * a pill the width of its words, never over the middle of the page, with
  * `pointer-events` only on itself so it blocks nothing beneath it.
@@ -34,6 +35,8 @@ const INTERACTIONS = ["scroll", "wheel", "touchstart", "pointerdown", "keydown"]
 
 export function CookieNotice() {
   const [phase, setPhase] = useState<"hidden" | "shown" | "leaving">("hidden");
+  /** Puts the note away; the effect owns the listeners it has to take down, so the OK button reaches it through here. */
+  const close = useRef<() => void>(null);
 
   useEffect(() => {
     // The only thing the note describes is PostHog's cookie, and PostHogProvider
@@ -49,19 +52,24 @@ export function CookieNotice() {
       armed = true;
     }, GRACE_MS);
 
-    const dismiss = (event: Event) => {
-      if (!armed) return;
-      // Pressing the note's own link is an interaction with the note, not a
-      // reason to take it away from under the pointer before the click lands.
-      if (event.target instanceof Element && event.target.closest("[data-cookie-note]")) return;
+    const leaveNow = () => {
       for (const name of INTERACTIONS) window.removeEventListener(name, dismiss, true);
       markCookieNoteSeen();
       setPhase("leaving");
       leave = window.setTimeout(() => setPhase("hidden"), FADE_MS);
     };
+    const dismiss = (event: Event) => {
+      if (!armed) return;
+      // Pressing the note's own OK or link is an interaction with the note, not
+      // a reason to take it away from under the pointer before the click lands.
+      if (event.target instanceof Element && event.target.closest("[data-cookie-note]")) return;
+      leaveNow();
+    };
+    close.current = leaveNow;
     for (const name of INTERACTIONS) window.addEventListener(name, dismiss, { capture: true, passive: true });
 
     return () => {
+      close.current = null;
       window.clearTimeout(arm);
       window.clearTimeout(leave);
       for (const name of INTERACTIONS) window.removeEventListener(name, dismiss, true);
@@ -78,7 +86,10 @@ export function CookieNotice() {
       aria-label="Cookies"
       className="cookie-note"
     >
-      <span>This site uses a cookie to count visits.</span>{" "}
+      <span>This site uses a cookie to count visits.</span>
+      <button type="button" className="cookie-note__ok" onClick={() => close.current?.()}>
+        OK
+      </button>
       <a href="/privacy#cookies">Opt out</a>
     </aside>
   );

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 
+import { Section } from "@/components/admin/ui";
 import type {
   AddressChangeRow,
   ChangeClinicEmailOutcome,
@@ -114,15 +115,6 @@ export function AccountPanel({
         <CoveredEntity view={v} onSet={actions.setCovered} />
       </Section>
     </main>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="border-line mt-8 rounded-md border bg-white p-5">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <div className="mt-2">{children}</div>
-    </section>
   );
 }
 

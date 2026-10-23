@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 
+import { Row, Section } from "@/components/admin/ui";
 import type {
   AutoRenewOutcome,
   BillingChannel,
@@ -310,23 +311,6 @@ export function BillingPanel({ view, actions }: { view: OpsResult<View>; actions
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="border-line mt-8 rounded-md border bg-white p-5">
-      <h2 className="text-[13.2px] font-bold tracking-[0.06em] uppercase">{title}</h2>
-      <div className="mt-3">{children}</div>
-    </section>
-  );
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-wrap justify-between gap-4 py-0.5">
-      <dt className="text-muted">{label}</dt>
-      <dd className="text-right font-medium">{children}</dd>
-    </div>
-  );
-}
 
 /** What needs a person, before anything else on the page. */
 function Attention({ view }: { view: View }) {

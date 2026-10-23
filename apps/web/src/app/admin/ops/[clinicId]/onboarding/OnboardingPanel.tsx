@@ -3,6 +3,7 @@
 import { COVERAGE_MODE_OPTIONS } from "@healdesk/catalog";
 import { useState, useTransition } from "react";
 
+import { Section } from "@/components/admin/ui";
 import type {
   AgentService,
   AutoConfirmOutcome,
@@ -207,15 +208,6 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
         <ChannelsCard view={v} onRerun={actions.rerunPractice} onConfirmWidget={actions.confirmWidget} />
       </Section>
     </main>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="border-line mt-8 rounded-md border bg-white p-5">
-      <h2 className="text-[13.2px] font-bold tracking-[0.06em] uppercase">{title}</h2>
-      <div className="mt-3">{children}</div>
-    </section>
   );
 }
 

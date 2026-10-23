@@ -2,8 +2,7 @@
 
 import { useState, useTransition } from "react";
 
-import { FirstWeeks } from "./FirstWeeks";
-
+import { ClinicId, Empty, Failure, Row, Tag } from "@/components/admin/ui";
 import type {
   CareOutcome,
   ClinicCards,
@@ -14,11 +13,12 @@ import type {
   IssueLinkOutcome,
   OpsClinic,
   OpsClinics,
-  OpsFailure,
   OpsJob,
   OpsResult,
   ToggleJobOutcome,
 } from "@/lib/admin/ops-client";
+
+import { FirstWeeks } from "./FirstWeeks";
 
 /**
  * The ops console, relocated to healdesk.io/admin.
@@ -187,7 +187,8 @@ function JobCard({
               aria-hidden
               className={[
                 "size-2 shrink-0 rounded-full",
-                job.enabled ? "bg-red" : "bg-line-strong",
+                // Red is for blocking only (E1 §3): a job that is on is not an alarm.
+                job.enabled ? "bg-mint" : "bg-line-strong",
               ].join(" ")}
             />
             <span className="font-semibold">{job.name}</span>
@@ -352,28 +353,11 @@ function ClinicsSection({
 }
 
 /**
- * A clinic's id, selectable and one click to copy: the id every operator task
- * needs (run-task.sh, the db-apply and db-query workflows) and that used to
- * appear only inside this page's link addresses.
+ * A clinic's id, selectable and one click to copy. It lives in
+ * components/admin/ui.tsx now and is re-exported here until this file goes
+ * (the admin redesign's last step), so its test keeps its import.
  */
-export function ClinicId({ id }: { id: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <p className="text-muted mt-1.5 flex flex-wrap items-center gap-x-2 text-[13px]">
-      <span>Clinic id</span>
-      <code className="font-mono select-all">{id}</code>
-      <button
-        type="button"
-        onClick={() => {
-          void navigator.clipboard.writeText(id).then(() => setCopied(true));
-        }}
-        className="text-red-deep hover:text-red font-semibold"
-      >
-        {copied ? "Copied" : "Copy id"}
-      </button>
-    </p>
-  );
-}
+export { ClinicId };
 
 function ClinicCard({
   clinic,
@@ -714,7 +698,8 @@ function DeliveryNote({ delivery }: { delivery: ConnectLinkDelivery }) {
 }
 
 // -----------------------------------------------------------------------------
-// Shared pieces
+// Shared pieces: components/admin/ui.tsx since 23 October 2026. The heading
+// and the problem line are the two this screen alone still draws.
 // -----------------------------------------------------------------------------
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
@@ -725,83 +710,11 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * A section that could not be read.
- *
- * Says which section, and says the sentence `ops-client` wrote, which is never
- * an upstream error body. `unauthenticated` gets a link rather than a retry,
- * because the operator's next move is a door.
- */
-function Failure({ failure, what }: { failure: OpsFailure; what: string }) {
-  return (
-    <div
-      role="status"
-      className="border-red/30 bg-red/[0.06] mt-4 rounded-md border p-5"
-    >
-      <p className="text-sm font-bold">Could not load {what}.</p>
-      <p className="mt-1 max-w-[62ch] text-sm">{failure.message}</p>
-      {failure.code === "unauthenticated" ? (
-        <a
-          href="/admin/sign-in"
-          className="border-line-strong hover:border-ink mt-3 inline-block rounded-full border px-4 py-2 text-sm font-bold transition-colors"
-        >
-          Sign in
-        </a>
-      ) : null}
-    </div>
-  );
-}
-
-function Empty({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="border-line text-muted mt-4 rounded-md border bg-white p-5 text-sm">
-      {children}
-    </p>
-  );
-}
-
 function Problem({ message }: { message: string | null }) {
   if (!message) return null;
   return (
     <p role="status" className="text-red-deep mt-3 text-sm font-semibold">
       {message}
     </p>
-  );
-}
-
-function Row({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-wrap justify-between gap-4">
-      <dt className="text-muted">{label}</dt>
-      <dd className="text-right font-medium">{children}</dd>
-    </div>
-  );
-}
-
-function Tag({
-  children,
-  tone = "muted",
-}: {
-  children: React.ReactNode;
-  tone?: "muted" | "ok" | "warn";
-}) {
-  const tones = {
-    muted: "bg-paper-2 text-muted",
-    ok: "bg-ink/[0.06] text-ink",
-    warn: "bg-red/10 text-red-deep",
-  };
-
-  return (
-    <span
-      className={`rounded-full px-2.5 py-1 text-[13.2px] font-bold tracking-[0.06em] uppercase ${tones[tone]}`}
-    >
-      {children}
-    </span>
   );
 }

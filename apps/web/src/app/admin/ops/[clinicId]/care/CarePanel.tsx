@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 
+import { Section } from "@/components/admin/ui";
 import { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
 import type { CareOutcome, CareView, OpenIncidentOutcome, OpsResult } from "@/lib/admin/ops-client";
 import {
@@ -248,15 +249,6 @@ function Amendments({ view }: { view: CareView }) {
         corrected details wait for the portal (<a className="underline" href={`${HANDOVER_URL}#amendments`}>handover, &ldquo;Amendments&rdquo;</a>).
       </p>
     </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="border-line mt-8 rounded-md border bg-white p-5">
-      <h2 className="text-[13.2px] font-bold tracking-[0.06em] uppercase">{title}</h2>
-      <div className="mt-3">{children}</div>
-    </section>
   );
 }
 

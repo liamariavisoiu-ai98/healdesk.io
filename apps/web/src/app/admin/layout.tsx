@@ -103,8 +103,10 @@ export const metadata: Metadata = {
  * the funnel, the personalised demos built for them, and what has been signed.
  */
 const SECTIONS = [
-  { href: "/admin", label: "Changes" },
+  { href: "/admin", label: "Home" },
+  { href: "/admin/clinics", label: "Clinics" },
   { href: "/admin/ops", label: "Ops" },
+  { href: "/admin/system/changes", label: "Changes" },
   { href: "/admin/reviews", label: "Reviews" },
   { href: "/admin/incidents", label: "Incidents" },
   { href: "/admin/compliance", label: "Compliance" },

@@ -335,7 +335,8 @@ describeDb("safety suite: web chat, end to end", () => {
       // The clinic's one address (its sign-in email here) or its report recipient: never a visitor's.
       for (const s of transport.sent) expect(s.target.to).toMatch(/@example-clinic\.test$|^desk@safety-web\.test$/);
       const notices = await queuedNotices(clinic.clinicId);
-      expect(new Set(notices.map((n) => n.kind))).toEqual(new Set(["urgent", "booking_request"]));
+      // A handover too: a chat above whose model was refused twice running is handed over rather than told the same refusal again (turn.ts, 23 October 2026).
+      expect(new Set(notices.map((n) => n.kind))).toEqual(new Set(["urgent", "booking_request", "handover"]));
       for (const n of notices) expect(JSON.stringify(n.payload)).not.toMatch(/0192|Dana|breathe/);
     });
   });

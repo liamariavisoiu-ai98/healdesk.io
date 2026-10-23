@@ -114,9 +114,10 @@ describeDb("the one-off tasks run from their environment alone", () => {
     expect(clinic.rows[0]?.name).toBe("Lumen Aesthetics");
     // Its website is queued to be read, which fills Knowledge, and AYA answers it in Spanish too.
     expect(first.stdout).toMatch(/website is queued to be read/);
-    const read = await getMigratorPool().query(`select reason, website from site_rereads where clinic_id = $1`, [id]);
+    // Both tables are row-level secured, so they are read inside the clinic's tenant.
+    const read = await inTenant(id!, (client) => client.query(`select reason, website from site_rereads where clinic_id = $1`, [id]));
     expect(read.rows).toEqual([{ reason: "missing", website: "lumen-aesthetics.example" }]);
-    const settings = await getMigratorPool().query(`select languages from clinic_settings where clinic_id = $1`, [id]);
+    const settings = await inTenant(id!, (client) => client.query(`select languages from clinic_settings where clinic_id = $1`, [id]));
     expect(settings.rows[0]?.languages).toEqual(["en", "es"]);
 
     const second = runScript("demo-clinic", [], { ...env, HEALDESK_DEMO_NAME: "Another Practice" });
@@ -174,6 +175,7 @@ describeDb("the one-off tasks run from their environment alone", () => {
       HEALDESK_DEMO_NAME: "Lumen Aesthetics",
       HEALDESK_DEMO_OPERATOR_NAME: "Ops Operator",
       HEALDESK_OPS_OPERATOR: "frontdesk@some-real-practice.test",
+      HEALDESK_DEMO_WEBSITE: "none",
     });
     expect(run.status).toBe(2);
     expect(run.stderr).toMatch(/must be the operator's own address/);

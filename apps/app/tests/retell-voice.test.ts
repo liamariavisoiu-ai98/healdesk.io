@@ -168,7 +168,7 @@ describeDb("the Retell voice endpoint", () => {
     const transcripts = transport.sent.filter((s) => s.message.phiClass === "may-carry-phi");
     expect(transcripts).toHaveLength(1);
     expect(transcripts[0]!.message.text).toContain("Caller: When are you open?");
-    expect(transcripts[0]!.message.text).toContain("Assistant: Hi, I'm an AI assistant");
+    expect(transcripts[0]!.message.text).toContain("Assistant: Hi, this is the AI assistant");
   });
 
   test("a refused call with a direct line is transferred to a person, never left in silence", async () => {
@@ -210,7 +210,7 @@ describeDb("the Retell voice endpoint", () => {
       const c = await call(port, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_loop`);
       await c.waitFor((r) => responses(r).length >= 1);
       expect(responses(c.received)[0]).not.toHaveProperty("transfer_number");
-      expect(String(responses(c.received)[0]!.content)).toMatch(/^Hi, I'm an AI assistant/);
+      expect(String(responses(c.received)[0]!.content)).toMatch(/^Hi, this is the AI assistant/);
       await c.close();
     } finally {
       await withdrawPlatform(COVERAGE_VENDORS);

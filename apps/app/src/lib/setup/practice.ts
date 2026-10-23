@@ -1,5 +1,5 @@
 import { cleanWebsite, isKnownTimeZone } from "@healdesk/catalog";
-import { and, eq, gte } from "drizzle-orm";
+import { and, eq, gte, notInArray, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { clinicClosures, clinics, clinicSettings, entitlements } from "@/db/schema";
@@ -281,15 +281,35 @@ export async function saveHours(
     .update(clinics)
     .set({ openingHours: hours, updatedAt: now })
     .where(eq(clinics.id, tx.clinicId));
+  // A day that stays closed keeps its row, and with it its created_at: the
+  // moment that day was closed, which tells one closing of a day from the
+  // next (the closed-day email's dedupe key, lib/portal/knowledge.ts). Only
+  // the days no longer listed are deleted; a listed day is inserted, or
+  // keeps its row with the label it is sent with now.
   await tx.db
     .delete(clinicClosures)
-    .where(and(eq(clinicClosures.clinicId, tx.clinicId), gte(clinicClosures.closedOn, today)));
+    .where(
+      and(
+        eq(clinicClosures.clinicId, tx.clinicId),
+        gte(clinicClosures.closedOn, today),
+        closures.length > 0
+          ? notInArray(
+              clinicClosures.closedOn,
+              closures.map((c) => c.closedOn),
+            )
+          : undefined,
+      ),
+    );
   if (closures.length > 0) {
     await tx.db
       .insert(clinicClosures)
       .values(
         closures.map((c) => ({ clinicId: tx.clinicId, closedOn: c.closedOn, label: c.label })),
-      );
+      )
+      .onConflictDoUpdate({
+        target: [clinicClosures.clinicId, clinicClosures.closedOn],
+        set: { label: sql`excluded.label` },
+      });
   }
   await completeStep(tx, "hours_confirmed", { at: now });
   tx.audit.record({

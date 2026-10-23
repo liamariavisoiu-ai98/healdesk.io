@@ -19,7 +19,12 @@ import {
 } from "@/lib/email/templates/closed_day_bookings";
 import type { TemplateContext } from "@/lib/email/templates/types";
 import { approveAgentConfig } from "@/lib/onboarding/agent-config";
-import { bookedOnClosedDaysNote, closedDayNoteSeam, saveKnowledge } from "@/lib/portal/knowledge";
+import {
+  bookedOnClosedDaysNote,
+  closedDayNoteSeam,
+  hoursNote,
+  saveKnowledge,
+} from "@/lib/portal/knowledge";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -427,6 +432,131 @@ describeDb("a closed day that already has bookings", () => {
       expect(await save([{ closedOn: day, label: "Staff day 24 Dec" }])).toMatchObject({
         ok: true,
       });
+    },
+    SLOW,
+  );
+
+  /** A request-only location with one request holding D 10:00, and its slug. */
+  async function withRequestOnD(label: string) {
+    const made = await requestOnly(label);
+    const request = await phoneRequest(made.f.clinicId);
+    await assistantHold(made.f.clinicId, {
+      requestId: request.requestId,
+      contactId: request.contactId,
+      startsAt: deskTime(3, 10),
+      status: "reserved",
+    });
+    const slug = (
+      await getMigratorPool().query<{ slug: string }>(`select slug from clinics where id = $1`, [
+        made.f.clinicId,
+      ])
+    ).rows[0]!.slug;
+    return { ...made, slug, day: clinicLocalDate(deskTime(3, 10), DESK_TZ) };
+  }
+
+  const keysOf = (clinicId: string) =>
+    inTenant(
+      clinicId,
+      async (c) =>
+        (
+          await c.query<{ dedupe_key: string; payload: unknown }>(
+            `select dedupe_key, payload from billing_notices where kind = 'closed_day_bookings' order by created_at`,
+          )
+        ).rows,
+    );
+
+  test(
+    "the producer run twice for one closing queues one email, its key holds no clock, and what it queued passes the lint",
+    async () => {
+      const { f, save, slug, day } = await withRequestOnD("closed-note-retry");
+      expect(await save([{ closedOn: day, label: "Training" }])).toMatchObject({ ok: true });
+      // The note again for the same closing, as a retry would run it, at two other moments.
+      const input = { closedBefore: [], timeZone: DESK_TZ, slug };
+      for (const at of [new Date(Date.now() + 60_000), new Date(Date.now() + 3_600_000)]) {
+        expect(await hoursNote(f.clinicId, ACTOR, input, at)).toMatchObject({
+          label: "See it in Bookings",
+        });
+      }
+      const rows = await keysOf(f.clinicId);
+      expect(rows).toHaveLength(1);
+      const key = rows[0]!.dedupe_key;
+      expect(key).toMatch(/^closed_day_bookings:[0-9a-f]{32}$/);
+      expect(key).not.toContain(day);
+      expect(key).not.toMatch(/\d{4}-\d{2}-\d{2}|T\d{2}:/);
+
+      // The payload as the producer queued it, read back from the outbox.
+      const payload = rows[0]!.payload as ClosedDayBookingsPayload;
+      expect(payload).toEqual({
+        bookingsUrl: `https://app.healdesk.test/c/${slug}/bookings#booked`,
+      });
+      expect(() => assertPayloadAllowed(payload, "closed_day_bookings")).not.toThrow();
+      const rendered = renderClosedDayBookings(payload, {
+        clinicName: "closed-note-retry Clinic",
+        audience: "patients",
+        reason: "You're receiving this because this is the address on the clinic's account.",
+        raisedAt: new Date(),
+        timeZone: DESK_TZ,
+      } satisfies TemplateContext);
+      expect(linkProblems(rendered, "closed_day_bookings")).toEqual([]);
+      for (const part of [rendered.subject, rendered.preheader, rendered.text, rendered.html]) {
+        expect(part).not.toContain(day);
+      }
+    },
+    SLOW,
+  );
+
+  test(
+    "a day closed, opened again and closed again is a new closing: a second email",
+    async () => {
+      const { f, save, day } = await withRequestOnD("closed-note-reclose");
+      const quietDay = clinicLocalDate(deskTime(6, 10), DESK_TZ);
+      expect(await save([{ closedOn: day, label: "Training" }])).toMatchObject({ ok: true });
+      expect(await keysOf(f.clinicId)).toHaveLength(1);
+      // Opened again, then the same day saved again beside another one: D is kept, not new.
+      expect(await save([])).toMatchObject({ ok: true });
+      expect(await save([{ closedOn: quietDay, label: "Other" }])).toMatchObject({ ok: true });
+      expect(await keysOf(f.clinicId)).toHaveLength(1);
+      // Closed again: a new closing, a new key, a second email.
+      expect(
+        await save([
+          { closedOn: quietDay, label: "Other" },
+          { closedOn: day, label: "Training again" },
+        ]),
+      ).toMatchObject({ ok: true, link: { label: "See it in Bookings" } });
+      const rows = await keysOf(f.clinicId);
+      expect(rows).toHaveLength(2);
+      expect(rows[0]!.dedupe_key).not.toBe(rows[1]!.dedupe_key);
+      // A save that keeps D closed keeps its row: no third email, and the label moves.
+      expect(
+        await save([
+          { closedOn: quietDay, label: "Other" },
+          { closedOn: day, label: "Inventory" },
+        ]),
+      ).toMatchObject({ ok: true });
+      expect(await keysOf(f.clinicId)).toHaveLength(2);
+      const labels = await inTenant(f.clinicId, async (c) =>
+        (
+          await c.query<{ label: string }>(
+            `select label from clinic_closures where closed_on = $1::date`,
+            [day],
+          )
+        ).rows.map((r) => r.label),
+      );
+      expect(labels).toEqual(["Inventory"]);
+    },
+    SLOW,
+  );
+
+  test(
+    "two identical saves at once queue one email",
+    async () => {
+      const { f, save, day } = await withRequestOnD("closed-note-race");
+      const both = await Promise.all([
+        save([{ closedOn: day, label: "Training" }]),
+        save([{ closedOn: day, label: "Training" }]),
+      ]);
+      for (const saved of both) expect(saved).toMatchObject({ ok: true });
+      expect(await keysOf(f.clinicId)).toHaveLength(1);
     },
     SLOW,
   );

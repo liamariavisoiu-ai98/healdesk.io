@@ -1,0 +1,105 @@
+/**
+ * The closed list of ops alert events, mirrored by hand from
+ * `apps/app/src/lib/ops/notify.ts` (`OPS_EVENTS`), as the rest of the ops
+ * envelope mirrors apps/app's types: apps/web has no path to that module and
+ * must not grow one. `ops-events.test.ts` reads the apps/app source and fails
+ * when the two lists differ, so a new event there is a build failure here
+ * until it is added, with its tab (lib/admin/issue-link.ts) and its runbook
+ * anchor (lib/admin/fix-with-claude.ts).
+ *
+ * Pure data: client components import it.
+ */
+export const OPS_EVENTS = [
+  "provisioning_rejected",
+  "provisioning_dead_lettered",
+  "paid_intent_without_clinic",
+  "duplicate_subscription",
+  "practice_question_failed",
+  "billing_event_dead_lettered",
+  "critical_notice_undelivered",
+  "clinic_address_bounced",
+  "clinic_address_complained",
+  "clinic_address_suppressed",
+  "daily_email_count_70",
+  "setup_request_reply_past_due",
+  "provisioning_follow_up_past_due",
+  "support_reply_past_due",
+  "practice_question_review_past_due",
+  "agreement_unsigned_7_days",
+  "agreement_resign_unrenderable",
+  "agreement_below_floor_unsigned",
+  "no_interactions_48_hours",
+  "no_inbound_calls_14_days",
+  "billing_request_dead_lettered",
+  "billing_request_stuck",
+  "setup_closure_skipped_live_channel",
+  "location_charged_not_created",
+  "connect_event_dead_lettered",
+  "overage_invoice_failed",
+  "meter_report_failing",
+  "first_period_refund_due",
+  "voice_fallback_no_direct_line",
+  "voice_call_start_failed",
+  "retell_fallback_unsynced",
+  "voice_provision_failed",
+  "voice_provision_cap_reached",
+  "voice_agent_drift",
+  "voice_deprovision_failed",
+  "voice_direct_line_loops",
+  "voice_test_mode_refused",
+  "plan_start_after_cancel",
+  "dmarc_review_due",
+  "export_undelivered_before_destruction",
+  "offboarding_started_late",
+  "export_due_undelivered",
+  "calendar_broken",
+  "calendar_degraded",
+  "calendar_recovered",
+  "calendar_watch_incomplete",
+  "calendar_watch_failed",
+  "welcome_email_unsent",
+  "google_oauth_client_rejected",
+  "agreement_termination_incomplete",
+  "agreement_refund_due",
+  "agreement_termination_finished_late",
+  "billing_pointer_outside_practice",
+  "refund_cancel_job_off",
+  "incident_notice_overdue",
+  "retention_purge_failed",
+  "transcript_undelivered",
+  "first_answer_not_recorded",
+  "go_live_held",
+  "web_widget_to_confirm",
+  "address_change_stalled",
+  "address_change_failed",
+  "sign_in_help_unmatched",
+  "connection_broken",
+  "destruction_notice_undelivered",
+  "vendor_agreement_expiring",
+  "vendor_agreement_lapsed",
+  "account_closure_waiting",
+  "account_closure_failed",
+  "meta_revoke_failed",
+  "meta_revoke_by_hand",
+  "patient_request_due_soon",
+  "patient_request_past_due",
+  "urgent_alert_not_queued",
+  "access_requests_capped",
+  "email_refused",
+  "agreement_copy_withheld",
+  "location_quantity_drift",
+  "location_quantity_agrees",
+  "step_up_phone_held",
+  "usage_near_cap",
+  "usage_cap_reached",
+  "calendar_write_stuck",
+  "calendar_writes_stuck_many",
+] as const;
+
+export type OpsEvent = (typeof OPS_EVENTS)[number];
+
+const EVENTS: ReadonlySet<string> = new Set(OPS_EVENTS);
+
+export function isOpsEvent(value: unknown): value is OpsEvent {
+  return typeof value === "string" && EVENTS.has(value);
+}

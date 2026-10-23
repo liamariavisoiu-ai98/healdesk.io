@@ -95,6 +95,17 @@
   --color-mint: #87d68d; /* Light Green, success, completed, verified */
 
   /*
+   * "Done" as TEXT on the admin console (`text-done`: a delivered receipt, a
+   * resolved incident, a stamped step). Until 23 October 2026 the utility
+   * was used in nine admin files and no token defined it, so "done" rendered
+   * in whatever colour it inherited. Not mint: mint is a fill (above) and
+   * reaches about 1.7:1 as text. This is the roadmap board's validated
+   * green (components/admin/RoadmapBoard.tsx, 4.5:1 on paper); for a done
+   * FILL, `bg-tint-mint` with ink on top.
+   */
+  --color-done: #5a9a16;
+
+  /*
    * Surfaces and tints, added 23 September 2026 with the jasper.ai and
    * reception.ai references. `panel` is the warm off-white a visual sits in
    * (reception's hero card); the tints are the pastel fields jasper puts

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { AdminChrome } from "@/components/admin/AdminDashboard";
+import { AdminNav } from "@/components/admin/AdminNav";
 import {
   OPERATOR_COOKIE,
   operatorCookieOptions,
@@ -43,16 +44,17 @@ import {
  * be a render behind in the one case above. That is cosmetic and self-corrects;
  * a header that appears on the wrong route is not.
  *
- * ## Why the section links are plain anchors with no "you are here" highlight
+ * ## The "you are here" mark is read from the router, not computed here
  *
- * A layout cannot know which of its children is rendering. `params` does not
- * say, no request header carries the path, and anything computed on the server
- * goes stale the moment the router keeps this layout across a navigation, so a
- * highlight here would eventually point at the page you just left. Marking the
- * current section from the page below it (a hidden marker plus a CSS `:has()`
- * rule) does work and was rejected: it buys a visual nicety at the price of
- * three files having to agree, it cannot set `aria-current`, and every page
- * already opens with an h1 that names the section.
+ * A layout cannot know which of its children is rendering: `params` does not
+ * say, no request header carries the path, and anything computed on the
+ * server goes stale the moment the router keeps this layout across a
+ * navigation, so a highlight computed here would eventually point at the page
+ * you just left. The mark is therefore the client's: `AdminNav` asks
+ * `useSelectedLayoutSegment()`, the same question `AdminChrome` asks to hide
+ * this header on the door, and sets `aria-current` from the answer. Since
+ * the admin redesign (23 October 2026) the nav has five sections, Home,
+ * Clinics, Queues, Compliance and System, each answering one question.
  *
  * Full navigations rather than `<Link>`, deliberately. Every page under here is
  * `force-dynamic` and re-runs `requireOperator()` on the server, so there is no
@@ -94,32 +96,10 @@ export const metadata: Metadata = {
 };
 
 /**
- * The surfaces this console has, in the order somebody uses them: what
- * changed, what is running, the practice questions waiting for review, the
- * incidents to decide, the platform's attestations automatic go-live reads,
- * and the notices we send practices by hand, how every
- * tool links up and which keys are in place, whether the AWS host is on, who
- * asked to be set up, whose website could not be read at checkout, who is in
- * the funnel, the personalised demos built for them, and what has been signed.
+ * The five sections, each answering one question (components/admin/AdminNav.tsx):
+ * what needs me today, every clinic's state, what is queued for a decision,
+ * what is attested and signed, and how the system itself is doing.
  */
-const SECTIONS = [
-  { href: "/admin", label: "Changes" },
-  { href: "/admin/ops", label: "Ops" },
-  { href: "/admin/reviews", label: "Reviews" },
-  { href: "/admin/incidents", label: "Incidents" },
-  { href: "/admin/compliance", label: "Compliance" },
-  { href: "/admin/notices", label: "Notices" },
-  { href: "/admin/map", label: "Map" },
-  { href: "/admin/host", label: "Host" },
-  { href: "/admin/setup", label: "Setup" },
-  { href: "/admin/site-reads", label: "Site reads" },
-  { href: "/admin/support", label: "Support" },
-  { href: "/admin/recordings", label: "Retell deletions" },
-  { href: "/admin/crm", label: "CRM" },
-  { href: "/admin/demos", label: "Demos" },
-  { href: "/admin/agreements", label: "Agreements" },
-  { href: "/admin/seo", label: "SEO" },
-] as const;
 
 /**
  * End every credential this browser holds for the admin area, then leave.
@@ -189,17 +169,7 @@ export default async function AdminLayout({
               <span className="text-muted text-[0.6em] font-medium">.io</span>
             </a>
 
-            <nav aria-label="Admin sections" className="order-last flex w-full flex-wrap gap-1 sm:order-none sm:w-auto">
-              {SECTIONS.map((section) => (
-                <a
-                  key={section.href}
-                  href={section.href}
-                  className="text-muted hover:text-ink hover:bg-paper-2 inline-flex min-h-11 items-center rounded-full px-3.5 py-2 text-[15.6px] font-semibold transition-colors"
-                >
-                  {section.label}
-                </a>
-              ))}
-            </nav>
+            <AdminNav />
 
             <div className="ml-auto flex min-w-0 items-center gap-3">
               {operator ? (

@@ -1,5 +1,5 @@
 import { retryStalledDemosAction } from "@/app/admin/demos/actions";
-import { claimedShare, DEMO_SOURCES, demoPipeline, PIPELINE_ROWS, type DemoPipeline, type PipelineWindow } from "@/lib/demo/pipeline";
+import { claimedShare, DEMO_SOURCES, demoPipeline, type DemoPipeline, type PipelineWindow } from "@/lib/demo/pipeline";
 import { listDemoSessions } from "@/lib/demo/sessions";
 import { RETRY_BATCH } from "@/lib/demo/sweep";
 import { isMarketingStoreConfigured } from "@/lib/sheets/client";
@@ -17,7 +17,9 @@ import { isMarketingStoreConfigured } from "@/lib/sheets/client";
  * place a number would go and says so underneath, never a zero: a quiet
  * month and a failed read must not look alike (the rule every admin panel
  * keeps, components/admin/honesty.test.ts). A share with nothing built to
- * convert from is an em-dash too, not 0%.
+ * convert from is an em-dash too, not 0%. The counts are over every row of
+ * the register, the rows the stall sweep reads, so "1 stalled" here is the
+ * one row "Retry all stalled" will start again.
  *
  * `DemoPipelineRow` is presentational; /admin/demos feeds it from the read
  * it already makes for the list. `LiveDemoPipelineRow` reads the register
@@ -101,7 +103,6 @@ export function DemoPipelineRow({ pipeline, retryStalled }: DemoPipelineRowProps
             </span>
           );
         })}
-        {pipeline?.truncated ? ` · newest ${PIPELINE_ROWS} rows only, so the 30-day numbers are a floor` : ""}
       </p>
       {pipeline === null ? (
         <p className="text-red-deep mt-1 font-semibold">The register could not be read, so nothing here is measured.</p>
@@ -119,7 +120,7 @@ export function DemoPipelineRow({ pipeline, retryStalled }: DemoPipelineRowProps
 export async function loadDemoPipeline(now: number = Date.now()): Promise<DemoPipeline | null> {
   if (!isMarketingStoreConfigured()) return null;
   try {
-    return demoPipeline(await listDemoSessions(PIPELINE_ROWS), now);
+    return demoPipeline(await listDemoSessions(Number.POSITIVE_INFINITY), now);
   } catch (error) {
     console.error("[healdesk] demo pipeline read failed", {
       error: error instanceof Error ? error.message : String(error),

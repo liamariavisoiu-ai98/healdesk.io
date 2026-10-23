@@ -2,10 +2,13 @@ import { isDemoActive, isDemoBuildStalled, isDemoExpired, SELF_SERVE_DEMO, type 
 
 /**
  * The demo pipeline in numbers: what was asked for, what got built, what
- * sold, over the last 7 and 30 days, from the `demo_sessions` rows the
- * console already lists (lib/demo/sessions.ts). Pure: the rows go in, the
- * counts come out, and the row at the top of /admin/demos
- * (components/admin/DemoPipelineRow.tsx) prints them in plain words.
+ * sold, over the last 7 and 30 days, from every `demo_sessions` row
+ * (lib/demo/sessions.ts). Pure: the rows go in, the counts come out, and
+ * the row at the top of /admin/demos (components/admin/DemoPipelineRow.tsx)
+ * prints them in plain words. Every row, not the newest few: a Sheet read
+ * is the whole tab whatever the caller keeps, so it costs nothing more, and
+ * it is what the stall sweep reads (lib/demo/sweep.ts), so the "stalled"
+ * the strip prints is the "stalled" the button acts on.
  *
  * ## Why 30 days is the longest window
  *
@@ -77,21 +80,13 @@ export type PipelineWindow = PipelineCounts & {
 export type DemoPipeline = {
   /** The 7-day window, then the 30-day one. */
   windows: readonly PipelineWindow[];
-  /** The states over every row read, not only a window's. */
+  /** The states over every row, not only a window's. */
   now: Pick<PipelineCounts, "live" | "held" | "failed" | "stalled">;
   /** How many rows went in. */
   rows: number;
-  /**
-   * The read hit its cap with rows still inside the longest window, so the
-   * 30-day numbers are a floor, not a total. The row says so when it is set.
-   */
-  truncated: boolean;
 };
 
 export const PIPELINE_WINDOW_DAYS: readonly number[] = [7, 30];
-
-/** How many rows the console reads for the pipeline: newest first, plenty for a month of demos. */
-export const PIPELINE_ROWS = 500;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -122,23 +117,16 @@ export function claimedShare(counts: Pick<PipelineCounts, "built" | "claimed">):
   return counts.built > 0 ? counts.claimed / counts.built : null;
 }
 
-export function demoPipeline(
-  sessions: readonly DemoSession[],
-  now: number = Date.now(),
-  readLimit: number = PIPELINE_ROWS,
-): DemoPipeline {
-  const longest = Math.max(...PIPELINE_WINDOW_DAYS);
+export function demoPipeline(sessions: readonly DemoSession[], now: number = Date.now()): DemoPipeline {
   const windows = PIPELINE_WINDOW_DAYS.map((days) => {
     const since = now - days * DAY_MS;
     const inWindow = sessions.filter((s) => s.createdAt.getTime() >= since && s.createdAt.getTime() <= now);
     return { days, ...countDemos(inWindow, now), bySource: conversionBySource(inWindow) };
   });
   const all = countDemos(sessions, now);
-  const oldest = sessions.reduce((min, s) => Math.min(min, s.createdAt.getTime()), Number.POSITIVE_INFINITY);
   return {
     windows,
     now: { live: all.live, held: all.held, failed: all.failed, stalled: all.stalled },
     rows: sessions.length,
-    truncated: sessions.length >= readLimit && oldest >= now - longest * DAY_MS,
   };
 }

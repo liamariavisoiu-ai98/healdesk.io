@@ -11,10 +11,10 @@ import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
 /**
  * The demo pipeline strip states only what the register supports: a read
  * that failed prints an em-dash in every place a number would go and says
- * so, never a zero; a share with nothing built to convert from is an
- * em-dash, never 0%; and a capped read says the month is a floor. The live
- * variant, which reads the register itself for the admin home, keeps the
- * same rule when the read throws or the Sheet is not configured.
+ * so, never a zero; and a share with nothing built to convert from is an
+ * em-dash, never 0%. The live variant, which reads the register itself for
+ * the admin home, keeps the same rule when the read throws or the Sheet is
+ * not configured.
  */
 
 function text(node: React.ReactElement): string {
@@ -61,7 +61,6 @@ const PIPELINE: DemoPipeline = {
   ],
   now: { live: 2, held: 1, failed: 1, stalled: 2 },
   rows: 9,
-  truncated: false,
 };
 
 describe("the demo pipeline strip", () => {
@@ -72,7 +71,6 @@ describe("the demo pipeline strip", () => {
     expect(strip).toContain("now: 2 live · 1 held · 1 failed · 2 stalled");
     expect(strip).toContain("by source: operator 1/2 · outreach 0/1 · homepage 1/1");
     expect(strip).not.toContain("could not be read");
-    expect(strip).not.toContain("floor");
   });
 
   test("a register that could not be read is em-dashes and a reason, never zeros", () => {
@@ -99,11 +97,6 @@ describe("the demo pipeline strip", () => {
     expect(strip).toContain("7 days: 1 requested → 0 built → 0 claimed (—)");
     expect(strip).not.toContain("0%");
     expect(strip).not.toContain("could not be read");
-  });
-
-  test("a capped read says the month is a floor", () => {
-    const strip = text(h(DemoPipelineRow, { pipeline: { ...PIPELINE, truncated: true } }));
-    expect(strip).toContain("newest 500 rows only, so the 30-day numbers are a floor");
   });
 
   test("offers Retry all stalled only while something is stalled, and only with an action to run", () => {

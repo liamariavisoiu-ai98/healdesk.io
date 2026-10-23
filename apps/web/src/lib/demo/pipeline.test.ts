@@ -124,14 +124,6 @@ describe("the pipeline over a month of rows", () => {
     expect(pipeline.rows).toBe(9);
   });
 
-  it("says when the read's cap cut the month short", () => {
-    expect(pipeline.truncated).toBe(false);
-    // Nine rows read at a cap of nine, but the oldest is older than the month: the month is whole.
-    expect(demoPipeline(ROWS, NOW, 9).truncated).toBe(false);
-    // Eight at a cap of eight with the oldest inside the month: there may be more.
-    expect(demoPipeline(ROWS.slice(0, 8), NOW, 8).truncated).toBe(true);
-  });
-
   it("gives no share when nothing was built to convert from", () => {
     expect(claimedShare({ built: 0, claimed: 0 })).toBeNull();
     expect(claimedShare({ built: 4, claimed: 1 })).toBe(0.25);

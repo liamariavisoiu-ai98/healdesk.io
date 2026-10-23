@@ -6,7 +6,7 @@ import { requireOperator } from "@/lib/admin/operator";
 import { isEmailConfigured } from "@/lib/email";
 import { AUDIT_THRESHOLDS, auditReportOf, type AuditIssue } from "@/lib/demo/audit";
 import { handoffBlocker } from "@/lib/demo/build";
-import { demoPipeline, PIPELINE_ROWS } from "@/lib/demo/pipeline";
+import { demoPipeline } from "@/lib/demo/pipeline";
 import {
   demoUrl,
   displayName,
@@ -35,7 +35,8 @@ import { CopyLink, CopyValue, DemoBuilder, RefreshWhileAnyBuilding } from "./Dem
  * Above it, one strip counts the same tab over the last 7 and 30 days
  * (lib/demo/pipeline.ts): requested, built, claimed and the conversion by
  * where the request came from. The page reads the tab once for both; the
- * strip counts the newest PIPELINE_ROWS rows, the list shows the newest 50.
+ * strip counts every row, as the stall sweep reads every row, and the list
+ * shows the newest 50.
  *
  * Every demo passes the handoff audit (lib/demo/audit.ts) before it goes
  * live. A held one shows the audit's blockers here, and "Release anyway"
@@ -126,9 +127,10 @@ export default async function DemosPage() {
   let pipeline: ReturnType<typeof demoPipeline> | null = null;
   if (configured) {
     try {
-      const newest = await listDemoSessions(PIPELINE_ROWS);
-      pipeline = demoPipeline(newest);
-      sessions = newest.slice(0, 50);
+      // The whole tab, which is what one read costs anyway (lib/demo/sessions.ts).
+      const all = await listDemoSessions(Number.POSITIVE_INFINITY);
+      pipeline = demoPipeline(all);
+      sessions = all.slice(0, 50);
     } catch (error) {
       loadError = error instanceof Error ? error.message : String(error);
     }

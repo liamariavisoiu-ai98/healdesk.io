@@ -31,6 +31,14 @@ vi.mock("@/lib/demo/build", () => ({
   sendDemoEmail: vi.fn(),
 }));
 
+/** The real retry, except where a test stands in for the other door getting there first. */
+const retryStalledDemo = vi.fn();
+vi.mock("@/lib/demo/sweep", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/demo/sweep")>();
+  retryStalledDemo.mockImplementation(original.retryStalledDemo);
+  return { ...original, retryStalledDemo: (...args: Parameters<typeof original.retryStalledDemo>) => retryStalledDemo(...args) };
+});
+
 const { retryDemoAction, retryStalledDemosAction } = await import("./actions");
 
 const MINUTE = 60_000;
@@ -65,6 +73,7 @@ beforeEach(() => {
   __resetDemoCacheForTests();
   runDemoBuild.mockReset();
   runDemoBuild.mockResolvedValue(null);
+  retryStalledDemo.mockClear();
   afterFns.length = 0;
 });
 
@@ -122,5 +131,19 @@ describe("the per-row Retry", () => {
 
     await runAfter();
     expect(runDemoBuild.mock.calls.map((c) => c[0])).toEqual([stalled.slug, ready.slug]);
+  });
+
+  test("starts no build when the retry finds someone else already did", async () => {
+    const stalled = await demo("Glow", DEMO_BUILD_STALL_MS + MINUTE);
+    // Between this action's read and its write, the sweep got there: the row
+    // is building on a fresh clock and its build is running.
+    retryStalledDemo.mockResolvedValueOnce(null);
+
+    await retryDemoAction(form(stalled.slug));
+
+    expect(retryStalledDemo).toHaveBeenCalledTimes(1);
+    expect(afterFns).toEqual([]);
+    await runAfter();
+    expect(runDemoBuild).not.toHaveBeenCalled();
   });
 });

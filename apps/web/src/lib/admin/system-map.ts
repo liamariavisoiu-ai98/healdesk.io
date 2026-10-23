@@ -133,11 +133,11 @@ export const GROUPS: readonly GroupDef[] = [
   { id: "bookings", name: "Bookings & deposits", blurb: "Where the bookings the desk confirms land and where patients' deposits will be paid: always the clinic's own accounts.", icon: "calendar", band: "patient" },
   { id: "phase-two", name: "Phase two", blurb: "Built or half built, and parked on purpose: v1 does not claim revenue.", icon: "link", band: "patient" },
   { id: "payments", name: "Payments", blurb: "Our own Stripe: the shop window sells, the engine keeps each subscription right.", icon: "card", band: "shared" },
-  { id: "email", name: "Email", blurb: "Everyday email from hello@healdesk.io, for both apps. Never a patient's details.", icon: "mail", band: "shared" },
+  { id: "email", name: "Email & alerts", blurb: "Everyday email from hello@healdesk.io, and the #alerts channel in Slack, for both apps. Never a patient's details.", icon: "mail", band: "shared" },
   { id: "deploys", name: "Code & addresses", blurb: "Where the code lives, what publishes it, and the web addresses that point at it.", icon: "code", band: "shared" },
   { id: "shop-people", name: "Buyers & you", blurb: "Clinic owners shopping on healdesk.io, and you running the business.", icon: "users", band: "shop" },
   { id: "selling", name: "Selling & demos", blurb: "Everything that finds clinic owners and shows them AYA before they buy.", icon: "megaphone", band: "shop" },
-  { id: "records", name: "Records & alerts", blurb: "Where leads and signed agreements are kept, how you are told, and the daily timer.", icon: "table", band: "shop" },
+  { id: "records", name: "Records & alerts", blurb: "Where leads and signed agreements are kept, and the daily timer.", icon: "table", band: "shop" },
 ];
 
 export type ToolDef = {
@@ -190,7 +190,7 @@ export const TOOLS: readonly ToolDef[] = [
   { id: "calendly", name: "Calendly", role: "Owners book a call with you", kind: "vendor", category: "selling", icon: "calendar", side: "shop" },
   { id: "indexnow", name: "Search engines", role: "IndexNow: Bing and others hear of new pages", kind: "vendor", category: "selling", icon: "search", side: "shop" },
   { id: "sheets", name: "Google Sheets", role: "Leads, requests, agreements", kind: "vendor", category: "records", icon: "table", side: "shop" },
-  { id: "slack", name: "Slack", role: "Alerts for you", kind: "vendor", category: "records", icon: "bell", side: "shop" },
+  { id: "slack", name: "Slack", role: "#alerts, from both apps", kind: "vendor", category: "email", icon: "bell", side: "both" },
   { id: "vercel-cron", name: "Vercel timer", role: "Daily jobs", kind: "vendor", category: "records", icon: "clock", side: "shop" },
 ];
 
@@ -451,7 +451,19 @@ export const KEYS: readonly KeyDef[] = [
     need: "optional",
     rotation: { kind: "expires", how: `A read-only token for this repository. ${VERCEL_HOW}`, impact: "The Changes tab goes empty until the new one is in." },
   },
-  { id: "vercel.SLACK_WEBHOOK_URL", env: "SLACK_WEBHOOK_URL", home: "vercel", label: "The Slack alert address", need: "optional", rotation: { kind: "only-if", when: "the address leaks: anyone holding it can post in that channel", how: `Make a new incoming webhook in Slack. ${VERCEL_HOW}` } },
+  {
+    id: "vercel.SLACK_WEBHOOK_URL",
+    env: "SLACK_WEBHOOK_URL",
+    home: "vercel",
+    label: "The Slack alert address (the same address the engine holds on AWS)",
+    need: "optional",
+    sameAs: "aws.SLACK_WEBHOOK_URL",
+    rotation: {
+      kind: "only-if",
+      when: "the address leaks: anyone holding it can post in #alerts",
+      how: `This is the SAME address as SLACK_WEBHOOK_URL on AWS, stored in both places, so change it in BOTH: make a new incoming webhook in Slack. ${VERCEL_HOW} Then in AWS CloudShell run bash put-external-secrets.sh SLACK_WEBHOOK_URL and restart (deploy-app.yml, restart_only), and remove the old webhook.`,
+    },
+  },
   {
     id: "vercel.APIFY_TOKEN",
     env: "APIFY_TOKEN",
@@ -618,6 +630,22 @@ export const KEYS: readonly KeyDef[] = [
     rotation: { kind: "every", days: 365, how: `Add a new secret to the OAuth client in Google Cloud. ${AWS_HOW("GOOGLE_OAUTH_CLIENT_SECRET")} Then disable the old secret.`, impact: "None while both secrets are enabled." },
   },
   {
+    id: "aws.SLACK_WEBHOOK_URL",
+    env: "SLACK_WEBHOOK_URL",
+    home: "aws",
+    label: "The Slack alert address (the engine's copy of the same address Vercel holds)",
+    // Optional: every alert is emailed whether or not Slack is set.
+    need: "optional",
+    // One #alerts channel, one address, kept in two places (owner, 23
+    // October 2026); each side tags its posts, [app] or [web].
+    sameAs: "vercel.SLACK_WEBHOOK_URL",
+    rotation: {
+      kind: "only-if",
+      when: "the address leaks: anyone holding it can post in #alerts",
+      how: `This is the SAME address as SLACK_WEBHOOK_URL in Vercel, stored in both places, so change it in BOTH: make a new incoming webhook in Slack, put it in Vercel and redeploy, then in AWS CloudShell run bash put-external-secrets.sh SLACK_WEBHOOK_URL and restart (deploy-app.yml, restart_only), and remove the old webhook.`,
+    },
+  },
+  {
     id: "aws.BETTER_AUTH_SECRET",
     env: "BETTER_AUTH_SECRET",
     home: "aws",
@@ -778,6 +806,8 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_SUPPORT_PHONE: "Our public support number, shown in the portal's Help.",
   HEALDESK_CALL_BOOKING_URL: "The public page clinics book their set-up call on.",
   HEALDESK_OPS_EMAIL: "Where operator alerts are emailed: an address.",
+  HEALDESK_CONSOLE_ORIGIN:
+    "This console's public address (https://healdesk.io), which the engine's ops alert emails and Slack posts link to, under /admin/ only. Set by Terraform's console_origin; unset, alerts carry no link.",
   HEALDESK_TEST_NUMBERS: "Your own test phones, so a test call to a clinic is never billed.",
   // Settings and switches.
   CSP_REPORT_ONLY: "Whether the site's security policy only reports, while it is being rolled out.",
@@ -1445,6 +1475,20 @@ export const BRIDGES: readonly BridgeDef[] = [
     build: "built",
     buildNote:
       "Every booking alert is queued in the outbox in the same transaction as what it reports, so nothing goes for work that rolled back, and each is only a pointer to Bookings (Conversations for an urgent one) after sign-in and the passkey. They go to the clinic's account address; an urgent one goes in-process the moment its transaction commits. If an urgent alert cannot be queued, you are emailed at once (urgent_alert_not_queued) to phone the clinic, and no channel tells the person the team was told. AYA says \"I've told the team\" only while an urgent alert would really go out: the billing-notices job on, Resend set up (its key and sender address present) and the clinic's account address there (apps/app lib/notices/urgent-readiness.ts); otherwise the urgent reply gives 911 and the clinic's number without it, the alert is still queued for when they are, and the clinic's set-up wizard and the Alerts card in its Settings say urgent alerts are not switched on yet. An urgent message in French, German, Italian or Portuguese, which AYA does not answer in, gets the line for another language and the urgent alert all the same. Nothing goes while the billing-notices job is off, and go-live does not check it: switching it on before the first clinic goes live is an open item on /admin/seo; the opening-hour \"still open\" email also needs the requests-still-open job. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. The daily summary goes at each clinic's opening time on its working days, and the weekly recap alone on Mondays while the summary is off, once their two jobs are switched on; each counts what AYA did and lists every booking and request only as a link.",
+  },
+  {
+    id: "app-slack",
+    theme: "running",
+    from: "app",
+    to: "slack",
+    title: "Ops alerts to your Slack",
+    carries: "Each ops alert's title, the clinic's name and id, and its counts; never a patient, an address, a number or anything said",
+    example: "A booking could not be written to a clinic's calendar: your phone buzzes with the clinic's name and id a minute after the email is sent.",
+    keys: ["aws.SLACK_WEBHOOK_URL"],
+    phi: false,
+    build: "built",
+    buildNote:
+      "The worker posts each alert once, from its every-minute sweep, retries at 1, 5 and 30 minutes, and records the outcome on the alert's row; only alerts from the last 24 hours are posted, so pasting the key never floods the channel. What it may carry is an allow-list in apps/app lib/ops/slack.ts. Without the key nothing posts and every alert is still emailed.",
   },
   {
     id: "app-ses",

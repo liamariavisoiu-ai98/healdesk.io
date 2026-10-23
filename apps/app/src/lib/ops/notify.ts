@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { opsAlerts } from "@/db/schema";
-import { assertPayloadAllowed } from "@/lib/email/lint";
+import { assertPayloadAllowed, consoleOrigin, printableClinicName } from "@/lib/email/lint";
 import { sendEmail } from "@/lib/email/send";
 import { OPS_REASON } from "@/lib/email/templates/context";
 import { renderOpsAlert, type OpsAlertPayload } from "@/lib/email/templates/ops_alert";
@@ -14,7 +14,9 @@ import { ALLOWED_LOG_KEYS, describeError, log, type LogFields } from "@/lib/log"
  * Ops alerting: I1 in Annex X5 of the funnel and portal plan, one call per
  * thing a person at healdesk has to act on. The caller names the event and
  * passes ids and counts, which an operator looks up in the console; nothing
- * in an alert describes a patient or quotes a clinic.
+ * in an alert describes a patient or quotes a clinic. Since 23 October 2026
+ * (owner decision D2) the email and the Slack copy (lib/ops/slack.ts) print
+ * the clinic's name beside its id, looked up when the alert goes out.
  */
 
 /**
@@ -276,6 +278,23 @@ export const OPS_EVENTS = [
   // extra-locations plan's slice 2. Once per account and channel, by the
   // hourly reconcile or the billing-requests worker.
   "step_up_phone_held",
+  // A billing clinic's meter reached the 90% mark (USAGE_ALERT_PERCENT) or
+  // its whole allowance in the open window (lib/billing/usage-alerts.ts):
+  // once per clinic, meter and window (`windowStart`), with `used` and
+  // `included`, whatever the clinic's own Usage alerts switch says, since
+  // this one is ours (owner, 23 October 2026; design E2).
+  "usage_near_cap",
+  "usage_cap_reached",
+  // A booking still on whose Google Calendar write ended `failed`, or
+  // `unknown` at its five attempts or past the desk sweep's look-back
+  // (lib/ops/calendar-write-alerts.ts, hourly): once per write and state,
+  // with the appointment's id, its status, Google's reason as `code` and the
+  // attempts. The desk was already told to add it by hand. When one run
+  // finds more than a handful not yet told (the first run, or a wide
+  // outage), one calendar_writes_stuck_many with the count instead, and
+  // each of them is recorded as told.
+  "calendar_write_stuck",
+  "calendar_writes_stuck_many",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 
@@ -371,6 +390,8 @@ const NOT_IDENTITY = new Set([
   "lateDays",
   "locationCount",
   "billedCount",
+  "used",
+  "included",
 ]);
 
 /** What the email may carry: each field the payload allowlist accepts on its own. */
@@ -474,6 +495,142 @@ async function claimAlert(
   });
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The clinic's name for an alert about it, or null: business data, which the
+ * owner allowed in ops email and Slack beside its id and counts (decision D2,
+ * 23 October 2026). Read when the alert goes out, never stored on its row,
+ * through the scheduler's definer, the one clinic listing the runtime role
+ * may make without a tenant. A name the email rule would refuse (an address,
+ * a link, a long number in it) is left out. Never throws: an alert without
+ * the name still goes.
+ */
+export async function opsClinicName(clinicId: unknown): Promise<string | null> {
+  if (typeof clinicId !== "string" || !UUID.test(clinicId)) return null;
+  try {
+    const result = await unsafeDb.execute<{ name: string | null }>(
+      sql`select name from app_clinics_overview() where id = ${clinicId}::uuid`,
+    );
+    return printableClinicName(result.rows[0]?.name);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The alerts whose clinic is best looked at on its onboarding page (its
+ * channels, calendar writes, go-live and voice set-up); every other clinic
+ * alert opens its care page (mail, deliveries, incidents, the way out).
+ */
+const ONBOARDING_PAGE_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
+  "calendar_broken",
+  "calendar_degraded",
+  "calendar_recovered",
+  "calendar_write_stuck",
+  "go_live_held",
+  "web_widget_to_confirm",
+  "voice_provision_failed",
+  "voice_agent_drift",
+  "voice_direct_line_loops",
+  "practice_question_failed",
+  "practice_question_review_past_due",
+  "connection_broken",
+]);
+
+/** Alerts that count across clinics, whose link is the console's clinic list. */
+const SUMMARY_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>(["calendar_writes_stuck_many"]);
+
+/**
+ * The one console link for an alert, which its email and its Slack copy
+ * both print (owner decision D3, 23 October 2026): the clinic's page on the
+ * ops console, `<HEALDESK_CONSOLE_ORIGIN>/admin/ops/<clinic id>/<page>`, ids
+ * alone in the URL. Null when the alert names no clinic or the origin is
+ * unset, which turns links off. The console stays behind its own sign-in.
+ * Kept to this one shape on purpose: the admin redesign takes it over.
+ */
+export function opsConsoleLink(event: OpsEvent, fields: Readonly<Record<string, unknown>>): string | null {
+  const origin = consoleOrigin();
+  if (!origin) return null;
+  // A summary across clinics opens the clinics list.
+  if (SUMMARY_EVENTS.has(event)) return `${origin}/admin/ops`;
+  const clinicId = fields.clinicId;
+  if (typeof clinicId !== "string" || !UUID.test(clinicId)) return null;
+  const page = ONBOARDING_PAGE_EVENTS.has(event) ? "onboarding" : "care";
+  return `${origin}/admin/ops/${clinicId.toLowerCase()}/${page}`;
+}
+
+/**
+ * Of these alerts, the ones not yet raised: no ops_alerts row holds their
+ * key, ever. For a sweep that would otherwise mail one alert per row on its
+ * first run (lib/ops/calendar-write-alerts.ts).
+ */
+export async function opsAlertsNotYetRaised(
+  event: OpsEvent,
+  list: readonly OpsFields[],
+): Promise<OpsFields[]> {
+  if (list.length === 0) return [];
+  const keyed = list.map((fields) => ({ fields, key: dedupeKeyOf(emailable(loggable(fields))) }));
+  const rows = await unsafeDb
+    .selectDistinct({ key: opsAlerts.dedupeKey })
+    .from(opsAlerts)
+    .where(
+      and(
+        eq(opsAlerts.event, event),
+        inArray(
+          opsAlerts.dedupeKey,
+          keyed.map((k) => k.key),
+        ),
+      ),
+    );
+  const seen = new Set(rows.map((r) => r.key));
+  return keyed.filter((k) => !seen.has(k.key)).map((k) => k.fields);
+}
+
+/**
+ * Record these alerts as told without telling anyone: a summary alert has
+ * just said how many there are. Each gets its row under its own key, so a
+ * later notifyOpsOnce for it is the no-op it would have been had it gone,
+ * with no email and no Slack post (its next try is never). Returns how many
+ * it recorded; one already there is left alone. Serialised per key as
+ * claimAlert is.
+ */
+export async function coverOpsAlerts(
+  event: OpsEvent,
+  list: readonly OpsFields[],
+  now: Date = new Date(),
+): Promise<number> {
+  let covered = 0;
+  for (const raw of list) {
+    const fields = emailable(loggable(raw));
+    const dedupeKey = dedupeKeyOf(fields);
+    const inserted = await unsafeDb.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`ops_alert|${event}|${dedupeKey}`}, 0))`,
+      );
+      const [existing] = await tx
+        .select({ id: opsAlerts.id })
+        .from(opsAlerts)
+        .where(and(eq(opsAlerts.event, event), eq(opsAlerts.dedupeKey, dedupeKey)))
+        .limit(1);
+      if (existing) return false;
+      await tx.insert(opsAlerts).values({
+        event,
+        dedupeKey,
+        fields,
+        raisedAt: now,
+        lastRaisedAt: now,
+        lastError: "Covered by a summary alert.",
+        slackError: "covered by a summary alert",
+        slackNextAt: sql`'infinity'::timestamptz`,
+      });
+      return true;
+    });
+    if (inserted) covered += 1;
+  }
+  return covered;
+}
+
 /** Where alerts go. Never a clinic's address. */
 function opsAddress(): string | null {
   const configured =
@@ -495,7 +652,17 @@ async function mail(
     outcome = { lastError: "HEALDESK_OPS_EMAIL is not set." };
   } else {
     try {
-      const payload: OpsAlertPayload = { ...fields, event };
+      // The clinic's name beside its id (owner decision D2), looked up now
+      // and never stored on the alert's row.
+      const clinicName = await opsClinicName(fields.clinicId);
+      // And its console link (D3), the one the Slack copy prints too.
+      const consoleUrl = opsConsoleLink(event, fields);
+      const payload: OpsAlertPayload = {
+        ...fields,
+        ...(clinicName ? { clinicName } : {}),
+        ...(consoleUrl ? { consoleUrl } : {}),
+        event,
+      };
       const rendered = renderOpsAlert(payload, {
         clinicName: null,
         audience: "patients",

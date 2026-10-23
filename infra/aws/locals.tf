@@ -98,6 +98,10 @@ locals {
       NODE_EXTRA_CA_CERTS      = local.rds_ca_bundle
     },
     { for k, v in { HEALDESK_OPS_EMAIL = var.healdesk_ops_email } : k => v if v != "" },
+    # The ops console's public origin, which an ops alert's email and Slack
+    # copy link to, under /admin/ only (lib/email/lint.ts; owner decision D3,
+    # 23 October 2026). Not a secret. Empty turns those links off.
+    { for k, v in { HEALDESK_CONSOLE_ORIGIN = var.console_origin } : k => v if v != "" },
     var.enable_ses ? { HEALDESK_SES_CONFIGURATION_SET = local.ses_configuration_set_name } : {},
   )
 
@@ -180,6 +184,7 @@ locals {
     "BETTER_AUTH_URL",
     "HEALDESK_ADMIN_EMAIL",
     "HEALDESK_APP_URL",
+    "HEALDESK_CONSOLE_ORIGIN",
     "HEALDESK_EMAIL_FROM",
     "HEALDESK_EMAIL_TRANSPORT",
     "HEALDESK_EXPORT_BUCKET",
@@ -225,7 +230,8 @@ locals {
   # stop links), identifier references, provisioning's signature, mail,
   # Stripe, Google for the calendar watch, sync and connection health, and
   # Retell's key for the voice call backstop, which reads a call back, and for
-  # the hourly fallback-number sync (lib/voice/retell-fallback-sync.ts).
+  # the hourly fallback-number sync (lib/voice/retell-fallback-sync.ts), and
+  # the Slack webhook ops alerts are posted through (lib/ops/slack.ts).
   worker_secret_names = [
     "BETTER_AUTH_SECRET",
     "DATABASE_URL",
@@ -235,6 +241,7 @@ locals {
     "HEALDESK_PROVISION_SECRET",
     "HEALDESK_RETELL_API_KEY",
     "RESEND_API_KEY",
+    "SLACK_WEBHOOK_URL",
     "STRIPE_SECRET_KEY",
   ]
 

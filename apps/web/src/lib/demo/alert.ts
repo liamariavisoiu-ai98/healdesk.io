@@ -9,7 +9,13 @@
  * Business events only (a demo claimed, a build failed): a clinic's name, a
  * plan, a link to the console. Never anything a patient said, which this
  * side of the boundary never holds anyway.
+ *
+ * The same #alerts address is held by apps/app on AWS, which posts its ops
+ * alerts there too (owner, 23 October 2026), so every post from here starts
+ * with SLACK_TAG, `[web]`, and apps/app's with `[app]`.
  */
+export const SLACK_TAG = "[web]";
+
 export async function postInternalAlert(text: string): Promise<void> {
   console.info("[healdesk] internal alert", { text });
   const url = process.env.SLACK_WEBHOOK_URL;
@@ -22,7 +28,7 @@ export async function postInternalAlert(text: string): Promise<void> {
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text: `${SLACK_TAG} ${text}` }),
       signal: AbortSignal.timeout(5_000),
     });
     if (!response.ok) console.error("[healdesk] slack alert failed", { status: response.status });

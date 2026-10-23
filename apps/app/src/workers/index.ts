@@ -31,6 +31,7 @@ import {
   runCalendarWatchJob,
 } from "@/lib/scheduler/calendar-watch";
 import { runPracticeQuestionsJob } from "@/lib/engine/practice/job";
+import { runOpsSlackSweep } from "@/lib/ops/slack";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSiteReadsJob } from "@/lib/website/job";
 import { handleCallBackstopJob, type CallBackstopPayload } from "@/lib/voice/backstop";
@@ -177,6 +178,9 @@ async function main(): Promise<void> {
       // The ops watch's purchase checks (WP5): a paid order with no account
       // ten minutes on, and B3's follow-up past its day (lib/ops/watch.ts).
       ["ops-watch", () => runOpsWatchJob()],
+      // Each ops alert's Slack copy, posted and retried (lib/ops/slack.ts).
+      // Unswitched: off until SLACK_WEBHOOK_URL is set.
+      ["ops-slack", () => runOpsSlackSweep()],
       // The redial records of calls that ended early (lib/voice/redial.ts):
       // each deleted at its two hours, whatever any switch says. Unswitched.
       [

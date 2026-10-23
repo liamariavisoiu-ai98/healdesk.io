@@ -25,6 +25,8 @@ import { expireErasureRecords } from "@/lib/patient-rights/erasure";
 import { sweepPatientRequests } from "@/lib/patient-rights/patient-requests";
 import { runOpsDigestJob } from "@/lib/ops/digest";
 import { runHealthFlagsJob } from "@/lib/ops/health-flags";
+import { alertStuckCalendarWrites } from "@/lib/ops/calendar-write-alerts";
+import { runOpsSlackSweep } from "@/lib/ops/slack";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
 import { runAddressChangesJob } from "@/lib/sign-in/address-change";
@@ -258,6 +260,23 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // support replies past their day, which read every clinic's outbox
   // (lib/ops/watch.ts). Every minute from the billing-minute queue as well.
   await record("ops-watch", () => runOpsWatchJob({ now, supportReplies: true }));
+  // The Slack copy of each ops alert (lib/ops/slack.ts): every minute from
+  // the billing-minute queue, and here as its backstop. Not a switched job:
+  // SLACK_WEBHOOK_URL is the switch, and without it nothing is touched.
+  // Its own clock, not the tick's: the tick reaches it minutes after it
+  // started, and a lease counted from then could already be over.
+  await record("ops-slack", () => runOpsSlackSweep());
+  // Calendar writes that need a person (lib/ops/calendar-write-alerts.ts):
+  // each booking whose Google write ended failed, or unknown and no longer
+  // retried, told to ops once. Not a switched job: it only tells ops, and
+  // looks back two weeks so a missed hour, or a day, loses nothing.
+  await record("calendar-write-alerts", async () => {
+    const r = await alertStuckCalendarWrites(now);
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.clinics} clinics, ${r.found} stuck writes${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
   // I2, the ops digest (WP5): at 07 UTC, or the first tick after it, once a
   // UTC day; a tick that finds today's sent does nothing (lib/ops/digest.ts).
   if (hour >= 7) await record("ops-digest", () => runOpsDigestJob({ now }));

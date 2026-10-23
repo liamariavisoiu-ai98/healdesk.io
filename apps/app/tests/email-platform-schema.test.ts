@@ -187,6 +187,11 @@ describeDb("drizzle/0046: the email platform's schema", () => {
       "message_id",
       "repeats",
       "sent_at",
+      // The Slack copy's state (drizzle/0112, lib/ops/slack.ts).
+      "slack_attempts",
+      "slack_error",
+      "slack_next_at",
+      "slack_posted_at",
     ]);
     expect(await tablePrivileges("email_daily_quota")).toEqual({
       select: true,

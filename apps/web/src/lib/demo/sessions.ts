@@ -242,6 +242,7 @@ function decode(cells: readonly Cell[]): DemoSession {
     auditReport: r.auditReport ?? null,
     auditedAt: r.auditedAt ?? null,
     auditHash: r.auditHash ?? null,
+    retryCount: r.retryCount ?? 0,
   };
 }
 
@@ -308,6 +309,22 @@ export async function listDemoSessions(limit = 50): Promise<DemoSession[]> {
     .slice(0, limit);
 }
 
+/**
+ * Every row whose build has outlived the run that started it
+ * (`isDemoBuildStalled`), longest stalled first, for the sweep and the
+ * console's "Retry all stalled" (lib/demo/sweep.ts). Every row, not the
+ * newest few: a rebuild of an old demo stalls the same way a new build
+ * does. Reads fresh, because a retry writes the row it is about to read.
+ * Throws when the Sheet is unreachable.
+ */
+export async function listStalledDemoSessions(now: number = Date.now()): Promise<DemoSession[]> {
+  const client = await store();
+  return (await readAll(client))
+    .map((r) => r.value)
+    .filter((s) => isDemoBuildStalled(s, now))
+    .sort((a, b) => (a.buildStartedAt ?? a.createdAt).getTime() - (b.buildStartedAt ?? b.createdAt).getTime());
+}
+
 // -----------------------------------------------------------------------------
 // Writes
 // -----------------------------------------------------------------------------
@@ -357,27 +374,40 @@ export async function createDemoSession(input: NewDemo, now: Date = new Date()):
     auditReport: null,
     auditedAt: null,
     auditHash: null,
+    retryCount: 0,
   };
   const client = await store();
   await client.appendRows(DEMO_SESSIONS.title, [recordToRow(DEMO_SESSIONS, session)]);
   return remember(session);
 }
 
+export type DemoPatch = Partial<Omit<DemoSession, "id" | "slug" | "createdAt">>;
+
 /**
  * Read the row fresh, apply `patch`, write the whole row back. Returns the
  * updated session, or null when no row has that slug. A Sheet has no
  * transaction, so two writers racing on one row means the later one wins;
- * the only concurrent writers are a build and a claim, which touch
+ * the usual concurrent writers are a build and a claim, which touch
  * different columns minutes apart.
+ *
+ * `patch` may be a function of the row as it was just read, returning the
+ * patch or null to leave the row alone. A writer whose decision depends on
+ * the row's state (the stall retry in lib/demo/sweep.ts) decides on the
+ * same read it writes from, so what can change between its look and its
+ * write is one Sheet round-trip rather than two. That is a narrower window,
+ * not a lock: two writers that both read before either writes both write,
+ * and the later one wins.
  */
 export async function updateDemoSession(
   slug: string,
-  patch: Partial<Omit<DemoSession, "id" | "slug" | "createdAt">>,
+  patch: DemoPatch | ((current: DemoSession) => DemoPatch | null),
 ): Promise<DemoSession | null> {
   const client = await store();
   const found = (await readAll(client)).find((r) => r.value.slug === slug);
   if (!found) return null;
-  const next: DemoSession = { ...found.value, ...patch };
+  const change = typeof patch === "function" ? patch(found.value) : patch;
+  if (!change) return null;
+  const next: DemoSession = { ...found.value, ...change };
   await client.updateRange(rowRange(DEMO_SESSIONS, found.row), [recordToRow(DEMO_SESSIONS, next)]);
   return remember(next);
 }

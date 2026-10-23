@@ -477,6 +477,17 @@ variable "healdesk_ops_email" {
   }
 }
 
+variable "console_origin" {
+  description = "HEALDESK_CONSOLE_ORIGIN: the ops console's public origin (apps/web's /admin), which ops alert emails and their Slack copies link to, under /admin/ only (apps/app lib/email/lint.ts, owner decision D3 of 23 October 2026). Not a secret: the console keeps its own sign-in. Empty leaves it unset, and alerts carry no link."
+  type        = string
+  default     = "https://healdesk.io"
+
+  validation {
+    condition     = var.console_origin == "" || can(regex("^https://[a-z0-9.-]+$", var.console_origin))
+    error_message = "console_origin must be empty or an https origin with no path, such as https://healdesk.io."
+  }
+}
+
 variable "meta_app_id" {
   description = "META_APP_ID (public). Empty leaves it unset: the Meta connect pages say the channel is not available."
   type        = string

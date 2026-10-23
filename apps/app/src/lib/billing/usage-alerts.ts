@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import type { BillingStatus, UsageMeter } from "@/db/schema";
+import { notifyOpsOnce, type OpsEvent, type OpsFields } from "@/lib/ops/notify";
 import { JOB_USAGE_ALERTS, runJob, type JobOutcome } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
@@ -48,6 +49,13 @@ import {
  *
  * `allowance_fallback` is not this job's: recordUsage and the gate queue it
  * the moment "Stop and fall back" engages, whatever either switch says.
+ *
+ * Ops hears of each mark as well (owner, 23 October 2026; design E2):
+ * usage_near_cap or usage_cap_reached through notifyOpsOnce, emailed and
+ * posted to Slack with the clinic's name, id, meter and counts, once per
+ * clinic, meter and window, and raised whether or not the clinic's own
+ * switch is on, because that switch is about the clinic's inbox, not ours.
+ * The job's own switch still governs both.
  */
 
 const ACTOR = { type: "service", serviceName: "usage-alerts" } as const;
@@ -84,10 +92,13 @@ export async function queueUsageAlerts(now: Date = new Date()): Promise<UsageAle
   const result: UsageAlertsResult = { clinicsConsidered: ids.length, queued: 0, failures: [] };
 
   for (const clinicId of ids) {
+    // Ops hears of each mark too, raised after the clinic's transaction so
+    // an alert never names a notice that rolled back.
+    const forOps: { event: OpsEvent; fields: OpsFields }[] = [];
     try {
       result.queued += await withTenant({ clinicId, actor: ACTOR }, async (tx) => {
         const row = await getEntitlements(tx.db, clinicId);
-        if (!row || !row.usageAlertsEnabled || !SERVED.has(row.status)) return 0;
+        if (!row || !SERVED.has(row.status)) return 0;
         const window = openWindowAt(row, now);
         if (!window) return 0;
 
@@ -103,6 +114,13 @@ export async function queueUsageAlerts(now: Date = new Date()): Promise<UsageAle
                 ? "usage_80"
                 : null;
           if (!kind) continue;
+          // Ours, so whatever the clinic's switch says (design E2): once per
+          // clinic, meter and window, by notifyOpsOnce's key.
+          forOps.push({
+            event: kind === "usage_100" ? "usage_cap_reached" : "usage_near_cap",
+            fields: { clinicId, meter, windowStart: window.start.toISOString(), used, included },
+          });
+          if (!row.usageAlertsEnabled) continue;
           // The price of a started block of 100, never a per-unit rate:
           // overage is billed in blocks (6 October 2026), so that is the
           // number a clinic can check its next invoice against.
@@ -118,6 +136,7 @@ export async function queueUsageAlerts(now: Date = new Date()): Promise<UsageAle
         }
         return queued;
       });
+      for (const alert of forOps) await notifyOpsOnce(alert.event, alert.fields);
     } catch (error) {
       // The name and message only: a driver error can carry query parameters,
       // and this note ends up on the ops console.

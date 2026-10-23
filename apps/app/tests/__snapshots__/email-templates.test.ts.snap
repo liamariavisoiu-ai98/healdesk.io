@@ -4312,7 +4312,7 @@ exports[`each template's output > ops_alert, for clients: the snapshot 1`] = `
 <p style="margin:0 0 4px;"><strong>Notice id:</strong> 5f0e4a1b-1111-4222-8333-444455556666</p>
 <p style="margin:0 0 4px;"><strong>Status:</strong> late</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 2026-10-06 14:32 UTC</p>
-<p style="margin:0 0 16px;">Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.</p>
+<p style="margin:0 0 16px;">Look the ids up in the ops console. An alert carries ids, counts and the clinic&#39;s name only; identical alerts within an hour are sent once.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
@@ -4332,7 +4332,7 @@ Notice id: 5f0e4a1b-1111-4222-8333-444455556666
 Status: late
 Raised: 2026-10-06 14:32 UTC
 
-Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.
+Look the ids up in the ops console. An alert carries ids, counts and the clinic's name only; identical alerts within an hour are sent once.
 
 —
 You're receiving this because this address is set as healdesk's ops alert address.
@@ -4370,7 +4370,7 @@ exports[`each template's output > ops_alert, for patients: the snapshot 1`] = `
 <p style="margin:0 0 4px;"><strong>Notice id:</strong> 5f0e4a1b-1111-4222-8333-444455556666</p>
 <p style="margin:0 0 4px;"><strong>Status:</strong> late</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 2026-10-06 14:32 UTC</p>
-<p style="margin:0 0 16px;">Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.</p>
+<p style="margin:0 0 16px;">Look the ids up in the ops console. An alert carries ids, counts and the clinic&#39;s name only; identical alerts within an hour are sent once.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -4390,7 +4390,7 @@ Notice id: 5f0e4a1b-1111-4222-8333-444455556666
 Status: late
 Raised: 2026-10-06 14:32 UTC
 
-Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.
+Look the ids up in the ops console. An alert carries ids, counts and the clinic's name only; identical alerts within an hour are sent once.
 
 —
 You're receiving this because this address is set as healdesk's ops alert address.
@@ -8673,7 +8673,7 @@ exports[`ops alerts beyond the fixture > a leaving practice with no export deliv
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Destruction due (UTC):</strong> 2026-11-30T10:00:00.000Z</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 2026-10-06 14:32 UTC</p>
-<p style="margin:0 0 16px;">Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.</p>
+<p style="margin:0 0 16px;">Look the ids up in the ops console. An alert carries ids, counts and the clinic&#39;s name only; identical alerts within an hour are sent once.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -8690,7 +8690,7 @@ Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
 Destruction due (UTC): 2026-11-30T10:00:00.000Z
 Raised: 2026-10-06 14:32 UTC
 
-Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.
+Look the ids up in the ops console. An alert carries ids, counts and the clinic's name only; identical alerts within an hour are sent once.
 
 —
 You're receiving this because this address is set as healdesk's ops alert address.
@@ -8726,7 +8726,7 @@ exports[`ops alerts beyond the fixture > a subscription's end processed over a w
 <p style="margin:0 0 4px;"><strong>Days late:</strong> 3</p>
 <p style="margin:0 0 4px;"><strong>Service ended (UTC):</strong> 2026-10-27T10:00:00.000Z</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 2026-10-06 14:32 UTC</p>
-<p style="margin:0 0 16px;">Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.</p>
+<p style="margin:0 0 16px;">Look the ids up in the ops console. An alert carries ids, counts and the clinic&#39;s name only; identical alerts within an hour are sent once.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -8744,7 +8744,7 @@ Days late: 3
 Service ended (UTC): 2026-10-27T10:00:00.000Z
 Raised: 2026-10-06 14:32 UTC
 
-Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.
+Look the ids up in the ops console. An alert carries ids, counts and the clinic's name only; identical alerts within an hour are sent once.
 
 —
 You're receiving this because this address is set as healdesk's ops alert address.
@@ -8778,7 +8778,7 @@ exports[`ops alerts beyond the fixture > the DMARC review reminder: the snapshot
 <p style="margin:0 0 4px;"><strong>Event:</strong> dmarc_review_due</p>
 <p style="margin:0 0 4px;"><strong>Day:</strong> 2026-10-06</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 2026-10-06 14:32 UTC</p>
-<p style="margin:0 0 16px;">Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.</p>
+<p style="margin:0 0 16px;">Look the ids up in the ops console. An alert carries ids, counts and the clinic&#39;s name only; identical alerts within an hour are sent once.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -8794,7 +8794,7 @@ Event: dmarc_review_due
 Day: 2026-10-06
 Raised: 2026-10-06 14:32 UTC
 
-Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.
+Look the ids up in the ops console. An alert carries ids, counts and the clinic's name only; identical alerts within an hour are sent once.
 
 —
 You're receiving this because this address is set as healdesk's ops alert address.

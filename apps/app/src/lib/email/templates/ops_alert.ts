@@ -1,3 +1,5 @@
+import { USAGE_ALERT_PERCENT } from "@healdesk/catalog";
+
 import type { OpsEvent } from "@/lib/ops/notify";
 
 import { compose, type Block } from "./compose";
@@ -6,14 +8,18 @@ import type { EmailTemplate } from "./types";
 /**
  * I1 in Annex X5: one notifyOps alert, to HEALDESK_OPS_EMAIL.
  *
- * Ids, counts and categories only, which the operator looks up in the ops
- * console. Nothing here names a clinic, quotes an address or carries free
- * text, so the alert is safe to read on a phone in a queue and safe in a
- * vendor's logs. The wording says what happened and what to do next, one
+ * Ids, counts and categories, which the operator looks up in the ops
+ * console, and the clinic's name beside its id (business data; the owner's
+ * decision D2 of 23 October 2026). Nothing here quotes an address, names a
+ * patient or carries free text, so the alert is safe to read on a phone in a
+ * queue and safe in a vendor's logs. The wording says what happened and what to do next, one
  * event at a time, because "something went wrong" at 3 am is not an alert.
  *
- * It links nowhere. The console lives on the marketing site's origin, and an
- * email from apps/app links only to apps/app's public origin (X1.6).
+ * It links to one place only: since the owner's decision D3 of 23 October
+ * 2026, the clinic's page on the ops console (`consoleUrl`, built by
+ * opsConsoleLink in lib/ops/notify.ts), which lib/email/lint.ts accepts in
+ * this kind alone and only under /admin/ on HEALDESK_CONSOLE_ORIGIN. With
+ * that origin unset, or an alert that names no clinic, it links nowhere.
  */
 
 /** The alert's fields: ids, counts and categories, keyed as lib/log.ts keys them. */
@@ -501,6 +507,31 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The quantity Stripe bills this account for locations matches its active locations again, so the mismatch reported earlier for the time below has ended. Nothing more to do unless a refund or a credit for the period it lasted is still owed.",
   },
+  // The usage alerts job (lib/billing/usage-alerts.ts), once per clinic,
+  // meter and window, whatever the clinic's own switch says.
+  usage_near_cap: {
+    title: "A clinic is near its monthly allowance",
+    action:
+      `The clinic below has used ${USAGE_ALERT_PERCENT}% or more of the allowance on the meter shown, in its current window (used against included). The clinic gets its own email only while its Usage alerts switch is on. At this pace, moving up a step costs it less than extra blocks of 100: consider a call before the window ends.`,
+  },
+  usage_cap_reached: {
+    title: "A clinic has used its whole allowance",
+    action:
+      "The clinic below has used all of the allowance on the meter shown, in its current window. What happens next is its own setting on its Billing page: extra blocks of 100 are billed, or, with Stop and fall back, AYA stops on that meter and calls go to its direct line. Check which, and call the clinic if a step up would serve it better.",
+  },
+  // lib/ops/calendar-write-alerts.ts, hourly, once per write and state.
+  calendar_write_stuck: {
+    title: "A booking could not be written to a clinic's calendar",
+    action:
+      "A booking the clinic confirmed is not in its Google Calendar, and the clinic was already told to add it by hand. Status failed means Google refused it and nothing retries it on its own; unknown means Google never answered and the retries have stopped (five attempts, or a day without one). The code is Google's reason: event_id_taken means an event under our id is already there at another time (look for a duplicate, do not retry); deleted_in_calendar means the clinic deleted it (nothing to do); a target_ code or calendar_not_connected means the calendar or its access changed (send the clinic a calendar link); timeout, network or unconfirmed are passing (retry the write from the clinic's onboarding page). Open the clinic's calendar writes in the console.",
+  },
+  // The same sweep, when one run finds more stuck writes than it alerts one
+  // by one: `count` of them, each recorded as told.
+  calendar_writes_stuck_many: {
+    title: "Several bookings could not be written to calendars",
+    action:
+      "The hourly check found the number of bookings below whose Google Calendar write failed or was given up on, more than it reports one by one, so this one alert stands for all of them and none will be sent separately. Each clinic's desk was already told to add its booking by hand. Open the clinics in the console and look at each one's calendar writes on its onboarding page; a new failure after this is reported on its own again.",
+  },
   step_up_phone_held: {
     title: "Phone held off a plan with more than one location",
     action:
@@ -526,8 +557,11 @@ const DEAD_LETTER: Wording = {
 
 /** The labels a field prints under. Anything else prints under its own key. */
 const LABELS: Record<string, string> = {
+  clinicName: "Clinic",
   clinicId: "Clinic id",
   noticeId: "Notice id",
+  appointmentId: "Appointment id",
+  attemptCount: "Write attempts",
   deliveryId: "Delivery id",
   organizationId: "Organisation id",
   agreementId: "Agreement id",
@@ -550,6 +584,9 @@ const LABELS: Record<string, string> = {
   channel: "Channel",
   locationCount: "Locations active",
   billedCount: "Locations billed in Stripe",
+  meter: "Meter",
+  used: "Used",
+  included: "Included",
 };
 
 function wordingFor(payload: OpsAlertPayload): Wording {
@@ -559,10 +596,21 @@ function wordingFor(payload: OpsAlertPayload): Wording {
   return WORDING[payload.event] ?? { title: payload.event, action: "Look it up in the console." };
 }
 
+/** The alert's title, as its email's subject prints it: the Slack copy's first line (lib/ops/slack.ts). */
+export function opsAlertTitle(payload: OpsAlertPayload): string {
+  return wordingFor(payload).title;
+}
+
+/** The label a field prints under, in the email and the Slack copy alike. */
+export function opsFieldLabel(key: string): string {
+  return LABELS[key] ?? key;
+}
+
 export const renderOpsAlert: EmailTemplate<OpsAlertPayload> = (payload, ctx) => {
   const wording = wordingFor(payload);
+  const consoleUrl = typeof payload.consoleUrl === "string" ? payload.consoleUrl : null;
   const facts = Object.entries(payload)
-    .filter(([key, value]) => key !== "event" && value !== null && value !== undefined)
+    .filter(([key, value]) => key !== "event" && key !== "consoleUrl" && value !== null && value !== undefined)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => [LABELS[key] ?? key, String(value)] as const);
 
@@ -576,9 +624,11 @@ export const renderOpsAlert: EmailTemplate<OpsAlertPayload> = (payload, ctx) => 
         ["Raised", `${ctx.raisedAt.toISOString().replace("T", " ").slice(0, 16)} UTC`],
       ],
     },
+    // The clinic's page on the console (D3), behind its own sign-in.
+    ...(consoleUrl ? [{ type: "action" as const, label: "Open in the console", url: consoleUrl }] : []),
     {
       type: "paragraph",
-      text: "Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.",
+      text: "Look the ids up in the ops console. An alert carries ids, counts and the clinic's name only; identical alerts within an hour are sent once.",
     },
   ];
 

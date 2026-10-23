@@ -120,6 +120,11 @@ export const KEPT_FOR_GOOD: Readonly<Record<string, string>> = {
     "the notices given to the practice, as each said them: the billing notices (receipts, failed payments, the cancellation) are billing records, and the rest are the notices the Terms and the agreements require (the closure, the export, the destruction, terms and subprocessor changes, incident reports); none names a patient (Annex X)",
   report_deliveries:
     "the ledger of those notices: when each went, to which address, and whether it arrived, the proof that a notice the agreements require was given; business contact data, no patient",
+  // The lifecycle watch (drizzle/0115).
+  lifecycle_waves:
+    "the ledger of the setup reminders given and of our own alerts about the account: which notice and alert, when, and to whom (the clinic's address, ours or Slack), beside the notices it records; ids, closed words and dates, no patient",
+  clinic_lifecycle:
+    "where the account stood when it ended and our decision about its setup (let it close, extended): what explains a closure at the end of the setup window; counts, dates and closed words, no patient",
 };
 
 /**

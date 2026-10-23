@@ -38,6 +38,11 @@ export const READONLY_TABLES = [
   "platform_compliance",
   "provisioning_attempts",
   "usage_events",
+  // The lifecycle watch (drizzle/0115): a clinic's stage, counts, dates and
+  // the operator's snooze and decision; the reminder ledger's ids, closed
+  // words and dates. Read column by column on 23 October 2026: no patient.
+  "clinic_lifecycle",
+  "lifecycle_waves",
 ] as const;
 
 /** Tables the role can never read, and why. */

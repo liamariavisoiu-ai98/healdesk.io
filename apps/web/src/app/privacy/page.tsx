@@ -120,6 +120,11 @@ export const metadata: Metadata = {
  * is kept without the words, where it said seven days after the email was
  * first accepted.
  *
+ * Revised on 23 October 2026 as LEGAL_VERSION 2026-10-23.2: section 2's analytics item
+ * describes what is measured in general terms ("how the site is used and how well it
+ * works") where it listed page views and named funnel steps, since the analytics provider's
+ * own settings also measure dead clicks and page speed (owner's decision, kept general).
+ *
  * Revised on 23 October 2026 as LEGAL_VERSION 2026-10-23.1 (see the terms): analytics is
  * opt-out rather than opt-in (owner's decision), so section 2's analytics item and
  * section 4's analytics cookies say "unless you opt out" where they said "only if you
@@ -326,9 +331,9 @@ export default function PrivacyPage() {
             briefly by our hosting provider and never longer than {POLICY.logRetentionDays} days.
           </li>
           <li>
-            <strong>Analytics, unless you opt out.</strong> Page views and named funnel steps (for
-            example "started checkout", "reached checkout step 3"). Never the contents of a form,
-            an email address, a phone number or a chat message. If you opt out, or your browser
+            <strong>Analytics, unless you opt out.</strong> Information about how the site is used
+            and how well it works, such as the pages visited and the steps taken through it. Never
+            the contents of a form, an email address, a phone number or a chat message. If you opt out, or your browser
             sends Global Privacy Control or Do Not Track, nothing is measured and the site works
             identically.
           </li>

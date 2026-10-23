@@ -388,3 +388,24 @@ so a token that lingers exposes business data only, and still must go.
 periods say is due. Read the job's note and the `retention` code before anything: a purge
 that did not run is behind the agreement, and a purge run by hand without the job's checks
 can delete what a hold still covers.
+
+### Availability
+
+`clinic_availability_changed`. A clinic changed its opening hours, its closed days, a location's
+hours, or its named providers and what they offer, or an edit made outside the portal did. The
+Setup tab's availability card lists the change and the audit that followed it. An audit that
+warns or fails says which check and why; run it again after the clinic's calendar is fixed.
+
+### Setup progress
+
+`lifecycle_no_progress`, `lifecycle_closing_soon`, `lifecycle_decision_due`,
+`lifecycle_waiting_on_us`, `lifecycle_waiting_on_us_long`, `lifecycle_closing_waiting_on_us`,
+`lifecycle_channel_waiting`, `lifecycle_reminder_undelivered`, `lifecycle_reminders_unanswered`.
+The lifecycle watch's waves about one clinic's setup. The Setup tab says what is left, the
+Deliveries tab shows each reminder and whether it arrived. A clinic that has done its part and
+waits on us closes at the end of its window anyway: extend the setup window on its Billing tab.
+
+### Morning digest
+
+`ops_digest_summary`. The 07:00 digest's one line in Slack: its counts, once a day. The email is
+the full list; open System › Jobs if the digest did not arrive.

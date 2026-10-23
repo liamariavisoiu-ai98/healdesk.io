@@ -44,6 +44,9 @@ export const RUNBOOK_ANCHORS = [
   "vendors",
   "meta",
   "retention",
+  "availability",
+  "setup-progress",
+  "morning-digest",
 ] as const;
 
 export type RunbookAnchor = (typeof RUNBOOK_ANCHORS)[number];
@@ -138,6 +141,17 @@ export const RUNBOOK_ANCHOR: Record<OpsEvent, RunbookAnchor> = {
   usage_cap_reached: "usage",
   calendar_write_stuck: "calendar",
   calendar_writes_stuck_many: "calendar",
+  clinic_availability_changed: "availability",
+  lifecycle_no_progress: "setup-progress",
+  lifecycle_closing_soon: "setup-progress",
+  lifecycle_decision_due: "setup-progress",
+  lifecycle_waiting_on_us: "setup-progress",
+  lifecycle_waiting_on_us_long: "setup-progress",
+  lifecycle_channel_waiting: "setup-progress",
+  lifecycle_reminder_undelivered: "setup-progress",
+  lifecycle_reminders_unanswered: "setup-progress",
+  lifecycle_closing_waiting_on_us: "setup-progress",
+  ops_digest_summary: "morning-digest",
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

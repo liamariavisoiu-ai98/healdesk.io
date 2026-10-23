@@ -94,6 +94,17 @@ export const OPS_EVENTS = [
   "usage_cap_reached",
   "calendar_write_stuck",
   "calendar_writes_stuck_many",
+  "clinic_availability_changed",
+  "lifecycle_no_progress",
+  "lifecycle_closing_soon",
+  "lifecycle_decision_due",
+  "lifecycle_waiting_on_us",
+  "lifecycle_waiting_on_us_long",
+  "lifecycle_channel_waiting",
+  "lifecycle_reminder_undelivered",
+  "lifecycle_reminders_unanswered",
+  "lifecycle_closing_waiting_on_us",
+  "ops_digest_summary",
 ] as const;
 
 export type OpsEvent = (typeof OPS_EVENTS)[number];

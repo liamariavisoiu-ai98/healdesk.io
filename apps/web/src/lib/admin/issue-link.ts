@@ -70,6 +70,15 @@ export function parseIssueHash(hash: string): { event: OpsEvent; id: string } | 
  * agreements, patient rights and offboarding are decided there.
  */
 const SETUP: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
+  "clinic_availability_changed",
+  "lifecycle_no_progress",
+  "lifecycle_closing_soon",
+  "lifecycle_decision_due",
+  "lifecycle_waiting_on_us",
+  "lifecycle_waiting_on_us_long",
+  "lifecycle_channel_waiting",
+  "lifecycle_reminders_unanswered",
+  "lifecycle_closing_waiting_on_us",
   "calendar_broken",
   "calendar_degraded",
   "calendar_recovered",
@@ -119,6 +128,7 @@ const BILLING: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
 ]);
 
 const DELIVERIES: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
+  "lifecycle_reminder_undelivered",
   "critical_notice_undelivered",
   "clinic_address_bounced",
   "clinic_address_complained",

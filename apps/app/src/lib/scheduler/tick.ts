@@ -25,6 +25,7 @@ import { expireErasureRecords } from "@/lib/patient-rights/erasure";
 import { sweepPatientRequests } from "@/lib/patient-rights/patient-requests";
 import { runOpsDigestJob } from "@/lib/ops/digest";
 import { runHealthFlagsJob } from "@/lib/ops/health-flags";
+import { alertStuckCalendarWrites } from "@/lib/ops/calendar-write-alerts";
 import { runOpsSlackSweep } from "@/lib/ops/slack";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
@@ -263,6 +264,17 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // the billing-minute queue, and here as its backstop. Not a switched job:
   // SLACK_OPS_WEBHOOK_URL is the switch, and without it nothing is touched.
   await record("ops-slack", () => runOpsSlackSweep(now));
+  // Calendar writes that need a person (lib/ops/calendar-write-alerts.ts):
+  // each booking whose Google write ended failed, or unknown and no longer
+  // retried, told to ops once. Not a switched job: it only tells ops, and
+  // looks back two weeks so a missed hour, or a day, loses nothing.
+  await record("calendar-write-alerts", async () => {
+    const r = await alertStuckCalendarWrites(now);
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.clinics} clinics, ${r.found} stuck writes${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
   // I2, the ops digest (WP5): at 07 UTC, or the first tick after it, once a
   // UTC day; a tick that finds today's sent does nothing (lib/ops/digest.ts).
   if (hour >= 7) await record("ops-digest", () => runOpsDigestJob({ now }));

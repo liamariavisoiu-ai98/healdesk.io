@@ -285,6 +285,12 @@ export const OPS_EVENTS = [
   // this one is ours (owner, 23 October 2026; design E2).
   "usage_near_cap",
   "usage_cap_reached",
+  // A booking still on whose Google Calendar write ended `failed`, or
+  // `unknown` at its five attempts or past the desk sweep's look-back
+  // (lib/ops/calendar-write-alerts.ts, hourly): once per write and state,
+  // with the appointment's id, its status, Google's reason as `code` and the
+  // attempts. The desk was already told to add it by hand.
+  "calendar_write_stuck",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 
@@ -517,6 +523,7 @@ const ONBOARDING_PAGE_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "calendar_broken",
   "calendar_degraded",
   "calendar_recovered",
+  "calendar_write_stuck",
   "go_live_held",
   "web_widget_to_confirm",
   "voice_provision_failed",

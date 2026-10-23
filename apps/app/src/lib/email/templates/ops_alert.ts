@@ -519,6 +519,12 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The clinic below has used all of the allowance on the meter shown, in its current window. What happens next is its own setting on its Billing page: extra blocks of 100 are billed, or, with Stop and fall back, AYA stops on that meter and calls go to its direct line. Check which, and call the clinic if a step up would serve it better.",
   },
+  // lib/ops/calendar-write-alerts.ts, hourly, once per write and state.
+  calendar_write_stuck: {
+    title: "A booking could not be written to a clinic's calendar",
+    action:
+      "A booking the clinic confirmed is not in its Google Calendar, and the clinic was already told to add it by hand. Status failed means Google refused it and nothing retries it on its own; unknown means Google never answered and the retries have stopped (five attempts, or a day without one). The code is Google's reason: event_id_taken means an event under our id is already there at another time (look for a duplicate, do not retry); deleted_in_calendar means the clinic deleted it (nothing to do); a target_ code or calendar_not_connected means the calendar or its access changed (send the clinic a calendar link); timeout, network or unconfirmed are passing (retry the write from the clinic's onboarding page). Open the clinic's calendar writes in the console.",
+  },
   step_up_phone_held: {
     title: "Phone held off a plan with more than one location",
     action:
@@ -547,6 +553,7 @@ const LABELS: Record<string, string> = {
   clinicName: "Clinic",
   clinicId: "Clinic id",
   noticeId: "Notice id",
+  appointmentId: "Appointment id",
   deliveryId: "Delivery id",
   organizationId: "Organisation id",
   agreementId: "Agreement id",

@@ -5,7 +5,7 @@ import { isCountKey } from "@/lib/email/lint";
 import { opsAlertTitle, opsFieldLabel } from "@/lib/email/templates/ops_alert";
 import { describeError, log } from "@/lib/log";
 
-import { opsClinicName, type OpsEvent } from "./notify";
+import { opsClinicName, opsConsoleLink, type OpsEvent } from "./notify";
 
 /**
  * Ops alerts in Slack (owner decisions D1 and D2 of the ops automation plan,
@@ -23,8 +23,8 @@ import { opsClinicName, type OpsEvent } from "./notify";
  *
  * Slack signs no business associate agreement, so what it is sent is an
  * allow-list, built here and nowhere else: the alert's title (our fixed
- * wording) and event name, the clinic's name and id, the alert's counts, and
- * nothing more. Never a patient, an address, a phone number, a conversation,
+ * wording) and event name, the clinic's name and id, the alert's counts, the
+ * console link its email carries (opsConsoleLink), and nothing more. Never a patient, an address, a phone number, a conversation,
  * a notice or a request id, never free text; a field not on the list is left
  * out whatever it holds. The webhook's address is never logged or recorded:
  * a failure is kept as an HTTP status or an error's name.
@@ -89,7 +89,9 @@ export function slackText(alert: SlackAlert): string {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${escapeSlack(opsFieldLabel(key))}: ${value}`);
   if (facts.length > 0) lines.push(facts.join(" · "));
-  lines.push(`_${alert.event}_`);
+  // The same console link the email carries (opsConsoleLink, decision D3).
+  const link = opsConsoleLink(alert.event, fields);
+  lines.push(link ? `_${alert.event}_ · <${link}|Open in the console>` : `_${alert.event}_`);
   return lines.join("\n");
 }
 

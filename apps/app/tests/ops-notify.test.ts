@@ -35,6 +35,7 @@ const ENV = [
   "HEALDESK_EMAIL_FROM",
   "HEALDESK_OPS_EMAIL",
   "BETTER_AUTH_URL",
+  "HEALDESK_CONSOLE_ORIGIN",
 ] as const;
 
 let keys = 0;
@@ -63,6 +64,7 @@ describeDb("notifyOps", () => {
     process.env.HEALDESK_EMAIL_FROM = "healdesk <hello@healdesk.io>";
     process.env.HEALDESK_OPS_EMAIL = "ops@healdesk.test";
     process.env.BETTER_AUTH_URL = "https://app.healdesk.test";
+    process.env.HEALDESK_CONSOLE_ORIGIN = "https://healdesk.test";
     send.mockReset();
     send.mockResolvedValue({ data: { id: "msg_ops" }, error: null, headers: {} });
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -137,6 +139,8 @@ describeDb("notifyOps", () => {
     expect(body).toContain("opsname Clinic");
     expect(body).toContain(clinic.clinicId);
     expect(body).toContain("1001");
+    // And its console page (decision D3), the email's one link.
+    expect(body).toContain(`https://healdesk.test/admin/ops/${clinic.clinicId}/care`);
     const { rows } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
       `select fields from ops_alerts`,
     );

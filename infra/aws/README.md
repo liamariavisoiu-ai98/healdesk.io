@@ -240,7 +240,9 @@ same conversation code.
   `BETTER_AUTH_URL=https://app.healdesk.io`, `HEALDESK_APP_URL=https://app-internal.healdesk.io`,
   `HEALDESK_KMS_PROVIDER=aws-kms`, `HEALDESK_KMS_KEY_ID=<the key's full ARN>`,
   `AWS_REGION=us-east-1`, `HEALDESK_EMAIL_TRANSPORT=resend`, `HEALDESK_EMAIL_FROM`,
-  `HEALDESK_ADMIN_EMAIL`, `HEALDESK_OPS_EMAIL` (when set), `NODE_EXTRA_CA_CERTS`, and anything in
+  `HEALDESK_ADMIN_EMAIL`, `HEALDESK_OPS_EMAIL` (when set), `HEALDESK_CONSOLE_ORIGIN`
+  (`console_origin`, `https://healdesk.io`: ops alerts link to the console under `/admin/`, and
+  empty turns the links off), `NODE_EXTRA_CA_CERTS`, and anything in
   `app_environment` (such as the setup wizard's `HEALDESK_SUPPORT_PHONE` and
   `HEALDESK_CALL_BOOKING_URL`); the web tier adds `PORT=3001`, `HOSTNAME=0.0.0.0`,
   `KEEP_ALIVE_TIMEOUT` (idle timeout + 5 s, so 125000) and, when filled in `production.tfvars`,

@@ -15,8 +15,11 @@ import type { EmailTemplate } from "./types";
  * queue and safe in a vendor's logs. The wording says what happened and what to do next, one
  * event at a time, because "something went wrong" at 3 am is not an alert.
  *
- * It links nowhere. The console lives on the marketing site's origin, and an
- * email from apps/app links only to apps/app's public origin (X1.6).
+ * It links to one place only: since the owner's decision D3 of 23 October
+ * 2026, the clinic's page on the ops console (`consoleUrl`, built by
+ * opsConsoleLink in lib/ops/notify.ts), which lib/email/lint.ts accepts in
+ * this kind alone and only under /admin/ on HEALDESK_CONSOLE_ORIGIN. With
+ * that origin unset, or an alert that names no clinic, it links nowhere.
  */
 
 /** The alert's fields: ids, counts and categories, keyed as lib/log.ts keys them. */
@@ -590,8 +593,9 @@ export function opsFieldLabel(key: string): string {
 
 export const renderOpsAlert: EmailTemplate<OpsAlertPayload> = (payload, ctx) => {
   const wording = wordingFor(payload);
+  const consoleUrl = typeof payload.consoleUrl === "string" ? payload.consoleUrl : null;
   const facts = Object.entries(payload)
-    .filter(([key, value]) => key !== "event" && value !== null && value !== undefined)
+    .filter(([key, value]) => key !== "event" && key !== "consoleUrl" && value !== null && value !== undefined)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => [LABELS[key] ?? key, String(value)] as const);
 
@@ -605,6 +609,8 @@ export const renderOpsAlert: EmailTemplate<OpsAlertPayload> = (payload, ctx) => 
         ["Raised", `${ctx.raisedAt.toISOString().replace("T", " ").slice(0, 16)} UTC`],
       ],
     },
+    // The clinic's page on the console (D3), behind its own sign-in.
+    ...(consoleUrl ? [{ type: "action" as const, label: "Open in the console", url: consoleUrl }] : []),
     {
       type: "paragraph",
       text: "Look the ids up in the ops console. An alert carries ids, counts and the clinic's name only; identical alerts within an hour are sent once.",

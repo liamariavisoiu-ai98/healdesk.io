@@ -792,6 +792,8 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_SUPPORT_PHONE: "Our public support number, shown in the portal's Help.",
   HEALDESK_CALL_BOOKING_URL: "The public page clinics book their set-up call on.",
   HEALDESK_OPS_EMAIL: "Where operator alerts are emailed: an address.",
+  HEALDESK_CONSOLE_ORIGIN:
+    "This console's public address (https://healdesk.io), which the engine's ops alert emails and Slack posts link to, under /admin/ only. Set by Terraform's console_origin; unset, alerts carry no link.",
   HEALDESK_TEST_NUMBERS: "Your own test phones, so a test call to a clinic is never billed.",
   // Settings and switches.
   CSP_REPORT_ONLY: "Whether the site's security policy only reports, while it is being rolled out.",

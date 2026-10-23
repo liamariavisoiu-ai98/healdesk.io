@@ -4,7 +4,7 @@ import { and, desc, eq, gt, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { opsAlerts } from "@/db/schema";
-import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
+import { assertPayloadAllowed, consoleOrigin, printableClinicName } from "@/lib/email/lint";
 import { sendEmail } from "@/lib/email/send";
 import { OPS_REASON } from "@/lib/email/templates/context";
 import { renderOpsAlert, type OpsAlertPayload } from "@/lib/email/templates/ops_alert";
@@ -508,6 +508,41 @@ export async function opsClinicName(clinicId: unknown): Promise<string | null> {
   }
 }
 
+/**
+ * The alerts whose clinic is best looked at on its onboarding page (its
+ * channels, calendar writes, go-live and voice set-up); every other clinic
+ * alert opens its care page (mail, deliveries, incidents, the way out).
+ */
+const ONBOARDING_PAGE_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
+  "calendar_broken",
+  "calendar_degraded",
+  "calendar_recovered",
+  "go_live_held",
+  "web_widget_to_confirm",
+  "voice_provision_failed",
+  "voice_agent_drift",
+  "voice_direct_line_loops",
+  "practice_question_failed",
+  "practice_question_review_past_due",
+  "connection_broken",
+]);
+
+/**
+ * The one console link for an alert, which its email and its Slack copy
+ * both print (owner decision D3, 23 October 2026): the clinic's page on the
+ * ops console, `<HEALDESK_CONSOLE_ORIGIN>/admin/ops/<clinic id>/<page>`, ids
+ * alone in the URL. Null when the alert names no clinic or the origin is
+ * unset, which turns links off. The console stays behind its own sign-in.
+ * Kept to this one shape on purpose: the admin redesign takes it over.
+ */
+export function opsConsoleLink(event: OpsEvent, fields: Readonly<Record<string, unknown>>): string | null {
+  const origin = consoleOrigin();
+  const clinicId = fields.clinicId;
+  if (!origin || typeof clinicId !== "string" || !UUID.test(clinicId)) return null;
+  const page = ONBOARDING_PAGE_EVENTS.has(event) ? "onboarding" : "care";
+  return `${origin}/admin/ops/${clinicId.toLowerCase()}/${page}`;
+}
+
 /** Where alerts go. Never a clinic's address. */
 function opsAddress(): string | null {
   const configured =
@@ -532,7 +567,14 @@ async function mail(
       // The clinic's name beside its id (owner decision D2), looked up now
       // and never stored on the alert's row.
       const clinicName = await opsClinicName(fields.clinicId);
-      const payload: OpsAlertPayload = { ...fields, ...(clinicName ? { clinicName } : {}), event };
+      // And its console link (D3), the one the Slack copy prints too.
+      const consoleUrl = opsConsoleLink(event, fields);
+      const payload: OpsAlertPayload = {
+        ...fields,
+        ...(clinicName ? { clinicName } : {}),
+        ...(consoleUrl ? { consoleUrl } : {}),
+        event,
+      };
       const rendered = renderOpsAlert(payload, {
         clinicName: null,
         audience: "patients",

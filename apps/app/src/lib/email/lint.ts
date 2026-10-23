@@ -27,7 +27,8 @@ import { carriesUnsubscribe, isLinkEmail, isEmailKind, type EmailKind } from "./
  *     own number, and would miss a treatment name entirely;
  *   - the LINK SCANNER, over the bodies and the headers: https, our public
  *     origin or a payment page Stripe hosts, never HEALDESK_APP_URL, and a
- *     single-use token only in the kinds that mint one.
+ *     single-use token only in the kinds that mint one; and in an ops alert,
+ *     and nowhere else, a page under /admin/ on the console's origin.
  *
  * The copy lint and the subject rules are about wording, which is fixed in the
  * templates, so they run over every template in the tests and in the seed
@@ -467,6 +468,41 @@ function internalOrigin(): string | null {
   }
 }
 
+/**
+ * The ops console's public origin (HEALDESK_CONSOLE_ORIGIN, "https://healdesk.io"
+ * on the AWS host), or null: unset, not an https origin, or the same as
+ * apps/app's own. Not a secret. The owner's decision D3 of 23 October 2026
+ * lets one kind link to it: an `ops_alert` email may carry a link to a page
+ * under /admin/ there, which stays behind the console's password and code.
+ * Every other kind, and every other path, is refused as before, so a clinic's
+ * email can never point into the console. Read at call time.
+ */
+export function consoleOrigin(): string | null {
+  const raw = process.env.HEALDESK_CONSOLE_ORIGIN?.trim();
+  if (!raw || raw === "__unset__") return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || url.origin !== raw.replace(/\/$/, "")) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Where a console link may point: a page under /admin/, nothing in its query. */
+export const CONSOLE_PATH_PREFIX = "/admin/";
+
+function consoleLinkProblem(url: URL, kind: EmailKind | string | undefined): string | null {
+  if (kind !== "ops_alert") return "a link to the ops console in an email that is not an ops alert";
+  if (!url.pathname.startsWith(CONSOLE_PATH_PREFIX)) {
+    return `a link to the ops console outside ${CONSOLE_PATH_PREFIX}`;
+  }
+  if (url.username || url.password) return "a link with credentials in it";
+  if (url.search) return "a link to the ops console with a query";
+  if (carriesToken(url)) return "a single-use token in a link to the ops console";
+  return null;
+}
+
 /** Why one link may not appear in an email of this kind, or null when it may. */
 export function linkProblem(link: string, kind?: EmailKind | string): string | null {
   let url: URL;
@@ -480,6 +516,10 @@ export function linkProblem(link: string, kind?: EmailKind | string): string | n
   const internal = internalOrigin();
   if (internal && url.origin === internal) {
     return "a link to HEALDESK_APP_URL, the internal origin that must never reach a browser";
+  }
+  const consoleAt = consoleOrigin();
+  if (consoleAt && consoleAt !== ours && url.origin === consoleAt) {
+    return consoleLinkProblem(url, kind);
   }
   const developmentOrigin = process.env.NODE_ENV !== "production" && url.origin === ours;
   if (url.protocol !== "https:" && !developmentOrigin) {

@@ -267,7 +267,7 @@ run "production_defaults" {
     condition = toset([
       for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).environment : e.name
       ]) == toset([
-      "AWS_REGION", "BETTER_AUTH_URL", "HEALDESK_ADMIN_EMAIL", "HEALDESK_APP_URL", "HEALDESK_EMAIL_FROM",
+      "AWS_REGION", "BETTER_AUTH_URL", "HEALDESK_ADMIN_EMAIL", "HEALDESK_APP_URL", "HEALDESK_CONSOLE_ORIGIN", "HEALDESK_EMAIL_FROM",
       "HEALDESK_EMAIL_TRANSPORT", "HEALDESK_KMS_KEY_ID", "HEALDESK_KMS_PROVIDER", "HEALDESK_SES_CONFIGURATION_SET",
       "HEALDESK_SES_EVENTS_TOPIC_ARN", "HOSTNAME", "KEEP_ALIVE_TIMEOUT", "NODE_ENV", "NODE_EXTRA_CA_CERTS", "PORT",
     ])
@@ -339,11 +339,21 @@ run "production_defaults" {
   # --- worker ---
   assert {
     condition = toset([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].environment : e.name]) == toset([
-      "AWS_REGION", "BETTER_AUTH_URL", "HEALDESK_ADMIN_EMAIL", "HEALDESK_APP_URL", "HEALDESK_EMAIL_FROM",
+      "AWS_REGION", "BETTER_AUTH_URL", "HEALDESK_ADMIN_EMAIL", "HEALDESK_APP_URL", "HEALDESK_CONSOLE_ORIGIN", "HEALDESK_EMAIL_FROM",
       "HEALDESK_EMAIL_TRANSPORT", "HEALDESK_KMS_KEY_ID", "HEALDESK_KMS_PROVIDER", "HEALDESK_SES_CONFIGURATION_SET",
       "NODE_ENV", "NODE_EXTRA_CA_CERTS",
     ])
     error_message = "The worker's plain environment differs from contract section 3 and the integration brief."
+  }
+
+  # Ops alerts link to the console under /admin/ (owner decision D3): the
+  # public origin, a plain setting, on both tiers that raise alerts.
+  assert {
+    condition = alltrue([
+      for definition in [one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]), jsondecode(aws_ecs_task_definition.worker.container_definitions)[0]] :
+      contains([for e in definition.environment : "${e.name}=${e.value}"], "HEALDESK_CONSOLE_ORIGIN=https://healdesk.io")
+    ])
+    error_message = "Web and worker carry the console's public origin, https://healdesk.io, for the ops alerts' links."
   }
 
   assert {

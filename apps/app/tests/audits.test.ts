@@ -472,7 +472,12 @@ describeDb("the clinic audits", () => {
         opRunClinicAudit({ clinicId: f.clinicId, pack: "transcripts" }, OPERATOR),
       ]);
       const statuses = [first, second].map((o) => (o.body as { data: { status: string } }).data.status).sort();
-      expect(statuses).toEqual(["busy", "ran"]);
+      // Exactly one runs. The other is refused as busy while the first holds
+      // its claim, or as too soon when the first finished before it asked: a
+      // fast run on a fast machine takes the second path, and either way the
+      // pack ran once.
+      expect(statuses.filter((status) => status === "ran")).toHaveLength(1);
+      expect(statuses.filter((status) => status === "busy" || status === "too_soon")).toHaveLength(1);
       // The claim is gone after the run.
       const claims = async () =>
         (

@@ -1,3 +1,4 @@
+import { USAGE_ALERT_PERCENT } from "@healdesk/catalog";
 import { GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
 import { and, count, eq, gte, inArray, isNull, lt, min, ne, notInArray, sql } from "drizzle-orm";
 
@@ -15,6 +16,8 @@ import {
   transcriptEmails,
 } from "@/db/schema";
 import { belowFloorUnsigned } from "@/lib/agreements/resign";
+import { effectiveIncluded, getEntitlements } from "@/lib/billing/entitlements";
+import { openWindowAt, usedOf } from "@/lib/billing/usage";
 import { emailEventCounts, pruneEmailEvents } from "@/lib/email/health";
 import { MAX_NOTICE_ATTEMPTS } from "@/lib/email/outbox";
 import { dailyEmailCount, quotaDay } from "@/lib/email/quota";
@@ -29,14 +32,23 @@ import {
   type DigestCalendarRow,
   type DigestConnectionRow,
   type DigestEmailRow,
+  type DigestLifecycleRow,
   type DigestQueueRow,
+  type DigestUsageRow,
+  type DigestWaveRow,
   type OpsDigestPayload,
 } from "@/lib/email/templates/ops_digest";
+import { readLedger } from "@/lib/lifecycle/ledger";
+import { lifecycleView } from "@/lib/lifecycle/view";
+import { isDemoClinic, readLifecycleRow } from "@/lib/lifecycle/watch";
 import { describeError, log } from "@/lib/log";
 import { findUnhealthyConnections, readConnectionHealth } from "@/lib/scheduler/connection-health";
 import { JOB_OPS_DIGEST, runJob, type JobOutcome } from "@/lib/scheduler/jobs";
 
+import { listClinics } from "./clinics";
 import { FLAG_ALERT_EVENT } from "./flag-alert";
+import { raiseOpsAlertKeyed } from "./notify";
+import { SLACK_MAX_ATTEMPTS, slackWebhookUrl } from "./slack";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { listSupportRequests } from "./support-replies";
@@ -339,6 +351,27 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
     emailsTodayCount = await dailyEmailCount(quotaDay(now));
   });
 
+  const lifecycle = await collectLifecycle(tally, now, since);
+
+  // Ops alerts Slack never took (lib/ops/slack.ts gives up after its tries);
+  // null while Slack is off, when none is posted at all.
+  let slackUnpostedCount: number | null = null;
+  if (slackWebhookUrl()) {
+    await tally.read("ops_alerts_slack", async () => {
+      const [row] = await unsafeDb
+        .select({ n: count() })
+        .from(opsAlerts)
+        .where(
+          and(
+            isNull(opsAlerts.slackPostedAt),
+            gte(opsAlerts.slackAttempts, SLACK_MAX_ATTEMPTS),
+            gte(opsAlerts.raisedAt, since),
+          ),
+        );
+      slackUnpostedCount = row?.n ?? 0;
+    });
+  }
+
   const queueRows: DigestQueueRow[] = [...tally.queues].map(([kind, q]) => ({
     kind,
     count: q.count,
@@ -376,7 +409,129 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
       (complaintPercent ?? 0) >= COMPLAINT_TARGET_PERCENT,
     unreadCount: tally.unread,
     signInHelpNoAccountCount,
+    ...lifecycle,
+    slackUnpostedCount,
   };
+}
+
+const DIGEST_LIFECYCLE_STAGES = ["not_started", "in_setup", "waiting_on_us", "partly_live", "live"] as const;
+const DIGEST_METERS = ["voice_minutes", "chat_conversations"] as const;
+/** Billing statuses whose clinics are served, so their usage can still grow (as lib/billing/usage-alerts.ts). */
+const SERVED = new Set(["active", "past_due", "canceling"]);
+
+type LifecycleTotals = {
+  lifecycleRows: DigestLifecycleRow[];
+  lifecycleWaveRows: DigestWaveRow[];
+  usageRows: DigestUsageRow[];
+  decisionsOwedCount: number;
+  waitingOnUsCount: number;
+};
+
+/**
+ * The Lifecycle block (design E2, step 7): billing clinics by
+ * stage with the longest stay, the waves of the last 24 hours by target and
+ * outcome, the decisions owed, and the clinics at 90% or all of an
+ * allowance, per meter. Counts only, never a name. healdesk's demo clinic
+ * (app_clinic_is_demo) is left out, as the lifecycle watch leaves it out; a
+ * paying clinic still classed synthetic before it goes live is counted.
+ */
+async function collectLifecycle(tally: Tally, now: Date, since: Date): Promise<LifecycleTotals> {
+  const stages = new Map<string, { count: number; oldest: Date | null }>();
+  const waves = new Map<string, number>();
+  const usage = new Map<string, { near: number; at: number }>();
+  let decisionsOwedCount = 0;
+  let waitingOnUsCount = 0;
+
+  let clinics: Awaited<ReturnType<typeof listClinics>> = [];
+  await tally.read("lifecycle clinics", async () => {
+    clinics = await listClinics();
+  });
+  for (const clinic of clinics) {
+    if (clinic.billingClinicId || clinic.destroyedAt) continue;
+    await tally.read(`lifecycle ${clinic.id}`, () =>
+      withTenant({ clinicId: clinic.id, actor: ACTOR }, async (tx) => {
+        if (await isDemoClinic(tx)) return;
+        const row = await readLifecycleRow(tx);
+        if (row && row.stage !== "closed") {
+          const ledger = await readLedger(tx);
+          const view = lifecycleView(row, ledger, clinic.timezone, now);
+          const seen = stages.get(row.stage) ?? { count: 0, oldest: null };
+          seen.count += 1;
+          if (!seen.oldest || row.stageSince < seen.oldest) seen.oldest = row.stageSince;
+          stages.set(row.stage, seen);
+          if (view.decisionOwed) decisionsOwedCount += 1;
+          if (row.stage === "waiting_on_us") waitingOnUsCount += 1;
+          for (const wave of ledger) {
+            if (wave.queuedAt < since) continue;
+            const key = `${wave.target}|${wave.outcome}`;
+            waves.set(key, (waves.get(key) ?? 0) + 1);
+          }
+        }
+        const entitlement = await getEntitlements(tx.db, clinic.id);
+        const window = entitlement && SERVED.has(entitlement.status) ? openWindowAt(entitlement, now) : null;
+        if (entitlement && window) {
+          for (const meter of DIGEST_METERS) {
+            const included = effectiveIncluded(entitlement, meter);
+            if (included <= 0) continue;
+            const used = usedOf(entitlement, meter);
+            const seen = usage.get(meter) ?? { near: 0, at: 0 };
+            if (used >= included) seen.at += 1;
+            else if (used * 100 >= USAGE_ALERT_PERCENT * included) seen.near += 1;
+            usage.set(meter, seen);
+          }
+        }
+      }),
+    );
+  }
+
+  return {
+    lifecycleRows: DIGEST_LIFECYCLE_STAGES.flatMap((stage) => {
+      const seen = stages.get(stage);
+      if (!seen) return [];
+      return [
+        {
+          status: stage,
+          count: seen.count,
+          oldestDays: seen.oldest ? Math.floor((now.getTime() - seen.oldest.getTime()) / DAY_MS) : 0,
+        },
+      ];
+    }),
+    lifecycleWaveRows: [...waves]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, n]) => {
+        const [type, outcome] = key.split("|") as [string, string];
+        return { type, outcome, count: n };
+      }),
+    usageRows: DIGEST_METERS.flatMap((meter) => {
+      const seen = usage.get(meter);
+      return seen && seen.near + seen.at > 0
+        ? [{ meter, nearCapCount: seen.near, atCapCount: seen.at }]
+        : [];
+    }),
+    decisionsOwedCount,
+    waitingOnUsCount,
+  };
+}
+
+/**
+ * The digest's one line in Slack (design E2, step 7): what needs a person
+ * today, as counts, once a UTC day, from the payload the email carries. Slack
+ * alone: the digest itself is the email.
+ */
+async function postDigestSummary(day: string, payload: OpsDigestPayload): Promise<void> {
+  const near = (payload.usageRows ?? []).reduce((n, r) => n + r.nearCapCount, 0);
+  const at = (payload.usageRows ?? []).reduce((n, r) => n + r.atCapCount, 0);
+  await raiseOpsAlertKeyed(
+    "ops_digest_summary",
+    {
+      decisionsOwedCount: payload.decisionsOwedCount ?? 0,
+      waitingOnUsCount: payload.waitingOnUsCount ?? 0,
+      nearCapCount: near,
+      atCapCount: at,
+      ...(payload.slackUnpostedCount != null ? { slackUnpostedCount: payload.slackUnpostedCount } : {}),
+    },
+    { key: `day=${day}`, email: false },
+  );
 }
 
 function round2(value: number): number {
@@ -513,6 +668,10 @@ async function claimDigest(day: string, now: Date): Promise<Claim> {
         fields: { windowStart: day },
         raisedAt: now,
         lastRaisedAt: now,
+        // Its Slack copy is the one-line summary (ops_digest_summary), not
+        // this row, which would post as a bare event name.
+        slackError: "posted as ops_digest_summary",
+        slackNextAt: sql`'infinity'::timestamptz`,
       })
       .returning({ id: opsAlerts.id });
     return { id: inserted!.id, attempt: 1 };
@@ -586,6 +745,8 @@ export async function sendOpsDigest(
           lastError: null,
         })
         .where(eq(opsAlerts.id, claim.id));
+      // Slack's one line only once the email it summarises has gone.
+      await postDigestSummary(quotaDay(now), payload);
       return outcome;
     }
   } catch (error) {

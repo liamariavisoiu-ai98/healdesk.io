@@ -193,6 +193,14 @@ export const JOB_WEBSITE_DRIFT = "website-drift";
  */
 export const JOB_LOCATION_QUANTITY = "location-quantity";
 /**
+ * The lifecycle watch (lib/lifecycle/watch.ts; design E2), seeded OFF by
+ * drizzle/0115: hourly from the tick, each billing clinic's stage, the setup
+ * reminders it was sent recorded in its ledger, and the timed ops waves, to
+ * Slack, and for an escalation to the ops address too. It sends nothing to
+ * a clinic. The owner switches it on from /admin's job list.
+ */
+export const JOB_LIFECYCLE_WATCH = "lifecycle-watch";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

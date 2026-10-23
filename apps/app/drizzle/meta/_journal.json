@@ -799,6 +799,13 @@
       "when": 1792747110289,
       "tag": "0113_closed_day_bookings_email",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1792763768585,
+      "tag": "0115_clinic_lifecycle",
+      "breakpoints": true
     }
   ]
 }

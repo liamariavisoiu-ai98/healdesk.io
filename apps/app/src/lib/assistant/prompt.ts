@@ -141,6 +141,24 @@ Leave a booking value empty when you do not know it yet. Copy values only from w
 }
 
 /**
+ * The closed days, one a line, as a person reads a date ("Thursday,
+ * November 26, 2026 (Thanksgiving)"). A closure is a calendar date, not an
+ * instant, so it is written at noon UTC and read in UTC: the day never moves.
+ */
+export function closureLines(closures: AssistantFacts["closures"]): string[] {
+  return (closures ?? []).map(({ closedOn, label }) => {
+    const day = new Date(`${closedOn}T12:00:00Z`).toLocaleDateString("en-US", {
+      timeZone: "UTC",
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+    return label ? `${day} (${label})` : day;
+  });
+}
+
+/**
  * The stable prefix: everything the model is told that does not change from
  * one turn to the next. No clock, no conversation: see the file header.
  * `bookingTools` is whether the tool layer is live (booking-tools.ts): it
@@ -168,6 +186,10 @@ export function buildAssistantPrompt(
   if (facts.address) lines.push(`- Address: ${facts.address}`);
   lines.push(`- Time zone: ${facts.timeZone}. The time now is given at the end, after these facts.`);
   if (facts.hours.length > 0) lines.push(`- Opening hours:\n  ${facts.hours.join("\n  ")}`);
+  const closed = closureLines(facts.closures);
+  if (closed.length > 0) {
+    lines.push(`- Closed all day on these dates, whatever the opening hours say:\n  ${closed.join("\n  ")}`);
+  }
   if (facts.escalationHours) lines.push(`- When the team answers: ${facts.escalationHours}`);
   if (facts.notes) lines.push(`- Notes from the practice: ${facts.notes}`);
 

@@ -9,7 +9,7 @@ import {
 
 import type { AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
-import { priceText } from "@/lib/assistant/prompt";
+import { closureLines, priceText } from "@/lib/assistant/prompt";
 import {
   answerTurn,
   EMPTY_CAPTURE,
@@ -206,6 +206,7 @@ function assistantBrain(
   const summary = [
     `Services and prices: ${facts.services.length ? facts.services.map((s) => `${s.name}: ${priceText(s)}`).join("; ") : "none listed"}.`,
     facts.hours.length ? `Opening hours: ${facts.hours.join("; ")}.` : "Opening hours: not listed.",
+    facts.closures?.length ? `Closed all day on: ${closureLines(facts.closures).join("; ")}.` : "",
     facts.address ? `Address: ${facts.address}.` : "",
     facts.policies.length ? `Policies: ${facts.policies.join(" ")}` : "",
     facts.quickAnswers.length

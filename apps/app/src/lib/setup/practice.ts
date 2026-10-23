@@ -1,10 +1,10 @@
 import { cleanWebsite, isKnownTimeZone } from "@healdesk/catalog";
-import { and, asc, eq, gte } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { clinicClosures, clinics, clinicSettings, entitlements } from "@/db/schema";
 import { setSetupDeadline } from "@/lib/billing/entitlements";
-import { clinicLocalDate } from "@/lib/clinic/closures";
+import { clinicLocalDate, closuresFrom, type Closure } from "@/lib/clinic/closures";
 import { moveSetupDeadline } from "@/lib/clinic/setup-window";
 import {
   OpeningHoursError,
@@ -215,7 +215,7 @@ export async function moveSetupDeadlineToZone(
 // Hours and closures
 // -----------------------------------------------------------------------------
 
-export type Closure = { closedOn: string; label: string | null };
+export type { Closure };
 
 /** The clinic's closed days from today on, in its own time zone. */
 export async function readUpcomingClosures(
@@ -224,14 +224,7 @@ export async function readUpcomingClosures(
   timeZone: string,
   now: Date = new Date(),
 ): Promise<Closure[]> {
-  const today = clinicLocalDate(now, timeZone);
-  const rows = await db
-    .select({ closedOn: clinicClosures.closedOn, label: clinicClosures.label })
-    .from(clinicClosures)
-    .where(and(eq(clinicClosures.clinicId, clinicId), gte(clinicClosures.closedOn, today)))
-    .orderBy(asc(clinicClosures.closedOn))
-    .limit(100);
-  return rows;
+  return closuresFrom(db, clinicId, clinicLocalDate(now, timeZone));
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;

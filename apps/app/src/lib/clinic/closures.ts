@@ -1,7 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gte } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { clinicClosures } from "@/db/schema";
+
+import { isOpenAt, type OpeningHours } from "./opening-hours";
 
 /**
  * The days a clinic is closed outright (a holiday, a training day), on top of
@@ -56,4 +58,46 @@ export async function closedOn(
     .where(and(eq(clinicClosures.clinicId, clinicId), eq(clinicClosures.closedOn, localDate)))
     .limit(1);
   return row !== undefined;
+}
+
+export type Closure = { closedOn: string; label: string | null };
+
+/**
+ * The clinic's closed days on or after `fromDate` (YYYY-MM-DD, its own
+ * zone), earliest first: what a reader that cannot ask `closedOn` day by day
+ * holds instead, such as the facts a conversation is built from.
+ */
+export async function closuresFrom(
+  tx: Transaction,
+  clinicId: string,
+  fromDate: string,
+  limit = 100,
+): Promise<Closure[]> {
+  if (!ISO_DATE.test(fromDate)) {
+    throw new Error(`closuresFrom needs a YYYY-MM-DD date, not "${fromDate}".`);
+  }
+  return tx
+    .select({ closedOn: clinicClosures.closedOn, label: clinicClosures.label })
+    .from(clinicClosures)
+    .where(and(eq(clinicClosures.clinicId, clinicId), gte(clinicClosures.closedOn, fromDate)))
+    .orderBy(asc(clinicClosures.closedOn))
+    .limit(limit);
+}
+
+/**
+ * Whether the clinic is open at `at`, from its weekly hours and the closed
+ * days it has saved (`closedDates`, YYYY-MM-DD in its zone): `isOpenAt` for
+ * the hour, and shut all day on a closed date, the day the answer gate and
+ * the booking engine read a closure by. Null only when the hours are not
+ * known and the day is not a closed one, which callers count as open.
+ * Throws, as `isOpenAt` does, on a zone Intl cannot read.
+ */
+export function openGiven(
+  hours: OpeningHours | null | undefined,
+  closedDates: readonly string[],
+  at: Date,
+  timeZone: string,
+): boolean | null {
+  if (closedDates.length > 0 && closedDates.includes(clinicLocalDate(at, timeZone))) return false;
+  return isOpenAt(hours, at, timeZone);
 }

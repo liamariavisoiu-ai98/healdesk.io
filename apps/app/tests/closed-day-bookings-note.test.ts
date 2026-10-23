@@ -6,6 +6,18 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import { bookConversation } from "@/lib/booking/book";
 import { placeHold } from "@/lib/booking/engine";
 import { clinicLocalDate } from "@/lib/clinic/closures";
+import {
+  assertPayloadAllowed,
+  linkProblem,
+  linkProblems,
+  PayloadNotAllowedError,
+} from "@/lib/email/lint";
+import {
+  CLOSED_DAY_BOOKINGS_WORDS,
+  renderClosedDayBookings,
+  type ClosedDayBookingsPayload,
+} from "@/lib/email/templates/closed_day_bookings";
+import type { TemplateContext } from "@/lib/email/templates/types";
 import { approveAgentConfig } from "@/lib/onboarding/agent-config";
 import { bookedOnClosedDaysNote, closedDayNoteSeam, saveKnowledge } from "@/lib/portal/knowledge";
 import { withTenant } from "@/lib/tenant";
@@ -66,6 +78,55 @@ describe("the note's words", () => {
     }
   });
 });
+
+describe("the email's lint", () => {
+  const ORIGIN = "https://app.healdesk.test";
+  let saved: string | undefined;
+  beforeAll(() => {
+    saved = process.env.BETTER_AUTH_URL;
+    process.env.BETTER_AUTH_URL = ORIGIN;
+  });
+  afterAll(() => {
+    if (saved === undefined) delete process.env.BETTER_AUTH_URL;
+    else process.env.BETTER_AUTH_URL = saved;
+  });
+
+  test("its payload and its plain portal link pass; the usual bad cases are still refused", () => {
+    expect(() =>
+      assertPayloadAllowed(
+        { bookingsUrl: `${ORIGIN}/c/glow/bookings#booked` },
+        "closed_day_bookings",
+      ),
+    ).not.toThrow();
+    expect(() => assertPayloadAllowed({ firstName: "Ana" }, "closed_day_bookings")).toThrow(
+      PayloadNotAllowedError,
+    );
+    expect(linkProblem(`${ORIGIN}/c/glow/bookings#booked`, "closed_day_bookings")).toBeNull();
+    expect(
+      linkProblem(
+        `${ORIGIN}/c/glow/bookings/kP3vXq9TzR7wYb2NcL5mHs8JdF4gA6eU1oIiQ0yBtVx`,
+        "closed_day_bookings",
+      ),
+    ).toMatch(/single-use token/);
+    expect(linkProblem("https://evil.example/c/glow/bookings", "closed_day_bookings")).toMatch(
+      /not a public origin/,
+    );
+    expect(linkProblem(`${ORIGIN}/email/stop/x`, "closed_day_bookings")).toMatch(/stop link/);
+  });
+});
+
+/** The O17 rows queued for a clinic, with their payloads. */
+async function emailsOf(clinicId: string): Promise<{ payload: unknown }[]> {
+  return inTenant(
+    clinicId,
+    async (c) =>
+      (
+        await c.query<{ payload: unknown }>(
+          `select payload from billing_notices where kind = 'closed_day_bookings'`,
+        )
+      ).rows,
+  );
+}
 
 describeDb("a closed day that already has bookings", () => {
   let google: FakeGoogleCalendar;
@@ -149,9 +210,29 @@ describeDb("a closed day that already has bookings", () => {
       expect(quiet.ok).toBe(true);
       expect(quiet).not.toHaveProperty("link");
       expect(quiet.ok && quiet.toast).not.toMatch(/booking/i);
+      expect(await emailsOf(f.clinicId)).toEqual([]);
 
       // D, with two bookings on it: counted, linked, and nothing about a patient.
       const busy = await save([quietDay, day]);
+      // ... and one email to the clinic, a pointer with nothing in it but the link.
+      const emails = await emailsOf(f.clinicId);
+      expect(emails).toEqual([
+        { payload: { bookingsUrl: `https://app.healdesk.test/c/${slug}/bookings#booked` } },
+      ]);
+      const rendered = renderClosedDayBookings(emails[0]!.payload as ClosedDayBookingsPayload, {
+        clinicName: "closed-note Clinic",
+        audience: "patients",
+        reason: "You're receiving this because this is the address on the clinic's account.",
+        raisedAt: new Date(),
+        timeZone: DESK_TZ,
+      } satisfies TemplateContext);
+      expect(rendered.subject).toBe(CLOSED_DAY_BOOKINGS_WORDS.subject);
+      expect(linkProblems(rendered, "closed_day_bookings")).toEqual([]);
+      for (const part of [rendered.subject, rendered.preheader, rendered.text, rendered.html]) {
+        for (const leak of ["Ana", "0188", "Consultation", "10:00", "2:00", day, "2 ", "two"]) {
+          expect(part, leak).not.toContain(leak);
+        }
+      }
       expect(busy).toMatchObject({
         ok: true,
         toast: expect.stringMatching(
@@ -176,6 +257,7 @@ describeDb("a closed day that already has bookings", () => {
       // Saved again with D still closed: D is not new, so no note.
       const again = await save([quietDay, day]);
       expect(again).not.toHaveProperty("link");
+      expect(await emailsOf(f.clinicId)).toHaveLength(1);
 
       // The bookings are untouched: still scheduled, still two.
       const appointments = await inTenant(f.clinicId, async (c) =>
@@ -249,6 +331,42 @@ describeDb("a closed day that already has bookings", () => {
         ),
         link: { label: "See them in Bookings" },
       });
+      expect(await emailsOf(f.clinicId)).toHaveLength(1);
+    },
+    SLOW,
+  );
+
+  test(
+    "an email that cannot be queued costs the email, never the note or the save",
+    async () => {
+      const { f, save } = await requestOnly("closed-note-email-fails");
+      const day = clinicLocalDate(deskTime(3, 10), DESK_TZ);
+      const request = await phoneRequest(f.clinicId);
+      await assistantHold(f.clinicId, {
+        requestId: request.requestId,
+        contactId: request.contactId,
+        startsAt: deskTime(3, 10),
+        status: "reserved",
+      });
+      const failing = vi
+        .spyOn(closedDayNoteSeam, "email")
+        .mockRejectedValueOnce(new Error("the outbox refused the row"));
+      try {
+        expect(await save([{ closedOn: day, label: "Training" }])).toMatchObject({
+          ok: true,
+          toast: expect.stringContaining("One booking or request falls on a day you just closed."),
+          link: { label: "See it in Bookings" },
+        });
+        expect(failing).toHaveBeenCalledTimes(1);
+      } finally {
+        failing.mockRestore();
+      }
+      expect(await emailsOf(f.clinicId)).toEqual([]);
+      const stored = await inTenant(
+        f.clinicId,
+        async (c) => (await c.query(`select closed_on::text from clinic_closures`)).rows,
+      );
+      expect(stored).toHaveLength(1);
     },
     SLOW,
   );

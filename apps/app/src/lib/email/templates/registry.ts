@@ -76,6 +76,7 @@ import type { EmailTemplate } from "./types";
 import { USAGE_100_ENTRY, USAGE_80_ENTRY } from "./usage_alert";
 import { WEEKLY_RECAP_ENTRY } from "./weekly_recap";
 import { WEBSITE_CHANGES_ENTRY } from "./website_changes";
+import { CLOSED_DAY_BOOKINGS_ENTRY } from "./closed_day_bookings";
 import { WELCOME_ENTRY } from "./welcome";
 
 /**
@@ -203,6 +204,9 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   agreement_to_sign: AGREEMENT_TO_SIGN_ENTRY,
   // WP11, the drift list (M7): L23.
   website_changes: WEBSITE_CHANGES_ENTRY,
+  // O17, a day just closed that already has bookings (owner decision D10):
+  // queued after the Knowledge hours save commits (lib/portal/knowledge.ts).
+  closed_day_bookings: CLOSED_DAY_BOOKINGS_ENTRY,
   // Wave 2's R2, Flag this answer (plan Part F4): I4, each flag and two in
   // seven days, to ops (lib/ops/flag-alert.ts).
   flag_alert: FLAG_ALERT_ENTRY,
@@ -332,6 +336,7 @@ export const PENDING_TEMPLATES: Record<
     | "weekly_recap"
     | "agreement_to_sign"
     | "website_changes"
+    | "closed_day_bookings"
     | "flag_alert"
     | "patient_request"
     | "device_recovery_link"

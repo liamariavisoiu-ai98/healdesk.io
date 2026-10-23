@@ -32,6 +32,7 @@ import type { SuspendedForCausePayload } from "@/lib/email/templates/suspended_f
 import type { TermsNoticePayload } from "@/lib/email/templates/terms_notice";
 import type { WeeklyRecapPayload } from "@/lib/email/templates/weekly_recap";
 import type { WebsiteChangesPayload } from "@/lib/email/templates/website_changes";
+import type { ClosedDayBookingsPayload } from "@/lib/email/templates/closed_day_bookings";
 
 /**
  * The plan's own outbox kinds (lib/email/kinds.ts, owner "plan"): their
@@ -151,6 +152,11 @@ export type PlanNoticePayloads = {
   export_ready: ExportReadyPayload;
   /** Dedupe `export_reminder`: once, a week before the data goes undownloaded. */
   export_reminder: ExportReminderPayload;
+  /**
+   * Dedupe `closed_day_bookings:<hash of the newly closed dates>`: once per
+   * set of days a save closed that already had bookings (lib/portal/knowledge.ts).
+   */
+  closed_day_bookings: ClosedDayBookingsPayload;
 };
 
 // The payload map and the registry's plan kinds name the same kinds: adding a

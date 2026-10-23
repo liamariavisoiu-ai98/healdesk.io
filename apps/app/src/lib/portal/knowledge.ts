@@ -1,9 +1,13 @@
+import { createHash } from "node:crypto";
+
 import { findClinicalContent } from "@healdesk/catalog";
 import { eq, sql } from "drizzle-orm";
 
 import { agentConfigs, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { describeError, log } from "@/lib/log";
+import { enqueuePlanNotice } from "@/lib/notices/plan-notices";
+import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { requestPracticeQuestions } from "@/lib/engine/practice/store";
 import type { PracticeSection } from "@/lib/engine/practice/types";
 import { clinicDefaultDepositUsd } from "@/lib/billing/deposits";
@@ -147,20 +151,24 @@ export async function saveKnowledge(
 type HoursNoteInput = { closedBefore: string[]; timeZone: string; slug: string };
 
 /**
- * The count behind the hours note, as a seam: tests make it fail to show
- * the save stands without it.
+ * The count behind the hours note, and the email that backs it, as seams:
+ * tests make either fail to show the save stands without it.
  */
 export const closedDayNoteSeam = {
   count: (tx: TenantTx, input: HoursNoteInput, now: Date) =>
     bookingsOnNewlyClosedDays(tx, input.closedBefore, input.timeZone, now),
+  email: (tx: TenantTx, input: HoursNoteInput, days: readonly string[]) =>
+    queueClosedDayBookingsEmail(tx, input.slug, days),
 };
 
 /**
  * The note about bookings on days the save just closed, read after the
  * save has committed and in its own transaction: it is a courtesy, so a
  * failure here (a timeout, a zone the database refuses) costs the note,
- * never the clinic's hours. Logged with the clinic id and the error's kind
- * only.
+ * never the clinic's hours. When there are any, the clinic is also emailed
+ * (O17, owner decision D10), in a transaction of its own again, so a
+ * failure to queue the email costs the email, never the note or the save.
+ * Each failure is logged with the clinic id and the error's kind only.
  */
 async function hoursNote(
   clinicId: string,
@@ -168,15 +176,47 @@ async function hoursNote(
   input: HoursNoteInput,
   now: Date,
 ): Promise<{ text: string; label: string } | null> {
+  let found: { count: number; days: string[] };
   try {
-    const count = await withTenant({ clinicId, actor }, (tx) =>
-      closedDayNoteSeam.count(tx, input, now),
-    );
-    return bookedOnClosedDaysNote(count);
+    found = await withTenant({ clinicId, actor }, (tx) => closedDayNoteSeam.count(tx, input, now));
   } catch (error) {
     log.warn("closed-day bookings note skipped", { clinicId, error: describeError(error) });
     return null;
   }
+  if (found.count > 0) {
+    try {
+      await withTenant({ clinicId, actor }, (tx) =>
+        closedDayNoteSeam.email(tx, input, found.days),
+      );
+    } catch (error) {
+      log.warn("closed-day bookings email not queued", { clinicId, error: describeError(error) });
+    }
+  }
+  return bookedOnClosedDaysNote(found.count);
+}
+
+/**
+ * O17 to the clinic's one address: a pointer into Bookings, carrying no
+ * name, time, service, date or count (lib/email/templates/closed_day_bookings.ts).
+ * Once per set of newly closed days: the dedupe key is a hash of them, so
+ * the same days closed again queue nothing, and the dates themselves never
+ * sit in the outbox. Returns whether this call queued it.
+ */
+export async function queueClosedDayBookingsEmail(
+  tx: TenantTx,
+  slug: string,
+  days: readonly string[],
+): Promise<boolean> {
+  if (days.length === 0) return false;
+  const problem = publicOriginProblem();
+  if (problem) throw new Error(`closed-day bookings email needs a public origin: ${problem}`);
+  const set = createHash("sha256")
+    .update([...new Set(days)].sort().join(","))
+    .digest("hex")
+    .slice(0, 32);
+  return enqueuePlanNotice(tx.db, tx.clinicId, "closed_day_bookings", `closed_day_bookings:${set}`, {
+    bookingsUrl: publicUrl(`/c/${slug}/bookings#booked`),
+  });
 }
 
 /**
@@ -221,12 +261,12 @@ export async function bookingsOnNewlyClosedDays(
   closedBefore: readonly string[],
   timeZone: string,
   now: Date,
-): Promise<number> {
+): Promise<{ count: number; days: string[] }> {
   const before = new Set(closedBefore);
   const added = (await readUpcomingClosures(tx.db, tx.clinicId, timeZone, now))
     .map((c) => c.closedOn)
     .filter((day) => !before.has(day));
-  if (added.length === 0) return 0;
+  if (added.length === 0) return { count: 0, days: [] };
   const days = sql`array[${sql.join(
     added.map((d) => sql`${d}`),
     sql`, `,
@@ -260,7 +300,7 @@ export async function bookingsOnNewlyClosedDays(
          and (s->>'at')::timestamptz > ${now}
          and ${localDay(sql`(s->>'at')::timestamptz`)}
     ) counted`);
-  return result.rows[0]?.n ?? 0;
+  return { count: result.rows[0]?.n ?? 0, days: added };
 }
 
 /** The clinic's one line about bookings on days it just closed, and its link's words; null for none. */

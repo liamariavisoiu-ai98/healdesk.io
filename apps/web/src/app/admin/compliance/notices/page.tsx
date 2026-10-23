@@ -57,7 +57,7 @@ const PATH = "/admin/compliance/notices";
 
 export default async function NoticesPage() {
   if (!(await requireOperator())) redirect("/admin/sign-in");
-  const [record, clinics] = await Promise.all([fetchOperatorNotices(), fetchClinics()]);
+  const [record, clinics] = await Promise.all([fetchOperatorNotices(), fetchClinics({ connectionState: false })]);
   if (isHostUnreachable(record)) return <HostStandbyPage title="Notices" />;
 
   async function sendTermsNotice(input: {

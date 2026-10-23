@@ -179,7 +179,7 @@ export const SUBJECT_WORDS: Readonly<
   launch_promises: {
     label: "Launch promises",
     attests:
-      'Every item on /admin/seo\'s launch list that blocks go-live is on (CLAUDE.md, "Copy first, then the switch"). The console refuses this while one is open.',
+      'Every item on the launch list at /admin/compliance#launch that blocks go-live is on (CLAUDE.md, "Copy first, then the switch"). The console refuses this while one is open.',
     needs: "Every channel",
   },
   runtime_web: {

@@ -651,8 +651,15 @@ export type TerminateOutcome =
 // Reads
 // -----------------------------------------------------------------------------
 
-export function fetchClinics(): Promise<OpsResult<OpsClinics>> {
-  return callOps("listClinics", "read", {}, (value) => {
+/**
+ * `connectionState: false` skips the per-clinic connection read, which walks up
+ * to fifty clinics one tenant transaction at a time. Only the phase-two connect
+ * link wants it, so the console's page loads ask for it off.
+ */
+export function fetchClinics(options: { connectionState?: boolean } = {}): Promise<OpsResult<OpsClinics>> {
+  const args: Record<string, boolean> = {};
+  if (options.connectionState !== undefined) args.connectionState = options.connectionState;
+  return callOps("listClinics", "read", args, (value) => {
     const data = object(value, "listClinics");
     return {
       clinics: list(data.clinics, "listClinics.clinics").map(readClinic),

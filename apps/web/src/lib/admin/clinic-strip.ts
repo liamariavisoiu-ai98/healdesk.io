@@ -56,6 +56,6 @@ export type ClinicReads = {
  * beneath it, which both need a clinic's row, make the reads once.
  */
 export const loadClinicRows = cache(async (): Promise<ClinicReads> => {
-  const [clinics, cards, health, strip] = await Promise.all([ops.fetchClinics(), ops.fetchClinicCards(), ops.fetchClinicHealth(), readClinicStrip()]);
+  const [clinics, cards, health, strip] = await Promise.all([ops.fetchClinics({ connectionState: false }), ops.fetchClinicCards(), ops.fetchClinicHealth(), readClinicStrip()]);
   return { clinics, cards, health, strip, rows: composeClinicRows({ clinics, cards, health, strip }) };
 });

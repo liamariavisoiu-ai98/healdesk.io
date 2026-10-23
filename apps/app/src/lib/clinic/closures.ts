@@ -1,3 +1,4 @@
+import { findClinicalContent } from "@healdesk/catalog";
 import { and, asc, eq, gte } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
@@ -61,6 +62,48 @@ export async function closedOn(
 }
 
 export type Closure = { closedOn: string; label: string | null };
+
+/**
+ * A closed day's label is the clinic's few words about the day ("Thanksgiving",
+ * "Staff day 24 Dec") and goes into what AYA is told, so it holds nothing a
+ * label has no need for: anything clinical, a phone number (seven or more
+ * digits in a run, separators allowed), a link, an email address, or words
+ * that read as an instruction to the assistant. Short numbers, as in dates,
+ * pass. Checked when a label is saved (saveHours) and again when one is read
+ * into a prompt (closureLabelForPrompt), for labels saved before this rule.
+ */
+const LABEL_PHONE = /\d(?:[\s().+-]*\d){6,}/;
+const LABEL_LINK =
+  /\bhttps?:\/\/|\bwww\.|\b[a-z0-9-]+\.(?:com|net|org|io|co|us|info|biz|health|clinic|app|ai|me)\b/i;
+const LABEL_EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+const LABEL_INSTRUCTION = /\b(?:ignore|previous instructions|system|assistant)\b/i;
+
+/** Why a closed day's label is refused, in the clinic's words; null when it may be kept. */
+export function closureLabelProblem(label: string): string | null {
+  const [finding] = findClinicalContent({ label });
+  if (finding) {
+    return `This note mentions ${finding.label} ("${finding.excerpt}"). AYA passes those questions to your team, so leave it out.`;
+  }
+  if (
+    LABEL_PHONE.test(label) ||
+    LABEL_LINK.test(label) ||
+    LABEL_EMAIL.test(label) ||
+    LABEL_INSTRUCTION.test(label)
+  ) {
+    return "Keep the note to a few plain words about the day, like Thanksgiving, with no phone numbers, links or email addresses.";
+  }
+  return null;
+}
+
+/**
+ * A stored label as a prompt may carry it: null when it breaks the label
+ * rule (the day is then simply closed), and never with a double quote, so
+ * it stays inside the quotes the prompt puts round it.
+ */
+export function closureLabelForPrompt(label: string | null): string | null {
+  if (!label || closureLabelProblem(label) !== null) return null;
+  return label.replace(/["“”]/g, "'");
+}
 
 /**
  * The clinic's closed days on or after `fromDate` (YYYY-MM-DD, its own

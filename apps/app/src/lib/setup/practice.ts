@@ -4,7 +4,12 @@ import { and, eq, gte } from "drizzle-orm";
 import type { Transaction } from "@/db";
 import { clinicClosures, clinics, clinicSettings, entitlements } from "@/db/schema";
 import { setSetupDeadline } from "@/lib/billing/entitlements";
-import { clinicLocalDate, closuresFrom, type Closure } from "@/lib/clinic/closures";
+import {
+  clinicLocalDate,
+  closureLabelProblem,
+  closuresFrom,
+  type Closure,
+} from "@/lib/clinic/closures";
 import { moveSetupDeadline } from "@/lib/clinic/setup-window";
 import {
   OpeningHoursError,
@@ -264,7 +269,10 @@ export async function saveHours(
     }
     if (seen.has(closedOn)) continue;
     seen.add(closedOn);
-    closures.push({ closedOn, label: cleanText(row.label, 80) || null });
+    const label = cleanText(row.label, 80) || null;
+    const problem = label ? closureLabelProblem(label) : null;
+    if (problem) throw new PracticeError("closures", problem);
+    closures.push({ closedOn, label });
   }
   if (closures.length > 60)
     throw new PracticeError("closures", "Add at most 60 closed days at a time.");

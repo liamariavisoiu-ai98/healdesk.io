@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 
 import { HostStandbyNotice } from "@/components/admin/HostStandbyNotice";
+import { loadClinicRows } from "@/lib/admin/clinic-strip";
 import { clinicTabPath, isUuid } from "@/lib/admin/issue-link";
 import { requireOperator } from "@/lib/admin/operator";
 import {
@@ -15,6 +16,7 @@ import {
   fetchOnboarding,
   goLive as goLiveUpstream,
   issueCalendarLink as calendarLinkUpstream,
+  issueConnectLink as issueConnectLinkUpstream,
   reopenOnboardingStep as reopenUpstream,
   rerunPracticeQuestions as rerunPracticeUpstream,
   retryCalendarWrite as retryWriteUpstream,
@@ -30,6 +32,7 @@ import {
 } from "@/lib/admin/ops-client";
 import { isHostUnreachable } from "@/lib/host/state";
 
+import { ConnectLink } from "./ConnectLink";
 import { OnboardingPanel } from "./OnboardingPanel";
 
 /**
@@ -54,9 +57,10 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   const { clinicId } = await params;
   if (!isUuid(clinicId)) notFound();
 
-  const view = await fetchOnboarding(clinicId);
+  const [view, reads] = await Promise.all([fetchOnboarding(clinicId), loadClinicRows()]);
   if (isHostUnreachable(view)) return <HostStandbyNotice what="Setup" />;
   const path = clinicTabPath(clinicId, "setup");
+  const connection = reads.rows.find((r) => r.clinicId === clinicId.toLowerCase())?.connection ?? null;
 
   async function completeStep(step: string, note?: string) {
     "use server";
@@ -176,15 +180,27 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
     revalidatePath(path);
     return result;
   }
+  // Phase two: the read-back credential's one-time link (E1 §2 keeps the op
+  // and moves the form here, behind a disclosure). The clinic's id is this
+  // page's, never one the browser sends.
+  async function issueConnectLink(_clinicId: string, recipientEmail: string | null) {
+    "use server";
+    const result = await issueConnectLinkUpstream(clinicId, recipientEmail);
+    revalidatePath(path);
+    return result;
+  }
 
   return (
-    <OnboardingPanel
-      view={view}
-      actions={{
-        completeStep, reopenStep, savePhone, saveAgent, goLive, startForwardingTest, attachMeta, setMeta, setMetaPlatform,
-        saveRequirements, confirmTimezone, retryCalendarWrite, setAutoConfirm, sendCalendarLink,
-        disconnectCalendar, rerunPractice, confirmWidget,
-      }}
-    />
+    <>
+      <OnboardingPanel
+        view={view}
+        actions={{
+          completeStep, reopenStep, savePhone, saveAgent, goLive, startForwardingTest, attachMeta, setMeta, setMetaPlatform,
+          saveRequirements, confirmTimezone, retryCalendarWrite, setAutoConfirm, sendCalendarLink,
+          disconnectCalendar, rerunPractice, confirmWidget,
+        }}
+      />
+      <ConnectLink clinicId={clinicId} connection={connection} onIssue={issueConnectLink} />
+    </>
   );
 }

@@ -2,9 +2,8 @@ import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 
-import type { ClinicCards, ClinicSignInView, OpsClinics, OpsResult } from "@/lib/admin/ops-client";
+import type { ClinicSignInView, OpsResult } from "@/lib/admin/ops-client";
 
-import { OpsConsole } from "../../../ops/OpsConsole";
 import { AccountPanel } from "./AccountPanel";
 
 /**
@@ -130,81 +129,5 @@ describe("the account page", () => {
     expect(dpa).toContain("the database refuses its client data from that moment");
     expect(dpa).toContain("Record the answer");
     expect(dpa).not.toMatch(/HIPAA compliant/i);
-  });
-});
-
-describe("the clinic cards", () => {
-  const clinics: OpsResult<OpsClinics> = {
-    ok: true,
-    data: {
-      connectionStateLimit: 50,
-      clinics: [
-        {
-          id: CLINIC,
-          name: "Radiance Med Spa",
-          specialty: "med-spa",
-          timezone: "America/New_York",
-          dataClassification: "synthetic",
-          attributionMode: "estimated",
-          isCoveredEntity: null,
-          baaSignedOn: null,
-          blockers: [],
-          connection: "unknown",
-        },
-      ],
-    },
-  };
-  const cards: OpsResult<ClinicCards> = {
-    ok: true,
-    data: {
-      limit: 50,
-      cards: [
-        {
-          id: CLINIC,
-          agreementKind: "dpa",
-          agreementLabel: "Data protection agreement",
-          channels: [
-            { channel: "web", status: "live" },
-            { channel: "voice", status: "waiting" },
-          ],
-          tracker: [
-            { id: "agreement", label: "Agreement signed", state: "done" },
-            { id: "built", label: "Assistant built", state: "not_done" },
-          ],
-          trackerLeft: ["Assistant built"],
-        },
-      ],
-    },
-  };
-  const jobs = { ok: true as const, data: [] };
-  const health = { ok: true as const, data: [] };
-  const actions = {
-    toggleJob: NOT_IN_A_RENDER,
-    issueConnectLink: NOT_IN_A_RENDER,
-    recordTouch: NOT_IN_A_RENDER,
-  };
-
-  test("each card carries its agreement, its channels and its build, and links to the account page", () => {
-    const html = renderToStaticMarkup(h(OpsConsole, { clinics, jobs, health, cards, actions }));
-    const page = text(h(OpsConsole, { clinics, jobs, health, cards, actions }));
-    expect(page).toContain("Data protection agreement");
-    expect(page).toContain("Website chat: live · Phone: waiting on the clinic");
-    expect(page).toContain("✓ Agreement signed");
-    expect(page).toContain("Still to do: Assistant built.");
-    expect(html).toContain(`/admin/ops/${CLINIC}/account`);
-  });
-
-  test("a card the cards read could not reach still shows the rest", () => {
-    const page = text(
-      h(OpsConsole, {
-        clinics,
-        jobs,
-        health,
-        cards: { ok: false, code: "timeout", message: "late" },
-        actions,
-      }),
-    );
-    expect(page).toContain("Radiance Med Spa");
-    expect(page).not.toContain("Still to do");
   });
 });

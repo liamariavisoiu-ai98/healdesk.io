@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 
 import { HostStandbyNotice } from "@/components/admin/HostStandbyNotice";
+import { loadClinicRows } from "@/lib/admin/clinic-strip";
 import { clinicTabPath, isUuid } from "@/lib/admin/issue-link";
 import { requireOperator } from "@/lib/admin/operator";
 import {
@@ -13,6 +14,7 @@ import {
   markIncidentNotified as notifiedUpstream,
   markVoiceVendorDataDeleted as vendorDeletedUpstream,
   openIncident as openIncidentUpstream,
+  recordClinicTouch as recordTouchUpstream,
   removeReportRecipient as removeRecipientUpstream,
   resolveIncident as resolveUpstream,
   startOffboarding as offboardUpstream,
@@ -22,6 +24,7 @@ import type { ErasureStepOutcome } from "@/lib/admin/patient-rights";
 import { isHostUnreachable } from "@/lib/host/state";
 
 import { CarePanel } from "./CarePanel";
+import { TouchLog } from "./TouchLog";
 
 /**
  * /admin/clinics/[id]/care, the Care tab: one clinic after go-live: who gets
@@ -51,9 +54,10 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
   const { clinicId } = await params;
   if (!isUuid(clinicId)) notFound();
 
-  const view = await fetchClinicCare(clinicId);
+  const [view, reads] = await Promise.all([fetchClinicCare(clinicId), loadClinicRows()]);
   if (isHostUnreachable(view)) return <HostStandbyNotice what="Care" />;
   const path = clinicTabPath(clinicId, "care");
+  const health = reads.health.ok ? (reads.health.data.find((h) => h.clinicId === clinicId.toLowerCase()) ?? null) : null;
 
   async function addRecipient(email: string, label?: string) {
     "use server";
@@ -114,21 +118,32 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
     revalidatePath(path);
     return result;
   }
+  // The first-weeks touch log (a call, an email, a note about the clinic;
+  // never a patient), so the second call knows about the first.
+  async function recordTouch(input: { kind: "call" | "email" | "note"; summary: string; outcome?: string }) {
+    "use server";
+    const result = await recordTouchUpstream(clinicId, input);
+    revalidatePath(path);
+    return result;
+  }
 
   return (
-    <CarePanel
-      view={view}
-      actions={{
-        addRecipient,
-        removeRecipient,
-        openIncident,
-        markNotified,
-        resolve,
-        startOffboarding,
-        markExportDelivered,
-        markVoiceVendorDataDeleted,
-        markErasureVendorDeleted,
-      }}
-    />
+    <>
+      <CarePanel
+        view={view}
+        actions={{
+          addRecipient,
+          removeRecipient,
+          openIncident,
+          markNotified,
+          resolve,
+          startOffboarding,
+          markExportDelivered,
+          markVoiceVendorDataDeleted,
+          markErasureVendorDeleted,
+        }}
+      />
+      <TouchLog health={health} onTouch={recordTouch} />
+    </>
   );
 }

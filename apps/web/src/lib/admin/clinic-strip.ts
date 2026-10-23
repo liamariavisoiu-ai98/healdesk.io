@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import { composeClinicRows, type ClinicRow } from "@/lib/admin/clinic-rows";
 import * as ops from "@/lib/admin/ops-client";
 import type { ClinicCards, ClinicHealth, OpsClinics, OpsResult } from "@/lib/admin/ops-client";
@@ -50,8 +52,10 @@ export type ClinicReads = {
 /**
  * The four reads behind the Clinics table and the clinic panel's header,
  * settled independently: one that fails costs its columns, never the rest.
+ * Memoised per request (React `cache`), so the panel's layout and the tab
+ * beneath it, which both need a clinic's row, make the reads once.
  */
-export async function loadClinicRows(): Promise<ClinicReads> {
+export const loadClinicRows = cache(async (): Promise<ClinicReads> => {
   const [clinics, cards, health, strip] = await Promise.all([ops.fetchClinics(), ops.fetchClinicCards(), ops.fetchClinicHealth(), readClinicStrip()]);
   return { clinics, cards, health, strip, rows: composeClinicRows({ clinics, cards, health, strip }) };
-}
+});

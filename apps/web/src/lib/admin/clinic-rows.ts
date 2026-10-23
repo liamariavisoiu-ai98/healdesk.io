@@ -1,4 +1,4 @@
-import type { ClinicCards, ClinicHealth, OpsClinics, OpsResult } from "@/lib/admin/ops-client";
+import type { ClinicCards, ClinicHealth, ConnectionState, OpsClinics, OpsResult } from "@/lib/admin/ops-client";
 import type { ChannelLevel, ClinicStripRow, Tone } from "@/lib/admin/strip-types";
 
 /**
@@ -50,6 +50,8 @@ export type ClinicRow = {
   blocking: string | null;
   /** A blocker below `blocked`, or a chip in a warning tone: the Attention filter. */
   attention: boolean;
+  /** The phase-two read-back credential's state (listClinics), for the Setup tab's disclosure only. */
+  connection: ConnectionState;
 };
 
 export type ClinicFilter = "all" | "setup" | "live" | "paused" | "attention" | "synthetic";
@@ -138,6 +140,7 @@ export function composeClinicRows(input: {
       lastReminder: s?.lastReminder ?? null,
       blocking: s?.blocking ?? blocked,
       attention: false,
+      connection: clinic.connection,
     };
     row.attention =
       row.blocking !== null ||

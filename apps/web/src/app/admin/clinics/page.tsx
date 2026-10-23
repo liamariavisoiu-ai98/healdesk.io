@@ -3,10 +3,9 @@ import { redirect } from "next/navigation";
 
 import { HostStandbyPage } from "@/components/admin/HostStandbyNotice";
 import { Failure } from "@/components/admin/ui";
-import { CLINIC_FILTERS, clinicFilter, composeClinicRows, filterClinicRows, type ClinicFilter } from "@/lib/admin/clinic-rows";
-import { readClinicStrip, stripReaderPresent } from "@/lib/admin/clinic-strip";
+import { CLINIC_FILTERS, clinicFilter, filterClinicRows, type ClinicFilter } from "@/lib/admin/clinic-rows";
+import { loadClinicRows, stripReaderPresent } from "@/lib/admin/clinic-strip";
 import { requireOperator } from "@/lib/admin/operator";
-import { fetchClinicCards, fetchClinicHealth, fetchClinics } from "@/lib/admin/ops-client";
 import { isHostUnreachable } from "@/lib/host/state";
 
 import { ClinicFilters, ClinicTable } from "./ClinicTable";
@@ -32,10 +31,9 @@ export default async function ClinicsPage({ searchParams }: { searchParams: Prom
   const { filter: rawFilter } = await searchParams;
   const filter = clinicFilter(rawFilter);
 
-  const [clinics, cards, health, strip] = await Promise.all([fetchClinics(), fetchClinicCards(), fetchClinicHealth(), readClinicStrip()]);
+  const { clinics, cards, health, strip, rows } = await loadClinicRows();
   if ([clinics, cards, health].every(isHostUnreachable)) return <HostStandbyPage title="Clinics" />;
 
-  const rows = composeClinicRows({ clinics, cards, health, strip });
   const counts = Object.fromEntries(CLINIC_FILTERS.map((f) => [f.id, filterClinicRows(rows, f.id).length])) as Record<ClinicFilter, number>;
 
   return (

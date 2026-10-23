@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 
 import { CopyValue } from "./demos/DemoBuilder";
-import { ClinicId } from "./ops/OpsConsole";
+import { ClinicId } from "@/components/admin/ui";
 
 /**
  * Ids an operator has to quote (run-task.sh, the db-apply and db-query

@@ -115,6 +115,16 @@ describe("the demo pipeline strip", () => {
     // An unread register has no count to act on.
     expect(text(h(DemoPipelineRow, { pipeline: null, retryStalled }))).not.toContain("Retry all stalled");
   });
+
+  test("with more stalled than one press takes, the button says how many it will take", () => {
+    const retryStalled = async () => {};
+    const backlog = { ...PIPELINE, now: { ...PIPELINE.now, stalled: 7 } };
+    const strip = text(h(DemoPipelineRow, { pipeline: backlog, retryStalled }));
+    expect(strip).toContain("7 stalled Retry the 3 longest stalled");
+    expect(strip).not.toContain("Retry all stalled");
+    const exact = { ...PIPELINE, now: { ...PIPELINE.now, stalled: 3 } };
+    expect(text(h(DemoPipelineRow, { pipeline: exact, retryStalled }))).toContain("3 stalled Retry all stalled");
+  });
 });
 
 describe("the live strip reads the register itself", () => {

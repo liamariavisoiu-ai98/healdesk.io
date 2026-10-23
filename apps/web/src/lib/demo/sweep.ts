@@ -70,6 +70,17 @@ import {
 /** How many times the sweep starts a stalled build again before it stops and asks a person. */
 export const DEMO_STALL_RETRIES = 1;
 
+/**
+ * How many builds one sweep, or one press, starts at once. A build makes
+ * about ten Sheet requests over its minutes (the row read, the auditing
+ * write, the verdict, the lead and the email stamp), the console's own
+ * reads sit beside them, and the quota is about sixty requests a minute
+ * for the whole Sheet. Three in parallel stay well inside it; a backlog of
+ * twenty would not. The rows beyond the batch stay stalled, untouched, and
+ * are the longest-stalled rows of the next run or the next press.
+ */
+export const RETRY_BATCH = 3;
+
 const STALL_MINUTES = Math.round(DEMO_BUILD_STALL_MS / 60_000);
 
 /**
@@ -105,6 +116,8 @@ export type StallRetry = {
   retried: DemoSession[];
   /** Rows that threw. The rows before and after them were handled all the same. */
   failures: SweepFailure[];
+  /** Stalled rows left as they were because the batch was full (RETRY_BATCH); the next run's first. */
+  waiting: number;
 };
 
 export type StallSweep = StallRetry & {
@@ -128,13 +141,19 @@ function failed(slug: string, error: unknown): SweepFailure {
 }
 
 /**
- * "Retry all stalled": every stalled row started again, whatever its count.
- * Returns the rows started again, whose builds the caller runs, and the
- * rows that threw. Only the listing itself throws.
+ * "Retry all stalled": the stalled rows started again, whatever their
+ * count, longest stalled first and at most RETRY_BATCH of them; the rest
+ * wait for the next press. Returns the rows started again, whose builds
+ * the caller runs, the rows that threw, and how many waited. Only the
+ * listing itself throws.
  */
 export async function retryStalledDemos(now: Date = new Date()): Promise<StallRetry> {
-  const out: StallRetry = { retried: [], failures: [] };
+  const out: StallRetry = { retried: [], failures: [], waiting: 0 };
   for (const stalled of await listStalledDemoSessions(now.getTime())) {
+    if (out.retried.length >= RETRY_BATCH) {
+      out.waiting += 1;
+      continue;
+    }
     try {
       const again = await retryStalledDemo(stalled, now);
       if (again) out.retried.push(again);
@@ -145,12 +164,21 @@ export async function retryStalledDemos(now: Date = new Date()): Promise<StallRe
   return out;
 }
 
-/** The sweep's rule: once more, then a person. Only the listing itself throws. */
+/**
+ * The sweep's rule: once more, then a person. At most RETRY_BATCH builds
+ * are started; a row past that waits, while a row that has had its retry
+ * is given up on whatever the batch holds, since giving up starts nothing.
+ * Only the listing itself throws.
+ */
 export async function sweepStalledDemos(now: Date = new Date()): Promise<StallSweep> {
-  const sweep: StallSweep = { retried: [], gaveUp: [], failures: [] };
+  const sweep: StallSweep = { retried: [], gaveUp: [], failures: [], waiting: 0 };
   for (const stalled of await listStalledDemoSessions(now.getTime())) {
     try {
       if (stalled.retryCount < DEMO_STALL_RETRIES) {
+        if (sweep.retried.length >= RETRY_BATCH) {
+          sweep.waiting += 1;
+          continue;
+        }
         const again = await retryStalledDemo(stalled, now);
         if (!again) continue;
         sweep.retried.push(again);

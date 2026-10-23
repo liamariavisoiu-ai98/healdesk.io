@@ -4,7 +4,7 @@ import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
 import { __resetSheetSchemaForTests, DEMO_SESSIONS, ensureSheetSchema } from "@/lib/sheets/schema";
 
 import { __resetDemoCacheForTests, createDemoSession, DEMO_BUILD_STALL_MS, getDemoSession, listDemoSessions, updateDemoSession, type DemoSession } from "./sessions";
-import { retryStalledDemo, retryStalledDemos, runRetriedBuilds, sweepStalledDemos } from "./sweep";
+import { RETRY_BATCH, retryStalledDemo, retryStalledDemos, runRetriedBuilds, sweepStalledDemos } from "./sweep";
 
 /**
  * Stalled demo builds (lib/demo/sweep.ts): the sweep starts a stalled build
@@ -128,7 +128,7 @@ describe("the sweep", () => {
     // A failed row is not a stalled one: the next sweep says nothing more about it.
     postInternalAlert.mockReset();
     const quiet = await sweepStalledDemos(new Date(NOW.getTime() + 60 * MINUTE));
-    expect(quiet).toEqual({ retried: [], gaveUp: [], failures: [] });
+    expect(quiet).toEqual({ retried: [], gaveUp: [], failures: [], waiting: 0 });
     expect(postInternalAlert).not.toHaveBeenCalled();
     expect(mailed).toHaveLength(1);
   });
@@ -144,7 +144,7 @@ describe("the sweep", () => {
     // other is still inside its eight: nothing is stalled.
     const before = writes();
     const second = await sweepStalledDemos(new Date(NOW.getTime() + 5 * MINUTE));
-    expect(second).toEqual({ retried: [], gaveUp: [], failures: [] });
+    expect(second).toEqual({ retried: [], gaveUp: [], failures: [], waiting: 0 });
     expect(writes()).toBe(before);
     expect((await fresh(stalled.slug)).retryCount).toBe(1);
   });
@@ -204,13 +204,50 @@ describe("Retry all stalled", () => {
     expect(mailed).toEqual([]);
 
     const before = writes();
-    expect(await retryStalledDemos(new Date(NOW.getTime() + MINUTE))).toEqual({ retried: [], failures: [] });
+    expect(await retryStalledDemos(new Date(NOW.getTime() + MINUTE))).toEqual({ retried: [], failures: [], waiting: 0 });
     expect(writes()).toBe(before);
   });
 
   it("runs the builds it is given, each on its own", async () => {
     await runRetriedBuilds(["a-bcdefghij2", "b-cdefghij23"]);
     expect(runDemoBuild.mock.calls.map((c) => c[0])).toEqual(["a-bcdefghij2", "b-cdefghij23"]);
+  });
+});
+
+describe("the batch", () => {
+  it("starts at most three builds a run, longest stalled first, and still gives up on the rows past them", async () => {
+    expect(RETRY_BATCH).toBe(3);
+    // Five never-retried stalled rows, the oldest stall first, and one past its retry.
+    const stalled = [];
+    for (let i = 5; i >= 1; i -= 1) stalled.push(await demo(`Clinic ${i}`, DEMO_BUILD_STALL_MS + i * MINUTE));
+    const twice = await demo("Lumen", DEMO_BUILD_STALL_MS + 30 * 1000, { retryCount: 1 });
+
+    const sweep = await sweepStalledDemos(NOW);
+
+    expect(sweep.retried.map((s) => s.clinicName)).toEqual(["Clinic 5", "Clinic 4", "Clinic 3"]);
+    expect(sweep.waiting).toBe(2);
+    expect(sweep.failures).toEqual([]);
+    for (const left of stalled.slice(3)) expect(await fresh(left.slug)).toEqual(left);
+    // Giving up starts no build, so the batch does not hold it back.
+    expect(sweep.gaveUp.map((s) => s.slug)).toEqual([twice.slug]);
+    expect((await fresh(twice.slug)).status).toBe("failed");
+
+    // The next run, with the three still building on their fresh clocks, takes the two that waited.
+    const next = await sweepStalledDemos(new Date(NOW.getTime() + MINUTE));
+    expect(next.retried.map((s) => s.clinicName)).toEqual(["Clinic 2", "Clinic 1"]);
+    expect(next.waiting).toBe(0);
+  });
+
+  it("holds Retry all stalled to the same batch", async () => {
+    for (let i = 4; i >= 1; i -= 1) await demo(`Clinic ${i}`, DEMO_BUILD_STALL_MS + i * MINUTE);
+
+    const first = await retryStalledDemos(NOW);
+    expect(first.retried.map((s) => s.clinicName)).toEqual(["Clinic 4", "Clinic 3", "Clinic 2"]);
+    expect(first.waiting).toBe(1);
+
+    const second = await retryStalledDemos(new Date(NOW.getTime() + MINUTE));
+    expect(second.retried.map((s) => s.clinicName)).toEqual(["Clinic 1"]);
+    expect(second.waiting).toBe(0);
   });
 });
 

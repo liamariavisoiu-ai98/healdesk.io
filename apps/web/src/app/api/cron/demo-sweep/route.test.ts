@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
     retried: [] as { slug: string }[],
     gaveUp: [] as { slug: string }[],
     failures: [] as { slug: string; error: string }[],
+    waiting: 0,
   },
   sweeps: 0,
   built: [] as string[][],
@@ -47,6 +48,7 @@ beforeEach(() => {
     retried: [{ slug: "glow-spa-abcdefghij" }, { slug: "lumen-abcdefghij" }],
     gaveUp: [{ slug: "verve-abcdefghij" }],
     failures: [],
+    waiting: 0,
   };
   state.sweeps = 0;
   state.built = [];
@@ -72,9 +74,10 @@ describe("GET /api/cron/demo-sweep", () => {
   });
 
   test("sweeps once, runs the retried builds after the response, and answers with counts", async () => {
+    state.sweep.waiting = 4;
     const response = await call();
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, retried: 2, gaveUp: 1, failures: 0 });
+    expect(await response.json()).toEqual({ ok: true, retried: 2, gaveUp: 1, failures: 0, waiting: 4 });
     expect(state.sweeps).toBe(1);
     // Scheduled, not yet run.
     expect(state.built).toEqual([]);
@@ -87,15 +90,15 @@ describe("GET /api/cron/demo-sweep", () => {
     state.sweep.failures = [{ slug: "peachy-abcdefghij", error: "quota exceeded" }];
     const response = await call();
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: false, retried: 2, gaveUp: 1, failures: 1 });
+    expect(await response.json()).toEqual({ ok: false, retried: 2, gaveUp: 1, failures: 1, waiting: 0 });
     expect(state.afterFns).toHaveLength(1);
     await state.afterFns[0]!();
     expect(state.built).toEqual([["glow-spa-abcdefghij", "lumen-abcdefghij"]]);
   });
 
   test("nothing stalled schedules nothing", async () => {
-    state.sweep = { retried: [], gaveUp: [], failures: [] };
-    expect(await (await call()).json()).toEqual({ ok: true, retried: 0, gaveUp: 0, failures: 0 });
+    state.sweep = { retried: [], gaveUp: [], failures: [], waiting: 0 };
+    expect(await (await call()).json()).toEqual({ ok: true, retried: 0, gaveUp: 0, failures: 0, waiting: 0 });
     expect(state.afterFns).toEqual([]);
   });
 });

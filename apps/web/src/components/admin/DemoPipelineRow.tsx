@@ -1,6 +1,7 @@
 import { retryStalledDemosAction } from "@/app/admin/demos/actions";
 import { claimedShare, DEMO_SOURCES, demoPipeline, PIPELINE_ROWS, type DemoPipeline, type PipelineWindow } from "@/lib/demo/pipeline";
 import { listDemoSessions } from "@/lib/demo/sessions";
+import { RETRY_BATCH } from "@/lib/demo/sweep";
 import { isMarketingStoreConfigured } from "@/lib/sheets/client";
 
 /**
@@ -50,7 +51,9 @@ export type DemoPipelineRowProps = {
   /**
    * The server action behind "Retry all stalled" (app/admin/demos/actions.ts),
    * offered beside the count only while something is stalled. Absent, the
-   * count prints without the button.
+   * count prints without the button. A press starts at most RETRY_BATCH
+   * builds (lib/demo/sweep.ts), so with more stalled than that the button
+   * says how many it will take rather than promising all.
    */
   retryStalled?: () => Promise<void>;
 };
@@ -60,6 +63,7 @@ export function DemoPipelineRow({ pipeline, retryStalled }: DemoPipelineRowProps
   const month = pipeline?.windows.find((w) => w.days === 30) ?? null;
   const now = pipeline?.now ?? null;
   const offerRetry = retryStalled !== undefined && now !== null && now.stalled > 0;
+  const retryLabel = now !== null && now.stalled > RETRY_BATCH ? `Retry the ${RETRY_BATCH} longest stalled` : "Retry all stalled";
 
   return (
     <section aria-label="Demo pipeline" className="border-line mt-6 rounded-md border bg-white px-4 py-3 text-[14.4px] sm:px-5">
@@ -81,7 +85,7 @@ export function DemoPipelineRow({ pipeline, retryStalled }: DemoPipelineRowProps
         {offerRetry ? (
           <form action={retryStalled} className="inline">
             <button type="submit" className="text-red-deep hover:text-red font-bold">
-              Retry all stalled
+              {retryLabel}
             </button>
           </form>
         ) : null}

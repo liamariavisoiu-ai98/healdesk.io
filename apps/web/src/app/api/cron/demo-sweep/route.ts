@@ -24,7 +24,8 @@ export const maxDuration = 300;
  * sweep by hand, now.
  *
  * The builds it starts again run after the response, inside maxDuration,
- * the way the webhook's and the console's do. The Sheet unreachable is a
+ * the way the webhook's and the console's do, at most RETRY_BATCH of them
+ * (the Sheet's quota; the rest wait for the next run). The Sheet unreachable is a
  * thrown error and a 500, so the cron shows red rather than a quiet day.
  * A row the sweep could not handle (a refused write, a damaged row) is a
  * different thing: the other rows were handled, and their builds are
@@ -50,11 +51,13 @@ export async function GET(request: Request): Promise<NextResponse> {
     retried,
     gaveUp: sweep.gaveUp.map((s) => s.slug),
     failures: sweep.failures.map((f) => f.slug),
+    waiting: sweep.waiting,
   });
   return NextResponse.json({
     ok: sweep.failures.length === 0,
     retried: retried.length,
     gaveUp: sweep.gaveUp.length,
     failures: sweep.failures.length,
+    waiting: sweep.waiting,
   });
 }

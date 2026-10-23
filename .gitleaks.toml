@@ -90,6 +90,17 @@ condition = "AND"
 paths = ['''^apps/app/tests/voice-ended-early\.test\.ts$''']
 regexes = ['''^test-retell-llm-secret-0123456789$''']
 
+# The operator-console link test needs a segment shaped like a single-use token
+# to prove such a link is refused (linkProblem: "single-use token"). It is a
+# keyboard-row-and-alphabet string spelled out in the test, never issued by
+# anything and opening nothing. Named by its exact value in its one file.
+[[allowlists]]
+description = "Console link test: a made-up token-shaped path segment, by exact value"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/app/tests/ops-console-links\.test\.ts$''']
+regexes = ['''^aB3dEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdE$''']
+
 # --- Operator sign-in tests -------------------------------------------------
 # GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ is the base32 of "12345678901234567890":
 # the published RFC 6238 test secret, a public vector and not an authenticator

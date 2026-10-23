@@ -135,6 +135,10 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   // locations an account has and the quantity Stripe bills it for. Counts.
   "locationCount",
   "billedCount",
+  // The usage alerts to ops (lib/billing/usage-alerts.ts): a meter's units
+  // used in its window and the allowance it includes. Counts.
+  "used",
+  "included",
   // Short free text, scrubbed on the way out.
   "reason",
   "error",

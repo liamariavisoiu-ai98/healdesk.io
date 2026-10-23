@@ -3953,7 +3953,21 @@ export type ClinicHealth = {
   recipients: number;
   forwardingTested: boolean;
   connected: boolean;
-  usage: { voiceMinutesUsed: number; voiceMinutesIncluded: number; chatUsed: number; chatIncluded: number } | null;
+  usage: {
+    voiceMinutesUsed: number;
+    voiceMinutesIncluded: number;
+    chatUsed: number;
+    chatIncluded: number;
+    /** Whole percent of each allowance; null where the meter has none. */
+    voicePercent: number | null;
+    chatPercent: number | null;
+    /** The day the open window resets, or null while none is open. */
+    resetsOn: string | null;
+    /** `allow` bills extra blocks of 100; `hard_cap` is "Stop and fall back". */
+    overageMode: "allow" | "hard_cap" | null;
+    /** Whether the clinic itself is emailed at the marks (its Usage alerts switch). */
+    clinicEmailed: boolean | null;
+  } | null;
   touches: { touchedAt: string; byLabel: string; kind: "call" | "email" | "note"; summary: string; outcome: string | null }[];
   flags: HealthFlag[];
 };
@@ -3988,6 +4002,15 @@ function readHealth(value: unknown): ClinicHealth[] {
             voiceMinutesIncluded: count(usage.voiceMinutesIncluded, "health.usage.voiceMinutesIncluded"),
             chatUsed: count(usage.chatUsed, "health.usage.chatUsed"),
             chatIncluded: count(usage.chatIncluded, "health.usage.chatIncluded"),
+            // Optional on the wire, so a host one deploy behind still reads.
+            voicePercent: optionalCount(usage.voicePercent, "health.usage.voicePercent"),
+            chatPercent: optionalCount(usage.chatPercent, "health.usage.chatPercent"),
+            resetsOn: optionalText(usage.resetsOn, "health.usage.resetsOn"),
+            overageMode:
+              usage.overageMode === undefined || usage.overageMode === null
+                ? null
+                : literal(usage.overageMode, ["allow", "hard_cap"] as const, "health.usage.overageMode"),
+            clinicEmailed: optionalBool(usage.clinicEmailed, "health.usage.clinicEmailed"),
           }
         : null,
       touches: list(h.touches, "health.touches").map((t) => {

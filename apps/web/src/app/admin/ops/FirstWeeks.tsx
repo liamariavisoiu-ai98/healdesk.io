@@ -16,7 +16,7 @@ const FLAG_COPY: Record<HealthFlag, { label: string; tone: "warn" | "ok" | "mute
   no_calls_after_day_7: { label: "Past day 7, no calls — the phone was never forwarded. Phone them.", tone: "warn" },
   first_win: { label: "First recovered booking, nobody has called them since. Call and say so.", tone: "ok" },
   quiet_week: { label: "Nothing this week after earlier calls — check the forwarding still holds.", tone: "warn" },
-  near_allowance: { label: "Near the plan's voice allowance — the tier conversation is a fact, not a guess.", tone: "muted" },
+  near_allowance: { label: "At 90% or more of an allowance — the tier conversation is a fact, not a guess.", tone: "muted" },
 };
 
 export function FirstWeeks({
@@ -59,6 +59,25 @@ export function FirstWeeks({
   );
 }
 
+/**
+ * The usage column: each meter that has an allowance, used against included
+ * with its percent, when the window resets, what happens past it, and
+ * whether the clinic itself is emailed at the marks.
+ */
+function usageLine(usage: NonNullable<ClinicHealth["usage"]>): string {
+  const meter = (used: number, included: number, percent: number | null, unit: string) =>
+    included > 0 ? `${Math.round(used)}/${included} ${unit}${percent === null ? "" : ` (${percent}%)`}` : null;
+  const parts = [
+    meter(usage.voiceMinutesUsed, usage.voiceMinutesIncluded, usage.voicePercent, "voice min"),
+    meter(usage.chatUsed, usage.chatIncluded, usage.chatPercent, "conversations"),
+  ].filter((p): p is string => p !== null);
+  if (parts.length === 0) return "No allowance yet";
+  if (usage.resetsOn) parts.push(`resets ${usage.resetsOn}`);
+  if (usage.overageMode) parts.push(usage.overageMode === "hard_cap" ? "stop and fall back" : "extra blocks bill");
+  if (usage.clinicEmailed !== null) parts.push(usage.clinicEmailed ? "clinic emailed at 90% and 100%" : "clinic's usage emails off");
+  return `Usage: ${parts.join(" · ")}`;
+}
+
 function HealthRow({ row, onTouch }: { row: ClinicHealth; onTouch: Parameters<typeof FirstWeeks>[0]["onTouch"] }) {
   const [pending, start] = useTransition();
   const [problem, setProblem] = useState<string | null>(null);
@@ -76,8 +95,8 @@ function HealthRow({ row, onTouch }: { row: ClinicHealth; onTouch: Parameters<ty
         {row.bookings} booked{row.firstRecoveredBookingOn ? ` · first recovered booking ${row.firstRecoveredBookingOn}` : ""} ·{" "}
         {row.recipients} report recipient{row.recipients === 1 ? "" : "s"} · forwarding {row.forwardingTested ? "tested" : "NOT tested"} ·{" "}
         {row.connected ? "read-back connected (phase two)" : "no read-back (phase two)"}
-        {row.usage && row.usage.voiceMinutesIncluded > 0 ? ` · ${Math.round(row.usage.voiceMinutesUsed)}/${row.usage.voiceMinutesIncluded} voice min` : ""}
       </p>
+      {row.usage ? <p className="text-muted mt-1 text-xs">{usageLine(row.usage)}</p> : null}
       {row.flags.map((f) => (
         <p key={f} className={`mt-1 text-xs font-semibold ${FLAG_COPY[f].tone === "warn" ? "text-red-deep" : FLAG_COPY[f].tone === "ok" ? "text-done" : "text-muted"}`}>
           {FLAG_COPY[f].label}

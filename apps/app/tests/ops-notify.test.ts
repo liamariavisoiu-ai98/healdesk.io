@@ -4,6 +4,7 @@ import { recordDailyQuota } from "@/lib/email/quota";
 import { notifyOps, notifyOpsOnce, OPS_DEDUPE_WINDOW_MS } from "@/lib/ops/notify";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations } from "./setup/db";
+import { seedClinic } from "./setup/factories";
 
 /**
  * notifyOps, made real (Annex X3 and X5, I1): it still logs every call, it
@@ -120,6 +121,26 @@ describeDb("notifyOps", () => {
     // Free text and anything off the allowlist stay in the log, out of the email.
     expect(body).not.toContain("owner@radiance.test");
     expect(body).not.toContain("bounced");
+  });
+
+  test("prints the clinic's name beside its id (owner decision D2), never storing it on the alert", async () => {
+    const clinic = await seedClinic("opsname");
+    await notifyOps("usage_cap_reached", {
+      clinicId: clinic.clinicId,
+      meter: "voice_minutes",
+      windowStart: "2026-10-01T00:00:00.000Z",
+      used: 1_001,
+      included: 1_000,
+    });
+    const { payload } = sent()[0]!;
+    const body = `${String(payload.text)}\n${String(payload.html)}`;
+    expect(body).toContain("opsname Clinic");
+    expect(body).toContain(clinic.clinicId);
+    expect(body).toContain("1001");
+    const { rows } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
+      `select fields from ops_alerts`,
+    );
+    expect(JSON.stringify(rows[0]!.fields)).not.toContain("opsname");
   });
 
   test("identical alerts within the hour are one email; the repeat is counted", async () => {

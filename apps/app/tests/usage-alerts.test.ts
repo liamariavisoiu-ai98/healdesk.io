@@ -179,4 +179,71 @@ describeDb("usage-alerts", () => {
     expect((await notices(billing.clinicId)).map((n) => n.kind)).toEqual(["usage_80"]);
     expect(await notices(location.clinicId)).toEqual([]);
   });
+
+  /**
+   * Ops hears of each mark too (design E2, 23 October 2026): usage_near_cap
+   * and usage_cap_reached, once per clinic, meter and window, with the meter
+   * and the counts, and whatever the clinic's own switch says.
+   */
+  test("ops is told once per mark per window, even with the clinic's switch off", async () => {
+    await switchJob(true);
+    await getMigratorPool().query(`truncate ops_alerts`);
+    const c = await seedClinic("alerts-ops");
+    await seedEntitled(c.clinicId, { planStartedAt: WINDOW_START });
+    await withTenant({ clinicId: c.clinicId, actor }, (tx) =>
+      setUsageAlertsEnabled(tx.db, c.clinicId, false),
+    );
+    await setUsed(c.clinicId, 950, 1_100);
+
+    const opsAlerts = async () =>
+      (
+        await getMigratorPool().query<{ event: string; fields: Record<string, unknown>; repeats: number }>(
+          `select event, fields, repeats from ops_alerts order by event`,
+        )
+      ).rows;
+
+    await runUsageAlertsJob({ now: NOW });
+    // The clinic is not emailed: its switch is off.
+    expect(await notices(c.clinicId)).toEqual([]);
+    expect(await opsAlerts()).toEqual([
+      {
+        event: "usage_cap_reached",
+        fields: {
+          clinicId: c.clinicId,
+          meter: "chat_conversations",
+          windowStart: WINDOW_START.toISOString(),
+          used: 1_100,
+          included: 1_000,
+        },
+        repeats: 0,
+      },
+      {
+        event: "usage_near_cap",
+        fields: {
+          clinicId: c.clinicId,
+          meter: "voice_minutes",
+          windowStart: WINDOW_START.toISOString(),
+          used: 950,
+          included: 1_000,
+        },
+        repeats: 0,
+      },
+    ]);
+
+    // Later hours, more usage under the same mark: still one alert each.
+    await setUsed(c.clinicId, 960, 1_150);
+    await runUsageAlertsJob({ now: new Date(NOW.getTime() + 60 * 60 * 1000) });
+    await runUsageAlertsJob({ now: new Date(NOW.getTime() + 2 * 60 * 60 * 1000) });
+    expect((await opsAlerts()).map((a) => a.event)).toEqual(["usage_cap_reached", "usage_near_cap"]);
+
+    // Voice crossing 100% is its own alert, once.
+    await setUsed(c.clinicId, 1_001, 1_150);
+    await runUsageAlertsJob({ now: new Date(NOW.getTime() + 3 * 60 * 60 * 1000) });
+    await runUsageAlertsJob({ now: new Date(NOW.getTime() + 4 * 60 * 60 * 1000) });
+    expect((await opsAlerts()).map((a) => `${a.event}:${String(a.fields.meter)}`).sort()).toEqual([
+      "usage_cap_reached:chat_conversations",
+      "usage_cap_reached:voice_minutes",
+      "usage_near_cap:voice_minutes",
+    ]);
+  });
 });

@@ -1,6 +1,9 @@
+import { USAGE_ALERT_PERCENT } from "@healdesk/catalog";
 import { and, asc, count, desc, eq, gte, isNotNull, min } from "drizzle-orm";
 
-import { appointments, clinicTouches, conversations, entitlements, providerConnections } from "@/db/schema";
+import { appointments, clinicTouches, conversations, providerConnections, type Entitlements } from "@/db/schema";
+import { getEntitlements } from "@/lib/billing/entitlements";
+import { openWindowAt, usageSnapshot, windowEndsOn } from "@/lib/billing/usage";
 import { describeError, log } from "@/lib/log";
 import { listRecipients } from "@/lib/reporting/recipients";
 import { withTenant, type TenantTx } from "@/lib/tenant";
@@ -50,9 +53,30 @@ export type ClinicHealth = {
   recipients: number;
   forwardingTested: boolean;
   connected: boolean;
-  usage: { voiceMinutesUsed: number; voiceMinutesIncluded: number; chatUsed: number; chatIncluded: number } | null;
+  usage: ClinicUsage | null;
   touches: ClinicTouch[];
   flags: HealthFlag[];
+};
+
+/**
+ * The usage column (design E2, 23 October 2026): each meter against its
+ * allowance, as the allowance emails count it (usageSnapshot), with the
+ * whole percent, the day the window resets, what happens past the
+ * allowance, and whether the clinic itself is emailed at the marks (its
+ * Usage alerts switch). Ops is told at the marks either way.
+ */
+export type ClinicUsage = {
+  voiceMinutesUsed: number;
+  voiceMinutesIncluded: number;
+  chatUsed: number;
+  chatIncluded: number;
+  voicePercent: number | null;
+  chatPercent: number | null;
+  /** The ISO day the open window ends, or null while none is open. */
+  resetsOn: string | null;
+  /** `allow` bills extra blocks of 100; `hard_cap` is "Stop and fall back". */
+  overageMode: "allow" | "hard_cap";
+  clinicEmailed: boolean;
 };
 
 export async function clinicHealth(
@@ -75,7 +99,9 @@ export async function clinicHealth(
         flags.push("first_win");
       }
       if (daysLive >= 14 && row.conversations.total > 0 && row.conversations.last7 === 0) flags.push("quiet_week");
-      if (row.usage && row.usage.voiceMinutesIncluded > 0 && row.usage.voiceMinutesUsed >= 0.8 * row.usage.voiceMinutesIncluded) {
+      // At the clinic's own alert mark, on either meter, as ops is told.
+      const percents = [row.usage?.voicePercent, row.usage?.chatPercent];
+      if (percents.some((p) => typeof p === "number" && p >= USAGE_ALERT_PERCENT)) {
         flags.push("near_allowance");
       }
       out.push({
@@ -120,16 +146,7 @@ async function readHealth(tx: TenantTx, now: Date) {
     .from(providerConnections)
     .where(and(eq(providerConnections.clinicId, c), eq(providerConnections.status, "active")))
     .limit(1);
-  const [entitlement] = await tx.db
-    .select({
-      voiceUsed: entitlements.usedVoiceMinutes,
-      voiceIncluded: entitlements.includedVoiceMinutes,
-      chatUsed: entitlements.usedChatConversations,
-      chatIncluded: entitlements.includedChatConversations,
-    })
-    .from(entitlements)
-    .where(eq(entitlements.clinicId, c))
-    .limit(1);
+  const entitlement = await getEntitlements(tx.db, c);
   const touches = await tx.db
     .select()
     .from(clinicTouches)
@@ -147,14 +164,7 @@ async function readHealth(tx: TenantTx, now: Date) {
     lastConversationAt: last?.at ? last.at.toISOString() : null,
     recipients: recipients.length,
     connected: Boolean(connection),
-    usage: entitlement
-      ? {
-          voiceMinutesUsed: Number(entitlement.voiceUsed ?? 0),
-          voiceMinutesIncluded: entitlement.voiceIncluded,
-          chatUsed: entitlement.chatUsed,
-          chatIncluded: entitlement.chatIncluded,
-        }
-      : null,
+    usage: entitlement ? usageColumn(entitlement, now) : null,
     touches: touches.map((t) => ({
       touchedAt: t.touchedAt.toISOString(),
       byLabel: t.byLabel,
@@ -162,6 +172,23 @@ async function readHealth(tx: TenantTx, now: Date) {
       summary: t.summary,
       outcome: t.outcome,
     })),
+  };
+}
+
+/** The usage column from the entitlements row, counted as the allowance emails count it. */
+export function usageColumn(row: Entitlements, now: Date): ClinicUsage {
+  const [voice, chat] = usageSnapshot(row, now);
+  const window = openWindowAt(row, now);
+  return {
+    voiceMinutesUsed: voice!.used,
+    voiceMinutesIncluded: voice!.included,
+    chatUsed: chat!.used,
+    chatIncluded: chat!.included,
+    voicePercent: voice!.percent,
+    chatPercent: chat!.percent,
+    resetsOn: window ? windowEndsOn(window.end) : null,
+    overageMode: row.overageMode,
+    clinicEmailed: row.usageAlertsEnabled,
   };
 }
 

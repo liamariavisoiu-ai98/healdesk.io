@@ -1320,6 +1320,33 @@ describe("the first-weeks list", () => {
     if (!result.ok) throw new Error(result.message);
     expect(result.data.map((row) => row.plan)).toEqual(["AYA Voice, 500 minutes", "complete", null]);
   });
+
+  test("reads the usage column, and a host one deploy behind that sends only the counts", async () => {
+    const usage = {
+      voiceMinutesUsed: 950,
+      voiceMinutesIncluded: 1000,
+      chatUsed: 0,
+      chatIncluded: 0,
+      voicePercent: 95,
+      chatPercent: null,
+      resetsOn: "2026-11-01",
+      overageMode: "hard_cap",
+      clinicEmailed: false,
+    };
+    const older = { voiceMinutesUsed: 10, voiceMinutesIncluded: 100, chatUsed: 0, chatIncluded: 0 };
+    reply({ data: { clinics: [{ ...healthRow("voice-500"), usage }, { ...healthRow("voice-500"), usage: older }] } });
+    const result = await fetchClinicHealth();
+    if (!result.ok) throw new Error(result.message);
+    expect(result.data[0]!.usage).toEqual(usage);
+    expect(result.data[1]!.usage).toEqual({
+      ...older,
+      voicePercent: null,
+      chatPercent: null,
+      resetsOn: null,
+      overageMode: null,
+      clinicEmailed: null,
+    });
+  });
 });
 
 /**

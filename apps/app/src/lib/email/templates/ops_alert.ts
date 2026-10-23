@@ -1,3 +1,5 @@
+import { USAGE_ALERT_PERCENT } from "@healdesk/catalog";
+
 import type { OpsEvent } from "@/lib/ops/notify";
 
 import { compose, type Block } from "./compose";
@@ -6,10 +8,11 @@ import type { EmailTemplate } from "./types";
 /**
  * I1 in Annex X5: one notifyOps alert, to HEALDESK_OPS_EMAIL.
  *
- * Ids, counts and categories only, which the operator looks up in the ops
- * console. Nothing here names a clinic, quotes an address or carries free
- * text, so the alert is safe to read on a phone in a queue and safe in a
- * vendor's logs. The wording says what happened and what to do next, one
+ * Ids, counts and categories, which the operator looks up in the ops
+ * console, and the clinic's name beside its id (business data; the owner's
+ * decision D2 of 23 October 2026). Nothing here quotes an address, names a
+ * patient or carries free text, so the alert is safe to read on a phone in a
+ * queue and safe in a vendor's logs. The wording says what happened and what to do next, one
  * event at a time, because "something went wrong" at 3 am is not an alert.
  *
  * It links nowhere. The console lives on the marketing site's origin, and an
@@ -501,6 +504,18 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The quantity Stripe bills this account for locations matches its active locations again, so the mismatch reported earlier for the time below has ended. Nothing more to do unless a refund or a credit for the period it lasted is still owed.",
   },
+  // The usage alerts job (lib/billing/usage-alerts.ts), once per clinic,
+  // meter and window, whatever the clinic's own switch says.
+  usage_near_cap: {
+    title: "A clinic is near its monthly allowance",
+    action:
+      `The clinic below has used ${USAGE_ALERT_PERCENT}% or more of the allowance on the meter shown, in its current window (used against included). The clinic gets its own email only while its Usage alerts switch is on. At this pace, moving up a step costs it less than extra blocks of 100: consider a call before the window ends.`,
+  },
+  usage_cap_reached: {
+    title: "A clinic has used its whole allowance",
+    action:
+      "The clinic below has used all of the allowance on the meter shown, in its current window. What happens next is its own setting on its Billing page: extra blocks of 100 are billed, or, with Stop and fall back, AYA stops on that meter and calls go to its direct line. Check which, and call the clinic if a step up would serve it better.",
+  },
   step_up_phone_held: {
     title: "Phone held off a plan with more than one location",
     action:
@@ -526,6 +541,7 @@ const DEAD_LETTER: Wording = {
 
 /** The labels a field prints under. Anything else prints under its own key. */
 const LABELS: Record<string, string> = {
+  clinicName: "Clinic",
   clinicId: "Clinic id",
   noticeId: "Notice id",
   deliveryId: "Delivery id",
@@ -550,6 +566,9 @@ const LABELS: Record<string, string> = {
   channel: "Channel",
   locationCount: "Locations active",
   billedCount: "Locations billed in Stripe",
+  meter: "Meter",
+  used: "Used",
+  included: "Included",
 };
 
 function wordingFor(payload: OpsAlertPayload): Wording {
@@ -588,7 +607,7 @@ export const renderOpsAlert: EmailTemplate<OpsAlertPayload> = (payload, ctx) => 
     },
     {
       type: "paragraph",
-      text: "Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.",
+      text: "Look the ids up in the ops console. An alert carries ids, counts and the clinic's name only; identical alerts within an hour are sent once.",
     },
   ];
 

@@ -14,7 +14,9 @@ import { ALLOWED_LOG_KEYS, describeError, log, type LogFields } from "@/lib/log"
  * Ops alerting: I1 in Annex X5 of the funnel and portal plan, one call per
  * thing a person at healdesk has to act on. The caller names the event and
  * passes ids and counts, which an operator looks up in the console; nothing
- * in an alert describes a patient or quotes a clinic.
+ * in an alert describes a patient or quotes a clinic. Since 23 October 2026
+ * (owner decision D2) the email and the Slack copy (lib/ops/slack.ts) print
+ * the clinic's name beside its id, looked up when the alert goes out.
  */
 
 /**
@@ -276,6 +278,13 @@ export const OPS_EVENTS = [
   // extra-locations plan's slice 2. Once per account and channel, by the
   // hourly reconcile or the billing-requests worker.
   "step_up_phone_held",
+  // A billing clinic's meter reached the 90% mark (USAGE_ALERT_PERCENT) or
+  // its whole allowance in the open window (lib/billing/usage-alerts.ts):
+  // once per clinic, meter and window (`windowStart`), with `used` and
+  // `included`, whatever the clinic's own Usage alerts switch says, since
+  // this one is ours (owner, 23 October 2026; design E2).
+  "usage_near_cap",
+  "usage_cap_reached",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 
@@ -371,6 +380,8 @@ const NOT_IDENTITY = new Set([
   "lateDays",
   "locationCount",
   "billedCount",
+  "used",
+  "included",
 ]);
 
 /** What the email may carry: each field the payload allowlist accepts on its own. */
@@ -518,7 +529,10 @@ async function mail(
     outcome = { lastError: "HEALDESK_OPS_EMAIL is not set." };
   } else {
     try {
-      const payload: OpsAlertPayload = { ...fields, event };
+      // The clinic's name beside its id (owner decision D2), looked up now
+      // and never stored on the alert's row.
+      const clinicName = await opsClinicName(fields.clinicId);
+      const payload: OpsAlertPayload = { ...fields, ...(clinicName ? { clinicName } : {}), event };
       const rendered = renderOpsAlert(payload, {
         clinicName: null,
         audience: "patients",

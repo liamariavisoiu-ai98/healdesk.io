@@ -160,7 +160,7 @@ describe("an attestation from /admin/compliance", () => {
       data: {
         status: "refused",
         message:
-          "Launch promises that block go-live are still open (no-audio): move each to on first, on /admin/seo. Nothing was recorded.",
+          "Launch promises that block go-live are still open (no-audio): move each to on first, under /admin/compliance#launch. Nothing was recorded.",
       },
     });
     expect(sent).toEqual([]);

@@ -120,7 +120,7 @@ export function CarePanel({ view, actions }: { view: OpsResult<CareView>; action
           Opening one starts two clocks: the deadline the practice&rsquo;s agreement promises, and our internal target,
           which is stricter and never a promise. Write the summary in ids and counts — a phone number, an email address
           or a name is refused. The conversation id is the pointer to the evidence. Send the report, or record it as not
-          reportable, from <a href="/admin/incidents" className="underline">Incidents</a>. Procedure:
+          reportable, from <a href="/admin/compliance/incidents" className="underline">Incidents</a>. Procedure:
           docs/incident-response.md.
         </p>
         <ul className="mt-3 grid gap-3">

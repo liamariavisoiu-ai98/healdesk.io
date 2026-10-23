@@ -47,27 +47,18 @@ export function CompliancePanel({
   actions: Actions;
 }) {
   if (!view.ok) {
-    return (
-      <main className="mx-auto max-w-[1000px] px-5 py-10">
-        <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em]">Compliance</h1>
-        <p className="text-red-deep mt-4 font-semibold">{view.message}</p>
-      </main>
-    );
+    return <p className="text-red-deep mt-6 font-semibold">Could not read the attestations: {view.message}</p>;
   }
   const v = view.data;
   const vendors = v.subjects.filter((s) => s.kind === "vendor");
   const readiness = v.subjects.filter((s) => s.kind === "readiness");
   return (
-    <main className="mx-auto max-w-[1000px] px-5 py-10 sm:px-8">
-      <h1 className="font-display text-[32px] font-medium tracking-[-0.02em]">Compliance</h1>
-      <p className="text-muted mt-2 max-w-[70ch] text-sm">
-        Go-live is automatic: a clinic goes to production by itself once its own part is done and
-        everything below that its channel needs is attested and built. A withdrawal never takes a
-        live channel offline; it holds back what has not gone live yet. A business associate
-        agreement withdrawn, or past its expiry with no renewal, also stops AYA answering where that
-        vendor serves (every channel for the model provider, AWS and the database host; phone for
-        Retell): calls go to each clinic&apos;s direct line until a renewal is recorded here. Each
-        entry needs a fresh code from your authenticator. Days are UTC; today is {v.today}.
+    <div>
+      <p className="text-muted mt-4 max-w-[70ch] text-sm">
+        Go-live is automatic once everything here that a clinic&apos;s channel needs is attested and built. A
+        withdrawal holds back what has not gone live; a vendor&apos;s agreement withdrawn or lapsed also stops AYA
+        answering where that vendor serves until a renewal is recorded. Each entry needs a fresh code from your
+        authenticator. Days are UTC; today is {v.today}.
       </p>
 
       <Section title="Business associate agreements in the chain">
@@ -110,7 +101,7 @@ export function CompliancePanel({
           </ul>
         )}
       </Section>
-    </main>
+    </div>
   );
 }
 
@@ -164,8 +155,8 @@ function SubjectRow({
       {blocked ? (
         <div className="mt-2">
           <p className="text-red-deep font-semibold">
-            Open on /admin/seo, each blocking go-live; this can&rsquo;t be attested until each is
-            on:
+            Open under <a href="#launch" className="underline">Launch</a> below, each blocking go-live; this
+            can&rsquo;t be attested until each is on:
           </p>
           <ul className="list-disc pl-5">
             {openPromises.map((p) => (

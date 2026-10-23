@@ -147,18 +147,29 @@ export function NoticesBoard({
 }) {
   return (
     <main className="mx-auto max-w-[1000px] px-5 py-10 sm:px-8">
-      <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em]">Notices</h1>
-      <p className="text-muted mt-3 max-w-[72ch] text-[15.6px]">
-        The emails we send a practice by hand. Each form sends a choice from a fixed list, and the
-        email is written from it: nothing typed here reaches a practice. A broadcast goes once per
-        practice, so sending it again reaches only the practices that didn&rsquo;t have it. Incident
-        reports are sent from{" "}
-        <a href="/admin/incidents" className="underline">
+      <a href="/admin/compliance" className="text-muted text-sm underline underline-offset-2">← Compliance</a>
+      <h1 className="font-display mt-2 text-[28px] font-semibold tracking-[-0.02em]">Notices</h1>
+      <p className="text-muted mt-3 max-w-[72ch] text-sm">
+        The emails we send a practice by hand, each written from a fixed choice: nothing typed here reaches a practice.
+        Incident reports are sent from{" "}
+        <a href="/admin/compliance/incidents" className="underline">
           Incidents
         </a>
         .
       </p>
 
+      <Section title="What was sent, the last 180 days">
+        {!record.ok ? (
+          <p className="text-red-deep text-sm font-semibold">{record.message}</p>
+        ) : (
+          <Record view={record.data} />
+        )}
+      </Section>
+
+      {/* The six send forms, a few times a year, behind one disclosure (E1, noise removed). A broadcast goes once
+          per practice, so sending it again reaches only the practices that didn't have it. */}
+      <details className="mt-8">
+        <summary className="cursor-pointer text-sm font-bold tracking-[0.08em] uppercase">Send a notice…</summary>
       <Section title="Change to the terms or prices (L28)">
         <TermsForm today={today} send={actions.sendTermsNotice} />
       </Section>
@@ -186,14 +197,7 @@ export function NoticesBoard({
       <Section title="Suspend for a legal or security reason (L31)">
         <SuspendForm clinics={clinics} suspend={actions.suspendForCause} />
       </Section>
-
-      <Section title="What was sent, the last 180 days">
-        {!record.ok ? (
-          <p className="text-red-deep text-sm font-semibold">{record.message}</p>
-        ) : (
-          <Record view={record.data} />
-        )}
-      </Section>
+      </details>
     </main>
   );
 }

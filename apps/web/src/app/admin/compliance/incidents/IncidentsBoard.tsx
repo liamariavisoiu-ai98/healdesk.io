@@ -137,7 +137,8 @@ export function IncidentsBoard({
   if (!register.ok) {
     return (
       <main className="mx-auto max-w-[1000px] px-5 py-10">
-        <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em]">Incidents</h1>
+        <a href="/admin/compliance" className="text-muted text-sm underline underline-offset-2">← Compliance</a>
+        <h1 className="font-display mt-2 text-[28px] font-semibold tracking-[-0.02em]">Incidents</h1>
         <p className="text-red-deep mt-4 font-semibold">{register.message}</p>
       </main>
     );
@@ -148,25 +149,30 @@ export function IncidentsBoard({
   );
   return (
     <main className="mx-auto max-w-[1000px] px-5 py-10 sm:px-8">
-      <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em]">Incidents</h1>
-      <p className="text-muted mt-3 max-w-[72ch] text-[15.6px]">
-        Every practice&rsquo;s open incidents, and those resolved in the last 90 days. Each shows
-        two deadlines: the one the practice&rsquo;s agreement promises, and our internal target,
-        which is stricter and never a promise to anyone. Decide each one: send the report, built
-        from fixed fields only, or record why it isn&rsquo;t reportable. Nothing reaches a practice
-        unless you send it here. The list of people affected is never emailed: the practice reads
-        it on the incident&rsquo;s page in its portal, behind its passkey, which a breach&rsquo;s
-        report links to. Open, notify and resolve incidents on each practice&rsquo;s care page.
-      </p>
-      <p className="text-muted mt-2 max-w-[72ch] text-sm">
-        The agreements&rsquo; promise, word for word: notice &ldquo;without unreasonable delay and
-        in no case later than 60 calendar days&rdquo; after discovery, under BAA 1.2.2 on and the
-        DPA. BAA 1.2.1 and before promised five calendar days for a breach and five business days
-        for the rest, and a practice with no agreement on file gets that, the strictest rule.
-      </p>
+      <a href="/admin/compliance" className="text-muted text-sm underline underline-offset-2">← Compliance</a>
+      <h1 className="font-display mt-2 text-[28px] font-semibold tracking-[-0.02em]">Incidents</h1>
       <p className="mt-4 text-sm font-semibold">
         {open.length} open · {undecided.length} waiting for a decision
       </p>
+      <p className="text-muted mt-1 max-w-[72ch] text-sm">
+        Send the report, built from fixed fields only, or record why it isn&rsquo;t reportable. Nothing reaches a
+        practice unless you send it here; open, notify and resolve incidents on the clinic&rsquo;s Care tab.
+      </p>
+      {/* The legal history, one click away rather than above the list every time (E1, noise removed). */}
+      <details className="mt-3 max-w-[72ch] text-sm">
+        <summary className="text-muted cursor-pointer font-semibold">Why two deadlines</summary>
+        <p className="text-muted mt-2">
+          Each incident shows the deadline the practice&rsquo;s agreement promises, and our internal target, which is
+          stricter and never a promise to anyone. The list of people affected is never emailed: the practice reads it on
+          the incident&rsquo;s page in its portal, behind its passkey, which a breach&rsquo;s report links to.
+        </p>
+        <p className="text-muted mt-2">
+          The agreements&rsquo; promise, word for word: notice &ldquo;without unreasonable delay and in no case later
+          than 60 calendar days&rdquo; after discovery, under BAA 1.2.2 on and the DPA. BAA 1.2.1 and before promised
+          five calendar days for a breach and five business days for the rest, and a practice with no agreement on file
+          gets that, the strictest rule.
+        </p>
+      </details>
       {register.data.length === 0 ? (
         <p className="text-muted mt-6 text-sm">No incidents.</p>
       ) : (
@@ -205,7 +211,7 @@ function IncidentCard({
       className={`border-line rounded-md border bg-white p-5 text-sm ${resolved ? "opacity-70" : ""}`}
     >
       <div className="flex flex-wrap items-baseline gap-2">
-        <a href={`/admin/ops/${incident.clinicId}/care`} className="font-semibold underline">
+        <a href={`/admin/clinics/${incident.clinicId}/care`} className="font-semibold underline">
           {incident.clinicName}
         </a>
         <span className="font-semibold">· {CLASS_WORDS[incident.class]}</span>

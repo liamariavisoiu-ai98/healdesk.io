@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 
 import { requireOperator } from "@/lib/admin/operator";
 import { runHealthChecks, type HealthCheck } from "@/lib/admin/seo/health";
-import { LAUNCH_PROMISES, STATUS_LABEL, type LaunchStatus } from "@/lib/admin/seo/launch";
 import { ENGINES, enginesCiting, monthlyShare, PANEL_QUESTIONS, panelGrid, type CellState } from "@/lib/admin/seo/panel";
 import { roadmapBounds, roadmapPosition, SEO_ROADMAP } from "@/lib/admin/seo/roadmap";
 import { OWNER_STEPS, STRATEGY_DOC } from "@/lib/admin/seo/steps";
@@ -21,8 +20,8 @@ import { IndexNowButton, PanelLogForm, RecheckButton, StepList } from "./SeoCont
  * owner approved the proposal on 19 October 2026; the strategy itself stays
  * in the doc). Top to bottom in the order the owner acts: the scoreboard,
  * their steps beside the live site's health, the pages by stage, the roadmap,
- * what the AI engines say, and what the public copy promises that is not on
- * yet.
+ * and what the AI engines say. What the public copy promises that is not on
+ * yet is tracked under Compliance › Launch since 23 October 2026, its one home.
  *
  * No database and nothing from apps/app: ticks and panel runs are rows in the
  * marketing Sheet, site health is fetched from the public site, the pages and
@@ -77,7 +76,6 @@ const GOOD = "#5A9A16";
 const BLUE = "#14539E";
 const AMBER = "#8A4A0C";
 
-const LAUNCH_COLOUR: Record<LaunchStatus, string> = { on: GOOD, building: BLUE, off: "#B42318", owner: AMBER };
 
 export default async function SeoPage() {
   if (!(await requireOperator())) redirect("/admin/sign-in");
@@ -91,7 +89,6 @@ export default async function SeoPage() {
   const stepsDone = OWNER_STEPS.filter((step) => ticks[step.id]).length;
   const checksPassing = health.filter((check) => check.ok === true).length;
   const citing = enginesCiting(grid);
-  const openLaunch = LAUNCH_PROMISES.filter((item) => item.status !== "on");
   const today = new Date().toISOString().slice(0, 10);
   const bounds = roadmapBounds();
 
@@ -255,36 +252,13 @@ export default async function SeoPage() {
         <PanelLogForm canSave={log.ok} log={logPanelRun} />
       </section>
 
-      <section aria-labelledby="launch-heading" className="border-line mt-6 rounded-md border bg-white p-5">
-        <h2 id="launch-heading" className="text-[17px] font-bold">
-          Promised on the site, not on yet
-        </h2>
-        <p className="text-muted mt-1 max-w-[80ch] text-sm">
-          The public copy states each of these as on (your rule of 19 October 2026). {openLaunch.length} are not on in
-          production yet; no clinic goes live while one that blocks go-live is open.
-        </p>
-        <ul className="mt-4 grid gap-2">
-          {LAUNCH_PROMISES.map((item) => (
-            <li key={item.id} className="border-line rounded-md border px-4 py-3 text-sm">
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span
-                  className="inline-flex items-center gap-1.5 text-xs font-bold"
-                  style={{ color: LAUNCH_COLOUR[item.status] }}
-                >
-                  <span aria-hidden="true" className="inline-block size-2 rounded-full" style={{ background: LAUNCH_COLOUR[item.status] }} />
-                  {STATUS_LABEL[item.status]}
-                </span>
-                <span className="font-semibold">{item.promise}</span>
-                {item.blocksGoLive && item.status !== "on" ? <span className="text-red-deep text-xs font-bold">blocks go-live</span> : null}
-              </div>
-              <p className="mt-1">{item.left}</p>
-              <p className="text-muted mt-1 text-xs">
-                Stated on: {item.where}. In the repo: <code className="font-mono">{item.evidence}</code>
-              </p>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <p className="text-muted mt-6 text-sm">
+        What the site promises that is not on yet is tracked under{" "}
+        <a className="text-ink underline underline-offset-2" href="/admin/compliance#launch">
+          Compliance › Launch
+        </a>
+        .
+      </p>
     </main>
   );
 }

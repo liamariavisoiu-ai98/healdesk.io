@@ -97,7 +97,7 @@ export type RegisterActions = {
 };
 
 /** Where the filter form posts, and where every link back to this page points. */
-const REGISTER_PATH = "/admin/agreements";
+const REGISTER_PATH = "/admin/compliance/agreements";
 
 /**
  * This browser's own deadline for the PDF.
@@ -286,7 +286,9 @@ export function AgreementsRegister({
                 <Th>Signed</Th>
                 <Th>Agreement</Th>
                 <Th>Copy sent</Th>
-                <Th>Retention</Th>
+                <Th title="Each agreement is kept six years from the later of signature and termination (45 CFR 164.530(j)(2) for a business associate agreement, the same clock for a data protection agreement), so one still in effect has no purge date: the clock has not started.">
+                  Retention
+                </Th>
                 <Th>Fingerprint</Th>
                 <Th align="right">Document</Th>
               </tr>
@@ -1087,14 +1089,18 @@ function EmptyPanel({ children }: { children: React.ReactNode }) {
 function Th({
   children,
   align = "left",
+  title,
 }: {
   children: React.ReactNode;
   align?: "left" | "right";
+  /** The rule behind the column, one hover away. */
+  title?: string;
 }) {
   return (
     <th
       scope="col"
-      className={`px-4 py-3 font-bold ${align === "right" ? "text-right" : ""}`}
+      title={title}
+      className={`px-4 py-3 font-bold ${align === "right" ? "text-right" : ""}${title ? " cursor-help underline decoration-dotted underline-offset-4" : ""}`}
     >
       {children}
     </th>

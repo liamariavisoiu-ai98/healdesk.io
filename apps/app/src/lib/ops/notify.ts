@@ -561,6 +561,19 @@ export function opsConsoleLink(event: OpsEvent, fields: Readonly<Record<string, 
 }
 
 /**
+ * The same page as opsConsoleLink, as a path with no origin: the ops inbox's
+ * button on the console itself (lib/ops/inbox/ops-alerts.ts), which needs no
+ * HEALDESK_CONSOLE_ORIGIN. Null when the alert names no clinic.
+ */
+export function opsConsolePath(event: OpsEvent, fields: Readonly<Record<string, unknown>>): string | null {
+  if (SUMMARY_EVENTS.has(event)) return "/admin/ops";
+  const clinicId = fields.clinicId;
+  if (typeof clinicId !== "string" || !UUID.test(clinicId)) return null;
+  const page = ONBOARDING_PAGE_EVENTS.has(event) ? "onboarding" : "care";
+  return `/admin/ops/${clinicId.toLowerCase()}/${page}`;
+}
+
+/**
  * Of these alerts, the ones not yet raised: no ops_alerts row holds their
  * key, ever. For a sweep that would otherwise mail one alert per row on its
  * first run (lib/ops/calendar-write-alerts.ts).

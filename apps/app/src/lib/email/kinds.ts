@@ -210,6 +210,11 @@ export const NOTICE_KIND_REGISTRY = {
   // O8 and O9, from the practice questions: steps to take, not alerts.
   assistant_ready: kind("O8", "transactional", "normal", null, "daytime", "plan"),
   practice_questions_failed: kind("O9", "transactional", "normal", null, "daytime", "plan"),
+  // O17 (owner decision D10, 23 October 2026): a day the clinic just closed
+  // already has bookings or waiting requests on it. A pointer into Bookings,
+  // at once and at any hour: the clinic has just made the change, and the
+  // email backs up the note the save showed it.
+  closed_day_bookings: kind("O17", "transactional", "normal", null, "any_hour", "plan"),
 } as const;
 
 export type NoticeKind = keyof typeof NOTICE_KIND_REGISTRY;

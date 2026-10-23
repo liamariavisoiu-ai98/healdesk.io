@@ -1,19 +1,25 @@
 /**
- * Cookie-notice consent, kept in the visitor's browser.
+ * The visitor's analytics choice, kept in the visitor's browser.
  *
- * Three states: `null` (never answered — the banner shows), `"granted"`,
- * `"denied"`. Analytics initialises only on "granted" (see
- * components/analytics/PostHogProvider.tsx); everything else about the site
- * works identically in all three states, which is what makes "decline" an
- * honest button rather than a dark pattern.
+ * Three states: `null` (never chose), `"granted"`, `"denied"`. Analytics is
+ * opt-out (owner, 23 October 2026): it runs for `null` and `"granted"` and
+ * stops for `"denied"`, set by the opt-out button on /privacy
+ * (components/analytics/CookieChoice.tsx). It also stops, whatever is stored,
+ * for a browser that sends Global Privacy Control, which California and
+ * other states' laws treat as an opt-out, and PostHog itself honours Do Not
+ * Track (components/analytics/PostHogProvider.tsx). Everything else about
+ * the site works identically in every state.
+ *
+ * The cookie note (components/analytics/CookieNotice.tsx) asks nothing, so it
+ * stores no choice; it only remembers that it was shown, under its own key.
  *
  * localStorage can be absent or throw (private windows, blocked storage,
  * thumbnail renderers). Every read and write is wrapped, and an unreadable
- * store reads as `null` — the banner shows again, which is the safe direction.
+ * store reads as `null`: analytics on, the note shown again.
  *
- * The version is part of the key: a material change to what analytics
- * collects gets a new version, which re-asks everyone rather than inheriting
- * a consent given to a different notice.
+ * The version is part of the key. It stays at the notice that first asked,
+ * so a visitor who declined before opt-out stays declined and one who
+ * accepted stays accepted; raise it only to re-ask everyone.
  */
 
 export type ConsentState = "granted" | "denied" | null;
@@ -21,6 +27,17 @@ export type ConsentState = "granted" | "denied" | null;
 export const CONSENT_VERSION = "2026-09-13.1";
 const KEY = `hd_consent:${CONSENT_VERSION}`;
 const EVENT = "hd-consent-change";
+
+/** Whether analytics may run for this choice: not when denied, and not when the browser sends Global Privacy Control. */
+export function analyticsAllowed(state: ConsentState): boolean {
+  if (state === "denied") return false;
+  try {
+    if ((navigator as Navigator & { globalPrivacyControl?: boolean }).globalPrivacyControl === true) return false;
+  } catch {
+    // No navigator, nothing to honour.
+  }
+  return true;
+}
 
 export function getConsent(): ConsentState {
   try {
@@ -59,20 +76,21 @@ export function onConsentChange(fn: (state: ConsentState) => void): () => void {
   };
 }
 
-/**
- * Forget the answer so the notice asks again. Used by the "change my cookie
- * choice" control on /privacy; analytics is opted out on the next load
- * because a `null` state never initialises it.
- */
-export function clearConsent(): void {
+const NOTE_KEY = "hd_cookie_note_seen";
+
+/** Whether the cookie note has been shown and put away on this browser, so it is not shown again. */
+export function cookieNoteSeen(): boolean {
   try {
-    window.localStorage.removeItem(KEY);
+    return window.localStorage.getItem(NOTE_KEY) === "1";
   } catch {
-    // Nothing stored, nothing to clear.
+    return false;
   }
+}
+
+export function markCookieNoteSeen(): void {
   try {
-    window.dispatchEvent(new CustomEvent<ConsentState>(EVENT, { detail: null }));
+    window.localStorage.setItem(NOTE_KEY, "1");
   } catch {
-    // See setConsent.
+    // Not stored: the note shows once more next visit.
   }
 }

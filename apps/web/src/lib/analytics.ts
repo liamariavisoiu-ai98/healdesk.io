@@ -19,13 +19,13 @@
  *      an allowlist of property keys. Anything else is dropped before it
  *      reaches the vendor. A lead id is the join key for everything else —
  *      join server-side in the marketing database, never in the browser.
- *   2. The vendor client is created only by PostHogProvider, only after the
- *      visitor accepted the cookie notice, and only when a project key is
- *      present. `track()` before any of that is a no-op, never an error.
+ *   2. The vendor client is created only by PostHogProvider, unless the
+ *      visitor opted out or sends Global Privacy Control, and only when a
+ *      project key is present. `track()` before any of that is a no-op, never an error.
  *
  * The vendor is PostHog, chosen because it has no advertising integration to
- * switch on by accident, signs a DPA, and can run without cookies until
- * consent. It runs on PostHog's US cloud because the client base is US (the
+ * switch on by accident, signs a DPA, and can run without cookies where
+ * it must. It runs on PostHog's US cloud because the client base is US (the
  * EU cloud until 23 September 2026; nothing about what is sent changed).
  */
 

@@ -1,78 +1,96 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { getConsent, setConsent } from "@/lib/consent-store";
+import { cookieNoteSeen, markCookieNoteSeen } from "@/lib/consent-store";
 
 /**
- * The cookie notice.
+ * The cookie note.
  *
- * A small band at the bottom of the screen, not a modal: it does not block
- * reading, does not trap focus, and both buttons persist a real answer.
- * "Decline" is as easy as "Accept" and the site is identical either way —
- * the only thing consent switches on is funnel analytics
- * (components/analytics/PostHogProvider.tsx).
+ * One quiet line in the bottom corner that says what the site does, and goes
+ * the moment the visitor does anything: scrolls, presses, taps, types. OK is
+ * the plain way to put it away and the one thing on it that stands out; "Opt
+ * out" is the quieter link to the policy's switch. It asks nothing, because analytics is opt-out (owner, 23 October 2026; the opt-out
+ * is on /privacy, lib/consent-store.ts). It is not a banner and not a modal:
+ * a pill the width of its words, never over the middle of the page, with
+ * `pointer-events` only on itself so it blocks nothing beneath it.
+ *
+ * Once it has gone it does not come back on this browser (the seen flag in
+ * lib/consent-store.ts). A browser that cannot store it shows it once per
+ * visit, which is the safe direction.
  *
  * Rendered only after mount, so the server and first client paint agree
- * (localStorage does not exist on the server) and the notice never flashes
- * for a visitor who already answered.
+ * (localStorage does not exist on the server) and it never flashes for a
+ * visitor who has already seen it. A scroll in the first moments is the
+ * browser restoring a position or the page settling, not the visitor, so
+ * interaction counts only after a short grace.
  */
-export function CookieNotice() {
-  const [open, setOpen] = useState(false);
 
-  // One read after mount, for the reason given above. useSyncExternalStore over
-  // onConsentChange would also open and close the notice as other tabs answer or
-  // clear the choice; with one read it follows the answer stored when the page
-  // loaded and this tab's own buttons.
+/** Long enough to be read before the page's own first scroll or layout shift can count as the visitor. */
+const GRACE_MS = 1200;
+/** Matches the fade in globals.css (`.cookie-note`). */
+const FADE_MS = 280;
+
+const INTERACTIONS = ["scroll", "wheel", "touchstart", "pointerdown", "keydown"] as const;
+
+export function CookieNotice() {
+  const [phase, setPhase] = useState<"hidden" | "shown" | "leaving">("hidden");
+  /** Puts the note away; the effect owns the listeners it has to take down, so the OK button reaches it through here. */
+  const close = useRef<() => void>(null);
+
   useEffect(() => {
+    // The only thing the note describes is PostHog's cookie, and PostHogProvider
+    // never starts without this key, so a build without it says nothing. Inlined
+    // at build time like every NEXT_PUBLIC_ value: a constant per deployment.
+    if (!process.env.NEXT_PUBLIC_POSTHOG_KEY || cookieNoteSeen()) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage, after hydration
-    setOpen(getConsent() === null);
+    setPhase("shown");
+
+    let armed = false;
+    let leave: number | undefined;
+    const arm = window.setTimeout(() => {
+      armed = true;
+    }, GRACE_MS);
+
+    const leaveNow = () => {
+      for (const name of INTERACTIONS) window.removeEventListener(name, dismiss, true);
+      markCookieNoteSeen();
+      setPhase("leaving");
+      leave = window.setTimeout(() => setPhase("hidden"), FADE_MS);
+    };
+    const dismiss = (event: Event) => {
+      if (!armed) return;
+      // Pressing the note's own OK or link is an interaction with the note, not
+      // a reason to take it away from under the pointer before the click lands.
+      if (event.target instanceof Element && event.target.closest("[data-cookie-note]")) return;
+      leaveNow();
+    };
+    close.current = leaveNow;
+    for (const name of INTERACTIONS) window.addEventListener(name, dismiss, { capture: true, passive: true });
+
+    return () => {
+      close.current = null;
+      window.clearTimeout(arm);
+      window.clearTimeout(leave);
+      for (const name of INTERACTIONS) window.removeEventListener(name, dismiss, true);
+    };
   }, []);
 
-  // The only thing consent switches on is PostHog, and PostHogProvider never
-  // initialises without this key. A notice offering "Accept analytics" for
-  // analytics that cannot run is a question with no consequence, so a build
-  // without the key asks nothing. Inlined at build time, like every
-  // NEXT_PUBLIC_ value, so this is a constant per deployment.
-  if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) return null;
-  if (!open) return null;
-
-  const answer = (state: "granted" | "denied") => {
-    setConsent(state);
-    setOpen(false);
-  };
+  if (phase === "hidden") return null;
 
   return (
     <aside
-      role="region"
-      aria-label="Cookie notice"
-      aria-live="polite"
-      className="border-line fixed inset-x-3 bottom-3 z-40 mx-auto max-w-[720px] rounded-md border bg-white p-4 shadow-lg sm:inset-x-6 sm:p-5"
+      data-cookie-note
+      data-leaving={phase === "leaving" ? "" : undefined}
+      role="note"
+      aria-label="Cookies"
+      className="cookie-note"
     >
-      <p className="text-ink text-[15px] leading-relaxed">
-        We measure page views and funnel steps to see what works — no ads, no
-        resale, nothing shared with advertising platforms. The demo sets one
-        functional cookie regardless.{" "}
-        <a href="/privacy" className="text-red-deep underline underline-offset-2">
-          Privacy policy
-        </a>
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => answer("granted")}
-          className="bg-ink rounded-full px-4 py-2 text-[14.5px] font-bold text-white transition-opacity hover:opacity-90"
-        >
-          Accept analytics
-        </button>
-        <button
-          type="button"
-          onClick={() => answer("denied")}
-          className="border-line-strong text-ink hover:border-ink rounded-full border px-4 py-2 text-[14.5px] font-bold transition-colors"
-        >
-          Decline
-        </button>
-      </div>
+      <span>This site uses a cookie to count visits.</span>
+      <button type="button" className="cookie-note__ok" onClick={() => close.current?.()}>
+        OK
+      </button>
+      <a href="/privacy#cookies">Opt out</a>
     </aside>
   );
 }

@@ -1,10 +1,15 @@
 import { cleanWebsite, isKnownTimeZone } from "@healdesk/catalog";
-import { and, asc, eq, gte } from "drizzle-orm";
+import { and, eq, gte, notInArray, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { clinicClosures, clinics, clinicSettings, entitlements } from "@/db/schema";
 import { setSetupDeadline } from "@/lib/billing/entitlements";
-import { clinicLocalDate } from "@/lib/clinic/closures";
+import {
+  clinicLocalDate,
+  closureLabelProblem,
+  closuresFrom,
+  type Closure,
+} from "@/lib/clinic/closures";
 import { moveSetupDeadline } from "@/lib/clinic/setup-window";
 import {
   OpeningHoursError,
@@ -215,7 +220,7 @@ export async function moveSetupDeadlineToZone(
 // Hours and closures
 // -----------------------------------------------------------------------------
 
-export type Closure = { closedOn: string; label: string | null };
+export type { Closure };
 
 /** The clinic's closed days from today on, in its own time zone. */
 export async function readUpcomingClosures(
@@ -224,14 +229,7 @@ export async function readUpcomingClosures(
   timeZone: string,
   now: Date = new Date(),
 ): Promise<Closure[]> {
-  const today = clinicLocalDate(now, timeZone);
-  const rows = await db
-    .select({ closedOn: clinicClosures.closedOn, label: clinicClosures.label })
-    .from(clinicClosures)
-    .where(and(eq(clinicClosures.clinicId, clinicId), gte(clinicClosures.closedOn, today)))
-    .orderBy(asc(clinicClosures.closedOn))
-    .limit(100);
-  return rows;
+  return closuresFrom(db, clinicId, clinicLocalDate(now, timeZone));
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -271,7 +269,10 @@ export async function saveHours(
     }
     if (seen.has(closedOn)) continue;
     seen.add(closedOn);
-    closures.push({ closedOn, label: cleanText(row.label, 80) || null });
+    const label = cleanText(row.label, 80) || null;
+    const problem = label ? closureLabelProblem(label) : null;
+    if (problem) throw new PracticeError("closures", problem);
+    closures.push({ closedOn, label });
   }
   if (closures.length > 60)
     throw new PracticeError("closures", "Add at most 60 closed days at a time.");
@@ -280,15 +281,35 @@ export async function saveHours(
     .update(clinics)
     .set({ openingHours: hours, updatedAt: now })
     .where(eq(clinics.id, tx.clinicId));
+  // A day that stays closed keeps its row, and with it its created_at: the
+  // moment that day was closed, which tells one closing of a day from the
+  // next (the closed-day email's dedupe key, lib/portal/knowledge.ts). Only
+  // the days no longer listed are deleted; a listed day is inserted, or
+  // keeps its row with the label it is sent with now.
   await tx.db
     .delete(clinicClosures)
-    .where(and(eq(clinicClosures.clinicId, tx.clinicId), gte(clinicClosures.closedOn, today)));
+    .where(
+      and(
+        eq(clinicClosures.clinicId, tx.clinicId),
+        gte(clinicClosures.closedOn, today),
+        closures.length > 0
+          ? notInArray(
+              clinicClosures.closedOn,
+              closures.map((c) => c.closedOn),
+            )
+          : undefined,
+      ),
+    );
   if (closures.length > 0) {
     await tx.db
       .insert(clinicClosures)
       .values(
         closures.map((c) => ({ clinicId: tx.clinicId, closedOn: c.closedOn, label: c.label })),
-      );
+      )
+      .onConflictDoUpdate({
+        target: [clinicClosures.clinicId, clinicClosures.closedOn],
+        set: { label: sql`excluded.label` },
+      });
   }
   await completeStep(tx, "hours_confirmed", { at: now });
   tx.audit.record({

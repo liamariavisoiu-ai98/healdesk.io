@@ -76,6 +76,8 @@ const REGISTERED_AHEAD: Record<
   export_reminder: ["E5", "normal", null, "daytime"],
   assistant_ready: ["O8", "normal", null, "daytime"],
   practice_questions_failed: ["O9", "normal", null, "daytime"],
+  // At once: the clinic has just closed the day itself (owner decision D10).
+  closed_day_bookings: ["O17", "normal", null, "any_hour"],
 };
 
 const F0_KINDS = [

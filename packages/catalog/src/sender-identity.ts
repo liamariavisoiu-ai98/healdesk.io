@@ -17,8 +17,9 @@
 export const SENDER_IDENTITY = {
   /**
    * The entity line, exactly as `entityLine()` words it. The site footer
-   * stopped printing it on 9 October 2026 and the Resend email footers on
-   * 22 October 2026; only the transcript email (SES) still prints it.
+   * stopped printing it on 9 October 2026, the Resend email footers on
+   * 22 October 2026 and the transcript email (SES) on 23 October 2026; no email
+   * prints it now. Kept so the mirror of legal.ts stays whole.
    */
   entityLine:
     "healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.",

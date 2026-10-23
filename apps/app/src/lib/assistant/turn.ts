@@ -7,7 +7,7 @@ import {
   type UrgentFinding,
 } from "@healdesk/catalog";
 
-import { isOpenAt } from "@/lib/clinic/opening-hours";
+import { openGiven } from "@/lib/clinic/closures";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { log } from "@/lib/log";
 import { formatPhone } from "@/lib/setup/help";
@@ -183,11 +183,21 @@ function personNumber(
 type ReplyFacts = Pick<
   AssistantFacts,
   "clinicName" | "urgentPhone" | "phone" | "directLine" | "vetReferralPhone" | "openingHours" | "timeZone"
->;
+> &
+  Partial<Pick<AssistantFacts, "closures">>;
 
-function openNow(facts: Pick<AssistantFacts, "openingHours" | "timeZone">, now: Date): boolean | null {
+/** Whether the practice is open now: its weekly hours, and shut on a closed day (openGiven). */
+export function openNow(
+  facts: Pick<AssistantFacts, "openingHours" | "timeZone"> & Partial<Pick<AssistantFacts, "closures">>,
+  now: Date,
+): boolean | null {
   try {
-    return isOpenAt(facts.openingHours, now, facts.timeZone);
+    return openGiven(
+      facts.openingHours,
+      (facts.closures ?? []).map((c) => c.closedOn),
+      now,
+      facts.timeZone,
+    );
   } catch {
     return null; // a bad time zone: hours unknown, which counts as open
   }

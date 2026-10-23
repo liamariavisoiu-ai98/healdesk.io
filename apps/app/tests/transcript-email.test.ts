@@ -79,6 +79,16 @@ describe("renderTranscriptEmail", () => {
     expect(email.text).toMatch(/Please don't reply/);
   });
 
+  test("the footer says why the email came and does not name the operating entity (owner, 23 October 2026)", () => {
+    const email = renderTranscriptEmail(INPUT);
+    for (const body of [email.text, email.html]) {
+      expect(body).toContain("each transcript goes to this address instead of being stored");
+      expect(body).not.toContain("Viixi");
+      expect(body).not.toContain("Sharjah");
+      expect(body).not.toContain("a service of");
+    }
+  });
+
   test("a web chat's person is a visitor", () => {
     const email = renderTranscriptEmail({ ...INPUT, channel: "web_chat" });
     expect(email.text).toContain("Visitor: Hi, it's Dana");

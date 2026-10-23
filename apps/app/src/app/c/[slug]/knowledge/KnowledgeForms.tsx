@@ -35,7 +35,7 @@ function useKnowledgeSave(slug: string, section: string) {
     try {
       const result = await saveKnowledgeAction(slug, section, input);
       if (result.ok) {
-        announce({ text: result.toast, tone: "ok" });
+        announce({ text: result.toast, tone: "ok", ...(result.link ? { link: result.link } : {}) });
         return true;
       }
       announce({ text: result.message, tone: "problem" });

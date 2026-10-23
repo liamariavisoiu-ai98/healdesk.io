@@ -1,4 +1,4 @@
-import { SENDER_IDENTITY, type Audience } from "@healdesk/catalog";
+import type { Audience } from "@healdesk/catalog";
 
 import { cutCardNumbersAcrossTurns } from "@/lib/assistant/guard";
 import { escapeHtml } from "@/lib/email/templates/compose";
@@ -217,7 +217,7 @@ export function renderTranscriptEmail(input: TranscriptEmailInput): RenderedTran
     "Transcript",
     turns.map((t) => `${t.label}: ${t.text}`).join("\n\n"),
     ...(cut ? [cutNote] : []),
-    ["—", why, SENDER_IDENTITY.entityLine].join("\n"),
+    ["—", why].join("\n"),
   ].join("\n\n");
 
   const paragraph = (value: string, style = "") =>
@@ -238,7 +238,6 @@ export function renderTranscriptEmail(input: TranscriptEmailInput): RenderedTran
     ...(cut ? [paragraph(cutNote, "font-style:italic;")] : []),
     '<hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">',
     paragraph(why, "color:#555;font-size:13px;"),
-    paragraph(SENDER_IDENTITY.entityLine, "color:#555;font-size:13px;"),
     "</body></html>",
   ].join("\n");
 

@@ -792,6 +792,13 @@
       "when": 1792743522342,
       "tag": "0112_ops_alerts_slack",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1792747110289,
+      "tag": "0113_closed_day_bookings_email",
+      "breakpoints": true
     }
   ]
 }

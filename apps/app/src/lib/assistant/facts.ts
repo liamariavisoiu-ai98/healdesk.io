@@ -8,6 +8,7 @@ import {
 import { and, eq } from "drizzle-orm";
 
 import { agentConfigs, clinicChannels, clinicProviders, clinics, type AgentService, type KnowledgeAnswer } from "@/db/schema";
+import { clinicLocalDate, closuresFrom, type Closure } from "@/lib/clinic/closures";
 import { DAY_KEYS, DAY_LABELS, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { urgentAlertReadiness } from "@/lib/notices/urgent-readiness";
@@ -63,6 +64,12 @@ export type AssistantFacts = {
   hours: string[];
   /** The same hours as stored: whether a veterinary practice is open, for its urgent line. */
   openingHours: OpeningHours | null;
+  /**
+   * The days the clinic is closed outright from today on (Knowledge → Hours),
+   * earliest first, at most CLOSURES_IN_FACTS: shut all day whatever the
+   * weekly hours say, as the booking engine reads them. Absent counts as none.
+   */
+  closures?: Closure[];
   services: AssistantService[];
   /**
    * Why `services` is what it is: "said" when the approved script has some,
@@ -117,6 +124,20 @@ function hoursLines(hours: OpeningHours | null): string[] {
   });
 }
 
+/** The closed days a conversation is told about: the next sixty, as many as one save may add. */
+export const CLOSURES_IN_FACTS = 60;
+
+/** The clinic's closed days from today in its zone; none when the zone cannot be read. */
+async function upcomingClosures(tx: TenantTx, timeZone: string, now: Date): Promise<Closure[]> {
+  let today: string;
+  try {
+    today = clinicLocalDate(now, timeZone);
+  } catch {
+    return [];
+  }
+  return closuresFrom(tx.db, tx.clinicId, today, CLOSURES_IN_FACTS);
+}
+
 /**
  * `asApproved` reads the script as it would be once approved: the practice
  * questions (lib/engine/practice) check the words a pass would approve,
@@ -128,6 +149,8 @@ export async function assistantFacts(
     asApproved?: boolean;
     /** The transport this conversation hands the outbox for its alerts, when it hands one (tests). */
     alertTransport?: EmailTransport;
+    /** The moment "today" is read at, for the closed days; now by default. */
+    now?: Date;
   } = {},
 ): Promise<AssistantFacts | null> {
   const [clinic] = await tx.db
@@ -178,6 +201,7 @@ export async function assistantFacts(
     address: clinic.address,
     hours: hoursLines(clinic.openingHours),
     openingHours: clinic.openingHours ?? null,
+    closures: await upcomingClosures(tx, clinic.timeZone, options.now ?? new Date()),
     services: approved
       ? knowledge.services.map((s) => ({
           name: s.name,

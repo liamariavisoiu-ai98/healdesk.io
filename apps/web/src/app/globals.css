@@ -4766,3 +4766,79 @@
   .bento > :nth-child(7) { grid-area: 3 / 3 / 4 / 4; }
   .bento > :nth-child(8) { grid-area: 3 / 4 / 4 / 5; }
 }
+
+/* The cookie note (components/analytics/CookieNotice.tsx): one small line in
+   the bottom-left corner, on a soft plate so it reads over any section and
+   over the photographs, and nothing else about it asks for attention. It
+   fades in a moment after the page and out the moment the visitor acts.
+   `pointer-events` sits on the note alone, so it blocks nothing beneath it. */
+.cookie-note {
+  position: fixed;
+  z-index: 40;
+  left: 12px;
+  bottom: 12px;
+  max-width: calc(100vw - 24px);
+  padding: 7px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 9999px;
+  background: rgb(253 253 253 / 0.88);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--color-muted);
+  font-size: 12.5px;
+  line-height: 1.35;
+  box-shadow: var(--shadow-sm);
+  animation: cookie-note-in var(--duration-slow) var(--ease-out) 400ms both;
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-standard);
+}
+
+.cookie-note[data-leaving] {
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+}
+
+.cookie-note__ok {
+  margin-left: 10px;
+  padding: 3px 14px;
+  border-radius: 9999px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.cookie-note__ok:hover {
+  opacity: 0.85;
+}
+
+.cookie-note a {
+  margin-left: 10px;
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+@keyframes cookie-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cookie-note {
+    animation: none;
+    transition: opacity var(--duration-fast) var(--ease-standard);
+    transform: none;
+  }
+  .cookie-note[data-leaving] {
+    transform: none;
+  }
+}

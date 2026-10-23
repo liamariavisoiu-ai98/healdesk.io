@@ -19,6 +19,7 @@ import { and, eq } from "drizzle-orm";
 
 import { agentConfigs, clinicChannels, clinicProviders, clinics, clinicSettings } from "@/db/schema";
 import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
+import { CLOSURES_IN_FACTS } from "@/lib/assistant/facts";
 import { amountsIn, claimsToBeHuman, clinicOwnWords, neverSayIn } from "@/lib/assistant/guard";
 import { priceText } from "@/lib/assistant/prompt";
 import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/responder";
@@ -27,8 +28,9 @@ import { metaPlatformOn } from "@/lib/channels/meta-platforms";
 import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting, type Channel } from "@/lib/compliance/disclosure";
 import { raiseHandover } from "@/lib/handovers/record";
 import { describeError, log } from "@/lib/log";
+import { clinicLocalDate, closuresFrom, openGiven } from "@/lib/clinic/closures";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
-import { isOpenAt, parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
+import { parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { notifyBookingAlert, withoutTeamTold } from "@/lib/notices/booking-alerts";
 import { urgentAlertReadiness } from "@/lib/notices/urgent-readiness";
 import type { EmailTransport } from "@/lib/reporting/deliver";
@@ -188,6 +190,12 @@ export type FrontDoorFacts = {
   openingHours?: OpeningHours | null;
   timeZone?: string | null;
   /**
+   * The days the clinic is closed outright from today on (YYYY-MM-DD in its
+   * zone): shut all day whatever the weekly hours say, for the same urgent
+   * line. Absent counts as none.
+   */
+  closedDates?: readonly string[];
+  /**
    * The clinic's tone, which applies here as on every channel (the spec,
    * "Tone"). Its languages do not: this channel answers in English, because
    * the reply guard reads English. Absent, warm.
@@ -267,13 +275,15 @@ export function handoffLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone">)
  */
 export function urgentLine(
   facts: Pick<FrontDoorFacts, "clinicName" | "phone" | "urgentPhone"> &
-    Partial<Pick<FrontDoorFacts, "vetReferralPhone" | "openingHours" | "timeZone" | "specialty" | "urgentAlertsReady">>,
+    Partial<
+      Pick<FrontDoorFacts, "vetReferralPhone" | "openingHours" | "timeZone" | "closedDates" | "specialty" | "urgentAlertsReady">
+    >,
   finding: Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">> = { emergency: "911" },
   now: Date = new Date(),
 ): string {
   let open: boolean | null = null;
   try {
-    open = facts.timeZone ? isOpenAt(facts.openingHours, now, facts.timeZone) : null;
+    open = facts.timeZone ? openGiven(facts.openingHours, facts.closedDates ?? [], now, facts.timeZone) : null;
   } catch {
     open = null; // a bad time zone: hours unknown, which counts as open
   }
@@ -1410,6 +1420,8 @@ export async function frontDoorFacts(
     ignoreSwitch?: boolean;
     /** The transport the webhook hands the outbox for this message's alert, when it hands one (tests). */
     alertTransport?: EmailTransport;
+    /** The moment "today" is read at, for the closed days; now by default. */
+    now?: Date;
   } = {},
 ): Promise<FrontDoorFacts | null> {
   const [clinic] = await tx.db
@@ -1458,6 +1470,15 @@ export async function frontDoorFacts(
     settings: { urgentHelpE164: urgent?.urgentHelpE164 ?? null, directLineE164: settings.directLineE164 },
     clinic: { publishedPhoneE164: clinic.phone },
   });
+  // The closed days from today, as the call's and the web chat's facts read
+  // them (lib/assistant/facts.ts): none when the zone cannot be read.
+  let closedDates: string[] = [];
+  try {
+    const today = clinicLocalDate(options.now ?? new Date(), clinic.timeZone);
+    closedDates = (await closuresFrom(tx.db, tx.clinicId, today, CLOSURES_IN_FACTS)).map((c) => c.closedOn);
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+  }
   return {
     clinicName: clinic.name,
     phone: clinic.phone,
@@ -1466,6 +1487,7 @@ export async function frontDoorFacts(
     vetReferralPhone: urgent?.vetReferralE164 ?? null,
     openingHours: clinic.openingHours ?? null,
     timeZone: clinic.timeZone,
+    closedDates,
     tone: urgent?.tone ?? "warm",
     providerNames: providers.map((p) => p.name),
     websiteHint: null,
@@ -1614,7 +1636,7 @@ export async function answerFrontDoor(
     alertTransport?: EmailTransport;
   },
 ): Promise<FrontDoorAnswer | null> {
-  const facts = await frontDoorFacts(tx, { alertTransport: input.alertTransport });
+  const facts = await frontDoorFacts(tx, { alertTransport: input.alertTransport, now: input.now });
   if (!facts) return null;
   // A clinic that has left keeps nothing new (lib/clinic/leaving.ts). Asked
   // here without holding the clinic's row, because the model call below can

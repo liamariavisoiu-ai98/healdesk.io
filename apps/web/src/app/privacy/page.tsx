@@ -120,6 +120,18 @@ export const metadata: Metadata = {
  * is kept without the words, where it said seven days after the email was
  * first accepted.
  *
+ * Revised on 23 October 2026 as LEGAL_VERSION 2026-10-23.2: section 2's analytics item
+ * describes what is measured in general terms ("how the site is used and how well it
+ * works") where it listed page views and named funnel steps, since the analytics provider's
+ * own settings also measure dead clicks and page speed (owner's decision, kept general).
+ *
+ * Revised on 23 October 2026 as LEGAL_VERSION 2026-10-23.1 (see the terms): analytics is
+ * opt-out rather than opt-in (owner's decision), so section 2's analytics item and
+ * section 4's analytics cookies say "unless you opt out" where they said "only if you
+ * accept", the cookie note is a line that goes when the visitor scrolls or clicks, and
+ * the button in section 4 turns analytics off or back on. A browser that sends Global
+ * Privacy Control or Do Not Track is not measured at all.
+ *
  * Revised on 22 October 2026 as LEGAL_VERSION 2026-10-22.1 (see the terms): section 6's
  * "no call audio is kept at all" is "We keep no call audio: our voice
  * provider holds a call's transcript and recording only until we have the
@@ -319,10 +331,11 @@ export default function PrivacyPage() {
             briefly by our hosting provider and never longer than {POLICY.logRetentionDays} days.
           </li>
           <li>
-            <strong>Analytics, only if you accept the cookie notice.</strong> Page views and named
-            funnel steps (for example "started checkout", "reached checkout step 3"). Never the
-            contents of a form, an email address, a phone number or a chat message. If you decline,
-            nothing is measured and the site works identically.
+            <strong>Analytics, unless you opt out.</strong> Information about how the site is used
+            and how well it works, such as the pages visited and the steps taken through it. Never
+            the contents of a form, an email address, a phone number or a chat message. If you opt out, or your browser
+            sends Global Privacy Control or Do Not Track, nothing is measured and the site works
+            identically.
           </li>
         </ul>
       </Section>
@@ -339,7 +352,7 @@ export default function PrivacyPage() {
           </li>
           <li>We do not use what you type into the demo to train any model, and neither does our AI model provider.</li>
           <li>We do not knowingly collect information from anyone under 18; the site is for businesses.</li>
-          <li>We do not use "dark patterns": declining analytics is one click and changes nothing else.</li>
+          <li>We do not use "dark patterns": opting out of analytics is one click and changes nothing else.</li>
         </ul>
       </Section>
 
@@ -351,9 +364,10 @@ export default function PrivacyPage() {
             for a cookie that only does the thing you asked for.
           </li>
           <li>
-            <strong>Your cookie-notice answer</strong> — functional, and not a cookie: it is kept
-            in your browser's local storage under <code>hd_consent</code> and never sent to us.
-            Because it is not a cookie, clearing cookies does not change it; this does:
+            <strong>Your analytics choice, and whether you have seen the cookie note</strong> —
+            functional, and not cookies: they are kept in your browser's local storage under{" "}
+            <code>hd_consent</code> and <code>hd_cookie_note_seen</code> and never sent to us.
+            Because they are not cookies, clearing cookies does not change them; this does:
           </li>
         </ul>
         <div className="pl-6">
@@ -371,9 +385,11 @@ export default function PrivacyPage() {
             is live; clearing this site&apos;s data removes it.
           </li>
           <li>
-            <strong>Analytics cookies</strong> — set by our analytics provider only after you accept
-            the notice, to tell one visit from another. Withdraw with the button above; analytics stops on the
-            next page load and the notice asks again.
+            <strong>Analytics cookies</strong> — set by our analytics provider from your first
+            visit, to tell one visit from another, unless you have opted out or your browser sends
+            Global Privacy Control or Do Not Track. A small note says so on your first visit and
+            goes as soon as you scroll or click. Opt out with the button above; analytics stops at
+            once.
           </li>
           <li>
             <strong>Our scheduling provider&apos;s cookies</strong> — only if you open "Get in

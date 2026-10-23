@@ -267,6 +267,7 @@ describe("the template registry", () => {
       "weekly_recap",
       "agreement_to_sign",
       "website_changes",
+      "closed_day_bookings",
       "flag_alert",
       "patient_request",
       "device_recovery_link",

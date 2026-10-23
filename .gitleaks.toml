@@ -46,6 +46,19 @@ regexTarget = "line"
 paths = ['''^apps/app/tests/email-templates\.test\.ts$''']
 regexes = ['''^\s*const TOKEN = "''']
 
+# The ops console link test builds a token-shaped path segment to prove the link
+# scanner refuses it ("a query, credentials or a token-shaped segment is
+# refused"). The string is the alphabet and a few digits, spelled out in the
+# test; it was never issued and opens nothing. Only that exact declaration is
+# excepted, so a different value on the line is still found.
+[[allowlists]]
+description = "Ops console link test: made-up token-shaped segment, never issued"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^apps/app/tests/ops-console-links\.test\.ts$''']
+regexes = ['''^\s*const token = "aB3dEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdE";$''']
+
 # --- Test-only shared secrets for the voice endpoint and key derivation ----
 # "test-retell-llm-secret-..." is the made-up value the voice server tests
 # pass to createVoiceServer(); the production secret comes from Parameter

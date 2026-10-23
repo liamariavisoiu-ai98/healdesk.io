@@ -6,6 +6,7 @@ import { flushSync } from "react-dom";
 import { englishLocale, hourCycleOf, lockDate, lockTime, noteTimes } from "@/lib/lock-clock";
 import { OUTCOMES, type Outcome } from "@/lib/outcomes";
 import { REDUCED_MOTION } from "@/lib/use-media-query";
+import { UNKNOWN_PLACE } from "@/lib/visitor-place";
 
 /**
  * What changes in month one: the eight outcomes, as the notifications on a
@@ -62,11 +63,14 @@ import { REDUCED_MOTION } from "@/lib/use-media-query";
  *
  * Under the clock, where iOS puts a lock screen's widgets, the Weather
  * widget: its glyph, the place with the arrow that says it is where the phone
- * is, the temperature and the day's high and low. The place is a clinic's
- * town rather than the visitor's, which the page has no way to know (a time
- * zone names one city for half a country); the sky follows the visitor's
- * clock, the sun by day and the moon by night. It is decoration, so a screen
- * reader is not told the weather.
+ * is, the temperature and the day's high and low. The place is the visitor's,
+ * from Vercel's IP lookup by way of /api/visitor-place (lib/visitor-place.ts):
+ * their city, else their state or country, else iOS's own "Current Location",
+ * which is what the server writes and what stays if the lookup fails. A time
+ * zone is not used, since it names one city for half a country. The
+ * temperatures are set, not the visitor's weather; the sky follows the
+ * visitor's clock, the sun by day and the moon by night. It is decoration, so
+ * a screen reader is not told the weather.
  *
  * ## It opens (the owner, 12 October 2026)
  *
@@ -94,8 +98,8 @@ import { REDUCED_MOTION } from "@/lib/use-media-query";
 const DATE = "Friday, October 9";
 const TIME = "9:41";
 
-/** The lock screen's weather: a clinic's town, a clear sky (see "The weather" above). */
-const WEATHER = { place: "Scottsdale", day: { temp: 78, sky: "Sunny" }, night: { temp: 64, sky: "Clear" }, high: 84, low: 61 } as const;
+/** The lock screen's weather: the sky and numbers are set, the place is the visitor's (see "The weather" above). */
+const WEATHER = { day: { temp: 78, sky: "Sunny" }, night: { temp: 64, sky: "Clear" }, high: 84, low: 61 } as const;
 
 /** The sun from six in the morning until seven at night, on the visitor's clock; the server writes the day. */
 function isNight(minute: number | null): boolean {
@@ -140,6 +144,25 @@ function subscribeMinute(onChange: () => void) {
     window.clearTimeout(timer);
     document.removeEventListener("visibilitychange", onChange);
   };
+}
+
+/**
+ * Where the visitor is, from the server's IP lookup: "Current Location" until
+ * it answers, and for good if it fails, is slow or finds nothing.
+ */
+function useVisitorPlace(): string {
+  const [place, setPlace] = useState<string>(UNKNOWN_PLACE);
+  useEffect(() => {
+    const abort = new AbortController();
+    fetch("/api/visitor-place", { signal: abort.signal, cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<{ place?: unknown }>) : null))
+      .then((body) => {
+        if (typeof body?.place === "string" && body.place) setPlace(body.place);
+      })
+      .catch(() => {});
+    return () => abort.abort();
+  }, []);
+  return place;
 }
 
 function useMinute(): number | null {
@@ -285,6 +308,7 @@ export function Outcomes() {
   const source = useRef<HTMLButtonElement | null>(null);
 
   const minute = useMinute();
+  const place = useVisitorPlace();
   const clock = useMemo(() => {
     if (minute === null) return null;
     // A clock that cannot be read leaves the screen as the server wrote it,
@@ -449,7 +473,7 @@ export function Outcomes() {
             </svg>
             <span className="lockscreen__weather-text">
               <span className="lockscreen__weather-place">
-                {WEATHER.place}
+                {place}
                 <svg viewBox="0 0 24 24" fill="currentColor" className="lockscreen__weather-here">
                   <path d="M20.4 3.6 3.9 10.5c-.7.3-.6 1.3.1 1.5l6.6 1.5 1.5 6.6c.2.7 1.2.8 1.5.1Z" />
                 </svg>

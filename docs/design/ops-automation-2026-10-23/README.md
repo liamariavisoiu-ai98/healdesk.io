@@ -1,6 +1,6 @@
 # The ops automation program
 
-Status: **plan, nothing built.** Written 23 October 2026 from the owner's answers to a list of twenty
+Status: **Phase 1 built, landed and live (23 Oct 2026); Phases 2 to 7 not started.** The start prompt for the next session is `START-PROMPT-phases-2-7.md` in this folder. Written 23 October 2026 from the owner's answers to a list of twenty
 proposed automations, and from eight read-only design studies in `designs/` (one per area, each from
 reading `main` at `2e258ae9`). Building starts only when the owner approves a phase. Every step lands the
 way this repository lands everything: a branch, tests, CI, the owner's go-ahead, then `main`.

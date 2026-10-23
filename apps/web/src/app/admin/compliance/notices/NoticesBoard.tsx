@@ -166,10 +166,12 @@ export function NoticesBoard({
         )}
       </Section>
 
-      {/* The six send forms, a few times a year, behind one disclosure (E1, noise removed). A broadcast goes once
-          per practice, so sending it again reaches only the practices that didn't have it. */}
+      {/* The six send forms, a few times a year, behind one disclosure (E1, noise removed). */}
       <details className="mt-8">
         <summary className="cursor-pointer text-sm font-bold tracking-[0.08em] uppercase">Send a notice…</summary>
+        <p className="text-muted mt-3 text-sm">
+          A broadcast goes once per practice, so sending it again reaches only the practices that didn&rsquo;t have it.
+        </p>
       <Section title="Change to the terms or prices (L28)">
         <TermsForm today={today} send={actions.sendTermsNotice} />
       </Section>

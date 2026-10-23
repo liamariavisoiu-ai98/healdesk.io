@@ -58,7 +58,7 @@ type Actions = {
   disconnectCalendar: () => Promise<OpsResult<DisconnectCalendarOutcome>>;
   // Channel events: website chat's line confirmed on the clinic's site. No
   // action passes a channel's audit or approves the script: the practice
-  // questions do, and a run they flag is decided in /admin/reviews. The
+  // questions do, and a run they flag is decided in Queues › Reviews. The
   // console can only ask them again.
   rerunPractice: () => Promise<OpsResult<RerunPracticeOutcome>>;
   confirmWidget: () => Promise<OpsResult<CareOutcome>>;
@@ -459,7 +459,7 @@ function AgentForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
 /**
  * Who approved this version, said and never offered. A version is approved
  * only by a pass of the practice questions that read it, by themselves or by
- * a decision on a run they flagged in /admin/reviews: "Record approval",
+ * a decision on a run they flagged in Queues › Reviews: "Record approval",
  * which approved it by hand, was retired with its operation on 19 October 2026.
  */
 function Approval({ agent }: { agent: OnboardingView["agent"] }) {
@@ -468,7 +468,7 @@ function Approval({ agent }: { agent: OnboardingView["agent"] }) {
     <p className="border-line text-muted mt-5 border-t pt-4 text-sm">
       {agent.approvedAt
         ? `Approved by ${agent.approvedByLabel ?? "—"}.`
-        : "Not approved yet. The practice questions approve this version when they pass it; a run they flag waits for you in Reviews (/admin/reviews)."}
+        : "Not approved yet. The practice questions approve this version when they pass it; a run they flag waits for you in Queues › Reviews (/admin/queues#reviews)."}
     </p>
   );
 }
@@ -494,7 +494,7 @@ function GoLiveControl({ view, onGoLive }: { view: OnboardingView; onGoLive: Act
   if (view.clinic.dataClassification === "production") {
     return (
       <div>
-        <p className="text-sm">{view.clinic.name} is live. Patient data is accepted under the bound agreement.</p>
+        <p className="text-sm">Live. Patient data is accepted under the bound agreement.</p>
         {named}
       </div>
     );
@@ -502,7 +502,7 @@ function GoLiveControl({ view, onGoLive }: { view: OnboardingView; onGoLive: Act
   return (
     <div>
       <p className="text-sm">
-        Go-live is automatic: {view.clinic.name} goes to production by itself, and its first ready channel live,
+        Go-live is automatic: the clinic goes to production by itself, and its first ready channel live,
         once nothing below is left. Nobody presses a button for it.
       </p>
       {view.goLive.ok ? (
@@ -550,7 +550,7 @@ function needWords(channel: ChannelId, input: ChannelLiveInput): string {
     case "leaving":
       return "The clinic has left: nothing goes live.";
     case "audit":
-      return "Its practice questions haven't passed. While the practice-questions job is on in Ops, they run by themselves once the clinic's answers are set up, and again after each change it makes; a run they flag waits for you in Reviews (/admin/reviews), and your decision there is the only way an operator passes one.";
+      return "Its practice questions haven't passed. While the practice-questions job is on in System › Jobs, they run by themselves once the clinic's answers are set up, and again after each change it makes; a run they flag waits for you in Queues › Reviews (/admin/queues#reviews), and your decision there is the only way an operator passes one.";
     case "runtime":
       return channel === "voice"
         ? "No assistant number: enter it under Phone line once the Retell agent and number exist."
@@ -626,8 +626,8 @@ export function rerunSaid(data: RerunPracticeOutcome): string {
     data.jobEnabled === true
       ? "Asked: the practice questions run again for every channel in about two minutes, once the clinic's answers are set up. If they flag something, it waits in Reviews."
       : data.jobEnabled === false
-        ? "Asked, but the practice-questions job is off in Ops, so nothing runs until it is switched on. Then they run for every channel within two minutes, once the clinic's answers are set up."
-        : "Asked. They run for every channel within about two minutes while the practice-questions job is on in Ops, and once the clinic's answers are set up; this apps/app does not say whether the job is on.";
+        ? "Asked, but the practice-questions job is off in System › Jobs, so nothing runs until it is switched on. Then they run for every channel within two minutes, once the clinic's answers are set up."
+        : "Asked. They run for every channel within about two minutes while the practice-questions job is on in System › Jobs, and once the clinic's answers are set up; this apps/app does not say whether the job is on.";
   return data.auditRecorded ? said : `${said} ${UNAUDITED}`;
 }
 

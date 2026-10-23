@@ -283,8 +283,7 @@ describe("the booking card shows the derived mode and why", () => {
     expect(said).not.toContain("Send calendar link");
     expect(said).not.toMatch(/\bDisconnect\b/);
     expect(said).not.toMatch(/Settings allow/);
-    // Everything else on the page is read as before.
-    expect(said).toContain("Glow Aesthetics");
+    // Everything else on the page is read as before (the shell above the panel says the name; the panel does not repeat it).
     expect(said).toContain("Calendar writes needing attention: 0");
     expect(said).toContain("Go live");
   });
@@ -386,7 +385,7 @@ describe("the channels card", () => {
     );
     // The audit's words send the operator to the review queue, the one operator path (19 October 2026).
     expect(card).toContain(
-      "Its practice questions haven't passed. While the practice-questions job is on in Ops, they run by themselves once the clinic's answers are set up, and again after each change it makes; a run they flag waits for you in Reviews (/admin/reviews), and your decision there is the only way an operator passes one. audit",
+      "Its practice questions haven't passed. While the practice-questions job is on in System › Jobs, they run by themselves once the clinic's answers are set up, and again after each change it makes; a run they flag waits for you in Queues › Reviews (/admin/queues#reviews), and your decision there is the only way an operator passes one. audit",
     );
     expect(card).toContain("Instagram, Messenger & WhatsApp · live since 2026-10-11, no patient answered yet");
     // Said for the two whose audit passed; never offered as a button.

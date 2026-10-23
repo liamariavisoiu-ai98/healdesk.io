@@ -20,10 +20,7 @@ export function LaunchPromises() {
   const blocking = open.filter((item) => item.blocksGoLive).length;
   return (
     <Section id="launch" title={`Launch: ${open.length} ${open.length === 1 ? "promise" : "promises"} not on yet, ${blocking} blocking go-live`}>
-      <p className="text-muted text-sm">
-        The public copy states each of these as on (the owner&apos;s rule of 19 October 2026). No clinic goes live while
-        one that blocks go-live is open.
-      </p>
+      <p className="text-muted text-sm">Stated as on in the public copy (the owner&apos;s rule of 19 October 2026); what is left is under each.</p>
       <ul className="mt-4 grid gap-2">
         {LAUNCH_PROMISES.map((item) => (
           <li key={item.id} id={`launch-${item.id}`} className="border-line rounded-md border px-4 py-3 text-sm">

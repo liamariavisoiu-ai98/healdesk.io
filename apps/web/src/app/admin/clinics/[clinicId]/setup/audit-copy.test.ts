@@ -147,7 +147,7 @@ describe("no audit is passed by hand on the onboarding page", () => {
     expect(said).not.toContain("Record approval");
     expect(said).not.toMatch(/Who at the clinic approved/);
     expect(said).toContain(
-      "Not approved yet. The practice questions approve this version when they pass it; a run they flag waits for you in Reviews (/admin/reviews).",
+      "Not approved yet. The practice questions approve this version when they pass it; a run they flag waits for you in Queues › Reviews (/admin/queues#reviews).",
     );
     expect(said).not.toContain("until the clinic approves it again");
   });
@@ -157,7 +157,7 @@ describe("no audit is passed by hand on the onboarding page", () => {
     expect(said).not.toMatch(/I checked AYA.s answers/);
     expect(said).not.toMatch(/Until the practice questions exist/);
     const line =
-      "Its practice questions haven't passed. While the practice-questions job is on in Ops, they run by themselves once the clinic's answers are set up, and again after each change it makes; a run they flag waits for you in Reviews (/admin/reviews), and your decision there is the only way an operator passes one. audit";
+      "Its practice questions haven't passed. While the practice-questions job is on in System › Jobs, they run by themselves once the clinic's answers are set up, and again after each change it makes; a run they flag waits for you in Queues › Reviews (/admin/queues#reviews), and your decision there is the only way an operator passes one. audit";
     expect(said.split(line)).toHaveLength(3);
     // Website chat's own step is a fact an operator looks at, and stays.
     expect(said).toContain("The line is on their website");
@@ -189,11 +189,11 @@ describe("no audit is passed by hand on the onboarding page", () => {
     );
     // The job ships off (drizzle/0080): nothing runs, and the console says so.
     expect(rerunSaid({ status: "updated", auditRecorded: true, jobEnabled: false })).toBe(
-      "Asked, but the practice-questions job is off in Ops, so nothing runs until it is switched on. Then they run for every channel within two minutes, once the clinic's answers are set up.",
+      "Asked, but the practice-questions job is off in System › Jobs, so nothing runs until it is switched on. Then they run for every channel within two minutes, once the clinic's answers are set up.",
     );
     // An older apps/app does not say: the line names the condition rather than promising a run.
     const unknown = rerunSaid({ status: "updated", auditRecorded: true, jobEnabled: null });
-    expect(unknown).toContain("while the practice-questions job is on in Ops");
+    expect(unknown).toContain("while the practice-questions job is on in System › Jobs");
     expect(unknown).not.toMatch(/^Asked: the practice questions run again/);
     // A write that missed the security log says so, as the page's other writes do.
     expect(rerunSaid({ status: "updated", auditRecorded: false, jobEnabled: true })).toBe(

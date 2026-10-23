@@ -57,7 +57,7 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
   const [view, reads] = await Promise.all([fetchClinicCare(clinicId), loadClinicRows()]);
   if (isHostUnreachable(view)) return <HostStandbyNotice what="Care" />;
   const path = clinicTabPath(clinicId, "care");
-  const health = reads.health.ok ? (reads.health.data.find((h) => h.clinicId === clinicId.toLowerCase()) ?? null) : null;
+  const health = reads.health.ok ? { ok: true as const, data: reads.health.data.find((h) => h.clinicId === clinicId.toLowerCase()) ?? null } : reads.health;
 
   async function addRecipient(email: string, label?: string) {
     "use server";

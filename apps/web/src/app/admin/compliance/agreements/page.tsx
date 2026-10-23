@@ -36,7 +36,7 @@ import {
  * /admin/compliance/agreements (until 23 October 2026 /admin/agreements), the register of signed agreements: business associate
  * agreements and data protection agreements, each row labelled by its kind.
  *
- * ## Why this is a page of its own and not a panel on /admin/ops
+ * ## Why this is a page of its own and not a panel on the clinic list
  *
  * The old console carried the agreements panel below the clinic list, and at
  * three agreements that was right. A register is a different thing: it is what

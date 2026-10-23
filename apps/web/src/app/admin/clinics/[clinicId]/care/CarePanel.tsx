@@ -70,7 +70,7 @@ export function CarePanel({ view, actions }: { view: OpsResult<CareView>; action
       <Section title={`Who gets the reports — ${v.recipients.length}`}>
         <p className="text-muted text-sm">
           The weekly recap, the booking-request notices, the two live alerts and the renewal notice go to every address
-          here. Counts and links only; never a caller. The monthly report is phase two and is not sent in v1. The buyer is
+          here. Counts and links only; never a caller. The buyer is
           added at provisioning.
         </p>
         <ul className="mt-3 grid gap-2">

@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { HostStandbyNotice } from "@/components/admin/HostStandbyNotice";
+import { Failure } from "@/components/admin/ui";
 import { requireOperator } from "@/lib/admin/operator";
 import { fetchAgreementReviews, fetchPlatformCompliance } from "@/lib/admin/ops-client";
 import { enterPlatformAttestation, openLaunchPromises } from "@/lib/admin/platform-compliance";
@@ -77,6 +78,9 @@ export default async function CompliancePage() {
           {checksOpen !== null ? <span className="text-muted">{checksOpen}</span> : null}
         </a>
       </nav>
+
+      {/* The count is on the chip above; a read that failed is said here, never a chip with no number. */}
+      {!standby && !checks.ok ? <Failure failure={checks} what="the agreement checks" /> : null}
 
       {standby ? (
         <HostStandbyNotice what="The attestations" />

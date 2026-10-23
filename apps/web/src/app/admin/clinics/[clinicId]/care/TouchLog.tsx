@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 
-import { Section } from "@/components/admin/ui";
+import { Failure, Section } from "@/components/admin/ui";
 import type { CareOutcome, ClinicHealth, OpsResult } from "@/lib/admin/ops-client";
 
 /**
@@ -20,15 +20,24 @@ import type { CareOutcome, ClinicHealth, OpsResult } from "@/lib/admin/ops-clien
 
 export type RecordTouch = (input: { kind: "call" | "email" | "note"; summary: string; outcome?: string }) => Promise<OpsResult<CareOutcome>>;
 
-export function TouchLog({ health, onTouch }: { health: ClinicHealth | null; onTouch: RecordTouch }) {
+export function TouchLog({ health, onTouch }: { health: OpsResult<ClinicHealth | null>; onTouch: RecordTouch }) {
   const [pending, start] = useTransition();
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
   const [open, setOpen] = useState(false);
-  const touches = health?.touches ?? [];
+  // A read that failed is said as such, never as a log with nothing in it.
+  if (!health.ok) {
+    return (
+      <Section title="Touch log">
+        <Failure failure={health} what="the touch log" />
+      </Section>
+    );
+  }
+  const row = health.data;
+  const touches = row?.touches ?? [];
 
   return (
     <Section title={`Touch log — ${touches.length}`}>
-      {!health ? (
+      {!row ? (
         <p className="text-muted text-sm">Kept for a clinic&rsquo;s first sixty days live; this one has none to show.</p>
       ) : touches.length === 0 ? (
         <p className="text-muted text-sm">No call, email or note recorded yet.</p>
@@ -50,7 +59,7 @@ export function TouchLog({ health, onTouch }: { health: ClinicHealth | null; onT
         </ul>
       )}
 
-      {health ? (
+      {row ? (
         <form
           className="border-line mt-4 grid gap-3 border-t pt-4"
           onSubmit={(event) => {

@@ -177,6 +177,8 @@ export function DeliveriesLedger({
 }) {
   const reminders = billing.ok ? billing.data.notices.filter((n) => n.kind === SETUP_REMINDER_KIND) : [];
   const other = billing.ok ? billing.data.notices.filter((n) => n.kind !== SETUP_REMINDER_KIND) : [];
+  const remindersSent = reminders.filter((n) => n.sentAt !== null).length;
+  const remindersQueued = reminders.length - remindersSent;
   return (
     <>
       {shows(filter, "reports") ? (
@@ -190,7 +192,7 @@ export function DeliveriesLedger({
         </Section>
       ) : null}
       {shows(filter, "reminders") ? (
-        <Section id="setup-reminders" title={`Setup reminders${billing.ok ? ` — ${reminders.length} sent` : ""}`}>
+        <Section id="setup-reminders" title={`Setup reminders${billing.ok ? ` — ${remindersSent} sent${remindersQueued > 0 ? `, ${remindersQueued} queued` : ""}` : ""}`}>
           {billing.ok ? <Notices notices={reminders} empty="No setup reminder sent." /> : <Failure failure={billing} what="the setup reminders" />}
         </Section>
       ) : null}

@@ -34,6 +34,7 @@ import { isHostUnreachable } from "@/lib/host/state";
 
 import { ConnectLink } from "./ConnectLink";
 import { OnboardingPanel } from "./OnboardingPanel";
+import { SetupSummary } from "./SetupSummary";
 
 /**
  * /admin/clinics/[id]/setup, the Setup tab: one clinic's road from payment to
@@ -192,6 +193,7 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
 
   return (
     <>
+      <SetupSummary cards={reads.cards} clinicId={clinicId} />
       <OnboardingPanel
         view={view}
         actions={{

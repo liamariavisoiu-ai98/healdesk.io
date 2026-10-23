@@ -107,6 +107,7 @@ describe("/admin/recordings", () => {
   test("a host in standby is the standby notice, not an error", async () => {
     state.result = { ok: false, code: "unreachable", message: "Could not reach the ops API." };
     const html = await render();
+    expect(html).toContain("The AWS host is in standby.");
     expect(html).not.toContain("To delete");
   });
 });

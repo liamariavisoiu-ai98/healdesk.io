@@ -7,7 +7,7 @@ import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
 import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
 
 /**
- * /admin/setup, rendered as the operator sees it: each request with what it
+ * Queues › Setup requests (until 23 October 2026 /admin/setup), rendered as the operator sees it: each request with what it
  * asked for and how far its link has got (sent, opened, the package chosen,
  * signed, paid), the package read from the purchase record the latest press
  * of Pay left in the Sheet.
@@ -24,7 +24,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
-const { default: SetupRequestsPage } = await import("./page");
+const { default: SetupRequestsPage } = await import("./SetupRequestsSection");
 
 async function render(result?: string): Promise<string> {
   const element = await SetupRequestsPage({

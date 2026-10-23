@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { SiteReadFailureRow } from "@/lib/admin/ops-client";
 
 /**
- * /admin/site-reads, rendered as the operator sees it: "Read it again" sits
+ * Queues › Site reads (until 23 October 2026 /admin/site-reads), rendered as the operator sees it: "Read it again" sits
  * only beside a clinic that was set up and still has no profile, whose
  * purchase gave a website; a purchase never set up, or one whose profile has
  * arrived since, has nothing to read again.
@@ -30,7 +30,7 @@ vi.mock("@/lib/admin/ops-client", async (original) => ({
   }),
 }));
 
-const { default: SiteReadsPage } = await import("./page");
+const { default: SiteReadsPage } = await import("./SiteReadsSection");
 
 function row(over: Partial<SiteReadFailureRow>): SiteReadFailureRow {
   return {

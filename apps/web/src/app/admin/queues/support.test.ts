@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 /**
- * /admin/support, as the operator sees it (WP5): the escalations still owed
+ * Queues › Support (until 23 October 2026 /admin/support), as the operator sees it (WP5): the escalations still owed
  * a reply, each with a "Mark replied" form, those past their day flagged;
  * the replied ones with when they were marked; and the host-in-standby notice
  * rather than an error when apps/app does not answer.
@@ -21,7 +21,7 @@ vi.mock("@/lib/admin/ops-client", () => ({
   markSupportReplied: async () => ({ ok: true, data: { status: "marked" } }),
 }));
 
-const { default: SupportRequestsPage } = await import("./page");
+const { default: SupportRequestsPage } = await import("./SupportSection");
 
 const CLINIC = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 const OWED = "5b4a3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
@@ -79,7 +79,7 @@ describe("/admin/support", () => {
     expect(html).toContain(`value="${OWED}"`);
     expect(html).not.toContain(`value="${DONE}"`);
     expect(html).toContain("Replied, marked 7 Oct, 09:00");
-    expect(html).toContain(`/admin/ops/${CLINIC}/care`);
+    expect(html).toContain(`/admin/clinics/${CLINIC}/care`);
   });
 
   test("says what the mark did", async () => {

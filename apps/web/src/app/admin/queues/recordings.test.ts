@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 /**
- * /admin/recordings, as the operator sees it: the calls Retell still held
+ * Queues › Retell deletions (until 23 October 2026 /admin/recordings), as the operator sees it: the calls Retell still held
  * past the deletion window (a recording there before that is expected, not
  * a failure), each open one with a "Delete at Retell" form and the reason
  * its last delete failed; the deleted ones with when; and the
@@ -26,7 +26,7 @@ vi.mock("@/lib/admin/ops-client", () => ({
   },
 }));
 
-const { default: RecordingsPage } = await import("./page");
+const { default: RecordingsPage } = await import("./RecordingsSection");
 
 const CLINIC = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 const OPEN = "5b4a3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
@@ -93,7 +93,7 @@ describe("/admin/recordings", () => {
     expect(html).toContain(`value="${OPEN}"`);
     expect(html).not.toContain(`value="${DONE}"`);
     expect(html).toContain("Deleted at Retell 20 Oct, 11:00");
-    expect(html).toContain(`/admin/ops/${CLINIC}/care`);
+    expect(html).toContain(`/admin/clinics/${CLINIC}/care`);
     // Nothing that could be a recording's address or a caller's number.
     expect(html).not.toMatch(/\.wav|recording_url|\+1\d{6,}/);
   });

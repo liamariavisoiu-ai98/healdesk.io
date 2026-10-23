@@ -26,6 +26,12 @@ export const maxDuration = 300;
  * The builds it starts again run after the response, inside maxDuration,
  * the way the webhook's and the console's do. The Sheet unreachable is a
  * thrown error and a 500, so the cron shows red rather than a quiet day.
+ * A row the sweep could not handle (a refused write, a damaged row) is a
+ * different thing: the other rows were handled, and their builds are
+ * scheduled below whatever happened to that one, so the answer is 200 with
+ * `ok: false` and the count of failures, and the sweep's own error log
+ * names each slug and why. A 500 there would look like the run that did
+ * nothing, and would not undo the scheduling anyway.
  */
 export async function GET(request: Request): Promise<NextResponse> {
   const expected = process.env.CRON_SECRET;
@@ -40,6 +46,15 @@ export async function GET(request: Request): Promise<NextResponse> {
   const retried = sweep.retried.map((s) => s.slug);
   if (retried.length > 0) after(() => runRetriedBuilds(retried));
   // Slugs, as every build log line names them; never an address.
-  console.info("[healdesk] demo stall sweep", { retried, gaveUp: sweep.gaveUp.map((s) => s.slug) });
-  return NextResponse.json({ ok: true, retried: retried.length, gaveUp: sweep.gaveUp.length });
+  console.info("[healdesk] demo stall sweep", {
+    retried,
+    gaveUp: sweep.gaveUp.map((s) => s.slug),
+    failures: sweep.failures.map((f) => f.slug),
+  });
+  return NextResponse.json({
+    ok: sweep.failures.length === 0,
+    retried: retried.length,
+    gaveUp: sweep.gaveUp.length,
+    failures: sweep.failures.length,
+  });
 }

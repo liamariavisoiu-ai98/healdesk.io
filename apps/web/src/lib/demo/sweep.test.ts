@@ -128,7 +128,7 @@ describe("the sweep", () => {
     // A failed row is not a stalled one: the next sweep says nothing more about it.
     postInternalAlert.mockReset();
     const quiet = await sweepStalledDemos(new Date(NOW.getTime() + 60 * MINUTE));
-    expect(quiet).toEqual({ retried: [], gaveUp: [] });
+    expect(quiet).toEqual({ retried: [], gaveUp: [], failures: [] });
     expect(postInternalAlert).not.toHaveBeenCalled();
     expect(mailed).toHaveLength(1);
   });
@@ -144,7 +144,7 @@ describe("the sweep", () => {
     // other is still inside its eight: nothing is stalled.
     const before = writes();
     const second = await sweepStalledDemos(new Date(NOW.getTime() + 5 * MINUTE));
-    expect(second).toEqual({ retried: [], gaveUp: [] });
+    expect(second).toEqual({ retried: [], gaveUp: [], failures: [] });
     expect(writes()).toBe(before);
     expect((await fresh(stalled.slug)).retryCount).toBe(1);
   });
@@ -185,9 +185,10 @@ describe("Retry all stalled", () => {
     const ready = await demo("Peachy", 30 * MINUTE, { status: "ready", readyAt: ago(20 * MINUTE) });
     const failed = await demo("Verve", 30 * MINUTE, { status: "failed", buildNote: "no services" });
 
-    const retried = await retryStalledDemos(NOW);
+    const { retried, failures } = await retryStalledDemos(NOW);
 
     // Longest stalled first.
+    expect(failures).toEqual([]);
     expect(retried.map((s) => s.slug)).toEqual([already.slug, first.slug]);
     expect((await fresh(first.slug)).retryCount).toBe(1);
     expect((await fresh(already.slug)).retryCount).toBe(2);
@@ -203,13 +204,76 @@ describe("Retry all stalled", () => {
     expect(mailed).toEqual([]);
 
     const before = writes();
-    expect(await retryStalledDemos(new Date(NOW.getTime() + MINUTE))).toEqual([]);
+    expect(await retryStalledDemos(new Date(NOW.getTime() + MINUTE))).toEqual({ retried: [], failures: [] });
     expect(writes()).toBe(before);
   });
 
   it("runs the builds it is given, each on its own", async () => {
     await runRetriedBuilds(["a-bcdefghij2", "b-cdefghij23"]);
     expect(runDemoBuild.mock.calls.map((c) => c[0])).toEqual(["a-bcdefghij2", "b-cdefghij23"]);
+  });
+});
+
+describe("a row that cannot be handled", () => {
+  /** The Sheet refuses every write to one row (its quota, say); reads and the other rows are fine. */
+  function refuseWritesTo(row: number): void {
+    const real = sheets.updateRange.bind(sheets);
+    sheets.updateRange = async (range, rows) => {
+      if (new RegExp(`!A${row}:[A-Z]+${row}$`).test(range)) throw new Error("quota exceeded");
+      return real(range, rows);
+    };
+  }
+
+  it("is stepped over by the sweep, which keeps the earlier row's retry and reports the failure", async () => {
+    // Rows 2 and 3 of the tab; the longer-stalled one is handled first.
+    const first = await demo("Glow Spa", DEMO_BUILD_STALL_MS + 10 * MINUTE);
+    const second = await demo("Lumen", DEMO_BUILD_STALL_MS + MINUTE);
+    refuseWritesTo(3);
+
+    const sweep = await sweepStalledDemos(NOW);
+
+    expect(sweep.retried.map((s) => s.slug)).toEqual([first.slug]);
+    expect(sweep.gaveUp).toEqual([]);
+    expect(sweep.failures).toEqual([{ slug: second.slug, error: "quota exceeded" }]);
+    expect((await fresh(first.slug)).retryCount).toBe(1);
+    expect(await fresh(second.slug)).toEqual(second);
+    expect(postInternalAlert).toHaveBeenCalledTimes(1);
+    expect(console.error).toHaveBeenCalledWith("[healdesk] demo stall sweep: a row could not be handled", {
+      slug: second.slug,
+      error: "quota exceeded",
+    });
+  });
+
+  it("with its id blanked by hand still goes failed, is reported, and costs no other row its retry", async () => {
+    const first = await demo("Glow Spa", DEMO_BUILD_STALL_MS + 10 * MINUTE);
+    const twice = await demo("Lumen", DEMO_BUILD_STALL_MS + MINUTE, { retryCount: 1 });
+    // The email's key refuses an empty row id.
+    sheets.tabs.get(DEMO_SESSIONS.title)![2]![0] = "";
+    __resetDemoCacheForTests();
+
+    const sweep = await sweepStalledDemos(NOW);
+
+    expect(sweep.retried.map((s) => s.slug)).toEqual([first.slug]);
+    expect(sweep.gaveUp.map((s) => s.slug)).toEqual([twice.slug]);
+    expect(sweep.failures).toHaveLength(1);
+    expect(sweep.failures[0]!.slug).toBe(twice.slug);
+    expect(sweep.failures[0]!.error).toMatch(/row id/);
+    expect((await fresh(first.slug)).retryCount).toBe(1);
+    expect((await fresh(twice.slug)).status).toBe("failed");
+    expect(postInternalAlert).toHaveBeenCalledTimes(2);
+    expect(mailed).toEqual([]);
+  });
+
+  it("is stepped over by Retry all stalled too", async () => {
+    const first = await demo("Glow Spa", DEMO_BUILD_STALL_MS + 10 * MINUTE);
+    const second = await demo("Lumen", DEMO_BUILD_STALL_MS + MINUTE);
+    refuseWritesTo(3);
+
+    const { retried, failures } = await retryStalledDemos(NOW);
+
+    expect(retried.map((s) => s.slug)).toEqual([first.slug]);
+    expect(failures).toEqual([{ slug: second.slug, error: "quota exceeded" }]);
+    expect(await fresh(second.slug)).toEqual(second);
   });
 });
 

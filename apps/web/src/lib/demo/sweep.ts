@@ -93,42 +93,74 @@ export async function runRetriedBuilds(slugs: readonly string[]): Promise<void> 
   await Promise.all(slugs.map((slug) => runDemoBuild(slug).then(() => undefined)));
 }
 
-/**
- * "Retry all stalled": every stalled row started again, whatever its count.
- * Returns the rows started again; the caller runs their builds.
- */
-export async function retryStalledDemos(now: Date = new Date()): Promise<DemoSession[]> {
-  const retried: DemoSession[] = [];
-  for (const stalled of await listStalledDemoSessions(now.getTime())) {
-    const again = await retryStalledDemo(stalled, now);
-    if (again) retried.push(again);
-  }
-  return retried;
-}
+/** A row the sweep could not handle: the Sheet refused the write, or the row is damaged. Logged where it happens. */
+export type SweepFailure = { slug: string; error: string };
 
-export type StallSweep = {
+export type StallRetry = {
   /** Started again; the caller runs their builds. */
   retried: DemoSession[];
+  /** Rows that threw. The rows before and after them were handled all the same. */
+  failures: SweepFailure[];
+};
+
+export type StallSweep = StallRetry & {
   /** Stalled again after a retry: marked failed, the team told. */
   gaveUp: DemoSession[];
 };
 
-/** The sweep's rule: once more, then a person. */
-export async function sweepStalledDemos(now: Date = new Date()): Promise<StallSweep> {
-  const sweep: StallSweep = { retried: [], gaveUp: [] };
+/**
+ * Each row is handled on its own, and a throw on one is recorded and
+ * stepped over rather than ending the run. Otherwise a Sheets quota refusal
+ * on the second row, or a row whose id was blanked by hand (emailKey
+ * refuses it), would throw out of the loop before the caller scheduled
+ * anything, and the first row, already written as building with its count
+ * up, would never have its build run: at the next sweep it reads as stalled
+ * after a retry and is marked failed without ever having been retried.
+ */
+function failed(slug: string, error: unknown): SweepFailure {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error("[healdesk] demo stall sweep: a row could not be handled", { slug, error: message });
+  return { slug, error: message };
+}
+
+/**
+ * "Retry all stalled": every stalled row started again, whatever its count.
+ * Returns the rows started again, whose builds the caller runs, and the
+ * rows that threw. Only the listing itself throws.
+ */
+export async function retryStalledDemos(now: Date = new Date()): Promise<StallRetry> {
+  const out: StallRetry = { retried: [], failures: [] };
   for (const stalled of await listStalledDemoSessions(now.getTime())) {
-    if (stalled.retryCount < DEMO_STALL_RETRIES) {
+    try {
       const again = await retryStalledDemo(stalled, now);
-      if (!again) continue;
-      sweep.retried.push(again);
-      await postInternalAlert(`Demo build stalled: ${displayName(again)}, retried. ${demoConsoleUrl()}`);
-      continue;
+      if (again) out.retried.push(again);
+    } catch (error) {
+      out.failures.push(failed(stalled.slug, error));
     }
-    const failed = await giveUp(stalled, now);
-    if (!failed) continue;
-    sweep.gaveUp.push(failed);
-    await postInternalAlert(`Demo build needs you: ${displayName(failed)} stalled twice. ${demoConsoleUrl()}`);
-    await tellTheTeam(failed);
+  }
+  return out;
+}
+
+/** The sweep's rule: once more, then a person. Only the listing itself throws. */
+export async function sweepStalledDemos(now: Date = new Date()): Promise<StallSweep> {
+  const sweep: StallSweep = { retried: [], gaveUp: [], failures: [] };
+  for (const stalled of await listStalledDemoSessions(now.getTime())) {
+    try {
+      if (stalled.retryCount < DEMO_STALL_RETRIES) {
+        const again = await retryStalledDemo(stalled, now);
+        if (!again) continue;
+        sweep.retried.push(again);
+        await postInternalAlert(`Demo build stalled: ${displayName(again)}, retried. ${demoConsoleUrl()}`);
+        continue;
+      }
+      const given = await giveUp(stalled, now);
+      if (!given) continue;
+      sweep.gaveUp.push(given);
+      await postInternalAlert(`Demo build needs you: ${displayName(given)} stalled twice. ${demoConsoleUrl()}`);
+      await tellTheTeam(given);
+    } catch (error) {
+      sweep.failures.push(failed(stalled.slug, error));
+    }
   }
   return sweep;
 }

@@ -66,18 +66,25 @@ function form(slug: string): FormData {
   return data;
 }
 
+let sheets: FakeSheets;
+
 beforeEach(() => {
   operator.signedIn = true;
-  __setSheetsClientForTests(new FakeSheets());
+  sheets = new FakeSheets();
+  __setSheetsClientForTests(sheets);
   __resetSheetSchemaForTests();
   __resetDemoCacheForTests();
   runDemoBuild.mockReset();
   runDemoBuild.mockResolvedValue(null);
   retryStalledDemo.mockClear();
   afterFns.length = 0;
+  vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
-afterEach(() => __setSheetsClientForTests(null));
+afterEach(() => {
+  __setSheetsClientForTests(null);
+  vi.restoreAllMocks();
+});
 
 describe("Retry all stalled", () => {
   test("starts every stalled build again, runs them after returning, and touches nothing else", async () => {
@@ -101,6 +108,24 @@ describe("Retry all stalled", () => {
     await retryStalledDemosAction();
     expect(afterFns).toEqual([]);
     expect((await fresh(stalled.slug)).retryCount).toBe(1);
+  });
+
+  test("a row the Sheet refuses to write costs no earlier row its build", async () => {
+    // Rows 2 and 3 of the tab; the longer-stalled one is handled first.
+    const first = await demo("Glow", DEMO_BUILD_STALL_MS + 10 * MINUTE);
+    const second = await demo("Lumen", DEMO_BUILD_STALL_MS + MINUTE);
+    const real = sheets.updateRange.bind(sheets);
+    sheets.updateRange = async (range, rows) => {
+      if (/!A3:[A-Z]+3$/.test(range)) throw new Error("quota exceeded");
+      return real(range, rows);
+    };
+
+    await retryStalledDemosAction();
+    await runAfter();
+
+    expect(runDemoBuild.mock.calls.map((c) => c[0])).toEqual([first.slug]);
+    expect((await fresh(first.slug)).retryCount).toBe(1);
+    expect(await fresh(second.slug)).toEqual(second);
   });
 
   test("does nothing for a caller who is not signed in", async () => {

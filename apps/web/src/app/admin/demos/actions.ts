@@ -84,7 +84,9 @@ export async function retryDemoAction(form: FormData): Promise<void> {
  */
 export async function retryStalledDemosAction(): Promise<void> {
   if (!(await requireOperator())) return;
-  const retried = (await retryStalledDemos()).map((s) => s.slug);
+  // A row that threw is logged by the sweep and left as it was; the rows
+  // that were started again get their builds whatever happened to it.
+  const retried = (await retryStalledDemos()).retried.map((s) => s.slug);
   if (retried.length > 0) after(() => runRetriedBuilds(retried));
   revalidatePath("/admin/demos");
 }

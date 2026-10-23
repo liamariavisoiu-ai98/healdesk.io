@@ -532,6 +532,13 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The hourly check found the number of bookings below whose Google Calendar write failed or was given up on, more than it reports one by one, so this one alert stands for all of them and none will be sent separately. Each clinic's desk was already told to add its booking by hand. Open the clinics in the console and look at each one's calendar writes on its onboarding page; a new failure after this is reported on its own again.",
   },
+  // lib/clinic/change-events.ts, from the minute sweep, once per clinic and
+  // kind an hour.
+  clinic_availability_changed: {
+    title: "A clinic changed when or with whom AYA books",
+    action:
+      "The clinic below changed what its section names: its weekly hours (hours), its closed days (closures), a location's hours (location_hours), its named providers (providers) or which services they offer (provider_services). Count is how many changes were saved; for closed days, written is how many days were added and deleted how many were taken off. A change made by a change file or in the database directly is recorded too. AYA uses it at once. Open the clinic's page in the console to see each change, and its audit once the clinic-audits job is on.",
+  },
   step_up_phone_held: {
     title: "Phone held off a plan with more than one location",
     action:

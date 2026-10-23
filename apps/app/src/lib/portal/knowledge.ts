@@ -1,8 +1,9 @@
 import { findClinicalContent } from "@healdesk/catalog";
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
-import { agentConfigs, appointments, bookingRequests, clinics } from "@/db/schema";
+import { agentConfigs, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { describeError, log } from "@/lib/log";
 import { requestPracticeQuestions } from "@/lib/engine/practice/store";
 import type { PracticeSection } from "@/lib/engine/practice/types";
 import { clinicDefaultDepositUsd } from "@/lib/billing/deposits";
@@ -87,10 +88,11 @@ export async function saveKnowledge(
   }
   const body = (input ?? {}) as Record<string, unknown>;
   const actor: ActorContext = { type: "user", userId: ctx.userId, label: ctx.actorLabel };
+  let saved: { toast: string; hours: HoursNoteInput | null };
   try {
-    return await withTenant({ clinicId: ctx.clinicId, actor }, async (tx): Promise<KnowledgeResult> => {
+    saved = await withTenant({ clinicId: ctx.clinicId, actor }, async (tx) => {
       // Read before the write, so its closed days are the ones the hours
-      // note below compares the saved ones with.
+      // note compares the saved ones with.
       const state = await readSetupState(tx, { userId: ctx.userId, now });
       if (!state) throw new KnowledgeError("section", "This clinic could not be found.");
       if (state.clinic.offboardingStartedAt) {
@@ -110,22 +112,17 @@ export async function saveKnowledge(
       );
       await practiceQuestionsSeam(tx, section, now);
       const applies = appliesWhen(state.channels);
-      const toast = applies ? `${said} ${applies}` : `${said} AYA uses it from now on.`;
-      if (section !== "hours") return { ok: true, toast };
-      const booked = await bookingsOnNewlyClosedDays(
-        tx,
-        state.closures.map((c) => c.closedOn),
-        state.clinic.timezone,
-        now,
-      );
-      const note = bookedOnClosedDaysNote(booked);
-      return note
-        ? {
-            ok: true,
-            toast: `${toast} ${note.text}`,
-            link: { href: `/c/${state.clinic.slug}/bookings#booked`, label: note.label },
-          }
-        : { ok: true, toast };
+      return {
+        toast: applies ? `${said} ${applies}` : `${said} AYA uses it from now on.`,
+        hours:
+          section === "hours"
+            ? {
+                closedBefore: state.closures.map((c) => c.closedOn),
+                timeZone: state.clinic.timezone,
+                slug: state.clinic.slug,
+              }
+            : null,
+      };
     });
   } catch (error) {
     if (error instanceof KnowledgeError || error instanceof PracticeError) {
@@ -135,6 +132,50 @@ export async function saveKnowledge(
         : { ok: false, field: error.field, message: error.message };
     }
     throw error;
+  }
+  if (!saved.hours) return { ok: true, toast: saved.toast };
+  const note = await hoursNote(ctx.clinicId, actor, saved.hours, now);
+  return note
+    ? {
+        ok: true,
+        toast: `${saved.toast} ${note.text}`,
+        link: { href: `/c/${saved.hours.slug}/bookings#booked`, label: note.label },
+      }
+    : { ok: true, toast: saved.toast };
+}
+
+type HoursNoteInput = { closedBefore: string[]; timeZone: string; slug: string };
+
+/**
+ * The count behind the hours note, as a seam: tests make it fail to show
+ * the save stands without it.
+ */
+export const closedDayNoteSeam = {
+  count: (tx: TenantTx, input: HoursNoteInput, now: Date) =>
+    bookingsOnNewlyClosedDays(tx, input.closedBefore, input.timeZone, now),
+};
+
+/**
+ * The note about bookings on days the save just closed, read after the
+ * save has committed and in its own transaction: it is a courtesy, so a
+ * failure here (a timeout, a zone the database refuses) costs the note,
+ * never the clinic's hours. Logged with the clinic id and the error's kind
+ * only.
+ */
+async function hoursNote(
+  clinicId: string,
+  actor: ActorContext,
+  input: HoursNoteInput,
+  now: Date,
+): Promise<{ text: string; label: string } | null> {
+  try {
+    const count = await withTenant({ clinicId, actor }, (tx) =>
+      closedDayNoteSeam.count(tx, input, now),
+    );
+    return bookedOnClosedDaysNote(count);
+  } catch (error) {
+    log.warn("closed-day bookings note skipped", { clinicId, error: describeError(error) });
+    return null;
   }
 }
 
@@ -156,13 +197,24 @@ export async function knowledgeWriteOptions(tx: TenantTx): Promise<KnowledgeWrit
 }
 
 /**
- * How many of AYA's bookings still to come fall on a day this save closed
- * that was open before it (owner decision D10): the appointments Bookings
- * lists (each from a request, as lib/portal/bookings.ts reads them), still
- * scheduled or confirmed, after `now`, on a newly closed date in the
- * clinic's zone. A count and nothing else: no name, time or service leaves
- * here, and nobody is contacted. The closure itself cancels nothing; the
- * clinic decides what to do with each booking from Bookings.
+ * How many of AYA's bookings and requests still to come fall on a day this
+ * save closed that was open before it (owner decision D10), each counted
+ * once:
+ *
+ *   - an appointment Bookings lists (from a request, as
+ *     lib/portal/bookings.ts reads them), scheduled or confirmed;
+ *   - a request still waiting for staff (requested, accepted or
+ *     rescheduling) that holds a time: a live slot hold (a deposit
+ *     reservation, a write in flight) or, while rescheduling, a proposed slot.
+ *
+ * A request that names its time only in words ("Thursday afternoon", as a
+ * request taken in manual booking mode does) has no date to compare and is
+ * not counted. Each row counts under its appointment when it has one, else
+ * its request, so two rows about one booking count once.
+ *
+ * A count and nothing else: no name, time or service leaves here, and
+ * nobody is contacted. The closure itself cancels nothing; the clinic
+ * decides what to do with each from Bookings.
  */
 export async function bookingsOnNewlyClosedDays(
   tx: TenantTx,
@@ -175,26 +227,40 @@ export async function bookingsOnNewlyClosedDays(
     .map((c) => c.closedOn)
     .filter((day) => !before.has(day));
   if (added.length === 0) return 0;
-  const localDay = sql<string>`((${appointments.scheduledFor} at time zone ${timeZone})::date)::text`;
-  const [row] = await tx.db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(appointments)
-    .innerJoin(
-      bookingRequests,
-      and(
-        eq(bookingRequests.appointmentId, appointments.id),
-        eq(bookingRequests.clinicId, appointments.clinicId),
-      ),
-    )
-    .where(
-      and(
-        eq(appointments.clinicId, tx.clinicId),
-        inArray(appointments.status, ["scheduled", "confirmed"]),
-        gt(appointments.scheduledFor, now),
-        inArray(localDay, added),
-      ),
-    );
-  return row?.n ?? 0;
+  const days = sql`array[${sql.join(
+    added.map((d) => sql`${d}`),
+    sql`, `,
+  )}]::text[]`;
+  const localDay = (at: ReturnType<typeof sql>) =>
+    sql`((${at} at time zone ${timeZone})::date)::text = any(${days})`;
+  const result = await tx.db.execute<{ n: number }>(sql`
+    select count(distinct k)::int as n from (
+      select a.id::text as k
+        from appointments a
+        join booking_requests br on br.appointment_id = a.id and br.clinic_id = a.clinic_id
+       where a.clinic_id = ${tx.clinicId}
+         and a.status in ('scheduled', 'confirmed')
+         and a.scheduled_for > ${now}
+         and ${localDay(sql`a.scheduled_for`)}
+      union all
+      select coalesce(br.appointment_id::text, br.id::text)
+        from booking_requests br
+        join slot_holds h on h.booking_request_id = br.id and h.clinic_id = br.clinic_id
+       where br.clinic_id = ${tx.clinicId}
+         and br.status in ('requested', 'accepted', 'rescheduling')
+         and h.status in ('held', 'reserved', 'writing', 'unknown')
+         and h.starts_at > ${now}
+         and ${localDay(sql`h.starts_at`)}
+      union all
+      select coalesce(br.appointment_id::text, br.id::text)
+        from booking_requests br
+        cross join lateral jsonb_array_elements(br.proposed_slots) s
+       where br.clinic_id = ${tx.clinicId}
+         and br.status = 'rescheduling'
+         and (s->>'at')::timestamptz > ${now}
+         and ${localDay(sql`(s->>'at')::timestamptz`)}
+    ) counted`);
+  return result.rows[0]?.n ?? 0;
 }
 
 /** The clinic's one line about bookings on days it just closed, and its link's words; null for none. */
@@ -202,11 +268,11 @@ export function bookedOnClosedDaysNote(count: number): { text: string; label: st
   if (count <= 0) return null;
   return count === 1
     ? {
-        text: "One booking falls on a day you just closed. It stays booked as it is.",
+        text: "One booking or request falls on a day you just closed. It stays as it is.",
         label: "See it in Bookings",
       }
     : {
-        text: `${count} bookings fall on the days you just closed. They stay booked as they are.`,
+        text: `${count} bookings or requests fall on the days you just closed. They stay as they are.`,
         label: "See them in Bookings",
       };
 }

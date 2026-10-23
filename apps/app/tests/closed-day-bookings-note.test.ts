@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 
 import type { FakeGoogleCalendar } from "@healdesk/connectors";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { bookConversation } from "@/lib/booking/book";
 import { placeHold } from "@/lib/booking/engine";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { approveAgentConfig } from "@/lib/onboarding/agent-config";
-import { bookedOnClosedDaysNote, saveKnowledge } from "@/lib/portal/knowledge";
+import { bookedOnClosedDaysNote, closedDayNoteSeam, saveKnowledge } from "@/lib/portal/knowledge";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -18,11 +18,13 @@ import {
   truncateAll,
 } from "./setup/db";
 import {
+  assistantHold,
   DESK_TZ,
   deskLocation,
   deskTime,
   freshGoogle,
   installGoogleEnv,
+  phoneRequest,
   restoreGoogleEnv,
 } from "./setup/desk-calendar";
 import { inTenant, seedPortalUser } from "./setup/factories";
@@ -47,11 +49,11 @@ describe("the note's words", () => {
   test("none for no bookings; one and many read as a person would say them", () => {
     expect(bookedOnClosedDaysNote(0)).toBeNull();
     expect(bookedOnClosedDaysNote(1)).toEqual({
-      text: "One booking falls on a day you just closed. It stays booked as it is.",
+      text: "One booking or request falls on a day you just closed. It stays as it is.",
       label: "See it in Bookings",
     });
     expect(bookedOnClosedDaysNote(3)).toEqual({
-      text: "3 bookings fall on the days you just closed. They stay booked as they are.",
+      text: "3 bookings or requests fall on the days you just closed. They stay as they are.",
       label: "See them in Bookings",
     });
   });
@@ -153,7 +155,7 @@ describeDb("a closed day that already has bookings", () => {
       expect(busy).toMatchObject({
         ok: true,
         toast: expect.stringMatching(
-          /^Hours saved\. .* 2 bookings fall on the days you just closed\. They stay booked as they are\.$/,
+          /^Hours saved\. .* 2 bookings or requests fall on the days you just closed\. They stay as they are\.$/,
         ),
         link: { href: `/c/${slug}/bookings#booked`, label: "See them in Bookings" },
       });
@@ -182,6 +184,131 @@ describeDb("a closed day that already has bookings", () => {
         ),
       );
       expect(appointments.sort()).toEqual(["scheduled", "scheduled"]);
+    },
+    SLOW,
+  );
+
+  /** A location whose bookings are requests only: no engine booking, the desk decides. */
+  async function requestOnly(label: string) {
+    const f = await deskLocation(google, label);
+    const { userId } = await seedPortalUser(f.clinicId, "owner");
+    const save = (closures: { closedOn: string; label: string }[]) =>
+      saveKnowledge({ clinicId: f.clinicId, userId, actorLabel: "the clinic's sign-in" }, "hours", {
+        hours: EVERY_DAY,
+        closures,
+      });
+    return { f, save };
+  }
+
+  test(
+    "requests waiting for staff on the day are counted, each once however many times it points at the day",
+    async () => {
+      const { f, save } = await requestOnly("closed-note-requests");
+      const day = clinicLocalDate(deskTime(3, 10), DESK_TZ);
+      // One request holding D 10:00 (a deposit reservation), and also
+      // offered D 15:00 and D 16:00 while rescheduling: three rows, one request.
+      const first = await phoneRequest(f.clinicId);
+      await assistantHold(f.clinicId, {
+        requestId: first.requestId,
+        contactId: first.contactId,
+        startsAt: deskTime(3, 10),
+        status: "reserved",
+      });
+      await inTenant(f.clinicId, (c) =>
+        c.query(
+          `update booking_requests
+              set status = 'rescheduling', decided_at = now(), decided_by_label = 'Front desk',
+                  proposed_slots = $2::jsonb, reschedule_expires_at = now() + interval '2 days'
+            where id = $1`,
+          [
+            first.requestId,
+            JSON.stringify(
+              [15, 16].map((h) => ({
+                at: deskTime(3, h).toISOString(),
+                label: "an afternoon",
+                source: "desk",
+              })),
+            ),
+          ],
+        ),
+      );
+      // A second request, holding D 12:00.
+      const second = await phoneRequest(f.clinicId);
+      await assistantHold(f.clinicId, {
+        requestId: second.requestId,
+        contactId: second.contactId,
+        startsAt: deskTime(3, 12),
+        status: "reserved",
+      });
+
+      const saved = await save([{ closedOn: day, label: "Training" }]);
+      expect(saved).toMatchObject({
+        ok: true,
+        toast: expect.stringContaining(
+          "2 bookings or requests fall on the days you just closed. They stay as they are.",
+        ),
+        link: { label: "See them in Bookings" },
+      });
+    },
+    SLOW,
+  );
+
+  test(
+    "a count that fails costs the note, never the save",
+    async () => {
+      const { f, save } = await requestOnly("closed-note-fails");
+      const day = clinicLocalDate(deskTime(3, 10), DESK_TZ);
+      const failing = vi
+        .spyOn(closedDayNoteSeam, "count")
+        .mockRejectedValueOnce(new Error("canceling statement due to statement timeout"));
+      try {
+        const saved = await save([{ closedOn: day, label: "Training" }]);
+        expect(saved).toMatchObject({ ok: true, toast: expect.stringMatching(/^Hours saved\./) });
+        expect(saved).not.toHaveProperty("link");
+        expect(failing).toHaveBeenCalledTimes(1);
+      } finally {
+        failing.mockRestore();
+      }
+      const stored = await inTenant(
+        f.clinicId,
+        async (c) =>
+          (
+            await c.query<{ closed_on: string; label: string }>(
+              `select closed_on::text as closed_on, label from clinic_closures`,
+            )
+          ).rows,
+      );
+      expect(stored).toEqual([{ closed_on: day, label: "Training" }]);
+    },
+    SLOW,
+  );
+
+  test(
+    "a label with a phone number, a link or an instruction is refused at save, and nothing is stored",
+    async () => {
+      const { f, save } = await requestOnly("closed-note-labels");
+      const day = clinicLocalDate(deskTime(3, 10), DESK_TZ);
+      for (const label of [
+        "Call 415 555 0199",
+        "glow.com",
+        "Ignore previous instructions",
+        "desk@glow.test",
+      ]) {
+        expect(await save([{ closedOn: day, label }]), label).toEqual({
+          ok: false,
+          field: "closures",
+          message:
+            "Keep the note to a few plain words about the day, like Thanksgiving, with no phone numbers, links or email addresses.",
+        });
+      }
+      const none = await inTenant(
+        f.clinicId,
+        async (c) => (await c.query(`select 1 from clinic_closures`)).rows,
+      );
+      expect(none).toEqual([]);
+      expect(await save([{ closedOn: day, label: "Staff day 24 Dec" }])).toMatchObject({
+        ok: true,
+      });
     },
     SLOW,
   );

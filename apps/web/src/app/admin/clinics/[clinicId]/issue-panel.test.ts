@@ -32,6 +32,12 @@ async function mount(hash: string): Promise<string> {
   await act(async () => {
     root.render(h(IssuePanel, { clinicId: CLINIC }));
   });
+  // happy-dom fires `hashchange` on a later task than the assignment; under load
+  // (a busy machine, a shared CI runner) it can land after the assertions that
+  // follow. Let those events, and the effects they set off, settle first.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  });
   return container.innerHTML;
 }
 

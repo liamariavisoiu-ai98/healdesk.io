@@ -97,7 +97,7 @@ export const QUEUE_WORDS: Record<string, QueueWords> = {
     patienceMinutes: ALWAYS,
     perClinic: "deliveries",
   },
-  transcript_emails: { words: "Transcript copies not delivered", href: MACHINE_QUEUES_PAGE, tone: "warn", patienceMinutes: 72 * HOUR },
+  transcript_emails: { words: "Transcript copies waiting for delivery", href: MACHINE_QUEUES_PAGE, tone: "warn", patienceMinutes: 72 * HOUR },
   billing_requests: { words: "Billing requests not done", href: MACHINE_QUEUES_PAGE, tone: "warn", patienceMinutes: HOUR },
   billing_events_retrying: { words: "Stripe events retrying", href: MACHINE_QUEUES_PAGE, tone: "warn", patienceMinutes: HOUR },
   billing_events_parked: { words: "Stripe events parked", href: MACHINE_QUEUES_PAGE, tone: "warn", patienceMinutes: ALWAYS },

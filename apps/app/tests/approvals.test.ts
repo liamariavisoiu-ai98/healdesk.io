@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { Channel } from "@healdesk/catalog";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
@@ -10,6 +12,7 @@ import { draftHash, KIND_SPECS, parsePayload } from "@/lib/approvals/kinds";
 import { eventEffect } from "@/lib/approvals/packets";
 import { proposeApprovals, runApprovalsProposeJob } from "@/lib/approvals/proposers";
 import { getApproval } from "@/lib/approvals/store";
+import { stripeIdsOfEvent } from "@/lib/approvals/stripe-ids";
 import { closeUnfinishedSetup, drainBillingRequests, requestCancelNow, startPlan } from "@/lib/billing/requests";
 import { opDecideApproval, opListApprovalHistory, opListApprovals } from "@/lib/ops/approval-ops";
 import { isMutating, isOpName, runOperation, type Operator } from "@/lib/ops/api";
@@ -123,6 +126,15 @@ async function deadLettered(
   return { clinic, requestId: row.id, epoch: row.epoch };
 }
 
+/** A purchase paid and waiting to be provisioned: its intent names the subscription, not yet consumed. */
+async function pendingPurchase(subscriptionId: string): Promise<void> {
+  await getMigratorPool().query(
+    `insert into checkout_intents (payload, agreement_id, contact_email, plan, billing_interval, expires_at, stripe_subscription_id)
+     values ('{"clinicName": "Pending Practice"}'::jsonb, $1, 'owner@example-clinic.test', 'voice-webchat-500-300', 'month', $2, $3)`,
+    [randomUUID(), at(14 * DAY), subscriptionId],
+  );
+}
+
 /** A month's overage invoice as the 05 UTC run leaves it (lib/billing/annual-overage.ts). */
 async function overageRow(clinicId: string, status: "failed" | "pending"): Promise<string> {
   return inTenant(clinicId, async (c) => {
@@ -141,7 +153,7 @@ async function overageRow(clinicId: string, status: "failed" | "pending"): Promi
  */
 async function stripeEvent(
   clinicId: string | null,
-  options: { type?: string; outcome?: "dead_letter" | "failed"; failures?: number; parkedAt?: Date } = {},
+  options: { type?: string; outcome?: "dead_letter" | "failed"; failures?: number; parkedAt?: Date; object?: Record<string, unknown> } = {},
 ): Promise<string> {
   const eventId = `evt_approvals_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
   const type = options.type ?? "customer.created";
@@ -155,7 +167,7 @@ async function stripeEvent(
       options.failures ?? 3,
       clinicId,
       options.parkedAt ?? at(-HOUR),
-      JSON.stringify({ id: eventId, type, data: { object: {} } }),
+      JSON.stringify({ id: eventId, type, data: { object: options.object ?? {} } }),
     ],
   );
   return eventId;
@@ -343,10 +355,12 @@ describeDb("the approval inbox", () => {
       // Overage invoices: the 05 UTC run invoices failed and pending months again by itself.
       const failedOverage = await overageRow(planStart.clinic.clinicId, "failed");
       const pendingOverage = await overageRow(retrying.clinicId, "pending");
-      // A Stripe event still being resent (failed, not parked), and one parked that names no clinic,
-      // which provisioning replays by itself.
+      // A Stripe event still being resent (failed, not parked), and one parked with no clinic whose
+      // subscription a purchase still waiting to be provisioned names: provisioning replays it.
       const resent = await stripeEvent(planStart.clinic.clinicId, { outcome: "failed", failures: 1 });
-      const orphan = await stripeEvent(null);
+      const pendingSub = `sub_pending_${randomUUID().slice(0, 8)}`;
+      await pendingPurchase(pendingSub);
+      const orphan = await stripeEvent(null, { type: "invoice.paid", object: { customer: "cus_nobody", subscription: pendingSub } });
 
       await proposeApprovals(NOW);
       await proposeApprovals(at(2 * DAY));
@@ -504,6 +518,40 @@ describeDb("the approval inbox", () => {
       expect(await reminded()).toBe(2);
       expect((await getApproval(legal!.id))?.status).toBe("waiting");
     });
+  });
+
+  test("a parked event with no clinic is proposed unless provisioning will replay it", async () => {
+    // A clinic that exists, whose event parked before it was resolved: nothing replays it.
+    const known = await seedClinic("ap-unresolved");
+    const ids = await seedEntitled(known.clinicId, { channelRows: [inService("web")] });
+    const lost = await stripeEvent(null, { type: "invoice.paid", object: { customer: ids.stripeCustomerId, subscription: ids.stripeSubscriptionId } });
+    // One nothing matches and no purchase names: nothing replays it either.
+    const stray = await stripeEvent(null, { type: "invoice.paid", object: { customer: "cus_stray", subscription: "sub_stray" } });
+    // One a purchase still waiting to be provisioned names, in the newer invoice shape: provisioning replays it.
+    const pendingSub = `sub_pending_${randomUUID().slice(0, 8)}`;
+    await pendingPurchase(pendingSub);
+    const waiting = await stripeEvent(null, {
+      type: "invoice.paid",
+      object: { customer: "cus_new", parent: { subscription_details: { subscription: pendingSub } } },
+    });
+
+    await proposeApprovals(NOW);
+    const [forKnown] = await itemsFor(lost);
+    expect(forKnown).toMatchObject({ kind: "billing_event_replay", status: "waiting" });
+    expect((await itemsOfClinic(known.clinicId)).map((i) => i.id)).toContain(forKnown!.id);
+    const [forStray] = await itemsFor(stray);
+    expect(forStray).toMatchObject({ kind: "billing_event_replay", status: "waiting" });
+    const { rows } = await getMigratorPool().query<{ subject_clinic_id: string | null }>(
+      `select subject_clinic_id from ops_approvals where id = $1`,
+      [forStray!.id],
+    );
+    expect(rows[0]!.subject_clinic_id).toBeNull();
+    expect(await itemsFor(waiting)).toEqual([]);
+
+    // Once that purchase is provisioned (consumed) and still nothing matches, nothing will replay it: proposed.
+    await getMigratorPool().query(`update checkout_intents set consumed_at = now() where stripe_subscription_id = $1`, [pendingSub]);
+    await proposeApprovals(at(HOUR));
+    expect((await itemsFor(waiting)).map((i) => i.status)).toEqual(["waiting"]);
   });
 
   describe("the decision (decideApproval)", () => {
@@ -836,5 +884,37 @@ describeDb("the approval inbox", () => {
       expect(dataOf(out)).toMatchObject({ status: "error" });
       expect(parsePayload("billing_request_retry", { ...JSON.parse(JSON.stringify((await getApproval(item!.id))!.payload)), extra: 1 })).toBeNull();
     });
+  });
+});
+
+describe("the mirror of events.ts stripeIdsOf (lib/approvals/stripe-ids.ts)", () => {
+  test("reads the same paths, type for type", () => {
+    const source = readFileSync(join(__dirname, "..", "src", "lib", "billing", "events.ts"), "utf8");
+    const body = source.slice(source.indexOf("function stripeIdsOf("), source.indexOf("function hasHealdeskMarker("));
+    const subscriptionOf = source.slice(source.indexOf("function subscriptionOf("), source.indexOf("function isSubscriptionReason("));
+    for (const path of ['prop(object, "customer")', 'prop(object, "subscription")', 'prop(object, "id")', 'prop(object, "charge")', 'prop(object, "payment_intent")', "subscriptionOf(object)"]) {
+      expect(body, path).toContain(path);
+    }
+    expect(subscriptionOf).toContain('prop(prop(prop(invoice, "parent"), "subscription_details"), "subscription")');
+    const cases = [...body.matchAll(/case "([a-z._]+)":/g)].map((m) => m[1]).sort();
+    expect(cases).toEqual(
+      [
+        "charge.dispute.created",
+        "charge.refunded",
+        "checkout.session.async_payment_succeeded",
+        "checkout.session.completed",
+        "customer.subscription.deleted",
+        "customer.subscription.updated",
+        "invoice.paid",
+        "invoice.payment_action_required",
+        "invoice.payment_failed",
+      ].sort(),
+    );
+    expect(stripeIdsOfEvent("invoice.paid", { customer: { id: "cus_a" }, parent: { subscription_details: { subscription: "sub_a" } } })).toEqual({
+      customerId: "cus_a",
+      subscriptionId: "sub_a",
+    });
+    expect(stripeIdsOfEvent("charge.dispute.created", { payment_intent: { customer: "cus_b" } })).toEqual({ customerId: "cus_b", subscriptionId: null });
+    expect(stripeIdsOfEvent("customer.subscription.deleted", { id: "sub_c", customer: "cus_c" })).toEqual({ customerId: "cus_c", subscriptionId: "sub_c" });
   });
 });

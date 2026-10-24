@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { billingEvents, billingRequests, type OpsApproval } from "@/db/schema";
@@ -21,6 +21,7 @@ import {
   waitingItems,
   type Proposal,
 } from "./store";
+import { classifyUnresolvedEvent } from "./stripe-ids";
 
 /**
  * The `approvals-propose` job (ops automation Phase 6, lane P6a; design E6
@@ -40,8 +41,9 @@ import {
  *     where they do not hold the worker would only skip it again. One item
  *     per request and epoch;
  *   - a Stripe event parked after its retries (lib/billing/events.ts) that
- *     resolved to a clinic. One that names no clinic is left out:
- *     provisioning replays such events by itself (replayParkedBillingEvents).
+ *     names a clinic, or that resolved to none and that no purchase waiting
+ *     to be provisioned names (provisioning replays those by itself,
+ *     replayParkedBillingEvents; nothing replays the rest).
  *     A `failed` event Stripe is still resending is not parked. One item per
  *     event and parking;
  *   - never an annual overage invoice: the 05 UTC run invoices every failed
@@ -111,7 +113,7 @@ function parkedAtOf(processedAt: Date | null, receivedAt: Date): Date {
 }
 
 /** Every open subject the inbox may propose, across billing clinics and the parked Stripe events. */
-export async function findOpenSubjects(): Promise<Found & { unread: number }> {
+export async function findOpenSubjects(now: Date): Promise<Found & { unread: number }> {
   const found: Found = { proposals: [], open: new Set(), readClinics: new Set(), outOfService: new Set(), eventsRead: false };
   let unread = 0;
   const states = new Map<string, ClinicState | null>();
@@ -164,7 +166,11 @@ export async function findOpenSubjects(): Promise<Found & { unread: number }> {
   }
 
   // Parked Stripe events live outside any tenant, each with the clinic it
-  // resolved to. Only those that resolved to one, in service, are proposed.
+  // resolved to, if any. One that resolved to none is read again: if a
+  // purchase still waiting to be provisioned names it, provisioning will
+  // replay it, so it is left out; otherwise (a clinic that exists, whose
+  // event parked before it was resolved, or one nothing matches) nothing
+  // replays it, and it is proposed (./stripe-ids.ts).
   try {
     const parked = await unsafeDb
       .select({
@@ -173,26 +179,35 @@ export async function findOpenSubjects(): Promise<Found & { unread: number }> {
         clinicId: billingEvents.resolvedClinicId,
         processedAt: billingEvents.processedAt,
         receivedAt: billingEvents.receivedAt,
+        payload: billingEvents.payload,
       })
       .from(billingEvents)
-      .where(and(eq(billingEvents.outcome, "dead_letter"), isNotNull(billingEvents.resolvedClinicId)));
+      .where(eq(billingEvents.outcome, "dead_letter"));
     for (const e of parked) {
-      if (!/^evt_[A-Za-z0-9_]{1,250}$/.test(e.id) || !/^[a-z][a-z0-9_.]{0,80}$/.test(e.type) || !e.clinicId) continue;
+      if (!/^evt_[A-Za-z0-9_]{1,250}$/.test(e.id) || !/^[a-z][a-z0-9_.]{0,80}$/.test(e.type)) continue;
       const parkedAt = parkedAtOf(e.processedAt, e.receivedAt);
       const subjectRef = `${e.id}:${Math.floor(parkedAt.getTime() / 1000)}`;
-      found.open.add(key("billing_event_replay", subjectRef));
-      const state = await stateOf(e.clinicId);
-      if (!state) {
-        unread += 1;
-        continue;
+      let clinicId = e.clinicId;
+      if (!clinicId) {
+        const unresolved = await classifyUnresolvedEvent(e.type, e.payload, now);
+        if (unresolved.state === "provisioning_pending") continue;
+        clinicId = unresolved.state === "resolved" ? unresolved.clinicId : null;
       }
-      if (state.demo || state.closed) {
-        found.outOfService.add(e.clinicId);
-        continue;
+      found.open.add(key("billing_event_replay", subjectRef));
+      if (clinicId) {
+        const state = await stateOf(clinicId);
+        if (!state) {
+          unread += 1;
+          continue;
+        }
+        if (state.demo || state.closed) {
+          found.outOfService.add(clinicId);
+          continue;
+        }
       }
       found.proposals.push({
         kind: "billing_event_replay",
-        subjectClinicId: e.clinicId,
+        subjectClinicId: clinicId,
         subjectRef,
         payload: { eventType: e.type, parkedAt: parkedAt.toISOString() },
       });
@@ -267,7 +282,7 @@ async function remind(now: Date): Promise<number> {
 
 /** One run: propose, expire, re-alert. Exported for the tests; the job wraps it. */
 export async function proposeApprovals(now: Date = new Date()): Promise<ProposeSummary> {
-  const found = await findOpenSubjects();
+  const found = await findOpenSubjects(now);
   let proposed = 0;
   for (const proposal of found.proposals) {
     if (!KIND_SPECS[proposal.kind]?.proposed) continue;

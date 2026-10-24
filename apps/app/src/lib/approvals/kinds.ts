@@ -99,8 +99,9 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
     expiryDays: 7,
     irreversible: true,
     hasDraft: false,
-    // Only a parked event that resolved to a clinic: one that names none may
-    // still be replayed by provisioning (replayParkedBillingEvents).
+    // Every parked event except one a purchase still waiting to be
+    // provisioned names: provisioning replays those (replayParkedBillingEvents;
+    // lib/approvals/stripe-ids.ts).
     proposed: true,
   },
 };

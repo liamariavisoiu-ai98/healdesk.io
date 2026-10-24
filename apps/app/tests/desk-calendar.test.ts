@@ -569,7 +569,7 @@ describeDb("the desk path and the Google write (C12)", () => {
   );
 
   test(
-    "the desk sweep retries unsettled writes from the last day, oldest first and at most its limit, and never a failed one",
+    "the desk sweep retries unsettled writes once their next attempt is due, oldest first and at most its limit, and never a failed one",
     async () => {
       const f = await deskLocation(google, "desk-sweep");
       const ids: string[] = [];
@@ -582,16 +582,19 @@ describeDb("the desk path and the Google write (C12)", () => {
       google.failNext({ on: "insert", status: 400, reason: "badRequest" });
       await confirm(old.token, deskTime(4, 15));
 
-      const first = await sweepDeskWrites({ limit: 2 });
+      // Each waits two minutes after its first attempt (the ladder's first step).
+      expect(await sweepDeskWrites()).toMatchObject({ attempted: 0 });
+      const due = new Date(Date.now() + 3 * MIN);
+      const first = await sweepDeskWrites({ limit: 2, now: due });
       expect(first).toMatchObject({ attempted: 2, written: 2, errors: 0 });
-      const second = await sweepDeskWrites();
+      const second = await sweepDeskWrites({ now: due });
       expect(second).toMatchObject({ attempted: 1, written: 1 });
       const rows = await appointments(f.clinicId);
       expect(
         rows.filter((x) => ids.includes(x.id)).every((x) => x.calendar_write_status === "written"),
       ).toBe(true);
       expect(rows.find((x) => !ids.includes(x.id))!.calendar_write_status).toBe("failed");
-      expect(await sweepDeskWrites()).toMatchObject({ attempted: 0 });
+      expect(await sweepDeskWrites({ now: due })).toMatchObject({ attempted: 0 });
     },
     SLOW,
   );

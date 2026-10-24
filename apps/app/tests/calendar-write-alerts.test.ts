@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { DESK_SWEEP_LOOKBACK_HOURS, MAX_WRITE_ATTEMPTS } from "@/lib/booking/calendar";
+import { MAX_WRITE_ATTEMPTS } from "@/lib/booking/calendar";
 import { ALERT_LOOKBACK_DAYS, alertStuckCalendarWrites, SUMMARY_ABOVE } from "@/lib/ops/calendar-write-alerts";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -9,10 +9,13 @@ import { inTenant, seedClinic } from "./setup/factories";
 /**
  * Calendar writes that need a person (design E3, "Calendar writes alert
  * nobody"). A booking still on whose Google write ended `failed`, or
- * `unknown` at its five attempts or older than the desk sweep's look-back,
- * raises calendar_write_stuck once per write and state; a write still being
- * retried, a written one, a cancelled booking and one older than the alert's
- * own look-back raise nothing, and every rerun is a no-op.
+ * `unknown` at its five attempts, or whose slot started before it settled,
+ * or a claim stuck `writing` the sweep can no longer take, raises
+ * calendar_write_stuck once per write and state; a write still waiting for
+ * its next attempt on the ladder (however old: the sweep keeps trying until
+ * the slot starts), an attempt in flight, a written one, a cancelled booking
+ * and one older than the alert's own look-back raise nothing, and every
+ * rerun is a no-op.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -42,7 +45,15 @@ describeDb("calendar write alerts", () => {
   let phone = 0;
   async function write(
     clinicId: string,
-    input: { write: string; attempts: number; error?: string | null; updatedAt: Date; status?: string },
+    input: {
+      write: string;
+      attempts: number;
+      error?: string | null;
+      updatedAt: Date;
+      status?: string;
+      scheduledFor?: Date;
+      nextAt?: Date | null;
+    },
   ): Promise<string> {
     phone += 1;
     return inTenant(clinicId, async (c) => {
@@ -57,14 +68,17 @@ describeDb("calendar write alerts", () => {
         [
           clinicId,
           contact[0]!.id,
-          new Date(NOW.getTime() + 4 * 24 * HOUR),
+          input.scheduledFor ?? new Date(NOW.getTime() + 4 * 24 * HOUR),
           input.status ?? "scheduled",
           input.write,
           input.attempts,
           input.error ?? null,
         ],
       );
-      await c.query(`update appointments set updated_at = $2 where id = $1`, [rows[0]!.id, input.updatedAt]);
+      await c.query(
+        `update appointments set updated_at = $2, calendar_write_next_at = $3 where id = $1`,
+        [rows[0]!.id, input.updatedAt, input.nextAt ?? null],
+      );
       return rows[0]!.id;
     });
   }
@@ -79,7 +93,7 @@ describeDb("calendar write alerts", () => {
   test("each stuck write is told once; the rest are left alone", async () => {
     const clinic = await seedClinic("calwrites");
     const recent = new Date(NOW.getTime() - HOUR);
-    const stale = new Date(NOW.getTime() - (DESK_SWEEP_LOOKBACK_HOURS + 1) * HOUR);
+    const days = (n: number) => new Date(NOW.getTime() + n * 24 * HOUR);
     const ancient = new Date(NOW.getTime() - (ALERT_LOOKBACK_DAYS * 24 + 1) * HOUR);
 
     const failed = await write(clinic.clinicId, { write: "failed", attempts: 1, error: "event_id_taken", updatedAt: recent });
@@ -89,17 +103,38 @@ describeDb("calendar write alerts", () => {
       error: "timeout",
       updatedAt: recent,
     });
-    const abandoned = await write(clinic.clinicId, { write: "unknown", attempts: 2, error: "network", updatedAt: stale });
-    // Still being retried, written, cancelled, or too old: nothing.
-    await write(clinic.clinicId, { write: "unknown", attempts: 2, error: "timeout", updatedAt: recent });
+    // Its slot started before Google ever answered: the sweep stopped.
+    const abandoned = await write(clinic.clinicId, {
+      write: "unknown",
+      attempts: 2,
+      error: "network",
+      updatedAt: days(-3),
+      scheduledFor: new Date(NOW.getTime() - HOUR),
+    });
+    // Unknown, but with a reason the sweep never retries: nobody will.
+    const settled = await write(clinic.clinicId, {
+      write: "unknown",
+      attempts: 1,
+      error: "deleted_in_calendar",
+      updatedAt: recent,
+    });
+    // Still waiting on the ladder (even three days on, the slot ahead),
+    // written, cancelled, or too old: nothing. (A claim stuck `writing`
+    // cannot be seeded here: the write guard of drizzle/0060 refuses one
+    // without a calendar healdesk may write to; tests/calendar-write-backoff
+    // covers it against the fake Google.)
+    await write(clinic.clinicId, { write: "unknown", attempts: 2, error: "timeout", updatedAt: recent, nextAt: days(0.01) });
+    await write(clinic.clinicId, { write: "unknown", attempts: 3, error: "network", updatedAt: days(-3) });
     await write(clinic.clinicId, { write: "written", attempts: 1, updatedAt: recent });
     await write(clinic.clinicId, { write: "failed", attempts: 1, error: "not_ours", updatedAt: recent, status: "cancelled" });
     await write(clinic.clinicId, { write: "failed", attempts: 1, error: "event_id_taken", updatedAt: ancient });
 
     const result = await alertStuckCalendarWrites(NOW);
-    expect(result).toMatchObject({ found: 3, failures: 0 });
+    expect(result).toMatchObject({ found: 4, failures: 0 });
     const raised = await alerts();
-    expect(raised.map((a) => a.fields.appointmentId).sort()).toEqual([failed, outOfAttempts, abandoned].sort());
+    expect(raised.map((a) => a.fields.appointmentId).sort()).toEqual(
+      [failed, outOfAttempts, abandoned, settled].sort(),
+    );
     expect(raised.find((a) => a.fields.appointmentId === failed)!.fields).toEqual({
       clinicId: clinic.clinicId,
       appointmentId: failed,
@@ -111,7 +146,7 @@ describeDb("calendar write alerts", () => {
     // The next hour, and the one after: no new alert.
     await alertStuckCalendarWrites(new Date(NOW.getTime() + HOUR));
     await alertStuckCalendarWrites(new Date(NOW.getTime() + 2 * HOUR));
-    expect(await alerts()).toHaveLength(3);
+    expect(await alerts()).toHaveLength(4);
   });
 
   test("a write that moves from unknown to failed is told again, once", async () => {

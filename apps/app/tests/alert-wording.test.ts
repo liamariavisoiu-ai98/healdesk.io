@@ -19,6 +19,7 @@ import { EVENT_FIELDS } from "@/lib/ops/alert-wording/fields";
 import {
   CHANNEL_WORDS,
   CLOSED_WORDS,
+  EVENT_WORDS,
   EMAIL_KIND_WORDS,
   PROVIDER_WORDS,
   REQUEST_KIND_WORDS,
@@ -869,12 +870,57 @@ describe("the closed word lists", () => {
       expect(`${label}: ${value}`).not.toMatch(/secret_kind|invalid_grant|sms|google|Jane/);
     }
     expect(formatValue("kind", "secret_kind")).toBe("");
-    expect(formatValue("status", "dead")).toBe(STATUS_WORDS.dead);
+  });
+
+  // Review of lane N3: `code` and `status` mean different things at different
+  // raise sites, so their words are the event's own (words.ts EVENT_WORDS).
+  test("a vendor code prints only on the two vendor alerts; a status only as its own event means it", () => {
+    for (const event of OPS_EVENTS) {
+      const facts = sharedFacts({ clinicId: CLINIC, code: "aws" }, alertWording(event, {}));
+      const text = Object.values(fillWording(alertWording(event, {}), wordingValues({ code: "aws" }, "Glow"))).flat().join(" ");
+      if (event === "vendor_agreement_expiring" || event === "vendor_agreement_lapsed") {
+        expect(text, event).toContain("AWS (our host)");
+        expect(facts.length, event).toBe(0); // printed in the sentence, so not repeated
+      } else {
+        expect(text, event).not.toMatch(/AWS \(our host\)/);
+        expect(facts.map(([, v]) => v).join(" "), event).not.toMatch(/AWS|aws/);
+      }
+    }
+    expect(Object.keys(EVENT_WORDS).sort()).toEqual(["code", "status"]);
+    const status = (event: OpsEvent, value: string) =>
+      sharedFacts({ clinicId: CLINIC, status: value }, alertWording(event, { status: value }));
+    expect(status("calendar_write_stuck", "failed")).toContainEqual(["Status", "not written"]);
+    expect(status("calendar_write_stuck", "unknown")).toContainEqual(["Status", "never confirmed by Google"]);
+    expect(status("critical_notice_undelivered", "late")).toContainEqual(["Status", "late, still being retried"]);
+    expect(status("transcript_undelivered", "complaint")).toContainEqual(["Status", "marked as spam"]);
+    // A status from another site prints nothing on this one.
+    expect(status("transcript_undelivered", "dead")).toEqual([]);
+    expect(status("calendar_write_stuck", "late")).toEqual([]);
+    for (const [event, list] of Object.entries(STATUS_WORDS)) {
+      for (const [value, words] of Object.entries(list!)) {
+        expect(status(event as OpsEvent, value), `${event} ${value}`).toContainEqual(["Status", words]);
+      }
+    }
+  });
+
+  test("a billing request's kind is labelled Request, an email's Email kind, and a Meta provider Meta channel", () => {
+    const request = { clinicId: CLINIC, kind: "plan_start" };
+    for (const event of ["billing_request_dead_lettered", "billing_request_stuck"] as const) {
+      expect(sharedFacts(request, alertWording(event, request)), event).toContainEqual(["Request", "starting the plan"]);
+    }
+    const email = { clinicId: CLINIC, kind: "receipt" };
+    expect(sharedFacts(email, alertWording("clinic_address_bounced", email))).toContainEqual(["Email kind", "a receipt"]);
+    const meta = { clinicId: CLINIC, provider: "meta-whatsapp" };
+    for (const event of ["connection_broken", "meta_revoke_failed", "meta_revoke_by_hand"] as const) {
+      expect(sharedFacts(meta, alertWording(event, meta)), event).toContainEqual(["Meta channel", "WhatsApp"]);
+    }
   });
 
   test("the affected wordings name the vendor, the days and the email kind", () => {
     const vendor = fillWording(alertWording("vendor_agreement_expiring", {}), wordingValues({ code: "retell", expiresOn: "2026-11-30" }, null));
-    expect(vendor.whatHappened).toContain("Our business associate agreement with Retell, the voice provider has a recorded expiry of 30 Nov");
+    expect(vendor.whatHappened).toContain("Our business associate agreement with Retell (the voice provider) has a recorded expiry of 30 Nov,");
+    const aws = fillWording(alertWording("vendor_agreement_lapsed", {}), wordingValues({ code: "aws" }, null));
+    expect(aws.whatHappened).toContain("Our business associate agreement with AWS (our host) was withdrawn");
     const lapsed = fillWording(alertWording("vendor_agreement_lapsed", {}), wordingValues({}, null));
     expect(lapsed.whatHappened).toMatch(/^Our business associate agreement with one of the vendors in our chain was withdrawn/);
     const exportDue = fillWording(
@@ -895,7 +941,7 @@ describe("the closed word lists", () => {
   });
 
   test("practice_question_failed prints its section as a Knowledge section, not as what changed", () => {
-    const fields = { clinicId: CLINIC, section: "hours", count: 2 };
+    const fields = { clinicId: CLINIC, section: "prices", count: 2 };
     const facts = sharedFacts(fields, alertWording("practice_question_failed", fields));
     expect(facts.map(([label]) => label)).toContain("Section");
     expect(facts.map(([label]) => label)).not.toContain("What changed");

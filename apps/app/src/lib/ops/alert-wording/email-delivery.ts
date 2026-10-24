@@ -47,8 +47,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // to an address no clinic row holds) the alert has no console link.
   clinic_address_bounced: {
     title: "A clinic's email address bounced",
+    headline: "An email address bounced for good[: {clinicName} cannot sign in or hear from us]",
     whatHappened:
-      "Resend reported that mail to a clinic's address[, {clinicName}'s,] bounced for good: the address does not accept mail. A clinic's one address is its sign-in, its billing and every alert.",
+      "An email address bounced for good[: {clinicName} cannot sign in or hear from us]. Resend reported that the address does not accept mail. A clinic's one address is its sign-in, its billing and every alert.",
     whyItMatters:
       "Until it is corrected the clinic cannot sign in and hears nothing from us: no payment problems, no urgent messages, no reminders.",
     steps: [
@@ -63,8 +64,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // step asks the owner to check in Resend's dashboard.
   clinic_address_complained: {
     title: "A clinic marked our email as spam",
+    headline: "Our email was marked as spam[ at {clinicName}'s address]: it may now refuse our mail",
     whatHappened:
-      "Someone at a clinic's address[, {clinicName}'s,] reported one of our emails as spam, and Resend told us. Mail to that address may now be refused or land in spam, and a clinic's one address is its sign-in, its billing and every alert.",
+      "Our email was marked as spam[ at {clinicName}'s address]: it may now refuse our mail. Resend told us of the report, and mail to that address may also land in spam from now on. A clinic's one address is its sign-in, its billing and every alert.",
     whyItMatters:
       "A spam report hurts delivery to every clinic, not only this one, and this clinic may not see what we send next.",
     steps: [
@@ -77,8 +79,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // The same raise site, for Resend's suppression list.
   clinic_address_suppressed: {
     title: "Resend has stopped mail to a clinic's address",
+    headline: "Resend has stopped mail to an address[: {clinicName} cannot sign in or hear from us]",
     whatHappened:
-      "Resend has put a clinic's address[, {clinicName}'s,] on its suppression list, usually after a hard bounce or a spam report, and sends nothing more to it. A clinic's one address is its sign-in, its billing and every alert.",
+      "Resend has stopped mail to an address[: {clinicName} cannot sign in or hear from us]. It put the address on its suppression list, usually after a hard bounce or a spam report, and sends nothing more to it. A clinic's one address is its sign-in, its billing and every alert.",
     whyItMatters:
       "Until the suppression is lifted or the address changed, the clinic cannot sign in and hears nothing from us.",
     steps: [
@@ -95,8 +98,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // copies of ops alerts go by webhook, not Resend.
   daily_email_count_70: {
     title: "70 of today's 100 emails are already sent",
+    headline: "Resend has sent {count:email} today: past 100, every email fails until midnight UTC",
     whatHappened:
-      "Resend has sent {count:email} today[ ({windowStart}, counted until midnight UTC)]. The account is on the free plan, which stops at 100 a day across both apps.",
+      "Resend has sent {count:email} today: past 100, every email fails until midnight UTC. The account is on the free plan, which stops at 100 a day across both apps, counted until midnight UTC.",
     whyItMatters:
       "Past 100, every email fails until midnight UTC: sign-in links, urgent alerts to clinics and the emailed copy of these alerts included; the Slack copies still arrive. Billing emails wait and go after midnight on their own; a sign-in link does not.",
     steps: [
@@ -115,8 +119,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // the Map page lists and only the owner can change.
   dmarc_review_due: {
     title: "Time to review the DMARC reports",
+    headline: "Two weeks of DMARC reports are ready to read: healdesk.io's record still only reports",
     whatHappened:
-      "Resend has been sending as healdesk.io for 14 days or more[, since {windowStart} or earlier], and healdesk.io's DMARC record still says only to report, never to act. The two weeks of reports to read begin on that day.",
+      "Two weeks of DMARC reports are ready to read: healdesk.io's record still only reports. Resend has been sending as healdesk.io for 14 days or more[, since {windowStart} or earlier, where the reports to read begin], and the DMARC record still says only to report, never to act.",
     whyItMatters:
       "Until the record says quarantine, anyone can send mail as hello@ and inboxes will accept it. Tightening it blind could block our own mail, so the reports are read first.",
     steps: [
@@ -131,8 +136,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // not sent late.
   welcome_email_unsent: {
     title: "A welcome email has not reached a clinic",
+    headline: "{clinicName} has not received its welcome email with the receipt and setup link",
     whatHappened:
-      "{clinicName}'s welcome email, its order confirmation with the receipt and the Continue setup link, is still unsent an hour after its account was made, or setup moved on before it could go. The hourly check keeps retrying a failed welcome while the setup window is open; one that setup has moved past is marked skipped and is not sent late.",
+      "{clinicName} has not received its welcome email with the receipt and setup link. That email is its order confirmation, and it is still unsent an hour after the account was made, or setup moved on before it could go. The hourly check keeps retrying a failed welcome while the setup window is open; one that setup has moved past is marked skipped and is not sent late.",
     whyItMatters:
       "The buyer paid and has no confirmation, no receipt and no link to start setting up.",
     steps: [
@@ -149,8 +155,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // facts the alert prints.
   urgent_alert_not_queued: {
     title: "An urgent message's alert to the clinic failed",
+    headline: "{clinicName} has not been told of an urgent message that just came in",
     whatHappened:
-      "Someone contacted {clinicName} with a complication or an urgent symptom, and the clinic's urgent email could not be recorded, so the clinic has not been told. The person was given the fixed urgent reply, 911 if it is an emergency and then the clinic's own number, or, where nothing could be recorded, asked to contact the practice directly.",
+      "{clinicName} has not been told of an urgent message that just came in. Someone contacted it with a complication or an urgent symptom, and the clinic's urgent email could not be recorded. The person was given the fixed urgent reply, 911 if it is an emergency and then the clinic's own number, or, where nothing could be recorded, asked to contact the practice directly.",
     whyItMatters:
       "A patient may be waiting on the clinic right now and the clinic does not know. The health check cannot see this, so nothing else will raise it.",
     steps: [
@@ -167,6 +174,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // not a fact the alert prints; `clinicId` can be null.
   email_refused: {
     title: "An email was refused before it was sent",
+    headline: "An email[ to {clinicName}] was stopped by our own checks and not sent",
     whatHappened:
       "An email to a clinic[, {clinicName},] was refused on our side before sending.[ It was {kind}.] Something it was to carry is not allowed in an email of its kind, or a link in it is not one an email may carry. The clinic has not received it, and nothing retries it.",
     whyItMatters:

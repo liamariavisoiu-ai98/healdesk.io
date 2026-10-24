@@ -8965,14 +8965,14 @@ exports[`ops alerts beyond the fixture > the DMARC review reminder: the snapshot
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">FYI: Time to review the DMARC reports</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">FYI: Two weeks of DMARC reports are ready to read: healdesk.io&#39;s record still only reports</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 8px;"><span style="display:inline-block;background:#57606a;color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.08em;padding:3px 9px;border-radius:4px;">FYI</span></p>
-<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">Time to review the DMARC reports</p>
+<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">Two weeks of DMARC reports are ready to read: healdesk.io&#39;s record still only reports</p>
 <div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:#1f2328;border:1px solid #d4a72c;border-radius:6px;"><p style="margin:0 0 6px;color:#1f2328;"><strong>Do this first</strong></p><p style="margin:0;color:#1f2328;">Read healdesk.io&#39;s DMARC aggregate reports from <mark style="background:#ffd54f;color:#1f2328;padding:0 2px;">6 Oct</mark> on, in the mailbox named after rua= in the DMARC record in Cloudflare. The dmarc-review row on the <strong><u>Jobs page</u></strong> under System names the same first-sending day in its note, on the run that raised this alert.</p></div>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">
 <p class="hd-muted" style="margin:0 0 12px;color:#57606a;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">More detail</p>
-<p style="margin:0 0 16px;">Resend has been sending as healdesk.io for 14 days or more, since <strong><mark style="background:#fff3a3;color:#1f2328;padding:0 2px;">6 Oct</mark></strong> or earlier, and healdesk.io&#39;s DMARC record still says only to report, never to act. The two weeks of reports to read begin on that day.</p>
+<p style="margin:0 0 16px;">Resend has been sending as healdesk.io for 14 days or more, since <mark style="background:#fff3a3;color:#1f2328;padding:0 2px;">6 Oct</mark> or earlier, where the reports to read begin, and the DMARC record still says only to report, never to act.</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
 <p style="margin:0 0 16px;"><strong>Why it matters:</strong> Until the record says quarantine, anyone can send mail as hello@ and inboxes will accept it. Tightening it blind could block our own mail, so the reports are read first.</p>
 <p style="margin:0 0 16px;"><strong>Then:</strong><br>2. Check the reports show only our own senders as healdesk.io: Resend, Amazon&#39;s email service (our transcripts) and the owner&#39;s own mail. The <strong><u>Map page</u></strong> under System lists the first two. Find out what anything else is before going on; do not touch the record while an unknown sender shows.<br>3. Ask the owner to change healdesk.io&#39;s DMARC record from p=none to p=quarantine in Cloudflare, which holds healdesk.io&#39;s addresses; the <strong><u>Map page</u></strong> under System lists it, and only the owner has the Cloudflare sign-in. You are done when the record reads p=quarantine. This alert is raised once only.</p>
@@ -8984,15 +8984,15 @@ exports[`ops alerts beyond the fixture > the DMARC review reminder: the snapshot
 </div>
 </body>
 </html>",
-  "preheader": "FYI: Time to review the DMARC reports",
+  "preheader": "FYI: Two weeks of DMARC reports are ready to read: healdesk.io's record still only reports",
   "subject": "healdesk ops: Time to review the DMARC reports",
-  "text": "FYI: Time to review the DMARC reports
+  "text": "FYI: Two weeks of DMARC reports are ready to read: healdesk.io's record still only reports
 
 DO THIS FIRST: Read healdesk.io's DMARC aggregate reports from 6 Oct on, in the mailbox named after rua= in the DMARC record in Cloudflare. The dmarc-review row on the Jobs page under System names the same first-sending day in its note, on the run that raised this alert.
 
 MORE DETAIL
 
-Resend has been sending as healdesk.io for 14 days or more, since 6 Oct or earlier, and healdesk.io's DMARC record still says only to report, never to act. The two weeks of reports to read begin on that day.
+Resend has been sending as healdesk.io for 14 days or more, since 6 Oct or earlier, where the reports to read begin, and the DMARC record still says only to report, never to act.
 
 Raised: 6 Oct
 

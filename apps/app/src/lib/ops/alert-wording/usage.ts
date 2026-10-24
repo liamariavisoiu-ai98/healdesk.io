@@ -14,8 +14,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // rates are not provisional (the job reports nothing while they are).
   meter_report_failing: {
     title: "Usage is not reaching Stripe's meters",
+    headline: "{clinicName}'s extra usage is not reaching Stripe[: {count:report} failed 3 or more times]",
     whatHappened:
-      "{clinicName}'s usage above its allowance is not being reported to Stripe[: {count:report} failed three times or more]. Stripe bills overage only from what it is told.",
+      "{clinicName}'s extra usage is not reaching Stripe[: {count:report} failed 3 or more times]. Its usage above its allowance is not being reported to Stripe's meters, and Stripe bills overage only from what it is told.",
     whyItMatters:
       "Usage reported after an invoice is finalised is never billed, so every report that misses the clinic's billing period is usage the clinic is never charged for.",
     steps: [
@@ -48,6 +49,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // and the clinic is emailed that AYA stopped (allowance_fallback).
   usage_cap_reached: {
     title: "A clinic has used its whole monthly allowance",
+    headline: "{clinicName} has used all of its {meter} for this billing period",
     whatHappened:
       "{clinicName} has used all of the {meter} its plan includes for this billing period[: {used} of {included}][, counted since {windowStart}].",
     whyItMatters:

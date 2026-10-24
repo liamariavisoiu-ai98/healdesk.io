@@ -46,11 +46,14 @@ function days(n: number): string {
 export function decisionSentence(view: {
   stage: string;
   remainingDays: number | null;
+  snoozedUntil: Date | null;
   recommendation: Pick<Recommendation, "action" | "days">;
-}): string {
+}, now: Date): string {
   const advice = recommendationWords(view.recommendation);
+  // A snooze mutes the routine alerts only (D5, D7): the decision stays owed, and the row says so.
+  const snoozed = view.snoozedUntil && view.snoozedUntil.getTime() > now.getTime() ? "; routine alerts are snoozed" : "";
   if (view.stage === "waiting_on_us") {
-    return `The clinic has waited on us for over a business day; recommended: ${advice}.`;
+    return `The clinic has been waiting on us for over a business day; recommended: ${advice}${snoozed}.`;
   }
   const left =
     view.remainingDays === null
@@ -58,31 +61,35 @@ export function decisionSentence(view: {
       : view.remainingDays === 0
         ? "Setup has stalled and the window closes today"
         : `Setup has stalled with ${days(view.remainingDays)} left`;
-  return `${left}; recommended: ${advice}.`;
+  return `${left}; recommended: ${advice}${snoozed}.`;
 }
 
 export const decisionsSource: InboxSource = {
   name: "the setup decisions",
   async read(ctx) {
     const rows: InboxRow[] = [];
-    for (const { clinic, view } of await readLifecycleViews({
+    const { views, failed } = await readLifecycleViews({
       actor: ctx.actor,
       request: ctx.request,
       now: ctx.now,
-    })) {
+      partial: true,
+    });
+    for (const { clinic, view } of views) {
       if (!view.decisionOwed) continue;
+      // Waiting on us, the work owed is ours: the button opens the window, it does not ask the clinic to decide.
+      const label = view.stage === "waiting_on_us" ? "Open setup window" : "Decide";
       rows.push({
         id: `decision:${clinic.id}`,
         kind: "decision",
         count: 1,
-        sentence: decisionSentence(view),
+        sentence: decisionSentence(view, ctx.now),
         clinic: { id: clinic.id, name: clinic.name },
-        button: { label: "Decide", kind: "link", href: decisionHref(clinic.id) },
+        button: { label, kind: "link", href: decisionHref(clinic.id) },
         tone:
           view.remainingDays !== null && view.remainingDays <= DECISION_URGENT_DAYS ? "bad" : "warn",
         dueAt: view.deadlineAt ? setupLastDay(view.deadlineAt, clinic.timezone) : null,
       });
     }
-    return { rows };
+    return { rows, partial: failed > 0 ? `${failed} clinic(s) could not be read.` : undefined };
   },
 };

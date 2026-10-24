@@ -33,6 +33,15 @@ const LEFT_OUT: ReadonlySet<string> = new Set<OpsEvent>([
   "support_reply_past_due",
   "practice_question_failed",
   "practice_question_review_past_due",
+  // Lane A4: the same issues have their own rows, read from their own
+  // tables, so Home says each once. A clinic's availability change is the
+  // availability row (lib/ops/inbox/availability.ts); a decision owed and a
+  // clinic waiting on us are the "Needs a decision" row (./decisions.ts).
+  "clinic_availability_changed",
+  "lifecycle_decision_due",
+  "lifecycle_waiting_on_us",
+  "lifecycle_waiting_on_us_long",
+  "lifecycle_closing_waiting_on_us",
 ]);
 
 /** Alerts about a patient who may not reach the clinic, or a paid buyer with no account. */

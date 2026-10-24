@@ -54,13 +54,13 @@ const EVERY_DAY = Object.fromEntries(
 const LABEL = "Staff training at 12 Main Street";
 
 describe("the audit's pure parts", () => {
-  test("the overall rule: a waiting change is running or audits_off; else the worst pack, error read as fail; never with none", () => {
-    expect(auditOverall({ pending: true, auditsOn: true, latest: ["fail"] })).toBe("running");
-    expect(auditOverall({ pending: true, auditsOn: false, latest: [] })).toBe("audits_off");
-    expect(auditOverall({ pending: false, auditsOn: true, latest: [] })).toBe("never");
-    expect(auditOverall({ pending: false, auditsOn: false, latest: ["pass", "warn"] })).toBe("warn");
-    expect(auditOverall({ pending: false, auditsOn: false, latest: ["pass", "error", "warn"] })).toBe("fail");
-    expect(auditOverall({ pending: false, auditsOn: true, latest: ["pass", "pass"] })).toBe("pass");
+  test("the overall rule: a change being audited is running; one nobody will audit is audits_off; else the worst, error read as fail; never with none", () => {
+    expect(auditOverall({ checking: true, unaudited: true, latest: ["fail"] })).toBe("running");
+    expect(auditOverall({ checking: false, unaudited: true, latest: ["pass"] })).toBe("audits_off");
+    expect(auditOverall({ checking: false, unaudited: false, latest: [] })).toBe("never");
+    expect(auditOverall({ checking: false, unaudited: false, latest: ["pass", "warn"] })).toBe("warn");
+    expect(auditOverall({ checking: false, unaudited: false, latest: ["pass", "error", "warn"] })).toBe("fail");
+    expect(auditOverall({ checking: false, unaudited: false, latest: ["pass", "pass"] })).toBe("pass");
   });
 
   test("the worst result wins: error, fail, warn, pass", () => {
@@ -568,6 +568,42 @@ describeDb("the clinic audits", () => {
       ]) {
         expect((await opClinicAudits(args)).status, JSON.stringify(args)).toBe(400);
       }
+    },
+    SLOW,
+  );
+
+  test(
+    "with the audits off a change is written unaudited (no status): audits_off until an availability audit runs after it; go-live never counts",
+    async () => {
+      await getMigratorPool().query(`update scheduled_jobs set enabled = false where name = 'clinic-audits'`);
+      type Read = { data: { clinics: { overall: string }[] } };
+      const overall = async () => ((await opClinicAudits({ clinicId: f.clinicId })).body as Read).data.clinics[0]!.overall;
+      // An availability audit that passed an hour ago, and go-live failing (as for every clinic not in production).
+      await inTenant(f.clinicId, (client) =>
+        client.query(
+          `insert into clinic_audits (clinic_id, pack, trigger, result, checks, requested_by, started_at)
+           values ($1, 'availability', 'scheduled', 'pass', '[]'::jsonb, 'clinic-audits', now() - interval '1 hour'),
+                  ($1, 'golive', 'scheduled', 'fail', '[]'::jsonb, 'clinic-audits', now() - interval '1 hour')`,
+          [f.clinicId],
+        ),
+      );
+      expect(await overall()).toBe("pass");
+      expect(await closeDay(clinicLocalDate(deskTime(41, 10), DESK_TZ))).toMatchObject({ ok: true });
+      const { rows } = await inTenant(f.clinicId, (client) =>
+        client.query<{ audit_status: string | null }>(`select audit_status from clinic_change_events where clinic_id = $1`, [f.clinicId]),
+      );
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.audit_status === null)).toBe(true);
+      expect(await overall()).toBe("audits_off");
+      // An availability audit after the change has checked it.
+      await inTenant(f.clinicId, (client) =>
+        client.query(
+          `insert into clinic_audits (clinic_id, pack, trigger, result, checks, requested_by, started_at)
+           values ($1, 'availability', 'change_detected', 'pass', '[]'::jsonb, 'clinic-audits', now() + interval '1 second')`,
+          [f.clinicId],
+        ),
+      );
+      expect(await overall()).toBe("pass");
     },
     SLOW,
   );

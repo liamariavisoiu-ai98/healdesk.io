@@ -44,6 +44,12 @@ import type { InboxRow, InboxSource, Tone } from "./types";
  * there directly. Background jobs open the job switches.
  */
 const CLINICS_PAGE = "/admin/clinics";
+/**
+ * Said on a queue whose row opens the Clinics list, which does not show it:
+ * the 07:00 digest counts the same queues, and no console page lists them
+ * yet (whether to build one is the owner's decision), so nobody goes looking.
+ */
+export const NO_PAGE = "; the morning email counts it too, and the console has no page for it yet";
 const JOBS_PAGE = "/admin/system/jobs";
 
 type QueueWords = { words: string; href: string; tone: Tone; patienceMinutes: number };
@@ -237,7 +243,9 @@ export const queuesSource: InboxSource = {
         id: `queue:${kind}`,
         kind: "queue",
         count: q.count,
-        sentence: minutes === null ? `${words.words}.` : `${words.words}; the oldest is ${age(minutes)} old.`,
+        sentence: `${words.words}${minutes === null ? "" : `; the oldest is ${age(minutes)} old`}${
+          words.href === CLINICS_PAGE ? NO_PAGE : ""
+        }.`,
         clinic: null,
         button: { label: "Open", kind: "link", href: words.href },
         tone: words.tone,

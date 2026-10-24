@@ -48,12 +48,13 @@ export async function seedLifecycleRow(
     lastProgressAt?: Date | null;
     deadlineAt?: Date | null;
     decision?: string;
+    snoozedUntil?: Date | null;
   } = {},
 ): Promise<void> {
   await inTenant(clinicId, (client) =>
     client.query(
-      `insert into clinic_lifecycle (clinic_id, stage, stage_since, steps_left, channels_waiting, last_progress_at, deadline_at, decision)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `insert into clinic_lifecycle (clinic_id, stage, stage_since, steps_left, channels_waiting, last_progress_at, deadline_at, decision, snoozed_until, snoozed_by)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, case when $9::timestamptz is null then null else 'ops@healdesk.test' end)`,
       [
         clinicId,
         row.stage ?? "in_setup",
@@ -63,6 +64,7 @@ export async function seedLifecycleRow(
         row.lastProgressAt ?? null,
         row.deadlineAt ?? null,
         row.decision ?? "none",
+        row.snoozedUntil ?? null,
       ],
     ),
   );
@@ -84,4 +86,14 @@ export async function seedWave(
 
 export async function setClinicAudits(enabled: boolean): Promise<void> {
   await getMigratorPool().query(`update scheduled_jobs set enabled = $1 where name = 'clinic-audits'`, [enabled]);
+}
+
+/** A setup reminder in the outbox, as the setup-reminders job queues it (dedupe `setup_reminder:<n>`). */
+export async function seedReminder(clinicId: string, dedupeKey: string, createdAt: Date): Promise<void> {
+  await inTenant(clinicId, (client) =>
+    client.query(
+      `insert into billing_notices (clinic_id, kind, dedupe_key, payload, created_at) values ($1, 'setup_reminder', $2, '{}'::jsonb, $3)`,
+      [clinicId, dedupeKey, createdAt],
+    ),
+  );
 }

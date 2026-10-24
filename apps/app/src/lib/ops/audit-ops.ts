@@ -6,7 +6,6 @@ import {
   AUDIT_PACKS,
   clinicAuditClaims,
   clinicAudits,
-  clinicChangeEvents,
   scheduledJobs,
   clinics as clinicRows,
   type AuditCheckOutcome,
@@ -213,7 +212,11 @@ async function runManual(
 export type ClinicAuditSummary = {
   clinicId: string;
   name: string;
-  /** `audits_off`: changes wait for an audit while the clinic-audits job is switched off. */
+  /**
+   * The availability packs' state (AVAILABILITY_PACKS; `packs` still lists
+   * all four). `audits_off`: a change nobody will audit, made while the
+   * clinic-audits job was off and newer than the last availability audit.
+   */
   overall: AuditOverall;
   lastChange: { kind: ClinicChangeKind; at: string } | null;
   packs: Partial<
@@ -239,54 +242,179 @@ export async function clinicAuditsOn(): Promise<boolean> {
   return job?.enabled === true;
 }
 
-/** What one clinic's audits say now: the newest row of each pack, its newest change, and whether a change waits. */
+/**
+ * The packs that speak for a clinic's availability: what a change to hours,
+ * closed days or providers is audited with (lib/audits/jobs.ts). Go-live
+ * and transcripts are not about availability (go-live fails for every clinic
+ * not yet in production), so the Clinics column, Home's row and the
+ * Availability card's state read these two only.
+ */
+export const AVAILABILITY_PACKS = ["availability", "roster"] as const satisfies readonly AuditPack[];
+type AvailabilityPack = (typeof AVAILABILITY_PACKS)[number];
+
+function isAvailabilityPack(pack: AuditPack): pack is AvailabilityPack {
+  return (AVAILABILITY_PACKS as readonly string[]).includes(pack);
+}
+
+/** What one clinic's audits say now. */
 export type ClinicAuditFacts = {
+  /** The newest row of each of the four packs. */
   latest: ClinicAuditRow[];
   change: { kind: ClinicChangeKind; at: Date } | null;
-  pending: boolean;
+  /** A change is being audited: claimed (running), or queued while the audits are on. */
+  checking: boolean;
+  /**
+   * A change nobody will audit: written while the audits were off
+   * (audit_status null, as change-events.ts and the 0114 trigger write it),
+   * or queued while they are off now, and newer than the newest
+   * availability audit, which would have checked it.
+   */
+  unaudited: boolean;
+  /** The newest passing run of each availability pack. */
+  lastPassAt: Partial<Record<AvailabilityPack, Date>>;
 };
+
+type FactsRow = {
+  kind: ClinicChangeKind | null;
+  changed_at: Date | string | null;
+  checking: boolean;
+  unaudited: boolean;
+  availability_pass_at: Date | string | null;
+  roster_pass_at: Date | string | null;
+};
+
+function at(value: Date | string | null): Date | null {
+  return value === null ? null : new Date(value);
+}
 
 /**
  * One clinic's audit facts, inside its tenant, in a FIXED two statements
- * (the Clinics strip counts them): the newest row of each pack, and the
- * newest change with whether any change is still queued or running.
+ * (the Clinics strip counts them): the newest row of each pack; and one row
+ * of the newest change, whether a change is being checked or will not be,
+ * and each availability pack's newest pass. `auditsOn` is the clinic-audits
+ * switch (clinicAuditsOn), read once by the caller.
  */
-export async function readClinicAuditFacts(tx: TenantTx): Promise<ClinicAuditFacts> {
+export async function readClinicAuditFacts(tx: TenantTx, auditsOn: boolean): Promise<ClinicAuditFacts> {
   const latest = await tx.db
     .selectDistinctOn([clinicAudits.pack])
     .from(clinicAudits)
     .where(eq(clinicAudits.clinicId, tx.clinicId))
     .orderBy(clinicAudits.pack, desc(clinicAudits.startedAt), desc(clinicAudits.finishedAt));
-  const [change] = await tx.db
-    .select({
-      kind: clinicChangeEvents.kind,
-      at: clinicChangeEvents.changedAt,
-      pending: sql<boolean>`exists (select 1 from clinic_change_events p
-        where p.clinic_id = ${tx.clinicId} and p.audit_status in ('queued', 'running'))`,
-    })
-    .from(clinicChangeEvents)
-    .where(eq(clinicChangeEvents.clinicId, tx.clinicId))
-    .orderBy(desc(clinicChangeEvents.changedAt))
-    .limit(1);
+  const c = tx.clinicId;
+  const result = await tx.db.execute<FactsRow>(sql`
+    select
+      (select e.kind from clinic_change_events e where e.clinic_id = ${c}
+        order by e.changed_at desc limit 1) as kind,
+      (select max(e.changed_at) from clinic_change_events e where e.clinic_id = ${c}) as changed_at,
+      exists (select 1 from clinic_change_events e where e.clinic_id = ${c}
+        and (e.audit_status = 'running' or (e.audit_status = 'queued' and ${auditsOn}::boolean))) as checking,
+      exists (select 1 from clinic_change_events e where e.clinic_id = ${c}
+        and (e.audit_status is null or (e.audit_status = 'queued' and not ${auditsOn}::boolean))
+        and e.changed_at > coalesce(
+          (select max(a.started_at) from clinic_audits a where a.clinic_id = ${c} and a.pack = 'availability'),
+          '-infinity'::timestamptz)) as unaudited,
+      (select max(a.started_at) from clinic_audits a
+        where a.clinic_id = ${c} and a.pack = 'availability' and a.result = 'pass') as availability_pass_at,
+      (select max(a.started_at) from clinic_audits a
+        where a.clinic_id = ${c} and a.pack = 'roster' and a.result = 'pass') as roster_pass_at
+  `);
+  const row = result.rows[0];
+  const changedAt = at(row?.changed_at ?? null);
+  const lastPassAt: ClinicAuditFacts["lastPassAt"] = {};
+  const availabilityPass = at(row?.availability_pass_at ?? null);
+  const rosterPass = at(row?.roster_pass_at ?? null);
+  if (availabilityPass) lastPassAt.availability = availabilityPass;
+  if (rosterPass) lastPassAt.roster = rosterPass;
   return {
     latest,
-    change: change ? { kind: change.kind, at: change.at } : null,
-    pending: change?.pending === true,
+    change: row?.kind && changedAt ? { kind: row.kind, at: changedAt } : null,
+    checking: row?.checking === true,
+    unaudited: row?.unaudited === true,
+    lastPassAt,
   };
 }
 
 /**
  * The one rule for a clinic's overall audit state, which the console's
- * audits card, the Clinics strip and Home all read: a change still waiting
- * is `running` while the audits are on and `audits_off` while they are off
- * (nobody is checking it then); else the worst of each pack's newest
- * result, an `error` read as `fail`; `never` with no audit at all.
+ * Availability card reads: a change being audited is `running`; a change
+ * nobody will audit is `audits_off`; else the worst of the results passed
+ * in (callers pass the availability packs' only), an `error` read as
+ * `fail`; `never` with none.
  */
-export function auditOverall(f: { pending: boolean; auditsOn: boolean; latest: readonly AuditResult[] }): AuditOverall {
-  if (f.pending) return f.auditsOn ? "running" : "audits_off";
+export function auditOverall(f: { checking: boolean; unaudited: boolean; latest: readonly AuditResult[] }): AuditOverall {
+  if (f.checking) return "running";
+  if (f.unaudited) return "audits_off";
   if (f.latest.length === 0) return "never";
   const worst = worstOf(f.latest);
   return worst === "error" ? "fail" : worst;
+}
+
+/** The availability packs' newest rows, of the four. */
+export function availabilityRows(facts: Pick<ClinicAuditFacts, "latest">): ClinicAuditRow[] {
+  return facts.latest.filter((r) => isAvailabilityPack(r.pack));
+}
+
+/** The card's overall state: the availability packs only. */
+export function availabilityOverall(facts: ClinicAuditFacts): AuditOverall {
+  return auditOverall({
+    checking: facts.checking,
+    unaudited: facts.unaudited,
+    latest: availabilityRows(facts).map((r) => r.result),
+  });
+}
+
+/**
+ * Whether a warning is news: a pack that warns for an ordinary setup state
+ * (website chat not live yet, no voice agent yet) warns on every run, change
+ * or no change. A warning counts only when a change was made after that
+ * pack's last pass (or the pack never passed and something changed).
+ */
+function warnIsNews(facts: ClinicAuditFacts): boolean {
+  const change = facts.change;
+  if (!change) return false;
+  return availabilityRows(facts).some((r) => {
+    if (r.result !== "warn" || !isAvailabilityPack(r.pack)) return false;
+    const pass = facts.lastPassAt[r.pack];
+    return !pass || change.at.getTime() > pass.getTime();
+  });
+}
+
+/**
+ * What about a clinic's availability needs ops, for Home (lib/ops/inbox/
+ * availability.ts): a change nobody will audit; an availability pack that
+ * failed; a warning that a change brought. Null otherwise, including while
+ * a change is being audited and for a setup-state warning with no change
+ * since the last pass. Changes left unseen are the source's own count.
+ */
+export function availabilityAttention(facts: ClinicAuditFacts): "audits_off" | "fail" | "warn" | null {
+  if (facts.checking) return null;
+  if (facts.unaudited) return "audits_off";
+  const results = availabilityRows(facts).map((r) => r.result);
+  if (results.length === 0) return null;
+  const worst = worstOf(results);
+  if (worst === "fail" || worst === "error") return "fail";
+  if (worst === "warn" && warnIsNews(facts)) return "warn";
+  return null;
+}
+
+/**
+ * The Clinics table's Availability audit level, by the same rule as Home's
+ * row: running while a change is audited; never (drawn "changed, not
+ * audited" beside a change time) for a change nobody will audit; fail; warn
+ * only when a change brought it. A setup-state warning with no change since
+ * the last pass reads as that pass, or as never when nothing ever passed,
+ * so a clinic in setup is not marked by what setup itself leaves undone.
+ */
+export function availabilityLevel(facts: ClinicAuditFacts): "pass" | "warn" | "fail" | "running" | "never" {
+  if (facts.checking) return "running";
+  if (facts.unaudited) return "never";
+  const results = availabilityRows(facts).map((r) => r.result);
+  if (results.length === 0) return "never";
+  const worst = worstOf(results);
+  if (worst === "fail" || worst === "error") return "fail";
+  if (worst === "pass") return "pass";
+  if (warnIsNews(facts)) return "warn";
+  return Object.keys(facts.lastPassAt).length > 0 ? "pass" : "never";
 }
 
 /**
@@ -324,7 +452,7 @@ export async function opClinicAudits(args: Record<string, unknown>): Promise<Ops
     let history: AuditView[] | null = null;
     for (const clinic of clinics) {
       const read = await withTenant({ clinicId: clinic.id, actor: READ_ACTOR }, async (tx) => {
-        const facts = await readClinicAuditFacts(tx);
+        const facts = await readClinicAuditFacts(tx, auditsOn);
         const rows =
           historyLimit > 0
             ? await tx.db
@@ -348,11 +476,7 @@ export async function opClinicAudits(args: Record<string, unknown>): Promise<Ops
       summaries.push({
         clinicId: clinic.id,
         name: clinic.name,
-        overall: auditOverall({
-          pending: read.facts.pending,
-          auditsOn,
-          latest: read.facts.latest.map((r) => r.result),
-        }),
+        overall: availabilityOverall(read.facts),
         lastChange: read.facts.change
           ? { kind: read.facts.change.kind, at: read.facts.change.at.toISOString() }
           : null,

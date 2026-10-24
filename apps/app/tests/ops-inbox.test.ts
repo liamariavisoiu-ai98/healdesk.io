@@ -19,7 +19,21 @@ vi.mock("@/lib/reporting/recipients", async (importOriginal) => {
 
 // Lane A4: one clinic's audit facts, or the whole lifecycle read, can be
 // made to fail, to prove each new source degrades on its own.
-const failingA4 = vi.hoisted(() => ({ auditClinicId: null as string | null, lifecycle: false }));
+const failingA4 = vi.hoisted(() => ({
+  auditClinicId: null as string | null,
+  lifecycle: false,
+  lifecycleClinicId: null as string | null,
+}));
+vi.mock("@/lib/lifecycle/watch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/lifecycle/watch")>();
+  return {
+    ...actual,
+    readLifecycleRow: async (...args: Parameters<typeof actual.readLifecycleRow>) => {
+      if (failingA4.lifecycleClinicId && args[0].clinicId === failingA4.lifecycleClinicId) throw new Error("synthetic read failure");
+      return actual.readLifecycleRow(...args);
+    },
+  };
+});
 vi.mock("@/lib/ops/audit-ops", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ops/audit-ops")>();
   return {
@@ -54,7 +68,7 @@ import { INBOX_KINDS, type InboxRow, type InboxSource } from "@/lib/ops/inbox/ty
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { seedAudit, seedChange, seedLifecycleRow, setClinicAudits } from "./setup/audit-lifecycle-seeds";
-import { inTenant, seedClinic } from "./setup/factories";
+import { inTenant, seedClinic, seedDemoClinic } from "./setup/factories";
 
 /**
  * Lane A2: opsInbox, the redone admin's Home. Each source's row from its
@@ -348,7 +362,7 @@ describeDb("opsInbox (lane A2)", () => {
     expect(row(rows, "queue:orders_without_account")).toMatchObject({
       kind: "queue",
       count: 1,
-      sentence: "Paid orders without an account; the oldest is 3 h old.",
+      sentence: "Paid orders without an account; the oldest is 3 h old; the morning email counts it too, and the console has no page for it yet.",
       tone: "bad",
     });
 
@@ -563,35 +577,58 @@ describeDb("opsInbox (lane A2)", () => {
     expect(() => expectConsolePage(`/admin/clinics/${randomUUID()}/setup#no-such-card`)).toThrow();
   });
 
-  test("availability: a failing or warning audit, changes nobody checks, and changes unseen for a day are each one row per clinic", async () => {
+  test("availability: a failure, a warning a change brought, a change nobody audits, and changes unseen for a day are one row per clinic; setup-state results are not", async () => {
     await setClinicAudits(false);
+    const ago = (ms: number) => new Date(Date.now() - ms);
+    // Failing: the availability pack failed after an audited change.
     const failing = await seedClinic("inbox-av-fail");
-    await seedChange(failing.clinicId, { auditStatus: "attention", changedAt: new Date(Date.now() - 2 * DAY) });
-    await seedChange(failing.clinicId, { auditStatus: "attention", changedAt: new Date(Date.now() - 3 * DAY) });
-    await seedAudit(failing.clinicId, "availability", "fail");
-    await seedAudit(failing.clinicId, "roster", "pass");
-    const warning = await seedClinic("inbox-av-warn");
-    await seedAudit(warning.clinicId, "golive", "warn");
+    await seedChange(failing.clinicId, { auditStatus: "attention", changedAt: ago(2 * HOUR), seenAt: new Date() });
+    await seedAudit(failing.clinicId, "availability", "fail", ago(HOUR));
+    await seedAudit(failing.clinicId, "roster", "pass", ago(HOUR));
+    // A warning a change brought: the roster passed, then a change, then it warned.
+    const warned = await seedClinic("inbox-av-warn");
+    await seedAudit(warned.clinicId, "roster", "pass", ago(3 * HOUR));
+    await seedChange(warned.clinicId, { auditStatus: "attention", changedAt: ago(2 * HOUR), seenAt: new Date() });
+    await seedAudit(warned.clinicId, "roster", "warn", ago(HOUR));
+    // Audited before, then changed while the audits are off: no status, newer than the audit.
     const unchecked = await seedClinic("inbox-av-off");
-    await seedChange(unchecked.clinicId, { auditStatus: "queued", changedAt: new Date(Date.now() - HOUR) });
+    await seedAudit(unchecked.clinicId, "availability", "pass", ago(2 * HOUR));
+    await seedChange(unchecked.clinicId, { auditStatus: null, changedAt: ago(HOUR) });
+    // Three changes audited and passed, never marked seen, older than a day; one seen.
     const unseen = await seedClinic("inbox-av-unseen");
     for (const days of [2, 3, 4]) {
-      await seedChange(unseen.clinicId, { auditStatus: "passed", changedAt: new Date(Date.now() - days * DAY) });
+      await seedChange(unseen.clinicId, { auditStatus: "passed", changedAt: ago(days * DAY) });
     }
-    await seedChange(unseen.clinicId, { auditStatus: "passed", changedAt: new Date(Date.now() - 5 * DAY), seenAt: new Date() });
-    await seedAudit(unseen.clinicId, "availability", "pass");
-    // Nothing owed: a change an hour old, audited and passed; and one seen.
+    await seedChange(unseen.clinicId, { auditStatus: "passed", changedAt: ago(5 * DAY), seenAt: new Date() });
+    await seedAudit(unseen.clinicId, "availability", "pass", ago(HOUR));
+    // No row:
+    // still in setup, go-live failing (every clinic not in production), transcripts
+    // warning, and availability warning for a setup state after a pass, no change;
+    const setup = await seedClinic("inbox-av-setup");
+    await seedAudit(setup.clinicId, "availability", "pass", ago(2 * DAY));
+    await seedAudit(setup.clinicId, "availability", "warn", ago(HOUR));
+    await seedAudit(setup.clinicId, "golive", "fail", ago(HOUR));
+    await seedAudit(setup.clinicId, "transcripts", "warn", ago(HOUR));
+    // an old change the hourly run audited since (no status, older than the last audit);
+    const reaudited = await seedClinic("inbox-av-reaudited");
+    await seedChange(reaudited.clinicId, { auditStatus: null, changedAt: ago(2 * HOUR), seenAt: new Date() });
+    await seedAudit(reaudited.clinicId, "availability", "pass", ago(HOUR));
+    // a change an hour old, audited and passed;
     const fresh = await seedClinic("inbox-av-fresh");
-    await seedChange(fresh.clinicId, { auditStatus: "passed", changedAt: new Date(Date.now() - HOUR) });
+    await seedChange(fresh.clinicId, { auditStatus: "passed", changedAt: ago(HOUR) });
     await seedAudit(fresh.clinicId, "availability", "pass");
-    const seen = await seedClinic("inbox-av-seen");
-    await seedChange(seen.clinicId, { auditStatus: "passed", changedAt: new Date(Date.now() - 3 * DAY), seenAt: new Date() });
+    // healdesk's demo clinic and a closed account, each with a change nobody audits.
+    const demo = await seedDemoClinic("inbox-av-demo");
+    await seedChange(demo.clinicId, { auditStatus: null, changedAt: ago(2 * DAY) });
+    const closed = await seedClinic("inbox-av-closed");
+    await seedChange(closed.clinicId, { auditStatus: null, changedAt: ago(2 * DAY) });
+    await getMigratorPool().query(`update clinics set account_closed_at = now() where id = $1`, [closed.clinicId]);
 
     const { rows, unreadable } = await readOpsInbox(OPERATOR);
     expect(unreadable).toEqual(await expectedUnreadable());
     const mine = rows.filter((r) => r.kind === "availability");
     expect(mine.map((r) => r.clinic?.id).sort()).toEqual(
-      [failing.clinicId, warning.clinicId, unchecked.clinicId, unseen.clinicId].sort(),
+      [failing.clinicId, warned.clinicId, unchecked.clinicId, unseen.clinicId].sort(),
     );
     const link = (id: string) => ({ label: "Open availability", kind: "link", href: `/admin/clinics/${id}/setup#availability` });
     expect(row(rows, `availability:${failing.clinicId}`)).toEqual({
@@ -604,7 +641,7 @@ describeDb("opsInbox (lane A2)", () => {
       tone: "warn",
       dueAt: null,
     });
-    expect(row(rows, `availability:${warning.clinicId}`)).toMatchObject({ count: 1, sentence: AVAILABILITY_WORDS.warn });
+    expect(row(rows, `availability:${warned.clinicId}`)).toMatchObject({ count: 1, sentence: AVAILABILITY_WORDS.warn });
     expect(row(rows, `availability:${unchecked.clinicId}`)).toMatchObject({
       count: 1,
       sentence: AVAILABILITY_WORDS.audits_off,
@@ -612,14 +649,38 @@ describeDb("opsInbox (lane A2)", () => {
     });
     expect(row(rows, `availability:${unseen.clinicId}`)).toMatchObject({ count: 3, sentence: AVAILABILITY_WORDS.unseen });
 
-    // With the audits on, the waiting change is being checked: no row for it.
+    // A change queued while the audits are on is being checked: no row for it.
+    const queued = await seedClinic("inbox-av-queued");
+    await seedChange(queued.clinicId, { auditStatus: "queued", changedAt: ago(HOUR) });
     await setClinicAudits(true);
     try {
       const on = await readOpsInbox(OPERATOR);
-      expect(on.rows.some((r) => r.id === `availability:${unchecked.clinicId}`)).toBe(false);
+      expect(on.rows.some((r) => r.id === `availability:${queued.clinicId}`)).toBe(false);
     } finally {
       await setClinicAudits(false);
     }
+    // Queued, and the audits are now off: nobody will check it.
+    expect((await readOpsInbox(OPERATOR)).rows.map((r) => r.id)).toContain(`availability:${queued.clinicId}`);
+  });
+
+  test("one issue, one row: an availability change and a decision owed are not said again by their ops alerts", async () => {
+    await setClinicAudits(false);
+    const changed = await seedClinic("inbox-once-changed");
+    await seedChange(changed.clinicId, { auditStatus: null, changedAt: new Date(Date.now() - HOUR) });
+    await raiseAlert("clinic_availability_changed", { clinicId: changed.clinicId });
+    const owed = await seedClinic("inbox-once-owed");
+    await seedLifecycleRow(owed.clinicId, { stage: "waiting_on_us", stageSince: new Date(Date.now() - 5 * DAY) });
+    for (const event of [
+      "lifecycle_decision_due",
+      "lifecycle_waiting_on_us",
+      "lifecycle_waiting_on_us_long",
+      "lifecycle_closing_waiting_on_us",
+    ]) {
+      await raiseAlert(event, { clinicId: owed.clinicId });
+    }
+    const { rows } = await readOpsInbox(OPERATOR);
+    expect(rows.filter((r) => r.clinic?.id === changed.clinicId).map((r) => r.id)).toEqual([`availability:${changed.clinicId}`]);
+    expect(rows.filter((r) => r.clinic?.id === owed.clinicId).map((r) => r.id)).toEqual([`decision:${owed.clinicId}`]);
   });
 
   test("needs a decision: every clinic the lifecycle view says owes one, with the recommendation, due on the window's last day", async () => {
@@ -643,12 +704,13 @@ describeDb("opsInbox (lane A2)", () => {
       lastProgressAt: new Date(now - 2 * DAY),
       deadlineAt: setupDeadline(new Date(now - 24 * DAY), zone),
     });
-    // Waiting on us for five days, twenty days left.
+    // Waiting on us for five days, twenty days left, its routine alerts snoozed: the row stays.
     const waiting = await seedClinic("inbox-dec-waiting");
     await seedLifecycleRow(waiting.clinicId, {
       stage: "waiting_on_us",
       stageSince: new Date(now - 5 * DAY),
       deadlineAt: setupDeadline(new Date(now - 10 * DAY), zone),
+      snoozedUntil: new Date(now + 3 * DAY),
     });
     // Owing nothing: decided already; early in the window; no lifecycle row.
     const decided = await seedClinic("inbox-dec-decided");
@@ -689,11 +751,15 @@ describeDb("opsInbox (lane A2)", () => {
       tone: "warn",
       dueAt: lastDay(now - 24 * DAY),
     });
+    // The work owed is ours: the button opens the window rather than asking for a decision.
     expect(row(rows, `decision:${waiting.clinicId}`)).toMatchObject({
-      sentence: expect.stringMatching(/^The clinic has waited on us for over a business day; recommended: [a-z].*\.$/),
+      sentence: expect.stringMatching(
+        /^The clinic has been waiting on us for over a business day; recommended: [a-z].*; routine alerts are snoozed\.$/,
+      ),
       tone: "warn",
-      button: link(waiting.clinicId),
+      button: { ...link(waiting.clinicId), label: "Open setup window" },
     });
+    expect(row(rows, `decision:${closing.clinicId}`).sentence).not.toContain("snoozed");
     for (const r of mine) {
       expect(r.sentence).not.toMatch(/_|\bnull\b|undefined/);
       expect(r.sentence).not.toContain(r.clinic!.name);
@@ -706,14 +772,16 @@ describeDb("opsInbox (lane A2)", () => {
     ]);
   });
 
-  test("each new source degrades on its own: an unreadable clinic makes availability partial; an unreadable lifecycle loses only the decisions", async () => {
+  test("each new source degrades on its own: an unreadable clinic makes either partial; an unreadable lifecycle loses only the decisions", async () => {
     await setClinicAudits(false);
     const good = await seedClinic("inbox-a4-good");
-    await seedChange(good.clinicId, { auditStatus: "queued" });
+    await seedChange(good.clinicId, { auditStatus: null });
     const bad = await seedClinic("inbox-a4-bad");
-    await seedChange(bad.clinicId, { auditStatus: "queued" });
+    await seedChange(bad.clinicId, { auditStatus: null });
     const owed = await seedClinic("inbox-a4-owed");
     await seedLifecycleRow(owed.clinicId, { stage: "waiting_on_us", stageSince: new Date(Date.now() - 5 * DAY) });
+    const owedToo = await seedClinic("inbox-a4-owed-too");
+    await seedLifecycleRow(owedToo.clinicId, { stage: "waiting_on_us", stageSince: new Date(Date.now() - 5 * DAY) });
 
     failingA4.auditClinicId = bad.clinicId;
     try {
@@ -725,6 +793,17 @@ describeDb("opsInbox (lane A2)", () => {
       expect(inbox.rows.some((r) => r.id === `availability:${bad.clinicId}`)).toBe(false);
     } finally {
       failingA4.auditClinicId = null;
+    }
+
+    // One clinic's lifecycle cannot be read: the others' decisions still list.
+    failingA4.lifecycleClinicId = owedToo.clinicId;
+    try {
+      const inbox = await readOpsInbox(OPERATOR);
+      expect(inbox.unreadable).toContainEqual({ source: "the setup decisions", reason: "1 clinic(s) could not be read." });
+      expect(inbox.rows.map((r) => r.id)).toContain(`decision:${owed.clinicId}`);
+      expect(inbox.rows.some((r) => r.id === `decision:${owedToo.clinicId}`)).toBe(false);
+    } finally {
+      failingA4.lifecycleClinicId = null;
     }
 
     failingA4.lifecycle = true;

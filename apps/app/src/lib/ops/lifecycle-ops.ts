@@ -81,31 +81,41 @@ export type WatchedLifecycle = { clinic: ClinicOverview; view: LifecycleView };
 /**
  * The lifecycle view of every billing clinic the watch has seen, or of the
  * one named (any other id reads nothing), each in its own tenant, under the
- * caller's actor. Locations and destroyed clinics have none. Throws when a
- * clinic cannot be read. Home's "Needs a decision" rows read this too.
+ * caller's actor. Locations and destroyed clinics have none. A clinic that
+ * cannot be read throws, unless `partial` is set: then it is counted in
+ * `failed` and the rest are still returned (Home's "Needs a decision" rows,
+ * which must not lose every clinic to one).
  */
 export async function readLifecycleViews(options: {
   actor: ActorContext;
   request?: RequestContext;
   now: Date;
   clinicId?: string;
-}): Promise<WatchedLifecycle[]> {
-  const out: WatchedLifecycle[] = [];
+  partial?: boolean;
+}): Promise<{ views: WatchedLifecycle[]; failed: number }> {
+  const views: WatchedLifecycle[] = [];
+  let failed = 0;
   const wanted = options.clinicId?.toLowerCase();
   for (const clinic of await listClinics()) {
     if (wanted !== undefined && clinic.id !== wanted) continue;
     if (clinic.billingClinicId || clinic.destroyedAt) continue;
-    const view = await withTenant(
-      { clinicId: clinic.id, actor: options.actor, request: options.request },
-      async (tx) => {
-        const row = await readLifecycleRow(tx);
-        if (!row) return null;
-        return lifecycleView(row, await readLedger(tx), clinic.timezone, options.now);
-      },
-    );
-    if (view) out.push({ clinic, view });
+    try {
+      const view = await withTenant(
+        { clinicId: clinic.id, actor: options.actor, request: options.request },
+        async (tx) => {
+          const row = await readLifecycleRow(tx);
+          if (!row) return null;
+          return lifecycleView(row, await readLedger(tx), clinic.timezone, options.now);
+        },
+      );
+      if (view) views.push({ clinic, view });
+    } catch (error) {
+      if (!options.partial) throw error;
+      failed += 1;
+      log.warn("lifecycle view not read", { clinicId: clinic.id, error: describeError(error) });
+    }
   }
-  return out;
+  return { views, failed };
 }
 
 export async function opListLifecycle(
@@ -119,12 +129,13 @@ export async function opListLifecycle(
   }
   try {
     const rows: LifecycleListRow[] = [];
-    for (const { clinic, view: seen } of await readLifecycleViews({
+    const { views } = await readLifecycleViews({
       actor: actorFor(operator),
       request: operator.request,
       now,
       clinicId: raw,
-    })) {
+    });
+    for (const { clinic, view: seen } of views) {
       rows.push({
         ...seen,
         clinicId: clinic.id,

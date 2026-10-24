@@ -1,8 +1,9 @@
-import { getPlan, SETUP_REMINDER_EVERY_DAYS, type Channel } from "@healdesk/catalog";
+import { getPlan, type Channel } from "@healdesk/catalog";
 import { GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 
 import {
+  billingNotices,
   clinicChannels,
   clinics,
   clinicSettings,
@@ -20,7 +21,7 @@ import { describeError, log } from "@/lib/log";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { ok, opsProblem, type OpsOutcome } from "./api";
-import { auditOverall, clinicAuditsOn, readClinicAuditFacts, type AuditOverall } from "./audit-ops";
+import { availabilityLevel, clinicAuditsOn, readClinicAuditFacts } from "./audit-ops";
 import { blockersFor, listClinics, type ClinicOverview } from "./clinics";
 
 /**
@@ -30,8 +31,8 @@ import { blockersFor, listClinics, type ClinicOverview } from "./clinics";
  * The shape is apps/web's `lib/admin/strip-types.ts`, mirrored here by hand
  * as the rest of the ops envelope is: ids, enums, counts and dates, and the
  * clinic's own name. Nothing a clinic typed, no patient field, no vendor
- * call. `availability` and `lastReminder` read the audits lane's and the
- * lifecycle lane's tables (lane A4, wave 2).
+ * call. `availability` reads the audits lane's tables and `lastReminder`
+ * the setup reminders' own outbox rows (lane A4, wave 2).
  *
  * How it reads. The clinic list comes from app_clinics_overview(), one
  * statement across tenants. Everything else is a tenant table under forced
@@ -48,9 +49,10 @@ import { blockersFor, listClinics, type ClinicOverview } from "./clinics";
  *   4. its transcript outbox counted by status over the last 30 days;
  *   5, 6. its audit facts (readClinicAuditFacts, the two statements the
  *      console's audits card reads): each pack's newest result, and its
- *      newest change with whether one still waits for an audit;
- *   7. whether the lifecycle watch has a row for it, and its newest numbered
- *      setup reminder in the ledger (lifecycle_waves).
+ *      newest change, whether one is being or will not be audited, and each
+ *      availability pack's last pass;
+ *   7. its newest numbered setup reminder in the outbox (billing_notices,
+ *      kind setup_reminder), the source the reminders job itself dedupes on.
  *
  * Plus one statement for the whole read: whether the clinic-audits job is
  * on (clinicAuditsOn). So the statement count is linear in clinics with a
@@ -127,10 +129,10 @@ export type StripFacts = {
     liveAt: Date | null;
   }[];
   transcripts: { waiting: number; bounced: number };
-  /** The newest availability change and the audits' overall state (the console's rule, auditOverall). */
-  audit: { changedAt: Date | null; overall: AuditOverall };
-  /** Whether the lifecycle watch has a row for the clinic, and its newest numbered reminder's number. */
-  lifecycle: { watched: boolean; reminder: number | null };
+  /** The newest availability change and the column's audit level (availabilityLevel, Home's rule). */
+  audit: { changedAt: Date | null; level: AuditLevel };
+  /** When the newest numbered setup reminder was queued, or null. */
+  lastReminderAt: Date | null;
 };
 
 /** Every clinic's strip row, newest clinic first. Throws when a clinic cannot be read. */
@@ -226,20 +228,22 @@ export async function readStripFacts(tx: TenantTx, now: Date, auditsOn: boolean)
     else if (BOUNCED_STATUSES.has(status)) transcripts.bounced += Number(n);
   }
 
-  const audits = await readClinicAuditFacts(tx);
+  const audits = await readClinicAuditFacts(tx, auditsOn);
 
   // Only numbered reminders (setup_reminder:<n>, n from 1 to 6) have a day in
   // the setup window; the one-per-channel reminder after go-live has none.
-  const lifecycle = await tx.db.execute<{ watched: boolean; wave: string | null }>(sql`
-    select exists (select 1 from clinic_lifecycle l where l.clinic_id = ${c}) as watched,
-           (select w.wave from lifecycle_waves w
-             where w.clinic_id = ${c} and w.target = 'clinic_email' and w.wave ~ '^setup_reminder:[0-9]+$'
-             order by w.queued_at desc, w.id desc
-             limit 1) as wave
-  `);
-  const watched = lifecycle.rows[0]?.watched === true;
-  const wave = lifecycle.rows[0]?.wave ?? null;
-  const reminder = wave ? Number(wave.slice("setup_reminder:".length)) : null;
+  const [reminder] = await tx.db
+    .select({ at: billingNotices.createdAt })
+    .from(billingNotices)
+    .where(
+      and(
+        eq(billingNotices.clinicId, c),
+        eq(billingNotices.kind, "setup_reminder"),
+        sql`${billingNotices.dedupeKey} ~ '^setup_reminder:[0-9]+$'`,
+      ),
+    )
+    .orderBy(desc(billingNotices.createdAt))
+    .limit(1);
 
   return {
     accountClosedAt: row?.accountClosedAt ?? null,
@@ -253,11 +257,8 @@ export async function readStripFacts(tx: TenantTx, now: Date, auditsOn: boolean)
     entitlements: entitlement,
     channels,
     transcripts,
-    audit: {
-      changedAt: audits.change?.at ?? null,
-      overall: auditOverall({ pending: audits.pending, auditsOn, latest: audits.latest.map((r) => r.result) }),
-    },
-    lifecycle: { watched, reminder: reminder !== null && Number.isFinite(reminder) ? reminder : null },
+    audit: { changedAt: audits.change?.at ?? null, level: availabilityLevel(audits) },
+    lastReminderAt: reminder?.at ?? null,
   };
 }
 
@@ -281,34 +282,45 @@ export function stripRow(
     voice: voiceOf(facts),
     transcripts: facts.transcripts,
     usage: usageOf(facts.entitlements, now),
-    lastReminder: lastReminderOf(facts),
+    lastReminder: lastReminderOf(clinic, facts),
     blocking: blockersFor(clinic).find((b) => b.level === "blocked")?.message ?? null,
   };
 }
 
 /**
- * The Availability column: the newest change's time and the audits' overall
- * state, by the console's own rule (auditOverall). The contract's AuditLevel
- * has no `audits_off`: a change waiting while the clinic-audits job is off is
- * `never` (not audited), which the table draws as "changed, not audited"
- * because `changedAt` is set. Never null: every clinic has been measured.
+ * The Availability column: the newest change's time and the availability
+ * packs' level by Home's own rule (availabilityLevel): a change nobody will
+ * audit is `never`, drawn "changed, not audited" beside its time; a
+ * setup-state warning with no change since the last pass is not a warning.
+ * Never null: every clinic has been measured.
  */
 export function availabilityOf(facts: Pick<StripFacts, "audit">): ClinicStripRow["availability"] {
-  const { changedAt, overall } = facts.audit;
-  return { changedAt: changedAt ? changedAt.toISOString() : null, audit: overall === "audits_off" ? "never" : overall };
+  const { changedAt, level } = facts.audit;
+  return { changedAt: changedAt ? changedAt.toISOString() : null, audit: level };
 }
 
 /**
- * The Last reminder column: the setup-window day of the newest numbered
- * reminder the watch recorded (reminder n goes on day n × 5), `{day: null}`
- * for a watched clinic with none yet, and null for a clinic the watch has no
- * row for (a location, healdesk's demo clinic, or one it has not seen yet),
- * which the table draws as "not measured yet" rather than "none".
+ * The Last reminder column: the day of the CURRENT setup window (the one its
+ * deadline sets now, after any extension) on which the newest numbered
+ * setup reminder was queued, read from the outbox itself so it never freezes
+ * while the lifecycle watch is off. `{day: null}` for a clinic with a window
+ * and no reminder yet; null for a clinic with no setup window of its own (a
+ * location, healdesk's demo clinic, a clinic billed without one), drawn "not
+ * measured yet". A reminder from before an extension moved the window
+ * counts from the new start, never below day 0.
  */
-export function lastReminderOf(facts: Pick<StripFacts, "lifecycle">): ClinicStripRow["lastReminder"] {
-  if (!facts.lifecycle.watched) return null;
-  const n = facts.lifecycle.reminder;
-  return { day: n === null ? null : n * SETUP_REMINDER_EVERY_DAYS };
+export function lastReminderOf(
+  clinic: Pick<ClinicOverview, "timezone">,
+  facts: Pick<StripFacts, "entitlements" | "lastReminderAt">,
+): ClinicStripRow["lastReminder"] {
+  const deadline = facts.entitlements?.setupDeadlineAt ?? null;
+  if (!deadline) return null;
+  if (!facts.lastReminderAt) return { day: null };
+  const zone = validZone(clinic.timezone);
+  const start = setupWindowStart(deadline, zone);
+  const sent = clinicLocalDate(facts.lastReminderAt, zone);
+  const days = Math.round((Date.parse(`${sent}T12:00:00Z`) - Date.parse(`${start}T12:00:00Z`)) / DAY_MS);
+  return { day: Number.isFinite(days) ? Math.max(0, days) : null };
 }
 
 /**

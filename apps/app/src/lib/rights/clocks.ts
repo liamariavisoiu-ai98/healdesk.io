@@ -95,9 +95,10 @@ function isWeekday(day: Date): boolean {
 
 /**
  * Business days from `today` to `due`: the weekdays after today up to and
- * including the due day, so 0 on the due day itself (or a weekend before a
- * Monday due day), and negative once it has passed (the weekdays after the
- * due day up to and including today).
+ * including the due day, so 0 on the due day itself and 1 from a Saturday
+ * or a Sunday to a Monday due day; negative once it has passed (the weekdays
+ * after the due day up to and including today), which is 0 on the weekend
+ * after a Friday due day: use daysLeftFor for what a person reads.
  */
 export function businessDaysLeft(today: string, due: string): number {
   const from = new Date(`${today}T12:00:00Z`);
@@ -109,6 +110,16 @@ export function businessDaysLeft(today: string, due: string): number {
     if (isWeekday(d)) n += 1;
   }
   return n === 0 ? 0 : sign * n;
+}
+
+/**
+ * The days left a person reads: businessDaysLeft, but never 0 or more once
+ * the due day has passed (the weekend after a Friday due day counts no
+ * weekday, and "0 days left" would read as on time). Overdue is at most -1.
+ */
+export function daysLeftFor(today: string, due: string): number {
+  const n = businessDaysLeft(today, due);
+  return today > due ? Math.min(n, -1) : n;
 }
 
 export type RightsClockState = "on_time" | "due_soon" | "overdue";

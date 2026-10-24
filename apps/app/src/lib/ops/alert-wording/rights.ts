@@ -27,7 +27,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A patient-rights request has no route on the host yet",
     headline: "{clinicName} has a patient-rights request that cannot run on the host yet",
     whatHappened:
-      "{clinicName} has a patient-rights request that cannot run on the host yet. It is an erasure, an amendment, a correction or an export. Each needs the person's record id, and nothing on the host can find one from a name, a number or an address. The Patient rights page shows it as blocked, and its clock keeps running.",
+      "{clinicName} has a patient-rights request that cannot run on the host yet. An erasure, a correction or an export needs the person's contact id, and an amendment needs the practice's own words. Nothing on the host finds a contact id from a name, a number or an address. Nothing there takes the practice's words either. The Patient rights page shows it as blocked, and its clock keeps running.",
     whyItMatters:
       "The agreement gives us ten business days for it, and they count while it waits. The portal route that would let it run is not built yet, so a person must agree with the practice how it is handled in time.",
     steps: [
@@ -37,7 +37,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     ],
   },
   rights_request_due_soon: {
-    title: "Patient-rights request due in two business days",
+    title: "Rights request due within two business days",
     headline: "{clinicName} has a patient-rights request due within two business days",
     whatHappened:
       "{clinicName} has a patient-rights request due within two business days. It is an erasure, an amendment, a correction, an export or a patient's own request still to pass on. Nothing on our side has marked it done.",

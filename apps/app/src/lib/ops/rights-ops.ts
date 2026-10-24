@@ -110,7 +110,7 @@ export async function opRecordRightsIntake(
   const verifiedVia = args.verifiedVia as RightsVerification;
   if (!isIsoDay(args.receivedOn)) return opsProblem("The day received is YYYY-MM-DD.", 400, "invalid_args");
   const receivedOn = args.receivedOn;
-  // A day ahead of UTC's is allowed for a clinic west of it whose day is not over; never later.
+  // A day ahead of UTC's is allowed: a clinic east of UTC can already be in tomorrow. Never later.
   if (receivedOn > utcDay(new Date(now.getTime() + 24 * 60 * 60 * 1000))) {
     return opsProblem("A request cannot be received after today.", 400, "invalid_args");
   }

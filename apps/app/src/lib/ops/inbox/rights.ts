@@ -16,7 +16,7 @@ import type { InboxRow, InboxSource } from "./types";
 export const RIGHTS_HREF = "/admin/rights";
 
 function requests(n: number): string {
-  return n === 1 ? "1 patient request" : `${n} patient requests`;
+  return n === 1 ? "1 patient-rights request" : `${n} patient-rights requests`;
 }
 
 export function dueSoonSentence(n: number): string {

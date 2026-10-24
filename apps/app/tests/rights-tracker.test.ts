@@ -9,11 +9,12 @@ import {
   backupExpiresOn,
   businessDaysLeft,
   clockState,
+  daysLeftFor,
   dueOnFor,
   RIGHTS_CLOCKS,
   RIGHTS_KINDS,
 } from "@/lib/rights/clocks";
-import { NO_OPERATOR, NO_ROUTE, prepareCommand, RUN_TASK } from "@/lib/rights/commands";
+import { NO_OPERATOR, NO_ROUTE, NO_ROUTE_AMENDMENT, NO_ROUTE_CORRECTION, prepareCommand, RUN_TASK } from "@/lib/rights/commands";
 import { listRights, MATCHED_NOTE, RETELL_OUTSTANDING, type RightsRow } from "@/lib/rights/tracker";
 import { JOB_RIGHTS_WATCH, rightsAlertsFor, runRightsWatchJob, watchRights } from "@/lib/scheduler/rights-watch";
 import { getJob } from "@/lib/scheduler/jobs";
@@ -71,6 +72,14 @@ describe("the clocks", () => {
     expect(businessDaysLeft("2026-10-27", "2026-10-26")).toBe(-1);
     expect(businessDaysLeft("2026-10-31", "2026-10-30")).toBe(0); // Sat after a Friday due day
     expect(businessDaysLeft("2026-11-02", "2026-10-30")).toBe(-1);
+  });
+
+  test("what a person reads never says 0 days left once the day has passed", () => {
+    expect(daysLeftFor("2026-10-31", "2026-10-30")).toBe(-1); // Sat after a Friday due day
+    expect(daysLeftFor("2026-11-01", "2026-10-30")).toBe(-1);
+    expect(daysLeftFor("2026-11-03", "2026-10-30")).toBe(-2);
+    expect(daysLeftFor("2026-10-30", "2026-10-30")).toBe(0);
+    expect(daysLeftFor("2026-10-24", "2026-10-26")).toBe(1);
   });
 
   test("due soon is two business days or fewer; past the day is overdue", () => {
@@ -147,11 +156,24 @@ describe("the prepared commands", () => {
   });
 
   test("a request with no contact id is blocked, with the sentence in place of a command; an amendment always is", () => {
-    for (const kind of ["erasure", "export", "correction", "amendment"] as const) {
+    for (const kind of ["erasure", "export", "correction"] as const) {
       expect(prepareCommand({ ...base, kind }), kind).toEqual({ command: null, note: NO_ROUTE, blocked: true });
     }
-    expect(prepareCommand({ ...base, kind: "amendment", contactId: CONTACT, requestedBy: "practice" }).blocked).toBe(true);
     expect(NO_ROUTE).toBe("No portal route yet turns this request into a contact id");
+    // An amendment needs the practice's words, not a contact id: its own note, contact id or not.
+    for (const contactId of [null, CONTACT]) {
+      expect(prepareCommand({ ...base, kind: "amendment", contactId, requestedBy: "practice" })).toEqual({
+        command: null,
+        note: NO_ROUTE_AMENDMENT,
+        blocked: true,
+      });
+    }
+    // A correction with new values rather than fields to clear: its own note.
+    expect(prepareCommand({ ...base, kind: "correction", contactId: CONTACT, requestedBy: "practice" })).toEqual({
+      command: null,
+      note: NO_ROUTE_CORRECTION,
+      blocked: true,
+    });
   });
 
   test("a shell metacharacter in the operator's address never reaches the line", () => {
@@ -241,10 +263,10 @@ describe("which alerts a request is owed", () => {
 
 describe("Home's sentences", () => {
   test("count, plainly", () => {
-    expect(dueSoonSentence(1)).toBe("1 patient request is due within two business days.");
-    expect(dueSoonSentence(3)).toBe("3 patient requests are due within two business days.");
-    expect(overdueSentence(1)).toBe("1 patient request is past its date.");
-    expect(overdueSentence(2)).toBe("2 patient requests are past their date.");
+    expect(dueSoonSentence(1)).toBe("1 patient-rights request is due within two business days.");
+    expect(dueSoonSentence(3)).toBe("3 patient-rights requests are due within two business days.");
+    expect(overdueSentence(1)).toBe("1 patient-rights request is past its date.");
+    expect(overdueSentence(2)).toBe("2 patient-rights requests are past their date.");
   });
 });
 
@@ -548,7 +570,7 @@ describeDb("the rights tracker, against the database", () => {
     const passedOn = await seedPatientRequest(c.clinicId, "2026-10-12T10:00:00Z", "2026-10-19");
     await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = $1`, [JOB_RIGHTS_WATCH]);
 
-    // Thursday 20 October... the erasure's due day is 22 October: two business days left.
+    // Tuesday 20 October; the erasure's due day is Thursday 22 October: two business days left.
     expect((await runRightsWatchJob({ now: new Date("2026-10-20T08:00:00Z") })).status).toBe("ok");
     expect(await alertsOf("rights_request_blocked", c.clinicId)).toEqual([{ clinicId: c.clinicId, requestId: blocked.id }]);
     expect(await alertsOf("rights_request_due_soon", c.clinicId)).toEqual([{ clinicId: c.clinicId, requestId: blocked.id }]);
@@ -657,7 +679,7 @@ describeDb("the rights tracker, against the database", () => {
         id: "rights:overdue",
         kind: "rights",
         count: 1,
-        sentence: "1 patient request is past its date.",
+        sentence: "1 patient-rights request is past its date.",
         clinic: null,
         button: { label: "Open patient rights", kind: "link", href: "/admin/rights" },
         tone: "bad",
@@ -667,7 +689,7 @@ describeDb("the rights tracker, against the database", () => {
         id: "rights:due_soon",
         kind: "rights",
         count: 2,
-        sentence: "2 patient requests are due within two business days.",
+        sentence: "2 patient-rights requests are due within two business days.",
         clinic: null,
         button: { label: "Open patient rights", kind: "link", href: "/admin/rights" },
         tone: "warn",

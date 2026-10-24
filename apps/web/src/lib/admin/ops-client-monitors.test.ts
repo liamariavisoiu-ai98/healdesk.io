@@ -29,7 +29,7 @@ import {
   retryVoiceAgent,
 } from "@/lib/admin/ops-client";
 import { __resetStepLedgerForTests, base32Decode, hotp, totpStep } from "@/lib/admin/totp";
-import { clearVoiceDriftFlag, retryVoiceAgentWithCode } from "@/lib/admin/voice-drift";
+import { clearVoiceDriftFlagWithCode, retryVoiceAgentWithCode } from "@/lib/admin/voice-drift";
 
 const CLINIC = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 const APPT = "5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a";
@@ -159,7 +159,7 @@ describe("clearing a drift flag", () => {
   test("with a fresh code: the clinic alone crosses, never the code, and each outcome is read", async () => {
     reply({ outcome: "cleared", check: "repaired", problems: ["fallback"] });
     const code = fresh();
-    expect(await clearVoiceDriftFlag(CLINIC, code)).toEqual({
+    expect(await clearVoiceDriftFlagWithCode(CLINIC, code)).toEqual({
       ok: true,
       data: { outcome: "cleared", check: "repaired", problems: ["fallback"] },
     });
@@ -178,20 +178,20 @@ describe("clearing a drift flag", () => {
 
   test("a wrong, missing or reused code is code_refused and nothing is sent", async () => {
     for (const code of ["000000", undefined, ""]) {
-      const result = await clearVoiceDriftFlag(CLINIC, code);
+      const result = await clearVoiceDriftFlagWithCode(CLINIC, code);
       expect(result).toMatchObject({ ok: true, data: { outcome: "code_refused" } });
     }
     expect(sent).toEqual([]);
     const code = fresh();
     reply({ outcome: "not_flagged" });
-    await clearVoiceDriftFlag(CLINIC, code);
-    expect(await clearVoiceDriftFlag(CLINIC, code)).toMatchObject({ ok: true, data: { outcome: "code_refused" } });
+    await clearVoiceDriftFlagWithCode(CLINIC, code);
+    expect(await clearVoiceDriftFlagWithCode(CLINIC, code)).toMatchObject({ ok: true, data: { outcome: "code_refused" } });
     expect(sent).toHaveLength(1);
   });
 
   test("without a session nothing is checked or sent", async () => {
     session.operator = null;
-    expect(await clearVoiceDriftFlag(CLINIC, fresh())).toMatchObject({ ok: false, code: "unauthenticated" });
+    expect(await clearVoiceDriftFlagWithCode(CLINIC, fresh())).toMatchObject({ ok: false, code: "unauthenticated" });
     expect(sent).toEqual([]);
   });
 
@@ -309,7 +309,12 @@ describe("the two voice acts that change Retell go only through the fresh code",
     expect(JSON.stringify(sent)).not.toContain(code);
   });
 
-  test("nothing in apps/web but voice-drift.ts imports the raw retryVoiceAgent or clearVoiceDriftFlag", () => {
+  test("nothing in apps/web source names the raw retryVoiceAgent or clearVoiceDriftFlag but ops-client.ts and voice-drift.ts", () => {
+    // Any occurrence of either identifier, however it got there: a named or
+    // aliased import, a re-export, a dynamic import, destructuring from a
+    // namespace, a cast alias's property. The gated wrappers are
+    // retryVoiceAgentWithCode and clearVoiceDriftFlagWithCode, which a word
+    // boundary keeps apart. Test files are allowed: they test the raw readers.
     const root = join(__dirname, "../..");
     const files: string[] = [];
     const walk = (dir: string) => {
@@ -317,28 +322,23 @@ describe("the two voice acts that change Retell go only through the fresh code",
         const path = join(dir, name);
         if (statSync(path).isDirectory()) {
           if (name !== "node_modules" && !name.startsWith(".")) walk(path);
-        } else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) {
+        } else if (/\.(ts|tsx|js|jsx|mjs)$/.test(name) && !/\.test\.[jt]sx?$/.test(name)) {
           files.push(path);
         }
       }
     };
     walk(root);
     expect(files.length).toBeGreaterThan(50);
-    const offenders = files.filter((file) => {
-      if (file.endsWith(join("lib", "admin", "voice-drift.ts")) || file.endsWith(join("lib", "admin", "ops-client.ts"))) {
-        return false;
-      }
-      const source = readFileSync(file, "utf8");
-      for (const m of source.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["'][^"']*ops-client["']/g)) {
-        const names = m[1]!.split(",").map((n) => n.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]!.trim());
-        if (names.includes("retryVoiceAgent") || names.includes("clearVoiceDriftFlag")) return true;
-      }
-      // A namespace import (clinic-strip.ts has one) may not reach them either.
-      for (const m of source.matchAll(/\*\s+as\s+(\w+)\s+from\s*["'][^"']*ops-client["']/g)) {
-        if (new RegExp(`\\b${m[1]}\\s*(?:\\.|\\[["'])\\s*(?:retryVoiceAgent|clearVoiceDriftFlag)\\b`).test(source)) return true;
-      }
-      return false;
-    });
+    const allowed = [join("lib", "admin", "ops-client.ts"), join("lib", "admin", "voice-drift.ts")];
+    const offenders = files.filter(
+      (file) =>
+        !allowed.some((end) => file.endsWith(end)) &&
+        /\b(?:retryVoiceAgent|clearVoiceDriftFlag)\b/.test(readFileSync(file, "utf8")),
+    );
     expect(offenders).toEqual([]);
+    // clinic-strip.ts reads the ops client through a namespace, and names neither.
+    const strip = readFileSync(join(root, "lib", "admin", "clinic-strip.ts"), "utf8");
+    expect(strip).toMatch(/import \* as ops from "@\/lib\/admin\/ops-client"/);
+    expect(strip).not.toMatch(/retryVoiceAgent|clearVoiceDriftFlag/);
   });
 });

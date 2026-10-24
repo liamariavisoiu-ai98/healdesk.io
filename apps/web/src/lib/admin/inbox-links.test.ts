@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { CARD_ANCHORS, ISSUE_TABS, SYSTEM_ANCHORS } from "./issue-link";
+import { CARD_ANCHORS, ISSUE_TABS, QUEUE_ANCHORS, SYSTEM_ANCHORS } from "./issue-link";
 
 /**
  * Every console address apps/app's inbox sources carry (lib/ops/inbox/*.ts:
@@ -78,6 +78,9 @@ describe("the addresses apps/app's inbox sources carry", () => {
     expect(hrefs).toContain("/admin/system/jobs");
     expect(hrefs).toContain(`/admin/clinics/${CLINIC}/deliveries`);
     expect(hrefs).toContain(`/admin/clinics/${CLINIC}/setup#setup-window`);
+    // Phase 6: the approval inbox and the patient-rights tracker.
+    expect(hrefs).toContain("/admin/queues#approvals");
+    expect(hrefs).toContain("/admin/rights");
   });
 
   test("each opens a page that exists and an anchor that is rendered", () => {
@@ -103,6 +106,9 @@ describe("the addresses apps/app's inbox sources carry", () => {
     }
     for (const anchor of SYSTEM_ANCHORS) {
       expect(sourcesUnder(join(APP, "admin", "system")).some((text) => text.includes(`id="${anchor}"`)), anchor).toBe(true);
+    }
+    for (const anchor of QUEUE_ANCHORS) {
+      expect(sourcesUnder(join(APP, "admin", "queues")).some((text) => text.includes(`id="${anchor}"`)), anchor).toBe(true);
     }
   });
 });

@@ -166,6 +166,14 @@ export type CardAnchor = (typeof CARD_ANCHORS)[number];
  */
 export const SYSTEM_ANCHORS = ["attention", "calendar-writes", "transcripts"] as const;
 
+/**
+ * The sections of the Queues page that Home's rows and the no-clinic alerts
+ * open (lane P6b): the approval inbox, which `approval_waiting` and Home's
+ * approval rows link to as `/admin/queues#approvals`. Listed for the same
+ * one test; the Patient rights page (`/admin/rights`) has no anchor.
+ */
+export const QUEUE_ANCHORS = ["approvals"] as const;
+
 /** The voice events about the agent and number at Retell, which the Setup tab's "Voice agent" card acts on. */
 const VOICE_CARD: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "voice_provision_failed",

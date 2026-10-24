@@ -22,8 +22,21 @@ vi.mock("@/lib/admin/ops-client", () => {
   const never = async () => {
     throw new Error("the host must not be read in standby");
   };
-  return { fetchPracticeReviews: never, fetchAgreementReviews: never, fetchSupportRequests: never, fetchRecordingAlerts: never, fetchSiteReadFailures: never };
+  return {
+    fetchPracticeReviews: never,
+    fetchAgreementReviews: never,
+    fetchSupportRequests: never,
+    fetchRecordingAlerts: never,
+    fetchSiteReadFailures: never,
+    fetchApprovals: never,
+    fetchApprovalHistory: never,
+  };
 });
+vi.mock("@/lib/admin/approval-decide", () => ({
+  decideApprovalWithCode: async () => {
+    throw new Error("no decision is made during a render");
+  },
+}));
 
 const { default: QueuesPage } = await import("./page");
 
@@ -54,5 +67,8 @@ describe("/admin/queues in standby", () => {
     expect(html).toContain("No lead register is configured");
     expect(html).not.toContain('id="reviews"');
     expect(html).not.toContain('id="support"');
+    expect(html).not.toContain('id="approvals"');
+    // The section is still in the page's own nav, first: the owner's money decisions.
+    expect(html).toContain('href="#approvals"');
   });
 });

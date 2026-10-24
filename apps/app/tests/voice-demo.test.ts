@@ -41,9 +41,10 @@ import { log } from "@/lib/log";
 import {
   DEMO_TIME_ZONE,
   demoAssistantFacts,
-  demoCallNote,
   demoContextFromCall,
   demoDuration,
+  demoIntroNote,
+  demoOngoingNote,
   demoPrice,
   demoTimeZone,
 } from "@/lib/voice/demo-facts";
@@ -71,6 +72,7 @@ function context(overrides: Partial<DemoCallContext> = {}): DemoCallContext {
     mode: "browser",
     firstName: "Sam",
     issuedAt: Date.now(),
+    offer: null,
     clinic: {
       clinicName: "Lumen Aesthetics",
       summary: "A boutique med spa in downtown Austin.",
@@ -229,16 +231,49 @@ describe("a demo call's facts", () => {
     }
   });
 
-  test("the note says who is calling, what to show and the role-play, and keeps to 'your patients'", () => {
-    const note = demoCallNote(context());
+  test("the intro note says who is calling, gives the A/B choice and keeps to 'your patients'", () => {
+    const note = demoIntroNote(context());
     expect(note).toContain("live demo for Sam");
     expect(note).toContain("Lumen Aesthetics's team");
-    expect(note).toMatch(/role-play/);
+    expect(note).toMatch(/hear what I've learned about Lumen Aesthetics, or jump straight into a role-play/);
     expect(note).toMatch(/English and Spanish/);
     expect(note).toMatch(/Never mention a website, scraping/);
     expect(note).toContain('Say "your patients", never "our patients"');
     expect(note).toMatch(/no flirting/);
-    expect(demoCallNote(context({ firstName: null }))).toContain("live demo for the caller");
+    expect(demoIntroNote(context({ firstName: null }))).toContain("live demo for the caller");
+  });
+
+  test("the ongoing note keeps the name and role-play state without repeating the opening", () => {
+    const now = Date.now();
+    const note = demoOngoingNote(context(), now);
+    expect(note).toContain("still the live demo for Sam");
+    expect(note).toMatch(/Keep everything said earlier in this call in mind, their name included/);
+    expect(note).toMatch(/stay fully in that role/);
+    expect(note).not.toMatch(/role-play where you call in as one of your patients\?/);
+    expect(note).not.toMatch(/jump straight into a role-play/);
+    expect(demoOngoingNote(context({ firstName: null }), now)).toContain("still the live demo for the caller");
+  });
+
+  test("the ongoing note mentions a live discount only while it is live, as a percentage and a window, never a dollar amount", () => {
+    const now = Date.now();
+    const live = demoOngoingNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), now);
+    expect(live).toMatch(/50% off healdesk's setup fee, with about 10 hours left on it/);
+    expect(live).toMatch(/never a dollar amount/);
+    // A spoken sentence in the shape the note asks for trips nothing the guard
+    // checks: no dollar sign, currency word or code, so amountsIn finds none,
+    // and "hours left" (the unit right after the number) is not read as a
+    // dose-like figure the way "10 more hours" would be (guard.ts PLAIN_CLINICAL).
+    const facts = demoAssistantFacts(context());
+    expect(guardAssistantReply("There's actually a 50% discount on healdesk's setup fee, with about 10 hours left on it.", facts)).toEqual({ ok: true });
+
+    const almostOver = demoOngoingNote(context({ offer: { percentOfSetupFee: 30, endsAt: now + 30 * 60_000 } }), now);
+    expect(almostOver).toMatch(/30% off healdesk's setup fee, with about 1 hour left on it\b/);
+
+    const ended = demoOngoingNote(context({ offer: { percentOfSetupFee: 50, endsAt: now - 1_000 } }), now);
+    expect(ended).not.toMatch(/% off healdesk's setup fee/);
+
+    const none = demoOngoingNote(context({ offer: null }), now);
+    expect(none).not.toMatch(/% off healdesk's setup fee/);
   });
 });
 
@@ -320,6 +355,16 @@ describe("a demo call on the voice engine", () => {
     expect(m.seen[0]!.stable).toContain("- Laser Hair Removal: no price is quoted: offer a consultation");
     // The same rules as a clinic's call: the opener says AYA is an AI, and it is the same prompt.
     expect(m.seen[0]!.stable).toContain("You are the AI assistant answering the phone for Lumen Aesthetics, a med spa.");
+
+    // A second turn gets the shorter ongoing note, not the opening repeated
+    // (owner, 24 October 2026: repeating the opening's script was why she
+    // seemed to forget the caller's name deep into a role-play).
+    await s.handle(said(2, [{ role: "agent", content: heard().at(-1)!.content }, { role: "user", content: "can I book one for Friday" }]));
+    expect(m.seen).toHaveLength(2);
+    expect(m.seen[1]!.turn).toContain("still the live demo for Sam");
+    expect(m.seen[1]!.turn).toMatch(/Keep everything said earlier in this call in mind, their name included/);
+    expect(m.seen[1]!.turn).not.toContain("what you do for Lumen Aesthetics from start to finish");
+    expect(m.seen[1]!.turn).not.toMatch(/Want to hear what I've learned/);
 
     expect(await s.finish()).toBeNull();
     expect(touched).toEqual([]);

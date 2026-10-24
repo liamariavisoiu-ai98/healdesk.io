@@ -307,11 +307,24 @@ describe("borrowed from full-duplex speech (owner, 24 October 2026)", () => {
   test("the prompt asks for the answer word first, matched energy, short small talk, and a bad line picked back up", () => {
     const prompt = buildAssistantPrompt(FACTS, "voice");
     expect(prompt).toMatch(/Lead with the answer itself/);
-    expect(prompt).toMatch(/Match their energy/);
+    expect(prompt).toMatch(/match their energy/);
+    expect(prompt).toMatch(/and their pace/);
     expect(prompt).toMatch(/never claim a body, a life, or experiences you cannot have/);
     expect(prompt).toMatch(/pick the thread back up/);
     // Website chat is not a call: none of it.
     expect(buildAssistantPrompt(FACTS, "web_chat")).not.toMatch(/Lead with the answer itself|breaking up/);
+  });
+
+  test("the prompt asks for confidence, relating to something personal, laughter only when it's earned, and asking again instead of giving up (owner, 24 October 2026)", () => {
+    const prompt = buildAssistantPrompt(FACTS, "voice");
+    expect(prompt).toMatch(/Sound confident and glad to help, never flat, hedging or unsure of yourself/);
+    expect(prompt).toMatch(/If they mention something personal in passing/);
+    expect(prompt).toMatch(/relate to what that must be like for them, without claiming any experience of your own/);
+    expect(prompt).toMatch(/Only laugh, or say "ha" or "haha", when they have actually said something funny/);
+    expect(prompt).toMatch(/never say you can't help, or offer to pass things to the team, just because you missed a word or two/);
+    expect(prompt).not.toContain("Ha, sounds brutal");
+    expect(prompt).not.toContain("Ha, fair enough");
+    expect(prompt).not.toContain("Ha, no worries");
   });
 });
 

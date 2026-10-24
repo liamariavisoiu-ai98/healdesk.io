@@ -5,8 +5,15 @@
  * where each value's reason is), and the demo engine agent, written by
  * apps/web's script (scripts/retell-demo-engine-agent.ts). The demo AYA and
  * the client AYA are one assistant (owner, 24 October 2026).
+ *
+ * `stt_mode: "fast"` is Retell's own default; it is written here, not left
+ * to default, so a dashboard switched to "accurate" for one test call (which
+ * adds real seconds to every reply, the owner's repeated "still too slow")
+ * is put back the moment that agent is next synced, and the drift check
+ * catches it meanwhile, rather than a setting only a person remembers to undo.
  */
 export const RETELL_CALL_SETTINGS = {
+  stt_mode: "fast",
   enable_backchannel: true,
   backchannel_frequency: 0.7,
   backchannel_words: ["mm-hmm", "uh-huh", "yeah", "I see"],
@@ -19,6 +26,11 @@ export const RETELL_CALL_SETTINGS = {
   reminder_trigger_ms: 8_000,
   reminder_max_count: 3,
   pronunciation_dictionary: [
+    // "AYA" is how the assistant writes her own name (disclosure.ts,
+    // prompt.ts): spoken as the name "Aya" (rhymes with "Maya" without the
+    // M), never spelled out letter by letter (owner, 24 October 2026). Listen
+    // on the demo agent and correct the phoneme if a voice reads it wrong.
+    { word: "AYA", alphabet: "ipa", phoneme: "ˈaɪə" },
     { word: "Juvederm", alphabet: "ipa", phoneme: "ˈdʒuvədɝm" },
     { word: "Restylane", alphabet: "ipa", phoneme: "ˈrɛstəleɪn" },
     { word: "Dysport", alphabet: "ipa", phoneme: "ˈdɪspɔɹt" },

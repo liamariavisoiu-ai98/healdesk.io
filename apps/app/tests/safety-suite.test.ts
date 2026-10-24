@@ -172,7 +172,7 @@ for (const channel of CHANNELS) {
           const r = results[0]!;
           expect(model.calls).toHaveLength(1);
           expect(r.source).toBe("guard");
-          expect(r.reply).toBe(guardedLine(r.guard!, SAFETY_FACTS.clinicName));
+          expect(r.reply).toBe(guardedLine(r.guard!, SAFETY_FACTS.clinicName, "en", channel === "voice"));
           expect(r.reply).not.toContain(c.reply);
         });
       }
@@ -224,8 +224,8 @@ for (const channel of CHANNELS) {
           const language = obeyed && messageLanguage(obeyed) === "es" ? "es" : "en";
           // Or, where that line was the last thing said, the handover in its place (turn.ts: no refusal said twice running).
           if (last.source === "guard") {
-            expect([guardedLine(last.guard!, SAFETY_FACTS.clinicName, language), movingOnLine(SAFETY_FACTS.clinicName, language)]).toContain(last.reply);
-            if (last.reply === movingOnLine(SAFETY_FACTS.clinicName, language)) expect(last.handoff).toBe(true);
+            expect([guardedLine(last.guard!, SAFETY_FACTS.clinicName, language, channel === "voice"), movingOnLine(SAFETY_FACTS.clinicName, language, channel === "voice")]).toContain(last.reply);
+            if (last.reply === movingOnLine(SAFETY_FACTS.clinicName, language, channel === "voice")) expect(last.handoff).toBe(true);
           }
         });
       }
@@ -314,9 +314,9 @@ for (const channel of CHANNELS) {
         { label: "the model throws", answer: () => { throw new Error("upstream 529"); }, source: "fallback", reply: FAILURE_LINE },
         { label: "the model times out", answer: () => Promise.reject(Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" })), source: "fallback", reply: FAILURE_LINE },
         { label: "the model refuses", answer: () => ({ refused: true, category: "cyber" }), source: "refusal", reply: refusalLine(SAFETY_FACTS, channel) },
-        { label: "empty output", answer: () => "", source: "guard", reply: guardedLine("empty", SAFETY_FACTS.clinicName) },
-        { label: "whitespace output", answer: () => "   \n  ", source: "guard", reply: guardedLine("empty", SAFETY_FACTS.clinicName) },
-        { label: "JSON with no usable reply", answer: () => JSON.stringify({ reply: 42 }), source: "guard", reply: guardedLine("empty", SAFETY_FACTS.clinicName) },
+        { label: "empty output", answer: () => "", source: "guard", reply: guardedLine("empty", SAFETY_FACTS.clinicName, "en", channel === "voice") },
+        { label: "whitespace output", answer: () => "   \n  ", source: "guard", reply: guardedLine("empty", SAFETY_FACTS.clinicName, "en", channel === "voice") },
+        { label: "JSON with no usable reply", answer: () => JSON.stringify({ reply: 42 }), source: "guard", reply: guardedLine("empty", SAFETY_FACTS.clinicName, "en", channel === "voice") },
       ];
       for (const c of cases) {
         test(c.label, async () => {

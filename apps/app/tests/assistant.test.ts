@@ -941,7 +941,7 @@ describe("the prompt", () => {
   });
 
   test("the clinic's tone changes how it speaks", () => {
-    expect(buildAssistantPrompt(FACTS, "voice")).toMatch(/Be warm, welcoming and unhurried/);
+    expect(buildAssistantPrompt(FACTS, "voice")).toMatch(/Be warm, upbeat and quick/);
     const clinical = buildAssistantPrompt({ ...FACTS, tone: "clinical" }, "voice");
     expect(clinical).toMatch(/Be calm, brief and precise/);
     expect(clinical).not.toMatch(/Be warm/);
@@ -1284,10 +1284,10 @@ describe("answerTurn", () => {
     expect(chat).toMatchObject({ source: "refusal", urgent: false, handoff: false });
     expect(chat.guard).toBeUndefined();
     expect(chat.reply).toBe(refusalLine(FACTS, "web_chat"));
-    expect(chat.reply).toBe("Sorry, that's not something I can help with. The team at Radiance Med Spa can: please call them on (415) 555-0199.");
+    expect(chat.reply).toBe("That's not something I can help with. The team at Radiance Med Spa can: please call them on (415) 555-0199.");
     expect(chat.reply).not.toBe(FAILURE_LINE);
     expect(refusalLine({ ...FACTS, phone: null, urgentPhone: null }, "web_chat")).toBe(
-      "Sorry, that's not something I can help with. The team at Radiance Med Spa can help, and they get back to people within a day.",
+      "That's not something I can help with. The team at Radiance Med Spa can help, and they get back to people within a day.",
     );
     // On a call, which came in on the main number, the number that reaches a person.
     const call = await answerTurn({ facts: FACTS, channel: "voice", history: [], text: "hi", responder: refusing });
@@ -1328,7 +1328,7 @@ describe("answerTurn", () => {
       responder: reply("Perfect, Dana, you're booked for Tuesday at 3pm.", { booking: { wants: true, first_name: "Dana", window: "Tuesday at 3" } }),
     });
     expect(result).toMatchObject({ source: "guard", guard: "booking_confirmation" });
-    expect(result.reply).toBe(guardedLine("booking_confirmation", FACTS.clinicName));
+    expect(result.reply).toBe(guardedLine("booking_confirmation", FACTS.clinicName, "en", true));
     expect(result.capture).toMatchObject({ wants: true, firstName: "Dana", window: "Tuesday at 3" });
   });
 

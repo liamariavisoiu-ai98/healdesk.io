@@ -100,7 +100,7 @@ describe("the booking loop of the 23 October test call", () => {
       responder: refused,
     });
     expect(second.source).toBe("guard");
-    expect(second.reply).toBe(movingOnLine("Lumen Aesthetics"));
+    expect(second.reply).toBe(movingOnLine("Lumen Aesthetics", "en", true));
     expect(second.reply).not.toBe(first.reply);
     expect(second.handoff).toBe(true);
     expect(guardAssistantReply(second.reply, FACTS)).toEqual({ ok: true });

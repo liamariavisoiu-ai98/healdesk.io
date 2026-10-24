@@ -13,8 +13,8 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/email/outbox", () => ({ deliverCriticalAfterCommit: async () => {} }));
 
 import type { AssistantFacts } from "@/lib/assistant/facts";
-import { guardedLine } from "@/lib/assistant/guard";
-import { SPOKEN_END } from "@/lib/assistant/prompt";
+import { guardedLine, movingOnLine, type GuardRefusal } from "@/lib/assistant/guard";
+import { buildAssistantPrompt, SPOKEN_END } from "@/lib/assistant/prompt";
 import { answerTurn, SpokenStream, withoutRepeats, type AssistantResponder } from "@/lib/assistant/turn";
 import { log } from "@/lib/log";
 import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
@@ -125,7 +125,7 @@ describe("the reply spoken as it is written", () => {
     const text = heard()[1]!.content;
     expect(text).toContain("Happy to help with that today.");
     expect(text).not.toMatch(/six months|love them/);
-    expect(text.endsWith(guardedLine("clinical", FACTS.clinicName))).toBe(true);
+    expect(text.endsWith(guardedLine("clinical", FACTS.clinicName, "en", true))).toBe(true);
     await s.finish();
   });
 
@@ -235,5 +235,35 @@ describe("never the same sentence twice in a row (owner, 24 October 2026)", () =
     // Website chat is not a call: left as written.
     const chat = await answerTurn({ facts: FACTS, channel: "web_chat", history, text: "nails", responder: async () => JSON.stringify({ reply: "Which day suits you best? Friday is open." }) });
     expect(chat.reply).toBe("Which day suits you best? Friday is open.");
+  });
+});
+
+describe("on a call, nothing said earlier is said again, and the fixed lines are spoken ones", () => {
+  test("a whole sentence from earlier in the call is left out; a short one may come back", () => {
+    const earlier = ["We do nails Monday to Saturday, nine to six. Anything else I can help with?"];
+    expect(withoutRepeats("We do nails Monday to Saturday, nine to six. Friday works.", ["Lovely."], earlier)).toBe("Friday works.");
+    expect(withoutRepeats("Anything else I can help with?", ["Lovely."], earlier)).toBe("Anything else I can help with?");
+  });
+
+  test("the guard's lines on a call are short, never name the clinic, and keep their offer", () => {
+    const reasons: GuardRefusal[] = ["price", "clinical", "payment_details", "human_claim", "booking_confirmation", "never_say", "empty"];
+    for (const language of ["en", "es"] as const) {
+      for (const reason of reasons) {
+        const spoken = guardedLine(reason, "Lumen Aesthetics", language, true);
+        expect(spoken, reason).not.toContain("Lumen Aesthetics");
+        expect(spoken.split(" ").length, reason).toBeLessThanOrEqual(25);
+        expect(spoken, reason).not.toMatch(/\b(sorry|lo siento)\b/i);
+      }
+      expect(movingOnLine("Lumen Aesthetics", language, true)).not.toContain("Lumen Aesthetics");
+    }
+    expect(guardedLine("clinical", "Lumen Aesthetics", "en", true)).toMatch(/consultation/);
+    expect(guardedLine("human_claim", "Lumen Aesthetics", "en", true)).toMatch(/AI assistant, not a person/);
+    // Written channels keep the written lines.
+    expect(guardedLine("clinical", "Lumen Aesthetics")).toContain("Lumen Aesthetics");
+  });
+
+  test("the prompt names the kind of practice", () => {
+    expect(buildAssistantPrompt(FACTS, "voice")).toMatch(/for Lumen Aesthetics, a med spa\./);
+    expect(buildAssistantPrompt({ ...FACTS, specialty: null }, "voice")).toMatch(/for Lumen Aesthetics, a practice\./);
   });
 });

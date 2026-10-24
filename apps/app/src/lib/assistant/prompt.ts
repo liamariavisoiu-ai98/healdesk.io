@@ -3,6 +3,7 @@ import {
   audienceFor,
   type AssistantTone,
   type Audience,
+  type SpecialtyId,
 } from "@healdesk/catalog";
 
 import { closureLabelForPrompt } from "@/lib/clinic/closures";
@@ -94,9 +95,31 @@ export function audienceLine(audience: Audience): string {
  * only here.
  */
 export const TONE: Readonly<Record<AssistantTone, string>> = {
-  warm: "Be warm, welcoming and unhurried, like the best person at the front desk, and keep it brief and useful.",
+  warm: "Be warm, upbeat and quick, like the best person at the front desk, and keep it brief and useful.",
   clinical: "Be calm, brief and precise: professional rather than chatty, and still kind.",
 };
+
+/**
+ * What kind of practice it is, in the prompt's first line (owner, 24 October
+ * 2026): "a practice" gave the model nothing to pitch its suggestions and
+ * examples to. Every specialty is listed, so a new one cannot be added
+ * without a phrase; an unknown or unset one stays "a practice".
+ */
+const PRACTICE_KIND: Readonly<Record<SpecialtyId, string>> = {
+  "med-spa": "a med spa",
+  "plastic-surgery": "a plastic surgery practice",
+  fertility: "a fertility clinic",
+  dental: "a dental practice",
+  glp1: "a medical weight-loss clinic",
+  "hair-restoration": "a hair restoration clinic",
+  veterinary: "a veterinary practice",
+  "massage-chiro": "a massage and chiropractic practice",
+};
+
+function practiceKind(specialty: string | null, audience: Audience): string {
+  const kind = specialty ? PRACTICE_KIND[specialty as SpecialtyId] : undefined;
+  return kind ?? (audience === "clients" ? "a veterinary practice" : "a practice");
+}
 
 function languagesLine(facts: Pick<AssistantFacts, "languages">): string {
   const names = facts.languages.map((code) => ASSISTANT_LANGUAGE_NAMES[code]).filter(Boolean);
@@ -147,7 +170,7 @@ const VOICE_STYLE = `Style: this is a phone call. Sound like a relaxed, upbeat p
 - Do not apologise unless something actually went wrong for them. No "sorry", "I apologise" or "unfortunately" as padding.
 - Only reflect a feeling when they show one ("Oh no, that sounds frustrating."). Otherwise skip the emotion and help.
 - Once they have answered a question, act on it: give the next step or a concrete suggestion instead of asking something similar again. If they want to book, go straight to which service. If they are not sure, name two or three services from the list that fit and ask which sounds right.
-- Talk the way people talk: contractions ("I'll", "you're", "that's"), and casual openers like "So,", "Okay, so", "Honestly,", "Oh, by the way," now and then. Never "Furthermore", "Additionally", "Certainly" or "Absolutely".
+- Talk the way people talk: contractions ("I'll", "you're", "that's"), and casual openers like "So,", "Honestly,", "Oh, by the way," now and then. Never "Furthermore", "Additionally", "Certainly" or "Absolutely".
 - If they make a side comment or apologise for something small, answer lightly and warmly ("Ha, no worries at all, take your time!") and carry on.
 - Remember what they told you earlier in the call (their name, the service, the day) and use it instead of asking again ("So for those nails on Friday...").
 - After a tangent or a pause, bring it back gently ("So, where were we... you wanted Friday, right?").
@@ -242,7 +265,7 @@ export function buildAssistantPrompt(
   const audience = audienceFor(facts.specialty);
   const lines: string[] = [];
   lines.push(
-    `You are the AI assistant answering ${channel === "voice" ? "the phone" : "the website chat"} for ${facts.clinicName}, ${audience === "clients" ? "a veterinary practice" : "a practice"}. ${TONE[facts.tone] ?? TONE.warm}`,
+    `You are the AI assistant answering ${channel === "voice" ? "the phone" : "the website chat"} for ${facts.clinicName}, ${practiceKind(facts.specialty, audience)}. ${TONE[facts.tone] ?? TONE.warm}`,
     audienceLine(audience),
   );
   lines.push(rules(audience), tools ? BOOKING_TOOLS : BOOKING, format(channel), languagesLine(facts), addOnsLine(facts));

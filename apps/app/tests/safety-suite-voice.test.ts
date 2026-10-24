@@ -263,7 +263,7 @@ describeDb("safety suite: voice, end to end", () => {
         const said = r.responses[1]!.content;
         expect(said).not.toContain(c.reply);
         const fixed = (["never_say", "price", "payment_details", "hipaa_claim", "clinical", "language", "booking_confirmation", "human_claim", "outbound_promise", "alert_claim", "other_party", "empty"] as const).map((g) =>
-          guardedLine(g, clinic.name),
+          guardedLine(g, clinic.name, "en", true),
         );
         expect(fixed).toContain(said);
         expect(keptAssistant(r)).toContain(said);
@@ -350,13 +350,13 @@ describeDb("safety suite: voice, end to end", () => {
     test("malformed and empty output: a fixed line, never silence", async () => {
       for (const raw of ["", "   ", JSON.stringify({ reply: null })]) {
         const r = await call(clinic.clinicId, ["When are you open?"], () => raw, transport);
-        expect(r.responses[1]!.content, JSON.stringify(raw)).toBe(guardedLine("empty", clinic.name));
+        expect(r.responses[1]!.content, JSON.stringify(raw)).toBe(guardedLine("empty", clinic.name, "en", true));
       }
     });
 
     test("the model declines: the refusal line, which names no number that forwards back to us", async () => {
       const r = await call(clinic.clinicId, ["When are you open?"], () => ({ refused: true, category: null }), transport);
-      expect(r.responses[1]!.content).toMatch(/^Sorry, that's not something I can help with\./);
+      expect(r.responses[1]!.content).toMatch(/^That's not something I can help with\./);
       // The published number forwards to AYA: the line names the direct line instead.
       expect(r.responses[1]!.content).not.toContain(spokenPhone("+14155550199"));
       expect(r.responses[1]!.content).toContain(spokenPhone(DIRECT_LINE));
@@ -442,7 +442,7 @@ describeDb("safety suite: voice, end to end", () => {
       expect(said.startsWith(`${disclosureEs()} `)).toBe(true);
       const line = said.slice(disclosureEs().length + 1);
       const fixed = (["never_say", "price", "payment_details", "hipaa_claim", "clinical", "language", "booking_confirmation", "human_claim", "outbound_promise", "alert_claim", "other_party", "empty"] as const).map((g) =>
-        guardedLine(g, spanish.name, "es"),
+        guardedLine(g, spanish.name, "es", true),
       );
       expect(fixed).toContain(line);
       expect(keptAssistant(r).join(" ")).not.toContain("$5");
@@ -481,7 +481,7 @@ describeDb("safety suite: voice, end to end", () => {
 
     test("the model declines: the Spanish refusal line, with the direct line's digits in Spanish", async () => {
       const r = await call(spanish.clinicId, [LONG_ES], () => ({ refused: true, category: null }), transport);
-      expect(r.responses[1]!.content).toBe(`${disclosureEs()} Lo siento, eso no es algo con lo que pueda ayudarle. El equipo de ${spanish.name} sí puede: por favor, llámelos al ${spokenPhone(DIRECT_LINE, "es")}.`);
+      expect(r.responses[1]!.content).toBe(`${disclosureEs()} Eso no es algo con lo que pueda ayudarle. El equipo de ${spanish.name} sí puede: por favor, llámelos al ${spokenPhone(DIRECT_LINE, "es")}.`);
     });
 
     test("a caller who goes back to English hears English lines again, and no second disclosure", async () => {

@@ -18,6 +18,7 @@ import {
   createRetellAgent,
   deleteRetellAgent,
   getRetellAgent,
+  RETELL_CONVERSATION_SETTINGS,
   RETELL_DATA_RETENTION_DAYS,
   RETELL_DATA_STORAGE_SETTING,
   assertRetellVoiceId,
@@ -360,7 +361,8 @@ export function expectedConfig(
 
 /**
  * The hash recorded once Retell kept the configuration. Over the public
- * origin, the storage, the engine, the voice, the language and the fallback:
+ * origin, the storage, the engine, the voice, the language, the fallback and
+ * the conversation settings:
  * never over the LLM secret, which a rotation changes and the drift check
  * catches by reading the agent back.
  */
@@ -376,6 +378,9 @@ export function configHash(config: VoiceAgentConfig, publicHost: string): string
     fallback: config.fallback,
     // Only when there are some, so every hash recorded before them still matches.
     ...(config.boostedKeywords && config.boostedKeywords.length > 0 ? { boostedKeywords: [...config.boostedKeywords] } : {}),
+    // How a call feels (retell-agent.ts): a change to these is written to
+    // every agent by the next sync, which a hash without them never did.
+    conversation: RETELL_CONVERSATION_SETTINGS,
   });
   return createHash("sha256").update(canonical).digest("hex");
 }

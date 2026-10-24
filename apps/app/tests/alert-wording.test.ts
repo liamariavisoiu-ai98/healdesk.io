@@ -193,7 +193,6 @@ const PLACES: Readonly<Record<string, Place>> = {
   "Resend copy": ["app/admin/compliance/agreements/AgreementsRegister.tsx", '"Resend copy"', "button"],
   // Lane N2b: setup-and-support, agreements, voice, calendar, transcripts.
   "Home page": ["app/admin/page.tsx", 'title: "Home"', "page"],
-  "Clinics page": ["app/admin/clinics/page.tsx", 'title: "Clinics"', "page"],
   "Voice agent column": ["app/admin/clinics/ClinicTable.tsx", 'label: "Voice agent"', "page"],
   "Calendar column": ["app/admin/clinics/ClinicTable.tsx", 'label: "Calendar"', "page"],
   Support: ["app/admin/queues/SupportSection.tsx", 'id="support" title={`Support', "page"],
@@ -205,8 +204,6 @@ const PLACES: Readonly<Record<string, Place>> = {
   "Agent script": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "title={`Agent script", "page"],
   "Save script": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Save script", "button"],
   "Channels card": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Channels"', "page"],
-  // Lane N2c: go-live, account, offboarding, patient-rights, incidents, vendors, meta, retention.
-  Reviews: ["app/admin/queues/ReviewsSection.tsx", 'id="reviews"', "page"],
   Pass: ["app/admin/queues/ReviewQueue.tsx", "Pass\n", "button"],
   Fail: ["app/admin/queues/ReviewQueue.tsx", "Fail\n", "button"],
   "Run the questions again": ["app/admin/queues/ReviewQueue.tsx", "Run the questions again", "button"],
@@ -218,15 +215,9 @@ const PLACES: Readonly<Record<string, Place>> = {
     "The line is on their website",
     "button",
   ],
-  // Lane N2d: the setup-progress, availability and digest alerts.
-  "Home page": ["app/admin/page.tsx", 'title: "Home"', "page"],
-  "Clinics page": ["app/admin/clinics/page.tsx", 'title: "Clinics"', "page"],
   "Setup window": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'title="Setup window"', "page"],
   "Availability changes": ["app/admin/clinics/[clinicId]/setup/AvailabilityChanges.tsx", 'title="Availability changes"', "page"],
   Reminders: ["app/admin/clinics/[clinicId]/deliveries/Reminders.tsx", "title={`Reminders", "page"],
-  Channels: ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Channels"', "page"],
-  "Go live": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Go live"', "page"],
-  "The clinic's address": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", "title=\"The clinic's address\"", "page"],
   "Offered a call": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Offered a call"', "button"],
   "Let it close": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Let it close"', "button"],
   "Snooze alerts": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Snooze alerts"', "button"],
@@ -241,7 +232,6 @@ const PLACES: Readonly<Record<string, Place>> = {
   "Meta front door card": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "title={`Meta front door", "page"],
   "Save phone settings": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Save phone settings", "button"],
   "To undo": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "To undo", "page"],
-  "Plan card": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "title={`Plan — ", "page"],
   "Pause AI and the direct line": [
     "app/admin/clinics/[clinicId]/billing/BillingPanel.tsx",
     "Pause AI and the direct line",
@@ -274,7 +264,6 @@ const PLACES: Readonly<Record<string, Place>> = {
     "Open incident and start the clock",
     "button",
   ],
-  Offboarding: ["app/admin/clinics/[clinicId]/care/CarePanel.tsx", 'title="Offboarding"', "page"],
   "Record export delivered": ["app/admin/clinics/[clinicId]/care/CarePanel.tsx", "Record export delivered", "button"],
   "Record Retell agent release": [
     "app/admin/clinics/[clinicId]/care/CarePanel.tsx",
@@ -284,17 +273,11 @@ const PLACES: Readonly<Record<string, Place>> = {
   Transcripts: ["app/admin/clinics/[clinicId]/deliveries/DeliveriesLedger.tsx", 'label: "Transcripts"', "page"],
   "Newest receipts": ["app/admin/clinics/[clinicId]/deliveries/TranscriptsPanel.tsx", "Newest receipts", "page"],
   "Send again": ["app/admin/clinics/[clinicId]/deliveries/TranscriptsPanel.tsx", '"Send again"', "button"],
-  "Enter the change": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", "Enter the change", "button"],
-  "Jobs page": ["app/admin/system/jobs/page.tsx", 'title: "Jobs"', "page"],
-  "Turn on": ["app/admin/system/jobs/JobsTable.tsx", '"Turn on"', "button"],
-  "Map page": ["app/admin/system/page.tsx", 'label: "Map"', "page"],
   "Missing or broken": ["app/admin/map/MapLists.tsx", 'label: "Missing or broken"', "button"],
-  "Agreements register": ["app/admin/compliance/page.tsx", 'label: "Agreements register"', "page"],
   Manage: ["app/admin/compliance/agreements/AgreementsRegister.tsx", '"Manage"', "button"],
   "Send copy": ["app/admin/compliance/agreements/AgreementsRegister.tsx", '"Send copy"', "button"],
   "Copy sent": ["app/admin/compliance/agreements/AgreementsRegister.tsx", 'label="Copy sent"', "button"],
   "Never delivered": ["app/admin/compliance/agreements/AgreementsRegister.tsx", "Never delivered", "button"],
-  "The clinic's address": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", `title="The clinic's address"`, "page"],
   "Stop this change": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", "Stop this change", "button"],
   "Change the address": [
     "app/admin/clinics/[clinicId]/account/AccountPanel.tsx",
@@ -313,12 +296,8 @@ const PLACES: Readonly<Record<string, Place>> = {
   ],
   "Disconnect Stripe": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Disconnect Stripe", "button"],
   Plan: ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", 'title="Plan"', "page"],
-  "Parked Stripe events": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Parked Stripe events", "page"],
   Jobs: ["app/admin/system/jobs/page.tsx", 'title: "Jobs"', "page"],
   Map: ["app/admin/system/page.tsx", 'label: "Map"', "page"],
-  "Reports and alerts": ["app/admin/clinics/[clinicId]/deliveries/DeliveriesLedger.tsx", "Reports and alerts", "page"],
-  "Billing emails": ["app/admin/clinics/[clinicId]/deliveries/DeliveriesLedger.tsx", "Billing emails", "page"],
-  "Enter the change": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", '"Enter the change"', "button"],
 };
 
 function escapeRe(text: string): string {

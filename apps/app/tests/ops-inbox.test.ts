@@ -363,8 +363,10 @@ describeDb("opsInbox (lane A2)", () => {
     expect(row(rows, "queue:orders_without_account")).toMatchObject({
       kind: "queue",
       count: 1,
-      sentence: "Paid orders without an account; the oldest is 3 h old; the morning email counts it too, and the console has no page for it yet.",
+      sentence: "Paid orders without an account; the oldest is 3 h old.",
       tone: "bad",
+      // Lane P5d: the machine queues section of the System page, not the Clinics list.
+      button: { label: "Open", kind: "link", href: "/admin/system#attention" },
     });
 
     expect(row(rows, `health:no_calls_after_day_7:${live.clinicId}`)).toEqual({

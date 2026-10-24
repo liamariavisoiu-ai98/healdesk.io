@@ -298,6 +298,9 @@ const PLACES: Readonly<Record<string, Place>> = {
   Plan: ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", 'title="Plan"', "page"],
   Jobs: ["app/admin/system/jobs/page.tsx", 'title: "Jobs"', "page"],
   Map: ["app/admin/system/page.tsx", 'label: "Map"', "page"],
+  // Lane N2c, after its accuracy review: the covered-entity answer on the Account tab.
+  "Covered entity": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", 'title="Covered entity"', "page"],
+  "Record the answer": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", '"Record the answer"', "button"],
 };
 
 function escapeRe(text: string): string {

@@ -8810,7 +8810,7 @@ exports[`ops alerts beyond the fixture > a leaving practice with no export deliv
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
 <p style="margin:0 0 16px;">Why it matters: The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.</p>
-<p style="margin:0 0 16px;">What to do:<br>1. Open the clinic&#39;s Care tab and read Offboarding: the rule, the day the data is destroyed, and whether the export is recorded as delivered.<br>2. Deliver the export: produce the return bundle on the app host by the command shown under Offboarding, never on a laptop, and hand it over by the secure channel our incident procedure names. Producing it records nothing.<br>3. Press Record export delivered under Offboarding on the Care tab and say how it was handed over. Do not press it before the practice has the bundle: the record is the proof it was delivered.<br>4. Check Offboarding on the clinic&#39;s Care tab. You are done when it shows Export delivered, before the destruction day.</p>
+<p style="margin:0 0 16px;">What to do:<br>1. Open the clinic&#39;s Care tab and read Offboarding: the rule, the day the data is destroyed, and whether the export is recorded as delivered.<br>2. Ask the practice, on its published number shown under Phone line on its Setup tab, to press Download every record under Conversations in its portal. A download that arrives in full records the export as delivered by itself: that is the safest route.<br>3. Deliver the export yourself only if the practice cannot: the bundle is made on the AWS host by the one-off patient-export task, run from the task script with the clinic&#39;s id, which needs AWS access, so ask the owner to run it. Not the npm command the Offboarding card shows. Hand it over by the secure channel our incident procedure names; producing it records nothing.<br>4. Press Record export delivered under Offboarding on the Care tab, saying how it was handed over, only for a bundle you handed over yourself: the portal download records itself. Do not press it before the practice has the bundle.<br>5. Check Offboarding on the clinic&#39;s Care tab. You are done when it shows Export delivered, before the destruction day.</p>
 <p style="margin:0 0 16px;">Alert code: export_undelivered_before_destruction</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
@@ -8830,9 +8830,10 @@ Why it matters: The email about its cancellation told the practice an export is 
 
 What to do:
 1. Open the clinic's Care tab and read Offboarding: the rule, the day the data is destroyed, and whether the export is recorded as delivered.
-2. Deliver the export: produce the return bundle on the app host by the command shown under Offboarding, never on a laptop, and hand it over by the secure channel our incident procedure names. Producing it records nothing.
-3. Press Record export delivered under Offboarding on the Care tab and say how it was handed over. Do not press it before the practice has the bundle: the record is the proof it was delivered.
-4. Check Offboarding on the clinic's Care tab. You are done when it shows Export delivered, before the destruction day.
+2. Ask the practice, on its published number shown under Phone line on its Setup tab, to press Download every record under Conversations in its portal. A download that arrives in full records the export as delivered by itself: that is the safest route.
+3. Deliver the export yourself only if the practice cannot: the bundle is made on the AWS host by the one-off patient-export task, run from the task script with the clinic's id, which needs AWS access, so ask the owner to run it. Not the npm command the Offboarding card shows. Hand it over by the secure channel our incident procedure names; producing it records nothing.
+4. Press Record export delivered under Offboarding on the Care tab, saying how it was handed over, only for a bundle you handed over yourself: the portal download records itself. Do not press it before the practice has the bundle.
+5. Check Offboarding on the clinic's Care tab. You are done when it shows Export delivered, before the destruction day.
 
 Alert code: export_undelivered_before_destruction
 
@@ -8868,7 +8869,7 @@ exports[`ops alerts beyond the fixture > a subscription's end processed over a w
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
 <p style="margin:0 0 16px;">Why it matters: The agreement counts destruction from the day service ended, not from when we noticed. Only the database owner can bring the destruction forward; nothing in the console can.</p>
-<p style="margin:0 0 16px;">What to do:<br>1. Open the clinic&#39;s Care tab and read Offboarding: the day the clock started and the destruction day that follows from it.<br>2. Open the clinic&#39;s Billing tab and look under Parked Stripe events for the subscription&#39;s end: an event parked and replayed late is one cause, the host being off is another.<br>3. Tell the owner, naming the clinic&#39;s Care tab and the days late, so the destruction can be brought forward in the database if the owner decides so. Do not change any date yourself.<br>4. Press Record in the Touch log on the clinic&#39;s Care tab to note what the owner decided. You are done when that is recorded.</p>
+<p style="margin:0 0 16px;">What to do:<br>1. Open the clinic&#39;s Care tab and read Offboarding: the day the clock started and the destruction day that follows from it.<br>2. Open the clinic&#39;s Billing tab and look under Parked Stripe events for the subscription&#39;s end: an event parked and replayed late is one cause, the host being off is another.<br>3. Tell the owner, naming the clinic&#39;s Care tab and the days late, so the destruction can be brought forward in the database if the owner decides so. Do not change any date yourself.<br>4. Press Record in the Touch log on the clinic&#39;s Care tab to note it, if the tab shows one (it is kept only for a clinic&#39;s first sixty days live). If it does not, tell the owner what you did, with no patient detail. You are done when the owner has decided whether to bring it forward.</p>
 <p style="margin:0 0 16px;">Alert code: offboarding_started_late</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
@@ -8890,7 +8891,7 @@ What to do:
 1. Open the clinic's Care tab and read Offboarding: the day the clock started and the destruction day that follows from it.
 2. Open the clinic's Billing tab and look under Parked Stripe events for the subscription's end: an event parked and replayed late is one cause, the host being off is another.
 3. Tell the owner, naming the clinic's Care tab and the days late, so the destruction can be brought forward in the database if the owner decides so. Do not change any date yourself.
-4. Press Record in the Touch log on the clinic's Care tab to note what the owner decided. You are done when that is recorded.
+4. Press Record in the Touch log on the clinic's Care tab to note it, if the tab shows one (it is kept only for a clinic's first sixty days live). If it does not, tell the owner what you did, with no patient detail. You are done when the owner has decided whether to bring it forward.
 
 Alert code: offboarding_started_late
 

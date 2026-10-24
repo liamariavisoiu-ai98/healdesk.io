@@ -5,13 +5,21 @@ import type { AlertWording } from "./types";
 /**
  * The "meta" section of docs/on-call.md's alert runbook. The console cannot
  * end a Meta subscription or mark one ended by hand: the Setup tab's "Meta
- * front door" card lists each connection with its status, and the Touch log
- * holds the operator's record (apps/web OnboardingPanel.tsx, TouchLog.tsx).
+ * front door" card lists each connection with its status while its rows
+ * exist (apps/web OnboardingPanel.tsx). The operator has no access to a
+ * clinic's Meta Business Suite, so what is on a Page is asked of the clinic.
+ * The Touch log is kept only for a clinic's first sixty days live, so a
+ * leaving clinic's is usually gone and no "done" line depends on a note.
  */
+
+/** The one Touch log step, for a clinic whose log may be gone. */
+const NOTE_IT =
+  "Press Record in the Touch log on the clinic's Care tab to note it, if the tab shows one (it is kept only for a clinic's first sixty days live). If it does not, tell the owner what you did, with no patient detail.";
+
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // `phase` retries (lib/meta/revoke.ts, after META_REVOKE_ALERT_AFTER
   // refusals, the access kept) or destruction (lib/offboarding, the last try
-  // before the data went, `count` connections); neither word is printable.
+  // before the rows went, `count` connections); neither word is printable.
   meta_revoke_failed: {
     title: "Meta would not take healdesk off a leaving practice",
     whatHappened:
@@ -19,14 +27,16 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "While the Page or account stays subscribed to our app, a message a patient sends there can still reach healdesk after the service has ended. Meta signs no agreement with us, so the clean end is the practice removing our app itself.",
     steps: [
-      "Open the clinic's Setup tab and read Meta front door: each connected Page or account is listed with its status.",
+      "Open the clinic's Setup tab and read Meta front door: each connected Page or account is listed with its status. After the last try before destruction the rows are gone, and it lists nothing.",
       "Phone the clinic on its published number, shown under Phone line on the same tab, and ask it to remove healdesk from the Page's or WhatsApp account's connected apps in Meta Business Suite. That ends the subscription whatever Meta answered us.",
-      "Ask whoever holds our Meta app's dashboard to remove the Page's or account's subscription there if the practice cannot. Do not attach the channel again or enter any access for a leaving clinic on the Setup tab.",
-      "Press Record in the Touch log on the clinic's Care tab to note who removed it and when. You are done when the practice confirms healdesk is off its Page or account.",
+      "Ask the side that set the subscription up in Meta to end it there if the practice cannot. Do not attach the channel again or enter any access for a leaving clinic on the Setup tab.",
+      `${NOTE_IT} You are done when the practice confirms healdesk is off its Page or account.`,
     ],
   },
   // `code` says why (no_asset_on_record, no_token, asset_unverified); not
-  // printable, and the steps cover each.
+  // printable, and the steps cover each. Only Meta knows which number or
+  // account is on a Page (lib/meta/revoke.ts), and we have no seat in the
+  // clinic's Business Suite, so the clinic is asked.
   meta_revoke_by_hand: {
     title: "End a leaving practice's Meta subscription by hand",
     whatHappened:
@@ -35,9 +45,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Until the app is off, messages sent to that Page or account can still reach healdesk after the service ended. Taking it off a Page another clinic still uses would cut that clinic's channel, so the shared case needs a check first.",
     steps: [
       "Open the clinic's Setup tab and read Meta front door: the connection's platform, id and status are listed there.",
-      "Check in Meta Business Suite which numbers or Instagram accounts are on the Page or account if another clinic may share it, and leave it subscribed if the other clinic's is there. Compare with that other clinic's Meta front door on its Setup tab.",
-      "Phone the leaving clinic on its published number, shown under Phone line on its Setup tab, and ask it to remove healdesk from the Page's or account's connected apps in Meta Business Suite, or to end the subscription where it was set up.",
-      "Press Record in the Touch log on the clinic's Care tab to note the outcome. You are done when the practice confirms healdesk is off, or you have confirmed the Page serves another clinic in service.",
+      "Phone the leaving clinic on its published number, shown under Phone line on its Setup tab, and ask which numbers or Instagram accounts are on its Page or account: we have no access to its Meta Business Suite.",
+      "Leave the Page or account subscribed if another clinic's id, under Meta front door on that clinic's Setup tab, is among what the leaving clinic named: it is that clinic's channel, and removing our app would cut it.",
+      "Ask the leaving clinic, if no other clinic's id under Meta front door is on it, to remove healdesk from the Page's or account's connected apps in Meta Business Suite, or to end the subscription where it was set up.",
+      `${NOTE_IT} You are done when the practice confirms healdesk is off, or you have confirmed the Page serves another clinic in service.`,
     ],
   },
 };

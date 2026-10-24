@@ -216,4 +216,17 @@ export const PLACES: Readonly<Record<string, Place>> = {
     'label="Do not watch this account"',
     "button",
   ],
+  // Phase 6 (lanes P6a, P6c; screens by lane P6b): the approval inbox as
+  // Queues › Approvals, with its two decisions, its History tab and the
+  // authenticator field both decisions ask for (the shared CodeField), and
+  // the Patient rights page with its three controls.
+  Approvals: ["app/admin/queues/ApprovalsSection.tsx", 'title="Approvals"', "page"],
+  Approve: ["app/admin/queues/ApprovalsSection.tsx", 'label="Approve"', "button"],
+  Reject: ["app/admin/queues/ApprovalsSection.tsx", 'label="Reject"', "button"],
+  History: ["app/admin/queues/ApprovalsSection.tsx", "History\n", "page"],
+  "Code from your authenticator": ["components/admin/ui.tsx", "Code from your authenticator", "button"],
+  "Patient rights": ["app/admin/rights/page.tsx", 'title: "Patient rights"', "page"],
+  "Record a request": ["app/admin/rights/RecordRequestForm.tsx", '"Record a request"', "button"],
+  "Copy command": ["app/admin/rights/RightsTable.tsx", '"Copy command"', "button"],
+  "Mark done": ["app/admin/rights/RightsTable.tsx", 'label="Mark done"', "button"],
 };

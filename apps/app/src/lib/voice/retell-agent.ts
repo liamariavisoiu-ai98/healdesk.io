@@ -1,3 +1,4 @@
+import { RETELL_CALL_SETTINGS } from "@healdesk/catalog";
 import { isRetellNotFound, RETELL_API_ORIGIN, RetellApiError, retellApiKey, type RetellApiOptions } from "./retell-api";
 
 /**
@@ -236,27 +237,7 @@ export function retellAgentSettings(clinicId: string, options: RetellAgentOption
  * ACKNOWLEDGEMENTS; prompt.ts, VOICE_STYLE), never by a Retell feature that
  * would put words on the call that the guard has not read.
  */
-export const RETELL_CONVERSATION_SETTINGS = {
-  enable_backchannel: true,
-  backchannel_frequency: 0.7,
-  backchannel_words: ["mm-hmm", "uh-huh", "yeah", "I see"],
-  interruption_sensitivity: 0.8,
-  responsiveness: 1,
-  enable_dynamic_responsiveness: true,
-  voice_temperature: 1.2,
-  voice_speed: 1.05,
-  enable_dynamic_voice_speed: true,
-  reminder_trigger_ms: 8_000,
-  reminder_max_count: 3,
-  pronunciation_dictionary: [
-    { word: "Juvederm", alphabet: "ipa", phoneme: "ˈdʒuvədɝm" },
-    { word: "Restylane", alphabet: "ipa", phoneme: "ˈrɛstəleɪn" },
-    { word: "Dysport", alphabet: "ipa", phoneme: "ˈdɪspɔɹt" },
-    { word: "Xeomin", alphabet: "ipa", phoneme: "ˈzioʊmɪn" },
-    { word: "Kybella", alphabet: "ipa", phoneme: "kaɪˈbɛlə" },
-    { word: "HydraFacial", alphabet: "ipa", phoneme: "ˈhaɪdɹəˌfeɪʃəl" },
-  ],
-} as const;
+export const RETELL_CONVERSATION_SETTINGS = RETELL_CALL_SETTINGS;
 
 async function send(path: string, init: RequestInit, options: RetellApiOptions): Promise<unknown> {
   const key = options.key === undefined ? retellApiKey() : options.key;

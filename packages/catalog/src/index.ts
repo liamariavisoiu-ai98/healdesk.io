@@ -57,6 +57,8 @@ export * from "./specialties";
 export * from "./subprocessor-notice";
 export * from "./time-zones";
 export * from "./treatment-names";
+export * from "./demo-call";
+export * from "./retell-call-settings";
 export * from "./treatment-vocabulary";
 export * from "./typed-text";
 export * from "./urgent-content";

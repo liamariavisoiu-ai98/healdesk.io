@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { demoFirstName } from "@healdesk/catalog";
 import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
+import { demoEngineCall } from "@/lib/demo/engine";
 import { getDemoSession, isDemoActive, isDemoSlug, profileOf } from "@/lib/demo/sessions";
 import { GATE_COOKIE, verifyGateToken } from "@/lib/gate";
 import { markCallPlaced, recordCallConsent } from "@/lib/leads";
@@ -230,19 +232,28 @@ export async function POST(request: Request): Promise<NextResponse> {
     return fail("We couldn't connect the call. Try again in a moment.", 503);
   }
 
-  const result = await placeCall(config.config, {
+  // On a personalised demo, AYA's own engine takes the call when it is set
+  // and apps/app answers (lib/demo/engine.ts), with the name the visitor
+  // gave; otherwise the clinic demo agent, exactly as before.
+  const engine = demo
+    ? await demoEngineCall({ slug: demo.slug, profile: demo.profile, mode: "phone", firstName: demoFirstName(callerName) })
+    : null;
+
+  const result = await placeCall(engine ? { ...config.config, agentId: engine.agentId } : config.config, {
     phone: parsed.e164,
     // The first name is spoken in the opening line ("Hi Sam"); with none it
     // falls back to "Hi there". The practice notes are the same knowledge the
     // chat demo uses for this specialty, so discovery asks the right things.
     // On a personalised demo, the clinic's name and website profile instead,
     // and an opening line that says why their phone rang.
-    variables: demo
-      ? clinicVoiceVariables(demo.profile, "phone", callerName?.split(/\s+/)[0])
-      : voiceDemoVariables({ name: callerName, specialtyId: specialty?.id }),
+    variables: engine
+      ? engine.variables
+      : demo
+        ? clinicVoiceVariables(demo.profile, "phone", callerName?.split(/\s+/)[0])
+        : voiceDemoVariables({ name: callerName, specialtyId: specialty?.id }),
     // For matching a call to its consent record; the agent never reads it.
     metadata: demo
-      ? { consent_id: consentId ?? "", source: "healdesk.io personalised demo", demo_slug: demo.slug }
+      ? { consent_id: consentId ?? "", source: "healdesk.io personalised demo", demo_slug: demo.slug, ...(engine ? { engine: "aya" } : {}) }
       : { consent_id: consentId ?? "", source: "healdesk.io demo" },
     // One consent record, one call, however often the request is retried.
     idempotencyKey: consentId ?? undefined,

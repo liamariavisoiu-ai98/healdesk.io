@@ -141,6 +141,22 @@ enforceable rather than aspirational.
    the demo persona, ever answers a real patient, that path is PHI and moves to
    `apps/app`.
 
+   **A personalised demo call runs on that same engine** (owner, 24 October
+   2026: "the demo AYAs and the client AYA should be THE SAME, only difference
+   should be the start"). When `RETELL_DEMO_ENGINE_AGENT_ID` is set on Vercel
+   and apps/app answers, apps/web starts the call with the demo engine agent,
+   whose socket is `/llm-websocket/<secret>/demo`, and hands over the
+   clinic's published profile and the requester's first name as one Retell
+   dynamic variable sealed with `HEALDESK_PROVISION_SECRET`
+   (`packages/catalog/src/demo-call.ts`; business data, never a patient's).
+   apps/app answers it with the same turn pipeline, prompt and guard as a
+   clinic's patients, from that context instead of the database, and keeps
+   nothing: no gate, no ingest, no transcript, no alert, no booking. Only the
+   start differs: AYA greets the requester by name with the AI and
+   transcription notice, says what she can do for their clinic, and offers a
+   role-play. While the host is in standby, the demo falls back to the
+   Retell-hosted clinic demo agent, so a demo never depends on AWS being on.
+
 3. **`/admin` on `apps/web` is deliberate, not a shortcut.** It is our tool,
    not a clinic's — and note how it gets its data. Clinics use a different
    surface, the clinic portal in `apps/app`. `/admin` must never be exposed to

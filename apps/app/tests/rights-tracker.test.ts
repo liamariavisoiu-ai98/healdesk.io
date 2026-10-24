@@ -678,6 +678,30 @@ describeDb("the rights tracker, against the database", () => {
     expect(purged[0]).toMatchObject({ commandNote: RUN_THEN_MARK, state: "on_time", dueOn: "2026-10-19" });
   });
 
+  test("an intake linked after the fact folds its own record and leaves every other intake as it was", async () => {
+    const c = await seedClinic("rights-latelink");
+    const open = data<{ id: string }>(
+      await record({ clinicId: c.clinicId, kind: "patient_request", askedFor: "deletion", receivedOn: "2026-10-12", verifiedVia: "unverified" }),
+    );
+    const closed = data<{ id: string }>(
+      await record({ clinicId: c.clinicId, kind: "patient_request", askedFor: "deletion", receivedOn: "2026-10-12", verifiedVia: "unverified" }),
+    );
+    await runOperation("closeRightsIntake", { clinicId: c.clinicId, id: closed.id, status: "done" }, OPERATOR);
+    const onHost = await seedPatientRequest(c.clinicId, "2026-10-12T00:00:00Z", "2026-10-19");
+    const listAt = async () =>
+      (await listRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now: new Date("2026-10-13T08:00:00Z"), filter: "all", clinics: [{ id: c.clinicId, name: "L" }] })).rows;
+    const before = await listAt();
+    const linked = data<{ id: string }>(
+      await record({ clinicId: c.clinicId, kind: "patient_request", askedFor: "deletion", receivedOn: "2026-10-12", verifiedVia: "unverified", linkedRecordId: onHost }),
+    );
+    const after = await listAt();
+    // The other two read exactly as they did; the host's row is now the linked intake's.
+    for (const id of [open.id, closed.id]) expect(after.find((r) => r.id === id), id).toEqual(before.find((r) => r.id === id));
+    expect(after.find((r) => r.id === linked.id)).toMatchObject({ recordId: onHost, command: null, state: "on_time" });
+    expect(after.some((r) => r.id === onHost)).toBe(false);
+    expect(after).toHaveLength(3);
+  });
+
   test("one clinic reads in a fixed order: requests by when they reached us, intakes by when recorded", async () => {
     const c = await seedClinic("rights-order");
     // Written later, received earlier: the read puts it first, whatever the table's own order.

@@ -1324,6 +1324,8 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
         status: "extended",
         setupDeadlineAt: "2026-10-27T00:00:00.000Z",
         auditRecorded: true,
+        // Lane P5d: the watch has no row for this clinic, so none is stamped or created.
+        lifecycle: "not_watched",
       });
       expect(await run("extendSetupDeadline", args)).toEqual({
         status: "refused",

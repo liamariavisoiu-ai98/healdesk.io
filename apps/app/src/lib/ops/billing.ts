@@ -79,7 +79,7 @@ import { usageSnapshot } from "@/lib/billing/usage";
 import { updateClinicSettingsRecordingPause } from "@/lib/channels/pause";
 import { isPaused, type ChannelStatus } from "@/lib/channels/state";
 import { PHONE_STEP_UP_HELD, phoneHeldByLocations } from "@/lib/locations";
-import { scrub } from "@/lib/log";
+import { describeError, log, scrub } from "@/lib/log";
 import { listClinics as listClinicOverviews } from "@/lib/ops/clinics";
 import { getJob, JOB_SETUP_CLOSURE } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
@@ -101,6 +101,7 @@ import {
   type Operator,
   type OpsOutcome,
 } from "./api";
+import { recordExtension } from "./lifecycle-ops";
 
 /**
  * The ops console's billing panel (build spec §7 E, R35): one clinic's
@@ -1585,6 +1586,13 @@ export async function opLiftSuspension(
  * therefore names the deadline it extends (`fromDeadline`, the instant the
  * panel showed), and support.ts refuses under the row's lock once it has
  * moved.
+ *
+ * Once extended, the lifecycle row is stamped in the same request (lane
+ * P5d): the new deadline and the decision `extended`, by the operator, so
+ * Home's "decision owed" row clears now rather than at the watch's next run.
+ * `lifecycle` says what happened to it: `recorded`; `not_watched` when the
+ * watch has no row for the clinic (none is created); `not_recorded` when the
+ * write failed, which never undoes the extension.
  */
 export async function opExtendSetupDeadline(
   args: Record<string, unknown>,
@@ -1611,7 +1619,23 @@ export async function opExtendSetupDeadline(
     clinicSlug: clinic.slug,
     days,
   });
-  return ok({ ...result, auditRecorded });
+  // The deadline is the billing clinic's, and so is the lifecycle row.
+  const billing = clinic.billingClinicId
+    ? ((await clinicById(clinic.billingClinicId)) ?? null)
+    : clinic;
+  let lifecycle: "recorded" | "not_watched" | "not_recorded" = "not_recorded";
+  try {
+    if (billing) {
+      const stamped = await recordExtension(billing, operator, new Date(result.setupDeadlineAt));
+      lifecycle = stamped.outcome === "saved" ? "recorded" : "not_watched";
+    }
+  } catch (error) {
+    log.error("setup extension not recorded on the lifecycle row", {
+      clinicId: clinic.id,
+      error: describeError(error),
+    });
+  }
+  return ok({ ...result, auditRecorded, lifecycle });
 }
 
 /** Finish a charged location whose clinic was not created, or clear one never charged (R14). */

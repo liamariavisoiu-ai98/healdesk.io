@@ -298,6 +298,9 @@ const PLACES: Readonly<Record<string, Place>> = {
   Plan: ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", 'title="Plan"', "page"],
   Jobs: ["app/admin/system/jobs/page.tsx", 'title: "Jobs"', "page"],
   Map: ["app/admin/system/page.tsx", 'label: "Map"', "page"],
+  // Lane N2b, after the accuracy review: the re-sign broadcast on Compliance › Notices.
+  "Notices page": ["app/admin/compliance/page.tsx", 'label: "Notices"', "page"],
+  "Start the re-signs": ["app/admin/compliance/notices/NoticesBoard.tsx", "Start the re-signs", "button"],
 };
 
 function escapeRe(text: string): string {

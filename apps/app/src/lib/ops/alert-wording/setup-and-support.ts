@@ -12,7 +12,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "The clinic is waiting on a promise we made in writing. Every extra day without an answer makes it less likely to buy.",
     steps: [
       "Open the Setup requests list on the Queues page and find the request[ from {business}].",
-      "Press Send setup link if the clinic is a fit for AYA, and the clinic is emailed the link. If the button is greyed out, setup links are not open yet: write to the clinic from hello@ instead.",
+      "Press Send setup link if the clinic is a fit for AYA, and the clinic is emailed the link; once a link has gone the button reads Send a new link. If it is greyed out, setup links are not open yet or the requester unsubscribed: write to the clinic from hello@ instead.",
       "Press Decline if it is not a fit. Decline sends no email, so write to the clinic yourself from hello@ the same day.",
       "Check the request on the Queues page again. If the page says the email didn't send, check Resend, then send a new link. You are done when it shows Link sent, Declined, or you have written from hello@.",
     ],
@@ -44,7 +44,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "The clinic is waiting on a written promise. If the reply went out already, it only needs marking; if not, the clinic has been without help for a day or more.",
     steps: [
-      "Open the Queues page, go to Support and find the request under Waiting for a reply: it shows the topic and the day we promised.",
+      "Open the Queues page, go to Support and find the request under Waiting for a reply: rows show the clinic's id, not its name, with the topic and the day we promised.",
       "Reply from hello@ to the escalation email that reached it, if nobody has. The Support list shows only the topic, never the chat's words, so ask the clinic to say again what it needs. Never ask for patient details.",
       "Press Mark replied beside the request on the Queues page once the reply has gone. It cannot be undone, so press it only for a reply that was sent.",
       "Check the request has left Waiting for a reply on the Queues page. You are done when it has.",
@@ -63,7 +63,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     steps: [
       "Open the clinic's Setup tab and read the Agent script card: it lists the services AYA may name, and its title says whether the script is approved.",
       "Open the Queues page and go to Site reads if the card lists no services: press Read it again for this clinic if it is listed there, and a successful read fills its setup from its website, services included. If it is not listed, the clinic adds its services on the Knowledge page of its portal, or you add them on the Agent script card and press Save script.",
-      "Press Ask the practice questions again on the Channels card if services are listed but the script is not approved, and check the practice questions job is on under the Jobs page. A run they flag waits for your decision under Reviews on the Queues page.",
+      "Press Ask the practice questions again on the Channels card if services are listed but the script is not approved, and check the practice-questions row is on under the Jobs page. A run they flag waits for your decision under Reviews on the Queues page.",
       "Check the Setup tab again later. You are done when the Agent script card lists services and says approved, and this alert stops coming.",
     ],
   },

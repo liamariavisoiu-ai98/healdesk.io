@@ -1881,6 +1881,8 @@ describe("the lifecycle watch's operations (design E2)", () => {
     undeliveredCount: 0,
     decisionOwed: true,
     recommendation: { action: "offer_call", days: null, reason: "3 steps left and no progress for 8 days: offer a five-minute call." },
+    // Lane P5d: apps/app sends the ignore list's flag.
+    ignored: false,
     ...over,
   });
 

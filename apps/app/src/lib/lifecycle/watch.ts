@@ -13,6 +13,7 @@ import { stepsLeft, wizardFinished } from "@/lib/setup/screens";
 import { readSetupState } from "@/lib/setup/state";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
+import { isLifecycleIgnored } from "./ignore";
 import { clinicWavesOf, readLedger } from "./ledger";
 import {
   channelsWaitingOnClinic,
@@ -48,6 +49,11 @@ import { dueWaves, targetsOf, type DueWave, type WaveFacts } from "./waves";
  * exists there is no clinic to watch; the ops watch's own alerts cover a
  * paid order with no account (lib/ops/watch.ts), and nothing here repeats
  * them.
+ *
+ * A clinic on the ignore list (./ignore.ts: healdesk's own test accounts) is
+ * not observed at all: no stage row moves, no reminder is recorded, no wave
+ * is raised. Its row, if it had one, is left as it was, and readLifecycleRow
+ * hides it from the watch's other consumers.
  */
 
 const ACTOR = { type: "service", serviceName: "lifecycle-watch" } as const;
@@ -258,6 +264,8 @@ export type LifecycleWatchResult = {
   raised: number;
   skipped: number;
   deferred: number;
+  /** Clinics on the ignore list, left out. */
+  ignored: number;
   failures: number;
 };
 
@@ -269,14 +277,19 @@ export async function watchLifecycles(now: Date = new Date()): Promise<Lifecycle
     raised: 0,
     skipped: 0,
     deferred: 0,
+    ignored: 0,
     failures: 0,
   };
   for (const clinic of await listClinics()) {
     if (clinic.billingClinicId || clinic.destroyedAt) continue;
     try {
-      const seen = await withTenant({ clinicId: clinic.id, actor: ACTOR }, (tx) =>
-        observe(tx, now),
+      const seen = await withTenant({ clinicId: clinic.id, actor: ACTOR }, async (tx) =>
+        (await isLifecycleIgnored(tx)) ? ("ignored" as const) : observe(tx, now),
       );
+      if (seen === "ignored") {
+        result.ignored += 1;
+        continue;
+      }
       if (!seen) continue;
       result.clinics += 1;
       result.recorded += seen.recorded;
@@ -305,7 +318,8 @@ export async function runLifecycleWatchJob(options: { now?: Date } = {}): Promis
       const r = await watchLifecycles(now);
       const note =
         `${r.clinics} clinics, ${r.recorded} reminders recorded, ${r.raised} waves raised, ` +
-        `${r.skipped} muted, ${r.deferred} left for the next hour, ${r.failures} failed.`;
+        `${r.skipped} muted, ${r.deferred} left for the next hour, ${r.ignored} not watched (internal), ` +
+        `${r.failures} failed.`;
       if (r.failures > 0 && r.clinics === 0) throw new Error(note);
       return note;
     },
@@ -313,8 +327,14 @@ export async function runLifecycleWatchJob(options: { now?: Date } = {}): Promis
   );
 }
 
-/** The clinic's lifecycle row, in its tenant: for the console's reads and writes. */
-export async function readLifecycleRow(tx: TenantTx) {
+/**
+ * The clinic's lifecycle row, in its tenant, as the watch's consumers read it
+ * (the digest's Lifecycle block among them): null for a clinic on the ignore
+ * list, as for one never watched. The console's own list passes
+ * `includeIgnored` and says the clinic is not watched.
+ */
+export async function readLifecycleRow(tx: TenantTx, options: { includeIgnored?: boolean } = {}) {
+  if (!options.includeIgnored && (await isLifecycleIgnored(tx))) return null;
   const [row] = await tx.db
     .select()
     .from(clinicLifecycle)

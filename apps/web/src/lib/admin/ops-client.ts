@@ -382,7 +382,15 @@ type OperatorOp =
   | "listLifecycle"
   | "listLifecycleWaves"
   | "snoozeLifecycle"
-  | "decideLifecycle";
+  | "decideLifecycle"
+  // Lane P5d: one signed agreement's record (apps/app opGetAgreement); the
+  // machine queues as the System page's read-only section (apps/app
+  // lib/ops/machine-queues-ops.ts); the lifecycle watch's ignore list of
+  // internal test accounts, set by id with a closed reason, and read.
+  | "getAgreement"
+  | "listMachineQueues"
+  | "setLifecycleIgnored"
+  | "listLifecycleIgnored";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -740,6 +748,78 @@ export function fetchAgreements(
       // guess the console it replaces made and got wrong on an exact multiple.
       truncated: data.nextCursor !== null && data.nextCursor !== undefined,
       today: new Date().toISOString().slice(0, 10),
+    };
+  });
+}
+
+/**
+ * One signed agreement as recorded (apps/app opGetAgreement): the version,
+ * the SHA-256 of the text, the text itself, verbatim, the signatory, when it
+ * was accepted, whether it was ever bound to a paying account, and each copy
+ * delivered. `null` for an id that is not an agreement, well-formed or not:
+ * apps/app answers both alike.
+ */
+export type OpsAgreementDetail = {
+  id: string;
+  version: string;
+  hash: string;
+  text: string;
+  signatoryName: string;
+  signatoryEmail: string;
+  signatoryTitle: string | null;
+  acceptedAt: string;
+  bound: boolean;
+  deliveries: {
+    deliveredAt: string;
+    sha256: string | null;
+    firstCopy: boolean;
+    trigger: "signature" | "resend" | "unknown";
+  }[];
+};
+
+/** The longest agreement text read: far above any rendered BAA or DPA, so a runaway answer is malformed. */
+const MAX_AGREEMENT_TEXT = 500_000;
+
+/**
+ * The agreement's text exactly as signed, line breaks kept: a legal record is
+ * shown as it is, never reflowed or cut the way `text()` cuts a label. Only
+ * the characters that can reorder or hide what is around them are removed.
+ */
+function agreementText(value: unknown, at: string): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_AGREEMENT_TEXT) {
+    throw new ShapeError(at);
+  }
+  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "");
+}
+
+export function fetchAgreement(agreementId: string): Promise<OpsResult<OpsAgreementDetail | null>> {
+  return callOps("getAgreement", "read", { agreementId }, (value) => {
+    const data = object(value, "getAgreement");
+    const raw = field(data, "agreement", "getAgreement");
+    if (raw === null) return null;
+    const row = object(raw, "getAgreement.agreement");
+    const at = "getAgreement.agreement";
+    return {
+      id: id(field(row, "id", at), `${at}.id`),
+      version: text(field(row, "version", at), `${at}.version`),
+      hash: hash(field(row, "hash", at), `${at}.hash`),
+      text: agreementText(field(row, "text", at), `${at}.text`),
+      signatoryName: text(field(row, "signatoryName", at), `${at}.signatoryName`),
+      signatoryEmail: text(field(row, "signatoryEmail", at), `${at}.signatoryEmail`),
+      signatoryTitle: optionalText(field(row, "signatoryTitle", at), `${at}.signatoryTitle`),
+      acceptedAt: isoInstant(field(row, "acceptedAt", at), `${at}.acceptedAt`),
+      bound: bool(field(row, "bound", at), `${at}.bound`),
+      deliveries: list(field(row, "deliveries", at), `${at}.deliveries`).map((entry, i) => {
+        const d = object(entry, `${at}.deliveries[${i}]`);
+        const where = `${at}.deliveries[${i}]`;
+        const sha = field(d, "sha256", where);
+        return {
+          deliveredAt: isoInstant(field(d, "deliveredAt", where), `${where}.deliveredAt`),
+          sha256: sha === null ? null : hash(sha, `${where}.sha256`),
+          firstCopy: bool(field(d, "firstCopy", where), `${where}.firstCopy`),
+          trigger: literal(field(d, "trigger", where), ["signature", "resend", "unknown"] as const, `${where}.trigger`),
+        };
+      }),
     };
   });
 }
@@ -1910,6 +1990,12 @@ export type LifecycleRow = {
   undeliveredCount: number;
   decisionOwed: boolean;
   recommendation: { action: (typeof LIFECYCLE_ACTIONS)[number]; days: number | null; reason: string };
+  /**
+   * On the ignore list: drawn "Not watched (internal)"; owes no decision.
+   * Always set by fetchLifecycle; optional only so fixtures written before
+   * lane P5d still type.
+   */
+  ignored?: boolean;
 };
 
 /**
@@ -1945,6 +2031,8 @@ export function fetchLifecycle(clinicId?: string): Promise<OpsResult<LifecycleRo
           snoozedBy: optionalText(r.snoozedBy, "lifecycle.snoozedBy"),
           undeliveredCount: count(r.undeliveredCount, "lifecycle.undeliveredCount"),
           decisionOwed: bool(r.decisionOwed, "lifecycle.decisionOwed"),
+          // An apps/app older than lane P5d sends none: no ignore list, so not ignored.
+          ignored: r.ignored === undefined ? false : bool(r.ignored, "lifecycle.ignored"),
           recommendation: {
             action: literal(advice.action, LIFECYCLE_ACTIONS, "lifecycle.recommendation.action"),
             days: advice.days === null ? null : count(advice.days, "lifecycle.recommendation.days"),
@@ -2027,6 +2115,129 @@ function readLifecycleWrite(value: unknown, at: string): LifecycleWriteOutcome {
 /** Mute the clinic's ops waves for 3, 7 or 14 days. Never the clinic's own reminders. */
 export function snoozeLifecycle(clinicId: string, days: 3 | 7 | 14): Promise<OpsResult<LifecycleWriteOutcome>> {
   return callOps("snoozeLifecycle", "write", { clinicId, days }, (value) => readLifecycleWrite(value, "snoozeLifecycle"));
+}
+
+// -----------------------------------------------------------------------------
+// The lifecycle watch's ignore list (lane P5d)
+// -----------------------------------------------------------------------------
+
+/** Why a clinic is not watched: apps/app's closed list (LIFECYCLE_IGNORE_NOTES), never free text. */
+export const LIFECYCLE_IGNORE_NOTES = ["internal_test_account", "healdesk_staff_account", "sales_demo_account"] as const;
+export type LifecycleIgnoreNote = (typeof LIFECYCLE_IGNORE_NOTES)[number];
+
+/** One clinic on the ignore list: the reason, who set it and when. */
+export type LifecycleIgnoredRow = {
+  clinicId: string;
+  clinicSlug: string;
+  clinicName: string;
+  note: LifecycleIgnoreNote | null;
+  setBy: string;
+  setAt: string;
+};
+
+export type LifecycleIgnoreOutcome = {
+  outcome: "saved";
+  ignored: boolean;
+  note: LifecycleIgnoreNote | null;
+  setAt: string;
+  auditRecorded: boolean;
+};
+
+/**
+ * Take a billing clinic off the lifecycle watch (`ignored` true: no setup
+ * reminders recorded, no setup alerts, no decision owed) or put it back. Its
+ * calendar, voice and billing alerts are not affected. A location is refused:
+ * its account is what is watched.
+ */
+export function setLifecycleIgnored(
+  clinicId: string,
+  ignored: boolean,
+  note: LifecycleIgnoreNote | null = null,
+): Promise<OpsResult<LifecycleIgnoreOutcome>> {
+  return callOps("setLifecycleIgnored", "write", { clinicId, ignored, note }, (value) => {
+    const data = object(value, "setLifecycleIgnored");
+    return {
+      outcome: literal(data.outcome, ["saved"] as const, "setLifecycleIgnored.outcome"),
+      ignored: bool(data.ignored, "setLifecycleIgnored.ignored"),
+      note: data.note === null ? null : literal(data.note, LIFECYCLE_IGNORE_NOTES, "setLifecycleIgnored.note"),
+      setAt: isoInstant(data.setAt, "setLifecycleIgnored.setAt"),
+      auditRecorded: bool(data.auditRecorded, "setLifecycleIgnored.auditRecorded"),
+    };
+  });
+}
+
+/** The clinics on the ignore list (or only the one named), by name. */
+export function fetchLifecycleIgnored(clinicId?: string): Promise<OpsResult<LifecycleIgnoredRow[]>> {
+  return callOps("listLifecycleIgnored", "read", clinicId ? { clinicId } : {}, (value) => {
+    const data = object(value, "listLifecycleIgnored");
+    return list(data.clinics, "listLifecycleIgnored.clinics").map((row, i) => {
+      const at = `listLifecycleIgnored.clinics[${i}]`;
+      const r = object(row, at);
+      return {
+        clinicId: id(r.clinicId, `${at}.clinicId`),
+        clinicSlug: text(r.clinicSlug, `${at}.clinicSlug`),
+        clinicName: text(r.clinicName, `${at}.clinicName`),
+        note: r.note === null ? null : literal(r.note, LIFECYCLE_IGNORE_NOTES, `${at}.note`),
+        setBy: text(r.setBy, `${at}.setBy`),
+        setAt: isoInstant(r.setAt, `${at}.setAt`),
+      };
+    });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The machine queues (lane P5d)
+// -----------------------------------------------------------------------------
+
+/**
+ * One machine queue, as apps/app reads it for the System page: its words,
+ * how many, how long the oldest has waited (minutes; null when the queue
+ * does not date it), whether it needs a person (Home's own rule), its tone
+ * and where it opens. Read-only: nothing here acts.
+ */
+export type MachineQueue = {
+  key: string;
+  words: string;
+  count: number;
+  oldestAgeMinutes: number | null;
+  needsAttention: boolean;
+  tone: Tone;
+  href: string;
+};
+
+/** The queues, those needing a person first; `partial` names each part that could not be read, never as zeros. */
+export type MachineQueues = { queues: MachineQueue[]; partial: string[] };
+
+const QUEUE_KEY = /^[a-z0-9_]+(:[A-Za-z0-9_.-]{1,128})?$/;
+
+export function fetchMachineQueues(): Promise<OpsResult<MachineQueues>> {
+  return callOps("listMachineQueues", "read", {}, (value) => {
+    const data = object(value, "listMachineQueues");
+    return {
+      queues: list(field(data, "queues", "listMachineQueues"), "listMachineQueues.queues").map((row, i) => {
+        const at = `listMachineQueues.queues[${i}]`;
+        const r = object(row, at);
+        const key = field(r, "key", at);
+        if (typeof key !== "string" || !QUEUE_KEY.test(key)) throw new ShapeError(`${at}.key`);
+        const href = text(field(r, "href", at), `${at}.href`);
+        // A console page, never an absolute address.
+        if (!href.startsWith("/admin/")) throw new ShapeError(`${at}.href`);
+        const age = field(r, "oldestAgeMinutes", at);
+        return {
+          key,
+          words: text(field(r, "words", at), `${at}.words`),
+          count: count(field(r, "count", at), `${at}.count`),
+          oldestAgeMinutes: age === null ? null : count(age, `${at}.oldestAgeMinutes`),
+          needsAttention: bool(field(r, "needsAttention", at), `${at}.needsAttention`),
+          tone: literal(field(r, "tone", at), TONES, `${at}.tone`),
+          href,
+        };
+      }),
+      partial: list(field(data, "partial", "listMachineQueues"), "listMachineQueues.partial").map((p, i) =>
+        text(p, `listMachineQueues.partial[${i}]`),
+      ),
+    };
+  });
 }
 
 /** Record the decision about a stalled setup. `extended` is recorded by apps/app when the deadline moves. */

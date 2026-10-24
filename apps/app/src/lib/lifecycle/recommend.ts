@@ -75,6 +75,16 @@ function rec(
   return { action, days, reason };
 }
 
+/**
+ * What a clinic on the ignore list (./ignore.ts) is recommended: nothing, in
+ * one fixed sentence, so no consumer proposes an action for a test account.
+ */
+export const IGNORED_RECOMMENDATION: Readonly<Recommendation> = {
+  action: "wait",
+  days: null,
+  reason: "Not watched (internal): one of healdesk's own test accounts, so there is nothing to decide.",
+};
+
 export function recommend(f: RecommendFacts): Recommendation {
   if (f.stage === "closed")
     return rec("wait", "The account has ended: there is nothing to decide.");

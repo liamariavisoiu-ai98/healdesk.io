@@ -152,6 +152,8 @@ import {
   opListLifecycleWaves,
   opSnoozeLifecycle,
 } from "@/lib/ops/lifecycle-ops";
+import { opListLifecycleIgnored, opSetLifecycleIgnored } from "@/lib/ops/lifecycle-ops";
+import { opListMachineQueues } from "@/lib/ops/machine-queues-ops";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -664,6 +666,14 @@ const OPERATIONS = [
   "listStuckCalendarWrites",
   "listUndeliveredTranscripts",
   "clearVoiceDriftFlag",
+  // Lane P5d (lib/ops/machine-queues-ops.ts, lib/ops/lifecycle-ops.ts): the
+  // machine queues as the System page's read-only section, judged by Home's
+  // own rule; and the lifecycle watch's ignore list of internal test
+  // accounts, set by id with a closed reason, and read. Ids, counts, ages,
+  // closed words and the clinic's name.
+  "listMachineQueues",
+  "setLifecycleIgnored",
+  "listLifecycleIgnored",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -805,6 +815,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "decideLifecycle",
   // Mutating: a voice drift flag cleared, and Retell's copy repaired by the check.
   "clearVoiceDriftFlag",
+  // Mutating: a clinic put on the lifecycle watch's ignore list, or taken off.
+  "setLifecycleIgnored",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1452,6 +1464,12 @@ export async function runOperation(
       return opListUndeliveredTranscripts(args, operator);
     case "clearVoiceDriftFlag":
       return opClearVoiceDriftFlag(args, operator);
+    case "listMachineQueues":
+      return opListMachineQueues(args, operator);
+    case "setLifecycleIgnored":
+      return opSetLifecycleIgnored(args, operator);
+    case "listLifecycleIgnored":
+      return opListLifecycleIgnored(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

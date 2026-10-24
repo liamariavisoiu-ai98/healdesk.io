@@ -74,8 +74,9 @@ export const decisionsSource: InboxSource = {
       now: ctx.now,
       partial: true,
     });
-    for (const { clinic, view } of views) {
-      if (!view.decisionOwed) continue;
+    for (const { clinic, view, ignored } of views) {
+      // An internal test account (the ignore list) owes nothing.
+      if (ignored || !view.decisionOwed) continue;
       // Waiting on us, the work owed is ours: the button opens the window, it does not ask the clinic to decide.
       const label = view.stage === "waiting_on_us" ? "Open setup window" : "Decide";
       rows.push({

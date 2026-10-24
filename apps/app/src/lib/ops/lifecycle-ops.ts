@@ -4,7 +4,15 @@ import { unsafeDb } from "@/db";
 
 import { clinicLifecycle, opsAlerts } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
+import { setupLastDay } from "@/lib/clinic/setup-window";
+import {
+  LIFECYCLE_IGNORE_NOTES,
+  readLifecycleIgnore,
+  writeLifecycleIgnore,
+  type LifecycleIgnoreNote,
+} from "@/lib/lifecycle/ignore";
 import { readLedger } from "@/lib/lifecycle/ledger";
+import { IGNORED_RECOMMENDATION } from "@/lib/lifecycle/recommend";
 import { lifecycleView, type LifecycleView } from "@/lib/lifecycle/view";
 import { readLifecycleRow } from "@/lib/lifecycle/watch";
 import { describeError, log } from "@/lib/log";
@@ -43,7 +51,16 @@ import {
  *   - `decideLifecycle {clinicId, decision}`: none, extension_offered or
  *     let_close (which stops the day-27 and day-30 waves). `extended` is not
  *     set here: the watch sets it when the deadline moves, which only
- *     extendSetupDeadline does.
+ *     extendSetupDeadline does, through recordExtension below.
+ *   - `setLifecycleIgnored {clinicId, ignored, note?}`: puts a billing clinic
+ *     on the watch's ignore list (healdesk's own test accounts) or takes it
+ *     off, with a reason from a closed list, never free text.
+ *   - `listLifecycleIgnored {clinicId?}`, a read: the clinics on that list,
+ *     with the reason, who set it and when.
+ *
+ * An ignored clinic is still in `listLifecycle` when the watch has a row for
+ * it, marked `ignored`, owing no decision and with a recommendation that
+ * says it is not watched; Home's decision rows and the digest leave it out.
  *
  * Each write records an audit row in the clinic's tenant and a security event
  * naming the operator, like its neighbours.
@@ -59,6 +76,8 @@ export type LifecycleListRow = Omit<
   LifecycleView,
   "stageSince" | "lastProgressAt" | "deadlineAt" | "decidedAt" | "snoozedUntil"
 > & {
+  /** On the ignore list: not watched (internal). */
+  ignored: boolean;
   clinicId: string;
   clinicSlug: string;
   clinicName: string;
@@ -75,8 +94,8 @@ function iso(value: Date | null): string | null {
 
 const STAGE_ORDER = ["waiting_on_us", "in_setup", "not_started", "partly_live", "live", "closed"];
 
-/** One watched clinic and its lifecycle view. */
-export type WatchedLifecycle = { clinic: ClinicOverview; view: LifecycleView };
+/** One watched clinic and its lifecycle view; an ignored one owes no decision. */
+export type WatchedLifecycle = { clinic: ClinicOverview; view: LifecycleView; ignored: boolean };
 
 /**
  * The lifecycle view of every billing clinic the watch has seen, or of the
@@ -103,12 +122,18 @@ export async function readLifecycleViews(options: {
       const view = await withTenant(
         { clinicId: clinic.id, actor: options.actor, request: options.request },
         async (tx) => {
-          const row = await readLifecycleRow(tx);
+          const row = await readLifecycleRow(tx, { includeIgnored: true });
           if (!row) return null;
-          return lifecycleView(row, await readLedger(tx), clinic.timezone, options.now);
+          const seen = lifecycleView(row, await readLedger(tx), clinic.timezone, options.now);
+          if ((await readLifecycleIgnore(tx))?.ignored !== true) return { view: seen, ignored: false };
+          // Not watched (internal): nothing is owed and nothing is recommended.
+          return {
+            view: { ...seen, decisionOwed: false, recommendation: { ...IGNORED_RECOMMENDATION } },
+            ignored: true,
+          };
         },
       );
-      if (view) views.push({ clinic, view });
+      if (view) views.push({ clinic, ...view });
     } catch (error) {
       if (!options.partial) throw error;
       failed += 1;
@@ -135,9 +160,10 @@ export async function opListLifecycle(
       now,
       clinicId: raw,
     });
-    for (const { clinic, view: seen } of views) {
+    for (const { clinic, view: seen, ignored } of views) {
       rows.push({
         ...seen,
+        ignored,
         clinicId: clinic.id,
         clinicSlug: clinic.slug,
         clinicName: clinic.name,
@@ -209,7 +235,7 @@ export async function opListLifecycleWaves(
   }
 }
 
-type WriteOutcome = { outcome: "saved" } | { outcome: "not_watched" };
+export type WriteOutcome = { outcome: "saved" } | { outcome: "not_watched" };
 
 /** Change the clinic's row under its own tenant, with an audit row; not_watched before the watch has seen it. */
 async function writeRow(
@@ -303,5 +329,134 @@ export async function opDecideLifecycle(
   } catch (error) {
     log.error("lifecycle decision failed", { clinicId: clinic.id, error: describeError(error) });
     return opsProblem("The decision could not be saved.", 500, "failed");
+  }
+}
+
+/**
+ * "Extend the setup window" recorded on the lifecycle row at once (lane P5d,
+ * the wave 2 follow-up): the new deadline, its last day and the decision
+ * `extended`, by the operator, through the same write as decideLifecycle.
+ * Without it Home's "decision owed" row stayed until the next watch run, or
+ * for good with the watch off. The last day is written too, so the watch's
+ * next run does not read a later last day as a second extension and relabel
+ * the decision. A clinic the watch has not seen has no row, and none is
+ * created: `not_watched`.
+ */
+export async function recordExtension(
+  clinic: Pick<ClinicOverview, "id" | "timezone">,
+  operator: Operator,
+  deadlineAt: Date,
+  now: Date = new Date(),
+): Promise<WriteOutcome> {
+  return writeRow(
+    clinic.id,
+    operator,
+    {
+      deadlineAt,
+      lastDay: setupLastDay(deadlineAt, clinic.timezone),
+      decision: "extended",
+      decidedBy: operator.email.slice(0, 200),
+      decidedAt: now,
+    },
+    { field: "decision", decision: "extended" },
+  );
+}
+
+export type LifecycleIgnoredRow = {
+  clinicId: string;
+  clinicSlug: string;
+  clinicName: string;
+  note: LifecycleIgnoreNote | null;
+  setBy: string;
+  setAt: string;
+};
+
+export async function opSetLifecycleIgnored(
+  args: Record<string, unknown>,
+  operator: Operator,
+  now: Date = new Date(),
+): Promise<OpsOutcome> {
+  // The security event must name a person: an operator with no address is refused before anything is read.
+  if (typeof operator?.email !== "string" || operator.email.trim().length === 0) {
+    return opsProblem("No operator: the ignore list names who set it.", 400, "invalid_args");
+  }
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
+  if (clinic.billingClinicId) {
+    return opsProblem("A location is watched with its account: set the account instead.", 400, "invalid_args");
+  }
+  if (typeof args.ignored !== "boolean") {
+    return opsProblem("Say ignored: true or false.", 400, "invalid_args");
+  }
+  const rawNote = args.note;
+  if (
+    rawNote !== undefined &&
+    rawNote !== null &&
+    !(LIFECYCLE_IGNORE_NOTES as readonly unknown[]).includes(rawNote)
+  ) {
+    return opsProblem(
+      `The reason is one of ${LIFECYCLE_IGNORE_NOTES.join(", ")}, or none.`,
+      400,
+      "invalid_args",
+    );
+  }
+  const ignored = args.ignored;
+  const note = ignored ? ((rawNote as LifecycleIgnoreNote | null | undefined) ?? null) : null;
+  try {
+    const saved = await withTenant(
+      { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+      (tx) => writeLifecycleIgnore(tx, { ignored, note, setBy: operator.email, now }),
+    );
+    const auditRecorded = await audit(operator, "lifecycle_ignored_set", {
+      clinicSlug: clinic.slug,
+      ignored,
+      reason: note,
+    });
+    return ok({
+      outcome: "saved",
+      ignored: saved.ignored,
+      note: saved.note,
+      setAt: saved.setAt.toISOString(),
+      auditRecorded,
+    });
+  } catch (error) {
+    log.error("lifecycle ignore not saved", { clinicId: clinic.id, error: describeError(error) });
+    return opsProblem("The ignore list could not be saved.", 500, "failed");
+  }
+}
+
+export async function opListLifecycleIgnored(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const raw = args.clinicId;
+  if (raw !== undefined && (typeof raw !== "string" || !UUID_SHAPED.test(raw))) {
+    return opsProblem("A clinic id must be a uuid.", 400, "invalid_args");
+  }
+  const wanted = raw?.toLowerCase();
+  try {
+    const rows: LifecycleIgnoredRow[] = [];
+    for (const clinic of await listClinics()) {
+      if (wanted !== undefined && clinic.id !== wanted) continue;
+      if (clinic.billingClinicId || clinic.destroyedAt) continue;
+      const mark = await withTenant(
+        { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+        (tx) => readLifecycleIgnore(tx),
+      );
+      if (!mark?.ignored) continue;
+      rows.push({
+        clinicId: clinic.id,
+        clinicSlug: clinic.slug,
+        clinicName: clinic.name,
+        note: mark.note,
+        setBy: mark.setBy,
+        setAt: mark.setAt.toISOString(),
+      });
+    }
+    rows.sort((a, b) => a.clinicName.localeCompare(b.clinicName));
+    return ok({ clinics: rows });
+  } catch (error) {
+    log.error("lifecycle ignore list not read", { error: describeError(error) });
+    return opsProblem("The ignore list could not be read.", 500, "failed");
   }
 }

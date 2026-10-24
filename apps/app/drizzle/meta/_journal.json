@@ -827,6 +827,13 @@
       "when": 1792844451003,
       "tag": "0117_calendar_write_backoff",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1792994981669,
+      "tag": "0118_lifecycle_ignored_clinics",
+      "breakpoints": true
     }
   ]
 }

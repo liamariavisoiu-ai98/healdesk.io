@@ -1,6 +1,7 @@
 import { availabilitySource } from "./availability";
 import { decisionsSource } from "./decisions";
 import { queuesSource } from "./queues";
+import { goLiveSource } from "./go-live";
 import { healthFlagsSource } from "./health-flags";
 import { opsAlertsSource } from "./ops-alerts";
 import { practiceReviewsSource } from "./practice-reviews";
@@ -34,4 +35,5 @@ export const INBOX_SOURCES: readonly InboxSource[] = [
   availabilitySource,
   decisionsSource,
   transcriptDeliverySource,
+  goLiveSource,
 ];

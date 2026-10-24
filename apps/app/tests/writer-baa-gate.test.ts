@@ -80,6 +80,14 @@ describeDb("the change file's role passes the BAA gate on the roster tables, and
   let leaving: SeededClinic;
   let held: string;
   let planted: string;
+  /**
+   * Production, baa_signed_at set and a kind the regime accepts, but no
+   * agreement in effect: one never bound, one whose agreement was terminated.
+   * Only the agreements lookup inside the definer function refuses these.
+   */
+  let neverBound: SeededClinic;
+  let terminated: SeededClinic;
+  const signedOnly: Record<string, string> = {};
 
   const apply = (clinic: SeededClinic, sql: string, expectRows = 1) => {
     const name = `g-${randomUUID().slice(0, 8)}`;
@@ -120,6 +128,24 @@ describeDb("the change file's role passes the BAA gate on the roster tables, and
     await production(leaving.clinicId, true);
     held = await providerAs(leaving, "Dr Held");
     await pool.query(`update clinics set offboarding_started_at = now() where id = $1`, [leaving.clinicId]);
+
+    neverBound = await seedClinic(`wgnev${randomUUID().slice(0, 6)}`);
+    terminated = await seedClinic(`wgter${randomUUID().slice(0, 6)}`);
+    for (const clinic of [neverBound, terminated]) {
+      signedOnly[clinic.clinicId] = await providerAs(clinic, "Dr Signed");
+      if (clinic === terminated) await bindAgreementInEffect(clinic.clinicId);
+      await pool.query(
+        `update clinics set data_classification = 'production', baa_signed_at = now() - interval '30 days',
+                agreement_kind = 'baa', regulatory_regime = 'hipaa'
+          where id = $1`,
+        [clinic.clinicId],
+      );
+    }
+    await pool.query(
+      `update baa_acceptances set terminated_at = now()
+        where organization_id = (select organization_id from clinics where id = $1)`,
+      [terminated.clinicId],
+    );
   });
 
   afterAll(async () => {
@@ -131,6 +157,15 @@ describeDb("the change file's role passes the BAA gate on the roster tables, and
     expect(await gate(covered.clinicId)).toEqual({ accepts: true, update: true });
     expect(await gate(uncovered.clinicId)).toEqual({ accepts: false, update: false });
     expect(await gate(leaving.clinicId)).toEqual({ accepts: false, update: true });
+    expect(await gate(neverBound.clinicId)).toEqual({ accepts: false, update: false });
+    expect(await gate(terminated.clinicId)).toEqual({ accepts: false, update: false });
+    // Signed, and a kind the regime accepts: only the agreement in effect is missing.
+    const { rows } = await getMigratorPool().query<{ sufficient: boolean }>(
+      `select app_agreement_kind_sufficient(regulatory_regime, agreement_kind, is_covered_entity) as sufficient
+         from clinics where id = any($1::uuid[]) and baa_signed_at is not null`,
+      [[neverBound.clinicId, terminated.clinicId]],
+    );
+    expect(rows).toEqual([{ sufficient: true }, { sufficient: true }]);
   });
 
   test("(a) a change file inserts a provider for a covered clinic, recorded as one change-file row", async () => {
@@ -210,11 +245,59 @@ describeDb("the change file's role passes the BAA gate on the roster tables, and
     expect((await roster(leaving.clinicId)).providers).toEqual(["Dr Held"]);
     expect(await events(leaving.clinicId)).toHaveLength(before + 1);
 
-    // And a covered clinic's update, through the same rule.
+    // And a covered clinic's update, through the same rule, with its one row.
+    const coveredBefore = (await events(covered.clinicId)).length;
     expect(await apply(covered, `update clinic_providers set display_name = 'Dr Lee-Park' where display_name = 'Dr Lee'`)).toMatchObject({
+      rowCount: 1,
       committed: true,
     });
     expect((await roster(covered.clinicId)).providers).toEqual(["Dr Lee-Park"]);
+    expect((await events(covered.clinicId)).slice(coveredBefore)).toEqual([
+      {
+        kind: "providers",
+        source: "direct",
+        actor_kind: "change_file",
+        summary: { rows: 1, operation: "update", table: "clinic_providers" },
+      },
+    ]);
+  });
+
+  test("(c2) signed, with a sufficient kind, but no agreement in effect (never bound, or terminated): refused on both tables, nothing written", async () => {
+    for (const clinic of [neverBound, terminated]) {
+      const before = await events(clinic.clinicId);
+      await expect(
+        apply(clinic, `insert into clinic_providers (clinic_id, display_name, calendar_id) values ('${clinic.clinicId}', 'Dr No', 'primary')`),
+        clinic.slug,
+      ).rejects.toThrow(/refusing to write PHI to clinic_providers/);
+      await expect(
+        apply(
+          clinic,
+          `insert into clinic_provider_services (clinic_id, provider_id, service_key) values ('${clinic.clinicId}', '${signedOnly[clinic.clinicId]}', 'botox')`,
+        ),
+        clinic.slug,
+      ).rejects.toThrow(/refusing to write PHI to clinic_provider_services/);
+      expect(await roster(clinic.clinicId)).toEqual({ providers: ["Dr Signed"], services: [] });
+      expect(await events(clinic.clinicId)).toEqual(before);
+    }
+  });
+
+  test("(c3) inside one clinic's session, a row for another covered clinic is refused by the gate, not by row-level security", async () => {
+    // The definer functions read baa_acceptances as its owner, but the table
+    // FORCEs row-level security, so the tenant session sees only its own
+    // organisation's agreement and the other clinic has none in effect.
+    const other = await seedClinic(`wgoth${randomUUID().slice(0, 6)}`);
+    await bindAgreementInEffect(other.clinicId);
+    await getMigratorPool().query(
+      `update clinics set data_classification = 'production', baa_signed_at = now() - interval '30 days' where id = $1`,
+      [other.clinicId],
+    );
+    expect(await gate(other.clinicId)).toEqual({ accepts: true, update: true });
+    await expect(
+      writerQuery(covered.clinicId, `insert into clinic_providers (clinic_id, display_name, calendar_id) values ($1, 'Dr Across', 'primary')`, [
+        other.clinicId,
+      ]),
+    ).rejects.toThrow(/refusing to write PHI to clinic_providers/);
+    expect((await roster(other.clinicId)).providers).toEqual([]);
   });
 
   test("(e) the grant opens nothing else: no DELETE, no table off its list, no other gate function", async () => {

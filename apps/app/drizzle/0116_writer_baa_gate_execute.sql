@@ -17,8 +17,12 @@
 -- one it already holds. What they read (clinics, and through
 -- app_agreement_in_effect() and app_agreement_kind_sufficient() its
 -- agreements) they read as their owner, so the writer gains no table right,
--- only that yes or no. The gate still refuses the writer exactly where it
--- refuses the app: tests/writer-baa-gate.test.ts.
+-- only that yes or no. The owner is still bound by baa_acceptances' FORCEd
+-- row-level security, so inside a tenant session the agreement lookup sees
+-- only that tenant's organisation: a row for another clinic is refused by
+-- the gate's BAA message, before row-level security's own check. The gate
+-- still refuses the writer exactly where it refuses the app:
+-- tests/writer-baa-gate.test.ts.
 --
 -- PUBLIC stays revoked (0001, 0066) and the runtime role keeps its grant.
 -- Conditional on the role, as the provisioning scripts create it (with

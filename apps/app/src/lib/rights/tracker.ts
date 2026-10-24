@@ -201,6 +201,9 @@ export function clinicRows(
     }
   }
 
+  /** The agreement counts from receipt: the earlier of the intake's day and the record's. */
+  const earlier = (a: string, b: string) => (a < b ? a : b);
+
   for (const intake of read.intakes) {
     const base = {
       id: intake.id,
@@ -225,7 +228,7 @@ export function clinicRows(
       // never counts (closeIntake refuses it while the step is outstanding).
       const stamped = erasure.stamped;
       const done = stamped;
-      const due = utcDay(erasure.dueBy);
+      const due = earlier(intake.dueOn, utcDay(erasure.dueBy));
       out.push({
         ...base,
         recordId: erasure.id,
@@ -243,12 +246,13 @@ export function clinicRows(
     if (request) {
       // Done only once the practice marks it received, as the L32 sweep waits for.
       const done = request.acknowledgedAt !== null;
+      const due = earlier(intake.dueOn, request.replyBy);
       out.push({
         ...base,
         recordId: request.id,
-        dueOn: request.replyBy,
-        daysLeft: done ? null : businessDaysLeft(today, request.replyBy),
-        state: stateOf(done, false, today, request.replyBy),
+        dueOn: due,
+        daysLeft: done ? null : businessDaysLeft(today, due),
+        state: stateOf(done, false, today, due),
         command: null,
         commandNote: link ? null : MATCHED_NOTE,
         retellStep: null,

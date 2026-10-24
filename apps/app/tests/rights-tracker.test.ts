@@ -626,6 +626,18 @@ describeDb("the rights tracker, against the database", () => {
     }
   });
 
+  test("a linked row is due on the earlier of the intake's day and the record's", async () => {
+    const c = await seedClinic("rights-due");
+    // The deletion's stored due day is later than ten business days from the intake's receipt.
+    const erasure = await seedErasure(c.clinicId, "2026-10-12T09:00:00Z", "2026-10-30T09:00:00Z");
+    const intake = data<{ id: string; dueOn: string }>(
+      await record({ clinicId: c.clinicId, kind: "erasure", receivedOn: "2026-10-08", verifiedVia: "notice_address", linkedRecordId: erasure }),
+    );
+    expect(intake.dueOn).toBe("2026-10-22");
+    const list = await listRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now: new Date("2026-10-26T08:00:00Z"), clinics: [{ id: c.clinicId, name: "D" }] });
+    expect(list.rows).toMatchObject([{ id: intake.id, dueOn: "2026-10-22", state: "overdue", daysLeft: -2 }]);
+  });
+
   test("Home shows one row for the due soon and one for the late, linking to the Patient rights page", async () => {
     const c = await seedClinic("rights-home");
     await record({ clinicId: c.clinicId, kind: "export", receivedOn: "2026-10-08", verifiedVia: "notice_address" }); // due 22 Oct

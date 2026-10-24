@@ -4,6 +4,7 @@ import { isIsoDay, RIGHTS_KINDS, RIGHTS_VERIFICATIONS, utcDay, type RightsKind, 
 import {
   closeIntake,
   LINKABLE,
+  RETELL_OUTSTANDING,
   listRights,
   recordIntake,
   RIGHTS_LIST_MAX,
@@ -188,6 +189,7 @@ export async function opCloseRightsIntake(args: Record<string, unknown>, operato
       (tx) => closeIntake(tx, { id: rawId, status }),
     );
     if (outcome.outcome === "not_found") return opsProblem("No such intake at this clinic.", 404, "invalid_args");
+    if (outcome.outcome === "retell_outstanding") return opsProblem(`${RETELL_OUTSTANDING}.`, 409, "invalid_args");
     if (outcome.outcome === "already_closed") return ok({ ...outcome, auditRecorded: true });
     const auditRecorded = await audit(operator, "rights_intake_closed", {
       clinicSlug: clinic.slug,

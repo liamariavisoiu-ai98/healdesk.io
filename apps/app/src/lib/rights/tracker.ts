@@ -200,8 +200,10 @@ export function clinicRows(
     const amendment = link && intake.kind === "amendment" ? amendments.get(link) : undefined;
     if (erasure) {
       linked.add(erasure.id);
+      // Done only once the subcontractor step is stamped: closing the intake
+      // never counts (closeIntake refuses it while the step is outstanding).
       const stamped = erasure.stamped;
-      const done = closed || stamped;
+      const done = stamped;
       const due = utcDay(erasure.dueBy);
       out.push({
         ...base,
@@ -219,7 +221,8 @@ export function clinicRows(
     }
     if (request) {
       linked.add(request.id);
-      const done = closed || request.acknowledgedAt !== null;
+      // Done only once the practice marks it received, as the L32 sweep waits for.
+      const done = request.acknowledgedAt !== null;
       out.push({
         ...base,
         recordId: request.id,
@@ -230,7 +233,7 @@ export function clinicRows(
         commandNote: null,
         retellStep: null,
         backupExpiresOn: null,
-        closedOn: closedOn ?? (request.acknowledgedAt ? utcDay(request.acknowledgedAt) : null),
+        closedOn: request.acknowledgedAt ? utcDay(request.acknowledgedAt) : closedOn,
       });
       continue;
     }
@@ -530,21 +533,37 @@ export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Prom
 export type CloseIntakeOutcome =
   | { outcome: "closed"; status: Exclude<RightsStatus, "open"> }
   | { outcome: "already_closed"; status: Exclude<RightsStatus, "open"> }
-  | { outcome: "not_found" };
+  | { outcome: "not_found" }
+  /** It names a deletion whose Retell step is not stamped: closing it would hide that step. */
+  | { outcome: "retell_outstanding" };
 
-/** Close an open intake as done or not applicable, once; a closed one is left as it is. */
+/** What closeRightsIntake says when the deletion an intake names still owes its Retell step. */
+export const RETELL_OUTSTANDING = "The deletion at Retell is not recorded yet";
+
+/**
+ * Close an open intake as done or not applicable, once; a closed one is left
+ * as it is. Refused for an intake that names a deletion whose subcontractor
+ * step is not stamped: the deletion is done only once Retell's copy is, and
+ * that is recorded on the clinic's Care tab. An intake that names a patient's
+ * request may close: its row stays on the list, open, until the practice
+ * marks the request received, and the L32 sweep keeps chasing it.
+ */
 export async function closeIntake(
   tx: TenantTx,
   input: { id: string; status: Exclude<RightsStatus, "open"> },
 ): Promise<CloseIntakeOutcome> {
   const [row] = await tx.db
-    .select({ status: rightsIntakes.status })
+    .select({ status: rightsIntakes.status, kind: rightsIntakes.kind, linkedRecordId: rightsIntakes.linkedRecordId })
     .from(rightsIntakes)
     .where(and(eq(rightsIntakes.clinicId, tx.clinicId), eq(rightsIntakes.id, input.id)))
     .for("update")
     .limit(1);
   if (!row) return { outcome: "not_found" };
   if (row.status !== "open") return { outcome: "already_closed", status: row.status };
+  if (row.kind === "erasure" && row.linkedRecordId) {
+    const erasure = (await listErasureRequests(tx)).find((r) => r.id === row.linkedRecordId);
+    if (erasure && !erasure.steps.every((step) => step.stamp !== null)) return { outcome: "retell_outstanding" };
+  }
   // closed_at is the database's clock (rights_intakes_guard).
   await tx.db
     .update(rightsIntakes)

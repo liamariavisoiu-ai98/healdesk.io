@@ -14,7 +14,7 @@ import {
   RIGHTS_KINDS,
 } from "@/lib/rights/clocks";
 import { NO_OPERATOR, NO_ROUTE, prepareCommand, RUN_TASK } from "@/lib/rights/commands";
-import { listRights, type RightsRow } from "@/lib/rights/tracker";
+import { listRights, RETELL_OUTSTANDING, type RightsRow } from "@/lib/rights/tracker";
 import { JOB_RIGHTS_WATCH, rightsAlertsFor, runRightsWatchJob, watchRights } from "@/lib/scheduler/rights-watch";
 import { getJob } from "@/lib/scheduler/jobs";
 
@@ -303,8 +303,12 @@ async function seedErasure(clinicId: string, receivedAt: string, dueBy: string):
   });
 }
 
-async function alertsOf(event: string): Promise<Record<string, unknown>[]> {
-  const { rows } = await getMigratorPool().query(`select fields from ops_alerts where event = $1`, [event]);
+/** One clinic's alerts of an event: ops_alerts has no clinic key to cascade, so an earlier run's rows stay. */
+async function alertsOf(event: string, clinicId: string): Promise<Record<string, unknown>[]> {
+  const { rows } = await getMigratorPool().query(`select fields from ops_alerts where event = $1 and fields->>'clinicId' = $2`, [
+    event,
+    clinicId,
+  ]);
   return rows.map((r) => r.fields as Record<string, unknown>);
 }
 
@@ -540,26 +544,57 @@ describeDb("the rights tracker, against the database", () => {
 
     // Thursday 20 October... the erasure's due day is 22 October: two business days left.
     expect((await runRightsWatchJob({ now: new Date("2026-10-20T08:00:00Z") })).status).toBe("ok");
-    expect(await alertsOf("rights_request_blocked")).toEqual([{ clinicId: c.clinicId, requestId: blocked.id }]);
-    expect(await alertsOf("rights_request_due_soon")).toEqual([{ clinicId: c.clinicId, requestId: blocked.id }]);
-    expect(await alertsOf("rights_request_overdue")).toEqual([]);
+    expect(await alertsOf("rights_request_blocked", c.clinicId)).toEqual([{ clinicId: c.clinicId, requestId: blocked.id }]);
+    expect(await alertsOf("rights_request_due_soon", c.clinicId)).toEqual([{ clinicId: c.clinicId, requestId: blocked.id }]);
+    expect(await alertsOf("rights_request_overdue", c.clinicId)).toEqual([]);
     // Run again the same day and the next: nothing new until the day passes.
     await watchRights(new Date("2026-10-20T09:00:00Z"));
     await watchRights(new Date("2026-10-21T08:00:00Z"));
-    expect(await alertsOf("rights_request_blocked")).toHaveLength(1);
-    expect(await alertsOf("rights_request_due_soon")).toHaveLength(1);
+    expect(await alertsOf("rights_request_blocked", c.clinicId)).toHaveLength(1);
+    expect(await alertsOf("rights_request_due_soon", c.clinicId)).toHaveLength(1);
     // Past it: overdue, once.
     const late = await watchRights(new Date("2026-10-23T08:00:00Z"));
     await watchRights(new Date("2026-10-26T08:00:00Z"));
     expect(late).toMatchObject({ open: 2, leftToL32: 1, overdue: 1 });
-    expect(await alertsOf("rights_request_overdue")).toEqual([{ clinicId: c.clinicId, requestId: blocked.id }]);
+    expect(await alertsOf("rights_request_overdue", c.clinicId)).toEqual([{ clinicId: c.clinicId, requestId: blocked.id }]);
     // The patient's request recorded on the host is the L32 sweep's, never these events.
     for (const event of ["rights_request_blocked", "rights_request_due_soon", "rights_request_overdue"]) {
-      expect((await alertsOf(event)).some((f) => f.requestId === passedOn), event).toBe(false);
+      expect((await alertsOf(event, c.clinicId)).some((f) => f.requestId === passedOn), event).toBe(false);
     }
     // Closed, it is owed nothing more.
     await runOperation("closeRightsIntake", { clinicId: c.clinicId, id: blocked.id, status: "done" }, OPERATOR);
     expect(await watchRights(new Date("2026-10-27T08:00:00Z"))).toMatchObject({ open: 1, blocked: 0, overdue: 0 });
+  });
+
+  test("a linked deletion is done only once Retell's copy is recorded, and its intake cannot close before", async () => {
+    const c = await seedClinic("rights-retell");
+    const erasure = await seedErasure(c.clinicId, "2026-10-08T09:00:00Z", "2026-10-22T09:00:00Z");
+    const intake = data<{ id: string }>(
+      await record({ clinicId: c.clinicId, kind: "erasure", receivedOn: "2026-10-08", verifiedVia: "notice_address", linkedRecordId: erasure }),
+    );
+    const close = await runOperation("closeRightsIntake", { clinicId: c.clinicId, id: intake.id, status: "done" }, OPERATOR);
+    expect(close.status).toBe(409);
+    expect(JSON.stringify(close.body)).toContain(RETELL_OUTSTANDING);
+    const listOf = async () =>
+      (await listRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now: new Date("2026-10-23T08:00:00Z"), filter: "all", clinics: [{ id: c.clinicId, name: "R" }] })).rows;
+    expect(await listOf()).toMatchObject([{ id: intake.id, recordId: erasure, state: "overdue", retellStep: "outstanding" }]);
+    // Stamped at Retell: done, even with the intake still open; and now it may close.
+    await inTenant(c.clinicId, (q) =>
+      q.query(`update erasure_requests set vendor_steps = '{"retell": {"at": "2026-10-20T00:00:00Z", "by": "ops", "how": "deleted"}}' where id = $1`, [erasure]),
+    );
+    expect(await listOf()).toMatchObject([{ id: intake.id, state: "done", retellStep: "stamped", daysLeft: null }]);
+    expect((await runOperation("closeRightsIntake", { clinicId: c.clinicId, id: intake.id, status: "done" }, OPERATOR)).status).toBe(200);
+  });
+
+  test("a linked patient request stays open until the practice marks it, closed intake or not", async () => {
+    const c = await seedClinic("rights-l32");
+    const passedOn = await seedPatientRequest(c.clinicId, "2026-10-19T10:00:00Z", "2026-10-26");
+    const intake = data<{ id: string }>(
+      await record({ clinicId: c.clinicId, kind: "patient_request", askedFor: "deletion", receivedOn: "2026-10-19", verifiedVia: "unverified", linkedRecordId: passedOn }),
+    );
+    expect((await runOperation("closeRightsIntake", { clinicId: c.clinicId, id: intake.id, status: "done" }, OPERATOR)).status).toBe(200);
+    const open = await listRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now: new Date("2026-10-22T08:00:00Z"), clinics: [{ id: c.clinicId, name: "R" }] });
+    expect(open.rows).toMatchObject([{ id: intake.id, recordId: passedOn, state: "due_soon" }]);
   });
 
   test("Home shows one row for the due soon and one for the late, linking to the Patient rights page", async () => {

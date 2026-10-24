@@ -370,10 +370,13 @@ writes not settled whose slot has not started, each with the reason in words
 (`components/admin/queue-words.ts`), the tries so far of five and the next try, and a "Retry"
 per row (`opRetryCalendarWrite`: reads Google back first, may go past the five, refuses a
 booking staff cancelled or marked). A write Google did not answer (a timeout, a lost reply, a
-429, a server error before the insert) is `unknown` and the desk sweep retries it 2 min, 10 min,
-30 min and 2 h after each failed try, five tries in all counting the first, until the slot starts
-(`WRITE_BACKOFF_MINUTES`; the fifth step, 6 h, is recorded and never run, `MAX_WRITE_ATTEMPTS`);
-settled reasons (deleted in the calendar, event id taken, not ours, no calendar connected, the
+429, a server error before the insert) is `unknown` and the desk sweep, which is the
+five-minute calendar watch itself (`lib/scheduler/calendar-watch.ts`, behind the
+`calendar-watch` row's switch on the Jobs page, which ships off: while it reads off nothing
+retries by itself), retries it at its run no sooner than 2 min after the first failed try, then
+10 min, 30 min and 2 h after the next ones, five tries in all counting the first, until the slot
+starts (`WRITE_BACKOFF_MINUTES`; the fifth step, 6 h, is recorded and never run,
+`MAX_WRITE_ATTEMPTS`); settled reasons (deleted in the calendar, event id taken, not ours, no calendar connected, the
 target calendar refused, an access or connection break) are never retried by the sweep
 (`lib/booking/calendar.ts`, `CALENDAR_WRITE_REASONS`). `calendar_write_stuck` fires only for a
 write the sweep no longer takes. System › "Requires your attention", "Calendar writes stuck",
@@ -389,8 +392,9 @@ attempts and "Send again" where a sealed copy still exists. A copy unanswered 72
 goes, or undelivered after 30 days, is deleted and cannot be sent again; the clinic is told
 nothing was kept. Never ask apps/app for the words: there are none to read. System › "Requires
 your attention", "Transcript copies not delivered", lists every clinic with a copy waiting over
-72 hours, bounced, or deleted undelivered (expired after 30 days, or unconfirmed 72 hours after
-an accepted send), among the copies queued in the last 60 days (`UNDELIVERED_WINDOW_DAYS`,
+72 hours, bounced, or deleted with no delivery report (expired after 30 days, or unconfirmed 72
+hours after an accepted send, which the clinic may have received), among the copies queued in
+the last 60 days (`UNDELIVERED_WINDOW_DAYS`,
 twice the 30 days a copy can wait, so every copy that expired in the last 30 days is in it),
 with counts and the oldest held copy's age in hours, linking to its Deliveries tab
 (`listUndeliveredTranscripts`, Phase 5).
@@ -413,10 +417,12 @@ the fresh code. A sign-in help request that matched no clinic is answered by han
 with no account detail in it. `step_up_phone_held`: phone cannot be billed per location yet
 (`lib/locations.ts` `phoneHeldByLocations`), and the owner decided on 24 October 2026 that
 phone does not stay on unbilled: the clinic switches "Phone" off under Channels in its
-portal's Settings, one switch for the whole account (`lib/channels/switch.ts`: its calls then
-go to its direct line); nothing in the console flips that switch, and the plan is left as it
-is. Phone the clinic on its direct line: with phone live its published number forwards to AYA.
-Done shows on the Billing tab's Channels card, whose Phone row ends "· switched off".
+portal's Settings, one switch per clinic covering all its locations (`lib/channels/switch.ts`:
+its calls then go to its direct line; a legacy billing group has one clinic, and one switch,
+per block under the Billing tab's Channels card); nothing in the console flips that switch, and
+the plan is left as it is. Phone the clinic on its direct line: with phone live, calls to its
+published number can be forwarded to AYA, as its coverage mode says. Done shows on the Billing
+tab's Channels card, where each clinic's Phone row ends "· switched off".
 
 ### Offboarding
 

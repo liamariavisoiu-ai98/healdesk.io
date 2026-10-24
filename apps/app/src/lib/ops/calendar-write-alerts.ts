@@ -26,9 +26,11 @@ import {
  * A booking the desk confirmed is written into the location's Google
  * Calendar by writeToCalendar (lib/booking/calendar.ts). When Google refuses
  * it, the row ends `failed` and nothing retries it on its own; when Google's
- * answer never came, it is `unknown` and the desk sweep tries again on its
- * ladder (+2 min, +10 min, +30 min, +2 h, +6 h), five attempts at most, for
- * as long as the slot has not started. Either way the desk page says to add
+ * answer never came, it is `unknown` and the desk sweep (the five-minute
+ * calendar watch, behind its job switch) tries again on its ladder, +2 min,
+ * +10 min, +30 min and +2 h after each failed try (the fifth step is recorded
+ * and never run), five attempts in all counting the first, for as long as
+ * the slot has not started. Either way the desk page says to add
  * the booking by hand, and until now nobody at healdesk heard of it.
  *
  * This raises calendar_write_stuck, once per write, state and attempt

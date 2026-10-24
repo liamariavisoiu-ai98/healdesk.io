@@ -41,7 +41,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "Deliver this export before the data is destroyed",
     headline: "{clinicName}'s export must be delivered before its data is destroyed[ on {destroyAt}]",
     whatHappened:
-      "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed[ on {destroyAt}], as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.",
+      "{clinicName} left 21 days or more ago. No export of its data is recorded as delivered, and its agreement gives thirty days, or it has none on file, so its data is destroyed on the day Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.",
     whyItMatters:
       "The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.",
     steps: [
@@ -58,7 +58,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // recorded later, and on the ninety days' last day whether or not it was.
   export_due_undelivered: {
     title: "An export is due and not delivered",
-    headline: "{clinicName}'s export is due[ by {exportDueAt}] and not delivered",
+    headline: "{clinicName}'s export is not delivered[; the agreement's day for it is {exportDueAt}]",
     whatHappened:
       "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement promises the export within thirty days of the end, without being asked.[ The data waits for it until {destroyAt} at the latest.] Offboarding on its Care tab shows both days.",
     whyItMatters:
@@ -98,7 +98,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     // does not count them.
     headline: "{clinicName} has left, but its account and sign-in stay open: a step is outstanding",
     whatHappened:
-      "{clinicName} has left, but its account and sign-in stay open: a step is outstanding. Its data has been destroyed and its forwarded calls have stopped passing through. The account, its sign-in and setup with it, stays open until that step is done. The step is the agent and number released at the voice vendor, an open incident finished, a notice to the practice still waiting to go, or its Stripe connection ended.",
+      "{clinicName} has left, but its account and sign-in stay open: a step is outstanding. Its data has been destroyed and its forwarded calls have stopped passing through. The account, its sign-in and setup with it, stays open until the outstanding step is done. The step is the agent and number released at the voice vendor, an open incident finished, a notice to the practice still waiting to go, or its Stripe connection ended.",
     whyItMatters:
       "The practice was told its sign-in would end and its setup would go once the pass-through ended. While the account stays open, both are still there.",
     steps: [
@@ -133,7 +133,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A practice was not told its data was destroyed",
     headline: "{clinicName} never got the notice that its data was destroyed; nothing will try again",
     whatHappened:
-      "{clinicName} never got the notice that its data was destroyed; nothing will try again. It could not be sent to the address on its account: the mail provider refused it, this side refused to send it, or it kept failing for a week.",
+      "{clinicName} never got the notice that its data was destroyed; nothing will try again. It could not be sent to the address on its account: the mail provider refused it, this side refused to send it, or a week passed without it going.",
     whyItMatters:
       "The practice is owed that notice, and healdesk no longer holds the address copied for the email. The account's own address is on the Account tab until the account closes.",
     steps: [

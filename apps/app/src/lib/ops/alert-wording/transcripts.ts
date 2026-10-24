@@ -13,9 +13,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // Deliveries tab shows each receipt's status.
   transcript_undelivered: {
     title: "A transcript could not be emailed to the clinic",
-    headline: "{clinicName}'s transcript: no delivery report[ ({status})]",
+    headline: "{clinicName}'s transcript email has no confirmed delivery[: {status}]",
     whatHappened:
-      "{clinicName}'s transcript has no delivery report: it may not have arrived. Either the send of a call or chat's transcript has failed three times, the clinic's mail server bounced, rejected or reported it, nothing confirmed a send for 72 hours, or 30 days passed undelivered. In the last two cases our copy is now deleted.",
+      "{clinicName}'s transcript email has no confirmed delivery. Either the send of a call or chat's transcript has failed three times, the clinic's mail server bounced, rejected or reported it, nothing confirmed a send for 72 hours, or 30 days passed undelivered. In the last two cases our copy is now deleted.",
     whyItMatters:
       "We keep no transcript: a copy deleted here cannot be sent again, and only the call or chat's time and outcome remain. A bounce usually means the clinic's one address is wrong, so every other email to it is at risk too.",
     steps: [

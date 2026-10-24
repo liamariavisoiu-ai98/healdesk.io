@@ -21,12 +21,12 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // L32's clock (lib/patient-rights/patient-requests.ts), once per request
   // each: the clinic's and the request's ids.
   patient_request_due_soon: {
-    title: "A patient's request is due next business day",
+    title: "A patient's request is due within a business day",
     // "By the next business day": the sweep raises it from the fourth
     // business day, and on the fifth, the last, when the job ran late.
-    headline: "{clinicName} has a patient's request due by the next business day, not marked received",
+    headline: "{clinicName} has a patient's request due within a business day, not marked received",
     whatHappened:
-      "{clinicName} has a patient's request due by the next business day, not marked received in its portal. The patient asked healdesk, not the clinic, for something about their information, and we recorded it for the clinic; the agreement has us pass it on within five business days. The practice has had our email and its reminders.",
+      "{clinicName} has a patient's request due within a business day, not marked received in its portal. The patient asked healdesk, not the clinic, for something about their information, and we recorded it for the clinic; the agreement has us pass it on within five business days. The practice has had our email and any reminder due since.",
     whyItMatters:
       "Passing it on is a duty in the agreement, with a day. The practice's own mark on the request's page is what counts, not an email delivered.",
     steps: [

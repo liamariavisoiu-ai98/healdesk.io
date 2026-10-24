@@ -30,9 +30,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     // The days without progress are absent for a clinic that never started;
     // the days left stay in the detail, so the line holds the two facts
     // that say how stuck it is.
-    headline: "{clinicName}: no setup progress[ for {noProgressDays:day}], {stepsLeftCount:step} to go",
+    headline: "{clinicName}: no setup progress[ for {noProgressDays:day}][, {stepsLeftCount:step} to go]",
     whatHappened:
-      "{clinicName}: no setup progress[ for {noProgressDays:day}], {stepsLeftCount:step} to go.[ It has {remainingDays:day} left in its 30-day setup window.] Its own setup reminders keep going every five days.",
+      "{clinicName}: no setup progress[ for {noProgressDays:day}][, {stepsLeftCount:step} to go].[ It has {remainingDays:day} left in its 30-day setup window.] Its own setup reminders keep going every five days.",
     whyItMatters: `A setup that stops moving usually needs a nudge, not a rescue. ${CLOSURE}`,
     steps: [
       "Open the clinic's Setup tab and read the Setup window card: the days left, the last progress and what we suggest.",
@@ -49,9 +49,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // call (more time already offered or given), so the steps follow it.
   lifecycle_closing_soon: {
     title: "A setup window closes soon and the clinic is nearly done",
-    headline: "{clinicName} is nearly set up: {stepsLeftCount:step} to go, {remainingDays:day} left",
+    headline: "{clinicName} is nearly set up, {remainingDays:day} left[: {stepsLeftCount:step} to go]",
     whatHappened:
-      "{clinicName} is nearly set up: {stepsLeftCount:step} to go, {remainingDays:day} left in its setup window.[ It has made no progress for {noProgressDays:day}.]",
+      "{clinicName} is nearly set up, {remainingDays:day} left in its setup window[: {stepsLeftCount:step} to go].[ Its last progress was {noProgressDays:day} ago.]",
     whyItMatters: `No decision is owed: the clinic has one step left or none. ${CLOSURE} A short extension is cheap if it asks.[?recommendation=extend: Our rules suggest {extendDays:day} more.][?recommendation=offer_call: Our rules suggest offering a five-minute call.][?recommendation=wait: Our rules suggest waiting.][?recommendation=phone_the_clinic: Our rules suggest phoning the clinic.][?recommendation=let_close: You decided to let this setup close.]`,
     steps: [
       "Open the clinic's Setup tab and read the Setup window card: the window's end, the last progress and what we suggest.",
@@ -73,7 +73,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A stalled setup closes soon: what to offer",
     headline: "{clinicName} has {remainingDays:day} left to set up AYA, with {stepsLeftCount:step} to go",
     whatHappened:
-      "{clinicName} has {remainingDays:day} left to finish setting up AYA, with {stepsLeftCount:step} still to do.[ It has made no progress for {noProgressDays:day}.]",
+      "{clinicName} has {remainingDays:day} left to finish setting up AYA, with {stepsLeftCount:step} still to do.[ Its last progress was {noProgressDays:day} ago.]",
     whyItMatters: `${CLOSURE}[?recommendation=extend: Our rules suggest giving it more time.][?recommendation=offer_call: Our rules suggest offering a short call.][?recommendation=phone_the_clinic: Our rules suggest phoning the clinic first.][?recommendation=wait: Our rules suggest waiting a few more days.][?recommendation=let_close: Our rules suggest letting it close, or it was already decided: Decision so far on the card says which.]`,
     steps: [
       "Open the clinic's Setup tab and read the Setup window card: the days left, the last progress, the decision so far and what we suggest.",
@@ -90,7 +90,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A setup waiting on us is about to close",
     headline: "{clinicName} has waited on us {waitedDays:day}; its window closes in {remainingDays:day}",
     whatHappened:
-      "{clinicName} has waited on us {waitedDays:day}; its setup window closes in {remainingDays:day}. It has finished every setup step it can; a channel it bought is still being finished on our side. 0 days means today is the last day.",
+      "{clinicName} has waited on us {waitedDays:day}; its setup window closes in {remainingDays:day}. It has finished every setup step it can; a channel it bought is still being finished on our side.",
     whyItMatters:
       "If nothing is live when the window ends, the account is closed whether the delay was ours or not, and the setup fee is not refunded. The closure waits while the setup-closure row in System › Jobs is off. Days waiting on us never extend the window by themselves.[?recommendation=extend: Our rules suggest extending by {extendDays:day}, the time it waited.]",
     steps: [
@@ -147,7 +147,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whatHappened:
       "{clinicName}: partly live {waitedDays:day}, {channelsWaitingCount:channel} waiting on it. A channel has been answering all that time; each waiting one needs one step only the clinic can do.",
     whyItMatters:
-      "The clinic is paying for a channel it is not getting, and people on that channel still reach nobody from AYA. Its setup window no longer closes the account, so this is a nudge, not a deadline.",
+      "The clinic bought a channel it is not getting yet, and people on that channel still reach nobody from AYA. Its setup window no longer closes the account, so this is a nudge, not a deadline.",
     steps: [
       "Open the clinic's Setup tab: the Channels card shows which channel is waiting and the one step the clinic owes for it.",
       "Check the clinic's Deliveries tab under Reminders: the clinic's one reminder for that channel shows there if it was sent, and whether it arrived.",

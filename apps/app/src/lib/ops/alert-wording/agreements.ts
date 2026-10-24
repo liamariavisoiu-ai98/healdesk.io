@@ -11,7 +11,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A clinic has not signed its updated agreement in 7 days",
     headline: "{clinicName}'s updated agreement is still unsigned after 7 days and reminders",
     whatHappened:
-      "{clinicName}'s updated agreement is still unsigned after 7 days and reminders. It was sent the agreement to sign seven days ago, with reminders since, and nobody at the clinic has signed it yet.",
+      "{clinicName}'s updated agreement is still unsigned after 7 days and reminders. Nobody at the clinic has signed it yet.",
     whyItMatters:
       "A version update never pauses AYA: she keeps answering under the version the clinic signed. A new agreement that came from a change in the practice's covered-entity answer does pause her until it is signed. Either way, email has not moved the clinic, so a person should phone.",
     steps: [
@@ -46,7 +46,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A clinic is answering under a superseded agreement",
     headline: "{clinicName} is on a superseded agreement: the current one is unsigned after 7 days",
     whatHappened:
-      "{clinicName} is on a superseded agreement: the current one is unsigned after 7 days. It signed a version of the business associate agreement that go-live no longer accepts. We sent it the current version seven days ago, with reminders since, and it is still unsigned.",
+      "{clinicName} is on a superseded agreement: the current one is unsigned after 7 days. It signed a version of the business associate agreement that go-live no longer accepts.",
     whyItMatters:
       "AYA keeps answering under the version the clinic signed, by the owner's decision, so nothing stops. The clinic must still move to the current version, and email has not moved it.",
     steps: [
@@ -104,9 +104,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // register lists it once provisioning imports it.
   agreement_copy_withheld: {
     title: "A signer's copy of the agreement is still owed",
-    headline: "Someone signed the agreement at the checkout, but their copy was held back and not sent",
+    headline: "Someone signed the agreement at the checkout, but their emailed copy did not go out",
     whatHappened:
-      "Someone signed the agreement at the checkout, but their copy was held back and not sent. That happens when a copy already went to that address today, the names typed carry something we do not mail to an unconfirmed address, the day's limit on such copies is spent, or the email itself failed.",
+      "Someone signed the agreement at the checkout, but their emailed copy did not go out. That happens when a copy already went to that address today, the names typed carry something we do not mail to an unconfirmed address, the day's limit on such copies is spent, or the email itself failed.",
     whyItMatters:
       "The signature stands, and the buyer was told the copy would follow. Until it does, only we hold the signed document, and an agreement binds two parties.",
     steps: [

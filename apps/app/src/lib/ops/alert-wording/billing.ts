@@ -29,7 +29,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // existing one, and the duplicate is the newer subscription.
   duplicate_subscription: {
     title: "A clinic was charged for a second subscription",
-    headline: "{clinicName} paid a second setup fee: it already has its account",
+    headline: "{clinicName} paid for AYA a second time: it already has its account",
     whatHappened:
       "{clinicName} paid a second setup fee: it already has its account. Stripe took the fee on a newer subscription for the same practice. Nothing was made for it; the account the clinic has is unchanged.",
     whyItMatters:
@@ -67,9 +67,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // close_setup; `code` the last Stripe error.
   billing_request_dead_lettered: {
     title: "A billing change failed at Stripe after every retry",
-    headline: "{clinicName}'s billing change[ ({kind})] failed on every try",
+    headline: "{clinicName}'s billing change failed at Stripe[: {status}]",
     whatHappened:
-      "{clinicName}'s billing change failed at Stripe on every try. The hourly check puts it back for one more try a day later and tells you again when it does; nothing else retries it.",
+      "{clinicName}'s billing change failed at Stripe on every try. For a plan start or a price step-up still owed, the hourly check puts it back for one more try a day later and tells you again; anything else is not retried unless someone presses Retry.",
     whyItMatters:
       "Until it goes through, what Stripe bills and what the clinic has do not match: a plan start not charged, a channel not billed, a cancellation or a closure not carried out.",
     steps: [
@@ -86,7 +86,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A billing change has waited at Stripe for over a day",
     headline: "{clinicName}'s billing change[ ({kind})] has waited over a day",
     whatHappened:
-      "{clinicName}'s billing change has waited over a day without finishing. It has been pending for more than a day, and it is marked STUCK on the clinic's Billing tab.",
+      "{clinicName}'s billing change has waited over a day without finishing. It is marked STUCK on the clinic's Billing tab.",
     whyItMatters:
       "Until it goes through, what Stripe bills and what the clinic has do not match. A change this late usually means nothing is carrying changes out at all.",
     steps: [
@@ -118,9 +118,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "An extra location could not be set up",
     headline: "{clinicName} added an extra location[ (location {count})] that is still not set up",
     whatHappened:
-      "{clinicName} added an extra location[ (location {count})] that is still not set up. Its charge was recorded and making it active failed, or the hourly check could not settle with Stripe whether it was charged at all. The location is not answering yet, and a charge that was taken stands.",
+      "{clinicName} added an extra location[ (location {count})] that is still not set up. Either its charge was recorded and making it active failed, or the hourly check could not settle with Stripe whether it was charged at all. The location is not answering yet, and a charge that was taken stands.",
     whyItMatters:
-      "The clinic is paying for a location that does not exist yet. The hourly check tries to finish it on its own; if it cannot, this waits until someone retries it.",
+      "If the charge was taken, the clinic is paying for a location that does not exist yet. The hourly check tries to finish it on its own; if it cannot, this waits until someone retries it.",
     steps: [
       "Open the clinic's Billing tab: the Needs attention box names the location and the day it was charged, and A location waiting to be set up shows it.",
       "Press Retry the location setup under A location waiting to be set up. It finishes the location, or clears a request that never charged; it never charges again.",
@@ -138,7 +138,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A deposit or disconnect event from Stripe is parked",
     headline: "A deposit or disconnect event[ for {clinicName}] could not be applied and is parked",
     whatHappened:
-      "A deposit or disconnect event[ for {clinicName}] could not be applied and is parked. Stripe told us something about a clinic's own Stripe account: a deposit paid through it, or the clinic disconnecting our access to it. Applying it failed on every try, so it is parked, and nothing tries it again on its own.",
+      "A deposit or disconnect event[ for {clinicName}] could not be applied and is parked. Stripe told us something about a clinic's own Stripe account: a deposit payment link's outcome (paid, failed or expired), or the clinic disconnecting our access to it. Applying it failed on every try, so it is parked, and nothing tries it again on its own.",
     whyItMatters:
       "A deposit itself is in the clinic's own Stripe account either way, but our record of it may be wrong: a booking may still show its deposit unpaid, or a payment link open. If the clinic disconnected its account, deposits stay switched on here and payment links may still be offered on an account we can no longer use.",
     steps: [
@@ -177,7 +177,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A clinic is owed its first-period refund",
     headline: "{clinicName} turned auto-renew off and is owed its first period back",
     whatHappened:
-      "{clinicName} turned auto-renew off and is owed its first period back. It did so within fourteen days of its plan starting, so under the Terms its first period's fee is due back in full, and the email it received promises we will write by the next business day to arrange it.",
+      "{clinicName} turned auto-renew off and is owed its first period back. Auto-renew went off within fourteen days of the plan starting, so under the Terms its first period's fee is due back in full, and the email it received promises we will write by the next business day to arrange it.",
     whyItMatters:
       "A promise with a day on it. The refund also cancels the plan at once, so it must be the clinic's settled choice, and money is the owner's call.",
     steps: [
@@ -282,9 +282,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // Dashboard".
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
-    headline: "{clinicName} is owed a refund for the time after its agreement ended",
+    headline: "{clinicName}'s agreement ended for a reason that refunds any fees paid past the end",
     whatHappened:
-      "{clinicName} is owed a refund for the time after its agreement ended. It ended its agreement for a reason the agreement refunds: the fees it paid for any time after the termination day come back. Its subscription is already being cancelled.",
+      "{clinicName} is owed a refund for the time after its agreement ended. Its subscription is already being cancelled.",
     whyItMatters:
       "Confirm it before the practice's data is destroyed, at the earliest 29 days after the termination: destruction removes the billing records the console refunds from, and after it the refund has to be made by hand in the Stripe Dashboard.",
     steps: [

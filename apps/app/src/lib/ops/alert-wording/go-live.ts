@@ -20,7 +20,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     // what is owed in every branch and promises nothing about a channel.
     headline: "{clinicName}'s practice questions did not pass: a review, a fix or a rerun is owed",
     whatHappened:
-      "{clinicName}'s practice questions did not pass: a review, a fix or a rerun is owed. They are the test conversations AYA must pass before a channel goes live. Either a judge flagged answers for a person to review, the clinic has something to fix in its portal, or the run itself could not finish.",
+      "{clinicName}'s practice questions did not pass: a review, a fix or a rerun is owed. Practice questions are the test conversations AYA must pass before a channel goes live. Either a judge flagged answers for a person to review, the clinic has something to fix in its portal, or the run itself could not finish.",
     whyItMatters:
       "Before go-live, a channel cannot go live until a run passes, and AYA answers no one on it. After go-live, a run that does not pass takes nothing offline, but what it found is still owed. A review has a due day the clinic can see in its portal.",
     steps: [
@@ -37,9 +37,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A practice-question review is past the day we promised",
     headline: "{clinicName} is waiting on our practice-question review, past the day we promised it",
     whatHappened:
-      "{clinicName} is waiting on our review of its practice questions, and the day we gave it for that review has passed. Its portal told the clinic we would be done by then.",
+      "{clinicName} is waiting on our review of its practice questions, and the day we gave it for that review has passed. Its portal told the clinic the day we would be done by.",
     whyItMatters:
-      "The channel waiting on this review cannot go live until someone decides it. The clinic is waiting on a date we set.",
+      "Before go-live, the channel waiting on this review cannot go live until someone decides it; after go-live, nothing goes offline, but the clinic still waits on what we found. Either way it is waiting on a date we set.",
     steps: [
       "Open the Queues page and find {clinicName} under Reviews: it is marked past due. Read what was asked, what AYA answered and the judge's reason for each case.",
       "Press Pass if the answers are right: the run passes and the channel moves on.",
@@ -71,9 +71,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // log note until its account is closed (lib/ops/health.ts touchRefusal).
   no_inbound_calls_14_days: {
     title: "A clinic's phone line has had no calls for 14 days",
-    headline: "{clinicName}'s phone is live, yet no call has reached AYA for 14 days",
+    headline: "{clinicName}'s phone is live, yet no call has reached AYA for 14 days or more",
     whatHappened:
-      "{clinicName} has phone live and switched on, yet no call has reached AYA for 14 days. The count starts at its go-live, its last call, or when phone was last switched back on, whichever is latest.",
+      "{clinicName} has phone live and switched on, yet no call has reached AYA for 14 days or more. The count starts at its go-live, its last call, or when phone was last switched back on, whichever is latest.",
     whyItMatters:
       "This is almost always call forwarding that was set up and then removed or broken at the carrier. Callers are reaching the clinic's own line, or nobody, while the clinic may think AYA is answering.",
     steps: [
@@ -135,7 +135,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     // (lib/chat/web-chat.ts isClinicSiteOrigin), which any client can send.
     headline: "{clinicName} seems to have put website chat on its site: check it before confirming",
     whatHappened:
-      "{clinicName}'s website chat, still waiting on the clinic's own step, was just opened from a page that says it is the clinic's website. That is not proof: any page can say it is the clinic's site, so nothing was recorded.",
+      "{clinicName}'s website chat, still waiting on the clinic's own step, was just opened. The chat was opened from a page that says it is the clinic's website. That is not proof: any page can say so, so nothing was recorded.",
     whyItMatters:
       "Until a person confirms the chat is on the site, website chat stays off and tells visitors to call the practice. Confirming on a claim alone could take website chat live on a site that is not the clinic's.",
     steps: [

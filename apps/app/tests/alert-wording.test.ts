@@ -536,7 +536,7 @@ describe("each rewritten event's fields are the ones its raise site sends", () =
     expect(removedOnly).toEqual({ clinicId: CLINIC, section: "closures", count: 1, deleted: 1 });
     const text = fillWording(alertWording("clinic_availability_changed", removedOnly), wordingValues(removedOnly, "Glow"));
     expect(text.whatHappened).not.toMatch(/added 0|added/);
-    expect(text.whatHappened).toContain("It took off 1 closed day.");
+    expect(text.whatHappened).toContain("1 closed day taken off.");
   });
 
   test("lifecycle_decision_due: dueWaves", () => {
@@ -765,11 +765,15 @@ describe("the closed word lists", () => {
     );
     // The due day is the headline's now (lane N4 review); the last day stays here.
     expect(plainText(layoutAlert(alertWording("export_due_undelivered", {}), wordingValues({ exportDueAt: "2026-11-20T10:00:00.000Z" }, "Glow")).headline)).toBe(
-      "Glow's export is due by 20 Nov and not delivered",
+      "Glow's export is not delivered; the agreement's day for it is 20 Nov",
     );
     expect(exportDue.whatHappened).toContain("The data waits for it until 18 Jan at the latest.");
     const before = fillWording(alertWording("export_undelivered_before_destruction", {}), wordingValues({ destroyAt: "2026-11-30T10:00:00.000Z" }, "Glow"));
-    expect(before.whatHappened).toContain("its data is destroyed on 30 Nov, as Offboarding");
+    // The destruction day is in the headline; the detail points at Offboarding (lane N4 review).
+    expect(plainText(layoutAlert(alertWording("export_undelivered_before_destruction", {}), wordingValues({ destroyAt: "2026-11-30T10:00:00.000Z" }, "Glow")).headline)).toBe(
+      "Glow's export must be delivered before its data is destroyed on 30 Nov",
+    );
+    expect(before.whatHappened).toContain("its data is destroyed on the day Offboarding on its Care tab shows");
     const late = fillWording(alertWording("offboarding_started_late", {}), wordingValues({ serviceEndedAt: "2026-10-01T00:00:00.000Z", lateDays: 3 }, "Glow"));
     expect(late.whatHappened).toContain("Glow's subscription ended on 1 Oct, and");
     const refused = fillWording(alertWording("email_refused", {}), wordingValues({ kind: "receipt" }, "Glow"));
@@ -949,7 +953,7 @@ describe("every alert, laid out", () => {
     const dead = layoutAlert(alertWording("critical_notice_undelivered", { status: "dead" }), wordingValues({ kind: "suspended" }, "Glow"));
     expect(plainText(dead.headline)).toBe("Glow never got a suspension notice: it will not be sent");
     // The headline replaces the first sentence; the rest does not restate it.
-    expect(plainText(dead.detail)).toBe("It used every retry, or was refused outright on its first try.");
+    expect(plainText(dead.detail)).toBe("It used every retry, was refused outright on its first try, or the clinic has no address to send to.");
   });
 
   test("without a headline, the title with the clinic's name stands in, and the whole of what happened stays", () => {
@@ -1024,7 +1028,8 @@ describe("lane N4 review", () => {
     expect(plainText(decision.headline)).toBe("Glow has less than a day left to set up AYA, with 2 steps to go");
     const soon = layoutAlert(alertWording("lifecycle_closing_soon", {}), wordingValues({ remainingDays: 0, stepsLeftCount: 0 }, "Glow"));
     expect(plainText(soon.headline)).not.toMatch(/\b0 /);
-    expect(plainText(soon.headline).toLowerCase()).toContain("no steps to go");
+    // A zero count in an optional clause drops the clause (lane N4 review).
+    expect(plainText(soon.headline)).toBe("Glow is nearly set up, less than a day left");
     const waiting = layoutAlert(alertWording("lifecycle_closing_waiting_on_us", {}), wordingValues({ waitedDays: 0, remainingDays: 3 }, "Glow"));
     expect(plainText(waiting.headline)).toContain("waited on us less than a day");
     expect(fill("{count:connection} went unchecked", { count: 0 })).toBe("No connections went unchecked");

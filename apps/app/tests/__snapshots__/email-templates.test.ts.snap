@@ -4401,7 +4401,7 @@ exports[`each template's output > ops_alert, for clients: the snapshot 1`] = `
 <div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:#1f2328;border:1px solid #d4a72c;border-radius:6px;"><p style="margin:0 0 6px;color:#1f2328;"><strong>Do this first</strong></p><p style="margin:0;color:#1f2328;">Open the clinic&#39;s <strong><u>Deliveries tab</u></strong> and find the email under <strong><u>Billing emails</u></strong>: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.</p></div>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">
 <p class="hd-muted" style="margin:0 0 12px;color:#57606a;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">More detail</p>
-<p style="margin:0 0 16px;">Until it goes, the health check reads red.</p>
+<p style="margin:0 0 16px;">Until the email goes, the health check reads red.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Attempts:</strong> 3</p>
 <p style="margin:0 0 4px;"><strong>Status:</strong> late, still being retried</p>
@@ -4424,7 +4424,7 @@ DO THIS FIRST: Open the clinic's Deliveries tab and find the email under Billing
 
 MORE DETAIL
 
-Until it goes, the health check reads red.
+Until the email goes, the health check reads red.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
 Attempts: 3
@@ -4473,7 +4473,7 @@ exports[`each template's output > ops_alert, for patients: the snapshot 1`] = `
 <div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:#1f2328;border:1px solid #d4a72c;border-radius:6px;"><p style="margin:0 0 6px;color:#1f2328;"><strong>Do this first</strong></p><p style="margin:0;color:#1f2328;">Open the clinic&#39;s <strong><u>Deliveries tab</u></strong> and find the email under <strong><u>Billing emails</u></strong>: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.</p></div>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">
 <p class="hd-muted" style="margin:0 0 12px;color:#57606a;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">More detail</p>
-<p style="margin:0 0 16px;">Until it goes, the health check reads red.</p>
+<p style="margin:0 0 16px;">Until the email goes, the health check reads red.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Attempts:</strong> 3</p>
 <p style="margin:0 0 4px;"><strong>Status:</strong> late, still being retried</p>
@@ -4496,7 +4496,7 @@ DO THIS FIRST: Open the clinic's Deliveries tab and find the email under Billing
 
 MORE DETAIL
 
-Until it goes, the health check reads red.
+Until the email goes, the health check reads red.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
 Attempts: 3
@@ -8835,7 +8835,7 @@ exports[`ops alerts beyond the fixture > a leaving practice with no export deliv
 <div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:#1f2328;border:1px solid #d4a72c;border-radius:6px;"><p style="margin:0 0 6px;color:#1f2328;"><strong>Do this first</strong></p><p style="margin:0;color:#1f2328;">Open the clinic&#39;s <strong><u>Care tab</u></strong> and read <strong><u>Offboarding</u></strong>: the rule, the day the data is destroyed, and whether the export is recorded as delivered.</p></div>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">
 <p class="hd-muted" style="margin:0 0 12px;color:#57606a;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">More detail</p>
-<p style="margin:0 0 16px;">Its agreement gives thirty days, or it has none on file, so its data is destroyed on <mark style="background:#fff3a3;color:#1f2328;padding:0 2px;">30 Nov</mark>, as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice&#39;s export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.</p>
+<p style="margin:0 0 16px;">No export of its data is recorded as delivered, and its agreement gives thirty days, or it has none on file, so its data is destroyed on the day Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice&#39;s export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
 <p style="margin:0 0 16px;"><strong>Why it matters:</strong> The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.</p>
@@ -8856,7 +8856,7 @@ DO THIS FIRST: Open the clinic's Care tab and read Offboarding: the rule, the da
 
 MORE DETAIL
 
-Its agreement gives thirty days, or it has none on file, so its data is destroyed on 30 Nov, as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.
+No export of its data is recorded as delivered, and its agreement gives thirty days, or it has none on file, so its data is destroyed on the day Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
 Raised: 6 Oct
@@ -8967,14 +8967,14 @@ exports[`ops alerts beyond the fixture > the DMARC review reminder: the snapshot
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">FYI: Two weeks of DMARC reports are ready to read: healdesk.io&#39;s record still only reports</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">FYI: Two weeks of DMARC reports should be in: time to decide on tightening healdesk.io&#39;s record</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 8px;"><span style="display:inline-block;background:#57606a;color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.08em;padding:3px 9px;border-radius:4px;">FYI</span></p>
-<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">Two weeks of DMARC reports are ready to read: healdesk.io&#39;s record still only reports</p>
+<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">Two weeks of DMARC reports should be in: time to decide on tightening healdesk.io&#39;s record</p>
 <div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:#1f2328;border:1px solid #d4a72c;border-radius:6px;"><p style="margin:0 0 6px;color:#1f2328;"><strong>Do this first</strong></p><p style="margin:0;color:#1f2328;">Read healdesk.io&#39;s DMARC aggregate reports from <mark style="background:#ffd54f;color:#1f2328;padding:0 2px;">6 Oct</mark> on, in the mailbox named after rua= in the DMARC record in Cloudflare. The dmarc-review row on the <strong><u>Jobs page</u></strong> under System names the same first-sending day in its note, on the run that raised this alert.</p></div>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">
 <p class="hd-muted" style="margin:0 0 12px;color:#57606a;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">More detail</p>
-<p style="margin:0 0 16px;">Resend has been sending as healdesk.io for 14 days or more, since <mark style="background:#fff3a3;color:#1f2328;padding:0 2px;">6 Oct</mark> or earlier, where the reports to read begin, and the DMARC record still says only to report, never to act.</p>
+<p style="margin:0 0 16px;">Resend has been sending as healdesk.io for 14 days or more, since <mark style="background:#fff3a3;color:#1f2328;padding:0 2px;">6 Oct</mark> or earlier, where the reports to read begin, and the record stays at report-only until someone changes it; this alert does not read it.</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
 <p style="margin:0 0 16px;"><strong>Why it matters:</strong> Until the record says quarantine, anyone can send mail as hello@ and inboxes will accept it. Tightening it blind could block our own mail, so the reports are read first.</p>
 <p style="margin:0 0 16px;"><strong>Then:</strong><br>2. Check the reports show only our own senders as healdesk.io: Resend, Amazon&#39;s email service (our transcripts) and the owner&#39;s own mail. The <strong><u>Map page</u></strong> under System lists the first two. Find out what anything else is before going on; do not touch the record while an unknown sender shows.<br>3. Ask the owner to change healdesk.io&#39;s DMARC record from p=none to p=quarantine in Cloudflare, which holds healdesk.io&#39;s addresses; the <strong><u>Map page</u></strong> under System lists it, and only the owner has the Cloudflare sign-in. You are done when the record reads p=quarantine. This alert is raised once only.</p>
@@ -8986,15 +8986,15 @@ exports[`ops alerts beyond the fixture > the DMARC review reminder: the snapshot
 </div>
 </body>
 </html>",
-  "preheader": "FYI: Two weeks of DMARC reports are ready to read: healdesk.io's record still only reports",
+  "preheader": "FYI: Two weeks of DMARC reports should be in: time to decide on tightening healdesk.io's record",
   "subject": "healdesk ops: Time to review the DMARC reports",
-  "text": "FYI: Two weeks of DMARC reports are ready to read: healdesk.io's record still only reports
+  "text": "FYI: Two weeks of DMARC reports should be in: time to decide on tightening healdesk.io's record
 
 DO THIS FIRST: Read healdesk.io's DMARC aggregate reports from 6 Oct on, in the mailbox named after rua= in the DMARC record in Cloudflare. The dmarc-review row on the Jobs page under System names the same first-sending day in its note, on the run that raised this alert.
 
 MORE DETAIL
 
-Resend has been sending as healdesk.io for 14 days or more, since 6 Oct or earlier, where the reports to read begin, and the DMARC record still says only to report, never to act.
+Resend has been sending as healdesk.io for 14 days or more, since 6 Oct or earlier, where the reports to read begin, and the record stays at report-only until someone changes it; this alert does not read it.
 
 Raised: 6 Oct
 

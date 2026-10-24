@@ -66,7 +66,12 @@ export function plural(noun: string): string {
 
 const PLACEHOLDER = /\{([A-Za-z][A-Za-z0-9]*)(?::([a-z][a-z -]*))?\}/g;
 /** `[ … ]`, or `[?key=a|b: … ]`, kept only when key's value is one of a, b. Never nested. */
-const CLAUSE = /\[(?:\?([A-Za-z][A-Za-z0-9]*)=([a-z0-9_|]+):\s?)?([^[\]]*)\]/g;
+/**
+ * `[ … ]`; `[?key=a|b: … ]`, kept only when key's value is one of a, b; or
+ * `[?key>N: … ]` / `[?key<N: … ]`, kept only when key's count is above or
+ * below N (a missing count counts as 0). Never nested.
+ */
+const CLAUSE = /\[(?:\?([A-Za-z][A-Za-z0-9]*)(=[a-z0-9_|]+|[<>]\d+):\s?)?([^[\]]*)\]/g;
 
 /** Every key a text names, in a placeholder or a clause's condition, in order. For the lint test. */
 export function placeholdersOf(text: string): string[] {
@@ -91,9 +96,10 @@ function present(values: WordingValues, key: string): boolean {
   return typeof value === "number" ? Number.isFinite(value) : typeof value === "string" && value.length > 0;
 }
 
-/** Where a sentence starts: the beginning, or after a full stop, a question or exclamation mark, or a colon. */
+/** Where a sentence starts: the beginning, or after a full stop, a question or exclamation mark. */
 function startsSentence(before: string): boolean {
-  return /(^|[.!?:]\s+|\n)$/.test(plainText(before));
+  // Not after a colon: "Today: no setup decisions owed" (lane N4 review).
+  return /(^|[.!?]\s+|\n)$/.test(plainText(before));
 }
 
 /**
@@ -150,12 +156,22 @@ function substituteInto(out: string, text: string, values: WordingValues, marks?
   return out + text.slice(last);
 }
 
-function clauseKept(values: WordingValues, inner: string, key?: string, allowed?: string): boolean {
-  if (key !== undefined) {
+function clauseKept(values: WordingValues, inner: string, key?: string, condition?: string): boolean {
+  if (key !== undefined && condition !== undefined) {
     const value = values[key];
-    if (typeof value !== "string" || !(allowed ?? "").split("|").includes(value)) return false;
+    if (condition.startsWith("=")) {
+      if (typeof value !== "string" || !condition.slice(1).split("|").includes(value)) return false;
+    } else {
+      const n = typeof value === "number" && Number.isFinite(value) ? value : 0;
+      const limit = Number(condition.slice(1));
+      if (condition.startsWith(">") ? !(n > limit) : !(n < limit)) return false;
+    }
   }
-  return [...inner.matchAll(PLACEHOLDER)].every((m) => present(values, m[1]!));
+  // An optional clause whose count is 0 is dropped: "no progress for less
+  // than a day" or "no steps to go" says nothing worth a clause (lane N4 review).
+  return [...inner.matchAll(PLACEHOLDER)].every(
+    (m) => present(values, m[1]!) && !(m[2] && Number(values[m[1]!]) === 0),
+  );
 }
 
 /** Fill one text in one pass: clauses kept or dropped, every placeholder filled; tidy what a dropped clause leaves. */

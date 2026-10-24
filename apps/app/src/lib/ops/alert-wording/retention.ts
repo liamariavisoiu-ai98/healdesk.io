@@ -19,9 +19,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "The nightly retention purge did not finish",
     // The clinic is optional (a run that could not start names none), so the
     // headline starts with the purge and takes the clinic in a clause.
-    headline: "The retention purge failed[ for {clinicName}]: records past their periods are still kept",
+    headline: "The retention purge failed[ for {clinicName}]: old records may still be kept",
     whatHappened:
-      "The retention purge failed[ for {clinicName}], so records past their periods are still kept. The purge deletes conversations, transcripts and raw records past the periods a clinic's agreement states. Either one clinic's purge failed and the rest ran, or the run could not start at all.",
+      "The retention purge failed[ for {clinicName}], so records past their periods may still be kept. The purge deletes conversations, transcripts and raw records past the periods a clinic's agreement states. Either one clinic's purge failed and the rest ran, or the run could not start at all.",
     whyItMatters:
       "Until a run gets through, the clinics it did not reach keep patient records past the periods their agreements promise. The next run deletes everything that came due meanwhile, so nothing is lost by putting the cause right first.",
     steps: [

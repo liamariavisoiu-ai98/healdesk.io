@@ -26,7 +26,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "Meta would not take healdesk off a leaving practice",
     headline: "{clinicName} has left, but Meta will not take our app off its Page or WhatsApp account",
     whatHappened:
-      "{clinicName} has left, but Meta keeps refusing to take healdesk's app off its Facebook Page or WhatsApp Business account.[ It refused {count:connection}.] Either the hourly run has been refused six times and keeps trying with the clinic's access kept, or this was the last try before its data, that access included, was destroyed on the agreement's day.",
+      "{clinicName} has left, but Meta keeps refusing to take healdesk's app off its Facebook Page or WhatsApp Business account.[ Meta refused or did not answer for {count:connection}.] Either the hourly run has been refused or gone unanswered six times and keeps trying with the clinic's access kept, or this was the last try before its data, that access included, was destroyed on the agreement's day.",
     whyItMatters:
       "While the Page or account stays subscribed to our app, a message a patient sends there can still reach healdesk after the service has ended. Meta signs no agreement with us, so the clean end is the practice removing our app itself.",
     steps: [

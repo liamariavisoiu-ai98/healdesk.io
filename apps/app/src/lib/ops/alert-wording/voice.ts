@@ -49,15 +49,15 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // the run for every clinic. It has no row on the Jobs page.
   retell_fallback_unsynced: {
     title: "A Retell fallback number is not the direct line",
-    headline: "The Retell fallback[ for {clinicName}] could not be set to the direct line this hour",
+    headline: "The Retell fallback update failed[ for {clinicName}]: callers may miss the direct line",
     whatHappened:
-      "The Retell fallback[ for {clinicName}] could not be set to the direct line this hour. Every hour we set the fallback of each clinic's AYA number in Retell to the clinic's direct line. Either Retell did not accept the change or did not answer, the number is not in Retell, two clinics name the same AYA number, or Retell refused our key.",
+      "The hourly Retell fallback update failed[ for {clinicName}]. Every hour we set the fallback of each clinic's AYA number in Retell to the clinic's direct line. Either Retell did not accept the change or did not answer, the number is not in Retell, two clinics name the same AYA number, or Retell refused our key.",
     whyItMatters:
       "Until it is fixed, Retell's outage mode and a call that cannot read the database cannot send that clinic's callers to its direct line. Those callers would hear a closing line instead.",
     steps: [
       "Open the clinic's Setup tab and check the assistant number under Phone line is the clinic's AYA number in Retell. If two clinics show the same number, correct the wrong one and press Save phone settings.",
       "Open Retell's dashboard and find that number: check it is in the workspace and that its fallback can be set to the direct line shown under Pause AI and the direct line on the clinic's Billing tab.",
-      "Check Retell's status page first if the alert names no clinic: either Retell refused our key or three numbers in a row timed out, and nothing was set for any clinic this hour. Then open the Map page under System and press Missing or broken: the Retell key must be in place.",
+      "Check Retell's status page first if the alert names no clinic: either Retell refused our key or three numbers in a row timed out, and the run stopped, so clinics after that point were not set this hour. Then open the Map page under System and press Missing or broken: the Retell key must be in place.",
       "Check the alert does not come again next hour. You are done when it stops, or when you have set the fallback in Retell's dashboard by hand to the direct line shown on the clinic's Billing tab.",
     ],
   },
@@ -71,7 +71,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A clinic's AYA phone set-up stopped",
     headline: "{clinicName}'s AYA phone set-up stopped, or a changed setting did not reach Retell",
     whatHappened:
-      "{clinicName}'s AYA phone set-up stopped, or a changed setting did not reach Retell. Setting up the Retell agent and AYA number stopped[ on {windowStart}][, at attempt {count}], or a changed setting could not be written to Retell. The usual causes: the clinic's own number is not a US or Canadian number, its AYA number is not in our Retell workspace, Retell refused or did not keep a setting, or a voice setting on our side is missing.",
+      "{clinicName}'s AYA phone set-up stopped, or a changed setting did not reach Retell. If the Voice agent column on the Clinics page shows failed, the set-up itself stopped[ on {windowStart}][, at attempt {count}] and waits for a person; if it shows ok, only a later settings change failed, and the hourly check retries it. The usual causes: the clinic's own number is not a US or Canadian number, its AYA number is not in our Retell workspace, Retell refused or did not keep a setting, or a voice setting on our side is missing.",
     whyItMatters:
       "Until the set-up finishes, the clinic's phone channel cannot be switched on and no call reaches AYA. A failed set-up waits for a person: nothing retries it by itself. A changed setting that did not reach Retell is tried again every hour by itself.",
     steps: [

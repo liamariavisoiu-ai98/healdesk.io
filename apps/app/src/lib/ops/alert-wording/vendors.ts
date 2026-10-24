@@ -42,7 +42,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     // in the detail.
     headline: "AYA has stopped wherever {code} serves: our agreement ended",
     whatHappened:
-      "Our business associate agreement with {code} was withdrawn or passed its recorded expiry[ of {expiresOn}] with no renewal, so AYA has stopped answering wherever that vendor serves. It was withdrawn on the Compliance page, or passed its recorded expiry[ of {expiresOn}] with no renewal; the page marks it Lapsed or Withdrawn.",
+      "Our business associate agreement with {code} was withdrawn or passed its recorded expiry[ of {expiresOn}] with no renewal, so AYA has stopped answering wherever that vendor serves. The agreement was withdrawn on the Compliance page, or passed its recorded expiry[ of {expiresOn}] with no renewal; the page marks it Lapsed or Withdrawn.",
     whyItMatters:
       "On every production clinic, calls go to its direct line wherever the vendor serves: every channel for the model provider, the host or the database host, and phone only for the voice provider. While the model provider is out, website chat is a contact form and Meta messages wait unanswered. While the host or database host is out, the contact form takes no message either. AYA answers again the moment a renewal is recorded.",
     steps: [

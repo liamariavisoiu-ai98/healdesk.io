@@ -28,6 +28,8 @@ export const MARK = {
   bold: "\uE001",
   highlight: "\uE002",
   place: "\uE003",
+  /** A filled value in a step: no emphasis, but nothing inside it is a console place. */
+  value: "\uE004",
 } as const;
 
 const PRIVATE_USE = /[\uE000-\uF8FF]/g;
@@ -99,6 +101,10 @@ export function parseMarkup(text: string): RichSegment[] {
   };
   for (let i = 0; i < text.length; ) {
     const ch = text[i]!;
+    if (ch === MARK.value) {
+      i += 1;
+      continue;
+    }
     if (ch === MARK.bold || ch === MARK.highlight || ch === MARK.place) {
       flush();
       if (ch === MARK.bold) state.bold = !state.bold;
@@ -171,7 +177,7 @@ export function emphasisePlaces(step: string): string {
     chunk = "";
   };
   for (const ch of step) {
-    if (ch === MARK.bold || ch === MARK.highlight || ch === MARK.place) {
+    if (ch === MARK.bold || ch === MARK.highlight || ch === MARK.place || ch === MARK.value) {
       take();
       if (open.has(ch)) open.delete(ch);
       else open.add(ch);

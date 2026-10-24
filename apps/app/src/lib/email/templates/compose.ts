@@ -302,23 +302,30 @@ function blockHtml(block: Block): string {
         : `<p style="margin:0 0 16px;">${label}${segmentsHtml(block.segments)}</p>`;
     }
     case "headline":
+      // No table: every email is one column with no tables (the HTML rule
+      // tests/email-templates.test.ts holds). Outlook desktop may drop the
+      // padding and radius; the colour and the word survive.
       return (
         `<p style="margin:0 0 8px;"><span style="display:inline-block;background:${TAG_TONES[block.tag.tone]};` +
-        `color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.08em;padding:2px 8px;border-radius:4px;">` +
+        `color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.08em;padding:3px 9px;border-radius:4px;">` +
         `${escapeHtml(block.tag.text)}</span></p>\n` +
         `<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">${segmentsHtml(block.segments)}</p>`
       );
     case "callout":
       // Its own ink on its own ground, as the code box: a client's dark mode
       // repaints the page, never this box.
+      // Its own ground, ink and button colours: the shared dark mode repaints
+      // .hd-action and the page, never this box, so its button carries no
+      // hd-action class and stays dark on the light box. A div, not a table:
+      // every email is one column with no tables (tests/email-templates.test.ts);
+      // Outlook desktop may drop the padding and radius, never the colours.
       return (
-        `<div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:${INK};` +
-        `border:1px solid #d4a72c;border-radius:6px;">` +
+        `<div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:${INK};border:1px solid #d4a72c;border-radius:6px;">` +
         `<p style="margin:0 0 6px;color:${INK};"><strong>${escapeHtml(block.label)}</strong></p>` +
-        `<p style="margin:0;color:${INK};">${segmentsHtml(block.segments)}</p>` +
+        `<p style="margin:0;color:${INK};">${segmentsHtml(block.segments, CALLOUT_HIGHLIGHT)}</p>` +
         (block.action
-          ? `<p style="margin:12px 0 0;"><a class="hd-action" href="${escapeHtml(block.action.url)}" ` +
-            `style="display:inline-block;background:${INK};color:#ffffff;padding:10px 16px;` +
+          ? `<p style="margin:12px 0 0;"><a href="${escapeHtml(block.action.url)}" ` +
+            `style="display:inline-block;background:${INK};color:#ffffff !important;padding:10px 16px;` +
             `border-radius:6px;text-decoration:none;font-weight:600;">${escapeHtml(block.action.label)}</a></p>`
           : "") +
         `</div>`
@@ -333,17 +340,20 @@ function blockHtml(block: Block): string {
 }
 
 /** The urgency tag's colours: red, amber, grey, each with white text. */
-const TAG_TONES = { red: "#cf222e", amber: "#9a6700", grey: "#57606a" } as const;
+const TAG_TONES = { red: "#cf222e", amber: "#7d4e00", grey: "#57606a" } as const;
+
+/** Inside the yellow box the page's highlight would vanish: a stronger one, dark ink. */
+const CALLOUT_HIGHLIGHT = "#ffd54f";
 
 /**
  * Segments as HTML: each escaped first, then wrapped. A highlight carries
  * its own ink, so dark mode never puts light text on the yellow.
  */
-function segmentsHtml(segments: readonly RichSegment[]): string {
+function segmentsHtml(segments: readonly RichSegment[], highlight = "#fff3a3"): string {
   return segments
     .map((s) => {
       let html = escapeHtml(s.text).replace(/\n/g, "<br>");
-      if (s.highlight) html = `<mark style="background:#fff3a3;color:${INK};padding:0 2px;">${html}</mark>`;
+      if (s.highlight) html = `<mark style="background:${highlight};color:${INK};padding:0 2px;">${html}</mark>`;
       if (s.underline) html = `<u>${html}</u>`;
       if (s.bold) html = `<strong>${html}</strong>`;
       return html;

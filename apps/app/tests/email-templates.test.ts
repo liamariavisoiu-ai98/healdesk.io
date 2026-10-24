@@ -916,7 +916,7 @@ describe("ops alerts beyond the fixture", () => {
     );
     // Since lane N4 the preheader is the urgency and the headline; the
     // instruction is in the email's text, and it is urgent.
-    expect(preheader).toBe("URGENT: A leaving practice has not had its export yet");
+    expect(preheader).toBe("URGENT: This clinic's export must be delivered before its data is destroyed on 30 Nov");
     expect(text).toContain("Deliver this practice's export");
     expect(text).toContain("whether or not it asks");
     expect(text).toContain("Terms §7");

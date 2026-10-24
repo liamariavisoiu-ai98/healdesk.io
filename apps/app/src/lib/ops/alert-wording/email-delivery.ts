@@ -30,7 +30,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     // The title is pinned by tests/ops-slack.test.ts, and `attempts` is left
     // to the facts line, which that test reads too.
     title: "A critical email has not gone out",
-    headline: "{clinicName} has not received {kind}: 10 minutes late, still retrying",
+    headline: "{clinicName} has not received {kind}: over 10 minutes late",
     whatHappened:
       "An email {clinicName} must get at once[, {kind},] was due ten minutes ago and is still unsent. Until it goes, the health check reads red.",
     whyItMatters:
@@ -191,9 +191,9 @@ export const LEGACY: ReadonlySet<OpsEvent> = new Set<OpsEvent>();
  */
 export const DEAD_LETTER: AlertWording = {
   title: "An email to a clinic stopped retrying",
-  headline: "{clinicName} never got {kind}: every retry is used and it will not be sent",
+  headline: "{clinicName} never got {kind}: it will not be sent",
   whatHappened:
-    "An email {clinicName} was owed[, {kind},] used every retry, or was refused outright, and will not be sent. The clinic has not received it.",
+    "An email {clinicName} was owed[, {kind},] will not be sent. It used every retry, or was refused outright on its first try.",
   whyItMatters:
     "If it was an urgent email, a payment problem, a suspension, an urgent message, an outage or an incident report, the clinic is acting without it. Nothing tries again on its own.",
   steps: [

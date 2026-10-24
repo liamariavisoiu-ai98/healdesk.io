@@ -11,8 +11,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // call with the fixed line where the Services have ended.
   voice_fallback_no_direct_line: {
     title: "A call had no direct line to pass through to",
+    headline: "A call to {clinicName} had nowhere to go: the clinic has no direct line",
     whatHappened:
-      "A call to {clinicName} came in while AYA was not meant to answer it: the assistant is paused, the call is outside the clinic's coverage, its allowance is used up, the subscription is unpaid or suspended, the phone channel is not live or is switched off, or no agreement covers the practice. The clinic has no direct line set, so there was nowhere to pass the caller to.",
+      "A call to {clinicName} had nowhere to go, because the clinic has no direct line set. AYA was not meant to answer it: the assistant is paused, the call is outside the clinic's coverage, its allowance is used up, the subscription is unpaid or suspended, the phone channel is not live or is switched off, or no agreement covers the practice.",
     whyItMatters:
       "The caller heard AYA's safe script instead, which takes a message for the front desk and books nothing. Where the service has ended, the agreement no longer covers the practice, or a vendor's or our host's agreement has lapsed, the call was closed with a fixed line instead. Every such call misses a person until a direct line is set.",
     steps: [
@@ -28,7 +29,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // hung_up). It is written to the ops log before it emails, so while the
   // database hangs it waits with it.
   voice_call_start_failed: {
-    title: "A call started while the database was down",
+    title: "A call came before AYA could read its settings",
     whatHappened:
       "A call came in for {clinicName} and the voice process could not read the clinic's settings in time. The caller was sent to the clinic's direct line where one was known, heard a closing line, or had hung up before either.",
     whyItMatters:

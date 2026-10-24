@@ -6,15 +6,17 @@ import type { OpsEvent } from "@/lib/ops/notify";
  * 3 seconds what the issue is"):
  *
  *   - `urgent` (red): money taken or owed, a legal clock, a patient-facing
- *     channel down or a patient's message at risk, data about to be lost.
- *     The subject also gains "URGENT:", and Slack opens it with a siren;
+ *     channel down or a patient's message at risk, data about to be lost or
+ *     already lost. The subject also gains "URGENT:", and Slack opens it with
+ *     a siren. This is the alert's look only: whether an alert is also
+ *     emailed (the lifecycle watch's escalations) is decided where it is
+ *     raised;
  *   - `today` (amber): a person must act today, but nothing is lost by the
  *     hour;
  *   - `fyi` (grey): a recovery, a digest, a count, a change to note.
  *
- * Started from the lifecycle watch's five escalations (the siren before
- * this lane) and each wording's own "why it matters". A first pass for the
- * owner to review: one line each to change.
+ * Set from each wording's own "why it matters" and the lane N4 review. For
+ * the owner to review: one line each to change.
  */
 export type Urgency = "urgent" | "today" | "fyi";
 
@@ -43,11 +45,13 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   meter_report_failing: "today",
   usage_near_cap: "today",
   usage_cap_reached: "today",
-  // Email delivery.
+  // Email delivery. The clinic's one address is its only route for urgent
+  // patient alerts, transcripts and dunning, so an address that bounced,
+  // was suppressed or marked us as spam is urgent.
   critical_notice_undelivered: "urgent",
-  clinic_address_bounced: "today",
-  clinic_address_complained: "today",
-  clinic_address_suppressed: "today",
+  clinic_address_bounced: "urgent",
+  clinic_address_complained: "urgent",
+  clinic_address_suppressed: "urgent",
   daily_email_count_70: "today",
   dmarc_review_due: "fyi",
   welcome_email_unsent: "today",
@@ -85,8 +89,8 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   google_oauth_client_rejected: "urgent",
   calendar_write_stuck: "urgent",
   calendar_writes_stuck_many: "urgent",
-  // Transcripts: the clinic lost a conversation's only copy.
-  transcript_undelivered: "today",
+  // Transcripts: the clinic lost a conversation's only copy, for good.
+  transcript_undelivered: "urgent",
   // Go live.
   practice_question_failed: "today",
   practice_question_review_past_due: "today",
@@ -123,18 +127,22 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   retention_purge_failed: "today",
   // Availability.
   clinic_availability_changed: "fyi",
-  // Setup progress: the watch's five escalations keep their siren (design
-  // E2), so all five are urgent; the routine waves are FYI, or today when a
-  // clinic waits on us.
+  // Setup progress: urgent only where the window is about to close with the
+  // setup fee lost and a decision or our own work owed; today where a person
+  // should act today (a closing window, a clinic waiting on us, reminders
+  // that do not land); FYI for progress to watch. Urgency is how the alert
+  // looks (its tag, subject and Slack emoji); whether it is also emailed to
+  // the ops address is the watch's own escalation (lib/lifecycle/waves.ts
+  // LIFECYCLE_ESCALATIONS), a separate idea.
   lifecycle_no_progress: "fyi",
-  lifecycle_closing_soon: "fyi",
+  lifecycle_closing_soon: "today",
   lifecycle_decision_due: "urgent",
   lifecycle_closing_waiting_on_us: "urgent",
   lifecycle_waiting_on_us: "today",
-  lifecycle_waiting_on_us_long: "urgent",
+  lifecycle_waiting_on_us_long: "today",
   lifecycle_channel_waiting: "fyi",
   lifecycle_reminder_undelivered: "urgent",
-  lifecycle_reminders_unanswered: "urgent",
+  lifecycle_reminders_unanswered: "today",
   // The morning digest's counts.
   ops_digest_summary: "fyi",
 };

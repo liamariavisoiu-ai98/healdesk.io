@@ -84,7 +84,7 @@ describe("the Slack allow-list", () => {
     // Tagged [app]: the #alerts channel is shared with apps/web's [web] posts.
     // Lane N4: the urgency's emoji, then the headline in bold, then step 1.
     expect(text.split("\n")[0]).toBe(
-      ":rotating_light: [app] *Glow &amp; &lt;Co&gt; has not received a payment-failed notice: 10 minutes late, still retrying*",
+      ":rotating_light: [app] *Glow &amp; &lt;Co&gt; has not received a payment-failed notice: over 10 minutes late*",
     );
     expect(text.split("\n")[1]).toMatch(/^\*Do this first:\* Open the clinic's \*Deliveries tab\*/);
     expect(text).toContain(`Glow &amp; &lt;Co&gt;, clinic id \`${CLINIC}\``);

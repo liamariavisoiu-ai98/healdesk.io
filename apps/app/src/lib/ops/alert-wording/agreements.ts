@@ -62,7 +62,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // The termination itself is recorded, and the assistant has stopped. The
   // phase is not printed, so the steps cover each.
   agreement_termination_incomplete: {
-    title: "A terminated practice's service did not end",
+    title: "A termination's last steps did not finish",
     whatHappened:
       "The agreement of the practice that includes {clinicName} was recorded as terminated, and AYA has stopped answering for it. One of the steps that follow did not finish for this clinic: starting its offboarding, or cancelling its subscription.",
     whyItMatters:

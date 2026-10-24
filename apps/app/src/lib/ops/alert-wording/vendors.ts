@@ -33,7 +33,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // vendor-coverage.ts and lib/billing/answering.ts (patientDataRefused,
   // assistantFallbackRefused).
   vendor_agreement_lapsed: {
-    title: "A vendor's agreement lapsed: AYA has stopped",
+    title: "A vendor's agreement lapsed: AYA stopped there",
     whatHappened:
       "Our business associate agreement with {code} was withdrawn or passed its recorded expiry[ of {expiresOn}] with no renewal, so AYA has stopped answering wherever that vendor serves. The Compliance page marks it Lapsed or Withdrawn.",
     whyItMatters:

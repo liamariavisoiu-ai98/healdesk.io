@@ -135,7 +135,7 @@ describeDb("notifyOps", () => {
     const text = String(payload.text);
     const body = `${text}\n${String(payload.html)}`;
     // The kind is in the headline, the first line (lane N4).
-    expect(text.split("\n")[0]).toBe("URGENT: This clinic has not received a payment-failed notice: 10 minutes late, still retrying");
+    expect(text.split("\n")[0]).toBe("URGENT: This clinic has not received a payment-failed notice: over 10 minutes late");
     const facts = text
       .split("\n\n")
       .find((block) => block.startsWith("Clinic id:"))!

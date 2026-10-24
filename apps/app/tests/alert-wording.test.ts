@@ -745,7 +745,11 @@ describe("the closed word lists", () => {
       alertWording("export_due_undelivered", {}),
       wordingValues({ exportDueAt: "2026-11-20T10:00:00.000Z", destroyAt: "2027-01-18T10:00:00.000Z" }, "Glow"),
     );
-    expect(exportDue.whatHappened).toContain("It is due by 20 Nov. The data waits for it until 18 Jan at the latest.");
+    // The due day is the headline's now (lane N4 review); the last day stays here.
+    expect(plainText(layoutAlert(alertWording("export_due_undelivered", {}), wordingValues({ exportDueAt: "2026-11-20T10:00:00.000Z" }, "Glow")).headline)).toBe(
+      "Glow's export is due by 20 Nov and not delivered",
+    );
+    expect(exportDue.whatHappened).toContain("The data waits for it until 18 Jan at the latest.");
     const before = fillWording(alertWording("export_undelivered_before_destruction", {}), wordingValues({ destroyAt: "2026-11-30T10:00:00.000Z" }, "Glow"));
     expect(before.whatHappened).toContain("its data is destroyed on 30 Nov, as Offboarding");
     const late = fillWording(alertWording("offboarding_started_late", {}), wordingValues({ serviceEndedAt: "2026-10-01T00:00:00.000Z", lateDays: 3 }, "Glow"));
@@ -755,7 +759,7 @@ describe("the closed word lists", () => {
     const critical = fillWording(alertWording("critical_notice_undelivered", {}), wordingValues({ kind: "payment_failed" }, "Glow"));
     expect(critical.whatHappened).toContain("must get at once, a payment-failed notice, was due ten minutes ago");
     const dead = fillWording(alertWording("critical_notice_undelivered", { status: "dead" }), wordingValues({ kind: "suspended", status: "dead" }, "Glow"));
-    expect(dead.whatHappened).toContain("was owed, a suspension notice, used every retry");
+    expect(dead.whatHappened).toContain("was owed, a suspension notice, will not be sent.");
   });
 
   test("practice_question_failed prints its section as a Knowledge section, not as what changed", () => {
@@ -910,6 +914,10 @@ describe("every alert, laid out", () => {
     const withHeadline = OPS_EVENTS.filter((e) => ALERT_WORDING[e]!.headline);
     expect(withHeadline.sort()).toEqual(
       [
+        "calendar_broken",
+        "export_due_undelivered",
+        "export_undelivered_before_destruction",
+        "voice_fallback_no_direct_line",
         "calendar_write_stuck",
         "clinic_availability_changed",
         "critical_notice_undelivered",
@@ -925,19 +933,29 @@ describe("every alert, laid out", () => {
       expect(placeholdersOf(headline).every((k) => isPlaceholderAllowed(k) && (k === "clinicName" || k === "percent" || EVENT_FIELDS[event]!.includes(k))), event).toBe(true);
       const rendered = plainText(layoutAlert(alertWording(event, sampleFields(event)), wordingValues(sampleFields(event), "Radiance Med Spa")).headline);
       expect(rendered.length, `${event}: ${rendered}`).toBeLessThanOrEqual(90);
-      expect(rendered.toLowerCase(), event).not.toBe(wording.title.toLowerCase());
+      // Not the title again, however it is cased, punctuated or named.
+      const norm = (t: string) => t.toLowerCase().replace(/radiance med spa|this clinic|a clinic('s)?|the clinic('s)?/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+      expect(norm(rendered), event).not.toBe(norm(wording.title));
+      expect(norm(rendered).startsWith(norm(wording.title)), event).toBe(false);
     }
     // The dead letter's own headline.
     const dead = layoutAlert(alertWording("critical_notice_undelivered", { status: "dead" }), wordingValues({ kind: "suspended" }, "Glow"));
-    expect(plainText(dead.headline)).toBe("Glow never got a suspension notice: every retry is used and it will not be sent");
+    expect(plainText(dead.headline)).toBe("Glow never got a suspension notice: it will not be sent");
+    // The headline replaces the first sentence; the rest does not restate it.
+    expect(plainText(dead.detail)).toBe("It used every retry, or was refused outright on its first try.");
   });
 
   test("without a headline, the title with the clinic's name stands in, and the whole of what happened stays", () => {
-    const fields = sampleFields("calendar_broken");
-    const layout = layoutAlert(alertWording("calendar_broken", fields), wordingValues(fields, "Glow"));
+    const fields = sampleFields("connection_broken");
+    const layout = layoutAlert(alertWording("connection_broken", fields), wordingValues(fields, "Glow"));
     expect(layout.headlineIsFallback).toBe(true);
-    expect(plainText(layout.headline)).toBe(`Glow: ${ALERT_WORDING.calendar_broken!.title}`);
-    expect(plainText(layout.detail)).toBe(fillWording(alertWording("calendar_broken", fields), wordingValues(fields, "Glow")).whatHappened);
+    // "A clinic's connection stopped working" becomes the clinic's own, never "Glow: A clinic's …".
+    expect(plainText(layout.headline)).toBe("Glow's connection stopped working");
+    expect(plainText(layout.detail)).toBe(fillWording(alertWording("connection_broken", fields), wordingValues(fields, "Glow")).whatHappened);
+    const subject = layoutAlert(alertWording("go_live_held", {}), wordingValues({}, "Glow"));
+    expect(plainText(subject.headline)).toBe("Glow is held back from going live");
+    const other = layoutAlert(alertWording("first_answer_not_recorded", {}), wordingValues({}, "Glow"));
+    expect(plainText(other.headline)).toBe(`Glow: ${ALERT_WORDING.first_answer_not_recorded!.title}`);
     const none = layoutAlert(alertWording("dmarc_review_due", {}), wordingValues({}, null));
     expect(plainText(none.headline)).toBe(ALERT_WORDING.dmarc_review_due!.title);
   });
@@ -947,11 +965,76 @@ describe("every alert, laid out", () => {
       { event: "critical_notice_undelivered", clinicId: CLINIC, clinicName: "Radiance Med Spa", kind: "payment_failed", status: "late", attempts: 3 },
       CTX,
     );
-    expect(late.preheader).toBe("URGENT: Radiance Med Spa has not received a payment-failed notice: 10 minutes late, still retrying");
+    expect(late.preheader).toBe("URGENT: Radiance Med Spa has not received a payment-failed notice: over 10 minutes late");
     expect(late.html).toContain("<strong>Radiance Med Spa</strong> has not received <strong>a payment-failed notice</strong>");
     expect(late.html).toContain("background:#cf222e");
     expect(late.text).toContain("MORE DETAIL");
     expect(late.text).toContain("WHY IT MATTERS:");
     expect(late.text).toContain("THEN:\n2. ");
+  });
+});
+
+describe("lane N4 review", () => {
+  test("no wording or headline carries an author marker it did not mean", () => {
+    // No wording uses author markers today; one that does must say so here.
+    const INTENDED: readonly string[] = [];
+    for (const [event, wording] of Object.entries(ALERT_WORDING)) {
+      const texts = [wording!.title, wording!.headline ?? "", wording!.whatHappened, wording!.whyItMatters, ...wording!.steps];
+      for (const text of texts) {
+        if (INTENDED.includes(event)) continue;
+        expect(text, `${event}: ${text.slice(0, 60)}`).not.toMatch(/\*\*|__|==/);
+      }
+    }
+  });
+
+  test("a name in a step is never taken for a console place", () => {
+    const step = fill("Phone {clinicName} from its Care tab.", { clinicName: "Care tab Clinic" }, { values: false, neutral: true });
+    const places = parseMarkup(emphasisePlaces(step)).filter((s) => s.underline).map((s) => s.text);
+    expect(places).toEqual(["Care tab"]);
+    expect(plainText(emphasisePlaces(step))).toBe("Phone Care tab Clinic from its Care tab.");
+  });
+
+  test("usage alerts label the window's first day Counted since", () => {
+    // usage_cap_reached has no headline yet, so its sentence still says "counted since".
+    for (const event of ["usage_near_cap"] as const) {
+      const fields = { clinicId: CLINIC, meter: "voice_minutes", windowStart: "2026-10-01T00:00:00.000Z", used: 9, included: 10 };
+      expect(sharedFacts(fields, alertWording(event, fields)), event).toContainEqual(["Counted since", "1 Oct"]);
+    }
+  });
+
+  test("a day count of 0 is explained for the decision alert", () => {
+    const layout = layoutAlert(alertWording("lifecycle_decision_due", {}), wordingValues({ remainingDays: 0, stepsLeftCount: 2 }, "Glow"));
+    expect(plainText(layout.headline)).toBe("Glow has 0 days left to set up AYA, with 2 steps to go");
+    expect(plainText(layout.detail)).toContain("0 days left means today is the last day.");
+  });
+
+  // Ten events of different shapes: with a clinic and without, a business
+  // name, counts, days, closed words.
+  const HOSTILE_EVENTS: readonly OpsEvent[] = [
+    "critical_notice_undelivered",
+    "setup_request_reply_past_due",
+    "usage_near_cap",
+    "calendar_write_stuck",
+    "lifecycle_decision_due",
+    "clinic_availability_changed",
+    "export_due_undelivered",
+    "dmarc_review_due",
+    "daily_email_count_70",
+    "vendor_agreement_lapsed",
+    "calendar_broken",
+    "ops_digest_summary",
+  ];
+  test.each(HOSTILE_EVENTS.map((e) => [e]))("%s: a hostile name brings no emphasis or markup", (event) => {
+    const hostile = "**Glow** __x__ ==y== <b>z</b> & co";
+    const fields = { ...sampleFields(event as OpsEvent) };
+    if ("business" in fields) fields.business = "Glow __Med__ Spa";
+    const email = renderOpsAlert({ event: event as OpsEvent, ...fields, clinicName: hostile }, CTX);
+    expect(email.html, event).not.toContain("<b>z</b>");
+    expect(email.html, event).not.toMatch(/<u>x<\/u>|<mark[^>]*>y<\/mark>|<strong>Glow<\/strong>|<u>Med<\/u>/);
+    const slack = slackText({ event: event as OpsEvent, fields, clinicName: hostile });
+    expect(slack, event).not.toContain("<b>");
+    // Slack: the name's own * and _ are stripped (slackName), so they cannot bold or italicise.
+    expect(slack, event).not.toMatch(/\*\*?Glow\*|_x_/);
+    for (const body of [email.text, slack]) expect(body, event).not.toMatch(/[-]|undefined/);
   });
 });

@@ -38,7 +38,8 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // but Terms §7 promises it to every leaving practice and the canceled email
   // tells the practice it is coming, so it has no reason to ask.
   export_undelivered_before_destruction: {
-    title: "A leaving practice has not had its export yet",
+    title: "Deliver this export before the data is destroyed",
+    headline: "{clinicName}'s export must be delivered before its data is destroyed[ on {destroyAt}]",
     whatHappened:
       "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed[ on {destroyAt}], as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.",
     whyItMatters:
@@ -56,9 +57,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // day if the export is recorded by then, at the next hourly run if it is
   // recorded later, and on the ninety days' last day whether or not it was.
   export_due_undelivered: {
-    title: "A leaving practice's export is not delivered",
+    title: "An export is due and not delivered",
+    headline: "{clinicName}'s export is due[ by {exportDueAt}] and not delivered",
     whatHappened:
-      "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement promises the export within thirty days of the end, without being asked.[ It is due by {exportDueAt}.][ The data waits for it until {destroyAt} at the latest.] Offboarding on its Care tab shows both days.",
+      "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement promises the export within thirty days of the end, without being asked.[ The data waits for it until {destroyAt} at the latest.] Offboarding on its Care tab shows both days.",
     whyItMatters:
       "The export is a promise in the agreement, with a date. The data is destroyed on the export's due day if the export is recorded by then, at the next hourly run if it is recorded later, and on the last day shown whether or not it was; after that there is nothing left to export.",
     steps: [

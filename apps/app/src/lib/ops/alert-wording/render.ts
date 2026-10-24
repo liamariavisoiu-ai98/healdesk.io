@@ -101,7 +101,7 @@ function startsSentence(before: string): boolean {
  * every filled value; a day is highlighted whenever the fill is marked.
  * Without marks a fill is plain text, as before.
  */
-export type FillMarks = { values: boolean };
+export type FillMarks = { values: boolean; neutral?: boolean };
 
 function capitalise(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -130,6 +130,9 @@ function valueText(
   out = startsSentence(before) ? capitalise(out) : out;
   if (!marks || !present(values, key)) return out;
   if (DAY_KEYS.has(key)) out = mark("highlight", out);
+  // In a step, a value is fenced off so a name like "Care tab Clinic" is
+  // never taken for a console place (./markup.ts emphasisePlaces).
+  if (marks.neutral) out = mark("value", out);
   return marks.values ? mark("bold", out) : out;
 }
 
@@ -255,7 +258,7 @@ export function layoutAlert(wording: AlertWording, raw: WordingValues): AlertLay
   const plain: FillMarks = { values: false };
   const fallback = !wording.headline;
   const headline = fallback
-    ? fill(`[{clinicName}: ]${wording.title}`, values, bold)
+    ? fallbackHeadline(wording.title, values, bold)
     : fill(wording.headline!, values, bold);
   let detail: string;
   if (fallback) {
@@ -266,7 +269,7 @@ export function layoutAlert(wording: AlertWording, raw: WordingValues): AlertLay
     detail = fill(splitFirstSentence(wording.whatHappened)[1], values, plain);
   }
   const steps = wording.steps
-    .map((step) => fill(step, values, plain))
+    .map((step) => fill(step, values, { values: false, neutral: true }))
     .filter((step) => step.length > 0)
     .map(emphasisePlaces);
   return {
@@ -279,4 +282,19 @@ export function layoutAlert(wording: AlertWording, raw: WordingValues): AlertLay
     whyItMatters: fill(wording.whyItMatters, values, plain),
     then: steps.slice(1),
   };
+}
+
+/**
+ * The headline a wording without one gets: the title with the clinic's name
+ * (lane N4 review). "A clinic's Google Calendar stopped working" for Glow
+ * reads "Glow's Google Calendar stopped working", not "Glow: A clinic's …";
+ * any other title reads "Glow: <title>"; with no clinic, the title once.
+ */
+function fallbackHeadline(title: string, values: WordingValues, marks: FillMarks): string {
+  if (typeof values.clinicName !== "string" || !values.clinicName) return fill(title, values);
+  const possessive = /^A clinic's (.+)$/.exec(title);
+  if (possessive) return fill(`{clinicName}'s ${possessive[1]}`, values, marks);
+  const subject = /^A clinic (.+)$/.exec(title);
+  if (subject) return fill(`{clinicName} ${subject[1]}`, values, marks);
+  return fill(`{clinicName}: ${title}`, values, marks);
 }

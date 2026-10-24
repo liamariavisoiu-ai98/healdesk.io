@@ -17,7 +17,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // reconnects from Settings).
   calendar_broken: {
     title: "A clinic's Google Calendar stopped working",
-    headline: "Google refused our access to {clinicName}'s Google Calendar[, {count:calendar} in all]",
+    headline: "Google refused our access to[ {clinicName}'s] Google Calendar[, {count:calendar} in all]",
     whatHappened:
       "Google refused healdesk's access to a clinic's Google Calendar[: {clinicName}][, {count:calendar} in all]. Either the clinic removed the access, or the calendar itself refused us. Each location affected now takes booking requests for its staff to confirm, and the clinic has been emailed to reconnect.",
     whyItMatters:
@@ -104,7 +104,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // the 07:00 digest as well.
   connection_broken: {
     title: "A clinic's connection stopped working",
-    headline: "{clinicName}'s connected channel stopped working: AYA cannot reply there",
+    headline: "{clinicName}'s[ {provider}] connection stopped working: AYA cannot reply there",
     whatHappened:
       "{clinicName}'s connected channel stopped working: AYA cannot reply there. The connection is now revoked or in error. For Instagram, Messenger or WhatsApp that means the platform no longer accepts our access, and AYA cannot reply to anyone there until the clinic connects it again.",
     whyItMatters:

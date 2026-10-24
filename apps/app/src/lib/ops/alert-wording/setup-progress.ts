@@ -51,7 +51,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A setup window closes soon and the clinic is nearly done",
     headline: "{clinicName} is nearly set up: {stepsLeftCount:step} to go, {remainingDays:day} left",
     whatHappened:
-      "{clinicName} is nearly set up: {stepsLeftCount:step} to go, {remainingDays:day} left in its setup window. 0 days left means today is the last day.[ It has made no progress for {noProgressDays:day}.]",
+      "{clinicName} is nearly set up: {stepsLeftCount:step} to go, {remainingDays:day} left in its setup window.[ It has made no progress for {noProgressDays:day}.]",
     whyItMatters: `No decision is owed: the clinic has one step left or none. ${CLOSURE} A short extension is cheap if it asks.[?recommendation=extend: Our rules suggest {extendDays:day} more.][?recommendation=offer_call: Our rules suggest offering a five-minute call.][?recommendation=wait: Our rules suggest waiting.][?recommendation=phone_the_clinic: Our rules suggest phoning the clinic.][?recommendation=let_close: You decided to let this setup close.]`,
     steps: [
       "Open the clinic's Setup tab and read the Setup window card: the window's end, the last progress and what we suggest.",
@@ -73,7 +73,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "A stalled setup closes soon: what to offer",
     headline: "{clinicName} has {remainingDays:day} left to set up AYA, with {stepsLeftCount:step} to go",
     whatHappened:
-      "{clinicName} has {remainingDays:day} left to finish setting up AYA, with {stepsLeftCount:step} still to do. 0 days left means today is the last day.[ It has made no progress for {noProgressDays:day}.]",
+      "{clinicName} has {remainingDays:day} left to finish setting up AYA, with {stepsLeftCount:step} still to do.[ It has made no progress for {noProgressDays:day}.]",
     whyItMatters: `${CLOSURE}[?recommendation=extend: Our rules suggest giving it more time.][?recommendation=offer_call: Our rules suggest offering a short call.][?recommendation=phone_the_clinic: Our rules suggest phoning the clinic first.][?recommendation=wait: Our rules suggest waiting a few more days.][?recommendation=let_close: Our rules suggest letting it close, or it was already decided: Decision so far on the card says which.]`,
     steps: [
       "Open the clinic's Setup tab and read the Setup window card: the days left, the last progress, the decision so far and what we suggest.",

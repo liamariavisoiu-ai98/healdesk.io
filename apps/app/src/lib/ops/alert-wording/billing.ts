@@ -67,7 +67,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // close_setup; `code` the last Stripe error.
   billing_request_dead_lettered: {
     title: "A billing change failed at Stripe after every retry",
-    headline: "{clinicName}'s billing change failed at Stripe on every try",
+    headline: "{clinicName}'s billing change[ ({kind})] failed on every try",
     whatHappened:
       "{clinicName}'s billing change failed at Stripe on every try. The hourly check puts it back for one more try a day later and tells you again when it does; nothing else retries it.",
     whyItMatters:
@@ -84,7 +84,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // by its own switch is waiting by design and is not counted.
   billing_request_stuck: {
     title: "A billing change has waited at Stripe for over a day",
-    headline: "{clinicName}'s billing change has waited over a day without finishing",
+    headline: "{clinicName}'s billing change[ ({kind})] has waited over a day",
     whatHappened:
       "{clinicName}'s billing change has waited over a day without finishing. It has been pending for more than a day, and it is marked STUCK on the clinic's Billing tab.",
     whyItMatters:
@@ -115,7 +115,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // request: the charge is recorded and the location is still not active.
   // `count` is the location's number, as the Billing tab names it.
   location_charged_not_created: {
-    title: "An extra location was charged but is not set up",
+    title: "An extra location could not be set up",
     headline: "{clinicName} added an extra location[ (location {count})] that is still not set up",
     whatHappened:
       "{clinicName} added an extra location[ (location {count})] that is still not set up. Its charge was recorded and making it active failed, or the hourly check could not settle with Stripe whether it was charged at all. The location is not answering yet, and a charge that was taken stands.",
@@ -135,7 +135,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // it does neither). `clinicId` is null when the event never resolved to a
   // clinic.
   connect_event_dead_lettered: {
-    title: "A deposit event from Stripe is parked",
+    title: "A deposit or disconnect event from Stripe is parked",
     headline: "A deposit or disconnect event[ for {clinicName}] could not be applied and is parked",
     whatHappened:
       "A deposit or disconnect event[ for {clinicName}] could not be applied and is parked. Stripe told us something about a clinic's own Stripe account: a deposit paid through it, or the clinic disconnecting our access to it. Applying it failed on every try, so it is parked, and nothing tries it again on its own.",

@@ -13,7 +13,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // Deliveries tab shows each receipt's status.
   transcript_undelivered: {
     title: "A transcript could not be emailed to the clinic",
-    headline: "{clinicName}'s transcript has no delivery report: it may not have arrived",
+    headline: "{clinicName}'s transcript: no delivery report[ ({status})]",
     whatHappened:
       "{clinicName}'s transcript has no delivery report: it may not have arrived. Either the send of a call or chat's transcript has failed three times, the clinic's mail server bounced, rejected or reported it, nothing confirmed a send for 72 hours, or 30 days passed undelivered. In the last two cases our copy is now deleted.",
     whyItMatters:

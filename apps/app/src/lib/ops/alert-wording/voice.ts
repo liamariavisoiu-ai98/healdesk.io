@@ -107,7 +107,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // the Clinics page shows drift.
   voice_agent_drift: {
     title: "A clinic's Retell agent differs from what we set",
-    headline: "{clinicName}'s Retell agent or number differed from what we set",
+    headline: "{clinicName}'s Retell agent or number differed from what we set[ ({status})]",
     whatHappened:
       "{clinicName}'s Retell agent or number differed from what we set. The nightly read-back found its voice, its language, where calls are sent or the fallback number changed, or the agent or number itself missing. Where it could, the code wrote the right settings again.[ Repairs so far: {count}.]",
     whyItMatters:

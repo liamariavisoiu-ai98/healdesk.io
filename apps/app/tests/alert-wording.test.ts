@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { subjectProblems } from "@/lib/email/lint";
 import { OPS_REASON } from "@/lib/email/templates/context";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
-import { ALERT_WORDING, alertWording, LEGACY_WORDING, SECTIONS } from "@/lib/ops/alert-wording";
+import { ALERT_WORDING, alertWording, type AlertWording, LEGACY_WORDING, SECTIONS } from "@/lib/ops/alert-wording";
 import {
   allowedAlertFields,
   cleanBusinessName,
@@ -41,6 +41,7 @@ import {
   formatValue,
   layoutAlert,
   placeholdersOf,
+  shortName,
   plural,
   requiredPlaceholdersOf,
 } from "@/lib/ops/alert-wording/render";
@@ -705,8 +706,16 @@ describe("the closed word lists", () => {
       }
     }
     expect(Object.keys(EVENT_WORDS).sort()).toEqual(["code", "status"]);
-    const status = (event: OpsEvent, value: string) =>
-      sharedFacts({ clinicId: CLINIC, status: value }, alertWording(event, { status: value }));
+    // The value's words appear in the headline or as a fact row (a headline
+    // that prints a key takes it out of the facts: lane N5a).
+    const status = (event: OpsEvent, value: string): (readonly [string, string])[] => {
+      const fields = { clinicId: CLINIC, status: value };
+      const wording = alertWording(event, fields);
+      const facts = sharedFacts(fields, wording);
+      const headline = plainText(layoutAlert(wording, wordingValues(fields, "Glow")).headline);
+      const words = STATUS_WORDS[event]?.[value];
+      return words && headline.includes(words) ? [...facts, ["Status", words] as const] : facts;
+    };
     expect(status("calendar_write_stuck", "failed")).toContainEqual(["Status", "not written"]);
     expect(status("calendar_write_stuck", "unknown")).toContainEqual(["Status", "never confirmed by Google"]);
     expect(status("critical_notice_undelivered", "late")).toContainEqual(["Status", "late, still being retried"]);
@@ -722,15 +731,24 @@ describe("the closed word lists", () => {
   });
 
   test("a billing request's kind is labelled Request, an email's Email kind, and a Meta provider Meta channel", () => {
+    // In the headline or as a fact row under its own label (lane N5a puts
+    // the request kind and the Meta channel in the headline).
+    const shown = (event: OpsEvent, fields: Record<string, string>, label: string, words: string) => {
+      const wording = alertWording(event, fields);
+      const headline = plainText(layoutAlert(wording, wordingValues(fields, "Glow")).headline);
+      const facts = sharedFacts(fields, wording);
+      expect(headline.includes(words) || facts.some(([l, v]) => l === label && v === words), `${event}: ${headline}`).toBe(true);
+      expect(facts.some(([l]) => l === "Email kind" && label !== "Email kind"), event).toBe(false);
+    };
     const request = { clinicId: CLINIC, kind: "plan_start" };
     for (const event of ["billing_request_dead_lettered", "billing_request_stuck"] as const) {
-      expect(sharedFacts(request, alertWording(event, request)), event).toContainEqual(["Request", "starting the plan"]);
+      shown(event, request, "Request", "starting the plan");
     }
     const email = { clinicId: CLINIC, kind: "receipt" };
     expect(sharedFacts(email, alertWording("clinic_address_bounced", email))).toContainEqual(["Email kind", "a receipt"]);
     const meta = { clinicId: CLINIC, provider: "meta-whatsapp" };
     for (const event of ["connection_broken", "meta_revoke_failed", "meta_revoke_by_hand"] as const) {
-      expect(sharedFacts(meta, alertWording(event, meta)), event).toContainEqual(["Meta channel", "WhatsApp"]);
+      shown(event, meta, "Meta channel", "WhatsApp");
     }
   });
 
@@ -911,21 +929,10 @@ describe("every alert, laid out", () => {
   });
 
   test("a headline is a plain line of at most 90 characters, not the title again, from allow-listed fields", () => {
+    // Every event has a headline (lanes N5a and N5b): an event added without
+    // one fails here, so its writer adds the headline with it.
     const withHeadline = OPS_EVENTS.filter((e) => ALERT_WORDING[e]!.headline);
-    expect(withHeadline.sort()).toEqual(
-      [
-        "calendar_broken",
-        "export_due_undelivered",
-        "export_undelivered_before_destruction",
-        "voice_fallback_no_direct_line",
-        "calendar_write_stuck",
-        "clinic_availability_changed",
-        "critical_notice_undelivered",
-        "lifecycle_decision_due",
-        "setup_request_reply_past_due",
-        "usage_near_cap",
-      ].sort(),
-    );
+    expect([...withHeadline].sort()).toEqual([...OPS_EVENTS].sort());
     for (const event of withHeadline) {
       const wording = ALERT_WORDING[event]!;
       const headline = wording.headline!;
@@ -946,19 +953,29 @@ describe("every alert, laid out", () => {
   });
 
   test("without a headline, the title with the clinic's name stands in, and the whole of what happened stays", () => {
-    const fields = sampleFields("connection_broken");
-    const layout = layoutAlert(alertWording("connection_broken", fields), wordingValues(fields, "Glow"));
-    expect(layout.headlineIsFallback).toBe(true);
-    // "A clinic's connection stopped working" becomes the clinic's own, never "Glow: A clinic's …".
-    expect(plainText(layout.headline)).toBe("Glow's connection stopped working");
-    expect(plainText(layout.detail)).toBe(fillWording(alertWording("connection_broken", fields), wordingValues(fields, "Glow")).whatHappened);
-    const subject = layoutAlert(alertWording("go_live_held", {}), wordingValues({}, "Glow"));
-    expect(plainText(subject.headline)).toBe("Glow is held back from going live");
-    const other = layoutAlert(alertWording("first_answer_not_recorded", {}), wordingValues({}, "Glow"));
-    expect(plainText(other.headline)).toBe(`Glow: ${ALERT_WORDING.first_answer_not_recorded!.title}`);
-    const none = layoutAlert(alertWording("dmarc_review_due", {}), wordingValues({}, null));
-    expect(plainText(none.headline)).toBe(ALERT_WORDING.dmarc_review_due!.title);
+    // Every real event has a headline now, so the fallback is proved on synthetic wordings.
+    const synthetic = (title: string): AlertWording => ({
+      title,
+      whatHappened: "Something changed at {clinicName}. Nothing else is known.",
+      whyItMatters: "It matters.",
+      steps: ["Open the clinic's Setup tab.", "Check the Care tab."],
+      event: "connection_broken",
+    });
+    const possessive = layoutAlert(synthetic("A clinic's connection stopped working"), wordingValues({}, "Glow"));
+    expect(possessive.headlineIsFallback).toBe(true);
+    expect(plainText(possessive.headline)).toBe("Glow's connection stopped working");
+    expect(plainText(possessive.detail)).toBe("Something changed at Glow. Nothing else is known.");
+    expect(plainText(layoutAlert(synthetic("A clinic is held back from going live"), wordingValues({}, "Glow")).headline)).toBe(
+      "Glow is held back from going live",
+    );
+    expect(plainText(layoutAlert(synthetic("A channel's first answer was lost"), wordingValues({}, "Glow")).headline)).toBe(
+      "Glow: A channel's first answer was lost",
+    );
+    expect(plainText(layoutAlert(synthetic("Time to review the reports"), wordingValues({}, null)).headline)).toBe(
+      "Time to review the reports",
+    );
   });
+;
 
   test("the six previews read as the owner was shown them", () => {
     const late = renderOpsAlert(
@@ -1002,10 +1019,33 @@ describe("lane N4 review", () => {
     }
   });
 
-  test("a day count of 0 is explained for the decision alert", () => {
-    const layout = layoutAlert(alertWording("lifecycle_decision_due", {}), wordingValues({ remainingDays: 0, stepsLeftCount: 2 }, "Glow"));
-    expect(plainText(layout.headline)).toBe("Glow has 0 days left to set up AYA, with 2 steps to go");
-    expect(plainText(layout.detail)).toContain("0 days left means today is the last day.");
+  test("a zero count reads as words, never 0 days or 0 steps", () => {
+    const decision = layoutAlert(alertWording("lifecycle_decision_due", {}), wordingValues({ remainingDays: 0, stepsLeftCount: 2 }, "Glow"));
+    expect(plainText(decision.headline)).toBe("Glow has less than a day left to set up AYA, with 2 steps to go");
+    const soon = layoutAlert(alertWording("lifecycle_closing_soon", {}), wordingValues({ remainingDays: 0, stepsLeftCount: 0 }, "Glow"));
+    expect(plainText(soon.headline)).not.toMatch(/\b0 /);
+    expect(plainText(soon.headline).toLowerCase()).toContain("no steps to go");
+    const waiting = layoutAlert(alertWording("lifecycle_closing_waiting_on_us", {}), wordingValues({ waitedDays: 0, remainingDays: 3 }, "Glow"));
+    expect(plainText(waiting.headline)).toContain("waited on us less than a day");
+    expect(fill("{count:connection} went unchecked", { count: 0 })).toBe("No connections went unchecked");
+  });
+
+  test("a long clinic name is cut in the headline only, at a word, with an ellipsis", () => {
+    const long = "The Very Long Name Aesthetic and Wellness Clinic of the Greater Riverside Valley Area North Campus Annex";
+    expect(shortName(long)).toBe("The Very Long Name Aesthetic and…");
+    expect(shortName("Glow")).toBe("Glow");
+    const over: string[] = [];
+    for (const event of OPS_EVENTS) {
+      const fields = sampleFields(event);
+      const layout = layoutAlert(alertWording(event, fields), wordingValues(fields, long));
+      const headline = plainText(layout.headline);
+      if (headline.length > 90) over.push(`${headline.length} ${event}: ${headline}`);
+      expect(headline, event).not.toContain(long);
+    }
+    expect(over).toEqual([]);
+    const email = renderOpsAlert({ event: "usage_near_cap", clinicId: CLINIC, clinicName: long, used: 9, included: 10 }, CTX);
+    expect(email.text.split("\n")[0]).toContain("The Very Long Name Aesthetic and…");
+    expect(email.text).toContain(`Clinic: ${long}`);
   });
 
   // Ten events of different shapes: with a clinic and without, a business

@@ -22,7 +22,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whatHappened:
       "{clinicName}'s practice questions did not pass: a review, a fix or a rerun is owed. They are the test conversations AYA must pass before a channel goes live. Either a judge flagged answers for a person to review, the clinic has something to fix in its portal, or the run itself could not finish.",
     whyItMatters:
-      "Until a run passes, that channel cannot go live and AYA answers no one on it. A review has a due day the clinic can see in its portal.",
+      "Before go-live, a channel cannot go live until a run passes, and AYA answers no one on it. After go-live, a run that does not pass takes nothing offline, but what it found is still owed. A review has a due day the clinic can see in its portal.",
     steps: [
       "Open the Queues page and look under Reviews for {clinicName}. A review there shows what was asked, what AYA answered and the judge's reason.",
       "Press Pass if the answers are right: the run passes. Press Fail if not, choosing from the list beside it: Fail: the clinic fixes the section named, and the clinic is emailed what to fix, or Fail: ours to fix.",

@@ -122,7 +122,10 @@ function valueText(
     const value = values[key]!;
     if (noun) {
       const n = typeof value === "number" ? value : Number(value);
-      out = `${formatValue(key, value)} ${n === 1 ? noun : plural(noun)}`;
+      // A zero reads as words, never "0 days" or "0 steps" (lane N4 review):
+      // a day count of 0 is "less than a day", any other "no <things>".
+      if (n === 0) out = noun === "day" ? "less than a day" : `no ${plural(noun)}`;
+      else out = `${formatValue(key, value)} ${n === 1 ? noun : plural(noun)}`;
     } else out = formatValue(key, value);
   }
   // A value never brings emphasis of its own (a clinic called "**Glow**").
@@ -257,9 +260,20 @@ export function layoutAlert(wording: AlertWording, raw: WordingValues): AlertLay
   const bold: FillMarks = { values: true };
   const plain: FillMarks = { values: false };
   const fallback = !wording.headline;
-  const headline = fallback
-    ? fallbackHeadline(wording.title, values, bold)
-    : fill(wording.headline!, values, bold);
+  // A long clinic name never pushes the headline past one line: it is cut to
+  // what the rest of the line leaves (at most HEADLINE_NAME_MAX, at least
+  // HEADLINE_NAME_MIN characters). The body and the facts keep the full name.
+  const build = (name: string | null) => {
+    const v = name === null ? values : { ...values, clinicName: name };
+    return fallback ? fallbackHeadline(wording.title, v, bold) : fill(wording.headline!, v, bold);
+  };
+  let headline = build(null);
+  const fullName = typeof values.clinicName === "string" ? values.clinicName : null;
+  if (fullName && plainText(headline).length > HEADLINE_MAX) {
+    const rest = plainText(headline).length - fullName.length * (plainText(headline).split(fullName).length - 1);
+    const budget = Math.max(HEADLINE_NAME_MIN, Math.min(HEADLINE_NAME_MAX, HEADLINE_MAX - rest));
+    headline = build(shortName(fullName, budget));
+  }
   let detail: string;
   if (fallback) {
     // The first sentence's values bold, the rest plain: the eye lands on who and what.
@@ -297,4 +311,17 @@ function fallbackHeadline(title: string, values: WordingValues, marks: FillMarks
   const subject = /^A clinic (.+)$/.exec(title);
   if (subject) return fill(`{clinicName} ${subject[1]}`, values, marks);
   return fill(`{clinicName}: ${title}`, values, marks);
+}
+
+/** A headline's longest line, and the most and least of a clinic's name it prints (lane N4 review). */
+export const HEADLINE_MAX = 90;
+export const HEADLINE_NAME_MAX = 40;
+export const HEADLINE_NAME_MIN = 16;
+
+/** A name cut to `max` characters at a word, with an ellipsis; a shorter one unchanged. */
+export function shortName(name: string, max = HEADLINE_NAME_MAX): string {
+  if (name.length <= max) return name;
+  const cut = name.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 10 ? cut.slice(0, space) : cut).replace(/[\s,.;:-]+$/, "")}…`;
 }

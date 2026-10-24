@@ -30,6 +30,7 @@ import {
 import { withCredentials } from "@/lib/connections/store";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
+import { getJob, JOB_CALENDAR_WATCH } from "@/lib/scheduler/jobs";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { serviceDuration } from "./availability";
@@ -965,6 +966,28 @@ function pgField(error: unknown, field: "code" | "constraint"): string | undefin
 
 /** How many writes one run of the sweep takes on, across every location. */
 export const DESK_SWEEP_LIMIT = 20;
+
+/**
+ * While the sweep is switched off, how long an unsettled write may sit
+ * untouched before the alert treats it as stuck (lib/ops/calendar-write-alerts.ts):
+ * the look-back the sweep had before the ladder, kept for when nothing retries.
+ */
+export const DESK_SWEEP_LOOKBACK_HOURS = 24;
+
+/**
+ * Whether the desk sweep runs at all: it is called only by the calendar
+ * watch (lib/scheduler/calendar-watch.ts), whose job ships off. Off, or
+ * unreadable, is false: nothing retries a write, so nothing may be shown or
+ * alerted as waiting for its next try.
+ */
+export async function deskSweepOn(): Promise<boolean> {
+  try {
+    return (await getJob(JOB_CALENDAR_WATCH))?.enabled === true;
+  } catch (error) {
+    log.error("desk sweep switch could not be read", { error: describeError(error) });
+    return false;
+  }
+}
 
 export type DeskSweepResult = {
   /** Appointments the sweep tried again. */

@@ -62,12 +62,13 @@ export async function opVoiceAgentStatus(args: Record<string, unknown>): Promise
     const clinics = await listClinics();
     const rows: VoiceAgentStatusRow[] = [];
     for (const clinic of clinics) {
-      if (clinicId && clinic.id !== clinicId) continue;
+      // Case-insensitive: a uuid in capitals is the same clinic.
+      if (clinicId && clinic.id.toLowerCase() !== clinicId.toLowerCase()) continue;
       const row = await voiceAgentRow(clinic.id);
       if (row) rows.push({ ...voiceAgentStatusView(row), clinicSlug: clinic.slug });
     }
     let report: VoiceAgentReport | null = null;
-    if (clinicId && args.verify === true) report = await verifyVoiceAgent(clinicId, depsForTests);
+    if (clinicId && args.verify === true) report = await verifyVoiceAgent(clinicId.toLowerCase(), depsForTests);
     return ok({ agents: rows, report });
   } catch (error) {
     log.error("voice agents not listed", { error: describeError(error) });

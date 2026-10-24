@@ -767,4 +767,13 @@ describeDb("automated voice provisioning", () => {
     const missing = await runOperation("syncDemoVoiceAgent", { clinicId: demo.clinicId, agentId: "agent_notthere99" }, OPERATOR);
     expect((missing.body as { data: Record<string, unknown> }).data).toMatchObject({ outcome: "failed" });
   });
+
+  test("voiceAgentStatus finds a clinic asked for in capitals: a uuid's case does not change the clinic", async () => {
+    const c = await paidVoiceClinic("vp-case");
+    __setVoiceAgentDepsForTests(deps());
+    await provisionVoiceAgent(c.clinicId, deps());
+    const res = await runOperation("voiceAgentStatus", { clinicId: c.clinicId.toUpperCase() }, OPERATOR);
+    const agents = (res.body as { data: { agents: { clinicId: string }[] } }).data.agents;
+    expect(agents.map((a) => a.clinicId)).toEqual([c.clinicId]);
+  });
 });

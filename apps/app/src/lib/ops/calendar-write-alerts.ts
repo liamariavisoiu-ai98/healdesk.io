@@ -2,6 +2,8 @@ import { and, eq, gt, inArray, sql } from "drizzle-orm";
 
 import { appointments } from "@/db/schema";
 import {
+  DESK_SWEEP_LOOKBACK_HOURS,
+  deskSweepOn,
   MAX_WRITE_ATTEMPTS,
   NEVER_RETRIED_REASONS,
   STUCK_CLAIM_MINUTES,
@@ -49,6 +51,13 @@ import {
  * than five, the slot ahead) is not alerted: the sweep will try it again.
  * A `writing` claim younger than STUCK_CLAIM_MINUTES is an attempt in flight.
  *
+ * But the sweep is the only automatic retry, and it runs only inside the
+ * calendar watch, whose job switch ships off. While that switch is off (or
+ * cannot be read) nothing retries, so an `unknown` write, or a claim stuck
+ * `writing`, also counts as stuck once it has sat untouched for
+ * DESK_SWEEP_LOOKBACK_HOURS: the rule this alert had before the ladder, so a
+ * write is never left waiting for a retry that will not come.
+ *
  * Its look-back is ALERT_LOOKBACK_DAYS, so a run that comes days later (a
  * worker down for a weekend) still catches a write given up on, and the
  * once-per-key alert makes every rerun a no-op. It reads, and alerts ops; it
@@ -81,6 +90,10 @@ export async function alertStuckCalendarWrites(now: Date = new Date()): Promise<
     NEVER_RETRIED_REASONS.map((reason) => sql`${reason}`),
     sql`, `,
   );
+  // Nothing retries while the sweep is off: then age alone makes a write stuck.
+  const sweepOn = await deskSweepOn();
+  const untouchedSince = new Date(now.getTime() - DESK_SWEEP_LOOKBACK_HOURS * 3_600_000);
+  const abandonedByAge = sweepOn ? sql`false` : sql`${appointments.updatedAt} <= ${untouchedSince}`;
 
   let clinicIds: string[];
   try {
@@ -114,7 +127,8 @@ export async function alertStuckCalendarWrites(now: Date = new Date()): Promise<
                                 < ${now}::timestamptz - make_interval(mins => ${STUCK_CLAIM_MINUTES})))
                        and (${appointments.calendarWriteAttempts} >= ${MAX_WRITE_ATTEMPTS}
                             or ${appointments.scheduledFor} <= ${now}
-                            or coalesce(${appointments.calendarWriteError}, '') in (${settled}))))`,
+                            or coalesce(${appointments.calendarWriteError}, '') in (${settled})
+                            or ${abandonedByAge})))`,
             ),
           ),
       );

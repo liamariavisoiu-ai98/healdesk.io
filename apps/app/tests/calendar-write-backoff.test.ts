@@ -251,6 +251,8 @@ describeDb("the desk sweep's ladder (drizzle/0117)", () => {
     "a write waiting for its next attempt raises no alert; a written one clears its next attempt",
     async () => {
       const w = await unknownWrite("ladder-quiet");
+      // The sweep switched on: the write is waiting for a retry that will come.
+      await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'calendar-watch'`);
       await alertStuckCalendarWrites(new Date(Date.now() + 3 * DAY));
       const { rows } = await getMigratorPool().query(`select 1 from ops_alerts where event = 'calendar_write_stuck'`);
       expect(rows).toHaveLength(0);

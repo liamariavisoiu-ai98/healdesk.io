@@ -77,6 +77,8 @@ describeDb("cross-clinic monitors (lane P5a)", () => {
   }
 
   test("listStuckCalendarWrites: failed and unknown writes, newest first, exactly its keys, demo clinics hidden unless asked, truncated past the cap", async () => {
+    // The sweep switched on, so a waiting write is retryable (off: see below).
+    await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'calendar-watch'`);
     const a = await deskLocation(google, "stuck-a");
     const failed = await confirmWith(a.clinicId, { status: 400, reason: "badRequest" }, 3, 9);
     const waiting = await confirmWith(a.clinicId, { status: 503, reason: "backendError" }, 5, 10);
@@ -108,7 +110,7 @@ describeDb("cross-clinic monitors (lane P5a)", () => {
     const res = await runOperation("listStuckCalendarWrites", {}, OPERATOR);
     expect(res.status).toBe(200);
     const data = (res.body as { data: Awaited<ReturnType<typeof listStuckCalendarWrites>> }).data;
-    expect(Object.keys(data).sort()).toEqual(["count", "truncated", "unreadClinics", "writes"]);
+    expect(Object.keys(data).sort()).toEqual(["count", "sweepOn", "truncated", "unreadClinics", "writes"]);
     expect(data).toMatchObject({ count: 2, truncated: false, unreadClinics: 0 });
     expect(data.writes.map((w) => w.appointmentId)).toEqual([failed, waiting]);
     for (const w of data.writes) {
@@ -148,7 +150,7 @@ describeDb("cross-clinic monitors (lane P5a)", () => {
 
     // Bad arguments are refused.
     expect((await runOperation("listStuckCalendarWrites", { includeDemo: "yes" }, OPERATOR)).status).toBe(400);
-    expect((await runOperation("listStuckCalendarWrites", { clinicId: a.clinicId }, OPERATOR)).status).toBe(400);
+    expect((await runOperation("listStuckCalendarWrites", { other: 1 }, OPERATOR)).status).toBe(400);
   }, 120_000);
 
   test("listStuckCalendarWrites: a slot already started is not listed; five of five is listed and not retryable", async () => {
@@ -316,5 +318,52 @@ describeDb("cross-clinic monitors (lane P5a)", () => {
         oldestAgeHours: 100,
       },
     ]);
+  }, 60_000);
+  test("listStuckCalendarWrites says whether the sweep is on; off, nothing is retryable and no next try is named", async () => {
+    const a = await deskLocation(google, "stuck-switch");
+    const waiting = await confirmWith(a.clinicId, { status: 503, reason: "backendError" }, 5, 10);
+    const sweep = (on: boolean) =>
+      getMigratorPool().query(`update scheduled_jobs set enabled = $1 where name = 'calendar-watch'`, [on]);
+
+    await sweep(true);
+    const on = await listStuckCalendarWrites({ actor: ACTOR });
+    expect(on.sweepOn).toBe(true);
+    expect(on.writes).toEqual([expect.objectContaining({ appointmentId: waiting, retryable: true })]);
+    expect(on.writes[0]!.nextAttemptAt).not.toBeNull();
+
+    await sweep(false);
+    const off = await listStuckCalendarWrites({ actor: ACTOR });
+    expect(off.sweepOn).toBe(false);
+    expect(off.writes).toEqual([expect.objectContaining({ appointmentId: waiting, retryable: false, nextAttemptAt: null })]);
+  }, 60_000);
+
+  test("listStuckCalendarWrites for one clinic reads that tenant alone and writes no access row into another", async () => {
+    const a = await deskLocation(google, "stuck-one-a");
+    const b = await deskLocation(google, "stuck-one-b");
+    const aWrite = await confirmWith(a.clinicId, { status: 400, reason: "badRequest" }, 3, 9);
+    await confirmWith(b.clinicId, { status: 400, reason: "badRequest" }, 3, 10);
+    const accessRows = (clinicId: string) =>
+      inTenant(clinicId, async (c) =>
+        Number(
+          (
+            await c.query<{ n: number }>(
+              `select count(*)::int as n from audit_log where action = 'read' and resource_type = 'appointment_calendar_write'`,
+            )
+          ).rows[0]!.n,
+        ),
+      );
+    const before = { a: await accessRows(a.clinicId), b: await accessRows(b.clinicId) };
+
+    const res = await runOperation("listStuckCalendarWrites", { clinicId: a.clinicId.toUpperCase() }, OPERATOR);
+    expect(res.status).toBe(200);
+    const data = (res.body as { data: Awaited<ReturnType<typeof listStuckCalendarWrites>> }).data;
+    expect(data.writes.map((w) => w.appointmentId)).toEqual([aWrite]);
+    expect(await accessRows(a.clinicId)).toBe(before.a + 1);
+    expect(await accessRows(b.clinicId)).toBe(before.b);
+
+    expect((await runOperation("listStuckCalendarWrites", { clinicId: "nope" }, OPERATOR)).status).toBe(400);
+    expect(
+      (await runOperation("listStuckCalendarWrites", { clinicId: "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f60" }, OPERATOR)).status,
+    ).toBe(404);
   }, 60_000);
 });

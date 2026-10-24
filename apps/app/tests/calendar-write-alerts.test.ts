@@ -83,6 +83,11 @@ describeDb("calendar write alerts", () => {
     });
   }
 
+  /** The calendar watch's switch: the desk sweep, the only automatic retry, runs only while it is on. */
+  async function sweep(enabled: boolean) {
+    await getMigratorPool().query(`update scheduled_jobs set enabled = $1 where name = 'calendar-watch'`, [enabled]);
+  }
+
   async function alerts() {
     const { rows } = await getMigratorPool().query<{ event: string; fields: Record<string, unknown> }>(
       `select event, fields from ops_alerts where event = 'calendar_write_stuck'`,
@@ -90,7 +95,8 @@ describeDb("calendar write alerts", () => {
     return rows;
   }
 
-  test("each stuck write is told once; the rest are left alone", async () => {
+  test("each stuck write is told once; the rest are left alone (the sweep switched on)", async () => {
+    await sweep(true);
     const clinic = await seedClinic("calwrites");
     const recent = new Date(NOW.getTime() - HOUR);
     const days = (n: number) => new Date(NOW.getTime() + n * 24 * HOUR);
@@ -223,5 +229,26 @@ describeDb("calendar write alerts", () => {
       `select count(*)::int as n from ops_alerts where event = 'calendar_writes_stuck_many'`,
     );
     expect(summaries[0]!.n).toBe(1);
+  });
+
+  test("with the sweep switched off nothing retries, so an unknown write untouched for a day is stuck; with it on it waits", async () => {
+    const clinic = await seedClinic("calwrites-off");
+    const stale = await write(clinic.clinicId, {
+      write: "unknown",
+      attempts: 2,
+      error: "network",
+      updatedAt: new Date(NOW.getTime() - 25 * HOUR),
+      nextAt: new Date(NOW.getTime() - 24 * HOUR),
+    });
+    // Touched an hour ago: not yet, either way.
+    await write(clinic.clinicId, { write: "unknown", attempts: 1, error: "timeout", updatedAt: new Date(NOW.getTime() - HOUR) });
+
+    await sweep(true);
+    expect(await alertStuckCalendarWrites(NOW)).toMatchObject({ found: 0 });
+    expect(await alerts()).toHaveLength(0);
+
+    await sweep(false);
+    expect(await alertStuckCalendarWrites(NOW)).toMatchObject({ found: 1 });
+    expect((await alerts()).map((a) => a.fields.appointmentId)).toEqual([stale]);
   });
 });

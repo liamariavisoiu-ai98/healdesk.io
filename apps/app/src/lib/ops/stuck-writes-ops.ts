@@ -4,6 +4,7 @@ import { appointments, bookingRequests } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import {
   CALENDAR_WRITE_REASONS,
+  deskSweepOn,
   MAX_WRITE_ATTEMPTS,
   STUCK_CLAIM_MINUTES,
   WRITABLE_APPOINTMENT_STATUSES,
@@ -14,7 +15,7 @@ import { isDemoClinic } from "@/lib/booking/terms";
 import { describeError, log } from "@/lib/log";
 import { withTenant } from "@/lib/tenant";
 
-import { actorFor, booleanArg, ok, opsProblem, type Operator, type OpsOutcome } from "./api";
+import { actorFor, booleanArg, clinicById, ok, opsProblem, UUID_SHAPED, type Operator, type OpsOutcome } from "./api";
 import { listClinics } from "./clinics";
 
 /**
@@ -55,7 +56,7 @@ export type StuckCalendarWrite = {
   nextAttemptAt: string | null;
   /** Whole days until the slot: 0 within the next 24 hours. */
   slotInDays: number;
-  /** Whether the sweep will try it again on its own. */
+  /** Whether the sweep will try it again on its own: never while the sweep is switched off. */
   retryable: boolean;
 };
 
@@ -65,6 +66,12 @@ export type StuckCalendarWrites = {
   truncated: boolean;
   /** Clinics whose read failed: their writes are not in the list, and not counted. */
   unreadClinics: number;
+  /**
+   * Whether the desk sweep runs (the calendar watch's job switch, which ships
+   * off). Off, nothing is retried by itself: every row is `retryable: false`
+   * with no `nextAttemptAt`.
+   */
+  sweepOn: boolean;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -76,11 +83,12 @@ export async function listStuckCalendarWrites(options: {
   now?: Date;
   /** Test seam: the cap, MAX_LISTED unless given. */
   max?: number;
-  /** Test seam: the clinics to read, instead of every clinic not destroyed. */
+  /** The clinics to read (one clinic's Setup tab, or a test), instead of every clinic not destroyed. */
   clinics?: readonly { id: string; name: string }[];
 }): Promise<StuckCalendarWrites> {
   const now = options.now ?? new Date();
   const max = options.max ?? MAX_LISTED;
+  const sweepOn = await deskSweepOn();
   const clinics = options.clinics ?? (await listClinics()).filter((c) => !c.destroyedAt);
   const found: (StuckCalendarWrite & { changedAt: number })[] = [];
   let unreadClinics = 0;
@@ -129,6 +137,7 @@ export async function listStuckCalendarWrites(options: {
         const status = row.status === "failed" ? "failed" : "unknown";
         const reason = writeReasonCode(row.error);
         const retryable =
+          sweepOn &&
           status === "unknown" &&
           row.attempts < MAX_WRITE_ATTEMPTS &&
           (reason === "other" || CALENDAR_WRITE_REASONS[reason] !== "settled");
@@ -160,24 +169,39 @@ export async function listStuckCalendarWrites(options: {
     count: found.length,
     truncated: found.length > max,
     unreadClinics,
+    sweepOn,
   };
 }
 
-/** The ops operation: `includeDemo` (boolean, default false) and nothing else. */
+/**
+ * The ops operation: `includeDemo` (boolean, default false) and `clinicId`
+ * (a uuid), nothing else. With `clinicId`, only that clinic's tenant is read
+ * and only it gets an access row (a clinic's Setup tab); a demo clinic asked
+ * for by id is read, since the operator named it.
+ */
 export async function opListStuckCalendarWrites(
   args: Record<string, unknown>,
   operator: Operator,
 ): Promise<OpsOutcome> {
-  const unknown = Object.keys(args).filter((key) => key !== "includeDemo");
+  const unknown = Object.keys(args).filter((key) => key !== "includeDemo" && key !== "clinicId");
   if (unknown.length > 0 || (args.includeDemo !== undefined && typeof args.includeDemo !== "boolean")) {
-    return opsProblem("listStuckCalendarWrites takes only includeDemo, a boolean.", 400, "invalid_args");
+    return opsProblem("listStuckCalendarWrites takes only includeDemo, a boolean, and clinicId.", 400, "invalid_args");
+  }
+  let only: { id: string; name: string }[] | undefined;
+  if (args.clinicId !== undefined) {
+    const raw = typeof args.clinicId === "string" ? args.clinicId.trim().toLowerCase() : "";
+    if (!UUID_SHAPED.test(raw)) return opsProblem("A clinic id must be a uuid.", 400, "invalid_args");
+    const clinic = await clinicById(raw);
+    if (!clinic || clinic.destroyedAt) return opsProblem("No such clinic.", 404, "invalid_args");
+    only = [{ id: clinic.id, name: clinic.name }];
   }
   try {
     return ok(
       await listStuckCalendarWrites({
         actor: actorFor(operator),
         request: operator.request,
-        includeDemo: booleanArg(args, "includeDemo") ?? false,
+        includeDemo: only ? true : (booleanArg(args, "includeDemo") ?? false),
+        clinics: only,
       }),
     );
   } catch (error) {

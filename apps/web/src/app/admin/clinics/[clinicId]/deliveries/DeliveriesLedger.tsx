@@ -1,6 +1,8 @@
 import { Empty, Failure, Section } from "@/components/admin/ui";
 import type { CareView, ClinicBillingView, OpsResult } from "@/lib/admin/ops-client";
 
+import { SETUP_REMINDER_KIND } from "./Reminders";
+
 /**
  * The Deliveries tab's ledgers other than the transcripts (E1 step 7): what
  * was emailed to the clinic and whether it arrived, which until the admin
@@ -165,7 +167,6 @@ function Transitions({ transitions }: { transitions: ClinicBillingView["transiti
   );
 }
 
-export const SETUP_REMINDER_KIND = "setup_reminder";
 
 /** The three non-transcript ledgers, each shown under the filter and each saying its own failure. */
 export function DeliveriesLedger({

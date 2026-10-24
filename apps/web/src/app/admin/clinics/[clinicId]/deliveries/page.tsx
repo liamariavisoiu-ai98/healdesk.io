@@ -71,7 +71,7 @@ export default async function DeliveriesPage({
       <DeliveryFilters clinicId={clinicId} current={kind} days={days} />
       {shows(kind, "transcripts") ? <TranscriptsPanel clinicId={clinicId} days={days} view={transcripts} resend={resend} /> : null}
       <DeliveriesLedger filter={kind} care={care} billing={billing} />
-      {shows(kind, "reminders") ? <Reminders waves={waves} /> : null}
+      {shows(kind, "reminders") ? <Reminders waves={waves} billing={billing} /> : null}
     </div>
   );
 }

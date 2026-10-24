@@ -3,7 +3,6 @@ import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 
 import { HostStandbyNotice } from "@/components/admin/HostStandbyNotice";
-import { loadClinicRows } from "@/lib/admin/clinic-strip";
 import { clinicTabPath, isUuid } from "@/lib/admin/issue-link";
 import { requireOperator } from "@/lib/admin/operator";
 import {
@@ -13,6 +12,7 @@ import {
   decideLifecycle as decideLifecycleUpstream,
   extendSetupDeadline as extendDeadlineUpstream,
   fetchClinicAudits,
+  fetchClinicCards,
   fetchClinicBilling,
   fetchClinicChanges,
   fetchLifecycle,
@@ -69,14 +69,15 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   const { clinicId } = await params;
   if (!isUuid(clinicId)) notFound();
 
-  // Six reads, settled independently: the onboarding view, the clinic rows,
+  // Six reads, settled independently: the onboarding view, the clinic cards
+  // (the agreement, channels and build line; not the whole Clinics strip),
   // the availability changes, this clinic's audits (no history: the page
   // does not show it), its lifecycle row alone, and the billing view, whose
   // setup deadline is the live one the extension names. One that fails
   // costs its card.
-  const [view, reads, changes, audits, lifecycle, billing] = await Promise.all([
+  const [view, cards, changes, audits, lifecycle, billing] = await Promise.all([
     fetchOnboarding(clinicId),
-    loadClinicRows(),
+    fetchClinicCards(),
     fetchClinicChanges({ clinicId }),
     fetchClinicAudits(clinicId, { history: false }),
     fetchLifecycle(clinicId),
@@ -85,7 +86,11 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   if (isHostUnreachable(view)) return <HostStandbyNotice what="Setup" />;
   const path = clinicTabPath(clinicId, "setup");
   const now = new Date().toISOString();
-  const connection = reads.rows.find((r) => r.clinicId === clinicId.toLowerCase())?.connection ?? null;
+  // The read-back link's connection state is not read here: the only read
+  // that has it is every clinic's list (the whole Clinics strip, ten
+  // statements a clinic), and that list skipped the per-clinic lookup anyway,
+  // so it was always "not checked". The disclosure is phase two.
+  const connection = null;
   const watched = lifecycle.ok ? (lifecycle.data.find((r) => r.clinicId === clinicId.toLowerCase()) ?? null) : null;
   // The Billing tab's own rule for its extension control, kept identical here.
   const entitlements = billing.ok ? billing.data.entitlements : null;
@@ -268,7 +273,7 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
 
   return (
     <>
-      <SetupSummary cards={reads.cards} clinicId={clinicId} />
+      <SetupSummary cards={cards} clinicId={clinicId} />
       {/* Only a clinic the lifecycle watch covers has a window card; a read that failed is said once. */}
       {watched ? (
         <SetupWindow

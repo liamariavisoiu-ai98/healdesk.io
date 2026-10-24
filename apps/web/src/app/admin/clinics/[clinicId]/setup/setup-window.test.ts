@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { UNAUDITED } from "@/components/admin/ui";
 import type { LifecycleRow } from "@/lib/admin/ops-client";
 
 import { daysLeft, defaultExtendDays, LET_CLOSE_CONFIRM, SetupWindow } from "./SetupWindow";
@@ -171,6 +172,24 @@ describe("the four controls", () => {
     await act(async () => {});
     expect(onSnooze).toHaveBeenCalledWith(7);
     expect(statuses()).toContain("Routine ops alerts snoozed for 7 days.");
+  });
+
+  test("a decision or snooze saved without its audit entry says so", async () => {
+    const onDecide = vi.fn(async () => ({ ok: true as const, data: { outcome: "saved" as const, auditRecorded: false } }));
+    const onSnooze = vi.fn(async () => ({ ok: true as const, data: { outcome: "saved" as const, auditRecorded: false } }));
+    await act(async () => {
+      root.render(h(SetupWindow, { ...base, onDecide, onSnooze }));
+    });
+    await act(async () => {
+      button("Offered a call").click();
+    });
+    await act(async () => {});
+    expect(statuses()).toContain(`Recorded: a call was offered. ${UNAUDITED}`);
+    await act(async () => {
+      button("Snooze alerts").click();
+    });
+    await act(async () => {});
+    expect(statuses()).toContain(`Routine ops alerts snoozed for 7 days. ${UNAUDITED}`);
   });
 
   test("Let it close asks once with the true sentence, then records let_close; a clinic not watched is said", async () => {

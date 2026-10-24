@@ -88,11 +88,17 @@ function decisionWords(row: LifecycleRow): string {
   }
 }
 
-/** `LifecycleWriteOutcome` as the one button pattern reads it: a status word. */
-function asStatus(result: OpsResult<LifecycleWriteOutcome>): OpsResult<{ status: string; message?: string }> {
+/**
+ * `LifecycleWriteOutcome` as the one button pattern reads it: a status word,
+ * and whether the audit entry was written, which ActionButton turns into its
+ * shared warning (UNAUDITED) after the button's own sentence.
+ */
+function asStatus(
+  result: OpsResult<LifecycleWriteOutcome>,
+): OpsResult<{ status: string; message?: string; auditRecorded?: boolean }> {
   if (!result.ok) return result;
   return result.data.outcome === "saved"
-    ? { ok: true, data: { status: "saved" } }
+    ? { ok: true, data: { status: "saved", auditRecorded: result.data.auditRecorded } }
     : { ok: true, data: { status: "refused", message: "This clinic is not watched, so nothing was recorded." } };
 }
 

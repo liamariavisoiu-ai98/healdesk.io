@@ -34,14 +34,11 @@ vi.mock("next/navigation", () => ({
   },
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+// The Setup tab reads one clinic; the whole Clinics strip is never loaded for it (lane A4).
 vi.mock("@/lib/admin/clinic-strip", () => ({
-  loadClinicRows: async () => ({
-    clinics: { ok: true, data: { clinics: [], connectionStateLimit: 50 } },
-    cards: { ok: true, data: { cards: [], limit: 50 } },
-    health: { ok: true, data: [] },
-    strip: null,
-    rows: [],
-  }),
+  loadClinicRows: async () => {
+    throw new Error("the Setup tab must not read every clinic's strip");
+  },
 }));
 vi.mock("./OnboardingPanel", () => ({ OnboardingPanel: () => null }));
 vi.mock("./SetupSummary", () => ({ SetupSummary: () => null }));
@@ -56,6 +53,10 @@ vi.mock("@/lib/admin/ops-client", () => {
     fetchOnboarding: async (clinicId: string) => {
       state.reads.push(["fetchOnboarding", clinicId]);
       return state.onboarding;
+    },
+    fetchClinicCards: async () => {
+      state.reads.push(["fetchClinicCards"]);
+      return { ok: true, data: { cards: [], limit: 50 } };
     },
     fetchClinicChanges: async (filter: unknown) => {
       state.reads.push(["fetchClinicChanges", filter]);

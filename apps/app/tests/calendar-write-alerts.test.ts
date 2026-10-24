@@ -124,13 +124,13 @@ describeDb("calendar write alerts", () => {
       error: "deleted_in_calendar",
       updatedAt: recent,
     });
-    // Still waiting on the ladder (even three days on, the slot ahead),
+    // Still waiting on the ladder (touched within the day, the slot ahead),
     // written, cancelled, or too old: nothing. (A claim stuck `writing`
     // cannot be seeded here: the write guard of drizzle/0060 refuses one
     // without a calendar healdesk may write to; tests/calendar-write-backoff
     // covers it against the fake Google.)
     await write(clinic.clinicId, { write: "unknown", attempts: 2, error: "timeout", updatedAt: recent, nextAt: days(0.01) });
-    await write(clinic.clinicId, { write: "unknown", attempts: 3, error: "network", updatedAt: days(-3) });
+    await write(clinic.clinicId, { write: "unknown", attempts: 3, error: "network", updatedAt: days(-0.5) });
     await write(clinic.clinicId, { write: "written", attempts: 1, updatedAt: recent });
     await write(clinic.clinicId, { write: "failed", attempts: 1, error: "not_ours", updatedAt: recent, status: "cancelled" });
     await write(clinic.clinicId, { write: "failed", attempts: 1, error: "event_id_taken", updatedAt: ancient });
@@ -231,8 +231,8 @@ describeDb("calendar write alerts", () => {
     expect(summaries[0]!.n).toBe(1);
   });
 
-  test("with the sweep switched off nothing retries, so an unknown write untouched for a day is stuck; with it on it waits", async () => {
-    const clinic = await seedClinic("calwrites-off");
+  test("an unknown write untouched for a day is stuck whatever the sweep's switch: a working sweep never leaves one that long", async () => {
+    const clinic = await seedClinic("calwrites-age");
     const stale = await write(clinic.clinicId, {
       write: "unknown",
       attempts: 2,
@@ -240,15 +240,14 @@ describeDb("calendar write alerts", () => {
       updatedAt: new Date(NOW.getTime() - 25 * HOUR),
       nextAt: new Date(NOW.getTime() - 24 * HOUR),
     });
-    // Touched an hour ago: not yet, either way.
+    // Touched an hour ago: never, in either state.
     await write(clinic.clinicId, { write: "unknown", attempts: 1, error: "timeout", updatedAt: new Date(NOW.getTime() - HOUR) });
 
-    await sweep(true);
-    expect(await alertStuckCalendarWrites(NOW)).toMatchObject({ found: 0 });
-    expect(await alerts()).toHaveLength(0);
-
-    await sweep(false);
-    expect(await alertStuckCalendarWrites(NOW)).toMatchObject({ found: 1 });
-    expect((await alerts()).map((a) => a.fields.appointmentId)).toEqual([stale]);
+    for (const on of [true, false]) {
+      await getMigratorPool().query(`truncate ops_alerts`);
+      await sweep(on);
+      expect(await alertStuckCalendarWrites(NOW), `sweep ${on ? "on" : "off"}`).toMatchObject({ found: 1 });
+      expect((await alerts()).map((a) => a.fields.appointmentId)).toEqual([stale]);
+    }
   });
 });

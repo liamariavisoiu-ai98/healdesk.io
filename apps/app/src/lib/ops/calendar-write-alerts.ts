@@ -3,7 +3,6 @@ import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { appointments } from "@/db/schema";
 import {
   DESK_SWEEP_LOOKBACK_HOURS,
-  deskSweepOn,
   MAX_WRITE_ATTEMPTS,
   NEVER_RETRIED_REASONS,
   STUCK_CLAIM_MINUTES,
@@ -51,12 +50,15 @@ import {
  * than five, the slot ahead) is not alerted: the sweep will try it again.
  * A `writing` claim younger than STUCK_CLAIM_MINUTES is an attempt in flight.
  *
- * But the sweep is the only automatic retry, and it runs only inside the
- * calendar watch, whose job switch ships off. While that switch is off (or
- * cannot be read) nothing retries, so an `unknown` write, or a claim stuck
- * `writing`, also counts as stuck once it has sat untouched for
- * DESK_SWEEP_LOOKBACK_HOURS: the rule this alert had before the ladder, so a
- * write is never left waiting for a retry that will not come.
+ * And whatever the calendar watch's switch says, an `unknown` write, or a
+ * claim stuck `writing`, untouched for DESK_SWEEP_LOOKBACK_HOURS counts as
+ * stuck: the rule this alert had before the ladder. A working sweep never
+ * leaves one that long (its longest wait is two hours), so a write that old
+ * means nothing is retrying it: the switch is off (it ships off), or the
+ * sweep is on but failing (its work-list read throwing, say). Without this a
+ * write a week ahead would wait unalerted until its slot started. The alert
+ * reads no job row: a sweep that is on but broken looks the same as one
+ * that is off, and both must be told.
  *
  * Its look-back is ALERT_LOOKBACK_DAYS, so a run that comes days later (a
  * worker down for a weekend) still catches a write given up on, and the
@@ -90,10 +92,9 @@ export async function alertStuckCalendarWrites(now: Date = new Date()): Promise<
     NEVER_RETRIED_REASONS.map((reason) => sql`${reason}`),
     sql`, `,
   );
-  // Nothing retries while the sweep is off: then age alone makes a write stuck.
-  const sweepOn = await deskSweepOn();
+  // Untouched for a day: nothing is retrying it, whether the sweep is off or failing.
   const untouchedSince = new Date(now.getTime() - DESK_SWEEP_LOOKBACK_HOURS * 3_600_000);
-  const abandonedByAge = sweepOn ? sql`false` : sql`${appointments.updatedAt} <= ${untouchedSince}`;
+  const abandonedByAge = sql`${appointments.updatedAt} <= ${untouchedSince}`;
 
   let clinicIds: string[];
   try {

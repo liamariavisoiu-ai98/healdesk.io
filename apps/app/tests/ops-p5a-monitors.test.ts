@@ -157,6 +157,8 @@ describeDb("cross-clinic monitors (lane P5a)", () => {
     const a = await deskLocation(google, "stuck-five");
     const five = await confirmWith(a.clinicId, { status: 503, reason: "backendError" }, 4, 9);
     await inTenant(a.clinicId, (c) => c.query(`update appointments set calendar_write_attempts = 5 where id = $1`, [five]));
+    // The sweep on: only the five attempts can make it not retryable.
+    await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'calendar-watch'`);
     const listed = await listStuckCalendarWrites({ actor: ACTOR });
     expect(listed.writes).toEqual([expect.objectContaining({ appointmentId: five, attempts: 5, retryable: false, nextAttemptAt: null })]);
     const later = await listStuckCalendarWrites({ actor: ACTOR, now: new Date(Date.now() + 5 * 24 * HOUR) });
@@ -365,5 +367,26 @@ describeDb("cross-clinic monitors (lane P5a)", () => {
     expect(
       (await runOperation("listStuckCalendarWrites", { clinicId: "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f60" }, OPERATOR)).status,
     ).toBe(404);
+  }, 60_000);
+  test("listStuckCalendarWrites by clinicId reads a demo clinic named by id, and answers 404 for a destroyed one", async () => {
+    const demo = await deskLocation(google, "stuck-demo-by-id");
+    const demoWrite = await confirmWith(demo.clinicId, { status: 400, reason: "badRequest" }, 3, 9);
+    await seedEntitled(demo.clinicId, { stripe: false });
+    await inTenant(demo.clinicId, (c) =>
+      c.query(`update entitlements set status = 'demo', stripe_subscription_id = null, stripe_customer_id = null where clinic_id = $1`, [
+        demo.clinicId,
+      ]),
+    );
+    // Hidden from the cross-clinic list by default, read when named.
+    const all = (await runOperation("listStuckCalendarWrites", {}, OPERATOR)).body as { data: { writes: { appointmentId: string }[] } };
+    expect(all.data.writes.map((w) => w.appointmentId)).not.toContain(demoWrite);
+    const one = (await runOperation("listStuckCalendarWrites", { clinicId: demo.clinicId }, OPERATOR)).body as {
+      data: { writes: { appointmentId: string }[] };
+    };
+    expect(one.data.writes.map((w) => w.appointmentId)).toEqual([demoWrite]);
+
+    const gone = await seedClinic("stuck-destroyed");
+    await getMigratorPool().query(`update clinics set destroyed_at = now() where id = $1`, [gone.clinicId]);
+    expect((await runOperation("listStuckCalendarWrites", { clinicId: gone.clinicId }, OPERATOR)).status).toBe(404);
   }, 60_000);
 });

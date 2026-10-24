@@ -9,6 +9,7 @@ import {
   MAX_WRITE_ATTEMPTS,
   NEVER_RETRIED_REASONS,
   nextWriteAttemptAt,
+  deskSweepOn,
   sweepDeskWrites,
   writeToCalendar,
   WRITE_BACKOFF_MINUTES,
@@ -251,9 +252,7 @@ describeDb("the desk sweep's ladder (drizzle/0117)", () => {
     "a write waiting for its next attempt raises no alert; a written one clears its next attempt",
     async () => {
       const w = await unknownWrite("ladder-quiet");
-      // The sweep switched on: the write is waiting for a retry that will come.
-      await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'calendar-watch'`);
-      await alertStuckCalendarWrites(new Date(Date.now() + 3 * DAY));
+      await alertStuckCalendarWrites(new Date(Date.now() + 3 * HOUR));
       const { rows } = await getMigratorPool().query(`select 1 from ops_alerts where event = 'calendar_write_stuck'`);
       expect(rows).toHaveLength(0);
       expect(await sweepDeskWrites({ now: new Date(Date.now() + 3 * MIN) })).toMatchObject({ attempted: 1, written: 1 });
@@ -559,4 +558,47 @@ describeDb("the desk sweep's ladder (drizzle/0117)", () => {
     },
     60_000,
   );
+
+  test(
+    "a claim stuck writing and untouched for a day is stuck too; one stuck three hours is still the sweep's",
+    async () => {
+      const old = await unknownWrite("age-writing-old", 6, 9);
+      const recent = await unknownWrite("age-writing-recent", 6, 10);
+      const stuck = (w: { clinicId: string; id: string }, hours: number) =>
+        set(
+          w.clinicId,
+          w.id,
+          `calendar_write_status = 'writing', calendar_write_lease = gen_random_uuid(),
+           calendar_write_claimed_at = now() - make_interval(hours => $2), updated_at = now() - make_interval(hours => $2)`,
+          [hours],
+        );
+      await stuck(old, 25);
+      await stuck(recent, 3);
+      await alertStuckCalendarWrites(new Date());
+      const { rows } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
+        `select fields from ops_alerts where event = 'calendar_write_stuck'`,
+      );
+      expect(rows.map((r) => r.fields.appointmentId)).toEqual([old.id]);
+      expect(rows[0]!.fields).toMatchObject({ status: "writing", attemptCount: 1 });
+    },
+    60_000,
+  );
+
+  test("deskSweepOn() is false when the job row is off, missing or cannot be read, true only when on", async () => {
+    const job = (sql: string) => getMigratorPool().query(sql);
+    await job(`update scheduled_jobs set enabled = true where name = 'calendar-watch'`);
+    expect(await deskSweepOn()).toBe(true);
+    // Unreadable, with the row still on: the runtime role loses its read for a moment.
+    await job(`revoke select on scheduled_jobs from healdesk_app`);
+    try {
+      expect(await deskSweepOn()).toBe(false);
+    } finally {
+      await job(`grant select on scheduled_jobs to healdesk_app`);
+    }
+    expect(await deskSweepOn()).toBe(true);
+    await job(`update scheduled_jobs set enabled = false where name = 'calendar-watch'`);
+    expect(await deskSweepOn()).toBe(false);
+    await job(`delete from scheduled_jobs where name = 'calendar-watch'`);
+    expect(await deskSweepOn()).toBe(false);
+  });
 });

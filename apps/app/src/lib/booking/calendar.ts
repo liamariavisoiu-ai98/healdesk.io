@@ -968,9 +968,10 @@ function pgField(error: unknown, field: "code" | "constraint"): string | undefin
 export const DESK_SWEEP_LIMIT = 20;
 
 /**
- * While the sweep is switched off, how long an unsettled write may sit
- * untouched before the alert treats it as stuck (lib/ops/calendar-write-alerts.ts):
- * the look-back the sweep had before the ladder, kept for when nothing retries.
+ * How long an unsettled write may sit untouched before the alert treats it as
+ * stuck, whatever the sweep's switch (lib/ops/calendar-write-alerts.ts): the
+ * look-back the sweep had before the ladder. A working sweep touches every
+ * write it owns within two hours.
  */
 export const DESK_SWEEP_LOOKBACK_HOURS = 24;
 

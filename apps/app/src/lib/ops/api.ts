@@ -171,7 +171,7 @@ import {
   opSuspendForCause,
 } from "@/lib/ops/notices-ops";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
-import { WRITABLE_APPOINTMENT_STATUSES, writeToCalendarAttempt, type CalendarWriteOutcome } from "@/lib/booking/calendar";
+import { WRITABLE_APPOINTMENT_STATUSES, writeToCalendarAttempt, type CalendarWriteOutcome, type NoAttemptCause } from "@/lib/booking/calendar";
 import {
   listTranscriptDeliveries,
   resendTranscript,
@@ -4168,12 +4168,17 @@ export type RetryCalendarWriteState =
   | { status: "retried"; outcome: CalendarWriteOutcome; auditRecorded: boolean }
   | { status: "error"; message: string };
 
-/** Why an operator's retry made no attempt, by what the row says. */
-const NOT_TRIED: Record<CalendarWriteOutcome, string> = {
+/** Why an operator's retry made no attempt, by the cause the writer read from the row. */
+const NOT_TRIED: Record<NoAttemptCause, string> = {
   written: "That booking is already in the clinic's Google Calendar. Nothing was tried.",
-  "not-connected": "This location's calendar terms do not write to Google Calendar, so nothing was tried.",
-  failed: "This location has no healthy Google Calendar to write to: send the clinic a calendar link. Nothing was tried.",
-  unknown: "Another attempt at this write is in flight. Nothing was tried; reload in a few minutes.",
+  terms_do_not_write: "This location's calendar terms do not write to Google Calendar, so nothing was tried.",
+  no_healthy_calendar:
+    "This location has no healthy Google Calendar to write to: send the clinic a calendar link. Nothing was tried.",
+  booking_not_on: "That appointment is no longer on (cancelled, showed or no-show), so nothing is written to the calendar for it.",
+  in_flight: "Another attempt at this write is in flight. Nothing was tried; reload in a few minutes.",
+  out_of_attempts: "This write has used its attempts. Nothing was tried.",
+  not_due: "This write is not due yet. Nothing was tried.",
+  not_claimable: "This write is not in a state that can be retried. Nothing was tried.",
 };
 
 /** §B.4: re-run a calendar write from `failed` or `unknown`, read-back first (writeToCalendar does that). */
@@ -4200,6 +4205,7 @@ async function opRetryCalendarWrite(
   );
   if (!booking) return ok({ status: "error", message: "No such appointment." } satisfies RetryCalendarWriteState);
   if (!(WRITABLE_APPOINTMENT_STATUSES as readonly string[]).includes(booking.status)) {
+    await audit(operator, "calendar_write_retried", { clinicSlug: clinic.slug, appointmentId, attempted: false, cause: "booking_not_on" });
     return ok({ status: "error", message: `That appointment is marked ${booking.status.replace("_", "-")}, so nothing is written to the calendar for it.` } satisfies RetryCalendarWriteState);
   }
   let outcome: CalendarWriteOutcome;
@@ -4211,12 +4217,20 @@ async function opRetryCalendarWrite(
       operator: true,
       actor: actorFor(operator),
     });
-    // Nothing was tried: say what the row says, never "retried".
+    // Nothing was tried: say why, never "retried", and record the press.
     if (!tried.attempted) {
-      return ok({ status: "error", message: NOT_TRIED[tried.outcome] } satisfies RetryCalendarWriteState);
+      await audit(operator, "calendar_write_retried", {
+        clinicSlug: clinic.slug,
+        appointmentId,
+        outcome: tried.outcome,
+        attempted: false,
+        cause: tried.cause,
+      });
+      return ok({ status: "error", message: NOT_TRIED[tried.cause] } satisfies RetryCalendarWriteState);
     }
     outcome = tried.outcome;
   } catch (error) {
+    await audit(operator, "calendar_write_retried", { clinicSlug: clinic.slug, appointmentId, outcome: "error" });
     return ok({ status: "error", message: error instanceof Error ? error.message.slice(0, 200) : "Could not retry." } satisfies RetryCalendarWriteState);
   }
   const auditRecorded = await audit(operator, "calendar_write_retried", { clinicSlug: clinic.slug, appointmentId, outcome });

@@ -1704,7 +1704,7 @@ export type ClearVoiceDriftFlagOutcome =
  * `clearVoiceDriftFlag`: the flag cleared and the drift check run once.
  *
  * ⚠️ RAW: no second factor. Call it only through lib/admin/voice-drift.ts
- * `clearVoiceDriftFlag`, which checks the operator's fresh authenticator code
+ * `clearVoiceDriftFlagWithCode`, which checks the operator's fresh authenticator code
  * first; ops-client-monitors.test.ts fails if anything else imports it. This
  * sends the clinic id and nothing else.
  */

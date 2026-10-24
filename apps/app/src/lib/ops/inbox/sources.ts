@@ -1,3 +1,5 @@
+import { availabilitySource } from "./availability";
+import { decisionsSource } from "./decisions";
 import { queuesSource } from "./queues";
 import { healthFlagsSource } from "./health-flags";
 import { opsAlertsSource } from "./ops-alerts";
@@ -28,4 +30,6 @@ export const INBOX_SOURCES: readonly InboxSource[] = [
   supportRepliesSource,
   recordingAlertsSource,
   siteReadsSource,
+  availabilitySource,
+  decisionsSource,
 ];

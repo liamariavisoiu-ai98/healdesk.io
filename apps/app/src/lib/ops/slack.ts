@@ -1,13 +1,13 @@
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { LIFECYCLE_DECISIONS } from "@/db/schema";
-import { isCountKey } from "@/lib/email/lint";
-import { opsAlertTitle, opsFieldLabel } from "@/lib/email/templates/ops_alert";
-import { RECOMMENDATIONS } from "@/lib/lifecycle/recommend";
 import { LIFECYCLE_ESCALATIONS } from "@/lib/lifecycle/waves";
 import { describeError, log } from "@/lib/log";
 
+import { alertWording } from "./alert-wording";
+import { allowedAlertFields, wordingValues } from "./alert-wording/allow-list";
+import { sharedFacts } from "./alert-wording/facts";
+import { fillWording, numberedSteps } from "./alert-wording/render";
 import { opsClinicName, opsConsoleLink, type OpsEvent } from "./notify";
 
 /**
@@ -27,12 +27,15 @@ import { opsClinicName, opsConsoleLink, type OpsEvent } from "./notify";
  * (apps/web lib/demo/alert.ts): the channel says which side spoke.
  *
  * Slack signs no business associate agreement, so what it is sent is an
- * allow-list, built here and nowhere else: the alert's title (our fixed
- * wording) and event name, the clinic's name and id, the alert's counts, the
- * console link its email carries (opsConsoleLink), and nothing more. Never a
- * patient, an address, a phone number, a conversation, a notice or a
- * request id, never free text; a field not on the list is left
- * out whatever it holds. The webhook's address is never logged or recorded:
+ * allow-list (lib/ops/alert-wording/allow-list.ts, the one the wording's
+ * placeholders draw from too): the alert's wording, filled from the
+ * allow-listed values by the same function the email uses, so Slack carries
+ * the same full text and every numbered step (owner, 23 October 2026, lane
+ * N1); the event name; the clinic's name and id, or a setup requester's
+ * business name; the alert's counts and closed words; the console link its
+ * email carries (opsConsoleLink), and nothing more. Never a patient, an
+ * address, a phone number, a conversation, a notice or a request id, never
+ * free text; a field not on the list is left out whatever it holds. The webhook's address is never logged or recorded:
  * a failure is kept as an HTTP status or an error's name.
  */
 
@@ -48,27 +51,12 @@ export function slackWebhookUrl(): string | null {
 
 const WEBHOOK = /^https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9_/-]{10,200}$/;
 
-/** Only these reach Slack, besides the alert's title, its event and the clinic's name. */
-const METERS: ReadonlySet<string> = new Set(["voice_minutes", "chat_conversations"]);
-/** What a clinic changed (clinic_availability_changed's `section`): a closed list, never words. */
-const CHANGE_SECTIONS: ReadonlySet<string> = new Set([
-  "hours",
-  "closures",
-  "location_hours",
-  "providers",
-  "provider_services",
-]);
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** The lifecycle watch's closed words (design E2): a setup's decision and the recommended action. */
-const LIFECYCLE_WORDS: Readonly<Record<string, ReadonlySet<string>>> = {
-  decision: new Set(LIFECYCLE_DECISIONS),
-  recommendation: new Set(RECOMMENDATIONS),
-};
-
 export type SlackAlert = {
   event: OpsEvent;
   fields: Readonly<Record<string, string | number | boolean | null>>;
   clinicName: string | null;
+  /** The alert's ops_alerts row id: the anchor in its console link. */
+  alertId?: string | null;
 };
 
 /** Slack's mrkdwn treats these three as control characters. */
@@ -77,50 +65,107 @@ function escapeSlack(text: string): string {
 }
 
 /**
- * The fields Slack may carry, and nothing else: the clinic's id when it is a
- * uuid, the usage meter when it is one of the two, and every count that is a
- * finite, non-negative number. Exported for the test that holds it to that.
+ * A clinic's or a business's name as Slack may print it: mrkdwn has no
+ * escape for its formatting characters, so `*`, `_`, `~` and backticks in a
+ * name become spaces rather than bold, italic, struck or code text.
  */
-export function slackFields(
-  fields: Readonly<Record<string, unknown>>,
-): Record<string, string | number> {
-  const out: Record<string, string | number> = {};
-  for (const [key, value] of Object.entries(fields)) {
-    if (key === "clinicId") {
-      if (typeof value === "string" && UUID.test(value)) out.clinicId = value;
-    } else if (key === "meter") {
-      if (typeof value === "string" && METERS.has(value)) out.meter = value;
-    } else if (key === "section") {
-      if (typeof value === "string" && CHANGE_SECTIONS.has(value)) out.section = value;
-    } else if (Object.hasOwn(LIFECYCLE_WORDS, key)) {
-      if (typeof value === "string" && LIFECYCLE_WORDS[key]!.has(value)) out[key] = value;
-    } else if (isCountKey(key) && typeof value === "number" && Number.isFinite(value) && value >= 0) {
-      out[key] = value;
-    }
-  }
-  return out;
+export function slackName(name: string): string {
+  return name.replace(/[*_~`]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/** The message: one bold title line, then the clinic, then the counts. */
-export function slackText(alert: SlackAlert): string {
+/**
+ * The fields Slack may carry, and nothing else (lib/ops/alert-wording/allow-list.ts).
+ * Exported for the test that holds it to that.
+ */
+export const slackFields = allowedAlertFields;
+
+/** Slack refuses a section block's text over this many characters. */
+export const SLACK_SECTION_MAX = 3000;
+
+/**
+ * The message as its parts, in order: the title, what happened, who, the
+ * facts, why it matters, each numbered step, and the link with the event's
+ * code. Every part is already escaped mrkdwn.
+ */
+function slackParts(alert: SlackAlert): { head: string[]; steps: string[]; tail: string[] } {
   const fields = slackFields(alert.fields);
-  const title = opsAlertTitle({ ...alert.fields, event: alert.event });
-  const lines = [`${SLACK_TAG} *${escapeSlack(title)}*`];
+  const clinicName = alert.clinicName ? slackName(alert.clinicName) || null : null;
+  const business = typeof fields.business === "string" ? slackName(fields.business) : null;
+  const named = { ...alert.fields, ...(business !== null ? { business } : {}) };
+  const raw = alertWording(alert.event, alert.fields);
+  const wording = fillWording(raw, wordingValues(named, clinicName));
+  let title = `${SLACK_TAG} *${escapeSlack(wording.title)}*`;
   // A lifecycle escalation opens with a siren (design E2): the one a person must act on.
-  if (LIFECYCLE_ESCALATIONS.has(alert.event)) lines[0] = `:rotating_light: ${lines[0]}`;
+  if (LIFECYCLE_ESCALATIONS.has(alert.event)) title = `:rotating_light: ${title}`;
+  const head = [title, escapeSlack(wording.whatHappened)];
   if (fields.clinicId) {
-    const name = alert.clinicName ? `${escapeSlack(alert.clinicName)}, ` : "";
-    lines.push(`${name}clinic id \`${fields.clinicId}\``);
+    const name = clinicName ? `${escapeSlack(clinicName)}, ` : "";
+    head.push(`${name}clinic id \`${fields.clinicId}\``);
+  } else if (business) {
+    head.push(`Business: ${escapeSlack(business)}`);
   }
-  const facts = Object.entries(fields)
-    .filter(([key]) => key !== "clinicId")
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${escapeSlack(opsFieldLabel(key))}: ${value}`);
-  if (facts.length > 0) lines.push(facts.join(" · "));
+  // The same facts the email prints (lib/ops/alert-wording/facts.ts).
+  const facts = sharedFacts(alert.fields, raw).map(([label, value]) => `${escapeSlack(label)}: ${escapeSlack(slackName(value))}`);
+  if (facts.length > 0) head.push(facts.join(" · "));
+  if (wording.whyItMatters) head.push(`*Why it matters:* ${escapeSlack(wording.whyItMatters)}`);
+  const steps = numberedSteps(wording.steps).map(escapeSlack);
   // The same console link the email carries (opsConsoleLink, decision D3).
-  const link = opsConsoleLink(alert.event, fields);
-  lines.push(link ? `_${alert.event}_ · <${link}|Open in the console>` : `_${alert.event}_`);
-  return lines.join("\n");
+  const link = opsConsoleLink(alert.event, fields, alert.alertId);
+  const tail = [link ? `<${link}|Open in the console> · _${alert.event}_` : `_${alert.event}_`];
+  return { head, steps, tail };
+}
+
+/** The whole message as one mrkdwn text: the post's `text`, and its notification. */
+export function slackText(alert: SlackAlert): string {
+  const { head, steps, tail } = slackParts(alert);
+  return [...head, ...(steps.length > 0 ? ["*What to do:*", ...steps] : []), ...tail].join("\n");
+}
+
+type SectionBlock = { type: "section"; text: { type: "mrkdwn"; text: string } };
+
+/**
+ * Lines packed into sections of at most SLACK_SECTION_MAX characters, never
+ * splitting a line that fits in one; a line longer than a whole section (no
+ * wording has one) is split at spaces across sections, never cut short.
+ */
+export function packSections(lines: readonly string[], max = SLACK_SECTION_MAX): string[] {
+  const pieces: string[] = [];
+  for (const line of lines) {
+    if (line.length <= max) {
+      pieces.push(line);
+      continue;
+    }
+    let rest = line;
+    while (rest.length > max) {
+      const space = rest.lastIndexOf(" ", max);
+      const at = space > 0 ? space : max;
+      pieces.push(rest.slice(0, at));
+      rest = rest.slice(at).trimStart();
+    }
+    if (rest) pieces.push(rest);
+  }
+  const sections: string[] = [];
+  let current = "";
+  for (const piece of pieces) {
+    const next = current ? `${current}\n${piece}` : piece;
+    if (next.length <= max) current = next;
+    else {
+      sections.push(current);
+      current = piece;
+    }
+  }
+  if (current) sections.push(current);
+  return sections;
+}
+
+/** The post's body: the full text, and the same text as section blocks within Slack's limit. */
+export function slackPayload(alert: SlackAlert): { text: string; blocks: SectionBlock[] } {
+  const { head, steps, tail } = slackParts(alert);
+  const groups = [head, steps.length > 0 ? ["*What to do:*", ...steps] : [], tail].filter((g) => g.length > 0);
+  const blocks = groups.flatMap((group) =>
+    packSections(group).map((text): SectionBlock => ({ type: "section", text: { type: "mrkdwn", text } })),
+  );
+  return { text: slackText(alert), blocks };
 }
 
 export type SlackPostResult =
@@ -149,7 +194,10 @@ function retryAfterMs(header: string | null): number {
 }
 
 /** One post. Never throws; the error is a status or an error's name, never the address. */
-export async function postToSlack(url: string, text: string): Promise<SlackPostResult> {
+export async function postToSlack(
+  url: string,
+  message: string | { text: string; blocks?: readonly unknown[] },
+): Promise<SlackPostResult> {
   if (!WEBHOOK.test(url)) {
     return { ok: false, throttled: false, error: "SLACK_WEBHOOK_URL is not a Slack Incoming Webhook address" };
   }
@@ -157,7 +205,7 @@ export async function postToSlack(url: string, text: string): Promise<SlackPostR
     const response = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(typeof message === "string" ? { text: message } : message),
       signal: AbortSignal.timeout(POST_TIMEOUT_MS),
       redirect: "error",
     });
@@ -254,8 +302,8 @@ export async function runOpsSlackSweep(now: Date = new Date()): Promise<SlackSwe
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     const clinicName = await opsClinicName(row.fields.clinicId);
-    const text = slackText({ event: row.event as OpsEvent, fields: row.fields, clinicName });
-    const result = await postToSlack(url, text);
+    const message = slackPayload({ event: row.event as OpsEvent, fields: row.fields, clinicName, alertId: row.id });
+    const result = await postToSlack(url, message);
     try {
       if (result.ok) {
         posted += 1;

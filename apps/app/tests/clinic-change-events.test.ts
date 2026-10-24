@@ -294,8 +294,9 @@ describeDb("a clinic's changes to its availability", () => {
       const raised = await alerts(f.clinicId);
       expect(raised).toHaveLength(1);
       expect(raised[0]!.fields).toMatchObject({ clinicId: f.clinicId, section: "closures" });
-      // Ids, the kind and counts: nothing else reached the alert.
-      expect(Object.keys(raised[0]!.fields).sort()).toEqual(["clinicId", "count", "deleted", "section", "written"]);
+      // Ids, the kind and counts: nothing else reached the alert. Nothing was
+      // taken off, so `deleted` is not sent at all (lane N3: never "0 taken off").
+      expect(Object.keys(raised[0]!.fields).sort()).toEqual(["clinicId", "count", "section", "written"]);
       // Each change told once; a sweep with nothing new raises nothing.
       expect((await changes(f.clinicId)).every((r) => r.alerted_at !== null)).toBe(true);
       expect((await runClinicChangeAlerts()).alerts).toBe(0);

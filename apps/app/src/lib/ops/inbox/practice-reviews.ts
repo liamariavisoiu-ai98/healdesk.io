@@ -36,7 +36,7 @@ export const practiceReviewsSource: InboxSource = {
         ? "Practice question reviews past the day promised."
         : "Practice question reviews to decide.",
       clinic: { id: clinicId, name: r.name },
-      button: { label: "Open reviews", kind: "link", href: "/admin/reviews" },
+      button: { label: "Open reviews", kind: "link", href: "/admin/queues#reviews" },
       tone: r.pastDue ? "bad" : "warn",
       dueAt: r.dueOn,
     }));

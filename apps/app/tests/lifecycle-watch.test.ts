@@ -283,10 +283,12 @@ describeDb("the lifecycle watch, against the database", () => {
     const waves = (
       read.body as {
         data: {
-          waves: { wave: string; target: string; outcome: string; providerId: string | null }[];
+          waves: { wave: string; target: string; outcome: string; providerId: string | null; event: string | null }[];
         };
       }
     ).data.waves.filter((w) => w.target === "clinic_email");
+    // A clinic reminder carried no ops alert: it has no event.
+    expect(waves.every((w) => w.event === null)).toBe(true);
     expect(waves.map((w) => w.outcome)).toEqual([
       "delivered",
       "delivered",
@@ -394,6 +396,26 @@ describeDb("the lifecycle watch, against the database", () => {
       ["ops_email", true, escalation.id],
       ["slack", true, escalation.id],
     ]);
+
+    // The console's ledger names each ops wave's alert event (lane A4), so
+    // a day-22 wave reads as a decision, not a closing-soon.
+    const waves = (
+      (await runOperation("listLifecycleWaves", { clinicId: stalled.clinicId }, OPERATOR)).body as {
+        data: { waves: { wave: string; target: string; event: string | null }[] };
+      }
+    ).data.waves;
+    // Both targets share one queued_at, so the ledger's order between them is not fixed.
+    expect(waves.map((w) => [w.target, w.event]).sort()).toEqual([
+      ["ops_email", "lifecycle_decision_due"],
+      ["slack", "lifecycle_decision_due"],
+    ]);
+    expect(
+      (
+        (await runOperation("listLifecycleWaves", { clinicId: quiet.clinicId }, OPERATOR)).body as {
+          data: { waves: { event: string | null }[] };
+        }
+      ).data.waves.map((w) => w.event),
+    ).toEqual(["lifecycle_no_progress"]);
 
     // Replay: same hour, next hour. Nothing raised, recorded or mailed twice.
     await watchLifecycles(NOON);
@@ -668,6 +690,15 @@ describeDb("the lifecycle watch, against the database", () => {
     });
     expect(shown[2]).toMatchObject({ decisionOwed: false });
     expect(shown.map((r) => r.clinicId)).not.toContain(demo.clinicId);
+
+    // One clinic only (lane A4): the Setup page reads its own row, not every clinic's.
+    expect((await list({ clinicId: owed.clinicId })).map((r) => r.clinicId)).toEqual([owed.clinicId]);
+    expect((await list({ clinicId: owed.clinicId.toUpperCase() })).map((r) => r.clinicId)).toEqual([owed.clinicId]);
+    expect(await list({ clinicId: demo.clinicId })).toEqual([]);
+    expect(await list({ clinicId: randomUUID() })).toEqual([]);
+    for (const clinicId of ["nope", 42, ""]) {
+      expect((await runOperation("listLifecycle", { clinicId }, OPERATOR)).status, String(clinicId)).toBe(400);
+    }
 
     expect((await runOperation("listLifecycleWaves", { clinicId: "nope" }, OPERATOR)).status).toBe(
       400,

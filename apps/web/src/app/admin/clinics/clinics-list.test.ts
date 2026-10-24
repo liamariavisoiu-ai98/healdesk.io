@@ -2,9 +2,9 @@ import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 
-import { composeClinicRows, filterClinicRows, type ClinicRow } from "@/lib/admin/clinic-rows";
+import { availabilityChip, composeClinicRows, filterClinicRows, reminderChip, type ClinicRow } from "@/lib/admin/clinic-rows";
 import type { ClinicCards, ClinicHealth, OpsClinics, OpsResult } from "@/lib/admin/ops-client";
-import type { ClinicStripRow } from "@/lib/admin/strip-types";
+import type { AuditLevel, ClinicStripRow } from "@/lib/admin/strip-types";
 
 import { ClinicFilters, ClinicTable } from "./ClinicTable";
 
@@ -240,6 +240,38 @@ describe("the clinic rows", () => {
     const drifting = composeClinicRows({ clinics: quietOnly, cards, health, strip: { ok: true, data: [{ ...strip.data[0]!, voice: "drift" }] } });
     expect(drifting[0]?.attention).toBe(true);
     expect(drifting[0]?.blocking).toBeNull();
+  });
+});
+
+describe("the strip's audit and reminder values", () => {
+  test("every AuditLevel has a chip, in a tone that is never red for a pass, and a change without an audit is a warning", () => {
+    const levels: AuditLevel[] = ["pass", "warn", "fail", "running", "never"];
+    for (const audit of levels) {
+      const changed = availabilityChip({ changedAt: "2026-10-20T10:00:00.000Z", audit });
+      const unchanged = availabilityChip({ changedAt: null, audit });
+      expect(changed.words.length, audit).toBeGreaterThan(0);
+      expect(unchanged.words.length, audit).toBeGreaterThan(0);
+    }
+    expect(availabilityChip({ changedAt: null, audit: "pass" })).toEqual({ tone: "ok", words: "unchanged" });
+    expect(availabilityChip({ changedAt: "2026-10-20T10:00:00.000Z", audit: "pass" })).toEqual({ tone: "ok", words: "changed, audit ✓" });
+    expect(availabilityChip({ changedAt: "2026-10-20T10:00:00.000Z", audit: "fail" }).tone).toBe("bad");
+    expect(availabilityChip({ changedAt: "2026-10-20T10:00:00.000Z", audit: "running" })).toEqual({ tone: "info", words: "audit running" });
+    expect(availabilityChip({ changedAt: "2026-10-20T10:00:00.000Z", audit: "never" })).toEqual({ tone: "warn", words: "changed, not audited" });
+    expect(availabilityChip(null)).toEqual({ tone: "muted", words: "not measured yet" });
+  });
+
+  test("a last reminder of none, of day n, and not measured each have their words, and the table draws them", () => {
+    expect(reminderChip({ day: null })).toEqual({ tone: "muted", words: "none" });
+    expect(reminderChip({ day: 15 })).toEqual({ tone: "info", words: "day 15" });
+    expect(reminderChip(null)).toEqual({ tone: "muted", words: "not measured yet" });
+    const withReminder: OpsResult<ClinicStripRow[]> = {
+      ok: true,
+      data: [{ ...strip.data[1]!, lastReminder: { day: 15 }, availability: { changedAt: "2026-10-20T10:00:00.000Z", audit: "running" } }],
+    };
+    const rows = composeClinicRows({ clinics, cards, health, strip: withReminder });
+    const page = text(renderToStaticMarkup(h(ClinicTable, { rows: filterClinicRows(rows, "all"), filter: "all", stripRead: true })));
+    expect(page).toContain("day 15");
+    expect(page).toContain("audit running");
   });
 });
 

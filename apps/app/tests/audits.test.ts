@@ -14,7 +14,7 @@ import { voiceOutsideCoverage } from "@/lib/billing/answering";
 import { recordClinicChange } from "@/lib/clinic/change-events";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { withTenant } from "@/lib/tenant";
-import { opClinicAudits, opRunClinicAudit, __setAuditDepsForTests } from "@/lib/ops/audit-ops";
+import { AUDIT_HISTORY_MAX, auditOverall, opClinicAudits, opRunClinicAudit, __setAuditDepsForTests } from "@/lib/ops/audit-ops";
 import { opAcknowledgeClinicChange, opListClinicChanges } from "@/lib/ops/change-ops";
 import type { Operator } from "@/lib/ops/api";
 import { saveKnowledge } from "@/lib/portal/knowledge";
@@ -54,6 +54,15 @@ const EVERY_DAY = Object.fromEntries(
 const LABEL = "Staff training at 12 Main Street";
 
 describe("the audit's pure parts", () => {
+  test("the overall rule: a change being audited is running; one nobody will audit is audits_off; else the worst, error read as fail; never with none", () => {
+    expect(auditOverall({ checking: true, unaudited: true, latest: ["fail"] })).toBe("running");
+    expect(auditOverall({ checking: false, unaudited: true, latest: ["pass"] })).toBe("audits_off");
+    expect(auditOverall({ checking: false, unaudited: false, latest: [] })).toBe("never");
+    expect(auditOverall({ checking: false, unaudited: false, latest: ["pass", "warn"] })).toBe("warn");
+    expect(auditOverall({ checking: false, unaudited: false, latest: ["pass", "error", "warn"] })).toBe("fail");
+    expect(auditOverall({ checking: false, unaudited: false, latest: ["pass", "pass"] })).toBe("pass");
+  });
+
   test("the worst result wins: error, fail, warn, pass", () => {
     expect(worstOf([])).toBe("pass");
     expect(worstOf(["pass", "warn"])).toBe("warn");
@@ -514,6 +523,87 @@ describeDb("the clinic audits", () => {
       await getMigratorPool().query(`update clinics set account_closed_at = now() where id = $1`, [f.clinicId]);
       const closed = await opRunClinicAudit({ clinicId: f.clinicId, pack: "transcripts" }, OPERATOR);
       expect(closed.body).toEqual({ data: { status: "closed" } });
+    },
+    SLOW,
+  );
+
+  test(
+    "history: the newest first, capped at 50 and at `limit`, none with history false; the summary reads each pack's newest whatever the cap",
+    async () => {
+      // 60 stored audits, as the migrator, oldest first: the availability
+      // pack's newest is the last one, a warn.
+      const start = Date.now() - 60 * 60_000;
+      for (let i = 0; i < 60; i++) {
+        await inTenant(f.clinicId, (client) =>
+          client.query(
+            `insert into clinic_audits (clinic_id, pack, trigger, result, checks, requested_by, started_at)
+             values ($1, $2, 'scheduled', $3, '[]'::jsonb, 'clinic-audits', $4)`,
+            [f.clinicId, i === 0 ? "golive" : "availability", i === 59 ? "warn" : "pass", new Date(start + i * 60_000)],
+          ),
+        );
+      }
+      type Read = { data: { clinics: { overall: string; packs: Record<string, { result: string }> }[]; history: { startedAt: string; pack: string }[] | null } };
+      const whole = (await opClinicAudits({ clinicId: f.clinicId })).body as Read;
+      expect(whole.data.history).toHaveLength(AUDIT_HISTORY_MAX);
+      const times = whole.data.history!.map((h) => Date.parse(h.startedAt));
+      expect([...times].sort((a, b) => b - a)).toEqual(times);
+      expect(whole.data.history!.some((h) => h.pack === "golive")).toBe(false);
+      // The pack summary still has the oldest pack, which the history cap cut.
+      expect(whole.data.clinics[0]!.packs).toMatchObject({ availability: { result: "warn" }, golive: { result: "pass" } });
+      expect(whole.data.clinics[0]!.overall).toBe("warn");
+
+      const five = (await opClinicAudits({ clinicId: f.clinicId, limit: 5 })).body as Read;
+      expect(five.data.history).toHaveLength(5);
+      const none = (await opClinicAudits({ clinicId: f.clinicId, history: false })).body as Read;
+      expect(none.data.history).toBeNull();
+      expect(none.data.clinics[0]!.packs).toEqual(whole.data.clinics[0]!.packs);
+
+      for (const args of [
+        { clinicId: f.clinicId, limit: 0 },
+        { clinicId: f.clinicId, limit: 51 },
+        { clinicId: f.clinicId, limit: 2.5 },
+        { clinicId: f.clinicId, history: "no" },
+        { history: false },
+        { limit: 5 },
+      ]) {
+        expect((await opClinicAudits(args)).status, JSON.stringify(args)).toBe(400);
+      }
+    },
+    SLOW,
+  );
+
+  test(
+    "with the audits off a change is written unaudited (no status): audits_off until an availability audit runs after it; go-live never counts",
+    async () => {
+      await getMigratorPool().query(`update scheduled_jobs set enabled = false where name = 'clinic-audits'`);
+      type Read = { data: { clinics: { overall: string }[] } };
+      const overall = async () => ((await opClinicAudits({ clinicId: f.clinicId })).body as Read).data.clinics[0]!.overall;
+      // An availability audit that passed an hour ago, and go-live failing (as for every clinic not in production).
+      await inTenant(f.clinicId, (client) =>
+        client.query(
+          `insert into clinic_audits (clinic_id, pack, trigger, result, checks, requested_by, started_at)
+           values ($1, 'availability', 'scheduled', 'pass', '[]'::jsonb, 'clinic-audits', now() - interval '1 hour'),
+                  ($1, 'golive', 'scheduled', 'fail', '[]'::jsonb, 'clinic-audits', now() - interval '1 hour')`,
+          [f.clinicId],
+        ),
+      );
+      expect(await overall()).toBe("pass");
+      expect(await closeDay(clinicLocalDate(deskTime(41, 10), DESK_TZ))).toMatchObject({ ok: true });
+      const { rows } = await inTenant(f.clinicId, (client) =>
+        client.query<{ audit_status: string | null }>(`select audit_status from clinic_change_events where clinic_id = $1`, [f.clinicId]),
+      );
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.audit_status === null)).toBe(true);
+      expect(await overall()).toBe("audits_off");
+      // An availability audit after the change has checked it.
+      await inTenant(f.clinicId, (client) =>
+        client.query(
+          `insert into clinic_audits (clinic_id, pack, trigger, result, checks, requested_by, started_at)
+           values ($1, 'availability', 'change_detected', 'pass', '[]'::jsonb, 'clinic-audits', now() + interval '1 second')`,
+          [f.clinicId],
+        ),
+      );
+      expect(await overall()).toBe("pass");
     },
     SLOW,
   );

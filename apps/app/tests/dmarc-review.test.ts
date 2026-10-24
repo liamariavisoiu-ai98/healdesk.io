@@ -190,7 +190,10 @@ describeDb("the DMARC review reminder", { timeout: TEST_MS }, () => {
     const text = String(payload.text);
     expect(text).toContain("p=none");
     expect(text).toContain("p=quarantine");
-    expect(text).toContain("Day: 2026-10-06");
+    // The first-send day is in the sentence now (lane N2), and the step says
+    // where the reports are: the mailbox named in the DMARC record in Cloudflare.
+    expect(text).toContain("since 6 Oct or earlier");
+    expect(text).toMatch(/1\. Read healdesk\.io's DMARC aggregate reports from 6 Oct on, in the mailbox named after rua= in the DMARC record in Cloudflare\./);
     // An ops alert names no clinic and no address but our own.
     expect(`${text}\n${String(payload.html)}`).not.toContain("example-clinic.test");
 

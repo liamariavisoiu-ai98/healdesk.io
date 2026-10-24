@@ -47,6 +47,8 @@ export const INBOX_KINDS = [
   "support_reply",
   "recording_alert",
   "site_read",
+  "availability",
+  "decision",
 ] as const;
 
 export type InboxKind = (typeof INBOX_KINDS)[number];

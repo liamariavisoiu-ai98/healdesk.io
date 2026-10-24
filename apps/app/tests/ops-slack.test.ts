@@ -38,7 +38,10 @@ function posted(): string[] {
 }
 
 describe("the Slack allow-list", () => {
-  test("keeps the clinic id, the meter and counts, and drops everything else", () => {
+  // Since lane N3 a closed word list admits `kind` and `status` when the
+  // value is on it (lib/ops/alert-wording/words.ts); a code off the vendor
+  // list, ids and free text are still dropped.
+  test("keeps the clinic id, the closed words and counts, and drops everything else", () => {
     expect(
       slackFields({
         clinicId: CLINIC,
@@ -56,7 +59,16 @@ describe("the Slack allow-list", () => {
         included: 100,
         locationCount: -1,
       }),
-    ).toEqual({ clinicId: CLINIC, meter: "voice_minutes", attempts: 3, count: 2, used: 91, included: 100 });
+    ).toEqual({
+      clinicId: CLINIC,
+      kind: "payment_failed",
+      status: "late",
+      meter: "voice_minutes",
+      attempts: 3,
+      count: 2,
+      used: 91,
+      included: 100,
+    });
   });
 
   test("refuses a clinic id that is not a uuid, a meter off the list and a count that is not a number", () => {
@@ -82,7 +94,8 @@ describe("the Slack allow-list", () => {
     for (const name of ["<!channel> Spa", "<!here>", "Glow <@U123|x>", "<https://evil.example|click>"]) {
       const text = slackText({ event: "calendar_broken", fields: { clinicId: CLINIC }, clinicName: name });
       // Every < and > the name brought is escaped: Slack sees text, not a mention or a link.
-      const nameLine = text.split("\n")[1]!;
+      // The name's line follows what happened (lane N1), so it is found by its id.
+      const nameLine = text.split("\n").find((line) => line.includes("clinic id"))!;
       expect(nameLine, name).not.toMatch(/[<>]/);
       expect(nameLine, name).toContain("&lt;");
     }

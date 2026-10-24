@@ -8,9 +8,11 @@ import { TouchLog } from "./TouchLog";
 
 /**
  * The Care tab's touch log: a health read that failed says so and is never
- * "Touch log — 0" or "none to show"; a clinic past its first sixty days has
- * no log and is told why; a clinic with touches lists them and offers the
- * form.
+ * "Touch log — 0"; a clinic outside its first sixty days live has no list
+ * and is told why; a clinic with touches lists them. The Record form is
+ * offered for every clinic (lane N3), because ten alerts' steps send the
+ * operator here whatever the clinic's age or state; apps/app refuses only a
+ * closed account, and the card says so.
  */
 
 const NEVER = async (): Promise<never> => {
@@ -50,13 +52,17 @@ describe("the touch log", () => {
     const page = text(h(TouchLog, { health: { ok: false, code: "unreachable", message: "Could not reach the ops API." }, onTouch: NEVER }));
     expect(page).toContain("Could not read the touch log: Could not reach the ops API.");
     expect(page).not.toContain("Touch log — 0");
-    expect(page).not.toContain("none to show");
-    expect(page).not.toContain("Record");
+    // The form does not need the read: a note can still be recorded.
+    expect(page).toContain("Record");
   });
 
-  test("a clinic past its first sixty days has no log, and is told why", () => {
+  test("a clinic outside its first sixty days has no list, is told why, and still takes a note", () => {
     const page = text(h(TouchLog, { health: { ok: true, data: null }, onTouch: NEVER }));
-    expect(page).toContain("first sixty days live; this one has none to show");
+    expect(page).toContain("Earlier notes are listed here only in a clinic's first sixty days live.");
+    expect(page).toContain("every clinic takes a note until its account is closed");
+    expect(page).toContain("What was said (no patient details)");
+    expect(page).toContain("Record");
+    expect(page).not.toContain("Touch log — 0");
   });
 
   test("touches are listed and the form offered", () => {

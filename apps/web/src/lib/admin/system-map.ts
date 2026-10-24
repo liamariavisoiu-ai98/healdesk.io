@@ -938,7 +938,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     both: true,
     title: "The shop window hands work to the engine",
     carries:
-      "Paid purchases to set up, every Stripe billing change after that, email delivery reports (the shop window's own counted for the morning ops digest), a signer's agreement copy held back for a person to send (its id and why, once per address a day), review and welcome checks, and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses, times and attempt counts, never the words), Reviews (the practice questions waiting for you), Retell deletions (calls Retell still held 30 minutes after they ended, as ids and times, and the button that has the engine delete one), Host and this map; the engine answers with what those pages show",
+      "Paid purchases to set up, every Stripe billing change after that, email delivery reports (the shop window's own counted for the morning ops digest), a signer's agreement copy held back for a person to send (its id and why, once per address a day), review and welcome checks, and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses, times and attempt counts, never the words), Reviews (the practice questions waiting for you), Retell deletions (calls Retell still held 30 minutes after they ended, as ids and times, and the button that has the engine delete one), Host and this map; the engine answers with what those pages show; a setup request still unanswered past the day it was promised a reply (its id, the requester's business name and that day, business contact data and never a patient)",
     example: "A clinic's first invoice is paid. The shop window posts its signed agreement, a business associate agreement or, for a practice HIPAA does not cover, a data protection agreement, to the engine in an envelope sealed with a stamp only the two of them own; the engine checks the seal, records which of the two it is and opens the clinic's account.",
     keys: ["vercel.HEALDESK_PROVISION_SECRET", "aws.HEALDESK_PROVISION_SECRET", "vercel.HEALDESK_APP_URL", "aws.HEALDESK_ADMIN_EMAIL"],
     phi: false,
@@ -1482,13 +1482,14 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "slack",
     title: "Ops alerts to your Slack",
-    carries: "Each ops alert's title, the clinic's name and id, and its counts; never a patient, an address, a number or anything said",
+    carries:
+      "Each ops alert as it is written for the operator: its title, what happened, why it matters and the numbered steps, the clinic's name and id, its counts and days, a few plain closed words (the vendor, the channel, the kind of email or request), a setup requester's business name, and the console link; never a patient, an address, a phone number, a time of an appointment or anything said",
     example: "A booking could not be written to a clinic's calendar: your phone buzzes with the clinic's name and id a minute after the email is sent.",
     keys: ["aws.SLACK_WEBHOOK_URL"],
     phi: false,
     build: "built",
     buildNote:
-      "The worker posts each alert once, from its every-minute sweep, retries at 1, 5 and 30 minutes, and records the outcome on the alert's row; only alerts from the last 24 hours are posted, so pasting the key never floods the channel. What it may carry is an allow-list in apps/app lib/ops/slack.ts. Without the key nothing posts and every alert is still emailed.",
+      "The worker posts each alert once, from its every-minute sweep, retries at 1, 5 and 30 minutes, and records the outcome on the alert's row; only alerts from the last 24 hours are posted, so pasting the key never floods the channel. What it may carry is an allow-list in apps/app lib/ops/alert-wording/allow-list.ts, shared by the Slack post and the email. Without the key nothing posts and every alert is still emailed.",
   },
   {
     id: "app-ses",

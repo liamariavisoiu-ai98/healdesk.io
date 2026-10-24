@@ -214,8 +214,9 @@ export const PAST_REPLY_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
  * ("We'll reply to {email} by {day}", the next business day in New York from
  * when it was made): still `new`, so no setup link was minted and nobody
  * declined it, the whole of that day passed in New York, and the requester
- * has not asked us to stop writing. Ids for the ops alert
- * (app/api/cron/setup-replies); nothing else leaves this module.
+ * has not asked us to stop writing. For the ops alert
+ * (app/api/cron/setup-replies), which sends each one's id, business name and
+ * promised day (pastReplyAlert); nothing else leaves this module.
  */
 export function pastReply(requests: readonly SetupRequest[], now: Date = new Date()): SetupRequest[] {
   return requests.filter(
@@ -225,6 +226,60 @@ export function pastReply(requests: readonly SetupRequest[], now: Date = new Dat
       now.getTime() - r.createdAt.getTime() < PAST_REPLY_LOOKBACK_MS &&
       replyByPassed(replyByDay(r.createdAt), now),
   );
+}
+
+// <business-name-rule>
+// Identical in apps/app lib/ops/alert-wording/allow-list.ts and apps/web
+// lib/setup-requests.ts; apps/app's tests/alert-wording.test.ts fails when the
+// two copies differ. Change both in one commit.
+/** The most of a requester's business name an ops alert prints. */
+export const MAX_BUSINESS_NAME = 80;
+
+/**
+ * A setup requester's business name as an ops alert may print it, or null
+ * (owner, 23 October 2026; lane N1 and its review). Typed by a prospect, so
+ * it is refused, and the alert goes without it, when it could reach anyone
+ * or trip the email link scanner: seven or more digits in all, in any script
+ * (a phone number however spaced); an address, spelled out or not; a link or
+ * a bare domain; a slash, backslash, `=`, quote, bracket or angle bracket;
+ * `href`, `src` or `url`; a control or invisible formatting character.
+ * Otherwise it is cut to 80 characters at a word.
+ */
+export function cleanBusinessName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let name = value.replace(/\s+/gu, " ").trim();
+  if (!name) return null;
+  if ((name.match(/\p{Nd}/gu) ?? []).length >= 7) return null;
+  if (/[\p{Cc}\p{Cf}]/u.test(name)) return null;
+  if (/[@/\\=()[\]{}<>"“”`]/u.test(name)) return null;
+  if (/\b(?:href|src|url)\b/i.test(name)) return null;
+  if (/\w\.\s*[a-z]{2,}/u.test(name)) return null;
+  if (/\.\s*(?:com|net|org|io|co|us|ca|uk|ly|me|app|health|clinic|dental|spa|biz|info)\b/i.test(name)) return null;
+  if (/\bat\b.*\bdot\b|\bdot\s+(?:com|net|org|io|co|us|ca|uk)\b/i.test(name)) return null;
+  if (name.length > MAX_BUSINESS_NAME) {
+    const cut = name.slice(0, MAX_BUSINESS_NAME + 1);
+    const space = cut.lastIndexOf(" ");
+    name = (space > 20 ? cut.slice(0, space) : cut.slice(0, MAX_BUSINESS_NAME)).trim();
+  }
+  return name || null;
+}
+// </business-name-rule>
+
+/** The business name the past-due alert sends (cleanBusinessName; apps/app checks it again). */
+export function alertBusinessName(value: unknown): string | null {
+  return cleanBusinessName(value);
+}
+
+/** What the past-due alert carries for one request: its id, the business name when safe, and the promised day. */
+export type PastReplyAlert = { id: string; business?: string; promisedOn?: string };
+
+export function pastReplyAlert(request: Pick<SetupRequest, "id" | "clinicName" | "createdAt">): PastReplyAlert {
+  const business = alertBusinessName(request.clinicName);
+  const promisedOn =
+    request.createdAt instanceof Date && !Number.isNaN(request.createdAt.getTime())
+      ? replyByDay(request.createdAt)
+      : null;
+  return { id: request.id, ...(business ? { business } : {}), ...(promisedOn ? { promisedOn } : {}) };
 }
 
 /** pastReply over the Sheet's requests. */

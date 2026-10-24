@@ -241,11 +241,17 @@ re-registers the hourly schedule as an upsert; you will not get two clocks.
 Every ops alert (`OPS_EVENTS`, `apps/app/src/lib/ops/notify.ts`) belongs to one section
 below; the console's "Fix with Claude" prompt names the section
 (`apps/web/src/lib/admin/fix-with-claude.ts`, `RUNBOOK_ANCHOR`), and the test there fails
-when a section is missing. Today an alert's email and Slack line link to
-`/admin/ops/<clinic id>/care` or `/onboarding` (`opsConsoleLink`, lib/ops/notify.ts), which
-redirect to the clinic's panel with no issue named; once the notification rewrite emits
-`/admin/clinics/<id>/<tab>#<event>-<alert id>` (the shape in
-`apps/web/src/lib/admin/issue-link.ts`), the panel shows "Fix with Claude" for that alert.
+when a section is missing. An alert's email and its Slack copy print the same sentences
+and numbered steps from one wording (`apps/app/src/lib/ops/alert-wording/`, one file per
+section below), and both link to `/admin/clinics/<id>/<tab>#<event>-<alert id>`
+(`opsConsoleLink`, lib/ops/notify.ts; the shape in `apps/web/src/lib/admin/issue-link.ts`),
+where the panel shows "Fix with Claude" for that alert and scrolls to the card that owns it
+when one does. The alert is the short action list; this runbook is the longer reference.
+An alert about no clinic links to the page that owns it instead (`NO_CLINIC_PAGE`,
+`apps/app/src/lib/ops/alert-wording/tabs.ts`, one for every event). When a step says to note
+what you did, the Touch log on the clinic's Care tab takes a note for every clinic, whatever
+its age or state, until its account is closed; a closed account takes none, so tell the owner
+instead (lane N3, `lib/ops/health.ts` `touchRefusal`).
 An alert's row in `ops_alerts` holds ids, counts and categories only, never free text. Read the row, then the code that raised the
 event (`grep -rn '"<event>"' apps/app/src`), then act through the console's typed
 operations where one exists; a data change goes through `db-apply`, dry-run first.
@@ -254,9 +260,12 @@ operations where one exists; a data change goes through `db-apply`, dry-run firs
 
 `provisioning_rejected`, `provisioning_dead_lettered`, `paid_intent_without_clinic`. A paid
 invoice reached `/api/provision` and the clinic was not created, or the request was refused
-(the sealed agreement's hash, a missing field). Read the dead-letter row and the Stripe event
-id; replay from the clinic's Billing tab ("Parked Stripe events") once the cause is fixed.
-Never create a clinic by hand: provisioning is gated on the first paid invoice.
+(the sealed agreement's hash, a missing field). There is no clinic yet, so no Billing tab and
+no console button finishes it: find the payment in Stripe's Dashboard, check the Clinics page
+in case the order was finished another way, and tell the owner, who reads the cause in
+apps/app's error log and replays the paid invoice once it is fixed. Write to the buyer from
+hello@ by the day we promised. Never create a clinic by hand: provisioning is gated on the
+first paid invoice.
 
 ### Billing
 
@@ -266,8 +275,10 @@ Never create a clinic by hand: provisioning is gated on the first paid invoice.
 `plan_start_after_cancel`, `billing_pointer_outside_practice`, `refund_cancel_job_off`,
 `agreement_refund_due`, `location_quantity_drift`, `location_quantity_agrees`. The clinic's
 Billing tab shows the request, the parked event or the invoice, each with its retry or replay.
-Money is the owner's: a refund, a credit or a manual charge waits for the owner's word, and
-the console's refund needs the fresh code.
+Money is the owner's: a refund, a credit or a manual charge waits for the owner's word. The
+console's refund on the Billing tab asks for no authenticator code (apps/web `commitRefund`
+sends none), only a preview and the confirmed amount, so have the owner's word before you
+press it.
 
 ### Usage
 
@@ -285,15 +296,19 @@ clinic is emailed if its Usage alerts switch is on; the step-up conversation is 
 was queued, sent, bounced. A bounced or suppressed address means the clinic's one address is
 wrong: phone the clinic, then change it from the Account tab with the fresh code. A critical
 notice ten minutes late is also `/api/health` answering 503 ("The signals" above). The daily
-count at 70% is Resend's quota; nothing to do but watch.
+count at 70 is Resend's free-plan quota of 100 a day, sign-in links and urgent alerts
+included: tell the owner the Resend account needs its paid plan, and hold back optional
+sends (setup links, agreement copies) until midnight UTC.
 
 ### Setup and support
 
 `setup_request_reply_past_due`, `provisioning_follow_up_past_due`, `support_reply_past_due`,
 `assistant_knows_no_services`.
 Queues › Setup requests and Queues › Support: a reply promised by the next business day was
-not marked. Reply from hello@, then mark it. A follow-up past due is a clinic whose setup
-stalled: its Setup tab says what is left. `assistant_knows_no_services` is AYA answering a
+not marked. Reply from hello@, then mark it. A follow-up past due is a paid order whose
+account still does not exist past the day we promised the buyer: Home counts paid orders
+without an account. Write to the buyer from hello@ today and get the cause fixed (see
+Provisioning). `assistant_knows_no_services` is AYA answering a
 clinic that has no approved service or price in Knowledge: add the services in its Knowledge page
 or get the practice questions approved, then the alert stops.
 
@@ -380,9 +395,12 @@ code. The renewal is a document the owner has; the console only records it.
 
 ### Meta
 
-`meta_revoke_failed`, `meta_revoke_by_hand`. A clinic's Page or WhatsApp token could not be
-revoked at Meta when it disconnected or left: revoke it in Meta's Business settings by hand
-and mark it on the clinic's Setup tab. Meta signs no BAA; the channel carries nothing clinical,
+`meta_revoke_failed`, `meta_revoke_by_hand`. Healdesk's app could not be taken off a leaving
+clinic's Page or WhatsApp account at Meta. We have no access to the clinic's Meta Business
+Suite: phone the practice and ask it to remove healdesk from the Page's or account's connected
+apps (check first, under Meta front door on the Setup tabs, that the Page is not another
+clinic's channel), then note it in the Touch log on the clinic's Care tab. No control on the
+Setup tab marks it done. Meta signs no BAA; the channel carries nothing clinical,
 so a token that lingers exposes business data only, and still must go.
 
 ### Retention
@@ -395,20 +413,73 @@ can delete what a hold still covers.
 ### Availability
 
 `clinic_availability_changed`. A clinic changed its opening hours, its closed days, a location's
-hours, or its named providers and what they offer, or an edit made outside the portal did. The
-Setup tab's availability card lists the change and the audit that followed it. An audit that
-warns or fails says which check and why; run it again after the clinic's calendar is fixed.
+hours, or its named providers and what they offer, or an edit made outside the portal did (an
+ops change file through `db-apply`, or a direct database edit, which the database's own
+trigger records as a count-only row). AYA uses the change the moment it is saved. The alert
+comes from the minute sweep (`lib/clinic/change-events.ts`), one per clinic and kind an hour,
+and carries the kind and counts only: never a date, a label or a name. The clinic's Setup tab,
+"Availability changes", lists each change with who made it (the clinic, ops, a change file,
+outside the portal), the audit that followed it, and "Mark as seen" for each; "Run audit now"
+runs every pack for the clinic at once, one run at a time and at most once a minute. The
+audits run only while the `clinic-audits` job is on, and the card says when they are off; an
+audit that warns or fails lists the failing checks' hints under its pack. Phone the clinic only
+for a change nobody there expected.
 
 ### Setup progress
 
 `lifecycle_no_progress`, `lifecycle_closing_soon`, `lifecycle_decision_due`,
 `lifecycle_waiting_on_us`, `lifecycle_waiting_on_us_long`, `lifecycle_closing_waiting_on_us`,
 `lifecycle_channel_waiting`, `lifecycle_reminder_undelivered`, `lifecycle_reminders_unanswered`.
-The lifecycle watch's waves about one clinic's setup. The Setup tab says what is left, the
-Deliveries tab shows each reminder and whether it arrived. A clinic that has done its part and
-waits on us closes at the end of its window anyway: extend the setup window on its Billing tab.
+The lifecycle watch's waves about one clinic's setup (`lifecycle-watch`, hourly from the tick,
+behind its switch; `lib/lifecycle/waves.ts`), each raised once by its key. The routine waves
+go to Slack alone: no progress on days 7 and 15 of the window (five days without a step, or
+no step ever); closing soon on days 22 to 30 for a clinic that is not stalled; waiting on us
+at four hours and at one business day; a channel still waiting on the clinic 7 and 14 days
+after another went live. The five escalations also go to the ops address and open in Slack
+with a siren: the day-22, 27 and 30 decision for a stalled clinic (two steps or more owed,
+or no setup screen answered: owner decision D7); two business days waiting on us; a reminder
+that bounced or failed with none delivered since (folded into an address alert already raised
+for the clinic since that reminder went, when there is one); two reminders delivered in a row
+with no progress since the first; and a clinic waiting on us on day 27 or 30, whatever was
+decided before, because a closure then would be our delay.
+
+Every wave's link lands on the clinic's Setup tab, "Setup window" (the undelivered reminder
+on Deliveries › "Reminders"): the stage, the window's end and the days left, the last
+progress, the decision so far, the snooze, and the recommendation the watch computed
+(`lib/lifecycle/recommend.ts`: fixed sentences over counts and days, never a model). Its
+controls: "Extend the setup window", shown while the plan has not started, with the days box
+starting at the recommended days, which names the deadline the page showed and is refused once
+that deadline has moved, so a repeat cannot add the days twice (the Billing tab's own button
+does the same); "Offered a call" and "Let it close", the decision, where letting it close
+stops only the day-27 and day-30 warnings to us and the window still closes on its last day;
+"Snooze alerts" for 3, 7 or 14 days, which mutes the routine waves only, never an escalation
+and never the clinic's own reminders. Days a clinic waited on us never extend its deadline by
+themselves (D6): the extension is always the button. Finishing our side is the Setup tab's
+"Channels" and "Go live" cards, which list what is missing; go-live is automatic once nothing
+is left, and "Ask the practice questions again" is the one push the console has. A partly
+live clinic whose phone channel is live forwards its published number to AYA: phone it on the
+direct line under the Billing tab's "Pause AI and the direct line" (a clinic with no direct
+line on file cannot have phone live, so its published number still reaches the desk).
+
+The clinic's six setup reminders are the `setup-reminders` job's, unchanged by the watch,
+which only records them; the Deliveries tab's "Reminders" lists them with every wave sent to
+ops, and whether each arrived. A bounced address is corrected on the Account tab, "The
+clinic's address", after a call back on the published number, with the fresh code; it takes
+effect 72 hours later. The window closes the account only while the `setup-closure` switch is
+on (a pending closure waits otherwise, and a closure is skipped once a channel is live).
 
 ### Morning digest
 
-`ops_digest_summary`. The 07:00 digest's one line in Slack: its counts, once a day. The email is
-the full list; open System › Jobs if the digest did not arrive.
+`ops_digest_summary`. The digest email goes to the ops address (`HEALDESK_OPS_EMAIL`, else
+`HEALDESK_ADMIN_EMAIL`) at 07:00 UTC or later, once a UTC day, behind the `ops-digest` switch,
+and is tried up to five times before tomorrow's takes over. Once it has gone, its one line in
+Slack is this alert, never emailed: setup decisions owed (a clinic waiting on us a business
+day or more counts as one: `lifecycleView`'s `decisionOwed`), clinics waiting on us, clinics
+near and at an allowance (both meters summed, so one clinic can count twice), and the alerts
+Slack could not post after its four tries (only while Slack is on, and only when there are
+any). The counts come from the
+lifecycle rows and the entitlements, not from alerts, so a count can stand with no alert row
+behind it; Home lists every alert of the last day whether or not Slack took it, one row per
+alert and clinic, and each decision owed as its own row with "Decide" (lane A4), and the
+Clinics table shows each clinic's stage and usage. If the line did not arrive by morning, open System › Jobs: the digest's row shows its
+switch, last run and note (sent, already gone, or the failure).

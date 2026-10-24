@@ -38,6 +38,20 @@ import type { InboxRow, InboxSource, Tone } from "./types";
  * makes the source partial, never a zero.
  */
 
+/**
+ * Where a queue's row opens. The machine queues lived on /admin/ops, which
+ * the admin redesign retired to a redirect to the Clinics list; they link
+ * there directly. Background jobs open the job switches.
+ */
+const CLINICS_PAGE = "/admin/clinics";
+/**
+ * Said on a queue whose row opens the Clinics list, which does not show it:
+ * the 07:00 digest counts the same queues, and no console page lists them
+ * yet (whether to build one is the owner's decision), so nobody goes looking.
+ */
+export const NO_PAGE = "; the morning email counts it too, and the console has no page for it yet";
+const JOBS_PAGE = "/admin/system/jobs";
+
 type QueueWords = { words: string; href: string; tone: Tone; patienceMinutes: number };
 
 const ALWAYS = 0;
@@ -46,32 +60,32 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEAD_DAYS = 7;
 
 export const QUEUE_WORDS: Record<string, QueueWords> = {
-  outbox: { words: "Emails waiting to send", href: "/admin/ops", tone: "warn", patienceMinutes: HOUR },
-  outbox_dead: { words: "Emails that gave up after every attempt", href: "/admin/ops", tone: "warn", patienceMinutes: ALWAYS },
-  transcript_emails: { words: "Transcript copies not delivered", href: "/admin/ops", tone: "warn", patienceMinutes: 72 * HOUR },
-  billing_requests: { words: "Billing requests not done", href: "/admin/ops", tone: "warn", patienceMinutes: HOUR },
-  billing_events_retrying: { words: "Stripe events retrying", href: "/admin/ops", tone: "warn", patienceMinutes: HOUR },
-  billing_events_parked: { words: "Stripe events parked", href: "/admin/ops", tone: "warn", patienceMinutes: ALWAYS },
-  connect_events_retrying: { words: "Stripe Connect events retrying", href: "/admin/ops", tone: "warn", patienceMinutes: HOUR },
-  connect_events_parked: { words: "Stripe Connect events parked", href: "/admin/ops", tone: "warn", patienceMinutes: ALWAYS },
-  orders_without_account: { words: "Paid orders without an account", href: "/admin/ops", tone: "bad", patienceMinutes: ALWAYS },
+  outbox: { words: "Emails waiting to send", href: CLINICS_PAGE, tone: "warn", patienceMinutes: HOUR },
+  outbox_dead: { words: "Emails that gave up after every attempt", href: CLINICS_PAGE, tone: "warn", patienceMinutes: ALWAYS },
+  transcript_emails: { words: "Transcript copies not delivered", href: CLINICS_PAGE, tone: "warn", patienceMinutes: 72 * HOUR },
+  billing_requests: { words: "Billing requests not done", href: CLINICS_PAGE, tone: "warn", patienceMinutes: HOUR },
+  billing_events_retrying: { words: "Stripe events retrying", href: CLINICS_PAGE, tone: "warn", patienceMinutes: HOUR },
+  billing_events_parked: { words: "Stripe events parked", href: CLINICS_PAGE, tone: "warn", patienceMinutes: ALWAYS },
+  connect_events_retrying: { words: "Stripe Connect events retrying", href: CLINICS_PAGE, tone: "warn", patienceMinutes: HOUR },
+  connect_events_parked: { words: "Stripe Connect events parked", href: CLINICS_PAGE, tone: "warn", patienceMinutes: ALWAYS },
+  orders_without_account: { words: "Paid orders without an account", href: CLINICS_PAGE, tone: "bad", patienceMinutes: ALWAYS },
   agreements_below_floor: {
     words: "Accounts answering under a superseded agreement, re-sign unsigned",
-    href: "/admin/agreements",
+    href: "/admin/compliance/agreements",
     tone: "warn",
     patienceMinutes: ALWAYS,
   },
-  ops_alerts_unsent: { words: "Ops alerts that could not be emailed", href: "/admin/ops", tone: "warn", patienceMinutes: ALWAYS },
+  ops_alerts_unsent: { words: "Ops alerts that could not be emailed", href: CLINICS_PAGE, tone: "warn", patienceMinutes: ALWAYS },
 };
 
 function wordsFor(kind: string): QueueWords {
   const known = QUEUE_WORDS[kind];
   if (known) return known;
   if (kind.startsWith("pgboss_failed:")) {
-    return { words: `Background jobs failed in ${kind.slice("pgboss_failed:".length)}`, href: "/admin/ops", tone: "warn", patienceMinutes: ALWAYS };
+    return { words: `Background jobs failed in ${kind.slice("pgboss_failed:".length)}`, href: JOBS_PAGE, tone: "warn", patienceMinutes: ALWAYS };
   }
   const job = kind.startsWith("pgboss:") ? kind.slice("pgboss:".length) : kind;
-  return { words: `Background jobs waiting in ${job}`, href: "/admin/ops", tone: "warn", patienceMinutes: HOUR };
+  return { words: `Background jobs waiting in ${job}`, href: JOBS_PAGE, tone: "warn", patienceMinutes: HOUR };
 }
 
 class Tally {
@@ -229,7 +243,9 @@ export const queuesSource: InboxSource = {
         id: `queue:${kind}`,
         kind: "queue",
         count: q.count,
-        sentence: minutes === null ? `${words.words}.` : `${words.words}; the oldest is ${age(minutes)} old.`,
+        sentence: `${words.words}${minutes === null ? "" : `; the oldest is ${age(minutes)} old`}${
+          words.href === CLINICS_PAGE ? NO_PAGE : ""
+        }.`,
         clinic: null,
         button: { label: "Open", kind: "link", href: words.href },
         tone: words.tone,

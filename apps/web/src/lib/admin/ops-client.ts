@@ -976,17 +976,22 @@ const EMAIL_QUOTA_TIMEOUT_MS = 3_000;
  * promised a reply by, from the daily cron (app/api/cron/setup-replies), so
  * each raises `setup_request_reply_past_due` once in the one ops log. A relay
  * op like emailQuota: no session and no browser context, because the caller
- * is Vercel's cron, which the route authenticates itself. Only the Sheet's
- * random request ids cross, never a name or an address.
+ * is Vercel's cron, which the route authenticates itself. The Sheet's random
+ * request ids cross, and with each the requester's business name and the
+ * promised day (owner, 23 October 2026); never a person's name or an address.
  */
 export function relaySetupRepliesPastDue(
   requestIds: readonly string[],
+  // Each id with the requester's business name and the day our reply was
+  // promised by (lib/setup-requests.ts pastReplyAlert; lane N1). An apps/app
+  // older than this ignores them and raises by id, as before.
+  requests?: readonly { id: string; business?: string; promisedOn?: string }[],
 ): Promise<OpsResult<{ raised: number }>> {
   return send(
     "setupRepliesPastDue",
     "write",
     (value) => ({ raised: count(object(value, "setupRepliesPastDue").raised, "setupRepliesPastDue.raised") }),
-    { requestIds: [...requestIds] },
+    { requestIds: [...requestIds], ...(requests ? { requests: requests.map((r) => ({ ...r })) } : {}) },
     { context: false, timeoutMs: SETUP_REPLIES_TIMEOUT_MS },
   );
 }
@@ -1367,9 +1372,22 @@ export function runClinicAudit(clinicId: string, pack?: AuditPack): Promise<OpsR
   }, 60_000);
 }
 
-/** Every clinic's latest audit results, or one clinic's with its history. */
-export function fetchClinicAudits(clinicId?: string): Promise<OpsResult<ClinicAuditsView>> {
-  return callOps("clinicAudits", "read", clinicId ? { clinicId } : {}, (value) => {
+/**
+ * Every clinic's latest audit results, or one clinic's with its history (the
+ * newest 50 at most; `limit` fewer). `history: false` reads one clinic's
+ * summary alone, for a page that does not show its history.
+ */
+export function fetchClinicAudits(
+  clinicId?: string,
+  options: { history?: boolean; limit?: number } = {},
+): Promise<OpsResult<ClinicAuditsView>> {
+  const args: Record<string, string | number | boolean> = {};
+  if (clinicId) {
+    args.clinicId = clinicId;
+    if (options.history === false) args.history = false;
+    else if (options.limit !== undefined) args.limit = options.limit;
+  }
+  return callOps("clinicAudits", "read", args, (value) => {
     const data = object(value, "clinicAudits");
     return {
       clinics: list(data.clinics, "clinicAudits.clinics").map((c, i) => readAuditSummary(c, `clinicAudits.clinics[${i}]`)),
@@ -1514,11 +1532,11 @@ export type LifecycleRow = {
  * clinic still classed synthetic before it goes live is one; healdesk's demo
  * clinic never has a row.
  */
-export function fetchLifecycle(): Promise<OpsResult<LifecycleRow[]>> {
+export function fetchLifecycle(clinicId?: string): Promise<OpsResult<LifecycleRow[]>> {
   return callOps(
     "listLifecycle",
     "read",
-    {},
+    clinicId ? { clinicId } : {},
     (value) => {
       const data = object(value, "listLifecycle");
       return list(data.clinics, "listLifecycle.clinics").map((row, i) => {
@@ -1566,9 +1584,13 @@ export type LifecycleWave = {
   /** Resend's message id; null for Slack. */
   providerId: string | null;
   escalated: boolean;
+  /** The ops alert's event the wave carried (`lifecycle_decision_due`, say); null for a clinic reminder. */
+  event: string | null;
   manualBy: string | null;
   skippedBecause: "snoozed" | "let_close" | null;
 };
+
+const ALERT_EVENT = /^[a-z0-9_]{1,64}$/;
 
 const WAVE_KEY = /^[a-z0-9_]+(:[A-Za-z0-9_.:+-]{1,60})?$/;
 
@@ -1593,6 +1615,12 @@ export function fetchLifecycleWaves(clinicId: string): Promise<OpsResult<Lifecyc
         ),
         providerId: optionalText(r.providerId, "wave.providerId"),
         escalated: bool(r.escalated, "wave.escalated"),
+        event: (() => {
+          // An apps/app older than lane A4 sends no event: read as none.
+          if (r.event === undefined || r.event === null) return null;
+          if (typeof r.event !== "string" || !ALERT_EVENT.test(r.event)) throw new ShapeError("wave.event");
+          return r.event;
+        })(),
         manualBy: optionalText(r.manualBy, "wave.manualBy"),
         skippedBecause:
           r.skippedBecause === null ? null : literal(r.skippedBecause, ["snoozed", "let_close"] as const, "wave.skippedBecause"),
@@ -1601,14 +1629,19 @@ export function fetchLifecycleWaves(clinicId: string): Promise<OpsResult<Lifecyc
   });
 }
 
-export type LifecycleWriteOutcome = { outcome: "saved" } | { outcome: "not_watched" };
+/** `auditRecorded` false: saved, but the security event naming the operator could not be written. */
+export type LifecycleWriteOutcome = { outcome: "saved"; auditRecorded: boolean } | { outcome: "not_watched" };
+
+function readLifecycleWrite(value: unknown, at: string): LifecycleWriteOutcome {
+  const data = object(value, at);
+  const outcome = literal(data.outcome, ["saved", "not_watched"] as const, `${at}.outcome`);
+  if (outcome === "not_watched") return { outcome };
+  return { outcome, auditRecorded: bool(data.auditRecorded, `${at}.auditRecorded`) };
+}
 
 /** Mute the clinic's ops waves for 3, 7 or 14 days. Never the clinic's own reminders. */
 export function snoozeLifecycle(clinicId: string, days: 3 | 7 | 14): Promise<OpsResult<LifecycleWriteOutcome>> {
-  return callOps("snoozeLifecycle", "write", { clinicId, days }, (value) => {
-    const data = object(value, "snoozeLifecycle");
-    return { outcome: literal(data.outcome, ["saved", "not_watched"] as const, "snoozeLifecycle.outcome") };
-  });
+  return callOps("snoozeLifecycle", "write", { clinicId, days }, (value) => readLifecycleWrite(value, "snoozeLifecycle"));
 }
 
 /** Record the decision about a stalled setup. `extended` is recorded by apps/app when the deadline moves. */
@@ -1616,10 +1649,7 @@ export function decideLifecycle(
   clinicId: string,
   decision: "none" | "extension_offered" | "let_close",
 ): Promise<OpsResult<LifecycleWriteOutcome>> {
-  return callOps("decideLifecycle", "write", { clinicId, decision }, (value) => {
-    const data = object(value, "decideLifecycle");
-    return { outcome: literal(data.outcome, ["saved", "not_watched"] as const, "decideLifecycle.outcome") };
-  });
+  return callOps("decideLifecycle", "write", { clinicId, decision }, (value) => readLifecycleWrite(value, "decideLifecycle"));
 }
 
 // -----------------------------------------------------------------------------

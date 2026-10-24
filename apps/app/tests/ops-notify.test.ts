@@ -117,12 +117,39 @@ describeDb("notifyOps", () => {
     ]);
     expect(options).toEqual({ idempotencyKey: `hd-ops_alert-${rows[0]!.id}-1` });
 
-    const body = `${String(payload.text)}\n${String(payload.html)}`;
-    expect(body).toContain(NOTICE_A);
-    expect(body).toContain("payment_failed");
-    // Free text and anything off the allowlist stay in the log, out of the email.
-    expect(body).not.toContain("owner@radiance.test");
-    expect(body).not.toContain("bounced");
+    // The stored row: ids, the closed words and the count, nothing else. The
+    // free-text reason and the address never reach the ops log.
+    const stored = await getMigratorPool().query<{ fields: Record<string, unknown> }>(`select fields from ops_alerts`);
+    expect(stored.rows[0]!.fields).toEqual({
+      clinicId: CLINIC,
+      noticeId: NOTICE_A,
+      kind: "payment_failed",
+      status: "late",
+      attempts: 3,
+    });
+
+    // The email says it in words (lane N3): the kind as a phrase, the status
+    // and the count as facts, the clinic by its id. Every fact line is one of
+    // these, so nothing else from the alert is printed.
+    const text = String(payload.text);
+    const body = `${text}\n${String(payload.html)}`;
+    expect(text).toContain("It is a payment-failed notice.");
+    const facts = text
+      .split("\n\n")
+      .find((block) => block.startsWith("Clinic id:"))!
+      .split("\n");
+    expect(facts).toEqual([
+      `Clinic id: ${CLINIC}`,
+      "Attempts: 3",
+      "Status: late, still being retried",
+      expect.stringMatching(/^Raised: \d{1,2} [A-Z][a-z]{2}$/),
+    ]);
+    // Free text, the address and raw codes stay out of the email.
+    for (const absent of ["owner@radiance.test", "bounced", "Resend said", "payment_failed", "@radiance"]) {
+      expect(body, absent).not.toContain(absent);
+    }
+    // No time of day: days only.
+    expect(text).not.toMatch(/\d{2}:\d{2}/);
   });
 
   test("prints the clinic's name beside its id (owner decision D2), never storing it on the alert", async () => {
@@ -138,9 +165,19 @@ describeDb("notifyOps", () => {
     const body = `${String(payload.text)}\n${String(payload.html)}`;
     expect(body).toContain("opsname Clinic");
     expect(body).toContain(clinic.clinicId);
-    expect(body).toContain("1001");
-    // And its console page (decision D3), the email's one link.
-    expect(body).toContain(`https://healdesk.test/admin/ops/${clinic.clinicId}/care`);
+    // Counts print as a reader reads them (lane N1 review): 1,001.
+    expect(body).toContain("1,001");
+    // And its console page (decision D3), the email's one link: the clinic's
+    // Billing tab with this alert's anchor (lane N1's issue shape).
+    const [{ id: alertId }] = (
+      await getMigratorPool().query<{ id: string }>(
+        `select id from ops_alerts where event = 'usage_cap_reached' and fields->>'clinicId' = $1`,
+        [clinic.clinicId],
+      )
+    ).rows as [
+      { id: string },
+    ];
+    expect(body).toContain(`https://healdesk.test/admin/clinics/${clinic.clinicId}/billing#usage_cap_reached-${alertId}`);
     const { rows } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
       `select fields from ops_alerts`,
     );
@@ -230,8 +267,15 @@ describeDb("notifyOps", () => {
     await recordDailyQuota(70, day);
     await recordDailyQuota(85, day);
     await recordDailyQuota(80, day); // an older response arriving late never lowers the count
-    const alarms = sent().filter((s) => String(s.payload.subject).includes("70 emails"));
+    // Found by its event's row and its subject (lane N2's wording): raised once at 70, not again at 85 or 80.
+    const alarms = sent().filter((s) => String(s.payload.subject) === "healdesk ops: 70 of today's 100 emails are already sent");
     expect(alarms).toHaveLength(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    const raised = await getMigratorPool().query<{ fields: Record<string, unknown>; repeats: number }>(
+      `select fields, repeats from ops_alerts where event = 'daily_email_count_70'`,
+    );
+    expect(raised.rows).toHaveLength(1);
+    expect(raised.rows[0]!.fields).toMatchObject({ count: 70 });
     const { rows } = await getMigratorPool().query<{ used: number; alerted_at: Date | null }>(
       `select used, alerted_at from email_daily_quota where day = '2026-10-06'`,
     );

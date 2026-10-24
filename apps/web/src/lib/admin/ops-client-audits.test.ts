@@ -135,6 +135,24 @@ describe("fetchClinicAudits", () => {
     expect(result).toEqual({ ok: true, data: { clinics: [summary], history: [RUN] } });
   });
 
+  test("one clinic without its history, or with fewer rows; the options mean nothing without a clinic", async () => {
+    const empty = { data: { clinics: [], history: null } };
+    reply(empty);
+    expect(await fetchClinicAudits(CLINIC, { history: false })).toEqual({ ok: true, data: { clinics: [], history: null } });
+    reply(empty);
+    await fetchClinicAudits(CLINIC, { limit: 10 });
+    reply(empty);
+    await fetchClinicAudits(CLINIC, { history: false, limit: 10 });
+    reply(empty);
+    await fetchClinicAudits(undefined, { history: false, limit: 10 });
+    expect(sent).toEqual([
+      { op: "clinicAudits", args: { clinicId: CLINIC, history: false } },
+      { op: "clinicAudits", args: { clinicId: CLINIC, limit: 10 } },
+      { op: "clinicAudits", args: { clinicId: CLINIC, history: false } },
+      { op: "clinicAudits", args: {} },
+    ]);
+  });
+
   test("an overall state off the list is a malformed answer", async () => {
     reply({ data: { clinics: [{ clinicId: CLINIC, name: "x", overall: "great", lastChange: null, packs: {} }], history: null } });
     expect(await fetchClinicAudits()).toMatchObject({ ok: false, code: "malformed" });

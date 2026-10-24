@@ -128,7 +128,7 @@ import {
   setMetaFrontDoor,
 } from "@/lib/meta/channels";
 import type { MetaPlatform } from "@/lib/meta/front-door";
-import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
+import { clinicHealth, recordTouch, touchRefusal, type ClinicHealth } from "@/lib/ops/health";
 import { hostStandbyCheck } from "@/lib/ops/host-standby";
 import { notifyOps } from "@/lib/ops/notify";
 import {
@@ -3849,6 +3849,9 @@ async function opRecordClinicTouch(
   const outcomeRaw = stringArg(args, "outcome", 500);
   const outcome = outcomeRaw ? incidentText(outcomeRaw, "outcome") : null;
   if (outcome && typeof outcome !== "string") return care.error(outcome.error);
+  // Any clinic until its account is closed (lane N3, lib/ops/health.ts touchRefusal).
+  const refused = await withTenant({ clinicId: clinic.id, actor: actorFor(operator), request: operator.request }, touchRefusal);
+  if (refused) return care.error(refused);
   await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     (tx) => recordTouch(tx, { kind, summary, outcome: outcome as string | null, byLabel: operator.email }),

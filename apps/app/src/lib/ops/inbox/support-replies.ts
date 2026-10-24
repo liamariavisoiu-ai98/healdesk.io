@@ -32,7 +32,7 @@ export const supportRepliesSource: InboxSource = {
         count: r.count,
         sentence: r.pastDue ? "Support replies past the day promised." : "Support replies owed.",
         clinic: name !== undefined ? { id: clinicId, name } : null,
-        button: { label: "Open support", kind: "link", href: "/admin/support" },
+        button: { label: "Open support", kind: "link", href: "/admin/queues#support" },
         tone: "warn",
         dueAt: r.replyByOn,
       };

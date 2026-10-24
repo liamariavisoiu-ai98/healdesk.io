@@ -126,6 +126,8 @@ const BILLING: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "usage_near_cap",
   "usage_cap_reached",
   "agreement_refund_due",
+  // The approval inbox: raised with no clinic today.
+  "approval_waiting",
 ]);
 
 const DELIVERIES: ReadonlySet<OpsEvent> = new Set<OpsEvent>([

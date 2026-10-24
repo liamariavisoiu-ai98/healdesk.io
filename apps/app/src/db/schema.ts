@@ -7772,3 +7772,152 @@ export const lifecycleIgnoredClinics = pgTable(
     check("lifecycle_ignored_clinics_set_by_check", sql`char_length(${t.setBy}) between 1 and 200`),
   ],
 );
+
+// -----------------------------------------------------------------------------
+// The approval inbox (ops automation Phase 6, lane P6a; drizzle/0119)
+// -----------------------------------------------------------------------------
+
+/**
+ * What an approval asks the owner to allow: a closed list, one per existing
+ * ops operation the inbox may run (lib/approvals/kinds.ts says which). The
+ * three billing kinds gate from the dead letter onward (owner decision D17):
+ * the worker's own retries and Stripe's dunning stay ungated.
+ */
+export const APPROVAL_KINDS = [
+  "billing_request_retry",
+  "overage_invoice_retry",
+  "billing_event_replay",
+] as const;
+export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
+
+/** How a waiting item is chased: a legal clock re-alerts every 4 hours, money and routine once past due. */
+export const APPROVAL_URGENCIES = ["legal_clock", "money", "routine"] as const;
+export type ApprovalUrgency = (typeof APPROVAL_URGENCIES)[number];
+
+/**
+ * Where an item stands. `waiting` until a decision or its window; `approved`
+ * only for the instant between the decision and the operation's answer, in
+ * the same request; then `executed` or `failed`. `rejected` and `expired`
+ * run nothing, ever. The trigger in drizzle/0119 refuses any other move.
+ */
+export const APPROVAL_STATUSES = ["waiting", "approved", "rejected", "expired", "executed", "failed"] as const;
+export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
+
+/** What happened to an item, one row each, never rewritten. */
+export const APPROVAL_EVENTS = [
+  "proposed",
+  "edited",
+  "approved",
+  "rejected",
+  "executed",
+  "failed",
+  "expired",
+  "reminded",
+] as const;
+export type ApprovalEventName = (typeof APPROVAL_EVENTS)[number];
+
+/**
+ * One thing waiting for the owner's yes (design E6 §2; owner decisions D17,
+ * D18, D21). Ops-only and platform-wide like ops_alerts and
+ * platform_compliance: listed across clinics by the console, written outside
+ * any tenant from the ops envelope and the proposer job, so it has no
+ * `clinic_id` and no RLS (every table with a clinic_id is a tenant table,
+ * tests/rls-drift.test.ts). `subject_clinic_id` names the clinic the item is
+ * about, as billing_events.resolved_clinic_id does: a stored fact, not a
+ * tenant key, and no foreign key, so the record outlives the clinic.
+ *
+ * `payload` is ids and closed codes only, checked per kind in code and by a
+ * CHECK that refuses an `@` and a run of seven or more digits once uuids and
+ * dates are taken out. `draft` and `draft_hash` are for email kinds (none
+ * yet). Never a patient, a card, an invoice PDF or free text.
+ */
+export const opsApprovals = pgTable(
+  "ops_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").$type<ApprovalKind>().notNull(),
+    subjectClinicId: uuid("subject_clinic_id"),
+    /** The thing approved, by id, with its episode where it has one ("<request id>:<epoch>"). */
+    subjectRef: text("subject_ref").notNull(),
+    payload: jsonb("payload").$type<Record<string, string | number | boolean | null>>().notNull(),
+    draft: text("draft"),
+    draftHash: text("draft_hash"),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    /** Past it, the item leaves the waiting list as `expired` and is never run. Null: no window. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    urgency: text("urgency").$type<ApprovalUrgency>().notNull(),
+    proposedBy: text("proposed_by").notNull(),
+    proposedAt: timestamp("proposed_at", { withTimezone: true }).notNull().defaultNow(),
+    status: text("status").$type<ApprovalStatus>().notNull().default("waiting"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** The operation's outcome, or why the item left the list: a snake_case code. */
+    outcomeCode: text("outcome_code"),
+  },
+  (t) => [
+    // A proposer can never double-propose: one waiting item per subject.
+    uniqueIndex("ops_approvals_waiting_idx")
+      .on(t.kind, t.subjectRef)
+      .where(sql`${t.status} = 'waiting'`),
+    index("ops_approvals_status_idx").on(t.status, t.dueAt),
+    index("ops_approvals_subject_idx").on(t.kind, t.subjectRef),
+    check("ops_approvals_kind_check", sql`${t.kind} in (${sqlList(APPROVAL_KINDS)})`),
+    check("ops_approvals_urgency_check", sql`${t.urgency} in (${sqlList(APPROVAL_URGENCIES)})`),
+    check("ops_approvals_status_check", sql`${t.status} in (${sqlList(APPROVAL_STATUSES)})`),
+    check("ops_approvals_subject_check", sql`${t.subjectRef} ~ '^[A-Za-z0-9_:.-]+$' and char_length(${t.subjectRef}) <= 300`),
+    check("ops_approvals_proposed_by_check", sql`${t.proposedBy} ~ '^[a-z][a-z0-9-]{0,63}$'`),
+    check(
+      "ops_approvals_payload_check",
+      sql`jsonb_typeof(${t.payload}) = 'object' and position('@' in ${t.payload}::text) = 0 and regexp_replace(regexp_replace(${t.payload}::text, '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '', 'g'), '[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?(Z|[+-][0-9]{2}:[0-9]{2})?)?', '', 'g') !~ '[0-9]([ ().-]{0,2}[0-9]){6,}'`,
+    ),
+    check(
+      "ops_approvals_draft_check",
+      sql`(${t.draft} is null) = (${t.draftHash} is null) and (${t.draftHash} is null or ${t.draftHash} ~ '^[0-9a-f]{64}$') and (${t.draft} is null or char_length(${t.draft}) <= 20000)`,
+    ),
+    check("ops_approvals_decided_check", sql`(${t.status} = 'waiting') = (${t.decidedAt} is null)`),
+    check("ops_approvals_outcome_check", sql`${t.outcomeCode} is null or ${t.outcomeCode} ~ '^[a-z][a-z0-9_]{0,63}$'`),
+    check("ops_approvals_expiry_check", sql`${t.expiresAt} is null or ${t.expiresAt} > ${t.proposedAt}`),
+  ],
+);
+export type OpsApproval = typeof opsApprovals.$inferSelect;
+
+/**
+ * The approval inbox's record: what happened to each item, add-only (a
+ * trigger refuses UPDATE, DELETE and TRUNCATE, the migrator included). Who
+ * decided is the operator account (D21: one shared sign-in), with the IP
+ * address and user agent the request carried; a service event (proposed,
+ * expired, reminded) has none. The hashes of a draft as approved and as sent;
+ * never the draft itself.
+ */
+export const opsApprovalEvents = pgTable(
+  "ops_approval_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    approvalId: uuid("approval_id")
+      .notNull()
+      .references(() => opsApprovals.id, { onDelete: "restrict" }),
+    event: text("event").$type<ApprovalEventName>().notNull(),
+    actorLabel: text("actor_label").notNull(),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    draftHashApproved: text("draft_hash_approved"),
+    draftHashSent: text("draft_hash_sent"),
+    outcomeCode: text("outcome_code"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("ops_approval_events_approval_idx").on(t.approvalId, t.at),
+    index("ops_approval_events_at_idx").on(t.at),
+    check("ops_approval_events_event_check", sql`${t.event} in (${sqlList(APPROVAL_EVENTS)})`),
+    check("ops_approval_events_actor_check", sql`char_length(${t.actorLabel}) between 1 and 200`),
+    check(
+      "ops_approval_events_text_check",
+      sql`(${t.ip} is null or char_length(${t.ip}) <= 64) and (${t.userAgent} is null or char_length(${t.userAgent}) <= 256)`,
+    ),
+    check(
+      "ops_approval_events_hash_check",
+      sql`(${t.draftHashApproved} is null or ${t.draftHashApproved} ~ '^[0-9a-f]{64}$') and (${t.draftHashSent} is null or ${t.draftHashSent} ~ '^[0-9a-f]{64}$')`,
+    ),
+    check("ops_approval_events_outcome_check", sql`${t.outcomeCode} is null or ${t.outcomeCode} ~ '^[a-z][a-z0-9_]{0,63}$'`),
+  ],
+);
+export type OpsApprovalEvent = typeof opsApprovalEvents.$inferSelect;

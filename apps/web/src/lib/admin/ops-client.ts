@@ -395,7 +395,14 @@ type OperatorOp =
   | "getAgreement"
   | "listMachineQueues"
   | "setLifecycleIgnored"
-  | "listLifecycleIgnored";
+  | "listLifecycleIgnored"
+  // The approval inbox (ops automation Phase 6, lane P6a; apps/app
+  // lib/ops/approval-ops.ts): the items waiting for the owner's yes with
+  // their packets, the add-only record, and the decision, which goes only
+  // through lib/admin/approval-decide.ts after the operator's fresh code.
+  | "listApprovals"
+  | "listApprovalHistory"
+  | "decideApproval";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -7199,4 +7206,279 @@ export function fetchOpsInbox(): Promise<OpsResult<OpsInbox>> {
     },
     OPS_INBOX_TIMEOUT_MS,
   );
+}
+
+// -----------------------------------------------------------------------------
+// The approval inbox (ops automation Phase 6, lane P6a)
+// -----------------------------------------------------------------------------
+
+/** apps/app's closed lists (db/schema.ts APPROVAL_*; lib/approvals/kinds.ts reasons), mirrored by hand. */
+export const APPROVAL_KINDS = ["billing_request_retry", "overage_invoice_retry", "billing_event_replay"] as const;
+export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
+export const APPROVAL_STATUSES = ["waiting", "approved", "rejected", "expired", "executed", "failed"] as const;
+export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
+const APPROVAL_URGENCIES = ["legal_clock", "money", "routine"] as const;
+export type ApprovalUrgency = (typeof APPROVAL_URGENCIES)[number];
+const APPROVAL_EVENT_NAMES = ["proposed", "edited", "approved", "rejected", "executed", "failed", "expired", "reminded"] as const;
+export type ApprovalEventName = (typeof APPROVAL_EVENT_NAMES)[number];
+const APPROVAL_OPERATIONS = ["retryBillingRequest", "retryOverageInvoice", "replayBillingEvent"] as const;
+export const APPROVE_REASONS = ["cause_fixed", "passing_fault", "owner_checked"] as const;
+export type ApproveReason = (typeof APPROVE_REASONS)[number];
+export const REJECT_REASONS = ["not_needed", "wrong_amount", "handled_elsewhere", "ask_clinic_first", "other"] as const;
+export type RejectReason = (typeof REJECT_REASONS)[number];
+
+export type ApprovalFacts =
+  | {
+      kind: "billing_request_retry";
+      requestKind: BillingRequestKind;
+      channel: "web" | "meta" | "voice" | null;
+      reasonCode: "attempts_exhausted" | "permanent_error" | null;
+      lastErrorCode: string | null;
+      attempts: number;
+      maxAttempts: number;
+      billingStatus: BillingStatus | null;
+      supersededBy: "cancel_now" | "close_setup" | null;
+      priceCents: number | null;
+      interval: "month" | "year" | null;
+    }
+  | { kind: "overage_invoice_retry"; windowStart: string; amountCents: number; lastErrorCode: string | null }
+  | { kind: "billing_event_replay"; eventType: string; failures: number; maxFailures: number };
+
+/** The facts the owner decides on, read live by apps/app, and the one sentence of what approving does. */
+export type ApprovalPacket = {
+  operation: (typeof APPROVAL_OPERATIONS)[number];
+  irreversible: boolean;
+  stillNeeded: boolean;
+  effect: string;
+  facts: ApprovalFacts;
+};
+
+export type ApprovalItem = {
+  id: string;
+  kind: ApprovalKind;
+  clinic: { id: string; name: string | null } | null;
+  subjectRef: string;
+  urgency: ApprovalUrgency;
+  status: ApprovalStatus;
+  proposedAt: string;
+  dueAt: string;
+  expiresAt: string | null;
+  decidedAt: string | null;
+  outcomeCode: string | null;
+  pastDue: boolean;
+  irreversible: boolean;
+  operation: (typeof APPROVAL_OPERATIONS)[number];
+  hasDraft: boolean;
+  packet: ApprovalPacket | null;
+};
+
+export type ApprovalHistoryEvent = {
+  id: string;
+  approvalId: string;
+  kind: ApprovalKind;
+  clinic: { id: string; name: string | null } | null;
+  event: ApprovalEventName;
+  actorLabel: string;
+  ip: string | null;
+  userAgent: string | null;
+  draftHashApproved: string | null;
+  draftHashSent: string | null;
+  outcomeCode: string | null;
+  at: string;
+};
+
+export type ApprovalDecision =
+  | { status: "rejected"; outcomeCode: string; auditRecorded: boolean }
+  | { status: "executed" | "failed"; outcomeCode: string; message: string | null; auditRecorded: boolean }
+  | { status: "refused"; message: string };
+
+const APPROVAL_SUBJECT = /^[A-Za-z0-9_:.-]{1,300}$/;
+const ENGINE_CODE = /^[a-z][a-z0-9_]{0,40}(:[a-z0-9_]{1,40})?$/;
+const EVENT_TYPE = /^[a-z][a-z0-9_.]{0,80}$/;
+
+function nullable<T>(value: unknown, read: (v: unknown) => T): T | null {
+  return value === null ? null : read(value);
+}
+
+function readApprovalClinic(value: unknown, at: string): { id: string; name: string | null } | null {
+  if (value === null) return null;
+  const c = exactKeys(value, ["id", "name"], at);
+  return { id: id(c.id, `${at}.id`), name: nullable(c.name, (v) => text(v, `${at}.name`)) };
+}
+
+function readFacts(value: unknown, at: string): ApprovalFacts {
+  const kind = literal(field(object(value, at), "kind", at), APPROVAL_KINDS, `${at}.kind`);
+  if (kind === "billing_request_retry") {
+    const f = exactKeys(
+      value,
+      ["kind", "requestKind", "channel", "reasonCode", "lastErrorCode", "attempts", "maxAttempts", "billingStatus", "supersededBy", "priceCents", "interval"],
+      at,
+    );
+    const engine = nullable(f.lastErrorCode, (v) => {
+      if (typeof v !== "string" || !ENGINE_CODE.test(v)) throw new ShapeError(`${at}.lastErrorCode`);
+      return v;
+    });
+    return {
+      kind,
+      requestKind: literal(f.requestKind, ["plan_start", "step_up", "close_setup", "cancel_now"] as const, `${at}.requestKind`),
+      channel: nullable(f.channel, (v) => literal(v, ["web", "meta", "voice"] as const, `${at}.channel`)),
+      reasonCode: nullable(f.reasonCode, (v) => literal(v, ["attempts_exhausted", "permanent_error"] as const, `${at}.reasonCode`)),
+      lastErrorCode: engine,
+      attempts: count(f.attempts, `${at}.attempts`),
+      maxAttempts: count(f.maxAttempts, `${at}.maxAttempts`),
+      billingStatus: nullable(f.billingStatus, (v) => literal(v, BILLING_STATUSES, `${at}.billingStatus`)),
+      supersededBy: nullable(f.supersededBy, (v) => literal(v, ["cancel_now", "close_setup"] as const, `${at}.supersededBy`)),
+      priceCents: nullable(f.priceCents, (v) => count(v, `${at}.priceCents`)),
+      interval: nullable(f.interval, (v) => literal(v, ["month", "year"] as const, `${at}.interval`)),
+    };
+  }
+  if (kind === "overage_invoice_retry") {
+    const f = exactKeys(value, ["kind", "windowStart", "amountCents", "lastErrorCode"], at);
+    return {
+      kind,
+      windowStart: isoInstant(f.windowStart, `${at}.windowStart`),
+      amountCents: count(f.amountCents, `${at}.amountCents`),
+      lastErrorCode: nullable(f.lastErrorCode, (v) => {
+        if (typeof v !== "string" || !ENGINE_CODE.test(v)) throw new ShapeError(`${at}.lastErrorCode`);
+        return v;
+      }),
+    };
+  }
+  const f = exactKeys(value, ["kind", "eventType", "failures", "maxFailures"], at);
+  if (typeof f.eventType !== "string" || !EVENT_TYPE.test(f.eventType)) throw new ShapeError(`${at}.eventType`);
+  return { kind, eventType: f.eventType, failures: count(f.failures, `${at}.failures`), maxFailures: count(f.maxFailures, `${at}.maxFailures`) };
+}
+
+function readPacket(value: unknown, at: string): ApprovalPacket {
+  const p = exactKeys(value, ["operation", "irreversible", "stillNeeded", "effect", "facts"], at);
+  return {
+    operation: literal(p.operation, APPROVAL_OPERATIONS, `${at}.operation`),
+    irreversible: bool(p.irreversible, `${at}.irreversible`),
+    stillNeeded: bool(p.stillNeeded, `${at}.stillNeeded`),
+    effect: text(p.effect, `${at}.effect`),
+    facts: readFacts(p.facts, `${at}.facts`),
+  };
+}
+
+function approvalCode(value: unknown, at: string): string | null {
+  return nullable(value, (v) => code(v, at));
+}
+
+function readApprovalItem(value: unknown, at: string): ApprovalItem {
+  const r = exactKeys(
+    value,
+    ["id", "kind", "clinic", "subjectRef", "urgency", "status", "proposedAt", "dueAt", "expiresAt", "decidedAt", "outcomeCode", "pastDue", "irreversible", "operation", "hasDraft", "packet"],
+    at,
+  );
+  if (typeof r.subjectRef !== "string" || !APPROVAL_SUBJECT.test(r.subjectRef)) throw new ShapeError(`${at}.subjectRef`);
+  const kind = literal(r.kind, APPROVAL_KINDS, `${at}.kind`);
+  const packet = nullable(r.packet, (v) => readPacket(v, `${at}.packet`));
+  if (packet && packet.facts.kind !== kind) throw new ShapeError(`${at}.packet.facts.kind`);
+  return {
+    id: id(r.id, `${at}.id`),
+    kind,
+    clinic: readApprovalClinic(r.clinic, `${at}.clinic`),
+    subjectRef: r.subjectRef,
+    urgency: literal(r.urgency, APPROVAL_URGENCIES, `${at}.urgency`),
+    status: literal(r.status, APPROVAL_STATUSES, `${at}.status`),
+    proposedAt: isoInstant(r.proposedAt, `${at}.proposedAt`),
+    dueAt: isoInstant(r.dueAt, `${at}.dueAt`),
+    expiresAt: optionalIsoInstant(r.expiresAt, `${at}.expiresAt`),
+    decidedAt: optionalIsoInstant(r.decidedAt, `${at}.decidedAt`),
+    outcomeCode: approvalCode(r.outcomeCode, `${at}.outcomeCode`),
+    pastDue: bool(r.pastDue, `${at}.pastDue`),
+    irreversible: bool(r.irreversible, `${at}.irreversible`),
+    operation: literal(r.operation, APPROVAL_OPERATIONS, `${at}.operation`),
+    hasDraft: bool(r.hasDraft, `${at}.hasDraft`),
+    packet,
+  };
+}
+
+/** The items in one status (waiting by default), earliest due first, each waiting one with its packet. */
+export function fetchApprovals(
+  options: { status?: ApprovalStatus; limit?: number } = {},
+): Promise<OpsResult<{ items: ApprovalItem[]; partial: string[] }>> {
+  const args: Record<string, unknown> = {};
+  if (options.status) args.status = options.status;
+  if (options.limit !== undefined) args.limit = options.limit;
+  return callOps("listApprovals", "read", args, (value) => {
+    const data = exactKeys(value, ["items", "partial"], "listApprovals");
+    return {
+      items: list(data.items, "listApprovals.items").map((row, i) => readApprovalItem(row, `listApprovals.items[${i}]`)),
+      partial: list(data.partial, "listApprovals.partial").map((p, i) => id(p, `listApprovals.partial[${i}]`)),
+    };
+  });
+}
+
+/** The add-only record, newest first, never a draft. */
+export function fetchApprovalHistory(
+  options: { limit?: number; kind?: ApprovalKind } = {},
+): Promise<OpsResult<ApprovalHistoryEvent[]>> {
+  const args: Record<string, unknown> = {};
+  if (options.limit !== undefined) args.limit = options.limit;
+  if (options.kind) args.kind = options.kind;
+  return callOps("listApprovalHistory", "read", args, (value) => {
+    const data = exactKeys(value, ["events"], "listApprovalHistory");
+    return list(data.events, "listApprovalHistory.events").map((row, i) => {
+      const at = `listApprovalHistory.events[${i}]`;
+      const r = exactKeys(
+        row,
+        ["id", "approvalId", "kind", "clinic", "event", "actorLabel", "ip", "userAgent", "draftHashApproved", "draftHashSent", "outcomeCode", "at"],
+        at,
+      );
+      return {
+        id: id(r.id, `${at}.id`),
+        approvalId: id(r.approvalId, `${at}.approvalId`),
+        kind: literal(r.kind, APPROVAL_KINDS, `${at}.kind`),
+        clinic: readApprovalClinic(r.clinic, `${at}.clinic`),
+        event: literal(r.event, APPROVAL_EVENT_NAMES, `${at}.event`),
+        actorLabel: text(r.actorLabel, `${at}.actorLabel`),
+        ip: optionalText(r.ip, `${at}.ip`),
+        userAgent: optionalText(r.userAgent, `${at}.userAgent`),
+        draftHashApproved: nullable(r.draftHashApproved, (v) => hash(v, `${at}.draftHashApproved`)),
+        draftHashSent: nullable(r.draftHashSent, (v) => hash(v, `${at}.draftHashSent`)),
+        outcomeCode: approvalCode(r.outcomeCode, `${at}.outcomeCode`),
+        at: isoInstant(r.at, `${at}.at`),
+      };
+    });
+  });
+}
+
+/**
+ * The raw decision. It sends the fresh-code mark (`codeChecked: true`)
+ * apps/app requires of an irreversible kind, so it is imported by
+ * lib/admin/approval-decide.ts alone, which checks the operator's
+ * authenticator code first; a test fails if any other file names it.
+ */
+export function decideApproval(
+  approvalId: string,
+  action: "approve" | "reject",
+  reasonCode: ApproveReason | RejectReason,
+  editedDraft?: { subject: string; body: string },
+): Promise<OpsResult<ApprovalDecision>> {
+  const args: Record<string, unknown> = { id: approvalId, action, reasonCode, codeChecked: true };
+  if (editedDraft) args.editedDraft = { subject: editedDraft.subject, body: editedDraft.body };
+  return callOps("decideApproval", "write", args, (value): ApprovalDecision => {
+    const data = object(value, "decideApproval");
+    const status = literal(data.status, ["rejected", "executed", "failed", "error"] as const, "decideApproval.status");
+    if (status === "error") {
+      exactKeys(data, ["status", "message"], "decideApproval");
+      return refusal(data, "decideApproval");
+    }
+    if (status === "rejected") {
+      exactKeys(data, ["status", "outcomeCode", "auditRecorded"], "decideApproval");
+      return {
+        status,
+        outcomeCode: code(data.outcomeCode, "decideApproval.outcomeCode"),
+        auditRecorded: bool(data.auditRecorded, "decideApproval.auditRecorded"),
+      };
+    }
+    exactKeys(data, ["status", "outcomeCode", "message", "auditRecorded"], "decideApproval");
+    return {
+      status,
+      outcomeCode: code(data.outcomeCode, "decideApproval.outcomeCode"),
+      message: optionalText(data.message, "decideApproval.message"),
+      auditRecorded: bool(data.auditRecorded, "decideApproval.auditRecorded"),
+    };
+  });
 }

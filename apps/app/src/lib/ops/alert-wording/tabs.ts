@@ -70,6 +70,8 @@ export const BILLING: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "usage_near_cap",
   "usage_cap_reached",
   "agreement_refund_due",
+  // The approval inbox: raised with no clinic today (NO_CLINIC_PAGE below).
+  "approval_waiting",
 ]);
 
 export const DELIVERIES: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
@@ -256,6 +258,8 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   // no clinic: the digest's counts; its steps start on Home.
   ops_digest_summary: "/admin/",
   assistant_knows_no_services: "/admin/clinics",
+  // always raised with no clinic: the Approvals section of the Queues page (lane P6b).
+  approval_waiting: "/admin/queues#approvals",
 };
 
 /** The console pages an alert with no clinic opens, by path, as a button names them. */

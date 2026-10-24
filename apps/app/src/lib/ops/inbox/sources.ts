@@ -1,3 +1,4 @@
+import { approvalsSource } from "./approvals";
 import { availabilitySource } from "./availability";
 import { decisionsSource } from "./decisions";
 import { queuesSource } from "./queues";
@@ -36,4 +37,5 @@ export const INBOX_SOURCES: readonly InboxSource[] = [
   decisionsSource,
   transcriptDeliverySource,
   goLiveSource,
+  approvalsSource,
 ];

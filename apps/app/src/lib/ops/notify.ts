@@ -332,6 +332,11 @@ export const OPS_EVENTS = [
   // channel while it lasts (lib/assistant/menu-check.ts). The demo clinic's
   // test calls of 23 October 2026 ran like this unseen.
   "assistant_knows_no_services",
+  // The approval inbox (lib/approvals/proposers.ts; ops automation Phase 6,
+  // lane P6a): items waiting for the owner's yes past their due time, once,
+  // or every 4 hours for a legal clock (owner decision D18), one alert per
+  // kind with the count. No clinic: the items are listed on one page.
+  "approval_waiting",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

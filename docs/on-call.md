@@ -546,3 +546,20 @@ behind it; Home lists every alert of the last day whether or not Slack took it, 
 alert and clinic, and each decision owed as its own row with "Decide" (lane A4), and the
 Clinics table shows each clinic's stage and usage. If the line did not arrive by morning, open System › Jobs: the digest's row shows its
 switch, last run and note (sent, already gone, or the failure).
+
+### Approvals
+
+`approval_waiting`. The approval inbox (`apps/app/src/lib/approvals/`, ops automation Phase 6):
+each billing change that failed at Stripe after every retry, each annual extra-usage invoice
+that failed and each Stripe event parked after its retries becomes one item waiting for the
+owner's yes, put there hourly by the `approvals-propose` job (off until the owner switches it
+on). The job never retries anything itself; the worker's own attempts, the hourly reconcile's
+re-arm, the 05 UTC overage run and Stripe's dunning carry on ungated, as before. The alert comes
+once an item has waited a day, one per kind, by email and Slack. The items are on the Queues
+page, under Approvals: each says what approving does, in money where money moves. Approve asks
+for the code from your authenticator and runs the same operation as the clinic's Billing tab
+button, once, recording whether it worked; Reject runs nothing. Nothing is ever approved by
+waiting: after seven days an item leaves the list unrun (expired), and so does one whose
+billing change, invoice or event has since gone through. History, on the same page, is the
+add-only record of who decided what and when (the operator account, its IP address and
+browser), read from `ops_approval_events`.

@@ -1,6 +1,6 @@
 import type { OpsEvent } from "@/lib/ops/notify";
 
-import { legacy, type AlertWording } from "./types";
+import type { AlertWording } from "./types";
 
 /** The "calendar" section of docs/on-call.md's alert runbook. */
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
@@ -10,50 +10,122 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // (`jobId`), which its log lines name each connection under. `code` is
   // Google's answer as the adapter names it: invalid_grant,
   // admin_policy_enforced and scope_lost mean the access itself was removed
-  // and the stored token has been erased; access_denied,
+  // and the stored credential has been erased; access_denied,
   // insufficient_permissions and calendar_not_found mean the calendar
-  // refused it.
-  calendar_broken: legacy(
-    "A clinic's Google Calendar stopped working",
-    "Google refused healdesk's access to a clinic's calendar, or to each of the calendars counted below, so each location affected now takes booking requests for its staff to confirm. Ask the clinic whether it removed the access on purpose; if not, it reconnects its calendar. Look the clinic up in the console.",
-  ),
+  // refused it. The clinic is emailed once per breakage
+  // (notifyCalendarState "stopped": bookings arrive as requests until it
+  // reconnects from Settings).
+  calendar_broken: {
+    title: "A clinic's Google Calendar stopped working",
+    whatHappened:
+      "Google refused healdesk's access to a clinic's Google Calendar[: {clinicName}][, {count:calendar} in all]. Either the clinic removed the access, or the calendar itself refused us. Each location affected now takes booking requests for its staff to confirm, and the clinic has been emailed to reconnect.",
+    whyItMatters:
+      "Until the calendar is reconnected, bookings are not written into it and AYA cannot read free times: staff confirm every request by hand. The clinic is not down, but every day like this costs it bookings.",
+    steps: [
+      "Open the Clinics page and read the Calendar column: each clinic shown as broken needs the steps below. With one clinic, this alert's link opens its Setup tab.",
+      "Open the clinic's Setup tab and read the Calendar card: its status says whether access was removed or the calendar refused us, with Google's last error.",
+      "Phone the clinic on its published number, shown under Phone line, and ask whether someone removed healdesk's access on purpose. If not, it reconnects from the email we sent or from its portal's Settings.",
+      "Press Send calendar link on the Calendar card if the clinic cannot find the email: the link goes to the clinic's own address and lets it connect again.",
+      "Check the Calendar card shows Active. You are done when it does: bookings go into the calendar again as the clinic's settings allow.",
+    ],
+  },
   // Raised once per run by the calendar watch, counting the connections
   // that moved to degraded in it; with exactly one, its ids and the last
   // transient code (timeout, network, rate_limited, a 5xx word) come too.
   // Each run's alert carries its run id (`jobId`), so a second wave, or a
   // connection that degrades again after recovering, is a new alert.
-  calendar_degraded: legacy(
-    "Google Calendar checks are failing",
-    "The calendar watch could not get an answer from Google for the connections counted below three times in a row, so those locations take booking requests for their staff to confirm until a check passes. A short Google outage needs nothing from you. If it lasts over an hour, check Google Workspace's status page and this deployment's outbound network, then look the connections up in the console.",
-  ),
+  calendar_degraded: {
+    title: "Google Calendar checks are failing",
+    whatHappened:
+      "The five-minute calendar check could not get an answer from Google three times in a row[ for {clinicName}][, {count:connection} in all]. Those locations take booking requests for their staff to confirm until a check passes again.",
+    whyItMatters:
+      "A short Google outage needs nothing from you: the next passing check puts the location back by itself and sends the all-clear alert. One lasting over an hour means Google, or this deployment's network, is the problem.",
+    steps: [
+      "Open the Clinics page and read the Calendar column: degraded marks each clinic affected, and the Calendar card on its Setup tab says when it was last verified.",
+      "Wait up to an hour: the check runs every five minutes, and one that passes clears this by itself. Nothing on the Calendar card needs pressing for an outage.",
+      "Check Google Workspace's status page if it lasts over an hour, then the Jobs page under System for the calendar watch row's last result: a run that fails every time points at our side, not Google's.",
+      "Check the Clinics page again. You are done when the Calendar column shows healthy, or the all-clear alert about calendar checks passing arrives.",
+    ],
+  },
   // Raised once per run by the calendar watch, counting the degraded
   // connections whose check passed again (ids when there is one).
-  calendar_recovered: legacy(
-    "Google Calendar checks are passing again",
-    "Connections the calendar watch had moved to booking requests answered a check again, so those locations book into their calendars as their settings allow. Nothing to do: this closes the alert about failing checks.",
-  ),
+  calendar_recovered: {
+    title: "Google Calendar checks are passing again",
+    whatHappened:
+      "A calendar check passed again[ for {clinicName}][, {count:connection} in all]. Those locations book into their calendars as their settings allow, and no longer take booking requests only because of the check.",
+    whyItMatters:
+      "This is good news: it closes the earlier alert about failing checks. Nothing is owed to the clinic unless a booking request waited on its staff meanwhile.",
+    steps: [
+      "Open the Clinics page and check the Calendar column shows healthy for the clinic.",
+      "Leave the Calendar card on the clinic's Setup tab as it is: nothing needs pressing. You are done.",
+    ],
+  },
   // Raised by a calendar watch run that stopped starting checks after four
   // minutes; `count` is how many connections it left unchecked, which go
   // first in the next run.
-  calendar_watch_incomplete: legacy(
-    "The calendar watch ran out of time",
-    "A run of the five-minute calendar watch stopped starting checks after four minutes and left the connections counted below unchecked; they go first in the next run. If this happens on most runs, Google is answering slowly or there are more connections than one run can check, and the watch needs more checks at once: raise it with whoever maintains apps/app.",
-  ),
+  calendar_watch_incomplete: {
+    title: "The calendar check ran out of time",
+    whatHappened:
+      "A run of the five-minute calendar check stopped starting new checks after four minutes and left {count:connection} unchecked. Those go first in the next run.",
+    whyItMatters:
+      "One slow run needs nothing. If this comes on most runs, Google is answering slowly or there are more calendars than one run can check, and a broken calendar could go unnoticed for longer than five minutes.",
+    steps: [
+      "Open the Jobs page under System and read the calendar watch row's last result and note.",
+      "Wait for the next few runs if this is the first such alert: the connections it missed are checked first next time, and the Jobs page shows each run's result.",
+      "Ask whoever maintains the engine to let the check run more connections at once if the alert keeps coming; the Jobs page has no setting for it.",
+      "Check the Jobs page shows runs completing. You are done when this alert stops.",
+    ],
+  },
   // Raised by a calendar watch run in which a step threw: a connection's
   // check or its alert, the terms check for a location, or the run itself.
   // `count` is how many; each is a log line with its ids.
-  calendar_watch_failed: legacy(
-    "The calendar watch hit errors",
-    "A run of the five-minute calendar watch could not finish the steps counted below. A location whose terms could not be checked is not checked with Google either, and stays as it was until a run gets through. Read the worker's error lines for the calendar watch, and the job's note in the console's job list; if every run fails, the database or this deployment's configuration is the likely cause.",
-  ),
-  connection_broken: legacy(
-    "A clinic's connection stopped working",
-    "A clinic's stored connection below is revoked or in error. For a Meta platform (provider meta-messenger, meta-instagram or meta-whatsapp) that channel cannot reply to anyone until the clinic connects it again from Facebook login: call the clinic. Every connection finding is in the 07:00 digest as well.",
-  ),
-  google_oauth_client_rejected: legacy(
-    "Google refused healdesk's OAuth client",
-    "Google refused healdesk's own OAuth client, or apps/app has none set (code oauth_client), or Google says the Calendar API is disabled in healdesk's Google Cloud project (code api_disabled). Until it is fixed no clinic can connect a calendar or keep one working, and the calendar watch moves each connection it checks to booking requests. Check the Calendar OAuth client and that the Google Calendar API is enabled in the Google Cloud project, and GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in the apps/app secret store; a clinic whose connect failed can then try again.",
-  ),
+  calendar_watch_failed: {
+    title: "The calendar check hit errors",
+    whatHappened:
+      "A run of the five-minute calendar check could not finish {count:step}: a calendar's check or its alert, or a location's calendar terms check. A location whose terms could not be checked is not checked with Google either, and stays as it was until a run gets through.",
+    whyItMatters:
+      "One failing step is usually a passing fault. A run that fails every time means the database or this deployment's configuration is the problem, and no calendar is being watched meanwhile.",
+    steps: [
+      "Open the Jobs page under System and read the calendar watch row's last result and note.",
+      "Wait for the next run if this is the first such alert: a passing fault clears itself, and the Jobs page shows the run passing.",
+      "Ask whoever maintains the engine to read the worker's error lines for the calendar check if every run fails; the Jobs page shows only the result, not the error.",
+      "Check the Jobs page shows runs passing. You are done when this alert stops coming.",
+    ],
+  },
+  // The connection-health job (lib/scheduler/connection-health.ts), once
+  // per connection: a stored connection other than Google Calendar whose
+  // status is revoked or error. In v1 that is a Meta platform
+  // (meta-messenger, meta-instagram, meta-whatsapp). Every finding is in
+  // the 07:00 digest as well.
+  connection_broken: {
+    title: "A clinic's connection stopped working",
+    whatHappened:
+      "A connection {clinicName} made is now revoked or in error. For Instagram, Messenger or WhatsApp that means the platform no longer accepts our access, and AYA cannot reply to anyone there until the clinic connects it again.",
+    whyItMatters:
+      "Messages on that channel go unanswered, and Meta's 24-hour reply window closes on each one. The clinic keeps its other channels.",
+    steps: [
+      "Open the clinic's Setup tab and read the Meta front door card: each attached channel is listed with its status.",
+      "Phone the clinic on its published number, shown under Phone line, and ask it to connect the channel again from its portal, with the Facebook login or WhatsApp sign-up button. Nothing is pasted by hand on either side.",
+      "Check the Meta front door card shows the channel attached and active again. You are done when it does; the 07:00 digest lists it until then.",
+    ],
+  },
+  // Google refused healdesk's own OAuth client, or apps/app has none set
+  // (code oauth_client), or Google says the Calendar API is disabled in
+  // healdesk's Google Cloud project (code api_disabled): from a clinic's
+  // connect (with its id) or from the watch (with a count per code).
+  google_oauth_client_rejected: {
+    title: "Google refused healdesk's own calendar sign-in",
+    whatHappened:
+      "Google refused healdesk's own sign-in app, or says the Calendar service is switched off in our Google Cloud project[; the check found {count:connection} affected].[ The latest to hit it: {clinicName}, whose calendar connect failed.]",
+    whyItMatters:
+      "This is every clinic at once, not one: no clinic can connect a calendar or keep one working, and each calendar the check reaches moves to booking requests until it is fixed.",
+    steps: [
+      "Open the Map page under System and press Missing or broken: healdesk's Google sign-in app id and secret must both be in place.",
+      "Check in the Google Cloud project that the Calendar service is enabled and that the sign-in app and its secret are the ones the Map page names. Fix it there, not in any clinic.",
+      "Open the Clinics page afterwards and read the Calendar column: clinics moved to degraded recover at the next passing check, within five minutes.",
+      "Press Send calendar link on the Setup tab of a clinic whose connect failed, so it can try again. You are done when the Calendar column shows healthy everywhere.",
+    ],
+  },
   // lib/ops/calendar-write-alerts.ts, hourly, once per write and state.
   calendar_write_stuck: {
     title: "A booking is missing from a clinic's Google Calendar",
@@ -71,20 +143,21 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   },
   // The same sweep, when one run finds more stuck writes than it alerts one
   // by one: `count` of them, each recorded as told.
-  calendar_writes_stuck_many: legacy(
-    "Several bookings could not be written to calendars",
-    "The hourly check found the number of bookings below whose Google Calendar write failed or was given up on, more than it reports one by one, so this one alert stands for all of them and none will be sent separately. Each clinic's desk was already told to add its booking by hand. Open the clinics in the console and look at each one's calendar writes on its onboarding page; a new failure after this is reported on its own again.",
-  ),
+  calendar_writes_stuck_many: {
+    title: "Several bookings could not be written to calendars",
+    whatHappened:
+      "The hourly check[ on {windowStart}] found {count:booking} whose Google Calendar write failed or was given up on, more than it reports one by one. This one alert stands for all of them; none is sent separately. Each clinic's staff were already told in their portal to add the booking by hand.",
+    whyItMatters:
+      "Until each booking is in its calendar, its slot looks free and someone else could be booked into it. Nothing retries by itself, and a new failure after this is reported on its own again.",
+    steps: [
+      "Open the Clinics page: each clinic with a stuck write needs its Setup tab opened. The Calendar column flags a broken calendar, not a stuck write.",
+      "Open each clinic's Setup tab and find its bookings under Calendar writes needing attention, with Google's reason beside each.",
+      "Press Retry beside a booking whose reason is timeout, network or unconfirmed. Do not press Retry where the reason says an event id is taken: phone the clinic, using the number under Phone line, and ask it to look for a duplicate.",
+      "Press Send calendar link on the Setup tab where the reason names the target calendar or a calendar that is not connected. The clinic reconnects from that link.",
+      "Check under Calendar writes needing attention that each booking shows as written. You are done when none needs attention.",
+    ],
+  },
 };
 
 /** This section's events still in their pre-rewrite wording (LEGACY_WORDING, ./index.ts). */
-export const LEGACY: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
-  "calendar_broken",
-  "calendar_degraded",
-  "calendar_recovered",
-  "calendar_watch_incomplete",
-  "calendar_watch_failed",
-  "connection_broken",
-  "google_oauth_client_rejected",
-  "calendar_writes_stuck_many",
-]);
+export const LEGACY: ReadonlySet<OpsEvent> = new Set<OpsEvent>();

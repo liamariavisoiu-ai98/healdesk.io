@@ -84,11 +84,11 @@ describeDb("a change file's edit is recorded as a direct change", () => {
   });
 
   test("the roster's tables are covered too", async () => {
-    // The provider branches are tested as the migrator only, as a psql edit
-    // would be: the change file's role cannot write clinic_providers or
-    // clinic_provider_services today (their BAA gate trigger calls
-    // app_clinic_phi_update_permitted, which that role may not execute),
-    // whatever this trigger does. Raised with the owner by the lead.
+    // The provider branches here are the migrator's, as a psql edit would
+    // be. The change file's role writes clinic_providers and
+    // clinic_provider_services since drizzle/0116 let it ask the BAA gate's
+    // two functions; its `change_file` rows on both tables, and the gate's
+    // refusals, are in tests/writer-baa-gate.test.ts.
     await inTenant(a.clinicId, (c) =>
       c.query(`insert into clinic_providers (clinic_id, display_name, calendar_id) values ($1, 'Dr Lee', 'primary')`, [
         a.clinicId,

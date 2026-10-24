@@ -15,7 +15,8 @@ import {
   RIGHTS_KINDS,
 } from "@/lib/rights/clocks";
 import { NO_OPERATOR, NO_ROUTE, NO_ROUTE_AMENDMENT, NO_ROUTE_CORRECTION, prepareCommand, RUN_TASK } from "@/lib/rights/commands";
-import { listRights, RETELL_OUTSTANDING, RUN_THEN_MARK, type RightsRow } from "@/lib/rights/tracker";
+import { listRights, readClinic, RETELL_OUTSTANDING, RUN_THEN_MARK, type RightsRow } from "@/lib/rights/tracker";
+import { withTenant } from "@/lib/tenant";
 import { JOB_RIGHTS_WATCH, rightsAlertsFor, runRightsWatchJob, watchRights } from "@/lib/scheduler/rights-watch";
 import { getJob } from "@/lib/scheduler/jobs";
 import { runTick } from "@/lib/scheduler/tick";
@@ -675,6 +676,18 @@ describeDb("the rights tracker, against the database", () => {
     const purged = await listAt("2026-10-13T08:00:00Z");
     expect(purged.map((r) => r.id)).toEqual([two.id]);
     expect(purged[0]).toMatchObject({ commandNote: RUN_THEN_MARK, state: "on_time", dueOn: "2026-10-19" });
+  });
+
+  test("one clinic reads in a fixed order: requests by when they reached us, intakes by when recorded", async () => {
+    const c = await seedClinic("rights-order");
+    // Written later, received earlier: the read puts it first, whatever the table's own order.
+    const later = await seedPatientRequest(c.clinicId, "2026-10-14T10:00:00Z", "2026-10-21");
+    const earlier = await seedPatientRequest(c.clinicId, "2026-10-12T10:00:00Z", "2026-10-19");
+    const a = data<{ id: string }>(await record({ clinicId: c.clinicId, kind: "export", receivedOn: "2026-10-12", verifiedVia: "unverified" }));
+    const b = data<{ id: string }>(await record({ clinicId: c.clinicId, kind: "export", receivedOn: "2026-10-12", verifiedVia: "unverified" }));
+    const read = await withTenant({ clinicId: c.clinicId, actor: { type: "service", serviceName: "t" } }, (tx) => readClinic(tx, "open"));
+    expect(read.requests.map((r) => r.id)).toEqual([earlier, later]);
+    expect(read.intakes.map((r) => r.id)).toEqual([a.id, b.id]);
   });
 
   test("a linked row is due on the earlier of the intake's day and the record's", async () => {

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 
 import {
   patientRequests,
@@ -136,8 +136,19 @@ type ClinicRead = {
   amendments: { id: string; requestedAt: Date; recordedAt: Date }[];
 };
 
-async function readClinic(tx: TenantTx, filter: RightsFilter): Promise<ClinicRead> {
-  const intakes = await tx.db.select().from(rightsIntakes).where(eq(rightsIntakes.clinicId, tx.clinicId));
+/**
+ * One clinic's rows with a clock, each list in a fixed order (oldest first,
+ * the id breaking a tie), so the same database always reads the same way:
+ * intakes by when they were recorded, patient requests by when they reached
+ * us, then when they were recorded, amendments by when they were appended.
+ * Exported for its test.
+ */
+export async function readClinic(tx: TenantTx, filter: RightsFilter): Promise<ClinicRead> {
+  const intakes = await tx.db
+    .select()
+    .from(rightsIntakes)
+    .where(eq(rightsIntakes.clinicId, tx.clinicId))
+    .orderBy(asc(rightsIntakes.recordedAt), asc(rightsIntakes.id));
   // Through the erasure module's own reader, which returns no reference to anyone
   // (the deletion record's one reader outside it: tests/person-erasure.test.ts).
   const erasures = (await listErasureRequests(tx)).map((r) => ({
@@ -156,14 +167,16 @@ async function readClinic(tx: TenantTx, filter: RightsFilter): Promise<ClinicRea
       acknowledgedAt: patientRequests.acknowledgedAt,
     })
     .from(patientRequests)
-    .where(eq(patientRequests.clinicId, tx.clinicId));
+    .where(eq(patientRequests.clinicId, tx.clinicId))
+    .orderBy(asc(patientRequests.receivedAt), asc(patientRequests.recordedAt), asc(patientRequests.id));
   const amendments =
     filter === "open"
       ? []
       : await tx.db
           .select({ id: recordAmendments.id, requestedAt: recordAmendments.requestedAt, recordedAt: recordAmendments.recordedAt })
           .from(recordAmendments)
-          .where(eq(recordAmendments.clinicId, tx.clinicId));
+          .where(eq(recordAmendments.clinicId, tx.clinicId))
+          .orderBy(asc(recordAmendments.recordedAt), asc(recordAmendments.id));
   const read = erasures.length + requests.length + amendments.length;
   if (read > 0) {
     tx.audit.record({

@@ -8,23 +8,34 @@ import type { ApprovalItem } from "@/lib/admin/ops-client";
 import {
   actorWords,
   APPROVAL_KIND_WORDS,
+  APPROVALS_JOB,
+  approveConfirm,
   APPROVE_REASON_WORDS,
   BILLING_STATUS_WORDS,
+  BILLING_TAB_RETRY,
   decisionWords,
   dollars,
+  EMPTY_JOB_OFF,
+  EMPTY_WORDS,
+  emptyWords,
   engineWords,
   EVENT_WORDS,
   eventTypeWords,
   expiryWords,
   factLines,
   IRREVERSIBLE_CONFIRM,
+  isClinicless,
+  NO_CLINIC_EVENT,
   onDay,
   OUTCOME_WORDS,
   outcomeWords,
+  REJECT_HEAD,
   REJECT_REASON_WORDS,
+  rejectConfirm,
   REQUEST_KIND_WORDS,
   STOP_REASON_WORDS,
   waitingWords,
+  whenWords,
 } from "./approval-words";
 
 /**
@@ -116,6 +127,17 @@ describe("the closed lists have words", () => {
     expect(engineWords("something_new:x")).toBe('the engine recorded "something new" (x)');
   });
 
+  test("the approvals job is named as apps/app names it (lib/approvals/kinds.ts PROPOSER)", () => {
+    const theirs = /export const PROPOSER = "([a-z-]+)";/.exec(source("lib/approvals/kinds.ts"))?.[1];
+    expect(theirs).toBeDefined();
+    expect(APPROVALS_JOB).toBe(theirs);
+    // The on-screen name is the job's, which the Jobs page prints as its name.
+    expect(EMPTY_JOB_OFF).toContain("the approvals job is off at System > Jobs");
+    expect(emptyWords(false)).toBe(EMPTY_JOB_OFF);
+    expect(emptyWords(true)).toBe(EMPTY_WORDS);
+    expect(emptyWords(null)).toBe(EMPTY_WORDS);
+  });
+
   test("the words are plain: no underscores, no raw codes", () => {
     for (const table of [APPROVAL_KIND_WORDS, REQUEST_KIND_WORDS, STOP_REASON_WORDS, BILLING_STATUS_WORDS, APPROVE_REASON_WORDS, REJECT_REASON_WORDS, EVENT_WORDS]) {
       for (const [code, words] of Object.entries(table)) {
@@ -177,7 +199,8 @@ describe("the facts and the timing", () => {
       ["Stopped because", "every try was used"],
       ["Last error", "Stripe had an error on its side"],
       ["Billing now", "active"],
-      ["Billing worker", "off: nothing happens until it is switched on at System › Jobs"],
+      // One word: the packet's own effect sentence says what an off switch means, once.
+      ["Billing worker", "off"],
     ]);
     const closure: ApprovalItem = {
       ...request,
@@ -204,7 +227,7 @@ describe("the facts and the timing", () => {
       ["Billing now", "not read"],
       ["Superseded", "a later cancellation makes this change moot"],
       ["Billing worker", "on"],
-      ["Setup closure switch", "off: nothing happens until it is switched on at System › Jobs"],
+      ["Setup closure switch", "off"],
     ]);
     expect(factLines({ ...request, packet: null })).toEqual([]);
   });
@@ -250,13 +273,14 @@ describe("the facts and the timing", () => {
     expect(dollars(90)).toBe("$0.90");
   });
 
-  test("how long it has waited, whether it is past due, and when it leaves the list", () => {
+  test("how long it has waited, whether it is past due, and the moment after which it can no longer be approved", () => {
     expect(waitingWords(request, NOW)).toBe("Waiting 2 days, past due");
     expect(waitingWords({ ...request, pastDue: false }, "2026-11-01T10:30:00.000Z")).toBe("Waiting 30 minutes");
     expect(waitingWords(request, "2026-11-01T09:00:00.000Z")).toBe("Waiting under a minute, past due");
-    expect(expiryWords(request)).toBe("Leaves the list without running on 8 Nov 2026 if nobody decides.");
+    expect(expiryWords(request)).toBe("Can no longer be approved after 8 Nov 2026, 10:00 UTC; the approvals job then takes it off the list.");
     expect(expiryWords({ expiresAt: null })).toBe("Waits until decided.");
     expect(onDay("2026-10-31T23:30:00.000Z")).toBe("31 Oct 2026");
+    expect(whenWords("2026-11-02T10:01:00.000Z")).toBe("2 Nov 2026, 10:01 UTC");
   });
 
   test("the confirm sentence before the code field names what each kind's operation does", () => {
@@ -264,67 +288,101 @@ describe("the facts and the timing", () => {
     expect(IRREVERSIBLE_CONFIRM.overage_invoice_retry).toContain("Stripe has issued the invoice");
     expect(IRREVERSIBLE_CONFIRM.billing_event_replay).toContain("the event has been applied");
   });
+
+  test("the second press on Approve: once now, and for a billing change the worker's part", () => {
+    expect(approveConfirm("billing_request_retry")).toBe(
+      "Approve this item? Its operation runs once now. A billing change is then carried out by the billing worker, with fresh tries.",
+    );
+    // The other two kinds' operations do the whole thing in the same request: no worker follows.
+    expect(approveConfirm("overage_invoice_retry")).toBe("Approve this item? Its operation runs once now.");
+    expect(approveConfirm("billing_event_replay")).toBe("Approve this item? Its operation runs once now.");
+  });
+
+  test("the second press on Reject: nothing now, not proposed again, a later job still retries it, and where to retry by hand", () => {
+    expect(REJECT_HEAD).toBe(
+      "Nothing is run now, and this failure is not proposed again. If the job that retries it is switched on later, that job still retries it.",
+    );
+    expect(rejectConfirm(request)).toBe(`${REJECT_HEAD} The clinic's Billing tab is where to retry it by hand.`);
+    // A Stripe event that resolved to no clinic is on no clinic's Billing tab.
+    const orphan = { kind: "billing_event_replay" as const, clinic: null };
+    expect(isClinicless(orphan)).toBe(true);
+    expect(isClinicless({ kind: "billing_event_replay", clinic: { id: CLINIC, name: null } })).toBe(false);
+    expect(isClinicless({ kind: "billing_request_retry", clinic: null })).toBe(false);
+    expect(rejectConfirm(orphan)).toBe(`${REJECT_HEAD} ${NO_CLINIC_EVENT}`);
+    expect(NO_CLINIC_EVENT).toBe("This event is on no clinic's Billing tab; Approve here is the only button that replays it.");
+    expect(rejectConfirm({ kind: "billing_request_retry", clinic: null })).toBe(REJECT_HEAD);
+  });
 });
 
 describe("the decision's outcome line", () => {
   test("a re-armed request says the operation's own sentence: due again, carried out by the billing worker at its next run", () => {
     const message =
       "Re-armed: the change is due again, with fresh tries. The billing worker carries it out at its next run if it still applies. The billing worker is switched off, so nothing happens until it is switched on at System > Jobs.";
-    expect(decisionWords({ status: "executed", outcomeCode: "rearmed", message, auditRecorded: true })).toEqual({
+    expect(decisionWords({ status: "executed", outcomeCode: "rearmed", message, auditRecorded: true }, request)).toEqual({
       left: true,
       tone: "ok",
       text: `Approved. ${message}`,
       auditRecorded: true,
     });
-    expect(decisionWords({ status: "executed", outcomeCode: "rearmed", message: null, auditRecorded: true }).text).toBe(
+    expect(decisionWords({ status: "executed", outcomeCode: "rearmed", message: null, auditRecorded: true }, request).text).toBe(
       "Approved. Made due again: the billing worker carries it out at its next run if it still applies.",
     );
   });
 
   test("an invoice, a skip, a replay, and an outcome nobody listed", () => {
-    expect(decisionWords({ status: "executed", outcomeCode: "invoiced", message: null, auditRecorded: true }).text).toBe("Approved. Invoiced in Stripe.");
-    expect(decisionWords({ status: "executed", outcomeCode: "skipped", message: null, auditRecorded: true }).text).toBe(
+    expect(decisionWords({ status: "executed", outcomeCode: "invoiced", message: null, auditRecorded: true }, request).text).toBe("Approved. Invoiced in Stripe.");
+    expect(decisionWords({ status: "executed", outcomeCode: "skipped", message: null, auditRecorded: true }, request).text).toBe(
       "Approved. Nothing was invoiced: the month was already settled, or had nothing to bill.",
     );
-    expect(decisionWords({ status: "executed", outcomeCode: "replayed", message: null, auditRecorded: false })).toMatchObject({
+    expect(decisionWords({ status: "executed", outcomeCode: "replayed", message: null, auditRecorded: false }, request)).toMatchObject({
       left: true,
       text: "Approved. The Stripe event was applied again.",
       auditRecorded: false,
     });
-    expect(decisionWords({ status: "executed", outcomeCode: "new_thing", message: null, auditRecorded: true }).text).toBe("Approved. Went through: new thing.");
+    expect(decisionWords({ status: "executed", outcomeCode: "new_thing", message: null, auditRecorded: true }, request).text).toBe("Approved. Went through: new thing.");
   });
 
   test("one that did not go through says the operation's words, and still left the list", () => {
-    const failed = decisionWords({
-      status: "failed",
-      outcomeCode: "no_longer_needed",
-      message: "This has already been dealt with since it was proposed, so nothing was run.",
-      auditRecorded: true,
-    });
+    const failed = decisionWords(
+      {
+        status: "failed",
+        outcomeCode: "no_longer_needed",
+        message: "This has already been dealt with since it was proposed, so nothing was run.",
+        auditRecorded: true,
+      },
+      request,
+    );
     expect(failed).toEqual({
       left: true,
       tone: "bad",
       text: "Approved, but it did not go through: This has already been dealt with since it was proposed, so nothing was run.",
       auditRecorded: true,
     });
-    expect(decisionWords({ status: "failed", outcomeCode: "threw", message: null, auditRecorded: true }).text).toBe(
+    expect(decisionWords({ status: "failed", outcomeCode: "threw", message: null, auditRecorded: true }, request).text).toBe(
       "Approved, but it did not go through: the operation failed partway.",
     );
   });
 
-  test("a rejection runs nothing and leaves the list; a refusal and a refused code change nothing and keep it", () => {
-    expect(decisionWords({ status: "rejected", outcomeCode: "not_needed", auditRecorded: true })).toEqual({
+  test("a rejection runs nothing now and leaves the list, naming where to retry by hand; a refusal and a refused code change nothing and keep it", () => {
+    expect(decisionWords({ status: "rejected", outcomeCode: "not_needed", auditRecorded: true }, request)).toEqual({
       left: true,
       tone: "ok",
-      text: "Rejected: nothing was run, and the item has left the list. This failure is not proposed again.",
+      text: `Rejected. ${REJECT_HEAD} ${BILLING_TAB_RETRY}`,
       auditRecorded: true,
     });
-    expect(decisionWords({ status: "refused", message: "This has already been decided, so nothing more was done. Reload to see where it stands." })).toEqual({
+    // A Stripe event no clinic's Billing tab lists: once rejected, no button replays it, and the line says only the fact.
+    expect(decisionWords({ status: "rejected", outcomeCode: "not_needed", auditRecorded: true }, { kind: "billing_event_replay", clinic: null }).text).toBe(
+      `Rejected. ${REJECT_HEAD} This event is on no clinic's Billing tab.`,
+    );
+    expect(decisionWords({ status: "rejected", outcomeCode: "other", auditRecorded: true }, { kind: "billing_request_retry", clinic: null }).text).toBe(
+      `Rejected. ${REJECT_HEAD}`,
+    );
+    expect(decisionWords({ status: "refused", message: "This has already been decided, so nothing more was done. Reload to see where it stands." }, request)).toEqual({
       left: false,
       tone: "bad",
       text: "This has already been decided, so nothing more was done. Reload to see where it stands.",
       auditRecorded: null,
     });
-    expect(decisionWords({ status: "code_refused", message: "That code is not right." })).toMatchObject({ left: false, tone: "bad", text: "That code is not right." });
+    expect(decisionWords({ status: "code_refused", message: "That code is not right." }, request)).toMatchObject({ left: false, tone: "bad", text: "That code is not right." });
   });
 });

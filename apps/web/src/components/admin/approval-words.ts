@@ -204,12 +204,52 @@ export const IRREVERSIBLE_CONFIRM: Record<ApprovalKind, string> = {
 };
 
 /**
- * True to lib/approvals/store.ts propose(): nothing is proposed again for a
- * subject while a rejected item stands for it, and the alert's own words
- * name the Billing tab as where to retry it.
+ * The second press on Approve: every kind's operation runs once, in the
+ * same request (lib/approvals/executors.ts). A billing request's operation
+ * only re-arms it; the billing worker then carries the change out at its
+ * next run, with fresh tries (lib/billing/requests.ts rearmBillingRequest),
+ * so that kind's sentence says so, and the other two kinds' does not.
  */
-export const REJECT_CONFIRM =
-  "Nothing is run, and this failure is not proposed again. The clinic's Billing tab is where to retry it.";
+export function approveConfirm(kind: ApprovalKind): string {
+  const head = "Approve this item? Its operation runs once now.";
+  return kind === "billing_request_retry" ? `${head} A billing change is then carried out by the billing worker, with fresh tries.` : head;
+}
+
+/**
+ * What rejecting does, true to lib/approvals/store.ts propose() (nothing is
+ * proposed again for a subject while a rejected item stands for it) and
+ * proposers.ts (a plan start, a step-up or an overage invoice is in the
+ * list only while the job that retries it is off: switched on later, that
+ * job retries it regardless of the rejection).
+ */
+export const REJECT_HEAD =
+  "Nothing is run now, and this failure is not proposed again. If the job that retries it is switched on later, that job still retries it.";
+
+/** Where to retry an item that has a clinic by hand: its Billing tab has the same button. */
+export const BILLING_TAB_RETRY = "The clinic's Billing tab is where to retry it by hand.";
+
+/**
+ * A Stripe event that resolved to no clinic (proposers.ts lists one that no
+ * waiting purchase names): the Billing tab lists parked events by resolved
+ * clinic, so no tab shows it, and nothing else replays it.
+ */
+export const NO_CLINIC_EVENT = "This event is on no clinic's Billing tab; Approve here is the only button that replays it.";
+
+/** The same fact once the item is rejected and gone: no button replays it. */
+const NO_CLINIC_EVENT_REJECTED = "This event is on no clinic's Billing tab.";
+
+type Subject = Pick<ApprovalItem, "kind" | "clinic">;
+
+/** Whether the item is a Stripe event no clinic's Billing tab lists. */
+export function isClinicless(item: Subject): boolean {
+  return item.clinic === null && item.kind === "billing_event_replay";
+}
+
+/** The second press on Reject, with where to retry by hand for an item that has a Billing tab. */
+export function rejectConfirm(item: Subject): string {
+  if (isClinicless(item)) return `${REJECT_HEAD} ${NO_CLINIC_EVENT}`;
+  return item.clinic ? `${REJECT_HEAD} ${BILLING_TAB_RETRY}` : REJECT_HEAD;
+}
 
 /** The line when apps/app could not read an item's facts (listApprovals `partial`). */
 export const FACTS_NOT_READ = "Its facts could not be read, so Approve is not offered. Reload, or reject it.";
@@ -219,7 +259,17 @@ export const NO_LONGER_NEEDED = "Already dealt with since it was proposed: appro
 
 export const EMPTY_WORDS = "Nothing is waiting for your yes.";
 
-const SWITCH_OFF = "off: nothing happens until it is switched on at System › Jobs";
+/** The job that proposes items (lib/approvals/kinds.ts PROPOSER), as the Jobs page names it. */
+export const APPROVALS_JOB = "approvals-propose";
+
+/** Empty because nothing is proposed: the approvals job's switch is off (read from listJobs). */
+export const EMPTY_JOB_OFF =
+  "Nothing is waiting for your yes, but the approvals job is off at System > Jobs, so nothing is being proposed.";
+
+/** The empty line, by whether the approvals job is known to be off (null: its switch could not be read, so nothing extra is said). */
+export function emptyWords(proposerOn: boolean | null): string {
+  return proposerOn === false ? EMPTY_JOB_OFF : EMPTY_WORDS;
+}
 
 /** Cents as a reader reads money: "$80", "$1,200", "$0.90" (as apps/app's packets print it). */
 export function dollars(cents: number): string {
@@ -228,10 +278,23 @@ export function dollars(cents: number): string {
 }
 
 const DAY = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" });
+const WHEN = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
 /** An instant as its UTC day: "31 Oct 2026". */
 export function onDay(iso: string): string {
   return DAY.format(new Date(iso));
+}
+
+/** An instant to the minute, in UTC: "3 Nov 2026, 10:01 UTC". */
+export function whenWords(iso: string): string {
+  return `${WHEN.format(new Date(iso))} UTC`;
 }
 
 /** A Stripe event's type as words: "invoice.payment_failed" reads "invoice payment failed". */
@@ -244,8 +307,9 @@ export function eventTypeWords(type: string): string {
  * decides on, read live by apps/app from the rows the Billing tab reads. For
  * a billing request, whether the billing worker that would carry a re-armed
  * request out is switched on, and for a closure the setup-closure switch
- * too; the other two kinds run in the same request as the approval, with no
- * worker in between.
+ * too, as one word each: the packet's `effect` already says what an off
+ * switch means, and the card prints that sentence once. The other two kinds
+ * run in the same request as the approval, with no worker in between.
  */
 export function factLines(item: ApprovalItem): [string, string][] {
   const packet = item.packet;
@@ -262,8 +326,8 @@ export function factLines(item: ApprovalItem): [string, string][] {
     if (facts.supersededBy) {
       lines.push(["Superseded", `a later ${facts.supersededBy === "cancel_now" ? "cancellation" : "closure"} makes this change moot`]);
     }
-    lines.push(["Billing worker", facts.workerOn ? "on" : SWITCH_OFF]);
-    if (facts.closureOn !== null) lines.push(["Setup closure switch", facts.closureOn ? "on" : SWITCH_OFF]);
+    lines.push(["Billing worker", facts.workerOn ? "on" : "off"]);
+    if (facts.closureOn !== null) lines.push(["Setup closure switch", facts.closureOn ? "on" : "off"]);
     return lines;
   }
   if (facts.kind === "overage_invoice_retry") {
@@ -288,10 +352,14 @@ export function waitingWords(item: Pick<ApprovalItem, "proposedAt" | "pastDue">,
   return `Waiting ${waited(minutes)}${item.pastDue ? ", past due" : ""}`;
 }
 
-/** When the item leaves the list without running (KIND_SPECS expiryDays; store.ts expireDue), or that it waits until decided. */
+/**
+ * The item's window (KIND_SPECS expiryDays): past `expiresAt` a decision is
+ * refused (approval-ops.ts), and the approvals job's next run moves the
+ * item to expired (store.ts expireDue), unrun. Or it waits until decided.
+ */
 export function expiryWords(item: Pick<ApprovalItem, "expiresAt">): string {
   if (item.expiresAt === null) return "Waits until decided.";
-  return `Leaves the list without running on ${onDay(item.expiresAt)} if nobody decides.`;
+  return `Can no longer be approved after ${whenWords(item.expiresAt)}; the approvals job then takes it off the list.`;
 }
 
 export type Decided = {
@@ -310,20 +378,24 @@ export type Decided = {
  * operation's own sentence where it gave one (a re-armed request is due
  * again, not carried out: the billing worker does that at its next run);
  * one that did not go through says why in the operation's words; a refusal
- * (already decided, window passed, the code) changes nothing.
+ * (already decided, window passed, the code) changes nothing. A rejection's
+ * line says where the failure can still be retried: the clinic's Billing
+ * tab, or for a Stripe event no clinic's tab lists, nowhere.
  */
-export function decisionWords(entry: ApprovalDecisionEntry): Decided {
+export function decisionWords(entry: ApprovalDecisionEntry, item: Subject): Decided {
   switch (entry.status) {
     case "refused":
     case "code_refused":
       return { left: false, tone: "bad", text: entry.message, auditRecorded: null };
-    case "rejected":
+    case "rejected": {
+      const where = isClinicless(item) ? NO_CLINIC_EVENT_REJECTED : item.clinic ? BILLING_TAB_RETRY : null;
       return {
         left: true,
         tone: "ok",
-        text: "Rejected: nothing was run, and the item has left the list. This failure is not proposed again.",
+        text: `Rejected. ${REJECT_HEAD}${where ? ` ${where}` : ""}`,
         auditRecorded: entry.auditRecorded,
       };
+    }
     case "executed": {
       const said = (() => {
         switch (entry.outcomeCode) {

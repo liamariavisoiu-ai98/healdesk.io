@@ -5,19 +5,23 @@ import { useState } from "react";
 import {
   actorWords,
   APPROVAL_KIND_WORDS,
+  approveConfirm,
   APPROVE_REASON_WORDS,
   decisionWords,
-  EMPTY_WORDS,
+  emptyWords,
   EVENT_WORDS,
   expiryWords,
   FACTS_NOT_READ,
   factLines,
   IRREVERSIBLE_CONFIRM,
+  isClinicless,
+  NO_CLINIC_EVENT,
   NO_LONGER_NEEDED,
   outcomeWords,
-  REJECT_CONFIRM,
+  rejectConfirm,
   REJECT_REASON_WORDS,
   waitingWords,
+  whenWords,
   type Decided,
 } from "@/components/admin/approval-words";
 import { ActionButton, CodeField, Failure, isCompleteCode, Section, Tag, UNAUDITED } from "@/components/admin/ui";
@@ -38,20 +42,25 @@ import type { Tone } from "@/lib/admin/strip-types";
  * A card says what approving does in apps/app's one sentence (the packet's
  * `effect`), the packet's facts in words, whether the billing worker that
  * would carry a re-armed request out is switched on, how long the item has
- * waited and the day it leaves the list without running. Every kind today is
- * irreversible, so a sentence saying so stands before the code field, and
- * both decisions ask for the code: each goes through the page's server
- * action to lib/admin/approval-decide.ts (the session, then the fresh code,
- * then the signed request), never to the raw ops client. Approve is not
- * offered for an item whose facts apps/app could not read: deciding money on
- * nothing is what the packet exists to stop. Reject runs nothing, and stops
- * the same failure being proposed again, so it asks once before it goes.
+ * waited and the moment after which it can no longer be approved. Every kind
+ * today is irreversible, so a sentence saying so stands before the code
+ * field, and both decisions ask for the code: each goes through the page's
+ * server action to lib/admin/approval-decide.ts (the session, then the fresh
+ * code, then the signed request), never to the raw ops client. Approve is
+ * not offered for an item whose facts apps/app could not read: deciding
+ * money on nothing is what the packet exists to stop. Reject runs nothing
+ * now and stops the same failure being proposed again, so it asks once
+ * before it goes, naming where the failure can still be retried by hand: the
+ * clinic's Billing tab, or for a Stripe event that resolved to no clinic,
+ * nowhere but Approve here, which the card says too.
  *
  * The outcome says what happened in the operation's own words: a re-armed
  * request is due again, carried out by the billing worker at its next run,
  * not carried out now. A decided item leaves the waiting list, so its
  * outcome is kept by the section, not the card, and stays on screen after
- * the page re-reads the list.
+ * the page re-reads the list. An empty list says so; when the approvals
+ * job's switch is known to be off (the page reads the jobs), it says that
+ * nothing is being proposed either.
  */
 
 export type DecideApproval = (
@@ -64,6 +73,8 @@ export type DecideApproval = (
 export type ApprovalsProps = {
   approvals: OpsResult<{ items: ApprovalItem[]; partial: string[] }>;
   history: OpsResult<ApprovalHistoryEvent[]>;
+  /** The approvals job's switch (listJobs, `approvals-propose`); null when the jobs could not be read or it is not listed. */
+  proposerOn: boolean | null;
   /** The server's clock, ISO, so "waiting 2 days" is the same on both renders. */
   now: string;
   onDecide: DecideApproval;
@@ -76,20 +87,6 @@ const TEXT: Record<Tone, string> = {
   info: "text-ink",
   muted: "text-muted",
 };
-
-const WHEN = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "UTC",
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-/** An instant as the history reads it: "3 Nov 2026, 10:01 UTC". */
-export function whenWords(iso: string): string {
-  return `${WHEN.format(new Date(iso))} UTC`;
-}
 
 const APPROVE_REASONS = Object.keys(APPROVE_REASON_WORDS) as ApproveReason[];
 const REJECT_REASONS = Object.keys(REJECT_REASON_WORDS) as RejectReason[];
@@ -129,7 +126,7 @@ function ApprovalCard({
   async function decide(action: "approve" | "reject"): Promise<OpsResult<{ status: "done" | "refused"; message?: string }>> {
     const result = await onDecide(item.id, action, action === "approve" ? approveReason : rejectReason, code);
     if (!result.ok) return result;
-    const said = decisionWords(result.data);
+    const said = decisionWords(result.data, item);
     if (!said.left) return { ok: true, data: { status: "refused", message: said.text } };
     const unaudited = said.auditRecorded === false;
     onLeft(item.id, { ...said, tone: unaudited ? "warn" : said.tone, text: unaudited ? `${said.text} ${UNAUDITED}` : said.text });
@@ -156,6 +153,7 @@ function ApprovalCard({
           {NO_LONGER_NEEDED}
         </p>
       ) : null}
+      {isClinicless(item) ? <p className="mt-2 text-sm font-semibold">{NO_CLINIC_EVENT}</p> : null}
       {packet ? (
         <dl className="mt-3 grid gap-1 text-sm sm:grid-cols-[max-content_1fr] sm:gap-x-4">
           {factLines(item).map(([label, value]) => (
@@ -194,7 +192,7 @@ function ApprovalCard({
               <ActionButton
                 label="Approve"
                 variant="primary"
-                confirm="Approve this item? The operation runs once."
+                confirm={approveConfirm(item.kind)}
                 disabled={!isCompleteCode(code)}
                 run={() => decide("approve")}
               />
@@ -217,7 +215,7 @@ function ApprovalCard({
               ))}
             </select>
           </label>
-          <ActionButton label="Reject" confirm={REJECT_CONFIRM} disabled={!isCompleteCode(code)} run={() => decide("reject")} />
+          <ActionButton label="Reject" confirm={rejectConfirm(item)} disabled={!isCompleteCode(code)} run={() => decide("reject")} />
         </div>
       </form>
     </li>
@@ -249,7 +247,7 @@ export function History({ history }: { history: OpsResult<ApprovalHistoryEvent[]
   );
 }
 
-export function ApprovalsSection({ approvals, history, now, onDecide }: ApprovalsProps) {
+export function ApprovalsSection({ approvals, history, proposerOn, now, onDecide }: ApprovalsProps) {
   const [tab, setTab] = useState<"waiting" | "history">("waiting");
   const [decided, setDecided] = useState<{ id: string; said: Decided }[]>([]);
   const items = approvals.ok ? approvals.data.items : [];
@@ -281,7 +279,7 @@ export function ApprovalsSection({ approvals, history, now, onDecide }: Approval
             </ul>
           ) : null}
           {!approvals.ok ? <Failure failure={approvals} what="the approvals" /> : null}
-          {approvals.ok && waiting.length === 0 ? <p className="text-sm">{EMPTY_WORDS}</p> : null}
+          {approvals.ok && waiting.length === 0 ? <p className="text-sm">{emptyWords(proposerOn)}</p> : null}
           {waiting.length > 0 ? (
             <ul className="grid gap-3">
               {waiting.map((item) => (

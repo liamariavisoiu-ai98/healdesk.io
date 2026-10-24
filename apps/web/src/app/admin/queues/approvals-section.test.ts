@@ -7,12 +7,22 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { EMPTY_WORDS, FACTS_NOT_READ, IRREVERSIBLE_CONFIRM, NO_LONGER_NEEDED, REJECT_CONFIRM } from "@/components/admin/approval-words";
+import {
+  BILLING_TAB_RETRY,
+  EMPTY_JOB_OFF,
+  EMPTY_WORDS,
+  FACTS_NOT_READ,
+  IRREVERSIBLE_CONFIRM,
+  NO_CLINIC_EVENT,
+  NO_LONGER_NEEDED,
+  REJECT_HEAD,
+  whenWords,
+} from "@/components/admin/approval-words";
 import { UNAUDITED } from "@/components/admin/ui";
 import type { ApprovalDecisionEntry } from "@/lib/admin/approval-decide";
 import type { ApprovalHistoryEvent, ApprovalItem, OpsResult } from "@/lib/admin/ops-client";
 
-import { ApprovalsSection, History, whenWords, type DecideApproval } from "./ApprovalsSection";
+import { ApprovalsSection, History, type DecideApproval } from "./ApprovalsSection";
 
 /**
  * Queues › Approvals (Phase 6, lane P6b): each waiting item as one card with
@@ -117,8 +127,8 @@ const historyRow: ApprovalHistoryEvent = {
 const read = (items: ApprovalItem[]): OpsResult<{ items: ApprovalItem[]; partial: string[] }> => ({ ok: true, data: { items, partial: [] } });
 const noHistory: OpsResult<ApprovalHistoryEvent[]> = { ok: true, data: [] };
 
-function render(approvals: OpsResult<{ items: ApprovalItem[]; partial: string[] }>, history = noHistory): string {
-  return renderToStaticMarkup(h(ApprovalsSection, { approvals, history, now: NOW, onDecide: NEVER }));
+function render(approvals: OpsResult<{ items: ApprovalItem[]; partial: string[] }>, history = noHistory, proposerOn: boolean | null = null): string {
+  return renderToStaticMarkup(h(ApprovalsSection, { approvals, history, proposerOn, now: NOW, onDecide: NEVER }));
 }
 
 describe("the waiting items", () => {
@@ -138,8 +148,11 @@ describe("the waiting items", () => {
     expect(page).toContain("Stopped because every try was used");
     expect(page).toContain("Last error Stripe had an error on its side");
     expect(page).toContain("Billing now active");
-    expect(page).toContain("Billing worker off: nothing happens until it is switched on at System › Jobs");
-    expect(page).toContain("Waiting 2 days, past due. Leaves the list without running on 8 Nov 2026 if nobody decides.");
+    expect(page).toContain("Billing worker off");
+    // The off switch is explained once, by the packet's own effect sentence, not again on the fact line.
+    expect(page.match(/switched off/g) ?? []).toHaveLength(0);
+    expect(page).toContain("Waiting 2 days, past due. Can no longer be approved after 8 Nov 2026, 10:00 UTC; the approvals job then takes it off the list.");
+    expect(page).not.toContain(NO_CLINIC_EVENT);
     expect(page).toContain("Approve");
     expect(page).toContain("Reject");
     expect(page).toContain("Why approve");
@@ -174,6 +187,26 @@ describe("the waiting items", () => {
     expect(page).not.toContain("Past due");
     expect(page).toContain(IRREVERSIBLE_CONFIRM.billing_event_replay);
     expect(page).not.toContain("evt_1AbCdEf");
+    // It has a clinic (with no printable name), so its Billing tab lists it: no clinic-less sentence.
+    expect(page).not.toContain(NO_CLINIC_EVENT);
+  });
+
+  test("a parked event that resolved to no clinic says it is on no clinic's Billing tab and that Approve here is the only button that replays it", () => {
+    const page = text(render(read([{ ...event, clinic: null, packet: { ...event.packet!, stillNeeded: true } }])));
+    expect(page).toContain("No clinic");
+    expect(page).toContain(NO_CLINIC_EVENT);
+    expect(page).not.toContain(NO_LONGER_NEEDED);
+    expect(page).not.toContain("href=");
+  });
+
+  test("the empty line says the approvals job is off when its switch is read off, and nothing extra otherwise", () => {
+    expect(text(render(read([]), noHistory, false))).toContain(EMPTY_JOB_OFF);
+    expect(text(render(read([]), noHistory, true))).toContain(EMPTY_WORDS);
+    expect(text(render(read([]), noHistory, true))).not.toContain("approvals job is off");
+    expect(text(render(read([]), noHistory, null))).not.toContain("approvals job is off");
+    // Items waiting: the switch is not mentioned, whatever it says.
+    expect(text(render(read([request]), noHistory, false))).not.toContain("approvals job is off");
+    expect(EMPTY_JOB_OFF).toBe("Nothing is waiting for your yes, but the approvals job is off at System > Jobs, so nothing is being proposed.");
   });
 
   test("an item whose facts could not be read offers Reject alone and says why", () => {
@@ -265,7 +298,7 @@ describe("the two controls", () => {
 
   async function mount(onDecide: DecideApproval, items = [request]): Promise<void> {
     await act(async () => {
-      root.render(h(ApprovalsSection, { approvals: read(items), history: { ok: true, data: [historyRow] }, now: NOW, onDecide }));
+      root.render(h(ApprovalsSection, { approvals: read(items), history: { ok: true, data: [historyRow] }, proposerOn: null, now: NOW, onDecide }));
     });
   }
 
@@ -287,7 +320,9 @@ describe("the two controls", () => {
       button("Approve").click();
     });
     expect(decide).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("Approve this item? The operation runs once.");
+    expect(container.textContent).toContain(
+      "Approve this item? Its operation runs once now. A billing change is then carried out by the billing worker, with fresh tries.",
+    );
     await act(async () => {
       button("Yes, approve").click();
     });
@@ -312,14 +347,30 @@ describe("the two controls", () => {
       button("Reject").click();
     });
     expect(decide).not.toHaveBeenCalled();
-    expect(container.textContent).toContain(REJECT_CONFIRM);
+    expect(container.textContent).toContain(`${REJECT_HEAD} ${BILLING_TAB_RETRY}`);
     await act(async () => {
       button("Yes, reject").click();
     });
     await act(async () => {});
     expect(decide).toHaveBeenCalledWith(ITEM, "reject", "wrong_amount", "123456");
-    expect(statuses()).toContain(`Rejected: nothing was run, and the item has left the list. This failure is not proposed again. ${UNAUDITED}`);
+    expect(statuses()).toContain(`Rejected. ${REJECT_HEAD} ${BILLING_TAB_RETRY} ${UNAUDITED}`);
     expect(container.textContent).not.toContain("Why reject");
+  });
+
+  test("a clinic-less Stripe event: Reject's second press and the rejected line say no clinic's Billing tab lists it", async () => {
+    const decide = vi.fn<DecideApproval>(async () => ({ ok: true, data: { status: "rejected", outcomeCode: "not_needed", auditRecorded: true } }));
+    await mount(decide, [{ ...event, clinic: null }]);
+    await type("123456");
+    await act(async () => {
+      button("Reject").click();
+    });
+    expect(container.textContent).toContain(`${REJECT_HEAD} ${NO_CLINIC_EVENT}`);
+    await act(async () => {
+      button("Yes, reject").click();
+    });
+    await act(async () => {});
+    expect(decide).toHaveBeenCalledWith(OTHER, "reject", "not_needed", "123456");
+    expect(statuses()).toContain(`Rejected. ${REJECT_HEAD} This event is on no clinic's Billing tab.`);
   });
 
   test("a refused code, or an item already decided, is said on the card and the card stays; a failed operation leaves the list in red", async () => {

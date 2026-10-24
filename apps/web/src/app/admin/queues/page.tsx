@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { APPROVALS_JOB } from "@/components/admin/approval-words";
 import { HostStandbyNotice } from "@/components/admin/HostStandbyNotice";
 import { decideApprovalWithCode } from "@/lib/admin/approval-decide";
 import { requireOperator } from "@/lib/admin/operator";
-import { fetchApprovalHistory, fetchApprovals, type ApproveReason, type RejectReason } from "@/lib/admin/ops-client";
+import { fetchApprovalHistory, fetchApprovals, fetchJobs, type ApproveReason, type RejectReason } from "@/lib/admin/ops-client";
 import { probeLiveness } from "@/lib/host/state";
 
 import AgreementChecksSection from "./AgreementChecksSection";
@@ -67,8 +68,14 @@ export default async function QueuesPage({ searchParams }: { searchParams: Promi
   const liveness = await probeLiveness();
   const standby = liveness === "unreachable";
   const now = new Date().toISOString();
-  // The approval inbox's two reads, settled together; one that fails costs its tab, never the page.
-  const [approvals, history] = standby ? [null, null] : await Promise.all([fetchApprovals(), fetchApprovalHistory()]);
+  // The approval inbox's reads, settled together; one that fails costs its
+  // tab, never the page. The jobs are read for one switch, the approvals
+  // job's: an empty list with that job off means nothing is being proposed,
+  // which the empty line then says. A failed jobs read says nothing extra.
+  const [approvals, history, jobs] = standby
+    ? [null, null, null]
+    : await Promise.all([fetchApprovals(), fetchApprovalHistory(), fetchJobs()]);
+  const proposerOn = jobs?.ok ? (jobs.data.find((job) => job.name === APPROVALS_JOB)?.enabled ?? null) : null;
 
   // A decision on the approval inbox: the ids and the reason come from the
   // card the page drew, and the wrapper checks each (a uuid, approve or
@@ -96,7 +103,7 @@ export default async function QueuesPage({ searchParams }: { searchParams: Promi
         <HostStandbyNotice what="Every queue but the setup requests" />
       ) : (
         <>
-          {approvals && history ? <ApprovalsSection approvals={approvals} history={history} now={now} onDecide={decide} /> : null}
+          {approvals && history ? <ApprovalsSection approvals={approvals} history={history} proposerOn={proposerOn} now={now} onDecide={decide} /> : null}
           <ReviewsSection />
           <AgreementChecksSection />
           <SupportSection searchParams={Promise.resolve({ result: query.support })} />

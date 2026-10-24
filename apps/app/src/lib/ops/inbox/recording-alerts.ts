@@ -29,7 +29,7 @@ export const recordingAlertsSource: InboxSource = {
         count,
         sentence: "Calls Retell still holds: delete them.",
         clinic: name !== undefined ? { id: clinicId, name } : null,
-        button: { label: "Open Retell deletions", kind: "link", href: "/admin/recordings" },
+        button: { label: "Open Retell deletions", kind: "link", href: "/admin/queues#retell-deletions" },
         tone: "warn",
         dueAt: null,
       };

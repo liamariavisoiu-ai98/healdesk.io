@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const CLINIC = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 const CHANGE = "5b4a3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
 const state = vi.hoisted(() => ({
-  reads: [] as [string, unknown][],
+  reads: [] as unknown[][],
   writes: [] as [string, unknown[]][],
   onboarding: { ok: true, data: {} } as unknown,
   watched: true,
@@ -34,14 +34,11 @@ vi.mock("next/navigation", () => ({
   },
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+// The Setup tab reads one clinic; the whole Clinics strip is never loaded for it (lane A4).
 vi.mock("@/lib/admin/clinic-strip", () => ({
-  loadClinicRows: async () => ({
-    clinics: { ok: true, data: { clinics: [], connectionStateLimit: 50 } },
-    cards: { ok: true, data: { cards: [], limit: 50 } },
-    health: { ok: true, data: [] },
-    strip: null,
-    rows: [],
-  }),
+  loadClinicRows: async () => {
+    throw new Error("the Setup tab must not read every clinic's strip");
+  },
 }));
 vi.mock("./OnboardingPanel", () => ({ OnboardingPanel: () => null }));
 vi.mock("./SetupSummary", () => ({ SetupSummary: () => null }));
@@ -57,12 +54,16 @@ vi.mock("@/lib/admin/ops-client", () => {
       state.reads.push(["fetchOnboarding", clinicId]);
       return state.onboarding;
     },
+    fetchClinicCards: async () => {
+      state.reads.push(["fetchClinicCards"]);
+      return { ok: true, data: { cards: [], limit: 50 } };
+    },
     fetchClinicChanges: async (filter: unknown) => {
       state.reads.push(["fetchClinicChanges", filter]);
       return { ok: true, data: { since: "2026-09-24T00:00:00.000Z", changes: [] } };
     },
-    fetchClinicAudits: async (clinicId: string) => {
-      state.reads.push(["fetchClinicAudits", clinicId]);
+    fetchClinicAudits: async (clinicId: string, options?: unknown) => {
+      state.reads.push(["fetchClinicAudits", clinicId, options]);
       return { ok: true, data: { clinics: [], history: null } };
     },
     fetchClinicBilling: async (clinicId: string) => {
@@ -76,8 +77,8 @@ vi.mock("@/lib/admin/ops-client", () => {
         },
       };
     },
-    fetchLifecycle: async () => {
-      state.reads.push(["fetchLifecycle", null]);
+    fetchLifecycle: async (clinicId?: string) => {
+      state.reads.push(["fetchLifecycle", clinicId ?? null]);
       return {
         ok: true,
         data: state.watched
@@ -184,9 +185,10 @@ describe("the Setup tab", () => {
     const tree = await page();
     const html = renderToStaticMarkup(tree as ReactElement).replace(/<!-- -->/g, "");
     expect(state.reads).toContainEqual(["fetchClinicChanges", { clinicId: CLINIC }]);
-    expect(state.reads).toContainEqual(["fetchClinicAudits", CLINIC]);
+    // This clinic's audits without their history, and its lifecycle row alone (lane A4).
+    expect(state.reads).toContainEqual(["fetchClinicAudits", CLINIC, { history: false }]);
     expect(state.reads).toContainEqual(["fetchClinicBilling", CLINIC]);
-    expect(state.reads).toContainEqual(["fetchLifecycle", null]);
+    expect(state.reads).toContainEqual(["fetchLifecycle", CLINIC]);
     expect(html).toContain('id="setup-window"');
     expect(html).toContain('id="availability"');
     const words = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");

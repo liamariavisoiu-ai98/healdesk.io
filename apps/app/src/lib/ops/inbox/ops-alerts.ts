@@ -33,6 +33,15 @@ const LEFT_OUT: ReadonlySet<string> = new Set<OpsEvent>([
   "support_reply_past_due",
   "practice_question_failed",
   "practice_question_review_past_due",
+  // Lane A4: the same issues have their own rows, read from their own
+  // tables, so Home says each once. A clinic's availability change is the
+  // availability row (lib/ops/inbox/availability.ts); a decision owed and a
+  // clinic waiting on us are the "Needs a decision" row (./decisions.ts).
+  "clinic_availability_changed",
+  "lifecycle_decision_due",
+  "lifecycle_waiting_on_us",
+  "lifecycle_waiting_on_us_long",
+  "lifecycle_closing_waiting_on_us",
 ]);
 
 /** Alerts about a patient who may not reach the clinic, or a paid buyer with no account. */
@@ -62,7 +71,7 @@ export const opsAlertsSource: InboxSource = {
   async read(ctx) {
     const since = new Date(ctx.now.getTime() - ALERT_WINDOW_MS);
     const raised = await unsafeDb
-      .select({ event: opsAlerts.event, fields: opsAlerts.fields })
+      .select({ id: opsAlerts.id, event: opsAlerts.event, fields: opsAlerts.fields })
       .from(opsAlerts)
       .where(and(gte(opsAlerts.lastRaisedAt, since), ne(opsAlerts.event, "ops_digest")))
       .orderBy(desc(opsAlerts.lastRaisedAt))
@@ -70,16 +79,23 @@ export const opsAlertsSource: InboxSource = {
 
     const groups = new Map<
       string,
-      { event: string; clinicId: string | null; count: number; fields: Record<string, string | number | boolean | null> }
+      {
+        event: string;
+        clinicId: string | null;
+        count: number;
+        alertId: string;
+        fields: Record<string, string | number | boolean | null>;
+      }
     >();
-    for (const { event, fields } of raised) {
+    for (const { id: alertId, event, fields } of raised) {
       if (LEFT_OUT.has(event)) continue;
       if (!isOpsEvent(event) && event !== FLAG_ALERT_EVENT) continue;
       const raw = fields?.clinicId;
       const clinicId = typeof raw === "string" && UUID.test(raw) ? raw.toLowerCase() : null;
       const key = `${event}:${clinicId ?? "all"}`;
-      // Rows come newest first, so a group keeps its newest alert's fields for the title.
-      const seen = groups.get(key) ?? { event, clinicId, count: 0, fields: fields ?? {} };
+      // Rows come newest first, so a group keeps its newest alert's fields
+      // for the title and its id for the link's anchor.
+      const seen = groups.get(key) ?? { event, clinicId, count: 0, alertId, fields: fields ?? {} };
       seen.count += 1;
       groups.set(key, seen);
     }
@@ -89,7 +105,7 @@ export const opsAlertsSource: InboxSource = {
 
     const names = await ctx.clinicNames();
     const rows: InboxRow[] = [];
-    for (const [key, { event, clinicId, count, fields }] of groups) {
+    for (const [key, { event, clinicId, count, alertId, fields }] of groups) {
       const name = clinicId ? names.get(clinicId) : undefined;
       rows.push({
         id: `alert:${key}`,
@@ -97,7 +113,7 @@ export const opsAlertsSource: InboxSource = {
         count,
         sentence: sentenceFor(event, fields),
         clinic: clinicId && name !== undefined ? { id: clinicId, name } : null,
-        button: { label: clinicId ? "Open clinic" : "Open console", kind: "link", href: hrefFor(event, clinicId) },
+        button: { label: clinicId ? "Open clinic" : "Open console", kind: "link", href: hrefFor(event, clinicId, alertId) },
         tone: toneFor(event),
         dueAt: null,
       });
@@ -112,10 +128,19 @@ function sentenceFor(event: string, fields: Record<string, string | number | boo
   return /[.!?]$/.test(title) ? title : `${title}.`;
 }
 
-function hrefFor(event: string, clinicId: string | null): string {
-  if (event === FLAG_ALERT_EVENT) return clinicId ? `/admin/ops/${clinicId}/care` : "/admin/ops";
-  return opsConsolePath(event as OpsEvent, clinicId ? { clinicId } : {}) ?? "/admin/ops";
+/**
+ * The alert's own page (opsConsolePath, the link its email and Slack copy
+ * print), at the newest alert's anchor so the tab scrolls to it. A flag is
+ * not an OpsEvent and has no anchor: it opens the clinic's Care tab, where
+ * flags are read. An alert with no page of its own opens the Clinics list,
+ * where the retired /admin/ops landed.
+ */
+function hrefFor(event: string, clinicId: string | null, alertId: string): string {
+  if (event === FLAG_ALERT_EVENT) return clinicId ? `/admin/clinics/${clinicId}/care` : CLINICS_PAGE;
+  return opsConsolePath(event as OpsEvent, clinicId ? { clinicId } : {}, alertId) ?? CLINICS_PAGE;
 }
+
+const CLINICS_PAGE = "/admin/clinics";
 
 function toneFor(event: string): Tone {
   return BAD.has(event) ? "bad" : "warn";

@@ -1888,6 +1888,10 @@ describe("the lifecycle watch's operations (design E2)", () => {
     reply({ data: { clinics: [row()] } });
     expect(await opsClient.fetchLifecycle()).toEqual({ ok: true, data: [row()] });
     expect(sent.at(-1)).toEqual({ op: "listLifecycle", args: {} });
+    // One clinic's row alone (lane A4).
+    reply({ data: { clinics: [row()] } });
+    expect(await opsClient.fetchLifecycle(CLINIC)).toEqual({ ok: true, data: [row()] });
+    expect(sent.at(-1)).toEqual({ op: "listLifecycle", args: { clinicId: CLINIC } });
     reply({ data: { clinics: [row({ stage: "stuck" })] } });
     expect(await opsClient.fetchLifecycle()).toMatchObject({ ok: false, code: "malformed" });
     reply({ data: { clinics: [row({ recommendation: { action: "refund", days: null, reason: "x." } })] } });
@@ -1905,11 +1909,22 @@ describe("the lifecycle watch's operations (design E2)", () => {
       outcome: "delivered",
       providerId: "msg_1",
       escalated: false,
+      event: null,
       manualBy: null,
       skippedBecause: null,
     };
     reply({ data: { waves: [wave] } });
     expect(await opsClient.fetchLifecycleWaves(CLINIC)).toEqual({ ok: true, data: [wave] });
+    // An ops wave names its alert's event; an older apps/app that sends none reads as null.
+    const decision = { ...wave, wave: "day_22:2026-11-13", target: "slack", escalated: true, event: "lifecycle_decision_due" };
+    reply({ data: { waves: [decision] } });
+    expect(await opsClient.fetchLifecycleWaves(CLINIC)).toEqual({ ok: true, data: [decision] });
+    reply({ data: { waves: [(({ event: _e, ...rest }) => rest)(wave)] } });
+    expect(await opsClient.fetchLifecycleWaves(CLINIC)).toEqual({ ok: true, data: [wave] });
+    for (const event of ["Decision due", 42, ""]) {
+      reply({ data: { waves: [{ ...wave, event }] } });
+      expect(await opsClient.fetchLifecycleWaves(CLINIC), String(event)).toMatchObject({ ok: false, code: "malformed" });
+    }
     expect(sent.at(-1)).toEqual({ op: "listLifecycleWaves", args: { clinicId: CLINIC } });
     reply({ data: { waves: [{ ...wave, wave: "a sentence about the clinic" }] } });
     expect(await opsClient.fetchLifecycleWaves(CLINIC)).toMatchObject({ ok: false, code: "malformed" });
@@ -1917,10 +1932,15 @@ describe("the lifecycle watch's operations (design E2)", () => {
 
   test("the snooze and the decision send ids and closed words, and read saved or not watched", async () => {
     reply({ data: { outcome: "saved", snoozedUntil: "2026-10-27T16:00:00.000Z", auditRecorded: true } });
-    expect(await opsClient.snoozeLifecycle(CLINIC, 7)).toEqual({ ok: true, data: { outcome: "saved" } });
+    expect(await opsClient.snoozeLifecycle(CLINIC, 7)).toEqual({ ok: true, data: { outcome: "saved", auditRecorded: true } });
     expect(sent.at(-1)).toEqual({ op: "snoozeLifecycle", args: { clinicId: CLINIC, days: 7 } });
     reply({ data: { outcome: "not_watched" } });
     expect(await opsClient.decideLifecycle(CLINIC, "let_close")).toEqual({ ok: true, data: { outcome: "not_watched" } });
     expect(sent.at(-1)).toEqual({ op: "decideLifecycle", args: { clinicId: CLINIC, decision: "let_close" } });
+    // The audit row's outcome is carried, so a card can say it was not written; a saved reply without it is malformed.
+    reply({ data: { outcome: "saved", decision: "let_close", auditRecorded: false } });
+    expect(await opsClient.decideLifecycle(CLINIC, "let_close")).toEqual({ ok: true, data: { outcome: "saved", auditRecorded: false } });
+    reply({ data: { outcome: "saved" } });
+    expect(await opsClient.snoozeLifecycle(CLINIC, 3)).toMatchObject({ ok: false, code: "malformed" });
   });
 });

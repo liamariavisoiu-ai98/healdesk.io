@@ -1,56 +1,169 @@
 import type { OpsEvent } from "@/lib/ops/notify";
 
-import { legacy, type AlertWording } from "./types";
+import type { AlertWording } from "./types";
 
 /** The "voice" section of docs/on-call.md's alert runbook. */
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
-  voice_fallback_no_direct_line: legacy(
-    "A call had no direct line to pass through to",
-    "AYA could not pass a call through because the clinic has no direct line set, so she answered it with the fixed safe script. Ask the clinic for a direct line that does not forward back to us.",
-  ),
-  voice_call_start_failed: legacy(
-    "A call started while the database could not be read",
-    "The voice endpoint could not read the clinic's settings when a call came in. The code says where the call went: transferred_gate, transferred_database, transferred_memory or transferred_retell sent it to the clinic's direct line (named by the answer gate before the failure, read on its own from a database that failed one query rather than hung, remembered from the clinic's last call, or read back from Retell), closed means no direct line was known and the caller heard the closing line, and hung_up that the call ended (the caller hung up, or the voice process shut down) before either. Check the database first; if it stays down, put Retell in outage mode (docs/on-call.md).",
-  ),
-  retell_fallback_unsynced: legacy(
-    "A Retell fallback is not the direct line",
-    "The hourly sync could not set the fallback number of the clinic's AYA number in Retell to its direct line. The code says why: duplicate (two clinics name the same AYA number, whose fallback is cleared; fix the wrong one in Ops), missing (Retell has no such number), not_kept (Retell answered but did not keep it, or failed while setting it), rejected, unreachable or database; key_refused (Retell refused HEALDESK_RETELL_API_KEY) and retell_unreachable (three numbers in a row timed out) stop the run for every clinic. Until it is fixed, outage mode and a voice task started during a database outage cannot send that clinic's calls to its direct line. Check the number in Retell's dashboard and HEALDESK_RETELL_API_KEY.",
-  ),
-  voice_provision_failed: legacy(
-    "A clinic's Retell set-up stopped",
-    "Setting up the clinic's Retell agent and AYA number stopped, and the code says why: not_implemented (the clinic is set to Retell's own engine, which is not built), no_voice (HEALDESK_RETELL_VOICE_ID is not set), config (the public origin or the line password is not usable), number_missing (the clinic's AYA number is not in this Retell workspace), unsupported_country (Retell sells US and Canadian numbers only), not_kept (Retell answered but did not keep a setting) or rejected (Retell refused the request). Phase sync means a settings change was not written to Retell. Fix the cause, then run retryVoiceAgent from Ops.",
-  ),
-  voice_provision_cap_reached: legacy(
-    "The day's cap on AYA numbers is reached",
-    "Provisioning has ordered as many AYA numbers from Retell today as HEALDESK_VOICE_PROVISION_DAILY_CAP allows, so the next clinics wait until midnight UTC, when they are set up on their own. If that many clinics really paid for voice today, raise the cap; if not, find out what ordered the numbers before anything else spends.",
-  ),
-  voice_agent_drift: legacy(
-    "A clinic's Retell agent drifted",
-    "The nightly read-back found the clinic's Retell agent or number different from what our code wrote, and the code names the first difference (storage, engine, webhook, voice, language, number_agent, number_outbound, fallback, agent_missing or number_missing). Status repaired means it was written again; flagged means it drifted again after three repairs, or the agent or number is gone, and is left for you: check who changes it in Retell's dashboard.",
-  ),
-  voice_deprovision_failed: legacy(
-    "A departed clinic's Retell number was not released",
-    "The clinic's service and its forwarding pass-through have ended, but releasing its AYA number or deleting its agent at Retell failed. Retell bills the number until it goes. The sweep tries again every hour; if it keeps failing, release the number and delete the agent in Retell's dashboard.",
-  ),
-  voice_direct_line_loops: legacy(
-    "A clinic's direct line forwards back to AYA",
-    "The clinic's direct line is the same as its published number or its AYA number, so a call put through to it would come straight back to AYA and never reach a person. Until it changes, AYA treats the clinic as having no direct line: a call she would pass through is answered with the fixed safe script, or closed where the Services have ended, and no call is transferred. The code is the answer gate's decision on the call that found it. Ask the clinic for a direct line that reaches a person and does not forward back to us, and check its published number.",
-  ),
-  voice_test_mode_refused: legacy(
-    "A call was refused in voice test mode",
-    "Real calls are off (HEALDESK_VOICE_REAL_CALLS), so the voice endpoint answers only the demo clinic, and it refused a call for the clinic below. Phase not_made_up means the clinic is not the demo clinic: its Retell agent or its call forwarding already points at the endpoint, which must not happen before every agreement in the chain is signed, so find out why and point it back. Phase check_failed means the endpoint could not tell within its start deadline whether the clinic is made up, usually because the database could not be read. The code says where the call went: transferred to the clinic's direct line, or closed with the closing line. Nothing of the call was kept.",
-  ),
+  // The answer gate (lib/billing/answering.ts voiceAnswerDecision), at most
+  // once an hour per clinic and reason: a pass-through (paused, outside
+  // coverage, over the allowance, not live, the service ended) with no
+  // direct line. The runtime answers with the safe script, or closes the
+  // call with the fixed line where the Services have ended.
+  voice_fallback_no_direct_line: {
+    title: "A call had no direct line to pass through to",
+    whatHappened:
+      "A call to {clinicName} came in while AYA was not meant to answer it: the assistant is paused, the call is outside the clinic's coverage, its allowance is used up, or the service has ended. The clinic has no direct line set, so there was nowhere to pass the caller to.",
+    whyItMatters:
+      "The caller heard AYA's safe script instead, which takes a message for the front desk and books nothing, or a closing line if the service has ended. Every such call misses a person until a direct line is set.",
+    steps: [
+      "Open the clinic's Billing tab and read Pause AI and the direct line: it shows whether AYA is paused and that no direct line is on file.",
+      "Phone the clinic on its published number, shown under Phone line on its Setup tab, and ask for a line that reaches a person and does not forward back to AYA. Its published number will not do: it forwards to us.",
+      "Press Save the direct line on the Billing tab after typing the number the clinic gave. From then on every call AYA does not answer goes there.",
+      "Press Resume on the same Billing tab only if the clinic asks for AYA back on; a pause is the clinic's choice. You are done when the direct line is saved and this alert stops.",
+    ],
+  },
+  // lib/voice/retell.ts, for a call whose start could not read the clinic's
+  // settings: the code says where it went (transferred_gate,
+  // transferred_database, transferred_memory, transferred_retell, closed,
+  // hung_up). It is written to the ops log before it emails, so while the
+  // database hangs it waits with it.
+  voice_call_start_failed: {
+    title: "A call started while AYA could not read the database",
+    whatHappened:
+      "A call came in for {clinicName} and the voice process could not read the clinic's settings in time. The caller was sent to the clinic's direct line where one was known, heard a closing line, or had hung up before either.",
+    whyItMatters:
+      "A patient calling the clinic has to reach someone. If the database stays down, every call to every clinic ends this way until it is back, or until Retell's outage mode sends calls to each clinic's direct line.",
+    steps: [
+      "Open the Jobs page under System. If it cannot load, or every recent run shows failed, the database is down and this is every clinic, not one.",
+      "Check the clinic's direct line under Pause AI and the direct line on its Billing tab: with a line on file, a call that cannot start is sent there wherever the line can still be found.",
+      "Turn outage mode on in Retell's dashboard, under its reliability settings, if the Jobs page still cannot load: Retell then sends every call to its number's fallback, the clinic's direct line, for every clinic until you turn it off. Turn it off and make a test call once the database is back.",
+      "Check the Jobs page shows runs passing again. You are done when calls start normally and outage mode is off.",
+    ],
+  },
+  // The hourly sync (lib/voice/retell-fallback-sync.ts): a clinic's number
+  // whose fallback could not be set (duplicate, missing, not_kept, rejected,
+  // unreachable, database), or, with no clinic, a refused key (key_refused)
+  // or three numbers in a row timing out (retell_unreachable), which stop
+  // the run for every clinic. It has no row on the Jobs page.
+  retell_fallback_unsynced: {
+    title: "A Retell fallback number is not the direct line",
+    whatHappened:
+      "Every hour we set the fallback of each clinic's AYA number in Retell to the clinic's direct line. This hour that could not be done[ for {clinicName}]. Either Retell did not accept the change or did not answer, the number is not in Retell, two clinics name the same AYA number, or Retell refused our key.",
+    whyItMatters:
+      "Until it is fixed, Retell's outage mode and a call that cannot read the database cannot send that clinic's callers to its direct line. Those callers would hear a closing line instead.",
+    steps: [
+      "Open the clinic's Setup tab and check the assistant number under Phone line is the clinic's AYA number in Retell. If two clinics show the same number, correct the wrong one and press Save phone settings.",
+      "Open Retell's dashboard and find that number: check it is in the workspace and that its fallback can be set to the direct line shown under Pause AI and the direct line on the clinic's Billing tab.",
+      "Open the Map page under System and press Missing or broken if the alert names no clinic: the Retell key must be in place, and nothing was set for any clinic this hour.",
+      "Check the alert does not come again next hour. You are done when it stops, or when you have set the fallback in Retell's dashboard by hand to the direct line shown on the clinic's Billing tab.",
+    ],
+  },
+  // lib/voice/provision.ts: a provisioning run that stopped with our reason
+  // (not_implemented, no_voice, config, number_missing, unsupported_country,
+  // not_kept, rejected), once a day per clinic and reason, or a changed
+  // setting not written to Retell (phase sync). A failed run is retried only
+  // by the ops operation retryVoiceAgent, which the console does not offer
+  // yet.
+  voice_provision_failed: {
+    title: "A clinic's AYA phone set-up stopped",
+    whatHappened:
+      "Setting up the Retell agent and AYA number for {clinicName} stopped[ on {windowStart}][, at attempt {count}], or a changed setting could not be written to Retell. The usual causes: the clinic's own number is not a US or Canadian number, its AYA number is not in our Retell workspace, Retell refused or did not keep a setting, or a voice setting on our side is missing.",
+    whyItMatters:
+      "Until the set-up finishes, the clinic's phone channel cannot be switched on and no call reaches AYA. A failed run waits for a person: nothing retries it by itself.",
+    steps: [
+      "Open the Clinics page and read the Voice agent column for the clinic: failed means the set-up stopped. Its Setup tab shows under Phone line whether an assistant number exists yet.",
+      "Check in Retell's dashboard that the clinic's AYA number is in the workspace and on its agent, and that the published number under Phone line on the Setup tab is a US or Canadian number.",
+      "Open the Map page under System and press Missing or broken: the Retell key and the voice settings must all be in place.",
+      "Ask whoever maintains the engine to run the set-up again once the cause is fixed; it runs from the engine by clinic id. The Setup tab has no retry button for it yet.",
+      "Check the Voice agent column on the Clinics page afterwards. You are done when it shows ok.",
+    ],
+  },
+  // lib/voice/provision.ts reserveOrder, once a day: as many numbers were
+  // ordered today as HEALDESK_VOICE_PROVISION_DAILY_CAP allows; `count` is
+  // the cap. The next clinics wait until midnight UTC.
+  voice_provision_cap_reached: {
+    title: "Today's cap on new AYA numbers is reached",
+    whatHappened:
+      "We have ordered as many AYA numbers from Retell[ on {windowStart}] as the daily cap allows[: {count:number}]. Clinics that still need one wait until midnight UTC, when their set-up runs again by itself.",
+    whyItMatters:
+      "If that many clinics really paid for voice today, the waiting clinics lose up to a day before their phone channel can be set up. If not, something ordered numbers it should not have, and Retell bills each one.",
+    steps: [
+      "Open the Clinics page and read the Voice agent column: count the clinics shown as not provisioned that bought voice today.",
+      "Check the numbers bought today in Retell's dashboard against the count from the Clinics page. If Retell shows more numbers than clinics, stop and tell the owner before anything else is ordered.",
+      "Ask the owner to raise the cap only if every number has a paying clinic: the cap is a deployment setting, not a switch on the Jobs page or anywhere else in the console.",
+      "Check the Clinics page tomorrow. You are done when every clinic that bought voice shows ok in the Voice agent column.",
+    ],
+  },
+  // The nightly read-back (lib/voice/provision.ts checkVoiceAgentDrift): the
+  // first difference as a code (storage, engine, webhook, voice, language,
+  // number_agent, number_outbound, fallback, agent_missing, number_missing);
+  // status repaired, with the repair count, or flagged after three repairs
+  // or a missing agent or number, when the clinic is left for a person and
+  // the Clinics page shows drift.
+  voice_agent_drift: {
+    title: "A clinic's Retell agent differs from what we set",
+    whatHappened:
+      "The nightly read-back found the Retell agent or AYA number of {clinicName} different from what our code wrote: its voice, its language, where calls are sent, the fallback number, or the agent or number itself missing. Where it could, the code wrote the right settings again.[ Repairs so far: {count}.]",
+    whyItMatters:
+      "Settings changed in Retell by hand undo what the clinic chose, and a missing agent or number means its calls go nowhere. After three repairs, or when the agent or number is gone, the code stops repairing and leaves the clinic to you.",
+    steps: [
+      "Open the Clinics page and read the Voice agent column for the clinic: drift means it is flagged for a person; ok means the repair held.",
+      "Open Retell's dashboard and compare the clinic's agent and number with the settings under Phone line on its Setup tab: the assistant number must be on that agent, and nobody should change them in Retell by hand.",
+      "Ask whoever has Retell access who changed it, and stop the change at its source. If the agent or number is gone from Retell, nothing recreates it by itself: tell the owner before a new number is bought, and note it in the Touch log on the clinic's Care tab.",
+      "Check the Voice agent column on the Clinics page after the next nightly read-back. You are done when it shows ok.",
+    ],
+  },
+  // lib/voice/provision.ts deprovisionVoiceAgent, once a day per clinic: the
+  // service and the pass-through have ended, and releasing the number or
+  // deleting the agent at Retell failed. The hourly sweep tries again.
+  voice_deprovision_failed: {
+    title: "A departed clinic's AYA number was not released",
+    whatHappened:
+      "{clinicName} has left, and its forwarding pass-through has ended, so its AYA number should be released and its Retell agent deleted. That failed[ on {windowStart}]: Retell refused or did not answer.",
+    whyItMatters:
+      "Retell bills the number until it is released. The hourly check tries again by itself, so this alert matters when it keeps coming.",
+    steps: [
+      "Open the clinic's Care tab and read the Offboarding card: it shows the Retell step still outstanding and when the pass-through ended.",
+      "Wait a few hours: the hourly check retries the release by itself, and a Retell outage clears without you. The Offboarding card does not change until it succeeds.",
+      "Release the number and delete the agent in Retell's dashboard yourself if the alert comes again the next day. Then press Record Retell agent release on the Offboarding card and say how it was done.",
+      "Check the Offboarding card shows the Retell step recorded. You are done when it does; the clinic's account closes only once this is recorded.",
+    ],
+  },
+  // The answer gate, on any call that finds the clinic's direct line equal
+  // to its published number or its AYA number (lib/billing/answering.ts),
+  // at most once an hour per clinic and decision.
+  voice_direct_line_loops: {
+    title: "A clinic's direct line forwards back to AYA",
+    whatHappened:
+      "The direct line on file for {clinicName} is its own published number or its AYA number. A call passed through to it would come straight back to AYA and never reach a person. A call just came in that found this.",
+    whyItMatters:
+      "Until it changes, AYA treats the clinic as having no direct line: a call she cannot answer gets her safe script, or is closed if the service has ended, and no call is transferred to a person.",
+    steps: [
+      "Open the clinic's Billing tab and read Pause AI and the direct line: the direct line shown is the one that loops.",
+      "Open the clinic's Setup tab and compare it with the numbers under Phone line: the clinic's own published number and its assistant number. The direct line must be neither.",
+      "Phone the clinic on its published number and ask for a line that reaches a person without forwarding to AYA, such as a back-office line or a mobile. Then press Save the direct line on the Billing tab with that number.",
+      "Check Pause AI and the direct line shows the new number. You are done when it does and this alert stops coming.",
+    ],
+  },
+  // lib/voice/retell.ts madeUpClinic, at most once an hour per clinic: real
+  // calls are off (HEALDESK_VOICE_REAL_CALLS), the clinic is not the demo
+  // clinic (phase not_made_up) or the check could not be read in time
+  // (phase check_failed), and the caller was transferred or the call closed
+  // (code). Nothing of the call was kept.
+  voice_test_mode_refused: {
+    title: "A clinic's call reached AYA while real calls are off",
+    whatHappened:
+      "Real calls are switched off, so the voice line answers only our demo clinic. A call for {clinicName} reached it anyway and was refused before AYA said a word: the caller was put through to the clinic's direct line, or heard a closing line. Nothing of the call was kept.",
+    whyItMatters:
+      "A real clinic's calls must not reach the voice line before every agreement in the chain is signed and the owner switches real calls on. Either this clinic's number or forwarding already points at us, or the check could not read the database in time.",
+    steps: [
+      "Open the clinic's Setup tab and read Phone line: if an assistant number is set and the clinic has set up call forwarding, its calls are arriving at AYA before they should.",
+      "Phone the clinic on its published number and ask it to remove the forwarding for now, using the codes under To undo on the Phone line card. Tell it we will say when its phone channel starts.",
+      "Check in Retell's dashboard which agent the clinic's number points at, and that nobody pointed it at the voice line by hand. Then check the Jobs page under System loads: if it cannot, the database was the problem and the clinic may be fine.",
+      "Press Record in the Touch log on the clinic's Care tab to note what you found. You are done when the alert stops and the clinic has removed the forwarding.",
+    ],
+  },
 };
 
 /** This section's events still in their pre-rewrite wording (LEGACY_WORDING, ./index.ts). */
-export const LEGACY: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
-  "voice_fallback_no_direct_line",
-  "voice_call_start_failed",
-  "retell_fallback_unsynced",
-  "voice_provision_failed",
-  "voice_provision_cap_reached",
-  "voice_agent_drift",
-  "voice_deprovision_failed",
-  "voice_direct_line_loops",
-  "voice_test_mode_refused",
-]);
+export const LEGACY: ReadonlySet<OpsEvent> = new Set<OpsEvent>();

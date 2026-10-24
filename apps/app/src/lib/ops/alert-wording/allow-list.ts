@@ -1,6 +1,6 @@
-import { LIFECYCLE_DECISIONS } from "@/db/schema";
 import { isAllowedClinicName, isCountKey } from "@/lib/email/lint";
-import { RECOMMENDATIONS } from "@/lib/lifecycle/recommend";
+
+import { CHANGE_SECTION_WORDS, CLOSED_WORDS, closedWord } from "./words";
 
 /**
  * What an ops alert may say outside the ops log: the fields its Slack copy
@@ -10,40 +10,37 @@ import { RECOMMENDATIONS } from "@/lib/lifecycle/recommend";
  *
  * The clinic's id when it is a uuid; the clinic's name (looked up when the
  * alert goes out, never stored) and, for a setup request, the requester's
- * business name, both under isAllowedClinicName's rule; a usage meter, a
- * changed section and the lifecycle watch's two closed words, each from its
- * own closed list; a handful of day fields, printed as a day and never a
- * time; and every count that is a finite, non-negative number. Never a
- * patient, an address, a phone number, a conversation, a request id, a
- * reason code or free text: a field not on the list is left out whatever it
- * holds.
+ * business name, both under isAllowedClinicName's rule; every field with a
+ * closed word list in ./words.ts (a meter, a section, the lifecycle watch's
+ * decision and recommendation, an email or billing request kind, a vendor,
+ * a channel, a Meta provider, a status), and only a value on its list; a
+ * handful of day fields, printed as a day and never a time; and every count
+ * that is a finite, non-negative number. Never a patient, an address, a
+ * phone number, a conversation, a request id, a reason code off its list or
+ * free text: a field not on the list is left out whatever it holds.
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const METERS: ReadonlySet<string> = new Set(["voice_minutes", "chat_conversations"]);
+export const METERS: ReadonlySet<string> = new Set(Object.keys(CLOSED_WORDS.meter!));
 
 /** What a clinic changed (clinic_availability_changed's `section`): a closed list, never words. */
-export const CHANGE_SECTIONS: ReadonlySet<string> = new Set([
-  "hours",
-  "closures",
-  "location_hours",
-  "providers",
-  "provider_services",
-]);
-
-/** The lifecycle watch's closed words (design E2): a setup's decision and the recommended action. */
-const LIFECYCLE_WORDS: Readonly<Record<string, ReadonlySet<string>>> = {
-  decision: new Set(LIFECYCLE_DECISIONS),
-  recommendation: new Set(RECOMMENDATIONS),
-};
+export const CHANGE_SECTIONS: ReadonlySet<string> = new Set(Object.keys(CHANGE_SECTION_WORDS));
 
 /**
  * Days an alert may name, printed as "22 Oct": the day a setup request's
- * reply was promised by, and the day a usage window opened. Never a time,
- * and never an appointment's.
+ * reply was promised by, the day a usage window opened, and the offboarding
+ * and vendor days (destruction, export due, service ended, an agreement's
+ * expiry). Never a time, and never an appointment's.
  */
-export const DAY_KEYS: ReadonlySet<string> = new Set(["promisedOn", "windowStart"]);
+export const DAY_KEYS: ReadonlySet<string> = new Set([
+  "promisedOn",
+  "windowStart",
+  "destroyAt",
+  "exportDueAt",
+  "serviceEndedAt",
+  "expiresOn",
+]);
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
 
 // <business-name-rule>
@@ -105,12 +102,8 @@ export function allowedAlertFields(fields: Readonly<Record<string, unknown>>): R
     } else if (key === "business") {
       const name = printableBusinessName(value);
       if (name) out.business = name;
-    } else if (key === "meter") {
-      if (typeof value === "string" && METERS.has(value)) out.meter = value;
-    } else if (key === "section") {
-      if (typeof value === "string" && CHANGE_SECTIONS.has(value)) out.section = value;
-    } else if (Object.hasOwn(LIFECYCLE_WORDS, key)) {
-      if (typeof value === "string" && LIFECYCLE_WORDS[key]!.has(value)) out[key] = value;
+    } else if (Object.hasOwn(CLOSED_WORDS, key)) {
+      if (closedWord(key, value) !== null) out[key] = value as string;
     } else if (DAY_KEYS.has(key)) {
       if (isDay(value)) out[key] = value;
     } else if (isCountKey(key) && typeof value === "number" && Number.isFinite(value) && value >= 0) {
@@ -144,11 +137,8 @@ export function wordingValues(
 export const NAMED_PLACEHOLDERS: ReadonlySet<string> = new Set([
   "clinicName",
   "business",
-  "meter",
-  "section",
-  "decision",
-  "recommendation",
   "percent",
+  ...Object.keys(CLOSED_WORDS),
   ...DAY_KEYS,
 ]);
 

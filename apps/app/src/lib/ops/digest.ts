@@ -528,7 +528,10 @@ async function postDigestSummary(day: string, payload: OpsDigestPayload): Promis
       waitingOnUsCount: payload.waitingOnUsCount ?? 0,
       nearCapCount: near,
       atCapCount: at,
-      ...(payload.slackUnpostedCount != null ? { slackUnpostedCount: payload.slackUnpostedCount } : {}),
+      // Only when some are owed (lane N3): "0 alerts Slack could not take" is noise.
+      ...(payload.slackUnpostedCount != null && payload.slackUnpostedCount > 0
+        ? { slackUnpostedCount: payload.slackUnpostedCount }
+        : {}),
     },
     { key: `day=${day}`, email: false },
   );

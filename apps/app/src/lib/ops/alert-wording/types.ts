@@ -1,3 +1,5 @@
+import type { OpsEvent } from "@/lib/ops/notify";
+
 /**
  * What an ops alert says, in plain English (owner, 23 October 2026: "enough
  * context that the ops person understands the whole situation from the
@@ -29,6 +31,8 @@ export type AlertWording = {
   readonly whyItMatters: string;
   /** Numbered steps, safest first, each naming the console page or button; the last says what done looks like. */
   readonly steps: readonly string[];
+  /** The event it was looked up for (./index.ts alertWording): the facts' labels can depend on it. */
+  readonly event?: OpsEvent;
 };
 
 /**

@@ -12,8 +12,8 @@ import type { AlertWording } from "./types";
  * off on purpose (lib/billing/stripe-actions.ts, commitRefund), and turning
  * it on carries out every waiting billing change for every clinic, plan
  * starts that charge cards included. The Touch log's Record button shows
- * only for a production clinic in its first sixty days live (apps/web
- * TouchLog.tsx), so a step never makes "done" depend on it.
+ * for every clinic until its account is closed (lane N3; apps/web
+ * TouchLog.tsx, lib/ops/health.ts touchRefusal).
  *
  * `clinicId` can be null on billing_event_dead_lettered and
  * connect_event_dead_lettered (an event that resolved to no clinic shows on
@@ -258,7 +258,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "This closes the earlier alert. Nothing is left to do unless the clinic was overcharged while the two disagreed.",
     steps: [
       "Check the clinic's Billing tab: Locations on the Plan card is what the account recorded at its last change, which can still differ from what Stripe bills.",
-      "Ask the owner whether a refund or a credit is owed for the time the counts disagreed, if Stripe billed too many. Note the answer in the Touch log on the clinic's Care tab if it shows a Record button (only in a clinic's first sixty days live). You are done once that is settled, or if nothing was overcharged.",
+      "Ask the owner whether a refund or a credit is owed for the time the counts disagreed, if Stripe billed too many. Press Record in the Touch log on the clinic's Care tab to note the answer. You are done once that is settled, or if nothing was overcharged.",
     ],
   },
   // lib/agreements/termination.ts, once per billing clinic: the practice

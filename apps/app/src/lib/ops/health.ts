@@ -1,7 +1,7 @@
 import { USAGE_ALERT_PERCENT } from "@healdesk/catalog";
 import { and, asc, count, desc, eq, gte, isNotNull, min } from "drizzle-orm";
 
-import { appointments, clinicTouches, conversations, providerConnections, type Entitlements } from "@/db/schema";
+import { appointments, clinics, clinicTouches, conversations, providerConnections, type Entitlements } from "@/db/schema";
 import { getEntitlements } from "@/lib/billing/entitlements";
 import { openWindowAt, usageSnapshot, windowEndsOn } from "@/lib/billing/usage";
 import { describeError, log } from "@/lib/log";
@@ -193,6 +193,27 @@ export function usageColumn(row: Entitlements, now: Date): ClinicUsage {
     overageMode: row.overageMode,
     clinicEmailed: row.usageAlertsEnabled,
   };
+}
+
+/**
+ * Why a touch cannot be recorded for this clinic, or null when it can (lane
+ * N3). Every clinic takes one, synthetic or production, before go-live,
+ * live, past its first sixty days, leaving, and destroyed: a touch is our
+ * note on the account, never a patient, and lib/retention/purge.ts keeps it
+ * until the account closes. Once the account is closed
+ * (app_close_clinic_account has deleted its touches, once), a new one would
+ * outlive the closure for good, so it is refused.
+ */
+export async function touchRefusal(tx: TenantTx): Promise<string | null> {
+  const [row] = await tx.db
+    .select({ closedAt: clinics.accountClosedAt })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  if (!row) return "No such clinic.";
+  return row.closedAt
+    ? "This clinic's account is closed, and its notes went with it: nothing can be recorded. Tell the owner instead, with no patient detail."
+    : null;
 }
 
 /** Record a human touch. The summary is the operator's prose; PHI-scanned by the caller. */

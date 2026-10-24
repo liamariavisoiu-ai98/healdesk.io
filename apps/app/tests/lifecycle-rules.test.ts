@@ -787,14 +787,14 @@ describe("the recommendation", () => {
       { remainingDays: 6, decision: "extension_offered" },
       "wait",
       null,
-      /More time was offered: extend the setup window from its Billing page/,
+      /A call was offered: extend the setup window on the Setup window card if they ask for more time/,
     ],
     [
       "more time offered, and nothing since",
       { remainingDays: 6, noProgressDays: 8, decision: "extension_offered" },
       "phone_the_clinic",
       null,
-      /More time was offered and no progress for 8 days/,
+      /A call was offered and no progress for 8 days: phone the clinic\./,
     ],
     [
       "waiting on us with three days left: extend by the days it waited",

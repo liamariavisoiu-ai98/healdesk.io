@@ -31,7 +31,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     // to the facts line, which that test reads too.
     title: "A critical email has not gone out",
     whatHappened:
-      "An email {clinicName} must get at once was due ten minutes ago and is still unsent: a payment problem, a suspension, its plan starting, AYA stopping at its allowance, an urgent message, an outage, an incident report or a subprocessor notice. Until it goes, the health check reads red.",
+      "An email {clinicName} must get at once was due ten minutes ago and is still unsent.[ It is {kind}.] Until it goes, the health check reads red.",
     whyItMatters:
       "The clinic is acting without something it should know right now: a card to fix, a suspension sending its calls to its direct line, an urgent message from a patient.",
     steps: [
@@ -138,7 +138,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Open the clinic's Deliveries tab and look under Reports and alerts for the welcome row: it reads failed with a reason, skipped if setup moved past it, or sent if the hourly retry has since gone through.",
       "Wait for the next hourly retry if the row reads failed with a reason like a passing fault and the clinic has not started setup. Check the Deliveries tab again after it.",
       "Email the clinic from hello@, at the address under The clinic's address on its Account tab, with the order details and the day its setup window ends, shown on the Setup window card of its Setup tab, if the row reads skipped or still reads failed an hour on. Do not paste a sign-in link: the clinic asks for one from the sign-in page.",
-      "Note what you sent in the Touch log on the clinic's Care tab if it shows a Record button (only in a clinic's first sixty days live). You are done when the row reads sent, or the clinic has the order details from you.",
+      "Press Record in the Touch log on the clinic's Care tab to note what you sent. You are done when the row reads sent, or the clinic has the order details from you.",
     ],
   },
   // Raised by lib/notices/booking-alerts.ts (urgentAlertNotQueued) when an
@@ -156,7 +156,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Phone the clinic now on its direct line, shown under Pause AI and the direct line on its Billing tab (its published number under Phone line on the Setup tab if none is on file; the published number may ring AYA). Tell them an urgent message came in by phone, website chat or a Meta channel at about the time this alert was raised, and to check their lines and inbox.",
       "Tell them that if the conversation was recorded, its transcript reaches their address when it ends, and its receipt shows on the clinic's Deliveries tab.",
       "Tell the owner today with this alert's code: the failure is usually the database, and the owner reads the error log. The clinic's Deliveries tab will not show this email, because it was never recorded.",
-      "Note the call in the Touch log on the clinic's Care tab if it shows a Record button (only in a clinic's first sixty days live). You are done when the clinic has been told by phone.",
+      "Press Record in the Touch log on the clinic's Care tab to note the call. You are done when the clinic has been told by phone.",
     ],
   },
   // lib/email/send.ts, once a UTC day per kind and clinic: a direct email
@@ -167,7 +167,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   email_refused: {
     title: "An email was refused before it was sent",
     whatHappened:
-      "An email to a clinic[, {clinicName},] was refused on our side before sending: something it was to carry is not allowed in an email of its kind, or a link in it is not one an email may carry. The clinic has not received it, and nothing retries it.",
+      "An email to a clinic[, {clinicName},] was refused on our side before sending.[ It was {kind}.] Something it was to carry is not allowed in an email of its kind, or a link in it is not one an email may carry. The clinic has not received it, and nothing retries it.",
     whyItMatters:
       "The clinic is missing something it was owed, and the same refusal repeats for every email of that kind until the cause is fixed. You hear once a day per kind[, and this is {windowStart}'s].",
     steps: [
@@ -191,13 +191,13 @@ export const LEGACY: ReadonlySet<OpsEvent> = new Set<OpsEvent>();
 export const DEAD_LETTER: AlertWording = {
   title: "An email to a clinic stopped retrying",
   whatHappened:
-    "An email {clinicName} was owed used every retry, or was refused outright, and will not be sent[ ({attempts:attempt} in all)]. The clinic has not received it.",
+    "An email {clinicName} was owed used every retry, or was refused outright, and will not be sent[ ({attempts:attempt} in all)].[ It was {kind}.] The clinic has not received it.",
   whyItMatters:
     "If it was an urgent email, a payment problem, a suspension, an urgent message, an outage or an incident report, the clinic is acting without it. Nothing tries again on its own.",
   steps: [
     "Open the clinic's Deliveries tab and find the email under Billing emails: its kind, its attempts and the last error are on its row.",
     "Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab (its published number under Phone line on the Setup tab if none is on file), and tell them what the email would have said: its kind on the row tells you which.",
     "Tell the owner today with the last error if it says the email was refused rather than failed to send: a refused email means something on our side needs fixing before the next one goes.",
-    "Note the call in the Touch log on the clinic's Care tab if it shows a Record button (only in a clinic's first sixty days live). You are done when the clinic knows what the email said.",
+    "Press Record in the Touch log on the clinic's Care tab to note the call. You are done when the clinic knows what the email said.",
   ],
 };

@@ -59,8 +59,8 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     ],
   },
   // Once per quiet stretch: conversationId, when present, is the last call
-  // before it, so a later stretch raises again. The Touch log is kept for a
-  // clinic's first sixty days live (lib/ops/health.ts), so it may be gone.
+  // before it, so a later stretch raises again. Every clinic takes a Touch
+  // log note until its account is closed (lib/ops/health.ts touchRefusal).
   no_inbound_calls_14_days: {
     title: "A clinic's phone line has had no calls for 14 days",
     whatHappened:
@@ -71,7 +71,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Open the clinic's Setup tab and read Phone line: the forwarding codes under What the clinic dials, and the last forwarding test.",
       "Press Start a test window under Phone line, then ring the clinic's published number from another phone and let it ring out. If the call arrives with your number showing, forwarding works.",
       "Phone the clinic on its published number, shown under Phone line, if your test call did not arrive. Ask whether forwarding was switched off or the carrier changed, and have it dial the codes under What the clinic dials again.",
-      "Press Record in the Touch log on the clinic's Care tab to note it, if the tab shows one (it is kept only for a clinic's first sixty days live). If it does not, tell the owner what you did, with no patient detail. You are done when a test call arrives, or the clinic confirms forwarding is back on.",
+      "Press Record in the Touch log on the clinic's Care tab to note it. You are done when a test call arrives, or the clinic confirms forwarding is back on.",
     ],
   },
   // lib/channels/events.ts recordFirstAnswer: the write threw. `channel` is

@@ -105,22 +105,136 @@ export function issueTabFor(event: OpsEvent): IssueTab {
 }
 
 /**
- * The console page an alert with no clinic opens: the page where that work
- * is done. Every path is a page apps/web has today (the alert-wording test
- * checks each against apps/web's routes). An event not listed has no link
- * when it names no clinic, as before.
+ * The console page an alert opens when it names no clinic: the page where
+ * that work is done (lane N3: every event has one, so no alert goes without
+ * a link). Events always raised with a clinic open the Clinics list here,
+ * only if a raise ever arrives without one. Every path is a page apps/web
+ * has today, and every anchor a section on it (tests/alert-wording.test.ts
+ * checks both). The comment beside an entry says when it is raised with no
+ * clinic.
  */
-export const NO_CLINIC_PAGE: Partial<Record<OpsEvent, string>> = {
+export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
+  // no clinic yet: a paid order.
+  provisioning_rejected: "/admin/clinics",
+  // no clinic yet: a paid order.
+  provisioning_dead_lettered: "/admin/clinics",
+  // no clinic yet: a paid order.
+  paid_intent_without_clinic: "/admin/clinics",
+  duplicate_subscription: "/admin/clinics",
+  practice_question_failed: "/admin/clinics",
+  // no clinic when the event names none.
+  billing_event_dead_lettered: "/admin/clinics",
+  critical_notice_undelivered: "/admin/clinics",
+  // no clinic when only the delivery is known.
+  clinic_address_bounced: "/admin/clinics",
+  // no clinic when only the delivery is known.
+  clinic_address_complained: "/admin/clinics",
+  // no clinic when only the delivery is known.
+  clinic_address_suppressed: "/admin/clinics",
+  // no clinic: the optional sends to hold back are here.
+  daily_email_count_70: "/admin/queues#setup-requests",
+  // no clinic: the request is in the marketing Sheet.
   setup_request_reply_past_due: "/admin/queues#setup-requests",
+  // no clinic yet: a paid order; Home counts paid orders without an account.
+  provisioning_follow_up_past_due: "/admin/",
   support_reply_past_due: "/admin/queues#support",
   practice_question_review_past_due: "/admin/queues#reviews",
-  calendar_writes_stuck_many: "/admin/clinics",
-  ops_digest_summary: "/admin/clinics",
-  calendar_watch_incomplete: "/admin/system/jobs",
-  calendar_watch_failed: "/admin/system/jobs",
-  retention_purge_failed: "/admin/system/jobs",
+  agreement_unsigned_7_days: "/admin/clinics",
+  agreement_resign_unrenderable: "/admin/clinics",
+  agreement_below_floor_unsigned: "/admin/clinics",
+  no_interactions_48_hours: "/admin/clinics",
+  no_inbound_calls_14_days: "/admin/clinics",
+  billing_request_dead_lettered: "/admin/clinics",
+  billing_request_stuck: "/admin/clinics",
+  setup_closure_skipped_live_channel: "/admin/clinics",
+  location_charged_not_created: "/admin/clinics",
+  // no clinic when the event names none.
+  connect_event_dead_lettered: "/admin/clinics",
+  overage_invoice_failed: "/admin/clinics",
   meter_report_failing: "/admin/system/jobs",
-  vendor_agreement_expiring: "/admin/compliance",
-  vendor_agreement_lapsed: "/admin/compliance",
+  first_period_refund_due: "/admin/clinics",
+  voice_fallback_no_direct_line: "/admin/clinics",
+  voice_call_start_failed: "/admin/clinics",
+  // no clinic when Retell refused the key or did not answer.
+  retell_fallback_unsynced: "/admin/map",
+  voice_provision_failed: "/admin/clinics",
+  // no clinic: a day's cap.
+  voice_provision_cap_reached: "/admin/clinics",
+  voice_agent_drift: "/admin/clinics",
+  voice_deprovision_failed: "/admin/clinics",
+  voice_direct_line_loops: "/admin/clinics",
+  voice_test_mode_refused: "/admin/clinics",
+  plan_start_after_cancel: "/admin/clinics",
+  // no clinic: the dmarc-review job's row.
+  dmarc_review_due: "/admin/system/jobs",
+  export_undelivered_before_destruction: "/admin/clinics",
+  offboarding_started_late: "/admin/clinics",
+  export_due_undelivered: "/admin/clinics",
+  calendar_broken: "/admin/clinics",
+  calendar_degraded: "/admin/clinics",
+  calendar_recovered: "/admin/clinics",
+  // no clinic.
+  calendar_watch_incomplete: "/admin/system/jobs",
+  // no clinic.
+  calendar_watch_failed: "/admin/system/jobs",
+  welcome_email_unsent: "/admin/clinics",
+  // no clinic when the watch met the refusal.
+  google_oauth_client_rejected: "/admin/map",
+  agreement_termination_incomplete: "/admin/clinics",
+  agreement_refund_due: "/admin/clinics",
+  // no clinic: an organisation.
+  agreement_termination_finished_late: "/admin/compliance/agreements",
+  billing_pointer_outside_practice: "/admin/clinics",
+  refund_cancel_job_off: "/admin/clinics",
   incident_notice_overdue: "/admin/compliance/incidents",
+  // no clinic when the whole run failed.
+  retention_purge_failed: "/admin/system/jobs",
+  transcript_undelivered: "/admin/clinics",
+  first_answer_not_recorded: "/admin/clinics",
+  go_live_held: "/admin/clinics",
+  web_widget_to_confirm: "/admin/clinics",
+  address_change_stalled: "/admin/clinics",
+  address_change_failed: "/admin/clinics",
+  // no clinic when the address is none's.
+  sign_in_help_unmatched: "/admin/clinics",
+  connection_broken: "/admin/clinics",
+  destruction_notice_undelivered: "/admin/clinics",
+  // no clinic: platform-wide.
+  vendor_agreement_expiring: "/admin/compliance",
+  // no clinic: platform-wide.
+  vendor_agreement_lapsed: "/admin/compliance",
+  account_closure_waiting: "/admin/clinics",
+  account_closure_failed: "/admin/clinics",
+  meta_revoke_failed: "/admin/clinics",
+  meta_revoke_by_hand: "/admin/clinics",
+  patient_request_due_soon: "/admin/clinics",
+  patient_request_past_due: "/admin/clinics",
+  urgent_alert_not_queued: "/admin/clinics",
+  // no clinic: a day's cap.
+  access_requests_capped: "/admin/clinics",
+  // no clinic when the email had none.
+  email_refused: "/admin/clinics",
+  // no clinic: a signer at checkout.
+  agreement_copy_withheld: "/admin/compliance/agreements",
+  location_quantity_drift: "/admin/clinics",
+  location_quantity_agrees: "/admin/clinics",
+  step_up_phone_held: "/admin/clinics",
+  usage_near_cap: "/admin/clinics",
+  usage_cap_reached: "/admin/clinics",
+  calendar_write_stuck: "/admin/clinics",
+  // no clinic: a count across clinics.
+  calendar_writes_stuck_many: "/admin/clinics",
+  clinic_availability_changed: "/admin/clinics",
+  lifecycle_no_progress: "/admin/clinics",
+  lifecycle_closing_soon: "/admin/clinics",
+  lifecycle_decision_due: "/admin/clinics",
+  lifecycle_waiting_on_us: "/admin/clinics",
+  lifecycle_waiting_on_us_long: "/admin/clinics",
+  lifecycle_channel_waiting: "/admin/clinics",
+  lifecycle_reminder_undelivered: "/admin/clinics",
+  lifecycle_reminders_unanswered: "/admin/clinics",
+  lifecycle_closing_waiting_on_us: "/admin/clinics",
+  // no clinic: the digest's counts.
+  ops_digest_summary: "/admin/clinics",
+  assistant_knows_no_services: "/admin/clinics",
 };

@@ -139,6 +139,16 @@ import {
 import { keyPresence } from "@/lib/ops/key-presence";
 import { opDeleteRecordedCall, opListRecordingAlerts } from "@/lib/ops/recording-alerts-ops";
 import { opRetryVoiceAgent, opVoiceAgentStatus } from "@/lib/ops/voice-agent-ops";
+import { opListClinicStrip } from "@/lib/ops/strip";
+import { opOpsInbox } from "@/lib/ops/inbox/run";
+import { opClinicAudits, opRunClinicAudit } from "@/lib/ops/audit-ops";
+import { opAcknowledgeClinicChange, opListClinicChanges } from "@/lib/ops/change-ops";
+import {
+  opDecideLifecycle,
+  opListLifecycle,
+  opListLifecycleWaves,
+  opSnoozeLifecycle,
+} from "@/lib/ops/lifecycle-ops";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -614,6 +624,32 @@ const OPERATIONS = [
   // number or a secret.
   "voiceAgentStatus",
   "retryVoiceAgent",
+  // The redone admin's two reads (ops automation Phase 2, lane A2): the
+  // Clinics table, one row per clinic (lib/ops/strip.ts), and Home, one row
+  // per thing that needs the operator today (lib/ops/inbox/). Ids, enums,
+  // counts, dates and the clinic's own name; no argument; nothing changed.
+  // opsInbox's first-weeks and Retell reads write the access rows
+  // those readers always write, attributed to the operator.
+  "listClinicStrip",
+  "opsInbox",
+  // The clinic audits and availability changes (ops automation E3 and E4,
+  // lib/ops/audit-ops.ts and change-ops.ts): an audit run now for one clinic
+  // (a security event names the operator; once a minute per clinic), every
+  // clinic's latest results, the changes clinics made to hours, closed days
+  // and providers, and an operator's acknowledgement of one. Codes, counts,
+  // dates and the device's label, never a patient.
+  "runClinicAudit",
+  "clinicAudits",
+  "listClinicChanges",
+  "acknowledgeClinicChange",
+  // The lifecycle watch (lib/ops/lifecycle-ops.ts, lib/lifecycle; design
+  // E2): every billing clinic's stage, decision and recommendation, one
+  // clinic's reminder ledger, and the operator's snooze of its ops waves and
+  // decision about a stalled setup. Ids, counts, dates and closed words.
+  "listLifecycle",
+  "listLifecycleWaves",
+  "snoozeLifecycle",
+  "decideLifecycle",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -747,6 +783,12 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "deleteRecordedCall",
   // Mutating: a Retell agent created and a number bought or adopted.
   "retryVoiceAgent",
+  // Mutating: an audit run and stored; a change acknowledged.
+  "runClinicAudit",
+  "acknowledgeClinicChange",
+  // Mutating: a clinic's ops waves snoozed, or its setup decision recorded.
+  "snoozeLifecycle",
+  "decideLifecycle",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1368,6 +1410,26 @@ export async function runOperation(
       return opVoiceAgentStatus(args);
     case "retryVoiceAgent":
       return opRetryVoiceAgent(args, operator);
+    case "listClinicStrip":
+      return opListClinicStrip(args);
+    case "opsInbox":
+      return opOpsInbox(args, operator);
+    case "runClinicAudit":
+      return opRunClinicAudit(args, operator);
+    case "clinicAudits":
+      return opClinicAudits(args);
+    case "listClinicChanges":
+      return opListClinicChanges(args);
+    case "acknowledgeClinicChange":
+      return opAcknowledgeClinicChange(args, operator);
+    case "listLifecycle":
+      return opListLifecycle(args, operator);
+    case "listLifecycleWaves":
+      return opListLifecycleWaves(args, operator);
+    case "snoozeLifecycle":
+      return opSnoozeLifecycle(args, operator);
+    case "decideLifecycle":
+      return opDecideLifecycle(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

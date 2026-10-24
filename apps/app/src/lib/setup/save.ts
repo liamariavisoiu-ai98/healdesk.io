@@ -11,6 +11,7 @@ import { requestPracticeQuestions } from "@/lib/engine/practice/store";
 import type { PracticeSection } from "@/lib/engine/practice/types";
 import { evaluateChannels } from "@/lib/channels/events";
 import { withTenant, type TenantTx } from "@/lib/tenant";
+import { clinicActorOf } from "@/lib/clinic/change-events";
 
 import {
   KnowledgeError,
@@ -202,6 +203,8 @@ async function writeScreen(
         { hours: input.hours, closures: input.closures },
         state.clinic.timezone,
         now,
+        // Recorded for ops as the wizard's (lib/clinic/change-events.ts).
+        { source: "wizard", actor: clinicActorOf(ctx.actorLabel) },
       );
       return;
 

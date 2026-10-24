@@ -479,6 +479,13 @@ describeDb("website re-reads and the drift list", () => {
       expect((await clinicRow(clinic.clinicId)).opening_hours).toMatchObject({
         sat: [["10:00", "14:00"]],
       });
+      // Recorded for ops as a website change the clinic took, from its device (lane B).
+      expect(
+        await rows(
+          clinic.clinicId,
+          `select source, actor_kind from clinic_change_events where kind = 'hours' and source <> 'direct'`,
+        ),
+      ).toEqual([{ source: "website", actor_kind: "clinic_device" }]);
       expect(await decideWebsiteChange(ctx(clinic), byKey.policies, "confirm")).toMatchObject({
         ok: true,
       });

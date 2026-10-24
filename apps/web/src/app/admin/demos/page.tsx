@@ -205,7 +205,7 @@ export default async function DemosPage() {
                 {profile ? ` · ${profile.services.length} services, ${profile.faqs.length} FAQs` : ""}
                 {session.scrapeSource ? ` · via ${session.scrapeSource}` : ""}
               </p>
-              {/* A demo is not a clinic: it has no clinic id until someone buys and is provisioned, and this site has no database to look one up in. Its own id is what to quote here; the clinic's id is on its card in Ops. */}
+              {/* A demo is not a clinic: it has no clinic id until someone buys and is provisioned, and this site has no database to look one up in. Its own id is what to quote here; the clinic's id is on its row under Clinics. */}
               {session.id ? (
                 <p className="text-muted mt-1 text-[13px]">
                   <CopyValue label="Demo id" value={session.id} />
@@ -213,8 +213,8 @@ export default async function DemosPage() {
                     <>
                       {" "}
                       · bought: the clinic and its id are on{" "}
-                      <a href="/admin/ops" className="text-red-deep hover:text-red font-semibold underline underline-offset-2">
-                        Ops
+                      <a href="/admin/clinics" className="text-red-deep hover:text-red font-semibold underline underline-offset-2">
+                        Clinics
                       </a>
                     </>
                   ) : null}

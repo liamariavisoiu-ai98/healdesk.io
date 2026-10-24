@@ -1719,3 +1719,208 @@ describe("the transcript receipts (owner's decision of 14 October 2026)", () => 
     expect(!result.ok && result.message).toMatch(/may have carried this out/);
   });
 });
+
+// -----------------------------------------------------------------------------
+// Lane A2: the Clinics table's strip and Home's inbox (lib/admin/strip-types.ts)
+// -----------------------------------------------------------------------------
+
+describe("the redone admin's two reads (lane A2)", () => {
+  function stripRow(over: Record<string, unknown> = {}) {
+    return {
+      clinicId: CLINIC,
+      name: "Radiance",
+      synthetic: false,
+      stage: { kind: "setup", day: 3, of: 30, deadlineAt: "2026-11-20T04:59:59.999Z" },
+      channels: { web: "waiting", meta: "off", voice: "live" },
+      availability: null,
+      calendar: "broken",
+      voice: "drift",
+      transcripts: { waiting: 2, bounced: 1 },
+      usage: { percent: 95, meter: "web" },
+      lastReminder: null,
+      blocking: null,
+      ...over,
+    };
+  }
+
+  function inboxRow(over: Record<string, unknown> = {}) {
+    return {
+      id: `support:${CLINIC}`,
+      kind: "support_reply",
+      count: 2,
+      sentence: "Support replies owed.",
+      clinic: { id: CLINIC, name: "Radiance" },
+      button: { label: "Open support", kind: "link", href: "/admin/support" },
+      tone: "warn",
+      dueAt: "2026-10-24",
+      ...over,
+    };
+  }
+
+  test("the inbox waits 25 seconds for apps/app, the strip the usual 12", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    reply({ data: { rows: [], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] } });
+    await opsClient.fetchOpsInbox();
+    reply({ data: { clinics: [] } });
+    await opsClient.fetchClinicStrip();
+    expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([25_000, 12_000]);
+  });
+
+  test("the strip asks with no argument and reads each row field by field, later lanes' fields as null", async () => {
+    reply({
+      data: {
+        clinics: [
+          stripRow(),
+          stripRow({ stage: { kind: "live", since: "2026-10-01T12:00:00.000Z" }, usage: { percent: null, meter: null } }),
+          stripRow({ stage: { kind: "closed", since: null }, availability: { changedAt: null, audit: "never" }, lastReminder: { day: 15 } }),
+        ],
+      },
+    });
+    const result = await opsClient.fetchClinicStrip();
+    expect(sent).toEqual([{ op: "listClinicStrip", args: {} }]);
+    if (!result.ok) throw new Error(result.message);
+    expect(result.data[0]).toEqual(stripRow());
+    expect(result.data[1]!.stage).toEqual({ kind: "live", since: "2026-10-01T12:00:00.000Z" });
+    expect(result.data[2]).toMatchObject({ availability: { changedAt: null, audit: "never" }, lastReminder: { day: 15 } });
+  });
+
+  test("a stage, a level or a count it does not know is malformed, never a guessed row", async () => {
+    for (const bad of [
+      stripRow({ stage: { kind: "trial", since: null } }),
+      stripRow({ channels: { web: "maybe", meta: "off", voice: "off" } }),
+      stripRow({ transcripts: { waiting: -1, bounced: 0 } }),
+      stripRow({ clinicId: "not-an-id" }),
+      // Present-but-null only where the contract says null.
+      (({ availability: _a, ...rest }) => rest)(stripRow()),
+      (({ blocking: _b, ...rest }) => rest)(stripRow()),
+      (({ lastReminder: _l, ...rest }) => rest)(stripRow()),
+      stripRow({ stage: { kind: "setup", day: 3, of: 30 } }),
+      stripRow({ stage: { kind: "live", since: null } }),
+      stripRow({ calendar: null }),
+      stripRow({ transcripts: { waiting: 1 } }),
+      // A percent and its meter come together or not at all.
+      stripRow({ usage: { percent: 40, meter: null } }),
+      stripRow({ usage: { percent: null, meter: "voice" } }),
+      stripRow({ usage: { percent: 40 } }),
+    ]) {
+      reply({ data: { clinics: [bad] } });
+      expect(await opsClient.fetchClinicStrip()).toMatchObject({ ok: false, code: "malformed" });
+    }
+  });
+
+  test("the inbox reads rows, when it looked and what it could not read", async () => {
+    reply({
+      data: {
+        rows: [
+          inboxRow(),
+          inboxRow({ id: "site-read:all", kind: "site_read", clinic: null, dueAt: null, tone: "info" }),
+          inboxRow({ id: "x", dueAt: "2026-10-24T13:00:00.000Z", button: { label: "Open", kind: "link", href: "/admin/ops/" + CLINIC + "/care#transcript_undelivered-1" } }),
+        ],
+        checkedAt: "2026-10-23T09:12:00.000Z",
+        unreadable: [{ source: "the digest's queues", reason: "1 of the digest's sources could not be read." }],
+      },
+    });
+    const result = await opsClient.fetchOpsInbox();
+    expect(sent).toEqual([{ op: "opsInbox", args: {} }]);
+    if (!result.ok) throw new Error(result.message);
+    expect(result.data.rows[0]).toEqual(inboxRow());
+    expect(result.data.rows[1]).toMatchObject({ clinic: null, dueAt: null });
+    expect(result.data.rows[2]).toMatchObject({
+      dueAt: "2026-10-24T13:00:00.000Z",
+      button: { kind: "link", href: `/admin/ops/${CLINIC}/care#transcript_undelivered-1` },
+    });
+    expect(result.data.checkedAt).toBe("2026-10-23T09:12:00.000Z");
+    expect(result.data.unreadable).toEqual([
+      { source: "the digest's queues", reason: "1 of the digest's sources could not be read." },
+    ]);
+  });
+
+  test("a button that leaves the console, a tone it does not know, or a missing checkedAt is malformed", async () => {
+    for (const body of [
+      { rows: [inboxRow({ button: { label: "Open", kind: "link", href: "https://evil.example/admin/ops" } })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [inboxRow({ button: { label: "Open", kind: "link", href: "//evil.example/admin" } })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [inboxRow({ button: { label: "Open", kind: "link", href: "/portal/settings" } })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [inboxRow({ tone: "red" })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [inboxRow({ button: { label: "Open", kind: "link", href: "/admin/../portal" } })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [inboxRow({ button: { label: "Open", kind: "link", href: "/admin/%2e%2e/api/admin/logout" } })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [inboxRow({ button: { label: "Open", kind: "link", href: "/admin/%2E./portal" } })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [inboxRow({ button: { label: "Open", kind: "link", href: "/admin/ops%2f..%2fportal" } })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [inboxRow({ button: { label: "Open", kind: "link", href: "/admin/./ops" } })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [inboxRow({ button: { label: "Open", kind: "link", href: "/administrator" } })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      // No operation is on the inbox's allow-list yet, so any op button is refused.
+      { rows: [inboxRow({ button: { label: "Retry", kind: "op", op: "retryVoiceAgent", args: { clinicId: CLINIC } } })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [inboxRow({ button: { label: "Go", kind: "op", op: "commitRefund", args: {} } })], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      // A key the contract names must be there, even where null is allowed.
+      { rows: [(({ dueAt: _d, ...rest }) => rest)(inboxRow())], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [(({ clinic: _c, ...rest }) => rest)(inboxRow())], checkedAt: "2026-10-23T09:12:00.000Z", unreadable: [] },
+      { rows: [], unreadable: [] },
+    ]) {
+      reply({ data: body });
+      expect(await opsClient.fetchOpsInbox()).toMatchObject({ ok: false, code: "malformed" });
+    }
+  });
+});
+
+describe("the lifecycle watch's operations (design E2)", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    clinicId: CLINIC,
+    clinicSlug: "glow",
+    clinicName: "Glow Med Spa",
+    stage: "in_setup",
+    stageSince: "2026-10-10T16:00:00.000Z",
+    stepsLeft: 2,
+    channelsWaiting: 1,
+    lastProgressAt: "2026-10-12T16:00:00.000Z",
+    deadlineAt: "2026-10-28T04:00:00.000Z",
+    remainingDays: 7,
+    decision: "none",
+    decidedBy: null,
+    decidedAt: null,
+    snoozedUntil: null,
+    snoozedBy: null,
+    undeliveredCount: 0,
+    decisionOwed: true,
+    recommendation: { action: "offer_call", days: null, reason: "3 steps left and no progress for 8 days: offer a five-minute call." },
+    ...over,
+  });
+
+  test("the list is read field by field, and an unknown word is malformed", async () => {
+    reply({ data: { clinics: [row()] } });
+    expect(await opsClient.fetchLifecycle()).toEqual({ ok: true, data: [row()] });
+    expect(sent.at(-1)).toEqual({ op: "listLifecycle", args: {} });
+    reply({ data: { clinics: [row({ stage: "stuck" })] } });
+    expect(await opsClient.fetchLifecycle()).toMatchObject({ ok: false, code: "malformed" });
+    reply({ data: { clinics: [row({ recommendation: { action: "refund", days: null, reason: "x." } })] } });
+    expect(await opsClient.fetchLifecycle()).toMatchObject({ ok: false, code: "malformed" });
+  });
+
+  test("the ledger keeps its wave keys and outcomes, and refuses anything else", async () => {
+    const wave = {
+      id: "5b4a3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d",
+      stage: "in_setup",
+      wave: "setup_reminder:live:meta+voice",
+      target: "clinic_email",
+      queuedAt: "2026-10-20T16:00:00.000Z",
+      sentAt: "2026-10-20T16:01:00.000Z",
+      outcome: "delivered",
+      providerId: "msg_1",
+      escalated: false,
+      manualBy: null,
+      skippedBecause: null,
+    };
+    reply({ data: { waves: [wave] } });
+    expect(await opsClient.fetchLifecycleWaves(CLINIC)).toEqual({ ok: true, data: [wave] });
+    expect(sent.at(-1)).toEqual({ op: "listLifecycleWaves", args: { clinicId: CLINIC } });
+    reply({ data: { waves: [{ ...wave, wave: "a sentence about the clinic" }] } });
+    expect(await opsClient.fetchLifecycleWaves(CLINIC)).toMatchObject({ ok: false, code: "malformed" });
+  });
+
+  test("the snooze and the decision send ids and closed words, and read saved or not watched", async () => {
+    reply({ data: { outcome: "saved", snoozedUntil: "2026-10-27T16:00:00.000Z", auditRecorded: true } });
+    expect(await opsClient.snoozeLifecycle(CLINIC, 7)).toEqual({ ok: true, data: { outcome: "saved" } });
+    expect(sent.at(-1)).toEqual({ op: "snoozeLifecycle", args: { clinicId: CLINIC, days: 7 } });
+    reply({ data: { outcome: "not_watched" } });
+    expect(await opsClient.decideLifecycle(CLINIC, "let_close")).toEqual({ ok: true, data: { outcome: "not_watched" } });
+    expect(sent.at(-1)).toEqual({ op: "decideLifecycle", args: { clinicId: CLINIC, decision: "let_close" } });
+  });
+});

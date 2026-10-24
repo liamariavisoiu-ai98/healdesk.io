@@ -112,6 +112,15 @@ import { headers } from "next/headers";
 import { requireOperator } from "@/lib/admin/operator";
 import { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
 import { TRANSCRIPT_STATUSES, type TranscriptStatus } from "@/lib/admin/transcript-status";
+import type {
+  ChannelLevel,
+  ClinicStage,
+  ClinicStripRow,
+  InboxButton,
+  InboxRow,
+  OpsInbox,
+  Tone,
+} from "@/lib/admin/strip-types";
 import { clientKey } from "@/lib/rate-limit";
 
 /**
@@ -341,7 +350,28 @@ type OperatorOp =
   // lib/voice/provision.ts): ids, status and times only, never a caller, a
   // number or a secret. A read; the retry stays in apps/app's ops envelope
   // until a page with the operator's fresh code is built for it.
-  | "voiceAgentStatus";
+  | "voiceAgentStatus"
+  // The redone admin's two reads (ops automation Phase 2, lane A2): the
+  // Clinics table and Home, shaped by lib/admin/strip-types.ts. No argument.
+  | "listClinicStrip"
+  | "opsInbox"
+  // The clinic audits and availability changes (ops automation E3 and E4;
+  // apps/app lib/ops/audit-ops.ts and change-ops.ts): an audit run now, the
+  // latest results, the changes clinics made to hours, closed days and
+  // providers, and an acknowledgement. Codes, counts, dates and the device's
+  // label; never a patient.
+  | "runClinicAudit"
+  | "clinicAudits"
+  | "listClinicChanges"
+  | "acknowledgeClinicChange"
+  // The lifecycle watch (apps/app lib/ops/lifecycle-ops.ts; design E2): each
+  // paying clinic's stage, decision and recommendation; one clinic's
+  // reminder ledger; the snooze of its ops waves and the decision about a
+  // stalled setup. Ids, counts, dates, closed words and the clinic's name.
+  | "listLifecycle"
+  | "listLifecycleWaves"
+  | "snoozeLifecycle"
+  | "decideLifecycle";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -638,8 +668,15 @@ export type TerminateOutcome =
 // Reads
 // -----------------------------------------------------------------------------
 
-export function fetchClinics(): Promise<OpsResult<OpsClinics>> {
-  return callOps("listClinics", "read", {}, (value) => {
+/**
+ * `connectionState: false` skips the per-clinic connection read, which walks up
+ * to fifty clinics one tenant transaction at a time. Only the phase-two connect
+ * link wants it, so the console's page loads ask for it off.
+ */
+export function fetchClinics(options: { connectionState?: boolean } = {}): Promise<OpsResult<OpsClinics>> {
+  const args: Record<string, boolean> = {};
+  if (options.connectionState !== undefined) args.connectionState = options.connectionState;
+  return callOps("listClinics", "read", args, (value) => {
     const data = object(value, "listClinics");
     return {
       clinics: list(data.clinics, "listClinics.clinics").map(readClinic),
@@ -1107,6 +1144,283 @@ export function deleteRecordedCall(
   });
 }
 
+// -----------------------------------------------------------------------------
+// The clinic audits and availability changes (ops automation E3 and E4)
+// -----------------------------------------------------------------------------
+
+export const AUDIT_PACKS = ["availability", "roster", "golive", "transcripts"] as const;
+export type AuditPack = (typeof AUDIT_PACKS)[number];
+const AUDIT_TRIGGERS = ["change", "change_detected", "scheduled", "manual"] as const;
+const AUDIT_RESULTS = ["pass", "warn", "fail", "error"] as const;
+export type AuditResult = (typeof AUDIT_RESULTS)[number];
+const CHANGE_KINDS = ["hours", "closures", "location_hours", "providers", "provider_services"] as const;
+export type ClinicChangeKind = (typeof CHANGE_KINDS)[number];
+const CHANGE_SOURCES = ["portal", "wizard", "website", "calendar_link", "ops_console", "direct"] as const;
+const CHANGE_AUDIT_STATUSES = ["queued", "running", "passed", "attention", "error"] as const;
+const CHANGE_ACTORS = ["clinic_device", "clinic_signin", "ops", "change_file", "direct"] as const;
+
+/** One check's outcome: its id, result, fixed hint, closed code and counts. */
+export type AuditCheckView = {
+  id: string;
+  result: AuditResult;
+  hint: string | null;
+  counts: Record<string, number>;
+  code: string | null;
+  side: "clinic" | "ours" | null;
+};
+
+/** One stored run of one pack. */
+export type AuditRunView = {
+  id: string;
+  pack: AuditPack;
+  trigger: (typeof AUDIT_TRIGGERS)[number];
+  changeKind: ClinicChangeKind | null;
+  result: AuditResult;
+  startedAt: string;
+  finishedAt: string;
+  checks: AuditCheckView[];
+};
+
+/** Per clinic: the newest result of each pack, an overall state and the last change (design E3 §2.5). */
+export type ClinicAuditSummaryView = {
+  clinicId: string;
+  name: string;
+  /** `audits_off`: changes wait for an audit while the clinic-audits job is switched off; never `running` then. */
+  overall: "pass" | "warn" | "fail" | "running" | "audits_off" | "never";
+  lastChange: { kind: ClinicChangeKind; at: string } | null;
+  packs: Partial<
+    Record<
+      AuditPack,
+      { result: AuditResult; at: string; trigger: AuditRunView["trigger"]; failing: { id: string; hint: string | null }[] }
+    >
+  >;
+};
+
+export type ClinicAuditsView = { clinics: ClinicAuditSummaryView[]; history: AuditRunView[] | null };
+
+export type RunClinicAuditOutcome =
+  | { status: "ran"; result: AuditResult; audits: AuditRunView[]; auditRecorded: boolean }
+  | { status: "too_soon"; notBefore: string }
+  /** Another run for this clinic is under way; nothing ran. */
+  | { status: "busy" }
+  /** The clinic's account has closed: nothing to audit. */
+  | { status: "closed" }
+  | { status: "not_found" };
+
+/** One change a clinic made, as the console lists it. */
+export type ClinicChangeView = {
+  id: string;
+  clinicId: string;
+  clinicName: string;
+  locationId: string | null;
+  kind: ClinicChangeKind;
+  source: (typeof CHANGE_SOURCES)[number];
+  /** Who, coarsely: one of the clinic's devices, its sign-in, ops, a change file, or another direct edit. */
+  actorKind: (typeof CHANGE_ACTORS)[number];
+  summary: {
+    weeklyChanged?: boolean;
+    closuresAdded?: string[];
+    closuresRemoved?: string[];
+    closuresUpcoming?: number;
+    providersActive?: number;
+    servicesMapped?: number;
+    holdsReleased?: number;
+    rows?: number;
+    operation?: "insert" | "update" | "delete";
+    table?: "clinic_closures" | "clinic_providers" | "clinic_provider_services";
+  };
+  changedAt: string;
+  alertedAt: string | null;
+  /**
+   * The ops audit of the change; null while the clinic-audits job is off. A
+   * `direct` change (a change file, psql) waits for its audit like any other.
+   */
+  auditStatus: (typeof CHANGE_AUDIT_STATUSES)[number] | null;
+  auditId: string | null;
+  acknowledgedAt: string | null;
+  acknowledgedBy: string | null;
+};
+
+export type AcknowledgeClinicChangeOutcome =
+  | { status: "acknowledged" | "already"; acknowledgedAt: string; auditRecorded: boolean }
+  | { status: "not_found" };
+
+function readCounts(value: unknown, at: string): Record<string, number> {
+  const data = object(value, at);
+  return Object.fromEntries(Object.entries(data).map(([key, n]) => [key, count(n, `${at}.${key}`)]));
+}
+
+function readAuditCheck(value: unknown, at: string): AuditCheckView {
+  const r = object(value, at);
+  return {
+    id: code(r.id, `${at}.id`),
+    result: literal(r.result, AUDIT_RESULTS, `${at}.result`),
+    hint: optionalText(r.hint, `${at}.hint`),
+    counts: readCounts(r.counts, `${at}.counts`),
+    code: r.code === null || r.code === undefined ? null : code(r.code, `${at}.code`),
+    side: r.side === null || r.side === undefined ? null : literal(r.side, ["clinic", "ours"] as const, `${at}.side`),
+  };
+}
+
+function readAuditRun(value: unknown, at: string): AuditRunView {
+  const r = object(value, at);
+  return {
+    id: id(r.id, `${at}.id`),
+    pack: literal(r.pack, AUDIT_PACKS, `${at}.pack`),
+    trigger: literal(r.trigger, AUDIT_TRIGGERS, `${at}.trigger`),
+    changeKind: r.changeKind === null ? null : literal(r.changeKind, CHANGE_KINDS, `${at}.changeKind`),
+    result: literal(r.result, AUDIT_RESULTS, `${at}.result`),
+    startedAt: isoInstant(r.startedAt, `${at}.startedAt`),
+    finishedAt: isoInstant(r.finishedAt, `${at}.finishedAt`),
+    checks: list(r.checks, `${at}.checks`).map((c, i) => readAuditCheck(c, `${at}.checks[${i}]`)),
+  };
+}
+
+function readAuditSummary(value: unknown, at: string): ClinicAuditSummaryView {
+  const r = object(value, at);
+  const packs: ClinicAuditSummaryView["packs"] = {};
+  const raw = object(r.packs, `${at}.packs`);
+  for (const pack of AUDIT_PACKS) {
+    if (raw[pack] === undefined) continue;
+    const p = object(raw[pack], `${at}.packs.${pack}`);
+    packs[pack] = {
+      result: literal(p.result, AUDIT_RESULTS, `${at}.packs.${pack}.result`),
+      at: isoInstant(p.at, `${at}.packs.${pack}.at`),
+      trigger: literal(p.trigger, AUDIT_TRIGGERS, `${at}.packs.${pack}.trigger`),
+      failing: list(p.failing, `${at}.packs.${pack}.failing`).map((f, i) => {
+        const x = object(f, `${at}.packs.${pack}.failing[${i}]`);
+        return { id: code(x.id, `${at}.failing.id`), hint: optionalText(x.hint, `${at}.failing.hint`) };
+      }),
+    };
+  }
+  const change = r.lastChange === null ? null : object(r.lastChange, `${at}.lastChange`);
+  return {
+    clinicId: id(r.clinicId, `${at}.clinicId`),
+    name: text(r.name, `${at}.name`),
+    overall: literal(r.overall, ["pass", "warn", "fail", "running", "audits_off", "never"] as const, `${at}.overall`),
+    lastChange: change
+      ? { kind: literal(change.kind, CHANGE_KINDS, `${at}.lastChange.kind`), at: isoInstant(change.at, `${at}.lastChange.at`) }
+      : null,
+    packs,
+  };
+}
+
+function readDates(value: unknown, at: string): string[] {
+  return list(value, at).map((d, i) => date(d, `${at}[${i}]`));
+}
+
+function readChangeSummary(value: unknown, at: string): ClinicChangeView["summary"] {
+  const r = object(value, at);
+  const out: ClinicChangeView["summary"] = {};
+  if (r.weeklyChanged !== undefined) out.weeklyChanged = bool(r.weeklyChanged, `${at}.weeklyChanged`);
+  if (r.closuresAdded !== undefined) out.closuresAdded = readDates(r.closuresAdded, `${at}.closuresAdded`);
+  if (r.closuresRemoved !== undefined) out.closuresRemoved = readDates(r.closuresRemoved, `${at}.closuresRemoved`);
+  for (const key of ["closuresUpcoming", "providersActive", "servicesMapped", "holdsReleased", "rows"] as const) {
+    if (r[key] !== undefined) out[key] = count(r[key], `${at}.${key}`);
+  }
+  if (r.operation !== undefined) out.operation = literal(r.operation, ["insert", "update", "delete"] as const, `${at}.operation`);
+  if (r.table !== undefined) {
+    out.table = literal(r.table, ["clinic_closures", "clinic_providers", "clinic_provider_services"] as const, `${at}.table`);
+  }
+  return out;
+}
+
+function readClinicChange(value: unknown, at: string): ClinicChangeView {
+  const r = object(value, at);
+  return {
+    id: id(r.id, `${at}.id`),
+    clinicId: id(r.clinicId, `${at}.clinicId`),
+    clinicName: text(r.clinicName, `${at}.clinicName`),
+    locationId: r.locationId === null ? null : id(r.locationId, `${at}.locationId`),
+    kind: literal(r.kind, CHANGE_KINDS, `${at}.kind`),
+    source: literal(r.source, CHANGE_SOURCES, `${at}.source`),
+    actorKind: literal(r.actorKind, CHANGE_ACTORS, `${at}.actorKind`),
+    summary: readChangeSummary(r.summary, `${at}.summary`),
+    changedAt: isoInstant(r.changedAt, `${at}.changedAt`),
+    alertedAt: optionalIsoInstant(r.alertedAt, `${at}.alertedAt`),
+    auditStatus: r.auditStatus === null ? null : literal(r.auditStatus, CHANGE_AUDIT_STATUSES, `${at}.auditStatus`),
+    auditId: r.auditId === null ? null : id(r.auditId, `${at}.auditId`),
+    acknowledgedAt: optionalIsoInstant(r.acknowledgedAt, `${at}.acknowledgedAt`),
+    acknowledgedBy: optionalText(r.acknowledgedBy, `${at}.acknowledgedBy`),
+  };
+}
+
+/** Run one pack, or all four, for one clinic now. Once a minute per clinic; a security event names the operator. */
+export function runClinicAudit(clinicId: string, pack?: AuditPack): Promise<OpsResult<RunClinicAuditOutcome>> {
+  return callOps("runClinicAudit", "write", pack ? { clinicId, pack } : { clinicId }, (value) => {
+    const data = object(value, "runClinicAudit");
+    const status = literal(
+      data.status,
+      ["ran", "too_soon", "busy", "closed", "not_found"] as const,
+      "runClinicAudit.status",
+    );
+    if (status === "ran") {
+      return {
+        status,
+        result: literal(data.result, AUDIT_RESULTS, "runClinicAudit.result"),
+        audits: list(data.audits, "runClinicAudit.audits").map((a, i) => readAuditRun(a, `runClinicAudit.audits[${i}]`)),
+        auditRecorded: bool(data.auditRecorded, "runClinicAudit.auditRecorded"),
+      };
+    }
+    if (status === "too_soon") return { status, notBefore: isoInstant(data.notBefore, "runClinicAudit.notBefore") };
+    return { status };
+  }, 60_000);
+}
+
+/** Every clinic's latest audit results, or one clinic's with its history. */
+export function fetchClinicAudits(clinicId?: string): Promise<OpsResult<ClinicAuditsView>> {
+  return callOps("clinicAudits", "read", clinicId ? { clinicId } : {}, (value) => {
+    const data = object(value, "clinicAudits");
+    return {
+      clinics: list(data.clinics, "clinicAudits.clinics").map((c, i) => readAuditSummary(c, `clinicAudits.clinics[${i}]`)),
+      history:
+        data.history === null
+          ? null
+          : list(data.history, "clinicAudits.history").map((a, i) => readAuditRun(a, `clinicAudits.history[${i}]`)),
+    };
+  });
+}
+
+/** The changes clinics made to hours, closed days and providers, newest first. */
+export function fetchClinicChanges(
+  filter: { clinicId?: string; since?: string } = {},
+): Promise<OpsResult<{ since: string; changes: ClinicChangeView[] }>> {
+  const args: Record<string, unknown> = {};
+  if (filter.clinicId) args.clinicId = filter.clinicId;
+  if (filter.since) args.since = filter.since;
+  return callOps("listClinicChanges", "read", args, (value) => {
+    const data = object(value, "listClinicChanges");
+    return {
+      since: isoInstant(data.since, "listClinicChanges.since"),
+      changes: list(data.changes, "listClinicChanges.changes").map((c, i) =>
+        readClinicChange(c, `listClinicChanges.changes[${i}]`),
+      ),
+    };
+  });
+}
+
+/** The operator has looked at a change. Once; a security event names them. */
+export function acknowledgeClinicChange(
+  changeId: string,
+  clinicId?: string,
+): Promise<OpsResult<AcknowledgeClinicChangeOutcome>> {
+  return callOps(
+    "acknowledgeClinicChange",
+    "write",
+    clinicId ? { id: changeId, clinicId } : { id: changeId },
+    (value) => {
+      const data = object(value, "acknowledgeClinicChange");
+      const status = literal(data.status, ["acknowledged", "already", "not_found"] as const, "acknowledgeClinicChange.status");
+      if (status === "not_found") return { status };
+      return {
+        status,
+        acknowledgedAt: isoInstant(data.acknowledgedAt, "acknowledgeClinicChange.acknowledgedAt"),
+        auditRecorded: bool(data.auditRecorded, "acknowledgeClinicChange.auditRecorded"),
+      };
+    },
+  );
+}
+
 /**
  * One clinic's Retell set-up, as apps/app projects it (lib/voice/provision.ts,
  * voiceAgentStatusView): Retell's agent id, whether a number is held (never
@@ -1156,6 +1470,155 @@ export function fetchVoiceAgentStatus(clinicId?: string): Promise<OpsResult<Voic
         updatedAt: isoInstant(r.updatedAt, "agent.updatedAt"),
       };
     });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The lifecycle watch (design E2)
+// -----------------------------------------------------------------------------
+
+export const LIFECYCLE_STAGES = ["not_started", "in_setup", "waiting_on_us", "partly_live", "live", "closed"] as const;
+export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number];
+export const LIFECYCLE_DECISIONS = ["none", "extension_offered", "let_close", "extended"] as const;
+export type LifecycleDecision = (typeof LIFECYCLE_DECISIONS)[number];
+export const LIFECYCLE_ACTIONS = ["extend", "offer_call", "let_close", "wait", "phone_the_clinic"] as const;
+
+/**
+ * One paying clinic's lifecycle, as apps/app projects it: its stage, what it
+ * still owes, the days left in its setup window, the decision and snooze,
+ * and the recommendation, whose reason is one of apps/app's fixed sentences.
+ */
+export type LifecycleRow = {
+  clinicId: string;
+  clinicSlug: string;
+  clinicName: string;
+  stage: LifecycleStage;
+  stageSince: string;
+  stepsLeft: number;
+  channelsWaiting: number;
+  lastProgressAt: string | null;
+  deadlineAt: string | null;
+  remainingDays: number | null;
+  decision: LifecycleDecision;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  snoozedUntil: string | null;
+  snoozedBy: string | null;
+  undeliveredCount: number;
+  decisionOwed: boolean;
+  recommendation: { action: (typeof LIFECYCLE_ACTIONS)[number]; days: number | null; reason: string };
+};
+
+/**
+ * Every paying clinic the watch has seen, those owing a decision first. A
+ * clinic still classed synthetic before it goes live is one; healdesk's demo
+ * clinic never has a row.
+ */
+export function fetchLifecycle(): Promise<OpsResult<LifecycleRow[]>> {
+  return callOps(
+    "listLifecycle",
+    "read",
+    {},
+    (value) => {
+      const data = object(value, "listLifecycle");
+      return list(data.clinics, "listLifecycle.clinics").map((row, i) => {
+        const r = object(row, `listLifecycle.clinics[${i}]`);
+        const advice = object(r.recommendation, "lifecycle.recommendation");
+        return {
+          clinicId: id(r.clinicId, "lifecycle.clinicId"),
+          clinicSlug: text(r.clinicSlug, "lifecycle.clinicSlug"),
+          clinicName: text(r.clinicName, "lifecycle.clinicName"),
+          stage: literal(r.stage, LIFECYCLE_STAGES, "lifecycle.stage"),
+          stageSince: isoInstant(r.stageSince, "lifecycle.stageSince"),
+          stepsLeft: count(r.stepsLeft, "lifecycle.stepsLeft"),
+          channelsWaiting: count(r.channelsWaiting, "lifecycle.channelsWaiting"),
+          lastProgressAt: optionalIsoInstant(r.lastProgressAt, "lifecycle.lastProgressAt"),
+          deadlineAt: optionalIsoInstant(r.deadlineAt, "lifecycle.deadlineAt"),
+          remainingDays: r.remainingDays === null ? null : count(r.remainingDays, "lifecycle.remainingDays"),
+          decision: literal(r.decision, LIFECYCLE_DECISIONS, "lifecycle.decision"),
+          decidedBy: optionalText(r.decidedBy, "lifecycle.decidedBy"),
+          decidedAt: optionalIsoInstant(r.decidedAt, "lifecycle.decidedAt"),
+          snoozedUntil: optionalIsoInstant(r.snoozedUntil, "lifecycle.snoozedUntil"),
+          snoozedBy: optionalText(r.snoozedBy, "lifecycle.snoozedBy"),
+          undeliveredCount: count(r.undeliveredCount, "lifecycle.undeliveredCount"),
+          decisionOwed: bool(r.decisionOwed, "lifecycle.decisionOwed"),
+          recommendation: {
+            action: literal(advice.action, LIFECYCLE_ACTIONS, "lifecycle.recommendation.action"),
+            days: advice.days === null ? null : count(advice.days, "lifecycle.recommendation.days"),
+            reason: text(advice.reason, "lifecycle.recommendation.reason"),
+          },
+        };
+      });
+    },
+  );
+}
+
+/** One wave of a clinic's reminder ledger: a setup reminder recorded, or an ops wave. */
+export type LifecycleWave = {
+  id: string;
+  stage: LifecycleStage;
+  /** The wave's key: `setup_reminder:3`, `day_22:2026-11-13`, `wait_4h:<when its stage began>`. */
+  wave: string;
+  target: "clinic_email" | "ops_email" | "slack";
+  queuedAt: string;
+  sentAt: string | null;
+  outcome: "delivered" | "sent" | "pending" | "bounced" | "failed" | "skipped";
+  /** Resend's message id; null for Slack. */
+  providerId: string | null;
+  escalated: boolean;
+  manualBy: string | null;
+  skippedBecause: "snoozed" | "let_close" | null;
+};
+
+const WAVE_KEY = /^[a-z0-9_]+(:[A-Za-z0-9_.:+-]{1,60})?$/;
+
+/** The clinic's reminder ledger, oldest first. */
+export function fetchLifecycleWaves(clinicId: string): Promise<OpsResult<LifecycleWave[]>> {
+  return callOps("listLifecycleWaves", "read", { clinicId }, (value) => {
+    const data = object(value, "listLifecycleWaves");
+    return list(data.waves, "listLifecycleWaves.waves").map((row, i) => {
+      const r = object(row, `listLifecycleWaves.waves[${i}]`);
+      if (typeof r.wave !== "string" || !WAVE_KEY.test(r.wave)) throw new ShapeError("wave.wave");
+      return {
+        id: id(r.id, "wave.id"),
+        stage: literal(r.stage, LIFECYCLE_STAGES, "wave.stage"),
+        wave: r.wave,
+        target: literal(r.target, ["clinic_email", "ops_email", "slack"] as const, "wave.target"),
+        queuedAt: isoInstant(r.queuedAt, "wave.queuedAt"),
+        sentAt: optionalIsoInstant(r.sentAt, "wave.sentAt"),
+        outcome: literal(
+          r.outcome,
+          ["delivered", "sent", "pending", "bounced", "failed", "skipped"] as const,
+          "wave.outcome",
+        ),
+        providerId: optionalText(r.providerId, "wave.providerId"),
+        escalated: bool(r.escalated, "wave.escalated"),
+        manualBy: optionalText(r.manualBy, "wave.manualBy"),
+        skippedBecause:
+          r.skippedBecause === null ? null : literal(r.skippedBecause, ["snoozed", "let_close"] as const, "wave.skippedBecause"),
+      };
+    });
+  });
+}
+
+export type LifecycleWriteOutcome = { outcome: "saved" } | { outcome: "not_watched" };
+
+/** Mute the clinic's ops waves for 3, 7 or 14 days. Never the clinic's own reminders. */
+export function snoozeLifecycle(clinicId: string, days: 3 | 7 | 14): Promise<OpsResult<LifecycleWriteOutcome>> {
+  return callOps("snoozeLifecycle", "write", { clinicId, days }, (value) => {
+    const data = object(value, "snoozeLifecycle");
+    return { outcome: literal(data.outcome, ["saved", "not_watched"] as const, "snoozeLifecycle.outcome") };
+  });
+}
+
+/** Record the decision about a stalled setup. `extended` is recorded by apps/app when the deadline moves. */
+export function decideLifecycle(
+  clinicId: string,
+  decision: "none" | "extension_offered" | "let_close",
+): Promise<OpsResult<LifecycleWriteOutcome>> {
+  return callOps("decideLifecycle", "write", { clinicId, decision }, (value) => {
+    const data = object(value, "decideLifecycle");
+    return { outcome: literal(data.outcome, ["saved", "not_watched"] as const, "decideLifecycle.outcome") };
   });
 }
 
@@ -5766,5 +6229,216 @@ export function removeClinicDevices(
         codesRevoked: count(data.codesRevoked, "removeClinicDevices.codesRevoked"),
       };
     },
+  );
+}
+
+// -----------------------------------------------------------------------------
+// The redone admin's two reads (ops automation Phase 2, lane A2), shaped by
+// lib/admin/strip-types.ts: the Clinics table and Home. Ids, enums, counts,
+// dates and the clinic's own name; every field checked before a screen draws
+// it. A key the contract names must be present (null only where the contract
+// allows null), and a button that is not a path under /admin, or an operation
+// off the allow-list below, is a shape error.
+// -----------------------------------------------------------------------------
+
+const CHANNEL_LEVELS = ["live", "waiting", "off"] as const satisfies readonly ChannelLevel[];
+const TONES = ["ok", "warn", "bad", "info", "muted"] as const satisfies readonly Tone[];
+
+/**
+ * Operations an inbox row's button may call. Empty: every row links to a
+ * page today. A source that needs a button to run an operation adds its name
+ * here, in the same change, and nothing else is accepted.
+ */
+const INBOX_BUTTON_OPS: readonly OperatorOp[] = [];
+
+/** The listClinicStrip read: one strip of the Clinics table. 12 s, the client's usual. */
+const CLINIC_STRIP_TIMEOUT_MS = 12_000;
+
+/** opsInbox reads every source in turn on apps/app (deliberately not in parallel), so it is given longer. */
+const OPS_INBOX_TIMEOUT_MS = 25_000;
+
+/** The value at `key`, which must be present: absent is a shape error, not a null. */
+function field(data: Record<string, unknown>, key: string, at: string): unknown {
+  if (!Object.hasOwn(data, key)) throw new ShapeError(`${at}.${key}`);
+  return data[key];
+}
+
+function readStage(value: unknown, at: string): ClinicStage {
+  const s = object(value, at);
+  const kind = literal(field(s, "kind", at), ["setup", "live", "paused", "offboarding", "closed"] as const, `${at}.kind`);
+  if (kind === "setup") {
+    return {
+      kind,
+      day: count(field(s, "day", at), `${at}.day`),
+      of: count(field(s, "of", at), `${at}.of`),
+      deadlineAt: optionalIsoInstant(field(s, "deadlineAt", at), `${at}.deadlineAt`),
+    };
+  }
+  if (kind === "live") return { kind, since: isoInstant(field(s, "since", at), `${at}.since`) };
+  return { kind, since: optionalIsoInstant(field(s, "since", at), `${at}.since`) };
+}
+
+function readStripRow(value: unknown, i: number): ClinicStripRow {
+  const at = `listClinicStrip.clinics[${i}]`;
+  const r = object(value, at);
+  const channels = object(field(r, "channels", at), `${at}.channels`);
+  const transcripts = object(field(r, "transcripts", at), `${at}.transcripts`);
+  const usage = object(field(r, "usage", at), `${at}.usage`);
+  const rawAvailability = field(r, "availability", at);
+  const availability = rawAvailability === null ? null : object(rawAvailability, `${at}.availability`);
+  const rawReminder = field(r, "lastReminder", at);
+  const lastReminder = rawReminder === null ? null : object(rawReminder, `${at}.lastReminder`);
+  const rawPercent = field(usage, "percent", `${at}.usage`);
+  const rawMeter = field(usage, "meter", `${at}.usage`);
+  // A percent names its meter, and a meter its percent: one without the other is not a reading.
+  if ((rawPercent === null) !== (rawMeter === null)) throw new ShapeError(`${at}.usage`);
+  const blocking = field(r, "blocking", at);
+  return {
+    clinicId: id(field(r, "clinicId", at), `${at}.clinicId`),
+    name: text(field(r, "name", at), `${at}.name`),
+    synthetic: bool(field(r, "synthetic", at), `${at}.synthetic`),
+    stage: readStage(field(r, "stage", at), `${at}.stage`),
+    channels: {
+      web: literal(field(channels, "web", `${at}.channels`), CHANNEL_LEVELS, `${at}.channels.web`),
+      meta: literal(field(channels, "meta", `${at}.channels`), CHANNEL_LEVELS, `${at}.channels.meta`),
+      voice: literal(field(channels, "voice", `${at}.channels`), CHANNEL_LEVELS, `${at}.channels.voice`),
+    },
+    availability: availability && {
+      changedAt: optionalIsoInstant(field(availability, "changedAt", `${at}.availability`), `${at}.availability.changedAt`),
+      audit: literal(
+        field(availability, "audit", `${at}.availability`),
+        ["pass", "warn", "fail", "running", "never"] as const,
+        `${at}.availability.audit`,
+      ),
+    },
+    calendar: literal(field(r, "calendar", at), ["healthy", "degraded", "broken", "none"] as const, `${at}.calendar`),
+    voice: literal(field(r, "voice", at), ["ok", "drift", "failed", "not_provisioned"] as const, `${at}.voice`),
+    transcripts: {
+      waiting: count(field(transcripts, "waiting", `${at}.transcripts`), `${at}.transcripts.waiting`),
+      bounced: count(field(transcripts, "bounced", `${at}.transcripts`), `${at}.transcripts.bounced`),
+    },
+    usage:
+      rawPercent === null
+        ? { percent: null, meter: null }
+        : {
+            percent: count(rawPercent, `${at}.usage.percent`),
+            meter: literal(rawMeter, ["voice", "web", "meta"] as const, `${at}.usage.meter`),
+          },
+    lastReminder: lastReminder && {
+      day: optionalCount(field(lastReminder, "day", `${at}.lastReminder`), `${at}.lastReminder.day`),
+    },
+    blocking: blocking === null ? null : text(blocking, `${at}.blocking`),
+  };
+}
+
+/** listClinicStrip: one row per clinic, newest first, for the Clinics table. */
+export function fetchClinicStrip(): Promise<OpsResult<ClinicStripRow[]>> {
+  return callOps(
+    "listClinicStrip",
+    "read",
+    {},
+    (value) => {
+      const data = object(value, "listClinicStrip");
+      return list(data.clinics, "listClinicStrip.clinics").map(readStripRow);
+    },
+    CLINIC_STRIP_TIMEOUT_MS,
+  );
+}
+
+/**
+ * A path into this console and nothing else: never an origin, never another
+ * app, never a dot segment or an encoded dot, slash or backslash that a
+ * browser would resolve out of /admin. Checked twice: by its characters, and
+ * by resolving it as a browser would and requiring the same path back.
+ */
+function consolePath(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^\/admin(\/[A-Za-z0-9._~%-]+)*\/?(#[A-Za-z0-9._-]+)?$/.test(value)) {
+    throw new ShapeError(at);
+  }
+  if (/%2e|%2f|%5c/i.test(value)) throw new ShapeError(at);
+  const path = value.split("#", 1)[0]!;
+  if (path.split("/").some((segment) => segment === "." || segment === "..")) throw new ShapeError(at);
+  let resolved: URL;
+  try {
+    resolved = new URL(value, "http://console.invalid");
+  } catch {
+    throw new ShapeError(at);
+  }
+  if (resolved.origin !== "http://console.invalid") throw new ShapeError(at);
+  if (resolved.pathname !== path) throw new ShapeError(at);
+  if (resolved.pathname !== "/admin" && !resolved.pathname.startsWith("/admin/")) throw new ShapeError(at);
+  return value;
+}
+
+function readButton(value: unknown, at: string): InboxButton {
+  const b = object(value, at);
+  const label = text(field(b, "label", at), `${at}.label`);
+  const kind = literal(field(b, "kind", at), ["link", "op"] as const, `${at}.kind`);
+  if (kind === "link") return { label, kind, href: consolePath(field(b, "href", at), `${at}.href`) };
+  const op = field(b, "op", at);
+  if (typeof op !== "string" || !(INBOX_BUTTON_OPS as readonly string[]).includes(op)) {
+    throw new ShapeError(`${at}.op`);
+  }
+  const args: Record<string, string | number | boolean> = {};
+  for (const [key, arg] of Object.entries(object(field(b, "args", at), `${at}.args`))) {
+    if (typeof arg !== "string" && typeof arg !== "number" && typeof arg !== "boolean") {
+      throw new ShapeError(`${at}.args.${key}`);
+    }
+    args[key] = arg;
+  }
+  return { label, kind, op, args };
+}
+
+/** A day ("YYYY-MM-DD") or an instant, as each source dates its row; null when nothing is due. */
+function dueAt(value: unknown, at: string): string | null {
+  if (value === null) return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return date(value, at);
+  return isoInstant(value, at);
+}
+
+function readInboxRow(value: unknown, i: number): InboxRow {
+  const at = `opsInbox.rows[${i}]`;
+  const r = object(value, at);
+  const rawClinic = field(r, "clinic", at);
+  const clinic = rawClinic === null ? null : object(rawClinic, `${at}.clinic`);
+  const kind = field(r, "kind", at);
+  if (typeof kind !== "string" || !/^[a-z_]{1,64}$/.test(kind)) throw new ShapeError(`${at}.kind`);
+  return {
+    id: text(field(r, "id", at), `${at}.id`),
+    kind,
+    count: count(field(r, "count", at), `${at}.count`),
+    sentence: text(field(r, "sentence", at), `${at}.sentence`),
+    clinic: clinic && {
+      id: id(field(clinic, "id", `${at}.clinic`), `${at}.clinic.id`),
+      name: text(field(clinic, "name", `${at}.clinic`), `${at}.clinic.name`),
+    },
+    button: readButton(field(r, "button", at), `${at}.button`),
+    tone: literal(field(r, "tone", at), TONES, `${at}.tone`),
+    dueAt: dueAt(field(r, "dueAt", at), `${at}.dueAt`),
+  };
+}
+
+/** opsInbox: what needs the operator today, ordered, with the sources that could not be read. */
+export function fetchOpsInbox(): Promise<OpsResult<OpsInbox>> {
+  return callOps(
+    "opsInbox",
+    "read",
+    {},
+    (value) => {
+      const data = object(value, "opsInbox");
+      return {
+        rows: list(field(data, "rows", "opsInbox"), "opsInbox.rows").map(readInboxRow),
+        checkedAt: isoInstant(field(data, "checkedAt", "opsInbox"), "opsInbox.checkedAt"),
+        unreadable: list(field(data, "unreadable", "opsInbox"), "opsInbox.unreadable").map((entry, i) => {
+          const at = `opsInbox.unreadable[${i}]`;
+          const u = object(entry, at);
+          return {
+            source: text(field(u, "source", at), `${at}.source`),
+            reason: text(field(u, "reason", at), `${at}.reason`),
+          };
+        }),
+      };
+    },
+    OPS_INBOX_TIMEOUT_MS,
   );
 }

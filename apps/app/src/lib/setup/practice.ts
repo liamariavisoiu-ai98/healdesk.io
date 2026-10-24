@@ -10,7 +10,9 @@ import {
   closuresFrom,
   type Closure,
 } from "@/lib/clinic/closures";
+import { canonicalHours, recordClinicChange, type ChangeOrigin } from "@/lib/clinic/change-events";
 import { moveSetupDeadline } from "@/lib/clinic/setup-window";
+import { releaseLiveHolds } from "@/lib/booking/holds";
 import {
   OpeningHoursError,
   parseOpeningHours,
@@ -237,12 +239,23 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * 1.2: the weekly hours, and the closed days from today on, replaced as the
  * form sends them. Past closures are history and are left alone.
+ *
+ * What changed is recorded for ops in the same transaction
+ * (lib/clinic/change-events.ts): one row for the weekly hours when they
+ * differ, one for the closed days when any were added or taken off, with
+ * the dates and counts and nothing else. `origin` says who saved it; a
+ * writer that does not say is recorded as the portal's, where Knowledge and
+ * its website changes save from. A caller's held minute on a day this save
+ * newly closed is let go (`closure_added`), so a time held a moment before
+ * the save is never booked onto a closed day; a hold that belongs to a
+ * booking request stays, for the clinic to decide in Bookings.
  */
 export async function saveHours(
   tx: TenantTx,
   input: { hours: unknown; closures: unknown },
   timeZone: string,
   now: Date = new Date(),
+  origin: ChangeOrigin = { source: "portal", actor: "clinic_signin" },
 ): Promise<void> {
   let hours: OpeningHours;
   try {
@@ -276,6 +289,15 @@ export async function saveHours(
   }
   if (closures.length > 60)
     throw new PracticeError("closures", "Add at most 60 closed days at a time.");
+
+  // Before the write, for the change record: the hours as they were and the
+  // closed days from today on.
+  const [previous] = await tx.db
+    .select({ openingHours: clinics.openingHours })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  const closedBefore = new Set((await closuresFrom(tx.db, tx.clinicId, today)).map((c) => c.closedOn));
 
   await tx.db
     .update(clinics)
@@ -318,6 +340,31 @@ export async function saveHours(
     resourceId: tx.clinicId,
     metadata: { closures: closures.length },
   });
+
+  const listed = new Set(closures.map((c) => c.closedOn));
+  const added = [...listed].filter((day) => !closedBefore.has(day)).sort();
+  const removed = [...closedBefore].filter((day) => !listed.has(day)).sort();
+  const holdsReleased =
+    added.length > 0 ? await releaseLiveHolds(tx, "closure_added", { dates: added, timeZone, heldOnly: true }) : 0;
+  if (canonicalHours(previous?.openingHours) !== canonicalHours(hours)) {
+    await recordClinicChange(tx, { kind: "hours", ...origin, summary: { weeklyChanged: true } }, now);
+  }
+  if (added.length > 0 || removed.length > 0) {
+    await recordClinicChange(
+      tx,
+      {
+        kind: "closures",
+        ...origin,
+        summary: {
+          closuresAdded: added,
+          closuresRemoved: removed,
+          closuresUpcoming: listed.size,
+          holdsReleased,
+        },
+      },
+      now,
+    );
+  }
 }
 
 /**

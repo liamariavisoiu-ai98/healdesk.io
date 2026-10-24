@@ -82,6 +82,8 @@ export type ClinicUsage = {
 export async function clinicHealth(
   now: Date = new Date(),
   actor: { type: "service"; serviceName: string } = { type: "service", serviceName: "ops-health" },
+  /** When given, counts the clinics whose read failed (left out of the list and logged), for a caller that must say so. */
+  report?: { failed: number },
 ): Promise<ClinicHealth[]> {
   const out: ClinicHealth[] = [];
   for (const clinic of await listClinics()) {
@@ -117,6 +119,7 @@ export async function clinicHealth(
       });
     } catch (error) {
       log.error("clinic health read failed", { clinicId: clinic.id, error: describeError(error) });
+      if (report) report.failed += 1;
     }
   }
   return out.sort((a, b) => a.daysLive - b.daysLive);

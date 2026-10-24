@@ -23,6 +23,7 @@ const nextConfig: NextConfig = {
    */
   outputFileTracingIncludes: {
     "/admin": ["../../package.json", "../../scripts/docs-site/tasks.mjs"],
+    "/admin/system/changes": ["../../package.json", "../../scripts/docs-site/tasks.mjs"],
     "/api/admin/roadmap": ["../../package.json", "../../scripts/docs-site/tasks.mjs"],
   },
 

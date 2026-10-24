@@ -482,6 +482,9 @@ export function BookingDetailControls(props: {
         {props.detail === "named_provider" ? "named providers" : "one shared calendar"}
       </p>
       <p className="text-muted mt-1 text-sm">
+        Takes effect on the next booking. Today&rsquo;s bookings stay as they are.
+      </p>
+      <p className="text-muted mt-1 text-sm">
         {props.detail === "named_provider"
           ? "AYA books each service with a provider who offers it, on that provider's own calendar."
           : "AYA books any free time in your calendar, and your team decides who sees each person."}

@@ -22,7 +22,7 @@ import { LAUNCH_PROMISES } from "./seo/launch";
  * anywhere.
  *
  * The launch promises are this app's to judge: LAUNCH_PROMISES lives here
- * (lib/admin/seo/launch.ts), and CLAUDE.md says no clinic goes live while an
+ * (lib/admin/seo/launch.ts, shown under /admin/compliance#launch), and CLAUDE.md says no clinic goes live while an
  * item that blocks go-live is open. So their attestation is refused here
  * while one is, before the code is even asked, and the open ids go with the
  * request so apps/app refuses it too.
@@ -67,7 +67,7 @@ export async function enterPlatformAttestation(input: {
   const open = openLaunchPromises();
   if (action === "attest" && subject === "launch_promises" && open.length > 0) {
     return refused(
-      `Launch promises that block go-live are still open (${open.join(", ")}): move each to on first, on /admin/seo. Nothing was recorded.`,
+      `Launch promises that block go-live are still open (${open.join(", ")}): move each to on first, under /admin/compliance#launch. Nothing was recorded.`,
     );
   }
   const fresh = checkFreshOperatorCode(input.code);

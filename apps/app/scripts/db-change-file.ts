@@ -45,6 +45,21 @@ export function parseChangeFile(text: string): ChangeFile {
   // Words inside a quoted value ('Drop-in day') are data, not statements.
   const code = statement.replace(/'(?:[^']|'')*'/g, "''");
   if (/\breturning\b/i.test(code)) throw new Error("no RETURNING: a run reports row counts, never rows");
+  // Any dollar sign outside a quoted value: a dollar-quote has a tag of any
+  // name ($a$...$a$), and inside one a quote mark ends nothing, so the value
+  // stripping above would see a string where the database sees code.
+  if (code.includes("$")) throw new Error("no dollar quoting, whatever its tag");
+  // Unicode-escaped names (U&"!0073et_config" UESCAPE '!') spell a function
+  // the word list below cannot see, so they are refused outright.
+  if (/\bu&\s*["']/i.test(code) || /\buescape\b/i.test(code)) {
+    throw new Error("no Unicode-escaped identifiers or strings (U&, UESCAPE)");
+  }
+  // Functions that run a query of their own from text (the *_to_xml family)
+  // or reach outside the database: a string can then carry what the word
+  // list below would refuse in the statement itself.
+  if (/(_to_xml|_to_xmlschema|_and_xmlschema)\b|\b(xmlparse|xpath|query_to_|cursor_to_|database_to_|schema_to_|table_to_)/i.test(code)) {
+    throw new Error("no *_to_xml functions: they run queries of their own");
+  }
   // The database refuses most of these for this role; stopping them here keeps
   // a statement from reaching outside the clinic whose id the run sets.
   if (/\b(set_config|current_setting|pg_[a-z_]+|dblink|lo_[a-z]+|copy|truncate|delete|drop|alter|grant|revoke|create)\b/i.test(code)) {

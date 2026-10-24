@@ -26,6 +26,10 @@ export const READONLY_TABLES = [
   "agent_configs",
   "baa_acceptances",
   "calendar_elections",
+  // Ops automation E3/E4 (drizzle/0114): codes, counts, dates and fixed hints.
+  "clinic_audit_claims",
+  "clinic_audits",
+  "clinic_change_events",
   "clinic_channels",
   "clinic_closures",
   "clinic_provider_services",
@@ -38,6 +42,11 @@ export const READONLY_TABLES = [
   "platform_compliance",
   "provisioning_attempts",
   "usage_events",
+  // The lifecycle watch (drizzle/0115): a clinic's stage, counts, dates and
+  // the operator's snooze and decision; the reminder ledger's ids, closed
+  // words and dates. Read column by column on 23 October 2026: no patient.
+  "clinic_lifecycle",
+  "lifecycle_waves",
 ] as const;
 
 /** Tables the role can never read, and why. */

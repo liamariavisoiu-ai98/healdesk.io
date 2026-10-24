@@ -31,6 +31,7 @@ import {
   runCalendarWatchJob,
 } from "@/lib/scheduler/calendar-watch";
 import { runPracticeQuestionsJob } from "@/lib/engine/practice/job";
+import { runClinicChangesMinute } from "@/lib/audits/jobs";
 import { runOpsSlackSweep } from "@/lib/ops/slack";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSiteReadsJob } from "@/lib/website/job";
@@ -198,6 +199,13 @@ async function main(): Promise<void> {
             : { status: "ok" as const, note: `${r.flagged} flagged` };
         },
       ],
+      // Clinics' changes to hours, closed days and providers
+      // (lib/clinic/change-events.ts, lib/audits/jobs.ts): each told to ops
+      // once, unswitched, and audited two minutes after the clinic's last
+      // change, three clinics a run at most, behind the clinic-audits switch,
+      // which ships off. Last, so its audits never hold up the rest; an
+      // alert it raises posts on the next minute's Slack sweep.
+      ["clinic-changes", () => runClinicChangesMinute()],
     ] as const) {
       try {
         const outcome = await run();

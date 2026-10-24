@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "ask": [
+      "Bash(terraform apply*)",
+      "Bash(gh workflow run*)",
+      "Bash(bash infra/aws/scripts/run-task.sh*)",
+      "Bash(aws ssm put-parameter*)",
+      "Bash(git push * main*)"
+    ]
+  }
+}

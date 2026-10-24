@@ -27,8 +27,10 @@ import { runOpsDigestJob } from "@/lib/ops/digest";
 import { runHealthFlagsJob } from "@/lib/ops/health-flags";
 import { alertStuckCalendarWrites } from "@/lib/ops/calendar-write-alerts";
 import { runOpsSlackSweep } from "@/lib/ops/slack";
+import { runClinicAuditsHourly, runClinicChangesMinute } from "@/lib/audits/jobs";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
+import { runLifecycleWatchJob } from "@/lib/lifecycle/watch";
 import { runAddressChangesJob } from "@/lib/sign-in/address-change";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 import { runSiteReadsSweep, runWebsiteDriftJob } from "@/lib/website/job";
@@ -265,6 +267,14 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // SLACK_WEBHOOK_URL is the switch, and without it nothing is touched.
   // Its own clock, not the tick's: the tick reaches it minutes after it
   // started, and a lease counted from then could already be over.
+  // Clinics' changes to hours, closed days and providers: the minute
+  // sweep's backstop (ops told of each, the debounced audits behind the
+  // clinic-audits switch); then, behind clinic-audits-hourly, the hourly
+  // fingerprint check, and at 04 UTC, after the voice drift check at 03,
+  // every audit pack for every clinic in service (lib/audits/jobs.ts).
+  // Before the Slack sweep, so an alert raised here posts this hour.
+  await record("clinic-changes", () => runClinicChangesMinute(now));
+  await record("clinic-audits-hourly", () => runClinicAuditsHourly(now));
   await record("ops-slack", () => runOpsSlackSweep());
   // Calendar writes that need a person (lib/ops/calendar-write-alerts.ts):
   // each booking whose Google write ended failed, or unknown and no longer
@@ -300,6 +310,12 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));
+  // The lifecycle watch (lib/lifecycle/watch.ts; design E2), hourly behind
+  // its switch, which ships off: each billing clinic's stage, the reminders
+  // just queued above recorded in its ledger, and the ops waves due, to Slack
+  // and, for an escalation, the ops address. After the reminders, so this
+  // hour's is recorded this hour; it sends nothing to a clinic.
+  await record("lifecycle-watch", () => runLifecycleWatchJob({ now }));
   // L8, hourly behind its switch: each clinic's "request still open" goes at
   // its own opening hour, so the hour it runs is the clinic's, not UTC's.
   await record("requests-still-open", () => runRequestsStillOpenJob({ now }));

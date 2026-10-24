@@ -122,6 +122,15 @@ describeDb("a closed day saved in the portal blocks booking on that day", () => 
       );
       expect(saved).toMatchObject({ ok: true });
 
+      // The save let the caller's held minute on D go at once (lane B,
+      // releaseLiveHolds' `dates`): it no longer blocks anyone.
+      const released = await inTenant(f.clinicId, async (c) =>
+        (await c.query<{ status: string; outcome_reason: string | null }>(`select status, outcome_reason from slot_holds`)).rows,
+      );
+      expect(released).toHaveLength(1);
+      expect(released[0]!.outcome_reason).toBe("closure_added");
+      expect(["released", "expired"]).toContain(released[0]!.status);
+
       // After: nothing on D, the next day as it was.
       const after = await datesOf();
       expect(after.has(day)).toBe(false);
@@ -163,6 +172,68 @@ describeDb("a closed day saved in the portal blocks booking on that day", () => 
           expect(clinicLocalDate(alternative, DESK_TZ)).not.toBe(day);
         }
       }
+      const rows = await inTenant(f.clinicId, async (c) => ({
+        holds: (
+          await c.query<{ status: string; outcome_reason: string | null }>(
+            `select status, outcome_reason from slot_holds`,
+          )
+        ).rows,
+        appointments: (await c.query(`select id from appointments`)).rows,
+      }));
+      // Still the one hold, let go by the save, not by the booking's re-check.
+      expect(rows.holds).toHaveLength(1);
+      expect(rows.holds[0]!.outcome_reason).toBe("closure_added");
+      expect(rows.appointments).toEqual([]);
+      expect(google.requests.filter((r) => r.endpoint === "insert")).toHaveLength(0);
+    },
+    SLOW,
+  );
+
+  test(
+    "a hold the save does not release (the day closed by another writer) is still refused at booking, by the booking's own re-check",
+    async () => {
+      const f = await deskLocation(google, "closure-recheck");
+      await getMigratorPool().query(
+        `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`,
+        [f.clinicId],
+      );
+      await withTenant({ clinicId: f.clinicId, actor: ACTOR }, (tx) => approveAgentConfig(tx, "Dr Chen"));
+      const tenAtD = deskTime(3, 10);
+      const day = clinicLocalDate(tenAtD, DESK_TZ);
+
+      const holderKey = `retell:recheck-${randomUUID()}`;
+      const held = await placeHold(f.clinicId, {
+        channel: "voice",
+        holderKey,
+        startsAt: tenAtD,
+        service: "Consultation",
+      });
+      expect(held.kind).toBe("held");
+
+      // D closed straight in the table, bypassing saveHours, so nothing lets
+      // the hold go: only the booking's re-check stands between it and D.
+      await inTenant(f.clinicId, (c) =>
+        c.query(`insert into clinic_closures (clinic_id, closed_on, label) values ($1, $2, 'Staff training')`, [
+          f.clinicId,
+          day,
+        ]),
+      );
+      const still = await inTenant(f.clinicId, async (c) =>
+        (await c.query<{ status: string }>(`select status from slot_holds`)).rows,
+      );
+      expect(still).toEqual([{ status: "held" }]);
+
+      const answer = await bookConversation(f.clinicId, {
+        channel: "voice",
+        holderKey,
+        bookingKey: `${holderKey}:1`,
+        startsAt: tenAtD,
+        firstName: "Ana",
+        phoneE164: "+14155550188",
+        service: "Consultation",
+        budgetMs: 20_000,
+      });
+      expect(answer.kind).toBe("slot_taken");
       const rows = await inTenant(f.clinicId, async (c) => ({
         holds: (
           await c.query<{ status: string; outcome_reason: string | null }>(

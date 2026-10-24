@@ -5,20 +5,21 @@ import type { AlertWording } from "./types";
 /** The "availability" section of docs/on-call.md's alert runbook. */
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // lib/clinic/change-events.ts, from the minute sweep, once per clinic and
-  // kind an hour.
-  // Today's true steps use the Touch log. Lane A3 is adding the Availability
-  // changes card's own controls; lane N2 swaps them in once they exist.
+  // kind an hour. The steps name the Setup tab's "Availability changes" card
+  // (lane A3): "Run audit now" and "Mark as seen". The alert's link lands on
+  // that card.
   clinic_availability_changed: {
     title: "A clinic changed when or with whom AYA books",
     whatHappened:
       "{clinicName} changed its {section}[, {count:change} in all].[ It added {written:closed day}.][ It took off {deleted:closed day}.] AYA uses the change for bookings straight away.",
     whyItMatters:
-      "Most changes come from the clinic's own portal and need nothing from us. A change nobody at the clinic made could send patients to the wrong times.",
+      "Most changes come from the clinic's own portal and need nothing from us. A change nobody at the clinic made could send patients to the wrong times. An audit checks each change while audits are switched on; the card says when they are off.",
     steps: [
-      "Open the clinic's Care tab and look in the Touch log for a request from the clinic to make this change.",
-      "Stop here if the Touch log shows the clinic asked for it, or it matches what the clinic told you.",
-      "Phone the clinic on its published number, shown under Phone line on its Setup tab, if nobody expected the change. Ask whether they made it.",
-      "Press Record in the Touch log on the Care tab to note the answer. You are done when the clinic confirms the change, or you have told the owner it was not theirs.",
+      "Open the clinic's Setup tab and find the change under Availability changes: it says who made it (the clinic, ops, a change file or outside the portal) and how its audit went.",
+      "Press Mark as seen beside the change if the clinic made it and the audit passed, or audits are off. Nothing else is owed.",
+      "Press Run audit now on the Availability changes card if the audit needs attention, could not run, or is still waiting. It runs every pack at once; a second press within a minute is refused.",
+      "Phone the clinic on its published number, shown under Phone line on the Setup tab, if the change was made outside the portal or by nobody you expected. Ask whether they made it.",
+      "Press Mark as seen once you have the answer. You are done when every change on the Availability changes card shows seen, or you have told the owner a change was not the clinic's.",
     ],
   },
 };

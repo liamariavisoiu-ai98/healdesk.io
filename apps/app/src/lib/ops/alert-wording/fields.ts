@@ -185,4 +185,42 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
   meta_revoke_by_hand: ["clinicId", "connectionId", "provider", "code"],
   // lib/scheduler/retention-purge.ts: `phase` clinic (with its id) or run.
   retention_purge_failed: ["clinicId", "phase"],
+  // lib/lifecycle/waves.ts dueWaves, the other eight waves (lane N2d). The
+  // day-7 and day-15 waves and the day-22 closing-soon wave share the
+  // decision wave's window fields; the waiting-on-us waves carry the hours
+  // and days waited, and the long one the extension proposed; the partly-live
+  // wave the days and the channels waiting; the two reminder escalations the
+  // steps owed, and the unanswered one the reminders delivered.
+  lifecycle_no_progress: ["clinicId", "stepsLeftCount", "noProgressDays", "setupDays", "remainingDays"],
+  lifecycle_closing_soon: [
+    "clinicId",
+    "stepsLeftCount",
+    "noProgressDays",
+    "setupDays",
+    "remainingDays",
+    "decision",
+    "recommendation",
+    "extendDays",
+  ],
+  lifecycle_closing_waiting_on_us: [
+    "clinicId",
+    "remainingDays",
+    "waitedDays",
+    "decision",
+    "recommendation",
+    "extendDays",
+  ],
+  lifecycle_waiting_on_us: ["clinicId", "waitedHours", "waitedDays"],
+  lifecycle_waiting_on_us_long: ["clinicId", "waitedHours", "waitedDays", "recommendation", "extendDays"],
+  lifecycle_channel_waiting: ["clinicId", "waitedDays", "channelsWaitingCount"],
+  lifecycle_reminder_undelivered: ["clinicId", "stepsLeftCount"],
+  lifecycle_reminders_unanswered: ["clinicId", "stepsLeftCount", "noProgressDays", "reminderCount"],
+  // lib/ops/digest.ts postDigestSummary: counts, no clinic.
+  ops_digest_summary: [
+    "decisionsOwedCount",
+    "waitingOnUsCount",
+    "nearCapCount",
+    "atCapCount",
+    "slackUnpostedCount",
+  ],
 };

@@ -1,4 +1,4 @@
-import { messageLanguage } from "@healdesk/catalog";
+import { messageLanguage, openDemoCallContext, type DemoCallContext } from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
 
 import { clinics, clinicSettings } from "@/db/schema";
@@ -10,7 +10,7 @@ import { openingLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantFallbackRefused, patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
-import { voiceDisclosureEs } from "@/lib/compliance/disclosure";
+import { demoVoiceOpening, voiceDisclosureEs } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { raiseHandover } from "@/lib/handovers/record";
@@ -21,6 +21,7 @@ import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
+import { demoAssistantFacts, demoCallNote, demoContextFromCall } from "./demo-facts";
 import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, type FallbackLookup } from "./fallback-line";
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
@@ -121,6 +122,28 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  * digits) until the caller turns it back to English. A line said before the
  * caller has spoken (the transfer or closing line at the start) is English.
  *
+ * A personalised demo call (owner, 24 October 2026: "the demo AYAs and the
+ * client AYA should be THE SAME, only difference should be the start"):
+ * src/voice/server.ts opens a session in demo mode (deps.demo) for the demo
+ * engine agent's socket, /llm-websocket/<secret>/demo. It runs this same
+ * class, so the same prompt, VOICE_STYLE, screens, guard, acknowledgements,
+ * no-repeat rule and streaming, with three differences:
+ *   - the facts come from the clinic's published website, sealed by apps/web
+ *     into the call's dynamic variable (@healdesk/catalog demo-call.ts) and
+ *     read from call details (demo-facts.ts), never from the database; a
+ *     context that does not open (forged, older than two hours, malformed,
+ *     missing) hears DEMO_EXPIRED_LINE and the call ends;
+ *   - the start: the demo opening line (disclosure.ts, demoVoiceOpening),
+ *     with the same two facts, and a note on every turn (demoCallNote);
+ *   - nothing is written or sent anywhere: no answer gate or billing, no
+ *     test-mode screen (voice_real_calls governs clinics' calls, and a demo
+ *     is no clinic's: no clinic row is read, and no patient's call reaches
+ *     this agent), no booking tools (requests only, kept nowhere), no
+ *     redial store, no urgent or handover alert, no ops notice, no ingest,
+ *     transcript or conversation row, and no transfer: an urgent caller
+ *     hears the fixed 9-1-1 line and stays on the call. A phone call-back
+ *     demo is an outbound call, which only demo mode lets go on.
+ *
  * Nothing here is written to disk or a log but ids, counts and outcomes. The
  * call's words live in this object until the ingest seals them.
  */
@@ -159,6 +182,9 @@ export const REMINDER_CLOSE_LINE_ES = "Parece que se cortó. Le dejo, ¡llame cu
  */
 export const RETRY_LINE = "Hm, say that one more time for me?";
 export const RETRY_LINE_ES = "¿Me lo repite, por favor?";
+
+/** A demo call whose sealed context did not open (forged, stale, malformed or missing): said, then the call ends. */
+export const DEMO_EXPIRED_LINE = "This demo link has expired. Please start the demo again from the page.";
 
 /**
  * What a call hears while the model thinks, so there is no dead air (owner,
@@ -214,7 +240,14 @@ type RetellEvent = {
   response_id?: unknown;
   transcript?: unknown;
   timestamp?: unknown;
-  call?: { from_number?: unknown; to_number?: unknown; direction?: unknown; start_timestamp?: unknown; call_id?: unknown };
+  call?: {
+    from_number?: unknown;
+    to_number?: unknown;
+    direction?: unknown;
+    start_timestamp?: unknown;
+    call_id?: unknown;
+    retell_llm_dynamic_variables?: unknown;
+  };
 };
 
 export type RetellOutbound =
@@ -262,6 +295,15 @@ export type RetellSessionDeps = {
   acknowledgeAfterMs?: number;
   /** The acknowledgement's pick, 0 to 1; Math.random unset. */
   random?: () => number;
+  /**
+   * A personalised demo call (see the file header): `secret` opens the
+   * sealed context (HEALDESK_PROVISION_SECRET; null opens none, so every
+   * demo call hears DEMO_EXPIRED_LINE). Set only by src/voice/server.ts, for
+   * the demo path. In demo mode nothing above that reaches the database or
+   * a vendor is ever called: gate, ingest, screen, fallbackLine, tools,
+   * redial and cacheFacts are all left unused.
+   */
+  demo?: { secret: string | null; detailsWaitMs?: number };
 };
 
 /** How long a clinic's facts read by one call may open the next. */
@@ -314,6 +356,12 @@ class Deadline extends Error {
 
 /** Retell sends call details straight after our config; this only bounds a call where it never does. */
 const CALL_DETAILS_WAIT_MS = 1_500;
+/**
+ * A demo call cannot say a word without them (the context is in them), so it
+ * waits a little longer than a call falling through, then hears the expired
+ * line rather than silence.
+ */
+const DEMO_CALL_DETAILS_WAIT_MS = 3_000;
 
 /** The caller's words since the agent last spoke, from Retell's transcript. */
 export function latestCallerWords(transcript: unknown): string {
@@ -447,6 +495,10 @@ export class RetellCallSession {
   private lastAcknowledgement: string | null = null;
   /** Silences answered so far: the check-ins, then the close. */
   private reminders = 0;
+  /** A demo call's context, once opened: the requester's first name and the clinic's profile. In memory only. */
+  private demoContext: DemoCallContext | null = null;
+  /** Retell's call object from call details, for a demo call's context; dropped once read. */
+  private demoCall: unknown = null;
 
   constructor(
     readonly clinicId: string,
@@ -502,6 +554,10 @@ export class RetellCallSession {
    * caller's number only once the clinic is known to be made up.
    */
   async open(): Promise<void> {
+    if (this.deps.demo) {
+      this.openDemo();
+      return;
+    }
     // One deadline for the whole start, the test-mode check included.
     const startBy = Date.now() + (this.deps.startDeadlineMs ?? START_DEADLINE_MS);
     if (!(this.deps.realCalls ?? voiceRealCallsAllowed()) && !(await this.madeUpClinic(startBy))) return;
@@ -558,6 +614,65 @@ export class RetellCallSession {
       return;
     }
     this.begin(result);
+  }
+
+  /** The opening line: the demo's for a demo call, the clinic's (openingLine) otherwise. */
+  private openingFor(facts: AssistantFacts): string {
+    return this.demoContext
+      ? demoVoiceOpening({ clinicName: facts.clinicName, firstName: this.demoContext.firstName })
+      : openingLine(facts, "voice");
+  }
+
+  /**
+   * A demo call's start: ask for call details and return at once, because
+   * the details arrive as a message the server hands this session only after
+   * open() has returned. The start goes on beside the message chain
+   * (startDemo), as the fall-through does.
+   */
+  private openDemo(): void {
+    this.send({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
+    this.sending.push(this.startDemo());
+  }
+
+  /**
+   * The call details are in, or did not come in time: open the sealed
+   * context and say the demo opening line, or the expired line and end the
+   * call. Reads nothing but the call object; writes nothing anywhere.
+   */
+  private async startDemo(): Promise<void> {
+    const wait = this.deps.demo?.detailsWaitMs ?? DEMO_CALL_DETAILS_WAIT_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      this.callDetailsArrived,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, wait);
+        timer.unref?.();
+      }),
+    ]);
+    clearTimeout(timer);
+    if (this.hungUp || this.recording) return;
+    const sealed = demoContextFromCall(this.demoCall);
+    this.demoCall = null;
+    const secret = this.deps.demo?.secret ?? null;
+    const context = sealed && secret ? openDemoCallContext(sealed, secret) : null;
+    // On the newest request, if the caller spoke while the details came.
+    const responseId = Math.max(this.latestResponseId, 0);
+    if (!context) {
+      log.warn("retell demo call refused: its context did not open", {
+        clinicId: this.clinicId,
+        callId: this.callId,
+        code: !secret ? "no_secret" : sealed ? "not_opened" : "missing",
+      });
+      this.closing = true;
+      this.say(responseId, DEMO_EXPIRED_LINE, { endCall: true });
+      return;
+    }
+    this.demoContext = context;
+    const facts = demoAssistantFacts(context);
+    this.facts = facts;
+    this.disclosurePlayedAt = this.now();
+    this.say(responseId, this.openingFor(facts), { noInterruption: true });
+    log.info("retell demo call started", { clinicId: this.clinicId, callId: this.callId, source: context.mode, count: facts.services.length });
   }
 
   /**
@@ -819,6 +934,14 @@ export class RetellCallSession {
   }
 
   private callDetails(event: RetellEvent): void {
+    if (this.deps.demo) {
+      // Only the call object, for the sealed context: no caller's number,
+      // no forwarding lines, no redial. A demo call-back is outbound, and
+      // goes on.
+      this.demoCall ??= event.call ?? null;
+      this.calledNumberArrived();
+      return;
+    }
     const call = event.call ?? {};
     if (typeof call.from_number === "string" && call.from_number.trim()) this.callerPhone = call.from_number.trim();
     if (typeof call.to_number === "string" && call.to_number.trim()) this.calledNumber = call.to_number.trim();
@@ -846,7 +969,7 @@ export class RetellCallSession {
    * refused test call, and only with the caller's number.
    */
   private startRedialLookup(): void {
-    if (this.redialLookup || !this.facts || this.closing || this.unrecorded || this.keepsNothing || this.outbound || !this.callerPhone) return;
+    if (this.redialLookup || this.deps.demo || !this.facts || this.closing || this.unrecorded || this.keepsNothing || this.outbound || !this.callerPhone) return;
     const lookup = this.deps.redial ?? ((clinicId, phone) => takeRedialContext(clinicId, phone, ACTOR));
     this.redialLookup = lookup(this.clinicId, this.callerPhone).catch((error) => {
       log.error("redial lookup failed", { clinicId: this.clinicId, error: describeError(error) });
@@ -923,7 +1046,10 @@ export class RetellCallSession {
       knownTerms: languageTerms(facts),
       spanishAllowed: facts.languages.includes("es"),
     });
-    this.tools ??= this.deps.tools
+    // A demo call books nothing and takes requests only, kept nowhere.
+    this.tools ??= this.deps.demo
+      ? null
+      : this.deps.tools
       ? this.deps.tools(facts)
       : bookingTools({
           clinicId: this.clinicId,
@@ -1014,7 +1140,9 @@ export class RetellCallSession {
       callerPhone: this.callerPhone,
       resumed: resumed ? redialPromptBlock(resumed) : null,
       language: language.language,
-      urgentTransferTo: this.urgentLine(facts),
+      // A demo call is never put through anywhere.
+      urgentTransferTo: this.deps.demo ? null : this.urgentLine(facts),
+      notes: this.demoContext ? [demoCallNote(this.demoContext)] : null,
     }).finally(stopAck);
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.
@@ -1027,7 +1155,11 @@ export class RetellCallSession {
     this.handoff ||= turn.handoff;
 
     let urgentQueued = false;
-    if (turn.urgent && !this.urgent) {
+    if (turn.urgent && !this.urgent && this.deps.demo) {
+      // A demo call raises no alert: the fixed urgent line, never saying the team was told.
+      this.urgent = true;
+      this.urgentUntold = true;
+    } else if (turn.urgent && !this.urgent) {
       this.urgent = true;
       const writing = withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
         notifyBookingAlert(tx, "urgent", { callId: this.callId, channel: "voice" }),
@@ -1047,7 +1179,7 @@ export class RetellCallSession {
     // L11: the caller asked for a person. Once per call, and not after an
     // urgent alert, which already has the clinic looking at it. Kept for
     // Bookings' Needs you as well as alerted (lib/handovers/record.ts).
-    if (turn.handoff && !this.handoverAlerted && !this.urgent) {
+    if (turn.handoff && !this.handoverAlerted && !this.urgent && !this.deps.demo) {
       this.handoverAlerted = true;
       try {
         await withDeadline(
@@ -1111,7 +1243,7 @@ export class RetellCallSession {
       log.info("retell spanish disclosure said", { clinicId: this.clinicId });
     }
     if (this.openingOwed && !turn.urgent) {
-      reply = `${openingLine(facts, "voice")} ${reply}`;
+      reply = `${this.openingFor(facts)} ${reply}`;
       this.openingOwed = false;
       this.disclosurePlayedAt = this.now();
     }
@@ -1194,6 +1326,14 @@ export class RetellCallSession {
     // The earlier call's turns were for this call's replies only.
     this.redial = null;
     this.redialLookup = null;
+    if (this.deps.demo) {
+      // A demo call keeps nothing: no conversation, no minutes, no transcript.
+      log.info("retell demo call ended", { clinicId: this.clinicId, callId: this.callId, count: this.turns.length });
+      this.turns = [];
+      this.demoContext = null;
+      this.demoCall = null;
+      return null;
+    }
     if (this.unrecorded) {
       this.turns = [];
       this.callerPhone = null;

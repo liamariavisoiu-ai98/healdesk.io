@@ -150,7 +150,6 @@ export const CALENDAR_WRITE_REASONS = {
   network: "transient",
   unconfirmed: "transient",
   threw: "transient",
-  malformed_response: "transient",
   rate_limited: "transient",
   target_unverified: "transient",
   // Settled: never retried automatically.
@@ -181,6 +180,9 @@ export const CALENDAR_WRITE_REASONS = {
   bad_duration: "refused",
   bad_time_zone: "refused",
   phone_field_refused: "refused",
+  // Google answered something unreadable: an insert records it failed (a 2xx
+  // it cannot read is `unconfirmed` instead), a read-back leaves it unknown.
+  malformed_response: "refused",
   // The adapter's words for its other calls (the token exchange and revoke,
   // the calendar list, free/busy): never recorded by a write today, listed
   // so a write that ever meets one is already classified.
@@ -380,6 +382,33 @@ type Prepared = {
 
 type Prepare = { kind: "go"; prepared: Prepared } | { kind: "done"; outcome: CalendarWriteOutcome };
 
+/** What one call of the writer did: its outcome, and whether it made an attempt at Google at all. */
+export type CalendarWriteResult = { outcome: CalendarWriteOutcome; attempted: boolean };
+
+export type CalendarWriteOptions = {
+  /** Also claim from `failed`: an operator's retry, after someone has looked at why. */
+  fromFailed?: boolean;
+  /**
+   * An operator's retry (with fromFailed): past the five attempts the ladder
+   * ends at, since a person asked. It still counts the attempt, still reads
+   * Google back before anything is created, and still never claims a booking
+   * staff marked cancelled, showed or no-show.
+   */
+  operator?: boolean;
+  /**
+   * The desk sweep's claim: only a write whose next attempt on the ladder is
+   * due by `now`, whose slot has not started (by `now` and by the database's
+   * clock at the claim, so a slot that starts during a long run is not
+   * written), and whose reason is not a settled one. An id the sweep listed
+   * earlier that another run has since tried, or that went past its slot,
+   * is not claimed.
+   */
+  sweep?: boolean;
+  actor?: ActorContext;
+  /** The caller's clock for the claim's checks; the outcome's times are always read fresh. */
+  now?: Date;
+};
+
 /**
  * Write one appointment into the location's Google Calendar (plan §7.12),
  * after the transaction that created it has committed.
@@ -393,9 +422,22 @@ type Prepare = { kind: "go"; prepared: Prepared } | { kind: "done"; outcome: Cal
 export async function writeToCalendar(
   clinicId: string,
   appointmentId: string,
-  opts: { fromFailed?: boolean; actor?: ActorContext; now?: Date } = {},
+  opts: CalendarWriteOptions = {},
 ): Promise<CalendarWriteOutcome> {
+  return (await writeToCalendarAttempt(clinicId, appointmentId, opts)).outcome;
+}
+
+/** writeToCalendar, saying also whether an attempt was made: the operator's retry reports a no-op as one. */
+export async function writeToCalendarAttempt(
+  clinicId: string,
+  appointmentId: string,
+  opts: CalendarWriteOptions = {},
+): Promise<CalendarWriteResult> {
   const actor = opts.actor ?? WRITE_ACTOR;
+  const claimOptions: ClaimOptions = {
+    operator: opts.fromFailed === true && opts.operator === true,
+    sweepNow: opts.sweep ? (opts.now ?? new Date()) : null,
+  };
   const allowed: CalendarWriteStatus[] = opts.fromFailed
     ? ["none", "unknown", "failed"]
     : ["none", "unknown"];
@@ -403,7 +445,7 @@ export async function writeToCalendar(
   // 1. Claim the row and open the credential, in one short transaction.
   let step: Prepare;
   try {
-    step = await withTenant({ clinicId, actor }, (tx) => claim(tx, appointmentId, allowed));
+    step = await withTenant({ clinicId, actor }, (tx) => claim(tx, appointmentId, allowed, claimOptions));
   } catch (error) {
     // The write guard (drizzle/0060) refused the claim: the terms or the
     // connection changed between our read and the claim, and nothing was
@@ -411,9 +453,12 @@ export async function writeToCalendar(
     // no-healthy-calendar case: staff add it by hand, and it is never
     // written later on its own (plan §7.12). Any other refusal is a bug.
     if (codeOf(error) !== "23514" || constraintOf(error) !== WRITE_PERMITTED) throw error;
-    return withTenant({ clinicId, actor }, (tx) => recordNotConnected(tx, appointmentId, allowed));
+    return {
+      outcome: await withTenant({ clinicId, actor }, (tx) => recordNotConnected(tx, appointmentId, allowed)),
+      attempted: false,
+    };
   }
-  if (step.kind === "done") return step.outcome;
+  if (step.kind === "done") return { outcome: step.outcome, attempted: false };
   const p = step.prepared;
 
   // 2. Google, with no transaction open.
@@ -520,7 +565,10 @@ export async function writeToCalendar(
   }
 
   // 3. Record it, fenced by the lease: a takeover's attempt records its own.
-  const now = opts.now ?? new Date();
+  // The clock is read now, after Google answered, never the caller's: a
+  // sweep that started minutes ago would otherwise date the attempt, and
+  // place its next one on the ladder, in the past.
+  const now = new Date();
   const recorded = await withTenant({ clinicId, actor }, async (tx) => {
     const [row] = await tx.db
       .update(appointments)
@@ -559,13 +607,16 @@ export async function writeToCalendar(
     });
     return row !== undefined;
   });
-  return recorded ? outcome : "unknown";
+  return { outcome: recorded ? outcome : "unknown", attempted: true };
 }
+
+type ClaimOptions = { operator: boolean; sweepNow: Date | null };
 
 async function claim(
   tx: TenantTx,
   appointmentId: string,
   allowed: CalendarWriteStatus[],
+  options: ClaimOptions = { operator: false, sweepNow: null },
 ): Promise<Prepare> {
   const [row] = await tx.db
     .select({
@@ -625,9 +676,11 @@ async function claim(
       and(
         eq(appointments.id, appointmentId),
         eq(appointments.clinicId, tx.clinicId),
-        sql`${appointments.calendarWriteAttempts} < ${MAX_WRITE_ATTEMPTS}`,
+        // An operator's retry goes past the five; nothing else does.
+        options.operator ? undefined : sql`${appointments.calendarWriteAttempts} < ${MAX_WRITE_ATTEMPTS}`,
         inArray(appointments.status, [...WRITABLE_APPOINTMENT_STATUSES]),
         claimable(allowed),
+        options.sweepNow ? sweepClaimable(options.sweepNow) : undefined,
       ),
     )
     .returning({ attempts: appointments.calendarWriteAttempts });
@@ -668,10 +721,29 @@ async function claim(
       timeZone: row.timeZone,
       audience: audienceFor(row.specialty),
       origin: row.bookingOrigin === "assistant" ? "assistant" : "desk",
-      readBackFirst: claimed.attempts > 1,
+      // An operator's retry always reads back first: whatever the count says,
+      // Google may hold this booking already.
+      readBackFirst: claimed.attempts > 1 || options.operator,
       attempt: claimed.attempts,
     },
   };
+}
+
+/**
+ * The sweep's own conditions, again at the claim (see CalendarWriteOptions
+ * `sweep`): due on the ladder by the sweep's clock, the slot ahead of both
+ * the sweep's clock and the database's, and no settled reason. A stuck
+ * `writing` claim is not on the ladder, so only its slot and reason count.
+ */
+function sweepClaimable(now: Date) {
+  return sql`(${appointments.scheduledFor} > greatest(${now}::timestamptz, clock_timestamp())
+    and (${appointments.calendarWriteStatus} = 'writing'
+         or ${appointments.calendarWriteNextAt} is null
+         or ${appointments.calendarWriteNextAt} <= ${now}::timestamptz)
+    and coalesce(${appointments.calendarWriteError}, '') not in (${sql.join(
+      NEVER_RETRIED_REASONS.map((reason) => sql`${reason}`),
+      sql`, `,
+    )}))`;
 }
 
 /**
@@ -955,7 +1027,7 @@ export async function sweepDeskWrites(
   for (const { clinicId, appointmentId } of turns) {
     result.attempted += 1;
     try {
-      const outcome = await writeToCalendar(clinicId, appointmentId, { actor, now });
+      const outcome = await writeToCalendar(clinicId, appointmentId, { actor, now, sweep: true });
       if (outcome === "written") result.written += 1;
       else if (outcome === "failed") result.failed += 1;
       else result.unknown += 1;

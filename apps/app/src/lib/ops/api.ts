@@ -138,7 +138,7 @@ import {
 } from "@/lib/ops/promise-ops";
 import { keyPresence } from "@/lib/ops/key-presence";
 import { opDeleteRecordedCall, opListRecordingAlerts } from "@/lib/ops/recording-alerts-ops";
-import { opRetryVoiceAgent, opVoiceAgentStatus } from "@/lib/ops/voice-agent-ops";
+import { opRetryVoiceAgent, opSyncDemoVoiceAgent, opVoiceAgentStatus } from "@/lib/ops/voice-agent-ops";
 import { opListClinicStrip } from "@/lib/ops/strip";
 import { opOpsInbox } from "@/lib/ops/inbox/run";
 import { opClinicAudits, opRunClinicAudit } from "@/lib/ops/audit-ops";
@@ -621,9 +621,11 @@ const OPERATIONS = [
   // status and times, with one clinic's read-back on request (GET only, no
   // call placed); and one more provisioning run for a clinic whose last one
   // failed, under every guard the scheduled run has. Never a caller, a
-  // number or a secret.
+  // number or a secret. Also the demo clinic's hand-made agent brought to
+  // AYA's call settings (syncDemoVoiceAgent), the demo clinic only.
   "voiceAgentStatus",
   "retryVoiceAgent",
+  "syncDemoVoiceAgent",
   // The redone admin's two reads (ops automation Phase 2, lane A2): the
   // Clinics table, one row per clinic (lib/ops/strip.ts), and Home, one row
   // per thing that needs the operator today (lib/ops/inbox/). Ids, enums,
@@ -783,6 +785,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "deleteRecordedCall",
   // Mutating: a Retell agent created and a number bought or adopted.
   "retryVoiceAgent",
+  // Mutating: the demo clinic's Retell agent rewritten with AYA's call settings.
+  "syncDemoVoiceAgent",
   // Mutating: an audit run and stored; a change acknowledged.
   "runClinicAudit",
   "acknowledgeClinicChange",
@@ -1410,6 +1414,8 @@ export async function runOperation(
       return opVoiceAgentStatus(args);
     case "retryVoiceAgent":
       return opRetryVoiceAgent(args, operator);
+    case "syncDemoVoiceAgent":
+      return opSyncDemoVoiceAgent(args, operator);
     case "listClinicStrip":
       return opListClinicStrip(args);
     case "opsInbox":

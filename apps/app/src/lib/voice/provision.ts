@@ -7,6 +7,7 @@ import { clinicProviders, clinics, entitlements, voiceAgents, type VoiceAgentRow
 import type { ActorContext } from "@/lib/audit";
 import { describeError, log } from "@/lib/log";
 import { passThroughEndsAt, releaseNumberAfterPassThrough } from "@/lib/offboarding/offboarding";
+import { isDemoClinic } from "@/lib/booking/terms";
 import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import { readKnowledge } from "@/lib/setup/knowledge";
 import { readSetupSettings } from "@/lib/setup/settings";
@@ -25,6 +26,7 @@ import {
   RetellAgentConfigError,
   retellAgentSettings,
   updateRetellAgent,
+  type RetellAgentCheck,
   type RetellAgentOptions,
   type RetellLanguage,
 } from "./retell-agent";
@@ -803,6 +805,46 @@ export async function checkVoiceAgentDrift(clinicId: string, deps: ProvisionDeps
   } catch (error) {
     const r = reasonOf(error);
     log.error("voice agent drift check failed", { clinicId, code: r.code, error: describeError(error) });
+    return { outcome: "failed", reason: r.reason };
+  }
+}
+
+// -----------------------------------------------------------------------------
+// The demo agent
+// -----------------------------------------------------------------------------
+
+export type DemoAgentOutcome =
+  | { outcome: "applied"; agentId: string; check: RetellAgentCheck }
+  | { outcome: "not_demo" }
+  | { outcome: "no_key" }
+  | { outcome: "not_found" }
+  | { outcome: "failed"; reason: string };
+
+/**
+ * Bring the demo clinic's hand-made Retell agent to AYA's call settings
+ * (owner, 24 October 2026: the agent the owner tests on was made by hand on
+ * Retell's dashboard, so nothing an agent healdesk writes gets reached it).
+ * The same PATCH a synced agent gets (updateRetellAgent: storage, our engine
+ * and webhook, retellAgentSettings' conversation settings), with the
+ * clinic's language and boosted keywords, and never the voice, which stays
+ * the one chosen on the dashboard. Only for the demo clinic, whose calls are
+ * made up; a real clinic's agent is provisioned and synced above. Nothing is
+ * recorded in voice_agents: the demo agent has no number of ours.
+ */
+export async function applyCallSettingsToDemoAgent(clinicId: string, agentId: string, deps: ProvisionDeps = {}): Promise<DemoAgentOutcome> {
+  const { demo, f } = await withTenant({ clinicId, actor: ACTOR }, async (tx) => ({ demo: await isDemoClinic(tx), f: await readFacts(tx) }));
+  if (!demo) return { outcome: "not_demo" };
+  const key = deps.key === undefined ? retellApiKey() : deps.key;
+  if (!key) return { outcome: "no_key" };
+  try {
+    const options = agentOptions("custom", deps, key);
+    const check = await updateRetellAgent(agentId, clinicId, options, { language: languageOf(f.languages), boostedKeywords: f.boostedKeywords });
+    log.info("demo voice agent brought to the call settings", { clinicId });
+    return { outcome: "applied", agentId, check };
+  } catch (error) {
+    if (error instanceof RetellApiError && error.status === 404) return { outcome: "not_found" };
+    const r = reasonOf(error);
+    log.error("demo voice agent not updated", { clinicId, code: r.code, error: describeError(error) });
     return { outcome: "failed", reason: r.reason };
   }
 }

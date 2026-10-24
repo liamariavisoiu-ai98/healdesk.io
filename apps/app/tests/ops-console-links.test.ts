@@ -106,8 +106,10 @@ describe("one link for the email and the Slack copy", () => {
     expect(opsConsoleLink("incident_notice_overdue", { clinicId: CLINIC }, ALERT)).toBe(
       `https://healdesk.test/admin/clinics/${CLINIC}/care#incident_notice_overdue-${ALERT}`,
     );
-    expect(opsConsoleLink("dmarc_review_due", {})).toBeNull();
-    expect(opsConsoleLink("calendar_broken", { clinicId: "not-a-uuid" })).toBeNull();
+    // An alert about no clinic opens the page that owns it (lane N3: every event has one).
+    expect(opsConsoleLink("dmarc_review_due", {})).toBe("https://healdesk.test/admin/system/jobs");
+    // A clinic id that is not one is no clinic: the page that owns the event.
+    expect(opsConsoleLink("calendar_broken", { clinicId: "not-a-uuid" })).toBe("https://healdesk.test/admin/clinics");
     vi.stubEnv("HEALDESK_CONSOLE_ORIGIN", "");
     expect(opsConsoleLink("calendar_broken", { clinicId: CLINIC })).toBeNull();
   });

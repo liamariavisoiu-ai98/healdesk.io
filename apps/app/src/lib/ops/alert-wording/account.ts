@@ -8,13 +8,14 @@ import type { AlertWording } from "./types";
  * address change with why it closed, and the two acts, each behind the tick
  * "I called the practice back…" and a fresh authenticator code. The security
  * log has no console page, so the sign-in help steps read hello@'s structured
- * email instead. The Touch log is kept only for a clinic's first sixty days
- * live (lib/ops/health.ts), so no "done" line depends on a note there.
+ * email instead. Every clinic takes a Touch log note until its account is
+ * closed (lane N3, lib/ops/health.ts touchRefusal); no "done" line depends
+ * on one.
  */
 
 /** The one Touch log step, for a clinic whose log may be gone. */
 const NOTE_IT =
-  "Press Record in the Touch log on the clinic's Care tab to note it, if the tab shows one (it is kept only for a clinic's first sixty days live). If it does not, tell the owner what you did, with no patient detail.";
+  "Press Record in the Touch log on the clinic's Care tab to note it. If the clinic's account is already closed, it takes no note: tell the owner what you did instead, with no patient detail.";
 
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // lib/sign-in/address-change.ts applyChange: Stripe not configured, or it

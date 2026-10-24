@@ -1,4 +1,5 @@
 import { DAY_KEYS } from "./allow-list";
+import { CLOSED_WORDS, closedWord } from "./words";
 import type { AlertWording } from "./types";
 
 /**
@@ -25,31 +26,7 @@ export const FALLBACKS: Readonly<Record<string, string>> = {
   percent: "most",
   promisedOn: "the day we promised",
   windowStart: "the start of this billing period",
-};
-
-/** Words a closed value reads as. Anything not here prints as it is. */
-const WORDS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  meter: { voice_minutes: "voice minutes", chat_conversations: "chat conversations" },
-  section: {
-    hours: "weekly opening hours",
-    closures: "closed days",
-    location_hours: "opening hours at one of its locations",
-    providers: "list of named providers",
-    provider_services: "services each provider offers",
-  },
-  recommendation: {
-    extend: "extend the setup window",
-    offer_call: "offer a five-minute call",
-    let_close: "let it close",
-    wait: "wait a few more days",
-    phone_the_clinic: "phone the clinic",
-  },
-  decision: {
-    none: "none yet",
-    extension_offered: "an extension was offered",
-    let_close: "let it close",
-    extended: "the window was extended",
-  },
+  code: "one of the vendors in our chain",
 };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -73,7 +50,8 @@ export function formatValue(key: string, value: string | number | boolean): stri
   if (typeof value === "number") return value.toLocaleString("en-US");
   if (typeof value === "boolean") return value ? "yes" : "no";
   if (isDateKey(key) && ISO_DATE.test(value)) return formatDay(value);
-  return WORDS[key]?.[value] ?? value;
+  // A closed field prints only its words: a value off its list prints nothing.
+  return closedWord(key, value) ?? (Object.hasOwn(CLOSED_WORDS, key) ? "" : value);
 }
 
 /** "day" → "days", "closed day" → "closed days", "try" → "tries". */

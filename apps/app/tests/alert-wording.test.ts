@@ -8,6 +8,7 @@ import { OPS_REASON } from "@/lib/email/templates/context";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { ALERT_WORDING, alertWording, LEGACY_WORDING, SECTIONS } from "@/lib/ops/alert-wording";
 import {
+  allowedAlertFields,
   cleanBusinessName,
   isPlaceholderAllowed,
   printableBusinessName,
@@ -16,11 +17,27 @@ import {
 import { emailFacts, sharedFacts } from "@/lib/ops/alert-wording/facts";
 import { EVENT_FIELDS } from "@/lib/ops/alert-wording/fields";
 import {
+  CHANNEL_WORDS,
+  CLOSED_WORDS,
+  EMAIL_KIND_WORDS,
+  PROVIDER_WORDS,
+  REQUEST_KIND_WORDS,
+  STATUS_WORDS,
+  VENDOR_WORDS,
+} from "@/lib/ops/alert-wording/words";
+import { DIRECT_KINDS } from "@/lib/email/direct-kinds";
+import { NOTICE_KINDS } from "@/lib/email/kinds";
+import { BILLING_REQUEST_KINDS } from "@/db/schema";
+import { PLATFORM_VENDORS } from "@/lib/compliance/subjects";
+import { META_PROVIDERS } from "@/lib/meta/providers";
+import { CHANNELS } from "@healdesk/catalog";
+import {
   clauseText,
   FALLBACKS,
   fill,
   fillWording,
   formatDay,
+  formatValue,
   placeholdersOf,
   plural,
   requiredPlaceholdersOf,
@@ -142,7 +159,7 @@ const PLACES: Readonly<Record<string, Place>> = {
     'title="Usage and the allowance"',
     "page",
   ],
-  "Touch log": ["app/admin/clinics/[clinicId]/care/TouchLog.tsx", 'title="Touch log"', "page"],
+  "Touch log": ["app/admin/clinics/[clinicId]/care/TouchLog.tsx", '"Touch log"', "page"],
   "Send setup link": ["app/admin/queues/SetupRequestsSection.tsx", '"Send setup link"', "button"],
   Decline: ["app/admin/queues/SetupRequestsSection.tsx", "Decline", "button"],
   "Link sent": ["app/admin/queues/SetupRequestsSection.tsx", "`Link sent ", "button"],
@@ -615,6 +632,9 @@ describe("the console link", () => {
     expect(opsConsoleLink("setup_request_reply_past_due", { requestId: ALERT }, ALERT)).toBe(
       "https://healdesk.test/admin/queues#setup-requests",
     );
+    expect(opsConsoleLink("dmarc_review_due", {}, ALERT)).toBe("https://healdesk.test/admin/system/jobs");
+    expect(opsConsoleLink("provisioning_follow_up_past_due", {}, ALERT)).toBe("https://healdesk.test/admin/");
+    vi.stubEnv("HEALDESK_CONSOLE_ORIGIN", "");
     expect(opsConsoleLink("dmarc_review_due", {}, ALERT)).toBeNull();
   });
 
@@ -691,11 +711,19 @@ describe("each rewritten event's fields are the ones its raise site sends", () =
   };
 
   test("clinic_availability_changed: changeAlertFields", () => {
-    const fields = changeAlertFields(CLINIC, "closures", [
-      { summary: { closuresAdded: ["2026-11-01"], closuresRemoved: [] } },
+    const both = changeAlertFields(CLINIC, "closures", [
+      { summary: { closuresAdded: ["2026-11-01"], closuresRemoved: ["2026-11-02"] } },
     ] as never);
-    sameKeys("clinic_availability_changed", Object.keys(fields));
-    expect(Object.keys(fields).sort()).toEqual([...EVENT_FIELDS.clinic_availability_changed!].sort());
+    sameKeys("clinic_availability_changed", Object.keys(both));
+    expect(Object.keys(both).sort()).toEqual([...EVENT_FIELDS.clinic_availability_changed!].sort());
+    // A count of 0 is not sent (lane N3): a removal-only change never reads "It added 0 closed days".
+    const removedOnly = changeAlertFields(CLINIC, "closures", [
+      { summary: { closuresAdded: [], closuresRemoved: ["2026-11-02"] } },
+    ] as never);
+    expect(removedOnly).toEqual({ clinicId: CLINIC, section: "closures", count: 1, deleted: 1 });
+    const text = fillWording(alertWording("clinic_availability_changed", removedOnly), wordingValues(removedOnly, "Glow"));
+    expect(text.whatHappened).not.toMatch(/added 0|added/);
+    expect(text.whatHappened).toContain("It took off 1 closed day.");
   });
 
   test("lifecycle_decision_due: dueWaves", () => {
@@ -802,5 +830,90 @@ describe("one wording, two renderings", () => {
     const split = packSections([huge]);
     expect(split.length).toBeGreaterThan(1);
     expect(split.join(" ")).toBe(huge);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Lane N3: the closed word lists, every event's link, and the facts' labels
+// -----------------------------------------------------------------------------
+
+describe("the closed word lists", () => {
+  test("cover their closed sets in the code, value for value", () => {
+    expect(Object.keys(EMAIL_KIND_WORDS).sort()).toEqual([...NOTICE_KINDS, ...DIRECT_KINDS].sort());
+    expect(Object.keys(REQUEST_KIND_WORDS).sort()).toEqual([...BILLING_REQUEST_KINDS].sort());
+    expect(Object.keys(VENDOR_WORDS).sort()).toEqual([...PLATFORM_VENDORS].sort());
+    expect(Object.keys(CHANNEL_WORDS).sort()).toEqual([...CHANNELS].sort());
+    expect(Object.keys(PROVIDER_WORDS).sort()).toEqual(Object.values(META_PROVIDERS).sort());
+    // The two lists that share `kind` share no value.
+    for (const kind of Object.keys(REQUEST_KIND_WORDS)) expect(Object.hasOwn(EMAIL_KIND_WORDS, kind), kind).toBe(false);
+  });
+
+  test("each value prints its words, plain: no underscore, no raw code", () => {
+    for (const [key, list] of Object.entries(CLOSED_WORDS)) {
+      for (const [value, words] of Object.entries(list)) {
+        const allowed = allowedAlertFields({ [key]: value });
+        expect(allowed[key], `${key}=${value}`).toBe(value);
+        expect(fill(`{${key}}`, wordingValues({ [key]: value }, null)), `${key}=${value}`).toBe(
+          words.charAt(0).toUpperCase() + words.slice(1),
+        );
+        expect(words, `${key}=${value}`).not.toMatch(/_/);
+      }
+    }
+  });
+
+  test("an unknown value prints nothing, never the raw value", () => {
+    const junk = { kind: "secret_kind", code: "invalid_grant", channel: "sms", provider: "google", status: "Jane Doe", section: "x" };
+    expect(allowedAlertFields(junk)).toEqual({});
+    expect(fill("A[ {kind}] B[ {code}] C[ {status}].", wordingValues(junk, null))).toBe("A B C.");
+    for (const [label, value] of sharedFacts(junk, alertWording("email_refused", junk))) {
+      expect(`${label}: ${value}`).not.toMatch(/secret_kind|invalid_grant|sms|google|Jane/);
+    }
+    expect(formatValue("kind", "secret_kind")).toBe("");
+    expect(formatValue("status", "dead")).toBe(STATUS_WORDS.dead);
+  });
+
+  test("the affected wordings name the vendor, the days and the email kind", () => {
+    const vendor = fillWording(alertWording("vendor_agreement_expiring", {}), wordingValues({ code: "retell", expiresOn: "2026-11-30" }, null));
+    expect(vendor.whatHappened).toContain("Our business associate agreement with Retell, the voice provider has a recorded expiry of 30 Nov");
+    const lapsed = fillWording(alertWording("vendor_agreement_lapsed", {}), wordingValues({}, null));
+    expect(lapsed.whatHappened).toMatch(/^Our business associate agreement with one of the vendors in our chain was withdrawn/);
+    const exportDue = fillWording(
+      alertWording("export_due_undelivered", {}),
+      wordingValues({ exportDueAt: "2026-11-20T10:00:00.000Z", destroyAt: "2027-01-18T10:00:00.000Z" }, "Glow"),
+    );
+    expect(exportDue.whatHappened).toContain("It is due by 20 Nov. The data waits for it until 18 Jan at the latest.");
+    const before = fillWording(alertWording("export_undelivered_before_destruction", {}), wordingValues({ destroyAt: "2026-11-30T10:00:00.000Z" }, "Glow"));
+    expect(before.whatHappened).toContain("its data is destroyed on 30 Nov, as Offboarding");
+    const late = fillWording(alertWording("offboarding_started_late", {}), wordingValues({ serviceEndedAt: "2026-10-01T00:00:00.000Z", lateDays: 3 }, "Glow"));
+    expect(late.whatHappened).toContain("Glow's subscription ended on 1 Oct, and");
+    const refused = fillWording(alertWording("email_refused", {}), wordingValues({ kind: "receipt" }, "Glow"));
+    expect(refused.whatHappened).toContain("was refused on our side before sending. It was a receipt.");
+    const critical = fillWording(alertWording("critical_notice_undelivered", {}), wordingValues({ kind: "payment_failed" }, "Glow"));
+    expect(critical.whatHappened).toContain("is still unsent. It is a payment-failed notice.");
+    const dead = fillWording(alertWording("critical_notice_undelivered", { status: "dead" }), wordingValues({ kind: "suspended", status: "dead" }, "Glow"));
+    expect(dead.whatHappened).toContain("It was a suspension notice.");
+  });
+
+  test("practice_question_failed prints its section as a Knowledge section, not as what changed", () => {
+    const fields = { clinicId: CLINIC, section: "hours", count: 2 };
+    const facts = sharedFacts(fields, alertWording("practice_question_failed", fields));
+    expect(facts.map(([label]) => label)).toContain("Section");
+    expect(facts.map(([label]) => label)).not.toContain("What changed");
+    const changed = sharedFacts({ ...fields, section: "closures" }, alertWording("clinic_availability_changed", fields));
+    expect(changed.every(([label]) => label !== "Section")).toBe(true);
+    expect(sharedFacts({ clinicId: CLINIC, section: "never_say" }, alertWording("practice_question_failed", {}))).toContainEqual([
+      "Section",
+      "never-say list",
+    ]);
+  });
+});
+
+describe("every event links somewhere", () => {
+  test("each has a page to open when it names no clinic, and each page and anchor exists", () => {
+    for (const event of OPS_EVENTS) {
+      expect(NO_CLINIC_PAGE[event], event).toMatch(/^\/admin\//);
+      expect(opsConsoleLink(event, {}, ALERT), event).toBe(`https://healdesk.test${NO_CLINIC_PAGE[event]}`);
+      expect(opsConsoleLink(event, { clinicId: CLINIC }, ALERT), event).toContain(`/admin/clinics/${CLINIC}/`);
+    }
   });
 });

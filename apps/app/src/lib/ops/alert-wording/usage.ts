@@ -4,9 +4,8 @@ import type { AlertWording } from "./types";
 
 /**
  * The "usage" section of docs/on-call.md's alert runbook. The Touch log's
- * Record button shows only for a production clinic in its first sixty days
- * live (apps/web TouchLog.tsx; lib/ops/health.ts), so a step that notes a
- * call there says so and "done" never depends on it.
+ * Record button shows for every clinic until its account is closed (lane
+ * N3; apps/web TouchLog.tsx, lib/ops/health.ts touchRefusal).
  */
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // lib/billing/usage-report.ts, once per clinic and run: `count` overage
@@ -39,7 +38,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Open the clinic's Billing tab and read Usage and the allowance to see when this billing period ends.",
       "Check the At the allowance setting on the same tab, so you know what happens at the limit. Leave it as the clinic set it.",
       "Phone the clinic on its published number, shown under Phone line on its Setup tab, if it will likely run out before the period ends. Offer to move it up one step.",
-      "Note the call in the Touch log on the clinic's Care tab if it shows a Record button (only in a clinic's first sixty days live). You are done when the clinic has chosen to move up or to stay as it is.",
+      "Press Record in the Touch log on the clinic's Care tab to note the call. You are done when the clinic has chosen to move up or to stay as it is.",
     ],
   },
   // The same job, at 100% of the meter. What happens next is the clinic's At
@@ -55,7 +54,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     steps: [
       "Open the clinic's Billing tab and read At the allowance under Usage and the allowance, so you know which of the two is happening. Leave it as the clinic set it.",
       "Phone the clinic on its published number, shown under Phone line on its Setup tab, if it is on Stop and fall back, or if the extra blocks will cost more than the next step. Offer to move it up one step.",
-      "Note the call in the Touch log on the clinic's Care tab if it shows a Record button (only in a clinic's first sixty days live). You are done when the clinic has chosen to move up, to pay for the extra, or to stay stopped until the period ends.",
+      "Press Record in the Touch log on the clinic's Care tab to note the call. You are done when the clinic has chosen to move up, to pay for the extra, or to stay stopped until the period ends.",
     ],
   },
 };

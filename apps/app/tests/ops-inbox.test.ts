@@ -347,7 +347,8 @@ describeDb("opsInbox (lane A2)", () => {
     expect(row(rows, "alert:daily_email_count_70:all")).toMatchObject({
       count: 1,
       clinic: null,
-      button: { kind: "link", href: "/admin/clinics" },
+      // The page that owns a clinic-less alert (lane N3, NO_CLINIC_PAGE).
+      button: { kind: "link", href: "/admin/queues#setup-requests" },
       tone: "warn",
     });
     expect(row(rows, `alert:flag_alert:${b.clinicId}`)).toMatchObject({

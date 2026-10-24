@@ -73,9 +73,18 @@ const LABELS: Record<string, string> = {
   slackUnpostedCount: "Alerts Slack could not take",
 };
 
+/**
+ * Labels that differ for one event: `section` is what a clinic changed on
+ * clinic_availability_changed, but the Knowledge section that failed on
+ * practice_question_failed (lane N3).
+ */
+const EVENT_LABELS: Partial<Record<OpsEvent, Readonly<Record<string, string>>>> = {
+  practice_question_failed: { section: "Section" },
+};
+
 /** The label a field prints under, in the email and the Slack copy alike. */
-export function opsFieldLabel(key: string): string {
-  return LABELS[key] ?? key;
+export function opsFieldLabel(key: string, event?: OpsEvent): string {
+  return (event ? EVENT_LABELS[event]?.[key] : undefined) ?? LABELS[key] ?? key;
 }
 
 /** Who the alert is about, printed apart; and fields that are ours, not the operator's. */
@@ -83,10 +92,11 @@ const NOT_FACTS = new Set(["clinicId", "clinicName", "business", "event", "conso
 
 export type FactRow = readonly [label: string, value: string];
 
-function rows(entries: [string, string | number | boolean][]): FactRow[] {
+function rows(entries: [string, string | number | boolean][], event?: OpsEvent): FactRow[] {
   return entries
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => [opsFieldLabel(key), formatValue(key, value)] as const);
+    .map(([key, value]) => [opsFieldLabel(key, event), formatValue(key, value)] as const)
+    .filter(([, value]) => value !== "");
 }
 
 /** The facts both renderings print: allow-listed, formatted, and not already in the sentences. */
@@ -94,6 +104,7 @@ export function sharedFacts(fields: Readonly<Record<string, unknown>>, wording: 
   const printed = printedKeys(wording);
   return rows(
     Object.entries(allowedAlertFields(fields)).filter(([key]) => !NOT_FACTS.has(key) && !printed.has(key)),
+    wording.event,
   );
 }
 
@@ -120,5 +131,5 @@ export function emailFacts(
     (entry): entry is [string, string | number | boolean] =>
       entry[1] !== null && entry[1] !== undefined && !NOT_FACTS.has(entry[0]) && !printed.has(entry[0]),
   );
-  return [...who, ...rows(rest)];
+  return [...who, ...rows(rest, event)];
 }

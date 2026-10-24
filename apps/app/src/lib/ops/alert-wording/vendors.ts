@@ -3,11 +3,12 @@ import type { OpsEvent } from "@/lib/ops/notify";
 import type { AlertWording } from "./types";
 
 /**
- * The "vendors" section of docs/on-call.md's alert runbook. Neither the vendor
- * (`code`) nor the expiry day (`expiresOn`) is printable in an alert under
- * the allow-list, so each step sends the reader to the Compliance page, whose
- * "Business associate agreements in the chain" rows name the vendor, its
- * standing and the day it lapses (apps/web CompliancePanel.tsx). Attesting is
+ * The "vendors" section of docs/on-call.md's alert runbook. Since lane N3
+ * the vendor (`code`, from the closed list in ./words.ts) and the expiry day
+ * (`expiresOn`) print in the sentence when the alert carries them; the steps
+ * still send the reader to the Compliance page, whose "Business associate
+ * agreements in the chain" rows name the vendor, its standing and the day it
+ * lapses (apps/web CompliancePanel.tsx). Attesting is
  * the owner's legal act (compliance/page.tsx), and so is opening an incident,
  * which starts a legal clock: the operator asks, never presses.
  */
@@ -17,7 +18,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   vendor_agreement_expiring: {
     title: "A vendor's business associate agreement expires soon",
     whatHappened:
-      "One of the vendors in our chain has a business associate agreement whose recorded expiry is within 30 days, or within 7 days for the second warning. The Compliance page shows which vendor, under Business associate agreements in the chain, with the day it lapses.",
+      "Our business associate agreement with {code} has a recorded expiry[ of {expiresOn}], within 30 days, or within 7 days for the second warning. The Compliance page shows it under Business associate agreements in the chain.",
     whyItMatters:
       "When it lapses, AYA stops answering on every production clinic wherever that vendor serves: every channel for the model provider, the host and the database host; phone only for the voice provider. Calls go to each clinic's direct line until a renewal is recorded.",
     steps: [
@@ -34,7 +35,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   vendor_agreement_lapsed: {
     title: "A vendor's agreement lapsed: AYA has stopped there",
     whatHappened:
-      "One of the vendors in our chain has a business associate agreement that was withdrawn or passed its recorded expiry with no renewal, so AYA has stopped answering wherever that vendor serves. The Compliance page shows which vendor, marked Lapsed or Withdrawn.",
+      "Our business associate agreement with {code} was withdrawn or passed its recorded expiry[ of {expiresOn}] with no renewal, so AYA has stopped answering wherever that vendor serves. The Compliance page marks it Lapsed or Withdrawn.",
     whyItMatters:
       "On every production clinic, calls go to its direct line wherever the vendor serves: every channel for the model provider, the host or the database host, and phone only for the voice provider. While the model provider is out, website chat is a contact form and Meta messages wait unanswered. While the host or database host is out, the contact form takes no message either. AYA answers again the moment a renewal is recorded.",
     steps: [

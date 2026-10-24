@@ -75,7 +75,8 @@ export const LEGACY_WORDING: ReadonlySet<OpsEvent> = new Set<OpsEvent>(
  */
 export function alertWording(event: OpsEvent, fields: Readonly<Record<string, unknown>>): AlertWording {
   if (event === "critical_notice_undelivered" && fields.status === "dead") {
-    return emailDelivery.DEAD_LETTER;
+    return { ...emailDelivery.DEAD_LETTER, event };
   }
-  return ALERT_WORDING[event] ?? { title: event, whatHappened: "Look it up in the console.", whyItMatters: "", steps: [] };
+  const wording = ALERT_WORDING[event] ?? { title: event, whatHappened: "Look it up in the console.", whyItMatters: "", steps: [] };
+  return { ...wording, event };
 }

@@ -137,8 +137,8 @@ export function recommend(f: RecommendFacts): Recommendation {
     return rec(
       stale ? "phone_the_clinic" : "wait",
       stale
-        ? `More time was offered and ${sinceProgress(f.noProgressDays)}: phone the clinic to agree it.`
-        : "More time was offered: extend the setup window from its Billing page once they accept.",
+        ? `A call was offered and ${sinceProgress(f.noProgressDays)}: phone the clinic.`
+        : "A call was offered: extend the setup window on the Setup window card if they ask for more time.",
     );
   }
 

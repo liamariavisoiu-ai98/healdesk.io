@@ -240,9 +240,13 @@ export function changeAlertFields(
   const fields: Record<string, string | number> = { clinicId, section: kind, count: rows.length };
   if (kind === "closures") {
     // `written`: closed days added; `deleted`: closed days taken off. Both
-    // counted across the changes, never the dates themselves.
-    fields.written = rows.reduce((n, r) => n + (r.summary.closuresAdded?.length ?? 0), 0);
-    fields.deleted = rows.reduce((n, r) => n + (r.summary.closuresRemoved?.length ?? 0), 0);
+    // counted across the changes, never the dates themselves, and each sent
+    // only when above 0, so a removal-only change never reads "It added 0
+    // closed days" (lane N3).
+    const written = rows.reduce((n, r) => n + (r.summary.closuresAdded?.length ?? 0), 0);
+    const deleted = rows.reduce((n, r) => n + (r.summary.closuresRemoved?.length ?? 0), 0);
+    if (written > 0) fields.written = written;
+    if (deleted > 0) fields.deleted = deleted;
   }
   return fields;
 }

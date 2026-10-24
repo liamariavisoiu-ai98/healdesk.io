@@ -8,13 +8,15 @@ import type { AlertWording } from "./types";
  * front door" card lists each connection with its status while its rows
  * exist (apps/web OnboardingPanel.tsx). The operator has no access to a
  * clinic's Meta Business Suite, so what is on a Page is asked of the clinic.
- * The Touch log is kept only for a clinic's first sixty days live, so a
- * leaving clinic's is usually gone and no "done" line depends on a note.
+ * Every clinic takes a Touch log note until its account is closed (lane
+ * N3, lib/ops/health.ts touchRefusal); a leaving clinic's may be closed
+ * already, so the step says what to do then, and no "done" line depends on
+ * a note.
  */
 
 /** The one Touch log step, for a clinic whose log may be gone. */
 const NOTE_IT =
-  "Press Record in the Touch log on the clinic's Care tab to note it, if the tab shows one (it is kept only for a clinic's first sixty days live). If it does not, tell the owner what you did, with no patient detail.";
+  "Press Record in the Touch log on the clinic's Care tab to note it. If the clinic's account is already closed, it takes no note: tell the owner what you did instead, with no patient detail.";
 
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // `phase` retries (lib/meta/revoke.ts, after META_REVOKE_ALERT_AFTER

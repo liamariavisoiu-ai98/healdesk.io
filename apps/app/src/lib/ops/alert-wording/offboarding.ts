@@ -12,13 +12,14 @@ import type { AlertWording } from "./types";
  * portal, which records delivery by itself (lib/portal/conversations.ts
  * confirmClinicExport); the host's bundle is the one-off patient-export task
  * (infra/aws, run-task), which needs AWS access, so the owner runs it. The
- * Touch log is kept only for a clinic's first sixty days live, so a leaving
- * clinic's is usually gone and no "done" line depends on a note there.
+ * Touch log takes a note for every clinic until its account is closed
+ * (lane N3, lib/ops/health.ts touchRefusal); a destroyed clinic's account
+ * may be closed already, so the step says what to do then.
  */
 
 /** The one Touch log step, for a clinic whose log may be gone. */
 const NOTE_IT =
-  "Press Record in the Touch log on the clinic's Care tab to note it, if the tab shows one (it is kept only for a clinic's first sixty days live). If it does not, tell the owner what you did, with no patient detail.";
+  "Press Record in the Touch log on the clinic's Care tab to note it. If the clinic's account is already closed, it takes no note: tell the owner what you did instead, with no patient detail.";
 
 const DOWNLOAD_ROUTE =
   "Ask the practice, on its published number shown under Phone line on its Setup tab, to press Download every record under Conversations in its portal. A download that arrives in full records the export as delivered by itself: that is the safest route.";
@@ -39,7 +40,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   export_undelivered_before_destruction: {
     title: "A leaving practice has not had its export yet",
     whatHappened:
-      "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed on the day shown under Offboarding on its Care tab, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.",
+      "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed[ on {destroyAt}], as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.",
     whyItMatters:
       "The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.",
     steps: [
@@ -57,7 +58,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   export_due_undelivered: {
     title: "A leaving practice's export is due and not delivered",
     whatHappened:
-      "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement promises the export within thirty days of the end, without being asked. Offboarding on its Care tab shows the export's due day and the last day the data waits for it.",
+      "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement promises the export within thirty days of the end, without being asked.[ It is due by {exportDueAt}.][ The data waits for it until {destroyAt} at the latest.] Offboarding on its Care tab shows both days.",
     whyItMatters:
       "The export is a promise in the agreement, with a date. The data is destroyed on the export's due day if the export is recorded by then, at the next hourly run if it is recorded later, and on the last day shown whether or not it was; after that there is nothing left to export.",
     steps: [
@@ -75,7 +76,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   offboarding_started_late: {
     title: "A subscription's end was processed over a week late",
     whatHappened:
-      "{clinicName}'s subscription ended, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed {lateDays:day} later than its agreement counts from the end.",
+      "{clinicName}'s subscription ended[ on {serviceEndedAt}], and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed {lateDays:day} later than its agreement counts from the end.",
     whyItMatters:
       "The agreement counts destruction from the day service ended, not from when we noticed. Only the database owner can bring the destruction forward; nothing in the console can.",
     steps: [

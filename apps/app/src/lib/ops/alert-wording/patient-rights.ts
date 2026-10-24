@@ -8,14 +8,14 @@ import type { AlertWording } from "./types";
  * recorded on the host), so every step is a telephone call; the practice's
  * own mark on the request's portal page is what stops the clock
  * (lib/patient-rights/patient-requests.ts). The days are business days, so
- * the due day is the next business day, not always tomorrow. The Touch log
- * is kept only for a clinic's first sixty days live, so no "done" line
- * depends on a note there.
+ * the due day is the next business day, not always tomorrow. Every clinic
+ * takes a Touch log note until its account is closed (lane N3, lib/ops/
+ * health.ts touchRefusal); no "done" line depends on one.
  */
 
 /** The one Touch log step, for a clinic whose log may be gone. */
 const NOTE_IT =
-  "Press Record in the Touch log on the clinic's Care tab to note it, if the tab shows one (it is kept only for a clinic's first sixty days live). If it does not, tell the owner what you did, with no patient detail.";
+  "Press Record in the Touch log on the clinic's Care tab to note it. If the clinic's account is already closed, it takes no note: tell the owner what you did instead, with no patient detail.";
 
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // L32's clock (lib/patient-rights/patient-requests.ts), once per request

@@ -113,6 +113,7 @@ describe("a clinic's Retell agent", () => {
       data_storage_setting: "everything",
       data_storage_retention_days: 1,
       // How a call feels (24 October 2026): backchannel, immediate yielding, some pitch variety.
+      stt_mode: "fast",
       enable_backchannel: true,
       backchannel_frequency: 0.7,
       backchannel_words: ["mm-hmm", "uh-huh", "yeah", "I see"],

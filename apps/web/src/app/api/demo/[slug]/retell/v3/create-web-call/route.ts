@@ -2,6 +2,7 @@ import { demoFirstName } from "@healdesk/catalog";
 
 import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
 import { demoEngineCall } from "@/lib/demo/engine";
+import { demoOfferFor } from "@/lib/demo/offer";
 import { getDemoSession, isDemoActive, isDemoSlug, profileOf } from "@/lib/demo/sessions";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { createWebCall, readClinicDemoAgentConfig } from "@/lib/retell-web-call";
@@ -85,7 +86,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   if (!daily.ok) return fail("The voice line has reached its daily limit. Try the chat, or call again tomorrow.", 429, daily.retryAfter);
 
   const firstName = await firstNameOf(request);
-  const engine = await demoEngineCall({ slug, profile, mode: "browser", firstName });
+  const engine = await demoEngineCall({ slug, profile, mode: "browser", firstName, offer: demoOfferFor(session) });
   const result = await createWebCall(engine ? { ...config.config, agentId: engine.agentId } : config.config, {
     variables: engine ? engine.variables : clinicVoiceVariables(profile, "browser"),
     metadata: { demo_slug: slug, source: "healdesk.io personalised demo", ...(engine ? { engine: "aya" } : {}) },

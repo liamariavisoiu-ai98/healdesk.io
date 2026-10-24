@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { demoFirstName, openDemoCallContext, sealDemoCallContext, type DemoCallContext } from "./demo-call";
+import { demoFirstName, openDemoCallContext, parseDemoCallOffer, sealDemoCallContext, type DemoCallContext } from "./demo-call";
 
 const SECRET = "x".repeat(40);
 const CONTEXT: DemoCallContext = {
@@ -9,6 +9,7 @@ const CONTEXT: DemoCallContext = {
   mode: "browser",
   firstName: "John",
   issuedAt: 1_800_000_000_000,
+  offer: { percentOfSetupFee: 50, endsAt: 1_800_000_000_000 + 48 * 60 * 60_000 },
   clinic: {
     clinicName: "Lumen Aesthetics",
     summary: "A med spa in Austin.",
@@ -54,5 +55,21 @@ describe("the demo call context (owner, 24 October 2026)", () => {
 
   test("cannot be sealed without a secret", () => {
     expect(() => sealDemoCallContext(CONTEXT, "")).toThrow();
+  });
+
+  test("a demo without a live discount carries none, and a forged one does not open", () => {
+    const sealed = sealDemoCallContext({ ...CONTEXT, offer: null }, SECRET);
+    expect(openDemoCallContext(sealed, SECRET, CONTEXT.issuedAt)?.offer).toBeNull();
+  });
+
+  test("an offer is a whole percent from 1 to 100 with a real end time, or none", () => {
+    expect(parseDemoCallOffer({ percentOfSetupFee: 50, endsAt: 1_000 })).toEqual({ percentOfSetupFee: 50, endsAt: 1_000 });
+    expect(parseDemoCallOffer({ percentOfSetupFee: 49.6, endsAt: 1_000 })).toEqual({ percentOfSetupFee: 50, endsAt: 1_000 });
+    expect(parseDemoCallOffer({ percentOfSetupFee: 0, endsAt: 1_000 })).toBeNull();
+    expect(parseDemoCallOffer({ percentOfSetupFee: 101, endsAt: 1_000 })).toBeNull();
+    expect(parseDemoCallOffer({ percentOfSetupFee: 50, endsAt: "soon" })).toBeNull();
+    expect(parseDemoCallOffer({ percentOfSetupFee: 50 })).toBeNull();
+    expect(parseDemoCallOffer(null)).toBeNull();
+    expect(parseDemoCallOffer("50%")).toBeNull();
   });
 });

@@ -21,7 +21,7 @@ import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
-import { demoAssistantFacts, demoCallNote, demoContextFromCall } from "./demo-facts";
+import { demoAssistantFacts, demoContextFromCall, demoIntroNote, demoOngoingNote } from "./demo-facts";
 import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, type FallbackLookup } from "./fallback-line";
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
@@ -134,7 +134,11 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *     context that does not open (forged, older than two hours, malformed,
  *     missing) hears DEMO_EXPIRED_LINE and the call ends;
  *   - the start: the demo opening line (disclosure.ts, demoVoiceOpening),
- *     with the same two facts, and a note on every turn (demoCallNote);
+ *     with the same two facts, an intro note on the first turn only, and a
+ *     short, state-agnostic note every turn after (demo-facts.ts,
+ *     demoIntroNote and demoOngoingNote: the opening's own instructions are
+ *     never repeated once it has happened, so they cannot work against
+ *     staying in a role-play, or in remembering the caller's name);
  *   - nothing is written or sent anywhere: no answer gate or billing, no
  *     test-mode screen (voice_real_calls governs clinics' calls, and a demo
  *     is no clinic's: no clinic row is read, and no patient's call reaches
@@ -1142,7 +1146,12 @@ export class RetellCallSession {
       language: language.language,
       // A demo call is never put through anywhere.
       urgentTransferTo: this.deps.demo ? null : this.urgentLine(facts),
-      notes: this.demoContext ? [demoCallNote(this.demoContext)] : null,
+      // The intro note runs once, before any turn has answered; every later
+      // turn gets the shorter, state-agnostic one (demo-facts.ts), so her
+      // own opening instructions are never repeated deep into a role-play.
+      notes: this.demoContext
+        ? [this.answered ? demoOngoingNote(this.demoContext, this.now().getTime()) : demoIntroNote(this.demoContext)]
+        : null,
     }).finally(stopAck);
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.

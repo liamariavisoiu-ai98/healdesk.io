@@ -13,7 +13,9 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
  */
 
 const CLINIC = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+const OTHER = "7d6c5b4a-3f2e-4d1c-8b0a-9f8e7d6c5b4a";
 const CHANGE = "5b4a3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
+const APPT = "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a";
 const state = vi.hoisted(() => ({
   reads: [] as unknown[][],
   writes: [] as [string, unknown[]][],
@@ -22,6 +24,13 @@ const state = vi.hoisted(() => ({
   deadlineIso: "2026-11-01T00:00:00.000Z",
   deadlineAt: "2026-11-01 00:00 UTC",
   planStarted: false,
+}));
+// The drift flag's clear enters through lib/admin/voice-drift.ts (the session, the fresh code, then the signed request), never the raw ops client.
+vi.mock("@/lib/admin/voice-drift", () => ({
+  clearVoiceDriftFlag: async (clinicId: string, code: unknown) => {
+    state.writes.push(["voice-drift.clearVoiceDriftFlag", [clinicId, code]]);
+    return { ok: true, data: { outcome: "cleared", check: "clean", problems: [] } };
+  },
 }));
 
 vi.mock("@/lib/admin/operator", () => ({ requireOperator: async () => "ops@healdesk.test" }));
@@ -107,6 +116,52 @@ vi.mock("@/lib/admin/ops-client", () => {
           : [],
       };
     },
+    // Lane P5b: this clinic's voice set-up, and the stuck writes across clinics (filtered to this clinic by the section).
+    fetchVoiceAgentStatus: async (clinicId?: string) => {
+      state.reads.push(["fetchVoiceAgentStatus", clinicId ?? null]);
+      return {
+        ok: true,
+        data: [
+          {
+            clinicId: CLINIC,
+            clinicSlug: "radiance",
+            engine: "custom",
+            status: "failed",
+            retellAgentId: "agent_abc123",
+            hasNumber: true,
+            attempts: 2,
+            lastError: "Retell answered 502",
+            lastSyncedAt: null,
+            numberOrderedAt: "2026-10-23T09:00:00.000Z",
+            driftRepairs: 0,
+            driftFlaggedAt: "2026-10-24T03:00:00.000Z",
+            releasedAt: null,
+            updatedAt: "2026-10-24T09:00:00.000Z",
+          },
+        ],
+      };
+    },
+    fetchStuckCalendarWrites: async (options?: unknown) => {
+      state.reads.push(["fetchStuckCalendarWrites", options ?? null]);
+      const write = (clinicId: string, appointmentId: string) => ({
+        clinicId,
+        clinicName: clinicId === CLINIC ? "Radiance Med Spa" : "Other Clinic",
+        appointmentId,
+        status: "unknown",
+        reason: "timeout",
+        attempts: 2,
+        nextAttemptAt: null,
+        slotInDays: 3,
+        retryable: true,
+      });
+      return { ok: true, data: { writes: [write(CLINIC, APPT), write(OTHER, CHANGE)], count: 2, truncated: false, unreadClinics: 0 } };
+    },
+    fetchVoiceAgentReport: async (clinicId: string) => {
+      state.reads.push(["fetchVoiceAgentReport", clinicId]);
+      return { ok: true, data: { agents: [], report: null } };
+    },
+    retryVoiceAgent: write("retryVoiceAgent", { outcome: "already", status: "ready" }),
+    setLifecycleIgnored: write("setLifecycleIgnored", { outcome: "saved", ignored: true, note: null, setAt: "2026-10-24T09:00:00.000Z", auditRecorded: true }),
     acknowledgeClinicChange: write("acknowledgeClinicChange", { status: "acknowledged", acknowledgedAt: "2026-10-24T10:00:00.000Z", auditRecorded: true }),
     decideLifecycle: write("decideLifecycle", { outcome: "saved" }),
     extendSetupDeadline: write("extendSetupDeadline", { status: "extended", setupDeadlineAt: "2026-11-15 00:00 UTC", auditRecorded: true }),
@@ -123,7 +178,7 @@ vi.mock("@/lib/admin/ops-client", () => {
     issueCalendarLink: idle,
     reopenOnboardingStep: idle,
     rerunPracticeQuestions: idle,
-    retryCalendarWrite: idle,
+    retryCalendarWrite: write("retryCalendarWrite", { status: "retried", outcome: "written" }),
     setAutoConfirm: idle,
     setBookingRequirements: idle,
     setClinicTimezone: idle,
@@ -135,7 +190,9 @@ vi.mock("@/lib/admin/ops-client", () => {
 
 const { default: SetupPage } = await import("./page");
 const { AvailabilityChanges } = await import("./AvailabilityChanges");
+const { CalendarWrites } = await import("./CalendarWrites");
 const { SetupWindow } = await import("./SetupWindow");
+const { VoiceAgentCard } = await import("./VoiceAgentCard");
 
 type Props = Record<string, unknown>;
 
@@ -259,5 +316,48 @@ describe("the Setup tab", () => {
     const html = renderToStaticMarkup((await page()) as ReactElement);
     expect(html).toContain("The AWS host is in standby.");
     expect(html).not.toContain('id="availability"');
+    expect(html).not.toContain('id="voice"');
+    expect(html).not.toContain('id="calendar-writes"');
+  });
+
+  // Lane P5b: the Voice agent card and the Calendar writes section, and their actions.
+  test("reads this clinic's voice set-up and the stuck writes with demo clinics, and draws both cards at their anchors with only this clinic's writes", async () => {
+    const tree = await page();
+    const html = renderToStaticMarkup(tree as ReactElement).replace(/<!-- -->/g, "");
+    expect(state.reads).toContainEqual(["fetchVoiceAgentStatus", CLINIC]);
+    expect(state.reads).toContainEqual(["fetchStuckCalendarWrites", { includeDemo: true }]);
+    expect(html).toContain('id="voice"');
+    expect(html).toContain('id="calendar-writes"');
+    const words = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(words).toContain("Voice agent");
+    expect(words).toContain("Set-up failed");
+    expect(words).toContain("Calendar writes");
+    expect(html).toContain(APPT);
+    expect(html).not.toContain(CHANGE);
+    expect(words).not.toContain("Other Clinic");
+    // The three controls the voice alerts quote, the flag being set.
+    for (const label of ["Retry", "Check against Retell", "Clear flag and recheck"]) expect(words).toContain(label);
+  });
+
+  test("the voice actions and the ignore switch carry this clinic's id; the drift clear goes through the voice-drift entry with the code", async () => {
+    const tree = await page();
+    const voice = find(tree, VoiceAgentCard)!;
+    const actions = voice.actions as { retry: () => Promise<unknown>; check: () => Promise<unknown>; clearFlag: (code: string) => Promise<unknown> };
+    await actions.retry();
+    expect(state.writes.at(-1)).toEqual(["retryVoiceAgent", [CLINIC]]);
+    await actions.check();
+    expect(state.reads.at(-1)).toEqual(["fetchVoiceAgentReport", CLINIC]);
+    await actions.clearFlag("123456");
+    expect(state.writes.at(-1)).toEqual(["voice-drift.clearVoiceDriftFlag", [CLINIC, "123456"]]);
+
+    const writes = find(tree, CalendarWrites)!;
+    await (writes.onRetry as (id: string) => Promise<unknown>)(APPT);
+    expect(state.writes.at(-1)).toEqual(["retryCalendarWrite", [CLINIC, APPT]]);
+
+    const window = find(tree, SetupWindow)!;
+    await (window.onSetIgnored as (ignored: boolean) => Promise<unknown>)(true);
+    expect(state.writes.at(-1)).toEqual(["setLifecycleIgnored", [CLINIC, true]]);
+    await (window.onSetIgnored as (ignored: boolean) => Promise<unknown>)(false);
+    expect(state.writes.at(-1)).toEqual(["setLifecycleIgnored", [CLINIC, false]]);
   });
 });

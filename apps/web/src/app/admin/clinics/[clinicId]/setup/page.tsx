@@ -16,7 +16,12 @@ import {
   fetchClinicBilling,
   fetchClinicChanges,
   fetchLifecycle,
+  fetchStuckCalendarWrites,
+  fetchVoiceAgentReport,
+  fetchVoiceAgentStatus,
+  retryVoiceAgent as retryVoiceUpstream,
   runClinicAudit as runAuditUpstream,
+  setLifecycleIgnored as setIgnoredUpstream,
   snoozeLifecycle as snoozeLifecycleUpstream,
   setMetaFrontDoor as metaSwitchUpstream,
   setMetaPlatform as metaPlatformUpstream,
@@ -39,13 +44,16 @@ import {
   type DepositPolicy,
   type MetaPlatform,
 } from "@/lib/admin/ops-client";
+import { clearVoiceDriftFlag as enterVoiceDriftClear } from "@/lib/admin/voice-drift";
 import { isHostUnreachable } from "@/lib/host/state";
 
 import { AvailabilityChanges } from "./AvailabilityChanges";
+import { CalendarWrites } from "./CalendarWrites";
 import { ConnectLink } from "./ConnectLink";
 import { OnboardingPanel } from "./OnboardingPanel";
 import { SetupSummary } from "./SetupSummary";
 import { SetupWindow, type SnoozeDays, type WindowDeadline } from "./SetupWindow";
+import { VoiceAgentCard } from "./VoiceAgentCard";
 
 /**
  * /admin/clinics/[id]/setup, the Setup tab: one clinic's road from payment to
@@ -55,7 +63,9 @@ import { SetupWindow, type SnoozeDays, type WindowDeadline } from "./SetupWindow
  *
  * Nothing here is patient-level: the checklist, the phone facts, the
  * forwarding codes, the words the agent will say, all clinic configuration,
- * and where go-live stands. No control here approves the agent's words or
+ * where go-live stands, the Retell set-up (never its number) and the calendar
+ * writes that have not settled (ids, codes and counts; never the person or
+ * the service). No control here approves the agent's words or
  * passes a channel's audit: the practice questions do both, and a run they
  * flag waits in Queues › Reviews. The operator identity for every write comes
  * from the session cookie inside ops-client, never from this page.
@@ -69,19 +79,23 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   const { clinicId } = await params;
   if (!isUuid(clinicId)) notFound();
 
-  // Six reads, settled independently: the onboarding view, the clinic cards
+  // Eight reads, settled independently: the onboarding view, the clinic cards
   // (the agreement, channels and build line; not the whole Clinics strip),
   // the availability changes, this clinic's audits (no history: the page
-  // does not show it), its lifecycle row alone, and the billing view, whose
-  // setup deadline is the live one the extension names. One that fails
-  // costs its card.
-  const [view, cards, changes, audits, lifecycle, billing] = await Promise.all([
+  // does not show it), its lifecycle row alone, the billing view, whose
+  // setup deadline is the live one the extension names, this clinic's voice
+  // set-up, and the stuck calendar writes (a cross-clinic read, filtered to
+  // this clinic below; demo clinics included so the demo clinic's own tab
+  // shows its own). One that fails costs its card.
+  const [view, cards, changes, audits, lifecycle, billing, voice, stuckWrites] = await Promise.all([
     fetchOnboarding(clinicId),
     fetchClinicCards(),
     fetchClinicChanges({ clinicId }),
     fetchClinicAudits(clinicId, { history: false }),
     fetchLifecycle(clinicId),
     fetchClinicBilling(clinicId),
+    fetchVoiceAgentStatus(clinicId),
+    fetchStuckCalendarWrites({ includeDemo: true }),
   ]);
   if (isHostUnreachable(view)) return <HostStandbyNotice what="Setup" />;
   const path = clinicTabPath(clinicId, "setup");
@@ -270,6 +284,35 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
     revalidatePath(path);
     return result;
   }
+  // The lifecycle watch's ignore list (lane P5d): an internal test account
+  // off the watch, or back on it. The clinic's id is this page's.
+  async function setIgnored(ignored: boolean) {
+    "use server";
+    const result = await setIgnoredUpstream(clinicId, ignored === true);
+    revalidatePath(path);
+    revalidatePath("/admin/clinics");
+    return result;
+  }
+  // The voice agent card (Phase 5, lane P5a's operations): one more
+  // provisioning run, the read-back against Retell, and the drift flag's
+  // clear, which enters through lib/admin/voice-drift.ts (the session, then
+  // the fresh code, then the signed request), never the raw ops client.
+  async function retryVoice() {
+    "use server";
+    const result = await retryVoiceUpstream(clinicId);
+    revalidatePath(path);
+    return result;
+  }
+  async function checkVoice() {
+    "use server";
+    return fetchVoiceAgentReport(clinicId);
+  }
+  async function clearDriftFlag(code: string) {
+    "use server";
+    const result = await enterVoiceDriftClear(clinicId, code);
+    revalidatePath(path);
+    return result;
+  }
 
   return (
     <>
@@ -286,9 +329,12 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
           onExtend={extendWindow}
           onDecide={decideWindow}
           onSnooze={snoozeWindow}
+          onSetIgnored={setIgnored}
         />
       ) : null}
       {!lifecycle.ok && !isHostUnreachable(lifecycle) ? <p role="status" className="text-red-deep mt-4 text-sm font-semibold">Could not read the setup window: {lifecycle.message}</p> : null}
+      <VoiceAgentCard read={voice} actions={{ retry: retryVoice, check: checkVoice, clearFlag: clearDriftFlag }} />
+      <CalendarWrites clinicId={clinicId} writes={stuckWrites} now={now} onRetry={retryCalendarWrite} />
       <AvailabilityChanges clinicId={clinicId} changes={changes} audits={audits} now={now} onRunAudit={runAudit} onAcknowledge={acknowledgeChange} />
       <OnboardingPanel
         view={view}

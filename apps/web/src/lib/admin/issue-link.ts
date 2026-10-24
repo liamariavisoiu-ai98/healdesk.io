@@ -152,19 +152,40 @@ const ACCOUNT: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
 ]);
 
 /** The cards on the clinic panel that an alert's link lands on (their `Section` ids). */
-export const CARD_ANCHORS = ["availability", "setup-window", "reminders"] as const;
+export const CARD_ANCHORS = ["availability", "setup-window", "reminders", "voice", "calendar-writes"] as const;
 export type CardAnchor = (typeof CARD_ANCHORS)[number];
+
+/**
+ * The sections of the System page that Home's queue rows open (lane P5b):
+ * the machine queues past their patience, the calendar writes stuck across
+ * clinics, and the transcript copies that never reached a clinic. Plain
+ * anchors the browser scrolls to itself; listed here so the one test that
+ * checks every apps/app link has a page and an anchor names them in one place.
+ */
+export const SYSTEM_ANCHORS = ["attention", "calendar-writes", "transcripts"] as const;
+
+/** The voice events about the agent and number at Retell, which the Setup tab's "Voice agent" card acts on. */
+const VOICE_CARD: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
+  "voice_provision_failed",
+  "voice_agent_drift",
+  "voice_deprovision_failed",
+  "retell_fallback_unsynced",
+]);
 
 /**
  * The card an event's link should scroll to, when one owns it: the
  * availability change to "Availability changes", an undelivered reminder to
- * Deliveries › "Reminders", every other lifecycle alert to "Setup window".
- * Null for the rest: the panel's Fix with Claude is where they land.
+ * Deliveries › "Reminders", every other lifecycle alert to "Setup window",
+ * the Retell set-up's events to "Voice agent", a stuck calendar write to
+ * "Calendar writes". Null for the rest: the panel's Fix with Claude is where
+ * they land.
  */
 export function cardAnchorFor(event: OpsEvent): CardAnchor | null {
   if (event === "clinic_availability_changed") return "availability";
   if (event === "lifecycle_reminder_undelivered") return "reminders";
   if (event.startsWith("lifecycle_")) return "setup-window";
+  if (VOICE_CARD.has(event)) return "voice";
+  if (event === "calendar_write_stuck") return "calendar-writes";
   return null;
 }
 

@@ -292,5 +292,36 @@ export function ClinicId({ id }: { id: string }) {
   );
 }
 
+/**
+ * The fresh authenticator code a step-up act asks for at the moment of the
+ * act (lib/admin/fresh-code.ts), as the Account tab's forms draw it: six
+ * digits, numeric keypad, one-time-code autofill. Controlled, so a panel
+ * can hand the code to an ActionButton's `run` and keep the button disabled
+ * until six digits are typed; the check itself is the server's.
+ */
+export function CodeField({ value, onChange, disabled = false }: { value: string; onChange: (code: string) => void; disabled?: boolean }) {
+  return (
+    <label className="grid gap-1">
+      <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">Code from your authenticator</span>
+      <input
+        name="code"
+        value={value}
+        onChange={(event) => onChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        pattern="[0-9]{6}"
+        maxLength={6}
+        disabled={disabled}
+        className="border-line w-40 rounded-sm border bg-white px-3 py-2.5 font-mono"
+      />
+    </label>
+  );
+}
+
+/** Whether a typed code is one the server could accept: six digits. */
+export function isCompleteCode(code: string): boolean {
+  return /^\d{6}$/.test(code);
+}
+
 // E1 §3 names an `IssueAnchor` too. Nothing can render one until apps/app's
 // alerts carry an id that a tab's row holds, so it is not here: no dead code.

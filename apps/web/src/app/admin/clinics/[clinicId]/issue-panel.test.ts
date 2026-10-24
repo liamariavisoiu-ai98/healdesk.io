@@ -21,6 +21,8 @@ const { IssuePanel } = await import("./IssuePanel");
 
 const CLINIC = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 const ALERT = "5b4a3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
+/** The cards the tabs draw that an alert's link may land on (lib/admin/issue-link.ts, CARD_ANCHORS, less Deliveries' Reminders). */
+const CARD_IDS = ["availability", "setup-window", "voice", "calendar-writes"] as const;
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -44,7 +46,7 @@ async function mount(hash: string): Promise<string> {
 /** The cards an alert's link may land on, as the tabs draw them; each records whether the panel was on the page when it was scrolled to. */
 function cards(): Record<string, { scrolled: number; panelFirst: boolean | null }> {
   const seen: Record<string, { scrolled: number; panelFirst: boolean | null }> = {};
-  for (const id of ["availability", "setup-window"]) {
+  for (const id of CARD_IDS) {
     const card = document.createElement("section");
     card.id = id;
     seen[id] = { scrolled: 0, panelFirst: null };
@@ -67,7 +69,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
-  for (const id of ["availability", "setup-window"]) document.getElementById(id)?.remove();
+  for (const id of CARD_IDS) document.getElementById(id)?.remove();
   window.location.hash = "";
 });
 
@@ -95,6 +97,17 @@ describe("the issue panel", () => {
     await mount(`#transcript_undelivered-${ALERT}`);
     expect(seen["availability"]?.scrolled).toBe(before.availability);
     expect(seen["setup-window"]?.scrolled).toBe(before.window);
+  });
+
+  test("a voice alert scrolls to the Voice agent card and a stuck write to Calendar writes (lane P5b)", async () => {
+    const seen = cards();
+    await mount(`#voice_agent_drift-${ALERT}`);
+    expect(seen["voice"]?.scrolled).toBeGreaterThanOrEqual(1);
+    expect(seen["voice"]?.panelFirst).toBe(true);
+    expect(seen["calendar-writes"]?.scrolled).toBe(0);
+    await mount(`#calendar_write_stuck-${ALERT}`);
+    expect(seen["calendar-writes"]?.scrolled).toBeGreaterThanOrEqual(1);
+    expect(seen["setup-window"]?.scrolled).toBe(0);
   });
 
   test("a change of the hash, and a client navigation inside the layout, re-read the issue", async () => {

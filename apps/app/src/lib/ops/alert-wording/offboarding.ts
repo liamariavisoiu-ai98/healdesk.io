@@ -7,8 +7,28 @@ import type { AlertWording } from "./types";
  * tab's Offboarding card (apps/web CarePanel.tsx) shows the rule, the export's
  * due day and the destruction day, and holds every record an operator makes;
  * the dates themselves (destroyAt, exportDueAt, serviceEndedAt) are not
- * printable in an alert, so each step sends the reader there.
+ * printable in an alert, so each step sends the reader there. The export's
+ * safest route is the practice's own download under Conversations in its
+ * portal, which records delivery by itself (lib/portal/conversations.ts
+ * confirmClinicExport); the host's bundle is the one-off patient-export task
+ * (infra/aws, run-task), which needs AWS access, so the owner runs it. The
+ * Touch log is kept only for a clinic's first sixty days live, so a leaving
+ * clinic's is usually gone and no "done" line depends on a note there.
  */
+
+/** The one Touch log step, for a clinic whose log may be gone. */
+const NOTE_IT =
+  "Press Record in the Touch log on the clinic's Care tab to note it, if the tab shows one (it is kept only for a clinic's first sixty days live). If it does not, tell the owner what you did, with no patient detail.";
+
+const DOWNLOAD_ROUTE =
+  "Ask the practice, on its published number shown under Phone line on its Setup tab, to press Download every record under Conversations in its portal. A download that arrives in full records the export as delivered by itself: that is the safest route.";
+
+const HOST_ROUTE =
+  "Deliver the export yourself only if the practice cannot: the bundle is made on the AWS host by the one-off patient-export task, run from the task script with the clinic's id, which needs AWS access, so ask the owner to run it. Not the npm command the Offboarding card shows. Hand it over by the secure channel our incident procedure names; producing it records nothing.";
+
+const RECORD_HANDOVER =
+  "Press Record export delivered under Offboarding on the Care tab, saying how it was handed over, only for a bundle you handed over yourself: the portal download records itself. Do not press it before the practice has the bundle.";
+
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // Raised once per clinic by the destruction job (lib/offboarding) from day
   // 21 after a clinic on the thirty days (BAA 1.2.2 or earlier, or no
@@ -24,25 +44,28 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.",
     steps: [
       "Open the clinic's Care tab and read Offboarding: the rule, the day the data is destroyed, and whether the export is recorded as delivered.",
-      "Deliver the export: produce the return bundle on the app host by the command shown under Offboarding, never on a laptop, and hand it over by the secure channel our incident procedure names. Producing it records nothing.",
-      "Press Record export delivered under Offboarding on the Care tab and say how it was handed over. Do not press it before the practice has the bundle: the record is the proof it was delivered.",
+      DOWNLOAD_ROUTE,
+      HOST_ROUTE,
+      RECORD_HANDOVER,
       "Check Offboarding on the clinic's Care tab. You are done when it shows Export delivered, before the destruction day.",
     ],
   },
   // The same, from day 21, for a clinic whose agreement (BAA 1.3.0, the DPA)
-  // promises the export within thirty days and destroys the data once it is
-  // delivered, or at the ninety days without it.
+  // promises the export within thirty days: the data goes on the export's due
+  // day if the export is recorded by then, at the next hourly run if it is
+  // recorded later, and on the ninety days' last day whether or not it was.
   export_due_undelivered: {
     title: "A leaving practice's export is due and not delivered",
     whatHappened:
       "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement promises the export within thirty days of the end, without being asked. Offboarding on its Care tab shows the export's due day and the last day the data waits for it.",
     whyItMatters:
-      "The export is a promise in the agreement, with a date. The data is destroyed once the export is recorded as delivered, and on the last day shown whether or not it was; after that there is nothing left to export.",
+      "The export is a promise in the agreement, with a date. The data is destroyed on the export's due day if the export is recorded by then, at the next hourly run if it is recorded later, and on the last day shown whether or not it was; after that there is nothing left to export.",
     steps: [
       "Open the clinic's Care tab and read Offboarding: the export's due day, the last day the data waits, and whether the export is recorded as delivered.",
-      "Deliver the export: produce the return bundle on the app host by the command shown under Offboarding, never on a laptop, and hand it over by the secure channel our incident procedure names. Producing it records nothing.",
-      "Press Record export delivered under Offboarding on the Care tab and say how it was handed over. Do not press it before the practice has the bundle: the record is what lets the data go.",
-      "Check Offboarding on the clinic's Care tab. You are done when it shows Export delivered, by the due day; destruction follows at the next hourly run.",
+      DOWNLOAD_ROUTE,
+      HOST_ROUTE,
+      RECORD_HANDOVER,
+      "Check Offboarding on the clinic's Care tab. You are done when it shows Export delivered, by the due day. Destruction then follows on that day, or at the next hourly run if the record came later.",
     ],
   },
   // Raised once by the Stripe webhook (lib/billing/events.ts) when a
@@ -59,7 +82,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Open the clinic's Care tab and read Offboarding: the day the clock started and the destruction day that follows from it.",
       "Open the clinic's Billing tab and look under Parked Stripe events for the subscription's end: an event parked and replayed late is one cause, the host being off is another.",
       "Tell the owner, naming the clinic's Care tab and the days late, so the destruction can be brought forward in the database if the owner decides so. Do not change any date yourself.",
-      "Press Record in the Touch log on the clinic's Care tab to note what the owner decided. You are done when that is recorded.",
+      `${NOTE_IT} You are done when the owner has decided whether to bring it forward.`,
     ],
   },
   // lib/offboarding/account-closure.ts, once per clinic and wait. `code` is
@@ -74,10 +97,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     steps: [
       "Open the clinic's Care tab and read Offboarding: an outstanding voice-vendor step shows in red with its button. Read Incidents on the same tab for one still open.",
       "Press Record Retell agent release under Offboarding once you have released the clinic's agent and its number in Retell's console and deleted every call Retell holds for it since. Record only what you have done.",
-      "Press Resolve under Incidents on the Care tab once the open incident is finished: decided on the Incidents page under Compliance with Send report or Not reportable, and its work done.",
+      "Press Resolve under Incidents on the Care tab once the open incident is finished: decided by the owner on the Incidents page under Compliance with Send report or Not reportable, and its work done.",
       "Open the clinic's Deliveries tab and look under Billing emails for a notice still shown as due, with its last error. Put right what the error names, or tell the owner.",
       "Press Disconnect Stripe under Deposits and Stripe Connect on the clinic's Billing tab if it is still connected. Deposits are already over for a destroyed clinic.",
-      "Check the clinic's Account tab within the hour: the account closes by itself once nothing is left. You are done when The clinic's address says no sign-in is on file.",
+      "Check the clinic's Account tab within the hour: the account closes by itself once nothing is left. You are done when The clinic's address reads No sign-in on file.",
     ],
   },
   // The same file: the closure threw. Hourly while it fails.
@@ -90,12 +113,14 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     steps: [
       "Open the clinic's Care tab and read Offboarding and Incidents: everything there should already be recorded or resolved, and the Account tab should still show a sign-in.",
       "Tell the owner, naming the clinic: the reason is in the app's error log under account closure, which the console does not show. Do not end the sign-in or remove devices by hand from the Account tab.",
-      "Check the clinic's Account tab after the next hour. You are done when The clinic's address says no sign-in is on file.",
+      "Check the clinic's Account tab after the next hour. You are done when The clinic's address reads No sign-in on file.",
     ],
   },
   // lib/offboarding/after-cancellation.ts sendDestructionNotice: `phase` is
-  // expired (a week passed), refused (this side) or rejected (the provider);
-  // not printable, and the same by-hand email follows each.
+  // expired (a week passed, with no delivery row written for that), refused
+  // (this side) or rejected (the provider); not printable, and the same
+  // by-hand email, with what the notice says (templates/data_destroyed.ts),
+  // follows each.
   destruction_notice_undelivered: {
     title: "A practice was not told its data was destroyed",
     whatHappened:
@@ -103,10 +128,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "The practice is owed that notice, and healdesk no longer holds the address copied for the email. The account's own address is on the Account tab until the account closes.",
     steps: [
-      "Open the clinic's Deliveries tab and look under Reports and alerts for the data-destroyed email: its row says failed and why.",
-      "Open the clinic's Account tab and read The clinic's address while it still shows one: that is where the notice goes. If it says no sign-in is on file, the account has closed; ask the owner for the kept notice address.",
-      "Write to the practice from hello@ by hand: the day its data was destroyed, shown under Offboarding on its Care tab; that backup copies expire within 35 days; what our language-model provider keeps under its agreement with us; and that the signed agreement and billing records are kept.",
-      "Press Record in the Touch log on the clinic's Care tab to note that the notice went by hand. You are done when it is noted.",
+      "Open the clinic's Deliveries tab and look under Reports and alerts for the data-destroyed email: its row says failed and why, or shows no success.",
+      "Open the clinic's Account tab and read The clinic's address while it still shows one: that is where the notice goes. If it reads No sign-in on file, the account has closed; ask the owner for the kept notice address.",
+      "Write to the practice from hello@ by hand with what the notice would have said. The day its data was destroyed, shown under Offboarding on its Care tab; that its account closes once forwarded calls stop passing through, when its sign-in ends and its address comes off it; and that backup copies expire within 35 days. Say too what our language-model provider keeps under its agreement with us, that the signed agreement and billing records are kept, and that its address is kept six years only as the agreement's notice address.",
+      `${NOTE_IT} You are done when the practice has been written to.`,
     ],
   },
 };

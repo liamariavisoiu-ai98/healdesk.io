@@ -307,6 +307,9 @@ const PLACES: Readonly<Record<string, Place>> = {
   // Lane N2b, after the accuracy review: the re-sign broadcast on Compliance › Notices.
   "Notices page": ["app/admin/compliance/page.tsx", 'label: "Notices"', "page"],
   "Start the re-signs": ["app/admin/compliance/notices/NoticesBoard.tsx", "Start the re-signs", "button"],
+  // Lane N2c, after its accuracy review: the covered-entity answer on the Account tab.
+  "Covered entity": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", 'title="Covered entity"', "page"],
+  "Record the answer": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", '"Record the answer"', "button"],
 };
 
 function escapeRe(text: string): string {

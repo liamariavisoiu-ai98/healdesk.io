@@ -17,6 +17,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // (lib/incidents), never a promise; the agreement's deadline is later.
   incident_notice_overdue: {
     title: "An incident has passed our 24-hour notice target",
+    headline: "{clinicName} has an open incident past our 24-hour notice target: no notice recorded",
     whatHappened:
       "An incident is open for {clinicName}, and our own target of telling the practice within 24 hours of discovery has passed with no notice recorded. The agreement's own deadline is later and is shown beside the incident; our target is internal and never a promise.",
     whyItMatters:

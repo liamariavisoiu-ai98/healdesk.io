@@ -162,20 +162,21 @@ export const RETRY_LINE_ES = "¿Me lo repite, por favor?";
 
 /**
  * What a call hears while the model thinks, so there is no dead air (owner,
- * 24 October 2026). Fixed, neutral and short, so whatever follows (a booking
- * question, a refusal, the failure line) still reads naturally after it;
- * never two the same in a row. Only when the reply is slow to start
- * (ACKNOWLEDGE_AFTER_MS): a filler before every reply was "the same emotion
- * every turn". No "okay", which Retell's backchannel and the model's own
+ * 24 October 2026). The sound of someone thinking rather than a verdict
+ * ("Mm.", not "Sure."), so whatever follows (a booking question, a refusal,
+ * the failure line) still reads naturally after it. Said once the reply has
+ * not started within ACKNOWLEDGE_AFTER_MS (the owner: "no pause for the
+ * first word"), picked at random and never the same twice in a row, so it
+ * has no pattern. No "okay", which Retell's backchannel and the model's own
  * openers already say.
  */
 export const ACKNOWLEDGEMENTS: Readonly<Record<SpokenLanguage, readonly string[]>> = {
-  en: ["Sure.", "Got it.", "Mm-hmm.", "Let's see."],
-  es: ["Claro.", "Muy bien.", "A ver.", "Entiendo."],
+  en: ["Mm.", "Hmm.", "Mm-hmm.", "Right.", "Sure."],
+  es: ["Mm.", "A ver.", "Ajá.", "Claro."],
 };
 
 /** How long the reply may take to start before the acknowledgement is said instead. */
-export const ACKNOWLEDGE_AFTER_MS = 700;
+export const ACKNOWLEDGE_AFTER_MS = 200;
 
 /** Words the caller must have said for an acknowledgement: a lone "John" or "nails" is answered straight away anyway. */
 const ACKNOWLEDGE_MIN_WORDS = 3;
@@ -259,6 +260,8 @@ export type RetellSessionDeps = {
   cacheFacts?: boolean;
   /** How long a reply may take to start before the acknowledgement is said (ACKNOWLEDGE_AFTER_MS). */
   acknowledgeAfterMs?: number;
+  /** The acknowledgement's pick, 0 to 1; Math.random unset. */
+  random?: () => number;
 };
 
 /** How long a clinic's facts read by one call may open the next. */
@@ -440,6 +443,8 @@ export class RetellCallSession {
   private welcomedBack = false;
   /** How many acknowledgements this call has said, which picks the next. */
   private acknowledged = 0;
+  /** The last acknowledgement said, never said again next. */
+  private lastAcknowledgement: string | null = null;
   /** Silences answered so far: the check-ins, then the close. */
   private reminders = 0;
 
@@ -959,7 +964,8 @@ export class RetellCallSession {
     // appended to the response after the acknowledgement.
     let streamed = "";
     const ackLines = ACKNOWLEDGEMENTS[language.language];
-    const ackLine = ackLines[this.acknowledged % ackLines.length]!;
+    const ackChoices = ackLines.filter((line) => line !== this.lastAcknowledgement);
+    const ackLine = ackChoices[Math.floor((this.deps.random ?? Math.random)() * ackChoices.length)] ?? ackChoices[0]!;
     // Said only if the reply has not started by then: the first sentence,
     // or the end of the turn, stops it.
     let ackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -981,6 +987,7 @@ export class RetellCallSession {
                 this.send({ response_type: "response", response_id: responseId, content: ackLine, content_complete: false, end_call: false });
                 acknowledgement = ackLine;
                 this.acknowledged += 1;
+                this.lastAcknowledgement = ackLine;
                 heard();
               }, this.deps.acknowledgeAfterMs ?? ACKNOWLEDGE_AFTER_MS);
             },

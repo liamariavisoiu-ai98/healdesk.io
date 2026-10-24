@@ -372,6 +372,19 @@ export function parseModelAnswer(raw: string): ModelAnswer {
       // not an object: malformed, below
     }
   }
+  // An object that does not parse whole (a stray quote, a cut-off booking
+  // object) whose "reply" string is still intact: that string, alone, and
+  // nothing else it held. The guard reads it as any reply. Until 24 October
+  // 2026 the caller heard the failure line for these.
+  const replyOnly = /"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(raw);
+  if (replyOnly) {
+    try {
+      const reply = clean(JSON.parse(`"${replyOnly[1]}"`), MAX_TEXT);
+      if (reply) return { reply, booking: {}, handoff: false, end: false, action: null };
+    } catch {
+      // not a JSON string: malformed, below
+    }
+  }
   if (meantAsJson(raw)) return { reply: "", booking: {}, handoff: false, end: false, action: null, malformed: true };
   return { reply: clean(raw, MAX_TEXT) ?? "", booking: {}, handoff: false, end: false, action: null };
 }
@@ -482,6 +495,21 @@ export async function answerTurn(input: {
    * 2026); without one the reply is 911 alone.
    */
   urgentTransferTo?: string | null;
+  /**
+   * On a call, a short fixed acknowledgement ("Okay.", "Sure.") the adapter
+   * says out loud the moment the turn goes to the model, so the caller hears
+   * no dead air while it thinks (owner, 24 October 2026). `say` is called
+   * once, after every screen has passed and just before the model is asked,
+   * so nothing is said ahead of an urgent, card or language line; the model
+   * is told it was said, so it does not start with another.
+   */
+  acknowledge?: { line: string; say: () => void } | null;
+  /**
+   * On a call, what the caller heard of the last reply when they cut in
+   * (lib/voice/retell.ts reads it from Retell's transcript): the model is
+   * told, so it yields and does not repeat what they talked over.
+   */
+  interruptedAt?: string | null;
 }): Promise<AssistantTurnResult> {
   const { facts, channel } = input;
   const language: SpokenLanguage = input.language ?? "en";
@@ -531,10 +559,29 @@ export async function answerTurn(input: {
   // the last turn takes the tools away from this one.
   const toolsLive = Boolean(input.tools) && !toolState.manual && !toolState.done && (await input.tools!.available());
   const opening = input.history.find((t) => t.speaker === "assistant")?.text;
+  const notes: string[] = [];
+  if (input.interruptedAt) {
+    notes.push(
+      `The caller cut in while you were speaking; they heard only: "${input.interruptedAt}". Answer what they just said, and do not repeat what they talked over unless they ask.`,
+    );
+  }
+  if (input.acknowledge) {
+    notes.push(`You have already said "${input.acknowledge.line}" out loud at the start of this reply: carry straight on from it, without another acknowledgement or filler.`);
+  }
   const system = {
     stable: buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),
-    turn: assistantTurnContext(facts, now, opening, toolsLive ? toolTurnContext(toolState, facts.timeZone) : null, input.resumed ?? null, language === "es" ? SPANISH_CALL : null),
+    turn: assistantTurnContext(
+      facts,
+      now,
+      opening,
+      toolsLive ? toolTurnContext(toolState, facts.timeZone) : null,
+      input.resumed ?? null,
+      language === "es" ? SPANISH_CALL : null,
+      notes,
+    ),
   };
+  // Every screen has passed and the model is next: the acknowledgement goes now.
+  input.acknowledge?.say();
   let raw: Awaited<ReturnType<AssistantResponder>>;
   try {
     const answer = input.responder({

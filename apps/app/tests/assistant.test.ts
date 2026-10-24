@@ -895,7 +895,7 @@ describe("the clinic's greeting", () => {
 
   test.each([
     "Thanks for calling Radiance Med Spa. How can I help you today?",
-    "Are you looking to book an appointment, or do you have a question?",
+    "Are you looking to book, or do you have a question?",
     "How can I help you today?",
     "Thanks for calling. If you'd rather talk to a real person, just ask.",
     "Thanks for calling! A consultation is $150, and I can help you book one.",
@@ -906,9 +906,9 @@ describe("the clinic's greeting", () => {
   test("a refused greeting is never said: the default follows the AI line instead", () => {
     const sarah = { ...FACTS, greeting: { phone: "I'm Sarah, a real person.", chat: "We're HIPAA compliant!" } };
     const call = openingLine(sarah, "voice");
-    expect(call).toMatch(/^Hi, this is the AI assistant for Radiance Med Spa/);
+    expect(call).toMatch(/^Hi, thanks for calling Radiance Med Spa! I'm the AI assistant\./);
     expect(call).not.toContain("Sarah");
-    expect(call.endsWith("Are you looking to book an appointment, or do you have a question?")).toBe(true);
+    expect(call.endsWith("Are you looking to book, or do you have a question?")).toBe(true);
     const chat = openingLine(sarah, "web_chat");
     expect(chat).not.toContain("HIPAA");
     expect(chat.endsWith("How can I help you today?")).toBe(true);

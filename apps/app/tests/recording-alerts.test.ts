@@ -44,6 +44,7 @@ import {
   RETELL_DATA_RETENTION_DAYS,
   RETELL_DATA_STORAGE_SETTING,
   RetellAgentConfigError,
+  RETELL_CONVERSATION_SETTINGS,
   retellAgentSettings,
   updateRetellAgent,
   verifyRetellAgent,
@@ -111,6 +112,13 @@ describe("a clinic's Retell agent", () => {
       webhook_url: `https://app.healdesk.test/api/webhooks/retell/${CLINIC}`,
       data_storage_setting: "everything",
       data_storage_retention_days: 1,
+      // How a call feels (24 October 2026): backchannel, immediate yielding, some pitch variety.
+      enable_backchannel: true,
+      backchannel_frequency: 0.7,
+      backchannel_words: ["mm-hmm", "right", "gotcha", "okay"],
+      interruption_sensitivity: 1,
+      responsiveness: 1,
+      voice_temperature: 1.2,
     });
   });
 
@@ -136,6 +144,7 @@ describe("a clinic's Retell agent", () => {
       webhook_url: `https://app.healdesk.test/api/webhooks/retell/${CLINIC}`,
       data_storage_setting: "everything",
       data_storage_retention_days: 1,
+      ...RETELL_CONVERSATION_SETTINGS,
     });
     expect(JSON.stringify(native)).not.toContain("llm-websocket");
     expect(retellAgentSettings(CLINIC, { ...retellLlm, engine: { type: "retell-llm", llmId: "llm_synthetic_1" } }).response_engine).toEqual({

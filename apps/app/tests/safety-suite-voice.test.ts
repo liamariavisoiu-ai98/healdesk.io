@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import type { ActorContext } from "@/lib/audit";
 import { guardedLine } from "@/lib/assistant/guard";
-import { FAILURE_LINE, FAILURE_LINE_ES, SPANISH_CALL } from "@/lib/assistant/turn";
+import { SPANISH_CALL } from "@/lib/assistant/turn";
 import { voiceDisclosureEs } from "@/lib/compliance/disclosure";
 import type { AnswerDecision } from "@/lib/billing/answering";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -14,11 +14,12 @@ import { neverSayWithDefaults } from "@/lib/setup/knowledge";
 import { withTenant } from "@/lib/tenant";
 import { ingestCall, type VoiceCallEvent } from "@/lib/voice/ingest";
 import { spokenPhone } from "@/lib/voice/spoken";
-import { CLOSED_LINE, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE, TROUBLE_TRANSFER_LINE_ES, type RetellOutbound } from "@/lib/voice/retell";
+import { CLOSED_LINE, RETRY_LINE, RETRY_LINE_ES, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE, TROUBLE_TRANSFER_LINE_ES, type RetellOutbound } from "@/lib/voice/retell";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { inTenant, queuedNotices, seedClinic } from "./setup/factories";
 import { BENIGN_REPLY, FORBIDDEN_OUTPUT_CASES, INJECTION_CASES, modelJson, SAFETY_FACTS, stubModel, SPANISH_URGENT_CASES, UNSCREENED_LANGUAGE_URGENT, URGENT_CASES, type ModelCall } from "./setup/safety-cases";
+import { spokenAfterAcknowledgement, withoutAcknowledgement } from "./setup/retell-responses";
 
 /**
  * THE SAFETY SUITE, voice: the cases of tests/setup/safety-cases.ts through
@@ -99,7 +100,7 @@ async function call(
   await session.handle(
     JSON.stringify({ interaction_type: "call_details", call: { call_id: callId, from_number: CALLER, to_number: AYA_NUMBER, direction: "inbound", start_timestamp: Date.now() - 30_000 } }),
   );
-  const responses = () => sent.filter((m): m is Response => m.response_type === "response");
+  const responses = () => spokenAfterAcknowledgement(sent.filter((m): m is Response => m.response_type === "response"));
   const transcript: { role: string; content: string }[] = [];
   // As Retell sends it: the opening line, once spoken, is in the transcript.
   if (!options.callerFirst && responses()[0]) transcript.push({ role: "agent", content: responses()[0]!.content });
@@ -161,10 +162,10 @@ async function conversationFor(clinicId: string, callId: string) {
 
 /** What the call's record keeps the assistant saying (the ingest's transcript turns). */
 function keptAssistant(c: Call): string[] {
-  return (c.event?.transcriptTurns ?? []).filter((t) => t.speaker === "assistant").map((t) => t.text);
+  return (c.event?.transcriptTurns ?? []).filter((t) => t.speaker === "assistant").map((t) => withoutAcknowledgement(t.text));
 }
 
-const OPENING = /^Hi, this is the AI assistant for .*\. This call is transcribed/;
+const OPENING = /^Hi, this is the AI assistant at .*\. This call is transcribed/;
 const CLINIC_FACTS = { ...SAFETY_FACTS, neverSay: neverSayWithDefaults() };
 
 function caseTest(defect: string | undefined) {
@@ -335,9 +336,9 @@ describeDb("safety suite: voice, end to end", () => {
 
   // ---------------------------------------------------------------------------
   describe("5. degradation ends at a person", () => {
-    test("a model that fails twice running: the failure line, then the transfer to the direct line", async () => {
+    test("a model that fails twice running: a person's reset, then the transfer to the direct line", async () => {
       const r = await call(clinic.clinicId, ["When are you open?", "Hello?"], () => { throw new Error("upstream 529"); }, transport);
-      expect(r.responses[1]).toMatchObject({ content: FAILURE_LINE });
+      expect(r.responses[1]).toMatchObject({ content: RETRY_LINE });
       expect(r.responses[2]).toMatchObject({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT_LINE });
     });
 
@@ -474,7 +475,7 @@ describeDb("safety suite: voice, end to end", () => {
 
     test("a model that fails twice: the Spanish failure line, then the Spanish transfer to the direct line", async () => {
       const r = await call(spanish.clinicId, [LONG_ES, "¿Hola? ¿Sigue ahí?"], () => { throw new Error("upstream 529"); }, transport);
-      expect(r.responses[1]!.content).toBe(`${disclosureEs()} ${FAILURE_LINE_ES}`);
+      expect(r.responses[1]!.content).toBe(`${disclosureEs()} ${RETRY_LINE_ES}`);
       expect(r.responses[2]).toMatchObject({ content: TROUBLE_TRANSFER_LINE_ES, transfer_number: DIRECT_LINE });
     });
 
@@ -490,13 +491,13 @@ describeDb("safety suite: voice, end to end", () => {
       }, transport);
       expect(r.responses[1]!.content).toBe(`${disclosureEs()} Claro.`);
       expect(r.responses[2]!.content).toBe("Claro.");
-      expect(r.responses[3]!.content).toBe(FAILURE_LINE);
+      expect(r.responses[3]!.content).toBe(RETRY_LINE);
     });
 
     test("a clinic that does not answer in Spanish: no Spanish line, and English fixed lines", async () => {
       const r = await call(clinic.clinicId, [LONG_ES, "¿Tienen citas mañana?"], () => { throw new Error("upstream 529"); }, transport);
       expect(r.responses.map((x) => x.content).join(" ")).not.toContain(disclosureEs().slice(0, 30));
-      expect(r.responses[1]!.content).toBe(FAILURE_LINE);
+      expect(r.responses[1]!.content).toBe(RETRY_LINE);
       expect(r.responses[2]).toMatchObject({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT_LINE });
     });
   });

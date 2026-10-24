@@ -24,7 +24,7 @@ import {
 } from "./booking-tools";
 import type { AssistantChannel, AssistantFacts } from "./facts";
 import { cardNumberIn, guardAssistantReply, guardedLine, movingOnLine, type GuardRefusal } from "./guard";
-import { assistantTurnContext, buildAssistantPrompt } from "./prompt";
+import { assistantTurnContext, buildAssistantPrompt, SPOKEN_END } from "./prompt";
 import { isModelRefusal, type AssistantMessage, type AssistantResponder } from "./responder";
 
 export type { AssistantMessage, AssistantPrompt, AssistantResponder, ModelRefusal } from "./responder";
@@ -105,6 +105,12 @@ export type AssistantTurnResult = {
   tool: ToolTurn | null;
   /** On a call, the line the caller is put through to as the reply ends: an urgent turn's (urgentTransferTo). */
   transferTo?: string | null;
+  /**
+   * On a call that spoke the reply as it was written (`speak`), the words
+   * already said, each sentence passed by the guard: `reply` starts with
+   * them, and the adapter sends only the rest.
+   */
+  spoken?: string;
 };
 
 
@@ -335,11 +341,126 @@ function meantAsJson(raw: string): boolean {
 }
 
 /**
+ * A call's answer split into its words and its details: at the delimiter, or,
+ * for an answer that forgot it, at an object after the words that has no
+ * "reply" of its own. Null for an answer in the JSON form (it starts with a
+ * brace) or plain prose.
+ */
+function spokenParts(raw: string): { words: string; details: string } | null {
+  const at = raw.indexOf(SPOKEN_END);
+  if (at >= 0 && !raw.slice(0, at).trimStart().startsWith("{")) {
+    return { words: clean(raw.slice(0, at), MAX_TEXT) ?? "", details: raw.slice(at + SPOKEN_END.length) };
+  }
+  const brace = raw.indexOf("{");
+  if (brace > 0 && raw.slice(0, brace).trim() && !/"reply"\s*:/.test(raw)) {
+    return { words: clean(raw.slice(0, brace), MAX_TEXT) ?? "", details: raw.slice(brace) };
+  }
+  return null;
+}
+
+/** The details object of a call's answer, read as the JSON form's fields are; anything unreadable is nothing. */
+function detailsOf(text: string): Omit<ModelAnswer, "reply"> {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return { booking: {}, handoff: false, end: false, action: null };
+  try {
+    const { reply: _reply, ...rest } = parseModelAnswer(text.slice(start, end + 1));
+    return rest.malformed ? { booking: {}, handoff: false, end: false, action: null } : rest;
+  } catch {
+    return { booking: {}, handoff: false, end: false, action: null };
+  }
+}
+
+/**
+ * The words of a call's answer, cut into sentences as the model writes them
+ * (owner, 24 October 2026: a caller waited for the whole reply before hearing
+ * a word). Each complete sentence goes to `onSentence`, which guards and says
+ * it; the words still being written stay here until a sentence ends or the
+ * delimiter arrives, which ends the words and sends what is left. An answer
+ * that opens with a brace is the JSON form and is never spoken as it comes.
+ */
+/** Words a spoken piece needs before it goes out on its own: shorter ones ("Sure!") wait for the next. */
+const MIN_SPOKEN_WORDS = 4;
+
+export class SpokenStream {
+  private text = "";
+  private consumed = 0;
+  /** A sentence too short to judge alone ("Mm-hmm."), held to go out with the next. */
+  private held = "";
+  private mode: "unknown" | "words" | "json" = "unknown";
+  private ended = false;
+  /** How many deltas arrived: none means the responder did not stream. */
+  received = 0;
+
+  constructor(private readonly onSentence: (sentence: string) => void) {}
+
+  push(delta: string): void {
+    this.received += 1;
+    this.text += delta;
+    if (this.mode === "unknown") {
+      const start = this.text.trimStart();
+      if (!start) return;
+      this.mode = start.startsWith("{") ? "json" : "words";
+    }
+    if (this.mode !== "words" || this.ended) return;
+    const at = this.text.indexOf(SPOKEN_END);
+    if (at >= 0) {
+      this.ended = true;
+      this.emit(this.text.slice(this.consumed, at), true);
+      this.consumed = at;
+      return;
+    }
+    // A "#" at the end may be the delimiter arriving: it waits.
+    const words = this.text.replace(/#+$/, "");
+    const pending = words.slice(this.consumed);
+    let cut = -1;
+    for (const m of pending.matchAll(/[.!?…]["'’”)\]]*(?=\s)/g)) cut = m.index! + m[0].length;
+    if (cut > 0) {
+      this.emit(pending.slice(0, cut));
+      this.consumed += cut;
+    }
+  }
+
+  /** Whether any of the words have been handed out as they came. */
+  get streamed(): boolean {
+    return this.mode === "words" && this.received > 0;
+  }
+
+  /** The words written after the last sentence handed out: the end of the reply, said with the turn's last part. */
+  remainder(): string {
+    if (this.mode !== "words") return "";
+    const at = this.text.indexOf(SPOKEN_END);
+    return clean(`${this.held} ${this.text.slice(this.consumed, at >= 0 ? at : undefined)}`, MAX_TEXT) ?? "";
+  }
+
+  /** Out with a sentence, or held with the next while it is under MIN_SPOKEN_WORDS; `last` sends whatever is held. */
+  private emit(chunk: string, last = false): void {
+    const sentence = clean(`${this.held} ${chunk}`, MAX_TEXT);
+    this.held = "";
+    if (!sentence) return;
+    if (!last && sentence.split(" ").length < MIN_SPOKEN_WORDS) {
+      this.held = sentence;
+      return;
+    }
+    this.onSentence(sentence);
+  }
+}
+
+/**
  * The model's JSON, read leniently: the first object in the text, or plain
  * prose (no brace, no reply field) as the reply. Text that meant to be the
  * object and does not parse is malformed, with no reply.
  */
 export function parseModelAnswer(raw: string): ModelAnswer {
+  // A call's answer: the words, the delimiter, then the details (prompt.ts,
+  // spokenFirst). The words are the reply, read by the guard as any reply;
+  // details that do not parse are dropped, never spoken.
+  const spoken = spokenParts(raw);
+  if (spoken) {
+    const details = detailsOf(spoken.details);
+    if (!spoken.words) return { reply: "", booking: {}, handoff: false, end: false, action: null, malformed: true };
+    return { ...details, reply: spoken.words };
+  }
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start >= 0 && end > start) {
@@ -370,6 +491,19 @@ export function parseModelAnswer(raw: string): ModelAnswer {
       };
     } catch {
       // not an object: malformed, below
+    }
+  }
+  // An object that does not parse whole (a stray quote, a cut-off booking
+  // object) whose "reply" string is still intact: that string, alone, and
+  // nothing else it held. The guard reads it as any reply. Until 24 October
+  // 2026 the caller heard the failure line for these.
+  const replyOnly = /"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(raw);
+  if (replyOnly) {
+    try {
+      const reply = clean(JSON.parse(`"${replyOnly[1]}"`), MAX_TEXT);
+      if (reply) return { reply, booking: {}, handoff: false, end: false, action: null };
+    } catch {
+      // not a JSON string: malformed, below
     }
   }
   if (meantAsJson(raw)) return { reply: "", booking: {}, handoff: false, end: false, action: null, malformed: true };
@@ -482,6 +616,29 @@ export async function answerTurn(input: {
    * 2026); without one the reply is 911 alone.
    */
   urgentTransferTo?: string | null;
+  /**
+   * On a call, a short fixed acknowledgement ("Okay.", "Sure.") the adapter
+   * says out loud the moment the turn goes to the model, so the caller hears
+   * no dead air while it thinks (owner, 24 October 2026). `say` is called
+   * once, after every screen has passed and just before the model is asked,
+   * so nothing is said ahead of an urgent, card or language line; the model
+   * is told it was said, so it does not start with another.
+   */
+  acknowledge?: { line: string; say: () => void } | null;
+  /**
+   * On a call, what the caller heard of the last reply when they cut in
+   * (lib/voice/retell.ts reads it from Retell's transcript): the model is
+   * told, so it yields and does not repeat what they talked over.
+   */
+  interruptedAt?: string | null;
+  /**
+   * On a call, say a sentence now (owner, 24 October 2026). When given, and
+   * the booking tools are not live this turn, the answer is spoken as it is
+   * written: each sentence, once the guard has passed it alone, goes here;
+   * the first one the guard refuses is replaced by its fixed line and
+   * nothing after it is said. The result's `spoken` is what went out.
+   */
+  speak?: ((sentence: string) => void) | null;
 }): Promise<AssistantTurnResult> {
   const { facts, channel } = input;
   const language: SpokenLanguage = input.language ?? "en";
@@ -531,27 +688,106 @@ export async function answerTurn(input: {
   // the last turn takes the tools away from this one.
   const toolsLive = Boolean(input.tools) && !toolState.manual && !toolState.done && (await input.tools!.available());
   const opening = input.history.find((t) => t.speaker === "assistant")?.text;
+  const notes: string[] = [];
+  if (input.interruptedAt) {
+    notes.push(
+      `The caller cut in while you were speaking; they heard only: "${input.interruptedAt}". Answer what they just said, and do not repeat what they talked over unless they ask.`,
+    );
+  }
+  if (input.acknowledge) {
+    notes.push(`You have already said "${input.acknowledge.line}" out loud at the start of this reply: carry straight on from it, without another acknowledgement or filler.`);
+  }
   const system = {
     stable: buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),
-    turn: assistantTurnContext(facts, now, opening, toolsLive ? toolTurnContext(toolState, facts.timeZone) : null, input.resumed ?? null, language === "es" ? SPANISH_CALL : null),
+    turn: assistantTurnContext(
+      facts,
+      now,
+      opening,
+      toolsLive ? toolTurnContext(toolState, facts.timeZone) : null,
+      input.resumed ?? null,
+      language === "es" ? SPANISH_CALL : null,
+      notes,
+    ),
   };
+  // Every screen has passed and the model is next: the acknowledgement goes now.
+  input.acknowledge?.say();
+  // Spoken as written, sentence by sentence, each through the guard alone.
+  // Not while the tools are live: their fixed line may replace the words.
+  const spoken: string[] = [];
+  let refusedMidway: GuardRefusal | null = null;
+  // Words the language check could not place yet ("Mm-hmm. Got it."): they
+  // wait for the next sentence, and are judged with it or with the end.
+  let unplaced = "";
+  const stream =
+    input.speak && !toolsLive
+      ? new SpokenStream((sentence) => {
+          if (refusedMidway) return;
+          const piece = [unplaced, sentence].filter(Boolean).join(" ");
+          // Read with everything already said, so a rule that needs the
+          // sentence before it (a question asked back, the reply's language)
+          // reads it as the whole reply would; what came before has passed.
+          const verdict = guardAssistantReply([saidSoFar(), piece].filter(Boolean).join(" "), facts, NO_BOOKING_WRITTEN);
+          if (!verdict.ok && verdict.reason === "language") {
+            unplaced = piece;
+            return;
+          }
+          unplaced = "";
+          if (!verdict.ok) {
+            refusedMidway = verdict.reason;
+            return;
+          }
+          spoken.push(piece);
+          input.speak!(piece);
+        })
+      : null;
+  const saidSoFar = () => spoken.join(" ");
   let raw: Awaited<ReturnType<AssistantResponder>>;
   try {
     const answer = input.responder({
       system,
       messages: messagesFor(input.history, personText, (text) => screenedBeforeModel(text, facts)),
       channel,
+      ...(stream ? { onText: (delta: string) => stream.push(delta) } : {}),
     });
     raw = await withinDeadline(answer, input.modelDeadlineMs ?? MODEL_DEADLINE_MS[channel]);
   } catch (error) {
     if (error instanceof ModelDeadline) log.warn("model answer past its deadline", { channel, kind: "deadline" });
+    // Words already said stand: the turn ends on them rather than taking them back.
+    if (spoken.length > 0) return { ...base, reply: saidSoFar(), spoken: saidSoFar(), source: "model" };
     return { ...base, reply: failureLine(language), source: "fallback" };
   }
   if (isModelRefusal(raw)) {
     // Its own outcome: not a reply the guard refused, not a failure to answer.
-    return { ...base, reply: refusalLine(facts, channel, language), source: "refusal" };
+    const line = refusalLine(facts, channel, language);
+    if (spoken.length > 0) return { ...base, reply: `${saidSoFar()} ${line}`, spoken: saidSoFar(), source: "refusal" };
+    return { ...base, reply: line, source: "refusal" };
   }
   const answer = parseModelAnswer(raw);
+  if (stream?.streamed && (spoken.length > 0 || refusedMidway)) {
+    // The words went out as they came: what is left is the end of the reply,
+    // guarded on its own, or the fixed line for the sentence the guard refused.
+    const merged = mergeCapture(capture, answer.booking);
+    const rest = refusedMidway ? null : [unplaced, stream.remainder()].filter(Boolean).join(" ");
+    const restVerdict = rest ? guardAssistantReply([saidSoFar(), rest].filter(Boolean).join(" "), facts, NO_BOOKING_WRITTEN) : null;
+    const reason: GuardRefusal | null = refusedMidway ?? (restVerdict && !restVerdict.ok ? restVerdict.reason : null);
+    const tail = reason ? guardedLine(reason, facts.clinicName, language === "es" ? "es" : "en") : (rest ?? "");
+    const reply = [saidSoFar(), tail].filter(Boolean).join(" ");
+    // The guard read each sentence alone; read the whole once more, so a rule
+    // that only a whole reply breaks is at least seen. Kind only, never words.
+    const whole = guardAssistantReply(reply, facts, NO_BOOKING_WRITTEN);
+    if (!reason && !whole.ok) log.warn("streamed reply refused whole after its sentences passed", { channel, kind: whole.reason });
+    return {
+      ...base,
+      toolsLive,
+      capture: merged,
+      handoff: answer.handoff,
+      end: reason ? false : answer.end,
+      reply,
+      spoken: saidSoFar(),
+      source: reason ? "guard" : "model",
+      ...(reason ? { guard: reason } : {}),
+    };
+  }
   if (answer.malformed) {
     // A failure to answer, like a throw: the fixed line, never the raw text,
     // and nothing it held is captured. Logged by kind, never with the text.

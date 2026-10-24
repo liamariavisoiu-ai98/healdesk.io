@@ -45,11 +45,12 @@ vi.mock("@/lib/assistant/turn", async (importOriginal) => {
 import type { AssistantFacts } from "@/lib/assistant/facts";
 import { FAILURE_LINE } from "@/lib/assistant/turn";
 import { fallbackLineFor, forgetDirectLines, rememberDirectLine, usableLine } from "@/lib/voice/fallback-line";
-import { CLOSED_LINE, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE, type RetellOutbound } from "@/lib/voice/retell";
+import { CLOSED_LINE, RETRY_LINE, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE, type RetellOutbound } from "@/lib/voice/retell";
 import type { VoiceCallEvent } from "@/lib/voice/ingest";
 import { getRetellPhoneNumber, setRetellFallbackNumber } from "@/lib/voice/retell-api";
 import { syncRetellFallbacks, wantedFallback } from "@/lib/voice/retell-fallback-sync";
 import { createVoiceServer } from "@/voice/server";
+import { spokenAfterAcknowledgement } from "./setup/retell-responses";
 
 /**
  * The voice fall-through (T14): a call that cannot start because the
@@ -93,7 +94,7 @@ const FACTS: AssistantFacts = {
   suggestAddOns: false,
   providerNames: [],
 };
-const OPENING = /^Hi, this is the AI assistant for Fall Clinic\. This call is transcribed/;
+const OPENING = /^Hi, this is the AI assistant at Fall Clinic\. This call is transcribed/;
 const URGENT_WORDS = "Hello? I'm having a severe reaction to my filler";
 
 type Recorded = Pick<VoiceCallEvent, "urgent" | "disclosurePlayedAt" | "transcriptTurns">;
@@ -137,7 +138,7 @@ function session(deps: Partial<ConstructorParameters<typeof RetellCallSession>[3
     realCalls: true,
     ...deps,
   });
-  const responses = () => sent.filter((m): m is Extract<RetellOutbound, { response_type: "response" }> => m.response_type === "response");
+  const responses = () => spokenAfterAcknowledgement(sent.filter((m): m is Extract<RetellOutbound, { response_type: "response" }> => m.response_type === "response"));
   return { s, sent, responses };
 }
 
@@ -388,8 +389,8 @@ describe("a call that cannot read the database", () => {
     expect(responses()).toHaveLength(1);
     expect(responses()[0]!.response_id).toBe(1);
     expect(responses()[0]!.content).toMatch(OPENING);
-    // No model here: the failure line, after the opening.
-    expect(responses()[0]!.content.endsWith(FAILURE_LINE)).toBe(true);
+    // No model here: the first failure asks again like a person, after the opening.
+    expect(responses()[0]!.content.endsWith(RETRY_LINE)).toBe(true);
     await s.handle(said(2, [{ role: "user", content: "Hello? When are you open?" }, { role: "agent", content: responses()[0]!.content }, { role: "user", content: "Hello?" }]));
     expect(responses()[1]!.content).not.toMatch(/AI assistant/);
     await s.finish();
@@ -596,8 +597,9 @@ describe("a transfer number that reaches us", () => {
     await s.handle(details(AYA));
     const opening = responses()[0]!.content;
     await s.handle(said(1, [{ role: "agent", content: opening }, { role: "user", content: "When are you open?" }]));
-    await s.handle(said(2, [{ role: "agent", content: FAILURE_LINE }, { role: "user", content: "When are you open?" }]));
-    expect(responses().map((r) => r.content)).toEqual([opening, FAILURE_LINE, FAILURE_LINE]);
+    await s.handle(said(2, [{ role: "agent", content: RETRY_LINE }, { role: "user", content: "When are you open?" }]));
+    // The first failure asks again; the second, with no usable line, says the plain failure line.
+    expect(responses().map((r) => r.content)).toEqual([opening, RETRY_LINE, FAILURE_LINE]);
     expect(responses().some((r) => "transfer_number" in r)).toBe(false);
   });
 });

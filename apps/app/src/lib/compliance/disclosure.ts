@@ -40,38 +40,34 @@ export type DisclosureContext = {
 /**
  * The voice opener.
  *
- * Says AI, says transcribed and by whom, and says healdesk keeps no audio and
- * the providers hold a recording for a day at most: the facts the statutes
- * below need, and nothing else, in about five seconds of speech. The clinic's
- * greeting follows it and asks what the caller wants (lib/setup/greetings.ts).
+ * Says AI and says transcribed: what the AI-disclosure statutes and the
+ * recording and transcription consent laws in state-disclosure.md ask of the
+ * line, and nothing else, in about three seconds of speech (spec, "The
+ * assistant always says it is an assistant" and "Call recording and
+ * transcription consent": "the assistant says it is an AI assistant and that
+ * the call is being transcribed, in the same breath"). The clinic's greeting
+ * follows and asks what the caller wants (lib/setup/greetings.ts).
  *
- * Shortened on 23 October 2026 (owner, after test calls in which callers
- * said "hello?" into a 75-word opener). Dropped, by the owner's decision:
- *   - "not a human": "the AI assistant" already says it, which is what every
- *     AI-disclosure statute in state-disclosure.md asks (decision 1, revised);
+ * Cut three times after the owner's test calls (23 and 24 October 2026),
+ * each time by the owner's decision (state-disclosure.md, decisions 10 and
+ * 11):
+ *   - "not a human": "AI assistant" says it;
  *   - the "say representative" line: a caller who asks for a person still
- *     gets the handover (prompt.ts, BOOKING; the model's `handoff`), but the
- *     opener no longer sends callers away before AYA has tried to help;
- *   - "an automated system run by": "by our service providers" keeps what
- *     decision 4 needs, that a third party transcribes.
- * Until 22 October 2026 the line said "no audio recording is kept", true of
- * healdesk since 21 September 2026 (conversations carries no recording
- * reference) but not of the voice provider, which holds a call's transcript
- * and recording until healdesk has its own copy and deletes the call then
- * (one day at the longest, the backstop in lib/voice/backstop.ts). The line
- * says both halves, because a disclosure that understates what happens is
- * worse than none.
- * "Transcribed" is not decoration: the CIPA §631(a) exposure in *Ambriz v.
- * Google* is about a third party intercepting call CONTENTS, which is what
- * transcription is. Disclosing recording alone does not describe it, and
- * "by our service providers" tells the caller that a third party is the one
- * transcribing (docs/counsel/state-disclosure.md, decision 4).
+ *     gets the handover (prompt.ts, BOOKING; the model's `handoff`);
+ *   - who transcribes ("by an automated system run by our service
+ *     providers", later "by our providers"), and every word on retention
+ *     ("we keep no audio", "they hold a recording for a day at most"): the
+ *     consent statutes ask that a caller be told the call is recorded or
+ *     transcribed, not who does it or for how long it is kept. Retention is
+ *     stated in writing, where it belongs: the clinic's notice
+ *     (clinicAiNotice), the agreements and the privacy policy.
+ * "Transcribed" stays: it is the word the consent statutes turn on, and the
+ * CIPA §631(a) exposure in *Ambriz v. Google* is about call contents being
+ * captured, which transcription is (decision 4's residual risk R2, now with
+ * the third party unnamed on the call, is the owner's accepted risk).
  */
 export function voiceDisclosure(context: DisclosureContext): string {
-  return (
-    `Hi, this is the AI assistant for ${context.clinicName}. ` +
-    `This call is transcribed by our service providers; we keep no audio, and they hold a recording for a day at most.`
-  );
+  return `Hi, this is the AI assistant at ${context.clinicName}. This call is transcribed.`;
 }
 
 /**
@@ -82,17 +78,13 @@ export function voiceDisclosure(context: DisclosureContext): string {
  * Spanish (lib/voice/call-language.ts), this line is said before the next
  * reply, once per call, so a caller who did not follow the English notice
  * hears it in words they do. It says exactly what the English line says, the
- * same three facts and no others: an AI assistant; transcribed by our service
- * providers; healdesk keeps no audio and they hold a recording for a day at
- * most. It is not configurable either, and a change to the English line must
- * change this one in the same commit (tests/compliance.test.ts pins both).
- * Awaiting review by a native speaker and by counsel.
+ * same two facts and no others: an AI assistant, and the call is
+ * transcribed. It is not configurable either, and a change to the English
+ * line must change this one in the same commit (tests/compliance.test.ts pins
+ * both). Awaiting review by a native speaker and by counsel.
  */
 export function voiceDisclosureEs(context: Pick<DisclosureContext, "clinicName">): string {
-  return (
-    `Le habla el asistente de inteligencia artificial de ${context.clinicName}. ` +
-    `Esta llamada la transcriben nuestros proveedores de servicios; nosotros no guardamos audio, y ellos conservan una grabación un día como máximo.`
-  );
+  return `Le atiende el asistente de inteligencia artificial de ${context.clinicName}. Esta llamada se transcribe.`;
 }
 
 /**

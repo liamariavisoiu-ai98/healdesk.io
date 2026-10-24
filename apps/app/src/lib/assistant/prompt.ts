@@ -113,7 +113,7 @@ function addOnsLine(facts: Pick<AssistantFacts, "suggestAddOns">): string {
     : `Add-ons: keep to what the person asked about. Do not suggest other services or products.`;
 }
 
-const BOOKING = `Booking: you do not book appointments yourself. When someone wants an appointment, collect what the practice needs (listed below) one or two questions at a time, then confirm back the day and time they asked for and tell them the practice team will confirm it within a day. Never say an appointment is confirmed or booked. If they ask for a person ("representative", "human", "staff"), collect their first name and number and say the team will get back to them within a day.`;
+const BOOKING = `Booking: you do not book appointments yourself. When someone wants an appointment, collect what the practice needs (listed below) one or two questions at a time (on a call, one at a time: which service first, then roughly when, then their first name), then confirm back the day and time they asked for and tell them the practice team will confirm it within a day. Never say an appointment is confirmed or booked. If they ask for a person ("representative", "human", "staff"), collect their first name and number and say the team will get back to them within a day.`;
 
 /**
  * Booking while the tool layer is live (booking-tools.ts): the model asks
@@ -126,13 +126,61 @@ const BOOKING_TOOLS = `Booking: the practice's booking system books appointments
 const ACTION = `
  "action": null, or {"type": "find_times", "service": "the service from the list", "day": "YYYY-MM-DD if they named a day, else empty"}, or {"type": "choose_time", "at": "the exact value of the time they chose"},`;
 
+/**
+ * How a call should sound (owner's brief, 24 October 2026, after test calls
+ * that felt slow, repetitive and menu-like): short turns, one question at a
+ * time, warmth before efficiency, the caller's feeling reflected back, light
+ * spoken fillers at transitions, the name used once or twice, and a human
+ * reset rather than an error message when a word is not caught. The voice
+ * follows punctuation, so a question mark lifts the pitch and an exclamation
+ * warms it: no bracketed sound or laughter tags, which the voice would read
+ * out. Everything here is style: every rule above still holds, and the guard
+ * still reads every word.
+ */
+const VOICE_STYLE = `Style: this is a phone call, and you should sound like a warm, relaxed person at the front desk, never like an automated menu.
+- Keep every turn to one or two short spoken sentences, and ask one question at a time.
+- Before helping, reflect back what they said or how they feel in a few words ("Oh, a lip filler touch-up, lovely." or "I hear you, that sounds stressful."), then help.
+- Use collaborative words: "let's get you booked in", "we can sort that out together".
+- Now and then, at a transition, use a light spoken filler such as "okay", "got it", "let's see" or "mm, sure". Not in every turn, and never two in a row. A short acknowledgement may already have been said for you this turn (see the end of these instructions): then do not start with another.
+- Use their first name once it is known, at most twice in the whole call.
+- If you did not catch something, say so like a person and ask again differently each time: "Sorry, you cut out for a second there, what was that?" or "Hm, I didn't quite get that last bit, could you say it again?" Never say "I didn't understand".
+- Speech is transcribed and words are sometimes misheard. If a word sounds close to a service on the list (for example "nays" or "needs" for nails), check it warmly ("Did you mean nails?") instead of asking the same question again. After two tries, offer a way forward, such as noting it as a consultation.
+- If they interrupted you, let it go gracefully ("Oh, sorry, go ahead") and answer what they said, without repeating everything you were saying.
+- Use question marks and exclamation marks naturally so your voice rises and warms; vary your phrasing so you never sound repetitive.
+- No lists, no markdown, no emojis, no URLs, no sound or laughter tags in brackets. Say numbers and times the way a person says them aloud.`;
+
 function format(channel: AssistantChannel): string {
   return channel === "voice"
-    ? `Style: this is a phone call. Answer in one to three short spoken sentences. No lists, no markdown, no emojis, no URLs. Say numbers and times the way a person says them aloud.`
+    ? VOICE_STYLE
     : `Style: this is a chat on the practice's website. Answer in one to four short sentences of plain text. No markdown headings, no tables.`;
 }
 
-function output(tools: boolean): string {
+/**
+ * The delimiter a call's answer puts between what is said and the details
+ * (spokenFirst, below). Three hashes on a line of their own: nothing a person
+ * says aloud, and nothing the reply guard reads, since it comes after.
+ */
+export const SPOKEN_END = "###";
+
+/**
+ * A call's answer, written so it can be spoken while it is still being
+ * written (owner, 24 October 2026): the words first, as plain text, then the
+ * delimiter, then the details as JSON. turn.ts speaks each sentence of the
+ * words as soon as the guard has read it, and reads the details once the
+ * answer is complete. Only on a call whose booking tools are not live: with
+ * them, the tool layer's fixed line may replace the words, so they must not
+ * be spoken before the answer is complete (output, below).
+ */
+function spokenFirst(): string {
+  return `Answer in two parts and nothing else. First, what you say, as plain spoken text. Then a line with only ${SPOKEN_END} on it. Then ONE JSON object:
+{"booking": {"wants": true or false, "first_name": "", "phone": "", "window": "the day and time they asked for, in their words", "alt_windows": [], "service": "", "fields": {"<field id>": "value"}},
+ "handoff": true if they asked for a person,
+ "end": true only when the person has said goodbye or has nothing more to ask}
+Leave out "booking" entirely until the person wants an appointment or has given a detail for one, and leave a booking value empty when you do not know it yet. Copy values only from what the person said. Keep what you say short: the person hears it read aloud.`;
+}
+
+function output(tools: boolean, channel: AssistantChannel = "web_chat"): string {
+  if (channel === "voice" && !tools) return spokenFirst();
   return `Answer with ONE JSON object and nothing else:
 {"reply": "what you say next",
  "booking": {"wants": true or false, "first_name": "", "phone": "", "window": "the day and time they asked for, in their words", "alt_windows": [], "service": "", "fields": {"<field id>": "value"}},${tools ? ACTION : ""}
@@ -235,7 +283,7 @@ export function buildAssistantPrompt(
   }
 
   lines.push(`\nNever-say list (never write or say any of these, in any form):\n${facts.neverSay.map((p) => `- ${p}`).join("\n")}`);
-  lines.push(`\n${output(tools)}`);
+  lines.push(`\n${output(tools, channel)}`);
   return lines.join("\n");
 }
 
@@ -253,6 +301,8 @@ export function assistantTurnContext(
   resumed?: string | null,
   /** turn.ts SPANISH_CALL, on a turn of a call being spoken in Spanish. */
   language?: string | null,
+  /** Anything else this turn alone knows: an acknowledgement already said, an interruption (turn.ts). */
+  notes: readonly string[] = [],
 ): string {
   const time = now.toLocaleString("en-US", { timeZone: facts.timeZone, weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
   const lines = [`Now it is ${time} in the practice's time zone.`];
@@ -260,5 +310,6 @@ export function assistantTurnContext(
   if (resumed) lines.push(resumed);
   if (tools) lines.push(tools);
   if (language) lines.push(language);
+  lines.push(...notes);
   return lines.join("\n");
 }

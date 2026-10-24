@@ -174,7 +174,8 @@ describe("cost and the spend gate", () => {
     expect(c.id).not.toBe(a.id);
     expect(c.usd).toBeGreaterThan(a.usd);
     expect(a.capUsd).toBe(spendCapFor(a.usd));
-    expect(a.byRole.agent?.model).toBe("claude-sonnet-5-5");
+    // The agent runs on production's call model (Haiku 5.5 since 24 October 2026).
+    expect(a.byRole.agent?.model).toBe("claude-haiku-5-5");
     expect(a.byRole.caller?.model).toBe(CALLER_MODEL);
     expect(a.byRole.judge?.model).toBe(JUDGE_MODEL);
   });
@@ -219,7 +220,7 @@ describe("a dry run drives the real turn pipeline", () => {
     const rows = readRows(join(dir, "results.jsonl"));
     expect(rows).toHaveLength(6);
     for (const row of rows) {
-      expect(row.model).toBe("claude-sonnet-5-5");
+      expect(row.model).toBe("claude-haiku-5-5");
       expect(row.caller_model).toBe(CALLER_MODEL);
       expect(row.judge_model).toBe(JUDGE_MODEL);
       expect(row.grade.overall).toBeGreaterThan(0);

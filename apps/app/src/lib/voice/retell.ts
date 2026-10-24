@@ -1,3 +1,4 @@
+import { messageLanguage } from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
 
 import { clinics, clinicSettings } from "@/db/schema";
@@ -37,8 +38,8 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *
  *   on connect      `config` (auto-reconnect pings, call details), then the
  *                   answer gate, then response 0: the locked AI line, said
- *                   before anything else, with the call's transcription and
- *                   that healdesk keeps no audio and the provider holds a recording for a day at most (lib/compliance/disclosure.ts),
+ *                   before anything else, with the call's transcription
+ *                   (lib/compliance/disclosure.ts),
  *                   then the clinic's phone greeting. The time it was sent is
  *                   the call's disclosure_played_at. A caller who spoke
  *                   before it went out never heard it: it is said again
@@ -137,10 +138,33 @@ export const TRANSFER_LINE_ES = "Le comunico ahora con el equipo de la clínica.
 export const TROUBLE_TRANSFER_LINE_ES = "Estoy teniendo problemas de mi lado, así que le comunico con el equipo de la clínica.";
 export const REMINDER_LINE_ES = "¿Sigue ahí? Con gusto le ayudo con cualquier otra cosa.";
 
-type VoiceLines = { closed: string; transfer: string; troubleTransfer: string; reminder: string };
+/**
+ * The first time the model fails in a row on a call: a person's reset, not
+ * an error message (owner, 24 October 2026). A second failure in a row is
+ * put through to the direct line, or hears the plain failure line
+ * (turn.ts failureLine), which says to contact the practice.
+ */
+export const RETRY_LINE = "Sorry, I lost my train of thought for a second there. Could you say that again?";
+export const RETRY_LINE_ES = "Perdone, me distraje un segundo. ¿Me lo puede repetir?";
+
+/**
+ * What a call hears the moment the caller's words go to the model, so there
+ * is no dead air while it thinks (owner, 24 October 2026). Fixed, neutral
+ * and short, so whatever follows (a booking question, a refusal, the
+ * failure line) still reads naturally after it; never two the same in a row.
+ */
+export const ACKNOWLEDGEMENTS: Readonly<Record<SpokenLanguage, readonly string[]>> = {
+  en: ["Okay.", "Sure.", "Mm, okay.", "Got it.", "Okay, let's see."],
+  es: ["Claro.", "Muy bien.", "A ver.", "Entiendo."],
+};
+
+/** Words the caller must have said for an acknowledgement: a lone "John" or "nails" is answered straight away anyway. */
+const ACKNOWLEDGE_MIN_WORDS = 3;
+
+type VoiceLines = { closed: string; transfer: string; troubleTransfer: string; reminder: string; retry: string };
 const VOICE_LINES: Readonly<Record<SpokenLanguage, VoiceLines>> = {
-  en: { closed: CLOSED_LINE, transfer: TRANSFER_LINE, troubleTransfer: TROUBLE_TRANSFER_LINE, reminder: REMINDER_LINE },
-  es: { closed: CLOSED_LINE_ES, transfer: TRANSFER_LINE_ES, troubleTransfer: TROUBLE_TRANSFER_LINE_ES, reminder: REMINDER_LINE_ES },
+  en: { closed: CLOSED_LINE, transfer: TRANSFER_LINE, troubleTransfer: TROUBLE_TRANSFER_LINE, reminder: REMINDER_LINE, retry: RETRY_LINE },
+  es: { closed: CLOSED_LINE_ES, transfer: TRANSFER_LINE_ES, troubleTransfer: TROUBLE_TRANSFER_LINE_ES, reminder: REMINDER_LINE_ES, retry: RETRY_LINE_ES },
 };
 
 type RetellTranscriptEntry = { role?: unknown; content?: unknown };
@@ -155,7 +179,15 @@ type RetellEvent = {
 export type RetellOutbound =
   | { response_type: "config"; config: { auto_reconnect: boolean; call_details: boolean } }
   | { response_type: "ping_pong"; timestamp: number }
-  | { response_type: "response"; response_id: number; content: string; content_complete: true; end_call: boolean; transfer_number?: string };
+  | {
+      response_type: "response";
+      response_id: number;
+      content: string;
+      content_complete: boolean;
+      end_call: boolean;
+      transfer_number?: string;
+      no_interruption_allowed?: boolean;
+    };
 
 export type RetellSessionDeps = {
   responder: AssistantResponder | null;
@@ -176,7 +208,22 @@ export type RetellSessionDeps = {
   tools?: (facts: AssistantFacts) => BookingTools | null;
   /** The redial lookup (lib/voice/redial.ts, takeRedialContext); unset uses it. */
   redial?: (clinicId: string, callerPhone: string) => Promise<RedialContext | null>;
+  /**
+   * Answer with the clinic's facts as a recent call read them (FACTS_FRESH_MS)
+   * while this call's own read is still out, so the opening line waits only
+   * for the answer gate (owner, 24 October 2026). Only the facts: the gate,
+   * which decides pause, suspension and the end of the service, is asked on
+   * every call. The call's own read replaces them as soon as it lands. Set by
+   * src/voice/server.ts in the running process, never by default.
+   */
+  cacheFacts?: boolean;
 };
+
+/** How long a clinic's facts read by one call may open the next. */
+const FACTS_FRESH_MS = 2 * 60_000;
+
+/** The facts the last call for each clinic read, in this process only. */
+const recentFacts = new Map<string, { facts: AssistantFacts; at: number }>();
 
 /**
  * A database that hangs rather than refuses (a blackholed route, a stalled
@@ -234,6 +281,33 @@ export function latestCallerWords(transcript: unknown): string {
     if (entry.role === "user" && typeof entry.content === "string" && entry.content.trim()) out.unshift(entry.content.trim());
   }
   return out.join(" ").slice(0, 2_000);
+}
+
+/**
+ * What the caller heard of the agent's last reply when they cut in: Retell's
+ * transcript holds the part spoken, which is shorter than what was sent.
+ * Null when it holds the whole reply, holds none, or does not match.
+ */
+export function interruptedAt(transcript: unknown, turns: readonly TranscriptTurn[]): string | null {
+  if (!Array.isArray(transcript)) return null;
+  const entries = transcript as RetellTranscriptEntry[];
+  let heard: string | null = null;
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i]!;
+    if (entry.role === "agent") {
+      heard = typeof entry.content === "string" ? entry.content.trim() : null;
+      break;
+    }
+  }
+  const sent = [...turns].reverse().find((t) => t.speaker === "assistant")?.text.trim();
+  if (!heard || !sent) return null;
+  const words = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter(Boolean);
+  const h = words(heard);
+  const t = words(sent);
+  // Only a real cut: at least a few words missing, and what was heard is how the reply began.
+  if (h.length === 0 || h.length + 3 > t.length) return null;
+  if (!h.every((w, i) => t[i] === w)) return null;
+  return heard.slice(0, 300);
 }
 
 export class RetellCallSession {
@@ -322,6 +396,8 @@ export class RetellCallSession {
   private redial: RedialContext | null = null;
   /** The welcome-back line has been said. */
   private welcomedBack = false;
+  /** How many acknowledgements this call has said, which picks the next. */
+  private acknowledged = 0;
 
   constructor(
     readonly clinicId: string,
@@ -346,16 +422,28 @@ export class RetellCallSession {
     return this.callLanguage.language;
   }
 
-  private say(responseId: number, content: string, options: { endCall?: boolean; transferTo?: string | null } = {}): void {
-    this.turns.push({ speaker: "assistant", text: content });
+  /**
+   * Send `content` as the end of the response `responseId`. `spokenBefore`
+   * is an acknowledgement already sent as that response's first part
+   * (Retell appends the parts of one response): the record keeps both.
+   * `noInterruption` asks Retell not to let the caller talk over it, for the
+   * opening line, whose disclosure must be heard.
+   */
+  private say(
+    responseId: number,
+    content: string,
+    options: { endCall?: boolean; transferTo?: string | null; spokenBefore?: string | null; noInterruption?: boolean } = {},
+  ): void {
+    this.turns.push({ speaker: "assistant", text: [options.spokenBefore, content].filter(Boolean).join(" ") });
     if (options.endCall || options.transferTo) this.final = { content, endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
     this.send({
       response_type: "response",
       response_id: responseId,
-      content,
+      content: options.spokenBefore ? (content ? ` ${content}` : "") : content,
       content_complete: true,
       end_call: Boolean(options.endCall),
       ...(options.transferTo ? { transfer_number: options.transferTo } : {}),
+      ...(options.noInterruption ? { no_interruption_allowed: true } : {}),
     });
   }
 
@@ -381,12 +469,26 @@ export class RetellCallSession {
       (await clinicHasLeft(tx)) ? null : assistantFacts(tx, { alertTransport: this.deps.transport }),
     );
     reading.catch(() => {});
+    const recent = this.deps.cacheFacts ? recentFacts.get(this.clinicId) : undefined;
+    const cached = recent && Date.now() - recent.at < FACTS_FRESH_MS ? recent.facts : null;
+    if (this.deps.cacheFacts) {
+      reading
+        .then((fresh) => {
+          if (fresh) recentFacts.set(this.clinicId, { facts: fresh, at: Date.now() });
+          else recentFacts.delete(this.clinicId);
+          // The call opened on a recent read: its own takes over for the
+          // turns. Never with nothing: a call with no facts answers nobody,
+          // and the gate, asked fresh, has already decided whether to answer.
+          if (fresh && cached && this.facts === cached) this.facts = fresh;
+        })
+        .catch(() => {});
+    }
     const started: Promise<Started> = (async () => {
       const decision = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
       gated = decision;
       // The one write before the deadline: it only ever keeps less.
       if (decision.decision === "pass_through" && patientDataRefused(decision.reason)) this.keepsNothing = true;
-      const facts = await reading;
+      const facts = cached ?? (await reading);
       return { decision, facts };
     })();
     let result: Started;
@@ -450,7 +552,9 @@ export class RetellCallSession {
       return;
     }
     this.disclosurePlayedAt = this.now();
-    this.say(responseId, openingLine(facts, "voice"));
+    // Short since 24 October 2026, and said whole: the caller cannot talk
+    // over the disclosure, so it is heard before anything they say is answered.
+    this.say(responseId, openingLine(facts, "voice"), { noInterruption: true });
   }
 
   /**
@@ -746,6 +850,14 @@ export class RetellCallSession {
     }
     const words = latestCallerWords(event.transcript);
     if (!words) return;
+    // The turn's timing, from Retell asking for an answer: when the caller
+    // first heard something and when the answer was complete. Logged once
+    // the answer is said, as numbers only (owner, 24 October 2026).
+    const askedAt = Date.now();
+    let firstHeardAt: number | null = null;
+    const heard = () => {
+      firstHeardAt ??= Date.now();
+    };
 
     const facts = this.facts;
     const resumed = await this.redialContext();
@@ -771,9 +883,59 @@ export class RetellCallSession {
           // script's call is asked about the cap again, and a pause stops both.
           answering: { continuing: this.gateAnswered },
         });
+    // A short acknowledgement while the model thinks, only where nothing
+    // must come first: not before an owed opening line, the Spanish line or
+    // the welcome-back line, and not for a word or two.
+    let acknowledgement: string | null = null;
+    // The opening line is owed when Retell dropped it (no agent words in its
+    // transcript yet), which is settled after the answer below; asked here
+    // too, so nothing is ever said ahead of it.
+    const agentSpokeYet = Array.isArray(event.transcript) && (event.transcript as RetellTranscriptEntry[]).some((e) => e.role === "agent");
+    // Nothing may go ahead of the reply's fixed beginnings: an owed opening
+    // line, the Spanish line the first time, the welcome-back line. While one
+    // is due, the reply is neither acknowledged nor spoken as it is written.
+    const nothingDue =
+      !this.openingOwed &&
+      !(this.disclosurePlayedAt && !agentSpokeYet) &&
+      !(language.language === "es" && !this.spanishDisclosed) &&
+      !(resumed && !this.welcomedBack);
+    const acknowledgeable =
+      nothingDue &&
+      // In the caller's own language only: no English "Okay." to Spanish words.
+      messageLanguage(words, { knownTerms: languageTerms(facts) }) === language.language &&
+      words.split(/\s+/).filter(Boolean).length >= ACKNOWLEDGE_MIN_WORDS &&
+      !/[()[\]]/.test(words);
+    // The reply's sentences as they are written and guarded (turn.ts, speak),
+    // appended to the response after the acknowledgement.
+    let streamed = "";
+    const ackLines = ACKNOWLEDGEMENTS[language.language];
+    const ackLine = ackLines[this.acknowledged % ackLines.length]!;
     const turn = await answerTurn({
       facts,
       channel: "voice",
+      acknowledge: acknowledgeable
+        ? {
+            line: ackLine,
+            say: () => {
+              // Not for a request a newer one has already replaced.
+              if (responseId !== this.latestResponseId || this.closing) return;
+              this.send({ response_type: "response", response_id: responseId, content: ackLine, content_complete: false, end_call: false });
+              acknowledgement = ackLine;
+              this.acknowledged += 1;
+              heard();
+            },
+          }
+        : null,
+      speak: nothingDue
+        ? (sentence: string) => {
+            if (responseId !== this.latestResponseId || this.closing) return;
+            const lead = acknowledgement || streamed ? " " : "";
+            this.send({ response_type: "response", response_id: responseId, content: `${lead}${sentence}`, content_complete: false, end_call: false });
+            streamed = streamed ? `${streamed} ${sentence}` : sentence;
+            heard();
+          }
+        : null,
+      interruptedAt: interruptedAt(event.transcript, this.turns),
       history: this.turns,
       text: words,
       capture: this.capture,
@@ -832,14 +994,18 @@ export class RetellCallSession {
     }
 
     if (turn.source !== "fallback") this.answered = true;
+    let reply0 = turn.reply;
     if (turn.source === "fallback") {
       this.failures += 1;
       const line = this.usable(this.directLine);
       if (this.failures >= 2 && line) {
         this.closing = true;
-        this.say(responseId, this.lines.troubleTransfer, { transferTo: line });
+        this.say(responseId, this.lines.troubleTransfer, { transferTo: line, spokenBefore: acknowledgement });
         return;
       }
+      // The first failure in a row asks again like a person; a second, with
+      // no line to put the caller through to, keeps the plain failure line.
+      if (this.failures === 1) reply0 = this.lines.retry;
     } else {
       this.failures = 0;
     }
@@ -859,7 +1025,7 @@ export class RetellCallSession {
     // The fixed urgent reply says the team was told only while the alert
     // would reach the clinic (facts.urgentAlertsReady); while this call's
     // alert is not known to be queued, it must not say so either.
-    let reply = turn.urgent && this.urgentUntold ? withoutTeamTold(turn.reply) : turn.reply;
+    let reply = turn.urgent && this.urgentUntold ? withoutTeamTold(reply0) : reply0;
     // A call back after a cut-off call: the fixed welcome-back line, once,
     // before the first reply that is not urgent, after the opening line.
     // It says the team was told only while that is true (welcomeBackLine).
@@ -885,7 +1051,22 @@ export class RetellCallSession {
     // fixed reply ends "I'll put you through", and the call is.
     const transferTo = turn.urgent ? (turn.transferTo ?? null) : null;
     if (transferTo) this.closing = true;
-    this.say(responseId, reply, { endCall: turn.end && !transferTo, transferTo });
+    // Spoken as it was written: only what is left goes now, after the
+    // acknowledgement and the sentences already sent (turn.ts, `spoken`).
+    const already = turn.spoken && reply.startsWith(turn.spoken) ? turn.spoken : "";
+    this.say(responseId, already ? reply.slice(already.length).trim() : reply, {
+      endCall: turn.end && !transferTo,
+      transferTo,
+      spokenBefore: [acknowledgement, already].filter(Boolean).join(" ") || null,
+    });
+    heard();
+    log.info("retell turn timing", {
+      clinicId: this.clinicId,
+      callId: this.callId,
+      source: turn.source,
+      ms: (firstHeardAt ?? Date.now()) - askedAt,
+      totalMs: Date.now() - askedAt,
+    });
     // The urgent alert is critical: sent in-process once its row has
     // committed, after the caller has heard the reply, so the line never
     // waits on an email. It never rejects; whatever it misses, the minute

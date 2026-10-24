@@ -74,7 +74,7 @@ const TO_RUN: RightsRowView = {
   daysLeft: 4,
   state: "on_time",
   command: COMMAND,
-  commandNote: null,
+  commandNote: "Run this on the host, then press Mark done here. The practice's own request is chased separately once it is recorded.",
   retellStep: null,
   backupExpiresOn: null,
   closedOn: null,
@@ -119,11 +119,16 @@ describe("fetchRights", () => {
     }
   });
 
+  test("the retired pairing note is no longer accepted", async () => {
+    reply({ data: { rows: [{ ...TO_RUN, commandNote: "Recorded on the host: matched by its day and what was asked" }], count: 1, truncated: false, unreadClinics: 0 } });
+    expect((await fetchRights()).ok).toBe(false);
+  });
+
   test("every fixed note apps/app sends is read, word for word", async () => {
     for (const commandNote of [
       "No portal route yet takes the practice's words for an amendment on the host",
       "No portal route yet takes a correction's new values on the host",
-      "Recorded on the host: matched by its day and what was asked",
+      "Run this on the host, then press Mark done here. The practice's own request is chased separately once it is recorded.",
     ]) {
       reply({ data: { rows: [{ ...BLOCKED, commandNote }], count: 1, truncated: false, unreadClinics: 0 } });
       expect((await fetchRights()).ok, commandNote).toBe(true);

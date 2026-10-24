@@ -7321,14 +7321,14 @@ const RIGHTS_SOURCES = ["intake", "erasure_request", "patient_request", "record_
 /**
  * apps/app's fixed notes, word for word, the only ones a row carries: lib/rights/
  * commands.ts NO_ROUTE, NO_ROUTE_AMENDMENT, NO_ROUTE_CORRECTION and NO_OPERATOR,
- * and lib/rights/tracker.ts MATCHED_NOTE.
+ * and lib/rights/tracker.ts RUN_THEN_MARK.
  */
 export const RIGHTS_COMMAND_NOTES = [
   "No portal route yet turns this request into a contact id",
   "No portal route yet takes the practice's words for an amendment on the host",
   "No portal route yet takes a correction's new values on the host",
   "The operator address on this host is not one the task accepts",
-  "Recorded on the host: matched by its day and what was asked",
+  "Run this on the host, then press Mark done here. The practice's own request is chased separately once it is recorded.",
 ] as const;
 /** apps/app's SAFE_LINE: the script, a task, then ids, closed words, days and one address. Nothing a shell would read as more. */
 const RIGHTS_COMMAND = /^bash infra\/aws\/scripts\/run-task\.sh (erase-person|patient-export|amend-contact|patient-request)( [A-Za-z0-9@._%+,-]+)+$/;

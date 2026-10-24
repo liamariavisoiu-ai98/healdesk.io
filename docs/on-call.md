@@ -451,9 +451,17 @@ an amendment, a correction or an export, five to pass a patient's own request on
 prepared command shows the exact `run-task.sh` line; the owner copies it and runs it himself in AWS
 CloudShell, and nothing in the console runs it. A row with no route shows "No portal route yet turns
 this request into a contact id" (owner decision D19): it is not a go-live blocker, but its clock
-keeps running, so agree with the practice how it is handled in time. A patient's own request
-already recorded on the host is alerted by `patient_request_due_soon` and `patient_request_past_due`
-instead, never twice.
+keeps running, so agree with the practice how it is handled in time. A patient's own request is two
+rows and two alerts on purpose. Its intake keeps its command, with "Run this on the host, then press
+Mark done here. The practice's own request is chased separately once it is recorded.", until you
+press Mark done: nothing pairs the intake with the request the command records, because two
+people's requests of one kind on one day cannot be told apart by clinic, kind and day. The tracker's
+alerts on the intake are about running the command. Once the host has recorded the request, the
+practice's side (marking it received) is `patient_request_due_soon` and `patient_request_past_due`,
+a separate reminder. An intake recorded with the request's id (linked) shows the request's clock
+instead and is left to those two alone. The console's form sends a new request key for every
+request; the same key with other contents is refused ("That request key was used for a different
+request").
 
 ### Incidents
 

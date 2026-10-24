@@ -2375,6 +2375,68 @@ export function __resetBookingSwitchForTests(): void {
 }
 
 // -----------------------------------------------------------------------------
+// Whether apps/app answers, for the personalised demo's choice of engine
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether apps/app answers a signed request right now, so a personalised demo
+ * call may run on AYA's own engine instead of the Retell-hosted clinic agent
+ * (lib/demo/engine.ts; owner, 24 October 2026).
+ *
+ * It asks the one cheapest signed read the ops API has (`bookingSwitch`: no
+ * database row, one boolean) and cares only that a valid answer came back,
+ * not what it says. That is deliberate. `/api/health` would be the obvious
+ * probe and is not reachable here: the load balancer serves the signed routes
+ * alone on the internal host HEALDESK_APP_URL names, and answers 404 to
+ * anything else on it. A signed read also proves the thing the engine needs
+ * from this side, that both apps hold the same HEALDESK_PROVISION_SECRET (the
+ * demo context is sealed with it), which a bare reachability check would not.
+ *
+ * Fails closed, and quickly: unconfigured, a host in standby (no load
+ * balancer to resolve), a refusal, a bad answer or a timeout is "no", and the
+ * demo runs as it did before. The answer, yes or no, is remembered for 30
+ * seconds per instance and one question is in flight at a time, so a burst of
+ * demo calls costs apps/app one request, and a host in standby costs one
+ * short wait. The short timeout is a choice: a visitor is waiting for their
+ * call to connect, and a slow host is not one to hand it to.
+ *
+ * This says the host answers. It cannot say the voice task behind its
+ * `/llm-websocket/` rule is running (the socket is not a signed route), so
+ * a host that is up with `enable_voice` off still reads as "yes": switch the
+ * engine agent variable off with the voice task.
+ */
+export async function appAnswers(now: number = Date.now()): Promise<boolean> {
+  if (appAnswersMemo && now - appAnswersMemo.at < APP_ANSWERS_MEMO_MS) return appAnswersMemo.value;
+  if (!process.env.HEALDESK_PROVISION_SECRET || !process.env.HEALDESK_APP_URL) return false;
+  appAnswersAsking ??= send(
+    "bookingSwitch",
+    "read",
+    (value) => bool(object(value, "bookingSwitch").directBooking, "bookingSwitch.directBooking"),
+    {},
+    { context: false, timeoutMs: APP_ANSWERS_TIMEOUT_MS },
+  )
+    .then((result) => result.ok)
+    .catch(() => false)
+    .finally(() => {
+      appAnswersAsking = null;
+    });
+  const value = await appAnswersAsking;
+  appAnswersMemo = { value, at: now };
+  return value;
+}
+
+const APP_ANSWERS_TIMEOUT_MS = 1_500;
+const APP_ANSWERS_MEMO_MS = 30 * 1000;
+let appAnswersMemo: { value: boolean; at: number } | null = null;
+let appAnswersAsking: Promise<boolean> | null = null;
+
+/** Tests only: forget the remembered answer. */
+export function __resetAppAnswersForTests(): void {
+  appAnswersMemo = null;
+  appAnswersAsking = null;
+}
+
+// -----------------------------------------------------------------------------
 // Transport
 // -----------------------------------------------------------------------------
 

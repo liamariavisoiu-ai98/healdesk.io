@@ -1,4 +1,5 @@
 import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
+import { demoEngineCall } from "@/lib/demo/engine";
 import { findActiveDemoByCaller, profileOf } from "@/lib/demo/sessions";
 import { normalizePhone } from "@/lib/phone";
 import { verifyRetellSignature } from "@/lib/retell-signature";
@@ -68,12 +69,17 @@ export async function POST(request: Request): Promise<Response> {
   const profile = demo ? profileOf(demo) : null;
   if (!demo || !profile) return Response.json(FALL_THROUGH);
 
-  console.info("[healdesk] demo line answered as a personalised demo", { slug: demo.slug });
+  // AYA's own engine answers when it is set and apps/app answers
+  // (lib/demo/engine.ts). The Sheet keeps no name for the number, so the
+  // context has none and AYA greets the caller without one.
+  const engine = await demoEngineCall({ slug: demo.slug, profile, mode: "inbound", firstName: null });
+
+  console.info("[healdesk] demo line answered as a personalised demo", { slug: demo.slug, engine: engine ? "aya" : "clinic-agent" });
   return Response.json({
     call_inbound: {
-      override_agent_id: agentId,
-      dynamic_variables: clinicVoiceVariables(profile, "inbound"),
-      metadata: { demo_slug: demo.slug, source: "healdesk.io personalised demo (dialled in)" },
+      override_agent_id: engine ? engine.agentId : agentId,
+      dynamic_variables: engine ? engine.variables : clinicVoiceVariables(profile, "inbound"),
+      metadata: { demo_slug: demo.slug, source: "healdesk.io personalised demo (dialled in)", ...(engine ? { engine: "aya" } : {}) },
     },
   });
 }

@@ -227,3 +227,14 @@ targetRules = ["curl-auth-user"]
 condition = "AND"
 paths = ['''^docs/blockers-runbook\.md$''']
 regexes = ['''^"<[A-Z_]+>:"$''']
+
+# The demo engine's socket test (24 October 2026) stands in for the line
+# password in the voice endpoint's path with a spelled-out made-up string; it
+# was never issued and opens nothing. Only that exact declaration is excepted.
+[[allowlists]]
+description = "Demo voice test: made-up Retell line password, never issued"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^apps/app/tests/voice-demo\.test\.ts$''']
+regexes = ['''^\s*const LLM_SECRET = "test-retell-llm-secret-0123456789";$''']

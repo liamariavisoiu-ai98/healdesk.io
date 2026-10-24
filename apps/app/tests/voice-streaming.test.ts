@@ -156,7 +156,7 @@ describe("the sentence splitter", () => {
     const out: string[] = [];
     const stream = new SpokenStream((sentence) => out.push(sentence));
     for (const piece of ["Mm-hmm. ", "Got it. ", "Let me check that for you. ", "Okay?\n", `${SPOKEN_END}\n{}`]) stream.push(piece);
-    expect(out).toEqual(["Mm-hmm. Got it. Let me check that for you.", "Okay?"]);
+    expect(out).toEqual(["Mm-hmm. Got it.", "Let me check that for you.", "Okay?"]);
     expect(stream.remainder()).toBe("");
   });
 
@@ -347,5 +347,40 @@ describe("shared emotion, never a promised result (owner, 24 October 2026)", () 
     const prompt = buildAssistantPrompt(FACTS, "voice");
     expect(prompt).toMatch(/Share the excitement about the occasion, never about the result/);
     expect(prompt).toMatch(/Never claim to hear wind, traffic or anything else/);
+  });
+});
+
+describe("a declined idea, a known menu, and a peer on the line (owner, 24 October 2026)", () => {
+  const history = [{ speaker: "assistant" as const, text: "Lovely. Want me to add a consultation while you're in?" }];
+  const told = async (text: string) => {
+    let turn = "";
+    await answerTurn({
+      facts: FACTS,
+      channel: "voice",
+      history,
+      text,
+      responder: async ({ system }) => {
+        turn = system.turn;
+        return `Sure thing.\n${SPOKEN_END}\n{}`;
+      },
+    });
+    return turn;
+  };
+
+  test("a no to the last offer is passed to the model, so it drops the idea", async () => {
+    for (const text of ["no thanks", "Nah, I'm good", "not really", "no, gracias"]) {
+      expect(await told(text), text).toMatch(/They just turned down what you last asked or offered/);
+    }
+    expect(await told("yes please, Friday")).not.toMatch(/turned down/);
+  });
+
+  test("the prompt lets her describe a listed service generally, never invent the practice, and think out loud unevenly", () => {
+    const prompt = buildAssistantPrompt(FACTS, "voice");
+    expect(prompt).toMatch(/You may say what a listed service generally is/);
+    expect(prompt).toMatch(/never anything about risks, safety, downtime or results/);
+    expect(prompt).toMatch(/Do not invent facts about the practice: its staff, equipment, brands/);
+    expect(prompt).toMatch(/Put them at a different point each time, in some replies and not others/);
+    expect(prompt).toMatch(/Be the person callers love talking to/);
+    expect(prompt).toMatch(/no flirting, no compliments on how they look/);
   });
 });

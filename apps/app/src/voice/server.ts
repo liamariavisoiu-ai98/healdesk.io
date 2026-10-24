@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 
+import { DEMO_CALL_PATH } from "@healdesk/catalog";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { anthropicAssistantResponder } from "@/lib/assistant/responder";
@@ -28,6 +29,16 @@ import { voiceRealCallsAllowed } from "@/lib/voice/test-calls";
  *                                             Retell agent is configured with
  *                                             wss://app.healdesk.io/llm-websocket/<secret>/<clinic id>,
  *                                             and Retell appends the call id.
+ *   GET /llm-websocket/<secret>/demo/<call>   a personalised demo call, from the
+ *                                             demo engine agent apps/web starts
+ *                                             (@healdesk/catalog demo-call.ts):
+ *                                             the same session in demo mode,
+ *                                             which reads the clinic from the
+ *                                             call's sealed dynamic variable,
+ *                                             opened with
+ *                                             HEALDESK_PROVISION_SECRET, and
+ *                                             reads or writes nothing else
+ *                                             (lib/voice/retell.ts).
  *
  * The secret (HEALDESK_RETELL_LLM_SECRET) is compared in constant time before
  * the upgrade; unset, every upgrade is refused. It is in the URL because
@@ -37,13 +48,16 @@ import { voiceRealCallsAllowed } from "@/lib/voice/test-calls";
  * Until HEALDESK_VOICE_REAL_CALLS=1 (Terraform's voice_real_calls, once
  * every agreement is signed) it is in test mode: a call for any clinic but a
  * made-up one is passed to that clinic's line or refused, unanswered and
- * unrecorded (lib/voice/test-calls.ts).
+ * unrecorded (lib/voice/test-calls.ts). A demo call is no clinic's call and
+ * keeps nothing, so test mode does not apply to it.
  *
  * On SIGTERM it stops taking calls and records every call still open (the
  * load balancer has already drained it for up to an hour by then, ecs.tf).
  */
 
-const PATH = /^\/llm-websocket\/([^/]{16,200})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/([A-Za-z0-9_-]{1,128})$/;
+const PATH = new RegExp(
+  String.raw`^\/llm-websocket\/([^/]{16,200})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|${DEMO_CALL_PATH})\/([A-Za-z0-9_-]{1,128})$`,
+);
 const MAX_MESSAGE_BYTES = 256 * 1024;
 const HEALTH_PATHS = new Set(["/health", "/health?probe=liveness", "/api/health?probe=liveness"]);
 /**
@@ -59,6 +73,8 @@ export type VoiceServerOptions = {
   transport?: EmailTransport;
   /** Real patients' calls allowed; unset reads HEALDESK_VOICE_REAL_CALLS. */
   realCalls?: boolean;
+  /** Opens a demo call's sealed context; unset reads HEALDESK_PROVISION_SECRET. */
+  demoSecret?: string | null;
   /** For tests: the session's dependencies beyond the model. */
   sessionDeps?: Partial<ConstructorParameters<typeof RetellCallSession>[3]>;
 };
@@ -72,6 +88,7 @@ function secretMatches(given: string, expected: string): boolean {
 export function createVoiceServer(options: VoiceServerOptions = {}): { server: Server; sessions: Set<RetellCallSession>; drain: () => Promise<void> } {
   const secret = options.secret === undefined ? (process.env.HEALDESK_RETELL_LLM_SECRET?.trim() || null) : options.secret;
   const responder = options.responder === undefined ? anthropicAssistantResponder() : options.responder;
+  const demoSecret = options.demoSecret === undefined ? (process.env.HEALDESK_PROVISION_SECRET?.trim() || null) : options.demoSecret;
   const sessions = new Set<RetellCallSession>();
   let draining = false;
 
@@ -109,7 +126,15 @@ export function createVoiceServer(options: VoiceServerOptions = {}): { server: S
     const send = (message: RetellOutbound) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
     };
-    const session = new RetellCallSession(clinicId, callId, send, { responder, transport: options.transport, realCalls: options.realCalls, ...options.sessionDeps });
+    // A demo call gets the model and its secret, and nothing that reaches the database or the mail.
+    const session =
+      clinicId === DEMO_CALL_PATH
+        ? new RetellCallSession(clinicId, callId, send, {
+            responder,
+            ...options.sessionDeps,
+            demo: { secret: demoSecret, ...options.sessionDeps?.demo },
+          })
+        : new RetellCallSession(clinicId, callId, send, { responder, transport: options.transport, realCalls: options.realCalls, ...options.sessionDeps });
     sessions.add(session);
     // Messages are handled one at a time, in order; a newer response request
     // supersedes an older one inside the session.

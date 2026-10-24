@@ -393,6 +393,18 @@ export const KEYS: readonly KeyDef[] = [
   { id: "vercel.RETELL_DEMO_AGENT_ID", env: "RETELL_DEMO_AGENT_ID", home: "vercel", label: "Which Retell agent is AYA's demo", need: "required", rotation: { kind: "public" } },
   { id: "vercel.RETELL_DEMO_FROM_NUMBER", env: "RETELL_DEMO_FROM_NUMBER", home: "vercel", label: "The demo line's phone number", need: "required", rotation: { kind: "public" } },
   { id: "vercel.RETELL_CLINIC_DEMO_AGENT_ID", env: "RETELL_CLINIC_DEMO_AGENT_ID", home: "vercel", label: "The personalised-demo agent", need: "optional", rotation: { kind: "public" } },
+  {
+    id: "vercel.RETELL_DEMO_ENGINE_AGENT_ID",
+    env: "RETELL_DEMO_ENGINE_AGENT_ID",
+    home: "vercel",
+    label: "The agent that runs personalised demos on AYA's own engine",
+    need: "optional",
+    rotation: {
+      kind: "only-if",
+      when: "the agent is replaced in Retell, or you want personalised demos back on the Retell-hosted clinic agent (clear it)",
+      how: "On your computer, with RETELL_API_KEY and HEALDESK_RETELL_LLM_SECRET set, run npm run retell:demo-engine -w @healdesk/web; it updates the agent in place, or creates one and prints the id to put here. Then change it in Vercel (healdesk project, Settings, Environment Variables, Production) and redeploy.",
+    },
+  },
   { id: "vercel.RETELL_DEMO_INBOUND_AGENT_ID", env: "RETELL_DEMO_INBOUND_AGENT_ID", home: "vercel", label: "The homepage's \"Talk now\" agent", need: "optional", rotation: { kind: "public" } },
   {
     id: "vercel.RETELL_WEBHOOK_KEY",
@@ -792,6 +804,7 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_REPO: "Which GitHub repository the Changes tab reads: a name.",
   HEALDESK_GITHUB_REPO: "Which GitHub repository the AWS on/off switch runs in: a name.",
   HEALDESK_APP_PUBLIC_URL: "The engine's public address, given to a Stripe set-up script on your computer.",
+  HEALDESK_RETELL_LLM_SECRET: "On the web side only your computer reads it: the demo engine agent's set-up script (npm run retell:demo-engine) puts it in the agent's line address. The engine's copy in AWS is a key.",
   RETELL_DEMO_TOOL_ORIGIN: "The site address the demo agent's set-up script points AYA's tools at.",
   SITE_URL: "The site address the IndexNow script pings for: a public address.",
   HEALDESK_CHECKOUT_MODE: "Your switch for who may buy: public opens checkout to anyone; anything else keeps it to people you sent a setup link.",
@@ -938,7 +951,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     both: true,
     title: "The shop window hands work to the engine",
     carries:
-      "Paid purchases to set up, every Stripe billing change after that, email delivery reports (the shop window's own counted for the morning ops digest), a signer's agreement copy held back for a person to send (its id and why, once per address a day), review and welcome checks, and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses, times and attempt counts, never the words), Reviews (the practice questions waiting for you), Retell deletions (calls Retell still held 30 minutes after they ended, as ids and times, and the button that has the engine delete one), Host and this map; the engine answers with what those pages show; a setup request still unanswered past the day it was promised a reply (its id, the requester's business name and that day, business contact data and never a patient)",
+      "Paid purchases to set up, every Stripe billing change after that, email delivery reports (the shop window's own counted for the morning ops digest), a signer's agreement copy held back for a person to send (its id and why, once per address a day), review and welcome checks, whether the engine answers (a short signed question before a personalised demo call chooses its engine), and every read and button on Ops (including whether each transcript reached its clinic and sending a bounced one again: ids, statuses, times and attempt counts, never the words), Reviews (the practice questions waiting for you), Retell deletions (calls Retell still held 30 minutes after they ended, as ids and times, and the button that has the engine delete one), Host and this map; the engine answers with what those pages show; a setup request still unanswered past the day it was promised a reply (its id, the requester's business name and that day, business contact data and never a patient)",
     example: "A clinic's first invoice is paid. The shop window posts its signed agreement, a business associate agreement or, for a practice HIPAA does not cover, a data protection agreement, to the engine in an envelope sealed with a stamp only the two of them own; the engine checks the seal, records which of the two it is and opens the clinic's account.",
     keys: ["vercel.HEALDESK_PROVISION_SECRET", "aws.HEALDESK_PROVISION_SECRET", "vercel.HEALDESK_APP_URL", "aws.HEALDESK_ADMIN_EMAIL"],
     phi: false,
@@ -1050,11 +1063,13 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "web",
     to: "retell-demo",
     title: "We ask Retell to ring a clinic owner",
-    carries: "The owner's number and which demo to play, or a request for a one-call browser pass",
-    example: "An owner types a mobile number and presses \"Have AYA call me\"; seconds later that phone rings from our demo number.",
-    keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_DEMO_AGENT_ID", "vercel.RETELL_DEMO_FROM_NUMBER", "vercel.RETELL_CLINIC_DEMO_AGENT_ID", "vercel.RETELL_DEMO_INBOUND_AGENT_ID"],
+    carries: "The owner's number and which demo to play, or a request for a one-call browser pass; on a personalised demo, also the owner's first name and the clinic's public profile, sealed, when the call is to run on AYA's own engine",
+    example: "An owner types a mobile number and presses \"Have AYA call me\"; seconds later that phone rings from our demo number. On a personalised demo they first give their first name, and when AYA's engine is on, AYA greets them by it.",
+    keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_DEMO_AGENT_ID", "vercel.RETELL_DEMO_FROM_NUMBER", "vercel.RETELL_CLINIC_DEMO_AGENT_ID", "vercel.RETELL_DEMO_INBOUND_AGENT_ID", "vercel.RETELL_DEMO_ENGINE_AGENT_ID"],
     phi: false,
     build: "built",
+    buildNote:
+      "Personalised demos run on AYA's own engine, the same one that answers clinics' patients, when the engine is on, and on Retell's own clinic demo agent when it is not. A browser call, a call-me demo and a call to the demo line start on the demo engine agent (RETELL_DEMO_ENGINE_AGENT_ID, made by npm run retell:demo-engine on your computer) when that variable is set and the engine answers a signed question within a second and a half (asked at most every 30 seconds); the clinic's public website profile, the owner's first name and the demo's name go with the call, sealed with the stamp both apps hold, and the engine keeps nothing of it. In standby, or with the variable unset or the engine silent, they start on the clinic demo agent exactly as before, so demos never go quiet. The engine's half (its voice endpoint answering the demo path from the sealed context, over the line on Retell to the engine) is shown on Retell lets the engine run the call; no test call has been made against Retell yet, and the engine answering does not prove the voice task is running, so clear the variable when you switch voice off.",
   },
   {
     id: "retell-demo-web",
@@ -1204,10 +1219,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     both: true,
     title: "Owners talk to AYA's demo",
     carries: "Their voice, in the browser or on the phone",
-    example: "An owner presses \"Talk now\" and speaks to AYA in the browser, straight to Retell; or dials the demo line from their mobile.",
+    example: "An owner presses \"Talk now\" and speaks to AYA in the browser, straight to Retell; or dials the demo line from their mobile. On a personalised demo they first give their first name.",
     // The browser half needs the one-call pass the shop window fetches with
     // these (lib/retell-web-call.ts); a phone call to the demo line needs none.
-    keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_DEMO_INBOUND_AGENT_ID", "vercel.RETELL_CLINIC_DEMO_AGENT_ID"],
+    keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_DEMO_INBOUND_AGENT_ID", "vercel.RETELL_CLINIC_DEMO_AGENT_ID", "vercel.RETELL_DEMO_ENGINE_AGENT_ID"],
     keyless: "A phone call to the demo line needs nothing of ours; the browser uses a one-call pass the shop window fetches with these keys.",
     phi: false,
     build: "built",

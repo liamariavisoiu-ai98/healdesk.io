@@ -379,8 +379,8 @@ function detailsOf(text: string): Omit<ModelAnswer, "reply"> {
  * delimiter arrives, which ends the words and sends what is left. An answer
  * that opens with a brace is the JSON form and is never spoken as it comes.
  */
-/** Words a spoken piece needs before it goes out on its own: shorter ones ("Sure!") wait for the next. */
-const MIN_SPOKEN_WORDS = 4;
+/** Words a spoken piece needs before it goes out on its own: shorter ones ("Sure!") wait for the next; "Yep, we do!" goes. */
+const MIN_SPOKEN_WORDS = 3;
 
 export class SpokenStream {
   private text = "";
@@ -587,6 +587,14 @@ function lastAssistantLine(history: readonly TranscriptTurn[]): string | null {
 const ASKED_AGAIN =
   /^\W*(?:sorry|what|pardon|huh|excuse me|come again|say (?:that|it) again|(?:can|could) you (?:say that again|repeat(?: that)?|speak up)|i (?:can't|cannot|couldn't) hear(?: you)?|speak up|perd[oó]n|c[oó]mo|qu[eé])\b[^.!?]{0,40}[.!?]*\W*$/i;
 
+/**
+ * A caller turning down what was just offered or asked ("no thanks", "not
+ * really", "I'm good"): the model is told, so it drops the idea instead of
+ * pressing it again in other words (owner, 24 October 2026).
+ */
+const DECLINED =
+  /^\W*(?:no|nope|nah|no thanks|no thank you|not really|not interested|not now|not right now|not today|maybe later|i'?m good|i'?m fine|i'?m okay|i'?ll pass|pass|i don'?t (?:want|need|think so)|that'?s okay|it'?s okay|no,? gracias|no me interesa|ahora no|estoy bien)\b/i;
+
 /** Words a sentence needs before saying it twice counts as repeating it: "Okay." or "Got it." may come back. */
 const REPEAT_MIN_WORDS = 3;
 /** Words a sentence from earlier in the call needs to count: "Anything else I can help with?" (six) may come back, a whole answer may not. */
@@ -684,6 +692,14 @@ export async function answerTurn(input: {
    * nothing after it is said. The result's `spoken` is what went out.
    */
   speak?: ((sentence: string) => void) | null;
+  /**
+   * What the adapter knows about the whole conversation that the facts do
+   * not say, for the turn context after the cached prefix: a personalised
+   * demo call's note (lib/voice/demo-facts.ts, demoCallNote). Every screen
+   * and the guard run as on any turn; a note changes what the model is
+   * told, never what it may say.
+   */
+  notes?: readonly string[] | null;
 }): Promise<AssistantTurnResult> {
   const { facts, channel } = input;
   const language: SpokenLanguage = input.language ?? "en";
@@ -733,10 +749,16 @@ export async function answerTurn(input: {
   // the last turn takes the tools away from this one.
   const toolsLive = Boolean(input.tools) && !toolState.manual && !toolState.done && (await input.tools!.available());
   const opening = input.history.find((t) => t.speaker === "assistant")?.text;
-  const notes: string[] = [];
+  const notes: string[] = [...(input.notes ?? [])];
   if (input.interruptedAt) {
     notes.push(
       `The caller cut in while you were speaking; they heard only: "${input.interruptedAt}". Answer what they just said, and do not repeat what they talked over unless they ask.`,
+    );
+  }
+  const offered = channel === "voice" ? lastAssistantLine(input.history) : null;
+  if (offered && /\?/.test(offered) && DECLINED.test(personText)) {
+    notes.push(
+      `They just turned down what you last asked or offered ("${offered}"). Drop it and follow their lead. Only if it truly matters, come back to it once, later, in completely different words, shorter and lighter, matched to how firmly they said no.`,
     );
   }
   if (input.acknowledge) {

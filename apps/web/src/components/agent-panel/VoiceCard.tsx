@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { WebCallSession } from "retell-client-js-sdk";
 
 import { AyaPortrait, type CallVisualState } from "@/components/agent-panel/AyaPortrait";
+import { NameGate } from "@/components/agent-panel/NameGate";
 import { CALL_CONSENT } from "@/lib/consent";
 import { countryByIso, DIAL_COUNTRIES, formatNational, splitNumber, toInternational } from "@/lib/dial-countries";
+import { getFirstName, rememberFirstName, subscribeFirstName } from "@/lib/demo/first-name";
+import { site } from "@/lib/site";
 
 /**
  * The voice card, three ways to reach the assistant in AYA's voice: talk to
@@ -59,6 +62,21 @@ import { countryByIso, DIAL_COUNTRIES, formatNational, splitNumber, toInternatio
  * bumping its version (lib/consent.ts has the reasoning). Since 12 October
  * 2026 the box is drawn as a switch (still a checkbox, off until the visitor
  * turns it on, beside the same words).
+ *
+ * ## The start of a personalised demo (`askName`, 24 October 2026)
+ *
+ * On the personalised demo page only, before a call starts on any of the three
+ * ways, one pill (NameGate.tsx) says "Let's start" with a loading icon, asks
+ * "What's your name?", and on the answer turns into the line the visitor waits
+ * on, its dots moving: "AYA will be with you in a moment…" before the browser
+ * call, "AYA will call you in a moment…" above the call-me form,
+ * "AYA will answer in a moment…" over the dial card. The name is kept for the
+ * visit in sessionStorage (lib/demo/first-name.ts), so "Call again" and the
+ * other ways do not ask twice, and "Not Sam? Change" asks again. It reaches
+ * the call as `firstName` in the browser call's one request, and as the call-me
+ * request's `name`; the server cleans it again either way. The call-me form
+ * drops its optional first-name field then, since the pill has already taken
+ * it. The homepage does not ask: it talks to owners who have given nothing.
  *
  * ## The owner's picks of 12 October 2026
  *
@@ -177,6 +195,20 @@ function CallButton({
   );
 }
 
+/** The browser call's one request with the visitor's first name added; anything that is not a JSON object goes as it was. */
+function withFirstName(init: RequestInit | undefined, firstName: string): RequestInit | undefined {
+  if (typeof init?.body !== "string") return init;
+  try {
+    const body: unknown = JSON.parse(init.body);
+    if (body !== null && typeof body === "object" && !Array.isArray(body)) {
+      return { ...init, body: JSON.stringify({ ...body, firstName }) };
+    }
+  } catch {
+    // Not JSON: leave it.
+  }
+  return init;
+}
+
 export function VoiceCard({
   name,
   portraitLabel,
@@ -189,6 +221,7 @@ export function VoiceCard({
   locked = false,
   idleTitle = true,
   aura = "halo",
+  askName = false,
 }: {
   /** Whose line it answers: the clinic's name, or AYA. */
   name: string;
@@ -213,6 +246,8 @@ export function VoiceCard({
   callbackExtra?: Record<string, string>;
   prefillPhone?: string | null;
   locked?: boolean;
+  /** Ask for a first name before any call starts (the personalised demo page only). */
+  askName?: boolean;
 }) {
   const [mode, setMode] = useState<Mode>("talk");
   const [dialFrom, setDialFrom] = useState(prefillPhone ?? "");
@@ -234,6 +269,11 @@ export function VoiceCard({
   const [qr, setQr] = useState<string | null>(null);
 
   const [firstName, setFirstName] = useState("");
+  /** The name given on this visit (askName only); the server cannot know it, so it is null until the page is in the browser. */
+  const callerName = useSyncExternalStore(subscribeFirstName, getFirstName, () => null);
+  const nameChecked = useSyncExternalStore(subscribeFirstName, () => true, () => false);
+  /** "Let's start" has played once on this page: later gates open straight on the question. */
+  const [introSeen, setIntroSeen] = useState(false);
   const [country, setCountry] = useState(() => splitNumber(prefillPhone).iso);
   const [phone, setPhone] = useState(() => splitNumber(prefillPhone).national);
   /** The call-me request went through this long ago: the ringing shows until RING_SECONDS. */
@@ -292,7 +332,11 @@ export function VoiceCard({
       const client = new RetellClient({
         // Never sent to Retell: our route sets the real Authorization header.
         key: "proxied",
-        fetch: (url, init) => fetch(`${callRoute}${new URL(String(url)).pathname}`, init),
+        fetch: (url, init) => {
+          const path = new URL(String(url)).pathname;
+          const given = askName ? getFirstName() : null;
+          return fetch(`${callRoute}${path}`, given && path.endsWith("/create-web-call") ? withFirstName(init, given) : init);
+        },
       });
       const session = client.createWebCall({
         // Ignored by our route, which picks the agent server-side.
@@ -345,7 +389,7 @@ export function VoiceCard({
       setCallError("The call couldn't start in this browser. Try Chrome, Safari or Edge.");
       setState("error");
     }
-  }, [callRoute, locked, state]);
+  }, [askName, callRoute, locked, state]);
 
   const endCall = useCallback(async () => {
     await sessionRef.current?.end().catch(() => {});
@@ -355,6 +399,11 @@ export function VoiceCard({
     setTalking(false);
     setCaption("");
   }, []);
+
+  const giveName = useCallback((given: string) => rememberFirstName(given), []);
+  const forgetName = useCallback(() => rememberFirstName(null), []);
+
+  const markIntroSeen = useCallback(() => setIntroSeen(true), []);
 
   const toggleMute = useCallback(() => {
     const session = sessionRef.current;
@@ -380,7 +429,7 @@ export function VoiceCard({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             phone: toInternational(countryByIso(country), phone),
-            name: firstName || undefined,
+            name: (askName ? callerName : firstName) || undefined,
             consent: true,
             consentVersion: CALL_CONSENT.version,
             ...callbackExtra,
@@ -399,7 +448,7 @@ export function VoiceCard({
         setSubmitting(false);
       }
     },
-    [callbackExtra, consent, country, firstName, locked, phone, submitting],
+    [askName, callbackExtra, callerName, consent, country, firstName, locked, phone, submitting],
   );
 
   const registerCaller = useCallback(
@@ -431,6 +480,33 @@ export function VoiceCard({
 
   const live = state === "live";
   const busy = state === "connecting" || live;
+  /** Asking, and not yet told: nothing else on the tab until the name is in. */
+  const holdForName = askName && !locked && !callerName;
+  /** The browser call is starting after the name was given: the pill keeps the visitor company, not the call screen. */
+  const gateWaiting = askName && !locked && state === "connecting";
+  const showCall = busy && !gateWaiting;
+  const gateFor = (waitingText: string) =>
+    nameChecked ? (
+      <NameGate
+        name={callerName}
+        waitingText={waitingText}
+        onSubmit={giveName}
+        introDone={introSeen}
+        onIntroDone={markIntroSeen}
+        disabled={locked}
+      />
+    ) : (
+      <div aria-hidden className="h-[3.25rem]" />
+    );
+  const notYou =
+    askName && !locked && callerName ? (
+      <p className="text-muted mt-2.5 text-center text-[13.2px] font-medium">
+        Not {callerName}?{" "}
+        <button type="button" onClick={forgetName} className="text-ink font-bold underline underline-offset-2">
+          Change
+        </button>
+      </p>
+    ) : null;
   const visual: CallVisualState = state === "connecting" ? "connecting" : live ? (talking ? "speaking" : "listening") : "idle";
   const tabs: { id: Mode; label: string; hint: string }[] = [
     { id: "talk", label: "Talk here", hint: "In your browser" },
@@ -472,11 +548,11 @@ export function VoiceCard({
       </div>
 
       {mode === "talk" ? (
-        <div className="voice-talk flex flex-1 flex-col items-center px-6 pt-6 pb-6 text-center" data-busy={busy || undefined}>
+        <div className="voice-talk flex flex-1 flex-col items-center px-6 pt-6 pb-6 text-center" data-busy={showCall || undefined}>
           {/* Her face: large while she waits, small at the top once the call is on. */}
-          <AyaPortrait size={busy ? 112 : 210} level={level} state={visual} aura={aura} />
+          <AyaPortrait size={showCall ? 112 : 210} level={level} state={visual} aura={aura} />
 
-          {busy ? (
+          {showCall ? (
             <div className="voice-rise flex w-full flex-1 flex-col items-center">
               <p className="font-display text-ink mt-2 text-[21px] leading-tight font-medium tracking-[-0.02em]">
                 {live ? `On the line with ${name}` : "Connecting…"}
@@ -528,6 +604,27 @@ export function VoiceCard({
               {idleTitle ? (
                 <p className="font-display text-ink mt-1.5 text-[23px] leading-tight font-medium tracking-[-0.02em]">{`Call ${name}`}</p>
               ) : null}
+              {askName && !locked && (!callerName || gateWaiting) ? (
+                <div className="mt-5 flex w-full justify-center">
+                  {nameChecked ? (
+                    <NameGate
+                      name={callerName}
+                      waitingText={`${site.agent} will be with you in a moment`}
+                      onSubmit={(given) => {
+                        giveName(given);
+                        // In the same click that gave the name: the browser asks for the microphone on a click.
+                        void startCall();
+                      }}
+                      introDone={introSeen}
+                      onIntroDone={markIntroSeen}
+                    />
+                  ) : (
+                    <div aria-hidden className="h-[3.25rem]" />
+                  )}
+                </div>
+              ) : null}
+              {askName && !locked && (!callerName || gateWaiting) ? null : (
+              <>
               <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
                 <button
                   type="button"
@@ -551,6 +648,9 @@ export function VoiceCard({
               ) : (
                 <p className="text-muted mt-3 text-[13.2px] font-medium">Uses your microphone. Nothing is recorded.</p>
               )}
+              {notYou}
+              </>
+              )}
             </div>
           )}
         </div>
@@ -558,6 +658,14 @@ export function VoiceCard({
 
       {mode === "dial" && demoLine ? (
         <div className="voice-rise flex flex-1 flex-col items-center justify-center px-6 py-7 text-center">
+          {askName && !locked ? (
+            <div className="mb-6 flex w-full flex-col items-center">
+              {gateFor(`${site.agent} will answer in a moment`)}
+              {notYou}
+            </div>
+          ) : null}
+          {holdForName ? null : (
+            <>
           {dialReady !== null ? (
             <div className="flex w-full flex-col items-center gap-6 lg:flex-row lg:justify-center lg:gap-8">
               {/* The dial card: the number, large, and a green call button. */}
@@ -631,6 +739,8 @@ export function VoiceCard({
               ) : null}
             </p>
           ) : null}
+            </>
+          )}
         </div>
       ) : null}
 
@@ -665,21 +775,31 @@ export function VoiceCard({
           </button>
         </div>
       ) : (
-        <form onSubmit={requestCall} className="voice-rise flex flex-1 flex-col justify-center px-5 py-6">
+        <div className="voice-rise flex flex-1 flex-col justify-center px-5 py-6">
           <p className="font-display text-ink text-[23px] leading-tight font-medium tracking-[-0.02em]">Have it ring your phone</p>
           <p className="text-muted mt-0.5 text-[14px] font-medium">{ringNote}</p>
+          {askName && !locked ? (
+            <div className="mt-3 flex w-full flex-col items-center">
+              {gateFor(`${site.agent} will call you in a moment`)}
+              {notYou}
+            </div>
+          ) : null}
+          {holdForName ? null : (
+        <form onSubmit={requestCall} className={`flex flex-col ${askName ? "voice-rise" : ""}`}>
           <div className="mt-3 flex flex-col gap-2">
-            <input
-              type="text"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              placeholder="First name"
-              aria-label="First name"
-              autoComplete="given-name"
-              maxLength={80}
-              disabled={locked}
-              className="border-line text-ink placeholder:text-muted min-w-0 rounded-sm border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
-            />
+            {askName ? null : (
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="First name"
+                aria-label="First name"
+                autoComplete="given-name"
+                maxLength={80}
+                disabled={locked}
+                className="border-line text-ink placeholder:text-muted min-w-0 rounded-sm border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
+              />
+            )}
             <div className="border-line flex min-w-0 items-stretch overflow-hidden rounded-sm border transition-colors focus-within:border-[var(--clinic)]">
               {/* The country: its flag and code, then the number as it is written there. */}
               <label className="border-line relative flex shrink-0 items-center gap-1.5 border-r bg-black/[0.025] pr-2 pl-3">
@@ -759,6 +879,8 @@ export function VoiceCard({
             </p>
           ) : null}
         </form>
+          )}
+        </div>
       )}
     </div>
   );

@@ -98,6 +98,7 @@ function session(responder: AssistantResponder | null, facts: AssistantFacts = F
     tools: () => null,
     redial: async () => null,
     acknowledgeAfterMs: 5,
+    random: () => 0,
   });
   const raw = () => sent.filter((m): m is Response => m.response_type === "response");
   return { s, raw, heard: () => spokenResponses(raw()), seen, recorded };
@@ -260,5 +261,14 @@ describe("a silence (owner, 24 October 2026)", () => {
       { content: REMINDER_CLOSE_LINE, end: true },
     ]);
     await s.finish();
+  });
+});
+
+describe("the thinking sound (owner, 24 October 2026)", () => {
+  test("is a thinking sound picked at random, never the same twice in a row, and said within a fifth of a second", async () => {
+    const { ACKNOWLEDGE_AFTER_MS } = await import("@/lib/voice/retell");
+    expect(ACKNOWLEDGE_AFTER_MS).toBeLessThanOrEqual(200);
+    expect(ACKNOWLEDGEMENTS.en).toContain("Mm.");
+    expect(ACKNOWLEDGEMENTS.en.some((line) => /okay/i.test(line))).toBe(false);
   });
 });

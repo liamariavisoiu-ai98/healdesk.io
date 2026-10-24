@@ -351,6 +351,17 @@ type OperatorOp =
   // number or a secret. A read; the retry stays in apps/app's ops envelope
   // until a page with the operator's fresh code is built for it.
   | "voiceAgentStatus"
+  // Phase 5, lane P5a (apps/app lib/ops/voice-agent-ops.ts, stuck-writes-ops.ts,
+  // transcript-watch-ops.ts): one more provisioning run for a clinic's Retell
+  // agent; a drift flag cleared and the check run once, after the operator's
+  // fresh code (lib/admin/voice-drift.ts); the desk bookings whose calendar
+  // write has not settled, and the clinics whose transcript copies never
+  // reached them, across clinics. Ids, codes, counts, whole days and the
+  // clinic's name; never a patient, a copy, an address or a number.
+  | "retryVoiceAgent"
+  | "clearVoiceDriftFlag"
+  | "listStuckCalendarWrites"
+  | "listUndeliveredTranscripts"
   // The redone admin's two reads (ops automation Phase 2, lane A2): the
   // Clinics table and Home, shaped by lib/admin/strip-types.ts. No argument.
   | "listClinicStrip"
@@ -1488,6 +1499,380 @@ export function fetchVoiceAgentStatus(clinicId?: string): Promise<OpsResult<Voic
         updatedAt: isoInstant(r.updatedAt, "agent.updatedAt"),
       };
     });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Phase 5 monitors (lane P5a): the voice agent's read-back, retry and drift
+// clear; stuck calendar writes and undelivered transcripts across clinics
+// -----------------------------------------------------------------------------
+
+/** Exactly these keys, no more and no fewer: a field apps/app does not send is a malformed answer. */
+function exactKeys(value: unknown, keys: readonly string[], at: string): Record<string, unknown> {
+  const data = object(value, at);
+  const got = Object.keys(data).sort();
+  const want = [...keys].sort();
+  if (got.length !== want.length || got.some((key, i) => key !== want[i])) throw new ShapeError(at);
+  return data;
+}
+
+/** What apps/app's read-back compares (lib/voice/provision.ts, VoiceAgentProblem). */
+export const VOICE_AGENT_PROBLEMS = [
+  "agent_missing",
+  "storage",
+  "engine",
+  "webhook",
+  "voice",
+  "language",
+  "keywords",
+  "number_missing",
+  "number_agent",
+  "number_outbound",
+  "fallback",
+] as const;
+export type VoiceAgentProblem = (typeof VOICE_AGENT_PROBLEMS)[number];
+
+const VOICE_AGENT_STATUSES = ["pending", "provisioning", "ready", "failed", "deprovisioning", "released"] as const;
+
+/** One clinic's read-back against Retell (verifyVoiceAgent): GET requests only, never a call placed. */
+export type VoiceAgentReportView = {
+  clinicId: string;
+  status: (typeof VOICE_AGENT_STATUSES)[number] | "none";
+  engine: "custom" | "native" | null;
+  /** Every check passed. */
+  ok: boolean;
+  /** Retell was read; false with `note` saying why not. */
+  checked: boolean;
+  agentExists: boolean | null;
+  numberExists: boolean | null;
+  problems: VoiceAgentProblem[];
+  note: string | null;
+};
+
+const VOICE_REPORT_KEYS = [
+  "clinicId",
+  "status",
+  "engine",
+  "ok",
+  "checked",
+  "agentExists",
+  "numberExists",
+  "problems",
+  "note",
+] as const;
+
+function readProblems(value: unknown, at: string): VoiceAgentProblem[] {
+  return list(value, at).map((p, i) => literal(p, VOICE_AGENT_PROBLEMS, `${at}[${i}]`));
+}
+
+/**
+ * One clinic's voice set-up read back from Retell now (`voiceAgentStatus`
+ * with `verify`): what differs, as codes. The status rows come with it, as
+ * fetchVoiceAgentStatus reads them; `report` is null when apps/app did not
+ * read back.
+ */
+export function fetchVoiceAgentReport(
+  clinicId: string,
+): Promise<OpsResult<{ agents: VoiceAgentStatusView[]; report: VoiceAgentReportView | null }>> {
+  return callOps("voiceAgentStatus", "read", { clinicId, verify: true }, (value) => {
+    const data = exactKeys(value, ["agents", "report"], "voiceAgentStatus");
+    const agents = list(data.agents, "voiceAgentStatus.agents").map((row, i) => {
+      const r = object(row, `voiceAgentStatus.agents[${i}]`);
+      return {
+        clinicId: id(r.clinicId, "agent.clinicId"),
+        clinicSlug: text(r.clinicSlug, "agent.clinicSlug"),
+        engine: literal(r.engine, ["custom", "native"] as const, "agent.engine"),
+        status: literal(r.status, VOICE_AGENT_STATUSES, "agent.status"),
+        retellAgentId: r.retellAgentId === null ? null : retellCallId(r.retellAgentId, "agent.retellAgentId"),
+        hasNumber: bool(r.hasNumber, "agent.hasNumber"),
+        attempts: count(r.attempts, "agent.attempts"),
+        lastError: optionalText(r.lastError, "agent.lastError"),
+        lastSyncedAt: optionalIsoInstant(r.lastSyncedAt, "agent.lastSyncedAt"),
+        numberOrderedAt: optionalIsoInstant(r.numberOrderedAt, "agent.numberOrderedAt"),
+        driftRepairs: count(r.driftRepairs, "agent.driftRepairs"),
+        driftFlaggedAt: optionalIsoInstant(r.driftFlaggedAt, "agent.driftFlaggedAt"),
+        releasedAt: optionalIsoInstant(r.releasedAt, "agent.releasedAt"),
+        updatedAt: isoInstant(r.updatedAt, "agent.updatedAt"),
+      };
+    });
+    if (data.report === null) return { agents, report: null };
+    const r = exactKeys(data.report, VOICE_REPORT_KEYS, "voiceAgentStatus.report");
+    const maybeBool = (v: unknown, at: string) => (v === null ? null : bool(v, at));
+    return {
+      agents,
+      report: {
+        clinicId: id(r.clinicId, "report.clinicId"),
+        status: literal(r.status, [...VOICE_AGENT_STATUSES, "none"] as const, "report.status"),
+        engine: r.engine === null ? null : literal(r.engine, ["custom", "native"] as const, "report.engine"),
+        ok: bool(r.ok, "report.ok"),
+        checked: bool(r.checked, "report.checked"),
+        agentExists: maybeBool(r.agentExists, "report.agentExists"),
+        numberExists: maybeBool(r.numberExists, "report.numberExists"),
+        problems: readProblems(r.problems, "report.problems"),
+        note: optionalText(r.note, "report.note"),
+      },
+    };
+  });
+}
+
+/** Why a provisioning run failed (lib/voice/provision.ts, VoiceProvisionFailure). */
+const VOICE_PROVISION_FAILURES = [
+  "not_implemented",
+  "no_voice",
+  "config",
+  "number_missing",
+  "not_kept",
+  "rejected",
+  "unsupported_country",
+] as const;
+
+export type RetryVoiceAgentOutcome =
+  | { outcome: "not_found" }
+  | { outcome: "not_eligible"; reason: string }
+  | { outcome: "switched_off" }
+  | { outcome: "no_key" }
+  | { outcome: "deferred"; reason: "daily_cap" }
+  | { outcome: "already"; status: (typeof VOICE_AGENT_STATUSES)[number] }
+  | { outcome: "ready"; agentId: string; adopted: boolean }
+  | { outcome: "failed"; code: (typeof VOICE_PROVISION_FAILURES)[number]; reason: string }
+  | { outcome: "retry"; reason: string };
+
+/**
+ * One more provisioning run for a clinic's Retell agent and number
+ * (`retryVoiceAgent`), under every guard a scheduled run has: the owner's
+ * switch, the paid invoice, the daily cap. A security event names the
+ * operator. A ready run's number is read and left behind: never shown here.
+ */
+export function retryVoiceAgent(clinicId: string): Promise<OpsResult<RetryVoiceAgentOutcome>> {
+  return callOps("retryVoiceAgent", "write", { clinicId }, (value): RetryVoiceAgentOutcome => {
+    const data = object(value, "retryVoiceAgent");
+    const outcome = literal(
+      data.outcome,
+      ["not_found", "not_eligible", "switched_off", "no_key", "deferred", "already", "ready", "failed", "retry"] as const,
+      "retryVoiceAgent.outcome",
+    );
+    switch (outcome) {
+      case "not_found":
+      case "switched_off":
+      case "no_key":
+        exactKeys(data, ["outcome"], "retryVoiceAgent");
+        return { outcome };
+      case "not_eligible":
+      case "retry":
+        exactKeys(data, ["outcome", "reason"], "retryVoiceAgent");
+        return { outcome, reason: text(data.reason, "retryVoiceAgent.reason") };
+      case "deferred":
+        exactKeys(data, ["outcome", "reason"], "retryVoiceAgent");
+        return { outcome, reason: literal(data.reason, ["daily_cap"] as const, "retryVoiceAgent.reason") };
+      case "already":
+        exactKeys(data, ["outcome", "status"], "retryVoiceAgent");
+        return { outcome, status: literal(data.status, VOICE_AGENT_STATUSES, "retryVoiceAgent.status") };
+      case "ready":
+        // apps/app sends the number it bound too; it is checked for shape
+        // and dropped, so it never reaches a page.
+        exactKeys(data, ["outcome", "agentId", "phoneNumber", "adopted"], "retryVoiceAgent");
+        e164(data.phoneNumber, "retryVoiceAgent.phoneNumber");
+        return {
+          outcome,
+          agentId: retellCallId(data.agentId, "retryVoiceAgent.agentId"),
+          adopted: bool(data.adopted, "retryVoiceAgent.adopted"),
+        };
+      case "failed":
+        exactKeys(data, ["outcome", "code", "reason"], "retryVoiceAgent");
+        return {
+          outcome,
+          code: literal(data.code, VOICE_PROVISION_FAILURES, "retryVoiceAgent.code"),
+          reason: text(data.reason, "retryVoiceAgent.reason"),
+        };
+    }
+  }, 60_000);
+}
+
+export type ClearVoiceDriftFlagOutcome =
+  | { outcome: "not_found" }
+  | { outcome: "not_flagged" }
+  | { outcome: "cleared"; check: "clean" | "repaired" | "skipped" | "failed"; problems: VoiceAgentProblem[] }
+  | { outcome: "still_drifted"; problems: VoiceAgentProblem[] };
+
+/**
+ * `clearVoiceDriftFlag`: the flag cleared and the drift check run once. Call
+ * it only through lib/admin/voice-drift.ts, which checks the operator's fresh
+ * authenticator code first; this sends the clinic id and nothing else.
+ */
+export function clearVoiceDriftFlag(clinicId: string): Promise<OpsResult<ClearVoiceDriftFlagOutcome>> {
+  return callOps("clearVoiceDriftFlag", "write", { clinicId }, (value): ClearVoiceDriftFlagOutcome => {
+    const data = object(value, "clearVoiceDriftFlag");
+    const outcome = literal(
+      data.outcome,
+      ["not_found", "not_flagged", "cleared", "still_drifted"] as const,
+      "clearVoiceDriftFlag.outcome",
+    );
+    if (outcome === "cleared") {
+      exactKeys(data, ["outcome", "check", "problems"], "clearVoiceDriftFlag");
+      return {
+        outcome,
+        check: literal(data.check, ["clean", "repaired", "skipped", "failed"] as const, "clearVoiceDriftFlag.check"),
+        problems: readProblems(data.problems, "clearVoiceDriftFlag.problems"),
+      };
+    }
+    if (outcome === "still_drifted") {
+      exactKeys(data, ["outcome", "problems"], "clearVoiceDriftFlag");
+      return { outcome, problems: readProblems(data.problems, "clearVoiceDriftFlag.problems") };
+    }
+    exactKeys(data, ["outcome"], "clearVoiceDriftFlag");
+    return { outcome };
+  }, 60_000);
+}
+
+/** apps/app's own reason words for a calendar write (lib/booking/calendar.ts, CALENDAR_WRITE_REASONS), or `other`. */
+export const CALENDAR_WRITE_REASON_CODES = [
+  "timeout",
+  "network",
+  "unconfirmed",
+  "threw",
+  "malformed_response",
+  "rate_limited",
+  "target_unverified",
+  "deleted_in_calendar",
+  "event_id_taken",
+  "not_ours",
+  "conflict",
+  "calendar_not_connected",
+  "target_terms",
+  "target_unmanaged_account",
+  "target_account_mismatch",
+  "target_outside_organisation",
+  "target_not_owned",
+  "invalid_grant",
+  "admin_policy_enforced",
+  "scope_lost",
+  "access_denied",
+  "insufficient_permissions",
+  "calendar_not_found",
+  "api_disabled",
+  "oauth_client",
+  "missing_refresh_token",
+  "calendar_id",
+  "missing_key",
+  "bad_start",
+  "bad_duration",
+  "bad_time_zone",
+  "phone_field_refused",
+  "missing_code",
+  "missing_token",
+  "id_token_malformed",
+  "not_calendar_owner",
+  "too_many_calendars",
+  "bad_window",
+  "window_too_long",
+  "calendar_error",
+  "other",
+] as const;
+export type CalendarWriteReasonCode = (typeof CALENDAR_WRITE_REASON_CODES)[number];
+
+export type StuckCalendarWriteView = {
+  clinicId: string;
+  clinicName: string;
+  appointmentId: string;
+  status: "failed" | "unknown";
+  reason: CalendarWriteReasonCode;
+  attempts: number;
+  /** When the sweep tries it next; null when due now or never again on its own. */
+  nextAttemptAt: string | null;
+  /** Whole days until the slot (0: within 24 hours). Never a time. */
+  slotInDays: number;
+  /** Whether the sweep will try it again by itself. */
+  retryable: boolean;
+};
+
+export type StuckCalendarWrites = {
+  writes: StuckCalendarWriteView[];
+  count: number;
+  /** More than the 100 listed were found. */
+  truncated: boolean;
+  /** Clinics apps/app could not read: their writes are missing, never zero. */
+  unreadClinics: number;
+};
+
+const STUCK_WRITE_KEYS = [
+  "clinicId",
+  "clinicName",
+  "appointmentId",
+  "status",
+  "reason",
+  "attempts",
+  "nextAttemptAt",
+  "slotInDays",
+  "retryable",
+] as const;
+
+/** Every desk booking, across clinics, whose calendar write has not settled and whose slot is ahead; newest problem first. */
+export function fetchStuckCalendarWrites(
+  options: { includeDemo?: boolean } = {},
+): Promise<OpsResult<StuckCalendarWrites>> {
+  return callOps(
+    "listStuckCalendarWrites",
+    "read",
+    options.includeDemo ? { includeDemo: true } : {},
+    (value) => {
+      const data = exactKeys(value, ["writes", "count", "truncated", "unreadClinics"], "listStuckCalendarWrites");
+      return {
+        writes: list(data.writes, "listStuckCalendarWrites.writes").map((row, i) => {
+          const at = `listStuckCalendarWrites.writes[${i}]`;
+          const r = exactKeys(row, STUCK_WRITE_KEYS, at);
+          return {
+            clinicId: id(r.clinicId, `${at}.clinicId`),
+            clinicName: text(r.clinicName, `${at}.clinicName`),
+            appointmentId: id(r.appointmentId, `${at}.appointmentId`),
+            status: literal(r.status, ["failed", "unknown"] as const, `${at}.status`),
+            reason: literal(r.reason, CALENDAR_WRITE_REASON_CODES, `${at}.reason`),
+            attempts: count(r.attempts, `${at}.attempts`),
+            nextAttemptAt: optionalIsoInstant(r.nextAttemptAt, `${at}.nextAttemptAt`),
+            slotInDays: count(r.slotInDays, `${at}.slotInDays`),
+            retryable: bool(r.retryable, `${at}.retryable`),
+          };
+        }),
+        count: count(data.count, "listStuckCalendarWrites.count"),
+        truncated: bool(data.truncated, "listStuckCalendarWrites.truncated"),
+        unreadClinics: count(data.unreadClinics, "listStuckCalendarWrites.unreadClinics"),
+      };
+    },
+  );
+}
+
+export type UndeliveredTranscriptClinicView = {
+  clinicId: string;
+  clinicName: string;
+  counts: { overdue: number; bounced: number; expired: number; unconfirmed: number };
+  /** Whole hours since the oldest copy still held was queued; null when none is held. */
+  oldestAgeHours: number | null;
+};
+
+/** Every clinic with a transcript copy over 72 hours undelivered, bounced, expired or unconfirmed. Counts only. */
+export function fetchUndeliveredTranscripts(): Promise<
+  OpsResult<{ clinics: UndeliveredTranscriptClinicView[]; unreadClinics: number }>
+> {
+  return callOps("listUndeliveredTranscripts", "read", {}, (value) => {
+    const data = exactKeys(value, ["clinics", "unreadClinics"], "listUndeliveredTranscripts");
+    return {
+      clinics: list(data.clinics, "listUndeliveredTranscripts.clinics").map((row, i) => {
+        const at = `listUndeliveredTranscripts.clinics[${i}]`;
+        const r = exactKeys(row, ["clinicId", "clinicName", "counts", "oldestAgeHours"], at);
+        const c = exactKeys(r.counts, ["overdue", "bounced", "expired", "unconfirmed"], `${at}.counts`);
+        return {
+          clinicId: id(r.clinicId, `${at}.clinicId`),
+          clinicName: text(r.clinicName, `${at}.clinicName`),
+          counts: {
+            overdue: count(c.overdue, `${at}.counts.overdue`),
+            bounced: count(c.bounced, `${at}.counts.bounced`),
+            expired: count(c.expired, `${at}.counts.expired`),
+            unconfirmed: count(c.unconfirmed, `${at}.counts.unconfirmed`),
+          },
+          oldestAgeHours: r.oldestAgeHours === null ? null : count(r.oldestAgeHours, `${at}.oldestAgeHours`),
+        };
+      }),
+      unreadClinics: count(data.unreadClinics, "listUndeliveredTranscripts.unreadClinics"),
+    };
   });
 }
 

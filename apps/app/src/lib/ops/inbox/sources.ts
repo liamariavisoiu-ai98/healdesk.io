@@ -7,6 +7,7 @@ import { practiceReviewsSource } from "./practice-reviews";
 import { recordingAlertsSource } from "./recording-alerts";
 import { siteReadsSource } from "./site-reads";
 import { supportRepliesSource } from "./support-replies";
+import { transcriptDeliverySource } from "./transcript-delivery";
 import type { InboxSource } from "./types";
 
 /**
@@ -32,4 +33,5 @@ export const INBOX_SOURCES: readonly InboxSource[] = [
   siteReadsSource,
   availabilitySource,
   decisionsSource,
+  transcriptDeliverySource,
 ];

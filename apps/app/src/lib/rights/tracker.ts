@@ -28,8 +28,16 @@ import {
 } from "./clocks";
 import { NO_ROUTE, prepareCommand } from "./commands";
 
-/** What an intake shows once the patient's request it asked to record is on the host: no command, the L32 sweep's clock. */
-export const MATCHED_NOTE = "Recorded on the host: matched by its day and what was asked";
+/**
+ * What an open, unlinked patient-request intake shows beside its command.
+ * Nothing pairs the intake with the request the command records on the host
+ * (a pairing by clinic, kind and day could take another person's request):
+ * the intake keeps its command and its own clock until the owner presses
+ * Mark done, and the request the host records is its own row, chased by the
+ * L32 sweep.
+ */
+export const RUN_THEN_MARK =
+  "Run this on the host, then press Mark done here. The practice's own request is chased separately once it is recorded.";
 
 /**
  * The patient-rights tracker's reads and writes (ops automation lane P6c;
@@ -183,24 +191,6 @@ export function clinicRows(
   const linked = new Set<string>();
   for (const intake of read.intakes) if (intake.linkedRecordId) linked.add(intake.linkedRecordId);
 
-  // A patient's request recorded on the host after its intake was: the same
-  // clinic, what was asked and the day received (the command passes the
-  // intake's day, so the row's received time is that day in UTC). Matched one
-  // to one, the oldest intake first, and only while the intake is open: a
-  // closed one has no command to stop, and must not hide a request the
-  // practice has not marked.
-  const matched = new Map<string, (typeof read.requests)[number]>();
-  for (const intake of read.intakes) {
-    if (intake.kind !== "patient_request" || intake.linkedRecordId || intake.status !== "open") continue;
-    const found = read.requests.find(
-      (r) => !linked.has(r.id) && r.kind === intake.askedFor && utcDay(r.receivedAt) === intake.receivedOn,
-    );
-    if (found) {
-      linked.add(found.id);
-      matched.set(intake.id, found);
-    }
-  }
-
   /** The agreement counts from receipt: the earlier of the intake's day and the record's. */
   const earlier = (a: string, b: string) => (a < b ? a : b);
 
@@ -221,7 +211,7 @@ export function clinicRows(
     const closedOn = intake.closedAt ? utcDay(intake.closedAt) : null;
     const link = intake.linkedRecordId;
     const erasure = link && intake.kind === "erasure" ? erasures.get(link) : undefined;
-    const request = link && intake.kind === "patient_request" ? requests.get(link) : matched.get(intake.id);
+    const request = link && intake.kind === "patient_request" ? requests.get(link) : undefined;
     const amendment = link && intake.kind === "amendment" ? amendments.get(link) : undefined;
     if (erasure) {
       // Done only once the subcontractor step is stamped: closing the intake
@@ -254,7 +244,7 @@ export function clinicRows(
         daysLeft: done ? null : daysLeftFor(today, due),
         state: stateOf(done, false, today, due),
         command: null,
-        commandNote: link ? null : MATCHED_NOTE,
+        commandNote: null,
         retellStep: null,
         backupExpiresOn: null,
         closedOn: request.acknowledgedAt ? utcDay(request.acknowledgedAt) : closedOn,
@@ -297,7 +287,7 @@ export function clinicRows(
       daysLeft: closed ? null : daysLeftFor(today, intake.dueOn),
       state: stateOf(closed, isBlocked, today, intake.dueOn),
       command: prepared?.command ?? null,
-      commandNote: prepared && !prepared.command ? prepared.note : null,
+      commandNote: prepared && !prepared.command ? prepared.note : prepared?.command && intake.kind === "patient_request" ? RUN_THEN_MARK : null,
       retellStep: null,
       backupExpiresOn: null,
       closedOn,

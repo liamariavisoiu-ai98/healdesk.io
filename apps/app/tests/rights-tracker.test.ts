@@ -15,7 +15,7 @@ import {
   RIGHTS_KINDS,
 } from "@/lib/rights/clocks";
 import { NO_OPERATOR, NO_ROUTE, NO_ROUTE_AMENDMENT, NO_ROUTE_CORRECTION, prepareCommand, RUN_TASK } from "@/lib/rights/commands";
-import { listRights, MATCHED_NOTE, RETELL_OUTSTANDING, type RightsRow } from "@/lib/rights/tracker";
+import { listRights, RETELL_OUTSTANDING, RUN_THEN_MARK, type RightsRow } from "@/lib/rights/tracker";
 import { JOB_RIGHTS_WATCH, rightsAlertsFor, runRightsWatchJob, watchRights } from "@/lib/scheduler/rights-watch";
 import { getJob } from "@/lib/scheduler/jobs";
 import { runTick } from "@/lib/scheduler/tick";
@@ -638,27 +638,43 @@ describeDb("the rights tracker, against the database", () => {
     expect(open.rows).toMatchObject([{ id: intake.id, recordId: passedOn, state: "due_soon" }]);
   });
 
-  test("an intake recorded on the host afterwards is matched by day and kind: no command, no second row, no alert", async () => {
-    const c = await seedClinic("rights-match");
-    const intake = data<{ id: string }>(
+  test("nothing pairs an intake with a request the host recorded: two intakes, one request, each its own row and clock", async () => {
+    const c = await seedClinic("rights-nomatch");
+    const one = data<{ id: string }>(
       await record({ clinicId: c.clinicId, kind: "patient_request", askedFor: "deletion", receivedOn: "2026-10-12", verifiedVia: "unverified" }),
     );
-    const now = new Date("2026-10-13T08:00:00Z");
-    const before = await listRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now, clinics: [{ id: c.clinicId, name: "M" }] });
-    expect(before.rows).toMatchObject([{ id: intake.id, recordId: null, command: expect.stringContaining("patient-request") }]);
-    // Another kind the same day is not it.
-    const otherKind = await seedPatientRequest(c.clinicId, "2026-10-12T00:00:00Z", "2026-10-19", false, "access");
-    // The owner ran the command: the task records the request at the intake's day.
+    const two = data<{ id: string }>(
+      await record({ clinicId: c.clinicId, kind: "patient_request", askedFor: "deletion", receivedOn: "2026-10-12", verifiedVia: "unverified" }),
+    );
+    // The owner ran one command: the host records one request, the same kind and day.
     const onHost = await seedPatientRequest(c.clinicId, "2026-10-12T00:00:00Z", "2026-10-19");
-    const after = await listRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now, clinics: [{ id: c.clinicId, name: "M" }] });
-    expect(after.rows.find((r) => r.id === intake.id)).toMatchObject({ recordId: onHost, command: null, commandNote: MATCHED_NOTE, dueOn: "2026-10-19" });
-    expect(after.rows.filter((r) => r.recordId === onHost)).toHaveLength(1);
-    expect(after.rows.find((r) => r.recordId === otherKind)).toMatchObject({ source: "patient_request" });
-    // Past its day, the L32 sweep has it: the tracker raises nothing for it.
-    await watchRights(new Date("2026-10-21T08:00:00Z"));
-    for (const event of ["rights_request_blocked", "rights_request_due_soon", "rights_request_overdue"]) {
-      expect((await alertsOf(event, c.clinicId)).some((f) => f.requestId === intake.id), event).toBe(false);
+    const listAt = async (iso: string) =>
+      (await listRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now: new Date(iso), clinics: [{ id: c.clinicId, name: "M" }] })).rows;
+    const rows = await listAt("2026-10-13T08:00:00Z");
+    expect(rows).toHaveLength(3);
+    for (const id of [one.id, two.id]) {
+      expect(rows.find((r) => r.id === id)).toMatchObject({
+        source: "intake",
+        recordId: null,
+        dueOn: "2026-10-19",
+        command: expect.stringContaining("patient-request"),
+        commandNote: RUN_THEN_MARK,
+      });
     }
+    expect(rows.find((r) => r.id === onHost)).toMatchObject({ source: "patient_request", state: "on_time" });
+    // Closing one intake changes nothing for the other, nor for the host's request.
+    await runOperation("closeRightsIntake", { clinicId: c.clinicId, id: one.id, status: "done" }, OPERATOR);
+    const after = await listAt("2026-10-13T08:00:00Z");
+    expect(after.map((r) => r.id).sort()).toEqual([two.id, onHost].sort());
+    expect(after.find((r) => r.id === two.id)).toMatchObject({ commandNote: RUN_THEN_MARK, state: "on_time" });
+    // Past its day the open intake is alerted as overdue by the watch, the request left to the L32 sweep.
+    await watchRights(new Date("2026-10-21T08:00:00Z"));
+    expect(await alertsOf("rights_request_overdue", c.clinicId)).toEqual([{ clinicId: c.clinicId, requestId: two.id }]);
+    // A purged host request revives nothing: the closed intake stays closed, the open one unchanged.
+    await inTenant(c.clinicId, (q) => q.query(`delete from patient_requests where id = $1`, [onHost]));
+    const purged = await listAt("2026-10-13T08:00:00Z");
+    expect(purged.map((r) => r.id)).toEqual([two.id]);
+    expect(purged[0]).toMatchObject({ commandNote: RUN_THEN_MARK, state: "on_time", dueOn: "2026-10-19" });
   });
 
   test("a linked row is due on the earlier of the intake's day and the record's", async () => {

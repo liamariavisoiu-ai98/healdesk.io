@@ -6,6 +6,8 @@ import type { AlertWording } from "./types";
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // lib/clinic/change-events.ts, from the minute sweep, once per clinic and
   // kind an hour.
+  // Today's true steps use the Touch log. Lane A3 is adding the Availability
+  // changes card's own controls; lane N2 swaps them in once they exist.
   clinic_availability_changed: {
     title: "A clinic changed when or with whom AYA books",
     whatHappened:

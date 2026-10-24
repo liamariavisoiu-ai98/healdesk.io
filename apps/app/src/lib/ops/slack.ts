@@ -1,13 +1,13 @@
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { opsFieldLabel } from "@/lib/email/templates/ops_alert";
 import { LIFECYCLE_ESCALATIONS } from "@/lib/lifecycle/waves";
 import { describeError, log } from "@/lib/log";
 
 import { alertWording } from "./alert-wording";
-import { allowedAlertFields, DAY_KEYS, wordingValues } from "./alert-wording/allow-list";
-import { fillWording, formatDay, numberedSteps } from "./alert-wording/render";
+import { allowedAlertFields, wordingValues } from "./alert-wording/allow-list";
+import { sharedFacts } from "./alert-wording/facts";
+import { fillWording, numberedSteps } from "./alert-wording/render";
 import { opsClinicName, opsConsoleLink, type OpsEvent } from "./notify";
 
 /**
@@ -65,6 +65,15 @@ function escapeSlack(text: string): string {
 }
 
 /**
+ * A clinic's or a business's name as Slack may print it: mrkdwn has no
+ * escape for its formatting characters, so `*`, `_`, `~` and backticks in a
+ * name become spaces rather than bold, italic, struck or code text.
+ */
+export function slackName(name: string): string {
+  return name.replace(/[*_~`]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
  * The fields Slack may carry, and nothing else (lib/ops/alert-wording/allow-list.ts).
  * Exported for the test that holds it to that.
  */
@@ -80,27 +89,23 @@ export const SLACK_SECTION_MAX = 3000;
  */
 function slackParts(alert: SlackAlert): { head: string[]; steps: string[]; tail: string[] } {
   const fields = slackFields(alert.fields);
-  const wording = fillWording(
-    alertWording(alert.event, alert.fields),
-    wordingValues(alert.fields, alert.clinicName),
-  );
+  const clinicName = alert.clinicName ? slackName(alert.clinicName) || null : null;
+  const business = typeof fields.business === "string" ? slackName(fields.business) : null;
+  const named = { ...alert.fields, ...(business !== null ? { business } : {}) };
+  const raw = alertWording(alert.event, alert.fields);
+  const wording = fillWording(raw, wordingValues(named, clinicName));
   let title = `${SLACK_TAG} *${escapeSlack(wording.title)}*`;
   // A lifecycle escalation opens with a siren (design E2): the one a person must act on.
   if (LIFECYCLE_ESCALATIONS.has(alert.event)) title = `:rotating_light: ${title}`;
   const head = [title, escapeSlack(wording.whatHappened)];
   if (fields.clinicId) {
-    const name = alert.clinicName ? `${escapeSlack(alert.clinicName)}, ` : "";
+    const name = clinicName ? `${escapeSlack(clinicName)}, ` : "";
     head.push(`${name}clinic id \`${fields.clinicId}\``);
-  } else if (typeof fields.business === "string") {
-    head.push(`Business: ${escapeSlack(fields.business)}`);
+  } else if (business) {
+    head.push(`Business: ${escapeSlack(business)}`);
   }
-  const facts = Object.entries(fields)
-    .filter(([key]) => key !== "clinicId" && key !== "business")
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => {
-      const shown = DAY_KEYS.has(key) && typeof value === "string" ? formatDay(value) : value;
-      return `${escapeSlack(opsFieldLabel(key))}: ${shown}`;
-    });
+  // The same facts the email prints (lib/ops/alert-wording/facts.ts).
+  const facts = sharedFacts(alert.fields, raw).map(([label, value]) => `${escapeSlack(label)}: ${escapeSlack(slackName(value))}`);
   if (facts.length > 0) head.push(facts.join(" · "));
   if (wording.whyItMatters) head.push(`*Why it matters:* ${escapeSlack(wording.whyItMatters)}`);
   const steps = numberedSteps(wording.steps).map(escapeSlack);

@@ -228,29 +228,46 @@ export function pastReply(requests: readonly SetupRequest[], now: Date = new Dat
   );
 }
 
-/** The most of a requester's business name the ops alert prints. */
-export const MAX_ALERT_BUSINESS_NAME = 80;
+// <business-name-rule>
+// Identical in apps/app lib/ops/alert-wording/allow-list.ts and apps/web
+// lib/setup-requests.ts; apps/app's tests/alert-wording.test.ts fails when the
+// two copies differ. Change both in one commit.
+/** The most of a requester's business name an ops alert prints. */
+export const MAX_BUSINESS_NAME = 80;
 
 /**
- * A requester's business name as the past-due ops alert may print it, or
- * null (owner, 23 October 2026, lane N1): typed by a prospect, so at most 80
- * characters (cut at a word) and nothing that looks like an address, a link
- * or a number someone could call. Never the person's name, email or phone.
- * apps/app applies the same rule again (lib/ops/alert-wording/allow-list.ts
- * printableBusinessName) before anything is sent.
+ * A setup requester's business name as an ops alert may print it, or null
+ * (owner, 23 October 2026; lane N1 and its review). Typed by a prospect, so
+ * it is refused, and the alert goes without it, when it could reach anyone
+ * or trip the email link scanner: seven or more digits in all, in any script
+ * (a phone number however spaced); an address, spelled out or not; a link or
+ * a bare domain; a slash, backslash, `=`, quote, bracket or angle bracket;
+ * `href`, `src` or `url`; a control or invisible formatting character.
+ * Otherwise it is cut to 80 characters at a word.
  */
-export function alertBusinessName(value: unknown): string | null {
+export function cleanBusinessName(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  let name = value.replace(/\s+/g, " ").trim();
+  let name = value.replace(/\s+/gu, " ").trim();
   if (!name) return null;
-  if (/@|:\/\/|\bwww\.|\.(?:com|net|org|io|co|us|ca|uk|health|clinic|biz|info)\b|\d{7,}/i.test(name)) return null;
-  if (/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(name)) return null;
-  if (name.length > MAX_ALERT_BUSINESS_NAME) {
-    const cut = name.slice(0, MAX_ALERT_BUSINESS_NAME + 1);
+  if ((name.match(/\p{Nd}/gu) ?? []).length >= 7) return null;
+  if (/[\p{Cc}\p{Cf}]/u.test(name)) return null;
+  if (/[@/\\=()[\]{}<>"“”`]/u.test(name)) return null;
+  if (/\b(?:href|src|url)\b/i.test(name)) return null;
+  if (/\w\.\s*[a-z]{2,}/u.test(name)) return null;
+  if (/\.\s*(?:com|net|org|io|co|us|ca|uk|ly|me|app|health|clinic|dental|spa|biz|info)\b/i.test(name)) return null;
+  if (/\bat\b.*\bdot\b|\bdot\s+(?:com|net|org|io|co|us|ca|uk)\b/i.test(name)) return null;
+  if (name.length > MAX_BUSINESS_NAME) {
+    const cut = name.slice(0, MAX_BUSINESS_NAME + 1);
     const space = cut.lastIndexOf(" ");
-    name = (space > 20 ? cut.slice(0, space) : cut.slice(0, MAX_ALERT_BUSINESS_NAME)).trim();
+    name = (space > 20 ? cut.slice(0, space) : cut.slice(0, MAX_BUSINESS_NAME)).trim();
   }
   return name || null;
+}
+// </business-name-rule>
+
+/** The business name the past-due alert sends (cleanBusinessName; apps/app checks it again). */
+export function alertBusinessName(value: unknown): string | null {
+  return cleanBusinessName(value);
 }
 
 /** What the past-due alert carries for one request: its id, the business name when safe, and the promised day. */

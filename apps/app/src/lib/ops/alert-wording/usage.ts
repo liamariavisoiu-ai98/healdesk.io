@@ -13,13 +13,13 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   usage_near_cap: {
     title: "A clinic is close to its monthly allowance",
     whatHappened:
-      "{clinicName} has used {percent} of the {meter} its plan includes this month[: {used} of {included}][, counted since {windowStart}].",
+      "{clinicName} has used {percent} of the {meter} its plan includes for this billing period[: {used} of {included}][, counted since {windowStart}].",
     whyItMatters:
       "When the allowance runs out, the clinic either pays for extra blocks of 100 or AYA stops answering and sends people to the clinic itself. The clinic chose which. Moving up one step always costs it less than an extra block.",
     steps: [
-      "Open the clinic's Billing tab and read Usage and the allowance to see when this month's window ends.",
+      "Open the clinic's Billing tab and read Usage and the allowance to see when this billing period ends.",
       "Check the At the allowance setting on the same tab, so you know what happens at the limit. Leave it as the clinic set it.",
-      "Phone the clinic on its published number, shown under Phone line on its Setup tab, if it will likely run out before the window ends. Offer to move it up one step.",
+      "Phone the clinic on its published number, shown under Phone line on its Setup tab, if it will likely run out before the period ends. Offer to move it up one step.",
       "Press Record in the Touch log on the clinic's Care tab to note the call. You are done when the clinic has chosen to move up or to stay as it is.",
     ],
   },

@@ -58,12 +58,12 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   calendar_write_stuck: {
     title: "A booking is missing from a clinic's Google Calendar",
     whatHappened:
-      "A confirmed booking at {clinicName} is not in the clinic's Google Calendar.[ We tried {attemptCount:time}.] The clinic's staff were already told to add it by hand.",
+      "A confirmed booking at {clinicName} is not in the clinic's Google Calendar.[ We tried {attemptCount:time}.] The clinic's staff were already told in their portal to add it by hand.",
     whyItMatters:
       "Until the booking is in the calendar, its slot looks free and someone else could be booked into it. Nothing will try again on its own.",
     steps: [
       "Open the clinic's Setup tab and find the booking under Calendar writes needing attention. Google's reason is shown beside it.",
-      "Press Retry beside the booking if the reason is timeout, network or unconfirmed.",
+      "Press Retry beside the booking if a Retry button shows there and the reason is timeout, network or unconfirmed. If no Retry button shows, the write never finished: phone the clinic, using the number under Phone line, and check its staff added the booking by hand.",
       "Do not press Retry if the reason says an event id is taken. Phone the clinic on its published number, shown under Phone line on its Setup tab, and ask them to look for a duplicate in their calendar.",
       "Press Send calendar link on the Setup tab if the reason mentions the target calendar or a calendar that is not connected. The clinic reconnects from that link.",
       "Check under Calendar writes needing attention that the booking now shows as written. If the reason says the clinic deleted it in its own calendar, there is nothing to do and you are done.",

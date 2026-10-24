@@ -14,17 +14,21 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     "A clinic's setup window closes soon",
     "The clinic below has the days shown left in its setup window and is close to done. No decision is owed yet: watch it, and extend its deadline from the Billing page only if it asks or stops moving.",
   ),
+  // Today's true steps use the Touch log. Lane A3 is adding the Setup
+  // window card's own controls; lane N2 swaps them in once they exist.
   lifecycle_decision_due: {
     title: "A stalled setup closes soon: decide what to offer",
     whatHappened:
-      "{clinicName} has {remainingDays:day} left to finish setting up AYA, with {stepsLeftCount:step} still to do.[ It has made no progress for {noProgressDays:day}.][ Our rules suggest you {recommendation}.]",
+      "{clinicName} has {remainingDays:day} left to finish setting up AYA, with {stepsLeftCount:step} still to do.[ It has made no progress for {noProgressDays:day}.]",
     whyItMatters:
-      "If nothing is live when the window ends, the account closes and the setup fee is not refunded. A phone call now is the best chance to save it.",
+      "If nothing is live when the window ends, the account closes and the setup fee is not refunded.[?recommendation=extend: Our rules suggest giving it more time.][?recommendation=offer_call: Our rules suggest offering a short call.][?recommendation=phone_the_clinic: Our rules suggest phoning the clinic first.][?recommendation=wait: Our rules suggest waiting a few more days.][?recommendation=let_close: Our rules suggest letting it close.]",
     steps: [
       "Open the clinic's Setup tab to see which steps are left.",
-      "Phone the clinic on its published number, shown under Phone line on the same tab. Offer a five-minute call to finish the steps together.",
-      "Press Extend the setup window on the clinic's Billing tab if the clinic needs more time[, by {extendDays:day} unless you agreed otherwise].",
-      "Press Record in the Touch log on the clinic's Care tab to note what you agreed. You are done when the window is extended, a call is booked, or the clinic says to let it close.",
+      "Phone the clinic on its published number, shown under Phone line on the same tab, and ask how it wants to go on.[?recommendation=extend|offer_call|phone_the_clinic|wait: Offer a five-minute call to finish the steps together.][?recommendation=let_close: Confirm it is happy for the setup to close.]",
+      "[?recommendation=extend: Press Extend the setup window on the clinic's Billing tab if the clinic needs more time. Use the days suggested below unless you agreed otherwise.]",
+      "[?recommendation=offer_call|phone_the_clinic|wait: Press Extend the setup window on the clinic's Billing tab only if the clinic asks for more time.]",
+      "[?recommendation=let_close: Leave the setup window as it is on the clinic's Billing tab, so the setup closes when it ends.]",
+      "Press Record in the Touch log on the clinic's Care tab to note what you decided. You are done when the window is extended, a call is booked, or the clinic agrees to let it close.",
     ],
   },
   lifecycle_closing_waiting_on_us: legacy(

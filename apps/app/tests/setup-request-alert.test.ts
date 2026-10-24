@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { parseEnvelope, runOperation } from "@/lib/ops/api";
-import { runOpsSlackSweep } from "@/lib/ops/slack";
+import { postToSlack, slackPayload } from "@/lib/ops/slack";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 
@@ -117,8 +117,6 @@ describeDb("setupRepliesPastDue with the business name", () => {
   });
 
   test("Slack prints the business and the day, every step, and the page that owns it", async () => {
-    // Only this alert is owed to Slack: the earlier tests' alerts are in the same log.
-    await getMigratorPool().query("delete from ops_alerts");
     const id = randomUUID();
     await op("setupRepliesPastDue", {
       requestIds: [id],
@@ -129,8 +127,11 @@ describeDb("setupRepliesPastDue with the business name", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("SLACK_WEBHOOK_URL", WEBHOOK);
     vi.stubEnv("HEALDESK_CONSOLE_ORIGIN", "https://healdesk.test");
-    const result = await runOpsSlackSweep(new Date());
-    expect(result.note).toMatch(/1 posted/);
+    // The sweep's own message from the stored row, posted as the sweep posts
+    // it. Not the sweep itself: it would post, and mark, other files' alerts
+    // in the shared test database.
+    const message = slackPayload({ event: "setup_request_reply_past_due", fields: row!.fields as never, clinicName: null, alertId: row!.id });
+    expect(await postToSlack(WEBHOOK, message)).toEqual({ ok: true });
     const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body)) as {
       text: string;
       blocks: { type: string; text: { text: string } }[];

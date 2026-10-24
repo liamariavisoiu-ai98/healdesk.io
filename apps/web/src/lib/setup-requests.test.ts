@@ -93,15 +93,60 @@ describe("setup requests past the reply day P2 promised", () => {
 // requester's business, never the person, and never a name that could reach
 // someone. apps/app holds it to the same rule again before sending it.
 describe("the past-due alert's facts", () => {
-  test("the business name is kept when it is a name, cut at 80 characters, and refused when it could reach someone", () => {
-    expect(alertBusinessName("  Glow   Med Spa ")).toBe("Glow Med Spa");
+  // The same cases as apps/app's tests/alert-wording.test.ts, which also
+  // checks the two copies of the rule are identical.
+  test("the business name is kept when it is a name, and cut at 80 characters at a word", () => {
+    for (const [given, kept] of [
+      ["  Glow   Med Spa ", "Glow Med Spa"],
+      ["Dr. Smith's Aesthetics & Laser", "Dr. Smith's Aesthetics & Laser"],
+      ["Clinique Étoile 24", "Clinique Étoile 24"],
+      ["Spa at the Lake", "Spa at the Lake"],
+    ]) {
+      expect(alertBusinessName(given), given).toBe(kept);
+    }
     const long = "The Very Long Name Aesthetic and Wellness Clinic of the Greater Riverside Valley Area North";
     const cut = alertBusinessName(long)!;
     expect(cut.length).toBeLessThanOrEqual(80);
     expect(long.startsWith(cut)).toBe(true);
-    for (const bad of ["owner@glow.test", "https://glow.test", "www.glowspa", "glowspa.com", "Call 5551234567", "", null, 7]) {
-      expect(alertBusinessName(bad), String(bad)).toBeNull();
-    }
+  });
+
+  test.each(
+    [
+      "owner@glow.test",
+      "https://glow.test",
+      "www.glowspa",
+      "glowspa.com",
+      "glow.dental",
+      "bit.ly/glow",
+      "glow . com",
+      "GLOW.COM",
+      "Call 5551234567",
+      "Call 555 123 4567",
+      "(555) 123-4567",
+      "+1 555 1234",
+      "Spa ٥٥٥١٢٣٤",
+      "Spa ５５５１２３４",
+      "jane at gmail dot com",
+      "jane(at)gmail(dot)com",
+      "Glow\u200bSpa",
+      "Glow\u2066Spa",
+      "Glow=Spa",
+      'Glow "Spa"',
+      "Glow \u201cSpa\u201d",
+      "Glow (Spa)",
+      "Glow href Spa",
+      "Glow src",
+      "url Glow",
+      "Glow\\Spa",
+      "Glow <b>",
+      "Glow `Spa`",
+      "",
+      "   ",
+      42,
+      null,
+    ].map((v) => [v]),
+  )("the business name is refused when it could reach someone or trip the link scanner: %j", (bad) => {
+    expect(alertBusinessName(bad)).toBeNull();
   });
 
   test("each request carries its id, its business name and the day we promised to reply by", async () => {

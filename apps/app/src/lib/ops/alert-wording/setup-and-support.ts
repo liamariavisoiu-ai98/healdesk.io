@@ -12,9 +12,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "The clinic is waiting on a promise we made in writing. Every extra day without an answer makes it less likely to buy.",
     steps: [
       "Open the Setup requests list on the Queues page and find the request[ from {business}].",
-      "Press Send setup link if the clinic is a fit for AYA. The clinic gets the link by email straight away.",
+      "Press Send setup link if the clinic is a fit for AYA, and the clinic is emailed the link. If the button is greyed out, setup links are not open yet: write to the clinic from hello@ instead.",
       "Press Decline if it is not a fit. Decline sends no email, so write to the clinic yourself from hello@ the same day.",
-      "Check the request on the Queues page again. You are done when it shows Link sent or Declined.",
+      "Check the request on the Queues page again. If the page says the email didn't send, check Resend, then send a new link. You are done when it shows Link sent, Declined, or you have written from hello@.",
     ],
   },
   // Raised by the ops watch once per purchase: B3's day has passed in New

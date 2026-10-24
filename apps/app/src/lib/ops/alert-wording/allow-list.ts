@@ -46,32 +46,47 @@ const LIFECYCLE_WORDS: Readonly<Record<string, ReadonlySet<string>>> = {
 export const DAY_KEYS: ReadonlySet<string> = new Set(["promisedOn", "windowStart"]);
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
 
-/** The most of a requester's business name an alert prints. */
+// <business-name-rule>
+// Identical in apps/app lib/ops/alert-wording/allow-list.ts and apps/web
+// lib/setup-requests.ts; apps/app's tests/alert-wording.test.ts fails when the
+// two copies differ. Change both in one commit.
+/** The most of a requester's business name an ops alert prints. */
 export const MAX_BUSINESS_NAME = 80;
 
 /**
- * A setup requester's business name as an ops alert may print it, or null.
- * Typed by a prospect on the marketing site, so held to more than a clinic's
- * name: at most 80 characters (longer is cut at a word), and nothing that
- * looks like an address, a link or a number someone could call. A name that
- * fails is left out and the alert goes without it (owner, 23 October 2026).
- * apps/web applies the same rule before sending it (lib/setup-requests.ts).
+ * A setup requester's business name as an ops alert may print it, or null
+ * (owner, 23 October 2026; lane N1 and its review). Typed by a prospect, so
+ * it is refused, and the alert goes without it, when it could reach anyone
+ * or trip the email link scanner: seven or more digits in all, in any script
+ * (a phone number however spaced); an address, spelled out or not; a link or
+ * a bare domain; a slash, backslash, `=`, quote, bracket or angle bracket;
+ * `href`, `src` or `url`; a control or invisible formatting character.
+ * Otherwise it is cut to 80 characters at a word.
  */
-export function printableBusinessName(value: unknown): string | null {
+export function cleanBusinessName(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  let name = value.replace(/\s+/g, " ").trim();
+  let name = value.replace(/\s+/gu, " ").trim();
   if (!name) return null;
-  if (/@|:\/\/|\bwww\.|\.(?:com|net|org|io|co|us|ca|uk|health|clinic|biz|info)\b|\d{7,}/i.test(name)) {
-    return null;
-  }
+  if ((name.match(/\p{Nd}/gu) ?? []).length >= 7) return null;
+  if (/[\p{Cc}\p{Cf}]/u.test(name)) return null;
+  if (/[@/\\=()[\]{}<>"“”`]/u.test(name)) return null;
+  if (/\b(?:href|src|url)\b/i.test(name)) return null;
+  if (/\w\.\s*[a-z]{2,}/u.test(name)) return null;
+  if (/\.\s*(?:com|net|org|io|co|us|ca|uk|ly|me|app|health|clinic|dental|spa|biz|info)\b/i.test(name)) return null;
+  if (/\bat\b.*\bdot\b|\bdot\s+(?:com|net|org|io|co|us|ca|uk)\b/i.test(name)) return null;
   if (name.length > MAX_BUSINESS_NAME) {
     const cut = name.slice(0, MAX_BUSINESS_NAME + 1);
     const space = cut.lastIndexOf(" ");
     name = (space > 20 ? cut.slice(0, space) : cut.slice(0, MAX_BUSINESS_NAME)).trim();
   }
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f‪-‮⁦-⁩]/.test(name)) return null;
-  return isAllowedClinicName(name) ? name : null;
+  return name || null;
+}
+// </business-name-rule>
+
+/** cleanBusinessName, then the clinic-name rule every ops alert's names are held to. */
+export function printableBusinessName(value: unknown): string | null {
+  const name = cleanBusinessName(value);
+  return name && isAllowedClinicName(name) ? name : null;
 }
 
 function isDay(value: unknown): value is string {

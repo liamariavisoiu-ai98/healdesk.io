@@ -138,10 +138,16 @@ describeDb("notifyOps", () => {
     const body = `${String(payload.text)}\n${String(payload.html)}`;
     expect(body).toContain("opsname Clinic");
     expect(body).toContain(clinic.clinicId);
-    expect(body).toContain("1001");
+    // Counts print as a reader reads them (lane N1 review): 1,001.
+    expect(body).toContain("1,001");
     // And its console page (decision D3), the email's one link: the clinic's
     // Billing tab with this alert's anchor (lane N1's issue shape).
-    const [{ id: alertId }] = (await getMigratorPool().query<{ id: string }>(`select id from ops_alerts`)).rows as [
+    const [{ id: alertId }] = (
+      await getMigratorPool().query<{ id: string }>(
+        `select id from ops_alerts where event = 'usage_cap_reached' and fields->>'clinicId' = $1`,
+        [clinic.clinicId],
+      )
+    ).rows as [
       { id: string },
     ];
     expect(body).toContain(`https://healdesk.test/admin/clinics/${clinic.clinicId}/billing#usage_cap_reached-${alertId}`);

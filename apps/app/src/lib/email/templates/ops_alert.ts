@@ -1,6 +1,7 @@
 import { alertWording, type AlertWording } from "@/lib/ops/alert-wording";
 import { wordingValues } from "@/lib/ops/alert-wording/allow-list";
-import { fillWording, numberedSteps } from "@/lib/ops/alert-wording/render";
+import { emailFacts, opsFieldLabel } from "@/lib/ops/alert-wording/facts";
+import { fillWording, formatDay, numberedSteps } from "@/lib/ops/alert-wording/render";
 import type { OpsEvent } from "@/lib/ops/notify";
 
 import { compose, type Block } from "./compose";
@@ -35,67 +36,6 @@ export type OpsAlertPayload = {
   [field: string]: string | number | boolean | null;
 };
 
-/** The labels a field prints under. Anything else prints under its own key. */
-const LABELS: Record<string, string> = {
-  clinicName: "Clinic",
-  clinicId: "Clinic id",
-  noticeId: "Notice id",
-  appointmentId: "Appointment id",
-  attemptCount: "Write attempts",
-  deliveryId: "Delivery id",
-  organizationId: "Organisation id",
-  agreementId: "Agreement id",
-  eventId: "Event id",
-  requestId: "Request id",
-  // A setup request (setup_request_reply_past_due): the requester's business
-  // name, as the prospect typed it and checked by printableBusinessName, and
-  // the day our reply was promised by.
-  business: "Business",
-  promisedOn: "Reply promised by",
-  source: "Source",
-  jobId: "Job id",
-  connectionId: "Connection id",
-  code: "Code",
-  kind: "Email kind",
-  status: "Status",
-  attempts: "Attempts",
-  count: "Count",
-  windowStart: "Day",
-  destroyAt: "Destruction due (UTC)",
-  expiresOn: "Expires (UTC)",
-  phase: "Phase",
-  serviceEndedAt: "Service ended (UTC)",
-  lateDays: "Days late",
-  conversationId: "Conversation id",
-  channel: "Channel",
-  locationCount: "Locations active",
-  billedCount: "Locations billed in Stripe",
-  meter: "Meter",
-  used: "Used",
-  included: "Included",
-  // clinic_availability_changed (lib/clinic/change-events.ts).
-  section: "What changed",
-  written: "Closed days added",
-  deleted: "Closed days taken off",
-  // The lifecycle watch (lib/lifecycle/waves.ts) and the digest's Slack line.
-  setupDays: "Day of setup",
-  remainingDays: "Days left",
-  stepsLeftCount: "Steps left",
-  noProgressDays: "Days without progress",
-  waitedHours: "Hours waiting on us",
-  waitedDays: "Days waiting",
-  extendDays: "Extend by (days)",
-  channelsWaitingCount: "Channels waiting on the clinic",
-  reminderCount: "Reminders delivered",
-  decision: "Decision",
-  recommendation: "Recommended",
-  decisionsOwedCount: "Decisions owed",
-  waitingOnUsCount: "Waiting on us",
-  nearCapCount: "Near allowance",
-  atCapCount: "At allowance",
-  slackUnpostedCount: "Alerts Slack could not take",
-};
-
 function wordingFor(payload: OpsAlertPayload): AlertWording {
   return alertWording(payload.event, payload);
 }
@@ -105,25 +45,23 @@ export function opsAlertTitle(payload: OpsAlertPayload): string {
   return wordingFor(payload).title;
 }
 
-/** The label a field prints under, in the email and the Slack copy alike. */
-export function opsFieldLabel(key: string): string {
-  return LABELS[key] ?? key;
-}
+/** The label a field prints under, in the email and the Slack copy alike (lib/ops/alert-wording/facts.ts). */
+export { opsFieldLabel };
 
 export const renderOpsAlert: EmailTemplate<OpsAlertPayload> = (payload, ctx) => {
   const clinicName = typeof payload.clinicName === "string" ? payload.clinicName : null;
   const wording = fillWording(wordingFor(payload), wordingValues(payload, clinicName));
   const consoleUrl = typeof payload.consoleUrl === "string" ? payload.consoleUrl : null;
-  const facts = Object.entries(payload)
-    .filter(([key, value]) => key !== "event" && key !== "consoleUrl" && value !== null && value !== undefined)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => [LABELS[key] ?? key, String(value)] as const);
+  // The facts the Slack copy prints, plus who the alert is about; a legacy
+  // wording's text points at ids and codes "below", so it keeps them too.
+  const facts = emailFacts(payload.event, payload, wordingFor(payload), clinicName);
 
   const blocks: Block[] = [
     { type: "paragraph", text: wording.whatHappened },
     {
       type: "facts",
-      rows: [...facts, ["Raised", `${ctx.raisedAt.toISOString().replace("T", " ").slice(0, 16)} UTC`]],
+      // Days only, never a time (lane N1 review).
+      rows: [...facts, ["Raised", formatDay(ctx.raisedAt.toISOString())]],
     },
     ...(wording.whyItMatters ? [{ type: "paragraph" as const, text: `Why it matters: ${wording.whyItMatters}` }] : []),
     ...(wording.steps.length > 0

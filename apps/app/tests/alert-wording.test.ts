@@ -7,9 +7,16 @@ import { subjectProblems } from "@/lib/email/lint";
 import { OPS_REASON } from "@/lib/email/templates/context";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { ALERT_WORDING, alertWording, LEGACY_WORDING, SECTIONS } from "@/lib/ops/alert-wording";
-import { isPlaceholderAllowed, printableBusinessName, wordingValues } from "@/lib/ops/alert-wording/allow-list";
+import {
+  cleanBusinessName,
+  isPlaceholderAllowed,
+  printableBusinessName,
+  wordingValues,
+} from "@/lib/ops/alert-wording/allow-list";
+import { emailFacts, sharedFacts } from "@/lib/ops/alert-wording/facts";
 import { EVENT_FIELDS } from "@/lib/ops/alert-wording/fields";
 import {
+  clauseText,
   FALLBACKS,
   fill,
   fillWording,
@@ -18,9 +25,11 @@ import {
   plural,
   requiredPlaceholdersOf,
 } from "@/lib/ops/alert-wording/render";
+import { changeAlertFields } from "@/lib/clinic/change-events";
+import { dueWaves, type WaveFacts } from "@/lib/lifecycle/waves";
 import { ACCOUNT, BILLING, DELIVERIES, issueTabFor, NO_CLINIC_PAGE, SETUP } from "@/lib/ops/alert-wording/tabs";
 import { OPS_EVENTS, opsConsoleLink, opsConsolePath, type OpsEvent } from "@/lib/ops/notify";
-import { packSections, SLACK_SECTION_MAX, slackPayload, slackText } from "@/lib/ops/slack";
+import { packSections, SLACK_SECTION_MAX, slackName, slackPayload, slackText } from "@/lib/ops/slack";
 
 /**
  * Plain-English ops alerts (lane N1; owner, 23 October 2026): every alert
@@ -109,32 +118,54 @@ const VERBS = new Set(
 
 /**
  * The places a step may send an operator, each with the apps/web file and
- * text that prove it exists today. A new place goes here with its proof.
+ * text that prove it exists today, and whether it is a page or card (where
+ * to go) or a button (what to press there). A new place goes here with its
+ * proof.
  */
-const PLACES: Readonly<Record<string, readonly [file: string, proof: string]>> = {
-  "Setup tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'setup: "Setup"'],
-  "Billing tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'billing: "Billing"'],
-  "Deliveries tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'deliveries: "Deliveries"'],
-  "Care tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'care: "Care"'],
-  "Account tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'account: "Account"'],
-  "Queues page": ["app/admin/queues/page.tsx", 'title: "Queues"'],
-  "Setup requests": ["app/admin/queues/SetupRequestsSection.tsx", 'title="Setup requests"'],
-  "Send setup link": ["app/admin/queues/SetupRequestsSection.tsx", '"Send setup link"'],
-  Decline: ["app/admin/queues/SetupRequestsSection.tsx", "Decline"],
-  "Link sent": ["app/admin/queues/SetupRequestsSection.tsx", "`Link sent "],
+type Place = readonly [file: string, proof: string, kind: "page" | "button"];
+const PLACES: Readonly<Record<string, Place>> = {
+  "Setup tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'setup: "Setup"', "page"],
+  "Billing tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'billing: "Billing"', "page"],
+  "Deliveries tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'deliveries: "Deliveries"', "page"],
+  "Care tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'care: "Care"', "page"],
+  "Account tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'account: "Account"', "page"],
+  "Queues page": ["app/admin/queues/page.tsx", 'title: "Queues"', "page"],
+  "Setup requests": ["app/admin/queues/SetupRequestsSection.tsx", 'title="Setup requests"', "page"],
   "Calendar writes needing attention": [
     "app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx",
     "Calendar writes needing attention",
+    "page",
   ],
-  Retry: ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Retry\n"],
-  "Send calendar link": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Send calendar link"],
-  "Phone line": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Phone line"'],
-  "Extend the setup window": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Extend the setup window"],
-  "Usage and the allowance": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", 'title="Usage and the allowance"'],
-  "At the allowance": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "At the allowance"],
-  "Touch log": ["app/admin/clinics/[clinicId]/care/TouchLog.tsx", 'title="Touch log"'],
-  Record: ["app/admin/clinics/[clinicId]/care/TouchLog.tsx", '"Record"'],
+  "Phone line": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Phone line"', "page"],
+  "Usage and the allowance": [
+    "app/admin/clinics/[clinicId]/billing/BillingPanel.tsx",
+    'title="Usage and the allowance"',
+    "page",
+  ],
+  "Touch log": ["app/admin/clinics/[clinicId]/care/TouchLog.tsx", 'title="Touch log"', "page"],
+  "Send setup link": ["app/admin/queues/SetupRequestsSection.tsx", '"Send setup link"', "button"],
+  Decline: ["app/admin/queues/SetupRequestsSection.tsx", "Decline", "button"],
+  "Link sent": ["app/admin/queues/SetupRequestsSection.tsx", "`Link sent ", "button"],
+  "the email didn't send": ["app/admin/queues/SetupRequestsSection.tsx", "the email didn't send", "button"],
+  Retry: ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Retry\n", "button"],
+  "Send calendar link": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Send calendar link", "button"],
+  "Extend the setup window": [
+    "app/admin/clinics/[clinicId]/billing/BillingPanel.tsx",
+    "Extend the setup window",
+    "button",
+  ],
+  "At the allowance": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "At the allowance", "button"],
+  Record: ["app/admin/clinics/[clinicId]/care/TouchLog.tsx", '"Record"', "button"],
 };
+
+function escapeRe(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Whether a text names a place as a whole phrase, not inside another word. */
+function namesPlace(text: string, place: string): boolean {
+  return new RegExp(`(^|[^A-Za-z])${escapeRe(place)}([^A-Za-z]|$)`).test(text);
+}
 
 /** Words an operator should never have to know (the brief's list). */
 const JARGON = [
@@ -159,7 +190,7 @@ const SQL = /\b(select|insert into|update \w+ set|delete from|where \w+ =|psql|d
 
 /** The text with placeholders and named places taken out: what the reader reads around them. */
 function prose(text: string): string {
-  let out = text.replace(/\{[^}]*\}/g, "X").replace(/[[\]]/g, "");
+  let out = clauseText(text).replace(/\{[^}]*\}/g, "X");
   for (const place of Object.keys(PLACES)) out = out.split(place).join("Place");
   return out;
 }
@@ -207,13 +238,21 @@ describe("the plain-English rules", () => {
     expect(wording.steps.length).toBeGreaterThanOrEqual(2);
 
     for (const step of wording.steps) {
-      const first = step.split(/\s+/)[0]!;
+      const read = clauseText(step).trim();
+      const first = read.split(/\s+/)[0]!;
       expect(VERBS.has(first), `"${step}" starts with a verb`).toBe(true);
       expect(
-        Object.keys(PLACES).some((place) => step.includes(place)),
+        Object.keys(PLACES).some((place) => namesPlace(read, place)),
         `"${step}" names a console page or button`,
       ).toBe(true);
     }
+    // Somewhere to go, not only a button to press.
+    expect(
+      wording.steps.some((step) =>
+        Object.entries(PLACES).some(([place, [, , kind]]) => kind === "page" && namesPlace(clauseText(step), place)),
+      ),
+      "the steps name a page, tab or card",
+    ).toBe(true);
 
     const texts = [wording.title, wording.whatHappened, wording.whyItMatters, ...wording.steps];
     for (const text of texts) expect(codeProblems(text), text).toEqual([]);
@@ -261,6 +300,44 @@ describe("the substitution", () => {
     expect(fill("{used}", { used: 12500 })).toBe("12,500");
   });
 
+  test("fills in one pass: a value is printed as it is, never filled again", () => {
+    const values = { business: "Acme {promisedOn} [x] {clinicName}", promisedOn: "2026-10-22", clinicName: "Glow" };
+    expect(fill("From {business} by {promisedOn}.", values)).toBe("From Acme {promisedOn} [x] {clinicName} by 22 Oct.");
+    expect(fill("A[: {business}].", values)).toBe("A: Acme {promisedOn} [x] {clinicName}.");
+  });
+
+  test("a value or fallback that opens a sentence starts with a capital", () => {
+    expect(fill("{clinicName} has used {percent}. Then {clinicName} stops.", {})).toBe(
+      "This clinic has used most. Then this clinic stops.",
+    );
+    for (const event of REWRITTEN) {
+      const filled = fillWording(alertWording(event, {}), wordingValues({}, null));
+      for (const text of [filled.whatHappened, filled.whyItMatters, ...filled.steps]) {
+        for (const sentence of text.split(/(?<=[.!?])\s+/)) expect(sentence, event).toMatch(/^[A-Z0-9]/);
+      }
+    }
+  });
+
+  test("a conditional clause shows only for its listed values", () => {
+    const text = "Go.[?recommendation=extend|wait: Extend it.][?recommendation=let_close: Let it close.]";
+    expect(fill(text, { recommendation: "wait" })).toBe("Go. Extend it.");
+    expect(fill(text, { recommendation: "let_close" })).toBe("Go. Let it close.");
+    expect(fill(text, {})).toBe("Go.");
+  });
+
+  test("lifecycle_decision_due never tells the operator to extend when the rules say to let it close", () => {
+    const steps = (recommendation: string) =>
+      fillWording(alertWording("lifecycle_decision_due", {}), { recommendation }).steps.join("\n");
+    expect(steps("let_close")).not.toMatch(/Press Extend the setup window/);
+    expect(steps("let_close")).toMatch(/Leave the setup window as it is/);
+    expect(steps("extend")).toMatch(/Press Extend the setup window on the clinic's Billing tab if the clinic needs more time/);
+    expect(steps("wait")).toMatch(/only if the clinic asks for more time/);
+    const why = (recommendation: string) =>
+      fillWording(alertWording("lifecycle_decision_due", {}), { recommendation }).whyItMatters;
+    expect(why("let_close")).toMatch(/letting it close/);
+    expect(why("extend")).not.toMatch(/letting it close/);
+  });
+
   test("drops an optional clause whose value is missing, and tidies what it leaves", () => {
     expect(fill("A clinic asked us[: {business}]. We replied[ by {promisedOn}].", {})).toBe(
       "A clinic asked us. We replied.",
@@ -289,25 +366,75 @@ describe("the substitution", () => {
 // -----------------------------------------------------------------------------
 
 describe("a setup requester's business name", () => {
-  test("is kept when it is a name, cut at 80 characters, and refused when it could reach someone", () => {
-    expect(printableBusinessName("  Glow   Med Spa ")).toBe("Glow Med Spa");
+  const KEPT: [string, string][] = [
+    ["  Glow   Med Spa ", "Glow Med Spa"],
+    ["Dr. Smith's Aesthetics & Laser", "Dr. Smith's Aesthetics & Laser"],
+    ["Clinique Étoile 24", "Clinique Étoile 24"],
+    ["Spa at the Lake", "Spa at the Lake"],
+  ];
+  const REFUSED: unknown[] = [
+    "owner@glow.test",
+    "https://glow.test",
+    "www.glowspa",
+    "glowspa.com",
+    "glow.dental",
+    "bit.ly/glow",
+    "glow . com",
+    "GLOW.COM",
+    "Call 5551234567",
+    "Call 555 123 4567",
+    "(555) 123-4567",
+    "+1 555 1234",
+    "Spa ٥٥٥١٢٣٤",
+    "Spa ５５５１２３４",
+    "jane at gmail dot com",
+    "jane(at)gmail(dot)com",
+    "Glow\u200bSpa",
+    "Glow\u2066Spa",
+    "Glow=Spa",
+    'Glow "Spa"',
+    "Glow \u201cSpa\u201d",
+    "Glow (Spa)",
+    "Glow href Spa",
+    "Glow src",
+    "url Glow",
+    "Glow\\Spa",
+    "Glow <b>",
+    "Glow `Spa`",
+    "",
+    "   ",
+    42,
+    null,
+  ];
+
+  test("is kept when it is a name, and cut at 80 characters at a word", () => {
+    for (const [given, kept] of KEPT) expect(printableBusinessName(given), given).toBe(kept);
     const long = "The Very Long Name Aesthetic and Wellness Clinic of the Greater Riverside Valley Area North";
     const cut = printableBusinessName(long)!;
     expect(cut.length).toBeLessThanOrEqual(80);
     expect(long.startsWith(cut)).toBe(true);
-    for (const bad of [
-      "owner@glow.test",
-      "https://glow.test",
-      "www.glowspa",
-      "glowspa.com",
-      "Call 5551234567",
-      "",
-      "   ",
-      42,
-      null,
-    ]) {
-      expect(printableBusinessName(bad), String(bad)).toBeNull();
-    }
+  });
+
+  test.each(REFUSED.map((v) => [v]))("is refused when it could reach someone or trip the link scanner: %j", (bad) => {
+    expect(printableBusinessName(bad)).toBeNull();
+    expect(cleanBusinessName(bad)).toBeNull();
+  });
+
+  test("is the same rule, character for character, as apps/web's copy", () => {
+    const block = (source: string) => {
+      const match = /\/\/ <business-name-rule>[\s\S]*?\/\/ <\/business-name-rule>/.exec(source);
+      if (!match) throw new Error("the business-name rule block was not found");
+      return match[0];
+    };
+    const ours = readFileSync(join(__dirname, "..", "src", "lib", "ops", "alert-wording", "allow-list.ts"), "utf8");
+    expect(block(web("lib/setup-requests.ts"))).toBe(block(ours));
+  });
+
+  test("Slack prints a name without its formatting characters", () => {
+    expect(slackName("*Glow* _Med_ ~Spa~ `x`")).toBe("Glow Med Spa x");
+    const text = slackText({ event: "usage_near_cap", fields: { clinicId: CLINIC, used: 9, included: 10 }, clinicName: "*Bold* Spa" });
+    expect(text).not.toContain("*Bold*");
+    expect(text).toContain("Bold Spa has used 90%");
   });
 });
 
@@ -362,7 +489,9 @@ describe("the console link", () => {
     expect([...DELIVERIES].sort()).toEqual(theirs("DELIVERIES"));
     expect([...ACCOUNT].sort()).toEqual(theirs("ACCOUNT"));
     expect(issueTabFor("incident_notice_overdue")).toBe("care");
-    expect(source).toMatch(/return "care";\s*\}\s*$/);
+    // The fall-through is Care, whatever follows issueTabFor in the file.
+    const body = /export function issueTabFor\([^)]*\)[^{]*\{([\s\S]*?)\n\}/.exec(source)?.[1] ?? "";
+    expect(body).toMatch(/return "care";\s*$/);
   });
 });
 
@@ -402,6 +531,60 @@ const FIVE: { event: OpsEvent; fields: Record<string, string | number> }[] = [
   },
 ];
 
+describe("each rewritten event's fields are the ones its raise site sends", () => {
+  const sameKeys = (event: OpsEvent, keys: string[]) => {
+    for (const key of keys) expect(EVENT_FIELDS[event], `${event} sends ${key}`).toContain(key);
+  };
+
+  test("clinic_availability_changed: changeAlertFields", () => {
+    const fields = changeAlertFields(CLINIC, "closures", [
+      { summary: { closuresAdded: ["2026-11-01"], closuresRemoved: [] } },
+    ] as never);
+    sameKeys("clinic_availability_changed", Object.keys(fields));
+    expect(Object.keys(fields).sort()).toEqual([...EVENT_FIELDS.clinic_availability_changed!].sort());
+  });
+
+  test("lifecycle_decision_due: dueWaves", () => {
+    const now = new Date("2026-10-23T12:00:00Z");
+    const facts: WaveFacts = {
+      stage: "in_setup",
+      stageSince: new Date("2026-10-01T12:00:00Z"),
+      now,
+      windowDay: 22,
+      lastDay: "2026-10-31",
+      stepsLeft: 3,
+      channelsWaiting: 0,
+      answeredAScreen: true,
+      lastProgressAt: new Date("2026-10-10T12:00:00Z"),
+      decision: "none",
+      snoozedUntil: null,
+      clinicWaves: [],
+      recorded: new Set(),
+    };
+    const wave = dueWaves(facts).find((w) => w.event === "lifecycle_decision_due");
+    expect(wave).toBeDefined();
+    sameKeys("lifecycle_decision_due", Object.keys(wave!.fields));
+  });
+
+  // Their raise sites build the fields inline; their own DB suites pin the
+  // exact objects (tests/usage-alerts.test.ts, tests/calendar-write-alerts.test.ts,
+  // tests/setup-request-alert.test.ts). Read here from the source.
+  test.each([
+    ["usage_near_cap", "lib/billing/usage-alerts.ts", /fields: \{([^}]*)\}/],
+    ["calendar_write_stuck", "lib/ops/calendar-write-alerts.ts", /found\.push\(\{([\s\S]*?)\}\);/],
+  ] as const)("%s: its raise site", (event, file, pattern) => {
+    const source = readFileSync(join(__dirname, "..", "src", file), "utf8");
+    const body = pattern.exec(source)?.[1] ?? "";
+    const keys = body
+      .split(",")
+      .map((piece) => piece.replace(/^\s*\.\.\.\(\w+ \? \{\s*/, "").trim())
+      .map((piece) => /^([a-zA-Z]+)\s*(?::|}|$)/.exec(piece)?.[1])
+      .filter((key): key is string => Boolean(key));
+    expect(keys.length).toBeGreaterThan(2);
+    expect([...new Set(keys)].sort()).toEqual([...EVENT_FIELDS[event]!].sort());
+  });
+});
+
 describe("one wording, two renderings", () => {
   test.each(FIVE.map((f) => [f.event, f]))("%s: the email and Slack print the same sentences and every step", (_e, alert) => {
     const { event, fields } = alert as (typeof FIVE)[number];
@@ -425,6 +608,16 @@ describe("one wording, two renderings", () => {
     expect(email.text).toContain(`Alert code: ${event}`);
     expect(email.text).not.toMatch(/undefined|\{|\}/);
     expect(filled.steps.length).toBeGreaterThanOrEqual(2);
+    // The same facts in both, formatted; no time of day anywhere.
+    const raw = alertWording(event, fields);
+    for (const [label, value] of sharedFacts(fields, raw)) {
+      expect(email.text).toContain(`${label}: ${value}`);
+      expect(slack).toContain(`${label}: ${value}`);
+    }
+    expect(emailFacts(event, { event, ...fields }, raw, clinicName).map(([l]) => l)).not.toContain("Source");
+    for (const body of [email.text, slack]) {
+      expect(body).not.toMatch(/\d{2}:\d{2}|T\d{2}:|\d{4}-\d{2}-\d{2}|voice_minutes|let_close|setup_request\b/);
+    }
   });
 
   test("the setup request alert names the business and the promised day, and nothing about the person", () => {

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { OpsResult, StuckCalendarWrites, StuckCalendarWriteView } from "@/lib/admin/ops-client";
 
+import { SWEEP_OFF_WORDS } from "@/components/admin/queue-words";
 import { CalendarWrites, emptyWords, retryWords, writeLine } from "./CalendarWrites";
 
 /**
@@ -56,10 +57,29 @@ const elsewhere: StuckCalendarWriteView = { ...retrying, clinicId: OTHER, clinic
 
 const ok = (writes: StuckCalendarWriteView[], over: Partial<StuckCalendarWrites> = {}): OpsResult<StuckCalendarWrites> => ({
   ok: true,
-  data: { writes, count: writes.length, truncated: false, unreadClinics: 0, ...over },
+  data: { writes, count: writes.length, truncated: false, unreadClinics: 0, sweepOn: true, ...over },
 });
 
 describe("the section's words", () => {
+  test("with the sweep switched off: said once above the list, and no row waits for a next try or is due now", () => {
+    // apps/app sends retryable false then; a row that still said true is not believed either.
+    const html = renderToStaticMarkup(
+      h(CalendarWrites, { clinicId: CLINIC, writes: ok([retrying, gaveUp], { sweepOn: false }), now: NOW, onRetry: NEVER }),
+    );
+    const page = text(html);
+    expect(page.split(SWEEP_OFF_WORDS)).toHaveLength(2);
+    expect(page).toContain("will not be retried by themselves while the calendar-watch switch on the Jobs page is off");
+    expect(page).not.toContain("Waiting for its next try");
+    expect(page).not.toContain("due now");
+    expect(page).not.toContain("in about");
+    expect(writeLine({ ...retrying, retryable: false, nextAttemptAt: null }, NOW, false)).toBe(
+      "Will not be retried by itself: Google did not answer in time. Tries 2 of 5. Slot in 4 days.",
+    );
+    // On, the notice is absent.
+    const on = text(renderToStaticMarkup(h(CalendarWrites, { clinicId: CLINIC, writes: ok([retrying]), now: NOW, onRetry: NEVER })));
+    expect(on).not.toContain(SWEEP_OFF_WORDS);
+  });
+
   test("each stuck write of this clinic in one line, with its id; another clinic's are not drawn", () => {
     const html = renderToStaticMarkup(h(CalendarWrites, { clinicId: CLINIC, writes: ok([retrying, elsewhere]), now: NOW, onRetry: NEVER }));
     const page = text(html);
@@ -99,7 +119,7 @@ describe("the section's words", () => {
     expect(text(cut)).toContain("None of the first 1 are this clinic's; the list was cut off at that, of 140 found, so this clinic may still have some.");
     expect(text(cut)).not.toContain("No stuck writes.");
     expect(cut).toMatch(/<p role="status" class="text-red-deep[^"]*">None of the first/);
-    expect(emptyWords({ writes: new Array(100).fill(elsewhere), count: 140, truncated: true, unreadClinics: 0 })).toBe(
+    expect(emptyWords({ writes: new Array(100).fill(elsewhere), count: 140, truncated: true, unreadClinics: 0, sweepOn: true })).toBe(
       "None of the first 100 are this clinic's; the list was cut off at that, of 140 found, so this clinic may still have some.",
     );
 

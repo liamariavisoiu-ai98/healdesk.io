@@ -1,14 +1,22 @@
 "use client";
 
 import { ActionButton, Failure, Section } from "@/components/admin/ui";
-import { CALENDAR_WRITE_REASON_WORDS, MAX_WRITE_TRIES, nextTryWords, slotWords, triesWords, writeProblemWords } from "@/components/admin/queue-words";
+import {
+  CALENDAR_WRITE_REASON_WORDS,
+  MAX_WRITE_TRIES,
+  nextTryWords,
+  slotWords,
+  SWEEP_OFF_WORDS,
+  triesWords,
+  writeProblemWords,
+} from "@/components/admin/queue-words";
 import type { OpsResult, RetryCalendarWriteOutcome, StuckCalendarWrites, StuckCalendarWriteView } from "@/lib/admin/ops-client";
 
 /**
  * The Setup tab's "Calendar writes" section (ops automation Phase 5, lane
  * P5b; design E3 §2.3): this clinic's desk bookings whose Google Calendar
- * write has not settled, from the cross-clinic read (listStuckCalendarWrites)
- * filtered to the clinic. Each in words: the state, the reason, the tries so
+ * write has not settled, from listStuckCalendarWrites read for this clinic
+ * alone. Each in words: the state, the reason, the tries so
  * far (of the sweep's five while within them; an operator's retries go past
  * them), when the sweep tries next for a write it still owns, and the slot as
  * whole days ahead (never a time, never the person or the service). The
@@ -56,10 +64,15 @@ export function retryWords(result: OpsResult<RetryCalendarWriteOutcome>, attempt
   }
 }
 
-/** One write in one line: state (and next try while the sweep owns it), reason, tries, slot. */
-export function writeLine(write: StuckCalendarWriteView, nowIso: string): string {
-  const state = writeProblemWords(write);
-  const head = `${state.charAt(0).toUpperCase()}${state.slice(1)}${write.retryable ? `, ${nextTryWords(write, nowIso)}` : ""}`;
+/**
+ * One write in one line: state (and next try while the sweep owns it and is
+ * switched on), reason, tries, slot. With the sweep off the line names no
+ * next try; SWEEP_OFF_WORDS says why, once, above the list.
+ */
+export function writeLine(write: StuckCalendarWriteView, nowIso: string, sweepOn = true): string {
+  const state = writeProblemWords(write, sweepOn);
+  const waiting = write.retryable && sweepOn;
+  const head = `${state.charAt(0).toUpperCase()}${state.slice(1)}${waiting ? `, ${nextTryWords(write, nowIso)}` : ""}`;
   return `${head}: ${CALENDAR_WRITE_REASON_WORDS[write.reason]}. ${triesWords(write.attempts)}. Slot ${slotWords(write.slotInDays)}.`;
 }
 
@@ -93,12 +106,17 @@ export function CalendarWrites({
           {emptyWords(writes.data)}
         </p>
       ) : null}
+      {writes.ok && mine.length > 0 && !writes.data.sweepOn ? (
+        <p role="status" className="mb-2 text-sm font-semibold">
+          {SWEEP_OFF_WORDS}
+        </p>
+      ) : null}
       {mine.length > 0 ? (
         <ul className="divide-line divide-y text-sm">
           {mine.map((w) => (
             <li key={w.appointmentId} className="flex flex-wrap items-center justify-between gap-3 py-2">
               <div className="grid gap-0.5">
-                <span>{writeLine(w, now)}</span>
+                <span>{writeLine(w, now, writes.ok ? writes.data.sweepOn : true)}</span>
                 <code className="text-muted font-mono text-xs select-all">{w.appointmentId}</code>
               </div>
               <ActionButton label="Retry" run={async () => retryWords(await onRetry(w.appointmentId), w.attempts)} done={(d) => d.message ?? null} />

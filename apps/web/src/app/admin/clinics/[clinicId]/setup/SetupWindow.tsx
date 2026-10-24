@@ -1,5 +1,6 @@
 "use client";
 
+import { extendedWords } from "@/components/admin/extension-words";
 import { useState } from "react";
 
 import { ActionButton, Section } from "@/components/admin/ui";
@@ -204,7 +205,7 @@ export function SetupWindow({
                 label="Extend the setup window"
                 variant="primary"
                 run={() => onExtend({ days: Number(days), fromDeadline: deadline.iso })}
-                done={(data) => (data.status === "extended" ? `Extended to ${data.setupDeadlineAt}.` : null)}
+                done={extendedWords}
               />
             </form>
           ) : null}

@@ -104,14 +104,26 @@ export const CALENDAR_WRITE_REASON_WORDS: Record<CalendarWriteReasonCode, string
 };
 
 /**
+ * Said once above a list of stuck writes while the desk sweep is switched
+ * off (listStuckCalendarWrites `sweepOn`): then nothing is retried by itself,
+ * and no row may read as waiting for its next try or due now.
+ */
+export const SWEEP_OFF_WORDS =
+  "These writes will not be retried by themselves while the calendar-watch switch on the Jobs page is off.";
+
+/**
  * The write's state, without its reason: "failed, not retried by itself" (a
  * refusal, which the sweep never retries), "gave up after 5 tries" (the
  * sweep's five are spent), "will not be retried by itself" (a settled reason
  * with tries to spare), or "waiting for its next try".
  */
-export function writeProblemWords(write: Pick<StuckCalendarWriteView, "status" | "attempts" | "retryable">): string {
+export function writeProblemWords(
+  write: Pick<StuckCalendarWriteView, "status" | "attempts" | "retryable">,
+  sweepOn = true,
+): string {
   if (write.status === "failed") return "failed, not retried by itself";
-  if (write.retryable) return "waiting for its next try";
+  // Off, nothing retries: never "waiting", whatever a row says.
+  if (write.retryable && sweepOn) return "waiting for its next try";
   if (write.attempts >= MAX_WRITE_TRIES) return `gave up after ${plural(write.attempts, "try", "tries")}`;
   return "will not be retried by itself";
 }

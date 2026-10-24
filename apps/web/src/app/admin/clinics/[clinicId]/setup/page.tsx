@@ -86,9 +86,8 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   // the availability changes, this clinic's audits (no history: the page
   // does not show it), its lifecycle row alone, the billing view, whose
   // setup deadline is the live one the extension names, this clinic's voice
-  // set-up, the stuck calendar writes (a cross-clinic read, filtered to this
-  // clinic below; demo clinics included so the demo clinic's own tab shows
-  // its own), and the watch's ignore list for this clinic alone, read apart
+  // set-up, this clinic's stuck calendar writes (its tenant alone is read,
+  // demo or not, so the demo clinic's own tab shows its own), and the watch's ignore list for this clinic alone, read apart
   // from the lifecycle row so a mark set before the watch's first tick is
   // drawn. One that fails costs its card.
   const [view, cards, changes, audits, lifecycle, billing, voice, stuckWrites, ignoreList] = await Promise.all([
@@ -99,7 +98,7 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
     fetchLifecycle(clinicId),
     fetchClinicBilling(clinicId),
     fetchVoiceAgentStatus(clinicId),
-    fetchStuckCalendarWrites({ includeDemo: true }),
+    fetchStuckCalendarWrites({ clinicId }),
     fetchLifecycleIgnored(clinicId),
   ]);
   if (isHostUnreachable(view)) return <HostStandbyNotice what="Setup" />;

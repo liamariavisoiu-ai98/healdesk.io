@@ -197,7 +197,12 @@ describe("the four controls", () => {
   test("Extend names the deadline shown and the days typed; Offered a call and Snooze send their arguments", async () => {
     const onExtend = vi.fn(async (input: { days: number; fromDeadline: string }) => ({
       ok: true as const,
-      data: { status: "extended" as const, setupDeadlineAt: `2026-11-${String(1 + input.days).padStart(2, "0")} 00:00 UTC`, auditRecorded: true },
+      data: {
+        status: "extended" as const,
+        setupDeadlineAt: `2026-11-${String(1 + input.days).padStart(2, "0")} 00:00 UTC`,
+        auditRecorded: true,
+        lifecycle: "recorded" as const,
+      },
     }));
     const onDecide = vi.fn(async () => ({ ok: true as const, data: { outcome: "saved" as const, auditRecorded: true } }));
     const onSnooze = vi.fn(async () => ({ ok: true as const, data: { outcome: "saved" as const, auditRecorded: true } }));

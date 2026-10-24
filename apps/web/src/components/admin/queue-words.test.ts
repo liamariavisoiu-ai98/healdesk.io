@@ -15,6 +15,7 @@ import {
   triesWords,
   waited,
   writeProblemWords,
+  SWEEP_OFF_WORDS,
 } from "./queue-words";
 
 /**
@@ -99,6 +100,11 @@ describe("the ages and counts", () => {
     // Settled with tries to spare: not "gave up".
     expect(writeProblemWords({ status: "unknown", attempts: 1, retryable: false })).toBe("will not be retried by itself");
     expect(writeProblemWords({ status: "unknown", attempts: 2, retryable: true })).toBe("waiting for its next try");
+    // With the sweep switched off nothing retries: never "waiting", whatever the row says.
+    expect(writeProblemWords({ status: "unknown", attempts: 2, retryable: true }, false)).toBe("will not be retried by itself");
+    expect(SWEEP_OFF_WORDS).toBe(
+      "These writes will not be retried by themselves while the calendar-watch switch on the Jobs page is off.",
+    );
     expect(nextTryWords({ nextAttemptAt: null }, now)).toBe("due now");
     expect(nextTryWords({ nextAttemptAt: "2026-10-24T09:30:00.000Z" }, now)).toBe("in about 30 minutes");
     expect(nextTryWords({ nextAttemptAt: "2026-10-24T09:01:00.000Z" }, now)).toBe("in about 1 minute");

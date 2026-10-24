@@ -176,7 +176,7 @@ vi.mock("@/lib/admin/ops-client", () => {
         slotInDays: 3,
         retryable: true,
       });
-      return { ok: true, data: { writes: [write(CLINIC, APPT), write(OTHER, CHANGE)], count: 2, truncated: false, unreadClinics: 0 } };
+      return { ok: true, data: { writes: [write(CLINIC, APPT), write(OTHER, CHANGE)], count: 2, truncated: false, unreadClinics: 0, sweepOn: true } };
     },
     fetchVoiceAgentReport: async (clinicId: string) => {
       state.reads.push(["fetchVoiceAgentReport", clinicId]);
@@ -363,11 +363,12 @@ describe("the Setup tab", () => {
   });
 
   // Lane P5b: the Voice agent card and the Calendar writes section, and their actions.
-  test("reads this clinic's voice set-up and the stuck writes with demo clinics, and draws both cards at their anchors with only this clinic's writes", async () => {
+  test("reads this clinic's voice set-up and its own stuck writes alone, and draws both cards at their anchors with only this clinic's writes", async () => {
     const tree = await page();
     const html = renderToStaticMarkup(tree as ReactElement).replace(/<!-- -->/g, "");
     expect(state.reads).toContainEqual(["fetchVoiceAgentStatus", CLINIC]);
-    expect(state.reads).toContainEqual(["fetchStuckCalendarWrites", { includeDemo: true }]);
+    // This clinic's tenant alone: never every clinic's writes filtered here.
+    expect(state.reads.filter((r) => r[0] === "fetchStuckCalendarWrites")).toEqual([["fetchStuckCalendarWrites", { clinicId: CLINIC }]]);
     expect(html).toContain('id="voice"');
     expect(html).toContain('id="calendar-writes"');
     const words = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");

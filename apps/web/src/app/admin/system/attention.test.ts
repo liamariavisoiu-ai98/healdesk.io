@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 
 import type { MachineQueue, OpsResult, StuckCalendarWrites, StuckCalendarWriteView, UndeliveredTranscriptClinicView } from "@/lib/admin/ops-client";
 
+import { SWEEP_OFF_WORDS } from "@/components/admin/queue-words";
 import { Attention, BeingWatched, writesByClinic } from "./Attention";
 
 /**
@@ -78,6 +79,7 @@ const writes: OpsResult<StuckCalendarWrites> = {
     count: 3,
     truncated: false,
     unreadClinics: 0,
+    sweepOn: true,
   },
 };
 
@@ -93,7 +95,7 @@ const transcripts: OpsResult<{ clinics: UndeliveredTranscriptClinicView[]; unrea
 };
 
 const EMPTY_QUEUES: typeof queues = { ok: true, data: { queues: [queue("outbox", { words: "Emails waiting to send" }), queue("transcript_emails", { words: "Transcript copies not delivered", count: 2, oldestAgeMinutes: 60 })], partial: [] } };
-const EMPTY_WRITES: typeof writes = { ok: true, data: { writes: [], count: 0, truncated: false, unreadClinics: 0 } };
+const EMPTY_WRITES: typeof writes = { ok: true, data: { writes: [], count: 0, truncated: false, unreadClinics: 0, sweepOn: true } };
 const EMPTY_TRANSCRIPTS: typeof transcripts = { ok: true, data: { clinics: [], unreadClinics: 0 } };
 
 describe("Requires your attention", () => {
@@ -134,6 +136,24 @@ describe("Requires your attention", () => {
     const cut = renderToStaticMarkup(h(Attention, { queues, writes: { ok: true, data: { ...writes.data, count: 140, truncated: true } }, transcripts }));
     expect(text(cut)).toContain("Counts are of the first 3 read; 140 stuck writes were found in all, so a clinic may have more, or be missing here.");
     expect(cut).toMatch(/<p role="status" class="text-red-deep[^"]*">Counts are of the first/);
+  });
+
+  test("Calendar writes stuck with the sweep switched off: said once above the clinics, never a row waiting", () => {
+    const off = text(
+      renderToStaticMarkup(
+        h(Attention, {
+          queues,
+          writes: {
+            ok: true,
+            data: { ...(writes.ok ? writes.data : { writes: [], count: 0, truncated: false, unreadClinics: 0 }), writes: writes.ok ? writes.data.writes.map((w) => ({ ...w, retryable: false })) : [], sweepOn: false },
+          },
+          transcripts,
+        }),
+      ),
+    );
+    expect(off.split(SWEEP_OFF_WORDS)).toHaveLength(2);
+    expect(off).toContain("Radiance Med Spa 2 stuck, 2 will not be retried by itself");
+    expect(text(renderToStaticMarkup(h(Attention, { queues, writes, transcripts })))).not.toContain(SWEEP_OFF_WORDS);
   });
 
   test("Transcript copies not delivered: one row per clinic in Home's words for the states, with the oldest held copy's age, linking to its Deliveries tab", () => {
@@ -179,7 +199,7 @@ describe("Requires your attention", () => {
       renderToStaticMarkup(
         h(Attention, {
           queues: { ok: true, data: { queues: EMPTY_QUEUES.ok ? EMPTY_QUEUES.data.queues : [], partial: ["Stripe events", "2 clinic(s)"] } },
-          writes: { ok: true, data: { writes: [], count: 0, truncated: false, unreadClinics: 1 } },
+          writes: { ok: true, data: { writes: [], count: 0, truncated: false, unreadClinics: 1, sweepOn: true } },
           transcripts: { ok: true, data: { clinics: [], unreadClinics: 3 } },
         }),
       ),

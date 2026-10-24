@@ -1,5 +1,6 @@
 "use client";
 
+import { extendedWords } from "@/components/admin/extension-words";
 import { USAGE_ALERT_PERCENT } from "@healdesk/catalog";
 import { useState, useTransition } from "react";
 
@@ -473,7 +474,7 @@ function ExtendDeadline({
           event.preventDefault();
           call(
             () => onExtend({ days: Number(days), fromDeadline: deadlineIso }),
-            (data) => (data.status === "extended" ? `Extended to ${data.setupDeadlineAt}.` : null),
+            extendedWords,
           );
         }}
       >

@@ -220,18 +220,28 @@ const WRITE = {
 };
 
 describe("fetchStuckCalendarWrites", () => {
-  test("sends includeDemo only when asked, and reads every field", async () => {
-    reply({ writes: [WRITE], count: 1, truncated: false, unreadClinics: 0 });
+  test("sends includeDemo and clinicId only when asked, and reads every field, sweepOn included", async () => {
+    reply({ writes: [WRITE], count: 1, truncated: false, unreadClinics: 0, sweepOn: true });
     expect(await fetchStuckCalendarWrites()).toEqual({
       ok: true,
-      data: { writes: [WRITE], count: 1, truncated: false, unreadClinics: 0 },
+      data: { writes: [WRITE], count: 1, truncated: false, unreadClinics: 0, sweepOn: true },
     });
-    reply({ writes: [], count: 0, truncated: false, unreadClinics: 1 });
-    await fetchStuckCalendarWrites({ includeDemo: true });
+    reply({ writes: [], count: 0, truncated: false, unreadClinics: 1, sweepOn: false });
+    expect(await fetchStuckCalendarWrites({ includeDemo: true })).toMatchObject({ ok: true, data: { sweepOn: false } });
+    reply({ writes: [], count: 0, truncated: false, unreadClinics: 0, sweepOn: false });
+    await fetchStuckCalendarWrites({ clinicId: CLINIC });
     expect(sent).toEqual([
       { op: "listStuckCalendarWrites", args: {} },
       { op: "listStuckCalendarWrites", args: { includeDemo: true } },
+      { op: "listStuckCalendarWrites", args: { clinicId: CLINIC } },
     ]);
+  });
+
+  test("an answer without sweepOn, or with it not a boolean, is malformed", async () => {
+    reply({ writes: [], count: 0, truncated: false, unreadClinics: 0 });
+    expect(await fetchStuckCalendarWrites()).toMatchObject(MALFORMED);
+    reply({ writes: [], count: 0, truncated: false, unreadClinics: 0, sweepOn: "off" });
+    expect(await fetchStuckCalendarWrites()).toMatchObject(MALFORMED);
   });
 
   test("a row with a field missing, an extra field (a time, a name) or a reason off the list is malformed", async () => {
@@ -243,7 +253,7 @@ describe("fetchStuckCalendarWrites", () => {
       { ...WRITE, reason: "backendError" },
       { ...WRITE, status: "writing" },
     ]) {
-      reply({ writes: [row], count: 1, truncated: false, unreadClinics: 0 });
+      reply({ writes: [row], count: 1, truncated: false, unreadClinics: 0, sweepOn: true });
       expect(await fetchStuckCalendarWrites()).toMatchObject(MALFORMED);
     }
     reply({ writes: [], count: 0, truncated: false });

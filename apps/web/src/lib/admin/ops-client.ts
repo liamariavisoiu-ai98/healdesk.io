@@ -1897,7 +1897,7 @@ export type StuckCalendarWriteView = {
   nextAttemptAt: string | null;
   /** Whole days until the slot (0: within 24 hours). Never the slot's time. */
   slotInDays: number;
-  /** Whether the sweep will try it again by itself. */
+  /** Whether the sweep will try it again by itself: always false while the sweep is switched off. */
   retryable: boolean;
 };
 
@@ -1908,6 +1908,12 @@ export type StuckCalendarWrites = {
   truncated: boolean;
   /** Clinics apps/app could not read: their writes are missing, never zero. */
   unreadClinics: number;
+  /**
+   * Whether the desk sweep runs: the calendar-watch job switch on the Jobs
+   * page, which ships off. Off, nothing is retried by itself, and no row may
+   * read as waiting for a next try.
+   */
+  sweepOn: boolean;
 };
 
 const STUCK_WRITE_KEYS = [
@@ -1922,16 +1928,23 @@ const STUCK_WRITE_KEYS = [
   "retryable",
 ] as const;
 
-/** Every desk booking, across clinics, whose calendar write has not settled and whose slot is ahead; newest problem first. */
+/**
+ * Every desk booking, across clinics, whose calendar write has not settled
+ * and whose slot is ahead; newest problem first. With `clinicId`, one
+ * clinic's alone (its tenant only is read, demo or not).
+ */
 export function fetchStuckCalendarWrites(
-  options: { includeDemo?: boolean } = {},
+  options: { includeDemo?: boolean; clinicId?: string } = {},
 ): Promise<OpsResult<StuckCalendarWrites>> {
+  const args: Record<string, unknown> = {};
+  if (options.includeDemo) args.includeDemo = true;
+  if (options.clinicId) args.clinicId = options.clinicId;
   return callOps(
     "listStuckCalendarWrites",
     "read",
-    options.includeDemo ? { includeDemo: true } : {},
+    args,
     (value) => {
-      const data = exactKeys(value, ["writes", "count", "truncated", "unreadClinics"], "listStuckCalendarWrites");
+      const data = exactKeys(value, ["writes", "count", "truncated", "unreadClinics", "sweepOn"], "listStuckCalendarWrites");
       return {
         writes: list(data.writes, "listStuckCalendarWrites.writes").map((row, i) => {
           const at = `listStuckCalendarWrites.writes[${i}]`;
@@ -1951,6 +1964,7 @@ export function fetchStuckCalendarWrites(
         count: count(data.count, "listStuckCalendarWrites.count"),
         truncated: bool(data.truncated, "listStuckCalendarWrites.truncated"),
         unreadClinics: count(data.unreadClinics, "listStuckCalendarWrites.unreadClinics"),
+        sweepOn: bool(data.sweepOn, "listStuckCalendarWrites.sweepOn"),
       };
     },
   );
@@ -4979,8 +4993,16 @@ export function liftSuspension(
   });
 }
 
+/**
+ * What happened to the setup watch's decision when the window was extended:
+ * `recorded`; `not_watched` (the clinic has no lifecycle row, or is on the
+ * ignore list); `not_recorded` (the extension is saved, the decision is not,
+ * so Home may still list a decision owed).
+ */
+export const EXTENSION_LIFECYCLE = ["recorded", "not_watched", "not_recorded"] as const;
+
 export type ExtendDeadlineOutcome =
-  | ({ status: "extended"; setupDeadlineAt: string } & Audited)
+  | ({ status: "extended"; setupDeadlineAt: string; lifecycle: (typeof EXTENSION_LIFECYCLE)[number] } & Audited)
   | { status: "refused"; message: string };
 
 /**
@@ -5001,6 +5023,7 @@ export function extendSetupDeadline(
       status: "extended",
       setupDeadlineAt: instant(data.setupDeadlineAt, "extendSetupDeadline.setupDeadlineAt").at,
       auditRecorded: bool(data.auditRecorded, "extendSetupDeadline.auditRecorded"),
+      lifecycle: literal(data.lifecycle, EXTENSION_LIFECYCLE, "extendSetupDeadline.lifecycle"),
     };
   });
 }

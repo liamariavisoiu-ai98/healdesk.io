@@ -783,19 +783,28 @@ describe("the billing panel's writes", () => {
         status: "extended",
         setupDeadlineAt: "2026-11-12T23:59:59.999Z",
         auditRecorded: true,
+        lifecycle: "not_recorded",
       },
     });
     expect(
       await extendSetupDeadline(CLINIC, { days: 7, fromDeadline: "2026-11-05T23:59:59.999Z" }),
     ).toEqual({
       ok: true,
-      data: { status: "extended", setupDeadlineAt: "2026-11-12 23:59 UTC", auditRecorded: true },
+      data: { status: "extended", setupDeadlineAt: "2026-11-12 23:59 UTC", auditRecorded: true, lifecycle: "not_recorded" },
     });
     expect(sent[1]!.args).toEqual({
       clinicId: CLINIC,
       days: 7,
       fromDeadline: "2026-11-05T23:59:59.999Z",
     });
+    // The setup watch's answer is read strictly: missing, or off its list, is malformed.
+    for (const lifecycle of [undefined, "maybe"]) {
+      reply({ data: { status: "extended", setupDeadlineAt: "2026-11-12T23:59:59.999Z", auditRecorded: true, lifecycle } });
+      expect(await extendSetupDeadline(CLINIC, { days: 7, fromDeadline: "2026-11-05T23:59:59.999Z" })).toMatchObject({
+        ok: false,
+        code: "malformed",
+      });
+    }
   });
 
   test("the location, overage and auto-renew readers check what they carry", async () => {

@@ -1,5 +1,5 @@
 import { Failure, Section } from "@/components/admin/ui";
-import { countWords, hoursWaited, stuckSummaryWords, transcriptCountWords, waited } from "@/components/admin/queue-words";
+import { countWords, hoursWaited, stuckSummaryWords, SWEEP_OFF_WORDS, transcriptCountWords, waited } from "@/components/admin/queue-words";
 import { clinicTabPath } from "@/lib/admin/issue-link";
 import type {
   MachineQueue,
@@ -88,6 +88,7 @@ function StuckWrites({ writes }: { writes: StuckCalendarWrites }) {
   const clinics = writesByClinic(writes.writes);
   return (
     <>
+      {!writes.sweepOn && clinics.length > 0 ? <p className="mb-1 text-sm font-semibold">{SWEEP_OFF_WORDS}</p> : null}
       <ul className="divide-line divide-y text-sm">
         {clinics.map((c) => (
           <li key={c.clinicId} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-1.5">

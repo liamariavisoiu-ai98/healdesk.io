@@ -171,7 +171,7 @@ import {
   opSuspendForCause,
 } from "@/lib/ops/notices-ops";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
-import { WRITABLE_APPOINTMENT_STATUSES, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
+import { WRITABLE_APPOINTMENT_STATUSES, writeToCalendarAttempt, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import {
   listTranscriptDeliveries,
   resendTranscript,
@@ -657,10 +657,11 @@ const OPERATIONS = [
   // §2.3, §2.4): every desk booking whose calendar write has not settled
   // (lib/ops/stuck-writes-ops.ts), every clinic with transcript copies that
   // never reached it (lib/ops/transcript-watch-ops.ts), both ids, codes,
-  // counts, whole days and the clinic's own name; and a voice drift flag
-  // cleared and the drift check run once (lib/ops/voice-agent-ops.ts), after
-  // the operator's fresh authenticator code on apps/web. Never a patient, a
-  // copy, a recipient, a number or a time of day.
+  // counts, the clinic's own name, a booking's slot as whole days ahead and
+  // the time of our own next retry; and a voice drift flag cleared and the
+  // drift check run once (lib/ops/voice-agent-ops.ts), after the operator's
+  // fresh authenticator code on apps/web. Never a patient, a copy, a
+  // recipient, a number or the time of anything a patient booked.
   "listStuckCalendarWrites",
   "listUndeliveredTranscripts",
   "clearVoiceDriftFlag",
@@ -4167,6 +4168,14 @@ export type RetryCalendarWriteState =
   | { status: "retried"; outcome: CalendarWriteOutcome; auditRecorded: boolean }
   | { status: "error"; message: string };
 
+/** Why an operator's retry made no attempt, by what the row says. */
+const NOT_TRIED: Record<CalendarWriteOutcome, string> = {
+  written: "That booking is already in the clinic's Google Calendar. Nothing was tried.",
+  "not-connected": "This location's calendar terms do not write to Google Calendar, so nothing was tried.",
+  failed: "This location has no healthy Google Calendar to write to: send the clinic a calendar link. Nothing was tried.",
+  unknown: "Another attempt at this write is in flight. Nothing was tried; reload in a few minutes.",
+};
+
 /** §B.4: re-run a calendar write from `failed` or `unknown`, read-back first (writeToCalendar does that). */
 async function opRetryCalendarWrite(
   args: Record<string, unknown>,
@@ -4195,7 +4204,18 @@ async function opRetryCalendarWrite(
   }
   let outcome: CalendarWriteOutcome;
   try {
-    outcome = await writeToCalendar(clinic.id, appointmentId, { fromFailed: true, actor: actorFor(operator) });
+    // An operator's retry: past the five attempts the ladder ends at, read
+    // back first (lib/booking/calendar.ts, CalendarWriteOptions.operator).
+    const tried = await writeToCalendarAttempt(clinic.id, appointmentId, {
+      fromFailed: true,
+      operator: true,
+      actor: actorFor(operator),
+    });
+    // Nothing was tried: say what the row says, never "retried".
+    if (!tried.attempted) {
+      return ok({ status: "error", message: NOT_TRIED[tried.outcome] } satisfies RetryCalendarWriteState);
+    }
+    outcome = tried.outcome;
   } catch (error) {
     return ok({ status: "error", message: error instanceof Error ? error.message.slice(0, 200) : "Could not retry." } satisfies RetryCalendarWriteState);
   }

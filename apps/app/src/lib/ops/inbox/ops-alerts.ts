@@ -97,9 +97,9 @@ export const opsAlertsSource: InboxSource = {
     // own test accounts): raised before it was ignored, they are about
     // nothing the operator must do. Read only when there is such a wave.
     const waveClinics = raised.some((r) => WAVE_EVENTS.has(r.event) && typeof r.fields?.clinicId === "string");
-    const { ignored, failed: unreadMarks } = waveClinics
+    const { ignored, unread: unreadMarks, listUnread } = waveClinics
       ? await readIgnoredClinicIds({ actor: ctx.actor, request: ctx.request })
-      : { ignored: new Set<string>(), failed: 0 };
+      : { ignored: new Set<string>(), unread: new Set<string>(), listUnread: false };
     for (const { id: alertId, event, fields } of raised) {
       if (LEFT_OUT.has(event)) continue;
       if (
@@ -122,7 +122,11 @@ export const opsAlertsSource: InboxSource = {
     const partial =
       [
         raised.length >= MAX_READ ? `Only the newest ${MAX_READ} alerts of the last day were read.` : null,
-        unreadMarks > 0 ? `The ignore list of ${unreadMarks} clinic(s) could not be read.` : null,
+        listUnread
+          ? "The lifecycle ignore list could not be read, so every clinic's setup alerts are shown."
+          : unreadMarks.size > 0
+            ? `The ignore list of ${unreadMarks.size} clinic(s) could not be read.`
+            : null,
       ]
         .filter((p): p is string => p !== null)
         .join(" ") || undefined;

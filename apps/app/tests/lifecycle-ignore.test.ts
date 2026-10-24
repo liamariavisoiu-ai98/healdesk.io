@@ -9,6 +9,7 @@ import { IGNORED_RECOMMENDATION } from "@/lib/lifecycle/recommend";
 import { watchLifecycles } from "@/lib/lifecycle/watch";
 import { isMutating, runOperation, type Operator } from "@/lib/ops/api";
 import { collectDigest } from "@/lib/ops/digest";
+import { opsAlertsSource } from "@/lib/ops/inbox/ops-alerts";
 import { readOpsInbox } from "@/lib/ops/inbox/run";
 import { reconcileBilling } from "@/lib/billing/reconcile";
 import { runConnectionHealthJob } from "@/lib/scheduler/connection-health";
@@ -43,6 +44,23 @@ vi.mock("@/lib/setup/state", async (importOriginal) => {
       race.afterStateRead = null;
       if (hook) await hook();
       return state;
+    },
+  };
+});
+
+// N2: the clinic list fails for the next read only (the ignore list's), so
+// the alerts source's own name lookup still works.
+const clinicList = vi.hoisted(() => ({ failNext: false }));
+vi.mock("@/lib/ops/clinics", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ops/clinics")>();
+  return {
+    ...actual,
+    listClinics: async (...args: Parameters<typeof actual.listClinics>) => {
+      if (clinicList.failNext) {
+        clinicList.failNext = false;
+        throw new Error("synthetic read failure");
+      }
+      return actual.listClinics(...args);
     },
   };
 });
@@ -160,6 +178,7 @@ describeDb("the lifecycle ignore list and the extension's stamp (lane P5d)", () 
 
   afterAll(async () => {
     race.afterStateRead = null;
+    clinicList.failNext = false;
     await closePools();
   });
 
@@ -192,6 +211,24 @@ describeDb("the lifecycle ignore list and the extension's stamp (lane P5d)", () 
     // Taken off the list: its waves are back.
     await op("setLifecycleIgnored", { clinicId: internal.clinicId, ignored: false });
     expect((await readOpsInbox(OPERATOR)).rows.map((r) => r.id)).toContain(`alert:lifecycle_no_progress:${internal.clinicId}`);
+  }, 120_000);
+
+  test("an unreadable clinic list leaves nothing ignored: every setup alert still shows, and Home says it is partial", async () => {
+    vi.useRealTimers();
+    const internal = await clinic("list-down", { day: 23 });
+    await raiseAlert("lifecycle_no_progress", internal.clinicId);
+    await raiseAlert("calendar_broken", internal.clinicId);
+    await op("setLifecycleIgnored", { clinicId: internal.clinicId, ignored: true, note: "internal_test_account" });
+
+    clinicList.failNext = true;
+    const inbox = await readOpsInbox(OPERATOR, { sources: [opsAlertsSource] });
+    expect(clinicList.failNext).toBe(false);
+    const ids = inbox.rows.map((r) => r.id);
+    expect(ids).toContain(`alert:calendar_broken:${internal.clinicId}`);
+    expect(ids).toContain(`alert:lifecycle_no_progress:${internal.clinicId}`);
+    expect(inbox.unreadable).toEqual([
+      { source: "ops alerts", reason: "The lifecycle ignore list could not be read, so every clinic's setup alerts are shown." },
+    ]);
   }, 120_000);
 
   test("the watch re-reads the deadline under its lock: an extension committed while a run is under way is not written back over", async () => {

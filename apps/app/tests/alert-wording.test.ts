@@ -216,6 +216,12 @@ const PLACES: Readonly<Record<string, Place>> = {
     "button",
   ],
   "Setup window": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'title="Setup window"', "page"],
+  // The Setup window card's own extend button; "Extend the setup window" above proves the Billing tab's.
+  "Extend the setup window on the Setup window card": [
+    "app/admin/clinics/[clinicId]/setup/SetupWindow.tsx",
+    'label="Extend the setup window"',
+    "button",
+  ],
   "Availability changes": ["app/admin/clinics/[clinicId]/setup/AvailabilityChanges.tsx", 'title="Availability changes"', "page"],
   Reminders: ["app/admin/clinics/[clinicId]/deliveries/Reminders.tsx", "title={`Reminders", "page"],
   "Offered a call": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Offered a call"', "button"],

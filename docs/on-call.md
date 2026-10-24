@@ -439,7 +439,10 @@ stops only the day-27 and day-30 warnings to us and the window still closes on i
 and never the clinic's own reminders. Days a clinic waited on us never extend its deadline by
 themselves (D6): the extension is always the button. Finishing our side is the Setup tab's
 "Channels" and "Go live" cards, which list what is missing; go-live is automatic once nothing
-is left, and "Ask the practice questions again" is the one push the console has.
+is left, and "Ask the practice questions again" is the one push the console has. A partly
+live clinic whose phone channel is live forwards its published number to AYA: phone it on the
+direct line under the Billing tab's "Pause AI and the direct line" (a clinic with no direct
+line on file cannot have phone live, so its published number still reaches the desk).
 
 The clinic's six setup reminders are the `setup-reminders` job's, unchanged by the watch,
 which only records them; the Deliveries tab's "Reminders" lists them with every wave sent to
@@ -453,10 +456,12 @@ on (a pending closure waits otherwise, and a closure is skipped once a channel i
 `ops_digest_summary`. The digest email goes to the ops address (`HEALDESK_OPS_EMAIL`, else
 `HEALDESK_ADMIN_EMAIL`) at 07:00 UTC or later, once a UTC day, behind the `ops-digest` switch,
 and is tried up to five times before tomorrow's takes over. Once it has gone, its one line in
-Slack is this alert, never emailed: setup decisions owed, clinics waiting on us, clinics near
-and at an allowance (both meters summed), and the alerts Slack could not post after its four
-tries (only while Slack is on). The counts come from the lifecycle rows and the entitlements,
-not from alerts, so a count can stand with no alert row behind it; Home lists every alert of
-the last day whether or not Slack took it, and the Clinics table shows each clinic's stage and
-usage. If the line did not arrive by morning, open System › Jobs: the digest's row shows its
+Slack is this alert, never emailed: setup decisions owed (a clinic waiting on us a business
+day or more counts as one: `lifecycleView`'s `decisionOwed`), clinics waiting on us, clinics
+near and at an allowance (both meters summed, so one clinic can count twice), and the alerts
+Slack could not post after its four tries (only while Slack is on). The counts come from the
+lifecycle rows and the entitlements, not from alerts, so a count can stand with no alert row
+behind it; Home lists every alert of the last day whether or not Slack took it, one row per
+alert and clinic, and each decision owed as its own row with "Decide" (lane A4), and the
+Clinics table shows each clinic's stage and usage. If the line did not arrive by morning, open System › Jobs: the digest's row shows its
 switch, last run and note (sent, already gone, or the failure).

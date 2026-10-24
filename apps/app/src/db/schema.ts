@@ -1501,6 +1501,15 @@ export const appointments = pgTable(
     /** The fencing token of the current claim, so a reclaimed attempt and a slow one cannot both record. */
     calendarWriteLease: uuid("calendar_write_lease"),
     /**
+     * When the desk sweep may try an `unknown` write again (drizzle/0117):
+     * set after each attempt that ended unknown, +2 min, +10 min, +30 min,
+     * +2 h and +6 h after the first to the fifth (lib/booking/calendar.ts,
+     * WRITE_BACKOFF_MINUTES); null when nothing is waiting (never tried, or
+     * settled). The sweep takes a write only once this has passed, and only
+     * while its slot has not started.
+     */
+    calendarWriteNextAt: timestamp("calendar_write_next_at", { withTimezone: true }),
+    /**
      * The key the Google event id is derived from: "hold:" + the slot hold's
      * id when the assistant held the time, otherwise the request's id.
      * Written once (migration B).
@@ -1567,6 +1576,10 @@ export const appointments = pgTable(
       .on(t.clinicId, t.externalConfirmedAt)
       .where(sql`${t.externalConfirmedAt} is not null`),
     index("appointments_conversation_idx").on(t.clinicId, t.conversationId),
+    // The desk sweep's due writes (drizzle/0117): unsettled ones only.
+    index("appointments_calendar_write_due_idx")
+      .on(t.clinicId, t.calendarWriteNextAt)
+      .where(sql`${t.calendarWriteStatus} in ('unknown', 'writing')`),
     uniqueIndex("appointments_external_idx")
       .on(t.clinicId, t.externalSource, t.externalAppointmentId)
       .where(sql`${t.externalAppointmentId} is not null`),

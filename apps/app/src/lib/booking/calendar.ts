@@ -103,6 +103,111 @@ export const WRITABLE_APPOINTMENT_STATUSES = ["scheduled", "confirmed"] as const
 /** Failure reasons after which Google may still hold the booking. Anything else is an answer. */
 const UNKNOWN_OUTCOME_REASONS: ReadonlySet<string> = new Set(["timeout", "network", "unconfirmed"]);
 
+/**
+ * The retry ladder (design E3 §2.3, owner-approved 23 October 2026): after
+ * the nth attempt that ends `unknown` (1-based), the desk sweep may try again
+ * this many minutes later (calendar_write_next_at, drizzle/0117). The fifth
+ * is recorded too, though no sixth attempt is ever made: MAX_WRITE_ATTEMPTS.
+ */
+export const WRITE_BACKOFF_MINUTES = [2, 10, 30, 120, 360] as const;
+
+/** When the sweep may try a write again after its `attempt`th attempt ended unknown. */
+export function nextWriteAttemptAt(attempt: number, now: Date): Date {
+  const step = Math.min(Math.max(attempt, 1), WRITE_BACKOFF_MINUTES.length) - 1;
+  return new Date(now.getTime() + WRITE_BACKOFF_MINUTES[step]! * 60_000);
+}
+
+/**
+ * Every reason word healdesk itself can record in calendar_write_error, and
+ * what the desk sweep does with a row that carries it (design E3 §2.3):
+ *
+ *   - `transient`: Google's answer never came or did not settle it. The row
+ *     is `unknown` and the sweep tries again on the ladder, reading Google
+ *     back first, until the fifth attempt or the slot's start.
+ *   - `settled`: an answer that a retry would only repeat or make worse: the
+ *     clinic deleted the event, our id is taken by another event or by one
+ *     not ours, there is no healthy calendar, the target calendar is no
+ *     longer one the location may book into, or the connection is broken
+ *     (calendarBreakOf: the location books by request until it reconnects).
+ *     Never retried automatically, whatever the row's status says.
+ *   - `refused`: Google, or our own set-up, said no to this attempt in a way
+ *     the same attempt would meet again (a bad input, healdesk's own sign-in
+ *     app or Calendar API switched off). Recorded `failed` by an insert, so
+ *     only an operator retries it once the cause is fixed; a read-back that
+ *     meets it settles nothing and stays `unknown`.
+ *
+ * The words of the Google adapter (packages/connectors/src/google) and of
+ * HRC-04's target check (`target_` + CalendarTargetRefusal) are all here;
+ * tests/calendar-write-backoff.test.ts fails on a new one left out. Google's
+ * own words, kept as Google said them where the adapter passes one through
+ * (a 4xx's `badRequest`, a read-back's `backendError`, a 429's
+ * `rateLimitExceeded`), are not ours to list: their row's status says what
+ * they mean.
+ */
+export const CALENDAR_WRITE_REASONS = {
+  // Ours, and the adapter's lost answers.
+  timeout: "transient",
+  network: "transient",
+  unconfirmed: "transient",
+  threw: "transient",
+  malformed_response: "transient",
+  rate_limited: "transient",
+  target_unverified: "transient",
+  // Settled: never retried automatically.
+  deleted_in_calendar: "settled",
+  event_id_taken: "settled",
+  not_ours: "settled",
+  conflict: "settled",
+  calendar_not_connected: "settled",
+  target_terms: "settled",
+  target_unmanaged_account: "settled",
+  target_account_mismatch: "settled",
+  target_outside_organisation: "settled",
+  target_not_owned: "settled",
+  // calendarBreakOf's codes (TOKEN_BREAKS, CALENDAR_BREAKS).
+  invalid_grant: "settled",
+  admin_policy_enforced: "settled",
+  scope_lost: "settled",
+  access_denied: "settled",
+  insufficient_permissions: "settled",
+  calendar_not_found: "settled",
+  // Refused: the same attempt would meet it again.
+  api_disabled: "refused",
+  oauth_client: "refused",
+  missing_refresh_token: "refused",
+  calendar_id: "refused",
+  missing_key: "refused",
+  bad_start: "refused",
+  bad_duration: "refused",
+  bad_time_zone: "refused",
+  phone_field_refused: "refused",
+  // The adapter's words for its other calls (the token exchange and revoke,
+  // the calendar list, free/busy): never recorded by a write today, listed
+  // so a write that ever meets one is already classified.
+  missing_code: "refused",
+  missing_token: "refused",
+  id_token_malformed: "refused",
+  not_calendar_owner: "refused",
+  too_many_calendars: "refused",
+  bad_window: "refused",
+  window_too_long: "refused",
+  calendar_error: "refused",
+} as const satisfies Record<string, "transient" | "settled" | "refused">;
+
+export type CalendarWriteReason = keyof typeof CALENDAR_WRITE_REASONS;
+
+/** The reasons the sweep never retries, whatever the row's status (`settled` above). */
+export const NEVER_RETRIED_REASONS: readonly CalendarWriteReason[] = (
+  Object.keys(CALENDAR_WRITE_REASONS) as CalendarWriteReason[]
+).filter((reason) => CALENDAR_WRITE_REASONS[reason] === "settled");
+
+/** A stored reason as one of ours, or `other` for a word Google gave (or none). */
+export function writeReasonCode(stored: string | null): CalendarWriteReason | "other" {
+  return stored !== null && Object.hasOwn(CALENDAR_WRITE_REASONS, stored)
+    ? (stored as CalendarWriteReason)
+    : "other";
+}
+
 const WRITE_ACTOR: ActorContext = { type: "service", serviceName: "calendar-write" };
 
 /** The location's Google Calendar, when healdesk may write to it now. */
@@ -269,6 +374,8 @@ type Prepared = {
   origin: "assistant" | "desk";
   /** An attempt was made before this one (a retry or a takeover): read Google back first. */
   readBackFirst: boolean;
+  /** Which attempt this is, 1 to MAX_WRITE_ATTEMPTS: where an unknown outcome sits on the ladder. */
+  attempt: number;
 };
 
 type Prepare = { kind: "go"; prepared: Prepared } | { kind: "done"; outcome: CalendarWriteOutcome };
@@ -421,6 +528,8 @@ export async function writeToCalendar(
         calendarWriteStatus: outcome === "written" ? "written" : (outcome as CalendarWriteStatus),
         calendarWrittenAt: outcome === "written" ? now : null,
         calendarWriteError: outcome === "written" ? null : (reason?.slice(0, 80) ?? null),
+        // The ladder: only an unknown outcome waits for another attempt.
+        calendarWriteNextAt: outcome === "unknown" ? nextWriteAttemptAt(p.attempt, now) : null,
         ...(outcome === "written" && externalId
           ? { externalAppointmentId: externalId, externalSource: GOOGLE_CALENDAR_PROVIDER }
           : {}),
@@ -560,6 +669,7 @@ async function claim(
       audience: audienceFor(row.specialty),
       origin: row.bookingOrigin === "assistant" ? "assistant" : "desk",
       readBackFirst: claimed.attempts > 1,
+      attempt: claimed.attempts,
     },
   };
 }
@@ -596,6 +706,7 @@ async function recordNotConnected(
     .set({
       calendarWriteStatus: "failed",
       calendarWriteError: "calendar_not_connected",
+      calendarWriteNextAt: null,
       updatedAt: new Date(),
     })
     .where(
@@ -649,7 +760,15 @@ async function openWriteContext(
   };
 }
 
-/** What a failed insert means for the row. */
+/**
+ * What a failed insert means for the row. A rate limit (a 429, or a 403
+ * rate-limit word) and a server error answered before the insert was sent
+ * (the token endpoint's 5xx) are Google's "not now", not its "no": nothing
+ * was stored, so they are `unknown` and the sweep tries again on the ladder,
+ * reading back first. Until 24 October 2026 they ended `failed`, and a
+ * booking was left for a person after one busy minute at Google. A 5xx to
+ * the insert itself is already `unconfirmed` (googleWriteError).
+ */
 function failureOutcome(error: ConnectorError): {
   outcome: CalendarWriteOutcome;
   reason: string;
@@ -657,7 +776,9 @@ function failureOutcome(error: ConnectorError): {
   const reason = error.reason ?? error.code;
   // The clinic deleted the event: never written again (plan §7.12).
   if (reason === "deleted_in_calendar") return { outcome: "failed", reason };
-  return { outcome: UNKNOWN_OUTCOME_REASONS.has(reason) ? "unknown" : "failed", reason };
+  if (UNKNOWN_OUTCOME_REASONS.has(reason)) return { outcome: "unknown", reason };
+  const notNow = error.code === "rate_limited" || error.code === "unavailable";
+  return { outcome: notNow && calendarBreakOf(error) === null ? "unknown" : "failed", reason };
 }
 
 /**
@@ -713,8 +834,7 @@ function pgField(error: unknown, field: "code" | "constraint"): string | undefin
 // The desk sweep (plan §9.2 step 5; called by the five-minute calendar watch)
 // -----------------------------------------------------------------------------
 
-/** How far back the sweep looks, and how many writes one run takes on. */
-export const DESK_SWEEP_LOOKBACK_HOURS = 24;
+/** How many writes one run of the sweep takes on, across every location. */
 export const DESK_SWEEP_LIMIT = 20;
 
 export type DeskSweepResult = {
@@ -731,15 +851,50 @@ export type DeskSweepResult = {
 const SWEEP_ACTOR: ActorContext = { type: "service", serviceName: "calendar-watch" };
 
 /**
- * Staff confirmations whose Google write never settled (plan §7.12, §9.2):
- * `unknown` (a timeout, a lost reply, a target Google could not vouch for),
- * or a `writing` claim stuck for two minutes (a writer that died), from the
- * last 24 hours, at most 20 a run, oldest first, each through
- * writeToCalendar, which reads Google back before it creates anything and
- * stops at five attempts. `failed` is never swept: it is retried only by ops
+ * The rows the sweep may take now (design E3 §2.3): a booking still on, its
+ * slot not yet started, fewer than five attempts, and either `unknown` whose
+ * next attempt on the ladder is due (calendar_write_next_at, null for a row
+ * written before the ladder existed) and whose reason is not one of the
+ * settled ones, or a `writing` claim stuck for two minutes. Exported for the
+ * stuck-writes view and the alert, so the three can never disagree about
+ * what is still waiting.
+ */
+export function sweepable(now: Date) {
+  return and(
+    sql`${appointments.calendarWriteAttempts} < ${MAX_WRITE_ATTEMPTS}`,
+    // A booking staff marked cancelled, showed or no-show is never written.
+    inArray(appointments.status, [...WRITABLE_APPOINTMENT_STATUSES]),
+    // A slot that has started is never written: the booking is past.
+    sql`${appointments.scheduledFor} > ${now}`,
+    sql`((${appointments.calendarWriteStatus} = 'unknown'
+          and (${appointments.calendarWriteNextAt} is null or ${appointments.calendarWriteNextAt} <= ${now})
+          and coalesce(${appointments.calendarWriteError}, '') not in (${sql.join(
+            NEVER_RETRIED_REASONS.map((reason) => sql`${reason}`),
+            sql`, `,
+          )}))
+         or (${appointments.calendarWriteStatus} = 'writing'
+             and coalesce(${appointments.calendarWriteClaimedAt}, ${appointments.updatedAt})
+                 < clock_timestamp() - make_interval(mins => ${STUCK_CLAIM_MINUTES})))`,
+  );
+}
+
+/**
+ * Staff confirmations whose Google write never settled (plan §7.12, §9.2;
+ * the ladder of design E3 §2.3): `unknown` (a timeout, a lost reply, a rate
+ * limit, a target Google could not vouch for) once its next attempt is due,
+ * or a `writing` claim stuck for two minutes (a writer that died), for as
+ * long as the slot has not started, each through writeToCalendar, which
+ * reads Google back before it creates anything and stops at five attempts.
+ * At most DESK_SWEEP_LIMIT a run, taken in turn from each location (the
+ * longest-waiting of each first), so one location's outage cannot hold up
+ * another's writes. `failed` is never swept: it is retried only by ops
  * (`retryCalendarWrite`), after someone has looked at why. Nor is a booking
  * staff marked cancelled, showed or no-show on Bookings: its write would put
  * a cancelled appointment in the clinic's calendar, busy on every channel.
+ *
+ * Until 24 October 2026 the sweep looked back only 24 hours and took a due
+ * write at every run, so five attempts could go in one Google outage and a
+ * slot next week was never tried again after a weekend down.
  *
  * Exported for the calendar watch (lib/scheduler/calendar-watch.ts), which
  * calls it once per run; it never throws.
@@ -751,7 +906,6 @@ export async function sweepDeskWrites(
   const limit = options.limit ?? DESK_SWEEP_LIMIT;
   const actor = options.actor ?? SWEEP_ACTOR;
   const result: DeskSweepResult = { attempted: 0, written: 0, failed: 0, unknown: 0, errors: 0 };
-  const since = new Date(now.getTime() - DESK_SWEEP_LOOKBACK_HOURS * 3_600_000);
 
   let clinicIds: string[];
   try {
@@ -761,54 +915,56 @@ export async function sweepDeskWrites(
     return { ...result, errors: 1 };
   }
 
+  // Each location's due writes, the longest-waiting first.
+  const queues: { clinicId: string; due: string[] }[] = [];
   for (const clinicId of clinicIds) {
-    if (result.attempted >= limit) break;
-    let due: string[];
     try {
-      due = await withTenant({ clinicId, actor }, async (tx) => {
+      const due = await withTenant({ clinicId, actor }, async (tx) => {
         const rows = await tx.db
           .select({ id: appointments.id })
           .from(appointments)
           .innerJoin(bookingRequests, eq(bookingRequests.appointmentId, appointments.id))
-          .where(
-            and(
-              eq(appointments.clinicId, tx.clinicId),
-              sql`${appointments.updatedAt} > ${since}`,
-              sql`${appointments.calendarWriteAttempts} < ${MAX_WRITE_ATTEMPTS}`,
-              // A booking staff marked cancelled, showed or no-show is never written.
-              inArray(appointments.status, [...WRITABLE_APPOINTMENT_STATUSES]),
-              sql`(${appointments.calendarWriteStatus} = 'unknown'
-                   or (${appointments.calendarWriteStatus} = 'writing'
-                       and coalesce(${appointments.calendarWriteClaimedAt}, ${appointments.updatedAt})
-                           < clock_timestamp() - make_interval(mins => ${STUCK_CLAIM_MINUTES})))`,
-            ),
-          )
-          .orderBy(appointments.updatedAt)
-          .limit(limit - result.attempted);
+          .where(and(eq(appointments.clinicId, tx.clinicId), sweepable(now)))
+          .orderBy(sql`coalesce(${appointments.calendarWriteNextAt}, ${appointments.updatedAt})`, appointments.id)
+          .limit(limit);
         return rows.map((r) => r.id);
       });
+      if (due.length > 0) queues.push({ clinicId, due });
     } catch (error) {
       result.errors += 1;
       log.error("desk write sweep failed for a location", {
         clinicId,
         error: describeError(error),
       });
-      continue;
     }
-    for (const appointmentId of due) {
-      result.attempted += 1;
-      try {
-        const outcome = await writeToCalendar(clinicId, appointmentId, { actor, now });
-        if (outcome === "written") result.written += 1;
-        else if (outcome === "failed") result.failed += 1;
-        else result.unknown += 1;
-      } catch (error) {
-        result.errors += 1;
-        log.error("desk write sweep could not retry a write", {
-          clinicId,
-          error: describeError(error),
-        });
-      }
+  }
+
+  // In turn: one from each location, then the next from each, to the limit.
+  const turns: { clinicId: string; appointmentId: string }[] = [];
+  for (let round = 0; turns.length < limit; round += 1) {
+    let took = false;
+    for (const queue of queues) {
+      const appointmentId = queue.due[round];
+      if (appointmentId === undefined || turns.length >= limit) continue;
+      turns.push({ clinicId: queue.clinicId, appointmentId });
+      took = true;
+    }
+    if (!took) break;
+  }
+
+  for (const { clinicId, appointmentId } of turns) {
+    result.attempted += 1;
+    try {
+      const outcome = await writeToCalendar(clinicId, appointmentId, { actor, now });
+      if (outcome === "written") result.written += 1;
+      else if (outcome === "failed") result.failed += 1;
+      else result.unknown += 1;
+    } catch (error) {
+      result.errors += 1;
+      log.error("desk write sweep could not retry a write", {
+        clinicId,
+        error: describeError(error),
+      });
     }
   }
   return result;

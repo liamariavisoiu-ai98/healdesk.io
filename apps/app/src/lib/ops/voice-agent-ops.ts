@@ -1,6 +1,7 @@
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
 import {
+  clearVoiceDriftFlag,
   provisionVoiceAgent,
   verifyVoiceAgent,
   voiceAgentRow,
@@ -27,6 +28,13 @@ import { audit, clinicById, ok, opsProblem, stringArg, UUID_SHAPED, type Operato
  *   - `retryVoiceAgent`: one more provisioning run for a clinic whose last
  *     one failed, under every guard a scheduled run has (the owner's switch,
  *     the paid invoice, the daily cap). A security event naming the operator.
+ *   - `clearVoiceDriftFlag` (design E3 §2.4): a flagged clinic's flag
+ *     cleared and the drift check run once (lib/voice/provision.ts). A step-up
+ *     act: the operator's fresh authenticator code is checked on apps/web
+ *     before the signed request is sent (apps/web lib/admin/fresh-code.ts, as
+ *     for the address change and the device acts), so the code never crosses
+ *     and this side never sees it. Never re-creates an agent or a number. A
+ *     security event naming the operator, whatever the outcome.
  */
 
 let depsForTests: ProvisionDeps | undefined;
@@ -71,5 +79,24 @@ export async function opRetryVoiceAgent(args: Record<string, unknown>, operator:
   } catch (error) {
     log.error("voice agent retry failed", { clinicId, error: describeError(error) });
     return opsProblem("The voice agent could not be provisioned.", 500, "failed");
+  }
+}
+
+export async function opClearVoiceDriftFlag(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
+  const clinicId = stringArg(args, "clinicId", 64);
+  if (!clinicId || !UUID_SHAPED.test(clinicId)) return opsProblem("A clinic id is required.", 400, "invalid_args");
+  if (!(await clinicById(clinicId))) return ok({ outcome: "not_found" });
+  try {
+    const result = await clearVoiceDriftFlag(clinicId, depsForTests);
+    await audit(operator, "voice_drift_flag_cleared", {
+      clinicId,
+      outcome: result.outcome,
+      ...(result.outcome === "cleared" ? { check: result.check } : {}),
+      ...("problems" in result && result.problems.length > 0 ? { problems: result.problems } : {}),
+    });
+    return ok(result);
+  } catch (error) {
+    log.error("voice drift flag not cleared", { clinicId, error: describeError(error) });
+    return opsProblem("The voice drift flag could not be cleared.", 500, "failed");
   }
 }

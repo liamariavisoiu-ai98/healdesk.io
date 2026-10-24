@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { getPlan, type AssistantLanguage } from "@healdesk/catalog";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { clinicProviders, clinics, entitlements, voiceAgents, type VoiceAgentRow, type VoiceEngine } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
@@ -62,6 +62,8 @@ import {
  *   - checkVoiceAgentDrift: nightly, reads a ready agent and number back,
  *     re-applies the configuration when Retell's copy drifted, tells ops
  *     once per drift, and after MAX_DRIFT_REPAIRS flags it for a person.
+ *   - clearVoiceDriftFlag: an operator's clear of that flag, then the check
+ *     once; never re-creates an agent or a number.
  *   - deprovisionVoiceAgent: once the clinic's service has ended and its
  *     pass-through is over (the offboarding flow's own clock), releases the
  *     number and deletes the agent, idempotently.
@@ -104,6 +106,8 @@ const ACTOR: ActorContext = { type: "service", serviceName: "voice-provisioning"
 
 /** Drift repairs in a row before a person must look. */
 export const MAX_DRIFT_REPAIRS = 3;
+/** Our own note on a flagged clinic's last error, which clearing the flag drops. */
+const DRIFT_NOTE = "drift left for a person";
 export const DEFAULT_DAILY_CAP = 20;
 
 /**
@@ -786,7 +790,7 @@ export async function checkVoiceAgentDrift(clinicId: string, deps: ProvisionDeps
     const code = back.problems[0]!;
     const unrepairable = !back.agentExists || !back.numberExists;
     if (unrepairable || row.driftRepairs >= MAX_DRIFT_REPAIRS) {
-      await update(clinicId, { driftFlaggedAt: now(), lastError: `drift left for a person: ${back.problems.join(", ")}`.slice(0, 200) }, "drift_flagged");
+      await update(clinicId, { driftFlaggedAt: now(), lastError: `${DRIFT_NOTE}: ${back.problems.join(", ")}`.slice(0, 200) }, "drift_flagged");
       await notifyOpsOnce("voice_agent_drift", { clinicId, code, status: "flagged", count: row.driftRepairs });
       return { outcome: "flagged", problems: back.problems };
     }
@@ -804,6 +808,69 @@ export async function checkVoiceAgentDrift(clinicId: string, deps: ProvisionDeps
     const r = reasonOf(error);
     log.error("voice agent drift check failed", { clinicId, code: r.code, error: describeError(error) });
     return { outcome: "failed", reason: r.reason };
+  }
+}
+
+/** What clearing a drift flag found (lib/ops/voice-agent-ops.ts, `clearVoiceDriftFlag`). */
+export type ClearDriftOutcome =
+  /** No voice agent row for the clinic. */
+  | { outcome: "not_found" }
+  /** Nothing to clear: the clinic was not flagged. Nothing was changed. */
+  | { outcome: "not_flagged" }
+  /** Cleared, and the drift check ran once: clean, repaired, skipped (and why not) or failed to read. */
+  | { outcome: "cleared"; check: "clean" | "repaired" | "skipped" | "failed"; problems: VoiceAgentProblem[] }
+  /** Cleared, and the check found what it cannot repair again (or the repairs are used up): flagged again. */
+  | { outcome: "still_drifted"; problems: VoiceAgentProblem[] };
+
+/**
+ * Clear a clinic's drift flag and run the drift check once (design E3 §2.4;
+ * ops automation Phase 5, lane P5a). A flagged clinic is skipped by the
+ * nightly check for good (checkVoiceAgentDrift), so without this it was
+ * never checked again: the operator looks, fixes what keeps changing the
+ * agent, and clears it here.
+ *
+ * It clears drift_flagged_at, resets the repair counter so the check may
+ * repair again, and drops our own "drift left for a person" note; then the
+ * check reads Retell back and repairs what re-applying can. It never
+ * re-creates a missing agent or number (that buys a number, so it is a
+ * person's call, through retryVoiceAgent): a check that finds one gone flags
+ * the clinic again, which is `still_drifted`. The clear is a compare-and-set
+ * on the flag, so two clears at once clear once.
+ */
+export async function clearVoiceDriftFlag(clinicId: string, deps: ProvisionDeps = {}): Promise<ClearDriftOutcome> {
+  const cleared = await withTenant({ clinicId, actor: ACTOR }, async (tx) => {
+    const [row] = await tx.db
+      .select({ flagged: voiceAgents.driftFlaggedAt, lastError: voiceAgents.lastError })
+      .from(voiceAgents)
+      .where(eq(voiceAgents.clinicId, tx.clinicId))
+      .limit(1);
+    if (!row) return "not_found" as const;
+    if (!row.flagged) return "not_flagged" as const;
+    const done = await tx.db
+      .update(voiceAgents)
+      .set({
+        driftFlaggedAt: null,
+        driftRepairs: 0,
+        ...(row.lastError?.startsWith(DRIFT_NOTE) ? { lastError: null } : {}),
+        updatedAt: sql`clock_timestamp()`,
+      })
+      .where(and(eq(voiceAgents.clinicId, tx.clinicId), isNotNull(voiceAgents.driftFlaggedAt)))
+      .returning({ id: voiceAgents.clinicId });
+    if (done.length === 0) return "not_flagged" as const;
+    tx.audit.record({ action: "update", resourceType: "voice_agent", resourceId: tx.clinicId, metadata: { step: "drift_flag_cleared" } });
+    return "cleared" as const;
+  });
+  if (cleared !== "cleared") return { outcome: cleared };
+  const check = await checkVoiceAgentDrift(clinicId, deps);
+  switch (check.outcome) {
+    case "flagged":
+      return { outcome: "still_drifted", problems: check.problems };
+    case "repaired":
+      return { outcome: "cleared", check: "repaired", problems: check.problems };
+    case "clean":
+    case "skipped":
+    case "failed":
+      return { outcome: "cleared", check: check.outcome, problems: [] };
   }
 }
 

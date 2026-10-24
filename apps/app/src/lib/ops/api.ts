@@ -139,6 +139,9 @@ import {
 import { keyPresence } from "@/lib/ops/key-presence";
 import { opDeleteRecordedCall, opListRecordingAlerts } from "@/lib/ops/recording-alerts-ops";
 import { opRetryVoiceAgent, opVoiceAgentStatus } from "@/lib/ops/voice-agent-ops";
+import { opClearVoiceDriftFlag } from "@/lib/ops/voice-agent-ops";
+import { opListStuckCalendarWrites } from "@/lib/ops/stuck-writes-ops";
+import { opListUndeliveredTranscripts } from "@/lib/ops/transcript-watch-ops";
 import { opListClinicStrip } from "@/lib/ops/strip";
 import { opOpsInbox } from "@/lib/ops/inbox/run";
 import { opClinicAudits, opRunClinicAudit } from "@/lib/ops/audit-ops";
@@ -650,6 +653,17 @@ const OPERATIONS = [
   "listLifecycleWaves",
   "snoozeLifecycle",
   "decideLifecycle",
+  // The cross-clinic monitors (ops automation Phase 5, lane P5a; design E3
+  // §2.3, §2.4): every desk booking whose calendar write has not settled
+  // (lib/ops/stuck-writes-ops.ts), every clinic with transcript copies that
+  // never reached it (lib/ops/transcript-watch-ops.ts), both ids, codes,
+  // counts, whole days and the clinic's own name; and a voice drift flag
+  // cleared and the drift check run once (lib/ops/voice-agent-ops.ts), after
+  // the operator's fresh authenticator code on apps/web. Never a patient, a
+  // copy, a recipient, a number or a time of day.
+  "listStuckCalendarWrites",
+  "listUndeliveredTranscripts",
+  "clearVoiceDriftFlag",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -789,6 +803,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   // Mutating: a clinic's ops waves snoozed, or its setup decision recorded.
   "snoozeLifecycle",
   "decideLifecycle",
+  // Mutating: a voice drift flag cleared, and Retell's copy repaired by the check.
+  "clearVoiceDriftFlag",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1430,6 +1446,12 @@ export async function runOperation(
       return opSnoozeLifecycle(args, operator);
     case "decideLifecycle":
       return opDecideLifecycle(args, operator);
+    case "listStuckCalendarWrites":
+      return opListStuckCalendarWrites(args, operator);
+    case "listUndeliveredTranscripts":
+      return opListUndeliveredTranscripts(args, operator);
+    case "clearVoiceDriftFlag":
+      return opClearVoiceDriftFlag(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

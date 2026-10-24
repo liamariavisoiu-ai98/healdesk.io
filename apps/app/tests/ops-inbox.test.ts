@@ -194,6 +194,7 @@ describe("the inbox's order (pure)", () => {
       "the site reads",
       "the availability audits",
       "the setup decisions",
+      "the transcript deliveries",
     ]);
     expect([...INBOX_KINDS]).toEqual([
       "ops_alert",

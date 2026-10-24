@@ -2,8 +2,9 @@ import { and, eq, gt, inArray, sql } from "drizzle-orm";
 
 import { appointments } from "@/db/schema";
 import {
-  DESK_SWEEP_LOOKBACK_HOURS,
   MAX_WRITE_ATTEMPTS,
+  NEVER_RETRIED_REASONS,
+  STUCK_CLAIM_MINUTES,
   WRITABLE_APPOINTMENT_STATUSES,
 } from "@/lib/booking/calendar";
 import { describeError, log } from "@/lib/log";
@@ -25,10 +26,10 @@ import {
  * A booking the desk confirmed is written into the location's Google
  * Calendar by writeToCalendar (lib/booking/calendar.ts). When Google refuses
  * it, the row ends `failed` and nothing retries it on its own; when Google's
- * answer never came, it is `unknown` and the desk sweep tries again, five
- * attempts at most, and only for writes touched in the last
- * DESK_SWEEP_LOOKBACK_HOURS. Either way the desk page says to add the
- * booking by hand, and until now nobody at healdesk heard of it.
+ * answer never came, it is `unknown` and the desk sweep tries again on its
+ * ladder (+2 min, +10 min, +30 min, +2 h, +6 h), five attempts at most, for
+ * as long as the slot has not started. Either way the desk page says to add
+ * the booking by hand, and until now nobody at healdesk heard of it.
  *
  * This raises calendar_write_stuck, once per write, state and attempt
  * count, through notifyOpsOnce (emailed, and posted to Slack, with the
@@ -36,18 +37,21 @@ import {
  * its console link), for each booking still on whose write is:
  *
  *   - `failed`: settled, never retried without an operator;
- *   - `unknown` at the five attempts: the sweep has stopped;
- *   - `unknown`, or a claim left `writing`, untouched for longer than the
- *     sweep's look-back: the sweep no longer sees it, so without this it
- *     would be missed for good.
+ *   - `unknown`, or a claim stuck `writing`, at the five attempts: the sweep
+ *     has stopped;
+ *   - `unknown`, or a claim stuck `writing`, whose slot has started before
+ *     it settled, or whose reason is one the sweep never retries: the sweep
+ *     no longer takes it, so without this it would be missed for good.
  *
- * Its own look-back is ALERT_LOOKBACK_DAYS, well past the sweep's 24 hours,
- * so a write the sweep gives up on by age is still caught by a run that
- * comes days later (a worker down for a weekend), and the once-per-key
- * alert makes every rerun a no-op. It reads, and alerts ops; it never
- * retries a write (the retry ladder is a later phase) and never contacts
- * anyone else. Hourly from the tick, unswitched, like the sweeps that only
- * tell ops.
+ * An `unknown` write still waiting for its next attempt on the ladder (fewer
+ * than five, the slot ahead) is not alerted: the sweep will try it again.
+ * A `writing` claim younger than STUCK_CLAIM_MINUTES is an attempt in flight.
+ *
+ * Its look-back is ALERT_LOOKBACK_DAYS, so a run that comes days later (a
+ * worker down for a weekend) still catches a write given up on, and the
+ * once-per-key alert makes every rerun a no-op. It reads, and alerts ops; it
+ * never retries a write and never contacts anyone else. Hourly from the
+ * tick, unswitched, like the sweeps that only tell ops.
  */
 
 /** How far back a settled or abandoned write is still alerted. Days, not hours: see above. */
@@ -71,7 +75,10 @@ export async function alertStuckCalendarWrites(now: Date = new Date()): Promise<
   const result: CalendarWriteAlertsResult = { clinics: 0, found: 0, covered: 0, failures: 0 };
   const found: OpsFields[] = [];
   const since = new Date(now.getTime() - ALERT_LOOKBACK_DAYS * 24 * 3_600_000);
-  const sweepSince = new Date(now.getTime() - DESK_SWEEP_LOOKBACK_HOURS * 3_600_000);
+  const settled = sql.join(
+    NEVER_RETRIED_REASONS.map((reason) => sql`${reason}`),
+    sql`, `,
+  );
 
   let clinicIds: string[];
   try {
@@ -99,11 +106,13 @@ export async function alertStuckCalendarWrites(now: Date = new Date()): Promise<
               gt(appointments.updatedAt, since),
               inArray(appointments.status, [...WRITABLE_APPOINTMENT_STATUSES]),
               sql`(${appointments.calendarWriteStatus} = 'failed'
-                   or (${appointments.calendarWriteStatus} = 'unknown'
+                   or ((${appointments.calendarWriteStatus} = 'unknown'
+                        or (${appointments.calendarWriteStatus} = 'writing'
+                            and coalesce(${appointments.calendarWriteClaimedAt}, ${appointments.updatedAt})
+                                < ${now}::timestamptz - make_interval(mins => ${STUCK_CLAIM_MINUTES})))
                        and (${appointments.calendarWriteAttempts} >= ${MAX_WRITE_ATTEMPTS}
-                            or ${appointments.updatedAt} <= ${sweepSince}))
-                   or (${appointments.calendarWriteStatus} = 'writing'
-                       and ${appointments.updatedAt} <= ${sweepSince}))`,
+                            or ${appointments.scheduledFor} <= ${now}
+                            or coalesce(${appointments.calendarWriteError}, '') in (${settled}))))`,
             ),
           ),
       );

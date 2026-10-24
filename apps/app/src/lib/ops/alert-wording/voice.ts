@@ -28,7 +28,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // hung_up). It is written to the ops log before it emails, so while the
   // database hangs it waits with it.
   voice_call_start_failed: {
-    title: "A call started while AYA could not read the database",
+    title: "A call started while the database was down",
     whatHappened:
       "A call came in for {clinicName} and the voice process could not read the clinic's settings in time. The caller was sent to the clinic's direct line where one was known, heard a closing line, or had hung up before either.",
     whyItMatters:
@@ -151,7 +151,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // (phase check_failed), and the caller was transferred or the call closed
   // (code). Nothing of the call was kept.
   voice_test_mode_refused: {
-    title: "A clinic's call reached AYA while real calls are off",
+    title: "A call reached AYA while real calls are off",
     whatHappened:
       "Real calls are switched off, so the voice line answers only our demo clinic. A call for {clinicName} reached it anyway and was refused before AYA said a word: the caller heard one fixed line and was put through to the clinic's direct line, or heard the closing line and the call ended. Nothing of the call was kept.",
     whyItMatters:

@@ -21,7 +21,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // L32's clock (lib/patient-rights/patient-requests.ts), once per request
   // each: the clinic's and the request's ids.
   patient_request_due_soon: {
-    title: "A patient's request is due next business day: pass it on",
+    title: "A patient's request is due next business day",
     whatHappened:
       "A patient asked healdesk, not the clinic, for something about their information, and we recorded it for {clinicName}. The agreement has us pass it on within five business days, and the next business day is the last. The practice has had our email and its reminders and has not marked the request received in its portal.",
     whyItMatters:
@@ -33,7 +33,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     ],
   },
   patient_request_past_due: {
-    title: "A patient's request is past its five business days",
+    title: "A patient's request is past its due day",
     whatHappened:
       "A request a patient made to healdesk about {clinicName} is past the five business days the agreement gives us to pass it on, and nobody at the practice has marked it received in its portal. The practice gets no more reminders; a person passes it on now.",
     whyItMatters:

@@ -6,6 +6,7 @@ import type { AlertWording } from "./types";
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   setup_request_reply_past_due: {
     title: "A setup request is still waiting for our reply",
+    headline: "{business} is still waiting for our reply to its setup request",
     whatHappened:
       "A clinic asked us to set up AYA[: {business}]. We promised to reply[ by {promisedOn}], and that day has passed. Nobody has sent a setup link or declined the request yet.",
     whyItMatters:
@@ -23,7 +24,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // without an account" counts the order, and nothing in the console replays
   // the payment.
   provisioning_follow_up_past_due: {
-    title: "An order's sign-in link is past the day we promised",
+    title: "A paid order's sign-in link is overdue",
     whatHappened:
       "A clinic paid for AYA, but its account could not be created, so we emailed the buyer that their sign-in link would come by the next business day. That day has passed and the account still does not exist.",
     whyItMatters:
@@ -55,7 +56,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // (agent_configs.services, read by readKnowledge), used only once the
   // practice questions have approved the script.
   assistant_knows_no_services: {
-    title: "AYA is answering a clinic with no services to offer",
+    title: "AYA is answering with no services to offer",
     whatHappened:
       "A call or website chat was just answered for {clinicName} while AYA knew no service or price. She can only offer a consultation, and a caller asking what the practice does hears that she cannot say.",
     whyItMatters:

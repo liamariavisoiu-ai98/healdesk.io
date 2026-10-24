@@ -18,7 +18,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // did not match, or its terms moved on. `field` and `source` say which; the
   // buyer is emailed (B3) only where the purchase itself was found.
   provisioning_rejected: {
-    title: "A paid order was refused before its account was made",
+    title: "A paid order was refused: no account made",
     whatHappened:
       "Someone paid for AYA, and the account could not be made: the order was missing something, could not be found, or its records did not match what was paid. If the order itself was found, the buyer has been emailed that one step is left on our side, with the next business day as the day we will write by. Otherwise nobody has written to them.",
     whyItMatters:

@@ -914,12 +914,13 @@ describe("ops alerts beyond the fixture", () => {
       },
       contextFor("ops_alert"),
     );
-    for (const body of [text, preheader]) {
-      expect(body).toContain("Deliver this practice's export");
-      expect(body).toContain("whether or not it asks");
-      expect(body).toContain("Terms §7");
-      expect(body).not.toMatch(/asked for/);
-    }
+    // Since lane N4 the preheader is the urgency and the headline; the
+    // instruction is in the email's text, and it is urgent.
+    expect(preheader).toBe("URGENT: A leaving practice has not had its export yet");
+    expect(text).toContain("Deliver this practice's export");
+    expect(text).toContain("whether or not it asks");
+    expect(text).toContain("Terms §7");
+    for (const body of [text, preheader]) expect(body).not.toMatch(/asked for/);
   });
 
   test("a subscription's end processed over a week late: the snapshot", () => {

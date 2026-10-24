@@ -56,7 +56,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // day if the export is recorded by then, at the next hourly run if it is
   // recorded later, and on the ninety days' last day whether or not it was.
   export_due_undelivered: {
-    title: "A leaving practice's export is due and not delivered",
+    title: "A leaving practice's export is not delivered",
     whatHappened:
       "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement promises the export within thirty days of the end, without being asked.[ It is due by {exportDueAt}.][ The data waits for it until {destroyAt} at the latest.] Offboarding on its Care tab shows both days.",
     whyItMatters:

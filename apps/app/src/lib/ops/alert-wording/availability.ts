@@ -14,6 +14,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // a zero.
   clinic_availability_changed: {
     title: "A clinic's booking hours or providers changed",
+    headline: "{clinicName} changed its {section}[, {count:change} in all]",
     whatHappened:
       "{clinicName}'s {section} changed[, {count:change} in all].[ It added {written:closed day}.][ It took off {deleted:closed day}.] AYA uses the change for bookings straight away.",
     whyItMatters:

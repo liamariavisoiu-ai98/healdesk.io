@@ -30,6 +30,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // allowance is `allow` by default (db/schema.ts entitlements.overageMode).
   usage_near_cap: {
     title: "A clinic is close to its monthly allowance",
+    headline: "{clinicName} has used {percent} of its {meter} for this billing period",
     whatHappened:
       "{clinicName} has used {percent} of the {meter} its plan includes for this billing period[: {used} of {included}][, counted since {windowStart}].",
     whyItMatters:

@@ -65,7 +65,8 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // rules give once an operator has recorded that decision, and the day-22
   // wave still fires then, so the wording points at Decision so far.
   lifecycle_decision_due: {
-    title: "A stalled setup closes soon: decide what to offer",
+    title: "A stalled setup closes soon: what to offer",
+    headline: "{clinicName} has {remainingDays:day} left to set up AYA, with {stepsLeftCount:step} to go",
     whatHappened:
       "{clinicName} has {remainingDays:day} left (0 means today is the last day) to finish setting up AYA, with {stepsLeftCount:step} still to do.[ It has made no progress for {noProgressDays:day}.]",
     whyItMatters: `${CLOSURE}[?recommendation=extend: Our rules suggest giving it more time.][?recommendation=offer_call: Our rules suggest offering a short call.][?recommendation=phone_the_clinic: Our rules suggest phoning the clinic first.][?recommendation=wait: Our rules suggest waiting a few more days.][?recommendation=let_close: Our rules suggest letting it close, or it was already decided: Decision so far on the card says which.]`,
@@ -81,7 +82,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // Days 27 and 30 for a clinic that has done its part and waits on us. An
   // escalation, whatever was decided before: a closure now would be our delay.
   lifecycle_closing_waiting_on_us: {
-    title: "A clinic waiting on us is about to lose its setup window",
+    title: "A setup waiting on us is about to close",
     whatHappened:
       "{clinicName} has finished every setup step it can and has waited on us for {waitedDays:day} to finish a channel. Its setup window has {remainingDays:day} left (0 means today is the last day).",
     whyItMatters:

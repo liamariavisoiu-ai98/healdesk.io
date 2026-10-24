@@ -4385,7 +4385,7 @@ exports[`each template's output > ops_alert, for clients: the snapshot 1`] = `
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="supported-color-schemes" content="light dark">
-<title>healdesk ops: A critical email has not gone out</title>
+<title>healdesk ops: URGENT: A critical email has not gone out</title>
 <style>@media (prefers-color-scheme: dark) {
   body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
   .hd-muted { color: #9da7b3 !important; }
@@ -4394,16 +4394,21 @@ exports[`each template's output > ops_alert, for clients: the snapshot 1`] = `
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">An email this clinic must get at once was due ten minutes ago and is still unsent. It is a payment-failed notice. Until it goes, the health check reads red.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">URGENT: This clinic has not received a payment-failed notice: 10 minutes late, still retrying</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">An email this clinic must get at once was due ten minutes ago and is still unsent. It is a payment-failed notice. Until it goes, the health check reads red.</p>
+<p style="margin:0 0 8px;"><span style="display:inline-block;background:#cf222e;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.08em;padding:2px 8px;border-radius:4px;">URGENT</span></p>
+<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">This clinic has not received <strong>a payment-failed notice</strong>: 10 minutes late, still retrying</p>
+<div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:#1f2328;border:1px solid #d4a72c;border-radius:6px;"><p style="margin:0 0 6px;color:#1f2328;"><strong>Do this first</strong></p><p style="margin:0;color:#1f2328;">Open the clinic&#39;s <strong><u>Deliveries tab</u></strong> and find the email under <strong><u>Billing emails</u></strong>: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.</p></div>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">
+<p class="hd-muted" style="margin:0 0 12px;color:#57606a;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">More detail</p>
+<p style="margin:0 0 16px;">Until it goes, the health check reads red.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Attempts:</strong> 3</p>
 <p style="margin:0 0 4px;"><strong>Status:</strong> late, still being retried</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
-<p style="margin:0 0 16px;">Why it matters: The clinic is acting without something it should know right now: a card to fix, a suspension sending its calls to its direct line, an urgent message from a patient.</p>
-<p style="margin:0 0 16px;">What to do:<br>1. Open the clinic&#39;s Deliveries tab and find the email under Billing emails: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.<br>2. Check the Jobs page under System: the email is retried only while the billing-notices row reads on. If it reads off, ask the owner before pressing Turn on, which sends every waiting email to every clinic.<br>3. Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab (its published number under Phone line on the Setup tab if none is on file), if the email still has not gone an hour later, or at once for an urgent kind. Tell them what it would have said; its kind on the row tells you which.<br>4. Check the Deliveries tab again. You are done when the row shows a sent time, or the clinic has been told by phone.</p>
-<p style="margin:0 0 16px;">Alert code: critical_notice_undelivered</p>
+<p style="margin:0 0 16px;"><strong>Why it matters:</strong> The clinic is acting without something it should know right now: a card to fix, a suspension sending its calls to its direct line, an urgent message from a patient.</p>
+<p style="margin:0 0 16px;"><strong>Then:</strong><br>2. Check the <strong><u>Jobs page</u></strong> under System: the email is retried only while the billing-notices row reads on. If it reads off, ask the owner before pressing <strong><u>Turn on</u></strong>, which sends every waiting email to every clinic.<br>3. Phone the clinic on its direct line, shown under <strong><u>Pause AI and the direct line</u></strong> on its <strong><u>Billing tab</u></strong> (its published number under <strong><u>Phone line</u></strong> on the <strong><u>Setup tab</u></strong> if none is on file), if the email still has not gone an hour later, or at once for an urgent kind. Tell them what it would have said; its kind on the row tells you which.<br>4. Check the <strong><u>Deliveries tab</u></strong> again. You are done when the row shows a sent time, or the clinic has been told by phone.</p>
+<p class="hd-muted" style="margin:16px 0 0;color:#57606a;font-size:13px;">Alert code: critical_notice_undelivered</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
@@ -4411,19 +4416,24 @@ exports[`each template's output > ops_alert, for clients: the snapshot 1`] = `
 </div>
 </body>
 </html>",
-  "preheader": "An email this clinic must get at once was due ten minutes ago and is still unsent. It is a payment-failed notice. Until it goes, the health check reads red.",
-  "subject": "healdesk ops: A critical email has not gone out",
-  "text": "An email this clinic must get at once was due ten minutes ago and is still unsent. It is a payment-failed notice. Until it goes, the health check reads red.
+  "preheader": "URGENT: This clinic has not received a payment-failed notice: 10 minutes late, still retrying",
+  "subject": "healdesk ops: URGENT: A critical email has not gone out",
+  "text": "URGENT: This clinic has not received a payment-failed notice: 10 minutes late, still retrying
+
+DO THIS FIRST: Open the clinic's Deliveries tab and find the email under Billing emails: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.
+
+MORE DETAIL
+
+Until it goes, the health check reads red.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
 Attempts: 3
 Status: late, still being retried
 Raised: 6 Oct
 
-Why it matters: The clinic is acting without something it should know right now: a card to fix, a suspension sending its calls to its direct line, an urgent message from a patient.
+WHY IT MATTERS: The clinic is acting without something it should know right now: a card to fix, a suspension sending its calls to its direct line, an urgent message from a patient.
 
-What to do:
-1. Open the clinic's Deliveries tab and find the email under Billing emails: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.
+THEN:
 2. Check the Jobs page under System: the email is retried only while the billing-notices row reads on. If it reads off, ask the owner before pressing Turn on, which sends every waiting email to every clinic.
 3. Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab (its published number under Phone line on the Setup tab if none is on file), if the email still has not gone an hour later, or at once for an urgent kind. Tell them what it would have said; its kind on the row tells you which.
 4. Check the Deliveries tab again. You are done when the row shows a sent time, or the clinic has been told by phone.
@@ -4447,7 +4457,7 @@ exports[`each template's output > ops_alert, for patients: the snapshot 1`] = `
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="supported-color-schemes" content="light dark">
-<title>healdesk ops: A critical email has not gone out</title>
+<title>healdesk ops: URGENT: A critical email has not gone out</title>
 <style>@media (prefers-color-scheme: dark) {
   body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
   .hd-muted { color: #9da7b3 !important; }
@@ -4456,16 +4466,21 @@ exports[`each template's output > ops_alert, for patients: the snapshot 1`] = `
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">An email this clinic must get at once was due ten minutes ago and is still unsent. It is a payment-failed notice. Until it goes, the health check reads red.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">URGENT: This clinic has not received a payment-failed notice: 10 minutes late, still retrying</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">An email this clinic must get at once was due ten minutes ago and is still unsent. It is a payment-failed notice. Until it goes, the health check reads red.</p>
+<p style="margin:0 0 8px;"><span style="display:inline-block;background:#cf222e;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.08em;padding:2px 8px;border-radius:4px;">URGENT</span></p>
+<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">This clinic has not received <strong>a payment-failed notice</strong>: 10 minutes late, still retrying</p>
+<div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:#1f2328;border:1px solid #d4a72c;border-radius:6px;"><p style="margin:0 0 6px;color:#1f2328;"><strong>Do this first</strong></p><p style="margin:0;color:#1f2328;">Open the clinic&#39;s <strong><u>Deliveries tab</u></strong> and find the email under <strong><u>Billing emails</u></strong>: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.</p></div>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">
+<p class="hd-muted" style="margin:0 0 12px;color:#57606a;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">More detail</p>
+<p style="margin:0 0 16px;">Until it goes, the health check reads red.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Attempts:</strong> 3</p>
 <p style="margin:0 0 4px;"><strong>Status:</strong> late, still being retried</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
-<p style="margin:0 0 16px;">Why it matters: The clinic is acting without something it should know right now: a card to fix, a suspension sending its calls to its direct line, an urgent message from a patient.</p>
-<p style="margin:0 0 16px;">What to do:<br>1. Open the clinic&#39;s Deliveries tab and find the email under Billing emails: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.<br>2. Check the Jobs page under System: the email is retried only while the billing-notices row reads on. If it reads off, ask the owner before pressing Turn on, which sends every waiting email to every clinic.<br>3. Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab (its published number under Phone line on the Setup tab if none is on file), if the email still has not gone an hour later, or at once for an urgent kind. Tell them what it would have said; its kind on the row tells you which.<br>4. Check the Deliveries tab again. You are done when the row shows a sent time, or the clinic has been told by phone.</p>
-<p style="margin:0 0 16px;">Alert code: critical_notice_undelivered</p>
+<p style="margin:0 0 16px;"><strong>Why it matters:</strong> The clinic is acting without something it should know right now: a card to fix, a suspension sending its calls to its direct line, an urgent message from a patient.</p>
+<p style="margin:0 0 16px;"><strong>Then:</strong><br>2. Check the <strong><u>Jobs page</u></strong> under System: the email is retried only while the billing-notices row reads on. If it reads off, ask the owner before pressing <strong><u>Turn on</u></strong>, which sends every waiting email to every clinic.<br>3. Phone the clinic on its direct line, shown under <strong><u>Pause AI and the direct line</u></strong> on its <strong><u>Billing tab</u></strong> (its published number under <strong><u>Phone line</u></strong> on the <strong><u>Setup tab</u></strong> if none is on file), if the email still has not gone an hour later, or at once for an urgent kind. Tell them what it would have said; its kind on the row tells you which.<br>4. Check the <strong><u>Deliveries tab</u></strong> again. You are done when the row shows a sent time, or the clinic has been told by phone.</p>
+<p class="hd-muted" style="margin:16px 0 0;color:#57606a;font-size:13px;">Alert code: critical_notice_undelivered</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -4473,19 +4488,24 @@ exports[`each template's output > ops_alert, for patients: the snapshot 1`] = `
 </div>
 </body>
 </html>",
-  "preheader": "An email this clinic must get at once was due ten minutes ago and is still unsent. It is a payment-failed notice. Until it goes, the health check reads red.",
-  "subject": "healdesk ops: A critical email has not gone out",
-  "text": "An email this clinic must get at once was due ten minutes ago and is still unsent. It is a payment-failed notice. Until it goes, the health check reads red.
+  "preheader": "URGENT: This clinic has not received a payment-failed notice: 10 minutes late, still retrying",
+  "subject": "healdesk ops: URGENT: A critical email has not gone out",
+  "text": "URGENT: This clinic has not received a payment-failed notice: 10 minutes late, still retrying
+
+DO THIS FIRST: Open the clinic's Deliveries tab and find the email under Billing emails: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.
+
+MORE DETAIL
+
+Until it goes, the health check reads red.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
 Attempts: 3
 Status: late, still being retried
 Raised: 6 Oct
 
-Why it matters: The clinic is acting without something it should know right now: a card to fix, a suspension sending its calls to its direct line, an urgent message from a patient.
+WHY IT MATTERS: The clinic is acting without something it should know right now: a card to fix, a suspension sending its calls to its direct line, an urgent message from a patient.
 
-What to do:
-1. Open the clinic's Deliveries tab and find the email under Billing emails: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.
+THEN:
 2. Check the Jobs page under System: the email is retried only while the billing-notices row reads on. If it reads off, ask the owner before pressing Turn on, which sends every waiting email to every clinic.
 3. Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab (its published number under Phone line on the Setup tab if none is on file), if the email still has not gone an hour later, or at once for an urgent kind. Tell them what it would have said; its kind on the row tells you which.
 4. Check the Deliveries tab again. You are done when the row shows a sent time, or the clinic has been told by phone.
@@ -8799,7 +8819,7 @@ exports[`ops alerts beyond the fixture > a leaving practice with no export deliv
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="supported-color-schemes" content="light dark">
-<title>healdesk ops: A leaving practice has not had its export yet</title>
+<title>healdesk ops: URGENT: A leaving practice has not had its export yet</title>
 <style>@media (prefers-color-scheme: dark) {
   body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
   .hd-muted { color: #9da7b3 !important; }
@@ -8808,14 +8828,19 @@ exports[`ops alerts beyond the fixture > a leaving practice with no export deliv
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">This clinic has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed on 30 Nov, as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice&#39;s export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">URGENT: A leaving practice has not had its export yet</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">This clinic has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed on 30 Nov, as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice&#39;s export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.</p>
+<p style="margin:0 0 8px;"><span style="display:inline-block;background:#cf222e;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.08em;padding:2px 8px;border-radius:4px;">URGENT</span></p>
+<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">A leaving practice has not had its export yet</p>
+<div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:#1f2328;border:1px solid #d4a72c;border-radius:6px;"><p style="margin:0 0 6px;color:#1f2328;"><strong>Do this first</strong></p><p style="margin:0;color:#1f2328;">Open the clinic&#39;s <strong><u>Care tab</u></strong> and read <strong><u>Offboarding</u></strong>: the rule, the day the data is destroyed, and whether the export is recorded as delivered.</p></div>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">
+<p class="hd-muted" style="margin:0 0 12px;color:#57606a;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">More detail</p>
+<p style="margin:0 0 16px;">This clinic has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed on <mark style="background:#fff3a3;color:#1f2328;padding:0 2px;">30 Nov</mark>, as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice&#39;s export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
-<p style="margin:0 0 16px;">Why it matters: The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.</p>
-<p style="margin:0 0 16px;">What to do:<br>1. Open the clinic&#39;s Care tab and read Offboarding: the rule, the day the data is destroyed, and whether the export is recorded as delivered.<br>2. Ask the practice, on its published number shown under Phone line on its Setup tab, to press Download every record under Conversations in its portal. A download that arrives in full records the export as delivered by itself: that is the safest route.<br>3. Deliver the export yourself only if the practice cannot: the bundle is made on the AWS host by the one-off patient-export task, run from the task script with the clinic&#39;s id, which needs AWS access, so ask the owner to run it. Not the npm command the Offboarding card shows. Hand it over by the secure channel our incident procedure names; producing it records nothing.<br>4. Press Record export delivered under Offboarding on the Care tab, saying how it was handed over, only for a bundle you handed over yourself: the portal download records itself. Do not press it before the practice has the bundle.<br>5. Check Offboarding on the clinic&#39;s Care tab. You are done when it shows Export delivered, before the destruction day.</p>
-<p style="margin:0 0 16px;">Alert code: export_undelivered_before_destruction</p>
+<p style="margin:0 0 16px;"><strong>Why it matters:</strong> The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.</p>
+<p style="margin:0 0 16px;"><strong>Then:</strong><br>2. Ask the practice, on its published number shown under <strong><u>Phone line</u></strong> on its <strong><u>Setup tab</u></strong>, to press Download every record under Conversations in its portal. A download that arrives in full records the export as delivered by itself: that is the safest route.<br>3. Deliver the export yourself only if the practice cannot: the bundle is made on the AWS host by the one-off patient-export task, run from the task script with the clinic&#39;s id, which needs AWS access, so ask the owner to run it. Not the npm command the <strong><u>Offboarding card</u></strong> shows. Hand it over by the secure channel our incident procedure names; producing it records nothing.<br>4. Press <strong><u>Record export delivered</u></strong> under <strong><u>Offboarding</u></strong> on the <strong><u>Care tab</u></strong>, saying how it was handed over, only for a bundle you handed over yourself: the portal download records itself. Do not press it before the practice has the bundle.<br>5. Check <strong><u>Offboarding</u></strong> on the clinic&#39;s <strong><u>Care tab</u></strong>. You are done when it shows Export delivered, before the destruction day.</p>
+<p class="hd-muted" style="margin:16px 0 0;color:#57606a;font-size:13px;">Alert code: export_undelivered_before_destruction</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -8823,17 +8848,22 @@ exports[`ops alerts beyond the fixture > a leaving practice with no export deliv
 </div>
 </body>
 </html>",
-  "preheader": "This clinic has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed on 30 Nov, as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.",
-  "subject": "healdesk ops: A leaving practice has not had its export yet",
-  "text": "This clinic has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed on 30 Nov, as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.
+  "preheader": "URGENT: A leaving practice has not had its export yet",
+  "subject": "healdesk ops: URGENT: A leaving practice has not had its export yet",
+  "text": "URGENT: A leaving practice has not had its export yet
+
+DO THIS FIRST: Open the clinic's Care tab and read Offboarding: the rule, the day the data is destroyed, and whether the export is recorded as delivered.
+
+MORE DETAIL
+
+This clinic has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed on 30 Nov, as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
 Raised: 6 Oct
 
-Why it matters: The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.
+WHY IT MATTERS: The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.
 
-What to do:
-1. Open the clinic's Care tab and read Offboarding: the rule, the day the data is destroyed, and whether the export is recorded as delivered.
+THEN:
 2. Ask the practice, on its published number shown under Phone line on its Setup tab, to press Download every record under Conversations in its portal. A download that arrives in full records the export as delivered by itself: that is the safest route.
 3. Deliver the export yourself only if the practice cannot: the bundle is made on the AWS host by the one-off patient-export task, run from the task script with the clinic's id, which needs AWS access, so ask the owner to run it. Not the npm command the Offboarding card shows. Hand it over by the secure channel our incident procedure names; producing it records nothing.
 4. Press Record export delivered under Offboarding on the Care tab, saying how it was handed over, only for a bundle you handed over yourself: the portal download records itself. Do not press it before the practice has the bundle.
@@ -8867,14 +8897,19 @@ exports[`ops alerts beyond the fixture > a subscription's end processed over a w
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">This clinic&#39;s subscription ended on 27 Oct, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">TODAY: A subscription&#39;s end was processed over a week late</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">This clinic&#39;s subscription ended on 27 Oct, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.</p>
+<p style="margin:0 0 8px;"><span style="display:inline-block;background:#9a6700;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.08em;padding:2px 8px;border-radius:4px;">TODAY</span></p>
+<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">A subscription&#39;s end was processed over a week late</p>
+<div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:#1f2328;border:1px solid #d4a72c;border-radius:6px;"><p style="margin:0 0 6px;color:#1f2328;"><strong>Do this first</strong></p><p style="margin:0;color:#1f2328;">Open the clinic&#39;s <strong><u>Care tab</u></strong> and read <strong><u>Offboarding</u></strong>: the day the clock started and the destruction day that follows from it.</p></div>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">
+<p class="hd-muted" style="margin:0 0 12px;color:#57606a;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">More detail</p>
+<p style="margin:0 0 16px;">This clinic&#39;s subscription ended on <strong><mark style="background:#fff3a3;color:#1f2328;padding:0 2px;">27 Oct</mark></strong>, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
-<p style="margin:0 0 16px;">Why it matters: The agreement counts destruction from the day service ended, not from when we noticed. Only the database owner can bring the destruction forward; nothing in the console can.</p>
-<p style="margin:0 0 16px;">What to do:<br>1. Open the clinic&#39;s Care tab and read Offboarding: the day the clock started and the destruction day that follows from it.<br>2. Open the clinic&#39;s Billing tab and look under Parked Stripe events for the subscription&#39;s end: an event parked and replayed late is one cause, the host being off is another.<br>3. Tell the owner, naming the clinic&#39;s Care tab and the days late, so the destruction can be brought forward in the database if the owner decides so. Do not change any date yourself.<br>4. Press Record in the Touch log on the clinic&#39;s Care tab to note it. If the clinic&#39;s account is already closed, it takes no note: tell the owner what you did instead, with no patient detail. You are done when the owner has decided whether to bring it forward.</p>
-<p style="margin:0 0 16px;">Alert code: offboarding_started_late</p>
+<p style="margin:0 0 16px;"><strong>Why it matters:</strong> The agreement counts destruction from the day service ended, not from when we noticed. Only the database owner can bring the destruction forward; nothing in the console can.</p>
+<p style="margin:0 0 16px;"><strong>Then:</strong><br>2. Open the clinic&#39;s <strong><u>Billing tab</u></strong> and look under <strong><u>Parked Stripe events</u></strong> for the subscription&#39;s end: an event parked and replayed late is one cause, the host being off is another.<br>3. Tell the owner, naming the clinic&#39;s <strong><u>Care tab</u></strong> and the days late, so the destruction can be brought forward in the database if the owner decides so. Do not change any date yourself.<br>4. Press <strong><u>Record</u></strong> in the <strong><u>Touch log</u></strong> on the clinic&#39;s <strong><u>Care tab</u></strong> to note it. If the clinic&#39;s account is already closed, it takes no note: tell the owner what you did instead, with no patient detail. You are done when the owner has decided whether to bring it forward.</p>
+<p class="hd-muted" style="margin:16px 0 0;color:#57606a;font-size:13px;">Alert code: offboarding_started_late</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -8882,17 +8917,22 @@ exports[`ops alerts beyond the fixture > a subscription's end processed over a w
 </div>
 </body>
 </html>",
-  "preheader": "This clinic's subscription ended on 27 Oct, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.",
+  "preheader": "TODAY: A subscription's end was processed over a week late",
   "subject": "healdesk ops: A subscription's end was processed over a week late",
-  "text": "This clinic's subscription ended on 27 Oct, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.
+  "text": "TODAY: A subscription's end was processed over a week late
+
+DO THIS FIRST: Open the clinic's Care tab and read Offboarding: the day the clock started and the destruction day that follows from it.
+
+MORE DETAIL
+
+This clinic's subscription ended on 27 Oct, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
 Raised: 6 Oct
 
-Why it matters: The agreement counts destruction from the day service ended, not from when we noticed. Only the database owner can bring the destruction forward; nothing in the console can.
+WHY IT MATTERS: The agreement counts destruction from the day service ended, not from when we noticed. Only the database owner can bring the destruction forward; nothing in the console can.
 
-What to do:
-1. Open the clinic's Care tab and read Offboarding: the day the clock started and the destruction day that follows from it.
+THEN:
 2. Open the clinic's Billing tab and look under Parked Stripe events for the subscription's end: an event parked and replayed late is one cause, the host being off is another.
 3. Tell the owner, naming the clinic's Care tab and the days late, so the destruction can be brought forward in the database if the owner decides so. Do not change any date yourself.
 4. Press Record in the Touch log on the clinic's Care tab to note it. If the clinic's account is already closed, it takes no note: tell the owner what you did instead, with no patient detail. You are done when the owner has decided whether to bring it forward.
@@ -8925,13 +8965,18 @@ exports[`ops alerts beyond the fixture > the DMARC review reminder: the snapshot
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Resend has been sending as healdesk.io for 14 days or more, since 6 Oct or earlier, and healdesk.io&#39;s DMARC record still says only to report, never to act. The two weeks of reports to read begin on that day.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">FYI: Time to review the DMARC reports</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Resend has been sending as healdesk.io for 14 days or more, since 6 Oct or earlier, and healdesk.io&#39;s DMARC record still says only to report, never to act. The two weeks of reports to read begin on that day.</p>
+<p style="margin:0 0 8px;"><span style="display:inline-block;background:#57606a;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.08em;padding:2px 8px;border-radius:4px;">FYI</span></p>
+<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">Time to review the DMARC reports</p>
+<div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:#1f2328;border:1px solid #d4a72c;border-radius:6px;"><p style="margin:0 0 6px;color:#1f2328;"><strong>Do this first</strong></p><p style="margin:0;color:#1f2328;">Read healdesk.io&#39;s DMARC aggregate reports from <mark style="background:#fff3a3;color:#1f2328;padding:0 2px;">6 Oct</mark> on, in the mailbox named after rua= in the DMARC record in Cloudflare. The dmarc-review row on the <strong><u>Jobs page</u></strong> under System names the same first-sending day in its note, on the run that raised this alert.</p></div>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">
+<p class="hd-muted" style="margin:0 0 12px;color:#57606a;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">More detail</p>
+<p style="margin:0 0 16px;">Resend has been sending as healdesk.io for 14 days or more, since <strong><mark style="background:#fff3a3;color:#1f2328;padding:0 2px;">6 Oct</mark></strong> or earlier, and healdesk.io&#39;s DMARC record still says only to report, never to act. The two weeks of reports to read begin on that day.</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
-<p style="margin:0 0 16px;">Why it matters: Until the record says quarantine, anyone can send mail as hello@ and inboxes will accept it. Tightening it blind could block our own mail, so the reports are read first.</p>
-<p style="margin:0 0 16px;">What to do:<br>1. Read healdesk.io&#39;s DMARC aggregate reports from 6 Oct on, in the mailbox named after rua= in the DMARC record in Cloudflare. The dmarc-review row on the Jobs page under System names the same first-sending day in its note, on the run that raised this alert.<br>2. Check the reports show only our own senders as healdesk.io: Resend, Amazon&#39;s email service (our transcripts) and the owner&#39;s own mail. The Map page under System lists the first two. Find out what anything else is before going on; do not touch the record while an unknown sender shows.<br>3. Ask the owner to change healdesk.io&#39;s DMARC record from p=none to p=quarantine in Cloudflare, which holds healdesk.io&#39;s addresses; the Map page under System lists it, and only the owner has the Cloudflare sign-in. You are done when the record reads p=quarantine. This alert is raised once only.</p>
-<p style="margin:0 0 16px;">Alert code: dmarc_review_due</p>
+<p style="margin:0 0 16px;"><strong>Why it matters:</strong> Until the record says quarantine, anyone can send mail as hello@ and inboxes will accept it. Tightening it blind could block our own mail, so the reports are read first.</p>
+<p style="margin:0 0 16px;"><strong>Then:</strong><br>2. Check the reports show only our own senders as healdesk.io: Resend, Amazon&#39;s email service (our transcripts) and the owner&#39;s own mail. The <strong><u>Map page</u></strong> under System lists the first two. Find out what anything else is before going on; do not touch the record while an unknown sender shows.<br>3. Ask the owner to change healdesk.io&#39;s DMARC record from p=none to p=quarantine in Cloudflare, which holds healdesk.io&#39;s addresses; the <strong><u>Map page</u></strong> under System lists it, and only the owner has the Cloudflare sign-in. You are done when the record reads p=quarantine. This alert is raised once only.</p>
+<p class="hd-muted" style="margin:16px 0 0;color:#57606a;font-size:13px;">Alert code: dmarc_review_due</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -8939,16 +8984,21 @@ exports[`ops alerts beyond the fixture > the DMARC review reminder: the snapshot
 </div>
 </body>
 </html>",
-  "preheader": "Resend has been sending as healdesk.io for 14 days or more, since 6 Oct or earlier, and healdesk.io's DMARC record still says only to report, never to act. The two weeks of reports to read begin on that day.",
+  "preheader": "FYI: Time to review the DMARC reports",
   "subject": "healdesk ops: Time to review the DMARC reports",
-  "text": "Resend has been sending as healdesk.io for 14 days or more, since 6 Oct or earlier, and healdesk.io's DMARC record still says only to report, never to act. The two weeks of reports to read begin on that day.
+  "text": "FYI: Time to review the DMARC reports
+
+DO THIS FIRST: Read healdesk.io's DMARC aggregate reports from 6 Oct on, in the mailbox named after rua= in the DMARC record in Cloudflare. The dmarc-review row on the Jobs page under System names the same first-sending day in its note, on the run that raised this alert.
+
+MORE DETAIL
+
+Resend has been sending as healdesk.io for 14 days or more, since 6 Oct or earlier, and healdesk.io's DMARC record still says only to report, never to act. The two weeks of reports to read begin on that day.
 
 Raised: 6 Oct
 
-Why it matters: Until the record says quarantine, anyone can send mail as hello@ and inboxes will accept it. Tightening it blind could block our own mail, so the reports are read first.
+WHY IT MATTERS: Until the record says quarantine, anyone can send mail as hello@ and inboxes will accept it. Tightening it blind could block our own mail, so the reports are read first.
 
-What to do:
-1. Read healdesk.io's DMARC aggregate reports from 6 Oct on, in the mailbox named after rua= in the DMARC record in Cloudflare. The dmarc-review row on the Jobs page under System names the same first-sending day in its note, on the run that raised this alert.
+THEN:
 2. Check the reports show only our own senders as healdesk.io: Resend, Amazon's email service (our transcripts) and the owner's own mail. The Map page under System lists the first two. Find out what anything else is before going on; do not touch the record while an unknown sender shows.
 3. Ask the owner to change healdesk.io's DMARC record from p=none to p=quarantine in Cloudflare, which holds healdesk.io's addresses; the Map page under System lists it, and only the owner has the Cloudflare sign-in. You are done when the record reads p=quarantine. This alert is raised once only.
 

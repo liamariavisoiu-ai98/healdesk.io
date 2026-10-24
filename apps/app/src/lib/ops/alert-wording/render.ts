@@ -1,6 +1,8 @@
 import { DAY_KEYS } from "./allow-list";
-import { CLOSED_WORDS, closedWord, scopeToEvent } from "./words";
+import { emphasisePlaces, mark, neutraliseValue, plainText } from "./markup";
 import type { AlertWording } from "./types";
+import { URGENCY, type Urgency } from "./urgency";
+import { CLOSED_WORDS, closedWord, scopeToEvent } from "./words";
 
 /**
  * The one substitution the email and the Slack copy share (./types.ts has
@@ -27,6 +29,7 @@ export const FALLBACKS: Readonly<Record<string, string>> = {
   promisedOn: "the day we promised",
   windowStart: "the start of this billing period",
   code: "one of the vendors in our chain",
+  kind: "an email",
 };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -90,15 +93,28 @@ function present(values: WordingValues, key: string): boolean {
 
 /** Where a sentence starts: the beginning, or after a full stop, a question or exclamation mark, or a colon. */
 function startsSentence(before: string): boolean {
-  return /(^|[.!?:]\s+|\n)$/.test(before);
+  return /(^|[.!?:]\s+|\n)$/.test(plainText(before));
 }
+
+/**
+ * How a marked fill emphasises what it fills in (lane N4): `values` bolds
+ * every filled value; a day is highlighted whenever the fill is marked.
+ * Without marks a fill is plain text, as before.
+ */
+export type FillMarks = { values: boolean };
 
 function capitalise(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** One value, or its fallback; capitalised when it opens a sentence. */
-function valueText(key: string, noun: string | undefined, values: WordingValues, before: string): string {
+/** One value, or its fallback; capitalised when it opens a sentence; marked when the fill is. */
+function valueText(
+  key: string,
+  noun: string | undefined,
+  values: WordingValues,
+  before: string,
+  marks?: FillMarks,
+): string {
   let out: string;
   if (!present(values, key)) {
     out = noun ? `some ${plural(noun)}` : (FALLBACKS[key] ?? "an unrecorded value");
@@ -109,15 +125,20 @@ function valueText(key: string, noun: string | undefined, values: WordingValues,
       out = `${formatValue(key, value)} ${n === 1 ? noun : plural(noun)}`;
     } else out = formatValue(key, value);
   }
-  return startsSentence(before) ? capitalise(out) : out;
+  // A value never brings emphasis of its own (a clinic called "**Glow**").
+  out = neutraliseValue(out);
+  out = startsSentence(before) ? capitalise(out) : out;
+  if (!marks || !present(values, key)) return out;
+  if (DAY_KEYS.has(key)) out = mark("highlight", out);
+  return marks.values ? mark("bold", out) : out;
 }
 
 /** Placeholders in a piece of wording with no clauses, appended to `out` in one pass. */
-function substituteInto(out: string, text: string, values: WordingValues): string {
+function substituteInto(out: string, text: string, values: WordingValues, marks?: FillMarks): string {
   let last = 0;
   for (const m of text.matchAll(PLACEHOLDER)) {
     out += text.slice(last, m.index);
-    out += valueText(m[1]!, m[2], values, out);
+    out += valueText(m[1]!, m[2], values, out, marks);
     last = m.index! + m[0].length;
   }
   return out + text.slice(last);
@@ -132,19 +153,19 @@ function clauseKept(values: WordingValues, inner: string, key?: string, allowed?
 }
 
 /** Fill one text in one pass: clauses kept or dropped, every placeholder filled; tidy what a dropped clause leaves. */
-export function fill(text: string, values: WordingValues): string {
+export function fill(text: string, values: WordingValues, marks?: FillMarks): string {
   let out = "";
   let last = 0;
   for (const m of text.matchAll(CLAUSE)) {
-    out = substituteInto(out, text.slice(last, m.index), values);
+    out = substituteInto(out, text.slice(last, m.index), values, marks);
     if (clauseKept(values, m[3]!, m[1], m[2])) {
       // A conditional clause is a sentence of its own: it follows the last with a space.
       if (m[1] && /[.!?:]$/.test(out)) out += " ";
-      out = substituteInto(out, m[3]!, values);
+      out = substituteInto(out, m[3]!, values, marks);
     }
     last = m.index! + m[0].length;
   }
-  out = substituteInto(out, text.slice(last), values);
+  out = substituteInto(out, text.slice(last), values, marks);
   return out
     .replace(/[ \t]{2,}/g, " ")
     .replace(/ +([.,;:)])/g, "$1")
@@ -178,6 +199,84 @@ export function numberedSteps(steps: readonly string[]): string[] {
 
 /** The keys a wording prints in its sentences (placeholders, not conditions): left out of the facts. */
 export function printedKeys(wording: AlertWording): Set<string> {
-  const texts = [wording.whatHappened, wording.whyItMatters, ...wording.steps];
+  // With a headline of its own, the first sentence of what happened is not
+  // printed (the headline says it): its values go to the facts instead.
+  const happened = wording.headline
+    ? [wording.headline, splitFirstSentence(wording.whatHappened)[1]]
+    : [wording.whatHappened];
+  const texts = [...happened, wording.whyItMatters, ...wording.steps];
   return new Set(texts.flatMap((t) => [...t.matchAll(PLACEHOLDER)].map((m) => m[1]!)));
+}
+
+/**
+ * A wording's text split after its first sentence, outside any clause: the
+ * part a headline replaces, and the rest. Read on the template, so a
+ * clause's own full stop never splits it.
+ */
+export function splitFirstSentence(template: string): [string, string] {
+  let depth = 0;
+  for (let i = 0; i < template.length; i += 1) {
+    const ch = template[i]!;
+    if (ch === "[") depth += 1;
+    else if (ch === "]") depth -= 1;
+    else if (depth === 0 && /[.!?]/.test(ch) && (i + 1 === template.length || /[\s[]/.test(template[i + 1]!))) {
+      return [template.slice(0, i + 1), template.slice(i + 1).trimStart()];
+    }
+  }
+  return [template, ""];
+}
+
+/**
+ * An alert laid out to be read in three seconds (lane N4; owner, 24 October
+ * 2026): how urgent it is, one headline, the one thing to do first, and the
+ * rest below. Every text is marked (./markup.ts): parse it for HTML, plain
+ * text or Slack. Step 1 is `doFirst` and appears nowhere else; `then` is
+ * steps 2 onwards.
+ */
+export type AlertLayout = {
+  urgency: Urgency;
+  /** The subject's words, plain. */
+  title: string;
+  headline: string;
+  /** True when the wording has no headline yet: the title with the clinic's name. */
+  headlineIsFallback: boolean;
+  doFirst: string | null;
+  /** What happened after the headline's own sentence (all of it under a fallback headline). */
+  detail: string;
+  whyItMatters: string;
+  then: string[];
+};
+
+/** The layout of one alert, from its wording and its allow-listed values. */
+export function layoutAlert(wording: AlertWording, raw: WordingValues): AlertLayout {
+  const values = scopeToEvent(raw, wording.event);
+  const urgency = wording.event ? URGENCY[wording.event] : "today";
+  const bold: FillMarks = { values: true };
+  const plain: FillMarks = { values: false };
+  const fallback = !wording.headline;
+  const headline = fallback
+    ? fill(`[{clinicName}: ]${wording.title}`, values, bold)
+    : fill(wording.headline!, values, bold);
+  let detail: string;
+  if (fallback) {
+    // The first sentence's values bold, the rest plain: the eye lands on who and what.
+    const [first, rest] = splitFirstSentence(wording.whatHappened);
+    detail = [fill(first, values, bold), fill(rest, values, plain)].filter(Boolean).join(" ");
+  } else {
+    detail = fill(splitFirstSentence(wording.whatHappened)[1], values, plain);
+  }
+  const steps = wording.steps
+    .map((step) => fill(step, values, plain))
+    .filter((step) => step.length > 0)
+    .map(emphasisePlaces);
+  return {
+    urgency,
+    title: fill(wording.title, values),
+    headline,
+    headlineIsFallback: fallback,
+    doFirst: steps[0] ?? null,
+    detail,
+    whyItMatters: fill(wording.whyItMatters, values, plain),
+    then: steps.slice(1),
+  };
 }

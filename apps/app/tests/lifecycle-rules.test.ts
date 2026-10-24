@@ -677,11 +677,12 @@ describe("the ops waves", () => {
       fields,
       clinicName: "Glow Spa",
     });
-    expect(escalation.startsWith(":rotating_light: [app] *A stalled setup closes soon")).toBe(true);
+    // Lane N4: an urgent alert opens with the siren, then its headline.
+    expect(escalation.startsWith(":rotating_light: [app] *Glow Spa has 8 days left to set up AYA")).toBe(true);
     expect(escalation).toContain("Glow Spa, clinic id");
     expect(escalation).toContain("Recommended: extend");
     expect(
-      slackText({ event: "lifecycle_no_progress", fields, clinicName: null }).startsWith("[app] *"),
+      slackText({ event: "lifecycle_no_progress", fields, clinicName: null }).startsWith(":information_source: [app] *"),
     ).toBe(true);
     // A word off the closed lists never reaches Slack.
     expect(slackFields({ decision: "call them at home", recommendation: "toString" })).toEqual({});

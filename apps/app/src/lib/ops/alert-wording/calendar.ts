@@ -128,7 +128,8 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   },
   // lib/ops/calendar-write-alerts.ts, hourly, once per write and state.
   calendar_write_stuck: {
-    title: "A booking is missing from a clinic's Google Calendar",
+    title: "A booking is missing from Google Calendar",
+    headline: "A booking at {clinicName} is missing from its Google Calendar",
     whatHappened:
       "A confirmed booking at {clinicName} is not in the clinic's Google Calendar.[ We tried {attemptCount:time}.] The clinic's staff were already told in their portal to add it by hand.",
     whyItMatters:
@@ -144,7 +145,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // The same sweep, when one run finds more stuck writes than it alerts one
   // by one: `count` of them, each recorded as told.
   calendar_writes_stuck_many: {
-    title: "Several bookings could not be written to calendars",
+    title: "Several bookings are missing from calendars",
     whatHappened:
       "The hourly check[ on {windowStart}] found {count:booking} whose Google Calendar write failed or was given up on, more than it reports one by one. This one alert stands for all of them; none is sent separately. Each clinic's staff were already told in their portal to add the booking by hand.",
     whyItMatters:

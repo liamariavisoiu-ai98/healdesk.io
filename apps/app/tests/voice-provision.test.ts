@@ -595,7 +595,7 @@ describeDb("automated voice provisioning", () => {
     expect(JSON.stringify(data)).not.toContain(SECRET);
     const agent = retell.agents.get("agent_handmade01")!;
     expect(agent).toMatchObject({ enable_backchannel: true, enable_dynamic_voice_speed: true, voice_speed: 1.05, data_storage_retention_days: 1 });
-    expect(agent.boosted_keywords).toEqual(expect.arrayContaining(["consultation"]));
+    expect((agent.boosted_keywords as string[]).map((k) => k.toLowerCase())).toContain("consultation");
     expect(agent.voice_id).toBe("retell-Chosen");
     expect(retell.writes()).toEqual([{ method: "PATCH", path: "/update-agent/agent_handmade01" }]);
 

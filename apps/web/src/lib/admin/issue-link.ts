@@ -12,12 +12,12 @@ import { isOpsEvent, type OpsEvent } from "@/lib/admin/ops-events";
  * Anything else is refused rather than encoded, so a forged or mistyped link
  * cannot carry words into the console's address bar.
  *
- * Today (23 October 2026) nothing emits this shape yet: apps/app's alerts
- * link to `/admin/ops/<id>/care|onboarding` (lib/ops/notify.ts,
- * opsConsoleLink), which redirect to the panel with no issue named
- * (app/admin/ops/[clinicId]/*). The notification rewrite lane moves apps/app
- * to this shape; Home rows and Slack lines follow. Pure: client components
- * import it.
+ * apps/app's alerts emit this shape from the notification rewrite (ops
+ * automation wave 2, lane N2) on; the ones sent before it carried
+ * `/admin/ops/<id>/care|onboarding`, which redirect to the panel with no
+ * issue named (app/admin/ops/[clinicId]/*). For the events that have a card
+ * of their own, `cardAnchorFor` names the card the panel scrolls to. Pure:
+ * client components import it.
  */
 
 export const ISSUE_TABS = ["setup", "billing", "deliveries", "care", "account"] as const;
@@ -150,6 +150,23 @@ const ACCOUNT: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "access_requests_capped",
   "step_up_phone_held",
 ]);
+
+/** The cards on the clinic panel that an alert's link lands on (their `Section` ids). */
+export const CARD_ANCHORS = ["availability", "setup-window", "reminders"] as const;
+export type CardAnchor = (typeof CARD_ANCHORS)[number];
+
+/**
+ * The card an event's link should scroll to, when one owns it: the
+ * availability change to "Availability changes", an undelivered reminder to
+ * Deliveries › "Reminders", every other lifecycle alert to "Setup window".
+ * Null for the rest: the panel's Fix with Claude is where they land.
+ */
+export function cardAnchorFor(event: OpsEvent): CardAnchor | null {
+  if (event === "clinic_availability_changed") return "availability";
+  if (event === "lifecycle_reminder_undelivered") return "reminders";
+  if (event.startsWith("lifecycle_")) return "setup-window";
+  return null;
+}
 
 export function issueTabFor(event: OpsEvent): IssueTab {
   if (SETUP.has(event)) return "setup";

@@ -1,5 +1,6 @@
 "use client";
 
+import { USAGE_ALERT_PERCENT } from "@healdesk/catalog";
 import { useState, useTransition } from "react";
 
 import { Row, Section } from "@/components/admin/ui";
@@ -545,7 +546,7 @@ function Usage({ view }: { view: View }) {
   );
 }
 
-function UsageSwitches({ e, actions }: { e: Entitlements; actions: Actions }) {
+export function UsageSwitches({ e, actions }: { e: Entitlements; actions: Actions }) {
   const mode = useCall();
   const alerts = useCall();
   const changed = (data: BillingSwitchOutcome) =>
@@ -569,7 +570,7 @@ function UsageSwitches({ e, actions }: { e: Entitlements; actions: Actions }) {
         <Said note={mode.note} />
       </div>
       <div>
-        <p className="text-muted text-xs font-bold uppercase">80% and 100% emails</p>
+        <p className="text-muted text-xs font-bold uppercase">{USAGE_ALERT_PERCENT}% and 100% emails</p>
         <button
           type="button"
           disabled={alerts.pending}

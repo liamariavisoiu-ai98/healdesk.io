@@ -37,7 +37,6 @@ const billing = {
   data: {
     notices: [
       { kind: "setup_reminder", createdAt: "2026-10-16 09:00 UTC", sendAfter: "2026-10-16 09:00 UTC", sentAt: "2026-10-16 09:01 UTC", attempts: 1, recipientsCount: 1, lastError: null },
-      { kind: "setup_reminder", createdAt: "2026-10-21 09:00 UTC", sendAfter: "2026-10-21 09:00 UTC", sentAt: null, attempts: 0, recipientsCount: null, lastError: null },
       { kind: "invoice_paid", createdAt: "2026-10-11 09:00 UTC", sendAfter: "2026-10-11 09:00 UTC", sentAt: null, attempts: 3, recipientsCount: null, lastError: "SES: throttled" },
     ],
     transitions: [{ fromStatus: "trial", toStatus: "active", actor: "system", reason: "first answer recorded", at: "2026-10-12 10:00 UTC" }],
@@ -45,7 +44,7 @@ const billing = {
 } as unknown as OpsResult<ClinicBillingView>;
 
 describe("the merged delivery ledger", () => {
-  test("shows every kind under 'all': reports, billing emails, setup reminders apart, and status history as a kind", () => {
+  test("shows every kind under 'all': reports, billing emails (setup reminders kept out, they are the Reminders ledger), and status history as a kind", () => {
     const html = renderToStaticMarkup(h(DeliveriesLedger, { filter: "all", care, billing }));
     const page = text(html);
     expect(page).toContain("Reports and alerts — last 2");
@@ -54,9 +53,7 @@ describe("the merged delivery ledger", () => {
     expect(page).toContain("Billing emails — last 1");
     expect(page).toContain("invoice_paid");
     expect(page).toContain("SES: throttled");
-    // Queued is not sent: the count says both.
-    expect(page).toContain("Setup reminders — 1 sent, 1 queued");
-    expect(page).toContain("setup_reminder");
+    expect(page).not.toContain("setup_reminder");
     expect(page).toContain("Status history — last 1");
     expect(page).toContain("trial → active");
     // Receipts without words: nothing that could be an email body or a patient.
@@ -88,7 +85,6 @@ describe("the merged delivery ledger", () => {
     const page = text(renderToStaticMarkup(h(DeliveriesLedger, { filter: "all", care: empty, billing: none })));
     expect(page).toContain("No reports or alerts sent yet.");
     expect(page).toContain("No billing email queued yet.");
-    expect(page).toContain("No setup reminder sent.");
     expect(page).toContain("No status change recorded.");
   });
 

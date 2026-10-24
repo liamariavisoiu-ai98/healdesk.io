@@ -1,6 +1,8 @@
 import { Empty, Failure, Section } from "@/components/admin/ui";
 import type { CareView, ClinicBillingView, OpsResult } from "@/lib/admin/ops-client";
 
+import { SETUP_REMINDER_KIND } from "./Reminders";
+
 /**
  * The Deliveries tab's ledgers other than the transcripts (E1 step 7): what
  * was emailed to the clinic and whether it arrived, which until the admin
@@ -13,11 +15,13 @@ import type { CareView, ClinicBillingView, OpsResult } from "@/lib/admin/ops-cli
  * clinic gave us (business contact data, as the Care tab already showed it).
  * No email body, no patient, no conversation text.
  *
- * `setup_reminder` rows are the lifecycle's six reminders (owner decision D4,
- * "every time a reminder has been sent"), kept apart from the rest of the
- * billing mail so the operator can see them at a glance. Status history is
- * not an email, but it is the billing engine's own ledger of what changed,
- * and it belongs beside the mail each change sent.
+ * The reminders are the lifecycle watch's ledger (Reminders.tsx, from
+ * `listLifecycleWaves`): the clinic's six setup reminders and every wave to
+ * ops, with delivered or bounced per wave. The `setup_reminder` notices the
+ * outbox holds for the same sends are kept out of "Billing emails" so a
+ * reminder is listed once. Status history is not an email, but it is the
+ * billing engine's own ledger of what changed, and it belongs beside the
+ * mail each change sent.
  */
 
 export const DELIVERY_KINDS = [
@@ -25,7 +29,7 @@ export const DELIVERY_KINDS = [
   { id: "transcripts", label: "Transcripts" },
   { id: "reports", label: "Reports and alerts" },
   { id: "billing", label: "Billing emails" },
-  { id: "reminders", label: "Setup reminders" },
+  { id: "reminders", label: "Reminders" },
   { id: "status", label: "Status history" },
 ] as const;
 
@@ -163,7 +167,6 @@ function Transitions({ transitions }: { transitions: ClinicBillingView["transiti
   );
 }
 
-export const SETUP_REMINDER_KIND = "setup_reminder";
 
 /** The three non-transcript ledgers, each shown under the filter and each saying its own failure. */
 export function DeliveriesLedger({
@@ -175,10 +178,7 @@ export function DeliveriesLedger({
   care: OpsResult<CareView>;
   billing: OpsResult<ClinicBillingView>;
 }) {
-  const reminders = billing.ok ? billing.data.notices.filter((n) => n.kind === SETUP_REMINDER_KIND) : [];
   const other = billing.ok ? billing.data.notices.filter((n) => n.kind !== SETUP_REMINDER_KIND) : [];
-  const remindersSent = reminders.filter((n) => n.sentAt !== null).length;
-  const remindersQueued = reminders.length - remindersSent;
   return (
     <>
       {shows(filter, "reports") ? (
@@ -189,11 +189,6 @@ export function DeliveriesLedger({
       {shows(filter, "billing") ? (
         <Section id="billing-emails" title={`Billing emails${billing.ok ? ` — last ${other.length}` : ""}`}>
           {billing.ok ? <Notices notices={other} empty="No billing email queued yet." /> : <Failure failure={billing} what="the billing emails" />}
-        </Section>
-      ) : null}
-      {shows(filter, "reminders") ? (
-        <Section id="setup-reminders" title={`Setup reminders${billing.ok ? ` — ${remindersSent} sent${remindersQueued > 0 ? `, ${remindersQueued} queued` : ""}` : ""}`}>
-          {billing.ok ? <Notices notices={reminders} empty="No setup reminder sent." /> : <Failure failure={billing} what="the setup reminders" />}
         </Section>
       ) : null}
       {shows(filter, "status") ? (

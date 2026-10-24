@@ -1,0 +1,29 @@
+{
+  "name": "healdesk-aya-ad",
+  "version": "1.0.0",
+  "description": "The AYA motion-design ad (SCRIPT.md), built in Remotion.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "soundtrack": "node scripts/soundtrack.mjs public/soundtrack.raw.wav && ffmpeg -v error -y -i public/soundtrack.raw.wav -af loudnorm=I=-14:TP=-1:LRA=11 -ar 44100 public/soundtrack.wav && rm public/soundtrack.raw.wav",
+    "render": "npm run soundtrack && npm run render:hero && npm run render:feed && npm run render:wide && npm run render:stat",
+    "render:hero": "remotion render src/index.ts AyaHero out/aya-hero-9x16.mp4 --codec h264 --crf 18",
+    "render:feed": "remotion render src/index.ts AyaFeed out/aya-feed-4x5.mp4 --codec h264 --crf 18",
+    "render:wide": "remotion render src/index.ts AyaWide out/aya-wide-16x9.mp4 --codec h264 --crf 18",
+    "render:stat": "remotion render src/index.ts AyaHeroStat out/aya-hero-9x16-stat-hook-UNSOURCED.mp4 --codec h264 --crf 18",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@fontsource/plus-jakarta-sans": "^5.3.0",
+    "@remotion/bundler": "^4.0.538",
+    "@remotion/cli": "^4.0.538",
+    "@remotion/renderer": "^4.0.538",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "remotion": "^4.0.538"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "typescript": "^7.0.2"
+  },
+  "private": true
+}

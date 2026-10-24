@@ -191,7 +191,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
       </Section>
 
       <Section title="Calendar">
-        <CalendarCard view={v} onSendLink={actions.sendCalendarLink} onDisconnect={actions.disconnectCalendar} onRetry={actions.retryCalendarWrite} />
+        <CalendarCard view={v} onSendLink={actions.sendCalendarLink} onDisconnect={actions.disconnectCalendar} />
       </Section>
 
       <Section title="Go live">
@@ -1151,20 +1151,27 @@ const CONNECTION_STATUS: Record<CalendarConnectionStatus, string> = {
 
 /**
  * The location's Google Calendar, the one calendar v1 writes to, and the
- * assistant's write ledger. What may reach the calendar is the location's
- * calendar terms, never a basis an operator records, so this card offers
- * none. The account's address and the calendar's own zone stay in apps/app.
+ * history of every write attempted. What may reach the calendar is the
+ * location's calendar terms, never a basis an operator records, so this card
+ * offers none. The account's address and the calendar's own zone stay in
+ * apps/app.
+ *
+ * The writes that have not settled, with a Retry for each, are the Setup
+ * tab's own "Calendar writes" section above (CalendarWrites.tsx, Phase 5);
+ * until lane P5c this card listed them again with a second Retry and a
+ * count that disagreed, so it now points there once. The history stays:
+ * where Google answered with a word of its own, this list prints it beside
+ * the booking, and the section's reason words say to read it here
+ * (components/admin/queue-words.ts, `other`).
  */
 function CalendarCard({
   view,
   onSendLink,
   onDisconnect,
-  onRetry,
 }: {
   view: OnboardingView;
   onSendLink: Actions["sendCalendarLink"];
   onDisconnect: Actions["disconnectCalendar"];
-  onRetry: Actions["retryCalendarWrite"];
 }) {
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
@@ -1172,7 +1179,6 @@ function CalendarCard({
   const unreadable = view.booking === "unreadable";
   const b = view.booking === "unreadable" ? null : view.booking;
   const g = b?.calendar ?? null;
-  const attention = view.calendarWrites.filter((w) => w.status === "failed" || w.status === "unknown");
   return (
     <div className="text-sm">
       <p className="text-muted">
@@ -1269,7 +1275,14 @@ function CalendarCard({
         </div>
       ) : null}
       {demoLink ? <code className="mt-2 block break-all rounded-sm bg-black/5 px-2 py-1 text-xs">{demoLink}</code> : null}
-      <p className="mt-4 font-semibold">Calendar writes needing attention: {attention.length}</p>
+      <p className="mt-4">
+        Writes not yet in the calendar are listed under{" "}
+        <a href="#calendar-writes" className="font-semibold underline underline-offset-2">
+          Calendar writes
+        </a>{" "}
+        above, with a Retry for each.
+      </p>
+      <p className="text-muted mt-3 text-xs font-bold uppercase">Every write attempted</p>
       <ul className="mt-2 grid gap-2">
         {view.calendarWrites.map((w) => (
           <li key={w.appointmentId} className="border-line flex flex-wrap items-center gap-3 rounded-sm border px-3 py-2 text-xs">
@@ -1277,22 +1290,6 @@ function CalendarCard({
             <span>{w.slotAt.slice(0, 16).replace("T", " ")} UTC</span>
             <span className="text-muted">{w.requestChannel}</span>
             {w.error ? <span className="text-muted">{w.error}</span> : null}
-            {w.status === "failed" || w.status === "unknown" ? (
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() =>
-                  start(async () => {
-                    const result = await onRetry(w.appointmentId);
-                    if (!result.ok) return setMessage(result.message);
-                    setMessage(result.data.status === "retried" ? `Retry: ${result.data.outcome}.` : result.data.message);
-                  })
-                }
-                className="border-line-strong ml-auto rounded-full border px-3 py-1 font-bold"
-              >
-                Retry
-              </button>
-            ) : null}
           </li>
         ))}
         {view.calendarWrites.length === 0 ? <li className="text-muted text-xs">No calendar write attempted yet.</li> : null}

@@ -188,7 +188,7 @@ describe("the booking card shows the derived mode and why", () => {
     );
     // The addendum's switch and the vendor basis are gone from both cards.
     const cards = said.slice(said.indexOf("Booking mode —"), said.indexOf("Go live"));
-    expect(cards).toContain("Calendar writes needing attention");
+    expect(cards).toContain("Writes not yet in the calendar are listed under Calendar writes above, with a Retry for each.");
     expect(cards).not.toMatch(/direct booking|desk confirms|basis|addendum/i);
     expect(said).toContain(
       "Clause google-calendar-covered of 1.3.0 (released), from the signed agreement",
@@ -284,8 +284,40 @@ describe("the booking card shows the derived mode and why", () => {
     expect(said).not.toMatch(/\bDisconnect\b/);
     expect(said).not.toMatch(/Settings allow/);
     // Everything else on the page is read as before (the shell above the panel says the name; the panel does not repeat it).
-    expect(said).toContain("Calendar writes needing attention: 0");
+    expect(said).toContain("Writes not yet in the calendar are listed under Calendar writes above, with a Retry for each.");
+    expect(said).toContain("No calendar write attempted yet.");
     expect(said).toContain("Go live");
+  });
+});
+
+describe("the calendar card's write history", () => {
+  // Phase 5 (lane P5c): the unsettled writes and their Retry live in the
+  // Setup tab's own "Calendar writes" section (CalendarWrites.tsx). Listed
+  // here again with a second Retry, the card and the section disagreed on
+  // the count and offered the same press twice, so the card keeps the
+  // history (with Google's own word, which the section's reason words send
+  // the reader here for) and offers no Retry.
+  const WRITES: OnboardingView["calendarWrites"] = [
+    { appointmentId: "6d2b0f1e-0000-4000-8000-000000000001", slotAt: "2026-11-02T15:00:00.000Z", status: "written", error: null, requestChannel: "web_chat" },
+    { appointmentId: "6d2b0f1e-0000-4000-8000-000000000002", slotAt: "2026-11-03T16:00:00.000Z", status: "failed", error: "backendError", requestChannel: "voice" },
+    { appointmentId: "6d2b0f1e-0000-4000-8000-000000000003", slotAt: "2026-11-04T17:00:00.000Z", status: "unknown", error: "timeout", requestChannel: "meta" },
+  ];
+
+  test("lists every write with its state and Google's word, points at Calendar writes, and offers no Retry", () => {
+    const said = text(
+      h(OnboardingPanel, { view: { ok: true, data: { ...viewOf(COVERED), calendarWrites: WRITES } }, actions: ACTIONS }),
+    );
+    const card = said.slice(said.indexOf("Writes not yet in the calendar"), said.indexOf("Go live"));
+    expect(card).toContain("Every write attempted");
+    expect(card).toContain("written 2026-11-02 15:00 UTC web_chat");
+    expect(card).toContain("failed 2026-11-03 16:00 UTC voice backendError");
+    expect(card).toContain("unknown 2026-11-04 17:00 UTC meta timeout");
+    // The one Retry the card names is the section's, in the pointer sentence.
+    expect(card.split("Retry")).toHaveLength(2);
+    expect(card).not.toContain("Calendar writes needing attention");
+    expect(renderToStaticMarkup(h(OnboardingPanel, { view: { ok: true, data: { ...viewOf(COVERED), calendarWrites: WRITES } }, actions: ACTIONS }))).toContain(
+      'href="#calendar-writes"',
+    );
   });
 });
 

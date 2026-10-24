@@ -14,7 +14,7 @@ import type { ActorContext, RequestContext } from "@/lib/audit";
 import { getEntitlements } from "@/lib/billing/entitlements";
 import { MAX_FAILURES } from "@/lib/billing/events";
 import { MAX_BILLING_REQUEST_ATTEMPTS } from "@/lib/billing/requests";
-import { getJob, JOB_BILLING_REQUESTS, JOB_SETUP_CLOSURE } from "@/lib/scheduler/jobs";
+import { getJob, JOB_ANNUAL_OVERAGE_INVOICE, JOB_BILLING_RECONCILE, JOB_BILLING_REQUESTS, JOB_SETUP_CLOSURE } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
 import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind } from "./kinds";
@@ -99,31 +99,41 @@ function day(at: Date): string {
 
 /**
  * What approving a billing request does: it re-arms it (lib/billing/requests.ts
- * rearmBillingRequest: due now, ten fresh tries, a new epoch), nothing more.
+ * rearmBillingRequest: due now, fresh tries, a new epoch), nothing more.
  * The change itself is the billing-requests worker's, at its next run, behind
  * its own switch, and the worker re-checks Stripe first and may skip it; a
  * closure also waits for the setup-closure switch.
  */
-export function requestEffect(facts: Pick<BillingRequestFacts, "requestKind" | "workerOn" | "closureOn">): string {
+export function requestEffect(
+  facts: Pick<BillingRequestFacts, "requestKind" | "workerOn" | "closureOn" | "channel">,
+  reconcileOn = false,
+): string {
   const off = facts.workerOn
     ? ""
     : " The billing worker is switched off, so nothing happens until it is switched on at System > Jobs.";
+  // Proposed only while the hourly billing check, which would re-arm it, is off (lib/approvals/proposers.ts).
+  const unretried = reconcileOn ? "" : " The hourly billing check is switched off, so nothing retries this by itself.";
   switch (facts.requestKind) {
     case "cancel_now":
-      return `Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with ten fresh tries. Once carried out, the subscription is cancelled at once, and that cannot be undone.${off}`;
+      return `Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with fresh tries. Once carried out, the subscription is cancelled at once, and that cannot be undone.${off}`;
     case "close_setup":
       return (
-        "Makes this closure due again. The billing worker carries it out at its next run, with ten fresh tries, if nothing has gone live and setup closure is switched on. Once carried out, the subscription is cancelled and the account closed, the setup fee is not refunded, and that cannot be undone." +
+        "Makes this closure due again. The billing worker carries it out at its next run, with fresh tries, if nothing has gone live and setup closure is switched on. Once carried out, the subscription is cancelled and the account closed, the setup fee is not refunded, and that cannot be undone." +
         off +
         (facts.closureOn === false ? " Setup closure is switched off, so the closure waits until it is switched on at System > Jobs." : "")
       );
-    default:
-      return `Makes this change due again. The billing worker carries it out at its next run if it still applies, with ten fresh tries.${off}`;
+    case "plan_start":
+      return `Makes this plan start due again. The billing worker carries it out at its next run if it still applies, with fresh tries: it starts the package price on the subscription, replacing the $0 line.${unretried}${off}`;
+    case "step_up":
+      return `Makes this price step-up due again. The billing worker carries it out at its next run if it still applies, with fresh tries: it adds ${facts.channel ? CHANNEL_WORDS[facts.channel] : "the channel"} to what the subscription bills.${unretried}${off}`;
   }
 }
 
-export function overageEffect(facts: Pick<OverageFacts, "windowStart" | "amountCents">): string {
-  return `Invoices the extra usage for the month from ${day(new Date(facts.windowStart))}: ${dollars(facts.amountCents)}, charged to the card on file. If the failed try left an invoice in Stripe, that one is finished instead of a second.`;
+export function overageEffect(facts: Pick<OverageFacts, "windowStart" | "amountCents">, dailyRunOn = false): string {
+  return (
+    `Invoices the extra usage for the month from ${day(new Date(facts.windowStart))} now: ${dollars(facts.amountCents)}, charged to the card on file. If the failed try left an invoice in Stripe, that one is finished instead of a second.` +
+    (dailyRunOn ? "" : " The daily extra-usage run is switched off, so nothing retries this by itself.")
+  );
 }
 
 /**
@@ -151,11 +161,27 @@ export function eventEffect(eventType: string): string {
   return `${what} It is applied as if it had just arrived, and may send the clinic the billing email that event calls for.`;
 }
 
-/** The two switches a re-armed request waits on (lib/scheduler/jobs.ts). */
-export async function billingSwitches(): Promise<{ worker: boolean; closure: boolean }> {
-  const [worker, closure] = await Promise.all([getJob(JOB_BILLING_REQUESTS), getJob(JOB_SETUP_CLOSURE)]);
-  return { worker: worker?.enabled === true, closure: closure?.enabled === true };
+/**
+ * The switches the packets speak of (lib/scheduler/jobs.ts): the two a
+ * re-armed request waits on, and the two whose being off is why a plan
+ * start, a step-up or an overage invoice is in the list at all.
+ */
+export async function billingSwitches(): Promise<{ worker: boolean; closure: boolean; reconcile: boolean; overage: boolean }> {
+  const [worker, closure, reconcile, overage] = await Promise.all([
+    getJob(JOB_BILLING_REQUESTS),
+    getJob(JOB_SETUP_CLOSURE),
+    getJob(JOB_BILLING_RECONCILE),
+    getJob(JOB_ANNUAL_OVERAGE_INVOICE),
+  ]);
+  return {
+    worker: worker?.enabled === true,
+    closure: closure?.enabled === true,
+    reconcile: reconcile?.enabled === true,
+    overage: overage?.enabled === true,
+  };
 }
+
+const CHANNEL_WORDS: Readonly<Record<Channel, string>> = { voice: "phone", web: "website chat", meta: "Meta chat" };
 
 type Ctx = { actor: ActorContext; request?: RequestContext };
 
@@ -202,7 +228,7 @@ async function billingRequestPacket(approval: OpsApproval, ctx: Ctx): Promise<Pa
       operation: KIND_SPECS.billing_request_retry.operation,
       irreversible: KIND_SPECS.billing_request_retry.irreversible,
       stillNeeded: request?.outcome === "dead_letter" && request.epoch === payload.epoch,
-      effect: requestEffect(facts),
+      effect: requestEffect(facts, switches.reconcile),
       facts,
     };
   });
@@ -211,6 +237,7 @@ async function billingRequestPacket(approval: OpsApproval, ctx: Ctx): Promise<Pa
 async function overagePacket(approval: OpsApproval, ctx: Ctx): Promise<Packet | null> {
   const payload = parsePayload("overage_invoice_retry", approval.payload);
   if (!payload) return null;
+  const switches = await billingSwitches();
   return withTenant({ clinicId: payload.billingClinicId, actor: ctx.actor, request: ctx.request }, async (tx) => {
     const [row] = await tx.db
       .select({
@@ -232,7 +259,7 @@ async function overagePacket(approval: OpsApproval, ctx: Ctx): Promise<Packet | 
       operation: KIND_SPECS.overage_invoice_retry.operation,
       irreversible: KIND_SPECS.overage_invoice_retry.irreversible,
       stillNeeded: row?.status === "failed",
-      effect: overageEffect(facts),
+      effect: overageEffect(facts, switches.overage),
       facts,
     };
   });

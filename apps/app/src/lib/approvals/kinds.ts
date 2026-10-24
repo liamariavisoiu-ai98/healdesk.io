@@ -58,12 +58,14 @@ export type KindSpec = {
   /** Whether the item carries an email draft that the owner may edit before approving. */
   readonly hasDraft: boolean;
   /**
-   * Whether the proposer puts it in the inbox. False for a kind an automatic
-   * process still retries (D17: nothing is both waiting for the owner's yes
-   * and retried by itself): the kind and its executor stay registered, so an
-   * item already recorded can still be read and decided.
+   * The job that retries this kind's subjects by itself, when it is switched
+   * on, or null when nothing does. D17: nothing may be both waiting for the
+   * owner's yes and retried by itself, so the proposer proposes such a
+   * subject only while that job is OFF, and moves a waiting one out of the
+   * list (`retried_automatically`) once it is switched on. For billing
+   * requests the job is per request kind (RETRIED_BY_REQUEST_KIND).
    */
-  readonly proposed: boolean;
+  readonly retriedBy: string | null;
 };
 
 export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
@@ -74,11 +76,8 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
     expiryDays: 7,
     irreversible: true,
     hasDraft: false,
-    // Only cancel_now and close_setup dead letters (PROPOSED_REQUEST_KINDS):
-    // the hourly reconcile re-arms a plan start or step-up dead letter once it
-    // has rested a day (lib/billing/reconcile.ts decideReconcile), whenever
-    // the worker would not just skip it, so neither is ever proposed.
-    proposed: true,
+    // Per request kind: RETRIED_BY_REQUEST_KIND.
+    retriedBy: null,
   },
   overage_invoice_retry: {
     operation: "retryOverageInvoice",
@@ -87,10 +86,10 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
     expiryDays: 7,
     irreversible: true,
     hasDraft: false,
-    // Not proposed: the 05 UTC run invoices every failed month again by
-    // itself (lib/billing/annual-overage.ts invoiceAnnualOverage takes pending and
-    // failed rows), so a failed overage invoice is never a dead letter.
-    proposed: false,
+    // The 05 UTC run invoices every failed month again by itself while its
+    // switch is on (lib/billing/annual-overage.ts invoiceAnnualOverage takes
+    // pending and failed rows); while it is off nothing retries one.
+    retriedBy: "annual-overage-invoice",
   },
   billing_event_replay: {
     operation: "replayBillingEvent",
@@ -101,18 +100,25 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
     hasDraft: false,
     // Every parked event except one a purchase still waiting to be
     // provisioned names: provisioning replays those (replayParkedBillingEvents;
-    // lib/approvals/stripe-ids.ts).
-    proposed: true,
+    // lib/approvals/stripe-ids.ts). No job replays a parked event.
+    retriedBy: null,
   },
 };
 
 /**
- * The billing requests the proposer puts in the inbox: the two kinds nothing
- * re-arms. A plan start or step-up dead letter is re-armed by the hourly
- * reconcile after DEAD_LETTER_REST_MS whenever the worker could carry it out
- * (its conditions mirror the worker's re-check), so it is never proposed.
+ * Which job re-arms a dead-lettered billing request by itself, by kind. The
+ * hourly reconcile (`billing-reconcile`) re-arms a plan start or step-up dead
+ * letter once it has rested DEAD_LETTER_REST_MS, whenever the worker could
+ * carry it out (lib/billing/reconcile.ts decideReconcile, whose conditions
+ * mirror the worker's re-check), but only while its switch is on: the job
+ * ships off. Nothing re-arms a cancellation or a setup closure.
  */
-export const PROPOSED_REQUEST_KINDS: readonly BillingRequestKind[] = ["cancel_now", "close_setup"];
+export const RETRIED_BY_REQUEST_KIND: Readonly<Record<BillingRequestKind, string | null>> = {
+  plan_start: "billing-reconcile",
+  step_up: "billing-reconcile",
+  cancel_now: null,
+  close_setup: null,
+};
 
 /** An item still `approved` this long after its decision lost its process: the sweep records it failed. */
 export const APPROVED_STUCK_MS = 15 * 60 * 1000;

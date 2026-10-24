@@ -3,13 +3,13 @@ import { createHash } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { billingEvents, billingRequests, type OpsApproval } from "@/db/schema";
+import { BILLING_REQUEST_KINDS, billingEvents, billingRequests, overageInvoices, type OpsApproval } from "@/db/schema";
 import { describeError, log } from "@/lib/log";
 import { raiseOpsAlertKeyed } from "@/lib/ops/notify";
-import { runJob, type JobOutcome } from "@/lib/scheduler/jobs";
+import { getJob, runJob, type JobOutcome } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
-import { KIND_SPECS, LEGAL_CLOCK_REMINDER_MS, PROPOSED_REQUEST_KINDS, PROPOSER, type ApprovalKind } from "./kinds";
+import { KIND_SPECS, LEGAL_CLOCK_REMINDER_MS, parsePayload, PROPOSER, RETRIED_BY_REQUEST_KIND, type ApprovalKind } from "./kinds";
 import {
   expireDue,
   moveStatus,
@@ -30,24 +30,28 @@ import { classifyUnresolvedEvent } from "./stripe-ids";
  *
  * Owner decision D17: the inbox gates from the dead letter onward, and
  * nothing may be both waiting for the owner's yes and retried by itself. So
- * it proposes only what no automatic process will retry or re-arm:
+ * it proposes only what no automatic process will retry or re-arm, judged
+ * at each run by the switch of the job that would (KIND_SPECS retriedBy,
+ * RETRIED_BY_REQUEST_KIND):
  *
  *   - a `cancel_now` or `close_setup` billing request the worker
- *     dead-lettered (lib/billing/requests.ts settle). Nothing re-arms these.
- *     A `plan_start` or `step_up` dead letter is NOT proposed: the hourly
- *     reconcile re-arms it once it has rested DEAD_LETTER_REST_MS whenever
- *     the worker could carry it out (lib/billing/reconcile.ts
- *     decideReconcile, whose conditions mirror the worker's re-check), and
- *     where they do not hold the worker would only skip it again. One item
- *     per request and epoch;
+ *     dead-lettered (lib/billing/requests.ts settle). Nothing re-arms these;
+ *   - a `plan_start` or `step_up` dead letter, only while `billing-reconcile`
+ *     is switched off. While it is on, the hourly reconcile re-arms it once
+ *     it has rested DEAD_LETTER_REST_MS whenever the worker could carry it
+ *     out (lib/billing/reconcile.ts decideReconcile, whose conditions mirror
+ *     the worker's re-check). One item per request and epoch;
+ *   - an annual overage invoice that failed, only while
+ *     `annual-overage-invoice` is switched off. While it is on, the 05 UTC
+ *     run invoices every failed month again. One item per month's row;
  *   - a Stripe event parked after its retries (lib/billing/events.ts) that
  *     names a clinic, or that resolved to none and that no purchase waiting
  *     to be provisioned names (provisioning replays those by itself,
- *     replayParkedBillingEvents; nothing replays the rest).
- *     A `failed` event Stripe is still resending is not parked. One item per
- *     event and parking;
- *   - never an annual overage invoice: the 05 UTC run invoices every failed
- *     month again by itself (KIND_SPECS.overage_invoice_retry.proposed).
+ *     replayParkedBillingEvents; nothing replays the rest). One item per
+ *     event and parking.
+ *
+ * When one of those switches is turned on, a waiting item it now covers
+ * leaves the list (`retried_automatically`), unrun.
  *
  * It runs nothing itself. It leaves out healdesk's demo clinic
  * (app_clinic_is_demo) and closed accounts, and moves out of the list an
@@ -70,6 +74,8 @@ export type ProposeSummary = {
   outOfService: number;
   interrupted: number;
   reminded: number;
+  /** Waiting items a job switched on since now retries by itself. */
+  retriedAutomatically: number;
   /** Clinics whose rows could not be read: their items are neither proposed nor expired as resolved. */
   unread: number;
 };
@@ -113,7 +119,31 @@ function parkedAtOf(processedAt: Date | null, receivedAt: Date): Date {
 }
 
 /** Every open subject the inbox may propose, across billing clinics and the parked Stripe events. */
-export async function findOpenSubjects(now: Date): Promise<Found & { unread: number }> {
+/** Which automatic retries are switched on now: the reconcile's re-arm and the daily extra-usage run. */
+export async function automaticRetries(): Promise<ReadonlySet<string>> {
+  const on = new Set<string>();
+  for (const name of ["billing-reconcile", "annual-overage-invoice"]) {
+    if ((await getJob(name))?.enabled === true) on.add(name);
+  }
+  return on;
+}
+
+function retriedNow(kind: ApprovalKind, payload: unknown, on: ReadonlySet<string>): boolean {
+  if (kind === "billing_request_retry") {
+    const p = parsePayload("billing_request_retry", payload);
+    const job = p ? RETRIED_BY_REQUEST_KIND[p.requestKind] : null;
+    return job !== null && on.has(job);
+  }
+  const job = KIND_SPECS[kind]?.retriedBy ?? null;
+  return job !== null && on.has(job);
+}
+
+export async function findOpenSubjects(now: Date, on: ReadonlySet<string> = new Set()): Promise<Found & { unread: number }> {
+  const requestKinds = BILLING_REQUEST_KINDS.filter((k) => {
+    const job = RETRIED_BY_REQUEST_KIND[k];
+    return job === null || !on.has(job);
+  });
+  const overageOpen = !on.has("annual-overage-invoice");
   const found: Found = { proposals: [], open: new Set(), readClinics: new Set(), outOfService: new Set(), eventsRead: false };
   let unread = 0;
   const states = new Map<string, ClinicState | null>();
@@ -144,7 +174,7 @@ export async function findOpenSubjects(now: Date): Promise<Found & { unread: num
             and(
               eq(billingRequests.clinicId, tx.clinicId),
               eq(billingRequests.outcome, "dead_letter"),
-              inArray(billingRequests.kind, [...PROPOSED_REQUEST_KINDS]),
+              inArray(billingRequests.kind, [...requestKinds]),
             ),
           );
         for (const r of dead) {
@@ -155,6 +185,20 @@ export async function findOpenSubjects(now: Date): Promise<Found & { unread: num
             subjectClinicId: id,
             subjectRef,
             payload: { billingClinicId: id, requestId: r.id, requestKind: r.kind, epoch: r.epoch },
+          });
+        }
+        if (!overageOpen) return;
+        const failed = await tx.db
+          .select({ id: overageInvoices.id, windowStart: overageInvoices.windowStart })
+          .from(overageInvoices)
+          .where(and(eq(overageInvoices.clinicId, tx.clinicId), eq(overageInvoices.status, "failed")));
+        for (const o of failed) {
+          found.open.add(key("overage_invoice_retry", o.id));
+          found.proposals.push({
+            kind: "overage_invoice_retry",
+            subjectClinicId: id,
+            subjectRef: o.id,
+            payload: { billingClinicId: id, overageId: o.id, windowStart: o.windowStart.toISOString() },
           });
         }
       });
@@ -224,7 +268,6 @@ export async function findOpenSubjects(now: Date): Promise<Found & { unread: num
 function resolved(item: OpsApproval, found: Found): boolean {
   if (found.open.has(key(item.kind as ApprovalKind, item.subjectRef))) return false;
   if (item.kind === "billing_event_replay") return found.eventsRead;
-  if (!KIND_SPECS[item.kind as ApprovalKind]?.proposed) return true;
   const clinic = item.subjectClinicId;
   return clinic !== null && found.readClinics.has(clinic);
 }
@@ -282,17 +325,25 @@ async function remind(now: Date): Promise<number> {
 
 /** One run: propose, expire, re-alert. Exported for the tests; the job wraps it. */
 export async function proposeApprovals(now: Date = new Date()): Promise<ProposeSummary> {
-  const found = await findOpenSubjects(now);
+  const on = await automaticRetries();
+  const found = await findOpenSubjects(now, on);
   let proposed = 0;
   for (const proposal of found.proposals) {
-    if (!KIND_SPECS[proposal.kind]?.proposed) continue;
+    if (!KIND_SPECS[proposal.kind] || retriedNow(proposal.kind, proposal.payload, on)) continue;
     if (await propose(proposal, now)) proposed += 1;
   }
   const interrupted = await sweepInterrupted(now);
   const expired = await expireDue(now);
   let gone = 0;
   let outOfService = 0;
+  let retriedAutomatically = 0;
   for (const item of await waitingItems()) {
+    if (retriedNow(item.kind as ApprovalKind, item.payload, on)) {
+      if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "retried_automatically" })) {
+        retriedAutomatically += 1;
+      }
+      continue;
+    }
     if (item.subjectClinicId !== null && found.outOfService.has(item.subjectClinicId)) {
       if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "clinic_out_of_service" })) {
         outOfService += 1;
@@ -305,7 +356,7 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
     }
   }
   const reminded = await remind(now);
-  return { proposed, expired, resolved: gone, outOfService, interrupted, reminded, unread: found.unread };
+  return { proposed, expired, resolved: gone, outOfService, interrupted, retriedAutomatically, reminded, unread: found.unread };
 }
 
 /** The `approvals-propose` job: hourly from the tick, behind its switch. */
@@ -317,7 +368,7 @@ export async function runApprovalsProposeJob(options: { now?: Date } = {}): Prom
       const r = await proposeApprovals(now);
       return (
         `${r.proposed} proposed, ${r.expired} expired, ${r.resolved} no longer needed, ` +
-        `${r.outOfService} out of service, ${r.interrupted} interrupted, ${r.reminded} reminded` +
+        `${r.outOfService} out of service, ${r.retriedAutomatically} now retried by their own job, ${r.interrupted} interrupted, ${r.reminded} reminded` +
         (r.unread ? `, ${r.unread} could not be read` : "") +
         "."
       );

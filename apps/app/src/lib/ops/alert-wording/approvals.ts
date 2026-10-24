@@ -16,8 +16,9 @@ import type { AlertWording } from "./types";
  */
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // Only what no automatic process retries is ever proposed (owner decision
-  // D17; lib/approvals/proposers.ts), so "nothing is carried out until you
-  // approve it" holds for every kind in the list.
+  // D17; lib/approvals/proposers.ts): a plan start, a step-up or an overage
+  // invoice only while the job that retries it is switched off. So "nothing
+  // is carried out until you approve it" holds for every kind in the list.
   // lib/approvals/proposers.ts remind, once per kind: a money or routine
   // item waiting past its due time (a day after it was proposed), once; a
   // legal-clock item every 4 hours while it waits (owner decision D18; no
@@ -29,7 +30,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "Steps are waiting for your yes in the console",
     headline: "{count:approval} waiting for your yes, now past due",
     whatHappened:
-      "{count:approval} waiting for your yes, now past due. Each is a step only you can allow: a cancellation or closure the billing worker gave up on, or a Stripe event parked after its retries. Nothing in the list is retried by itself. Nothing is carried out until you approve it, and nothing is approved by waiting.",
+      "{count:approval} waiting for your yes, now past due. Each is a step only you can allow: a billing change the billing worker gave up on, a Stripe event parked after its retries, or an extra-usage invoice that failed. A plan start, a price step-up or an extra-usage invoice is listed only while the job that retries it is switched off. Nothing in the list is retried by itself. Nothing is carried out until you approve it, and nothing is approved by waiting.",
     whyItMatters:
       "Until you decide, what Stripe bills and what the clinic has may not match. After a week an item leaves the list without running, and the clinic's Billing tab is then where to retry it.",
     steps: [

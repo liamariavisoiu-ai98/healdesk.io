@@ -343,7 +343,10 @@ describeDb("the approval inbox", () => {
     });
 
     test("never proposes what an automatic process still retries (D17)", async () => {
-      // A plan start the worker dead-lettered: the reconcile re-arms it after a day.
+      // With the two retrying jobs on: the reconcile re-arms a dead plan start
+      // after a day, and the 05 UTC run invoices a failed month again.
+      await setJob("billing-reconcile", true);
+      await setJob("annual-overage-invoice", true);
       const planStart = await deadLettered("plan_start", "ap-neg-start");
       // A cancellation still being retried: attempt 3 of 10, pending.
       const retrying = await seedClinic("ap-neg-retrying");
@@ -362,12 +365,57 @@ describeDb("the approval inbox", () => {
       await pendingPurchase(pendingSub);
       const orphan = await stripeEvent(null, { type: "invoice.paid", object: { customer: "cus_nobody", subscription: pendingSub } });
 
-      await proposeApprovals(NOW);
-      await proposeApprovals(at(2 * DAY));
+      try {
+        await proposeApprovals(NOW);
+        await proposeApprovals(at(2 * DAY));
+      } finally {
+        await setJob("billing-reconcile", false);
+        await setJob("annual-overage-invoice", false);
+      }
       expect(await itemsOfClinic(planStart.clinic.clinicId)).toEqual([]);
       expect(await itemsOfClinic(retrying.clinicId)).toEqual([]);
       for (const subject of [failedOverage, pendingOverage, resent, orphan]) expect(await itemsFor(subject), subject).toEqual([]);
-      expect(KIND_SPECS.overage_invoice_retry.proposed).toBe(false);
+      // Switched off, nothing retries them: the dead plan start and the failed month are proposed;
+      // the retrying cancellation, the pending month, the resent event and the one provisioning replays are not.
+      await proposeApprovals(at(3 * DAY));
+      expect((await itemsOfClinic(planStart.clinic.clinicId)).map((i) => i.kind).sort()).toEqual(["billing_request_retry", "overage_invoice_retry"]);
+      expect(await itemsOfClinic(retrying.clinicId)).toEqual([]);
+      for (const subject of [pendingOverage, resent, orphan]) expect(await itemsFor(subject), subject).toEqual([]);
+    });
+
+    test("a plan start or overage item says nothing retries it while its job is off, and leaves the list once the job is on", async () => {
+      const start = await deadLettered("plan_start", "ap-switch-start");
+      const overageId = await overageRow(start.clinic.clinicId, "failed");
+      await proposeApprovals(NOW);
+      const out = await opListApprovals({}, OPERATOR, NOW);
+      const items = (out.body as { data: { items: { kind: string; subjectRef: string; packet: { effect: string } | null }[] } }).data.items;
+      const startItem = items.find((i) => i.subjectRef.startsWith(start.requestId))!;
+      expect(startItem.packet!.effect).toBe(
+        `Makes this plan start due again. The billing worker carries it out at its next run if it still applies, with fresh tries: it starts the package price on the subscription, replacing the $0 line. The hourly billing check is switched off, so nothing retries this by itself. ${WORKER_OFF}`,
+      );
+      const overageItem = items.find((i) => i.subjectRef === overageId)!;
+      expect(overageItem.packet!.effect).toBe(
+        "Invoices the extra usage for the month from 7 Sep now: $12.50, charged to the card on file. If the failed try left an invoice in Stripe, that one is finished instead of a second. The daily extra-usage run is switched off, so nothing retries this by itself.",
+      );
+      const home = await approvalsSource.read({} as never);
+      expect(home.rows.map((r) => r.sentence).sort()).toEqual([
+        "1 billing change the billing worker gave up on is waiting for your yes.",
+        "1 extra-usage invoice that failed is waiting for your yes.",
+      ]);
+
+      await setJob("billing-reconcile", true);
+      await setJob("annual-overage-invoice", true);
+      try {
+        const summary = await proposeApprovals(at(HOUR));
+        expect(summary.retriedAutomatically).toBe(2);
+      } finally {
+        await setJob("billing-reconcile", false);
+        await setJob("annual-overage-invoice", false);
+      }
+      expect((await itemsOfClinic(start.clinic.clinicId)).map((i) => [i.status, i.outcome_code])).toEqual([
+        ["expired", "retried_automatically"],
+        ["expired", "retried_automatically"],
+      ]);
     });
 
     test("leaves out the demo clinic and a closed account, and moves out an item whose clinic has since closed", async () => {
@@ -563,7 +611,7 @@ describeDb("the approval inbox", () => {
       expect(out).toEqual({
         status: "executed",
         outcomeCode: "rearmed",
-        message: `Re-armed: the change is due again, with ten fresh tries. The billing worker carries it out at its next run if it still applies. ${WORKER_OFF}`,
+        message: `Re-armed: the change is due again, with fresh tries. The billing worker carries it out at its next run if it still applies. ${WORKER_OFF}`,
         auditRecorded: true,
       });
       expect(out.message).not.toMatch(/carried out\./);
@@ -795,12 +843,12 @@ describeDb("the approval inbox", () => {
         closureOn: null,
       });
       expect(cancelPacket.effect).toBe(
-        `Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with ten fresh tries. Once carried out, the subscription is cancelled at once, and that cannot be undone. ${WORKER_OFF}`,
+        `Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with fresh tries. Once carried out, the subscription is cancelled at once, and that cannot be undone. ${WORKER_OFF}`,
       );
       const closePacket = requestPacket("close_setup");
       expect(closePacket.facts).toMatchObject({ requestKind: "close_setup", workerOn: false, closureOn: false });
       expect(closePacket.effect).toBe(
-        "Makes this closure due again. The billing worker carries it out at its next run, with ten fresh tries, if nothing has gone live and setup closure is switched on. Once carried out, the subscription is cancelled and the account closed, the setup fee is not refunded, and that cannot be undone. " +
+        "Makes this closure due again. The billing worker carries it out at its next run, with fresh tries, if nothing has gone live and setup closure is switched on. Once carried out, the subscription is cancelled and the account closed, the setup fee is not refunded, and that cannot be undone. " +
           `${WORKER_OFF} Setup closure is switched off, so the closure waits until it is switched on at System > Jobs.`,
       );
       const eventPacket = mine.find((i) => i.kind === "billing_event_replay")!.packet!;
@@ -855,7 +903,7 @@ describeDb("the approval inbox", () => {
         [
           "approvals:billing_request_retry",
           1,
-          "1 cancellation or closure the billing worker gave up on is waiting for your yes.",
+          "1 billing change the billing worker gave up on is waiting for your yes.",
           "warn",
           { label: "Open approvals", kind: "link", href: "/admin/queues#approvals" },
         ],

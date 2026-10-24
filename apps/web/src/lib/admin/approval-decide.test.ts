@@ -80,7 +80,7 @@ const PACKET = {
   operation: "retryBillingRequest",
   irreversible: true,
   stillNeeded: true,
-  effect: "Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with ten fresh tries.",
+  effect: "Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with fresh tries.",
   facts: FACTS,
 };
 const ITEM_ROW = {

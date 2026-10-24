@@ -93,7 +93,7 @@ const retryBillingRequest: Executor = async (approval, operator) => {
   // Re-armed, not carried out: the worker makes the change at its next run.
   const switches = await billingSwitches();
   const message =
-    "Re-armed: the change is due again, with ten fresh tries. The billing worker carries it out at its next run if it still applies." +
+    "Re-armed: the change is due again, with fresh tries. The billing worker carries it out at its next run if it still applies." +
     (switches.worker ? "" : " The billing worker is switched off, so nothing happens until it is switched on at System > Jobs.") +
     (payload.requestKind === "close_setup" && !switches.closure
       ? " Setup closure is switched off, so the closure waits until it is switched on at System > Jobs."

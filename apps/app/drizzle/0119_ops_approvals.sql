@@ -97,9 +97,11 @@ CREATE INDEX "ops_approvals_subject_idx" ON "ops_approvals" USING btree ("kind",
 --
 -- One job row, seeded OFF like every job: approvals-propose, hourly, which
 -- proposes only what no automatic process retries (owner decision D17: a
--- cancellation or setup closure the billing worker dead-lettered, a Stripe
--- event parked after its retries that names a clinic), expires items past
--- their window and re-alerts. It never retries anything itself.
+-- billing request the worker dead-lettered, a plan start or step-up only
+-- while billing-reconcile is off; a failed overage invoice only while
+-- annual-overage-invoice is off; a parked Stripe event provisioning will not
+-- replay), expires items past their window and re-alerts. It never retries
+-- anything itself.
 --
 -- Safe to apply in place: two new, empty tables and one job row.
 -- =============================================================================
@@ -177,7 +179,7 @@ COMMENT ON TABLE ops_approval_events IS
   'Add-only record of the approval inbox: each proposal, edit, decision, outcome, expiry and reminder, with the operator account, IP address and user agent the request carried, a draft''s hashes as approved and as sent, and the outcome code. The runtime role may only read and add; UPDATE, DELETE and TRUNCATE are refused by ENABLE ALWAYS triggers for any role that issues them (only a DDL change by the table owner could remove them). No patient, never a draft''s text.';--> statement-breakpoint
 
 INSERT INTO scheduled_jobs (name, cadence, enabled) VALUES
-  ('approvals-propose', 'Hourly; puts each cancellation or setup closure the billing worker gave up on and each Stripe event parked after its retries that names a clinic into the approval inbox, one item each, for the owner to approve or reject; nothing an automatic process still retries. Expires items past their window and re-alerts items past due. Never retries or replays anything itself. Off until the owner switches it on', false)
+  ('approvals-propose', 'Hourly; puts each billing change the billing worker gave up on, each Stripe event parked after its retries and each extra-usage invoice that failed into the approval inbox, one item each, for the owner to approve or reject. Nothing an automatic process still retries: a plan start or a price step-up only while billing-reconcile is off, an extra-usage invoice only while annual-overage-invoice is off. Expires items past their window and re-alerts items past due. Never retries or replays anything itself. Off until the owner switches it on', false)
 ON CONFLICT (name) DO NOTHING;--> statement-breakpoint
 
 DO $$

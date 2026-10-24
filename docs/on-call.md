@@ -246,7 +246,7 @@ and numbered steps from one wording (`apps/app/src/lib/ops/alert-wording/`, one 
 section below), and both link to `/admin/clinics/<id>/<tab>#<event>-<alert id>`
 (`opsConsoleLink`, lib/ops/notify.ts; the shape in `apps/web/src/lib/admin/issue-link.ts`),
 where the panel shows "Fix with Claude" for that alert and scrolls to the card that owns it
-when one does. The alert is the short action list; this runbook is the longer reference.
+when one does. Each alert reads top down: an urgency tag (URGENT: act now; TODAY: a person today; FYI: nothing to do but read), one bold headline that says what is wrong, a highlighted "Do this first" box (the first step), then "More detail" with the rest. The alert is the short action list; this runbook is the longer reference.
 An alert about no clinic links to the page that owns it instead (`NO_CLINIC_PAGE`,
 `apps/app/src/lib/ops/alert-wording/tabs.ts`, one for every event). When a step says to note
 what you did, the Touch log on the clinic's Care tab takes a note for every clinic, whatever

@@ -291,6 +291,7 @@ export function clinicRows(
           receivedOn: intake.receivedOn,
           askedFor: intake.askedFor,
           operator,
+          today,
         });
     const isBlocked = prepared?.blocked === true;
     out.push({

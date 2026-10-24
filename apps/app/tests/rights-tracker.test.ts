@@ -157,6 +157,21 @@ describe("the prepared commands", () => {
     for (const out of [request, withContact]) expectOnlyIdsAndFixedWords(out.command!);
   });
 
+  test("the day passed to the host is never later than today's UTC date", () => {
+    // A clinic east of UTC records the request on its own day, which UTC has not reached.
+    const ahead = { ...base, receivedOn: "2026-10-24", today: "2026-10-23" };
+    expect(prepareCommand({ ...ahead, kind: "patient_request", askedFor: "access" }).command).toBe(
+      `${RUN_TASK} patient-request ${CLINIC} access ops@healdesk.test 2026-10-23`,
+    );
+    expect(prepareCommand({ ...ahead, kind: "erasure", contactId: CONTACT, requestedBy: "practice" }).command).toBe(
+      `${RUN_TASK} erase-person ${CLINIC} ${CONTACT} practice ops@healdesk.test 2026-10-23`,
+    );
+    // A day in the past is passed as it is.
+    expect(prepareCommand({ ...base, today: "2026-10-30", kind: "patient_request", askedFor: "access" }).command).toBe(
+      `${RUN_TASK} patient-request ${CLINIC} access ops@healdesk.test 2026-10-23`,
+    );
+  });
+
   test("a request with no contact id is blocked, with the sentence in place of a command; an amendment always is", () => {
     for (const kind of ["erasure", "export", "correction"] as const) {
       expect(prepareCommand({ ...base, kind }), kind).toEqual({ command: null, note: NO_ROUTE, blocked: true });

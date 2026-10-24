@@ -23,6 +23,12 @@ describe("extendedWords", () => {
     expect(EXTENSION_NOT_RECORDED_WORDS).toContain("Home may still list a decision owed");
   });
 
+  test("no lifecycle (an older apps/app during a deploy): the deadline alone, nothing extra", () => {
+    expect(extendedWords({ status: "extended", setupDeadlineAt: "2026-11-12 23:59 UTC", auditRecorded: true })).toBe(
+      "Extended to 2026-11-12 23:59 UTC.",
+    );
+  });
+
   test("a refusal is not drawn as done", () => {
     expect(extendedWords({ status: "refused", message: "No." })).toBeNull();
   });

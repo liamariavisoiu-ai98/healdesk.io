@@ -110,22 +110,18 @@ describe("the section's words", () => {
     expect(writeLine({ ...retrying, reason: "other" }, NOW)).toContain("no reason of ours was recorded: the attempt was cut off before one was written, or Google answered with a word of its own");
   });
 
-  test("empty says 'No stuck writes.' only when the whole list was read; cut off or unread clinics are said instead, in red", () => {
-    const whole = renderToStaticMarkup(h(CalendarWrites, { clinicId: CLINIC, writes: ok([elsewhere]), now: NOW, onRetry: NEVER }));
+  test("empty says 'No stuck writes.' only when this clinic was read; unread is said instead, in red", () => {
+    const whole = renderToStaticMarkup(h(CalendarWrites, { clinicId: CLINIC, writes: ok([]), now: NOW, onRetry: NEVER }));
     expect(text(whole)).toContain("No stuck writes.");
     expect(whole).not.toContain("text-red-deep");
+    expect(text(whole)).not.toContain("None of the first");
 
-    const cut = renderToStaticMarkup(h(CalendarWrites, { clinicId: CLINIC, writes: ok([elsewhere], { count: 140, truncated: true }), now: NOW, onRetry: NEVER }));
-    expect(text(cut)).toContain("None of the first 1 are this clinic's; the list was cut off at that, of 140 found, so this clinic may still have some.");
-    expect(text(cut)).not.toContain("No stuck writes.");
-    expect(cut).toMatch(/<p role="status" class="text-red-deep[^"]*">None of the first/);
-    expect(emptyWords({ writes: new Array(100).fill(elsewhere), count: 140, truncated: true, unreadClinics: 0, sweepOn: true })).toBe(
-      "None of the first 100 are this clinic's; the list was cut off at that, of 140 found, so this clinic may still have some.",
-    );
-
-    const unread = text(renderToStaticMarkup(h(CalendarWrites, { clinicId: CLINIC, writes: ok([], { unreadClinics: 2 }), now: NOW, onRetry: NEVER })));
-    expect(unread).toContain("None read are this clinic's, but 2 clinic(s) could not be read; this one may be among them.");
-    expect(unread).not.toContain("No stuck writes.");
+    const unread = renderToStaticMarkup(h(CalendarWrites, { clinicId: CLINIC, writes: ok([], { unreadClinics: 1 }), now: NOW, onRetry: NEVER }));
+    expect(text(unread)).toContain("This clinic's calendar writes could not be read.");
+    expect(text(unread)).not.toContain("No stuck writes.");
+    expect(text(unread)).not.toContain("clinic(s)");
+    expect(unread).toMatch(/<p role="status" class="text-red-deep[^"]*">This clinic/);
+    expect(emptyWords({ writes: [], count: 0, truncated: false, unreadClinics: 0, sweepOn: true })).toBe("No stuck writes.");
 
     const failed = text(
       renderToStaticMarkup(h(CalendarWrites, { clinicId: CLINIC, writes: { ok: false, code: "failed", message: "The stuck writes could not be read." }, now: NOW, onRetry: NEVER })),
@@ -134,10 +130,10 @@ describe("the section's words", () => {
     expect(failed).not.toContain("No stuck writes.");
   });
 
-  test("with rows, a cut-off or unread read is still said beneath them", () => {
-    const page = text(renderToStaticMarkup(h(CalendarWrites, { clinicId: CLINIC, writes: ok([retrying], { count: 140, truncated: true, unreadClinics: 1 }), now: NOW, onRetry: NEVER })));
-    expect(page).toContain("Only the first 1 stuck writes across every clinic were read, of 140: this clinic may have more than shown.");
-    expect(page).toContain("1 clinic(s) could not be read; this one may be among them.");
+  test("this clinic alone with more than 100 rows: the cut-off is said beneath them, never 'across every clinic'", () => {
+    const page = text(renderToStaticMarkup(h(CalendarWrites, { clinicId: CLINIC, writes: ok([retrying], { count: 140, truncated: true }), now: NOW, onRetry: NEVER })));
+    expect(page).toContain("Only the first 1 of this clinic's 140 stuck writes are shown.");
+    expect(page).not.toContain("across every clinic");
   });
 });
 
@@ -149,6 +145,14 @@ describe("the retry's words", () => {
     expect(retryWords(retried("failed"), 2)).toMatchObject({ data: { status: "refused", message: "Failed again. Reload to read the new reason on the row." } });
     expect(retryWords(retried("not-connected"), 2)).toMatchObject({ data: { status: "refused" } });
     expect(retryWords(retried("unknown"), 2)).toEqual({ ok: true, data: { status: "unknown", message: "No answer settled it: the sweep reads it back on its next turn." } });
+    // The calendar watch switched off: nothing will read it back.
+    expect(retryWords(retried("unknown"), 2, false)).toEqual({
+      ok: true,
+      data: {
+        status: "refused",
+        message: "No answer settled it. It will not be tried again by itself while the calendar-watch switch on the Jobs page is off.",
+      },
+    });
     // The fourth try that ends unknown is the fifth attempt: the sweep stops there.
     expect(retryWords(retried("unknown"), 4)).toMatchObject({
       data: { status: "refused", message: "No answer settled it, and after 5 tries the sweep will not try again by itself. Check the clinic's calendar, or press Retry once the cause is fixed." },

@@ -797,8 +797,14 @@ describe("the billing panel's writes", () => {
       days: 7,
       fromDeadline: "2026-11-05T23:59:59.999Z",
     });
-    // The setup watch's answer is read strictly: missing, or off its list, is malformed.
-    for (const lifecycle of [undefined, "maybe"]) {
+    // An older apps/app sends no lifecycle (the deploy window): read without it.
+    reply({ data: { status: "extended", setupDeadlineAt: "2026-11-12T23:59:59.999Z", auditRecorded: true } });
+    expect(await extendSetupDeadline(CLINIC, { days: 7, fromDeadline: "2026-11-05T23:59:59.999Z" })).toEqual({
+      ok: true,
+      data: { status: "extended", setupDeadlineAt: "2026-11-12 23:59 UTC", auditRecorded: true },
+    });
+    // A value off its list is still malformed.
+    for (const lifecycle of ["maybe", null, 1]) {
       reply({ data: { status: "extended", setupDeadlineAt: "2026-11-12T23:59:59.999Z", auditRecorded: true, lifecycle } });
       expect(await extendSetupDeadline(CLINIC, { days: 7, fromDeadline: "2026-11-05T23:59:59.999Z" })).toMatchObject({
         ok: false,

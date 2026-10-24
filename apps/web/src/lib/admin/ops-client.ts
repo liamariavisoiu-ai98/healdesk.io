@@ -5002,7 +5002,12 @@ export function liftSuspension(
 export const EXTENSION_LIFECYCLE = ["recorded", "not_watched", "not_recorded"] as const;
 
 export type ExtendDeadlineOutcome =
-  | ({ status: "extended"; setupDeadlineAt: string; lifecycle: (typeof EXTENSION_LIFECYCLE)[number] } & Audited)
+  | ({
+      status: "extended";
+      setupDeadlineAt: string;
+      /** Absent from an apps/app image older than the field (a deploy window): nothing is said then. */
+      lifecycle?: (typeof EXTENSION_LIFECYCLE)[number];
+    } & Audited)
   | { status: "refused"; message: string };
 
 /**
@@ -5023,7 +5028,10 @@ export function extendSetupDeadline(
       status: "extended",
       setupDeadlineAt: instant(data.setupDeadlineAt, "extendSetupDeadline.setupDeadlineAt").at,
       auditRecorded: bool(data.auditRecorded, "extendSetupDeadline.auditRecorded"),
-      lifecycle: literal(data.lifecycle, EXTENSION_LIFECYCLE, "extendSetupDeadline.lifecycle"),
+      // Missing from an older apps/app (the deploy window); off the list is malformed.
+      ...(data.lifecycle === undefined
+        ? {}
+        : { lifecycle: literal(data.lifecycle, EXTENSION_LIFECYCLE, "extendSetupDeadline.lifecycle") }),
     };
   });
 }

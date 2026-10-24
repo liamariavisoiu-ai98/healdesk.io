@@ -32,15 +32,20 @@ import type { OpsResult, RetryCalendarWriteOutcome, StuckCalendarWrites, StuckCa
  * it: an event id already taken means our event is in the calendar at
  * another time, and the clinic's staff move it by hand.
  *
- * The read is capped at 100 across every clinic, so a truncated read may be
- * missing this clinic's rows, and a clinic apps/app could not read is counted,
- * never drawn as none; neither case is allowed to read "No stuck writes."
+ * The read is this clinic's alone (listStuckCalendarWrites with `clinicId`),
+ * capped at 100 rows: a cut-off read says so, and `unreadClinics` above zero
+ * means this clinic itself could not be read. Neither case is allowed to read
+ * "No stuck writes."
  */
 
 type Said = { status: string; message?: string };
 
 /** The retry's answer as the one button pattern reads it, with the words true to the tries the row will then have. */
-export function retryWords(result: OpsResult<RetryCalendarWriteOutcome>, attemptsBefore: number): OpsResult<Said> {
+export function retryWords(
+  result: OpsResult<RetryCalendarWriteOutcome>,
+  attemptsBefore: number,
+  sweepOn = true,
+): OpsResult<Said> {
   if (!result.ok) return result;
   const r = result.data;
   if (r.status === "refused") return { ok: true, data: { status: "refused", message: r.message } };
@@ -52,6 +57,17 @@ export function retryWords(result: OpsResult<RetryCalendarWriteOutcome>, attempt
     case "not-connected":
       return { ok: true, data: { status: "refused", message: "No Google Calendar is connected, so nothing was written." } };
     case "unknown":
+      // Nothing retries while the calendar watch is off: never promise the sweep.
+      if (!sweepOn) {
+        return {
+          ok: true,
+          data: {
+            status: "refused",
+            message:
+              "No answer settled it. It will not be tried again by itself while the calendar-watch switch on the Jobs page is off.",
+          },
+        };
+      }
       return attemptsBefore + 1 >= MAX_WRITE_TRIES
         ? {
             ok: true,
@@ -78,8 +94,8 @@ export function writeLine(write: StuckCalendarWriteView, nowIso: string, sweepOn
 
 /** The one line for a clinic with no row in the list, true to how much of the list was read. */
 export function emptyWords(writes: StuckCalendarWrites): string {
-  if (writes.truncated) return `None of the first ${writes.writes.length} are this clinic's; the list was cut off at that, of ${writes.count} found, so this clinic may still have some.`;
-  if (writes.unreadClinics > 0) return `None read are this clinic's, but ${writes.unreadClinics} clinic(s) could not be read; this one may be among them.`;
+  // One clinic's read: an unread clinic is this one.
+  if (writes.unreadClinics > 0) return "This clinic's calendar writes could not be read.";
   return "No stuck writes.";
 }
 
@@ -119,19 +135,23 @@ export function CalendarWrites({
                 <span>{writeLine(w, now, writes.ok ? writes.data.sweepOn : true)}</span>
                 <code className="text-muted font-mono text-xs select-all">{w.appointmentId}</code>
               </div>
-              <ActionButton label="Retry" run={async () => retryWords(await onRetry(w.appointmentId), w.attempts)} done={(d) => d.message ?? null} />
+              <ActionButton
+                label="Retry"
+                run={async () => retryWords(await onRetry(w.appointmentId), w.attempts, writes.ok ? writes.data.sweepOn : true)}
+                done={(d) => d.message ?? null}
+              />
             </li>
           ))}
         </ul>
       ) : null}
       {writes.ok && mine.length > 0 && writes.data.truncated ? (
         <p role="status" className="text-red-deep mt-3 text-sm font-semibold">
-          Only the first {writes.data.writes.length} stuck writes across every clinic were read, of {writes.data.count}: this clinic may have more than shown.
+          Only the first {writes.data.writes.length} of this clinic&apos;s {writes.data.count} stuck writes are shown.
         </p>
       ) : null}
       {writes.ok && mine.length > 0 && writes.data.unreadClinics > 0 ? (
         <p role="status" className="text-red-deep mt-3 text-sm font-semibold">
-          {writes.data.unreadClinics} clinic(s) could not be read; this one may be among them.
+          This clinic&apos;s calendar writes could not all be read.
         </p>
       ) : null}
     </Section>

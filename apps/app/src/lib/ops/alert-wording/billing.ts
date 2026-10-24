@@ -1,90 +1,260 @@
 import type { OpsEvent } from "@/lib/ops/notify";
 
-import { legacy, type AlertWording } from "./types";
+import type { AlertWording } from "./types";
 
-/** The "billing" section of docs/on-call.md's alert runbook. */
+/**
+ * The "billing" section of docs/on-call.md's alert runbook. Every control a
+ * step names is on the clinic's Billing tab (apps/web
+ * app/admin/clinics/[clinicId]/billing/BillingPanel.tsx) or the Jobs page
+ * under System, and money is the owner's: a refund, a credit or a change to
+ * what Stripe bills waits for the owner's word, and every step that touches
+ * it says so.
+ */
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
-  duplicate_subscription: legacy(
-    "A clinic has two subscriptions",
-    "Stripe holds a second subscription for one clinic. Cancel the duplicate, and refund it if it was charged.",
-  ),
-  billing_event_dead_lettered: legacy(
-    "A billing event stopped retrying",
-    "A Stripe event could not be applied after its retries. Replay it from the console.",
-  ),
-  billing_request_dead_lettered: legacy(
-    "A billing request stopped retrying",
-    "A plan start, step-up, cancellation or setup closure failed on Stripe after every retry. Check the clinic's subscription in Stripe, then retry the request from the console.",
-  ),
-  billing_request_stuck: legacy(
-    "A billing request has waited over 24 hours",
-    "A plan start, step-up, cancellation or setup closure is still pending a day after it was recorded. Check that the billing-requests job is on and the worker is running, then look at the request in the console.",
-  ),
-  setup_closure_skipped_live_channel: legacy(
-    "A setup closure was skipped: a channel is live",
-    "An account reached the end of its 30-day setup window with a channel already live, so it was left open. Nothing needs undoing; check that its plan starts when AYA first answers.",
-  ),
-  location_charged_not_created: legacy(
-    "An extra location was charged but not created",
-    "A clinic paid for an extra location and creating it failed. The charge stands: retry the location's setup from the console today.",
-  ),
-  connect_event_dead_lettered: legacy(
-    "A Connect event stopped retrying",
-    "A Stripe Connect event about a clinic's deposits could not be applied after its retries. Check the deposit in the clinic's own Stripe account, then replay the event from the console.",
-  ),
-  overage_invoice_failed: legacy(
-    "An annual overage invoice failed",
-    "Invoicing an annual clinic's overage for a closed month failed. Check for a draft or open invoice in Stripe, then retry it from the console.",
-  ),
-  first_period_refund_due: legacy(
-    "A first-period refund is due",
-    "A clinic turned auto-renew off inside its first-period refund window. Contact the clinic, then issue the refund from the console.",
-  ),
-  plan_start_after_cancel: legacy(
-    "A plan started on a subscription set to cancel",
-    "A clinic's first period was charged while its subscription was set to cancel. Check with the clinic whether auto-renew should be on; if not, the first-period refund applies.",
-  ),
-  // Raised once per location by the answer gate.
-  billing_pointer_outside_practice: legacy(
-    "A location is billed to another practice",
-    "The clinic below records its billing clinic as one in another practice. The assistant treats it as having no billing and passes its calls and messages to the clinic rather than answer them. Find which practice the location belongs to and correct its billing clinic.",
-  ),
-  // Raised by a first-period refund (commitRefund) whose cancel_now waits on
-  // the switched-off billing-requests job.
-  refund_cancel_job_off: legacy(
-    "A refunded plan is still billing",
-    "A first-period refund under the Terms was issued and the plan's cancellation recorded, but the billing-requests job that carries it out is switched off, so the subscription keeps billing. Switch billing-requests on in the console, or cancel the subscription in Stripe at once, without proration.",
-  ),
-  // The hourly location-quantity check (lib/billing/location-quantity.ts).
-  location_quantity_drift: legacy(
-    "Stripe bills a different number of locations",
-    "The quantity Stripe bills this account for locations is not the number of locations it has active (counting one being added whose charge is recorded). Nothing was changed: the check only reads. Open the account's Billing page and its subscription in Stripe, decide which side is wrong, and put it right by hand: too many billed may be a refund owed, too few an add to finish. You will hear once more when the two agree again.",
-  ),
-  location_quantity_agrees: legacy(
-    "Stripe's location count matches again",
-    "The quantity Stripe bills this account for locations matches its active locations again, so the mismatch reported earlier for the time below has ended. Nothing more to do unless a refund or a credit for the period it lasted is still owed.",
-  ),
-  agreement_refund_due: legacy(
-    "A terminated practice is owed a refund",
-    "The practice ended its agreement for a reason the agreement refunds: the fees it paid for any time after the termination day. On the clinic's Billing page, preview the termination refund, check it, and confirm it. Confirm it before the practice's data is destroyed (at the earliest 29 days after the termination): destruction removes the billing records the console refunds from, and after it the refund has to be made by hand in the Stripe Dashboard. The subscription is already being cancelled.",
-  ),
+  // /api/provision, once per purchase: a second subscription was paid for a
+  // practice whose clinic exists (by its purchase, or by its Stripe customer
+  // alone). Nothing is made for it; the clinic named is the existing one.
+  duplicate_subscription: {
+    title: "A clinic was charged for a second subscription",
+    whatHappened:
+      "{clinicName} already has its account, and Stripe has taken payment for a second subscription for the same practice. Nothing was made for the second one; the account it has is unchanged.",
+    whyItMatters:
+      "The practice has paid a setup fee and a first period twice. Until the duplicate is cancelled it is charged again every period.",
+    steps: [
+      "Open the clinic's Billing tab and read the Plan card: the subscription shown there is the one to keep.",
+      "Find the clinic's customer in Stripe's Dashboard and the second subscription, the one the Billing tab does not show. Do not cancel the one the Billing tab shows.",
+      "Ask the owner before any money moves: cancelling the duplicate without proration, and refunding what it charged, is the owner's call. Nothing on the Billing tab cancels or refunds a subscription the account does not record.",
+      "Press Record in the Touch log on the clinic's Care tab to note what was cancelled and refunded. You are done when Stripe shows one subscription for the customer and the Plan card is unchanged.",
+    ],
+  },
+  // lib/billing/events.ts, after the third failure of one Stripe event: it
+  // is parked, Stripe is answered 200 and does not resend. `clinicId` is null
+  // when the event never resolved to a clinic, and such an event shows on no
+  // Billing tab (lib/ops/billing.ts attentionEvents).
+  billing_event_dead_lettered: {
+    title: "A Stripe event could not be applied and is parked",
+    whatHappened:
+      "Stripe told us something about {clinicName}'s billing, and applying it failed {failures:time}, so it is parked and nothing tries it again. Stripe has been answered, so it will not resend it.",
+    whyItMatters:
+      "Until it is applied, our record of the clinic's billing may be wrong: a payment, a failed charge or a cancellation Stripe knows about and we do not.",
+    steps: [
+      "Open the clinic's Billing tab and find the event under Parked Stripe events: its type, its failures and a short reason are shown on its row.",
+      "Press Replay on the row. The event is applied again from the start; if it fails again it stays parked with the new reason, and nothing is lost.",
+      "Tell the owner today if the replay fails again, or if this alert names no clinic: an event matched to no clinic shows on no Billing tab, and only the owner can look into it.",
+      "Check Parked Stripe events on the Billing tab again. You are done when the event is gone from the list.",
+    ],
+  },
+  // lib/billing/requests.ts settle (every attempt used, or a permanent
+  // failure), and lib/billing/reconcile.ts when the hourly check re-arms a
+  // dead letter a day later (`status: "rearmed"`). `kind` is plan_start,
+  // step_up, cancel_now or close_setup; `code` the last Stripe error.
+  billing_request_dead_lettered: {
+    title: "A billing change failed at Stripe after every retry",
+    whatHappened:
+      "A change to {clinicName}'s subscription failed at Stripe on every attempt[, {attempts} in all]: a plan start, a step up, a cancellation or a setup closure. The hourly check gives it one more go a day later and tells you again if it does; nothing else retries it.",
+    whyItMatters:
+      "Until it goes through, what Stripe bills and what the clinic has do not match: a plan start not charged, a channel not billed, a cancellation or a closure not carried out.",
+    steps: [
+      "Open the clinic's Billing tab and find the change under Billing requests: its kind, its attempts and the last error are on its row.",
+      "Read the last error on the row under Billing requests. If it says the card was refused or the subscription has ended, nothing here fixes it: ask the owner what to do before pressing anything.",
+      "Press Retry on the row once the cause is fixed, or if the error reads like a passing fault. It is picked up within a minute while the billing requests row on the Jobs page under System reads on.",
+      "Check the row under Billing requests an hour later. You are done when it reads done.",
+    ],
+  },
+  // lib/billing/reconcile.ts, once per request: pending for more than a day
+  // (STUCK_AFTER_MS), which the Billing tab marks STUCK. A setup closure held
+  // by its own switch is waiting by design and is not counted.
+  billing_request_stuck: {
+    title: "A billing change has waited at Stripe for over a day",
+    whatHappened:
+      "A change to {clinicName}'s subscription has been pending for more than a day without finishing: a plan start, a step up, a cancellation or a setup closure. It is marked STUCK on the clinic's Billing tab.",
+    whyItMatters:
+      "Until it goes through, what Stripe bills and what the clinic has do not match. A change this late usually means nothing is carrying changes out at all.",
+    steps: [
+      "Open the Jobs page under System and check the billing requests row reads on. Press Turn on if it reads off: every pending change then goes within a minute.",
+      "Open the clinic's Billing tab and find the row marked STUCK under Billing requests. Its attempts and last error say whether it is being tried or only waiting.",
+      "Press Retry on the row if it shows no attempt for an hour while the job is on. If the last error says the card was refused or the subscription has ended, ask the owner instead.",
+      "Check the row under Billing requests an hour later. You are done when it reads done.",
+    ],
+  },
+  // lib/billing/requests.ts closeSetupWorker: a close_setup request found a
+  // live channel in the billing group and was skipped, once per request.
+  setup_closure_skipped_live_channel: {
+    title: "A setup closure was skipped: a channel is live",
+    whatHappened:
+      "{clinicName} reached the end of its setup window, but a channel was already live, so the closure that would have cancelled its subscription was skipped. The account stays open and nothing was changed.",
+    whyItMatters:
+      "This is the right outcome: a clinic that is answering is not closed. Its plan starts, and billing begins, the first time AYA answers a patient, which happens by itself.",
+    steps: [
+      "Open the clinic's Billing tab and look under Billing requests: the Setup closure row reads skipped. Do not press Retry on it; it would only be skipped again.",
+      "Check Plan started on the Plan card of the same tab. If it is blank, nothing has been answered yet; it fills by itself at the first answer.",
+      "Leave Close the unfinished setup alone: it is refused while a channel is live. You are done once Plan started shows a day.",
+    ],
+  },
+  // lib/billing/stripe-actions.ts finishLocationSetup (the add's own
+  // attempt) and lib/billing/reconcile.ts (the hourly resume), once per
+  // request: the charge is recorded and the location is still not active.
+  // `count` is the location's number, as the Billing tab names it.
+  location_charged_not_created: {
+    title: "An extra location was charged but is not set up",
+    whatHappened:
+      "{clinicName} paid for an extra location[ (location {count})], and making it active failed. The charge stands; the location is not set up and is not answering yet.",
+    whyItMatters:
+      "The clinic is paying for a location that does not exist yet. The hourly check tries to finish it on its own; if it cannot, this waits until someone retries it.",
+    steps: [
+      "Open the clinic's Billing tab: the Needs attention box names the location and the day it was charged, and A location waiting to be set up shows it.",
+      "Press Retry the location setup under A location waiting to be set up. It finishes the location, or clears a request that never charged; it never charges again.",
+      "Tell the owner the same day if Retry the location setup fails again, with this alert's code: the location then needs a hand on our side, and whether the clinic is owed a refund or a credit is the owner's call.",
+      "Check the Billing tab again. You are done when the Needs attention box no longer names the location.",
+    ],
+  },
+  // lib/billing/connect-events.ts, after the third failure of one event from
+  // the clinic's own Stripe account: parked. `clinicId` is null when the
+  // event never resolved to a clinic.
+  connect_event_dead_lettered: {
+    title: "A deposit event from Stripe is parked",
+    whatHappened:
+      "Stripe told us about a deposit at {clinicName}, paid through the clinic's own Stripe account, and applying it failed three times, so it is parked. Nothing tries it again on its own.",
+    whyItMatters:
+      "The deposit itself is in the clinic's own Stripe account either way. What may be wrong is our record of it: a booking may still show its deposit as unpaid, or a payment link as open.",
+    steps: [
+      "Open the clinic's Billing tab and find the event under Parked Stripe events, marked Connect: its type, its failures and a short reason are on its row.",
+      "Press Replay on the row. The event is fetched again from the clinic's own Stripe account and applied; if that fails it stays parked with the new reason.",
+      "Tell the owner today if the replay fails again, or if this alert names no clinic: an event matched to no clinic shows on no Billing tab.",
+      "Check Parked Stripe events on the Billing tab again. You are done when the event is gone from the list.",
+    ],
+  },
+  // lib/billing/annual-overage.ts, once per clinic and month: the invoice
+  // for a closed month's overage failed at Stripe. `windowStart` is the
+  // month's first day.
+  overage_invoice_failed: {
+    title: "An annual clinic's overage could not be invoiced",
+    whatHappened:
+      "{clinicName} is on an annual plan and used more than its allowance[ in the month starting {windowStart}]. Invoicing that extra in Stripe failed, and nothing retries it on its own.",
+    whyItMatters:
+      "The clinic has used more than it paid for and has not been billed for it. Overage is invoiced per closed month, so the longer it waits, the further the invoice falls from the month it covers.",
+    steps: [
+      "Open the clinic's Billing tab and find the month under Annual overage invoices: its amount, its status and a short reason are on its row.",
+      "Press Retry the invoice on the row. It picks up any invoice the first attempt left in Stripe rather than making a second one.",
+      "Tell the owner the same day if Retry the invoice fails again, or the reason on the row says the card was refused: a charge that cannot be taken is the owner's call.",
+      "Check the row under Annual overage invoices again. You are done when it reads invoiced.",
+    ],
+  },
+  // lib/billing/stripe-actions.ts setAutoRenew: auto-renew turned off inside
+  // the first-period refund window (FIRST_PERIOD_REFUND_DAYS, 14). The
+  // cancel_scheduled email promised the clinic we would write by the next
+  // business day to arrange the refund.
+  first_period_refund_due: {
+    title: "A clinic is owed its first-period refund",
+    whatHappened:
+      "{clinicName} turned auto-renew off within fourteen days of its plan starting. Under the Terms its first period's fee is due back in full, and the email it received promises we will write by the next business day to arrange it.",
+    whyItMatters:
+      "A promise with a day on it. The refund also cancels the plan at once, so it must be the clinic's settled choice, and money is the owner's call.",
+    steps: [
+      "Open the clinic's Billing tab: the Needs attention box says the refund is due and the day its window closes.",
+      "Phone the clinic on its published number, shown under Phone line on its Setup tab, and confirm it wants to leave. If it wants to stay, press Turn auto-renew on, on the Billing tab, and no refund is due.",
+      "Ask the owner for the go-ahead before refunding anything: the refund under Refund under Terms § 5 moves real money and cannot be undone.",
+      "Press Preview the amount under Refund under Terms § 5 with First period, plan cancelled selected, type the amount shown to confirm it, give a reason and press the button naming the amount. It pays the first period back and cancels the plan at once; the setup fee is never refunded.",
+      "Email the clinic from hello@ by the promised day to say what was done. You are done when the Plan card shows Refunded under § 5.",
+    ],
+  },
+  // lib/billing/requests.ts planStart: the start went through while the
+  // subscription was set to cancel at the period's end (R5). Both stand: one
+  // period is charged, then the account closes.
+  plan_start_after_cancel: {
+    title: "A plan started while set to cancel",
+    whatHappened:
+      "{clinicName}'s plan started and its first period was charged while its subscription was set to cancel at the end of that period. Both stand: it pays for one period, then the account closes.",
+    whyItMatters:
+      "If the clinic meant to leave, the first period may be due back under the Terms, within fourteen days of the start. If it meant to stay, auto-renew needs turning back on before the period ends.",
+    steps: [
+      "Open the clinic's Billing tab: the Plan card shows auto-renew off and the day the account closes.",
+      "Phone the clinic on its published number, shown under Phone line on its Setup tab, and ask which it wants: to stay, or to leave at the end of the period.",
+      "Press Turn auto-renew on, on the Billing tab, if it wants to stay. Nothing else is needed.",
+      "Ask the owner for the go-ahead on a first-period refund if it wants to leave and the Billing tab shows the refund window open. You are done when auto-renew is on, or the clinic has confirmed it is leaving and any refund is settled.",
+    ],
+  },
+  // lib/billing/answering.ts, once per location: its billing clinic is in
+  // another practice, which the answer gate treats as no billing at all.
+  // There is no console control for the pointer; it is a data change.
+  billing_pointer_outside_practice: {
+    title: "A location is billed to another practice",
+    whatHappened:
+      "{clinicName}'s record says its bills go to a clinic in a different practice. AYA treats that as no billing at all: it does not answer this location's calls or messages, and passes them to the clinic instead.",
+    whyItMatters:
+      "Patients reaching this location get the clinic's own line or its contact form, not AYA, until the record is corrected. No charge is wrong; the pointer is.",
+    steps: [
+      "Open the clinic's Billing tab: the line at the top names the clinic it is billed on, with a link to that clinic's billing.",
+      "Open that clinic from the Clinics page. If it is not part of the same practice, this location's billing clinic is wrong.",
+      "Tell the owner today: there is no button for this on the Billing tab or anywhere else in the console. Which clinic a location is billed on is a data change the owner makes.",
+      "Check the Billing tab after the change. You are done when it names a clinic of the same practice, and AYA answers the location again.",
+    ],
+  },
+  // lib/billing/stripe-actions.ts commitRefund, kind first_period_cancel:
+  // the refund was made and the cancellation recorded, but the job that
+  // carries cancellations out (billing-requests) is switched off.
+  refund_cancel_job_off: {
+    title: "A refunded plan is still billing",
+    whatHappened:
+      "{clinicName} was refunded its first period and its cancellation was recorded, but the job that carries cancellations out is switched off. Its subscription is still active in Stripe and will bill again.",
+    whyItMatters:
+      "The clinic was told its plan is cancelled. Every period that passes with the switch off charges it for a plan it no longer has.",
+    steps: [
+      "Open the Jobs page under System, find the billing requests row and press Turn on. The recorded cancellation then runs within a minute, without proration.",
+      "Cancel the subscription in Stripe's Dashboard yourself, without proration, if Turn on is refused on the Jobs page or the owner says to leave the job off.",
+      "Open the clinic's Billing tab and check the Cancel now row under Billing requests. You are done when it reads done and the Plan card's status reads canceled.",
+    ],
+  },
+  // The hourly location-quantity check (lib/billing/location-quantity.ts),
+  // once per episode: Stripe's quantity on the package item is not the
+  // account's active locations (plus one being added whose charge is
+  // recorded). `windowStart` is when the episode was first seen.
+  location_quantity_drift: {
+    title: "Stripe bills a different number of locations",
+    whatHappened:
+      "Stripe bills {clinicName} for {billedCount:location}, but the account has {locationCount:location} active, counting one being added whose charge is recorded. Nothing was changed: the hourly check only reads[, and first saw this on {windowStart}].",
+    whyItMatters:
+      "Too many billed means the clinic is overcharged and may be owed a refund; too few means it answers for a location it does not pay for. Either way the next invoice is wrong.",
+    steps: [
+      "Open the clinic's Billing tab: Locations on the Plan card is what the account records, and the Needs attention box says whether a location is still being added.",
+      "Wait for the next hourly check if the Needs attention box says a location is still being added: the two counts are allowed to differ for the minutes that takes.",
+      "Check the subscription's quantity in Stripe's Dashboard against Locations on the Plan card and decide which side is wrong. Ask the owner before changing the quantity in Stripe or refunding anything: both are the owner's call.",
+      "Check the Billing tab after the fix: a second alert says when Stripe's count matches again. You are done when it arrives, and any refund or credit for the time it lasted is settled.",
+    ],
+  },
+  // The same check, once per episode, the first hour the two counts agree
+  // again. `windowStart` is the episode's start, so it names the alert it closes.
+  location_quantity_agrees: {
+    title: "Stripe's location count matches again",
+    whatHappened:
+      "Stripe now bills {clinicName} for the number of locations it has active[, {locationCount:location}].[ The mismatch first seen on {windowStart} has ended.]",
+    whyItMatters:
+      "This closes the earlier alert. Nothing is left to do unless the clinic was overcharged while the two disagreed.",
+    steps: [
+      "Check the clinic's Billing tab: Locations on the Plan card now matches what Stripe bills.",
+      "Ask the owner whether a refund or a credit is owed for the time the counts disagreed, if Stripe billed too many, and press Record in the Touch log on the clinic's Care tab to note the answer. You are done once that is settled, or if nothing was overcharged.",
+    ],
+  },
+  // lib/agreements/termination.ts, once per billing clinic: the practice
+  // ended its agreement for a reason the agreement refunds (BAA 1.3.0 clause
+  // 17 ¶3). tests/ops-alert-wording.test.ts pins two phrases below: "Confirm
+  // it before the practice's data is destroyed" and "by hand in the Stripe
+  // Dashboard".
+  agreement_refund_due: {
+    title: "A terminated practice is owed a refund",
+    whatHappened:
+      "{clinicName} ended its agreement for a reason the agreement refunds: the fees it paid for any time after the termination day come back. Its subscription is already being cancelled.",
+    whyItMatters:
+      "Confirm it before the practice's data is destroyed, at the earliest 29 days after the termination: destruction removes the billing records the console refunds from, and after it the refund has to be made by hand in the Stripe Dashboard.",
+    steps: [
+      "Open the clinic's Care tab and read the Offboarding card: it names the day the data is destroyed, which is your deadline.",
+      "Ask the owner for the go-ahead before refunding anything: the refund under Refund under Terms § 5 moves real money and cannot be undone.",
+      "Press Preview the amount under Refund under Terms § 5 on the clinic's Billing tab, with Agreement terminated selected: it shows the fees paid for time after the agreement ended.",
+      "Check the amount Preview the amount shows, type it to confirm, give a reason and press the button naming the amount. If the preview also lists money to settle by hand, that part was paid outside card payments and is refunded in Stripe's Dashboard.",
+      "Check the Billing tab again: a repeat is refused once the refund is recorded. You are done when the refund is recorded, before the destruction day.",
+    ],
+  },
 };
 
 /** This section's events still in their pre-rewrite wording (LEGACY_WORDING, ./index.ts). */
-export const LEGACY: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
-  "duplicate_subscription",
-  "billing_event_dead_lettered",
-  "billing_request_dead_lettered",
-  "billing_request_stuck",
-  "setup_closure_skipped_live_channel",
-  "location_charged_not_created",
-  "connect_event_dead_lettered",
-  "overage_invoice_failed",
-  "first_period_refund_due",
-  "plan_start_after_cancel",
-  "billing_pointer_outside_practice",
-  "refund_cancel_job_off",
-  "location_quantity_drift",
-  "location_quantity_agrees",
-  "agreement_refund_due",
-]);
+export const LEGACY: ReadonlySet<OpsEvent> = new Set<OpsEvent>();

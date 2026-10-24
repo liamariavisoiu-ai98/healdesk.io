@@ -227,6 +227,9 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   meta_revoke_by_hand: "/admin/clinics",
   patient_request_due_soon: "/admin/clinics",
   patient_request_past_due: "/admin/clinics",
+  rights_request_blocked: "/admin/clinics",
+  rights_request_due_soon: "/admin/clinics",
+  rights_request_overdue: "/admin/clinics",
   urgent_alert_not_queued: "/admin/clinics",
   // no clinic: a day's cap; its steps start on Home.
   access_requests_capped: "/admin/",

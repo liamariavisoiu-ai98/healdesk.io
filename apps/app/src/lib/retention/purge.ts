@@ -287,6 +287,7 @@ export const PURGE_COVERAGE: Readonly<{
     lifecycle_waves: "the reminder ledger (drizzle/0115), no patient: kept",
     clinic_lifecycle: "the account's setup stage and our decision (drizzle/0115), no patient: kept",
     lifecycle_ignored_clinics: "our mark that the account is an internal test account (drizzle/0118), no patient: kept",
+    rights_intakes: "the record of each patient-rights request and when it was met (drizzle/0120), no person: kept",
     overage_invoices: "a billing record, kept",
     usage_events: "a billing record, kept",
     channel_events: "a billing record, kept",

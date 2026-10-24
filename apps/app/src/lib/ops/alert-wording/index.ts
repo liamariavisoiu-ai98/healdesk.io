@@ -14,6 +14,7 @@ import * as offboarding from "./offboarding";
 import * as patientRights from "./patient-rights";
 import * as provisioning from "./provisioning";
 import * as retention from "./retention";
+import * as rights from "./rights";
 import * as setupAndSupport from "./setup-and-support";
 import * as setupProgress from "./setup-progress";
 import * as transcripts from "./transcripts";
@@ -45,6 +46,7 @@ export const SECTIONS = {
   account,
   offboarding,
   "patient-rights": patientRights,
+  "patient-rights-tracker": rights,
   incidents,
   vendors,
   meta,

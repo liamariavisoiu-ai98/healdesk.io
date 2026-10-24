@@ -50,6 +50,7 @@ export const INBOX_KINDS = [
   "availability",
   "decision",
   "go_live",
+  "rights",
 ] as const;
 
 export type InboxKind = (typeof INBOX_KINDS)[number];

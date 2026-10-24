@@ -40,6 +40,7 @@ export const RUNBOOK_ANCHORS = [
   "account",
   "offboarding",
   "patient-rights",
+  "patient-rights-tracker",
   "incidents",
   "vendors",
   "meta",
@@ -153,6 +154,9 @@ export const RUNBOOK_ANCHOR: Record<OpsEvent, RunbookAnchor> = {
   lifecycle_closing_waiting_on_us: "setup-progress",
   ops_digest_summary: "morning-digest",
   assistant_knows_no_services: "setup-and-support",
+  rights_request_blocked: "patient-rights-tracker",
+  rights_request_due_soon: "patient-rights-tracker",
+  rights_request_overdue: "patient-rights-tracker",
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

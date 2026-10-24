@@ -439,6 +439,22 @@ requests" and "Amendments": counts and dates. The request itself is entered on t
 (`erase-person`, `amend-contact`, by contact id) because it names a person; nothing on the
 console does. Chase the subcontractor step (Retell) before the due date.
 
+### Patient rights tracker
+
+`rights_request_blocked`, `rights_request_due_soon`, `rights_request_overdue`. Raised once per
+request each by the daily `rights-watch` job (`apps/app/src/lib/scheduler/rights-watch.ts`, off
+until the owner switches it on). The Patient rights page (`/admin/rights`) lists every request with
+a clock across clinics: the intakes recorded the day a request came (`recordRightsIntake`), the
+deletions waiting on their Retell step, and the patient requests not yet marked received. The clocks
+are business days, Monday to Friday in UTC (`apps/app/src/lib/rights/clocks.ts`): ten for an erasure,
+an amendment, a correction or an export, five to pass a patient's own request on. A row with a
+prepared command shows the exact `run-task.sh` line; the owner copies it and runs it himself in AWS
+CloudShell, and nothing in the console runs it. A row with no route shows "No portal route yet turns
+this request into a contact id" (owner decision D19): it is not a go-live blocker, but its clock
+keeps running, so agree with the practice how it is handled in time. A patient's own request
+already recorded on the host is alerted by `patient_request_due_soon` and `patient_request_past_due`
+instead, never twice.
+
 ### Incidents
 
 `incident_notice_overdue`. Compliance › Incidents: the agreement's deadline and our internal

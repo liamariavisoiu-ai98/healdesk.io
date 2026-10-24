@@ -332,6 +332,16 @@ export const OPS_EVENTS = [
   // channel while it lasts (lib/assistant/menu-check.ts). The demo clinic's
   // test calls of 23 October 2026 ran like this unseen.
   "assistant_knows_no_services",
+  // The patient-rights tracker's daily watch (lib/scheduler/rights-watch.ts;
+  // ops automation lane P6c, owner decision D19), once per request each,
+  // with the clinic's id and the request's: a request with no route to run
+  // on the host (no contact id until the portal route exists); one due
+  // within two business days; one past its due day. Not a patient's own
+  // request already recorded on the host, which patient_request_due_soon and
+  // patient_request_past_due cover.
+  "rights_request_blocked",
+  "rights_request_due_soon",
+  "rights_request_overdue",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

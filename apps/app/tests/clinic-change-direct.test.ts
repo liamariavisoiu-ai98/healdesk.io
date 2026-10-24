@@ -131,7 +131,7 @@ describeDb("a change file's edit is recorded as a direct change", () => {
     expect((await direct()).at(-1)).toMatchObject({ source: "direct", summary: { operation: "delete", rows: 1 } });
   });
 
-  test("the change file's role can neither read nor write the change rows itself", async () => {
+  test("the change file's role cannot write the change rows itself (it may read them, like every ops table)", async () => {
     const { Client } = await import("pg");
     const c = new Client({ connectionString: WRITER_URL });
     await c.connect();

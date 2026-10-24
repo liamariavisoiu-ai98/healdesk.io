@@ -151,7 +151,7 @@ export const PRACTICE_SECTION_WORDS: Readonly<Record<string, string>> = {
 export const CHANGE_SECTION_WORDS: Readonly<Record<string, string>> = {
   hours: "weekly opening hours",
   closures: "closed days",
-  location_hours: "opening hours at one of its locations",
+  location_hours: "opening hours at its locations",
   providers: "list of named providers",
   provider_services: "services each provider offers",
 };

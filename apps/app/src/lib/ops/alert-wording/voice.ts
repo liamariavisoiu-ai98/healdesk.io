@@ -11,8 +11,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // call with the fixed line where the Services have ended.
   voice_fallback_no_direct_line: {
     title: "A call had no direct line to pass through to",
+    headline: "A call to {clinicName} had nowhere to go: the clinic has no direct line",
     whatHappened:
-      "A call to {clinicName} came in while AYA was not meant to answer it: the assistant is paused, the call is outside the clinic's coverage, its allowance is used up, the subscription is unpaid or suspended, the phone channel is not live or is switched off, or no agreement covers the practice. The clinic has no direct line set, so there was nowhere to pass the caller to.",
+      "A call to {clinicName} had nowhere to go, because the clinic has no direct line set. AYA was not meant to answer it: the assistant is paused, the call is outside the clinic's coverage, its allowance is used up, the subscription is unpaid or suspended, the phone channel is not live or is switched off, or no agreement covers the practice.",
     whyItMatters:
       "The caller heard AYA's safe script instead, which takes a message for the front desk and books nothing. Where the service has ended, the agreement no longer covers the practice, or a vendor's or our host's agreement has lapsed, the call was closed with a fixed line instead. Every such call misses a person until a direct line is set.",
     steps: [
@@ -28,9 +29,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // hung_up). It is written to the ops log before it emails, so while the
   // database hangs it waits with it.
   voice_call_start_failed: {
-    title: "A call started while AYA could not read the database",
+    title: "A call came before AYA could read its settings",
+    headline: "A call to {clinicName} did not start: AYA could not read its settings in time",
     whatHappened:
-      "A call came in for {clinicName} and the voice process could not read the clinic's settings in time. The caller was sent to the clinic's direct line where one was known, heard a closing line, or had hung up before either.",
+      "A call to {clinicName} did not start: AYA could not read its settings in time. The caller was sent to the clinic's direct line where one was known, heard a closing line, or had hung up before either.",
     whyItMatters:
       "A patient calling the clinic has to reach someone. If the database stays down, every call to every clinic ends this way until it is back, or until Retell's outage mode sends calls to each clinic's direct line.",
     steps: [
@@ -47,14 +49,15 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // the run for every clinic. It has no row on the Jobs page.
   retell_fallback_unsynced: {
     title: "A Retell fallback number is not the direct line",
+    headline: "The Retell fallback update failed[ for {clinicName}]: callers may miss the direct line",
     whatHappened:
-      "Every hour we set the fallback of each clinic's AYA number in Retell to the clinic's direct line. This hour that could not be done[ for {clinicName}]. Either Retell did not accept the change or did not answer, the number is not in Retell, two clinics name the same AYA number, or Retell refused our key.",
+      "The hourly Retell fallback update failed[ for {clinicName}]. Every hour we set the fallback of each clinic's AYA number in Retell to the clinic's direct line. Either Retell did not accept the change or did not answer, the number is not in Retell, two clinics name the same AYA number, or Retell refused our key.",
     whyItMatters:
       "Until it is fixed, Retell's outage mode and a call that cannot read the database cannot send that clinic's callers to its direct line. Those callers would hear a closing line instead.",
     steps: [
       "Open the clinic's Setup tab and check the assistant number under Phone line is the clinic's AYA number in Retell. If two clinics show the same number, correct the wrong one and press Save phone settings.",
       "Open Retell's dashboard and find that number: check it is in the workspace and that its fallback can be set to the direct line shown under Pause AI and the direct line on the clinic's Billing tab.",
-      "Check Retell's status page first if the alert names no clinic: either Retell refused our key or three numbers in a row timed out, and nothing was set for any clinic this hour. Then open the Map page under System and press Missing or broken: the Retell key must be in place.",
+      "Check Retell's status page first if the alert names no clinic: either Retell refused our key or three numbers in a row timed out, and the run stopped, so clinics after that point were not set this hour. Then open the Map page under System and press Missing or broken: the Retell key must be in place.",
       "Check the alert does not come again next hour. You are done when it stops, or when you have set the fallback in Retell's dashboard by hand to the direct line shown on the clinic's Billing tab.",
     ],
   },
@@ -66,8 +69,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // yet.
   voice_provision_failed: {
     title: "A clinic's AYA phone set-up stopped",
+    headline: "{clinicName}'s AYA phone set-up stopped, or a changed setting did not reach Retell",
     whatHappened:
-      "Setting up the Retell agent and AYA number for {clinicName} stopped[ on {windowStart}][, at attempt {count}], or a changed setting could not be written to Retell. The usual causes: the clinic's own number is not a US or Canadian number, its AYA number is not in our Retell workspace, Retell refused or did not keep a setting, or a voice setting on our side is missing.",
+      "{clinicName}'s AYA phone set-up stopped, or a changed setting did not reach Retell. If the Voice agent column on the Clinics page shows failed, the set-up itself stopped[ on {windowStart}][, at attempt {count}] and waits for a person; if it shows ok, only a later settings change failed, and the hourly check retries it. The usual causes: the clinic's own number is not a US or Canadian number, its AYA number is not in our Retell workspace, Retell refused or did not keep a setting, or a voice setting on our side is missing.",
     whyItMatters:
       "Until the set-up finishes, the clinic's phone channel cannot be switched on and no call reaches AYA. A failed set-up waits for a person: nothing retries it by itself. A changed setting that did not reach Retell is tried again every hour by itself.",
     steps: [
@@ -83,8 +87,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // the cap. The next clinics wait until midnight UTC.
   voice_provision_cap_reached: {
     title: "Today's cap on new AYA numbers is reached",
+    headline: "New AYA numbers hit today's cap[ of {count:number}]: the rest wait until midnight UTC",
     whatHappened:
-      "We have ordered as many AYA numbers from Retell[ on {windowStart}] as the daily cap allows[: {count:number}]. Clinics that still need one wait until midnight UTC, when their set-up runs again by itself.",
+      "New AYA numbers hit today's cap[ of {count:number}]: the rest wait until midnight UTC. We have ordered as many AYA numbers from Retell[ on {windowStart}] as the cap allows, and clinics that still need one wait until midnight UTC, when their set-up runs again by itself.",
     whyItMatters:
       "If that many clinics really paid for voice today, the waiting clinics lose up to a day before their phone channel can be set up. If not, something ordered numbers it should not have, and Retell bills each one.",
     steps: [
@@ -102,8 +107,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // the Clinics page shows drift.
   voice_agent_drift: {
     title: "A clinic's Retell agent differs from what we set",
+    headline: "{clinicName}'s Retell agent or number differed from what we set[ ({status})]",
     whatHappened:
-      "The nightly read-back found the Retell agent or AYA number of {clinicName} different from what our code wrote: its voice, its language, where calls are sent, the fallback number, or the agent or number itself missing. Where it could, the code wrote the right settings again.[ Repairs so far: {count}.]",
+      "{clinicName}'s Retell agent or number differed from what we set. The nightly read-back found its voice, its language, where calls are sent or the fallback number changed, or the agent or number itself missing. Where it could, the code wrote the right settings again.[ Repairs so far: {count}.]",
     whyItMatters:
       "Settings changed in Retell by hand undo what the clinic chose, and a missing agent or number means its calls go nowhere. After three repairs, or when the agent or number is gone, the code stops repairing, leaves the clinic to you and skips it on later nights.",
     steps: [
@@ -118,8 +124,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // deleting the agent at Retell failed. The hourly sweep tries again.
   voice_deprovision_failed: {
     title: "A departed clinic's AYA number was not released",
+    headline: "{clinicName} has left, but releasing its AYA number at Retell failed[ on {windowStart}]",
     whatHappened:
-      "{clinicName} has left, and its forwarding pass-through has ended, so its AYA number should be released and its Retell agent deleted. That failed[ on {windowStart}]: Retell refused or did not answer.",
+      "{clinicName} has left, but releasing its AYA number at Retell failed[ on {windowStart}]. Its forwarding pass-through has ended, so its AYA number should be released and its Retell agent deleted; Retell refused or did not answer.",
     whyItMatters:
       "Retell bills the number until it is released. The hourly check tries again by itself, so this alert matters when it keeps coming.",
     steps: [
@@ -134,8 +141,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // at most once an hour per clinic and decision.
   voice_direct_line_loops: {
     title: "A clinic's direct line forwards back to AYA",
+    headline: "{clinicName}'s direct line is its published or AYA number: calls to it loop back",
     whatHappened:
-      "The direct line on file for {clinicName} is its own published number or its AYA number. A call passed through to it would come straight back to AYA and never reach a person. A call just came in that found this.",
+      "{clinicName}'s direct line is its published or AYA number: calls to it loop back. A call passed through to it would come straight back to AYA and never reach a person. A call just came in that found this.",
     whyItMatters:
       "Until it changes, AYA treats the clinic as having no direct line: a call she cannot answer gets her safe script, or is closed with a fixed line where the service has ended, the agreement no longer covers the practice, or a vendor's or our host's agreement has lapsed. No call is transferred to a person.",
     steps: [
@@ -151,9 +159,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // (phase check_failed), and the caller was transferred or the call closed
   // (code). Nothing of the call was kept.
   voice_test_mode_refused: {
-    title: "A clinic's call reached AYA while real calls are off",
+    title: "A call reached AYA while real calls are off",
+    headline: "A call for {clinicName} reached AYA while real calls are off and was refused",
     whatHappened:
-      "Real calls are switched off, so the voice line answers only our demo clinic. A call for {clinicName} reached it anyway and was refused before AYA said a word: the caller heard one fixed line and was put through to the clinic's direct line, or heard the closing line and the call ended. Nothing of the call was kept.",
+      "A call for {clinicName} reached AYA while real calls are off and was refused. Real calls are switched off, so the voice line answers only our demo clinic. The call was refused before AYA said a word: the caller heard one fixed line and was put through to the clinic's direct line, or heard the closing line and the call ended. Nothing of the call was kept.",
     whyItMatters:
       "A real clinic's calls must not reach the voice line before every agreement in the chain is signed and the owner switches real calls on. Either the check could not read the database in time, or this clinic's number or forwarding already points at us.",
     steps: [

@@ -108,7 +108,8 @@ describeDb("notifyOps", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.message_id).toBe("msg_ops");
     expect(payload.to).toBe("ops@healdesk.test");
-    expect(payload.subject).toBe("healdesk ops: A critical email has not gone out");
+    // An urgent alert's subject says so (lane N4).
+    expect(payload.subject).toBe("healdesk ops: URGENT: A critical email has not gone out");
     expect(payload.replyTo).toBe("hello@healdesk.io");
     expect(payload.tags).toEqual([
       { name: "app", value: "app" },
@@ -133,7 +134,8 @@ describeDb("notifyOps", () => {
     // these, so nothing else from the alert is printed.
     const text = String(payload.text);
     const body = `${text}\n${String(payload.html)}`;
-    expect(text).toContain("It is a payment-failed notice.");
+    // The kind is in the headline, the first line (lane N4).
+    expect(text.split("\n")[0]).toBe("URGENT: This clinic has not received a payment-failed notice: over 10 minutes late");
     const facts = text
       .split("\n\n")
       .find((block) => block.startsWith("Clinic id:"))!

@@ -13,8 +13,12 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // count only when it is above zero.
   ops_digest_summary: {
     title: "Morning digest: what needs a person today",
+    // The line carries the two counts that need a person; the allowance
+    // counts follow in the detail, since four counts cannot fit a 90-character
+    // template with these field names.
+    headline: "Today: {decisionsOwedCount:decision} owed, waits on us included; {waitingOnUsCount:clinic} waiting on us",
     whatHappened:
-      "The morning digest email went to the ops address. Today it counts {decisionsOwedCount:setup decision} owed, {waitingOnUsCount:clinic} waiting on us, {nearCapCount:clinic} close to the monthly allowance, and {atCapCount:clinic} with the whole allowance used. A clinic waiting on us a business day or more counts as a decision owed; voice and chat are counted apart.[ Alerts Slack could not post: {slackUnpostedCount}.]",
+      "Today: {decisionsOwedCount:setup decision} owed, {waitingOnUsCount:clinic} waiting on us. Close to the monthly allowance: {nearCapCount:clinic}; with the whole allowance used: {atCapCount:clinic}. The morning digest email has gone to the ops address; a line posted late is counted again and can differ from it. A clinic waiting on us a business day or more counts as a decision owed; voice and chat are counted apart, so one clinic can count twice.[ Alerts Slack could not post: {slackUnpostedCount}.]",
     whyItMatters:
       "These are the counts that need a person today, in one place. Each decision owed, and each alert of the last day, is a row on the Home page.",
     steps: [

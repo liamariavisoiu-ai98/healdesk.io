@@ -31,6 +31,14 @@ export type AlertWording = {
   readonly whyItMatters: string;
   /** Numbered steps, safest first, each naming the console page or button; the last says what done looks like. */
   readonly steps: readonly string[];
+  /**
+   * One line, at most 90 characters, read first (lane N4): the clinic's name
+   * when there is one, then what is wrong with the one fact that matters. It
+   * replaces the first sentence of `whatHappened`, which then is not printed,
+   * so it must carry what that sentence says. Placeholders as in the rest.
+   * Without one, the renderer uses the title with the clinic's name.
+   */
+  readonly headline?: string;
   /** The event it was looked up for (./index.ts alertWording): the facts' labels can depend on it. */
   readonly event?: OpsEvent;
 };

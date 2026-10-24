@@ -83,6 +83,9 @@ const LABELS: Record<string, string> = {
  */
 const EVENT_LABELS: Partial<Record<OpsEvent, Readonly<Record<string, string>>>> = {
   practice_question_failed: { section: "Section" },
+  // The day a usage window opened (lib/billing/usage-alerts.ts).
+  usage_near_cap: { windowStart: "Counted since" },
+  usage_cap_reached: { windowStart: "Counted since" },
   // A billing request's kind (lib/billing/requests.ts), not an email's.
   billing_request_dead_lettered: { kind: "Request" },
   billing_request_stuck: { kind: "Request" },

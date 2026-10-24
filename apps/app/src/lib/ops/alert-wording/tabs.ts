@@ -238,3 +238,31 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   ops_digest_summary: "/admin/",
   assistant_knows_no_services: "/admin/clinics",
 };
+
+/** The console pages an alert with no clinic opens, by path, as a button names them. */
+const PAGE_NAMES: Readonly<Record<string, string>> = {
+  "/admin/": "Home",
+  "/admin/clinics": "Clinics",
+  "/admin/queues": "Queues",
+  "/admin/system/jobs": "Jobs",
+  "/admin/map": "Map",
+  "/admin/compliance": "Compliance",
+  "/admin/compliance/incidents": "Incidents",
+  "/admin/compliance/agreements": "the Agreements register",
+};
+
+/**
+ * The button's words for a console link (lane N4): "Open in the console"
+ * for a clinic's tab, "Open <page>" for a page an alert about no clinic
+ * opens, so the reader knows where the button goes.
+ */
+export function consoleLinkLabel(url: string): string {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return "Open in the console";
+  }
+  const name = PAGE_NAMES[path];
+  return name ? `Open ${name}` : "Open in the console";
+}

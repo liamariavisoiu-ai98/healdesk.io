@@ -1,7 +1,10 @@
 import { alertWording, type AlertWording } from "@/lib/ops/alert-wording";
 import { wordingValues } from "@/lib/ops/alert-wording/allow-list";
 import { emailFacts, opsFieldLabel } from "@/lib/ops/alert-wording/facts";
-import { fillWording, formatDay, numberedSteps } from "@/lib/ops/alert-wording/render";
+import { parseMarkup, plainText } from "@/lib/ops/alert-wording/markup";
+import { formatDay, layoutAlert } from "@/lib/ops/alert-wording/render";
+import { consoleLinkLabel } from "@/lib/ops/alert-wording/tabs";
+import { URGENCY_LOOK } from "@/lib/ops/alert-wording/urgency";
 import type { OpsEvent } from "@/lib/ops/notify";
 
 import { compose, type Block } from "./compose";
@@ -48,31 +51,63 @@ export function opsAlertTitle(payload: OpsAlertPayload): string {
 /** The label a field prints under, in the email and the Slack copy alike (lib/ops/alert-wording/facts.ts). */
 export { opsFieldLabel };
 
+/**
+ * The layout (lane N4; owner, 24 October 2026: "scan the email and
+ * understand from the first 3 seconds what the issue is"): the urgency tag
+ * and one headline; a highlighted "Do this first" with step 1 and the
+ * console button; then, under "More detail", the rest of what happened, the
+ * facts, why it matters, the remaining steps from 2, and the alert's code.
+ * Step 1 is printed once. The preheader is "<URGENCY>: <headline>".
+ */
 export const renderOpsAlert: EmailTemplate<OpsAlertPayload> = (payload, ctx) => {
   const clinicName = typeof payload.clinicName === "string" ? payload.clinicName : null;
-  const wording = fillWording(wordingFor(payload), wordingValues(payload, clinicName));
+  const raw = wordingFor(payload);
+  const layout = layoutAlert(raw, wordingValues(payload, clinicName));
+  const look = URGENCY_LOOK[layout.urgency];
   const consoleUrl = typeof payload.consoleUrl === "string" ? payload.consoleUrl : null;
-  // The facts the Slack copy prints, plus who the alert is about; a legacy
-  // wording's text points at ids and codes "below", so it keeps them too.
-  const facts = emailFacts(payload.event, payload, wordingFor(payload), clinicName);
+  // The page that owns the alert on the console (D3), behind its own sign-in.
+  const action = consoleUrl ? { label: consoleLinkLabel(consoleUrl), url: consoleUrl } : undefined;
+  // The facts the Slack copy prints, plus who the alert is about.
+  const facts = emailFacts(payload.event, payload, raw, clinicName);
+  const headline = plainText(layout.headline);
 
   const blocks: Block[] = [
-    { type: "paragraph", text: wording.whatHappened },
+    { type: "headline", tag: { text: look.tag, tone: look.tone }, segments: parseMarkup(layout.headline) },
+    ...(layout.doFirst
+      ? [{ type: "callout" as const, label: "Do this first", segments: parseMarkup(layout.doFirst), ...(action ? { action } : {}) }]
+      : action
+        ? [{ type: "action" as const, ...action }]
+        : []),
+    { type: "divider", label: "More detail" },
+    ...(layout.detail ? [{ type: "rich" as const, segments: parseMarkup(layout.detail) }] : []),
     {
       type: "facts",
       // Days only, never a time (lane N1 review).
       rows: [...facts, ["Raised", formatDay(ctx.raisedAt.toISOString())]],
     },
-    ...(wording.whyItMatters ? [{ type: "paragraph" as const, text: `Why it matters: ${wording.whyItMatters}` }] : []),
-    ...(wording.steps.length > 0
-      ? [{ type: "paragraph" as const, text: ["What to do:", ...numberedSteps(wording.steps)].join("\n") }]
+    ...(layout.whyItMatters
+      ? [{ type: "rich" as const, label: "Why it matters:", segments: parseMarkup(layout.whyItMatters) }]
       : []),
-    // The page that owns the alert on the console (D3), behind its own sign-in.
-    ...(consoleUrl ? [{ type: "action" as const, label: "Open in the console", url: consoleUrl }] : []),
-    { type: "paragraph", text: `Alert code: ${payload.event}` },
+    ...(layout.then.length > 0
+      ? [
+          {
+            type: "rich" as const,
+            label: "Then:",
+            segments: parseMarkup(["", ...layout.then.map((step, i) => `${i + 2}. ${step}`)].join("\n")),
+          },
+        ]
+      : []),
+    { type: "rich", small: true, segments: [{ text: `Alert code: ${payload.event}` }] },
   ];
 
-  return compose({ subject: `healdesk ops: ${wording.title}`, preheader: wording.whatHappened, blocks }, ctx);
+  return compose(
+    {
+      subject: `healdesk ops: ${look.subject}${layout.title}`,
+      preheader: `${look.tag}: ${headline}`,
+      blocks,
+    },
+    ctx,
+  );
 };
 
 /** The payload the snapshot test and `npm run email:seed` render. */

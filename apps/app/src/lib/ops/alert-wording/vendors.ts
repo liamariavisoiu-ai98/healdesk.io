@@ -17,8 +17,11 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // vendor, `phase` 30_days or 7_days, `expiresOn` the recorded expiry.
   vendor_agreement_expiring: {
     title: "A vendor's business associate agreement expires soon",
+    // "No renewal recorded": the watch reads the latest attestation's expiry,
+    // so a renewal entered since would have moved the day.
+    headline: "Our agreement with {code} ends[ on {expiresOn}]: no renewal recorded",
     whatHappened:
-      "Our business associate agreement with {code} has a recorded expiry[ of {expiresOn}], within 30 days, or within 7 days for the second warning. The Compliance page shows it under Business associate agreements in the chain.",
+      "Our business associate agreement with {code} has a recorded expiry[ of {expiresOn}], within 30 days, or within 7 days for the second warning. We warn twice, 30 and 7 days before the day. The Compliance page shows it under Business associate agreements in the chain.",
     whyItMatters:
       "When it lapses, AYA stops answering on every production clinic wherever that vendor serves: every channel for the model provider, the host and the database host; phone only for the voice provider. Calls go to each clinic's direct line until a renewal is recorded.",
     steps: [
@@ -33,9 +36,13 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // vendor-coverage.ts and lib/billing/answering.ts (patientDataRefused,
   // assistantFallbackRefused).
   vendor_agreement_lapsed: {
-    title: "A vendor's agreement lapsed: AYA has stopped there",
+    title: "A vendor's agreement lapsed: AYA stopped there",
+    // "Ended" covers both causes: withdrawn on the Compliance page, or
+    // expired with no renewal; the expiry day, absent for a withdrawal, is
+    // in the detail.
+    headline: "AYA has stopped wherever {code} serves: our agreement ended",
     whatHappened:
-      "Our business associate agreement with {code} was withdrawn or passed its recorded expiry[ of {expiresOn}] with no renewal, so AYA has stopped answering wherever that vendor serves. The Compliance page marks it Lapsed or Withdrawn.",
+      "Our business associate agreement with {code} was withdrawn or passed its recorded expiry[ of {expiresOn}] with no renewal, so AYA has stopped answering wherever that vendor serves. The agreement was withdrawn on the Compliance page, or passed its recorded expiry[ of {expiresOn}] with no renewal; the page marks it Lapsed or Withdrawn.",
     whyItMatters:
       "On every production clinic, calls go to its direct line wherever the vendor serves: every channel for the model provider, the host or the database host, and phone only for the voice provider. While the model provider is out, website chat is a contact form and Meta messages wait unanswered. While the host or database host is out, the contact form takes no message either. AYA answers again the moment a renewal is recorded.",
     steps: [

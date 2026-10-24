@@ -24,8 +24,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // before the rows went, `count` connections); neither word is printable.
   meta_revoke_failed: {
     title: "Meta would not take healdesk off a leaving practice",
+    headline: "{clinicName} has left, but Meta will not take our app off its Page or WhatsApp account",
     whatHappened:
-      "{clinicName} has left, and Meta keeps refusing to take healdesk's app off its Facebook Page or WhatsApp Business account[ for {count:connection}]. Either the hourly run has been refused six times and keeps trying with the clinic's access kept, or this was the last try before its data, that access included, was destroyed on the agreement's day.",
+      "{clinicName} has left, but Meta keeps refusing to take healdesk's app off its Facebook Page or WhatsApp Business account.[ Meta refused or did not answer for {count:connection}.] Either the hourly run has been refused or gone unanswered six times and keeps trying with the clinic's access kept, or this was the last try before its data, that access included, was destroyed on the agreement's day.",
     whyItMatters:
       "While the Page or account stays subscribed to our app, a message a patient sends there can still reach healdesk after the service has ended. Meta signs no agreement with us, so the clean end is the practice removing our app itself.",
     steps: [
@@ -41,8 +42,11 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // clinic's Business Suite, so the clinic is asked.
   meta_revoke_by_hand: {
     title: "End a leaving practice's Meta subscription by hand",
+    // "Stays on", not "could not be taken off": a Page another clinic may
+    // share was left subscribed on purpose.
+    headline: "{clinicName} has left, but our app stays on its Page or account: we cannot end it",
     whatHappened:
-      "{clinicName} has left, and healdesk erased the access it held for its Facebook Page, Instagram or WhatsApp account, but could not take its own app off that Page or account. Either we hold no Page or account id for the connection, the access could not be read, or another clinic in service may share the same Page or account, so it was left subscribed.",
+      "{clinicName} has left, but healdesk's app stays on its Facebook Page, Instagram or WhatsApp account, which we cannot end from here. The access we held for it has been erased. Either we held no Page or account id for the connection, the access could not be read, or another clinic in service may share the same Page or account, so it was left subscribed.",
     whyItMatters:
       "Until the app is off, messages sent to that Page or account can still reach healdesk after the service ended. Taking it off a Page another clinic still uses would cut that clinic's channel, so the shared case needs a check first.",
     steps: [

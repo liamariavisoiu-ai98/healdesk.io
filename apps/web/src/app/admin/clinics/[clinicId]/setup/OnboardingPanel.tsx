@@ -1276,13 +1276,14 @@ function CalendarCard({
       ) : null}
       {demoLink ? <code className="mt-2 block break-all rounded-sm bg-black/5 px-2 py-1 text-xs">{demoLink}</code> : null}
       <p className="mt-4">
-        Writes not yet in the calendar are listed under{" "}
+        Writes not yet in the calendar whose time has not come are listed under{" "}
         <a href="#calendar-writes" className="font-semibold underline underline-offset-2">
           Calendar writes
         </a>{" "}
         above, with a Retry for each.
       </p>
-      <p className="text-muted mt-3 text-xs font-bold uppercase">Every write attempted</p>
+      {/* apps/app listCalendarWritesWithin: the writes with the latest booked times, capped. */}
+      <p className="text-muted mt-3 text-xs font-bold uppercase">Latest writes attempted, by booked time</p>
       <ul className="mt-2 grid gap-2">
         {view.calendarWrites.map((w) => (
           <li key={w.appointmentId} className="border-line flex flex-wrap items-center gap-3 rounded-sm border px-3 py-2 text-xs">

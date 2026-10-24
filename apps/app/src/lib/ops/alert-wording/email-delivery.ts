@@ -37,7 +37,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "The clinic is acting without something it should know right now: a card to fix, a suspension sending its calls to its direct line, an urgent message from a patient.",
     steps: [
       "Open the clinic's Deliveries tab and find the email under Billing emails: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.",
-      "Check the Jobs page under System: the email is retried only while the billing-notices row reads on. If it reads off, ask the owner before pressing Turn on, which sends every waiting email to every clinic. The System page also counts Emails waiting to send across every clinic, under Being watched, or under Requires your attention once the oldest has waited an hour, so you can see whether this is one clinic or all.",
+      "Check the Jobs page under System: the email is retried only while the billing-notices row reads on. If it reads off, ask the owner before pressing Turn on, which sends every waiting email to every clinic. The System page counts Emails waiting to send across every clinic; an email waiting between retries is not in that count, so it shows whether mail in general is stuck, not this email.",
       "Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab (its published number under Phone line on the Setup tab if none is on file), if the email still has not gone an hour later, or at once for an urgent kind. Tell them what it would have said; its kind on the row tells you which.",
       "Check the Deliveries tab again. You are done when the row shows a sent time, or the clinic has been told by phone.",
     ],
@@ -205,7 +205,7 @@ export const DEAD_LETTER: AlertWording = {
   whyItMatters:
     "If it was an urgent email, a payment problem, a suspension, an urgent message, an outage or an incident report, the clinic is acting without it. Nothing tries again on its own.",
   steps: [
-    "Open the clinic's Deliveries tab and find the email under Billing emails: its kind, its attempts and the last error are on its row. An email that used every retry is also counted for 7 days under Requires your attention on the System page, as one that could not be sent and will not be tried again.",
+    "Open the clinic's Deliveries tab and find the email under Billing emails: its kind, its attempts and the last error are on its row. An email that used every retry is also counted under Requires your attention on the System page for 7 days from when it was queued, as one that could not be sent and will not be tried again.",
     "Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab (its published number under Phone line on the Setup tab if none is on file), and tell them what the email would have said: its kind on the row tells you which.",
     "Tell the owner today with the last error if it says the email was refused rather than failed to send: a refused email means something on our side needs fixing before the next one goes.",
     "Press Record in the Touch log on the clinic's Care tab to note the call. You are done when the clinic knows what the email said.",

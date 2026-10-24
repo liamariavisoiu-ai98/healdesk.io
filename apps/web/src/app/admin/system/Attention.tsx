@@ -30,6 +30,12 @@ import type {
  * a zero; a count some clinic is missing from reads "at least N"
  * (`lowerBound`); a whole read that failed says so once, in the section that
  * needed it. The counts under "Being watched" are those read in full.
+ *
+ * The two anchors the alerts and Home link to, `#calendar-writes` and
+ * `#transcripts`, are always in the page (lane P5c's review): each is an
+ * empty, zero-height block when its list is empty, so a link to it lands in
+ * this section rather than at the top of the page, and the empty section
+ * still reads as its one line.
  */
 
 /** The address of this section itself: a queue whose href is this is drawn as words, not a link to where the reader already is. */
@@ -117,11 +123,16 @@ function Transcripts({ clinics }: { clinics: UndeliveredTranscriptClinicView[] }
   );
 }
 
-function Subheading({ id, children }: { id: string; children: React.ReactNode }) {
+function Subheading({ children }: { children: React.ReactNode }) {
+  return <h3 className="mt-5 text-sm font-bold first:mt-0">{children}</h3>;
+}
+
+/** The always-present target of a `#<id>` link: its list when there is one, nothing visible otherwise. */
+function Anchor({ id, children }: { id: string; children: React.ReactNode }) {
   return (
-    <h3 id={id} className="mt-5 scroll-mt-24 text-sm font-bold first:mt-0">
+    <div id={id} className="scroll-mt-24">
       {children}
-    </h3>
+    </div>
   );
 }
 
@@ -157,19 +168,23 @@ export function Attention({
       ) : null}
       {!queues.ok ? <Failure failure={queues} what="the machine queues" /> : null}
 
-      {stuck.length > 0 || !writes.ok ? (
-        <>
-          <Subheading id="calendar-writes">Calendar writes stuck</Subheading>
-          {writes.ok ? <StuckWrites writes={writes.data} /> : <Failure failure={writes} what="the stuck calendar writes" />}
-        </>
-      ) : null}
+      <Anchor id="calendar-writes">
+        {stuck.length > 0 || !writes.ok ? (
+          <>
+            <Subheading>Calendar writes stuck</Subheading>
+            {writes.ok ? <StuckWrites writes={writes.data} /> : <Failure failure={writes} what="the stuck calendar writes" />}
+          </>
+        ) : null}
+      </Anchor>
 
-      {undelivered.length > 0 || !transcripts.ok ? (
-        <>
-          <Subheading id="transcripts">Transcript copies not delivered</Subheading>
-          {transcripts.ok ? <Transcripts clinics={undelivered} /> : <Failure failure={transcripts} what="the undelivered transcript copies" />}
-        </>
-      ) : null}
+      <Anchor id="transcripts">
+        {undelivered.length > 0 || !transcripts.ok ? (
+          <>
+            <Subheading>Transcript copies not delivered</Subheading>
+            {transcripts.ok ? <Transcripts clinics={undelivered} /> : <Failure failure={transcripts} what="the undelivered transcript copies" />}
+          </>
+        ) : null}
+      </Anchor>
 
       {partial.map((line) => (
         <Warning key={line}>{line}</Warning>

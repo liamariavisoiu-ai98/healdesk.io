@@ -188,7 +188,7 @@ describe("the booking card shows the derived mode and why", () => {
     );
     // The addendum's switch and the vendor basis are gone from both cards.
     const cards = said.slice(said.indexOf("Booking mode —"), said.indexOf("Go live"));
-    expect(cards).toContain("Writes not yet in the calendar are listed under Calendar writes above, with a Retry for each.");
+    expect(cards).toContain("Writes not yet in the calendar whose time has not come are listed under Calendar writes above, with a Retry for each.");
     expect(cards).not.toMatch(/direct booking|desk confirms|basis|addendum/i);
     expect(said).toContain(
       "Clause google-calendar-covered of 1.3.0 (released), from the signed agreement",
@@ -284,7 +284,7 @@ describe("the booking card shows the derived mode and why", () => {
     expect(said).not.toMatch(/\bDisconnect\b/);
     expect(said).not.toMatch(/Settings allow/);
     // Everything else on the page is read as before (the shell above the panel says the name; the panel does not repeat it).
-    expect(said).toContain("Writes not yet in the calendar are listed under Calendar writes above, with a Retry for each.");
+    expect(said).toContain("Writes not yet in the calendar whose time has not come are listed under Calendar writes above, with a Retry for each.");
     expect(said).toContain("No calendar write attempted yet.");
     expect(said).toContain("Go live");
   });
@@ -308,7 +308,8 @@ describe("the calendar card's write history", () => {
       h(OnboardingPanel, { view: { ok: true, data: { ...viewOf(COVERED), calendarWrites: WRITES } }, actions: ACTIONS }),
     );
     const card = said.slice(said.indexOf("Writes not yet in the calendar"), said.indexOf("Go live"));
-    expect(card).toContain("Every write attempted");
+    // apps/app sends the writes with the latest booked times (listCalendarWritesWithin orders by the slot), so the title says so.
+    expect(card).toContain("Latest writes attempted, by booked time");
     expect(card).toContain("written 2026-11-02 15:00 UTC web_chat");
     expect(card).toContain("failed 2026-11-03 16:00 UTC voice backendError");
     expect(card).toContain("unknown 2026-11-04 17:00 UTC meta timeout");

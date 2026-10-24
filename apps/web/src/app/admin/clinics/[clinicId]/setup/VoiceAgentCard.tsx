@@ -33,7 +33,9 @@ export type VoiceAgentActions = {
   clearFlag: (code: string) => Promise<OpsResult<ClearVoiceDriftFlagEntry>>;
 };
 
-export const CLEAR_FLAG_CONFIRM = "Clears the drift flag and runs the Retell check once. The flag comes back if Retell still differs.";
+// True to clearVoiceDriftFlag (apps/app lib/voice/provision.ts): the repair count is reset with the flag, so the check it runs repairs what re-applying can, and flags again only what it cannot put back.
+export const CLEAR_FLAG_CONFIRM =
+  "Clears the drift flag and runs the Retell check once: what can be put right is written again, and the flag comes back only if the agent or number is missing at Retell.";
 export const BUY_NUMBER_CONFIRM = "This may buy a phone number for the clinic.";
 
 function day(iso: string): string {

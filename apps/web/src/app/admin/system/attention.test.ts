@@ -158,6 +158,19 @@ describe("Requires your attention", () => {
     expect(html).toContain('id="attention"');
   });
 
+  test("the two anchors the alerts link to are in the page even when their lists are empty, as empty blocks", () => {
+    // An alert's "Open System" lands on #calendar-writes or #transcripts; with
+    // nothing listed the link must still land in this section, not at the top.
+    const html = renderToStaticMarkup(h(Attention, { queues: EMPTY_QUEUES, writes: EMPTY_WRITES, transcripts: EMPTY_TRANSCRIPTS }));
+    expect(html).toContain('<div id="calendar-writes" class="scroll-mt-24"></div>');
+    expect(html).toContain('<div id="transcripts" class="scroll-mt-24"></div>');
+    expect(text(html)).toBe("Requires your attention Nothing needs you here.");
+    // With lists, the same ids wrap the sub-heading and its rows.
+    const full = renderToStaticMarkup(h(Attention, { queues, writes, transcripts }));
+    expect(full).toMatch(/<div id="calendar-writes" class="scroll-mt-24"><h3[^>]*>Calendar writes stuck<\/h3>/);
+    expect(full).toMatch(/<div id="transcripts" class="scroll-mt-24"><h3[^>]*>Transcript copies not delivered<\/h3>/);
+  });
+
   test("a part that could not be read is named and is never a zero, and 'Nothing needs you here' is not claimed", () => {
     const partial = text(
       renderToStaticMarkup(

@@ -115,15 +115,17 @@ export function issueTabFor(event: OpsEvent): IssueTab {
  *
  * Since Phase 5 (lane P5c) an alert about machine work that the System page
  * lists under "Requires your attention" (lib/ops/inbox/queues.ts: the email
- * outbox and its dead letters, bounces, Stripe and Connect events, billing
- * requests not done, paid orders without an account) opens that section,
- * and a stuck calendar write or an undelivered transcript copy its own list
- * there. Two stay on the Clinics list on purpose: a refused order
+ * outbox and its dead letters, Stripe and Connect events, billing requests
+ * not done, paid orders without an account) opens that section, and a stuck
+ * calendar write or an undelivered transcript copy its own list there. Some
+ * stay on the Clinics list on purpose: a refused order
  * (provisioning_rejected) is counted as a paid order without an account only
  * when its payment was recorded before the refusal (app/api/provision/route.ts
- * stamps paid_seen_at once the intent is found), and a dead-lettered billing
- * request has its done_at set (lib/billing/requests.ts settle), so neither
- * reliably shows on the System page.
+ * stamps paid_seen_at once the intent is found); a dead-lettered billing
+ * request has its done_at set (lib/billing/requests.ts settle); and the
+ * System page counts bounces, spam reports and blocks by clinic only
+ * (queues.ts reads report_deliveries inside each tenant), so an address
+ * alert with no clinic shows nowhere, and no page is better than the list.
  */
 export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   // no clinic yet: a paid order, refused; see the header.
@@ -138,12 +140,12 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   billing_event_dead_lettered: "/admin/system#attention",
   // the outbox: "Emails waiting to send".
   critical_notice_undelivered: "/admin/system#attention",
-  // no clinic when only the delivery is known; the bounces of the last day are counted by clinic.
-  clinic_address_bounced: "/admin/system#attention",
-  // no clinic when only the delivery is known; the bounces of the last day are counted by clinic.
-  clinic_address_complained: "/admin/system#attention",
-  // no clinic when only the delivery is known; the bounces of the last day are counted by clinic.
-  clinic_address_suppressed: "/admin/system#attention",
+  // no clinic when only the delivery is known; the System page counts bounces by clinic only (header).
+  clinic_address_bounced: "/admin/clinics",
+  // no clinic when only the delivery is known; as above.
+  clinic_address_complained: "/admin/clinics",
+  // no clinic when only the delivery is known; as above.
+  clinic_address_suppressed: "/admin/clinics",
   // no clinic: the optional sends to hold back are here.
   daily_email_count_70: "/admin/queues#setup-requests",
   // no clinic: the request is in the marketing Sheet.

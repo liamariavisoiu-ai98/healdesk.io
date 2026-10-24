@@ -56,7 +56,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Until it is fixed, Retell's outage mode and a call that cannot read the database cannot send that clinic's callers to its direct line. Those callers would hear a closing line instead.",
     steps: [
       "Open the clinic's Setup tab and check the assistant number under Phone line is the clinic's AYA number in Retell. If two clinics show the same number, correct the wrong one and press Save phone settings.",
-      "Press Check against Retell on the Voice agent card of the same tab: it reads the number back and says whether its fallback is the clinic's direct line. Then open Retell's dashboard and find that number: check it is in the workspace and that its fallback can be set to the direct line shown under Pause AI and the direct line on the clinic's Billing tab.",
+      "Press Check against Retell if the Voice agent card on the same tab offers it: it reads back the number we set up for the clinic, which may not be the one under Phone line, and says whether its fallback is the clinic's direct line. Then open Retell's dashboard and find the number under Phone line: check it is in the workspace and that its fallback can be set to the direct line shown under Pause AI and the direct line on the clinic's Billing tab.",
       "Check Retell's status page first if the alert names no clinic: either Retell refused our key or three numbers in a row timed out, and the run stopped, so clinics after that point were not set this hour. Then open the Map page under System and press Missing or broken: the Retell key must be in place.",
       "Check the alert does not come again next hour. You are done when it stops, or when you have set the fallback in Retell's dashboard by hand to the direct line shown on the clinic's Billing tab.",
     ],
@@ -111,8 +111,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // 5 the Setup tab's Voice agent card shows the flag and offers Check
   // against Retell (the read-back) and Clear flag and recheck
   // (clearVoiceDriftFlag, behind the operator's fresh code: it clears the
-  // flag, resets the repair count and runs the check once; only a missing
-  // agent or number flags it again).
+  // flag, resets the repair count and runs the check once; in that check
+  // only a missing agent or number flags it again, and on later nights the
+  // three-repair rule applies as before).
   voice_agent_drift: {
     title: "A clinic's Retell agent differs from what we set",
     headline: "{clinicName}'s Retell agent or number differed from what we set[ ({status})]",
@@ -124,7 +125,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Open the clinic's Setup tab and read the Voice agent card: Drift reads Not flagged when the repair held, or Flagged with the day, when the nightly check skips the clinic until the flag is cleared.",
       "Press Check against Retell on the Voice agent card: it reads the agent and number back and says what differs in plain words, or that Retell matches. Then open Retell's dashboard and compare them with the settings under Phone line on the Setup tab: the assistant number must be on that agent, and nobody should change them in Retell by hand.",
       "Ask whoever has Retell access who changed it, and stop the change at its source. If the check says the agent or the phone number is missing at Retell, nothing recreates it by itself: ask Retell support what happened to it, or have whoever maintains the engine release this clinic's voice set-up and run provisioning again, and tell the owner before a new number is bought. Note it in the Touch log on the clinic's Care tab.",
-      "Press Clear flag and recheck on the Voice agent card once Retell matches our settings again, with a fresh code from your authenticator. It clears the flag and runs the check once: what re-applying can put right is written again, and the flag comes back only if the agent or number is still missing at Retell. You are done when Drift reads Not flagged and the check says Retell matches.",
+      "Press Clear flag and recheck on the Voice agent card once Retell matches our settings again, with a fresh code from your authenticator. It clears the flag and runs the check once: what re-applying can put right is written again, and in that check the flag comes back only if the agent or number is missing at Retell. On later nights it comes back as before, after three repairs with no clean night between, or when the agent or number goes missing. You are done when Drift reads Not flagged and the check says Retell matches.",
     ],
   },
   // lib/voice/provision.ts deprovisionVoiceAgent, once a day per clinic: the

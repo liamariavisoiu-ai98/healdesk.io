@@ -51,8 +51,10 @@ describe("the voice acts' entry", () => {
 
   test("the Setup page takes both acts from voice-drift", () => {
     const page = readFileSync(join(__dirname, "page.tsx"), "utf8");
-    expect(page).toMatch(/import\s*\{[^}]*\bclearVoiceDriftFlag\b[^}]*\}\s*from\s*["']@\/lib\/admin\/voice-drift["']/);
+    expect(page).toMatch(/import\s*\{[^}]*\bclearVoiceDriftFlagWithCode\b[^}]*\}\s*from\s*["']@\/lib\/admin\/voice-drift["']/);
     expect(page).toMatch(/import\s*\{[^}]*\bretryVoiceAgentWithCode\b[^}]*\}\s*from\s*["']@\/lib\/admin\/voice-drift["']/);
+    // The raw names are not even mentioned by the page: the ops-client guard reads for the bare words.
+    expect(page).not.toMatch(/\b(?:retryVoiceAgent|clearVoiceDriftFlag)\b/);
   });
 
   test("the guard reads a raw import, named or aliased or through a namespace", () => {

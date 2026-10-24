@@ -45,7 +45,7 @@ import {
   type DepositPolicy,
   type MetaPlatform,
 } from "@/lib/admin/ops-client";
-import { clearVoiceDriftFlag as enterVoiceDriftClear, retryVoiceAgentWithCode as enterVoiceRetry } from "@/lib/admin/voice-drift";
+import { clearVoiceDriftFlagWithCode as enterVoiceDriftClear, retryVoiceAgentWithCode as enterVoiceRetry } from "@/lib/admin/voice-drift";
 import { isHostUnreachable } from "@/lib/host/state";
 
 import { AvailabilityChanges } from "./AvailabilityChanges";

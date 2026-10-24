@@ -33,8 +33,8 @@ const state = vi.hoisted(() => ({
 // The drift flag's clear and the retry that can buy a number enter through lib/admin/voice-drift.ts
 // (the session, the fresh code, then the signed request), never the raw ops client.
 vi.mock("@/lib/admin/voice-drift", () => ({
-  clearVoiceDriftFlag: async (clinicId: string, code: unknown) => {
-    state.writes.push(["voice-drift.clearVoiceDriftFlag", [clinicId, code]]);
+  clearVoiceDriftFlagWithCode: async (clinicId: string, code: unknown) => {
+    state.writes.push(["voice-drift.clearVoiceDriftFlagWithCode", [clinicId, code]]);
     return { ok: true, data: { outcome: "cleared", check: "clean", problems: [] } };
   },
   retryVoiceAgentWithCode: async (clinicId: string, code: unknown) => {
@@ -391,7 +391,7 @@ describe("the Setup tab", () => {
     await actions.check();
     expect(state.reads.at(-1)).toEqual(["fetchVoiceAgentReport", CLINIC]);
     await actions.clearFlag("123456");
-    expect(state.writes.at(-1)).toEqual(["voice-drift.clearVoiceDriftFlag", [CLINIC, "123456"]]);
+    expect(state.writes.at(-1)).toEqual(["voice-drift.clearVoiceDriftFlagWithCode", [CLINIC, "123456"]]);
 
     const writes = find(tree, CalendarWrites)!;
     await (writes.onRetry as (id: string) => Promise<unknown>)(APPT);

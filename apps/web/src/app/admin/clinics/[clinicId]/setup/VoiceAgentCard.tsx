@@ -173,7 +173,10 @@ export function VoiceAgentCard({ read, actions }: { read: OpsResult<VoiceAgentSt
     <Section id="voice" title="Voice agent">
       {!read.ok ? <Failure failure={read} what="the voice agent" /> : null}
       {read.ok && agent === null ? (
-        <p className="text-sm">No voice set-up has been scheduled for this clinic. Retry starts one if its package has phone and its first invoice is paid; otherwise it says why not.</p>
+        <p className="text-sm">
+          No voice set-up has been scheduled for this clinic. Retry starts one when apps/app allows it (the first invoice paid, billing in good standing, a package
+          with phone); otherwise it says why not.
+        </p>
       ) : null}
       {agent ? (
         <dl className="grid gap-1 text-sm sm:grid-cols-[max-content_1fr] sm:gap-x-4">

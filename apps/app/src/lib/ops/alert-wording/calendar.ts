@@ -133,24 +133,36 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Press Send calendar link on the Setup tab of a clinic whose connect failed, so it can try again. You are done when the Calendar column shows healthy everywhere.",
     ],
   },
-  // lib/ops/calendar-write-alerts.ts, hourly, once per write and state.
+  // lib/ops/calendar-write-alerts.ts, hourly, once per write and state, for
+  // a write the desk sweep no longer takes: `failed`, or `unknown` (or a
+  // stuck `writing` claim) at its five tries, past its slot's start, or with
+  // a reason the sweep never retries. An `unknown` write still waiting for
+  // its turn on the ladder (lib/booking/calendar.ts WRITE_BACKOFF_MINUTES:
+  // 2, 10, 30, 120, 360 minutes) is not alerted. The Setup tab's "Calendar
+  // writes" section (apps/web setup/CalendarWrites.tsx, lane P5b) lists this
+  // clinic's unsettled writes whose slot has not started, each with the
+  // reason in words (components/admin/queue-words.ts) and a Retry
+  // (opRetryCalendarWrite: past the five tries, read-back first).
   calendar_write_stuck: {
     title: "A booking is missing from Google Calendar",
     headline: "A booking at {clinicName} may be missing from its Google Calendar[: {status}]",
     whatHappened:
       "A confirmed booking at {clinicName} is not in the clinic's Google Calendar.[ We tried {attemptCount:time}.] The clinic's staff were already told in their portal to add it by hand.",
     whyItMatters:
-      "Until the booking is in the calendar, its slot looks free and someone else could be booked into it. Nothing will try again on its own.",
+      "Until the booking is in the calendar, its slot looks free and someone else could be booked into it. A write Google did not answer is tried again by itself, after 2 minutes, then 10, 30, 2 hours and 6 hours, until the slot starts, five tries at most. This one is past that, or Google's answer is one that is never retried, so nothing will try again on its own.",
     steps: [
-      "Open the clinic's Setup tab and find the booking under Calendar writes needing attention. Google's reason is shown beside it.",
-      "Press Retry beside the booking if a Retry button shows there and the reason is timeout, network or unconfirmed. If no Retry button shows, the write never finished: phone the clinic, using the number under Phone line, and check its staff added the booking by hand.",
-      "Do not press Retry if the reason says an event id is taken: our own event for this booking is already in the clinic's Google Calendar, at another time. Phone the clinic on its published number, shown under Phone line on its Setup tab, and ask its staff to find that event and move it to the booked time by hand.",
-      "Press Send calendar link on the Setup tab if the reason mentions the target calendar or a calendar that is not connected. The clinic reconnects from that link.",
-      "Check under Calendar writes needing attention that the booking now shows as written. If the reason says the clinic deleted it in its own calendar, there is nothing to do and you are done.",
+      "Open the clinic's Setup tab and find the booking under Calendar writes. The reason is in plain words beside it, with the tries so far; a booking whose time has already passed is not listed, since nothing writes it now.",
+      "Press Retry beside the booking if the reason says Google did not answer in time, the connection to Google dropped, Google's answer did not confirm the write, or Google asked us to slow down. Retry reads the clinic's calendar first, so it never writes the booking twice, and it may be pressed past the five tries made by themselves.",
+      "Do not press Retry if the reason says our event id is already taken: our own event for this booking is in the clinic's Google Calendar at another time. Phone the clinic on its published number, shown under Phone line on its Setup tab, and ask its staff to find that event and move it to the booked time by hand. Phone the same way for a booking whose time has passed, and check its staff added it by hand.",
+      "Press Send calendar link on the Calendar card of the Setup tab if the reason says no healthy Google Calendar is connected, says the clinic must reconnect, or names the target calendar. The clinic reconnects from that link.",
+      "Check Calendar writes on the Setup tab again: a booking that is written leaves the list. If the reason says the clinic deleted the event in its own calendar, there is nothing to do and you are done.",
     ],
   },
   // The same sweep, when one run finds more stuck writes than it alerts one
-  // by one: `count` of them, each recorded as told.
+  // by one: `count` of them, each recorded as told. The System page lists
+  // the stuck writes across clinics under "Requires your attention",
+  // "Calendar writes stuck" (apps/web system/Attention.tsx, lane P5b): one
+  // row per clinic, linking to its Setup tab's "Calendar writes".
   calendar_writes_stuck_many: {
     title: "Several bookings are missing from calendars",
     headline: "{count:booking} may be missing from their Google Calendars: none will retry by itself",
@@ -159,11 +171,11 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "Until each booking is in its calendar, its slot looks free and someone else could be booked into it. Nothing retries by itself, and a new failure after this is reported on its own again.",
     steps: [
-      "Open the Clinics page: nothing in the console lists which clinics have a stuck write, and the Calendar column flags a broken calendar, not a stuck write, so open each clinic's Setup tab in turn.",
-      "Read Calendar writes needing attention on each Setup tab: a stuck booking shows there with Google's reason beside it.",
-      "Press Retry beside a booking whose reason is timeout, network or unconfirmed. Do not press Retry where the reason says an event id is taken: our own event for that booking is already in the clinic's Google Calendar at another time, so phone the clinic, using the number under Phone line, and ask its staff to find it and move it to the booked time by hand.",
-      "Press Send calendar link on the Setup tab where the reason names the target calendar or a calendar that is not connected. The clinic reconnects from that link.",
-      "Check under Calendar writes needing attention that each booking shows as written. You are done when none needs attention.",
+      "Open the System page and read Calendar writes stuck under Requires your attention: one row per clinic, with how many are stuck and how many will not be retried by themselves, each opening the clinic's Setup tab at Calendar writes.",
+      "Read Calendar writes on each clinic's Setup tab: each stuck booking shows there with the reason in plain words and the tries so far. A booking whose time has already passed is not listed, since nothing writes it now.",
+      "Press Retry beside a booking whose reason says Google did not answer in time, the connection to Google dropped, Google's answer did not confirm the write, or Google asked us to slow down. Do not press Retry where the reason says our event id is already taken: our own event for that booking is in the clinic's Google Calendar at another time, so phone the clinic, using the number under Phone line, and ask its staff to find it and move it to the booked time by hand.",
+      "Press Send calendar link on the Calendar card where the reason says no healthy Google Calendar is connected, says the clinic must reconnect, or names the target calendar. The clinic reconnects from that link.",
+      "Check Calendar writes stuck on the System page again. You are done when no clinic is listed there.",
     ],
   },
 };

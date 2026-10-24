@@ -37,7 +37,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "The clinic is acting without something it should know right now: a card to fix, a suspension sending its calls to its direct line, an urgent message from a patient.",
     steps: [
       "Open the clinic's Deliveries tab and find the email under Billing emails: its row shows its kind, when it is next due, its attempts and the last error. If its kind is urgent, phone the clinic now, as in step 3.",
-      "Check the Jobs page under System: the email is retried only while the billing-notices row reads on. If it reads off, ask the owner before pressing Turn on, which sends every waiting email to every clinic.",
+      "Check the Jobs page under System: the email is retried only while the billing-notices row reads on. If it reads off, ask the owner before pressing Turn on, which sends every waiting email to every clinic. The System page also counts Emails waiting to send across every clinic, under Being watched, or under Requires your attention once the oldest has waited an hour, so you can see whether this is one clinic or all.",
       "Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab (its published number under Phone line on the Setup tab if none is on file), if the email still has not gone an hour later, or at once for an urgent kind. Tell them what it would have said; its kind on the row tells you which.",
       "Check the Deliveries tab again. You are done when the row shows a sent time, or the clinic has been told by phone.",
     ],
@@ -53,7 +53,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "Until it is corrected the clinic cannot sign in and hears nothing from us: no payment problems, no urgent messages, no reminders.",
     steps: [
-      "Open the clinic's Deliveries tab if this alert names a clinic: Reports and alerts and Billing emails list what we sent and when, so you know what the clinic has missed, though a bounced email still reads sent there. If it names none, the mail was a sign-in link to an address no account holds, and there is no clinic to phone: tell the owner if it repeats.",
+      "Open the clinic's Deliveries tab if this alert names a clinic: Reports and alerts and Billing emails list what we sent and when, so you know what the clinic has missed, though a bounced email still reads sent there. If it names none, the mail was a sign-in link to an address no account holds, and there is no clinic to phone: Requires your attention on the System page counts the last day's bounces by clinic only, so it does not show this one. Tell the owner if it repeats.",
       "Phone the clinic on its published number, shown under Phone line on its Setup tab. Ask for the right address, and tell them what they missed.",
       "Open the clinic's Account tab and press Enter the change under The clinic's address, with the new address and your authenticator code, only after ticking that you called the practice back. No confirmation link is sent: the change is recorded as confirmed at once, both addresses are told, and it takes effect 72 hours after entry; until then mail still goes to the old address, so phone about anything urgent. Press Stop this change on the same card if either address objects.",
       "Email the clinic from hello@ once The clinic's address on the Account tab shows the change has taken effect, and ask them to confirm it arrived. You are done when the clinic confirms an email from us has reached the new address.",
@@ -70,7 +70,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "A spam report hurts delivery to every clinic, not only this one, and this clinic may not see what we send next.",
     steps: [
-      "Open the clinic's Deliveries tab if this alert names a clinic: the latest rows under Reports and alerts and Billing emails show what we sent last, which is likely what was reported. If it names none, the mail was a sign-in link to an address no account holds: tell the owner if it repeats.",
+      "Open the clinic's Deliveries tab if this alert names a clinic: the latest rows under Reports and alerts and Billing emails show what we sent last, which is likely what was reported. If it names none, the mail was a sign-in link to an address no account holds: Requires your attention on the System page counts the last day's spam reports by clinic only, so it does not show this one. Tell the owner if it repeats.",
       "Phone the clinic on its published number, shown under Phone line on its Setup tab, before anything else is sent to it. Ask whether the address is still the right one and whether they want these emails.",
       "Open the clinic's Account tab and press Enter the change under The clinic's address if they give a different address, after the call back; it is recorded as confirmed at once and takes effect 72 hours later. Otherwise ask them to mark hello@ as safe in their mail.",
       "Ask the owner to check the address in Resend's dashboard and release it if Resend suppressed it after the report, if the clinic wants these emails; only the owner has the Resend sign-in, and the Deliveries tab cannot show a suppression. You are done when the clinic has confirmed its address and that an email from us has arrived.",
@@ -85,7 +85,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "Until the suppression is lifted or the address changed, the clinic cannot sign in and hears nothing from us.",
     steps: [
-      "Open the clinic's Deliveries tab if this alert names a clinic: Reports and alerts and Billing emails list what we sent and when, though a suppressed email still reads sent there. If it names none, the mail was a sign-in link to an address no account holds: tell the owner if it repeats.",
+      "Open the clinic's Deliveries tab if this alert names a clinic: Reports and alerts and Billing emails list what we sent and when, though a suppressed email still reads sent there. If it names none, the mail was a sign-in link to an address no account holds: Requires your attention on the System page counts the last day's blocked emails by clinic only, so it does not show this one. Tell the owner if it repeats.",
       "Phone the clinic on its published number, shown under Phone line on its Setup tab. Confirm the address with them and tell them what they missed.",
       "Ask the owner to release the address from the suppression list in Resend's dashboard once the clinic confirms it; only the owner has the Resend sign-in. If they give a new address instead, open the clinic's Account tab and press Enter the change under The clinic's address, after the call back.",
       "Email the clinic from hello@ afterwards and ask them to confirm it arrived; the Deliveries tab shows the send, not the arrival. You are done when the clinic confirms an email from us has reached it.",
@@ -205,7 +205,7 @@ export const DEAD_LETTER: AlertWording = {
   whyItMatters:
     "If it was an urgent email, a payment problem, a suspension, an urgent message, an outage or an incident report, the clinic is acting without it. Nothing tries again on its own.",
   steps: [
-    "Open the clinic's Deliveries tab and find the email under Billing emails: its kind, its attempts and the last error are on its row.",
+    "Open the clinic's Deliveries tab and find the email under Billing emails: its kind, its attempts and the last error are on its row. An email that used every retry is also counted for 7 days under Requires your attention on the System page, as one that could not be sent and will not be tried again.",
     "Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab (its published number under Phone line on the Setup tab if none is on file), and tell them what the email would have said: its kind on the row tells you which.",
     "Tell the owner today with the last error if it says the email was refused rather than failed to send: a refused email means something on our side needs fixing before the next one goes.",
     "Press Record in the Touch log on the clinic's Care tab to note the call. You are done when the clinic knows what the email said.",

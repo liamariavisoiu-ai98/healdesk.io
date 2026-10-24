@@ -661,4 +661,82 @@ describeDb("automated voice provisioning", () => {
     });
     expect((await runOperation("clearVoiceDriftFlag", {}, OPERATOR)).status).toBe(400);
   });
+
+  test("a flag, a clear and a flag again are two alerts: the flag's time is in the alert's key", async () => {
+    const c = await paidVoiceClinic("vp-reflag");
+    __setVoiceAgentDepsForTests(deps());
+    await provisionVoiceAgent(c.clinicId, deps());
+    retell.agents.clear();
+    expect((await checkVoiceAgentDrift(c.clinicId, deps())).outcome).toBe("flagged");
+    expect(await alerts("voice_agent_drift")).toBe(1);
+    const cleared = await runOperation("clearVoiceDriftFlag", { clinicId: c.clinicId }, OPERATOR);
+    expect((cleared.body as { data: { outcome: string } }).data.outcome).toBe("still_drifted");
+    expect(await alerts("voice_agent_drift")).toBe(2);
+  });
+
+  test("the security event is written on not_found and when the check throws, whatever the outcome", async () => {
+    const missing = "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f61";
+    expect((await runOperation("clearVoiceDriftFlag", { clinicId: missing }, OPERATOR)).body).toMatchObject({
+      data: { outcome: "not_found" },
+    });
+    expect((await securityEvents(missing))[0]!.metadata).toMatchObject({ outcome: "not_found" });
+
+    const c = await paidVoiceClinic("vp-clear-throws");
+    await provisionVoiceAgent(c.clinicId, deps());
+    await setRow(c.clinicId, `drift_flagged_at = now()`);
+    const throwing = {
+      ...deps(),
+      get env(): Record<string, string> {
+        throw new Error("synthetic: the environment could not be read");
+      },
+    } as ProvisionDeps;
+    __setVoiceAgentDepsForTests(throwing);
+    const res = await runOperation("clearVoiceDriftFlag", { clinicId: c.clinicId }, OPERATOR);
+    expect((res.body as { data: unknown }).data).toEqual({ outcome: "cleared", check: "failed", problems: [] });
+    expect((await row(c.clinicId))!.drift_flagged_at).toBeNull();
+    const events = await securityEvents(c.clinicId);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.metadata).toMatchObject({ outcome: "cleared", check: "failed" });
+  });
+
+  test("two clears at once clear once: the other is not_flagged and runs no check", async () => {
+    const c = await paidVoiceClinic("vp-clear-twice");
+    __setVoiceAgentDepsForTests(deps());
+    await provisionVoiceAgent(c.clinicId, deps());
+    await setRow(c.clinicId, `drift_flagged_at = now()`);
+    const reads = retell.calls.length;
+    // Hold the row so both clears have read the flag and wait at their
+    // update together: only the compare-and-set can then keep one of them out.
+    const holder = await getMigratorPool().connect();
+    let results: Awaited<ReturnType<typeof runOperation>>[];
+    try {
+      await holder.query("begin");
+      await holder.query(`select set_config('app.clinic_id', $1, true)`, [c.clinicId]);
+      await holder.query(`select 1 from voice_agents where clinic_id = $1 for update`, [c.clinicId]);
+      const both = Promise.all([
+        runOperation("clearVoiceDriftFlag", { clinicId: c.clinicId }, OPERATOR),
+        runOperation("clearVoiceDriftFlag", { clinicId: c.clinicId }, OPERATOR),
+      ]);
+      for (let tries = 0; ; tries += 1) {
+        const { rows } = await getMigratorPool().query<{ n: number }>(`select count(*)::int as n from pg_locks where not granted`);
+        if (rows[0]!.n >= 2) break;
+        if (tries > 400) throw new Error("The two clears never waited on the row.");
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      await holder.query("commit");
+      results = await both;
+    } finally {
+      holder.release();
+    }
+    const outcomes = results.map((r) => (r.body as { data: { outcome: string } }).data.outcome).sort();
+    expect(outcomes).toEqual(["cleared", "not_flagged"]);
+    // One check: an agent get and a number get, once.
+    expect(retell.calls.slice(reads).filter((x) => x.method === "GET")).toHaveLength(2);
+    const audited = await inTenant(c.clinicId, (q) =>
+      q.query<{ n: number }>(
+        `select count(*)::int as n from audit_log where resource_type = 'voice_agent' and metadata->>'step' = 'drift_flag_cleared'`,
+      ),
+    );
+    expect(audited.rows[0]!.n).toBe(1);
+  });
 });

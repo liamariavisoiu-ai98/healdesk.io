@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { setGoogleTimeouts, type FakeGoogleCalendar } from "@healdesk/connectors";
+import { resetGoogleTokenCache, setGoogleTimeouts, type FakeGoogleCalendar } from "@healdesk/connectors";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
@@ -10,8 +10,11 @@ import {
   NEVER_RETRIED_REASONS,
   nextWriteAttemptAt,
   sweepDeskWrites,
+  writeToCalendar,
   WRITE_BACKOFF_MINUTES,
 } from "@/lib/booking/calendar";
+import { runOperation, type Operator } from "@/lib/ops/api";
+import { listClinics } from "@/lib/ops/clinics";
 import { CALENDAR_BREAKS, TOKEN_BREAKS } from "@/lib/connections/google-calendar";
 import { alertStuckCalendarWrites } from "@/lib/ops/calendar-write-alerts";
 
@@ -82,6 +85,51 @@ describe("the reason words", () => {
       ].sort(),
     );
     expect(NEVER_RETRIED_REASONS).not.toContain("target_unverified");
+  });
+
+  test("the whole table is pinned: moving a word between classes, or adding one, is a decision this test names", () => {
+    expect(CALENDAR_WRITE_REASONS).toEqual({
+      timeout: "transient",
+      network: "transient",
+      unconfirmed: "transient",
+      threw: "transient",
+      rate_limited: "transient",
+      target_unverified: "transient",
+      deleted_in_calendar: "settled",
+      event_id_taken: "settled",
+      not_ours: "settled",
+      conflict: "settled",
+      calendar_not_connected: "settled",
+      target_terms: "settled",
+      target_unmanaged_account: "settled",
+      target_account_mismatch: "settled",
+      target_outside_organisation: "settled",
+      target_not_owned: "settled",
+      invalid_grant: "settled",
+      admin_policy_enforced: "settled",
+      scope_lost: "settled",
+      access_denied: "settled",
+      insufficient_permissions: "settled",
+      calendar_not_found: "settled",
+      api_disabled: "refused",
+      oauth_client: "refused",
+      missing_refresh_token: "refused",
+      calendar_id: "refused",
+      missing_key: "refused",
+      bad_start: "refused",
+      bad_duration: "refused",
+      bad_time_zone: "refused",
+      phone_field_refused: "refused",
+      malformed_response: "refused",
+      missing_code: "refused",
+      missing_token: "refused",
+      id_token_malformed: "refused",
+      not_calendar_owner: "refused",
+      too_many_calendars: "refused",
+      bad_window: "refused",
+      window_too_long: "refused",
+      calendar_error: "refused",
+    });
   });
 
   test("the ladder is +2 min, +10 min, +30 min, +2 h and +6 h", () => {
@@ -174,10 +222,16 @@ describeDb("the desk sweep's ladder (drizzle/0117)", () => {
         // A minute early: not due, nothing claimed.
         expect(await sweepDeskWrites({ now: new Date(due.getTime() - MIN) })).toMatchObject({ attempted: 0 });
         google.failNext({ on: "insert", status: 503, reason: "backendError" });
+        const before = Date.now();
         expect(await sweepDeskWrites({ now: due })).toMatchObject({ attempted: 1, unknown: 1 });
+        const finished = Date.now();
         const after = await row(w.clinicId, w.id);
         expect(after.calendar_write_attempts).toBe(attempt);
-        expect(after.calendar_write_next_at!.getTime()).toBe(due.getTime() + minutes * MIN);
+        // The step, from the moment the attempt was recorded (a fresh clock,
+        // not the sweep's): the row's own update time.
+        expect(after.calendar_write_next_at!.getTime() - after.updated_at.getTime()).toBe(minutes * MIN);
+        expect(after.updated_at.getTime()).toBeGreaterThanOrEqual(before - 1_000);
+        expect(after.updated_at.getTime()).toBeLessThanOrEqual(finished + 1_000);
         due = after.calendar_write_next_at!;
       }
       // Five of five: the sweep stops, however long it waits.
@@ -286,20 +340,138 @@ describeDb("the desk sweep's ladder (drizzle/0117)", () => {
   test(
     "the sweep takes writes in turn from each location, so one location's backlog cannot hold up another's",
     async () => {
-      const a = await deskLocation(google, "ladder-fair-a");
-      const ids: string[] = [];
+      const first = await deskLocation(google, "ladder-fair-a");
+      const second = await deskLocation(google, "ladder-fair-b");
+      // The backlog goes to the location the sweep reads first, so one
+      // location at a time would spend the whole limit on it.
+      const order = (await listClinics()).map((c) => c.id);
+      const [a, b] =
+        order.indexOf(first.clinicId) < order.indexOf(second.clinicId) ? [first, second] : [second, first];
       for (const hour of [9, 10, 11]) {
         const r = await phoneRequest(a.clinicId);
         google.failNext({ on: "insert", status: 503, reason: "backendError" });
-        ids.push(
-          (await deskDecide(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(5, hour) }))
-            .appointmentId!,
-        );
+        await deskDecide(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(5, hour) });
       }
-      const b = await unknownWrite("ladder-fair-b", 5, 14);
+      const rb = await phoneRequest(b.clinicId);
+      google.failNext({ on: "insert", status: 503, reason: "backendError" });
+      const bId = (
+        await deskDecide(rb.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(5, 14) })
+      ).appointmentId!;
       const result = await sweepDeskWrites({ limit: 2, now: new Date(Date.now() + 3 * MIN) });
       expect(result).toMatchObject({ attempted: 2, written: 2 });
-      expect((await row(b.clinicId, b.id)).calendar_write_status).toBe("written");
+      expect((await row(b.clinicId, bId)).calendar_write_status).toBe("written");
+    },
+    60_000,
+  );
+
+  /* ------------------------------------------- the sweep's claim (review) */
+
+  const OPERATOR: Operator = { email: "ops@healdesk.test", request: {} };
+  const inserts = () => google.requests.filter((r) => r.endpoint === "insert").length;
+
+  test(
+    "the sweep's claim checks the ladder itself: an id listed earlier that is no longer due is not claimed",
+    async () => {
+      const w = await unknownWrite("claim-stale");
+      // Listed as due by a sweep at +3 min; another run tried it meanwhile and put it at +10 min.
+      await set(w.clinicId, w.id, `calendar_write_next_at = now() + interval '10 minutes'`);
+      const before = inserts();
+      expect(await writeToCalendar(w.clinicId, w.id, { sweep: true, now: new Date(Date.now() + 3 * MIN) })).toBe("unknown");
+      expect(await row(w.clinicId, w.id)).toMatchObject({ calendar_write_attempts: 1, calendar_write_status: "unknown" });
+      expect(inserts()).toBe(before);
+    },
+    60_000,
+  );
+
+  test(
+    "the sweep's claim checks the slot by the database's clock: a slot that started during a long run is not claimed",
+    async () => {
+      const w = await unknownWrite("claim-started");
+      await set(w.clinicId, w.id, `scheduled_for = now() - interval '1 minute', calendar_write_next_at = null`);
+      const before = inserts();
+      // The run started ten minutes ago, when the slot was still ahead.
+      expect(await writeToCalendar(w.clinicId, w.id, { sweep: true, now: new Date(Date.now() - 10 * MIN) })).toBe("unknown");
+      expect((await row(w.clinicId, w.id)).calendar_write_attempts).toBe(1);
+      expect(inserts()).toBe(before);
+    },
+    60_000,
+  );
+
+  test(
+    "the next attempt is placed from the clock when the attempt was recorded, not from the sweep's start",
+    async () => {
+      const w = await unknownWrite("claim-fresh-clock");
+      const sweepNow = new Date(Date.now() + 3 * MIN);
+      google.failNext({ on: "insert", status: 503, reason: "backendError" });
+      expect(await sweepDeskWrites({ now: sweepNow })).toMatchObject({ attempted: 1, unknown: 1 });
+      const after = await row(w.clinicId, w.id);
+      expect(after.calendar_write_next_at!.getTime()).toBeLessThanOrEqual(Date.now() + 10 * MIN + 1_000);
+      expect(after.calendar_write_next_at!.getTime()).toBeLessThan(sweepNow.getTime() + 10 * MIN);
+      expect(after.updated_at.getTime()).toBeLessThan(sweepNow.getTime());
+    },
+    60_000,
+  );
+
+  test(
+    "a 5xx from Google's token endpoint is 'not now' too: unknown and on the ladder, never failed",
+    async () => {
+      const w = await unknownWrite("ladder-token-503");
+      // Back to a first attempt (an insert, no read-back), with no token cached.
+      await set(w.clinicId, w.id, `calendar_write_status = 'none', calendar_write_attempts = 0, calendar_write_next_at = null`);
+      resetGoogleTokenCache();
+      google.failNext({ on: "token", status: 503 });
+      expect(await writeToCalendar(w.clinicId, w.id)).toBe("unknown");
+      const after = await row(w.clinicId, w.id);
+      expect(after.calendar_write_status).toBe("unknown");
+      expect(after.calendar_write_next_at).not.toBeNull();
+      expect(google.requests.filter((r) => r.endpoint === "insert")).toHaveLength(1);
+    },
+    60_000,
+  );
+
+  test(
+    "an attempt that ends failed clears the next attempt: nothing waits on the ladder",
+    async () => {
+      const w = await unknownWrite("ladder-fails");
+      expect((await row(w.clinicId, w.id)).calendar_write_next_at).not.toBeNull();
+      google.failNext({ on: "insert", status: 400, reason: "badRequest" });
+      expect(await sweepDeskWrites({ now: new Date(Date.now() + 3 * MIN) })).toMatchObject({ attempted: 1, failed: 1 });
+      expect(await row(w.clinicId, w.id)).toMatchObject({ calendar_write_status: "failed", calendar_write_next_at: null });
+    },
+    60_000,
+  );
+
+  test(
+    "an operator's retry claims a write at five of five, counts the attempt, reads back first and writes it once",
+    async () => {
+      const w = await unknownWrite("operator-five");
+      await set(w.clinicId, w.id, `calendar_write_attempts = 5`);
+      const reads = google.requests.filter((r) => r.endpoint === "get").length;
+      const res = await runOperation("retryCalendarWrite", { clinicId: w.clinicId, appointmentId: w.id }, OPERATOR);
+      expect((res.body as { data: Record<string, unknown> }).data).toMatchObject({ status: "retried", outcome: "written" });
+      expect(await row(w.clinicId, w.id)).toMatchObject({ calendar_write_status: "written", calendar_write_attempts: 6 });
+      expect(google.requests.filter((r) => r.endpoint === "get").length).toBeGreaterThan(reads);
+      // The sweep still never goes past five.
+      await set(w.clinicId, w.id, `calendar_write_status = 'unknown', calendar_write_next_at = null`);
+      expect(await sweepDeskWrites({ now: new Date(Date.now() + HOUR) })).toMatchObject({ attempted: 0 });
+    },
+    60_000,
+  );
+
+  test(
+    "an operator's retry that tries nothing says so, never 'retried'",
+    async () => {
+      const f = await deskLocation(google, "operator-noop");
+      const r = await phoneRequest(f.clinicId);
+      const decided = await deskDecide(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(4, 9) });
+      expect(decided.calendarWrite).toBe("written");
+      const before = inserts();
+      const res = await runOperation("retryCalendarWrite", { clinicId: f.clinicId, appointmentId: decided.appointmentId }, OPERATOR);
+      expect((res.body as { data: Record<string, unknown> }).data).toEqual({
+        status: "error",
+        message: "That booking is already in the clinic's Google Calendar. Nothing was tried.",
+      });
+      expect(inserts()).toBe(before);
     },
     60_000,
   );

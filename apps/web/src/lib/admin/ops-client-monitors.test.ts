@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -29,7 +29,7 @@ import {
   retryVoiceAgent,
 } from "@/lib/admin/ops-client";
 import { __resetStepLedgerForTests, base32Decode, hotp, totpStep } from "@/lib/admin/totp";
-import { clearVoiceDriftFlag } from "@/lib/admin/voice-drift";
+import { clearVoiceDriftFlag, retryVoiceAgentWithCode } from "@/lib/admin/voice-drift";
 
 const CLINIC = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 const APPT = "5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a";
@@ -287,5 +287,58 @@ describe("fetchUndeliveredTranscripts", () => {
       reply({ clinics: [row], unreadClinics: 0 });
       expect(await fetchUndeliveredTranscripts()).toMatchObject(MALFORMED);
     }
+  });
+});
+
+describe("the two voice acts that change Retell go only through the fresh code", () => {
+  const fresh = () => hotp(base32Decode(SECRET)!, totpStep(Date.now()));
+
+  test("retryVoiceAgentWithCode: a fresh code sends the clinic alone; a wrong or missing one sends nothing", async () => {
+    for (const code of ["000000", undefined]) {
+      expect(await retryVoiceAgentWithCode(CLINIC, code)).toMatchObject({ ok: true, data: { outcome: "code_refused" } });
+    }
+    expect(sent).toEqual([]);
+    session.operator = null;
+    expect(await retryVoiceAgentWithCode(CLINIC, fresh())).toMatchObject({ ok: false, code: "unauthenticated" });
+    expect(sent).toEqual([]);
+    session.operator = "ops@healdesk.test";
+    reply({ outcome: "already", status: "ready" });
+    const code = fresh();
+    expect(await retryVoiceAgentWithCode(CLINIC, code)).toEqual({ ok: true, data: { outcome: "already", status: "ready" } });
+    expect(sent).toEqual([{ op: "retryVoiceAgent", args: { clinicId: CLINIC } }]);
+    expect(JSON.stringify(sent)).not.toContain(code);
+  });
+
+  test("nothing in apps/web but voice-drift.ts imports the raw retryVoiceAgent or clearVoiceDriftFlag", () => {
+    const root = join(__dirname, "../..");
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const path = join(dir, name);
+        if (statSync(path).isDirectory()) {
+          if (name !== "node_modules" && !name.startsWith(".")) walk(path);
+        } else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) {
+          files.push(path);
+        }
+      }
+    };
+    walk(root);
+    expect(files.length).toBeGreaterThan(50);
+    const offenders = files.filter((file) => {
+      if (file.endsWith(join("lib", "admin", "voice-drift.ts")) || file.endsWith(join("lib", "admin", "ops-client.ts"))) {
+        return false;
+      }
+      const source = readFileSync(file, "utf8");
+      for (const m of source.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["'][^"']*ops-client["']/g)) {
+        const names = m[1]!.split(",").map((n) => n.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]!.trim());
+        if (names.includes("retryVoiceAgent") || names.includes("clearVoiceDriftFlag")) return true;
+      }
+      // A namespace import (clinic-strip.ts has one) may not reach them either.
+      for (const m of source.matchAll(/\*\s+as\s+(\w+)\s+from\s*["'][^"']*ops-client["']/g)) {
+        if (new RegExp(`\\b${m[1]}\\s*(?:\\.|\\[["'])\\s*(?:retryVoiceAgent|clearVoiceDriftFlag)\\b`).test(source)) return true;
+      }
+      return false;
+    });
+    expect(offenders).toEqual([]);
   });
 });

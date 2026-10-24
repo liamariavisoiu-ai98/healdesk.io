@@ -22,8 +22,9 @@ import { listClinics } from "./clinics";
  * §2.3): every desk booking, across clinics, whose Google Calendar write has
  * not settled and whose slot has not started. A hand-written projection of
  * ids, codes, counts and the clinic's own name; the slot as whole days from
- * now, never a time; never the person, the service, the calendar's event or
- * Google's message.
+ * now, never its time (`nextAttemptAt` is the time of our next retry, not of
+ * anything the patient booked); never the person, the service, the
+ * calendar's event or Google's message.
  *
  *   - `failed`: Google, or our own check, said no. Never retried by the
  *     sweep (`retryable: false`); only an operator's retry.
@@ -75,10 +76,12 @@ export async function listStuckCalendarWrites(options: {
   now?: Date;
   /** Test seam: the cap, MAX_LISTED unless given. */
   max?: number;
+  /** Test seam: the clinics to read, instead of every clinic not destroyed. */
+  clinics?: readonly { id: string; name: string }[];
 }): Promise<StuckCalendarWrites> {
   const now = options.now ?? new Date();
   const max = options.max ?? MAX_LISTED;
-  const clinics = (await listClinics()).filter((c) => !c.destroyedAt);
+  const clinics = options.clinics ?? (await listClinics()).filter((c) => !c.destroyedAt);
   const found: (StuckCalendarWrite & { changedAt: number })[] = [];
   let unreadClinics = 0;
   for (const clinic of clinics) {

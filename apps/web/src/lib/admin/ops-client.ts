@@ -348,16 +348,17 @@ type OperatorOp =
   | "deleteRecordedCall"
   // Each clinic's Retell agent and AYA number, set up by code (apps/app
   // lib/voice/provision.ts): ids, status and times only, never a caller, a
-  // number or a secret. A read; the retry stays in apps/app's ops envelope
-  // until a page with the operator's fresh code is built for it.
+  // number or a secret. A read here; the retry and the drift clear below go
+  // only through lib/admin/voice-drift.ts, after the operator's fresh code.
   | "voiceAgentStatus"
   // Phase 5, lane P5a (apps/app lib/ops/voice-agent-ops.ts, stuck-writes-ops.ts,
   // transcript-watch-ops.ts): one more provisioning run for a clinic's Retell
-  // agent; a drift flag cleared and the check run once, after the operator's
-  // fresh code (lib/admin/voice-drift.ts); the desk bookings whose calendar
-  // write has not settled, and the clinics whose transcript copies never
-  // reached them, across clinics. Ids, codes, counts, whole days and the
-  // clinic's name; never a patient, a copy, an address or a number.
+  // agent (it can buy a number) and a drift flag cleared with the check run
+  // once, each only after the operator's fresh code (lib/admin/voice-drift.ts);
+  // the desk bookings whose calendar write has not settled, and the clinics
+  // whose transcript copies never reached them, across clinics. Ids, codes,
+  // counts, the clinic's name, a slot as whole days ahead and the time of our
+  // own next retry; never a patient, a copy, an address or a number.
   | "retryVoiceAgent"
   | "clearVoiceDriftFlag"
   | "listStuckCalendarWrites"
@@ -1722,6 +1723,11 @@ export type RetryVoiceAgentOutcome =
  * (`retryVoiceAgent`), under every guard a scheduled run has: the owner's
  * switch, the paid invoice, the daily cap. A security event names the
  * operator. A ready run's number is read and left behind: never shown here.
+ *
+ * ⚠️ RAW: it can buy a phone number and asks for no second factor. Call it
+ * only through lib/admin/voice-drift.ts `retryVoiceAgentWithCode`, which
+ * checks the operator's fresh code first; ops-client-monitors.test.ts fails
+ * if anything else imports it.
  */
 export function retryVoiceAgent(clinicId: string): Promise<OpsResult<RetryVoiceAgentOutcome>> {
   return callOps("retryVoiceAgent", "write", { clinicId }, (value): RetryVoiceAgentOutcome => {
@@ -1775,9 +1781,12 @@ export type ClearVoiceDriftFlagOutcome =
   | { outcome: "still_drifted"; problems: VoiceAgentProblem[] };
 
 /**
- * `clearVoiceDriftFlag`: the flag cleared and the drift check run once. Call
- * it only through lib/admin/voice-drift.ts, which checks the operator's fresh
- * authenticator code first; this sends the clinic id and nothing else.
+ * `clearVoiceDriftFlag`: the flag cleared and the drift check run once.
+ *
+ * ⚠️ RAW: no second factor. Call it only through lib/admin/voice-drift.ts
+ * `clearVoiceDriftFlag`, which checks the operator's fresh authenticator code
+ * first; ops-client-monitors.test.ts fails if anything else imports it. This
+ * sends the clinic id and nothing else.
  */
 export function clearVoiceDriftFlag(clinicId: string): Promise<OpsResult<ClearVoiceDriftFlagOutcome>> {
   return callOps("clearVoiceDriftFlag", "write", { clinicId }, (value): ClearVoiceDriftFlagOutcome => {
@@ -1857,9 +1866,9 @@ export type StuckCalendarWriteView = {
   status: "failed" | "unknown";
   reason: CalendarWriteReasonCode;
   attempts: number;
-  /** When the sweep tries it next; null when due now or never again on its own. */
+  /** When our sweep next retries the write (a time of ours, not the booking's); null when due now or never again on its own. */
   nextAttemptAt: string | null;
-  /** Whole days until the slot (0: within 24 hours). Never a time. */
+  /** Whole days until the slot (0: within 24 hours). Never the slot's time. */
   slotInDays: number;
   /** Whether the sweep will try it again by itself. */
   retryable: boolean;

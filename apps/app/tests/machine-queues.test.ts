@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 // One clinic's tenant read, or the BAA floor's read, can be made to fail, to
 // prove an unread part is named rather than counted as empty.
@@ -47,6 +47,27 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
+/**
+ * The pg-boss stand-in (below) is this file's own, known by its marker table.
+ * A real pg-boss schema (no marker) is never touched; one left by a killed run
+ * (marker present) is removed before anything reads the queues.
+ */
+const STAND_IN_MARKER = "p5d_machine_queues_stand_in";
+
+async function standInState(): Promise<"none" | "ours" | "real"> {
+  const { rows } = await getMigratorPool().query<{ schema: string | null; marker: string | null }>(
+    `select to_regnamespace('pgboss')::text as schema, to_regclass($1)::text as marker`,
+    [`pgboss.${STAND_IN_MARKER}`],
+  );
+  if (rows[0]!.schema === null) return "none";
+  return rows[0]!.marker === null ? "real" : "ours";
+}
+
+/** Drop the stand-in, and only ever a schema carrying its marker. */
+async function dropStandIn(): Promise<void> {
+  if ((await standInState()) === "ours") await getMigratorPool().query(`drop schema pgboss cascade`);
+}
+
 describe("the attention rule (pure)", () => {
   test("a queue needs a person only with something in it: at once when its patience is none, else once its oldest waited it", () => {
     const kinds = [...Object.keys(QUEUE_WORDS), "pgboss:send-email", "pgboss_failed:send-email"];
@@ -80,6 +101,7 @@ describe("the attention rule (pure)", () => {
 describeDb("listMachineQueues and Home's queue rows (lane P5d)", () => {
   beforeAll(async () => {
     await runMigrations();
+    await dropStandIn(); // a leftover from a killed run
   }, 180_000);
 
   beforeEach(async () => {
@@ -275,6 +297,10 @@ describeDb("listMachineQueues and Home's queue rows (lane P5d)", () => {
     const inbox = await readOpsInbox(OPERATOR, { sources: [queuesSource] });
     expect(inbox.unreadable[0]!.reason).toMatch(/agreements below the floor/);
     expect(inbox.unreadable[0]!.reason).toMatch(/1 clinic\(s\)/);
+    // Home says the count is a floor, on each per-clinic row and no other.
+    const outboxRow = inbox.rows.find((r) => r.id === "queue:outbox")!;
+    expect(outboxRow.sentence).toMatch(/^Emails waiting to send \(at least 1: a clinic could not be read\); the oldest is 2 h old\.$/);
+    expect(inbox.rows.find((r) => r.id === "queue:billing_events_parked")!.sentence).not.toMatch(/at least/);
   });
 
   test("the operation writes nothing: no row anywhere it reads, no access row, no security event; and it takes no argument", async () => {
@@ -336,29 +362,42 @@ describeDb("listMachineQueues and Home's queue rows (lane P5d)", () => {
   });
 
   describe("pg-boss's jobs, against a stand-in of its job table", () => {
-    // queue:install is not run on the test database; the stand-in has the
-    // columns this read uses, as pg-boss 10 defines them.
-    let created = false;
+    // queue:install is not run on the test database, so the read's fixed
+    // `pgboss.job` is stood in for with the columns it uses, as pg-boss 10
+    // defines them. The stand-in is this test's own, known by its marker
+    // table: a real pg-boss schema (no marker) is never touched and the test
+    // is skipped; one left by a killed run (marker present) is removed first.
+    let ours = false;
+
     beforeEach(async () => {
+      await dropStandIn();
+      ours = false;
+      if ((await standInState()) === "real") return;
       const pool = getMigratorPool();
-      if ((await pgBossInstalled()) && !created) return;
-      await pool.query(`create schema if not exists pgboss`);
+      await pool.query(`create schema pgboss`);
+      ours = true;
+      await pool.query(`create table pgboss.${STAND_IN_MARKER} ()`);
       await pool.query(
-        `create table if not exists pgboss.job (
+        `create table pgboss.job (
            id uuid not null default gen_random_uuid(), name text not null, state text not null default 'created',
            start_after timestamptz not null default now(), created_on timestamptz not null default now(),
            completed_on timestamptz)`,
       );
       await pool.query(`grant usage on schema pgboss to healdesk_app`);
       await pool.query(`grant select on pgboss.job to healdesk_app`);
-      await pool.query(`truncate pgboss.job`);
-      created = true;
+    });
+    afterEach(async () => {
+      if (ours) await dropStandIn();
+      ours = false;
     });
     afterAll(async () => {
-      if (created) await getMigratorPool().query(`drop schema pgboss cascade`);
+      await dropStandIn();
     });
 
-    test("a job waits from when it fell due, and a failure counts for two days only", async () => {
+    test("a job waits from when it fell due, and a failure counts for two days only", async (context) => {
+      if (!ours) {
+        context.skip("pg-boss is installed on this database: its real job table is not seeded or dropped by this test.");
+      }
       const pool = getMigratorPool();
       await pool.query(
         `insert into pgboss.job (name, state, created_on, start_after, completed_on) values

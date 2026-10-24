@@ -6627,6 +6627,8 @@ export const TENANT_SCOPED_TABLES = [
   "lifecycle_waves",
   // Ops automation lane P5d (drizzle/0118).
   "lifecycle_ignored_clinics",
+  // Ops automation lane P6c (drizzle/0120).
+  "rights_intakes",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -7921,3 +7923,89 @@ export const opsApprovalEvents = pgTable(
   ],
 );
 export type OpsApprovalEvent = typeof opsApprovalEvents.$inferSelect;
+// The patient-rights tracker (ops automation Phase 6, lane P6c; drizzle/0120)
+// -----------------------------------------------------------------------------
+
+/**
+ * What a rights request asks for, as the tracker counts its clock
+ * (lib/rights/clocks.ts): a deletion, an amendment to a record, a correction
+ * of a contact's details, a person's export, or a request a patient made to
+ * healdesk itself, which is passed on to the practice.
+ */
+export const RIGHTS_KINDS = ["erasure", "amendment", "correction", "export", "patient_request"] as const;
+export type RightsKind = (typeof RIGHTS_KINDS)[number];
+
+/** How the request was verified before it was recorded (docs/handover.md, "Deletion requests", step 2). */
+export const RIGHTS_VERIFICATIONS = ["notice_address", "phone_confirmed", "unverified"] as const;
+export type RightsVerification = (typeof RIGHTS_VERIFICATIONS)[number];
+
+export const RIGHTS_STATUSES = ["open", "done", "not_applicable"] as const;
+export type RightsStatus = (typeof RIGHTS_STATUSES)[number];
+
+/**
+ * A rights request as it reached us, recorded the day it came so its clock
+ * is tracked before anything runs on the host. Ids, closed words and dates
+ * only: no person, no contact id, no free text (the text check refuses `@`
+ * and any run of three digits in every text column). `asked_for` is what a
+ * patient asked healdesk for (PATIENT_REQUEST_KINDS), set exactly for a
+ * `patient_request`, because the host's task needs it. `linked_record_id`
+ * is the erasure request, amendment or patient request the intake became,
+ * when it was recorded after it; it is not a foreign key, so a record the
+ * erasure expiry or the purge takes leaves the intake standing. `due_on` is
+ * written at insert from the kind's clock (lib/rights/clocks.ts) and never
+ * changed. Recorded once per clinic, kind, linked record and day received
+ * (NULLS NOT DISTINCT), so a retried form records nothing twice; flipped
+ * once from open to done or not applicable, never deleted. Kept for good
+ * when the account closes (lib/offboarding/account-closure.ts).
+ */
+export const rightsIntakes = pgTable(
+  "rights_intakes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<RightsKind>().notNull(),
+    askedFor: text("asked_for").$type<PatientRequestKind>(),
+    receivedOn: date("received_on", { mode: "string" }).notNull(),
+    verifiedVia: text("verified_via").$type<RightsVerification>().notNull(),
+    dueOn: date("due_on", { mode: "string" }).notNull(),
+    status: text("status").$type<RightsStatus>().notNull().default("open"),
+    linkedRecordId: uuid("linked_record_id"),
+    recordedBy: text("recorded_by").notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("rights_intakes_request_key")
+      .on(t.clinicId, t.kind, t.linkedRecordId, t.receivedOn)
+      .nullsNotDistinct(),
+    index("rights_intakes_open_idx")
+      .on(t.clinicId, t.dueOn)
+      .where(sql`${t.status} = 'open'`),
+    check("rights_intakes_kind_check", sql`${t.kind} in (${sqlList(RIGHTS_KINDS)})`),
+    check(
+      "rights_intakes_verified_via_check",
+      sql`${t.verifiedVia} in (${sqlList(RIGHTS_VERIFICATIONS)})`,
+    ),
+    check("rights_intakes_status_check", sql`${t.status} in (${sqlList(RIGHTS_STATUSES)})`),
+    check(
+      "rights_intakes_asked_for_check",
+      sql`(${t.kind} = 'patient_request') = (${t.askedFor} is not null)
+        and (${t.askedFor} is null or ${t.askedFor} in (${sqlList(PATIENT_REQUEST_KINDS)}))`,
+    ),
+    check("rights_intakes_closed_check", sql`(${t.status} = 'open') = (${t.closedAt} is null)`),
+    // Five business days from any day are five to seven calendar days; ten are twelve to fourteen.
+    check(
+      "rights_intakes_due_check",
+      sql`${t.dueOn} between ${t.receivedOn} + 5 and ${t.receivedOn} + 14`,
+    ),
+    check(
+      "rights_intakes_text_check",
+      sql`char_length(${t.recordedBy}) between 1 and 64
+        and (${t.kind} || ' ' || coalesce(${t.askedFor}, '') || ' ' || ${t.verifiedVia} || ' ' || ${t.status} || ' ' || ${t.recordedBy}) !~ '[@]|[0-9]{3,}'`,
+    ),
+  ],
+);

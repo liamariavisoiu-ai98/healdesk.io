@@ -469,6 +469,9 @@ describeDb("delivery", () => {
           // The lifecycle watch (drizzle/0115), hourly behind its switch,
           // which ships off: stages, the reminder ledger and the ops waves.
           "lifecycle-watch",
+          // The approval inbox (drizzle/0119), hourly behind its switch,
+          // which ships off.
+          "approvals-propose",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

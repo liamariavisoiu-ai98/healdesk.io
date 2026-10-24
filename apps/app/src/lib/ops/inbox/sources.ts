@@ -7,6 +7,7 @@ import { healthFlagsSource } from "./health-flags";
 import { opsAlertsSource } from "./ops-alerts";
 import { practiceReviewsSource } from "./practice-reviews";
 import { recordingAlertsSource } from "./recording-alerts";
+import { rightsSource } from "./rights";
 import { siteReadsSource } from "./site-reads";
 import { supportRepliesSource } from "./support-replies";
 import { transcriptDeliverySource } from "./transcript-delivery";
@@ -38,4 +39,5 @@ export const INBOX_SOURCES: readonly InboxSource[] = [
   transcriptDeliverySource,
   goLiveSource,
   approvalsSource,
+  rightsSource,
 ];

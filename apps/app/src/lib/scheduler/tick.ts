@@ -30,7 +30,9 @@ import { runOpsSlackSweep } from "@/lib/ops/slack";
 import { runClinicAuditsHourly, runClinicChangesMinute } from "@/lib/audits/jobs";
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
+import { runApprovalsProposeJob } from "@/lib/approvals/proposers";
 import { runLifecycleWatchJob } from "@/lib/lifecycle/watch";
+import { runRightsWatchJob } from "./rights-watch";
 import { runAddressChangesJob } from "@/lib/sign-in/address-change";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 import { runSiteReadsSweep, runWebsiteDriftJob } from "@/lib/website/job";
@@ -316,6 +318,11 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // and, for an escalation, the ops address. After the reminders, so this
   // hour's is recorded this hour; it sends nothing to a clinic.
   await record("lifecycle-watch", () => runLifecycleWatchJob({ now }));
+  // The approval inbox (drizzle/0119), hourly behind its switch, which ships
+  // off: proposes the billing dead letters for the owner's yes, expires the
+  // items past their window and re-alerts the ones past due. It never
+  // retries, invoices or replays anything itself.
+  await record("approvals-propose", () => runApprovalsProposeJob({ now }));
   // L8, hourly behind its switch: each clinic's "request still open" goes at
   // its own opening hour, so the hour it runs is the clinic's, not UTC's.
   await record("requests-still-open", () => runRequestsStillOpenJob({ now }));
@@ -391,6 +398,10 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // first sent, one ops alert, ever, then nothing (dmarc-review.ts). A missed
   // 08:00 tick only moves it to the next day's.
   if (hour === 8) await record("dmarc-review", () => runDmarcReviewJob({ now }));
+  // The patient-rights tracker (drizzle/0120), once a day behind its switch,
+  // which ships off: tells ops, once each, about every request that cannot
+  // run on the host yet, is due within two business days or is past its day.
+  if (hour === 8) await record("rights-watch", () => runRightsWatchJob({ now }));
   if (hour === 9) await record("annual-renewal-reminder", () => runAnnualRenewalReminderJob({ now }));
 
   return out;

@@ -173,6 +173,10 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
   // lib/patient-rights/patient-requests.ts sweepPatientRequests.
   patient_request_due_soon: ["clinicId", "requestId"],
   patient_request_past_due: ["clinicId", "requestId"],
+  // lib/scheduler/rights-watch.ts watchRights.
+  rights_request_blocked: ["clinicId", "requestId"],
+  rights_request_due_soon: ["clinicId", "requestId"],
+  rights_request_overdue: ["clinicId", "requestId"],
   // lib/scheduler/incident-deadlines.ts alertOverdueIncidents.
   incident_notice_overdue: ["clinicId", "incidentId"],
   // lib/compliance/vendor-coverage.ts watchVendorAgreements and

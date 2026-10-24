@@ -52,6 +52,7 @@ export const INBOX_KINDS = [
   "go_live",
   // The approval inbox (lane P6a): one row per kind with items waiting for the owner's yes.
   "approval",
+  "rights",
 ] as const;
 
 export type InboxKind = (typeof INBOX_KINDS)[number];

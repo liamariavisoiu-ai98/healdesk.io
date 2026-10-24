@@ -82,6 +82,9 @@ export const READONLY_WITHHELD: Record<string, "patient" | "credential" | "unrev
   patient_requests: "patient",
   reconciliation_exceptions: "patient",
   record_amendments: "patient",
+  // The patient-rights tracker (drizzle/0120): no person, but the record that a
+  // patient of the clinic exercised a right, and when, beside erasure_requests.
+  rights_intakes: "patient",
   slot_holds: "patient",
   suppressions: "patient",
   transactions: "patient",

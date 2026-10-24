@@ -337,6 +337,16 @@ export const OPS_EVENTS = [
   // or every 4 hours for a legal clock (owner decision D18), one alert per
   // kind with the count. No clinic: the items are listed on one page.
   "approval_waiting",
+  // The patient-rights tracker's daily watch (lib/scheduler/rights-watch.ts;
+  // ops automation lane P6c, owner decision D19), once per request each,
+  // with the clinic's id and the request's: a request with no route to run
+  // on the host (no contact id until the portal route exists); one due
+  // within two business days; one past its due day. Not a patient's own
+  // request already recorded on the host, which patient_request_due_soon and
+  // patient_request_past_due cover.
+  "rights_request_blocked",
+  "rights_request_due_soon",
+  "rights_request_overdue",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

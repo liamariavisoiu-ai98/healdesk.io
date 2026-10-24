@@ -402,7 +402,15 @@ type OperatorOp =
   // through lib/admin/approval-decide.ts after the operator's fresh code.
   | "listApprovals"
   | "listApprovalHistory"
-  | "decideApproval";
+  | "decideApproval"
+  // The patient-rights tracker (apps/app lib/ops/rights-ops.ts; ops automation
+  // lane P6c): every request with a clock across clinics, with its prepared
+  // host command for the owner to copy and run himself; an intake recorded
+  // the day it came; one closed. Ids, dates, closed words and the clinic's
+  // name; never a person, a contact id or anything typed. Nothing runs here.
+  | "listRights"
+  | "recordRightsIntake"
+  | "closeRightsIntake";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -7295,6 +7303,75 @@ export type ApprovalDecision =
 const APPROVAL_SUBJECT = /^[A-Za-z0-9_:.-]{1,300}$/;
 const ENGINE_CODE = /^[a-z][a-z0-9_]{0,40}(:[a-z0-9_]{1,40})?$/;
 const EVENT_TYPE = /^[a-z][a-z0-9_.]{0,80}$/;
+// The patient-rights tracker (lane P6c)
+// -----------------------------------------------------------------------------
+
+export const RIGHTS_KINDS = ["erasure", "amendment", "correction", "export", "patient_request"] as const;
+export type RightsKind = (typeof RIGHTS_KINDS)[number];
+export const RIGHTS_VERIFICATIONS = ["notice_address", "phone_confirmed", "unverified"] as const;
+export type RightsVerification = (typeof RIGHTS_VERIFICATIONS)[number];
+/** What a patient asked healdesk for (apps/app PATIENT_REQUEST_KINDS). */
+export const RIGHTS_ASKED_FOR = ["access", "amendment", "accounting", "deletion", "other"] as const;
+export type RightsAskedFor = (typeof RIGHTS_ASKED_FOR)[number];
+export const RIGHTS_STATES = ["on_time", "due_soon", "overdue", "blocked", "done"] as const;
+export type RightsState = (typeof RIGHTS_STATES)[number];
+const RIGHTS_SOURCES = ["intake", "erasure_request", "patient_request", "record_amendment"] as const;
+/** apps/app lib/rights/commands.ts NO_ROUTE and NO_OPERATOR, word for word: the only notes a row carries. */
+export const RIGHTS_COMMAND_NOTES = [
+  "No portal route yet turns this request into a contact id",
+  "The operator address on this host is not one the task accepts",
+] as const;
+/** apps/app's SAFE_LINE: the script, a task, then ids, closed words, days and one address. Nothing a shell would read as more. */
+const RIGHTS_COMMAND = /^bash infra\/aws\/scripts\/run-task\.sh (erase-person|patient-export|amend-contact|patient-request)( [A-Za-z0-9@._%+,-]+)+$/;
+
+export type RightsRowView = {
+  id: string;
+  source: (typeof RIGHTS_SOURCES)[number];
+  intakeId: string | null;
+  recordId: string | null;
+  clinicId: string;
+  clinicName: string;
+  kind: RightsKind;
+  askedFor: RightsAskedFor | null;
+  verifiedVia: RightsVerification | null;
+  receivedOn: string;
+  dueOn: string;
+  /** No due day is stored: derived from the request's date (an amendment). */
+  dueDerived: boolean;
+  /** Business days left, negative once past; null once done. */
+  daysLeft: number | null;
+  state: RightsState;
+  /** The run-task.sh line for the owner to copy and run in AWS CloudShell. Never run from here. */
+  command: string | null;
+  commandNote: (typeof RIGHTS_COMMAND_NOTES)[number] | null;
+  retellStep: "stamped" | "outstanding" | null;
+  backupExpiresOn: string | null;
+  closedOn: string | null;
+};
+
+export type RightsListView = { rows: RightsRowView[]; count: number; truncated: boolean; unreadClinics: number };
+
+const RIGHTS_ROW_KEYS = [
+  "id",
+  "source",
+  "intakeId",
+  "recordId",
+  "clinicId",
+  "clinicName",
+  "kind",
+  "askedFor",
+  "verifiedVia",
+  "receivedOn",
+  "dueOn",
+  "dueDerived",
+  "daysLeft",
+  "state",
+  "command",
+  "commandNote",
+  "retellStep",
+  "backupExpiresOn",
+  "closedOn",
+] as const;
 
 function nullable<T>(value: unknown, read: (v: unknown) => T): T | null {
   return value === null ? null : read(value);
@@ -7479,6 +7556,125 @@ export function decideApproval(
       outcomeCode: code(data.outcomeCode, "decideApproval.outcomeCode"),
       message: optionalText(data.message, "decideApproval.message"),
       auditRecorded: bool(data.auditRecorded, "decideApproval.auditRecorded"),
+    };
+  });
+}
+
+function businessDays(value: unknown, at: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || Math.abs(value) > 10_000) throw new ShapeError(at);
+  return value;
+}
+
+function rightsCommand(value: unknown, at: string): string {
+  if (typeof value !== "string" || value.length > 400 || !RIGHTS_COMMAND.test(value)) throw new ShapeError(at);
+  return value;
+}
+
+function readRightsRow(value: unknown, at: string): RightsRowView {
+  const r = exactKeys(value, RIGHTS_ROW_KEYS, at);
+  return {
+    id: id(r.id, `${at}.id`),
+    source: literal(r.source, RIGHTS_SOURCES, `${at}.source`),
+    intakeId: nullable(r.intakeId, (v) => id(v, `${at}.intakeId`)),
+    recordId: nullable(r.recordId, (v) => id(v, `${at}.recordId`)),
+    clinicId: id(r.clinicId, `${at}.clinicId`),
+    clinicName: text(r.clinicName, `${at}.clinicName`),
+    kind: literal(r.kind, RIGHTS_KINDS, `${at}.kind`),
+    askedFor: nullable(r.askedFor, (v) => literal(v, RIGHTS_ASKED_FOR, `${at}.askedFor`)),
+    verifiedVia: nullable(r.verifiedVia, (v) => literal(v, RIGHTS_VERIFICATIONS, `${at}.verifiedVia`)),
+    receivedOn: date(r.receivedOn, `${at}.receivedOn`),
+    dueOn: date(r.dueOn, `${at}.dueOn`),
+    dueDerived: bool(r.dueDerived, `${at}.dueDerived`),
+    daysLeft: nullable(r.daysLeft, (v) => businessDays(v, `${at}.daysLeft`)),
+    state: literal(r.state, RIGHTS_STATES, `${at}.state`),
+    command: nullable(r.command, (v) => rightsCommand(v, `${at}.command`)),
+    commandNote: nullable(r.commandNote, (v) => literal(v, RIGHTS_COMMAND_NOTES, `${at}.commandNote`)),
+    retellStep: nullable(r.retellStep, (v) => literal(v, ["stamped", "outstanding"] as const, `${at}.retellStep`)),
+    backupExpiresOn: nullable(r.backupExpiresOn, (v) => date(v, `${at}.backupExpiresOn`)),
+    closedOn: nullable(r.closedOn, (v) => date(v, `${at}.closedOn`)),
+  };
+}
+
+/**
+ * Every patient-rights request with a clock across clinics: the open ones by
+ * default, the earliest due first. Demo clinics only when asked.
+ */
+export function fetchRights(
+  options: { status?: "open" | "done" | "all"; limit?: number; includeDemo?: boolean } = {},
+): Promise<OpsResult<RightsListView>> {
+  const args: Record<string, unknown> = {};
+  if (options.status) args.status = options.status;
+  if (options.limit !== undefined) args.limit = options.limit;
+  if (options.includeDemo) args.includeDemo = true;
+  return callOps("listRights", "read", args, (value) => {
+    const data = exactKeys(value, ["rows", "count", "truncated", "unreadClinics"], "listRights");
+    return {
+      rows: list(data.rows, "listRights.rows").map((row, i) => readRightsRow(row, `listRights.rows[${i}]`)),
+      count: count(data.count, "listRights.count"),
+      truncated: bool(data.truncated, "listRights.truncated"),
+      unreadClinics: count(data.unreadClinics, "listRights.unreadClinics"),
+    };
+  });
+}
+
+export type RecordRightsIntakeInput = {
+  clinicId: string;
+  kind: RightsKind;
+  /** YYYY-MM-DD: the day the request reached us. */
+  receivedOn: string;
+  verifiedVia: RightsVerification;
+  /** Required for a patient_request, refused for every other kind. */
+  askedFor?: RightsAskedFor;
+  /** The erasure request, amendment or patient request it became, when recorded after it. */
+  linkedRecordId?: string;
+};
+
+export type RecordRightsIntakeOutcome = {
+  outcome: "recorded" | "already_recorded";
+  id: string;
+  dueOn: string;
+  auditRecorded: boolean;
+};
+
+/** Record one intake, once: the same clinic, kind, linked record and day again returns the first. */
+export function recordRightsIntake(input: RecordRightsIntakeInput): Promise<OpsResult<RecordRightsIntakeOutcome>> {
+  const args: Record<string, unknown> = {
+    clinicId: input.clinicId,
+    kind: input.kind,
+    receivedOn: input.receivedOn,
+    verifiedVia: input.verifiedVia,
+  };
+  if (input.askedFor) args.askedFor = input.askedFor;
+  if (input.linkedRecordId) args.linkedRecordId = input.linkedRecordId;
+  return callOps("recordRightsIntake", "write", args, (value) => {
+    const data = exactKeys(value, ["outcome", "id", "dueOn", "auditRecorded"], "recordRightsIntake");
+    return {
+      outcome: literal(data.outcome, ["recorded", "already_recorded"] as const, "recordRightsIntake.outcome"),
+      id: id(data.id, "recordRightsIntake.id"),
+      dueOn: date(data.dueOn, "recordRightsIntake.dueOn"),
+      auditRecorded: bool(data.auditRecorded, "recordRightsIntake.auditRecorded"),
+    };
+  });
+}
+
+export type CloseRightsIntakeOutcome = {
+  outcome: "closed" | "already_closed";
+  status: "done" | "not_applicable";
+  auditRecorded: boolean;
+};
+
+/** Close an open intake as done or not applicable, once ("Mark done"). */
+export function closeRightsIntake(
+  clinicId: string,
+  intakeId: string,
+  status: "done" | "not_applicable",
+): Promise<OpsResult<CloseRightsIntakeOutcome>> {
+  return callOps("closeRightsIntake", "write", { clinicId, id: intakeId, status }, (value) => {
+    const data = exactKeys(value, ["outcome", "status", "auditRecorded"], "closeRightsIntake");
+    return {
+      outcome: literal(data.outcome, ["closed", "already_closed"] as const, "closeRightsIntake.outcome"),
+      status: literal(data.status, ["done", "not_applicable"] as const, "closeRightsIntake.status"),
+      auditRecorded: bool(data.auditRecorded, "closeRightsIntake.auditRecorded"),
     };
   });
 }

@@ -115,6 +115,10 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   // Patient rights: a legal clock.
   patient_request_due_soon: "urgent",
   patient_request_past_due: "urgent",
+  // The patient-rights tracker: a legal clock; blocked is a person's work today.
+  rights_request_blocked: "today",
+  rights_request_due_soon: "urgent",
+  rights_request_overdue: "urgent",
   // Incidents: a legal clock.
   incident_notice_overdue: "urgent",
   // Vendors.

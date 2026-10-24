@@ -148,6 +148,10 @@ function classOfKey(key: string): ValueClass | null {
   // An opening date never enters a payload (X4); opening dates are gone.
   if (/open(ing|s)/i.test(key)) return null;
   if (key === "clinicName") return "clinicName";
+  // A setup requester's business name in an ops alert (lane N1, the owner's
+  // decision of 23 October 2026): held to a clinic name's rule here, and to
+  // printableBusinessName's stricter one before it is sent.
+  if (key === "business") return "clinicName";
   if (key === "deviceName") return "deviceName";
   // P6, the agreement copy: who signed it, as typed, and the document's
   // SHA-256, the one reference the email gives for it.

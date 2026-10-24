@@ -209,30 +209,67 @@ export function demoContextFromCall(call: unknown): string | null {
 }
 
 /**
- * What the model is told on every turn of a demo call (turn.ts, `notes`),
- * the start being the one thing a demo does differently (owner, 24 October
- * 2026). The person asked for the demo and works at the clinic: AYA talks to
- * them as themselves, says what she does for their practice and shows she
- * knows it, then offers a role-play in which they call in as one of their
- * patients, and from then on answers exactly as she would a real caller.
+ * How much of a live discount is worth saying, and never a dollar figure:
+ * the exact setup fee depends on a package nobody has chosen yet, and the
+ * guard has no healdesk price to check it against (it only ever checks the
+ * clinic's own menu). A plain percentage and a rounded number of hours left
+ * trips no pattern the guard reads (guard.ts, amountsIn: every form it
+ * catches needs a dollar sign, a currency word or a currency code).
+ */
+function offerLine(offer: Pick<DemoCallContext, "offer">["offer"], now: number): string | null {
+  if (!offer || offer.endsAt <= now) return null;
+  const hoursLeft = Math.max(1, Math.round((offer.endsAt - now) / 3_600_000));
+  // "hours left", not "more hours": with a word between the number and the
+  // unit, the guard's own dose-like-figure pattern (guard.ts, PLAIN_CLINICAL)
+  // reads "about 10 more hours" as a figure it cannot place and refuses the
+  // whole sentence as clinical. "about 10 hours left" keeps the unit right
+  // after the number, which that pattern already knows to leave alone.
+  return `A real, live discount applies right now: ${offer.percentOfSetupFee}% off healdesk's setup fee, with about ${hoursLeft} hour${hoursLeft === 1 ? "" : "s"} left on it. If you mention it, say only that percentage and that rough window; never a dollar amount (no package is chosen yet to price one), and never a different number or a different amount of time than given here.`;
+}
+
+/**
+ * What the model is told on the first turn of a demo call (turn.ts,
+ * `notes`): the one thing a demo does differently (owner, 24 October 2026).
+ * The person asked for the demo and works at the clinic: AYA talks to them
+ * as themselves, introduces herself with energy, says what she does for
+ * their practice and shows she knows it, then lets them choose between
+ * hearing more about their own clinic or jumping into a role-play where
+ * they call in as one of their patients.
  *
  * Shaped around the guard, which reads every word as on any call: "your
  * patients", because "our patients" or "another patient" reads as another
- * patient spoken of (guard.ts, mentionsOtherParty); no figure for healdesk
- * itself, which is on no menu and would be refused as a price; nothing
- * about how the facts were learnt, which a clinic's own AYA never says
- * either.
+ * patient spoken of (guard.ts, mentionsOtherParty); nothing about how the
+ * facts were learnt, which a clinic's own AYA never says either.
  */
-export function demoCallNote(context: Pick<DemoCallContext, "firstName" | "clinic">): string {
+export function demoIntroNote(context: Pick<DemoCallContext, "firstName" | "clinic">): string {
   const clinic = context.clinic.clinicName;
   const who = context.firstName ?? "the caller";
   return [
     `This call is a live demo for ${who}, who is on ${clinic}'s team and asked to hear you at work.`,
-    `Until they agree to a role-play, talk to them as themselves, not as a patient: answer how they are, then in a few short spoken sentences say who you are and what you do for ${clinic} from start to finish: you answer its calls in English and Spanish whenever the front desk can't get to the phone, know its treatments, prices, hours and policies, take booking requests for the team to confirm, handle urgent calls safely, and pass anyone who wants a person on to the team.`,
+    `Talk to them as themselves, not as a patient: answer how they are, with real warmth and energy, then introduce yourself with confidence ("I'm AYA! Great to meet you.") and say in a few short spoken sentences what you do for ${clinic} from start to finish: you answer its calls in English and Spanish whenever the front desk can't get to the phone, know its treatments, prices, hours and policies, take booking requests for the team to confirm, handle urgent calls safely, and pass anyone who wants a person on to the team.`,
     `Show you have already done your homework on ${clinic} by naming one or two real details from what you know about it (a treatment, its hours, something it is known for). Never mention a website, scraping, reading or how you learned anything.`,
-    `Then invite them, lightly and playfully, to a role-play where they call in as one of their patients and you take it from there, for example: "Want to see me in action? Let's role-play: you call in as one of your patients, and I'll take it from there." Say "your patients", never "our patients" or "another patient".`,
-    `Once they start playing a patient, stay in that role and answer exactly as you would a real caller to ${clinic}. If they step out of it to ask about you, answer them as themselves, then offer to pick the role-play back up.`,
-    `Never quote what AYA or healdesk costs, and promise nothing about setup: the healdesk team goes through that with them. Keep it professional: no flirting, no compliments on how they look.`,
+    `Then give them a clear choice in one short question, for example: "Want to hear what I've learned about ${clinic}, or jump straight into a role-play where you call in as one of your patients?" Say "your patients", never "our patients" or "another patient". If they pick the role-play, start it; if they pick to hear more, keep talking about ${clinic} as yourself until they are ready to try the role-play.`,
+    `Keep it professional: no flirting, no compliments on how they look.`,
+  ].join(" ");
+}
+
+/**
+ * What the model is told on every turn after the first (turn.ts, `notes`),
+ * once the opening has already happened. Short and state-agnostic on
+ * purpose: repeating the opening's instructions turn after turn, deep into
+ * a role-play, is what made AYA seem to forget the caller's name and lose
+ * the thread of who she was meant to be (owner, 24 October 2026) — this note
+ * only ever reminds her who she is talking to and what to do next, never
+ * re-describes the opening.
+ */
+export function demoOngoingNote(context: Pick<DemoCallContext, "firstName" | "clinic" | "offer">, now: number): string {
+  const clinic = context.clinic.clinicName;
+  const who = context.firstName ?? "the caller";
+  const offer = offerLine(context.offer, now);
+  return [
+    `This is still the live demo for ${who}, of ${clinic}'s team. Keep everything said earlier in this call in mind, their name included, and use it naturally rather than asking again.`,
+    `If they are currently playing a patient, stay fully in that role and answer exactly as you would a real caller to ${clinic}; only step out of it if they clearly address you directly.`,
+    `Once the role-play has run its course, or any time they step out of it to talk to you directly, you may ask ${who} how it felt, answer questions about healdesk and what it would bring ${clinic}, and gently note that the team would love to have them on board.${offer ? ` ${offer}` : ""} Never quote what AYA or healdesk costs beyond that, and promise nothing about setup beyond it: the healdesk team goes through the rest with them.`,
   ].join(" ");
 }
 

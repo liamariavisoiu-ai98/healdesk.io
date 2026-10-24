@@ -14,9 +14,19 @@ const SLUG = "peachy-studio-k7q2mz9xwa";
 
 const appAnswers = vi.fn();
 vi.mock("@/lib/admin/ops-client", () => ({ appAnswers: (...args: unknown[]) => appAnswers(...args) }));
-vi.mock("@/lib/demo/sessions", () => ({
+/**
+ * A minimal row by default, so every test but the offer's own keeps working
+ * without a real demo row: `demoOfferFor` (lib/demo/offer.ts) catches what a
+ * row this bare throws on and reports no discount, same as a real read that
+ * came back short. `demoOfferEndsAt`/`demoSetupCredit` are the real
+ * functions (spread from actual), so the one test that gives a full row
+ * below exercises the real clock.
+ */
+let sessionOverride: Record<string, unknown> = { slug: SLUG, profile: true };
+vi.mock("@/lib/demo/sessions", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo/sessions")>()),
   isDemoSlug: () => true,
-  getDemoSession: async () => ({ slug: SLUG, profile: true }),
+  getDemoSession: async () => sessionOverride,
   isDemoActive: () => true,
   profileOf: () => ({
     clinicName: "Peachy Studio",
@@ -58,6 +68,7 @@ function variables(): Record<string, string> {
 
 beforeEach(() => {
   calls.length = 0;
+  sessionOverride = { slug: SLUG, profile: true };
   appAnswers.mockReset().mockResolvedValue(true);
   vi.stubEnv("RETELL_API_KEY", "key_test");
   vi.stubEnv("RETELL_CLINIC_DEMO_AGENT_ID", "agent_clinic");
@@ -95,6 +106,49 @@ describe("POST /api/demo/[slug]/retell/v3/create-web-call, the engine", () => {
     // Where the hours came from is the demo's own business, not the engine's.
     expect(JSON.stringify(context!.clinic)).not.toContain("SoHo");
     expect(calls[0]!.body.metadata).toMatchObject({ demo_slug: SLUG, engine: "aya" });
+  });
+
+  test("carries the demo's live setup discount, real and server-computed, never a made-up one", async () => {
+    const readyAt = new Date("2026-10-24T12:00:00Z");
+    sessionOverride = {
+      slug: SLUG,
+      profile: true,
+      status: "ready",
+      createdBy: "ops-operator@healdesk.io",
+      createdAt: readyAt,
+      readyAt,
+      expiresAt: new Date(readyAt.getTime() + 7 * 24 * 60 * 60_000),
+    };
+    vi.useFakeTimers().setSystemTime(new Date(readyAt.getTime() + 10 * 60 * 60_000)); // 10 h in: still live
+    try {
+      await post({ firstName: "Sam" });
+      const context = openDemoCallContext(variables().demo_context, SECRET, Date.now());
+      // An operator-built demo (not "homepage"): the 50% credit, not the 30% self-serve one.
+      expect(context!.offer).toEqual({ percentOfSetupFee: 50, endsAt: readyAt.getTime() + 48 * 60 * 60_000 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("carries no discount once it has ended", async () => {
+    const readyAt = new Date("2026-10-20T12:00:00Z");
+    sessionOverride = {
+      slug: SLUG,
+      profile: true,
+      status: "ready",
+      createdBy: "homepage",
+      createdAt: readyAt,
+      readyAt,
+      expiresAt: new Date(readyAt.getTime() + 7 * 24 * 60 * 60_000),
+    };
+    vi.useFakeTimers().setSystemTime(new Date(readyAt.getTime() + 72 * 60 * 60_000)); // 72 h in: well past 48 h
+    try {
+      await post({ firstName: "Sam" });
+      const context = openDemoCallContext(variables().demo_context, SECRET, Date.now());
+      expect(context!.offer).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("does not open with another secret", async () => {

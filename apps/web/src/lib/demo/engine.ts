@@ -37,9 +37,10 @@ import type { ClinicProfile } from "@/lib/demo/profile";
  *
  * Business data only: the clinic's own published website as the demo read it
  * (`parseDemoCallClinic` copies the fields the contract names and drops the
- * rest, such as where the opening hours came from), the demo's slug, and the
- * first name the visitor typed about themselves. Nothing a patient said.
- * apps/web still has no database and no new store.
+ * rest, such as where the opening hours came from), the demo's slug, the
+ * first name the visitor typed about themselves, and, when the caller
+ * computed one, the demo's own live setup-fee discount. Nothing a patient
+ * said. apps/web still has no database and no new store.
  *
  * Server-side only: it reads HEALDESK_PROVISION_SECRET, and its import of the
  * ops client refuses to load in a browser.
@@ -70,6 +71,15 @@ export async function demoEngineCall(input: {
   profile: ClinicProfile;
   mode: DemoCallMode;
   firstName: string | null;
+  /**
+   * The demo's live setup-fee discount, already computed by the caller
+   * (lib/demo/sessions.ts `demoOfferEndsAt`/`demoSetupCredit`) from its own
+   * row: null when there is none or it has ended. Kept out of this file so
+   * it stays decoupled from the session store; a caller that cannot compute
+   * one (a minimal row in a test, a read that failed) passes null, same as
+   * no discount at all.
+   */
+  offer?: { percentOfSetupFee: number; endsAt: Date } | null;
 }): Promise<DemoEngineCall | null> {
   const agentId = demoEngineAgentId();
   const secret = process.env.HEALDESK_PROVISION_SECRET;
@@ -85,6 +95,7 @@ export async function demoEngineCall(input: {
     firstName: input.firstName,
     issuedAt: Date.now(),
     clinic,
+    offer: input.offer ? { percentOfSetupFee: input.offer.percentOfSetupFee, endsAt: input.offer.endsAt.getTime() } : null,
   };
   try {
     return { agentId, variables: { [DEMO_CALL_VARIABLE]: sealDemoCallContext(context, secret) } };

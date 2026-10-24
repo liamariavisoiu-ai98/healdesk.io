@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { demoFirstName } from "@healdesk/catalog";
 import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
 import { demoEngineCall } from "@/lib/demo/engine";
+import { demoOfferFor } from "@/lib/demo/offer";
 import { getDemoSession, isDemoActive, isDemoSlug, profileOf } from "@/lib/demo/sessions";
 import { GATE_COOKIE, verifyGateToken } from "@/lib/gate";
 import { markCallPlaced, recordCallConsent } from "@/lib/leads";
@@ -133,14 +134,14 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // 3b. A personalised demo, when named, must exist and be inside its week.
   //     Checked before any budget is charged: an expired link costs nobody a call.
-  let demo: { slug: string; profile: NonNullable<ReturnType<typeof profileOf>> } | null = null;
+  let demo: { slug: string; profile: NonNullable<ReturnType<typeof profileOf>>; session: NonNullable<Awaited<ReturnType<typeof getDemoSession>>> } | null = null;
   if (demoSlug !== undefined) {
     if (!isDemoSlug(demoSlug)) return fail("That demo doesn't exist.", 404);
     const session = await getDemoSession(demoSlug);
     const profile = session ? profileOf(session) : null;
     if (!session || !profile) return fail("That demo doesn't exist.", 404);
     if (!isDemoActive(session)) return fail("This demo has expired.", 410);
-    demo = { slug: demoSlug, profile };
+    demo = { slug: demoSlug, profile, session };
   }
 
   // 4. Per-number limit. Checked here but CHARGED only after the call is
@@ -236,7 +237,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   // and apps/app answers (lib/demo/engine.ts), with the name the visitor
   // gave; otherwise the clinic demo agent, exactly as before.
   const engine = demo
-    ? await demoEngineCall({ slug: demo.slug, profile: demo.profile, mode: "phone", firstName: demoFirstName(callerName) })
+    ? await demoEngineCall({ slug: demo.slug, profile: demo.profile, mode: "phone", firstName: demoFirstName(callerName), offer: demoOfferFor(demo.session) })
     : null;
 
   const result = await placeCall(engine ? { ...config.config, agentId: engine.agentId } : config.config, {

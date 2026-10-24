@@ -208,6 +208,9 @@ export function retellAgentSettings(clinicId: string, options: RetellAgentOption
  * read from Retell's create-agent reference that day). Written on every
  * create and update, so a clinic's agent always has them:
  *
+ *   - stt_mode "fast" (24 October 2026): Retell's own default, pinned here so
+ *     a dashboard switched to "accurate" for one test call, which adds real
+ *     seconds to every reply, is undone the moment that agent is next synced;
  *   - backchannel: soft "mm-hmm", "uh-huh", "yeah", "I see" while the
  *     caller talks, at Retell's own pacing (frequency 0 to 1, its default 0.8
  *     lowered a little so it does not chatter); never "okay" or "right",
@@ -229,7 +232,8 @@ export function retellAgentSettings(clinicId: string, options: RetellAgentOption
  *     speech rates"): Retell slows the voice for a caller who speaks slowly
  *     and quickens it for a fast one, around voice_speed;
  *   - a pronunciation dictionary (IPA) for treatment brands a voice tends
- *     to read wrong. Retell applies it only on voices that support it (its
+ *     to read wrong, and for "AYA" itself, spoken as the name "Aya" rather
+ *     than spelled out. Retell applies it only on voices that support it (its
  *     dashboard shows which); the brand names are public words, no clinic's
  *     or patient's. Listen to each on the demo agent before relying on it.
  *

@@ -19,8 +19,10 @@ import { isSpecialtyId, type SpecialtyId } from "./specialties";
  * role-play) and that nothing is written anywhere.
  *
  * What it carries is business data: the clinic's own published website as
- * the demo read it, the requester's first name, and the demo's slug. Never a
- * patient's.
+ * the demo read it, the requester's first name, the demo's slug, and, when
+ * one is genuinely live, the time-limited setup-fee discount the demo
+ * carries (packages/catalog/src/plans.ts; apps/web computes it from the
+ * demo's own row, never invented downstream). Never a patient's.
  */
 
 export const DEMO_CALL_VARIABLE = "demo_context";
@@ -48,6 +50,17 @@ export type DemoCallClinic = {
   highlights: string[];
 };
 
+/**
+ * A live setup-fee discount, real and server-computed: the percentage off
+ * (DEMO_SETUP_CREDIT 50%, SELF_SERVE_DEMO_SETUP_CREDIT 30%, plans.ts) and
+ * when it ends, epoch milliseconds. apps/web seals it only while it is still
+ * live by its own clock; apps/app checks the clock again at call time
+ * (demo-facts.ts), since a call can start minutes after the context was
+ * sealed. Never a specific dollar figure: healdesk's own prices are not on
+ * the menu the guard checks, so a call never states one.
+ */
+export type DemoCallOffer = { percentOfSetupFee: number; endsAt: number };
+
 export type DemoCallContext = {
   v: 1;
   slug: string;
@@ -56,6 +69,8 @@ export type DemoCallContext = {
   firstName: string | null;
   issuedAt: number;
   clinic: DemoCallClinic;
+  /** The demo's live setup-fee discount, or null when none applies or it has ended. */
+  offer: DemoCallOffer | null;
 };
 
 export const DEMO_CALL_LIMITS = {
@@ -143,6 +158,18 @@ export function parseDemoCallClinic(input: unknown): DemoCallClinic | null {
   };
 }
 
+/** A live discount, cleaned; null for anything missing, out of range or malformed. A whole percent, 1 to 100. */
+export function parseDemoCallOffer(input: unknown): DemoCallOffer | null {
+  const o = obj(input);
+  if (!o) return null;
+  const percentOfSetupFee = o.percentOfSetupFee;
+  const endsAt = o.endsAt;
+  if (typeof percentOfSetupFee !== "number" || !Number.isFinite(percentOfSetupFee)) return null;
+  if (percentOfSetupFee <= 0 || percentOfSetupFee > 100) return null;
+  if (typeof endsAt !== "number" || !Number.isFinite(endsAt)) return null;
+  return { percentOfSetupFee: Math.round(percentOfSetupFee), endsAt };
+}
+
 /** The whole context, cleaned; null when any required part is missing or malformed. */
 export function parseDemoCallContext(input: unknown): DemoCallContext | null {
   const o = obj(input);
@@ -151,7 +178,7 @@ export function parseDemoCallContext(input: unknown): DemoCallContext | null {
   const mode = MODES.find((m) => m === o.mode);
   const clinic = parseDemoCallClinic(o.clinic);
   if (!slug || !mode || !clinic || typeof o.issuedAt !== "number" || !Number.isFinite(o.issuedAt)) return null;
-  return { v: 1, slug, mode, firstName: demoFirstName(o.firstName), issuedAt: o.issuedAt, clinic };
+  return { v: 1, slug, mode, firstName: demoFirstName(o.firstName), issuedAt: o.issuedAt, clinic, offer: parseDemoCallOffer(o.offer) };
 }
 
 function mac(body: string, secret: string): string {

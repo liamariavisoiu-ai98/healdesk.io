@@ -85,18 +85,26 @@ export async function opRetryVoiceAgent(args: Record<string, unknown>, operator:
 export async function opClearVoiceDriftFlag(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
   const clinicId = stringArg(args, "clinicId", 64);
   if (!clinicId || !UUID_SHAPED.test(clinicId)) return opsProblem("A clinic id is required.", 400, "invalid_args");
-  if (!(await clinicById(clinicId))) return ok({ outcome: "not_found" });
+  // The security event is written whatever happens next (not found, a throw
+  // included): the operator asked, with a fresh code, and that is recorded.
+  let event: Record<string, unknown> = { clinicId, outcome: "error" };
   try {
+    if (!(await clinicById(clinicId))) {
+      event = { clinicId, outcome: "not_found" };
+      return ok({ outcome: "not_found" });
+    }
     const result = await clearVoiceDriftFlag(clinicId, depsForTests);
-    await audit(operator, "voice_drift_flag_cleared", {
+    event = {
       clinicId,
       outcome: result.outcome,
       ...(result.outcome === "cleared" ? { check: result.check } : {}),
       ...("problems" in result && result.problems.length > 0 ? { problems: result.problems } : {}),
-    });
+    };
     return ok(result);
   } catch (error) {
     log.error("voice drift flag not cleared", { clinicId, error: describeError(error) });
     return opsProblem("The voice drift flag could not be cleared.", 500, "failed");
+  } finally {
+    await audit(operator, "voice_drift_flag_cleared", event);
   }
 }

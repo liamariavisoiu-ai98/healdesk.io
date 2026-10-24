@@ -26,9 +26,11 @@ import { listClinics } from "./clinics";
  * function the per-clinic `transcriptDeliveries` view uses, and canResend,
  * which names the states that still hold a copy:
  *
- *   - overdue: copies still held (pending, sent or bounced) queued more than
- *     TRANSCRIPT_UNCONFIRMED_HOURS ago;
+ *   - overdue: copies still held and not bounced (pending or sent) queued
+ *     more than TRANSCRIPT_UNCONFIRMED_HOURS ago;
  *   - bounced, expired, unconfirmed: the outbox's counts of those states.
+ *
+ * So no copy is counted twice: a bounced copy is `bounced` however old.
  *
  * A copy is a receipt at the latest TRANSCRIPT_COPY_MAX_DAYS after it was
  * queued, so the counts read the copies queued in the last twice that: every
@@ -65,28 +67,33 @@ export const UNDELIVERED_WINDOW_DAYS = TRANSCRIPT_COPY_MAX_DAYS * 2;
 
 const HOUR_MS = 60 * 60 * 1000;
 const HELD: TranscriptEmailStatus[] = TRANSCRIPT_EMAIL_STATUSES.filter(canResend);
+const WAITING: TranscriptEmailStatus[] = HELD.filter((status) => status !== "bounced");
 
 export async function listUndeliveredTranscripts(options: {
   actor: ActorContext;
   request?: RequestContext;
   now?: Date;
+  /** Test seam: the clinics to read, instead of every clinic not destroyed. */
+  clinics?: readonly { id: string; name: string }[];
 }): Promise<UndeliveredTranscripts> {
   const now = options.now ?? new Date();
   const overdueBefore = new Date(now.getTime() - TRANSCRIPT_UNCONFIRMED_HOURS * HOUR_MS);
   const out: UndeliveredTranscriptClinic[] = [];
   let unreadClinics = 0;
-  for (const clinic of (await listClinics()).filter((c) => !c.destroyedAt)) {
+  const clinics = options.clinics ?? (await listClinics()).filter((c) => !c.destroyedAt);
+  for (const clinic of clinics) {
     try {
       const read = await withTenant(
         { clinicId: clinic.id, actor: options.actor, request: options.request },
         async (tx) => {
           // Counts by state only: no receipt is read.
           const { counts } = await listTranscriptDeliveries(tx, UNDELIVERED_WINDOW_DAYS, 0);
-          const held = and(eq(transcriptEmails.clinicId, tx.clinicId), inArray(transcriptEmails.status, HELD));
+          const ours = eq(transcriptEmails.clinicId, tx.clinicId);
+          const held = and(ours, inArray(transcriptEmails.status, HELD));
           const [overdue] = await tx.db
             .select({ n: count() })
             .from(transcriptEmails)
-            .where(and(held, lt(transcriptEmails.createdAt, overdueBefore)));
+            .where(and(ours, inArray(transcriptEmails.status, WAITING), lt(transcriptEmails.createdAt, overdueBefore)));
           const [oldest] = await tx.db
             .select({ at: min(transcriptEmails.createdAt) })
             .from(transcriptEmails)

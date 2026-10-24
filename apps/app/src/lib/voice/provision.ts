@@ -790,8 +790,11 @@ export async function checkVoiceAgentDrift(clinicId: string, deps: ProvisionDeps
     const code = back.problems[0]!;
     const unrepairable = !back.agentExists || !back.numberExists;
     if (unrepairable || row.driftRepairs >= MAX_DRIFT_REPAIRS) {
-      await update(clinicId, { driftFlaggedAt: now(), lastError: `${DRIFT_NOTE}: ${back.problems.join(", ")}`.slice(0, 200) }, "drift_flagged");
-      await notifyOpsOnce("voice_agent_drift", { clinicId, code, status: "flagged", count: row.driftRepairs });
+      const flaggedAt = now();
+      await update(clinicId, { driftFlaggedAt: flaggedAt, lastError: `${DRIFT_NOTE}: ${back.problems.join(", ")}`.slice(0, 200) }, "drift_flagged");
+      // Once per flag: its time is in the key, so a clinic flagged again
+      // after an operator cleared it (clearVoiceDriftFlag) is told again.
+      await notifyOpsOnce("voice_agent_drift", { clinicId, code, status: "flagged", count: row.driftRepairs, windowStart: flaggedAt.toISOString() });
       return { outcome: "flagged", problems: back.problems };
     }
     await reapply(clinicId, row.retellAgentId, row.phoneNumberE164, config, options, api);
@@ -835,7 +838,9 @@ export type ClearDriftOutcome =
  * re-creates a missing agent or number (that buys a number, so it is a
  * person's call, through retryVoiceAgent): a check that finds one gone flags
  * the clinic again, which is `still_drifted`. The clear is a compare-and-set
- * on the flag, so two clears at once clear once.
+ * on the flag, so two clears at once clear once: the other is `not_flagged`
+ * and runs no check. A check that throws after the clear is `cleared` with
+ * check `failed`: the flag is off, and the next nightly check runs.
  */
 export async function clearVoiceDriftFlag(clinicId: string, deps: ProvisionDeps = {}): Promise<ClearDriftOutcome> {
   const cleared = await withTenant({ clinicId, actor: ACTOR }, async (tx) => {
@@ -861,7 +866,13 @@ export async function clearVoiceDriftFlag(clinicId: string, deps: ProvisionDeps 
     return "cleared" as const;
   });
   if (cleared !== "cleared") return { outcome: cleared };
-  const check = await checkVoiceAgentDrift(clinicId, deps);
+  let check: DriftOutcome;
+  try {
+    check = await checkVoiceAgentDrift(clinicId, deps);
+  } catch (error) {
+    log.error("voice drift check after a clear threw", { clinicId, error: describeError(error) });
+    return { outcome: "cleared", check: "failed", problems: [] };
+  }
   switch (check.outcome) {
     case "flagged":
       return { outcome: "still_drifted", problems: check.problems };

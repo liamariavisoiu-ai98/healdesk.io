@@ -274,4 +274,13 @@ describeDb("cross-clinic monitors (lane P5a)", () => {
       sentence: "Transcript copies not delivered: 1 waiting more than 72 hours.",
     });
   }, 60_000);
+
+  test("a clinic whose read fails is counted unread, never read as none, in both reads", async () => {
+    const real = await seedClinic("unread-real");
+    const broken = { id: "not-a-uuid", name: "Broken" };
+    const writes = await listStuckCalendarWrites({ actor: ACTOR, clinics: [{ id: real.clinicId, name: "Real" }, broken] });
+    expect(writes).toMatchObject({ writes: [], count: 0, unreadClinics: 1 });
+    const transcripts = await listUndeliveredTranscripts({ actor: ACTOR, clinics: [broken, { id: real.clinicId, name: "Real" }] });
+    expect(transcripts).toEqual({ clinics: [], unreadClinics: 1 });
+  }, 60_000);
 });

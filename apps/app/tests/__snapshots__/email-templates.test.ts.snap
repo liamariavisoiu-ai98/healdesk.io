@@ -8795,7 +8795,7 @@ exports[`ops alerts beyond the fixture > a leaving practice with no export deliv
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="supported-color-schemes" content="light dark">
-<title>healdesk ops: A leaving practice has no export delivered</title>
+<title>healdesk ops: A leaving practice has not had its export yet</title>
 <style>@media (prefers-color-scheme: dark) {
   body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
   .hd-muted { color: #9da7b3 !important; }
@@ -8804,12 +8804,13 @@ exports[`ops alerts beyond the fixture > a leaving practice with no export deliv
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Deliver this practice&#39;s export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">This clinic has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed on the day shown under Offboarding on its Care tab, whether or not the export was delivered. Deliver this practice&#39;s export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Deliver this practice&#39;s export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.</p>
+<p style="margin:0 0 16px;">This clinic has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed on the day shown under Offboarding on its Care tab, whether or not the export was delivered. Deliver this practice&#39;s export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
-<p style="margin:0 0 4px;"><strong>Destruction due (UTC):</strong> 30 Nov</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
+<p style="margin:0 0 16px;">Why it matters: The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.</p>
+<p style="margin:0 0 16px;">What to do:<br>1. Open the clinic&#39;s Care tab and read Offboarding: the rule, the day the data is destroyed, and whether the export is recorded as delivered.<br>2. Deliver the export: produce the return bundle on the app host by the command shown under Offboarding, never on a laptop, and hand it over by the secure channel our incident procedure names. Producing it records nothing.<br>3. Press Record export delivered under Offboarding on the Care tab and say how it was handed over. Do not press it before the practice has the bundle: the record is the proof it was delivered.<br>4. Check Offboarding on the clinic&#39;s Care tab. You are done when it shows Export delivered, before the destruction day.</p>
 <p style="margin:0 0 16px;">Alert code: export_undelivered_before_destruction</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
@@ -8818,13 +8819,20 @@ exports[`ops alerts beyond the fixture > a leaving practice with no export deliv
 </div>
 </body>
 </html>",
-  "preheader": "Deliver this practice's export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.",
-  "subject": "healdesk ops: A leaving practice has no export delivered",
-  "text": "Deliver this practice's export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.
+  "preheader": "This clinic has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed on the day shown under Offboarding on its Care tab, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.",
+  "subject": "healdesk ops: A leaving practice has not had its export yet",
+  "text": "This clinic has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed on the day shown under Offboarding on its Care tab, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
-Destruction due (UTC): 30 Nov
 Raised: 6 Oct
+
+Why it matters: The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.
+
+What to do:
+1. Open the clinic's Care tab and read Offboarding: the rule, the day the data is destroyed, and whether the export is recorded as delivered.
+2. Deliver the export: produce the return bundle on the app host by the command shown under Offboarding, never on a laptop, and hand it over by the secure channel our incident procedure names. Producing it records nothing.
+3. Press Record export delivered under Offboarding on the Care tab and say how it was handed over. Do not press it before the practice has the bundle: the record is the proof it was delivered.
+4. Check Offboarding on the clinic's Care tab. You are done when it shows Export delivered, before the destruction day.
 
 Alert code: export_undelivered_before_destruction
 
@@ -8854,13 +8862,13 @@ exports[`ops alerts beyond the fixture > a subscription's end processed over a w
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">The destruction clock started a week back and no further, so this practice&#39;s data is destroyed the days below later than its agreement counts from the end. Find out why the event was late, and tell the owner: only the database owner can bring the destruction forward.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">This clinic&#39;s subscription ended, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">The destruction clock started a week back and no further, so this practice&#39;s data is destroyed the days below later than its agreement counts from the end. Find out why the event was late, and tell the owner: only the database owner can bring the destruction forward.</p>
+<p style="margin:0 0 16px;">This clinic&#39;s subscription ended, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
-<p style="margin:0 0 4px;"><strong>Days late:</strong> 3</p>
-<p style="margin:0 0 4px;"><strong>Service ended (UTC):</strong> 27 Oct</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
+<p style="margin:0 0 16px;">Why it matters: The agreement counts destruction from the day service ended, not from when we noticed. Only the database owner can bring the destruction forward; nothing in the console can.</p>
+<p style="margin:0 0 16px;">What to do:<br>1. Open the clinic&#39;s Care tab and read Offboarding: the day the clock started and the destruction day that follows from it.<br>2. Open the clinic&#39;s Billing tab and look under Parked Stripe events for the subscription&#39;s end: an event parked and replayed late is one cause, the host being off is another.<br>3. Tell the owner, naming the clinic&#39;s Care tab and the days late, so the destruction can be brought forward in the database if the owner decides so. Do not change any date yourself.<br>4. Press Record in the Touch log on the clinic&#39;s Care tab to note what the owner decided. You are done when that is recorded.</p>
 <p style="margin:0 0 16px;">Alert code: offboarding_started_late</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
@@ -8869,14 +8877,20 @@ exports[`ops alerts beyond the fixture > a subscription's end processed over a w
 </div>
 </body>
 </html>",
-  "preheader": "The destruction clock started a week back and no further, so this practice's data is destroyed the days below later than its agreement counts from the end. Find out why the event was late, and tell the owner: only the database owner can bring the destruction forward.",
+  "preheader": "This clinic's subscription ended, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.",
   "subject": "healdesk ops: A subscription's end was processed over a week late",
-  "text": "The destruction clock started a week back and no further, so this practice's data is destroyed the days below later than its agreement counts from the end. Find out why the event was late, and tell the owner: only the database owner can bring the destruction forward.
+  "text": "This clinic's subscription ended, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
-Days late: 3
-Service ended (UTC): 27 Oct
 Raised: 6 Oct
+
+Why it matters: The agreement counts destruction from the day service ended, not from when we noticed. Only the database owner can bring the destruction forward; nothing in the console can.
+
+What to do:
+1. Open the clinic's Care tab and read Offboarding: the day the clock started and the destruction day that follows from it.
+2. Open the clinic's Billing tab and look under Parked Stripe events for the subscription's end: an event parked and replayed late is one cause, the host being off is another.
+3. Tell the owner, naming the clinic's Care tab and the days late, so the destruction can be brought forward in the database if the owner decides so. Do not change any date yourself.
+4. Press Record in the Touch log on the clinic's Care tab to note what the owner decided. You are done when that is recorded.
 
 Alert code: offboarding_started_late
 

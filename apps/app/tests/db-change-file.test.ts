@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { isChangeName, parseChangeFile } from "../scripts/db-change-file";
+import { ChangeFileError, isChangeName, parseChangeFile } from "../scripts/db-change-file";
 import { READONLY_TABLES, READONLY_WITHHELD, WRITABLE_TABLES, WRITER_ALSO_READS } from "../scripts/readonly-tables";
 
 /**
@@ -31,8 +31,14 @@ describe("the tables a change may write", () => {
 describe("a change file", () => {
   test("takes one INSERT or UPDATE on a writable table", () => {
     expect(parseChangeFile("update clinic_closures set label = 'Bank holiday' where closed_on = '2026-12-25';")).toMatchObject({ verb: "update", table: "clinic_closures" });
-    expect(parseChangeFile("-- a comment\ninsert into public.clinic_providers (clinic_id, display_name) values ('a', 'Dr Chen')")).toMatchObject({ verb: "insert", table: "clinic_providers" });
-    expect(parseChangeFile('UPDATE "clinic_provider_services" SET service_key = \'x\'')).toMatchObject({ table: "clinic_provider_services" });
+    expect(parseChangeFile("-- a comment\ninsert into clinic_providers (clinic_id, display_name, calendar_id) values ('a', 'Dr Chen', 'primary')")).toMatchObject({ verb: "insert", table: "clinic_providers" });
+    expect(parseChangeFile("UPDATE clinic_provider_services SET service_key = 'x' WHERE true")).toMatchObject({ table: "clinic_provider_services" });
+  });
+
+  test("since the grammar (24 Oct 2026): no public. prefix, no quoted names, an update has a WHERE", () => {
+    expect(() => parseChangeFile("insert into public.clinic_providers (clinic_id) values ('a')")).toThrow(ChangeFileError);
+    expect(() => parseChangeFile('UPDATE "clinic_provider_services" SET service_key = \'x\' WHERE true')).toThrow(ChangeFileError);
+    expect(() => parseChangeFile("update clinic_closures set label = 'x'")).toThrow(/has a WHERE/);
   });
 
   test("a Unicode-escaped name or string is refused: it can spell a function the word list cannot see", () => {
@@ -53,8 +59,9 @@ describe("a change file", () => {
     expect(() => parseChangeFile(`update clinic_closures set label = 'Closed, costs $0' where false`)).not.toThrow();
   });
 
-  test("a word inside a quoted value is data, not a statement", () => {
-    expect(() => parseChangeFile("update clinic_closures set label = 'Drop-in day; create a plan' where closed_on = '2026-12-24'")).not.toThrow();
+  test("a word inside a quoted value is data, not a statement; a semicolon in one is refused", () => {
+    expect(() => parseChangeFile("update clinic_closures set label = 'Drop-in day, create a plan' where closed_on = '2026-12-24'")).not.toThrow();
+    expect(() => parseChangeFile("update clinic_closures set label = 'Drop-in day; create a plan' where closed_on = '2026-12-24'")).toThrow(/no semicolon inside a value/);
   });
 
   test.each([
@@ -73,7 +80,7 @@ describe("a change file", () => {
     ["a select", "select * from clinic_closures"],
     ["an empty file", "-- nothing\n"],
   ])("refuses %s", (_what, sql) => {
-    expect(() => parseChangeFile(sql)).toThrow();
+    expect(() => parseChangeFile(sql)).toThrow(ChangeFileError);
   });
 
   test("a name is plain", () => {
@@ -87,7 +94,10 @@ describe("a change file", () => {
     expect(files.length).toBeGreaterThan(0);
     for (const file of files) {
       expect(isChangeName(file.replace(/\.sql$/, ""))).toBe(true);
-      expect(() => parseChangeFile(readFileSync(path.join(dir, file), "utf8"))).not.toThrow();
+      const text = readFileSync(path.join(dir, file), "utf8");
+      const parsed = parseChangeFile(text);
+      // The runner sends the statement as the file holds it, header and final ";" aside.
+      expect(text).toContain(parsed.statement);
     }
   });
 });

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { FixWithClaude } from "@/components/admin/FixWithClaude";
 import { buildFixPrompt, type FixPrompt } from "@/lib/admin/fix-with-claude";
-import { parseIssueHash } from "@/lib/admin/issue-link";
+import { cardAnchorFor, parseIssueHash } from "@/lib/admin/issue-link";
 
 /**
  * The issue a link landed on, `#<event>-<alert id>` (lib/admin/issue-link.ts),
@@ -15,9 +15,12 @@ import { parseIssueHash } from "@/lib/admin/issue-link";
  * event from the closed list and a uuid; the alert's own row, with its time
  * and repeats, is what the session reads next.
  *
- * Until the notification rewrite has apps/app emit that shape, alert links
- * arrive as `/admin/ops/<id>/care|onboarding` and redirect here with no
- * fragment, so this draws nothing for them.
+ * An event with a card of its own on this panel (an availability change,
+ * a lifecycle alert) is scrolled to that card as well, since the fragment
+ * names the alert, not the card, and the browser can scroll to nothing on
+ * its own. Alerts sent before the notification rewrite arrive as
+ * `/admin/ops/<id>/care|onboarding` and redirect here with no fragment, so
+ * this draws nothing for them.
  */
 export function IssuePanel({ clinicId }: { clinicId: string }) {
   const [built, setBuilt] = useState<FixPrompt | null>(null);
@@ -26,6 +29,8 @@ export function IssuePanel({ clinicId }: { clinicId: string }) {
     const read = () => {
       const issue = parseIssueHash(window.location.hash);
       setBuilt(issue ? buildFixPrompt({ event: issue.event, alertId: issue.id, clinicId }) : null);
+      const card = issue ? cardAnchorFor(issue.event) : null;
+      if (card) document.getElementById(card)?.scrollIntoView({ block: "start" });
     };
     read();
     window.addEventListener("hashchange", read);

@@ -30,6 +30,21 @@ async function mount(hash: string): Promise<string> {
   return container.innerHTML;
 }
 
+/** The cards an alert's link may land on, as the Setup tab draws them. */
+function cards(): Record<string, { scrolled: number }> {
+  const seen: Record<string, { scrolled: number }> = {};
+  for (const id of ["availability", "setup-window"]) {
+    const card = document.createElement("section");
+    card.id = id;
+    seen[id] = { scrolled: 0 };
+    card.scrollIntoView = () => {
+      seen[id]!.scrolled += 1;
+    };
+    document.body.appendChild(card);
+  }
+  return seen;
+}
+
 beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -49,6 +64,22 @@ describe("the issue panel", () => {
     expect(html).toContain(`Ops issue: transcript_undelivered (from the closed OPS_EVENTS list). Alert id ${ALERT}. Clinic id ${CLINIC}.`);
     expect(html).toContain("docs/on-call.md#transcripts");
     expect(html).toContain('href="claude-cli://open?repo=');
+  });
+
+  test("an event with a card of its own is scrolled to that card; one without is not", async () => {
+    // happy-dom fires hashchange more than once per change of hash, so the
+    // counts are "at least once for the right card, never for the wrong one".
+    const seen = cards();
+    await mount(`#lifecycle_decision_due-${ALERT}`);
+    expect(seen["setup-window"]?.scrolled).toBeGreaterThanOrEqual(1);
+    expect(seen["availability"]?.scrolled).toBe(0);
+    await mount(`#clinic_availability_changed-${ALERT}`);
+    expect(seen["availability"]?.scrolled).toBeGreaterThanOrEqual(1);
+    const before = { availability: seen["availability"]!.scrolled, window: seen["setup-window"]!.scrolled };
+    await mount(`#transcript_undelivered-${ALERT}`);
+    expect(seen["availability"]?.scrolled).toBe(before.availability);
+    expect(seen["setup-window"]?.scrolled).toBe(before.window);
+    for (const id of ["availability", "setup-window"]) document.getElementById(id)?.remove();
   });
 
   test("a fragment that is not an alert, or none, draws nothing", async () => {

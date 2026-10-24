@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { clinicTabPath, ISSUE_TABS, issueAnchorId, issueLink, issueTabFor, parseIssueHash } from "./issue-link";
+import { cardAnchorFor, clinicTabPath, ISSUE_TABS, issueAnchorId, issueLink, issueTabFor, parseIssueHash } from "./issue-link";
 import { OPS_EVENTS } from "./ops-events";
 
 /**
@@ -38,6 +38,16 @@ describe("the issue link", () => {
     expect(parseIssueHash("#jobs")).toBeNull();
     expect(parseIssueHash(`#made_up_event-${ALERT}`)).toBeNull();
     expect(parseIssueHash(`#voice_agent_drift-${ALERT}<script>`)).toBeNull();
+  });
+
+  test("the events with a card of their own name it; the rest land on the panel", () => {
+    expect(cardAnchorFor("clinic_availability_changed")).toBe("availability");
+    expect(cardAnchorFor("lifecycle_reminder_undelivered")).toBe("reminders");
+    for (const event of ["lifecycle_no_progress", "lifecycle_closing_soon", "lifecycle_decision_due", "lifecycle_waiting_on_us", "lifecycle_closing_waiting_on_us"] as const) {
+      expect(cardAnchorFor(event)).toBe("setup-window");
+    }
+    expect(cardAnchorFor("transcript_undelivered")).toBeNull();
+    expect(cardAnchorFor("calendar_broken")).toBeNull();
   });
 
   test("every event has a tab from the closed list", () => {

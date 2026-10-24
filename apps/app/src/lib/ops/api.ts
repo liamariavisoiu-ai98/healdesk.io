@@ -154,6 +154,7 @@ import {
 } from "@/lib/ops/lifecycle-ops";
 import { opListLifecycleIgnored, opSetLifecycleIgnored } from "@/lib/ops/lifecycle-ops";
 import { opListMachineQueues } from "@/lib/ops/machine-queues-ops";
+import { opDecideApproval, opListApprovalHistory, opListApprovals } from "@/lib/ops/approval-ops";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -677,6 +678,14 @@ const OPERATIONS = [
   "listMachineQueues",
   "setLifecycleIgnored",
   "listLifecycleIgnored",
+  // The approval inbox (ops automation Phase 6, lane P6a; lib/ops/approval-ops.ts,
+  // lib/approvals): the items waiting for the owner's yes with their packets,
+  // the decision (approving runs the kind's existing operation in the same
+  // request; an irreversible kind only behind apps/web's fresh-code wrapper),
+  // and the add-only record. Ids, closed codes, cents and the clinic's name.
+  "listApprovals",
+  "decideApproval",
+  "listApprovalHistory",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -822,6 +831,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "clearVoiceDriftFlag",
   // Mutating: a clinic put on the lifecycle watch's ignore list, or taken off.
   "setLifecycleIgnored",
+  // Mutating: an approval decided, and on approve its operation run.
+  "decideApproval",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1477,6 +1488,12 @@ export async function runOperation(
       return opSetLifecycleIgnored(args, operator);
     case "listLifecycleIgnored":
       return opListLifecycleIgnored(args, operator);
+    case "listApprovals":
+      return opListApprovals(args, operator);
+    case "decideApproval":
+      return opDecideApproval(args, operator);
+    case "listApprovalHistory":
+      return opListApprovalHistory(args);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

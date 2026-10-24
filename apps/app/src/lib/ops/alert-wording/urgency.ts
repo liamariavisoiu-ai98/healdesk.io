@@ -145,6 +145,9 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   lifecycle_reminders_unanswered: "today",
   // The morning digest's counts.
   ops_digest_summary: "fyi",
+  // The approval inbox: billing items past due wait on the owner today. A
+  // legal-clock kind (none yet) is the owner's to rank: urgent if it joins.
+  approval_waiting: "today",
 };
 
 /** The tag's word and colour, the subject's prefix and Slack's emoji, by level. */

@@ -91,6 +91,12 @@ export async function truncateAll(): Promise<void> {
     restart identity cascade
   `);
 
+  // The approval inbox (0119) can never be truncated or deleted from (its
+  // triggers refuse it, the migrator included), so a waiting item one file
+  // left would be the next file's Home row and proposer input: it is set
+  // aside instead, by the one move the trigger allows, waiting to expired.
+  await pool.query(`update ops_approvals set status = 'expired', decided_at = now() where status = 'waiting'`);
+
   await pool.query(`
     insert into scheduled_jobs (name, cadence, enabled) values
       ('monthly-report', 'Monthly, on the 1st, per clinic timezone', false),
@@ -127,7 +133,8 @@ export async function truncateAll(): Promise<void> {
       ('location-quantity', 'Hourly; reads each account''s subscription in Stripe and compares the quantity it bills for locations with the account''s active locations, plus one being added whose charge is recorded. A mismatch is told to ops once until the counts agree again. Reads only: never changes a subscription. Off until the owner switches it on with extra locations', false),
       ('clinic-audits', 'Every minute from the billing-minute queue: audits each clinic two minutes after its last change to hours, closed days or providers; hourly from the tick, audits a clinic whose availability changed with nothing recorded; daily at 04 UTC, every pack for every clinic. Reads only, and records its results for ops. Off until the owner switches it on', false),
       ('clinic-audits-hourly', 'Hourly; audits a clinic whose availability changed with nothing recorded, and daily at 04 UTC every audit pack for every clinic in service. Reads only, and records its results for ops. Off until the owner switches it on', false),
-      ('lifecycle-watch', 'Hourly; works out where each paying clinic stands in its setup, records each setup reminder it was sent, and raises the timed ops waves: Slack for routine ones, Slack and the ops address for escalations. Sends nothing to a clinic. Off until the owner switches it on', false)
+      ('lifecycle-watch', 'Hourly; works out where each paying clinic stands in its setup, records each setup reminder it was sent, and raises the timed ops waves: Slack for routine ones, Slack and the ops address for escalations. Sends nothing to a clinic. Off until the owner switches it on', false),
+      ('approvals-propose', 'Hourly; puts each billing change that failed at Stripe after every retry, each annual extra-usage invoice that failed and each Stripe event parked after its retries into the approval inbox, one item each, for the owner to approve or reject. Expires items past their window and re-alerts items past due. Never retries, invoices or replays anything itself. Off until the owner switches it on', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);
 }

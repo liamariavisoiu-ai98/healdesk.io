@@ -50,6 +50,13 @@ export const READONLY_TABLES = [
   // The lifecycle watch's ignore list (drizzle/0118): a clinic id, a boolean,
   // a closed reason, the operator's label and a date. No patient.
   "lifecycle_ignored_clinics",
+  // The approval inbox (drizzle/0119): kinds, the clinic's id, subjects by
+  // id, ids and closed codes, dates, the operator's label with the IP address
+  // and user agent their request carried, and hashes. Read column by column
+  // on 24 October 2026: no patient. ops_approvals.draft is for email kinds,
+  // none of which exists yet; the first one reviews it again.
+  "ops_approvals",
+  "ops_approval_events",
 ] as const;
 
 /** Tables the role can never read, and why. */

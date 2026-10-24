@@ -106,6 +106,7 @@ export const OPS_EVENTS = [
   "lifecycle_closing_waiting_on_us",
   "ops_digest_summary",
   "assistant_knows_no_services",
+  "approval_waiting",
 ] as const;
 
 export type OpsEvent = (typeof OPS_EVENTS)[number];

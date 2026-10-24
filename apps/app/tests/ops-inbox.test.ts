@@ -196,6 +196,7 @@ describe("the inbox's order (pure)", () => {
       "the setup decisions",
       "the transcript deliveries",
       "go-live",
+      "the approvals",
     ]);
     expect([...INBOX_KINDS]).toEqual([
       "ops_alert",
@@ -208,6 +209,7 @@ describe("the inbox's order (pure)", () => {
       "availability",
       "decision",
       "go_live",
+      "approval",
     ]);
   });
 });

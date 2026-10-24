@@ -155,7 +155,32 @@ function format(channel: AssistantChannel): string {
     : `Style: this is a chat on the practice's website. Answer in one to four short sentences of plain text. No markdown headings, no tables.`;
 }
 
-function output(tools: boolean): string {
+/**
+ * The delimiter a call's answer puts between what is said and the details
+ * (spokenFirst, below). Three hashes on a line of their own: nothing a person
+ * says aloud, and nothing the reply guard reads, since it comes after.
+ */
+export const SPOKEN_END = "###";
+
+/**
+ * A call's answer, written so it can be spoken while it is still being
+ * written (owner, 24 October 2026): the words first, as plain text, then the
+ * delimiter, then the details as JSON. turn.ts speaks each sentence of the
+ * words as soon as the guard has read it, and reads the details once the
+ * answer is complete. Only on a call whose booking tools are not live: with
+ * them, the tool layer's fixed line may replace the words, so they must not
+ * be spoken before the answer is complete (output, below).
+ */
+function spokenFirst(): string {
+  return `Answer in two parts and nothing else. First, what you say, as plain spoken text. Then a line with only ${SPOKEN_END} on it. Then ONE JSON object:
+{"booking": {"wants": true or false, "first_name": "", "phone": "", "window": "the day and time they asked for, in their words", "alt_windows": [], "service": "", "fields": {"<field id>": "value"}},
+ "handoff": true if they asked for a person,
+ "end": true only when the person has said goodbye or has nothing more to ask}
+Leave out "booking" entirely until the person wants an appointment or has given a detail for one, and leave a booking value empty when you do not know it yet. Copy values only from what the person said. Keep what you say short: the person hears it read aloud.`;
+}
+
+function output(tools: boolean, channel: AssistantChannel = "web_chat"): string {
+  if (channel === "voice" && !tools) return spokenFirst();
   return `Answer with ONE JSON object and nothing else:
 {"reply": "what you say next",
  "booking": {"wants": true or false, "first_name": "", "phone": "", "window": "the day and time they asked for, in their words", "alt_windows": [], "service": "", "fields": {"<field id>": "value"}},${tools ? ACTION : ""}
@@ -258,7 +283,7 @@ export function buildAssistantPrompt(
   }
 
   lines.push(`\nNever-say list (never write or say any of these, in any form):\n${facts.neverSay.map((p) => `- ${p}`).join("\n")}`);
-  lines.push(`\n${output(tools)}`);
+  lines.push(`\n${output(tools, channel)}`);
   return lines.join("\n");
 }
 

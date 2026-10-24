@@ -906,7 +906,7 @@ describe("the clinic's greeting", () => {
   test("a refused greeting is never said: the default follows the AI line instead", () => {
     const sarah = { ...FACTS, greeting: { phone: "I'm Sarah, a real person.", chat: "We're HIPAA compliant!" } };
     const call = openingLine(sarah, "voice");
-    expect(call).toMatch(/^Hi, thanks for calling Radiance Med Spa! I'm the AI assistant\./);
+    expect(call).toMatch(/^Hi, this is the AI assistant at Radiance Med Spa\./);
     expect(call).not.toContain("Sarah");
     expect(call.endsWith("Are you looking to book, or do you have a question?")).toBe(true);
     const chat = openingLine(sarah, "web_chat");
@@ -991,7 +991,8 @@ describe("the model request", () => {
     const at = (channel: "web_chat" | "voice" | "meta") => modelRequest({ channel, system, messages: [{ role: "user", content: "x".repeat(5_000) }] });
     expect(at("web_chat")).toMatchObject({ model: "claude-opus-5-5", max_tokens: 800, output_config: { effort: "low" } });
     expect(at("web_chat")).not.toHaveProperty("thinking");
-    expect(at("voice")).toMatchObject({ model: "claude-sonnet-5-5", max_tokens: 400, output_config: { effort: "low" } });
+    // Calls on Haiku 5.5 since 24 October 2026 (the owner chose speed).
+    expect(at("voice")).toMatchObject({ model: "claude-haiku-5-5", max_tokens: 400, output_config: { effort: "low" } });
     // The Meta front door moved onto this client from its own, on claude-opus-5.
     expect(at("meta")).toMatchObject({ model: "claude-opus-5-5", max_tokens: 800, thinking: { type: "adaptive" }, output_config: { effort: "low" } });
     expect(at("meta").messages[0]!.content).toHaveLength(2_000);
@@ -1052,8 +1053,8 @@ describe("the model request", () => {
             system,
             messages: [{ role: "user", content: "My name is Jane and I had filler on Monday" }],
           });
-          expect(request.model).toBe("claude-sonnet-5-5");
-          expect(assistantModel("voice")).toBe("claude-sonnet-5-5");
+          expect(request.model).toBe("claude-haiku-5-5");
+          expect(assistantModel("voice")).toBe("claude-haiku-5-5");
         });
         withEnv("HEALDESK_CHAT_MODEL", "claude-mythos-5-1", () => {
           expect(assistantModel("web_chat")).toBe("claude-opus-5-5");

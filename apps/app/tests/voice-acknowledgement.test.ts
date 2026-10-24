@@ -148,7 +148,7 @@ describe("the acknowledgement while the model thinks", () => {
     await owed.s.open();
     await owed.s.handle(said(1, [{ role: "user", content: "hi I would like to book an appointment" }]));
     expect(owed.raw().filter((r) => r.content_complete === false)).toEqual([]);
-    expect(owed.raw()[1]!.content).toMatch(/^Hi, thanks for calling Lumen Aesthetics!/);
+    expect(owed.raw()[1]!.content).toMatch(/^Hi, this is the AI assistant at Lumen Aesthetics\./);
     await owed.s.finish();
   });
 

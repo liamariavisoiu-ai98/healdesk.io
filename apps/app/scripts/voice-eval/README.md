@@ -67,7 +67,7 @@ with measurements.
 
 ### Measured estimate (dry run, 21 October 2026)
 
-| Plan | Agent (Sonnet 5.5) | Caller (Haiku 5.5) | Judge (Opus 5.5) | Proposer | Total | No-cache bound |
+| Plan | Agent (Sonnet 5.5, when measured; production's call model is Haiku 5.5 since 24 October 2026) | Caller (Haiku 5.5) | Judge (Opus 5.5) | Proposer | Total | No-cache bound |
 |---|---|---|---|---|---|---|
 | Full run, 210 calls, 6 caller turns | $3.25 | $0.07 | $7.94 | - | **$11.25** | $13.30 |
 | Same at 4 / 8 caller turns | | | | | $10.50 / $11.69 | |

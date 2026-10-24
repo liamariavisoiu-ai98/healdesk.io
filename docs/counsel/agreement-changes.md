@@ -2953,6 +2953,12 @@ and `lib/support/model.ts`:
 | https://support.claude.com/en/articles/15425695 (1 September 2026) | The Covered Models require "30-day minimum retention by default"; "All other Claude models continue to operate under your existing agreement and configured retention settings" |
 | https://support.claude.com/en/articles/15455031 | The HIPAA-ready API "operates with standard retention", and is an Eligible Service under Anthropic's BAA |
 
+(24 October 2026: calls moved to `claude-haiku-5-5` by the owner's decision,
+for speed. It is not a Covered Model, so what follows holds for it as for
+the other two; support article 15455031, re-read that day, restricts no model
+in a HIPAA-ready organisation. `PATIENT_MODEL_IDS` in
+`packages/catalog/src/model-retention.ts` lists all three.)
+
 So, for `claude-opus-5-5` and `claude-sonnet-5-5` in a HIPAA-ready
 organisation: content is kept no more than 30 days under standard retention
 (the platform page's "not retained by default" and the privacy centre's

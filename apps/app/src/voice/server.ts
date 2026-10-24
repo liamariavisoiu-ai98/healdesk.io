@@ -145,7 +145,10 @@ export function createVoiceServer(options: VoiceServerOptions = {}): { server: S
 async function main(): Promise<void> {
   const port = Number(process.env.PORT ?? 3001);
   const host = process.env.HOSTNAME ?? "0.0.0.0";
-  const { server, drain } = createVoiceServer();
+  // The clinic's facts kept for a couple of minutes between calls, so the
+  // opening line waits only for the answer gate (lib/voice/retell.ts,
+  // cacheFacts). Only here, in the running process: tests build their own.
+  const { server, drain } = createVoiceServer({ sessionDeps: { cacheFacts: true } });
   if (!process.env.HEALDESK_RETELL_LLM_SECRET?.trim()) {
     log.warn("voice endpoint has no HEALDESK_RETELL_LLM_SECRET: every call is refused", { status: "refusing" });
   }

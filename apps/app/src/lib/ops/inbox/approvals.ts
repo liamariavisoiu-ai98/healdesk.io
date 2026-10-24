@@ -1,0 +1,69 @@
+import { waitingItems } from "@/lib/approvals/store";
+import type { ApprovalKind, ApprovalUrgency } from "@/lib/approvals/kinds";
+
+import type { InboxRow, InboxSource, Tone } from "./types";
+
+/**
+ * The approval inbox on Home (ops automation Phase 6, lane P6a): one row per
+ * kind with items waiting for the owner's yes, across clinics, due at the
+ * earliest item's due time, each opening the Approvals section of the Queues
+ * page (lane P6b builds it there, `#approvals`). A plain sentence, never a
+ * code; the tone follows the most urgent item. Reads one table, writes
+ * nothing.
+ */
+
+export const APPROVALS_PAGE = "/admin/queues#approvals";
+
+/** Each kind's words, for one item and for many. */
+const WORDS: Readonly<Record<ApprovalKind, { one: string; many: string }>> = {
+  billing_request_retry: {
+    one: "1 billing retry is waiting for your yes.",
+    many: "{n} billing retries are waiting for your yes.",
+  },
+  overage_invoice_retry: {
+    one: "1 extra-usage invoice retry is waiting for your yes.",
+    many: "{n} extra-usage invoice retries are waiting for your yes.",
+  },
+  billing_event_replay: {
+    one: "1 Stripe event replay is waiting for your yes.",
+    many: "{n} Stripe event replays are waiting for your yes.",
+  },
+};
+
+const TONE: Readonly<Record<ApprovalUrgency, Tone>> = { legal_clock: "bad", money: "warn", routine: "info" };
+const RANK: Readonly<Record<ApprovalUrgency, number>> = { legal_clock: 0, money: 1, routine: 2 };
+
+export function approvalSentence(kind: ApprovalKind, n: number): string {
+  const words = WORDS[kind];
+  return n === 1 ? words.one : words.many.replace("{n}", String(n));
+}
+
+export const approvalsSource: InboxSource = {
+  name: "the approvals",
+  async read() {
+    const byKind = new Map<ApprovalKind, { count: number; dueAt: Date; urgency: ApprovalUrgency }>();
+    for (const item of await waitingItems()) {
+      const kind = item.kind as ApprovalKind;
+      if (!WORDS[kind]) continue;
+      const seen = byKind.get(kind);
+      if (!seen) {
+        byKind.set(kind, { count: 1, dueAt: item.dueAt, urgency: item.urgency });
+        continue;
+      }
+      seen.count += 1;
+      if (item.dueAt < seen.dueAt) seen.dueAt = item.dueAt;
+      if (RANK[item.urgency] < RANK[seen.urgency]) seen.urgency = item.urgency;
+    }
+    const rows: InboxRow[] = [...byKind].map(([kind, r]) => ({
+      id: `approvals:${kind}`,
+      kind: "approval",
+      count: r.count,
+      sentence: approvalSentence(kind, r.count),
+      clinic: null,
+      button: { label: "Open approvals", kind: "link", href: APPROVALS_PAGE },
+      tone: TONE[r.urgency],
+      dueAt: r.dueAt.toISOString(),
+    }));
+    return { rows };
+  },
+};

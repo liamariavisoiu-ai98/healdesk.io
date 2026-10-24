@@ -895,7 +895,7 @@ describe("the clinic's greeting", () => {
 
   test.each([
     "Thanks for calling Radiance Med Spa. How can I help you today?",
-    "Are you looking to book, or do you have a question?",
+    "Looking to book, or got a question?",
     "How can I help you today?",
     "Thanks for calling. If you'd rather talk to a real person, just ask.",
     "Thanks for calling! A consultation is $150, and I can help you book one.",
@@ -906,9 +906,9 @@ describe("the clinic's greeting", () => {
   test("a refused greeting is never said: the default follows the AI line instead", () => {
     const sarah = { ...FACTS, greeting: { phone: "I'm Sarah, a real person.", chat: "We're HIPAA compliant!" } };
     const call = openingLine(sarah, "voice");
-    expect(call).toMatch(/^Hi, this is the AI assistant at Radiance Med Spa\./);
+    expect(call).toMatch(/^Hi! I'm the AI assistant at Radiance Med Spa,/);
     expect(call).not.toContain("Sarah");
-    expect(call.endsWith("Are you looking to book, or do you have a question?")).toBe(true);
+    expect(call.endsWith("Looking to book, or got a question?")).toBe(true);
     const chat = openingLine(sarah, "web_chat");
     expect(chat).not.toContain("HIPAA");
     expect(chat.endsWith("How can I help you today?")).toBe(true);
@@ -941,7 +941,7 @@ describe("the prompt", () => {
   });
 
   test("the clinic's tone changes how it speaks", () => {
-    expect(buildAssistantPrompt(FACTS, "voice")).toMatch(/Be warm, welcoming and unhurried/);
+    expect(buildAssistantPrompt(FACTS, "voice")).toMatch(/Be warm, upbeat and quick/);
     const clinical = buildAssistantPrompt({ ...FACTS, tone: "clinical" }, "voice");
     expect(clinical).toMatch(/Be calm, brief and precise/);
     expect(clinical).not.toMatch(/Be warm/);
@@ -1097,7 +1097,7 @@ describe("answerTurn", () => {
     expect(asked).toBe(false);
     expect(result).toMatchObject({ source: "urgent", urgent: true });
     expect(result.reply).toMatch(/^I'm an AI assistant/);
-    expect(result.reply).toMatch(/hang up and call 911 now/);
+    expect(result.reply).toMatch(/hang up and call 9-1-1 now/);
     expect(result.reply).toContain("four one five"); // spoken digits on a call
     expect(result.reply).not.toContain(URGENT_LEAVE_NUMBER_LINE);
   });
@@ -1122,7 +1122,7 @@ describe("answerTurn", () => {
         // Honest: no promise, still the AI line, 911 and a number to call.
         expect(result.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
         expect(result.reply).toContain(URGENT_AI_LINE);
-        expect(result.reply).toMatch(/911/);
+        expect(result.reply).toMatch(/911|9-1-1/);
         expect(result.reply).toMatch(/Otherwise, please call Radiance Med Spa/);
       }
     }
@@ -1154,14 +1154,14 @@ describe("answerTurn", () => {
     // The reviews of 14 October: first 911 was lost, then the emergency vet.
     const voice = await answerTurn({ facts: VET, channel: "voice", history: [], text: "I swallowed a bottle of pills", responder: null, now: OPEN });
     expect(voice).toMatchObject({ source: "urgent", urgent: true });
-    expect(voice.reply).toContain("hang up and call 911 now");
-    expect(voice.reply.indexOf("911")).toBeLessThan(voice.reply.indexOf("emergency vet"));
+    expect(voice.reply).toContain("hang up and call 9-1-1 now");
+    expect(voice.reply.indexOf("9-1-1")).toBeLessThan(voice.reply.indexOf("emergency vet"));
     const chat = await answerTurn({ facts: VET, channel: "web_chat", history: [], text: "call 911, my husband collapsed", responder: null, now: OPEN });
     expect(chat.reply).toContain("If this is an emergency, call 911 now.");
     expect(chat.reply).toContain("If an animal needs emergency care, call the emergency vet on (415) 555-0911.");
     for (const text of ["she wants to die", "I took an overdose", "he stopped breathing", "someone collapsed in the waiting room"]) {
       const person = await answerTurn({ facts: VET, channel: "voice", history: [], text, responder: null, now: OPEN });
-      expect(person.reply, text).toContain("hang up and call 911 now");
+      expect(person.reply, text).toContain("hang up and call 9-1-1 now");
       expect(person.reply, text).toContain("emergency vet");
     }
     // Closed: the practice's own number is left out in the 911 branch too.
@@ -1262,7 +1262,7 @@ describe("answerTurn", () => {
     // Not "please call Radiance Med Spa": the caller is already calling it,
     // and that number forwards back here (owner, 23 October 2026). 911 alone.
     expect(noNumber.reply).not.toMatch(/please call Radiance/);
-    expect(noNumber.reply).toMatch(/hang up and call 911 now/);
+    expect(noNumber.reply).toMatch(/hang up and call 9-1-1 now/);
     expect(noNumber.transferTo).toBeUndefined();
     // With a line the adapter can put the caller through to, it says so and hands the line back.
     const through = await answerTurn({ facts: forwarded, channel: "voice", history: [], text: "my lips are swelling", responder: null, urgentTransferTo: "+14155550177" });
@@ -1284,10 +1284,10 @@ describe("answerTurn", () => {
     expect(chat).toMatchObject({ source: "refusal", urgent: false, handoff: false });
     expect(chat.guard).toBeUndefined();
     expect(chat.reply).toBe(refusalLine(FACTS, "web_chat"));
-    expect(chat.reply).toBe("Sorry, that's not something I can help with. The team at Radiance Med Spa can: please call them on (415) 555-0199.");
+    expect(chat.reply).toBe("That's not something I can help with. The team at Radiance Med Spa can: please call them on (415) 555-0199.");
     expect(chat.reply).not.toBe(FAILURE_LINE);
     expect(refusalLine({ ...FACTS, phone: null, urgentPhone: null }, "web_chat")).toBe(
-      "Sorry, that's not something I can help with. The team at Radiance Med Spa can help, and they get back to people within a day.",
+      "That's not something I can help with. The team at Radiance Med Spa can help, and they get back to people within a day.",
     );
     // On a call, which came in on the main number, the number that reaches a person.
     const call = await answerTurn({ facts: FACTS, channel: "voice", history: [], text: "hi", responder: refusing });
@@ -1328,7 +1328,7 @@ describe("answerTurn", () => {
       responder: reply("Perfect, Dana, you're booked for Tuesday at 3pm.", { booking: { wants: true, first_name: "Dana", window: "Tuesday at 3" } }),
     });
     expect(result).toMatchObject({ source: "guard", guard: "booking_confirmation" });
-    expect(result.reply).toBe(guardedLine("booking_confirmation", FACTS.clinicName));
+    expect(result.reply).toBe(guardedLine("booking_confirmation", FACTS.clinicName, "en", true));
     expect(result.capture).toMatchObject({ wants: true, firstName: "Dana", window: "Tuesday at 3" });
   });
 

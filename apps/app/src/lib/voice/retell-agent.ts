@@ -207,18 +207,26 @@ export function retellAgentSettings(clinicId: string, options: RetellAgentOption
  * read from Retell's create-agent reference that day). Written on every
  * create and update, so a clinic's agent always has them:
  *
- *   - backchannel: soft "mm-hmm", "right", "gotcha" while the caller talks,
- *     at Retell's own pacing (frequency 0 to 1, its default 0.8 lowered a
- *     little so it does not chatter);
- *   - interruption_sensitivity 1 (Retell's most sensitive): the agent stops
- *     the moment the caller talks over it; the opening line alone is sent
- *     uninterruptible (lib/voice/retell.ts);
+ *   - backchannel: soft "mm-hmm", "uh-huh", "yeah", "I see" while the
+ *     caller talks, at Retell's own pacing (frequency 0 to 1, its default 0.8
+ *     lowered a little so it does not chatter); never "okay" or "right",
+ *     which with the acknowledgements and the model's openers made every
+ *     turn sound the same (owner, 24 October 2026);
+ *   - interruption_sensitivity 0.8: the agent stops when the caller really
+ *     talks over it, but a caller's own "yeah" or "mm-hmm" no longer cuts
+ *     it off mid-sentence (1, the most sensitive, did; 24 October 2026);
+ *     the opening line alone is sent uninterruptible (lib/voice/retell.ts);
+ *   - reminders after 8 seconds of silence, three at most: two check-ins and
+ *     a close that ends the call (retell.ts, REMINDER_LINES);
  *   - responsiveness 1: the agent answers as soon as the caller stops;
  *   - voice_temperature 1.2 (0 to 2, default 1): a little more variety of
  *     pitch, so the voice is less monotone without becoming unstable;
  *   - enable_dynamic_responsiveness and voice_speed 1.05 (24 October 2026,
  *     after a third test call that was still slow): the agent answers as
  *     fast as the caller's own pace allows, and speaks a touch quicker;
+ *   - enable_dynamic_voice_speed (24 October 2026, fourth test call: "variable
+ *     speech rates"): Retell slows the voice for a caller who speaks slowly
+ *     and quickens it for a fast one, around voice_speed;
  *   - a pronunciation dictionary (IPA) for treatment brands a voice tends
  *     to read wrong. Retell applies it only on voices that support it (its
  *     dashboard shows which); the brand names are public words, no clinic's
@@ -231,12 +239,15 @@ export function retellAgentSettings(clinicId: string, options: RetellAgentOption
 export const RETELL_CONVERSATION_SETTINGS = {
   enable_backchannel: true,
   backchannel_frequency: 0.7,
-  backchannel_words: ["mm-hmm", "right", "gotcha", "okay"],
-  interruption_sensitivity: 1,
+  backchannel_words: ["mm-hmm", "uh-huh", "yeah", "I see"],
+  interruption_sensitivity: 0.8,
   responsiveness: 1,
   enable_dynamic_responsiveness: true,
   voice_temperature: 1.2,
   voice_speed: 1.05,
+  enable_dynamic_voice_speed: true,
+  reminder_trigger_ms: 8_000,
+  reminder_max_count: 3,
   pronunciation_dictionary: [
     { word: "Juvederm", alphabet: "ipa", phoneme: "ˈdʒuvədɝm" },
     { word: "Restylane", alphabet: "ipa", phoneme: "ˈrɛstəleɪn" },

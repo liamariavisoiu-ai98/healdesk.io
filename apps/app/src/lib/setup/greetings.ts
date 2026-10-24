@@ -11,11 +11,12 @@
  * help you today?": the AI line already thanks the caller and names the
  * clinic (shortened again on 24 October), and an either-or
  * question tells a caller what AYA can do and gets an answer at once, where
- * an open one got "hello?". The parameter is kept so a later greeting can use
+ * an open one got "hello?". Cut to the words a person at a desk would say
+ * on 24 October (owner: "more energy and still shorter"). The parameter is kept so a later greeting can use
  * the name again without touching every caller.
  */
 export function defaultPhoneGreeting(_clinicName?: string): string {
-  return "Are you looking to book, or do you have a question?";
+  return "Looking to book, or got a question?";
 }
 
 /** The chat greeting, written after the locked AI line. */

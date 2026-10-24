@@ -115,12 +115,15 @@ describe("a clinic's Retell agent", () => {
       // How a call feels (24 October 2026): backchannel, immediate yielding, some pitch variety.
       enable_backchannel: true,
       backchannel_frequency: 0.7,
-      backchannel_words: ["mm-hmm", "right", "gotcha", "okay"],
-      interruption_sensitivity: 1,
+      backchannel_words: ["mm-hmm", "uh-huh", "yeah", "I see"],
+      interruption_sensitivity: 0.8,
       responsiveness: 1,
       enable_dynamic_responsiveness: true,
       voice_temperature: 1.2,
       voice_speed: 1.05,
+      enable_dynamic_voice_speed: true,
+      reminder_trigger_ms: 8_000,
+      reminder_max_count: 3,
       pronunciation_dictionary: RETELL_CONVERSATION_SETTINGS.pronunciation_dictionary,
     });
     // Every word in the dictionary is a public treatment brand, written in IPA.

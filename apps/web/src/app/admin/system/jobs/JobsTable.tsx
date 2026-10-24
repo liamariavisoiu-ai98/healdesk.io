@@ -20,6 +20,14 @@ import type { OpsJob, OpsResult, ToggleJobOutcome } from "@/lib/admin/ops-client
  * that looks recorded is the failure an audit trail exists to prevent.
  */
 
+/**
+ * The action half of each button's label. The alert wording names these
+ * buttons ("ask the owner before pressing Turn on") and a test in apps/app
+ * looks for each quoted name as a string in this file, so they stay whole
+ * strings here and the state is put in front of them.
+ */
+const ACTION = { on: "Turn on", off: "Turn off", phaseTwo: "Phase two" } as const;
+
 export type ToggleJob = (name: string, enabled: boolean) => Promise<OpsResult<ToggleJobOutcome>>;
 
 function JobRow({ job, onToggle }: { job: OpsJob; onToggle: ToggleJob }) {
@@ -37,22 +45,6 @@ function JobRow({ job, onToggle }: { job: OpsJob; onToggle: ToggleJob }) {
         ) : null}
       </th>
       <td className="px-3 py-2">
-        <Chip tone={job.enabled ? "ok" : "muted"}>{job.enabled ? "on" : "off"}</Chip>
-        {job.runningSince ? (
-          <span className="ml-2">
-            <Chip tone="info" title={`since ${job.runningSince}`}>
-              running
-            </Chip>
-          </span>
-        ) : null}
-      </td>
-      <td className="text-muted px-3 py-2 text-sm">{job.cadence}</td>
-      <td className="px-3 py-2 text-sm whitespace-nowrap">{job.lastRunAt ?? "never"}</td>
-      <td className="px-3 py-2 text-sm">
-        {result ? <Chip tone={result === "ok" ? "ok" : result === "bad" ? "bad" : "info"}>{job.lastRunStatus}</Chip> : <span className="text-muted">—</span>}
-        {job.lastRunNote ? <span className="text-muted block text-xs">{job.lastRunNote}</span> : null}
-      </td>
-      <td className="px-3 py-2">
         <button
           type="button"
           disabled={pending || (job.phaseTwo && !job.enabled)}
@@ -67,14 +59,31 @@ function JobRow({ job, onToggle }: { job: OpsJob; onToggle: ToggleJob }) {
               }
             });
           }}
-          className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-bold transition-colors disabled:opacity-50 ${job.enabled ? "border-line-strong hover:border-ink border" : "bg-ink text-white"}`}
+          className={`min-h-9 shrink-0 rounded-full border px-4 py-1.5 text-sm font-bold whitespace-nowrap transition-colors disabled:opacity-50 ${job.enabled ? "border-line-strong hover:border-ink" : "bg-ink border-ink text-white"}`}
         >
-          {pending ? "Working…" : job.enabled ? "Turn off" : job.phaseTwo ? "Phase two" : "Turn on"}
+          {pending ? "Working…" : job.enabled ? `On · ${ACTION.off}` : job.phaseTwo ? `Off · ${ACTION.phaseTwo}` : `Off · ${ACTION.on}`}
         </button>
+        {job.runningSince ? (
+          <span className="ml-2">
+            <Chip tone="info" title={`since ${job.runningSince}`}>
+              running
+            </Chip>
+          </span>
+        ) : null}
         {note ? (
           <p role="status" className={`mt-1 text-xs font-semibold ${note.tone === "bad" ? "text-red-deep" : "text-ink"}`}>
             {note.text}
           </p>
+        ) : null}
+      </td>
+      <td className="text-muted px-3 py-2 text-sm">{job.cadence}</td>
+      <td className="px-3 py-2 text-sm whitespace-nowrap">{job.lastRunAt ?? "never"}</td>
+      <td className="px-3 py-2 text-sm">
+        {result ? <Chip tone={result === "ok" ? "ok" : result === "bad" ? "bad" : "info"}>{job.lastRunStatus}</Chip> : <span className="text-muted">—</span>}
+        {job.lastRunNote ? (
+          <span className="text-muted line-clamp-2 block max-w-[28rem] text-xs break-words" title={job.lastRunNote}>
+            {job.lastRunNote}
+          </span>
         ) : null}
       </td>
     </tr>
@@ -90,13 +99,10 @@ export function JobsTable({ jobs, onToggle }: { jobs: OpsResult<OpsJob[]>; onTog
         <thead className="text-muted text-xs tracking-[0.06em] uppercase">
           <tr>
             <th scope="col" className="px-3 py-3 font-bold">Job</th>
-            <th scope="col" className="px-3 py-3 font-bold">Switch</th>
+            <th scope="col" className="px-3 py-3 font-bold">Switch (press to change)</th>
             <th scope="col" className="px-3 py-3 font-bold">Cadence</th>
             <th scope="col" className="px-3 py-3 font-bold">Last run</th>
             <th scope="col" className="px-3 py-3 font-bold">Result</th>
-            <th scope="col" className="px-3 py-3 font-bold">
-              <span className="sr-only">Toggle</span>
-            </th>
           </tr>
         </thead>
         <tbody>

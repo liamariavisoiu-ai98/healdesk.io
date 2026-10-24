@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { FAILURE_LINE, FAILURE_LINE_ES, failureLine, refusalLine, urgentReply } from "@/lib/assistant/turn";
 import { assistantTurnContext } from "@/lib/assistant/prompt";
 import { nextCallLanguage, START_LANGUAGE, utteranceVote, type CallLanguageState } from "@/lib/voice/call-language";
-import { CLOSED_LINE, CLOSED_LINE_ES, REMINDER_LINE_ES, TRANSFER_LINE_ES, TROUBLE_TRANSFER_LINE_ES } from "@/lib/voice/retell";
+import { CLOSED_LINE, CLOSED_LINE_ES, REMINDER_CLOSE_LINE_ES, REMINDER_LINES_ES, TRANSFER_LINE_ES, TROUBLE_TRANSFER_LINE_ES } from "@/lib/voice/retell";
 import { spokenPhone, spokenSlotEs } from "@/lib/voice/spoken";
 
 import { SAFETY_FACTS } from "./setup/safety-cases";
@@ -91,20 +91,20 @@ describe("the Spanish fixed lines", () => {
     expect(failureLine("en")).toBe(FAILURE_LINE);
     expect(failureLine("es")).toBe(FAILURE_LINE_ES);
     const facts = { ...SAFETY_FACTS, urgentPhone: null, directLine: "+14155550124" };
-    expect(refusalLine(facts, "voice")).toMatch(/^Sorry, that's not something I can help with\. .*four one five/);
+    expect(refusalLine(facts, "voice")).toMatch(/^That's not something I can help with\. .*four one five/);
     const es = refusalLine(facts, "voice", "es");
-    expect(es).toMatch(/^Lo siento, eso no es algo con lo que pueda ayudarle\./);
+    expect(es).toMatch(/^Eso no es algo con lo que pueda ayudarle\./);
     expect(es).toContain(spokenPhone("+14155550124", "es"));
     // The website chat writes the number, whatever the language.
     expect(refusalLine(facts, "web_chat", "es")).not.toMatch(/cuatro/);
-    for (const line of [CLOSED_LINE_ES, TRANSFER_LINE_ES, TROUBLE_TRANSFER_LINE_ES, REMINDER_LINE_ES]) expect(line).not.toBe(CLOSED_LINE);
+    for (const line of [CLOSED_LINE_ES, TRANSFER_LINE_ES, TROUBLE_TRANSFER_LINE_ES, REMINDER_CLOSE_LINE_ES, ...REMINDER_LINES_ES]) expect(line).not.toBe(CLOSED_LINE);
   });
 
   test("the Spanish urgent reply on a call speaks its numbers in Spanish; the English one in English", () => {
     const facts = { ...SAFETY_FACTS, urgentPhone: null, directLine: "+14155550124", urgentAlertsReady: true };
     const now = new Date("2026-11-03T15:00:00Z");
     const es = urgentReply(facts, "voice", { emergency: "911", language: "es" }, now);
-    expect(es).toMatch(/cuelgue y llame al 911/);
+    expect(es).toMatch(/cuelgue y llame al 9-1-1/);
     expect(es).toContain(spokenPhone("+14155550124", "es"));
     expect(es).toContain("Ya avisé al equipo.");
     const en = urgentReply(facts, "voice", { emergency: "911", language: "en" }, now);

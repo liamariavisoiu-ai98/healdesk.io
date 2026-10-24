@@ -44,7 +44,7 @@ describe("the urgent reply for a person", () => {
     });
     expect(reply).toBe(
       "I'm an AI assistant, so I can't help with anything urgent here. " +
-        "If this is an emergency, hang up and call 911 now. " +
+        "If this is an emergency, hang up and call 9-1-1 now. " +
         "Otherwise, please call Radiance on four one five, five five five. " +
         "I've told the team.",
     );
@@ -54,7 +54,7 @@ describe("the urgent reply for a person", () => {
     const reply = fixedUrgentReply({ ...HUMAN, channel: "voice", clinicNumber: "four one five, five five five", transferring: true });
     expect(reply).toBe(
       "I'm an AI assistant, so I can't help with anything urgent here. " +
-        "If this is an emergency, hang up and call 911 now. " +
+        "If this is an emergency, hang up and call 9-1-1 now. " +
         "I've told the team. " +
         "Otherwise, stay on the line and I'll put you through to Radiance now.",
     );
@@ -66,7 +66,7 @@ describe("the urgent reply for a person", () => {
   test("on a call with no number apart from the one they called: 911 alone, never 'please call the practice' (23 October 2026)", () => {
     const reply = fixedUrgentReply({ ...HUMAN, channel: "voice", clinicNumber: null, teamAlerted: false });
     expect(reply).toBe(
-      "I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, hang up and call 911 now.",
+      "I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, hang up and call 9-1-1 now.",
     );
     // In writing the practice is still named: a chat is not a call to it.
     expect(fixedUrgentReply({ ...HUMAN, clinicNumber: null })).toContain("Otherwise, please call Radiance.");
@@ -173,14 +173,15 @@ describe("the urgent reply for an animal", () => {
       for (const referralNumber of ["(415) 555-0199", null]) {
         const reply = fixedUrgentReply({ ...VET, channel, referralNumber });
         expect(reply, channel).toMatch(
-          /If a person is hurt or in danger, (hang up and )?call 911 now\./,
+          /If a person is hurt or in danger, (call 911|hang up and call 9-1-1) now\./,
         );
-        expect(reply.indexOf("emergency vet"), channel).toBeLessThan(reply.indexOf("911"));
-        expect(reply.match(/\b911\b/g), channel).toHaveLength(1);
+        const emergency = channel === "voice" ? "9-1-1" : "911";
+        expect(reply.indexOf("emergency vet"), channel).toBeLessThan(reply.indexOf(emergency));
+        expect(reply.split(emergency).length - 1, channel).toBe(1);
       }
     }
     expect(fixedUrgentReply({ ...VET, channel: "voice" })).toContain(
-      "If a person is hurt or in danger, hang up and call 911 now.",
+      "If a person is hurt or in danger, hang up and call 9-1-1 now.",
     );
     expect(fixedUrgentReply(VET)).toContain(URGENT_PERSON_LINE);
   });
@@ -199,7 +200,7 @@ describe("the urgent reply in Spanish", () => {
       fixedUrgentReply({ ...HUMAN, language: "es", channel: "voice", teamAlerted: false }),
     ).toBe(
       "Soy un asistente de IA, así que no puedo ayudar con nada urgente aquí. " +
-        "Si es una emergencia, cuelgue y llame al 911 ahora. " +
+        "Si es una emergencia, cuelgue y llame al 9-1-1 ahora. " +
         "Si no, llame a Radiance al (415) 555-0123.",
     );
   });
@@ -255,7 +256,7 @@ describe("the reply to a message no screen can read", () => {
       referralNumber: "four one five",
       veterinary: true,
     });
-    expect(reply).toContain("If this is an emergency, hang up and call 911 now.");
+    expect(reply).toContain("If this is an emergency, hang up and call 9-1-1 now.");
     expect(reply).toContain("For an animal's emergency, call the emergency vet on four one five.");
     expect(reply).toContain(
       "Si un animal tiene una emergencia, llame al veterinario de urgencias al four one five.",
@@ -315,7 +316,7 @@ describe("third review: at a vet, every urgent reply carries the emergency vet",
       for (const emergency of ["911", "veterinary"] as const) {
         for (const language of ["en", "es"] as const) {
           const reply = fixedUrgentReply({ ...VET_911, channel, emergency, language });
-          expect(reply, `${channel} ${emergency} ${language}`).toMatch(/\b911\b/);
+          expect(reply, `${channel} ${emergency} ${language}`).toMatch(/\b911\b|9-1-1/);
           expect(reply, `${channel} ${emergency} ${language}`).toContain("(555) 999-0000");
         }
       }

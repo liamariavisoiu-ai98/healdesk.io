@@ -123,11 +123,11 @@ export type AssistantTurnResult = {
 const NO_BOOKING_WRITTEN = { bookingWritten: false } as const;
 
 export const FAILURE_LINE =
-  "Sorry, I'm having trouble on my end. Please try again in a moment, or contact the practice directly.";
+  "I can't get to that right now. Please try again in a moment, or contact the practice directly.";
 
 /** FAILURE_LINE for a call the caller has taken into Spanish (lib/voice/call-language.ts). */
 export const FAILURE_LINE_ES =
-  "Lo siento, estoy teniendo problemas de mi lado. Inténtelo de nuevo en un momento, o comuníquese directamente con la clínica.";
+  "Ahora mismo no puedo con eso. Inténtelo de nuevo en un momento, o comuníquese directamente con la clínica.";
 
 /** The failure line in a call's language: English unless the call is in Spanish. */
 export function failureLine(language: SpokenLanguage = "en"): string {
@@ -257,14 +257,14 @@ export function refusalLine(
   const number = channel === "voice" ? personNumber(facts, channel, language) : numberFor(channel, facts.phone ?? facts.urgentPhone);
   if (language === "es") {
     return (
-      `Lo siento, eso no es algo con lo que pueda ayudarle. ` +
+      `Eso no es algo con lo que pueda ayudarle. ` +
       (number
         ? `El equipo de ${facts.clinicName} sí puede: por favor, llámelos al ${number}.`
         : `El equipo de ${facts.clinicName} puede ayudarle, y responde en un plazo de un día.`)
     );
   }
   return (
-    `Sorry, that's not something I can help with. ` +
+    `That's not something I can help with. ` +
     (number
       ? `The team at ${facts.clinicName} can: please call them on ${number}.`
       : `The team at ${facts.clinicName} can help, and they get back to people within a day.`)
@@ -579,6 +579,51 @@ function lastAssistantLine(history: readonly TranscriptTurn[]): string | null {
   return null;
 }
 
+/**
+ * A caller asking to hear it again ("sorry?", "what was that?", "can you
+ * speak up?"): the one time a sentence from the turn before may be said
+ * again, since that is what they asked for.
+ */
+const ASKED_AGAIN =
+  /^\W*(?:sorry|what|pardon|huh|excuse me|come again|say (?:that|it) again|(?:can|could) you (?:say that again|repeat(?: that)?|speak up)|i (?:can't|cannot|couldn't) hear(?: you)?|speak up|perd[oó]n|c[oó]mo|qu[eé])\b[^.!?]{0,40}[.!?]*\W*$/i;
+
+/** Words a sentence needs before saying it twice counts as repeating it: "Okay." or "Got it." may come back. */
+const REPEAT_MIN_WORDS = 3;
+/** Words a sentence from earlier in the call needs to count: "Anything else I can help with?" (six) may come back, a whole answer may not. */
+const EARLIER_REPEAT_MIN_WORDS = 7;
+
+const sentencesOf = (text: string): string[] => text.split(/(?<=[.!?…]["'’”)\]]*)\s+/).filter((s) => s.trim());
+const sameWords = (sentence: string): string =>
+  sentence.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ").trim();
+
+/**
+ * `text` without any sentence already said in `said`, or twice in `text`
+ * itself (owner, 24 October 2026: "she should never repeat the same sentence
+ * twice in a row"). The prompt asks for it too; this holds it whatever the
+ * model writes. A call reads `said` as the turn before and what this turn has
+ * already spoken, and `earlier` as every turn before that, where only a
+ * sentence of EARLIER_REPEAT_MIN_WORDS or more counts. A sentence of a word
+ * or two may repeat. Empty when every sentence is a repeat: the caller
+ * decides what to say then.
+ */
+export function withoutRepeats(text: string, said: readonly string[], earlier: readonly string[] = []): string {
+  const longEnough = (min: number) => (s: string) => s.split(" ").length >= min;
+  const seen = new Set([
+    ...said.flatMap(sentencesOf).map(sameWords).filter(longEnough(REPEAT_MIN_WORDS)),
+    ...earlier.flatMap(sentencesOf).map(sameWords).filter(longEnough(EARLIER_REPEAT_MIN_WORDS)),
+  ]);
+  const kept: string[] = [];
+  for (const sentence of sentencesOf(text)) {
+    const words = sameWords(sentence);
+    if (words.split(" ").length >= REPEAT_MIN_WORDS) {
+      if (seen.has(words)) continue;
+      seen.add(words);
+    }
+    kept.push(sentence.trim());
+  }
+  return kept.join(" ");
+}
+
 export async function answerTurn(input: {
   facts: AssistantFacts;
   channel: AssistantChannel;
@@ -617,12 +662,12 @@ export async function answerTurn(input: {
    */
   urgentTransferTo?: string | null;
   /**
-   * On a call, a short fixed acknowledgement ("Okay.", "Sure.") the adapter
-   * says out loud the moment the turn goes to the model, so the caller hears
-   * no dead air while it thinks (owner, 24 October 2026). `say` is called
-   * once, after every screen has passed and just before the model is asked,
-   * so nothing is said ahead of an urgent, card or language line; the model
-   * is told it was said, so it does not start with another.
+   * On a call, a short fixed acknowledgement ("Sure.", "Got it.") the
+   * adapter says out loud if the reply is slow to start, so the caller hears
+   * no dead air while the model thinks (owner, 24 October 2026). `say` is
+   * called once, after every screen has passed and just before the model is
+   * asked, so nothing is said ahead of an urgent, card or language line; the
+   * model is told it may be said, so it never starts with another.
    */
   acknowledge?: { line: string; say: () => void } | null;
   /**
@@ -695,7 +740,7 @@ export async function answerTurn(input: {
     );
   }
   if (input.acknowledge) {
-    notes.push(`You have already said "${input.acknowledge.line}" out loud at the start of this reply: carry straight on from it, without another acknowledgement or filler.`);
+    notes.push(`If your answer is slow to start, "${input.acknowledge.line}" is said out loud for you first: begin with the answer itself, never with an acknowledgement or filler.`);
   }
   const system = {
     stable: buildAssistantPrompt(facts, channel, { bookingTools: toolsLive }),
@@ -718,11 +763,21 @@ export async function answerTurn(input: {
   // Words the language check could not place yet ("Mm-hmm. Got it."): they
   // wait for the next sentence, and are judged with it or with the end.
   let unplaced = "";
+  // On a call, nothing said in the turn before is said again, nor a whole
+  // sentence from earlier in the call (withoutRepeats).
+  const assistantLines = input.history.filter((t) => t.speaker === "assistant").map((t) => t.text);
+  const before = channel === "voice" && !ASKED_AGAIN.test(personText) ? assistantLines.slice(-1) : null;
+  const earlierLines = assistantLines.slice(0, -1);
+  const fresh = (text: string) => (before ? withoutRepeats(text, [...before, ...spoken], earlierLines) : text);
   const stream =
     input.speak && !toolsLive
       ? new SpokenStream((sentence) => {
           if (refusedMidway) return;
-          const piece = [unplaced, sentence].filter(Boolean).join(" ");
+          const piece = fresh([unplaced, sentence].filter(Boolean).join(" "));
+          if (!piece) {
+            unplaced = "";
+            return;
+          }
           // Read with everything already said, so a rule that needs the
           // sentence before it (a question asked back, the reply's language)
           // reads it as the whole reply would; what came before has passed.
@@ -767,10 +822,10 @@ export async function answerTurn(input: {
     // The words went out as they came: what is left is the end of the reply,
     // guarded on its own, or the fixed line for the sentence the guard refused.
     const merged = mergeCapture(capture, answer.booking);
-    const rest = refusedMidway ? null : [unplaced, stream.remainder()].filter(Boolean).join(" ");
+    const rest = refusedMidway ? null : fresh([unplaced, stream.remainder()].filter(Boolean).join(" "));
     const restVerdict = rest ? guardAssistantReply([saidSoFar(), rest].filter(Boolean).join(" "), facts, NO_BOOKING_WRITTEN) : null;
     const reason: GuardRefusal | null = refusedMidway ?? (restVerdict && !restVerdict.ok ? restVerdict.reason : null);
-    const tail = reason ? guardedLine(reason, facts.clinicName, language === "es" ? "es" : "en") : (rest ?? "");
+    const tail = reason ? guardedLine(reason, facts.clinicName, language === "es" ? "es" : "en", channel === "voice") : (rest ?? "");
     const reply = [saidSoFar(), tail].filter(Boolean).join(" ");
     // The guard read each sentence alone; read the whole once more, so a rule
     // that only a whole reply breaks is at least seen. Kind only, never words.
@@ -810,23 +865,25 @@ export async function answerTurn(input: {
       return { ...live, capture: merged, toolState: tool.state, tool, reply: tool.reply, source: "tool" };
     }
   }
-  const verdict = guardAssistantReply(answer.reply, facts, NO_BOOKING_WRITTEN);
+  // A reply that only repeats the turn before is said as written: silence would be worse.
+  const replyText = (before && fresh(answer.reply)) || answer.reply;
+  const verdict = guardAssistantReply(replyText, facts, NO_BOOKING_WRITTEN);
   if (!verdict.ok) {
     // The fixed line in the language of the reply it replaces, Spanish only
     // where that reply (or, for a reply in no screened language, the person)
     // was Spanish, or where the call is being spoken in Spanish; English
     // otherwise, as it always was.
-    const said = messageLanguage(answer.reply, { knownTerms: languageTerms(facts) });
+    const said = messageLanguage(replyText, { knownTerms: languageTerms(facts) });
     const spanish =
       language === "es" || said === "es" || (said === "other" && messageLanguage(personText, { knownTerms: languageTerms(facts) }) === "es");
-    const line = guardedLine(verdict.reason, facts.clinicName, spanish ? "es" : "en");
+    const line = guardedLine(verdict.reason, facts.clinicName, spanish ? "es" : "en", channel === "voice");
     // The same refusal as the last thing said: the person answered it ("yes,
     // please") and the model's next try was refused again. Saying it a third
     // time is a loop (test call of 23 October 2026), so the turn hands over.
     if (lastAssistantLine(input.history) === line) {
-      return { ...live, capture: merged, handoff: true, reply: movingOnLine(facts.clinicName, spanish ? "es" : "en"), source: "guard", guard: verdict.reason };
+      return { ...live, capture: merged, handoff: true, reply: movingOnLine(facts.clinicName, spanish ? "es" : "en", channel === "voice"), source: "guard", guard: verdict.reason };
     }
     return { ...live, capture: merged, handoff: answer.handoff, reply: line, source: "guard", guard: verdict.reason };
   }
-  return { ...live, capture: merged, handoff: answer.handoff, end: answer.end, reply: answer.reply, source: "model" };
+  return { ...live, capture: merged, handoff: answer.handoff, end: answer.end, reply: replyText, source: "model" };
 }

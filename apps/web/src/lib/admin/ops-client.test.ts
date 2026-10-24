@@ -1944,3 +1944,18 @@ describe("the lifecycle watch's operations (design E2)", () => {
     expect(await opsClient.snoozeLifecycle(CLINIC, 3)).toMatchObject({ ok: false, code: "malformed" });
   });
 });
+
+describe("the demo clinic's voice agent (24 October 2026)", () => {
+  test("sends the clinic and agent ids, and reads back only the outcome and its sentence", async () => {
+    reply({ data: { outcome: "applied", agentId: "agent_handmade01", check: { storageAsWritten: true }, message: "The demo agent now has AYA's call settings." } });
+    expect(await opsClient.syncDemoVoiceAgent(CLINIC, "agent_handmade01")).toEqual({
+      ok: true,
+      data: { outcome: "applied", message: "The demo agent now has AYA's call settings." },
+    });
+    expect(sent).toEqual([{ op: "syncDemoVoiceAgent", args: { clinicId: CLINIC, agentId: "agent_handmade01" } }]);
+    reply({ data: { outcome: "not_found" } });
+    expect(await opsClient.syncDemoVoiceAgent(CLINIC, "agent_handmade01")).toEqual({ ok: true, data: { outcome: "not_found", message: "No such clinic." } });
+    reply({ data: { outcome: "rewritten", message: "x" } });
+    expect(await opsClient.syncDemoVoiceAgent(CLINIC, "agent_handmade01")).toMatchObject({ ok: false, code: "malformed" });
+  });
+});

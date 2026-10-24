@@ -15,7 +15,15 @@ vi.mock("@/lib/email/outbox", () => ({ deliverCriticalAfterCommit: async () => {
 import type { AssistantFacts } from "@/lib/assistant/facts";
 import { parseModelAnswer, type AssistantResponder } from "@/lib/assistant/turn";
 import { voiceKeywords } from "@/lib/voice/provision";
-import { ACKNOWLEDGEMENTS, interruptedAt, RETRY_LINE, RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
+import {
+  ACKNOWLEDGEMENTS,
+  interruptedAt,
+  REMINDER_CLOSE_LINE,
+  REMINDER_LINES,
+  RETRY_LINE,
+  RetellCallSession,
+  type RetellOutbound,
+} from "@/lib/voice/retell";
 
 import { spokenResponses } from "./setup/retell-responses";
 
@@ -25,8 +33,9 @@ import { spokenResponses } from "./setup/retell-responses";
  * times and ended on "I'm having trouble on my end"):
  *
  *   - a short fixed acknowledgement is sent as the first part of a response
- *     the moment the caller's words go to the model, and the reply is
- *     appended to it, as Retell's protocol appends the parts of a response;
+ *     when the reply is slow to start, and the reply is appended to it, as
+ *     Retell's protocol appends the parts of a response; a reply that starts
+ *     in time goes out with none;
  *   - never before an urgent reply, an owed opening line, or a lone word,
  *     and never in another language than the caller's;
  *   - the opening line is sent uninterruptible, so its disclosure is heard;
@@ -56,7 +65,7 @@ const FACTS: AssistantFacts = {
   escalationHours: null,
   neverSay: [],
   requirements: [],
-  greeting: { phone: "Are you looking to book, or do you have a question?", chat: "How can I help?" },
+  greeting: { phone: "Looking to book, or got a question?", chat: "How can I help?" },
   tone: "warm",
   languages: ["en"],
   suggestAddOns: false,
@@ -88,12 +97,18 @@ function session(responder: AssistantResponder | null, facts: AssistantFacts = F
     realCalls: true,
     tools: () => null,
     redial: async () => null,
+    acknowledgeAfterMs: 5,
   });
   const raw = () => sent.filter((m): m is Response => m.response_type === "response");
   return { s, raw, heard: () => spokenResponses(raw()), seen, recorded };
 }
 
-const reply = (text: string) => async () => JSON.stringify({ reply: text, handoff: false, end: false });
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** A model slower than the acknowledgement's wait, so the acknowledgement is said. */
+const reply = (text: string) => async () => {
+  await pause(40);
+  return JSON.stringify({ reply: text, handoff: false, end: false });
+};
 
 describe("the acknowledgement while the model thinks", () => {
   test("is sent first, unfinished, and the reply is appended to the same response", async () => {
@@ -107,7 +122,7 @@ describe("the acknowledgement while the model thinks", () => {
     expect(parts[1]).toMatchObject({ content: " Lovely, which day suits you?", content_complete: true });
     expect(heard()[1]!.content).toBe(`${ACKNOWLEDGEMENTS.en[0]} Lovely, which day suits you?`);
     // The model was told, so it does not open with another.
-    expect(seen[0]!.turn).toContain(`You have already said "${ACKNOWLEDGEMENTS.en[0]}" out loud`);
+    expect(seen[0]!.turn).toContain(`"${ACKNOWLEDGEMENTS.en[0]}" is said out loud for you first`);
     await s.finish();
     // The clinic's transcript keeps what the caller heard.
     expect(recorded.turns?.find((t) => t.text.startsWith(ACKNOWLEDGEMENTS.en[0]!))?.text).toBe(`${ACKNOWLEDGEMENTS.en[0]} Lovely, which day suits you?`);
@@ -148,7 +163,7 @@ describe("the acknowledgement while the model thinks", () => {
     await owed.s.open();
     await owed.s.handle(said(1, [{ role: "user", content: "hi I would like to book an appointment" }]));
     expect(owed.raw().filter((r) => r.content_complete === false)).toEqual([]);
-    expect(owed.raw()[1]!.content).toMatch(/^Hi, this is the AI assistant at Lumen Aesthetics\./);
+    expect(owed.raw()[1]!.content).toMatch(/^Hi! I'm the AI assistant at Lumen Aesthetics,/);
     await owed.s.finish();
   });
 
@@ -158,6 +173,18 @@ describe("the acknowledgement while the model thinks", () => {
     const opening = raw()[0]!.content;
     await s.handle(said(1, [{ role: "agent", content: opening }, { role: "user", content: "hola quiero hacer una cita para mañana por favor" }]));
     expect(raw().filter((r) => r.content_complete === false)).toEqual([]);
+    await s.finish();
+  });
+});
+
+describe("a reply that starts in time", () => {
+  test("goes out with no acknowledgement in front of it", async () => {
+    const { s, raw, heard } = session(async () => JSON.stringify({ reply: "We open at nine.", handoff: false, end: false }));
+    await s.open();
+    await s.handle(said(1, [{ role: "agent", content: raw()[0]!.content }, { role: "user", content: "what time do you open tomorrow" }]));
+    await pause(20);
+    expect(raw().filter((r) => r.content_complete === false)).toEqual([]);
+    expect(heard()[1]!.content).toBe("We open at nine.");
     await s.finish();
   });
 });
@@ -185,6 +212,7 @@ describe("around the reply", () => {
 
   test("the first failure in a row asks again like a person, never with an error message", async () => {
     const { s, raw, heard } = session(async () => {
+      await pause(40);
       throw new Error("upstream 529");
     });
     await s.open();
@@ -214,5 +242,23 @@ describe("a model answer that does not parse whole", () => {
     expect(parseModelAnswer(broken)).toEqual({ reply: "Sure, we do nails! Which day suits you?", booking: {}, handoff: false, end: false, action: null });
     // With no reply string to keep, still malformed: the failure path, never the raw text.
     expect(parseModelAnswer('{"booking": {"wants": tru')).toMatchObject({ reply: "", malformed: true });
+  });
+});
+
+describe("a silence (owner, 24 October 2026)", () => {
+  test("two different check-ins, then a warm close that ends the call", async () => {
+    const { s, raw } = session(reply("never asked"));
+    await s.open();
+    const opening = raw()[0]!.content;
+    for (const id of [1, 2, 3]) {
+      await s.handle(JSON.stringify({ interaction_type: "reminder_required", response_id: id, transcript: [{ role: "agent", content: opening }] }));
+    }
+    const lines = raw().slice(1).map((r) => ({ content: r.content, end: r.end_call }));
+    expect(lines).toEqual([
+      { content: REMINDER_LINES[0], end: false },
+      { content: REMINDER_LINES[1], end: false },
+      { content: REMINDER_CLOSE_LINE, end: true },
+    ]);
+    await s.finish();
   });
 });

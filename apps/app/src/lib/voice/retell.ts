@@ -127,44 +127,84 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
 
 const ACTOR: ActorContext = { type: "agent", serviceName: "retell-voice" };
 
-export const CLOSED_LINE = "I'm sorry, this line can't take calls right now. Please try the practice again later. Goodbye.";
+// No apology and no "trouble on my end" (owner, 24 October 2026: "less
+// apologetic"): a person at a desk gives direction, not an error message.
+export const CLOSED_LINE = "This line isn't taking calls right now. Please try the practice again later. Bye for now!";
 export const TRANSFER_LINE = "Let me put you through to the practice team now.";
-export const TROUBLE_TRANSFER_LINE = "I'm having trouble on my end, so let me put you through to the practice team.";
-export const REMINDER_LINE = "Are you still there? I'm happy to help with anything else.";
+export const TROUBLE_TRANSFER_LINE = "Let me get you to the team, one sec.";
+
+/**
+ * What a silence hears (Retell's reminder_required, up to the agent's
+ * reminder_max_count, retell-agent.ts): two short check-ins, never the same
+ * twice, then a warm close that ends the call, rather than one line said
+ * again and again into a dead line (owner, 24 October 2026).
+ */
+export const REMINDER_LINES = ["Still with me?", "Hm, you there?"] as const;
+export const REMINDER_CLOSE_LINE = "Looks like I lost you. I'll let you go, call back any time!";
 
 /** The lines above, for a call the caller has taken into Spanish. Awaiting a native speaker's review. */
-export const CLOSED_LINE_ES = "Lo siento, esta línea no puede atender llamadas en este momento. Por favor, intente llamar a la clínica más tarde. Adiós.";
+export const CLOSED_LINE_ES = "Esta línea no está atendiendo llamadas ahora. Por favor, intente llamar a la clínica más tarde. Adiós.";
 export const TRANSFER_LINE_ES = "Le comunico ahora con el equipo de la clínica.";
-export const TROUBLE_TRANSFER_LINE_ES = "Estoy teniendo problemas de mi lado, así que le comunico con el equipo de la clínica.";
-export const REMINDER_LINE_ES = "¿Sigue ahí? Con gusto le ayudo con cualquier otra cosa.";
+export const TROUBLE_TRANSFER_LINE_ES = "Le paso con el equipo, un momento.";
+export const REMINDER_LINES_ES = ["¿Sigue ahí?", "¿Me escucha?"] as const;
+export const REMINDER_CLOSE_LINE_ES = "Parece que se cortó. Le dejo, ¡llame cuando quiera!";
 
 /**
  * The first time the model fails in a row on a call: a person's reset, not
  * an error message (owner, 24 October 2026). A second failure in a row is
  * put through to the direct line, or hears the plain failure line
- * (turn.ts failureLine), which says to contact the practice.
+ * (turn.ts failureLine), which says to contact the practice. No apology
+ * (owner, 24 October 2026: "less apologetic"): a person who missed a word
+ * just asks for it again.
  */
-export const RETRY_LINE = "Sorry, I lost my train of thought for a second there. Could you say that again?";
-export const RETRY_LINE_ES = "Perdone, me distraje un segundo. ¿Me lo puede repetir?";
+export const RETRY_LINE = "Hm, say that one more time for me?";
+export const RETRY_LINE_ES = "¿Me lo repite, por favor?";
 
 /**
- * What a call hears the moment the caller's words go to the model, so there
- * is no dead air while it thinks (owner, 24 October 2026). Fixed, neutral
- * and short, so whatever follows (a booking question, a refusal, the
- * failure line) still reads naturally after it; never two the same in a row.
+ * What a call hears while the model thinks, so there is no dead air (owner,
+ * 24 October 2026). Fixed, neutral and short, so whatever follows (a booking
+ * question, a refusal, the failure line) still reads naturally after it;
+ * never two the same in a row. Only when the reply is slow to start
+ * (ACKNOWLEDGE_AFTER_MS): a filler before every reply was "the same emotion
+ * every turn". No "okay", which Retell's backchannel and the model's own
+ * openers already say.
  */
 export const ACKNOWLEDGEMENTS: Readonly<Record<SpokenLanguage, readonly string[]>> = {
-  en: ["Okay.", "Sure.", "Mm, okay.", "Got it.", "Okay, let's see."],
+  en: ["Sure.", "Got it.", "Mm-hmm.", "Let's see."],
   es: ["Claro.", "Muy bien.", "A ver.", "Entiendo."],
 };
+
+/** How long the reply may take to start before the acknowledgement is said instead. */
+export const ACKNOWLEDGE_AFTER_MS = 700;
 
 /** Words the caller must have said for an acknowledgement: a lone "John" or "nails" is answered straight away anyway. */
 const ACKNOWLEDGE_MIN_WORDS = 3;
 
-type VoiceLines = { closed: string; transfer: string; troubleTransfer: string; reminder: string; retry: string };
+type VoiceLines = {
+  closed: string;
+  transfer: string;
+  troubleTransfer: string;
+  reminders: readonly string[];
+  reminderClose: string;
+  retry: string;
+};
 const VOICE_LINES: Readonly<Record<SpokenLanguage, VoiceLines>> = {
-  en: { closed: CLOSED_LINE, transfer: TRANSFER_LINE, troubleTransfer: TROUBLE_TRANSFER_LINE, reminder: REMINDER_LINE, retry: RETRY_LINE },
-  es: { closed: CLOSED_LINE_ES, transfer: TRANSFER_LINE_ES, troubleTransfer: TROUBLE_TRANSFER_LINE_ES, reminder: REMINDER_LINE_ES, retry: RETRY_LINE_ES },
+  en: {
+    closed: CLOSED_LINE,
+    transfer: TRANSFER_LINE,
+    troubleTransfer: TROUBLE_TRANSFER_LINE,
+    reminders: REMINDER_LINES,
+    reminderClose: REMINDER_CLOSE_LINE,
+    retry: RETRY_LINE,
+  },
+  es: {
+    closed: CLOSED_LINE_ES,
+    transfer: TRANSFER_LINE_ES,
+    troubleTransfer: TROUBLE_TRANSFER_LINE_ES,
+    reminders: REMINDER_LINES_ES,
+    reminderClose: REMINDER_CLOSE_LINE_ES,
+    retry: RETRY_LINE_ES,
+  },
 };
 
 type RetellTranscriptEntry = { role?: unknown; content?: unknown };
@@ -217,6 +257,8 @@ export type RetellSessionDeps = {
    * src/voice/server.ts in the running process, never by default.
    */
   cacheFacts?: boolean;
+  /** How long a reply may take to start before the acknowledgement is said (ACKNOWLEDGE_AFTER_MS). */
+  acknowledgeAfterMs?: number;
 };
 
 /** How long a clinic's facts read by one call may open the next. */
@@ -398,6 +440,8 @@ export class RetellCallSession {
   private welcomedBack = false;
   /** How many acknowledgements this call has said, which picks the next. */
   private acknowledged = 0;
+  /** Silences answered so far: the check-ins, then the close. */
+  private reminders = 0;
 
   constructor(
     readonly clinicId: string,
@@ -845,7 +889,13 @@ export class RetellCallSession {
     if (!this.facts) return;
 
     if (event.interaction_type === "reminder_required") {
-      this.say(responseId, this.lines.reminder);
+      const lines = this.lines;
+      const index = this.reminders++;
+      if (index < lines.reminders.length) this.say(responseId, lines.reminders[index]!);
+      else {
+        this.closing = true;
+        this.say(responseId, lines.reminderClose, { endCall: true });
+      }
       return;
     }
     const words = latestCallerWords(event.transcript);
@@ -910,6 +960,13 @@ export class RetellCallSession {
     let streamed = "";
     const ackLines = ACKNOWLEDGEMENTS[language.language];
     const ackLine = ackLines[this.acknowledged % ackLines.length]!;
+    // Said only if the reply has not started by then: the first sentence,
+    // or the end of the turn, stops it.
+    let ackTimer: ReturnType<typeof setTimeout> | null = null;
+    const stopAck = () => {
+      if (ackTimer) clearTimeout(ackTimer);
+      ackTimer = null;
+    };
     const turn = await answerTurn({
       facts,
       channel: "voice",
@@ -917,17 +974,21 @@ export class RetellCallSession {
         ? {
             line: ackLine,
             say: () => {
-              // Not for a request a newer one has already replaced.
-              if (responseId !== this.latestResponseId || this.closing) return;
-              this.send({ response_type: "response", response_id: responseId, content: ackLine, content_complete: false, end_call: false });
-              acknowledgement = ackLine;
-              this.acknowledged += 1;
-              heard();
+              ackTimer = setTimeout(() => {
+                ackTimer = null;
+                // Not for a request a newer one has already replaced.
+                if (responseId !== this.latestResponseId || this.closing || streamed) return;
+                this.send({ response_type: "response", response_id: responseId, content: ackLine, content_complete: false, end_call: false });
+                acknowledgement = ackLine;
+                this.acknowledged += 1;
+                heard();
+              }, this.deps.acknowledgeAfterMs ?? ACKNOWLEDGE_AFTER_MS);
             },
           }
         : null,
       speak: nothingDue
         ? (sentence: string) => {
+            stopAck();
             if (responseId !== this.latestResponseId || this.closing) return;
             const lead = acknowledgement || streamed ? " " : "";
             this.send({ response_type: "response", response_id: responseId, content: `${lead}${sentence}`, content_complete: false, end_call: false });
@@ -947,7 +1008,7 @@ export class RetellCallSession {
       resumed: resumed ? redialPromptBlock(resumed) : null,
       language: language.language,
       urgentTransferTo: this.urgentLine(facts),
-    });
+    }).finally(stopAck);
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.
     if (responseId !== this.latestResponseId || this.closing) return;

@@ -129,13 +129,13 @@ describeDb("urgentAlertReadiness, against the real tables", () => {
     await setJobEnabled(JOB_BILLING_NOTICES, false, c.staffUserId);
     const senderOff = await reply();
     expect(senderOff).not.toContain(URGENT_TEAM_TOLD_LINE);
-    expect(senderOff).toMatch(/call 911/);
+    expect(senderOff).toMatch(/call (911|9-1-1)/);
 
     await setJobEnabled(JOB_BILLING_NOTICES, true, c.staffUserId);
     await noAddress();
     const noRecipient = await reply();
     expect(noRecipient).not.toContain(URGENT_TEAM_TOLD_LINE);
-    expect(noRecipient).toMatch(/call 911/);
+    expect(noRecipient).toMatch(/call (911|9-1-1)/);
   });
 
   test("with no transport handed in, the process environment decides", async () => {

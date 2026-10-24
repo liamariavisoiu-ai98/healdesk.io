@@ -13,9 +13,9 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/email/outbox", () => ({ deliverCriticalAfterCommit: async () => {} }));
 
 import type { AssistantFacts } from "@/lib/assistant/facts";
-import { guardedLine } from "@/lib/assistant/guard";
-import { SPOKEN_END } from "@/lib/assistant/prompt";
-import { answerTurn, SpokenStream, type AssistantResponder } from "@/lib/assistant/turn";
+import { guardAssistantReply, guardedLine, movingOnLine, type GuardRefusal } from "@/lib/assistant/guard";
+import { buildAssistantPrompt, SPOKEN_END } from "@/lib/assistant/prompt";
+import { answerTurn, SpokenStream, withoutRepeats, type AssistantResponder } from "@/lib/assistant/turn";
 import { log } from "@/lib/log";
 import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
 
@@ -51,7 +51,7 @@ const FACTS: AssistantFacts = {
   escalationHours: null,
   neverSay: [],
   requirements: [],
-  greeting: { phone: "Are you looking to book, or do you have a question?", chat: "How can I help?" },
+  greeting: { phone: "Looking to book, or got a question?", chat: "How can I help?" },
   tone: "warm",
   languages: ["en"],
   suggestAddOns: false,
@@ -125,7 +125,7 @@ describe("the reply spoken as it is written", () => {
     const text = heard()[1]!.content;
     expect(text).toContain("Happy to help with that today.");
     expect(text).not.toMatch(/six months|love them/);
-    expect(text.endsWith(guardedLine("clinical", FACTS.clinicName))).toBe(true);
+    expect(text.endsWith(guardedLine("clinical", FACTS.clinicName, "en", true))).toBe(true);
     await s.finish();
   });
 
@@ -191,18 +191,161 @@ describe("the opening on a recent call's facts", () => {
     const first = session(streaming(["Okay.\n###\n{}"]), { cacheFacts: true });
     await first.s.open();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(first.raw()[0]!.content).toMatch(/^Hi, this is the AI assistant at Lumen Cached\./);
+    expect(first.raw()[0]!.content).toMatch(/^Hi! I'm the AI assistant at Lumen Cached,/);
     await first.s.finish();
 
     // The database now hangs: a call with the cache opens at once on the recent facts.
     tenant.hang = true;
     const second = session(streaming(["Okay.\n###\n{}"]), { cacheFacts: true });
     await second.s.open();
-    expect(second.raw()[0]!.content).toMatch(/^Hi, this is the AI assistant at Lumen Cached\./);
+    expect(second.raw()[0]!.content).toMatch(/^Hi! I'm the AI assistant at Lumen Cached,/);
 
     // Without the cache, the same call waits for its own read and falls through.
     const third = session(streaming(["Okay.\n###\n{}"]));
     await third.s.open();
     expect(third.raw().some((r) => /AI assistant at Lumen Cached/.test(r.content))).toBe(false);
+  });
+});
+
+describe("never the same sentence twice in a row (owner, 24 October 2026)", () => {
+  test("a sentence said in the turn before, or twice in one reply, is left out; a word or two may repeat", () => {
+    const before = ["Okay. Are you looking to book, or do you have a question?"];
+    expect(withoutRepeats("Okay. Are you looking to book or do you have a question? We do nails on weekdays.", before)).toBe("Okay. We do nails on weekdays.");
+    expect(withoutRepeats("We do nails. We do nails. Which day suits you?", [])).toBe("We do nails. Which day suits you?");
+    expect(withoutRepeats("Are you looking to book, or do you have a question?", before)).toBe("");
+  });
+
+  test("a call drops the repeated sentence as it streams, and a whole repeat is still said rather than silence", async () => {
+    const history = [{ speaker: "assistant" as const, text: "Lovely. Which day suits you best?" }];
+    const speak = vi.fn();
+    const streamed = await answerTurn({
+      facts: FACTS,
+      channel: "voice",
+      history,
+      text: "nails please",
+      responder: streaming(["Which day suits you best? ", "We have lots of space on Friday mornings.\n", `${SPOKEN_END}\n{}`]),
+      speak,
+    });
+    expect(streamed.reply).toBe("We have lots of space on Friday mornings.");
+    expect(speak.mock.calls.map(([s]) => s).join(" ")).not.toMatch(/Which day/);
+
+    const whole = await answerTurn({ facts: FACTS, channel: "voice", history, text: "sorry?", responder: async () => `Which day suits you best?\n${SPOKEN_END}\n{}` });
+    expect(whole.reply).toBe("Which day suits you best?");
+
+    // Website chat is not a call: left as written.
+    const chat = await answerTurn({ facts: FACTS, channel: "web_chat", history, text: "nails", responder: async () => JSON.stringify({ reply: "Which day suits you best? Friday is open." }) });
+    expect(chat.reply).toBe("Which day suits you best? Friday is open.");
+  });
+});
+
+describe("on a call, nothing said earlier is said again, and the fixed lines are spoken ones", () => {
+  test("a whole sentence from earlier in the call is left out; a short one may come back", () => {
+    const earlier = ["We do nails Monday to Saturday, nine to six. Anything else I can help with?"];
+    expect(withoutRepeats("We do nails Monday to Saturday, nine to six. Friday works.", ["Lovely."], earlier)).toBe("Friday works.");
+    expect(withoutRepeats("Anything else I can help with?", ["Lovely."], earlier)).toBe("Anything else I can help with?");
+  });
+
+  test("the guard's lines on a call are short, never name the clinic, and keep their offer", () => {
+    const reasons: GuardRefusal[] = ["price", "clinical", "payment_details", "human_claim", "booking_confirmation", "never_say", "empty"];
+    for (const language of ["en", "es"] as const) {
+      for (const reason of reasons) {
+        const spoken = guardedLine(reason, "Lumen Aesthetics", language, true);
+        expect(spoken, reason).not.toContain("Lumen Aesthetics");
+        expect(spoken.split(" ").length, reason).toBeLessThanOrEqual(25);
+        expect(spoken, reason).not.toMatch(/\b(sorry|lo siento)\b/i);
+      }
+      expect(movingOnLine("Lumen Aesthetics", language, true)).not.toContain("Lumen Aesthetics");
+    }
+    expect(guardedLine("clinical", "Lumen Aesthetics", "en", true)).toMatch(/consultation/);
+    expect(guardedLine("human_claim", "Lumen Aesthetics", "en", true)).toMatch(/AI assistant, not a person/);
+    // Written channels keep the written lines.
+    expect(guardedLine("clinical", "Lumen Aesthetics")).toContain("Lumen Aesthetics");
+  });
+
+  test("the prompt names the kind of practice", () => {
+    expect(buildAssistantPrompt(FACTS, "voice")).toMatch(/for Lumen Aesthetics, a med spa\./);
+    expect(buildAssistantPrompt({ ...FACTS, specialty: null }, "voice")).toMatch(/for Lumen Aesthetics, a practice\./);
+  });
+});
+
+describe("borrowed from full-duplex speech (owner, 24 October 2026)", () => {
+  const history = [{ speaker: "assistant" as const, text: "Lovely. We have Friday at ten or Saturday at noon." }];
+
+  test("a caller who asks to hear it again hears the key part again, and only then", async () => {
+    const again = `We have Friday at ten or Saturday at noon.\n${SPOKEN_END}\n{}`;
+    for (const text of ["sorry?", "What?", "can you speak up", "sorry, I couldn't hear you", "¿perdón?"]) {
+      const turn = await answerTurn({ facts: FACTS, channel: "voice", history, text, responder: async () => `Sure! ${again}` });
+      expect(turn.reply, text).toBe("Sure! We have Friday at ten or Saturday at noon.");
+    }
+    // An ordinary answer still drops the repeat.
+    const on = await answerTurn({ facts: FACTS, channel: "voice", history, text: "Friday works for me", responder: async () => `Great! ${again}` });
+    expect(on.reply).toBe("Great!");
+  });
+
+  test("Retell's pause, a dash with a space on each side, is spoken through as written", async () => {
+    const speak = vi.fn();
+    const turn = await answerTurn({
+      facts: FACTS,
+      channel: "voice",
+      history: [],
+      text: "do you have anything friday",
+      responder: streaming(["Let me see - Friday morning works for nails. ", "Which time suits you?\n", `${SPOKEN_END}\n{}`]),
+      speak,
+    });
+    expect(turn.reply).toBe("Let me see - Friday morning works for nails. Which time suits you?");
+    expect(speak.mock.calls.map(([s]) => s).join(" ")).toContain("Let me see - Friday");
+  });
+
+  test("the prompt asks for the half-remembered name from the menu, a calm 'No rush', and the pause", () => {
+    const prompt = buildAssistantPrompt(FACTS, "voice");
+    expect(prompt).toMatch(/finish the thought for them with the closest service from the list/);
+    expect(prompt).toMatch(/Only ever name services on the list/);
+    expect(prompt).toMatch(/"No rush\."/);
+    expect(prompt).toContain('(" - ")');
+  });
+
+  test("the prompt asks for the answer word first, matched energy, short small talk, and a bad line picked back up", () => {
+    const prompt = buildAssistantPrompt(FACTS, "voice");
+    expect(prompt).toMatch(/Lead with the answer itself/);
+    expect(prompt).toMatch(/Match their energy/);
+    expect(prompt).toMatch(/never claim a body, a life, or experiences you cannot have/);
+    expect(prompt).toMatch(/pick the thread back up/);
+    // Website chat is not a call: none of it.
+    expect(buildAssistantPrompt(FACTS, "web_chat")).not.toMatch(/Lead with the answer itself|breaking up/);
+  });
+});
+
+describe("shared emotion, never a promised result (owner, 24 October 2026)", () => {
+  test("an outcome promised in plain English is refused, as the Spanish always was", () => {
+    for (const line of [
+      "You're going to look amazing for your wedding!",
+      "You'll look stunning.",
+      "you are going to look ten years younger",
+      "You'll love your results.",
+      "The results will be perfect.",
+      "Oh, totally understandable! First time nerves are so normal, but you are going to look absolutely amazing for your wedding.",
+    ]) {
+      const verdict = guardAssistantReply(line, FACTS, { bookingWritten: false });
+      expect(verdict.ok ? "ok" : verdict.reason, line).toBe("clinical");
+    }
+  });
+
+  test("excitement about the occasion, nerves met, small talk and a bad line all still pass", () => {
+    for (const line of [
+      "Oh, a wedding, how exciting! First-time nerves are so normal. Want to start with a consultation?",
+      "Ha, sounds brutal! Perfect excuse to stay in the AC. Were you looking to book, or got a question?",
+      "Yeah, totally. Can you hear me okay?",
+      "You're going to love the clinic, it's right by the park.",
+      "You'll look forward to it, I'm sure!",
+    ]) {
+      const verdict = guardAssistantReply(line, FACTS, { bookingWritten: false });
+      expect(verdict.ok ? "ok" : verdict.reason, line).toBe("ok");
+    }
+  });
+
+  test("the prompt shares the occasion, never the result, and never claims to hear the room", () => {
+    const prompt = buildAssistantPrompt(FACTS, "voice");
+    expect(prompt).toMatch(/Share the excitement about the occasion, never about the result/);
+    expect(prompt).toMatch(/Never claim to hear wind, traffic or anything else/);
   });
 });

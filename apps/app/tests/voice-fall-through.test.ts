@@ -94,7 +94,7 @@ const FACTS: AssistantFacts = {
   suggestAddOns: false,
   providerNames: [],
 };
-const OPENING = /^Hi, this is the AI assistant at Fall Clinic\. This call is transcribed/;
+const OPENING = /^Hi! I'm the AI assistant at Fall Clinic, and this call's transcribed/;
 const URGENT_WORDS = "Hello? I'm having a severe reaction to my filler";
 
 type Recorded = Pick<VoiceCallEvent, "urgent" | "disclosurePlayedAt" | "transcriptTurns">;
@@ -360,7 +360,7 @@ describe("a call that cannot read the database", () => {
     // they came with, and the clinic's alert queued. Not the bare opening.
     expect(responses()).toHaveLength(1);
     expect(responses()[0]).toMatchObject({ response_id: 1, end_call: false });
-    expect(responses()[0]!.content).toMatch(/call 911/);
+    expect(responses()[0]!.content).toMatch(/call 9-1-1/);
     expect(outbox.delivered).toBe(1);
     await s.finish();
     expect(events[0]).toMatchObject({ urgent: true });
@@ -502,7 +502,7 @@ describe("the opening line", () => {
     // Retell dropped it: the caller spoke first, and urgently.
     await s.handle(said(1, [{ role: "user", content: URGENT_WORDS }]));
     const urgent = responses()[1]!.content;
-    expect(urgent).toMatch(/call 911/);
+    expect(urgent).toMatch(/call 9-1-1/);
     expect(urgent).not.toMatch(/transcribed/);
     await s.handle(said(2, [{ role: "user", content: URGENT_WORDS }, { role: "agent", content: urgent }, { role: "user", content: "Okay, thank you" }]));
     expect(responses()[2]!.content).toMatch(OPENING);
@@ -523,7 +523,7 @@ describe("the opening line", () => {
     await s.open();
     await s.handle(said(1, [{ role: "agent", content: responses()[0]!.content }, { role: "user", content: URGENT_WORDS }]));
     const reply = responses()[1]!;
-    expect(reply.content).toMatch(/hang up and call 911 now/);
+    expect(reply.content).toMatch(/hang up and call 9-1-1 now/);
     expect(reply.content).toMatch(/stay on the line and I'll put you through to Fall Clinic now\.$/);
     expect(reply.content).not.toMatch(/please call Fall Clinic/);
     expect(reply.transfer_number).toBe(DIRECT);
@@ -536,7 +536,7 @@ describe("the opening line", () => {
     await s.open();
     await s.handle(said(1, [{ role: "user", content: URGENT_WORDS }]));
     const reply = responses()[1]!;
-    expect(reply.content).toMatch(/hang up and call 911 now\.$/);
+    expect(reply.content).toMatch(/hang up and call 9-1-1 now\.$/);
     expect(reply.content).not.toMatch(/please call|put you through/);
     expect(reply.transfer_number).toBeUndefined();
     await s.finish();

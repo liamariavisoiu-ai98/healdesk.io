@@ -22,7 +22,7 @@ import { handleVoiceProvisionJob, runVoiceAgentsSweep } from "@/lib/voice/provis
 import { numberNickname } from "@/lib/voice/retell-numbers";
 
 import { closePools, getAppPool, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
+import { inTenant, seedClinic, seedDemoClinic, seedEntitled } from "./setup/factories";
 
 /**
  * Automated voice provisioning (owner, 21 October 2026): each clinic's Retell
@@ -581,5 +581,33 @@ describeDb("automated voice provisioning", () => {
     } finally {
       client.release();
     }
+  });
+
+  test("the demo clinic's hand-made agent gets AYA's call settings and keywords, never a new voice; any other clinic is refused", async () => {
+    const demo = await seedDemoClinic("vp-demo-agent");
+    retell.agents.set("agent_handmade01", { agent_id: "agent_handmade01", voice_id: "retell-Chosen" });
+    __setVoiceAgentDepsForTests(deps());
+    const result = await runOperation("syncDemoVoiceAgent", { clinicId: demo.clinicId, agentId: "agent_handmade01" }, OPERATOR);
+    expect(result.status).toBe(200);
+    const data = (result.body as { data: Record<string, unknown> }).data;
+    expect(data).toMatchObject({ outcome: "applied", agentId: "agent_handmade01", check: { storageAsWritten: true, engineIsOurs: true, webhookIsOurs: true } });
+    // Booleans and a sentence only: never the socket address, which carries the line's secret.
+    expect(JSON.stringify(data)).not.toContain(SECRET);
+    const agent = retell.agents.get("agent_handmade01")!;
+    expect(agent).toMatchObject({ enable_backchannel: true, enable_dynamic_voice_speed: true, voice_speed: 1.05, data_storage_retention_days: 1 });
+    expect((agent.boosted_keywords as string[]).map((k) => k.toLowerCase())).toContain("consultation");
+    expect(agent.voice_id).toBe("retell-Chosen");
+    expect(retell.writes()).toEqual([{ method: "PATCH", path: "/update-agent/agent_handmade01" }]);
+
+    // A real clinic's agent is provisioning's, never set from here.
+    const real = await paidVoiceClinic("vp-demo-agent-real");
+    const refused = await runOperation("syncDemoVoiceAgent", { clinicId: real.clinicId, agentId: "agent_handmade01" }, OPERATOR);
+    expect((refused.body as { data: Record<string, unknown> }).data).toMatchObject({ outcome: "not_demo" });
+    expect(retell.writes()).toHaveLength(1);
+
+    // An id that is not an agent's is refused before Retell; one Retell does not have is a plain failure.
+    expect((await runOperation("syncDemoVoiceAgent", { clinicId: demo.clinicId, agentId: "../update-agent" }, OPERATOR)).status).toBe(400);
+    const missing = await runOperation("syncDemoVoiceAgent", { clinicId: demo.clinicId, agentId: "agent_notthere99" }, OPERATOR);
+    expect((missing.body as { data: Record<string, unknown> }).data).toMatchObject({ outcome: "failed" });
   });
 });

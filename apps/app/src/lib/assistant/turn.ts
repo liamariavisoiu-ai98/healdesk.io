@@ -579,6 +579,14 @@ function lastAssistantLine(history: readonly TranscriptTurn[]): string | null {
   return null;
 }
 
+/**
+ * A caller asking to hear it again ("sorry?", "what was that?", "can you
+ * speak up?"): the one time a sentence from the turn before may be said
+ * again, since that is what they asked for.
+ */
+const ASKED_AGAIN =
+  /^\W*(?:sorry|what|pardon|huh|excuse me|come again|say (?:that|it) again|(?:can|could) you (?:say that again|repeat(?: that)?|speak up)|i (?:can't|cannot|couldn't) hear(?: you)?|speak up|perd[oó]n|c[oó]mo|qu[eé])\b[^.!?]{0,40}[.!?]*\W*$/i;
+
 /** Words a sentence needs before saying it twice counts as repeating it: "Okay." or "Got it." may come back. */
 const REPEAT_MIN_WORDS = 3;
 /** Words a sentence from earlier in the call needs to count: "Anything else I can help with?" (six) may come back, a whole answer may not. */
@@ -758,7 +766,7 @@ export async function answerTurn(input: {
   // On a call, nothing said in the turn before is said again, nor a whole
   // sentence from earlier in the call (withoutRepeats).
   const assistantLines = input.history.filter((t) => t.speaker === "assistant").map((t) => t.text);
-  const before = channel === "voice" ? assistantLines.slice(-1) : null;
+  const before = channel === "voice" && !ASKED_AGAIN.test(personText) ? assistantLines.slice(-1) : null;
   const earlierLines = assistantLines.slice(0, -1);
   const fresh = (text: string) => (before ? withoutRepeats(text, [...before, ...spoken], earlierLines) : text);
   const stream =

@@ -267,3 +267,40 @@ describe("on a call, nothing said earlier is said again, and the fixed lines are
     expect(buildAssistantPrompt({ ...FACTS, specialty: null }, "voice")).toMatch(/for Lumen Aesthetics, a practice\./);
   });
 });
+
+describe("borrowed from full-duplex speech (owner, 24 October 2026)", () => {
+  const history = [{ speaker: "assistant" as const, text: "Lovely. We have Friday at ten or Saturday at noon." }];
+
+  test("a caller who asks to hear it again hears the key part again, and only then", async () => {
+    const again = `We have Friday at ten or Saturday at noon.\n${SPOKEN_END}\n{}`;
+    for (const text of ["sorry?", "What?", "can you speak up", "sorry, I couldn't hear you", "¿perdón?"]) {
+      const turn = await answerTurn({ facts: FACTS, channel: "voice", history, text, responder: async () => `Sure! ${again}` });
+      expect(turn.reply, text).toBe("Sure! We have Friday at ten or Saturday at noon.");
+    }
+    // An ordinary answer still drops the repeat.
+    const on = await answerTurn({ facts: FACTS, channel: "voice", history, text: "Friday works for me", responder: async () => `Great! ${again}` });
+    expect(on.reply).toBe("Great!");
+  });
+
+  test("Retell's pause, a dash with a space on each side, is spoken through as written", async () => {
+    const speak = vi.fn();
+    const turn = await answerTurn({
+      facts: FACTS,
+      channel: "voice",
+      history: [],
+      text: "do you have anything friday",
+      responder: streaming(["Let me see - Friday morning works for nails. ", "Which time suits you?\n", `${SPOKEN_END}\n{}`]),
+      speak,
+    });
+    expect(turn.reply).toBe("Let me see - Friday morning works for nails. Which time suits you?");
+    expect(speak.mock.calls.map(([s]) => s).join(" ")).toContain("Let me see - Friday");
+  });
+
+  test("the prompt asks for the half-remembered name from the menu, a calm 'No rush', and the pause", () => {
+    const prompt = buildAssistantPrompt(FACTS, "voice");
+    expect(prompt).toMatch(/finish the thought for them with the closest service from the list/);
+    expect(prompt).toMatch(/Only ever name services on the list/);
+    expect(prompt).toMatch(/"No rush\."/);
+    expect(prompt).toContain('(" - ")');
+  });
+});

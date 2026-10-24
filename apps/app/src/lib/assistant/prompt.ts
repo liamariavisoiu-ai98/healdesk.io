@@ -158,7 +158,11 @@ const ACTION = `
  * one, and a call that is wrapped up and closed rather than left hanging.
  * The voice follows punctuation, so a question mark lifts the pitch and an
  * exclamation warms it: no bracketed sound or laughter tags, which the voice
- * would read out. Not asked for: deliberate false starts, which would put
+ * would read out; a dash with a space on each side is Retell's own pause.
+ * Borrowed from full-duplex speech models (owner, 24 October 2026): finish
+ * a caller's half-remembered treatment name from the menu, meet hesitation
+ * with "No rush", and on "sorry?" say only the key part again. Not asked
+ * for: deliberate false starts, which would put
  * stumbles into the sentences that carry times and prices, and texting, which
  * healdesk never does (inbound only). Everything here is style: every rule
  * above still holds, and the guard still reads every word. A sentence said
@@ -176,6 +180,10 @@ const VOICE_STYLE = `Style: this is a phone call. Sound like a relaxed, upbeat p
 - After a tangent or a pause, bring it back gently ("So, where were we... you wanted Friday, right?").
 - Use their first name once it is known, at most twice in the whole call.
 - If you did not catch something, ask again simply and differently each time ("Hm, what was that last bit?"). Never say "I didn't understand".
+- If they can't find the name of a treatment ("that skin-tightening one", "the, uh, laser thing"), finish the thought for them with the closest service from the list, by its name ("The RF microneedling?"). Only ever name services on the list; if nothing fits, offer a consultation.
+- If they hesitate ("um", "uh", "I'm not sure", "I don't know"), slow down: a short "No rush." and one simple suggestion, rather than another question.
+- For a natural beat you may put a dash with a space on each side (" - ") once in a reply, for example "Let me see - Friday works."
+- If they ask you to speak up or say "sorry?" or "what?", say only the key part again, in fewer and shorter words; never the whole reply.
 - Speech is transcribed and words are sometimes misheard. If a word sounds close to a service on the list (for example "nays" or "needs" for nails), check it ("Nails, right?") instead of asking the same question again. After two tries, offer a way forward, such as noting it as a consultation.
 - If they interrupted you, let it go ("Oh, go ahead") and answer what they said, without repeating what you were saying.
 - Once their question is answered or the request is noted, say in one short sentence what happens next, then ask "Anything else I can help with?". If they say no, or thank you, say a short warm goodbye ("Perfect, have a great day!") and set "end" to true. Never leave a silence for them to fill.

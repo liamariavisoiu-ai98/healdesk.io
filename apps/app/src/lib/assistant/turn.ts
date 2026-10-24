@@ -692,6 +692,14 @@ export async function answerTurn(input: {
    * nothing after it is said. The result's `spoken` is what went out.
    */
   speak?: ((sentence: string) => void) | null;
+  /**
+   * What the adapter knows about the whole conversation that the facts do
+   * not say, for the turn context after the cached prefix: a personalised
+   * demo call's note (lib/voice/demo-facts.ts, demoCallNote). Every screen
+   * and the guard run as on any turn; a note changes what the model is
+   * told, never what it may say.
+   */
+  notes?: readonly string[] | null;
 }): Promise<AssistantTurnResult> {
   const { facts, channel } = input;
   const language: SpokenLanguage = input.language ?? "en";
@@ -741,7 +749,7 @@ export async function answerTurn(input: {
   // the last turn takes the tools away from this one.
   const toolsLive = Boolean(input.tools) && !toolState.manual && !toolState.done && (await input.tools!.available());
   const opening = input.history.find((t) => t.speaker === "assistant")?.text;
-  const notes: string[] = [];
+  const notes: string[] = [...(input.notes ?? [])];
   if (input.interruptedAt) {
     notes.push(
       `The caller cut in while you were speaking; they heard only: "${input.interruptedAt}". Answer what they just said, and do not repeat what they talked over unless they ask.`,

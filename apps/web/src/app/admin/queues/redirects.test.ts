@@ -21,6 +21,11 @@ describe("the old queue routes", () => {
     expect(() => siteReads()).toThrow("308 /admin/queues#site-reads");
   });
 
+  test("/admin/inbox, the approval inbox's planned address, opens Queues › Approvals", async () => {
+    const inbox = (await import("../inbox/page")).default;
+    expect(() => inbox()).toThrow("308 /admin/queues#approvals");
+  });
+
   test("/admin/support, /admin/recordings and /admin/setup keep a form's outcome in their own key", async () => {
     const support = (await import("../support/page")).default;
     await expect(support({ searchParams: Promise.resolve({ result: "marked" }) })).rejects.toThrow("308 /admin/queues?support=marked#support");

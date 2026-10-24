@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { HostStandbyNotice } from "@/components/admin/HostStandbyNotice";
+import { decideApprovalWithCode } from "@/lib/admin/approval-decide";
 import { requireOperator } from "@/lib/admin/operator";
+import { fetchApprovalHistory, fetchApprovals, type ApproveReason, type RejectReason } from "@/lib/admin/ops-client";
 import { probeLiveness } from "@/lib/host/state";
 
 import AgreementChecksSection from "./AgreementChecksSection";
+import { ApprovalsSection } from "./ApprovalsSection";
 import RecordingsSection from "./RecordingsSection";
 import ReviewsSection from "./ReviewsSection";
 import SetupRequestsSection from "./SetupRequestsSection";
@@ -25,6 +29,16 @@ import SupportSection from "./SupportSection";
  * `result`, because two sections' outcome words overlap ("already",
  * "not_found") and a message under the wrong section is a lie.
  *
+ * Approvals (ops automation Phase 6, lane P6b) is the one section whose
+ * controls do not post a form: a decision needs the fresh code from the
+ * operator's authenticator and comes back with the operation's own sentence
+ * (a re-armed request, a Stripe invoice, a replayed event), which no closed
+ * query word could carry, so it uses the Setup tab's step-up pattern: a
+ * client section calling the `decide` action below, which enters through
+ * lib/admin/approval-decide.ts (the session, then the code, then the signed
+ * request) and shows the outcome in place. Its two reads happen only when
+ * the host answers, with the others.
+ *
  * One liveness probe first: with the AWS host in standby every apps/app read
  * fails the same way, and five standby notices would say one thing five
  * times. The Sheet-backed Setup requests section does not need the host and
@@ -36,6 +50,7 @@ export const metadata: Metadata = { title: "Queues" };
 export const dynamic = "force-dynamic";
 
 const SECTIONS = [
+  { id: "approvals", label: "Approvals" },
   { id: "reviews", label: "Reviews" },
   { id: "agreement-checks", label: "Agreement checks" },
   { id: "support", label: "Support" },
@@ -51,6 +66,20 @@ export default async function QueuesPage({ searchParams }: { searchParams: Promi
   const query = await searchParams;
   const liveness = await probeLiveness();
   const standby = liveness === "unreachable";
+  const now = new Date().toISOString();
+  // The approval inbox's two reads, settled together; one that fails costs its tab, never the page.
+  const [approvals, history] = standby ? [null, null] : await Promise.all([fetchApprovals(), fetchApprovalHistory()]);
+
+  // A decision on the approval inbox: the ids and the reason come from the
+  // card the page drew, and the wrapper checks each (a uuid, approve or
+  // reject, a reason from the closed list) before the code and the request.
+  // Revalidated so the decided item leaves the waiting list on the refresh.
+  async function decide(approvalId: string, action: "approve" | "reject", reasonCode: ApproveReason | RejectReason, code: string) {
+    "use server";
+    const result = await decideApprovalWithCode(approvalId, action, reasonCode, code);
+    revalidatePath("/admin/queues");
+    return result;
+  }
 
   return (
     <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
@@ -67,6 +96,7 @@ export default async function QueuesPage({ searchParams }: { searchParams: Promi
         <HostStandbyNotice what="Every queue but the setup requests" />
       ) : (
         <>
+          {approvals && history ? <ApprovalsSection approvals={approvals} history={history} now={now} onDecide={decide} /> : null}
           <ReviewsSection />
           <AgreementChecksSection />
           <SupportSection searchParams={Promise.resolve({ result: query.support })} />

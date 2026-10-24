@@ -25,6 +25,9 @@ describe("the admin nav", () => {
     expect(sectionFor("ops")).toBe("/admin/clinics");
     expect(sectionFor("support")).toBe("/admin/queues");
     expect(sectionFor("agreements")).toBe("/admin/compliance");
+    // Lane P6b: the Patient rights page is under Compliance; the approval inbox's old address lights Queues.
+    expect(sectionFor("rights")).toBe("/admin/compliance");
+    expect(sectionFor("inbox")).toBe("/admin/queues");
     expect(sectionFor("map")).toBe("/admin/system");
     expect(sectionFor("host")).toBe("/admin/system");
     expect(sectionFor("sign-in")).toBeNull();

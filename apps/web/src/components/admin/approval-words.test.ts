@@ -183,7 +183,19 @@ describe("the facts and the timing", () => {
       ...request,
       packet: {
         ...request.packet!,
-        facts: { ...request.packet!.facts, kind: "billing_request_retry", requestKind: "close_setup", channel: "web", reasonCode: null, lastErrorCode: null, billingStatus: null, supersededBy: "cancel_now", workerOn: true, closureOn: false },
+        facts: {
+          kind: "billing_request_retry",
+          requestKind: "close_setup",
+          channel: "web",
+          reasonCode: null,
+          lastErrorCode: null,
+          attempts: 10,
+          maxAttempts: 10,
+          billingStatus: null,
+          supersededBy: "cancel_now",
+          workerOn: true,
+          closureOn: false,
+        },
       },
     };
     expect(factLines(closure)).toEqual([

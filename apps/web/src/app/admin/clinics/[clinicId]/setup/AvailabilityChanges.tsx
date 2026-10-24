@@ -74,7 +74,12 @@ export function changeWords(change: ClinicChangeView): string {
       const parts: string[] = [];
       if (s.closuresAdded?.length) parts.push(`added ${s.closuresAdded.join(", ")}`);
       if (s.closuresRemoved?.length) parts.push(`taken off ${s.closuresRemoved.join(", ")}`);
-      if (parts.length === 0) parts.push(s.rows ? `${s.rows} ${s.rows === 1 ? "row" : "rows"} ${s.operation ?? "changed"}` : "changed");
+      if (parts.length === 0) {
+        const n = s.rows ?? 0;
+        parts.push(
+          n === 0 ? "changed" : s.operation === "delete" ? `${n} taken off` : s.operation === "insert" ? `${n} added` : `${n} changed`,
+        );
+      }
       return `Closed days: ${parts.join("; ")}${s.closuresUpcoming !== undefined ? ` (${s.closuresUpcoming} upcoming)` : ""}${extra}`;
     }
     case "location_hours":
@@ -89,6 +94,7 @@ export function changeWords(change: ClinicChangeView): string {
 function runSaid(data: RunClinicAuditOutcome): string | null {
   switch (data.status) {
     case "ran":
+      if (data.result === "error") return "The audit could not finish. Try again in a minute.";
       return `Ran: ${RESULT_WORDS[data.result].words}${data.audits.length ? ` across ${data.audits.length} ${data.audits.length === 1 ? "pack" : "packs"}` : ""}.`;
     case "too_soon":
       return `Too soon: a run is allowed once a minute; try again after ${when(data.notBefore)}.`;
@@ -107,7 +113,7 @@ function Packs({ summary }: { summary: ClinicAuditsView["clinics"][number] | nul
     <>
       {summary.overall === "audits_off" ? (
         <p className="text-sm">
-          <Chip tone="warn">audits are off</Chip> <span className="text-muted">Changes wait for an audit while the clinic-audits job is off.</span>
+          <Chip tone="warn">audits are off</Chip> <span className="text-muted">Changes wait for an audit while audits are switched off.</span>
         </p>
       ) : summary.overall === "running" ? (
         <p className="text-sm">
@@ -146,8 +152,21 @@ function Packs({ summary }: { summary: ClinicAuditsView["clinics"][number] | nul
   );
 }
 
+/** The newest changes drawn; the rest are a count line, not a scroll. */
+export const CHANGES_SHOWN = 10;
+
+/** The empty state names the window the read covered: "No changes yet." only when it reached back a year or more. */
+export function noChangesWords(sinceIso: string, nowIso: string): string {
+  const since = Date.parse(sinceIso);
+  const now = Date.parse(nowIso);
+  if (Number.isNaN(since) || Number.isNaN(now)) return "No changes in the window read.";
+  const days = Math.round((now - since) / 86_400_000);
+  return days >= 365 ? "No changes yet." : `No changes in the last ${days} days.`;
+}
+
 function ChangeRow({ change, onAcknowledge }: { change: ClinicChangeView; onAcknowledge: (changeId: string) => Promise<OpsResult<AcknowledgeClinicChangeOutcome>> }) {
-  const audit = change.auditStatus ? AUDIT_STATUS_WORDS[change.auditStatus] : { words: "audits are off", tone: "warn" as Tone };
+  // A change with no audit status is one made while audits are off, which the card says once above.
+  const audit = change.auditStatus ? AUDIT_STATUS_WORDS[change.auditStatus] : null;
   return (
     <li className="border-line flex flex-wrap items-start gap-x-3 gap-y-1 border-t py-2 text-sm">
       <div className="min-w-0 flex-1">
@@ -157,7 +176,7 @@ function ChangeRow({ change, onAcknowledge }: { change: ClinicChangeView; onAckn
           {change.acknowledgedAt ? ` · seen ${when(change.acknowledgedAt)}${change.acknowledgedBy ? ` by ${change.acknowledgedBy}` : ""}` : ""}
         </p>
       </div>
-      <Chip tone={audit.tone}>{audit.words}</Chip>
+      {audit ? <Chip tone={audit.tone}>{audit.words}</Chip> : null}
       {change.acknowledgedAt ? null : (
         <ActionButton
           label="Mark as seen"
@@ -173,17 +192,22 @@ export function AvailabilityChanges({
   clinicId,
   changes,
   audits,
+  now,
   onRunAudit,
   onAcknowledge,
 }: {
   clinicId: string;
   changes: OpsResult<{ since: string; changes: ClinicChangeView[] }>;
   audits: OpsResult<ClinicAuditsView>;
+  /** The server's clock, ISO, for the empty state's window. */
+  now: string;
   onRunAudit: () => Promise<OpsResult<RunClinicAuditOutcome>>;
   onAcknowledge: (changeId: string) => Promise<OpsResult<AcknowledgeClinicChangeOutcome>>;
 }) {
   const summary = audits.ok ? (audits.data.clinics.find((c) => c.clinicId === clinicId.toLowerCase()) ?? null) : null;
   const running = summary?.overall === "running";
+  const shown = changes.ok ? changes.data.changes.slice(0, CHANGES_SHOWN) : [];
+  const older = changes.ok ? changes.data.changes.length - shown.length : 0;
   return (
     <Section id="availability" title="Availability changes">
       {audits.ok ? <Packs summary={summary} /> : <Failure failure={audits} what="the audits" />}
@@ -194,13 +218,20 @@ export function AvailabilityChanges({
       {!changes.ok ? (
         <Failure failure={changes} what="the changes" />
       ) : changes.data.changes.length === 0 ? (
-        <Empty>No changes yet.</Empty>
+        <Empty>{noChangesWords(changes.data.since, now)}</Empty>
       ) : (
-        <ul className="mt-4">
-          {changes.data.changes.map((change) => (
-            <ChangeRow key={change.id} change={change} onAcknowledge={onAcknowledge} />
-          ))}
-        </ul>
+        <>
+          <ul className="mt-4">
+            {shown.map((change) => (
+              <ChangeRow key={change.id} change={change} onAcknowledge={onAcknowledge} />
+            ))}
+          </ul>
+          {older > 0 ? (
+            <p className="text-muted mt-2 text-xs">
+              {older} older {older === 1 ? "change" : "changes"} since {changes.data.since.slice(0, 10)} not shown.
+            </p>
+          ) : null}
+        </>
       )}
     </Section>
   );

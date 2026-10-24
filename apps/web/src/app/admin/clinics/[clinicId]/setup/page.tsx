@@ -13,6 +13,7 @@ import {
   decideLifecycle as decideLifecycleUpstream,
   extendSetupDeadline as extendDeadlineUpstream,
   fetchClinicAudits,
+  fetchClinicBilling,
   fetchClinicChanges,
   fetchLifecycle,
   runClinicAudit as runAuditUpstream,
@@ -44,7 +45,7 @@ import { AvailabilityChanges } from "./AvailabilityChanges";
 import { ConnectLink } from "./ConnectLink";
 import { OnboardingPanel } from "./OnboardingPanel";
 import { SetupSummary } from "./SetupSummary";
-import { SetupWindow, type SnoozeDays } from "./SetupWindow";
+import { SetupWindow, type SnoozeDays, type WindowDeadline } from "./SetupWindow";
 
 /**
  * /admin/clinics/[id]/setup, the Setup tab: one clinic's road from payment to
@@ -68,20 +69,30 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   const { clinicId } = await params;
   if (!isUuid(clinicId)) notFound();
 
-  // Five reads, settled independently: the onboarding view, the clinic rows,
-  // the availability changes, the audits, and the lifecycle (every watched
-  // clinic; this clinic's row picked out). One that fails costs its card.
-  const [view, reads, changes, audits, lifecycle] = await Promise.all([
+  // Six reads, settled independently: the onboarding view, the clinic rows,
+  // the availability changes, the audits, the lifecycle (every watched
+  // clinic; this clinic's row picked out) and the billing view, whose setup
+  // deadline is the live one the extension names. One that fails costs its
+  // card. TODO(lane A4, apps/app): give listLifecycle a clinicId filter and
+  // trim clinicAudits' history; both are read whole here until then.
+  const [view, reads, changes, audits, lifecycle, billing] = await Promise.all([
     fetchOnboarding(clinicId),
     loadClinicRows(),
     fetchClinicChanges({ clinicId }),
     fetchClinicAudits(clinicId),
     fetchLifecycle(),
+    fetchClinicBilling(clinicId),
   ]);
   if (isHostUnreachable(view)) return <HostStandbyNotice what="Setup" />;
   const path = clinicTabPath(clinicId, "setup");
+  const now = new Date().toISOString();
   const connection = reads.rows.find((r) => r.clinicId === clinicId.toLowerCase())?.connection ?? null;
   const watched = lifecycle.ok ? (lifecycle.data.find((r) => r.clinicId === clinicId.toLowerCase()) ?? null) : null;
+  // The Billing tab's own rule for its extension control, kept identical here.
+  const entitlements = billing.ok ? billing.data.entitlements : null;
+  const deadline: WindowDeadline | null =
+    entitlements?.setupDeadlineIso ? { at: entitlements.setupDeadlineAt ?? entitlements.setupDeadlineIso, iso: entitlements.setupDeadlineIso } : null;
+  const canExtend = entitlements !== null && !entitlements.isPlanStarted && entitlements.status !== "canceled" && entitlements.status !== "purged";
 
   async function completeStep(step: string, note?: string) {
     "use server";
@@ -228,10 +239,16 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   // The setup window card: the extension names the deadline the page showed
   // (apps/app refuses once it has moved, so a replay cannot add days twice),
   // the decision and the snooze are the lifecycle watch's.
-  async function extendWindow(days: number) {
+  async function extendWindow(input: { days: number; fromDeadline: string }) {
     "use server";
-    const fromDeadline = watched?.deadlineAt;
-    if (!fromDeadline) return { ok: true as const, data: { status: "refused" as const, message: "This clinic has no setup deadline to extend." } };
+    // The deadline the page showed, from the billing view, exactly as it
+    // arrived: apps/app refuses once it has moved. Whole days, 1 to 30, as
+    // the form and apps/app allow.
+    const days = Number(input.days);
+    const fromDeadline = input.fromDeadline;
+    if (!Number.isInteger(days) || days < 1 || days > 30 || typeof fromDeadline !== "string" || Number.isNaN(Date.parse(fromDeadline))) {
+      return { ok: true as const, data: { status: "refused" as const, message: "Days must be a whole number from 1 to 30, from the deadline shown." } };
+    }
     const result = await extendDeadlineUpstream(clinicId, { days, fromDeadline });
     revalidatePath(path);
     revalidatePath(clinicTabPath(clinicId, "billing"));
@@ -254,9 +271,21 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
     <>
       <SetupSummary cards={reads.cards} clinicId={clinicId} />
       {/* Only a clinic the lifecycle watch covers has a window card; a read that failed is said once. */}
-      {watched ? <SetupWindow row={watched} onExtend={extendWindow} onDecide={decideWindow} onSnooze={snoozeWindow} /> : null}
+      {watched ? (
+        <SetupWindow
+          // Keyed on the deadline: a page re-rendered after an extension shows the new one and the days input starts over.
+          key={deadline?.iso ?? "none"}
+          row={watched}
+          deadline={deadline}
+          canExtend={canExtend}
+          now={now}
+          onExtend={extendWindow}
+          onDecide={decideWindow}
+          onSnooze={snoozeWindow}
+        />
+      ) : null}
       {!lifecycle.ok && !isHostUnreachable(lifecycle) ? <p role="status" className="text-red-deep mt-4 text-sm font-semibold">Could not read the setup window: {lifecycle.message}</p> : null}
-      <AvailabilityChanges clinicId={clinicId} changes={changes} audits={audits} onRunAudit={runAudit} onAcknowledge={acknowledgeChange} />
+      <AvailabilityChanges clinicId={clinicId} changes={changes} audits={audits} now={now} onRunAudit={runAudit} onAcknowledge={acknowledgeChange} />
       <OnboardingPanel
         view={view}
         actions={{

@@ -363,6 +363,10 @@ type OperatorOp =
   | "clearVoiceDriftFlag"
   | "listStuckCalendarWrites"
   | "listUndeliveredTranscripts"
+  // The demo clinic's hand-made Retell agent brought to AYA's call settings (the Setup
+  // tab, the demo clinic only): booleans and a sentence back, never the agent's
+  // socket address.
+  | "syncDemoVoiceAgent"
   // The redone admin's two reads (ops automation Phase 2, lane A2): the
   // Clinics table and Home, shaped by lib/admin/strip-types.ts. No argument.
   | "listClinicStrip"
@@ -1581,6 +1585,29 @@ export function fetchVoiceAgentStatus(clinicId?: string): Promise<OpsResult<Voic
       };
     });
   });
+}
+
+/** What apps/app did with the demo agent: its outcome and the sentence to print, never Retell's own words. */
+export type DemoVoiceAgentOutcome = {
+  outcome: "applied" | "not_demo" | "no_key" | "not_found" | "failed";
+  message: string;
+};
+
+/**
+ * The demo clinic's hand-made Retell agent, by its id, brought to AYA's call
+ * settings, language and keywords, its voice left alone (apps/app
+ * applyCallSettingsToDemoAgent). Refused upstream for any other clinic.
+ */
+export function syncDemoVoiceAgent(clinicId: string, agentId: string): Promise<OpsResult<DemoVoiceAgentOutcome>> {
+  return callOps("syncDemoVoiceAgent", "write", { clinicId, agentId }, (value) => {
+    const data = object(value, "syncDemoVoiceAgent");
+    // A clinic that no longer exists answers `not_found` with no sentence.
+    const message = data.message === undefined ? "No such clinic." : text(data.message, "syncDemoVoiceAgent.message");
+    return {
+      outcome: literal(data.outcome, ["applied", "not_demo", "no_key", "not_found", "failed"] as const, "syncDemoVoiceAgent.outcome"),
+      message,
+    };
+  }, 30_000);
 }
 
 // -----------------------------------------------------------------------------

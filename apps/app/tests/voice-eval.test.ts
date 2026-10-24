@@ -118,7 +118,9 @@ describe("the rubric", () => {
     const skills = Object.fromEntries(SKILL_IDS.map((id) => [id, { applicable: false, score: 9, evidence: "e" }]));
     const parsed = parseJudgement(JSON.stringify({ skills, summary: "s" }));
     expect(parsed.skills.spoken_brevity).toEqual({ applicable: true, score: 3, evidence: "e" });
-    expect(parsed.skills.feeling_first).toEqual({ applicable: false, score: 0, evidence: "e" });
+    expect(parsed.skills.honest_unknown).toEqual({ applicable: false, score: 0, evidence: "e" });
+    // Always judged since 24 October 2026: a reply that pads with sympathy the caller gave no reason for scores low.
+    expect(parsed.skills.feeling_first).toEqual({ applicable: true, score: 3, evidence: "e" });
   });
 });
 

@@ -755,6 +755,12 @@ const PLAIN_CLINICAL: RegExp[] = [
   // "nobody can guarantee results").
   /(?<!\b(?:can'?t|cannot|can not|don'?t|do not|doesn'?t|does not|won'?t|will not|never|no|not|isn'?t|aren'?t|unable to)\s+(?:\w+\s+){0,2})(?<!\b(?:nobody|no one|nothing|none)\s+(?:\w+\s+){0,2})\bguarantee(?:s|d|ing)?\b/i,
   /\byou'?ll\s+(?:definitely|certainly|surely|absolutely|100%|totally)\s+(?:see|notice|love|get)\b/i,
+  // The outcome promised in plain words, as the Spanish one below: "you're
+  // going to look amazing", "you'll look stunning for the wedding", "you'll
+  // love your results", "the results will be perfect" (24 October 2026: an
+  // energetic call style made it likelier, and only the Spanish was caught).
+  /\b(?:you(?:'re| are)?\s+(?:going to|gonna)|you(?:'ll| will))\s+(?:look|be looking|feel)\s+(?:so\s+|really\s+|absolutely\s+|just\s+|totally\s+)?(?:amazing|stunning|gorgeous|beautiful|incredible|fantastic|perfect|flawless|fabulous|radiant|great|brand new|like new|like a new person|(?:\w+\s+)?(?:years\s+)?younger|natural)\b/i,
+  /\byou(?:'ll| will| are going to|'re going to|'re gonna)\s+(?:absolutely\s+|totally\s+|just\s+)?love\s+(?:the|your)\s+results?\b|\bresults?\s+(?:will|are going to)\s+be\s+(?:amazing|perfect|incredible|stunning|flawless|fantastic|great)\b/i,
   // Spanish.
   /(?<![\p{L}])(puede|pueden|debe|deben|tome|tomar|t[óo]mese) (tomar )?(un |una |el |la )?(tylenol|ibuprofeno|paracetamol|aspirina|advil|antihistam[íi]nico)/iu,
   /(?<![\p{L}])(la hinchaz[óo]n|los moretones|el moret[óo]n|los morados|el enrojecimiento|la rojez|el bulto|la inflamaci[óo]n|el dolor|las molestias)[^.?!]{0,60}(es|son|ser[áa]|ser[áa]n) (normal|normales|com[úu]n|comunes|esperad[oa]s?|temporal(es)?)/iu,
@@ -1469,7 +1475,8 @@ export function guardGreeting(
  * Spanish where the refused reply was Spanish (turn.ts asks messageLanguage),
  * so a person answered in Spanish is not handed an English line.
  */
-export function guardedLine(reason: GuardRefusal, clinicName: string, language: "en" | "es" = "en"): string {
+export function guardedLine(reason: GuardRefusal, clinicName: string, language: "en" | "es" = "en", spoken = false): string {
+  if (spoken) return SPOKEN_GUARD_LINES[language][reason] ?? SPOKEN_GUARD_LINES[language].other;
   if (language === "es") return guardedLineEs(reason, clinicName);
   if (reason === "price") {
     return `I can't give a price for that one, but the team at ${clinicName} can go through it with you at a consultation. Would you like me to pass on a request for one?`;
@@ -1496,11 +1503,42 @@ export function guardedLine(reason: GuardRefusal, clinicName: string, language: 
  * handover (the clinic's L11 alert and Bookings' Needs you), so "the team
  * will get back to you" is a promise the clinic is told about.
  */
-export function movingOnLine(clinicName: string, language: "en" | "es" = "en"): string {
+export function movingOnLine(clinicName: string, language: "en" | "es" = "en", spoken = false): string {
+  if (spoken) {
+    return language === "es"
+      ? "Paso sus datos al equipo y le responderán en un día. ¿Algo más en lo que pueda ayudarle?"
+      : "Let me pass your details to the team, and they'll get back to you within a day. Anything else I can help with?";
+  }
   return language === "es"
     ? `Para que le atiendan bien, pasaré sus datos al equipo de ${clinicName}, que le responderá en un día. ¿Hay algo más en lo que pueda ayudarle?`
     : `Let me make sure you're looked after: I'll pass your details to the team at ${clinicName}, who will get back to you within a day. Is there anything else I can help with?`;
 }
+
+/**
+ * guardedLine on a call (owner, 24 October 2026: the written lines ran to 35
+ * words and named the clinic each time, which on a call sounds like a
+ * menu). The same meaning and the same offer, in the words a person says;
+ * the caller already knows which practice they rang. Spanish in formal
+ * "usted", awaiting a native speaker's review.
+ */
+const SPOKEN_GUARD_LINES: Readonly<Record<"en" | "es", Partial<Record<GuardRefusal, string>> & { other: string }>> = {
+  en: {
+    price: "I don't have a price for that one, but the team can go through it at a consultation. Want me to request one?",
+    clinical: "That one's really for the clinicians. Want me to put in a request for a consultation so they can go through it with you?",
+    payment_details: "Oh, no card details with me, please. The practice handles payment securely itself.",
+    human_claim: "I'm an AI assistant, not a person. The team can help with anything I can't, and they get back to people within a day.",
+    booking_confirmation: "I can't confirm it myself, but I'll pass your request to the team, and they'll confirm within a day.",
+    other: "That's not one I can help with, but I can pass your details to the team, and they'll get back to you within a day.",
+  },
+  es: {
+    price: "No tengo un precio para eso, pero el equipo se lo explica en una consulta. ¿Quiere que pase una solicitud?",
+    clinical: "Eso es para los especialistas de la clínica. ¿Quiere que pase una solicitud de consulta para que lo vean con usted?",
+    payment_details: "Por favor, no me dé datos de tarjeta. La clínica gestiona los pagos de forma segura.",
+    human_claim: "Soy un asistente de IA, no una persona. El equipo puede ayudarle con lo que yo no pueda, y responde en un día.",
+    booking_confirmation: "No puedo confirmarla yo, pero paso su solicitud al equipo, que la confirma en un día.",
+    other: "Con eso no puedo ayudarle aquí, pero puedo pasar sus datos al equipo, que le responderá en un día.",
+  },
+};
 
 /** guardedLine in Spanish, the same lines said the same way, formal "usted". */
 function guardedLineEs(reason: GuardRefusal, clinicName: string): string {

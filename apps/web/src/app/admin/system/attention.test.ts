@@ -30,7 +30,7 @@ function text(html: string): string {
 }
 
 function queue(key: string, over: Partial<MachineQueue> = {}): MachineQueue {
-  return { key, words: key, count: 0, oldestAgeMinutes: null, needsAttention: false, tone: "ok", href: SELF, ...over };
+  return { key, words: key, count: 0, oldestAgeMinutes: null, needsAttention: false, tone: "ok", href: SELF, lowerBound: false, ...over };
 }
 
 const queues: OpsResult<{ queues: MachineQueue[]; partial: string[] }> = {

@@ -39,6 +39,7 @@ import {
   setClinicTimezone as timezoneUpstream,
   setPhoneSettings as phoneUpstream,
   startForwardingTest as forwardingTestUpstream,
+  syncDemoVoiceAgent as demoAgentUpstream,
   updateAgentConfig as agentUpstream,
   type AgentService,
   type DepositPolicy,
@@ -50,6 +51,7 @@ import { isHostUnreachable } from "@/lib/host/state";
 import { AvailabilityChanges } from "./AvailabilityChanges";
 import { CalendarWrites } from "./CalendarWrites";
 import { ConnectLink } from "./ConnectLink";
+import { DemoVoiceAgent } from "./DemoVoiceAgent";
 import { OnboardingPanel } from "./OnboardingPanel";
 import { SetupSummary } from "./SetupSummary";
 import { SetupWindow, type SnoozeDays, type WindowDeadline } from "./SetupWindow";
@@ -313,6 +315,16 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
     revalidatePath(path);
     return result;
   }
+  // The demo clinic's hand-made Retell agent (24 October 2026). The clinic's
+  // id is this page's; apps/app checks the agent id and refuses a clinic
+  // that is not the demo one.
+  async function syncDemoAgent(agentId: string) {
+    "use server";
+    return demoAgentUpstream(clinicId, String(agentId).trim());
+  }
+  // The booking view is the one read that says demo; a page without it (an older apps/app) shows no card.
+  const booking = view.ok ? view.data.booking : null;
+  const demo = typeof booking === "object" && booking?.demo === true;
 
   return (
     <>
@@ -344,6 +356,7 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
           disconnectCalendar, rerunPractice, confirmWidget,
         }}
       />
+      {demo ? <DemoVoiceAgent onSync={syncDemoAgent} /> : null}
       <ConnectLink clinicId={clinicId} connection={connection} onIssue={issueConnectLink} />
     </>
   );

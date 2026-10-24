@@ -38,9 +38,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // but Terms §7 promises it to every leaving practice and the canceled email
   // tells the practice it is coming, so it has no reason to ask.
   export_undelivered_before_destruction: {
-    title: "A leaving practice has not had its export yet",
+    title: "Deliver this export before the data is destroyed",
+    headline: "{clinicName}'s export must be delivered before its data is destroyed[ on {destroyAt}]",
     whatHappened:
-      "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement gives thirty days, or it has none on file, so its data is destroyed[ on {destroyAt}], as Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.",
+      "{clinicName} left 21 days or more ago. No export of its data is recorded as delivered, and its agreement gives thirty days, or it has none on file, so its data is destroyed on the day Offboarding on its Care tab shows, whether or not the export was delivered. Deliver this practice's export before then: Terms §7 promises every leaving practice one within 30 days of the end, whether or not it asks.",
     whyItMatters:
       "The email about its cancellation told the practice an export is coming. Once the data is destroyed there is nothing left to export.",
     steps: [
@@ -56,9 +57,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // day if the export is recorded by then, at the next hourly run if it is
   // recorded later, and on the ninety days' last day whether or not it was.
   export_due_undelivered: {
-    title: "A leaving practice's export is due and not delivered",
+    title: "An export is due and not delivered",
+    headline: "{clinicName}'s export is not delivered[; the agreement's day for it is {exportDueAt}]",
     whatHappened:
-      "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement promises the export within thirty days of the end, without being asked.[ It is due by {exportDueAt}.][ The data waits for it until {destroyAt} at the latest.] Offboarding on its Care tab shows both days.",
+      "{clinicName} has left, and 21 days on, no export of its data is recorded as delivered. Its agreement promises the export within thirty days of the end, without being asked.[ The data waits for it until {destroyAt} at the latest.] Offboarding on its Care tab shows both days.",
     whyItMatters:
       "The export is a promise in the agreement, with a date. The data is destroyed on the export's due day if the export is recorded by then, at the next hourly run if it is recorded later, and on the last day shown whether or not it was; after that there is nothing left to export.",
     steps: [
@@ -75,8 +77,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // is the days the clamp cost; `serviceEndedAt` is not printable.
   offboarding_started_late: {
     title: "A subscription's end was processed over a week late",
+    headline: "{clinicName}'s data is due to be destroyed {lateDays:day} later than its agreement counts",
     whatHappened:
-      "{clinicName}'s subscription ended[ on {serviceEndedAt}], and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed {lateDays:day} later than its agreement counts from the end.",
+      "{clinicName}'s subscription ended[ on {serviceEndedAt}], and its data is due to be destroyed {lateDays:day} later than its agreement counts from that end. We processed the end more than a week after it happened, and the destruction clock starts at most a week back.",
     whyItMatters:
       "The agreement counts destruction from the day service ended, not from when we noticed. Only the database owner can bring the destruction forward; nothing in the console can.",
     steps: [
@@ -91,8 +94,11 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // stripe_connect); not printable, so the steps cover each.
   account_closure_waiting: {
     title: "A leaving practice's account cannot close yet",
+    // "A step": the database names the first wait it finds, so the headline
+    // does not count them.
+    headline: "{clinicName} has left, but its account and sign-in stay open: a step is outstanding",
     whatHappened:
-      "{clinicName}'s data has been destroyed and its forwarded calls have stopped passing through, but its account stays open, its sign-in and setup with it, until one thing is done. That is the agent and number released at the voice vendor, an open incident finished, a notice to the practice still waiting to go, or its Stripe connection ended.",
+      "{clinicName} has left, but its account and sign-in stay open: a step is outstanding. Its data has been destroyed and its forwarded calls have stopped passing through. The account, its sign-in and setup with it, stays open until the outstanding step is done. The step is the agent and number released at the voice vendor, an open incident finished, a notice to the practice still waiting to go, or its Stripe connection ended.",
     whyItMatters:
       "The practice was told its sign-in would end and its setup would go once the pass-through ended. While the account stays open, both are still there.",
     steps: [
@@ -107,8 +113,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // The same file: the closure threw. Hourly while it fails.
   account_closure_failed: {
     title: "A leaving practice's account closure failed",
+    headline: "{clinicName}'s account was due to close and did not: its sign-in is still there",
     whatHappened:
-      "{clinicName}'s account was due to close, nothing was left to finish, and the database refused the closure, so its sign-in and setup are still there. It is tried again every hour, and this alert repeats each hour while it fails.",
+      "{clinicName}'s account was due to close, with nothing left to finish, and did not close, so its sign-in and setup are still there. The database refused the closure. It is tried again every hour, and this alert repeats each hour while it fails.",
     whyItMatters:
       "The practice was told its sign-in would end and its setup would go. The closure is also what keeps its notice address for the six years the agreement needs, so a closure that never lands leaves that record unmade.",
     steps: [
@@ -124,8 +131,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // follows each.
   destruction_notice_undelivered: {
     title: "A practice was not told its data was destroyed",
+    headline: "{clinicName} never got the notice that its data was destroyed; nothing will try again",
     whatHappened:
-      "{clinicName}'s data has been destroyed, and the email saying so could not be sent to the address on its account. The mail provider refused it, this side refused to send it, or it kept failing for a week. Nothing will try again.",
+      "{clinicName} never got the notice that its data was destroyed; nothing will try again. It could not be sent to the address on its account: the mail provider refused it, this side refused to send it, or a week passed without it going.",
     whyItMatters:
       "The practice is owed that notice, and healdesk no longer holds the address copied for the email. The account's own address is on the Account tab until the account closes.",
     steps: [

@@ -75,14 +75,18 @@ describe("the Slack allow-list", () => {
     expect(slackFields({ clinicId: "Radiance <@here>", meter: "patients", count: "7" })).toEqual({});
   });
 
-  test("the message has the title, the clinic and the counts, and escapes Slack's control characters", () => {
+  test("the message has the urgency, the headline, the clinic and the counts, and escapes Slack's control characters", () => {
     const text = slackText({
       event: "critical_notice_undelivered",
       fields: { clinicId: CLINIC, noticeId: "n_1", kind: "payment_failed", attempts: 3 },
       clinicName: "Glow & <Co>",
     });
     // Tagged [app]: the #alerts channel is shared with apps/web's [web] posts.
-    expect(text.startsWith("[app] *A critical email has not gone out*")).toBe(true);
+    // Lane N4: the urgency's emoji, then the headline in bold, then step 1.
+    expect(text.split("\n")[0]).toBe(
+      ":rotating_light: [app] *Glow &amp; &lt;Co&gt; has not received a payment-failed notice: over 10 minutes late*",
+    );
+    expect(text.split("\n")[1]).toMatch(/^\*Do this first:\* Open the clinic's \*Deliveries tab\*/);
     expect(text).toContain(`Glow &amp; &lt;Co&gt;, clinic id \`${CLINIC}\``);
     expect(text).toContain("Attempts: 3");
     expect(text).toContain("_critical_notice_undelivered_");
@@ -197,7 +201,8 @@ describeDb("the ops-slack sweep", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]![0]).toBe(WEBHOOK);
     const [text] = posted();
-    expect(text!.startsWith("[app] ")).toBe(true);
+    // The urgency's emoji, then the [app] tag the shared channel needs.
+    expect(text!).toMatch(/^:[a-z_]+: \[app\] /);
     expect(text).toContain("slackname Clinic");
     expect(text).toContain(clinic.clinicId);
     expect(text).not.toContain("invalid_grant");

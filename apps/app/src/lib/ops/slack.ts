@@ -1,13 +1,15 @@
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { LIFECYCLE_ESCALATIONS } from "@/lib/lifecycle/waves";
 import { describeError, log } from "@/lib/log";
 
 import { alertWording } from "./alert-wording";
 import { allowedAlertFields, wordingValues } from "./alert-wording/allow-list";
 import { sharedFacts } from "./alert-wording/facts";
-import { fillWording, numberedSteps } from "./alert-wording/render";
+import { parseMarkup, plainText, toSlack } from "./alert-wording/markup";
+import { layoutAlert } from "./alert-wording/render";
+import { consoleLinkLabel } from "./alert-wording/tabs";
+import { URGENCY_LOOK } from "./alert-wording/urgency";
 import { opsClinicName, opsConsoleLink, type OpsEvent } from "./notify";
 
 /**
@@ -82,43 +84,54 @@ export const slackFields = allowedAlertFields;
 /** Slack refuses a section block's text over this many characters. */
 export const SLACK_SECTION_MAX = 3000;
 
+/** Between the part read first and the detail: a line Slack shows as a rule. */
+export const SLACK_DIVIDER = "——————————";
+
 /**
- * The message as its parts, in order: the title, what happened, who, the
- * facts, why it matters, each numbered step, and the link with the event's
- * code. Every part is already escaped mrkdwn.
+ * The message as groups of lines, in order (lane N4: an alert scanned in
+ * three seconds): the urgency's emoji, the tag and the headline in bold;
+ * "Do this first:" with step 1 and the console link; a divider; then the
+ * detail: the rest of what happened, who it is about, the facts, why it
+ * matters, the remaining steps numbered from 2, and the event's code. Every
+ * line is escaped mrkdwn; emphasis comes from the same markup the email
+ * parses (lib/ops/alert-wording/markup.ts), bold here for all three kinds.
  */
-function slackParts(alert: SlackAlert): { head: string[]; steps: string[]; tail: string[] } {
+function slackGroups(alert: SlackAlert): string[][] {
   const fields = slackFields(alert.fields);
   const clinicName = alert.clinicName ? slackName(alert.clinicName) || null : null;
   const business = typeof fields.business === "string" ? slackName(fields.business) : null;
   const named = { ...alert.fields, ...(business !== null ? { business } : {}) };
   const raw = alertWording(alert.event, alert.fields);
-  const wording = fillWording(raw, wordingValues(named, clinicName));
-  let title = `${SLACK_TAG} *${escapeSlack(wording.title)}*`;
-  // A lifecycle escalation opens with a siren (design E2): the one a person must act on.
-  if (LIFECYCLE_ESCALATIONS.has(alert.event)) title = `:rotating_light: ${title}`;
-  const head = [title, escapeSlack(wording.whatHappened)];
+  const layout = layoutAlert(raw, wordingValues(named, clinicName));
+  const look = URGENCY_LOOK[layout.urgency];
+  const rich = (text: string) => toSlack(parseMarkup(text), escapeSlack);
+  // The same console link the email carries (opsConsoleLink, decision D3).
+  const link = opsConsoleLink(alert.event, fields, alert.alertId);
+
+  const top = [`${look.emoji} ${SLACK_TAG} *${escapeSlack(plainText(layout.headline))}*`];
+  if (layout.doFirst) top.push(`*Do this first:* ${rich(layout.doFirst)}`);
+  if (link) top.push(`<${link}|${escapeSlack(consoleLinkLabel(link))}>`);
+
+  const detail: string[] = [];
+  if (layout.detail) detail.push(rich(layout.detail));
   if (fields.clinicId) {
     const name = clinicName ? `${escapeSlack(clinicName)}, ` : "";
-    head.push(`${name}clinic id \`${fields.clinicId}\``);
+    detail.push(`${name}clinic id \`${fields.clinicId}\``);
   } else if (business) {
-    head.push(`Business: ${escapeSlack(business)}`);
+    detail.push(`Business: ${escapeSlack(business)}`);
   }
   // The same facts the email prints (lib/ops/alert-wording/facts.ts).
   const facts = sharedFacts(alert.fields, raw).map(([label, value]) => `${escapeSlack(label)}: ${escapeSlack(slackName(value))}`);
-  if (facts.length > 0) head.push(facts.join(" · "));
-  if (wording.whyItMatters) head.push(`*Why it matters:* ${escapeSlack(wording.whyItMatters)}`);
-  const steps = numberedSteps(wording.steps).map(escapeSlack);
-  // The same console link the email carries (opsConsoleLink, decision D3).
-  const link = opsConsoleLink(alert.event, fields, alert.alertId);
-  const tail = [link ? `<${link}|Open in the console> · _${alert.event}_` : `_${alert.event}_`];
-  return { head, steps, tail };
+  if (facts.length > 0) detail.push(facts.join(" · "));
+  if (layout.whyItMatters) detail.push(`*Why it matters:* ${rich(layout.whyItMatters)}`);
+
+  const then = layout.then.length > 0 ? ["*Then:*", ...layout.then.map((step, i) => `${i + 2}. ${rich(step)}`)] : [];
+  return [top, [SLACK_DIVIDER], detail, then, [`_${alert.event}_`]].filter((group) => group.length > 0);
 }
 
 /** The whole message as one mrkdwn text: the post's `text`, and its notification. */
 export function slackText(alert: SlackAlert): string {
-  const { head, steps, tail } = slackParts(alert);
-  return [...head, ...(steps.length > 0 ? ["*What to do:*", ...steps] : []), ...tail].join("\n");
+  return slackGroups(alert).flat().join("\n");
 }
 
 type SectionBlock = { type: "section"; text: { type: "mrkdwn"; text: string } };
@@ -160,8 +173,7 @@ export function packSections(lines: readonly string[], max = SLACK_SECTION_MAX):
 
 /** The post's body: the full text, and the same text as section blocks within Slack's limit. */
 export function slackPayload(alert: SlackAlert): { text: string; blocks: SectionBlock[] } {
-  const { head, steps, tail } = slackParts(alert);
-  const groups = [head, steps.length > 0 ? ["*What to do:*", ...steps] : [], tail].filter((g) => g.length > 0);
+  const groups = slackGroups(alert);
   const blocks = groups.flatMap((group) =>
     packSections(group).map((text): SectionBlock => ({ type: "section", text: { type: "mrkdwn", text } })),
   );

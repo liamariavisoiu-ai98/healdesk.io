@@ -136,11 +136,13 @@ describeDb("setupRepliesPastDue with the business name", () => {
       text: string;
       blocks: { type: string; text: { text: string } }[];
     };
-    expect(body.text).toContain("A clinic asked us to set up AYA: Glow Med Spa.");
-    expect(body.text).toContain("We promised to reply by 22 Oct, and that day has passed.");
-    expect(body.text).toContain("1. Open the Setup requests list on the Queues page");
-    expect(body.text).toContain("4. Check the request on the Queues page again.");
-    expect(body.text).toContain("<https://healdesk.test/admin/queues#setup-requests|Open in the console>");
+    // Lane N4: the headline names the business, step 1 is "Do this first",
+    // the promised day is emphasised, and the button names the page.
+    expect(body.text.split("\n")[0]).toBe(":large_yellow_circle: [app] *Glow Med Spa is still waiting for our reply to its setup request*");
+    expect(body.text).toContain("We promised to reply by *22 Oct*, and that day has passed.");
+    expect(body.text).toContain("*Do this first:* Open the *Setup requests* list on the *Queues page*");
+    expect(body.text).toContain("4. Check the request on the *Queues page* again.");
+    expect(body.text).toContain("<https://healdesk.test/admin/queues#setup-requests|Open Queues>");
     expect(body.text).not.toContain(id);
     expect(body.blocks.map((b) => b.text.text).join("\n")).toBe(body.text);
     expect(row).toBeDefined();

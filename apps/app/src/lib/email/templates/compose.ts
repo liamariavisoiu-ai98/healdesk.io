@@ -38,7 +38,28 @@ export type Block =
    * "Phone call · Waiting for you", each opening its request. "- text:
    * url" in text; in HTML the label is the link.
    */
-  | { type: "links"; items: readonly { text: string; label: string; url: string }[] };
+  | { type: "links"; items: readonly { text: string; label: string; url: string }[] }
+  /**
+   * Text with emphasis (lane N4, the ops alert): segments, each bold,
+   * underlined or highlighted as it says, already parsed by the caller
+   * (lib/ops/alert-wording/markup.ts). `small` prints it muted and small
+   * (a reference line). Escaped segment by segment like every value.
+   */
+  | { type: "rich"; segments: readonly RichSegment[]; small?: boolean; label?: string }
+  /** One headline line, large and bold, under a coloured one-word tag (URGENT, TODAY, FYI). */
+  | { type: "headline"; tag: { text: string; tone: "red" | "amber" | "grey" }; segments: readonly RichSegment[] }
+  /** A highlighted box with a bold label ("Do this first"), its text, and at most one button. */
+  | {
+      type: "callout";
+      label: string;
+      segments: readonly RichSegment[];
+      action?: { label: string; url: string };
+    }
+  /** A thin rule with a small label under it ("More detail"). */
+  | { type: "divider"; label: string };
+
+/** A run of text and its emphasis, for the `rich`, `headline` and `callout` blocks. */
+export type RichSegment = { text: string; bold?: boolean; underline?: boolean; highlight?: boolean };
 
 export type EmailContent = {
   subject: string;
@@ -151,7 +172,30 @@ function blockText(block: Block): string {
       return block.text;
     case "links":
       return block.items.map((item) => `- ${item.text}: ${item.url}`).join("\n");
+    case "rich":
+      // A label in capitals, so the text part scans too ("WHY IT MATTERS:").
+      return labelled(block.label?.toUpperCase(), segmentsText(block.segments));
+    case "headline":
+      return `${block.tag.text}: ${segmentsText(block.segments)}`;
+    case "callout":
+      return [
+        `${block.label.toUpperCase()}: ${segmentsText(block.segments)}`,
+        ...(block.action ? [`${block.action.label}: ${block.action.url}`] : []),
+      ].join("\n");
+    case "divider":
+      return block.label.toUpperCase();
   }
+}
+
+/** A label before text, with a space unless the text starts on a new line. */
+function labelled(label: string | undefined, text: string): string {
+  if (!label) return text;
+  return text.startsWith("\n") ? `${label}${text}` : `${label} ${text}`;
+}
+
+/** The plain words of segments: the text part carries no markers. */
+function segmentsText(segments: readonly RichSegment[]): string {
+  return segments.map((s) => s.text).join("");
 }
 
 // -----------------------------------------------------------------------------
@@ -249,7 +293,72 @@ function blockHtml(block: Block): string {
             `<li style="margin:0 0 4px;">${escapeHtml(item.text)} · <a href="${escapeHtml(item.url)}">${escapeHtml(item.label)}</a></li>`,
         )
         .join("")}</ul>`;
+    case "rich": {
+      const label = block.label
+        ? `<strong>${escapeHtml(block.label)}</strong>${segmentsText(block.segments).startsWith("\n") ? "" : " "}`
+        : "";
+      return block.small
+        ? `<p class="hd-muted" style="margin:16px 0 0;color:${MUTED};font-size:13px;">${label}${segmentsHtml(block.segments)}</p>`
+        : `<p style="margin:0 0 16px;">${label}${segmentsHtml(block.segments)}</p>`;
+    }
+    case "headline":
+      // No table: every email is one column with no tables (the HTML rule
+      // tests/email-templates.test.ts holds). Outlook desktop may drop the
+      // padding and radius; the colour and the word survive.
+      return (
+        `<p style="margin:0 0 8px;"><span style="display:inline-block;background:${TAG_TONES[block.tag.tone]};` +
+        `color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.08em;padding:3px 9px;border-radius:4px;">` +
+        `${escapeHtml(block.tag.text)}</span></p>\n` +
+        `<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">${segmentsHtml(block.segments)}</p>`
+      );
+    case "callout":
+      // Its own ink on its own ground, as the code box: a client's dark mode
+      // repaints the page, never this box.
+      // Its own ground, ink and button colours: the shared dark mode repaints
+      // .hd-action and the page, never this box, so its button carries no
+      // hd-action class and stays dark on the light box. A div, not a table:
+      // every email is one column with no tables (tests/email-templates.test.ts);
+      // Outlook desktop may drop the padding and radius, never the colours.
+      return (
+        `<div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:${INK};border:1px solid #d4a72c;border-radius:6px;">` +
+        `<p style="margin:0 0 6px;color:${INK};"><strong>${escapeHtml(block.label)}</strong></p>` +
+        `<p style="margin:0;color:${INK};">${segmentsHtml(block.segments, CALLOUT_HIGHLIGHT)}</p>` +
+        (block.action
+          ? `<p style="margin:12px 0 0;"><a href="${escapeHtml(block.action.url)}" ` +
+            `style="display:inline-block;background:${INK};color:#ffffff !important;padding:10px 16px;` +
+            `border-radius:6px;text-decoration:none;font-weight:600;">${escapeHtml(block.action.label)}</a></p>`
+          : "") +
+        `</div>`
+      );
+    case "divider":
+      return (
+        `<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">\n` +
+        `<p class="hd-muted" style="margin:0 0 12px;color:${MUTED};font-size:12px;font-weight:700;` +
+        `letter-spacing:0.08em;text-transform:uppercase;">${escapeHtml(block.label)}</p>`
+      );
   }
+}
+
+/** The urgency tag's colours: red, amber, grey, each with white text. */
+const TAG_TONES = { red: "#cf222e", amber: "#7d4e00", grey: "#57606a" } as const;
+
+/** Inside the yellow box the page's highlight would vanish: a stronger one, dark ink. */
+const CALLOUT_HIGHLIGHT = "#ffd54f";
+
+/**
+ * Segments as HTML: each escaped first, then wrapped. A highlight carries
+ * its own ink, so dark mode never puts light text on the yellow.
+ */
+function segmentsHtml(segments: readonly RichSegment[], highlight = "#fff3a3"): string {
+  return segments
+    .map((s) => {
+      let html = escapeHtml(s.text).replace(/\n/g, "<br>");
+      if (s.highlight) html = `<mark style="background:${highlight};color:${INK};padding:0 2px;">${html}</mark>`;
+      if (s.underline) html = `<u>${html}</u>`;
+      if (s.bold) html = `<strong>${html}</strong>`;
+      return html;
+    })
+    .join("");
 }
 
 /** The footer's one link (the stop link), clickable in HTML; everything else escaped. */

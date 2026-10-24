@@ -9,8 +9,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // floor. Every re-sign but a version update pauses AYA (resignHoldsPause).
   agreement_unsigned_7_days: {
     title: "A clinic has not signed its updated agreement in 7 days",
+    headline: "{clinicName}'s updated agreement is still unsigned after 7 days and reminders",
     whatHappened:
-      "{clinicName} was sent an updated agreement to sign seven days ago, with reminders since. Nobody at the clinic has signed it yet.",
+      "{clinicName}'s updated agreement is still unsigned after 7 days and reminders. Nobody at the clinic has signed it yet.",
     whyItMatters:
       "A version update never pauses AYA: she keeps answering under the version the clinic signed. A new agreement that came from a change in the practice's covered-entity answer does pause her until it is signed. Either way, email has not moved the clinic, so a person should phone.",
     steps: [
@@ -26,8 +27,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // link could be made. The hourly job asks again every hour.
   agreement_resign_unrenderable: {
     title: "An updated agreement could not be prepared for signing",
+    headline: "{clinicName}'s new agreement cannot be prepared: its record is missing a detail",
     whatHappened:
-      "{clinicName} is on an older version of the business associate agreement and should be sent the current one to sign. Its record is missing something the new one is built from: the practice's legal name, a valid specialty, the booking system, the kind of Google account, or the clinic's sign-in address. So no signing link could be prepared.",
+      "{clinicName}'s new agreement cannot be prepared: its record is missing a detail. It is on an older version of the business associate agreement and should be sent the current one to sign, but its record lacks something the new one is built from: the practice's legal name, a valid specialty, the booking system, the kind of Google account, or the clinic's sign-in address. So no signing link could be prepared.",
     whyItMatters:
       "AYA keeps answering under the version the clinic signed, so nothing stops. But the clinic cannot move to the current version until the record is complete, and once it is, the hourly check starts the re-sign by itself only when the clinic's version is below the floor; otherwise a person starts it.",
     steps: [
@@ -42,8 +44,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // (owner, 19 October 2026); Home counts these clinics.
   agreement_below_floor_unsigned: {
     title: "A clinic is answering under a superseded agreement",
+    headline: "{clinicName} is on a superseded agreement: the current one is unsigned after 7 days",
     whatHappened:
-      "{clinicName} signed a version of the business associate agreement that go-live no longer accepts. We sent it the current version seven days ago, with reminders since, and it is still unsigned.",
+      "{clinicName} is on a superseded agreement: the current one is unsigned after 7 days. It signed a version of the business associate agreement that go-live no longer accepts.",
     whyItMatters:
       "AYA keeps answering under the version the clinic signed, by the owner's decision, so nothing stops. The clinic must still move to the current version, and email has not moved it.",
     steps: [
@@ -62,9 +65,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // The termination itself is recorded, and the assistant has stopped. The
   // phase is not printed, so the steps cover each.
   agreement_termination_incomplete: {
-    title: "A terminated practice's service did not fully end",
+    title: "A termination's last steps did not finish",
+    headline: "{clinicName}'s agreement ended, but its offboarding or cancellation did not finish",
     whatHappened:
-      "The agreement of the practice that includes {clinicName} was recorded as terminated, and AYA has stopped answering for it. One of the steps that follow did not finish for this clinic: starting its offboarding, or cancelling its subscription.",
+      "{clinicName}'s agreement ended, but its offboarding or cancellation did not finish. The agreement of the practice that includes it was recorded as terminated, and AYA has stopped answering for it. One of the steps that follow did not finish for this clinic: starting its offboarding, or cancelling its subscription.",
     whyItMatters:
       "Until offboarding starts, the clinic's data has no destruction date. Until the subscription is cancelled, Stripe keeps billing a practice whose agreement has ended, and every ending must stop the fees on the day.",
     steps: [
@@ -81,8 +85,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // names the organisation, not a clinic, so the alert has no link.
   agreement_termination_finished_late: {
     title: "A termination's last steps were finished late",
+    headline: "A termination's offboarding or cancellation was finished late by the hourly check",
     whatHappened:
-      "A practice's agreement was recorded as terminated, but one step never ran at the time. The hourly check has now finished it[ for {count:clinic}]: it started the offboarding that was owed, or recorded the subscription cancellation that was owed.",
+      "A termination's offboarding or cancellation was finished late by the hourly check. The practice's agreement was recorded as terminated, but one step never ran at the time. The hourly check has now finished it[ for {count:clinic}]: it started the offboarding that was owed, or recorded the subscription cancellation that was owed.",
     whyItMatters:
       "Between the termination and now, the practice may have been billed for days after its agreement ended, and its data kept with no destruction date. A period billed after the end is owed back.",
     steps: [
@@ -99,8 +104,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // register lists it once provisioning imports it.
   agreement_copy_withheld: {
     title: "A signer's copy of the agreement is still owed",
+    headline: "Someone signed the agreement at the checkout, but their emailed copy did not go out",
     whatHappened:
-      "Someone signed the agreement at the checkout, and the copy we email the signer was held back. That happens when a copy already went to that address today, the names typed carry something we do not mail to an unconfirmed address, the day's limit on such copies is spent, or the email itself failed.",
+      "Someone signed the agreement at the checkout, but their emailed copy did not go out. That happens when a copy already went to that address today, the names typed carry something we do not mail to an unconfirmed address, the day's limit on such copies is spent, or the email itself failed.",
     whyItMatters:
       "The signature stands, and the buyer was told the copy would follow. Until it does, only we hold the signed document, and an agreement binds two parties.",
     steps: [

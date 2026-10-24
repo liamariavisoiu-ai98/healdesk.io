@@ -23,8 +23,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // holds never reaches Stripe: it fails first as address_change_failed.
   address_change_stalled: {
     title: "A clinic's address change is waiting on Stripe",
+    // True whether Stripe refused the email or was never asked (not set up).
+    headline: "{clinicName}'s address change is due, but Stripe does not have the new email yet",
     whatHappened:
-      "{clinicName} is changing the one address on its account. The change is confirmed and its 72 hours are up, but Stripe would not take the new email for the clinic's customer, or Stripe is not set up on this host. Nothing has moved yet; it is tried again every hour, and this alert repeats each hour while it lasts.",
+      "{clinicName}'s address change is due, but Stripe does not have the new email yet. The change is confirmed and its 72 hours are up, but Stripe would not take the new email for the clinic's customer, or Stripe is not set up on this host. Nothing has moved yet; it is tried again every hour, and this alert repeats each hour while it lasts.",
     whyItMatters:
       "Until it goes through, the clinic's sign-in, invoices and agreement notices still go to the old address, which the clinic may no longer have.",
     steps: [
@@ -38,8 +40,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // sign_in_changed, both closed for good.
   address_change_failed: {
     title: "A clinic's address change was closed without effect",
+    headline: "{clinicName} keeps its old address: the change could not take effect; nothing retries",
     whatHappened:
-      "{clinicName} asked to change the one address on its account, and the change could not take effect, so it was closed. Either the new address already signs in to healdesk for another account, or the sign-in's address had moved some other way since.",
+      "{clinicName} keeps its old address: its change could not take effect, so it was closed, and nothing retries. Either the new address already signs in to healdesk for another account, or the sign-in's address had moved some other way since.",
     whyItMatters:
       "The clinic still signs in, is billed and gets notices at the address it has now, which it may be trying to leave. Nothing retries: a person has to agree a new address with the clinic.",
     steps: [
@@ -54,6 +57,8 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // and goes once a day per clinic and code, never past the day's cap.
   sign_in_help_unmatched: {
     title: "Someone asked for sign-in help and got no link",
+    // The day is the alert's own day, so it goes to the facts, not the headline.
+    headline: "{clinicName}: someone asked to get into its account and got no link; we cannot say who",
     whatHappened:
       "Someone used the I can't get in page with {clinicName}'s address[ on {windowStart}], and no link was sent. The billing detail they gave did not match the account, the account has nothing to check it against yet, or Stripe could not be asked. The page answers everyone the same way, so they were not told; this is today's first such request for this clinic and reason.",
     whyItMatters:
@@ -70,8 +75,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // No clinic, so no console link. Only hello@'s email stops at the cap.
   access_requests_capped: {
     title: "Sign-in help reached its daily cap of requests to us",
+    headline: "No more sign-in help requests reach hello@ today: the cap[ of {count:request}] is used up",
     whatHappened:
-      "The I can't get in page has sent hello@ as many access requests as it may in one day.[ The cap is {count:request} a day.][ Today is {windowStart} (UTC).] Further unmatched requests about an account today send hello@ nothing until tomorrow. Each still raises its clinic's sign-in help alert, once a day per clinic and reason, and is recorded in the security log.",
+      "The I can't get in page has sent hello@ as many access requests as it may in one day[, {count:request}].[ Today is {windowStart} (UTC).] Further unmatched requests about an account today send hello@ nothing until tomorrow. Each still raises its clinic's sign-in help alert, once a day per clinic and reason, and is recorded in the security log.",
     whyItMatters:
       "The cap keeps a flood from the form from using up the day's emails that sign-in links and urgent alerts need. Reaching it means several clinics locked out at once, or someone trying many addresses.",
     steps: [
@@ -85,8 +91,11 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // `count` is the account's locations; `channel` is not printable.
   step_up_phone_held: {
     title: "Phone is held off a plan with more than one location",
+    // "Or is adding": the hold also covers one location with a second on the
+    // way (lib/locations.ts phoneHeldByLocations), when `count` is still 1.
+    headline: "{clinicName} is not billed for phone: it has, or is adding, a second location",
     whatHappened:
-      "{clinicName} has phone answering, or due to join its price, and its account has more than one location, or one being added[ ({count} on its plan)]. Phone is billed per location and each location needs its own AYA number, which is not built yet, so phone was not added to the price and nothing was charged for it.",
+      "{clinicName} is not billed for phone: it has, or is adding, a second location.[ Its plan counts {count:location}.] Phone is answering, or is due to join the price. Phone is billed per location and each location needs its own AYA number, which is not built yet, so it was not added to the price and nothing was charged for it.",
     whyItMatters:
       "The clinic gets phone without paying for it until phone per location exists. Nothing in the console lifts the hold; a person decides what happens meanwhile.",
     steps: [

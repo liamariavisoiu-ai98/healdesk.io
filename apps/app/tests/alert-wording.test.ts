@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { subjectProblems } from "@/lib/email/lint";
 import { OPS_REASON } from "@/lib/email/templates/context";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
-import { ALERT_WORDING, alertWording, LEGACY_WORDING, SECTIONS } from "@/lib/ops/alert-wording";
+import { ALERT_WORDING, alertWording, type AlertWording, LEGACY_WORDING, SECTIONS } from "@/lib/ops/alert-wording";
 import {
   allowedAlertFields,
   cleanBusinessName,
@@ -39,15 +39,22 @@ import {
   fillWording,
   formatDay,
   formatValue,
+  layoutAlert,
   placeholdersOf,
+  shortName,
   plural,
   requiredPlaceholdersOf,
 } from "@/lib/ops/alert-wording/render";
 import { changeAlertFields } from "@/lib/clinic/change-events";
 import { dueWaves, type WaveFacts } from "@/lib/lifecycle/waves";
+import { PLACES } from "@/lib/ops/alert-wording/places";
+import { consoleLinkLabel } from "@/lib/ops/alert-wording/tabs";
 import { ACCOUNT, BILLING, DELIVERIES, issueTabFor, NO_CLINIC_PAGE, SETUP } from "@/lib/ops/alert-wording/tabs";
 import { OPS_EVENTS, opsConsoleLink, opsConsolePath, type OpsEvent } from "@/lib/ops/notify";
 import { packSections, SLACK_SECTION_MAX, slackName, slackPayload, slackText } from "@/lib/ops/slack";
+import { compose } from "@/lib/email/templates/compose";
+import { emphasisePlaces, mark, neutraliseValue, parseMarkup, plainText, toPlain, toSlack } from "@/lib/ops/alert-wording/markup";
+import { URGENCY, URGENCY_LOOK } from "@/lib/ops/alert-wording/urgency";
 
 /**
  * Plain-English ops alerts (lane N1; owner, 23 October 2026): every alert
@@ -134,201 +141,6 @@ const VERBS = new Set(
   "Open Press Check Phone Call Record Read Look Find Write Ask Use Leave Stop Do Wait Reply Email Confirm Send Mark Tell Turn Switch Release Delete Fix Decide Extend Cancel Refund Deliver Review Move Note Give Start Close Correct Update Follow Contact Raise Find Keep".split(" "),
 );
 
-/**
- * The places a step may send an operator, each with the apps/web file and
- * text that prove it exists today, and whether it is a page or card (where
- * to go) or a button (what to press there). A new place goes here with its
- * proof.
- */
-type Place = readonly [file: string, proof: string, kind: "page" | "button"];
-const PLACES: Readonly<Record<string, Place>> = {
-  "Setup tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'setup: "Setup"', "page"],
-  "Billing tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'billing: "Billing"', "page"],
-  "Deliveries tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'deliveries: "Deliveries"', "page"],
-  "Care tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'care: "Care"', "page"],
-  "Account tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'account: "Account"', "page"],
-  "Queues page": ["app/admin/queues/page.tsx", 'title: "Queues"', "page"],
-  "Setup requests": ["app/admin/queues/SetupRequestsSection.tsx", 'title="Setup requests"', "page"],
-  "Calendar writes needing attention": [
-    "app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx",
-    "Calendar writes needing attention",
-    "page",
-  ],
-  "Phone line": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Phone line"', "page"],
-  "Usage and the allowance": [
-    "app/admin/clinics/[clinicId]/billing/BillingPanel.tsx",
-    'title="Usage and the allowance"',
-    "page",
-  ],
-  "Touch log": ["app/admin/clinics/[clinicId]/care/TouchLog.tsx", '"Touch log"', "page"],
-  "Send setup link": ["app/admin/queues/SetupRequestsSection.tsx", '"Send setup link"', "button"],
-  Decline: ["app/admin/queues/SetupRequestsSection.tsx", "Decline", "button"],
-  "Link sent": ["app/admin/queues/SetupRequestsSection.tsx", "`Link sent ", "button"],
-  "the email didn't send": ["app/admin/queues/SetupRequestsSection.tsx", "the email didn't send", "button"],
-  Retry: ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Retry\n", "button"],
-  "Send calendar link": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Send calendar link", "button"],
-  "Extend the setup window": [
-    "app/admin/clinics/[clinicId]/billing/BillingPanel.tsx",
-    "Extend the setup window",
-    "button",
-  ],
-  "At the allowance": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "At the allowance", "button"],
-  Record: ["app/admin/clinics/[clinicId]/care/TouchLog.tsx", '"Record"', "button"],
-  // Lane N2a: the places the provisioning, billing, usage and email-delivery
-  // steps name. Pages and cards first, then buttons.
-  "Clinics page": ["app/admin/clinics/page.tsx", 'title: "Clinics"', "page"],
-  "Jobs page": ["app/admin/system/jobs/page.tsx", 'title: "Jobs"', "page"],
-  "Map page": ["app/admin/map/page.tsx", 'title: "System map"', "page"],
-  "Agreements register": ["app/admin/compliance/page.tsx", 'label: "Agreements register"', "page"],
-  "Plan card": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "title={`Plan — ", "page"],
-  "Plan started": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", 'label="Plan started', "page"],
-  Locations: ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", '<Row label="Locations">', "page"],
-  "Refunded under § 5": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", 'label="Refunded under § 5"', "page"],
-  "Needs attention": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Needs attention", "page"],
-  "Billing requests": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Billing requests —", "page"],
-  "Setup closure": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", 'close_setup: "Setup closure"', "page"],
-  "Cancel now": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", 'cancel_now: "Cancel now"', "page"],
-  "Parked Stripe events": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Parked Stripe events —", "page"],
-  "A location waiting to be set up": [
-    "app/admin/clinics/[clinicId]/billing/BillingPanel.tsx",
-    'title="A location waiting to be set up"',
-    "page",
-  ],
-  "Annual overage invoices": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Annual overage invoices —", "page"],
-  "Refund under Terms § 5": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", 'title="Refund under Terms § 5"', "page"],
-  "Billing emails": ["app/admin/clinics/[clinicId]/deliveries/DeliveriesLedger.tsx", "Billing emails", "page"],
-  "Reports and alerts": ["app/admin/clinics/[clinicId]/deliveries/DeliveriesLedger.tsx", "Reports and alerts", "page"],
-  "The clinic's address": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", `title="The clinic's address"`, "page"],
-  Offboarding: ["app/admin/clinics/[clinicId]/care/CarePanel.tsx", 'title="Offboarding"', "page"],
-  "Preview the amount": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Preview the amount", "button"],
-  Replay: ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Replay\n", "button"],
-  "Retry the location setup": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Retry the location setup", "button"],
-  "Retry the invoice": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Retry the invoice", "button"],
-  "Turn auto-renew on": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", '"Turn auto-renew on"', "button"],
-  "Close the unfinished setup": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Close the unfinished setup", "button"],
-  "Turn on": ["app/admin/system/jobs/JobsTable.tsx", '"Turn on"', "button"],
-  "Enter the change": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", '"Enter the change"', "button"],
-  "Resend copy": ["app/admin/compliance/agreements/AgreementsRegister.tsx", '"Resend copy"', "button"],
-  // Lane N2b: setup-and-support, agreements, voice, calendar, transcripts.
-  "Home page": ["app/admin/page.tsx", 'title: "Home"', "page"],
-  "Voice agent column": ["app/admin/clinics/ClinicTable.tsx", 'label: "Voice agent"', "page"],
-  "Calendar column": ["app/admin/clinics/ClinicTable.tsx", 'label: "Calendar"', "page"],
-  Support: ["app/admin/queues/SupportSection.tsx", 'id="support" title={`Support', "page"],
-  "Waiting for a reply": ["app/admin/queues/SupportSection.tsx", "Waiting for a reply", "page"],
-  "Mark replied": ["app/admin/queues/SupportSection.tsx", "Mark replied", "button"],
-  "Site reads": ["app/admin/queues/page.tsx", 'label: "Site reads"', "page"],
-  "Read it again": ["app/admin/queues/RereadButton.tsx", "Read it again", "button"],
-  Reviews: ["app/admin/queues/page.tsx", 'label: "Reviews"', "page"],
-  "Agent script": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "title={`Agent script", "page"],
-  "Save script": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Save script", "button"],
-  "Channels card": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Channels"', "page"],
-  Pass: ["app/admin/queues/ReviewQueue.tsx", "Pass\n", "button"],
-  Fail: ["app/admin/queues/ReviewQueue.tsx", "Fail\n", "button"],
-  "Run the questions again": ["app/admin/queues/ReviewQueue.tsx", "Run the questions again", "button"],
-  "Go live": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Go live"', "page"],
-  "Check go-live now": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Check go-live now", "button"],
-  Channels: ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Channels"', "page"],
-  "The line is on their website": [
-    "app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx",
-    "The line is on their website",
-    "button",
-  ],
-  "Setup window": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'title="Setup window"', "page"],
-  // The Setup window card's own extend button; "Extend the setup window" above proves the Billing tab's.
-  "Extend the setup window on the Setup window card": [
-    "app/admin/clinics/[clinicId]/setup/SetupWindow.tsx",
-    'label="Extend the setup window"',
-    "button",
-  ],
-  "Availability changes": ["app/admin/clinics/[clinicId]/setup/AvailabilityChanges.tsx", 'title="Availability changes"', "page"],
-  Reminders: ["app/admin/clinics/[clinicId]/deliveries/Reminders.tsx", "title={`Reminders", "page"],
-  "Offered a call": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Offered a call"', "button"],
-  "Let it close": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Let it close"', "button"],
-  "Snooze alerts": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Snooze alerts"', "button"],
-  "Run audit now": ["app/admin/clinics/[clinicId]/setup/AvailabilityChanges.tsx", 'label="Run audit now"', "button"],
-  "Mark as seen": ["app/admin/clinics/[clinicId]/setup/AvailabilityChanges.tsx", 'label="Mark as seen"', "button"],
-  "Ask the practice questions again": [
-    "app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx",
-    "Ask the practice questions again",
-    "button",
-  ],
-  "Calendar card": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Calendar"', "page"],
-  "Meta front door card": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "title={`Meta front door", "page"],
-  "Save phone settings": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Save phone settings", "button"],
-  "To undo": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "To undo", "page"],
-  "Pause AI and the direct line": [
-    "app/admin/clinics/[clinicId]/billing/BillingPanel.tsx",
-    "Pause AI and the direct line",
-    "page",
-  ],
-  "Save the direct line": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Save the direct line", "button"],
-  Resume: ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Resume\n", "button"],
-  "Offboarding card": ["app/admin/clinics/[clinicId]/care/CarePanel.tsx", 'title="Offboarding"', "page"],
-  "Start offboarding": ["app/admin/clinics/[clinicId]/care/CarePanel.tsx", "Start offboarding", "button"],
-  "Start a test window": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Start a test window", "button"],
-  "What the clinic dials": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "What the clinic dials", "page"],
-  "Meta front door": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Meta front door — ", "page"],
-  "Compliance page": ["app/admin/compliance/page.tsx", 'title: "Compliance"', "page"],
-  "Business associate agreements in the chain": [
-    "app/admin/compliance/CompliancePanel.tsx",
-    "Business associate agreements in the chain",
-    "page",
-  ],
-  Attest: ["app/admin/compliance/CompliancePanel.tsx", '"Attest"', "button"],
-  "Attest again": ["app/admin/compliance/CompliancePanel.tsx", "Attest again", "button"],
-  Withdraw: ["app/admin/compliance/CompliancePanel.tsx", "Withdraw\n", "button"],
-  "Lapses on": ["app/admin/compliance/CompliancePanel.tsx", "Lapses on (optional)", "button"],
-  Incidents: ["app/admin/compliance/incidents/page.tsx", 'title: "Incidents"', "page"],
-  "Send report": ["app/admin/compliance/incidents/IncidentsBoard.tsx", '"Send report"', "button"],
-  "Not reportable": ["app/admin/compliance/incidents/IncidentsBoard.tsx", "Not reportable\n", "button"],
-  "Record clinic notified": ["app/admin/clinics/[clinicId]/care/CarePanel.tsx", "Record clinic notified", "button"],
-  Resolve: ["app/admin/clinics/[clinicId]/care/CarePanel.tsx", "Resolve\n", "button"],
-  "Open incident and start the clock": [
-    "app/admin/clinics/[clinicId]/care/CarePanel.tsx",
-    "Open incident and start the clock",
-    "button",
-  ],
-  "Record export delivered": ["app/admin/clinics/[clinicId]/care/CarePanel.tsx", "Record export delivered", "button"],
-  "Record Retell agent release": [
-    "app/admin/clinics/[clinicId]/care/CarePanel.tsx",
-    "Record Retell agent release",
-    "button",
-  ],
-  Transcripts: ["app/admin/clinics/[clinicId]/deliveries/DeliveriesLedger.tsx", 'label: "Transcripts"', "page"],
-  "Newest receipts": ["app/admin/clinics/[clinicId]/deliveries/TranscriptsPanel.tsx", "Newest receipts", "page"],
-  "Send again": ["app/admin/clinics/[clinicId]/deliveries/TranscriptsPanel.tsx", '"Send again"', "button"],
-  "Missing or broken": ["app/admin/map/MapLists.tsx", 'label: "Missing or broken"', "button"],
-  Manage: ["app/admin/compliance/agreements/AgreementsRegister.tsx", '"Manage"', "button"],
-  "Send copy": ["app/admin/compliance/agreements/AgreementsRegister.tsx", '"Send copy"', "button"],
-  "Copy sent": ["app/admin/compliance/agreements/AgreementsRegister.tsx", 'label="Copy sent"', "button"],
-  "Never delivered": ["app/admin/compliance/agreements/AgreementsRegister.tsx", "Never delivered", "button"],
-  "Stop this change": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", "Stop this change", "button"],
-  "Change the address": [
-    "app/admin/clinics/[clinicId]/account/AccountPanel.tsx",
-    "Change the address (the clinic lost it)",
-    "button",
-  ],
-  "Send a link to add a device": [
-    "app/admin/clinics/[clinicId]/account/DevicesSection.tsx",
-    "Send a link to add a device (the clinic lost every device)",
-    "button",
-  ],
-  "Deposits and Stripe Connect": [
-    "app/admin/clinics/[clinicId]/billing/BillingPanel.tsx",
-    "Deposits and Stripe Connect",
-    "page",
-  ],
-  "Disconnect Stripe": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "Disconnect Stripe", "button"],
-  Plan: ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", 'title="Plan"', "page"],
-  Jobs: ["app/admin/system/jobs/page.tsx", 'title: "Jobs"', "page"],
-  Map: ["app/admin/system/page.tsx", 'label: "Map"', "page"],
-  // Lane N2b, after the accuracy review: the re-sign broadcast on Compliance › Notices.
-  "Notices page": ["app/admin/compliance/page.tsx", 'label: "Notices"', "page"],
-  "Start the re-signs": ["app/admin/compliance/notices/NoticesBoard.tsx", "Start the re-signs", "button"],
-  // Lane N2c, after its accuracy review: the covered-entity answer on the Account tab.
-  "Covered entity": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", 'title="Covered entity"', "page"],
-  "Record the answer": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", '"Record the answer"', "button"],
-};
 
 function escapeRe(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -724,7 +536,7 @@ describe("each rewritten event's fields are the ones its raise site sends", () =
     expect(removedOnly).toEqual({ clinicId: CLINIC, section: "closures", count: 1, deleted: 1 });
     const text = fillWording(alertWording("clinic_availability_changed", removedOnly), wordingValues(removedOnly, "Glow"));
     expect(text.whatHappened).not.toMatch(/added 0|added/);
-    expect(text.whatHappened).toContain("It took off 1 closed day.");
+    expect(text.whatHappened).toContain("1 closed day taken off.");
   });
 
   test("lifecycle_decision_due: dueWaves", () => {
@@ -775,17 +587,23 @@ describe("one wording, two renderings", () => {
     const consoleUrl = opsConsoleLink(event, fields, ALERT)!;
     const email = renderOpsAlert({ event, ...fields, ...(clinicName ? { clinicName } : {}), consoleUrl }, CTX);
     const slack = slackText({ event, fields, clinicName, alertId: ALERT });
-    const filled = fillWording(alertWording(event, fields), wordingValues(fields, clinicName));
-    for (const sentence of [filled.whatHappened, filled.whyItMatters]) {
+    // Lane N4: the same layout in both: the headline, step 1 as "Do this
+    // first" (once), the rest of what happened, why it matters, steps from 2.
+    const layout = layoutAlert(alertWording(event, fields), wordingValues(fields, clinicName));
+    const slackPlain = slack.replace(/\*/g, "");
+    for (const sentence of [layout.headline, layout.detail, layout.whyItMatters].map(plainText).filter(Boolean)) {
       expect(email.text).toContain(sentence);
-      expect(slack).toContain(sentence.replace(/&/g, "&amp;"));
+      expect(slackPlain).toContain(sentence.replace(/&/g, "&amp;"));
     }
-    filled.steps.forEach((step, i) => {
-      expect(email.text).toContain(`${i + 1}. ${step}`);
-      expect(slack).toContain(`${i + 1}. ${step}`);
+    expect(email.text).toContain(`DO THIS FIRST: ${plainText(layout.doFirst!)}`);
+    expect(slackPlain).toContain(`Do this first: ${plainText(layout.doFirst!)}`);
+    layout.then.forEach((step, i) => {
+      expect(email.text).toContain(`${i + 2}. ${plainText(step)}`);
+      expect(slackPlain).toContain(`${i + 2}. ${plainText(step)}`);
     });
     expect(email.text).toContain(consoleUrl);
-    expect(slack).toContain(`<${consoleUrl}|Open in the console>`);
+    expect(slack).toContain(`<${consoleUrl}|${consoleLinkLabel(consoleUrl)}>`);
+    const filled = fillWording(alertWording(event, fields), wordingValues(fields, clinicName));
     // The event code once, as a reference at the bottom, not in the body.
     expect(email.text.split(consoleUrl).join("").split(event).length - 1).toBe(1);
     expect(email.text).toContain(`Alert code: ${event}`);
@@ -806,13 +624,14 @@ describe("one wording, two renderings", () => {
   test("the setup request alert names the business and the promised day, and nothing about the person", () => {
     const { fields } = FIVE[0]!;
     const slack = slackText({ event: "setup_request_reply_past_due", fields, clinicName: null, alertId: ALERT });
-    expect(slack).toContain("A clinic asked us to set up AYA: Glow Med Spa.");
-    expect(slack).toContain("We promised to reply by 22 Oct");
+    expect(slack).toContain("*Glow Med Spa is still waiting for our reply to its setup request*");
+    expect(slack).toContain("We promised to reply by *22 Oct*");
     expect(slack).toContain("Business: Glow Med Spa");
     expect(slack).not.toContain(ALERT.slice(0, 8) + "-1111-4222-8333-444455556666#");
     // Without a name or a day, the same alert still reads.
     const bare = slackText({ event: "setup_request_reply_past_due", fields: { requestId: ALERT }, clinicName: null });
-    expect(bare).toContain("A clinic asked us to set up AYA. We promised to reply, and that day has passed.");
+    expect(bare).toContain("*A clinic is still waiting for our reply to its setup request*");
+    expect(bare).toContain("We promised to reply, and that day has passed.");
   });
 
   test("Slack's blocks hold the whole text in sections Slack accepts, and never cut a step", () => {
@@ -887,8 +706,16 @@ describe("the closed word lists", () => {
       }
     }
     expect(Object.keys(EVENT_WORDS).sort()).toEqual(["code", "status"]);
-    const status = (event: OpsEvent, value: string) =>
-      sharedFacts({ clinicId: CLINIC, status: value }, alertWording(event, { status: value }));
+    // The value's words appear in the headline or as a fact row (a headline
+    // that prints a key takes it out of the facts: lane N5a).
+    const status = (event: OpsEvent, value: string): (readonly [string, string])[] => {
+      const fields = { clinicId: CLINIC, status: value };
+      const wording = alertWording(event, fields);
+      const facts = sharedFacts(fields, wording);
+      const headline = plainText(layoutAlert(wording, wordingValues(fields, "Glow")).headline);
+      const words = STATUS_WORDS[event]?.[value];
+      return words && headline.includes(words) ? [...facts, ["Status", words] as const] : facts;
+    };
     expect(status("calendar_write_stuck", "failed")).toContainEqual(["Status", "not written"]);
     expect(status("calendar_write_stuck", "unknown")).toContainEqual(["Status", "never confirmed by Google"]);
     expect(status("critical_notice_undelivered", "late")).toContainEqual(["Status", "late, still being retried"]);
@@ -904,15 +731,24 @@ describe("the closed word lists", () => {
   });
 
   test("a billing request's kind is labelled Request, an email's Email kind, and a Meta provider Meta channel", () => {
+    // In the headline or as a fact row under its own label (lane N5a puts
+    // the request kind and the Meta channel in the headline).
+    const shown = (event: OpsEvent, fields: Record<string, string>, label: string, words: string) => {
+      const wording = alertWording(event, fields);
+      const headline = plainText(layoutAlert(wording, wordingValues(fields, "Glow")).headline);
+      const facts = sharedFacts(fields, wording);
+      expect(headline.includes(words) || facts.some(([l, v]) => l === label && v === words), `${event}: ${headline}`).toBe(true);
+      expect(facts.some(([l]) => l === "Email kind" && label !== "Email kind"), event).toBe(false);
+    };
     const request = { clinicId: CLINIC, kind: "plan_start" };
     for (const event of ["billing_request_dead_lettered", "billing_request_stuck"] as const) {
-      expect(sharedFacts(request, alertWording(event, request)), event).toContainEqual(["Request", "starting the plan"]);
+      shown(event, request, "Request", "starting the plan");
     }
     const email = { clinicId: CLINIC, kind: "receipt" };
     expect(sharedFacts(email, alertWording("clinic_address_bounced", email))).toContainEqual(["Email kind", "a receipt"]);
     const meta = { clinicId: CLINIC, provider: "meta-whatsapp" };
     for (const event of ["connection_broken", "meta_revoke_failed", "meta_revoke_by_hand"] as const) {
-      expect(sharedFacts(meta, alertWording(event, meta)), event).toContainEqual(["Meta channel", "WhatsApp"]);
+      shown(event, meta, "Meta channel", "WhatsApp");
     }
   });
 
@@ -927,17 +763,25 @@ describe("the closed word lists", () => {
       alertWording("export_due_undelivered", {}),
       wordingValues({ exportDueAt: "2026-11-20T10:00:00.000Z", destroyAt: "2027-01-18T10:00:00.000Z" }, "Glow"),
     );
-    expect(exportDue.whatHappened).toContain("It is due by 20 Nov. The data waits for it until 18 Jan at the latest.");
+    // The due day is the headline's now (lane N4 review); the last day stays here.
+    expect(plainText(layoutAlert(alertWording("export_due_undelivered", {}), wordingValues({ exportDueAt: "2026-11-20T10:00:00.000Z" }, "Glow")).headline)).toBe(
+      "Glow's export is not delivered; the agreement's day for it is 20 Nov",
+    );
+    expect(exportDue.whatHappened).toContain("The data waits for it until 18 Jan at the latest.");
     const before = fillWording(alertWording("export_undelivered_before_destruction", {}), wordingValues({ destroyAt: "2026-11-30T10:00:00.000Z" }, "Glow"));
-    expect(before.whatHappened).toContain("its data is destroyed on 30 Nov, as Offboarding");
+    // The destruction day is in the headline; the detail points at Offboarding (lane N4 review).
+    expect(plainText(layoutAlert(alertWording("export_undelivered_before_destruction", {}), wordingValues({ destroyAt: "2026-11-30T10:00:00.000Z" }, "Glow")).headline)).toBe(
+      "Glow's export must be delivered before its data is destroyed on 30 Nov",
+    );
+    expect(before.whatHappened).toContain("its data is destroyed on the day Offboarding on its Care tab shows");
     const late = fillWording(alertWording("offboarding_started_late", {}), wordingValues({ serviceEndedAt: "2026-10-01T00:00:00.000Z", lateDays: 3 }, "Glow"));
     expect(late.whatHappened).toContain("Glow's subscription ended on 1 Oct, and");
     const refused = fillWording(alertWording("email_refused", {}), wordingValues({ kind: "receipt" }, "Glow"));
     expect(refused.whatHappened).toContain("was refused on our side before sending. It was a receipt.");
     const critical = fillWording(alertWording("critical_notice_undelivered", {}), wordingValues({ kind: "payment_failed" }, "Glow"));
-    expect(critical.whatHappened).toContain("is still unsent. It is a payment-failed notice.");
+    expect(critical.whatHappened).toContain("must get at once, a payment-failed notice, was due ten minutes ago");
     const dead = fillWording(alertWording("critical_notice_undelivered", { status: "dead" }), wordingValues({ kind: "suspended", status: "dead" }, "Glow"));
-    expect(dead.whatHappened).toContain("It was a suspension notice.");
+    expect(dead.whatHappened).toContain("was owed, a suspension notice, will not be sent.");
   });
 
   test("practice_question_failed prints its section as a Knowledge section, not as what changed", () => {
@@ -961,5 +805,281 @@ describe("every event links somewhere", () => {
       expect(opsConsoleLink(event, {}, ALERT), event).toBe(`https://healdesk.test${NO_CLINIC_PAGE[event]}`);
       expect(opsConsoleLink(event, { clinicId: CLINIC }, ALERT), event).toContain(`/admin/clinics/${CLINIC}/`);
     }
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Lane N4: an alert scanned in three seconds
+// -----------------------------------------------------------------------------
+
+/** Fields for any event, from its EVENT_FIELDS: a value of the right shape for each. */
+function sampleFields(event: OpsEvent): Record<string, string | number> {
+  const out: Record<string, string | number> = {};
+  for (const key of EVENT_FIELDS[event] ?? []) {
+    const closed = CLOSED_WORDS[key] ?? EVENT_WORDS[key]?.[event];
+    if (key === "clinicId") out[key] = CLINIC;
+    else if (key === "business") out[key] = "Glow Med Spa";
+    else if (closed) out[key] = Object.keys(closed)[0]!;
+    else if (/(At|On)$/.test(key) || key === "windowStart") out[key] = "2026-10-22";
+    else if (isCountKeyName(key)) out[key] = 3;
+    else out[key] = ALERT;
+  }
+  return out;
+}
+
+function isCountKeyName(key: string): boolean {
+  return /(Count|Days|Hours|Minutes|Percent)$/.test(key) || ["count", "attempts", "used", "included", "written", "deleted", "failures"].includes(key);
+}
+
+const MARKER_LEFT = /\*\*|__|==|[-]|undefined|null\b|\{|\}/;
+
+describe("the markup", () => {
+  test("balanced markers become emphasis in all three outputs", () => {
+    const segments = parseMarkup("Open **Billing** then __Usage__ by ==22 Oct==.");
+    expect(segments).toEqual([
+      { text: "Open " },
+      { text: "Billing", bold: true },
+      { text: " then " },
+      { text: "Usage", underline: true },
+      { text: " by " },
+      { text: "22 Oct", highlight: true },
+      { text: "." },
+    ]);
+    expect(toPlain(segments)).toBe("Open Billing then Usage by 22 Oct.");
+    expect(toSlack(segments, (t) => t)).toBe("Open *Billing* then *Usage* by *22 Oct*.");
+    const html = compose({ subject: "s", preheader: "p", blocks: [{ type: "rich", segments }] }, CTX).html;
+    expect(html).toContain("<strong>Billing</strong>");
+    expect(html).toContain("<u>Usage</u>");
+    expect(html).toMatch(/<mark style="background:#fff3a3;[^"]*">22 Oct<\/mark>/);
+  });
+
+  test("unbalanced or nested markers print as plain characters, never as broken markup", () => {
+    for (const text of ["a **b", "**a __b__ c**", "x == y", "__", "** spaced **", "a==b==c=="]) {
+      const segments = parseMarkup(text);
+      const html = compose({ subject: "s", preheader: "p", blocks: [{ type: "rich", segments }] }, CTX).html;
+      const body = /<div class="hd-wrap"[^>]*>\n([\s\S]*?)\n<hr/.exec(html)![1]!;
+      // Every tag opened is closed, and nested input never nests emphasis.
+      for (const tag of ["strong", "u", "mark"]) {
+        expect(body.split(`<${tag}`).length, `${text} ${tag}`).toBe(body.split(`</${tag}>`).length);
+      }
+      expect(segments.filter((s) => s.bold && s.underline).length, text).toBe(0);
+    }
+    expect(toPlain(parseMarkup("a **b"))).toBe("a **b");
+    expect(toPlain(parseMarkup("**a __b__ c**"))).toBe("**a b c**");
+  });
+
+  test("a hostile value creates no emphasis and no markup, in the email, the text and Slack", () => {
+    const hostile = "**Glow** __x__ ==y== <b>z</b> & w";
+    expect(neutraliseValue(hostile)).toBe("*Glow* _x_ =y= <b>z</b> & w");
+    const marked = fill("{clinicName} has used {percent}.", { clinicName: hostile, percent: 91 }, { values: true });
+    const segments = parseMarkup(marked);
+    // The only emphasis is the renderer's own bold around each whole value.
+    expect(segments.filter((s) => s.underline || s.highlight)).toEqual([]);
+    expect(toPlain(segments)).toBe("*Glow* _x_ =y= <b>z</b> & w has used 91%.");
+    const email = renderOpsAlert(
+      { event: "usage_near_cap", clinicId: CLINIC, clinicName: "Glow ==Spa== <i>", used: 9, included: 10, meter: "voice_minutes" },
+      CTX,
+    );
+    expect(email.html).not.toContain("<i>");
+    expect(email.html).toContain("&lt;i&gt;");
+    expect(email.html).not.toMatch(/<mark[^>]*>Spa/);
+    const slack = slackText({ event: "usage_near_cap", fields: { clinicId: CLINIC, used: 9, included: 10 }, clinicName: "*Bold* _it_ <!here>" });
+    expect(slack).not.toContain("<!here>");
+    expect(slack.split("\n")[0]).toBe(":large_yellow_circle: [app] *Bold it &lt;!here&gt; has used 90% of its allowance for this billing period*");
+  });
+
+  test("console places in a step are bold and underlined, longest name first, once", () => {
+    const step = emphasisePlaces("Press Extend the setup window on the Setup window card, then open the Setup tab.");
+    const segments = parseMarkup(step);
+    const marked = segments.filter((s) => s.bold && s.underline).map((s) => s.text);
+    expect(marked).toEqual(["Extend the setup window on the Setup window card", "Setup tab"]);
+    // Never inside a value the renderer marked.
+    expect(parseMarkup(emphasisePlaces(mark("bold", "Setup tab"))).filter((s) => s.underline)).toEqual([]);
+  });
+});
+
+describe("every alert, laid out", () => {
+  test("the urgency map covers every event, and an urgent subject still fits", () => {
+    expect(Object.keys(URGENCY).sort()).toEqual([...OPS_EVENTS].sort());
+    for (const event of OPS_EVENTS) {
+      const rendered = renderOpsAlert({ event, ...sampleFields(event) }, CTX);
+      expect(subjectProblems(rendered.subject), event).toEqual([]);
+      expect(rendered.subject.length, event).toBeLessThanOrEqual(70);
+      expect(rendered.subject.startsWith("healdesk ops: URGENT: "), event).toBe(URGENCY[event] === "urgent");
+      expect(rendered.preheader, event).toMatch(/^(URGENT|TODAY|FYI): /);
+    }
+  });
+
+  test.each(OPS_EVENTS.map((e) => [e]))("%s: headline, do-first once, no marker left, nothing undefined", (event) => {
+    const fields = sampleFields(event as OpsEvent);
+    const clinicName = fields.clinicId ? "Glow Med Spa" : null;
+    const consoleUrl = opsConsoleLink(event as OpsEvent, fields, ALERT)!;
+    const email = renderOpsAlert({ event: event as OpsEvent, ...fields, ...(clinicName ? { clinicName } : {}), consoleUrl }, CTX);
+    const slack = slackText({ event: event as OpsEvent, fields, clinicName, alertId: ALERT });
+    const layout = layoutAlert(alertWording(event as OpsEvent, fields), wordingValues(fields, clinicName));
+    const headline = plainText(layout.headline);
+    expect(headline.length).toBeGreaterThan(10);
+    expect(email.text.split("\n")[0]).toBe(`${URGENCY_LOOK[URGENCY[event as OpsEvent]].tag}: ${headline}`);
+    expect(slack.split("\n")[0]).toContain(`*${headline.replace(/&/g, "&amp;")}*`);
+    // Step 1 is the do-first box, and appears nowhere else.
+    const first = plainText(layout.doFirst!);
+    expect(email.text.split(first).length - 1).toBe(1);
+    expect(slack.replace(/\*/g, "").split(first.replace(/\*/g, "")).length - 1).toBe(1);
+    expect(email.text).not.toMatch(/^1\. /m);
+    expect(email.html).toContain("Do this first");
+    for (const body of [email.text, slack]) expect(body, event).not.toMatch(MARKER_LEFT);
+    const visible = email.html.replace(/<style>[\s\S]*?<\/style>/, "");
+    expect(visible, event).not.toMatch(/\*\*|__|==|[-]|undefined/);
+  });
+
+  test("a headline is a plain line of at most 90 characters, not the title again, from allow-listed fields", () => {
+    // Every event has a headline (lanes N5a and N5b): an event added without
+    // one fails here, so its writer adds the headline with it.
+    const withHeadline = OPS_EVENTS.filter((e) => ALERT_WORDING[e]!.headline);
+    expect([...withHeadline].sort()).toEqual([...OPS_EVENTS].sort());
+    for (const event of withHeadline) {
+      const wording = ALERT_WORDING[event]!;
+      const headline = wording.headline!;
+      expect(codeProblems(headline), event).toEqual([]);
+      expect(placeholdersOf(headline).every((k) => isPlaceholderAllowed(k) && (k === "clinicName" || k === "percent" || EVENT_FIELDS[event]!.includes(k))), event).toBe(true);
+      const rendered = plainText(layoutAlert(alertWording(event, sampleFields(event)), wordingValues(sampleFields(event), "Radiance Med Spa")).headline);
+      expect(rendered.length, `${event}: ${rendered}`).toBeLessThanOrEqual(90);
+      // Not the title again, however it is cased, punctuated or named.
+      const norm = (t: string) => t.toLowerCase().replace(/radiance med spa|this clinic|a clinic('s)?|the clinic('s)?/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+      expect(norm(rendered), event).not.toBe(norm(wording.title));
+      expect(norm(rendered).startsWith(norm(wording.title)), event).toBe(false);
+    }
+    // The dead letter's own headline.
+    const dead = layoutAlert(alertWording("critical_notice_undelivered", { status: "dead" }), wordingValues({ kind: "suspended" }, "Glow"));
+    expect(plainText(dead.headline)).toBe("Glow never got a suspension notice: it will not be sent");
+    // The headline replaces the first sentence; the rest does not restate it.
+    expect(plainText(dead.detail)).toBe("It used every retry, was refused outright on its first try, or the clinic has no address to send to.");
+  });
+
+  test("without a headline, the title with the clinic's name stands in, and the whole of what happened stays", () => {
+    // Every real event has a headline now, so the fallback is proved on synthetic wordings.
+    const synthetic = (title: string): AlertWording => ({
+      title,
+      whatHappened: "Something changed at {clinicName}. Nothing else is known.",
+      whyItMatters: "It matters.",
+      steps: ["Open the clinic's Setup tab.", "Check the Care tab."],
+      event: "connection_broken",
+    });
+    const possessive = layoutAlert(synthetic("A clinic's connection stopped working"), wordingValues({}, "Glow"));
+    expect(possessive.headlineIsFallback).toBe(true);
+    expect(plainText(possessive.headline)).toBe("Glow's connection stopped working");
+    expect(plainText(possessive.detail)).toBe("Something changed at Glow. Nothing else is known.");
+    expect(plainText(layoutAlert(synthetic("A clinic is held back from going live"), wordingValues({}, "Glow")).headline)).toBe(
+      "Glow is held back from going live",
+    );
+    expect(plainText(layoutAlert(synthetic("A channel's first answer was lost"), wordingValues({}, "Glow")).headline)).toBe(
+      "Glow: A channel's first answer was lost",
+    );
+    expect(plainText(layoutAlert(synthetic("Time to review the reports"), wordingValues({}, null)).headline)).toBe(
+      "Time to review the reports",
+    );
+  });
+;
+
+  test("the six previews read as the owner was shown them", () => {
+    const late = renderOpsAlert(
+      { event: "critical_notice_undelivered", clinicId: CLINIC, clinicName: "Radiance Med Spa", kind: "payment_failed", status: "late", attempts: 3 },
+      CTX,
+    );
+    expect(late.preheader).toBe("URGENT: Radiance Med Spa has not received a payment-failed notice: over 10 minutes late");
+    expect(late.html).toContain("<strong>Radiance Med Spa</strong> has not received <strong>a payment-failed notice</strong>");
+    expect(late.html).toContain("background:#cf222e");
+    expect(late.text).toContain("MORE DETAIL");
+    expect(late.text).toContain("WHY IT MATTERS:");
+    expect(late.text).toContain("THEN:\n2. ");
+  });
+});
+
+describe("lane N4 review", () => {
+  test("no wording or headline carries an author marker it did not mean", () => {
+    // No wording uses author markers today; one that does must say so here.
+    const INTENDED: readonly string[] = [];
+    for (const [event, wording] of Object.entries(ALERT_WORDING)) {
+      const texts = [wording!.title, wording!.headline ?? "", wording!.whatHappened, wording!.whyItMatters, ...wording!.steps];
+      for (const text of texts) {
+        if (INTENDED.includes(event)) continue;
+        expect(text, `${event}: ${text.slice(0, 60)}`).not.toMatch(/\*\*|__|==/);
+      }
+    }
+  });
+
+  test("a name in a step is never taken for a console place", () => {
+    const step = fill("Phone {clinicName} from its Care tab.", { clinicName: "Care tab Clinic" }, { values: false, neutral: true });
+    const places = parseMarkup(emphasisePlaces(step)).filter((s) => s.underline).map((s) => s.text);
+    expect(places).toEqual(["Care tab"]);
+    expect(plainText(emphasisePlaces(step))).toBe("Phone Care tab Clinic from its Care tab.");
+  });
+
+  test("usage alerts label the window's first day Counted since", () => {
+    // usage_cap_reached has no headline yet, so its sentence still says "counted since".
+    for (const event of ["usage_near_cap"] as const) {
+      const fields = { clinicId: CLINIC, meter: "voice_minutes", windowStart: "2026-10-01T00:00:00.000Z", used: 9, included: 10 };
+      expect(sharedFacts(fields, alertWording(event, fields)), event).toContainEqual(["Counted since", "1 Oct"]);
+    }
+  });
+
+  test("a zero count reads as words, never 0 days or 0 steps", () => {
+    const decision = layoutAlert(alertWording("lifecycle_decision_due", {}), wordingValues({ remainingDays: 0, stepsLeftCount: 2 }, "Glow"));
+    expect(plainText(decision.headline)).toBe("Glow has less than a day left to set up AYA, with 2 steps to go");
+    const soon = layoutAlert(alertWording("lifecycle_closing_soon", {}), wordingValues({ remainingDays: 0, stepsLeftCount: 0 }, "Glow"));
+    expect(plainText(soon.headline)).not.toMatch(/\b0 /);
+    // A zero count in an optional clause drops the clause (lane N4 review).
+    expect(plainText(soon.headline)).toBe("Glow is nearly set up, less than a day left");
+    const waiting = layoutAlert(alertWording("lifecycle_closing_waiting_on_us", {}), wordingValues({ waitedDays: 0, remainingDays: 3 }, "Glow"));
+    expect(plainText(waiting.headline)).toContain("waited on us less than a day");
+    expect(fill("{count:connection} went unchecked", { count: 0 })).toBe("No connections went unchecked");
+  });
+
+  test("a long clinic name is cut in the headline only, at a word, with an ellipsis", () => {
+    const long = "The Very Long Name Aesthetic and Wellness Clinic of the Greater Riverside Valley Area North Campus Annex";
+    expect(shortName(long)).toBe("The Very Long Name Aesthetic and…");
+    expect(shortName("Glow")).toBe("Glow");
+    const over: string[] = [];
+    for (const event of OPS_EVENTS) {
+      const fields = sampleFields(event);
+      const layout = layoutAlert(alertWording(event, fields), wordingValues(fields, long));
+      const headline = plainText(layout.headline);
+      if (headline.length > 90) over.push(`${headline.length} ${event}: ${headline}`);
+      expect(headline, event).not.toContain(long);
+    }
+    expect(over).toEqual([]);
+    const email = renderOpsAlert({ event: "usage_near_cap", clinicId: CLINIC, clinicName: long, used: 9, included: 10 }, CTX);
+    expect(email.text.split("\n")[0]).toContain("The Very Long Name Aesthetic and…");
+    expect(email.text).toContain(`Clinic: ${long}`);
+  });
+
+  // Ten events of different shapes: with a clinic and without, a business
+  // name, counts, days, closed words.
+  const HOSTILE_EVENTS: readonly OpsEvent[] = [
+    "critical_notice_undelivered",
+    "setup_request_reply_past_due",
+    "usage_near_cap",
+    "calendar_write_stuck",
+    "lifecycle_decision_due",
+    "clinic_availability_changed",
+    "export_due_undelivered",
+    "dmarc_review_due",
+    "daily_email_count_70",
+    "vendor_agreement_lapsed",
+    "calendar_broken",
+    "ops_digest_summary",
+  ];
+  test.each(HOSTILE_EVENTS.map((e) => [e]))("%s: a hostile name brings no emphasis or markup", (event) => {
+    const hostile = "**Glow** __x__ ==y== <b>z</b> & co";
+    const fields = { ...sampleFields(event as OpsEvent) };
+    if ("business" in fields) fields.business = "Glow __Med__ Spa";
+    const email = renderOpsAlert({ event: event as OpsEvent, ...fields, clinicName: hostile }, CTX);
+    expect(email.html, event).not.toContain("<b>z</b>");
+    expect(email.html, event).not.toMatch(/<u>x<\/u>|<mark[^>]*>y<\/mark>|<strong>Glow<\/strong>|<u>Med<\/u>/);
+    const slack = slackText({ event: event as OpsEvent, fields, clinicName: hostile });
+    expect(slack, event).not.toContain("<b>");
+    // Slack: the name's own * and _ are stripped (slackName), so they cannot bold or italicise.
+    expect(slack, event).not.toMatch(/\*\*?Glow\*|_x_/);
+    for (const body of [email.text, slack]) expect(body, event).not.toMatch(/[-]|undefined/);
   });
 });

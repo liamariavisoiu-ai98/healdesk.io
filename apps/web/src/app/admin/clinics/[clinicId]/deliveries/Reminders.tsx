@@ -50,18 +50,23 @@ const STAGE_WORDS: Record<LifecycleWave["stage"], string> = {
 
 /**
  * A wave's key as words. The day-22, 27 and 30 waves are the decision alert
- * when the watch escalated them (the clinic had stalled) and the closing-soon
- * alert otherwise: that is how apps/app chooses the event, and the row
- * records the escalation.
+ * or the closing-soon alert, as the event of the alert the wave carried says
+ * (`event`, lane A4). A wave with no event (a skipped one raises no alert,
+ * or an older apps/app) falls back to the escalation flag: apps/app escalates
+ * exactly the decision alert.
  */
-export function waveWords(wave: string, escalated = false): string {
+export function waveWords(wave: string, escalated = false, event: string | null = null): string {
   const [name = "", detail = ""] = wave.split(":", 2);
   if (name === "setup_reminder") {
     if (detail === "live" || wave.startsWith("setup_reminder:live:")) return "Setup reminder after a channel went live";
     return /^\d+$/.test(detail) ? `Setup reminder ${detail} of 6` : "Setup reminder";
   }
   const dayBand = /^day_(22|27|30)$/.exec(name);
-  if (dayBand) return `${escalated ? "Decision alert" : "Closing-soon alert"}, day ${dayBand[1]}`;
+  if (dayBand) {
+    const decision =
+      event === "lifecycle_decision_due" ? true : event === "lifecycle_closing_soon" ? false : escalated;
+    return `${decision ? "Decision alert" : "Closing-soon alert"}, day ${dayBand[1]}`;
+  }
   switch (name) {
     case "day_7":
       return "No-progress alert, day 7";
@@ -131,7 +136,7 @@ function fromWave(wave: LifecycleWave): ReminderLine {
   return {
     id: wave.id,
     at: wave.sentAt ?? wave.queuedAt,
-    words: waveWords(wave.wave, wave.escalated),
+    words: waveWords(wave.wave, wave.escalated, wave.event),
     to: TARGET_WORDS[wave.target],
     outcome: outcomeWords(wave),
     stage: STAGE_WORDS[wave.stage],

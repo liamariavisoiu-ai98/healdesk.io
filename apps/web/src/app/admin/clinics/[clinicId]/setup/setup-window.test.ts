@@ -146,8 +146,8 @@ describe("the four controls", () => {
       ok: true as const,
       data: { status: "extended" as const, setupDeadlineAt: `2026-11-${String(1 + input.days).padStart(2, "0")} 00:00 UTC`, auditRecorded: true },
     }));
-    const onDecide = vi.fn(async () => ({ ok: true as const, data: { outcome: "saved" as const } }));
-    const onSnooze = vi.fn(async () => ({ ok: true as const, data: { outcome: "saved" as const } }));
+    const onDecide = vi.fn(async () => ({ ok: true as const, data: { outcome: "saved" as const, auditRecorded: true } }));
+    const onSnooze = vi.fn(async () => ({ ok: true as const, data: { outcome: "saved" as const, auditRecorded: true } }));
     await act(async () => {
       root.render(h(SetupWindow, { ...base, onExtend, onDecide, onSnooze }));
     });

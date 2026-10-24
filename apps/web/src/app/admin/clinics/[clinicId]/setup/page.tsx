@@ -70,17 +70,16 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   if (!isUuid(clinicId)) notFound();
 
   // Six reads, settled independently: the onboarding view, the clinic rows,
-  // the availability changes, the audits, the lifecycle (every watched
-  // clinic; this clinic's row picked out) and the billing view, whose setup
-  // deadline is the live one the extension names. One that fails costs its
-  // card. TODO(lane A4, apps/app): give listLifecycle a clinicId filter and
-  // trim clinicAudits' history; both are read whole here until then.
+  // the availability changes, this clinic's audits (no history: the page
+  // does not show it), its lifecycle row alone, and the billing view, whose
+  // setup deadline is the live one the extension names. One that fails
+  // costs its card.
   const [view, reads, changes, audits, lifecycle, billing] = await Promise.all([
     fetchOnboarding(clinicId),
     loadClinicRows(),
     fetchClinicChanges({ clinicId }),
-    fetchClinicAudits(clinicId),
-    fetchLifecycle(),
+    fetchClinicAudits(clinicId, { history: false }),
+    fetchLifecycle(clinicId),
     fetchClinicBilling(clinicId),
   ]);
   if (isHostUnreachable(view)) return <HostStandbyNotice what="Setup" />;

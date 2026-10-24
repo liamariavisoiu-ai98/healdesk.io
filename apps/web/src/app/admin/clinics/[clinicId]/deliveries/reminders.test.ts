@@ -34,6 +34,7 @@ function wave(over: Partial<LifecycleWave>): LifecycleWave {
     outcome: "delivered",
     providerId: null,
     escalated: false,
+    event: null,
     manualBy: null,
     skippedBecause: null,
     ...over,
@@ -132,6 +133,12 @@ describe("the reminders ledger", () => {
     ];
     for (const [key, escalated, words] of cases) expect(waveWords(key, escalated), key).toBe(words);
     expect(waveWords("something_new:1")).not.toContain("something_new");
+    // The alert's event decides a day-22, 27 or 30 wave (lane A4); the escalation flag is only the fallback.
+    expect(waveWords("day_22:2026-11-13", false, "lifecycle_decision_due")).toBe("Decision alert, day 22");
+    expect(waveWords("day_27:2026-11-13", true, "lifecycle_closing_soon")).toBe("Closing-soon alert, day 27");
+    expect(waveWords("day_30:2026-11-13", true, null)).toBe("Decision alert, day 30");
+    expect(waveWords("day_30:2026-11-13", false, "lifecycle_something_else")).toBe("Closing-soon alert, day 30");
+    expect(waveWords("setup_reminder:2", true, "lifecycle_decision_due")).toBe("Setup reminder 2 of 6");
     expect(outcomeWords(wave({ outcome: "skipped", skippedBecause: "snoozed" })).words).toBe("snoozed");
     expect(outcomeWords(wave({ outcome: "skipped", skippedBecause: "let_close" })).words).toBe("skipped: let it close");
     expect(outcomeWords(wave({ outcome: "failed" }))).toEqual({ words: "failed", tone: "bad" });

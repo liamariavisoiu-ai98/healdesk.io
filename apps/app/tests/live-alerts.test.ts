@@ -729,7 +729,7 @@ describeDb("the live alerts' hooks", () => {
     const urgentReply = said
       .filter((m) => m.response_type === "response")
       .map((m) => String((m as { content?: unknown }).content))
-      .find((r) => /911/.test(r));
+      .find((r) => /9-1-1/.test(r));
     // Still 911 and the clinic's number; never a promise that was not kept.
     expect(urgentReply).toBeDefined();
     expect(urgentReply).not.toContain(URGENT_TEAM_TOLD_LINE);

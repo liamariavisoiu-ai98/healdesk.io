@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { opsApprovalEvents, opsApprovals, type OpsApproval } from "@/db/schema";
 
 import {
+  APPROVED_STUCK_MS,
   KIND_SPECS,
   OUTCOME_CODE,
   PROPOSER,
@@ -65,12 +66,16 @@ export type Proposal<K extends ApprovalKind = ApprovalKind> = {
 
 /**
  * Propose one item, at most once per subject: nothing is inserted while an
- * item for the same kind and subject is waiting, or was ever approved,
- * rejected or expired (the owner said no, or let it lapse; a new episode of
- * the same failure carries a new subject reference). An item whose operation
- * ran (executed or failed) does not block a new one: the subject failed
- * again. The partial unique index is the guard against two proposers racing;
- * a lost race is "not proposed", never an error. Returns the new id or null.
+ * item for the same kind and subject is waiting, or after the owner rejected
+ * one or let one run out its window (`expired` / `window_passed`). Nothing
+ * else blocks a new proposal for the same subject: an item that ran
+ * (executed or failed), one left `approved` by a process that died, and one
+ * expired because its subject went through since or its clinic left service
+ * all say nothing about a later failure. The subject reference carries the
+ * failure's episode (a request's epoch, an event's parking time), so a new
+ * failure after a rejection is a new subject. The partial unique index is
+ * the guard against two proposers racing; a lost race is "not proposed",
+ * never an error. Returns the new id or null.
  */
 export async function propose(proposal: Proposal, now: Date): Promise<string | null> {
   const spec = KIND_SPECS[proposal.kind];
@@ -82,7 +87,10 @@ export async function propose(proposal: Proposal, now: Date): Promise<string | n
         and(
           eq(opsApprovals.kind, proposal.kind),
           eq(opsApprovals.subjectRef, proposal.subjectRef),
-          inArray(opsApprovals.status, ["waiting", "approved", "rejected", "expired"]),
+          or(
+            inArray(opsApprovals.status, ["waiting", "rejected"]),
+            and(eq(opsApprovals.status, "expired"), eq(opsApprovals.outcomeCode, "window_passed")),
+          ),
         ),
       )
       .limit(1);
@@ -108,10 +116,16 @@ export async function propose(proposal: Proposal, now: Date): Promise<string | n
   });
 }
 
+type EventExtra = { outcomeCode?: string | null; draftHashApproved?: string | null; draftHashSent?: string | null };
+
 /**
  * Move one item from the status it is expected to hold, recording the event
  * in the same transaction. False when the item was not in that status: a
- * second decision, a decision that lost to the expiry, or the reverse.
+ * second decision, a decision that lost to the expiry, or the reverse. Under
+ * two concurrent decisions the second UPDATE waits for the first's row lock,
+ * re-reads the row, finds it no longer in `from` and moves nothing, so the
+ * loser is told "already decided", never a constraint error. `before` events
+ * (the owner's edit of a draft) are written only once the move has won.
  */
 export async function moveStatus(
   id: string,
@@ -120,7 +134,8 @@ export async function moveStatus(
   event: ApprovalEventName,
   actor: EventActor,
   now: Date,
-  extra: { outcomeCode?: string | null; draftHashApproved?: string | null; draftHashSent?: string | null } = {},
+  extra: EventExtra = {},
+  before: { event: ApprovalEventName; at: Date; extra: EventExtra }[] = [],
 ): Promise<boolean> {
   return unsafeDb.transaction(async (tx) => {
     const code = extra.outcomeCode ?? null;
@@ -134,9 +149,28 @@ export async function moveStatus(
       .where(and(eq(opsApprovals.id, id), eq(opsApprovals.status, from)))
       .returning({ id: opsApprovals.id });
     if (moved.length === 0) return false;
+    for (const earlier of before) await recordEvent(tx, id, earlier.event, actor, { ...earlier.extra, at: earlier.at });
     await recordEvent(tx, id, event, actor, { ...extra, at: now });
     return true;
   });
+}
+
+/**
+ * Items left `approved` past APPROVED_STUCK_MS: the process that decided
+ * them died between the decision and the operation's answer. Recorded as
+ * `failed` / `interrupted`, never run again here; whether the operation ran
+ * is for the owner to read on the clinic's Billing tab.
+ */
+export async function sweepInterrupted(now: Date): Promise<number> {
+  const stuck = await unsafeDb
+    .select({ id: opsApprovals.id })
+    .from(opsApprovals)
+    .where(and(eq(opsApprovals.status, "approved"), lte(opsApprovals.decidedAt, new Date(now.getTime() - APPROVED_STUCK_MS))));
+  let swept = 0;
+  for (const { id } of stuck) {
+    if (await moveStatus(id, "approved", "failed", "failed", SERVICE_ACTOR, now, { outcomeCode: "interrupted" })) swept += 1;
+  }
+  return swept;
 }
 
 /** Every waiting item past its window, moved to `expired` with its event. Never runs one. */

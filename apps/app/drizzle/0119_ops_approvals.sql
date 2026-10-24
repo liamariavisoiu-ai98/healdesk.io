@@ -73,9 +73,16 @@ CREATE INDEX "ops_approvals_subject_idx" ON "ops_approvals" USING btree ("kind",
 --   ops_approval_events  add-only: proposed, edited, approved, rejected,
 --                        executed, failed, expired, reminded, with the
 --                        operator account, IP address and user agent the
---                        request carried and the outcome code. A trigger
---                        refuses UPDATE, DELETE and TRUNCATE for every role,
---                        the migrator included.
+--                        request carried and the outcome code. The runtime
+--                        role holds only SELECT and INSERT, and a trigger
+--                        refuses UPDATE, DELETE and TRUNCATE to any role
+--                        that issues them, the migrator included. The
+--                        triggers are ENABLE ALWAYS, so a session that sets
+--                        session_replication_role does not skip them. The
+--                        table owner or a superuser could still drop or
+--                        disable a trigger by DDL: that is a schema change
+--                        in a migration, reviewed, not something a running
+--                        process can do.
 --
 -- Not tenant tables: the console lists them across clinics and they are
 -- written outside any tenant, like ops_alerts and platform_compliance. That
@@ -89,7 +96,9 @@ CREATE INDEX "ops_approvals_subject_idx" ON "ops_approvals" USING btree ("kind",
 -- ops_approvals.draft, which no kind uses yet.
 --
 -- One job row, seeded OFF like every job: approvals-propose, hourly, which
--- finds the dead letters and proposes one item each, expires items past
+-- proposes only what no automatic process retries (owner decision D17: a
+-- cancellation or setup closure the billing worker dead-lettered, a Stripe
+-- event parked after its retries that names a clinic), expires items past
 -- their window and re-alerts. It never retries anything itself.
 --
 -- Safe to apply in place: two new, empty tables and one job row.
@@ -118,6 +127,10 @@ BEGIN
      OR NEW.expires_at IS DISTINCT FROM OLD.expires_at OR NEW.urgency <> OLD.urgency
      OR NEW.proposed_by <> OLD.proposed_by OR NEW.proposed_at <> OLD.proposed_at THEN
     RAISE EXCEPTION 'an approval''s proposal is fixed once made: only its status moves'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF OLD.decided_at IS NOT NULL AND NEW.decided_at IS DISTINCT FROM OLD.decided_at THEN
+    RAISE EXCEPTION 'an approval''s decision time is fixed once set'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
   IF NOT ((OLD.status = 'waiting' AND NEW.status IN ('approved', 'rejected', 'expired'))
@@ -153,24 +166,53 @@ CREATE TRIGGER ops_approval_events_add_only
 CREATE TRIGGER ops_approval_events_no_truncate
   BEFORE TRUNCATE ON ops_approval_events
   FOR EACH STATEMENT EXECUTE FUNCTION app_ops_approval_events_add_only();--> statement-breakpoint
+ALTER TABLE ops_approvals ENABLE ALWAYS TRIGGER ops_approvals_guard;--> statement-breakpoint
+ALTER TABLE ops_approvals ENABLE ALWAYS TRIGGER ops_approvals_no_truncate;--> statement-breakpoint
+ALTER TABLE ops_approval_events ENABLE ALWAYS TRIGGER ops_approval_events_add_only;--> statement-breakpoint
+ALTER TABLE ops_approval_events ENABLE ALWAYS TRIGGER ops_approval_events_no_truncate;--> statement-breakpoint
 
 COMMENT ON TABLE ops_approvals IS
   'Ops-only, platform-wide: each thing waiting for the owner''s yes (the approval inbox, design E6 §2): its kind from a closed list, the clinic it is about (subject_clinic_id, a stored fact, not a tenant key), the subject by id, ids and codes, its due time, window and urgency, and where it stands. Approving runs the existing ops operation in the same request. No patient and no free text; kept for good; no RLS (drizzle/0119 says why).';--> statement-breakpoint
 COMMENT ON TABLE ops_approval_events IS
-  'Add-only record of the approval inbox: each proposal, edit, decision, outcome, expiry and reminder, with the operator account, IP address and user agent the request carried, a draft''s hashes as approved and as sent, and the outcome code. UPDATE, DELETE and TRUNCATE are refused by trigger for every role. No patient, never a draft''s text.';--> statement-breakpoint
+  'Add-only record of the approval inbox: each proposal, edit, decision, outcome, expiry and reminder, with the operator account, IP address and user agent the request carried, a draft''s hashes as approved and as sent, and the outcome code. The runtime role may only read and add; UPDATE, DELETE and TRUNCATE are refused by ENABLE ALWAYS triggers for any role that issues them (only a DDL change by the table owner could remove them). No patient, never a draft''s text.';--> statement-breakpoint
 
 INSERT INTO scheduled_jobs (name, cadence, enabled) VALUES
-  ('approvals-propose', 'Hourly; puts each billing change that failed at Stripe after every retry, each annual extra-usage invoice that failed and each Stripe event parked after its retries into the approval inbox, one item each, for the owner to approve or reject. Expires items past their window and re-alerts items past due. Never retries, invoices or replays anything itself. Off until the owner switches it on', false)
+  ('approvals-propose', 'Hourly; puts each cancellation or setup closure the billing worker gave up on and each Stripe event parked after its retries that names a clinic into the approval inbox, one item each, for the owner to approve or reject; nothing an automatic process still retries. Expires items past their window and re-alerts items past due. Never retries or replays anything itself. Off until the owner switches it on', false)
 ON CONFLICT (name) DO NOTHING;--> statement-breakpoint
 
 DO $$
+DECLARE
+  col record;
+  trig record;
 BEGIN
-  IF has_table_privilege('healdesk_app'::name, 'ops_approvals'::regclass, 'DELETE, TRUNCATE')
-     OR has_table_privilege('healdesk_app'::name, 'ops_approval_events'::regclass, 'DELETE, TRUNCATE')
+  IF has_table_privilege('healdesk_app'::name, 'ops_approvals'::regclass, 'DELETE, TRUNCATE, REFERENCES, TRIGGER')
+     OR has_table_privilege('healdesk_app'::name, 'ops_approval_events'::regclass, 'DELETE, TRUNCATE, REFERENCES, TRIGGER')
      OR has_any_column_privilege('healdesk_app'::name, 'ops_approval_events'::regclass, 'UPDATE')
-     OR has_column_privilege('healdesk_app'::name, 'ops_approvals'::regclass, 'kind', 'UPDATE')
-     OR has_column_privilege('healdesk_app'::name, 'ops_approvals'::regclass, 'payload', 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app can rewrite or erase the approval inbox.';
+     OR NOT has_table_privilege('healdesk_app'::name, 'ops_approvals'::regclass, 'SELECT, INSERT')
+     OR NOT has_table_privilege('healdesk_app'::name, 'ops_approval_events'::regclass, 'SELECT, INSERT') THEN
+    RAISE EXCEPTION 'healdesk_app can rewrite or erase the approval inbox, or cannot read and add to it.';
+  END IF;
+  -- Of ops_approvals, the runtime role may update the three columns a decision moves, and no other.
+  FOR col IN
+    SELECT attname FROM pg_attribute
+     WHERE attrelid = 'ops_approvals'::regclass AND attnum > 0 AND NOT attisdropped
+       AND attname NOT IN ('status', 'decided_at', 'outcome_code')
+  LOOP
+    IF has_column_privilege('healdesk_app'::name, 'ops_approvals'::regclass, col.attname, 'UPDATE') THEN
+      RAISE EXCEPTION 'healdesk_app can update ops_approvals.%', col.attname;
+    END IF;
+  END LOOP;
+  -- The four guards exist and fire always.
+  FOR trig IN
+    SELECT t.tgname, t.tgenabled FROM pg_trigger t
+     WHERE t.tgname IN ('ops_approvals_guard', 'ops_approvals_no_truncate', 'ops_approval_events_add_only', 'ops_approval_events_no_truncate')
+  LOOP
+    IF trig.tgenabled <> 'A' THEN
+      RAISE EXCEPTION 'trigger % is not ENABLE ALWAYS', trig.tgname;
+    END IF;
+  END LOOP;
+  IF (SELECT count(*) FROM pg_trigger WHERE tgname IN ('ops_approvals_guard', 'ops_approvals_no_truncate', 'ops_approval_events_add_only', 'ops_approval_events_no_truncate')) <> 4 THEN
+    RAISE EXCEPTION 'an approval inbox guard trigger is missing';
   END IF;
 END;
 $$;

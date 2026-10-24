@@ -17,9 +17,10 @@ export const APPROVALS_PAGE = "/admin/queues#approvals";
 /** Each kind's words, for one item and for many. */
 const WORDS: Readonly<Record<ApprovalKind, { one: string; many: string }>> = {
   billing_request_retry: {
-    one: "1 billing retry is waiting for your yes.",
-    many: "{n} billing retries are waiting for your yes.",
+    one: "1 cancellation or closure the billing worker gave up on is waiting for your yes.",
+    many: "{n} cancellations or closures the billing worker gave up on are waiting for your yes.",
   },
+  // Not proposed (KIND_SPECS.overage_invoice_retry.proposed): worded for an item recorded before.
   overage_invoice_retry: {
     one: "1 extra-usage invoice retry is waiting for your yes.",
     many: "{n} extra-usage invoice retries are waiting for your yes.",

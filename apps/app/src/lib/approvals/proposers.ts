@@ -1,46 +1,60 @@
 import { createHash } from "node:crypto";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { billingEvents, billingRequests, overageInvoices, type OpsApproval } from "@/db/schema";
+import { billingEvents, billingRequests, type OpsApproval } from "@/db/schema";
 import { describeError, log } from "@/lib/log";
 import { raiseOpsAlertKeyed } from "@/lib/ops/notify";
 import { runJob, type JobOutcome } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
-import { KIND_SPECS, LEGAL_CLOCK_REMINDER_MS, PROPOSER, type ApprovalKind } from "./kinds";
-import { expireDue, moveStatus, propose, recordEvent, reminders, SERVICE_ACTOR, waitingItems, type Proposal } from "./store";
+import { KIND_SPECS, LEGAL_CLOCK_REMINDER_MS, PROPOSED_REQUEST_KINDS, PROPOSER, type ApprovalKind } from "./kinds";
+import {
+  expireDue,
+  moveStatus,
+  propose,
+  recordEvent,
+  reminders,
+  SERVICE_ACTOR,
+  sweepInterrupted,
+  waitingItems,
+  type Proposal,
+} from "./store";
 
 /**
  * The `approvals-propose` job (ops automation Phase 6, lane P6a; design E6
- * §3 item 15): hourly, behind its switch, which ships off.
+ * §3 item 15): hourly, behind its switch, which ships off, run by the tick
+ * after the billing reconcile and the requests worker.
  *
- * It finds, across clinics, the billing work only a person can let go on
- * (owner decision D17: from the dead letter onward; the worker's ten
- * attempts, the reconcile's re-arm and Stripe's dunning stay ungated):
+ * Owner decision D17: the inbox gates from the dead letter onward, and
+ * nothing may be both waiting for the owner's yes and retried by itself. So
+ * it proposes only what no automatic process will retry or re-arm:
  *
- *   - a billing request dead-lettered: every attempt used, or a failure
- *     retrying cannot fix (lib/billing/requests.ts settle, which raises
- *     billing_request_dead_lettered). One item per request and epoch: a
- *     request re-armed and dead again is a new episode;
- *   - an annual overage invoice that failed (lib/billing/annual-overage.ts,
- *     overage_invoice_failed). One item per month's ledger row; the 05 UTC
- *     run keeps retrying it on its own, as it always has;
- *   - a Stripe event parked after its retries (lib/billing/events.ts,
- *     billing_event_dead_lettered). One item per event.
+ *   - a `cancel_now` or `close_setup` billing request the worker
+ *     dead-lettered (lib/billing/requests.ts settle). Nothing re-arms these.
+ *     A `plan_start` or `step_up` dead letter is NOT proposed: the hourly
+ *     reconcile re-arms it once it has rested DEAD_LETTER_REST_MS whenever
+ *     the worker could carry it out (lib/billing/reconcile.ts
+ *     decideReconcile, whose conditions mirror the worker's re-check), and
+ *     where they do not hold the worker would only skip it again. One item
+ *     per request and epoch;
+ *   - a Stripe event parked after its retries (lib/billing/events.ts) that
+ *     resolved to a clinic. One that names no clinic is left out:
+ *     provisioning replays such events by itself (replayParkedBillingEvents).
+ *     A `failed` event Stripe is still resending is not parked. One item per
+ *     event and parking;
+ *   - never an annual overage invoice: the 05 UTC run invoices every failed
+ *     month again by itself (KIND_SPECS.overage_invoice_retry.proposed).
  *
- * and inserts one waiting item for each (lib/approvals/store.ts propose:
- * idempotent, and never again for a subject the owner rejected or let
- * expire). It never retries, invoices or replays anything itself: only an
- * approval does, through the console's own operation.
- *
- * It leaves out healdesk's demo clinic (app_clinic_is_demo) and clinics
- * whose account is closed. It expires waiting items past their window, and
- * those whose subject has moved on (the request done, the invoice paid, the
- * event applied): both only leave the list, and neither runs anything. Then
- * it re-alerts: a money or routine item once when past due, a legal-clock
- * item every 4 hours while it waits (D18), one alert per kind.
+ * It runs nothing itself. It leaves out healdesk's demo clinic
+ * (app_clinic_is_demo) and closed accounts, and moves out of the list an
+ * item whose clinic has since become one (`clinic_out_of_service`), one past
+ * its window (`window_passed`) and one whose subject went through since
+ * (`no_longer_needed`): none of them runs anything. It records as `failed`
+ * / `interrupted` an item left `approved` by a process that died. Then it
+ * re-alerts: a money or routine item once past due, a legal-clock item
+ * every 4 hours while it waits (D18), one alert per kind.
  */
 
 export const JOB_APPROVALS_PROPOSE = PROPOSER;
@@ -51,6 +65,8 @@ export type ProposeSummary = {
   proposed: number;
   expired: number;
   resolved: number;
+  outOfService: number;
+  interrupted: number;
   reminded: number;
   /** Clinics whose rows could not be read: their items are neither proposed nor expired as resolved. */
   unread: number;
@@ -62,8 +78,14 @@ function rowsOf<T>(result: unknown): T[] {
   return ((result as { rows?: T[] }).rows ?? []) as T[];
 }
 
-/** Each open subject found this run, by kind and reference, and the clinics fully read. */
-type Found = { proposals: Proposal[]; open: Set<string>; readClinics: Set<string>; eventsRead: boolean };
+/** Each open subject found this run, by kind and reference, and the clinics fully read or out of service. */
+type Found = {
+  proposals: Proposal[];
+  open: Set<string>;
+  readClinics: Set<string>;
+  outOfService: Set<string>;
+  eventsRead: boolean;
+};
 
 const key = (kind: ApprovalKind, subjectRef: string) => `${kind}|${subjectRef}`;
 
@@ -83,9 +105,14 @@ async function clinicState(clinicId: string): Promise<ClinicState | null> {
   }
 }
 
-/** Every open subject, across billing clinics and the parked Stripe events. */
+/** When an event was parked, to the second: its episode. */
+function parkedAtOf(processedAt: Date | null, receivedAt: Date): Date {
+  return new Date(Math.floor((processedAt ?? receivedAt).getTime() / 1000) * 1000);
+}
+
+/** Every open subject the inbox may propose, across billing clinics and the parked Stripe events. */
 export async function findOpenSubjects(): Promise<Found & { unread: number }> {
-  const found: Found = { proposals: [], open: new Set(), readClinics: new Set(), eventsRead: false };
+  const found: Found = { proposals: [], open: new Set(), readClinics: new Set(), outOfService: new Set(), eventsRead: false };
   let unread = 0;
   const states = new Map<string, ClinicState | null>();
   const stateOf = async (id: string) => {
@@ -94,9 +121,7 @@ export async function findOpenSubjects(): Promise<Found & { unread: number }> {
   };
 
   const clinics = rowsOf<{ id: string }>(
-    await unsafeDb.execute(
-      sql`select id from app_clinics_overview() where billing_clinic_id is null and destroyed_at is null`,
-    ),
+    await unsafeDb.execute(sql`select id from app_clinics_overview() where billing_clinic_id is null`),
   );
   for (const { id } of clinics) {
     const state = await stateOf(id);
@@ -105,7 +130,7 @@ export async function findOpenSubjects(): Promise<Found & { unread: number }> {
       continue;
     }
     if (state.demo || state.closed) {
-      found.readClinics.add(id);
+      found.outOfService.add(id);
       continue;
     }
     try {
@@ -113,7 +138,13 @@ export async function findOpenSubjects(): Promise<Found & { unread: number }> {
         const dead = await tx.db
           .select({ id: billingRequests.id, kind: billingRequests.kind, epoch: billingRequests.epoch })
           .from(billingRequests)
-          .where(and(eq(billingRequests.clinicId, tx.clinicId), eq(billingRequests.outcome, "dead_letter")));
+          .where(
+            and(
+              eq(billingRequests.clinicId, tx.clinicId),
+              eq(billingRequests.outcome, "dead_letter"),
+              inArray(billingRequests.kind, [...PROPOSED_REQUEST_KINDS]),
+            ),
+          );
         for (const r of dead) {
           const subjectRef = `${r.id}:${r.epoch}`;
           found.open.add(key("billing_request_retry", subjectRef));
@@ -122,19 +153,6 @@ export async function findOpenSubjects(): Promise<Found & { unread: number }> {
             subjectClinicId: id,
             subjectRef,
             payload: { billingClinicId: id, requestId: r.id, requestKind: r.kind, epoch: r.epoch },
-          });
-        }
-        const failed = await tx.db
-          .select({ id: overageInvoices.id, windowStart: overageInvoices.windowStart })
-          .from(overageInvoices)
-          .where(and(eq(overageInvoices.clinicId, tx.clinicId), eq(overageInvoices.status, "failed")));
-        for (const o of failed) {
-          found.open.add(key("overage_invoice_retry", o.id));
-          found.proposals.push({
-            kind: "overage_invoice_retry",
-            subjectClinicId: id,
-            subjectRef: o.id,
-            payload: { billingClinicId: id, overageId: o.id, windowStart: o.windowStart.toISOString() },
           });
         }
       });
@@ -146,28 +164,37 @@ export async function findOpenSubjects(): Promise<Found & { unread: number }> {
   }
 
   // Parked Stripe events live outside any tenant, each with the clinic it
-  // resolved to, if any. One that names a demo or closed clinic is left out.
+  // resolved to. Only those that resolved to one, in service, are proposed.
   try {
     const parked = await unsafeDb
-      .select({ id: billingEvents.stripeEventId, type: billingEvents.type, clinicId: billingEvents.resolvedClinicId })
+      .select({
+        id: billingEvents.stripeEventId,
+        type: billingEvents.type,
+        clinicId: billingEvents.resolvedClinicId,
+        processedAt: billingEvents.processedAt,
+        receivedAt: billingEvents.receivedAt,
+      })
       .from(billingEvents)
-      .where(eq(billingEvents.outcome, "dead_letter"));
+      .where(and(eq(billingEvents.outcome, "dead_letter"), isNotNull(billingEvents.resolvedClinicId)));
     for (const e of parked) {
-      if (!/^evt_[A-Za-z0-9_]{1,250}$/.test(e.id) || !/^[a-z][a-z0-9_.]{0,80}$/.test(e.type)) continue;
-      found.open.add(key("billing_event_replay", e.id));
-      if (e.clinicId) {
-        const state = await stateOf(e.clinicId);
-        if (!state) {
-          unread += 1;
-          continue;
-        }
-        if (state.demo || state.closed) continue;
+      if (!/^evt_[A-Za-z0-9_]{1,250}$/.test(e.id) || !/^[a-z][a-z0-9_.]{0,80}$/.test(e.type) || !e.clinicId) continue;
+      const parkedAt = parkedAtOf(e.processedAt, e.receivedAt);
+      const subjectRef = `${e.id}:${Math.floor(parkedAt.getTime() / 1000)}`;
+      found.open.add(key("billing_event_replay", subjectRef));
+      const state = await stateOf(e.clinicId);
+      if (!state) {
+        unread += 1;
+        continue;
+      }
+      if (state.demo || state.closed) {
+        found.outOfService.add(e.clinicId);
+        continue;
       }
       found.proposals.push({
         kind: "billing_event_replay",
         subjectClinicId: e.clinicId,
-        subjectRef: e.id,
-        payload: { eventType: e.type },
+        subjectRef,
+        payload: { eventType: e.type, parkedAt: parkedAt.toISOString() },
       });
     }
     found.eventsRead = true;
@@ -178,10 +205,11 @@ export async function findOpenSubjects(): Promise<Found & { unread: number }> {
   return { ...found, unread };
 }
 
-/** Whether a waiting item's subject was read this run and is no longer open. */
+/** Whether a waiting item's subject was read this run and is no longer open, or its kind is no longer proposed. */
 function resolved(item: OpsApproval, found: Found): boolean {
   if (found.open.has(key(item.kind as ApprovalKind, item.subjectRef))) return false;
   if (item.kind === "billing_event_replay") return found.eventsRead;
+  if (!KIND_SPECS[item.kind as ApprovalKind]?.proposed) return true;
   const clinic = item.subjectClinicId;
   return clinic !== null && found.readClinics.has(clinic);
 }
@@ -242,19 +270,27 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
   const found = await findOpenSubjects();
   let proposed = 0;
   for (const proposal of found.proposals) {
-    if (!KIND_SPECS[proposal.kind]) continue;
+    if (!KIND_SPECS[proposal.kind]?.proposed) continue;
     if (await propose(proposal, now)) proposed += 1;
   }
+  const interrupted = await sweepInterrupted(now);
   const expired = await expireDue(now);
   let gone = 0;
+  let outOfService = 0;
   for (const item of await waitingItems()) {
+    if (item.subjectClinicId !== null && found.outOfService.has(item.subjectClinicId)) {
+      if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "clinic_out_of_service" })) {
+        outOfService += 1;
+      }
+      continue;
+    }
     if (!resolved(item, found)) continue;
     if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "no_longer_needed" })) {
       gone += 1;
     }
   }
   const reminded = await remind(now);
-  return { proposed, expired, resolved: gone, reminded, unread: found.unread };
+  return { proposed, expired, resolved: gone, outOfService, interrupted, reminded, unread: found.unread };
 }
 
 /** The `approvals-propose` job: hourly from the tick, behind its switch. */
@@ -265,7 +301,8 @@ export async function runApprovalsProposeJob(options: { now?: Date } = {}): Prom
     async () => {
       const r = await proposeApprovals(now);
       return (
-        `${r.proposed} proposed, ${r.expired} expired, ${r.resolved} no longer needed, ${r.reminded} reminded` +
+        `${r.proposed} proposed, ${r.expired} expired, ${r.resolved} no longer needed, ` +
+        `${r.outOfService} out of service, ${r.interrupted} interrupted, ${r.reminded} reminded` +
         (r.unread ? `, ${r.unread} could not be read` : "") +
         "."
       );

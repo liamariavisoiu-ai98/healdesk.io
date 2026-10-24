@@ -74,3 +74,28 @@ that contains one). Full `npm test -w @healdesk/web`, `npx tsc --noEmit -p apps/
 ## Report
 RULES.md format; list every control and section name you built (they are quoted by alert wording) with its anchor, and
 what you did not build.
+
+## Updates after P5a and P5d landed on the integration branch (read these; they override the text above)
+- Your worktree is `/Users/liamariavisoiu/projects/healdesk-p5b`, branch `ops/p5b-screens` (already cut from `ops/p5-integ`, `npm ci` run).
+- The ops-client functions that exist now (read their types in `apps/web/src/lib/admin/ops-client.ts`): `fetchMachineQueues`,
+  `fetchStuckCalendarWrites({includeDemo?})`, `fetchUndeliveredTranscripts`, `fetchVoiceAgentStatus` (existing, no `verify`
+  option), `fetchVoiceAgentReport(clinicId)` (the read-back), `retryVoiceAgent(clinicId)`, `setLifecycleIgnored`,
+  `fetchLifecycleIgnored`, `fetchAgreement`. `retryVoiceAgent` drops the bound phone number in the client reader: never print one.
+- **Clearing a drift flag goes ONLY through the wrapper `apps/web/src/lib/admin/voice-drift.ts`**: `clearVoiceDriftFlag
+  (clinicId, code)` checks the operator session, then the fresh authenticator code (`fresh-code.ts`), then sends. Never call the
+  raw ops-client `clearVoiceDriftFlag` from a page or action. Its outcomes: `not_found | not_flagged | cleared{check, problems}
+  | still_drifted{problems} | code_refused{message}`. Read how `device-recovery` / `platform-compliance` pages ask for the code
+  and reuse that control.
+- `LifecycleRow.ignored` exists (optional). The strip has NO ignored flag; the Clinics table is unchanged. `ExtendDeadlineOutcome`
+  does not yet parse the new `lifecycle: "recorded"|"not_watched"|"not_recorded"` field the extension reply carries: add it to the
+  parser/type if you touch the extend control (a hot-file REGISTER commit, additive, with a contract test), and show nothing about
+  it unless it is `not_recorded` ("The extension is saved, but the decision could not be recorded on the watch.").
+- Home rows link to: `/admin/system#attention` (machine queues) and `/admin/system#transcripts` (undelivered transcripts); these
+  two `id`s MUST exist on the System page or `apps/app/tests/ops-inbox.test.ts` fails. Deliveries tab links carry no anchor.
+- The `transcript_emails` queue is NOT in "Requires your attention" as a queue (it is "Being watched" with its count); the
+  undelivered transcripts have their own list under that heading, from `fetchUndeliveredTranscripts`. Do not show both.
+- Stuck writes: per clinic, with `reason` as a closed code you must put into plain words (write a table covering every code in
+  `apps/app/src/lib/booking/calendar.ts`'s reason classes; a test reads the source and fails if a code has no words), `retryable`,
+  `nextAttemptAt`, `slotInDays`. Check `ops-client.ts` for an existing Retry control for calendar writes and reuse it.
+- Machine-queue `href`s are per queue (a queue spanning clinics opens the System section, a single clinic's opens its tab):
+  draw the queue's own `href`, do not rebuild it.

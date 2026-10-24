@@ -71,9 +71,12 @@ const HOUR = 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEAD_DAYS = 7;
 /**
- * A failed background job counts for two days. pg-boss keeps a failed job for
- * its keep_until (fourteen days), so a cron run that failed once last week
- * would otherwise hold a Home row long after the next runs succeeded.
+ * A failed background job counts for two days at most. While the worker runs
+ * (supervise: true, src/workers/index.ts), pg-boss archives a failed job
+ * twelve hours after its completed_on, so in practice a failure is on Home for
+ * about twelve hours; the two-day window matters only while the worker is
+ * down and nothing archives, so a stale failed cron run does not hold a Home
+ * row for the fourteen days pg-boss would keep it.
  */
 const FAILED_JOB_DAYS = 2;
 /** The digest's email-health window: bounces and complaints of the last day. */
@@ -97,7 +100,7 @@ export const QUEUE_WORDS: Record<string, QueueWords> = {
     patienceMinutes: ALWAYS,
     perClinic: "deliveries",
   },
-  transcript_emails: { words: "Transcript copies not delivered", href: MACHINE_QUEUES_PAGE, tone: "warn", patienceMinutes: 72 * HOUR },
+  transcript_emails: { words: "Transcript copies waiting for delivery", href: MACHINE_QUEUES_PAGE, tone: "warn", patienceMinutes: 72 * HOUR },
   billing_requests: { words: "Billing requests not done", href: MACHINE_QUEUES_PAGE, tone: "warn", patienceMinutes: HOUR },
   billing_events_retrying: { words: "Stripe events retrying", href: MACHINE_QUEUES_PAGE, tone: "warn", patienceMinutes: HOUR },
   billing_events_parked: { words: "Stripe events parked", href: MACHINE_QUEUES_PAGE, tone: "warn", patienceMinutes: ALWAYS },
@@ -383,7 +386,9 @@ export const queuesSource: InboxSource = {
         id: `queue:${kind}`,
         kind: "queue",
         count: q.count,
-        sentence: `${words.words}${minutes === null ? "" : `; the oldest is ${age(minutes)} old`}.`,
+        sentence: `${words.words}${
+          read.lowerBound.has(kind) ? ` (at least ${q.count}: a clinic could not be read)` : ""
+        }${minutes === null ? "" : `; the oldest is ${age(minutes)} old`}.`,
         clinic: null,
         button: { label: "Open", kind: "link", href: queueHref(kind, q) },
         tone: words.tone,

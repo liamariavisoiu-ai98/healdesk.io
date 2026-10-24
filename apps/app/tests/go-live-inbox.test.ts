@@ -1,5 +1,18 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
+// N7: one clinic's tenant reads fail (its ignore mark and its go-live check alike).
+const failing = vi.hoisted(() => ({ clinicId: null as string | null }));
+vi.mock("@/lib/tenant", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tenant")>();
+  return {
+    ...actual,
+    withTenant: async (...args: Parameters<typeof actual.withTenant>) => {
+      if (failing.clinicId && args[0].clinicId === failing.clinicId) throw new Error("synthetic read failure");
+      return actual.withTenant(...args);
+    },
+  };
+});
+
 import type { ActorContext } from "@/lib/audit";
 import { runOperation } from "@/lib/ops/api";
 import { goLiveSource, goLiveStanding } from "@/lib/ops/inbox/go-live";
@@ -108,5 +121,18 @@ describeDb("Home's go-live rows, against the database", () => {
     const ready = rows.find((r) => r.id === "go_live:ready")!;
     expect(ready).toMatchObject({ count: 1, clinic: { id: real.clinicId } });
     expect(JSON.stringify(rows)).not.toContain(internal.clinicId);
+  }, 120_000);
+
+  test("a clinic whose ignore mark and go-live check both fail is one clinic that could not be read, not two", async () => {
+    const broken = await seedClinic("golive-broken");
+    await readyForGoLive(broken.clinicId, broken.organizationId);
+    failing.clinicId = broken.clinicId;
+    try {
+      const { rows, partial } = await goLiveSource.read(ctx());
+      expect(partial).toBe("1 clinic(s) could not be read.");
+      expect(JSON.stringify(rows)).not.toContain(broken.clinicId);
+    } finally {
+      failing.clinicId = null;
+    }
   }, 120_000);
 });

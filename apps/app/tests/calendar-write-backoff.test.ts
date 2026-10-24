@@ -368,6 +368,14 @@ describeDb("the desk sweep's ladder (drizzle/0117)", () => {
 
   const OPERATOR: Operator = { email: "ops@healdesk.test", request: {} };
   const inserts = () => google.requests.filter((r) => r.endpoint === "insert").length;
+  const gets = () => google.requests.filter((r) => r.endpoint === "get").length;
+  const retriedEvents = async (appointmentId: string) =>
+    (
+      await getMigratorPool().query<{ metadata: Record<string, unknown> }>(
+        `select metadata from security_events where event = 'calendar_write_retried' and metadata->>'appointmentId' = $1`,
+        [appointmentId],
+      )
+    ).rows.map((r) => r.metadata);
 
   test(
     "the sweep's claim checks the ladder itself: an id listed earlier that is no longer due is not claimed",
@@ -442,15 +450,17 @@ describeDb("the desk sweep's ladder (drizzle/0117)", () => {
   );
 
   test(
-    "an operator's retry claims a write at five of five, counts the attempt, reads back first and writes it once",
+    "an operator's retry claims a write at five of five, counts the attempt, reads back once and inserts once",
     async () => {
       const w = await unknownWrite("operator-five");
       await set(w.clinicId, w.id, `calendar_write_attempts = 5`);
-      const reads = google.requests.filter((r) => r.endpoint === "get").length;
+      const reads = gets();
+      const writes = inserts();
       const res = await runOperation("retryCalendarWrite", { clinicId: w.clinicId, appointmentId: w.id }, OPERATOR);
       expect((res.body as { data: Record<string, unknown> }).data).toMatchObject({ status: "retried", outcome: "written" });
       expect(await row(w.clinicId, w.id)).toMatchObject({ calendar_write_status: "written", calendar_write_attempts: 6 });
-      expect(google.requests.filter((r) => r.endpoint === "get").length).toBeGreaterThan(reads);
+      expect(gets() - reads).toBe(1);
+      expect(inserts() - writes).toBe(1);
       // The sweep still never goes past five.
       await set(w.clinicId, w.id, `calendar_write_status = 'unknown', calendar_write_next_at = null`);
       expect(await sweepDeskWrites({ now: new Date(Date.now() + HOUR) })).toMatchObject({ attempted: 0 });
@@ -472,6 +482,78 @@ describeDb("the desk sweep's ladder (drizzle/0117)", () => {
         message: "That booking is already in the clinic's Google Calendar. Nothing was tried.",
       });
       expect(inserts()).toBe(before);
+      // The press is recorded all the same, with why nothing was tried.
+      expect(await retriedEvents(decided.appointmentId!)).toEqual([
+        expect.objectContaining({ outcome: "written", attempted: false, cause: "written" }),
+      ]);
+    },
+    60_000,
+  );
+
+  test(
+    "an operator's retry at no recorded attempt still reads Google back before it inserts: Google may hold the booking",
+    async () => {
+      const w = await unknownWrite("operator-zero");
+      // Failed with nothing counted (as a write with no healthy calendar is), then the calendar came back.
+      await set(w.clinicId, w.id, `calendar_write_status = 'failed', calendar_write_error = 'calendar_not_connected', calendar_write_attempts = 0`);
+      const reads = gets();
+      const writes = inserts();
+      const res = await runOperation("retryCalendarWrite", { clinicId: w.clinicId, appointmentId: w.id }, OPERATOR);
+      expect((res.body as { data: Record<string, unknown> }).data).toMatchObject({ status: "retried", outcome: "written" });
+      expect(await row(w.clinicId, w.id)).toMatchObject({ calendar_write_status: "written", calendar_write_attempts: 1 });
+      expect(gets() - reads).toBe(1);
+      expect(inserts() - writes).toBe(1);
+    },
+    60_000,
+  );
+
+  test(
+    "an operator's retry that finds another attempt in flight names that cause, and the press is recorded",
+    async () => {
+      const w = await unknownWrite("operator-in-flight");
+      await set(
+        w.clinicId,
+        w.id,
+        `calendar_write_status = 'writing', calendar_write_lease = gen_random_uuid(), calendar_write_claimed_at = now()`,
+      );
+      const writes = inserts();
+      const res = await runOperation("retryCalendarWrite", { clinicId: w.clinicId, appointmentId: w.id }, OPERATOR);
+      expect((res.body as { data: Record<string, unknown> }).data).toEqual({
+        status: "error",
+        message: "Another attempt at this write is in flight. Nothing was tried; reload in a few minutes.",
+      });
+      expect(inserts()).toBe(writes);
+      expect(await retriedEvents(w.id)).toEqual([
+        expect.objectContaining({ outcome: "unknown", attempted: false, cause: "in_flight" }),
+      ]);
+    },
+    60_000,
+  );
+
+  test(
+    "a claim stuck writing with a settled reason is never listed, so it takes none of the run's places",
+    async () => {
+      const stuck = await unknownWrite("stuck-settled", 4, 9);
+      await set(
+        stuck.clinicId,
+        stuck.id,
+        `calendar_write_status = 'writing', calendar_write_lease = gen_random_uuid(), calendar_write_error = 'deleted_in_calendar',
+         calendar_write_claimed_at = now() - interval '1 hour', updated_at = now() - interval '1 hour'`,
+      );
+      // Another write at the same location, due, listed after the stuck one by age.
+      const r = await phoneRequest(stuck.clinicId);
+      google.failNext({ on: "insert", status: 503, reason: "backendError" });
+      const due = (
+        await deskDecide(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(4, 15) })
+      ).appointmentId!;
+      for (let run = 0; run < 2; run += 1) {
+        const result = await sweepDeskWrites({ limit: 1, now: new Date(Date.now() + 3 * MIN) });
+        expect(result.attempted).toBeLessThanOrEqual(1);
+        if (run === 0) expect(result).toMatchObject({ attempted: 1, written: 1 });
+        else expect(result).toMatchObject({ attempted: 0 });
+      }
+      expect((await row(stuck.clinicId, due)).calendar_write_status).toBe("written");
+      expect((await row(stuck.clinicId, stuck.id)).calendar_write_status).toBe("writing");
     },
     60_000,
   );

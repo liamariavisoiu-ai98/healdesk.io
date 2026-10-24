@@ -101,16 +101,24 @@ export async function writeLifecycleIgnore(
  * actor: the billing clinics on the list and their locations (a location is
  * watched with its account). For the readers outside the watch that must
  * agree with it: Home's go-live row and its lifecycle alerts. A clinic whose
- * row cannot be read is counted in `failed` and treated as watched, so a
- * failure never hides a real clinic.
+ * row cannot be read is named in `unread` and treated as watched, so a
+ * failure never hides a real clinic; a clinic list that cannot be read is
+ * `listUnread` with nothing ignored, so the caller still shows every alert
+ * and says it is partial.
  */
 export async function readIgnoredClinicIds(context: {
   actor: ActorContext;
   request?: RequestContext;
-}): Promise<{ ignored: ReadonlySet<string>; failed: number }> {
-  const clinics = await listClinics();
+}): Promise<{ ignored: ReadonlySet<string>; unread: ReadonlySet<string>; listUnread: boolean }> {
   const ignored = new Set<string>();
-  let failed = 0;
+  const unread = new Set<string>();
+  let clinics: Awaited<ReturnType<typeof listClinics>>;
+  try {
+    clinics = await listClinics();
+  } catch (error) {
+    log.warn("lifecycle ignore list not read: no clinic list", { error: describeError(error) });
+    return { ignored, unread, listUnread: true };
+  }
   for (const clinic of clinics) {
     if (clinic.billingClinicId || clinic.destroyedAt) continue;
     try {
@@ -120,12 +128,12 @@ export async function readIgnoredClinicIds(context: {
       );
       if (mark) ignored.add(clinic.id);
     } catch (error) {
-      failed += 1;
+      unread.add(clinic.id);
       log.warn("lifecycle ignore mark not read", { clinicId: clinic.id, error: describeError(error) });
     }
   }
   for (const clinic of clinics) {
     if (clinic.billingClinicId && ignored.has(clinic.billingClinicId)) ignored.add(clinic.id);
   }
-  return { ignored, failed };
+  return { ignored, unread, listUnread: false };
 }

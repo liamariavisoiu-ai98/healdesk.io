@@ -71,8 +71,9 @@ export const goLiveSource = {
   async read(ctx: InboxContext): Promise<{ rows: GoLiveRow[]; partial?: string }> {
     const found: Record<"ready" | "held", { id: string; name: string }[]> = { ready: [], held: [] };
     // healdesk's own test accounts (the lifecycle ignore list) never make a row.
-    const { ignored, failed: unreadMarks } = await readIgnoredClinicIds({ actor: ctx.actor, request: ctx.request });
-    let failed = unreadMarks;
+    const { ignored, unread: unreadMarks } = await readIgnoredClinicIds({ actor: ctx.actor, request: ctx.request });
+    // Each clinic counted once, whether its ignore mark, its go-live check or both could not be read.
+    const failed = new Set<string>(unreadMarks);
     for (const clinic of await listClinics()) {
       if (clinic.destroyedAt || ignored.has(clinic.id)) continue;
       try {
@@ -83,7 +84,7 @@ export const goLiveSource = {
         const standing = read ? goLiveStanding(read) : null;
         if (standing) found[standing].push({ id: clinic.id, name: clinic.name });
       } catch (error) {
-        failed += 1;
+        failed.add(clinic.id);
         log.warn("go-live check not read", { clinicId: clinic.id, error: describeError(error) });
       }
     }
@@ -110,6 +111,6 @@ export const goLiveSource = {
         dueAt: null,
       });
     }
-    return { rows, partial: failed > 0 ? `${failed} clinic(s) could not be read.` : undefined };
+    return { rows, partial: failed.size > 0 ? `${failed.size} clinic(s) could not be read.` : undefined };
   },
 };

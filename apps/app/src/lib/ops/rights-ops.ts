@@ -4,6 +4,7 @@ import { isIsoDay, RIGHTS_KINDS, RIGHTS_VERIFICATIONS, utcDay, type RightsKind, 
 import {
   closeIntake,
   LINKABLE,
+  RETELL_OUTSTANDING,
   listRights,
   recordIntake,
   RIGHTS_LIST_MAX,
@@ -22,9 +23,10 @@ import { actorFor, audit, clinicById, ok, opsProblem, UUID_SHAPED, type Operator
  *   - `listRights {status?, limit?, includeDemo?}`, a read across clinics:
  *     the open requests (or the done ones, or all) with their clocks and
  *     each one's prepared command (lib/rights/tracker.ts);
- *   - `recordRightsIntake {clinicId, kind, receivedOn, verifiedVia,
- *     askedFor?, linkedRecordId?}`: one intake, once per clinic, kind,
- *     linked record and day received; `askedFor` is required for a
+ *   - `recordRightsIntake {clinicId, requestKey, kind, receivedOn,
+ *     verifiedVia, askedFor?, linkedRecordId?}`: one intake, once per
+ *     request key (the form's own uuid) and per record it names;
+ *     `askedFor` is required for a
  *     patient_request and refused for every other kind, because the host's
  *     task needs it;
  *   - `closeRightsIntake {clinicId, id, status}`: done or not applicable,
@@ -84,13 +86,17 @@ export async function opRecordRightsIntake(
   operator: Operator,
   now: Date = new Date(),
 ): Promise<OpsOutcome> {
-  const unknown = UNKNOWN(args, ["clinicId", "kind", "receivedOn", "verifiedVia", "askedFor", "linkedRecordId"]);
+  const unknown = UNKNOWN(args, ["clinicId", "requestKey", "kind", "receivedOn", "verifiedVia", "askedFor", "linkedRecordId"]);
   if (unknown.length > 0) {
     return opsProblem(
-      "recordRightsIntake takes only clinicId, kind, receivedOn, verifiedVia, askedFor and linkedRecordId.",
+      "recordRightsIntake takes only clinicId, requestKey, kind, receivedOn, verifiedVia, askedFor and linkedRecordId.",
       400,
       "invalid_args",
     );
+  }
+  const requestKey = typeof args.requestKey === "string" ? args.requestKey.trim().toLowerCase() : "";
+  if (!UUID_SHAPED.test(requestKey)) {
+    return opsProblem("The request key is a uuid, generated once when the form opens.", 400, "invalid_args");
   }
   const rawClinic = typeof args.clinicId === "string" ? args.clinicId.trim().toLowerCase() : "";
   if (!UUID_SHAPED.test(rawClinic)) return opsProblem("A clinic id must be a uuid.", 400, "invalid_args");
@@ -104,7 +110,7 @@ export async function opRecordRightsIntake(
   const verifiedVia = args.verifiedVia as RightsVerification;
   if (!isIsoDay(args.receivedOn)) return opsProblem("The day received is YYYY-MM-DD.", 400, "invalid_args");
   const receivedOn = args.receivedOn;
-  // A day ahead of UTC's is allowed for a clinic west of it whose day is not over; never later.
+  // A day ahead of UTC's is allowed: a clinic east of UTC can already be in tomorrow. Never later.
   if (receivedOn > utcDay(new Date(now.getTime() + 24 * 60 * 60 * 1000))) {
     return opsProblem("A request cannot be received after today.", 400, "invalid_args");
   }
@@ -133,6 +139,7 @@ export async function opRecordRightsIntake(
       { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
       (tx) =>
         recordIntake(tx, {
+          requestKey,
           kind,
           receivedOn,
           verifiedVia,
@@ -144,6 +151,10 @@ export async function opRecordRightsIntake(
     if (outcome.outcome === "not_found") {
       return opsProblem("No such record at this clinic for that kind of request.", 404, "invalid_args");
     }
+    if (outcome.outcome === "asked_for_mismatch") {
+      return opsProblem("That patient request asked for something else.", 400, "invalid_args");
+    }
+    // Nothing changed, so nothing was owed to the log.
     if (outcome.outcome === "already_recorded") return ok({ ...outcome, auditRecorded: true });
     const auditRecorded = await audit(operator, "rights_intake_recorded", {
       clinicSlug: clinic.slug,
@@ -181,6 +192,7 @@ export async function opCloseRightsIntake(args: Record<string, unknown>, operato
       (tx) => closeIntake(tx, { id: rawId, status }),
     );
     if (outcome.outcome === "not_found") return opsProblem("No such intake at this clinic.", 404, "invalid_args");
+    if (outcome.outcome === "retell_outstanding") return opsProblem(`${RETELL_OUTSTANDING}.`, 409, "invalid_args");
     if (outcome.outcome === "already_closed") return ok({ ...outcome, auditRecorded: true });
     const auditRecorded = await audit(operator, "rights_intake_closed", {
       clinicSlug: clinic.slug,

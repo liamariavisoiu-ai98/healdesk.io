@@ -17,7 +17,7 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
 import {
   backupExpiresOn,
   businessDaysAfter,
-  businessDaysLeft,
+  daysLeftFor,
   clockState,
   dueOnFor,
   RIGHTS_CLOCKS,
@@ -27,6 +27,9 @@ import {
   type RightsVerification,
 } from "./clocks";
 import { NO_ROUTE, prepareCommand } from "./commands";
+
+/** What an intake shows once the patient's request it asked to record is on the host: no command, the L32 sweep's clock. */
+export const MATCHED_NOTE = "Recorded on the host: matched by its day and what was asked";
 
 /**
  * The patient-rights tracker's reads and writes (ops automation lane P6c;
@@ -178,6 +181,28 @@ export function clinicRows(
   const requests = new Map(read.requests.map((r) => [r.id, r]));
   const amendments = new Map(read.amendments.map((r) => [r.id, r]));
   const linked = new Set<string>();
+  for (const intake of read.intakes) if (intake.linkedRecordId) linked.add(intake.linkedRecordId);
+
+  // A patient's request recorded on the host after its intake was: the same
+  // clinic, what was asked and the day received (the command passes the
+  // intake's day, so the row's received time is that day in UTC). Matched one
+  // to one, the oldest intake first, and only while the intake is open: a
+  // closed one has no command to stop, and must not hide a request the
+  // practice has not marked.
+  const matched = new Map<string, (typeof read.requests)[number]>();
+  for (const intake of read.intakes) {
+    if (intake.kind !== "patient_request" || intake.linkedRecordId || intake.status !== "open") continue;
+    const found = read.requests.find(
+      (r) => !linked.has(r.id) && r.kind === intake.askedFor && utcDay(r.receivedAt) === intake.receivedOn,
+    );
+    if (found) {
+      linked.add(found.id);
+      matched.set(intake.id, found);
+    }
+  }
+
+  /** The agreement counts from receipt: the earlier of the intake's day and the record's. */
+  const earlier = (a: string, b: string) => (a < b ? a : b);
 
   for (const intake of read.intakes) {
     const base = {
@@ -196,18 +221,19 @@ export function clinicRows(
     const closedOn = intake.closedAt ? utcDay(intake.closedAt) : null;
     const link = intake.linkedRecordId;
     const erasure = link && intake.kind === "erasure" ? erasures.get(link) : undefined;
-    const request = link && intake.kind === "patient_request" ? requests.get(link) : undefined;
+    const request = link && intake.kind === "patient_request" ? requests.get(link) : matched.get(intake.id);
     const amendment = link && intake.kind === "amendment" ? amendments.get(link) : undefined;
     if (erasure) {
-      linked.add(erasure.id);
+      // Done only once the subcontractor step is stamped: closing the intake
+      // never counts (closeIntake refuses it while the step is outstanding).
       const stamped = erasure.stamped;
-      const done = closed || stamped;
-      const due = utcDay(erasure.dueBy);
+      const done = stamped;
+      const due = earlier(intake.dueOn, utcDay(erasure.dueBy));
       out.push({
         ...base,
         recordId: erasure.id,
         dueOn: due,
-        daysLeft: done ? null : businessDaysLeft(today, due),
+        daysLeft: done ? null : daysLeftFor(today, due),
         state: stateOf(done, false, today, due),
         command: null,
         commandNote: null,
@@ -218,23 +244,23 @@ export function clinicRows(
       continue;
     }
     if (request) {
-      linked.add(request.id);
-      const done = closed || request.acknowledgedAt !== null;
+      // Done only once the practice marks it received, as the L32 sweep waits for.
+      const done = request.acknowledgedAt !== null;
+      const due = earlier(intake.dueOn, request.replyBy);
       out.push({
         ...base,
         recordId: request.id,
-        dueOn: request.replyBy,
-        daysLeft: done ? null : businessDaysLeft(today, request.replyBy),
-        state: stateOf(done, false, today, request.replyBy),
+        dueOn: due,
+        daysLeft: done ? null : daysLeftFor(today, due),
+        state: stateOf(done, false, today, due),
         command: null,
-        commandNote: null,
+        commandNote: link ? null : MATCHED_NOTE,
         retellStep: null,
         backupExpiresOn: null,
-        closedOn: closedOn ?? (request.acknowledgedAt ? utcDay(request.acknowledgedAt) : null),
+        closedOn: request.acknowledgedAt ? utcDay(request.acknowledgedAt) : closedOn,
       });
       continue;
     }
-    if (amendment) linked.add(amendment.id);
     // Linked to a record, it has run: an amendment is done once it exists,
     // and a record that is gone went by its own clock (an erasure's expiry
     // once its step was stamped, the purge, the clinic's destruction).
@@ -268,7 +294,7 @@ export function clinicRows(
       ...base,
       recordId: null,
       dueOn: intake.dueOn,
-      daysLeft: closed ? null : businessDaysLeft(today, intake.dueOn),
+      daysLeft: closed ? null : daysLeftFor(today, intake.dueOn),
       state: stateOf(closed, isBlocked, today, intake.dueOn),
       command: prepared?.command ?? null,
       commandNote: prepared && !prepared.command ? prepared.note : null,
@@ -295,7 +321,7 @@ export function clinicRows(
       receivedOn: utcDay(erasure.receivedAt),
       dueOn: due,
       dueDerived: false,
-      daysLeft: stamped ? null : businessDaysLeft(today, due),
+      daysLeft: stamped ? null : daysLeftFor(today, due),
       state: stateOf(stamped, false, today, due),
       command: null,
       commandNote: null,
@@ -322,7 +348,7 @@ export function clinicRows(
       receivedOn: utcDay(request.receivedAt),
       dueOn: request.replyBy,
       dueDerived: false,
-      daysLeft: done ? null : businessDaysLeft(today, request.replyBy),
+      daysLeft: done ? null : daysLeftFor(today, request.replyBy),
       state: stateOf(done, false, today, request.replyBy),
       command: null,
       commandNote: null,
@@ -429,6 +455,8 @@ export async function listRights(options: RightsReadOptions & { limit?: number }
 // -----------------------------------------------------------------------------
 
 export type RecordIntakeInput = {
+  /** The form's own key, generated once when it opened: the idempotency key. */
+  requestKey: string;
   kind: RightsKind;
   receivedOn: string;
   verifiedVia: RightsVerification;
@@ -439,13 +467,23 @@ export type RecordIntakeInput = {
 
 export type RecordIntakeOutcome =
   | { outcome: "recorded" | "already_recorded"; id: string; dueOn: string }
-  | { outcome: "not_found" };
+  | { outcome: "not_found" }
+  /** The linked patient request asked for something other than `askedFor`. */
+  | { outcome: "asked_for_mismatch" };
 
-/** Whether the record an intake names is this clinic's, of the kind's table. RLS hides every other clinic's. */
-async function linkedExists(tx: TenantTx, kind: RightsKind, recordId: string): Promise<boolean> {
+/**
+ * The record an intake names, if it is this clinic's and of the kind's
+ * table (RLS hides every other clinic's): for a patient request, with what
+ * it asked for, so an intake cannot name one of another kind.
+ */
+async function linkedRecord(
+  tx: TenantTx,
+  kind: RightsKind,
+  recordId: string,
+): Promise<{ askedFor: PatientRequestKind | null } | null> {
   const target = LINKABLE[kind];
   if (target === "erasure_request") {
-    return (await listErasureRequests(tx)).some((r) => r.id === recordId);
+    return (await listErasureRequests(tx)).some((r) => r.id === recordId) ? { askedFor: null } : null;
   }
   if (target === "record_amendment") {
     const [row] = await tx.db
@@ -453,35 +491,40 @@ async function linkedExists(tx: TenantTx, kind: RightsKind, recordId: string): P
       .from(recordAmendments)
       .where(and(eq(recordAmendments.clinicId, tx.clinicId), eq(recordAmendments.id, recordId)))
       .limit(1);
-    return Boolean(row);
+    return row ? { askedFor: null } : null;
   }
   if (target === "patient_request") {
     const [row] = await tx.db
-      .select({ id: patientRequests.id })
+      .select({ kind: patientRequests.kind })
       .from(patientRequests)
       .where(and(eq(patientRequests.clinicId, tx.clinicId), eq(patientRequests.id, recordId)))
       .limit(1);
-    return Boolean(row);
+    return row ? { askedFor: row.kind } : null;
   }
-  return false;
+  return null;
 }
 
 /**
- * Record one intake, once: a second call for the same clinic, kind, linked
- * record and day received returns the first (`already_recorded`), changing
- * nothing. The due day comes from the kind's clock. The audit row carries
+ * Record one intake, once per request key: the same key again returns the
+ * first (`already_recorded`), changing nothing, while two people's requests
+ * of one kind on one day, under two keys, are two rows. A record already
+ * named by another intake returns that intake too, since one record came
+ * from one request. The due day comes from the kind's clock. The audit row carries
  * the kind, how it was verified and whether it names a record: no date
  * (the audit's number check reads a date as digits) and nothing typed.
  */
 export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Promise<RecordIntakeOutcome> {
-  if (input.linkedRecordId && !(await linkedExists(tx, input.kind, input.linkedRecordId))) {
-    return { outcome: "not_found" };
+  if (input.linkedRecordId) {
+    const record = await linkedRecord(tx, input.kind, input.linkedRecordId);
+    if (!record) return { outcome: "not_found" };
+    if (input.kind === "patient_request" && record.askedFor !== input.askedFor) return { outcome: "asked_for_mismatch" };
   }
   const dueOn = dueOnFor(input.kind, input.receivedOn);
   const [inserted] = await tx.db
     .insert(rightsIntakes)
     .values({
       clinicId: tx.clinicId,
+      requestKey: input.requestKey,
       kind: input.kind,
       askedFor: input.askedFor,
       receivedOn: input.receivedOn,
@@ -490,7 +533,8 @@ export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Prom
       linkedRecordId: input.linkedRecordId,
       recordedBy: input.recordedBy,
     })
-    // The one unique constraint besides the key: rights_intakes_request_key, NULLS NOT DISTINCT.
+    // Either unique: rights_intakes_request_key (clinic, key) or
+    // rights_intakes_linked_key (clinic, kind, linked record).
     .onConflictDoNothing()
     .returning({ id: rightsIntakes.id, dueOn: rightsIntakes.dueOn });
   if (inserted) {
@@ -509,13 +553,13 @@ export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Prom
     .where(
       and(
         eq(rightsIntakes.clinicId, tx.clinicId),
-        eq(rightsIntakes.kind, input.kind),
         input.linkedRecordId
-          ? eq(rightsIntakes.linkedRecordId, input.linkedRecordId)
-          : sql`${rightsIntakes.linkedRecordId} is null`,
-        eq(rightsIntakes.receivedOn, input.receivedOn),
+          ? sql`(${rightsIntakes.requestKey} = ${input.requestKey}
+                 or (${rightsIntakes.kind} = ${input.kind} and ${rightsIntakes.linkedRecordId} = ${input.linkedRecordId}))`
+          : eq(rightsIntakes.requestKey, input.requestKey),
       ),
     )
+    .orderBy(sql`${rightsIntakes.requestKey} = ${input.requestKey} desc`)
     .limit(1);
   if (!existing) throw new Error("The intake was neither recorded nor found.");
   return { outcome: "already_recorded", id: existing.id, dueOn: existing.dueOn };
@@ -524,21 +568,37 @@ export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Prom
 export type CloseIntakeOutcome =
   | { outcome: "closed"; status: Exclude<RightsStatus, "open"> }
   | { outcome: "already_closed"; status: Exclude<RightsStatus, "open"> }
-  | { outcome: "not_found" };
+  | { outcome: "not_found" }
+  /** It names a deletion whose Retell step is not stamped: closing it would hide that step. */
+  | { outcome: "retell_outstanding" };
 
-/** Close an open intake as done or not applicable, once; a closed one is left as it is. */
+/** What closeRightsIntake says when the deletion an intake names still owes its Retell step. */
+export const RETELL_OUTSTANDING = "The deletion at Retell is not recorded yet";
+
+/**
+ * Close an open intake as done or not applicable, once; a closed one is left
+ * as it is. Refused for an intake that names a deletion whose subcontractor
+ * step is not stamped: the deletion is done only once Retell's copy is, and
+ * that is recorded on the clinic's Care tab. An intake that names a patient's
+ * request may close: its row stays on the list, open, until the practice
+ * marks the request received, and the L32 sweep keeps chasing it.
+ */
 export async function closeIntake(
   tx: TenantTx,
   input: { id: string; status: Exclude<RightsStatus, "open"> },
 ): Promise<CloseIntakeOutcome> {
   const [row] = await tx.db
-    .select({ status: rightsIntakes.status })
+    .select({ status: rightsIntakes.status, kind: rightsIntakes.kind, linkedRecordId: rightsIntakes.linkedRecordId })
     .from(rightsIntakes)
     .where(and(eq(rightsIntakes.clinicId, tx.clinicId), eq(rightsIntakes.id, input.id)))
     .for("update")
     .limit(1);
   if (!row) return { outcome: "not_found" };
   if (row.status !== "open") return { outcome: "already_closed", status: row.status };
+  if (row.kind === "erasure" && row.linkedRecordId) {
+    const erasure = (await listErasureRequests(tx)).find((r) => r.id === row.linkedRecordId);
+    if (erasure && !erasure.steps.every((step) => step.stamp !== null)) return { outcome: "retell_outstanding" };
+  }
   // closed_at is the database's clock (rights_intakes_guard).
   await tx.db
     .update(rightsIntakes)

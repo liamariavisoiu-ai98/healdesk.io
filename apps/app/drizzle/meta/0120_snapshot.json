@@ -1,5 +1,5 @@
 {
-  "id": "b19ba753-0b44-45e8-8b19-d415d561fbb1",
+  "id": "37543552-8c19-43a3-85c4-97491e574609",
   "prevId": "c1ebcd66-8cef-403f-8d23-00b7d742cff3",
   "version": "7",
   "dialect": "postgresql",
@@ -11725,6 +11725,203 @@
       },
       "isRLSEnabled": false
     },
+    "public.rights_intakes": {
+      "name": "rights_intakes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "clinic_id": {
+          "name": "clinic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_key": {
+          "name": "request_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "asked_for": {
+          "name": "asked_for",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "received_on": {
+          "name": "received_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "verified_via": {
+          "name": "verified_via",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "due_on": {
+          "name": "due_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "linked_record_id": {
+          "name": "linked_record_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recorded_by": {
+          "name": "recorded_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recorded_at": {
+          "name": "recorded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "closed_at": {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "rights_intakes_linked_key": {
+          "name": "rights_intakes_linked_key",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "linked_record_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"rights_intakes\".\"linked_record_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "rights_intakes_open_idx": {
+          "name": "rights_intakes_open_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "due_on",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"rights_intakes\".\"status\" = 'open'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "rights_intakes_clinic_id_clinics_id_fk": {
+          "name": "rights_intakes_clinic_id_clinics_id_fk",
+          "tableFrom": "rights_intakes",
+          "tableTo": "clinics",
+          "columnsFrom": [
+            "clinic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "rights_intakes_request_key": {
+          "name": "rights_intakes_request_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "clinic_id",
+            "request_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "rights_intakes_kind_check": {
+          "name": "rights_intakes_kind_check",
+          "value": "\"rights_intakes\".\"kind\" in ('erasure', 'amendment', 'correction', 'export', 'patient_request')"
+        },
+        "rights_intakes_verified_via_check": {
+          "name": "rights_intakes_verified_via_check",
+          "value": "\"rights_intakes\".\"verified_via\" in ('notice_address', 'phone_confirmed', 'unverified')"
+        },
+        "rights_intakes_status_check": {
+          "name": "rights_intakes_status_check",
+          "value": "\"rights_intakes\".\"status\" in ('open', 'done', 'not_applicable')"
+        },
+        "rights_intakes_asked_for_check": {
+          "name": "rights_intakes_asked_for_check",
+          "value": "(\"rights_intakes\".\"kind\" = 'patient_request') = (\"rights_intakes\".\"asked_for\" is not null)\n        and (\"rights_intakes\".\"asked_for\" is null or \"rights_intakes\".\"asked_for\" in ('access', 'amendment', 'accounting', 'deletion', 'other'))"
+        },
+        "rights_intakes_closed_check": {
+          "name": "rights_intakes_closed_check",
+          "value": "(\"rights_intakes\".\"status\" = 'open') = (\"rights_intakes\".\"closed_at\" is null)"
+        },
+        "rights_intakes_due_check": {
+          "name": "rights_intakes_due_check",
+          "value": "\"rights_intakes\".\"due_on\" between \"rights_intakes\".\"received_on\" + 5 and \"rights_intakes\".\"received_on\" + 14"
+        },
+        "rights_intakes_text_check": {
+          "name": "rights_intakes_text_check",
+          "value": "char_length(\"rights_intakes\".\"recorded_by\") between 1 and 64\n        and (\"rights_intakes\".\"kind\" || ' ' || coalesce(\"rights_intakes\".\"asked_for\", '') || ' ' || \"rights_intakes\".\"verified_via\" || ' ' || \"rights_intakes\".\"status\" || ' ' || \"rights_intakes\".\"recorded_by\") !~ '[@]|[0-9]{3,}'"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.scheduled_jobs": {
       "name": "scheduled_jobs",
       "schema": "",
@@ -15984,171 +16181,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.rights_intakes": {
-      "name": "rights_intakes",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "asked_for": {
-          "name": "asked_for",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "received_on": {
-          "name": "received_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "verified_via": {
-          "name": "verified_via",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "due_on": {
-          "name": "due_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'open'"
-        },
-        "linked_record_id": {
-          "name": "linked_record_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "recorded_by": {
-          "name": "recorded_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "recorded_at": {
-          "name": "recorded_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "clock_timestamp()"
-        },
-        "closed_at": {
-          "name": "closed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "rights_intakes_open_idx": {
-          "name": "rights_intakes_open_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "due_on",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"rights_intakes\".\"status\" = 'open'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "rights_intakes_clinic_id_clinics_id_fk": {
-          "name": "rights_intakes_clinic_id_clinics_id_fk",
-          "tableFrom": "rights_intakes",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "rights_intakes_request_key": {
-          "name": "rights_intakes_request_key",
-          "nullsNotDistinct": true,
-          "columns": [
-            "clinic_id",
-            "kind",
-            "linked_record_id",
-            "received_on"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "rights_intakes_kind_check": {
-          "name": "rights_intakes_kind_check",
-          "value": "\"rights_intakes\".\"kind\" in ('erasure', 'amendment', 'correction', 'export', 'patient_request')"
-        },
-        "rights_intakes_verified_via_check": {
-          "name": "rights_intakes_verified_via_check",
-          "value": "\"rights_intakes\".\"verified_via\" in ('notice_address', 'phone_confirmed', 'unverified')"
-        },
-        "rights_intakes_status_check": {
-          "name": "rights_intakes_status_check",
-          "value": "\"rights_intakes\".\"status\" in ('open', 'done', 'not_applicable')"
-        },
-        "rights_intakes_asked_for_check": {
-          "name": "rights_intakes_asked_for_check",
-          "value": "(\"rights_intakes\".\"kind\" = 'patient_request') = (\"rights_intakes\".\"asked_for\" is not null)\n        and (\"rights_intakes\".\"asked_for\" is null or \"rights_intakes\".\"asked_for\" in ('access', 'amendment', 'accounting', 'deletion', 'other'))"
-        },
-        "rights_intakes_closed_check": {
-          "name": "rights_intakes_closed_check",
-          "value": "(\"rights_intakes\".\"status\" = 'open') = (\"rights_intakes\".\"closed_at\" is null)"
-        },
-        "rights_intakes_due_check": {
-          "name": "rights_intakes_due_check",
-          "value": "\"rights_intakes\".\"due_on\" between \"rights_intakes\".\"received_on\" + 5 and \"rights_intakes\".\"received_on\" + 14"
-        },
-        "rights_intakes_text_check": {
-          "name": "rights_intakes_text_check",
-          "value": "char_length(\"rights_intakes\".\"recorded_by\") between 1 and 64\n        and (\"rights_intakes\".\"kind\" || ' ' || coalesce(\"rights_intakes\".\"asked_for\", '') || ' ' || \"rights_intakes\".\"verified_via\" || ' ' || \"rights_intakes\".\"status\" || ' ' || \"rights_intakes\".\"recorded_by\") !~ '[@]|[0-9]{3,}'"
-        }
-      },
       "isRLSEnabled": false
     }
   },

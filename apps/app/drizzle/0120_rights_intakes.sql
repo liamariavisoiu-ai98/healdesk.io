@@ -1,6 +1,7 @@
 CREATE TABLE "rights_intakes" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"clinic_id" uuid NOT NULL,
+	"request_key" uuid NOT NULL,
 	"kind" text NOT NULL,
 	"asked_for" text,
 	"received_on" date NOT NULL,
@@ -11,7 +12,7 @@ CREATE TABLE "rights_intakes" (
 	"recorded_by" text NOT NULL,
 	"recorded_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
 	"closed_at" timestamp with time zone,
-	CONSTRAINT "rights_intakes_request_key" UNIQUE NULLS NOT DISTINCT("clinic_id","kind","linked_record_id","received_on"),
+	CONSTRAINT "rights_intakes_request_key" UNIQUE("clinic_id","request_key"),
 	CONSTRAINT "rights_intakes_kind_check" CHECK ("rights_intakes"."kind" in ('erasure', 'amendment', 'correction', 'export', 'patient_request')),
 	CONSTRAINT "rights_intakes_verified_via_check" CHECK ("rights_intakes"."verified_via" in ('notice_address', 'phone_confirmed', 'unverified')),
 	CONSTRAINT "rights_intakes_status_check" CHECK ("rights_intakes"."status" in ('open', 'done', 'not_applicable')),
@@ -24,7 +25,9 @@ CREATE TABLE "rights_intakes" (
 );
 --> statement-breakpoint
 ALTER TABLE "rights_intakes" ADD CONSTRAINT "rights_intakes_clinic_id_clinics_id_fk" FOREIGN KEY ("clinic_id") REFERENCES "public"."clinics"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "rights_intakes_open_idx" ON "rights_intakes" USING btree ("clinic_id","due_on") WHERE "rights_intakes"."status" = 'open';--> statement-breakpoint
+CREATE UNIQUE INDEX "rights_intakes_linked_key" ON "rights_intakes" USING btree ("clinic_id","kind","linked_record_id") WHERE "rights_intakes"."linked_record_id" is not null;--> statement-breakpoint
+CREATE INDEX "rights_intakes_open_idx" ON "rights_intakes" USING btree ("clinic_id","due_on") WHERE "rights_intakes"."status" = 'open';
+--> statement-breakpoint
 -- =============================================================================
 -- The patient-rights tracker (24 October 2026; ops automation Phase 6, lane
 -- P6c, design E6 item 16). The statements above were generated from
@@ -40,7 +43,10 @@ CREATE INDEX "rights_intakes_open_idx" ON "rights_intakes" USING btree ("clinic_
 -- contact id (docs/handover.md, "Deletion requests"), so it was tracked
 -- nowhere until it could run.
 --
---   rights_intakes  one row per request as it reached us: the clinic, the
+--   rights_intakes  one row per request as it reached us, under the key the
+--                   console's form generated once when it opened (a retried
+--                   submit is the same key; two people's same-day requests
+--                   of one kind are two keys): the clinic, the
 --                   kind, what a patient asked for (a patient_request only),
 --                   the day received, how it was verified, the due day the
 --                   kind's clock gives, the status, the record it became
@@ -82,6 +88,7 @@ BEGIN
   END IF;
   IF NEW.id IS DISTINCT FROM OLD.id
      OR NEW.clinic_id IS DISTINCT FROM OLD.clinic_id
+     OR NEW.request_key IS DISTINCT FROM OLD.request_key
      OR NEW.kind IS DISTINCT FROM OLD.kind
      OR NEW.asked_for IS DISTINCT FROM OLD.asked_for
      OR NEW.received_on IS DISTINCT FROM OLD.received_on
@@ -123,7 +130,11 @@ ON CONFLICT (name) DO NOTHING;--> statement-breakpoint
 DO $$
 BEGIN
   IF has_table_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'DELETE')
+     OR has_table_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'TRUNCATE')
      OR has_column_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'clinic_id', 'UPDATE')
+     OR has_column_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'request_key', 'UPDATE')
+     OR has_column_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'kind', 'UPDATE')
+     OR has_column_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'linked_record_id', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'due_on', 'UPDATE') THEN
     RAISE EXCEPTION 'healdesk_app can delete an intake or change more than its status.';
   END IF;

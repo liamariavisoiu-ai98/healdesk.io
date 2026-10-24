@@ -20,6 +20,7 @@ import { closeRightsIntake, fetchRights, recordRightsIntake, type RightsRowView 
 const CLINIC = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 const INTAKE = "5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a";
 const RECORD = "9a8b7c6d-1111-4222-8333-444455556666";
+const KEY = "0b5e1c2d-3f40-4a51-8b62-7c83d94ea5f6";
 
 let replies: { status?: number; body: unknown }[] = [];
 let sent: { op: string; args: Record<string, unknown> }[] = [];
@@ -118,11 +119,23 @@ describe("fetchRights", () => {
     }
   });
 
+  test("every fixed note apps/app sends is read, word for word", async () => {
+    for (const commandNote of [
+      "No portal route yet takes the practice's words for an amendment on the host",
+      "No portal route yet takes a correction's new values on the host",
+      "Recorded on the host: matched by its day and what was asked",
+    ]) {
+      reply({ data: { rows: [{ ...BLOCKED, commandNote }], count: 1, truncated: false, unreadClinics: 0 } });
+      expect((await fetchRights()).ok, commandNote).toBe(true);
+    }
+  });
+
   test("an extra field, an unknown state or a note that is not one of the two is malformed", async () => {
     for (const row of [
       { ...TO_RUN, contactId: RECORD },
       { ...TO_RUN, state: "late" },
       { ...BLOCKED, commandNote: "Call Sam on 555 0131" },
+      { ...BLOCKED, commandNote: "No portal route yet" },
       { ...TO_RUN, receivedOn: "21 October" },
       { ...TO_RUN, kind: "deletion" },
     ]) {
@@ -137,6 +150,7 @@ describe("recordRightsIntake", () => {
     reply({ data: { outcome: "recorded", id: INTAKE, dueOn: "2026-10-28", auditRecorded: true } });
     const out = await recordRightsIntake({
       clinicId: CLINIC,
+      requestKey: KEY,
       kind: "patient_request",
       receivedOn: "2026-10-21",
       verifiedVia: "unverified",
@@ -146,16 +160,24 @@ describe("recordRightsIntake", () => {
     expect(sent).toEqual([
       {
         op: "recordRightsIntake",
-        args: { clinicId: CLINIC, kind: "patient_request", receivedOn: "2026-10-21", verifiedVia: "unverified", askedFor: "access" },
+        args: { clinicId: CLINIC, requestKey: KEY, kind: "patient_request", receivedOn: "2026-10-21", verifiedVia: "unverified", askedFor: "access" },
       },
     ]);
 
     reply({ data: { outcome: "already_recorded", id: INTAKE, dueOn: "2026-11-04", auditRecorded: true } });
-    await recordRightsIntake({ clinicId: CLINIC, kind: "erasure", receivedOn: "2026-10-21", verifiedVia: "notice_address", linkedRecordId: RECORD });
-    expect(sent[1]!.args).toEqual({ clinicId: CLINIC, kind: "erasure", receivedOn: "2026-10-21", verifiedVia: "notice_address", linkedRecordId: RECORD });
+    await recordRightsIntake({ clinicId: CLINIC, requestKey: KEY, kind: "erasure", receivedOn: "2026-10-21", verifiedVia: "notice_address", linkedRecordId: RECORD });
+    expect(sent[1]!.args).toEqual({ clinicId: CLINIC, requestKey: KEY, kind: "erasure", receivedOn: "2026-10-21", verifiedVia: "notice_address", linkedRecordId: RECORD });
 
     reply({ data: { outcome: "saved", id: INTAKE, dueOn: "2026-10-28", auditRecorded: true } });
-    expect((await recordRightsIntake({ clinicId: CLINIC, kind: "export", receivedOn: "2026-10-21", verifiedVia: "unverified" })).ok).toBe(false);
+    expect((await recordRightsIntake({ clinicId: CLINIC, requestKey: KEY, kind: "export", receivedOn: "2026-10-21", verifiedVia: "unverified" })).ok).toBe(false);
+  });
+
+  test("a request key that is not a uuid is refused before anything is sent", async () => {
+    for (const requestKey of ["", "retry-1", `${KEY}; drop`]) {
+      const out = await recordRightsIntake({ clinicId: CLINIC, requestKey, kind: "export", receivedOn: "2026-10-21", verifiedVia: "unverified" });
+      expect(out.ok, requestKey).toBe(false);
+    }
+    expect(sent).toEqual([]);
   });
 });
 

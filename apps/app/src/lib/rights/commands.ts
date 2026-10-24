@@ -31,8 +31,10 @@ import type { RightsKind } from "./clocks";
  *   - correction: `amend-contact <clinic id> <contact id> <fields to clear>
  *     <who asked> <operator>`: clearing fields only, since new values are
  *     patient data and cannot be passed on the host;
- *   - amendment: none. `ops:amend-record` takes the practice's words, which
- *     cannot be typed or passed on the host; they wait for the portal.
+ *   - amendment: none, ever, contact id or not. `ops:amend-record` takes the
+ *     practice's words, which cannot be typed or passed on the host; they
+ *     wait for the portal (NO_ROUTE_AMENDMENT). A correction with new values
+ *     rather than fields to clear is the same (NO_ROUTE_CORRECTION).
  *
  * Every kind but patient_request needs a contact id, and nothing on the AWS
  * host turns a request that arrives as words into one: that waits for the
@@ -44,6 +46,12 @@ export const RUN_TASK = "bash infra/aws/scripts/run-task.sh";
 
 /** What a blocked request shows in place of its command (D19). */
 export const NO_ROUTE = "No portal route yet turns this request into a contact id";
+
+/** What an amendment shows: it needs the practice's words, which no route takes on the host (D19). */
+export const NO_ROUTE_AMENDMENT = "No portal route yet takes the practice's words for an amendment on the host";
+
+/** What a correction with new values shows: only clearing a field runs on the host. */
+export const NO_ROUTE_CORRECTION = "No portal route yet takes a correction's new values on the host";
 
 /** What a request shows when this host's operator address is not one the task would accept. */
 export const NO_OPERATOR = "The operator address on this host is not one the task accepts";
@@ -93,8 +101,8 @@ function requester(value: unknown): PatientRequester | null {
   return (PATIENT_REQUESTERS as readonly unknown[]).includes(value) ? (value as PatientRequester) : null;
 }
 
-function blocked(): PreparedCommand {
-  return { command: null, note: NO_ROUTE, blocked: true };
+function blocked(note: string = NO_ROUTE): PreparedCommand {
+  return { command: null, note, blocked: true };
 }
 
 function line(task: string, words: readonly string[]): PreparedCommand {
@@ -118,15 +126,17 @@ export function prepareCommand(input: CommandInput): PreparedCommand {
   // Blocked first: a request with no route is blocked whatever the operator.
   switch (input.kind) {
     case "amendment":
-      return blocked();
+      return blocked(NO_ROUTE_AMENDMENT);
     case "erasure":
     case "export":
       if (!contactId || !who) return blocked();
       break;
     case "correction": {
       const fields = input.clearFields ?? [];
-      if (!contactId || !who || fields.length === 0) return blocked();
-      if (!fields.every((f) => (CLEARABLE as readonly string[]).includes(f))) return blocked();
+      if (!contactId || !who) return blocked();
+      if (fields.length === 0 || !fields.every((f) => (CLEARABLE as readonly string[]).includes(f))) {
+        return blocked(NO_ROUTE_CORRECTION);
+      }
       break;
     }
     case "patient_request":

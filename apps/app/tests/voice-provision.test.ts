@@ -582,4 +582,83 @@ describeDb("automated voice provisioning", () => {
       client.release();
     }
   });
+
+  /* ------------------------------------------------ clearing a drift flag */
+
+  async function securityEvents(clinicId: string) {
+    const { rows } = await getMigratorPool().query<{ actor_label: string; metadata: Record<string, unknown> }>(
+      `select actor_label, metadata from security_events where event = 'voice_drift_flag_cleared' and metadata->>'clinicId' = $1`,
+      [clinicId],
+    );
+    return rows;
+  }
+
+  test("a flagged clinic, cleared, is checked again: repaired, the counter reset, and the nightly check no longer skips it", async () => {
+    const c = await paidVoiceClinic("vp-clear");
+    __setVoiceAgentDepsForTests(deps());
+    await provisionVoiceAgent(c.clinicId, deps());
+    const number = [...retell.numbers.values()][0]!;
+    number.fallback_number = "+14155550000";
+    await setRow(c.clinicId, `drift_repairs = $2`, [MAX_DRIFT_REPAIRS]);
+    expect((await checkVoiceAgentDrift(c.clinicId, deps())).outcome).toBe("flagged");
+    expect(await checkVoiceAgentDrift(c.clinicId, deps())).toEqual({ outcome: "skipped", reason: "flagged for a person" });
+
+    const bought = retell.bought;
+    const cleared = await runOperation("clearVoiceDriftFlag", { clinicId: c.clinicId }, OPERATOR);
+    expect(cleared.status).toBe(200);
+    expect((cleared.body as { data: unknown }).data).toEqual({ outcome: "cleared", check: "repaired", problems: ["fallback"] });
+    expect(number.fallback_number).toBe(DIRECT);
+    const after = (await row(c.clinicId))!;
+    expect(after.drift_flagged_at).toBeNull();
+    expect(after.drift_repairs).toBe(1);
+    expect(after.last_error).toBeNull();
+    // Checked again from now on, and nothing was bought.
+    expect(await checkVoiceAgentDrift(c.clinicId, deps())).toEqual({ outcome: "clean" });
+    expect(retell.bought).toBe(bought);
+    const events = await securityEvents(c.clinicId);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.actor_label).toBe(OPERATOR.email);
+    expect(events[0]!.metadata).toMatchObject({ outcome: "cleared", check: "repaired" });
+  });
+
+  test("an agent gone from Retell is never re-created by a clear: the check flags it again, still_drifted", async () => {
+    const c = await paidVoiceClinic("vp-clear-gone");
+    __setVoiceAgentDepsForTests(deps());
+    await provisionVoiceAgent(c.clinicId, deps());
+    retell.agents.clear();
+    expect(await checkVoiceAgentDrift(c.clinicId, deps())).toMatchObject({ outcome: "flagged" });
+    const writes = retell.writes().length;
+    const bought = retell.bought;
+
+    const cleared = await runOperation("clearVoiceDriftFlag", { clinicId: c.clinicId }, OPERATOR);
+    expect((cleared.body as { data: unknown }).data).toEqual({ outcome: "still_drifted", problems: ["agent_missing"] });
+    expect(retell.writes().length).toBe(writes);
+    expect(retell.agents.size).toBe(0);
+    expect(retell.bought).toBe(bought);
+    expect((await row(c.clinicId))!.drift_flagged_at).not.toBeNull();
+    expect((await securityEvents(c.clinicId))[0]!.metadata).toMatchObject({
+      outcome: "still_drifted",
+      problems: ["agent_missing"],
+    });
+  });
+
+  test("a clinic not flagged is not_flagged and nothing changes; an unknown clinic or one with no agent is not_found", async () => {
+    const c = await paidVoiceClinic("vp-clear-none");
+    __setVoiceAgentDepsForTests(deps());
+    expect((await runOperation("clearVoiceDriftFlag", { clinicId: c.clinicId }, OPERATOR)).body).toMatchObject({
+      data: { outcome: "not_found" },
+    });
+    await provisionVoiceAgent(c.clinicId, deps());
+    const before = await row(c.clinicId);
+    const calls = retell.calls.length;
+    expect((await runOperation("clearVoiceDriftFlag", { clinicId: c.clinicId }, OPERATOR)).body).toMatchObject({
+      data: { outcome: "not_flagged" },
+    });
+    expect(await row(c.clinicId)).toEqual(before);
+    expect(retell.calls.length).toBe(calls);
+    expect((await runOperation("clearVoiceDriftFlag", { clinicId: "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f60" }, OPERATOR)).body).toMatchObject({
+      data: { outcome: "not_found" },
+    });
+    expect((await runOperation("clearVoiceDriftFlag", {}, OPERATOR)).status).toBe(400);
+  });
 });

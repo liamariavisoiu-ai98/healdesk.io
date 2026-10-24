@@ -57,6 +57,13 @@ export type KindSpec = {
   readonly irreversible: boolean;
   /** Whether the item carries an email draft that the owner may edit before approving. */
   readonly hasDraft: boolean;
+  /**
+   * Whether the proposer puts it in the inbox. False for a kind an automatic
+   * process still retries (D17: nothing is both waiting for the owner's yes
+   * and retried by itself): the kind and its executor stay registered, so an
+   * item already recorded can still be read and decided.
+   */
+  readonly proposed: boolean;
 };
 
 export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
@@ -67,6 +74,11 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
     expiryDays: 7,
     irreversible: true,
     hasDraft: false,
+    // Only cancel_now and close_setup dead letters (PROPOSED_REQUEST_KINDS):
+    // the hourly reconcile re-arms a plan start or step-up dead letter once it
+    // has rested a day (lib/billing/reconcile.ts decideReconcile), whenever
+    // the worker would not just skip it, so neither is ever proposed.
+    proposed: true,
   },
   overage_invoice_retry: {
     operation: "retryOverageInvoice",
@@ -75,6 +87,10 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
     expiryDays: 7,
     irreversible: true,
     hasDraft: false,
+    // Not proposed: the 05 UTC run invoices every failed month again by
+    // itself (lib/billing/annual-overage.ts invoiceAnnualOverage takes pending and
+    // failed rows), so a failed overage invoice is never a dead letter.
+    proposed: false,
   },
   billing_event_replay: {
     operation: "replayBillingEvent",
@@ -83,8 +99,22 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
     expiryDays: 7,
     irreversible: true,
     hasDraft: false,
+    // Only a parked event that resolved to a clinic: one that names none may
+    // still be replayed by provisioning (replayParkedBillingEvents).
+    proposed: true,
   },
 };
+
+/**
+ * The billing requests the proposer puts in the inbox: the two kinds nothing
+ * re-arms. A plan start or step-up dead letter is re-armed by the hourly
+ * reconcile after DEAD_LETTER_REST_MS whenever the worker could carry it out
+ * (its conditions mirror the worker's re-check), so it is never proposed.
+ */
+export const PROPOSED_REQUEST_KINDS: readonly BillingRequestKind[] = ["cancel_now", "close_setup"];
+
+/** An item still `approved` this long after its decision lost its process: the sweep records it failed. */
+export const APPROVED_STUCK_MS = 15 * 60 * 1000;
 
 /** A legal-clock item waiting is re-alerted at most this often (D18). */
 export const LEGAL_CLOCK_REMINDER_MS = 4 * 60 * 60 * 1000;
@@ -120,7 +150,8 @@ export function isApprovalStatus(value: unknown): value is ApprovalStatus {
 export type Payloads = {
   billing_request_retry: { billingClinicId: string; requestId: string; requestKind: BillingRequestKind; epoch: number };
   overage_invoice_retry: { billingClinicId: string; overageId: string; windowStart: string };
-  billing_event_replay: { eventType: string };
+  /** `parkedAt`: when the event was parked, the episode the item was proposed for. */
+  billing_event_replay: { eventType: string; parkedAt: string };
 };
 
 /**
@@ -149,8 +180,9 @@ export function parsePayload<K extends ApprovalKind>(kind: K, raw: unknown): Pay
       return p as Payloads[K];
     }
     case "billing_event_replay": {
-      if (keys !== "eventType") return null;
+      if (keys !== "eventType,parkedAt") return null;
       if (typeof p.eventType !== "string" || !EVENT_TYPE.test(p.eventType)) return null;
+      if (typeof p.parkedAt !== "string" || !ISO_INSTANT.test(p.parkedAt)) return null;
       return p as Payloads[K];
     }
   }

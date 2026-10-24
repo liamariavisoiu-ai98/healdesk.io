@@ -1,4 +1,4 @@
-import { getPlan, type Channel } from "@healdesk/catalog";
+import type { Channel } from "@healdesk/catalog";
 import { and, eq } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -14,6 +14,7 @@ import type { ActorContext, RequestContext } from "@/lib/audit";
 import { getEntitlements } from "@/lib/billing/entitlements";
 import { MAX_FAILURES } from "@/lib/billing/events";
 import { MAX_BILLING_REQUEST_ATTEMPTS } from "@/lib/billing/requests";
+import { getJob, JOB_BILLING_REQUESTS, JOB_SETUP_CLOSURE } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
 import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind } from "./kinds";
@@ -42,9 +43,10 @@ export type BillingRequestFacts = {
   billingStatus: BillingStatus | null;
   /** A later cancellation or closure that makes this change moot. */
   supersededBy: "cancel_now" | "close_setup" | null;
-  /** The package bought's price per period, in cents, when it is one the catalog knows. */
-  priceCents: number | null;
-  interval: "month" | "year" | null;
+  /** Whether the billing-requests job, which carries a re-armed request out, is switched on. */
+  workerOn: boolean;
+  /** For a closure: whether the setup-closure switch, without which the worker leaves it waiting, is on. Null for any other kind. */
+  closureOn: boolean | null;
 };
 
 export type OverageFacts = {
@@ -95,26 +97,28 @@ function day(at: Date): string {
   return `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]}`;
 }
 
-const CHANNEL_WORDS: Readonly<Record<Channel, string>> = { voice: "phone", web: "website chat", meta: "Meta chat" };
-
-/** The money sentence for a billing request, from the catalog's price for the package bought. */
-export function requestEffect(facts: Pick<BillingRequestFacts, "requestKind" | "channel" | "priceCents" | "interval">, locations = 1): string {
-  const per = facts.interval === "year" ? "a year" : "a month";
-  const price = facts.priceCents === null ? null : dollars(facts.priceCents * Math.max(1, locations));
-  const where = locations > 1 ? ` for its ${locations} locations` : "";
+/**
+ * What approving a billing request does: it re-arms it (lib/billing/requests.ts
+ * rearmBillingRequest: due now, ten fresh tries, a new epoch), nothing more.
+ * The change itself is the billing-requests worker's, at its next run, behind
+ * its own switch, and the worker re-checks Stripe first and may skip it; a
+ * closure also waits for the setup-closure switch.
+ */
+export function requestEffect(facts: Pick<BillingRequestFacts, "requestKind" | "workerOn" | "closureOn">): string {
+  const off = facts.workerOn
+    ? ""
+    : " The billing worker is switched off, so nothing happens until it is switched on at System > Jobs.";
   switch (facts.requestKind) {
-    case "plan_start":
-      return price
-        ? `Starts the package price on the subscription, up to ${price} ${per}${where}, replacing the $0 line.`
-        : "Starts the package price on the subscription, replacing the $0 line. The package is not one the catalog prices, so check the Billing tab first.";
-    case "step_up":
-      return price
-        ? `Adds ${facts.channel ? CHANNEL_WORDS[facts.channel] : "a channel"} to what the subscription bills, up to the full package price of ${price} ${per}${where}.`
-        : `Adds ${facts.channel ? CHANNEL_WORDS[facts.channel] : "a channel"} to what the subscription bills.`;
-    case "close_setup":
-      return "Cancels the subscription now and closes the account. The setup fee is not refunded. This cannot be undone.";
     case "cancel_now":
-      return "Cancels the subscription now. This cannot be undone.";
+      return `Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with ten fresh tries. Once carried out, the subscription is cancelled at once, and that cannot be undone.${off}`;
+    case "close_setup":
+      return (
+        "Makes this closure due again. The billing worker carries it out at its next run, with ten fresh tries, if nothing has gone live and setup closure is switched on. Once carried out, the subscription is cancelled and the account closed, the setup fee is not refunded, and that cannot be undone." +
+        off +
+        (facts.closureOn === false ? " Setup closure is switched off, so the closure waits until it is switched on at System > Jobs." : "")
+      );
+    default:
+      return `Makes this change due again. The billing worker carries it out at its next run if it still applies, with ten fresh tries.${off}`;
   }
 }
 
@@ -122,8 +126,35 @@ export function overageEffect(facts: Pick<OverageFacts, "windowStart" | "amountC
   return `Invoices the extra usage for the month from ${day(new Date(facts.windowStart))}: ${dollars(facts.amountCents)}, charged to the card on file. If the failed try left an invoice in Stripe, that one is finished instead of a second.`;
 }
 
-export function eventEffect(): string {
-  return `Applies the parked Stripe event again from the start, as if it had just arrived. It brings our record of the clinic's billing in line with what Stripe sent, and may send the clinic the billing email that event calls for.`;
+/**
+ * What replaying a parked event does, by its type, read from
+ * lib/billing/events.ts dispatch and its handlers.
+ */
+const EVENT_EFFECTS: Readonly<Record<string, string>> = {
+  "charge.dispute.created":
+    "Applies a payment dispute: where the account can be suspended, AYA is suspended until support lifts it and the clinic is emailed its call-forwarding steps; otherwise the dispute is noted in its billing history.",
+  "customer.subscription.deleted":
+    "Applies the end of the subscription: the account is cancelled, the clock for returning and then destroying its data starts, and its Google Calendar and Meta access is removed.",
+  "customer.subscription.updated":
+    "Applies a change Stripe made to the subscription, such as its status, its price or a cancellation date.",
+  "invoice.paid":
+    "Applies a paid invoice: it can activate a clinic still being set up, start its plan, move its billing period on, or lift a suspension for non-payment.",
+  "invoice.payment_failed":
+    "Applies a failed payment: the clinic is emailed Stripe's page to pay, and an active account moves to past due with its grace period.",
+  "invoice.payment_action_required":
+    "Applies a payment the clinic's bank wants confirmed: the clinic is emailed Stripe's page to confirm it, and an active account moves to past due with its grace period.",
+  "charge.refunded": "Applies a refund Stripe made: it is recorded in the clinic's billing history.",
+};
+
+export function eventEffect(eventType: string): string {
+  const what = EVENT_EFFECTS[eventType] ?? "Applies the parked Stripe event again from the start.";
+  return `${what} It is applied as if it had just arrived, and may send the clinic the billing email that event calls for.`;
+}
+
+/** The two switches a re-armed request waits on (lib/scheduler/jobs.ts). */
+export async function billingSwitches(): Promise<{ worker: boolean; closure: boolean }> {
+  const [worker, closure] = await Promise.all([getJob(JOB_BILLING_REQUESTS), getJob(JOB_SETUP_CLOSURE)]);
+  return { worker: worker?.enabled === true, closure: closure?.enabled === true };
 }
 
 type Ctx = { actor: ActorContext; request?: RequestContext };
@@ -131,6 +162,7 @@ type Ctx = { actor: ActorContext; request?: RequestContext };
 async function billingRequestPacket(approval: OpsApproval, ctx: Ctx): Promise<Packet | null> {
   const payload = parsePayload("billing_request_retry", approval.payload);
   if (!payload) return null;
+  const switches = await billingSwitches();
   return withTenant({ clinicId: payload.billingClinicId, actor: ctx.actor, request: ctx.request }, async (tx) => {
     const requests = await tx.db
       .select()
@@ -138,14 +170,16 @@ async function billingRequestPacket(approval: OpsApproval, ctx: Ctx): Promise<Pa
       .where(eq(billingRequests.clinicId, payload.billingClinicId));
     const request = requests.find((r) => r.id === payload.requestId);
     const billing = await getEntitlements(tx.db, payload.billingClinicId);
-    const bought = billing ? getPlan(billing.boughtPlanId ?? billing.planCode) : undefined;
-    const interval = billing?.billingInterval ?? null;
-    const priceCents = bought
-      ? Math.round((interval === "year" ? bought.annualMonthlyUsd * 12 : bought.monthlyUsd) * 100)
-      : null;
+    // A plan start or step-up is moot after a later cancellation or closure; a closure after a later cancellation.
+    const moots: Readonly<Record<string, readonly ("cancel_now" | "close_setup")[]>> = {
+      plan_start: ["cancel_now", "close_setup"],
+      step_up: ["cancel_now", "close_setup"],
+      close_setup: ["cancel_now"],
+      cancel_now: [],
+    };
     const later = (kind: "cancel_now" | "close_setup") =>
       request !== undefined &&
-      (request.kind === "plan_start" || request.kind === "step_up") &&
+      (moots[request.kind] ?? []).includes(kind) &&
       requests.some((r) => r.kind === kind && r.outcome !== "skipped" && r.requestedAt > request.requestedAt);
     const channel = request && request.channelKey !== "-" ? (request.channelKey as Channel) : null;
     const facts: BillingRequestFacts = {
@@ -161,14 +195,14 @@ async function billingRequestPacket(approval: OpsApproval, ctx: Ctx): Promise<Pa
       maxAttempts: MAX_BILLING_REQUEST_ATTEMPTS,
       billingStatus: billing?.status ?? null,
       supersededBy: later("cancel_now") ? "cancel_now" : later("close_setup") ? "close_setup" : null,
-      priceCents,
-      interval,
+      workerOn: switches.worker,
+      closureOn: (request?.kind ?? payload.requestKind) === "close_setup" ? switches.closure : null,
     };
     return {
       operation: KIND_SPECS.billing_request_retry.operation,
       irreversible: KIND_SPECS.billing_request_retry.irreversible,
       stillNeeded: request?.outcome === "dead_letter" && request.epoch === payload.epoch,
-      effect: requestEffect(facts, billing?.locations ?? 1),
+      effect: requestEffect(facts),
       facts,
     };
   });
@@ -208,7 +242,13 @@ async function eventPacket(approval: OpsApproval): Promise<Packet | null> {
   const payload = parsePayload("billing_event_replay", approval.payload);
   if (!payload) return null;
   const [row] = await unsafeDb
-    .select({ type: billingEvents.type, outcome: billingEvents.outcome, failures: billingEvents.failures })
+    .select({
+      type: billingEvents.type,
+      outcome: billingEvents.outcome,
+      failures: billingEvents.failures,
+      processedAt: billingEvents.processedAt,
+      receivedAt: billingEvents.receivedAt,
+    })
     .from(billingEvents)
     .where(eq(billingEvents.stripeEventId, subjectId(approval.subjectRef)))
     .limit(1);
@@ -221,10 +261,19 @@ async function eventPacket(approval: OpsApproval): Promise<Packet | null> {
   return {
     operation: KIND_SPECS.billing_event_replay.operation,
     irreversible: KIND_SPECS.billing_event_replay.irreversible,
-    stillNeeded: row?.outcome === "dead_letter",
-    effect: eventEffect(),
+    stillNeeded: row !== undefined && stillParkedAsProposed(row, payload.parkedAt),
+    effect: eventEffect(payload.eventType),
     facts,
   };
+}
+
+/** Whether an event is still parked in the episode an item was proposed for (the proposer's parkedAt, to the second). */
+export function stillParkedAsProposed(
+  row: { outcome: string | null; processedAt: Date | null; receivedAt: Date },
+  parkedAt: string,
+): boolean {
+  const at = row.processedAt ?? row.receivedAt;
+  return row.outcome === "dead_letter" && Math.floor(at.getTime() / 1000) * 1000 === new Date(parkedAt).getTime();
 }
 
 /** One item's packet, read now; null when its subject could not be read. */

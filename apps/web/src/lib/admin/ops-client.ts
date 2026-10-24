@@ -7246,8 +7246,10 @@ export type ApprovalFacts =
       maxAttempts: number;
       billingStatus: BillingStatus | null;
       supersededBy: "cancel_now" | "close_setup" | null;
-      priceCents: number | null;
-      interval: "month" | "year" | null;
+      /** Whether the billing-requests worker, which carries a re-armed request out, is switched on. */
+      workerOn: boolean;
+      /** For a closure: whether setup closure is switched on; null for any other kind. */
+      closureOn: boolean | null;
     }
   | { kind: "overage_invoice_retry"; windowStart: string; amountCents: number; lastErrorCode: string | null }
   | { kind: "billing_event_replay"; eventType: string; failures: number; maxFailures: number };
@@ -7388,7 +7390,7 @@ function readFacts(value: unknown, at: string): ApprovalFacts {
   if (kind === "billing_request_retry") {
     const f = exactKeys(
       value,
-      ["kind", "requestKind", "channel", "reasonCode", "lastErrorCode", "attempts", "maxAttempts", "billingStatus", "supersededBy", "priceCents", "interval"],
+      ["kind", "requestKind", "channel", "reasonCode", "lastErrorCode", "attempts", "maxAttempts", "billingStatus", "supersededBy", "workerOn", "closureOn"],
       at,
     );
     const engine = nullable(f.lastErrorCode, (v) => {
@@ -7405,8 +7407,8 @@ function readFacts(value: unknown, at: string): ApprovalFacts {
       maxAttempts: count(f.maxAttempts, `${at}.maxAttempts`),
       billingStatus: nullable(f.billingStatus, (v) => literal(v, BILLING_STATUSES, `${at}.billingStatus`)),
       supersededBy: nullable(f.supersededBy, (v) => literal(v, ["cancel_now", "close_setup"] as const, `${at}.supersededBy`)),
-      priceCents: nullable(f.priceCents, (v) => count(v, `${at}.priceCents`)),
-      interval: nullable(f.interval, (v) => literal(v, ["month", "year"] as const, `${at}.interval`)),
+      workerOn: bool(f.workerOn, `${at}.workerOn`),
+      closureOn: nullable(f.closureOn, (v) => bool(v, `${at}.closureOn`)),
     };
   }
   if (kind === "overage_invoice_retry") {

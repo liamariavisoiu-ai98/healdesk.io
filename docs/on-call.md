@@ -565,17 +565,21 @@ switch, last run and note (sent, already gone, or the failure).
 
 ### Approvals
 
-`approval_waiting`. The approval inbox (`apps/app/src/lib/approvals/`, ops automation Phase 6):
-each billing change that failed at Stripe after every retry, each annual extra-usage invoice
-that failed and each Stripe event parked after its retries becomes one item waiting for the
-owner's yes, put there hourly by the `approvals-propose` job (off until the owner switches it
-on). The job never retries anything itself; the worker's own attempts, the hourly reconcile's
-re-arm, the 05 UTC overage run and Stripe's dunning carry on ungated, as before. The alert comes
-once an item has waited a day, one per kind, by email and Slack. The items are on the Queues
-page, under Approvals: each says what approving does, in money where money moves. Approve asks
-for the code from your authenticator and runs the same operation as the clinic's Billing tab
-button, once, recording whether it worked; Reject runs nothing. Nothing is ever approved by
-waiting: after seven days an item leaves the list unrun (expired), and so does one whose
-billing change, invoice or event has since gone through. History, on the same page, is the
-add-only record of who decided what and when (the operator account, its IP address and
-browser), read from `ops_approval_events`.
+`approval_waiting`. The approval inbox (`apps/app/src/lib/approvals/`, ops automation Phase 6)
+holds only what no automatic process will retry (owner decision D17), put there hourly by the
+`approvals-propose` job (off until the owner switches it on): a cancellation or setup closure the
+billing worker gave up on, and a Stripe event parked after its retries that names a clinic.
+A plan start or price step-up that failed is not there: the hourly billing check puts it back
+for another try a day later by itself. A failed extra-usage invoice is not there either: the
+05 UTC run invoices it again every day. The alert comes once an item has waited a day, one per
+kind, by email and Slack. The items are on the Queues page, under Approvals: each says what
+approving does. Approve asks for the code from your authenticator and runs the same operation
+as the clinic's Billing tab button, once. For a billing change that only makes it due again:
+the billing worker carries it out at its next run, if it still applies and while its switch
+(and, for a closure, setup closure's) is on at System > Jobs. Reject runs nothing. Nothing is
+ever approved by waiting: after seven days an item leaves the list unrun (expired), and so does
+one whose change or event has since gone through, or whose clinic is now closed or a demo. An
+item left half-decided by a process that stopped is recorded as failed (interrupted) after 15
+minutes; check the clinic's Billing tab to see whether the change was made due. History, on the
+same page, is the add-only record of who decided what and when (the operator account, its IP
+address and browser), read from `ops_approval_events`.

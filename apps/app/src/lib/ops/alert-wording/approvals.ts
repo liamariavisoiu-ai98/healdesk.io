@@ -15,6 +15,9 @@ import type { AlertWording } from "./types";
  * which exists today, so the wording lint holds.
  */
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
+  // Only what no automatic process retries is ever proposed (owner decision
+  // D17; lib/approvals/proposers.ts), so "nothing is carried out until you
+  // approve it" holds for every kind in the list.
   // lib/approvals/proposers.ts remind, once per kind: a money or routine
   // item waiting past its due time (a day after it was proposed), once; a
   // legal-clock item every 4 hours while it waits (owner decision D18; no
@@ -26,12 +29,12 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "Steps are waiting for your yes in the console",
     headline: "{count:approval} waiting for your yes, now past due",
     whatHappened:
-      "{count:approval} waiting for your yes, now past due. Each is a step only you can allow, such as retrying a billing change that failed at Stripe on every try. Nothing is carried out until you approve it, and nothing is approved by waiting.",
+      "{count:approval} waiting for your yes, now past due. Each is a step only you can allow: a cancellation or closure the billing worker gave up on, or a Stripe event parked after its retries. Nothing in the list is retried by itself. Nothing is carried out until you approve it, and nothing is approved by waiting.",
     whyItMatters:
       "Until you decide, what Stripe bills and what the clinic has may not match. After a week an item leaves the list without running, and the clinic's Billing tab is then where to retry it.",
     steps: [
       "Open the Queues page and find each item under Approvals: it says what approving does, in money where money moves, and what the clinic's billing shows now.",
-      "Press Approve on the Queues page if what it says is right, and enter the code from your authenticator. The same action as the button on the clinic's Billing tab runs once, and the item records whether it worked.",
+      "Press Approve on the Queues page if what it says is right, and enter the code from your authenticator. The same action as the button on the clinic's Billing tab runs once, and the item records whether it worked. A billing change is made due again, and the billing worker carries it out at its next run.",
       "Press Reject on the Queues page if it should not run, and pick the reason. Nothing is carried out, and the item leaves the list.",
       "Check History on the Queues page. You are done when each item reads carried out, failed or rejected.",
     ],

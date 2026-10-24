@@ -65,7 +65,7 @@ afterEach(() => {
 
 const FACTS = {
   kind: "billing_request_retry",
-  requestKind: "plan_start",
+  requestKind: "cancel_now",
   channel: null,
   reasonCode: "attempts_exhausted",
   lastErrorCode: "stripe:api_error",
@@ -73,14 +73,14 @@ const FACTS = {
   maxAttempts: 10,
   billingStatus: "active",
   supersededBy: null,
-  priceCents: 26_000,
-  interval: "month",
+  workerOn: false,
+  closureOn: null,
 };
 const PACKET = {
   operation: "retryBillingRequest",
   irreversible: true,
   stillNeeded: true,
-  effect: "Starts the package price on the subscription, up to $260 a month, replacing the $0 line.",
+  effect: "Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with ten fresh tries.",
   facts: FACTS,
 };
 const ITEM_ROW = {
@@ -161,6 +161,8 @@ describe("fetchApprovals", () => {
       { ...ITEM_ROW, packet: { ...PACKET, facts: { ...FACTS, lastErrorCode: "The card was declined by Jane's bank" } } },
       { ...ITEM_ROW, packet: { ...PACKET, facts: { ...FACTS, kind: "billing_event_replay" } } },
       { ...ITEM_ROW, packet: { ...PACKET, operation: "commitRefund" } },
+      { ...ITEM_ROW, packet: { ...PACKET, facts: { ...FACTS, priceCents: 26_000 } } },
+      { ...ITEM_ROW, packet: { ...PACKET, facts: { ...FACTS, workerOn: "off" } } },
     ];
     for (const item of bad) {
       reply({ items: [item], partial: [] });
@@ -198,11 +200,11 @@ describe("the decision goes only through the fresh code", () => {
   });
 
   test("a fresh code sends the decision with the mark, never the code, and reads each outcome strictly", async () => {
-    reply({ status: "executed", outcomeCode: "retried", message: null, auditRecorded: true });
+    reply({ status: "executed", outcomeCode: "rearmed", message: "Re-armed: the change is due again.", auditRecorded: true });
     const code = fresh();
     expect(await decideApprovalWithCode(ITEM, "approve", "cause_fixed", code)).toEqual({
       ok: true,
-      data: { status: "executed", outcomeCode: "retried", message: null, auditRecorded: true },
+      data: { status: "executed", outcomeCode: "rearmed", message: "Re-armed: the change is due again.", auditRecorded: true },
     });
     expect(sent).toEqual([{ op: "decideApproval", args: { id: ITEM, action: "approve", reasonCode: "cause_fixed", codeChecked: true } }]);
     expect(JSON.stringify(sent)).not.toContain(code);

@@ -18,7 +18,7 @@ import {
   type KindSpec,
 } from "@/lib/approvals/kinds";
 import { packetFor, type Packet } from "@/lib/approvals/packets";
-import { getApproval, history, listByStatus, moveStatus, recordEvent, SERVICE_ACTOR, type EventActor } from "@/lib/approvals/store";
+import { getApproval, history, listByStatus, moveStatus, SERVICE_ACTOR, type EventActor } from "@/lib/approvals/store";
 import { printableClinicName } from "@/lib/email/lint";
 import { describeError, log } from "@/lib/log";
 
@@ -229,18 +229,27 @@ export async function opDecideApproval(
           : `The edited email cannot go as written (${draft.problems.join("; ")}). Nothing was changed.`,
     );
   }
-  if (draft.edited) {
-    await recordEvent(unsafeDb, item.id, "edited", actor, { draftHashApproved: draft.hashApproved, at: now });
-  }
+  // The edit is recorded only once the decision has won the item: a losing
+  // decision leaves no trace of an edit that was never approved.
+  const approvedAt = new Date(now.getTime() + 1);
+  const before = draft.edited
+    ? [{ event: "edited" as const, at: now, extra: { draftHashApproved: draft.hashApproved } }]
+    : [];
   if (
-    !(await moveStatus(item.id, "waiting", "approved", "approved", actor, new Date(now.getTime() + 1), {
-      outcomeCode: reasonCode,
-      draftHashApproved: draft.hashApproved,
-    }))
+    !(await moveStatus(
+      item.id,
+      "waiting",
+      "approved",
+      "approved",
+      actor,
+      approvedAt,
+      { outcomeCode: reasonCode, draftHashApproved: draft.hashApproved },
+      before,
+    ))
   ) {
     return refusal(ALREADY);
   }
-  const result = await execute(item, operator, options.executors);
+  const result = await execute(item, operator, { draft: draft.draft }, options.executors);
   const settled = result.ok ? "executed" : "failed";
   const moved = await moveStatus(item.id, "approved", settled, settled, actor, new Date(now.getTime() + 2), {
     outcomeCode: result.outcomeCode,

@@ -1,12 +1,15 @@
 import { and, eq } from "drizzle-orm";
 
-import { billingRequests, overageInvoices, type OpsApproval } from "@/db/schema";
+import { billingEvents, billingRequests, overageInvoices, type OpsApproval } from "@/db/schema";
+import { unsafeDb } from "@/db";
 import { describeError, log } from "@/lib/log";
 import { opReplayBillingEvent, opRetryBillingRequest, opRetryOverageInvoice } from "@/lib/ops/billing";
 import { actorFor, type Operator, type OpsOutcome } from "@/lib/ops/api";
 import { withTenant } from "@/lib/tenant";
 
+import type { Draft } from "./drafts";
 import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind } from "./kinds";
+import { billingSwitches, stillParkedAsProposed } from "./packets";
 
 /**
  * What approving each kind runs: the existing ops operation, the one the
@@ -32,7 +35,10 @@ export type ExecutionResult = {
   auditRecorded: boolean | null;
 };
 
-export type Executor = (approval: OpsApproval, operator: Operator) => Promise<ExecutionResult>;
+/** What a decision hands its executor: the draft the owner approved (the edit when there was one), for an email kind. */
+export type ExecutionContext = { draft: Draft | null };
+
+export type Executor = (approval: OpsApproval, operator: Operator, context: ExecutionContext) => Promise<ExecutionResult>;
 
 function malformed(): ExecutionResult {
   return { ok: false, outcomeCode: "malformed_item", message: "This item's details could not be read, so nothing was run.", auditRecorded: null };
@@ -84,7 +90,15 @@ const retryBillingRequest: Executor = async (approval, operator) => {
   );
   if ("problem" in answer) return { ok: false, outcomeCode: "operation_refused", message: answer.problem, auditRecorded: null };
   if (answer.data.status !== "retried") return refused(answer.data);
-  return { ok: true, outcomeCode: "retried", message: null, auditRecorded: answer.data.auditRecorded === true };
+  // Re-armed, not carried out: the worker makes the change at its next run.
+  const switches = await billingSwitches();
+  const message =
+    "Re-armed: the change is due again, with ten fresh tries. The billing worker carries it out at its next run if it still applies." +
+    (switches.worker ? "" : " The billing worker is switched off, so nothing happens until it is switched on at System > Jobs.") +
+    (payload.requestKind === "close_setup" && !switches.closure
+      ? " Setup closure is switched off, so the closure waits until it is switched on at System > Jobs."
+      : "");
+  return { ok: true, outcomeCode: "rearmed", message, auditRecorded: answer.data.auditRecorded === true };
 };
 
 const retryOverageInvoice: Executor = async (approval, operator) => {
@@ -115,8 +129,16 @@ const retryOverageInvoice: Executor = async (approval, operator) => {
 };
 
 const replayBillingEvent: Executor = async (approval, operator) => {
-  if (!parsePayload("billing_event_replay", approval.payload)) return malformed();
-  // opReplayBillingEvent refuses an event that is no longer parked itself.
+  const payload = parsePayload("billing_event_replay", approval.payload);
+  if (!payload) return malformed();
+  // Still parked in the episode it was proposed for: a later parking is a
+  // different item. opReplayBillingEvent also refuses one no longer parked.
+  const [row] = await unsafeDb
+    .select({ outcome: billingEvents.outcome, processedAt: billingEvents.processedAt, receivedAt: billingEvents.receivedAt })
+    .from(billingEvents)
+    .where(eq(billingEvents.stripeEventId, subjectId(approval.subjectRef)))
+    .limit(1);
+  if (!row || !stillParkedAsProposed(row, payload.parkedAt)) return NO_LONGER_NEEDED;
   const answer = answerOf(await opReplayBillingEvent({ eventId: subjectId(approval.subjectRef) }, operator));
   if ("problem" in answer) return { ok: false, outcomeCode: "operation_refused", message: answer.problem, auditRecorded: null };
   if (answer.data.status !== "replayed") return refused(answer.data);
@@ -134,12 +156,13 @@ export const EXECUTORS: Readonly<Record<ApprovalKind, Executor>> = {
 export async function execute(
   approval: OpsApproval,
   operator: Operator,
+  context: ExecutionContext,
   executors: Readonly<Record<string, Executor>> = EXECUTORS,
 ): Promise<ExecutionResult> {
   const executor = executors[approval.kind];
   if (!executor || !KIND_SPECS[approval.kind as ApprovalKind]) return malformed();
   try {
-    return await executor(approval, operator);
+    return await executor(approval, operator, context);
   } catch (error) {
     log.error("approval executor threw", { kind: approval.kind, error: describeError(error) });
     return { ok: false, outcomeCode: "threw", message: "The operation failed partway. Nothing more was run; the item records it.", auditRecorded: null };

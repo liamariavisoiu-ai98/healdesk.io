@@ -58,6 +58,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error("db-apply failed:", error instanceof Error ? error.message : error);
+  // A database error can quote the statement; the log keeps its first 200 characters.
+  const message = error instanceof Error ? error.message : String(error);
+  console.error("db-apply failed:", message.length > 200 ? `${message.slice(0, 197)}...` : message);
   process.exit(1);
 });

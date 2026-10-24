@@ -7,6 +7,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { runChange, ChangeRefused } from "../scripts/db-apply-lib";
+import { TABLE_COLUMNS } from "../scripts/db-change-grammar";
 
 import { closePools, getMigratorPool, hasTestDatabase } from "./setup/db";
 import { seedClinic, type SeededClinic } from "./setup/factories";
@@ -87,7 +88,7 @@ describeDb("db-apply", () => {
 
   test("a statement with no clinic filter changes only the named clinic's rows", async () => {
     await inClinic(b.clinicId, (c) => c.query("insert into clinic_closures (clinic_id, closed_on, label) values ($1, '2026-12-26', 'Other clinic')", [b.clinicId]));
-    change("relabel-all", "update clinic_closures set label = 'Relabelled'");
+    change("relabel-all", "update clinic_closures set label = 'Relabelled' where true");
     const done = await run("relabel-all", a.clinicId, "apply", 1);
     expect(done.committed).toBe(true);
     expect(await labels(a.clinicId)).toEqual(["Relabelled"]);
@@ -106,6 +107,63 @@ describeDb("db-apply", () => {
     await expect(run("noop", a.clinicId, "apply", null)).rejects.toBeInstanceOf(ChangeRefused);
     change("bad", "delete from clinic_closures");
     await expect(run("bad", a.clinicId, "dry-run")).rejects.toBeInstanceOf(ChangeRefused);
+  });
+
+  test("the grammar's checked-in column lists are the live schema's", async () => {
+    const { rows } = await getMigratorPool().query<{ table_name: string; columns: string[] }>(
+      `select table_name, array_agg(column_name::text order by column_name) as columns
+         from information_schema.columns
+        where table_schema = 'public' and table_name = any($1::text[])
+        group by table_name`,
+      [Object.keys(TABLE_COLUMNS)],
+    );
+    const live = Object.fromEntries(rows.map((r) => [r.table_name, r.columns]));
+    for (const [table, columns] of Object.entries(TABLE_COLUMNS)) {
+      expect(live[table], table).toEqual([...columns].sort());
+    }
+  });
+
+  test("a subselect copies one of the named clinic's closed days to another date, and stays inside that clinic", async () => {
+    const tag = randomUUID().slice(0, 6);
+    const c = await seedClinic(`applyc${tag}`);
+    const d = await seedClinic(`applyd${tag}`);
+    for (const clinic of [c, d]) {
+      await inClinic(clinic.clinicId, (q) =>
+        q.query("insert into clinic_closures (clinic_id, closed_on, label) values ($1, '2027-03-01', 'Training day')", [clinic.clinicId]),
+      );
+    }
+    const events = (clinicId: string) =>
+      inClinic(clinicId, async (q) =>
+        (await q.query<{ actor_kind: string; summary: Record<string, unknown> }>("select actor_kind, summary from clinic_change_events order by changed_at, id")).rows,
+      );
+    const days = (clinicId: string) =>
+      inClinic(clinicId, async (q) =>
+        (await q.query<{ closed_on: string; label: string }>("select closed_on::text, label from clinic_closures order by closed_on")).rows,
+      );
+    const before = { c: (await events(c.clinicId)).length, d: await events(d.clinicId) };
+    change(
+      "copy-closure",
+      "-- Copy the training day forward a day.\ninsert into clinic_closures (clinic_id, closed_on, label) select clinic_id, '2027-03-02'::date, label from clinic_closures where closed_on = '2027-03-01';\n",
+    );
+
+    const dry = await run("copy-closure", c.clinicId, "dry-run");
+    expect(dry).toMatchObject({ rowCount: 1, committed: false, verb: "insert", table: "clinic_closures" });
+    expect(await days(c.clinicId)).toHaveLength(1);
+    expect(await events(c.clinicId)).toHaveLength(before.c);
+
+    const applied = await run("copy-closure", c.clinicId, "apply", 1);
+    expect(applied).toMatchObject({ rowCount: 1, committed: true, verdict: "applied: committed" });
+    expect(await days(c.clinicId)).toEqual([
+      { closed_on: "2027-03-01", label: "Training day" },
+      { closed_on: "2027-03-02", label: "Training day" },
+    ]);
+    const after = (await events(c.clinicId)).slice(before.c);
+    expect(after).toEqual([
+      expect.objectContaining({ actor_kind: "change_file", summary: { rows: 1, operation: "insert", table: "clinic_closures" } }),
+    ]);
+    // The other clinic, with the same day closed, saw nothing.
+    expect(await days(d.clinicId)).toEqual([{ closed_on: "2027-03-01", label: "Training day" }]);
+    expect(await events(d.clinicId)).toEqual(before.d);
   });
 
   test("the role itself cannot do what the fence forbids", async () => {

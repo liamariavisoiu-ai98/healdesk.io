@@ -90,6 +90,10 @@ export async function runParsed(
   try {
     await client.query("BEGIN");
     await client.query("SELECT set_config('app.clinic_id', $1, true)", [clinic]);
+    // Names in the statement resolve in the catalog first, then public, never
+    // in a schema the session could put ahead of them. The trigger functions
+    // pin their own search_path, and the checks below name public functions.
+    await client.query("SET LOCAL search_path = pg_catalog, public");
     const result = await client.query(parsed.statement);
     rowCount = result.rowCount ?? 0;
     const where = await client.query<{ clinic: string | null }>(

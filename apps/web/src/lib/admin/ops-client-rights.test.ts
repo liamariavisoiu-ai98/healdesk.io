@@ -119,11 +119,23 @@ describe("fetchRights", () => {
     }
   });
 
+  test("every fixed note apps/app sends is read, word for word", async () => {
+    for (const commandNote of [
+      "No portal route yet takes the practice's words for an amendment on the host",
+      "No portal route yet takes a correction's new values on the host",
+      "Recorded on the host: matched by its day and what was asked",
+    ]) {
+      reply({ data: { rows: [{ ...BLOCKED, commandNote }], count: 1, truncated: false, unreadClinics: 0 } });
+      expect((await fetchRights()).ok, commandNote).toBe(true);
+    }
+  });
+
   test("an extra field, an unknown state or a note that is not one of the two is malformed", async () => {
     for (const row of [
       { ...TO_RUN, contactId: RECORD },
       { ...TO_RUN, state: "late" },
       { ...BLOCKED, commandNote: "Call Sam on 555 0131" },
+      { ...BLOCKED, commandNote: "No portal route yet" },
       { ...TO_RUN, receivedOn: "21 October" },
       { ...TO_RUN, kind: "deletion" },
     ]) {

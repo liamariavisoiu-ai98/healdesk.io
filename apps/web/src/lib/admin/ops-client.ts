@@ -7316,10 +7316,17 @@ export type RightsAskedFor = (typeof RIGHTS_ASKED_FOR)[number];
 export const RIGHTS_STATES = ["on_time", "due_soon", "overdue", "blocked", "done"] as const;
 export type RightsState = (typeof RIGHTS_STATES)[number];
 const RIGHTS_SOURCES = ["intake", "erasure_request", "patient_request", "record_amendment"] as const;
-/** apps/app lib/rights/commands.ts NO_ROUTE and NO_OPERATOR, word for word: the only notes a row carries. */
+/**
+ * apps/app's fixed notes, word for word, the only ones a row carries: lib/rights/
+ * commands.ts NO_ROUTE, NO_ROUTE_AMENDMENT, NO_ROUTE_CORRECTION and NO_OPERATOR,
+ * and lib/rights/tracker.ts MATCHED_NOTE.
+ */
 export const RIGHTS_COMMAND_NOTES = [
   "No portal route yet turns this request into a contact id",
+  "No portal route yet takes the practice's words for an amendment on the host",
+  "No portal route yet takes a correction's new values on the host",
   "The operator address on this host is not one the task accepts",
+  "Recorded on the host: matched by its day and what was asked",
 ] as const;
 /** apps/app's SAFE_LINE: the script, a task, then ids, closed words, days and one address. Nothing a shell would read as more. */
 const RIGHTS_COMMAND = /^bash infra\/aws\/scripts\/run-task\.sh (erase-person|patient-export|amend-contact|patient-request)( [A-Za-z0-9@._%+,-]+)+$/;
@@ -7619,6 +7626,8 @@ export function fetchRights(
 
 export type RecordRightsIntakeInput = {
   clinicId: string;
+  /** A uuid the form generates once when it opens: the same key again is the same request, never a second one. */
+  requestKey: string;
   kind: RightsKind;
   /** YYYY-MM-DD: the day the request reached us. */
   receivedOn: string;
@@ -7636,10 +7645,14 @@ export type RecordRightsIntakeOutcome = {
   auditRecorded: boolean;
 };
 
-/** Record one intake, once: the same clinic, kind, linked record and day again returns the first. */
-export function recordRightsIntake(input: RecordRightsIntakeInput): Promise<OpsResult<RecordRightsIntakeOutcome>> {
+/** Record one intake, once per request key: the same key again returns the first. */
+export async function recordRightsIntake(input: RecordRightsIntakeInput): Promise<OpsResult<RecordRightsIntakeOutcome>> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.requestKey)) {
+    return { ok: false, code: "refused", message: "The request key must be a uuid generated when the form opens." };
+  }
   const args: Record<string, unknown> = {
     clinicId: input.clinicId,
+    requestKey: input.requestKey,
     kind: input.kind,
     receivedOn: input.receivedOn,
     verifiedVia: input.verifiedVia,

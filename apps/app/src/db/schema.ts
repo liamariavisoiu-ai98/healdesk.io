@@ -7953,9 +7953,10 @@ export type RightsStatus = (typeof RIGHTS_STATUSES)[number];
  * when it was recorded after it; it is not a foreign key, so a record the
  * erasure expiry or the purge takes leaves the intake standing. `due_on` is
  * written at insert from the kind's clock (lib/rights/clocks.ts) and never
- * changed. Recorded once per clinic, kind, linked record and day received
- * (NULLS NOT DISTINCT), so a retried form records nothing twice; flipped
- * once from open to done or not applicable, never deleted. Kept for good
+ * changed. Recorded once per clinic and request_key, the form's own key,
+ * so a retried form records nothing twice while two people's requests of
+ * one kind on one day stay two; and at most once per record it became.
+ * Flipped once from open to done or not applicable, never deleted. Kept for good
  * when the account closes (lib/offboarding/account-closure.ts).
  */
 export const rightsIntakes = pgTable(
@@ -7965,6 +7966,12 @@ export const rightsIntakes = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
+    /**
+     * The caller's own key for this request, generated once when the form
+     * opens: the same key again is the same request (a retried submit), and
+     * two people's requests of one kind on one day are two keys, two rows.
+     */
+    requestKey: uuid("request_key").notNull(),
     kind: text("kind").$type<RightsKind>().notNull(),
     askedFor: text("asked_for").$type<PatientRequestKind>(),
     receivedOn: date("received_on", { mode: "string" }).notNull(),
@@ -7979,9 +7986,11 @@ export const rightsIntakes = pgTable(
     closedAt: timestamp("closed_at", { withTimezone: true }),
   },
   (t) => [
-    unique("rights_intakes_request_key")
-      .on(t.clinicId, t.kind, t.linkedRecordId, t.receivedOn)
-      .nullsNotDistinct(),
+    unique("rights_intakes_request_key").on(t.clinicId, t.requestKey),
+    // One intake per record it became.
+    uniqueIndex("rights_intakes_linked_key")
+      .on(t.clinicId, t.kind, t.linkedRecordId)
+      .where(sql`${t.linkedRecordId} is not null`),
     index("rights_intakes_open_idx")
       .on(t.clinicId, t.dueOn)
       .where(sql`${t.status} = 'open'`),

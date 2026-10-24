@@ -18,6 +18,7 @@
     "indexnow": "tsx scripts/indexnow.ts",
     "retell:demo": "tsx --env-file-if-exists=.env.local scripts/retell-demo-agent.ts",
     "retell:clinic-demo": "tsx --env-file-if-exists=.env.local scripts/retell-clinic-demo-agent.ts",
+    "retell:demo-engine": "tsx --env-file-if-exists=.env.local scripts/retell-demo-engine-agent.ts",
     "admin:totp": "tsx --env-file-if-exists=.env.local scripts/set-admin-totp.ts"
   },
   "dependencies": {

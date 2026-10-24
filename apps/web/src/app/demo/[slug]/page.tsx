@@ -312,6 +312,8 @@ export default async function DemoPage({ params }: Props) {
               callbackExtra={{ demoSlug: slug }}
               prefillPhone={session.phoneE164}
               locked={expired}
+              // A call here starts with "What's your name?" so AYA can greet the owner by it.
+              askName
             />
           </AgentPanel>
           <AgentPanel

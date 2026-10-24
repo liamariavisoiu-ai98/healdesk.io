@@ -1,4 +1,7 @@
+import { demoFirstName } from "@healdesk/catalog";
+
 import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
+import { demoEngineCall } from "@/lib/demo/engine";
 import { getDemoSession, isDemoActive, isDemoSlug, profileOf } from "@/lib/demo/sessions";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { createWebCall, readClinicDemoAgentConfig } from "@/lib/retell-web-call";
@@ -10,9 +13,17 @@ import { createWebCall, readClinicDemoAgentConfig } from "@/lib/retell-web-call"
  * override that sends its one control request here instead of to Retell,
  * keeping the path it would have used. This route holds the API key and
  * builds the whole create-web-call body itself (lib/retell-web-call.ts): it
- * reads nothing from the request but the slug, so a browser cannot choose
- * the agent, the clinic text or the metadata. Retell's reply goes back
- * unchanged, because the SDK connects with exactly that object.
+ * reads nothing from the request but the slug and an optional `firstName`, so
+ * a browser cannot choose the agent, the clinic text or the metadata. The name
+ * is the one the visitor typed on the demo page ("What's your name?"); it is
+ * cleaned by `demoFirstName`, and one that is not a name is ignored, never a
+ * reason to refuse the call. Retell's reply goes back unchanged, because the
+ * SDK connects with exactly that object.
+ *
+ * Which agent answers is the server's choice too (lib/demo/engine.ts): AYA's
+ * own engine in apps/app, with the clinic and the name sealed into one
+ * variable, when RETELL_DEMO_ENGINE_AGENT_ID is set and apps/app answers; the
+ * Retell-hosted clinic agent, as before, otherwise.
  *
  * The call audio then flows browser-to-Retell over WebRTC, which is why the
  * /demo pages, and only they, allow the microphone and api.retellai.com in
@@ -39,6 +50,16 @@ function fail(error: string, status: number, retryAfter?: number): Response {
   );
 }
 
+/** The first name the page sent, if it is one; anything else, or no body, is no name. */
+async function firstNameOf(request: Request): Promise<string | null> {
+  try {
+    const body = (await request.json()) as { firstName?: unknown } | null;
+    return demoFirstName(body?.firstName);
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: Request, ctx: { params: Promise<{ slug: string }> }): Promise<Response> {
   const { slug } = await ctx.params;
   if (!isDemoSlug(slug)) return fail("Demo not found.", 404);
@@ -63,9 +84,11 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   const daily = await rateLimit("webcall:global:day", DAILY_CAP, DAY_MS);
   if (!daily.ok) return fail("The voice line has reached its daily limit. Try the chat, or call again tomorrow.", 429, daily.retryAfter);
 
-  const result = await createWebCall(config.config, {
-    variables: clinicVoiceVariables(profile, "browser"),
-    metadata: { demo_slug: slug, source: "healdesk.io personalised demo" },
+  const firstName = await firstNameOf(request);
+  const engine = await demoEngineCall({ slug, profile, mode: "browser", firstName });
+  const result = await createWebCall(engine ? { ...config.config, agentId: engine.agentId } : config.config, {
+    variables: engine ? engine.variables : clinicVoiceVariables(profile, "browser"),
+    metadata: { demo_slug: slug, source: "healdesk.io personalised demo", ...(engine ? { engine: "aya" } : {}) },
   });
   if (!result.ok) {
     // For us, never for the visitor: a vendor message can name our account or balance.

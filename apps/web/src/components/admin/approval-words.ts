@@ -168,6 +168,7 @@ export const OUTCOME_WORDS: Readonly<Record<string, string>> = {
   skipped: "nothing to invoice",
   replayed: "the Stripe event was applied again",
   no_longer_needed: "already dealt with since it was proposed",
+  retried_automatically: "the job that retries it was switched on, so it is retried by itself",
   malformed_item: "its details could not be read",
   operation_refused: "the operation refused it",
   refused: "the operation refused it",

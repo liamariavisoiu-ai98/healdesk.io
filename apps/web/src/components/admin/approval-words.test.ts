@@ -269,7 +269,7 @@ describe("the facts and the timing", () => {
 describe("the decision's outcome line", () => {
   test("a re-armed request says the operation's own sentence: due again, carried out by the billing worker at its next run", () => {
     const message =
-      "Re-armed: the change is due again, with ten fresh tries. The billing worker carries it out at its next run if it still applies. The billing worker is switched off, so nothing happens until it is switched on at System > Jobs.";
+      "Re-armed: the change is due again, with fresh tries. The billing worker carries it out at its next run if it still applies. The billing worker is switched off, so nothing happens until it is switched on at System > Jobs.";
     expect(decisionWords({ status: "executed", outcomeCode: "rearmed", message, auditRecorded: true })).toEqual({
       left: true,
       tone: "ok",

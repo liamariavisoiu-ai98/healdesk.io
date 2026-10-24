@@ -46,6 +46,7 @@ const REGISTERS = [
   { href: "/admin/compliance/agreements", label: "Agreements register" },
   { href: "/admin/compliance/incidents", label: "Incidents" },
   { href: "/admin/compliance/notices", label: "Notices" },
+  { href: "/admin/rights", label: "Patient rights" },
   { href: "#launch", label: "Launch" },
 ] as const;
 

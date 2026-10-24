@@ -64,7 +64,7 @@ const request: ApprovalItem = {
     operation: "retryBillingRequest",
     irreversible: true,
     stillNeeded: true,
-    effect: "Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with ten fresh tries.",
+    effect: "Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with fresh tries.",
     facts: {
       kind: "billing_request_retry",
       requestKind: "cancel_now",
@@ -132,7 +132,7 @@ describe("the waiting items", () => {
     expect(page).toContain("Radiance Med Spa");
     expect(page).toContain("Past due");
     expect(page).toContain("Retry a billing change the billing worker gave up on");
-    expect(page).toContain("Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with ten fresh tries.");
+    expect(page).toContain("Makes this cancellation due again. The billing worker carries it out at its next run if it still applies, with fresh tries.");
     expect(page).toContain("Change an immediate cancellation");
     expect(page).toContain("Tries 10 of 10");
     expect(page).toContain("Stopped because every try was used");
@@ -271,7 +271,7 @@ describe("the two controls", () => {
 
   test("Approve runs nothing without six digits, asks once, sends the id, the reason chosen and the code, and the section keeps the operation's own sentence once the card has gone", async () => {
     const message =
-      "Re-armed: the change is due again, with ten fresh tries. The billing worker carries it out at its next run if it still applies. The billing worker is switched off, so nothing happens until it is switched on at System > Jobs.";
+      "Re-armed: the change is due again, with fresh tries. The billing worker carries it out at its next run if it still applies. The billing worker is switched off, so nothing happens until it is switched on at System > Jobs.";
     const decide = vi.fn<DecideApproval>(async () => ({
       ok: true,
       data: { status: "executed", outcomeCode: "rearmed", message, auditRecorded: true } satisfies ApprovalDecisionEntry,

@@ -755,6 +755,12 @@ const PLAIN_CLINICAL: RegExp[] = [
   // "nobody can guarantee results").
   /(?<!\b(?:can'?t|cannot|can not|don'?t|do not|doesn'?t|does not|won'?t|will not|never|no|not|isn'?t|aren'?t|unable to)\s+(?:\w+\s+){0,2})(?<!\b(?:nobody|no one|nothing|none)\s+(?:\w+\s+){0,2})\bguarantee(?:s|d|ing)?\b/i,
   /\byou'?ll\s+(?:definitely|certainly|surely|absolutely|100%|totally)\s+(?:see|notice|love|get)\b/i,
+  // The outcome promised in plain words, as the Spanish one below: "you're
+  // going to look amazing", "you'll look stunning for the wedding", "you'll
+  // love your results", "the results will be perfect" (24 October 2026: an
+  // energetic call style made it likelier, and only the Spanish was caught).
+  /\b(?:you(?:'re| are)?\s+(?:going to|gonna)|you(?:'ll| will))\s+(?:look|be looking|feel)\s+(?:so\s+|really\s+|absolutely\s+|just\s+|totally\s+)?(?:amazing|stunning|gorgeous|beautiful|incredible|fantastic|perfect|flawless|fabulous|radiant|great|brand new|like new|like a new person|(?:\w+\s+)?(?:years\s+)?younger|natural)\b/i,
+  /\byou(?:'ll| will| are going to|'re going to|'re gonna)\s+(?:absolutely\s+|totally\s+|just\s+)?love\s+(?:the|your)\s+results?\b|\bresults?\s+(?:will|are going to)\s+be\s+(?:amazing|perfect|incredible|stunning|flawless|fantastic|great)\b/i,
   // Spanish.
   /(?<![\p{L}])(puede|pueden|debe|deben|tome|tomar|t[óo]mese) (tomar )?(un |una |el |la )?(tylenol|ibuprofeno|paracetamol|aspirina|advil|antihistam[íi]nico)/iu,
   /(?<![\p{L}])(la hinchaz[óo]n|los moretones|el moret[óo]n|los morados|el enrojecimiento|la rojez|el bulto|la inflamaci[óo]n|el dolor|las molestias)[^.?!]{0,60}(es|son|ser[áa]|ser[áa]n) (normal|normales|com[úu]n|comunes|esperad[oa]s?|temporal(es)?)/iu,

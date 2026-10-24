@@ -13,7 +13,7 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/email/outbox", () => ({ deliverCriticalAfterCommit: async () => {} }));
 
 import type { AssistantFacts } from "@/lib/assistant/facts";
-import { guardedLine, movingOnLine, type GuardRefusal } from "@/lib/assistant/guard";
+import { guardAssistantReply, guardedLine, movingOnLine, type GuardRefusal } from "@/lib/assistant/guard";
 import { buildAssistantPrompt, SPOKEN_END } from "@/lib/assistant/prompt";
 import { answerTurn, SpokenStream, withoutRepeats, type AssistantResponder } from "@/lib/assistant/turn";
 import { log } from "@/lib/log";
@@ -312,5 +312,40 @@ describe("borrowed from full-duplex speech (owner, 24 October 2026)", () => {
     expect(prompt).toMatch(/pick the thread back up/);
     // Website chat is not a call: none of it.
     expect(buildAssistantPrompt(FACTS, "web_chat")).not.toMatch(/Lead with the answer itself|breaking up/);
+  });
+});
+
+describe("shared emotion, never a promised result (owner, 24 October 2026)", () => {
+  test("an outcome promised in plain English is refused, as the Spanish always was", () => {
+    for (const line of [
+      "You're going to look amazing for your wedding!",
+      "You'll look stunning.",
+      "you are going to look ten years younger",
+      "You'll love your results.",
+      "The results will be perfect.",
+      "Oh, totally understandable! First time nerves are so normal, but you are going to look absolutely amazing for your wedding.",
+    ]) {
+      const verdict = guardAssistantReply(line, FACTS, { bookingWritten: false });
+      expect(verdict.ok ? "ok" : verdict.reason, line).toBe("clinical");
+    }
+  });
+
+  test("excitement about the occasion, nerves met, small talk and a bad line all still pass", () => {
+    for (const line of [
+      "Oh, a wedding, how exciting! First-time nerves are so normal. Want to start with a consultation?",
+      "Ha, sounds brutal! Perfect excuse to stay in the AC. Were you looking to book, or got a question?",
+      "Yeah, totally. Can you hear me okay?",
+      "You're going to love the clinic, it's right by the park.",
+      "You'll look forward to it, I'm sure!",
+    ]) {
+      const verdict = guardAssistantReply(line, FACTS, { bookingWritten: false });
+      expect(verdict.ok ? "ok" : verdict.reason, line).toBe("ok");
+    }
+  });
+
+  test("the prompt shares the occasion, never the result, and never claims to hear the room", () => {
+    const prompt = buildAssistantPrompt(FACTS, "voice");
+    expect(prompt).toMatch(/Share the excitement about the occasion, never about the result/);
+    expect(prompt).toMatch(/Never claim to hear wind, traffic or anything else/);
   });
 });

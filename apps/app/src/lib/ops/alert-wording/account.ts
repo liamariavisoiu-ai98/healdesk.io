@@ -93,12 +93,14 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // meanwhile: phone does not stay on unbilled. The switch is the clinic's
   // own, in its portal's Settings under Channels, labelled "Phone"
   // (@healdesk/catalog CHANNEL_NAMES; lib/channels/switch.ts: Off sends a
-  // call to the direct line), one switch for the whole account (one
-  // clinic_channels row per channel; lib/portal/settings.ts `channel_voice`);
-  // nothing in the console flips it. The Billing tab's Channels card prints
-  // each channel as "Phone: <status> · switched off" (BillingPanel.tsx).
-  // With phone live the published number forwards to AYA, so the call goes
-  // to the direct line.
+  // call to the direct line), one switch per clinic covering all its
+  // locations (one clinic_channels row per channel; lib/portal/settings.ts
+  // `channel_voice`); a legacy billing group has one block per member clinic
+  // under the Billing tab's Channels card, which prints each channel as
+  // "Phone: <status> · switched off" (BillingPanel.tsx). Nothing in the
+  // console flips the switch. With phone live, calls to the published number
+  // can be forwarded to AYA (by the coverage mode), so the call goes to the
+  // direct line.
   step_up_phone_held: {
     title: "Phone is held off a plan with more than one location",
     // "Or is adding": the hold also covers one location with a second on the
@@ -110,9 +112,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "The clinic gets phone without paying for it until it switches phone off, and the owner has decided phone does not stay on unbilled while the account has more than one location. Nothing in the console lifts the hold or switches the channel off: the clinic does that in its portal's Settings.",
     steps: [
       "Open the clinic's Billing tab and read Plan: Locations says how many, and Billed says what the price covers today. Channels shows phone in service.",
-      "Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab: with phone live its published number forwards to AYA, so use the published number, under Phone line on its Setup tab, only if no direct line is on file. Ask it to switch Phone off under Channels in its portal's Settings, and explain why: phone cannot be billed per location yet, so it does not stay on while the account has more than one location. The account has one Phone switch, for all its locations, and its calls then go to its direct line.",
+      "Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab: with phone live, calls to its published number can be forwarded to AYA, depending on its coverage mode, so use the published number, under Phone line on its Setup tab, only if no direct line is on file. Ask it to switch Phone off under Channels in its portal's Settings, and explain why: phone cannot be billed per location yet, so it does not stay on while the account has more than one location. Each clinic listed under Channels on the Billing tab has its own Phone switch, covering all its locations, and its calls then go to its direct line.",
       "Leave the Plan card on the Billing tab and the subscription in Stripe as they are: nothing is charged for phone, and leaving phone on is not on offer.",
-      `${NOTE_IT} You are done when the Phone row under Channels on the Billing tab ends with switched off.`,
+      `${NOTE_IT} You are done when the Phone row of each clinic listed under Channels on the Billing tab ends with switched off.`,
     ],
   },
 };

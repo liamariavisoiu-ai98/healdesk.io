@@ -124,13 +124,18 @@ function Transcripts({ clinics }: { clinics: UndeliveredTranscriptClinicView[] }
 }
 
 function Subheading({ children }: { children: React.ReactNode }) {
-  return <h3 className="mt-5 text-sm font-bold first:mt-0">{children}</h3>;
+  return <h3 className="text-sm font-bold">{children}</h3>;
 }
 
-/** The always-present target of a `#<id>` link: its list when there is one, nothing visible otherwise. */
+/**
+ * The always-present target of a `#<id>` link: its list when there is one,
+ * nothing visible otherwise. The gap above a list sits on this block, not on
+ * its sub-heading (which is always the block's first child), and an empty
+ * block has none, so the empty section stays one line.
+ */
 function Anchor({ id, children }: { id: string; children: React.ReactNode }) {
   return (
-    <div id={id} className="scroll-mt-24">
+    <div id={id} className={children ? "mt-5 scroll-mt-24 first:mt-0" : "scroll-mt-24"}>
       {children}
     </div>
   );

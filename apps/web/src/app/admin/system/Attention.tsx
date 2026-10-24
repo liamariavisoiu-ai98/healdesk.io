@@ -1,5 +1,5 @@
 import { Failure, Section } from "@/components/admin/ui";
-import { hoursWaited, waited, writeProblemWords } from "@/components/admin/queue-words";
+import { countWords, hoursWaited, stuckSummaryWords, transcriptCountWords, waited } from "@/components/admin/queue-words";
 import { clinicTabPath } from "@/lib/admin/issue-link";
 import type {
   MachineQueue,
@@ -27,8 +27,9 @@ import type {
  *
  * An empty section is one line, never a table of zeros. A part apps/app could
  * not read is named ("Stripe events could not be read") and is never drawn as
- * a zero; a whole read that failed says so once, in the section that needed
- * it. The counts under "Being watched" are those read in full.
+ * a zero; a count some clinic is missing from reads "at least N"
+ * (`lowerBound`); a whole read that failed says so once, in the section that
+ * needed it. The counts under "Being watched" are those read in full.
  */
 
 /** The address of this section itself: a queue whose href is this is drawn as words, not a link to where the reader already is. */
@@ -37,6 +38,14 @@ const SELF = "/admin/system#attention";
 function partialLine(part: string): string {
   // apps/app names each part in lower case ("Stripe events", "paid orders", "3 clinic(s)").
   return `${part} could not be read.`;
+}
+
+function Warning({ children }: { children: React.ReactNode }) {
+  return (
+    <p role="status" className="text-red-deep mt-3 text-sm font-semibold">
+      {children}
+    </p>
+  );
 }
 
 function QueueRow({ queue }: { queue: MachineQueue }) {
@@ -50,25 +59,21 @@ function QueueRow({ queue }: { queue: MachineQueue }) {
       ) : (
         <span className="font-semibold">{queue.words}</span>
       )}
-      <span>{queue.count}</span>
+      <span>{countWords(queue.count, queue.lowerBound)}</span>
       {queue.oldestAgeMinutes !== null ? <span className="text-muted">oldest waiting {waited(queue.oldestAgeMinutes)}</span> : null}
     </li>
   );
 }
 
-type ClinicWrites = { clinicId: string; clinicName: string; count: number; oldest: StuckCalendarWriteView };
+type ClinicWrites = { clinicId: string; clinicName: string; writes: StuckCalendarWriteView[] };
 
-/** The writes by clinic, keeping apps/app's order (newest problem first), so the last of a clinic's rows is its oldest. */
+/** The writes by clinic, keeping apps/app's order (newest problem first). */
 export function writesByClinic(writes: readonly StuckCalendarWriteView[]): ClinicWrites[] {
   const byClinic = new Map<string, ClinicWrites>();
   for (const write of writes) {
     const seen = byClinic.get(write.clinicId);
-    if (seen) {
-      seen.count += 1;
-      seen.oldest = write;
-    } else {
-      byClinic.set(write.clinicId, { clinicId: write.clinicId, clinicName: write.clinicName, count: 1, oldest: write });
-    }
+    if (seen) seen.writes.push(write);
+    else byClinic.set(write.clinicId, { clinicId: write.clinicId, clinicName: write.clinicName, writes: [write] });
   }
   return [...byClinic.values()];
 }
@@ -83,28 +88,17 @@ function StuckWrites({ writes }: { writes: StuckCalendarWrites }) {
             <a href={`${clinicTabPath(c.clinicId, "setup")}#calendar-writes`} className="font-semibold underline underline-offset-2">
               {c.clinicName}
             </a>
-            <span>{c.count}</span>
-            <span className="text-muted">oldest {writeProblemWords(c.oldest)}</span>
+            <span>{stuckSummaryWords(c.writes)}</span>
           </li>
         ))}
       </ul>
       {writes.truncated ? (
-        <p className="text-muted mt-2 text-sm">
-          Cut off at {writes.writes.length}: {writes.count} stuck writes were found in all.
-        </p>
+        <Warning>
+          Counts are of the first {writes.writes.length} read; {writes.count} stuck writes were found in all, so a clinic may have more, or be missing here.
+        </Warning>
       ) : null}
     </>
   );
-}
-
-function countWords(counts: UndeliveredTranscriptClinicView["counts"]): string {
-  const parts = [
-    counts.overdue > 0 ? `${counts.overdue} overdue` : null,
-    counts.bounced > 0 ? `${counts.bounced} bounced` : null,
-    counts.expired > 0 ? `${counts.expired} expired` : null,
-    counts.unconfirmed > 0 ? `${counts.unconfirmed} unconfirmed` : null,
-  ].filter((p): p is string => p !== null);
-  return parts.join(", ");
 }
 
 function Transcripts({ clinics }: { clinics: UndeliveredTranscriptClinicView[] }) {
@@ -115,8 +109,8 @@ function Transcripts({ clinics }: { clinics: UndeliveredTranscriptClinicView[] }
           <a href={clinicTabPath(c.clinicId, "deliveries")} className="font-semibold underline underline-offset-2">
             {c.clinicName}
           </a>
-          <span>{countWords(c.counts)}</span>
-          {c.oldestAgeHours !== null ? <span className="text-muted">oldest waiting {hoursWaited(c.oldestAgeHours)}</span> : null}
+          <span>{transcriptCountWords(c.counts)}</span>
+          {c.oldestAgeHours !== null ? <span className="text-muted">oldest held copy queued {hoursWaited(c.oldestAgeHours)} ago</span> : null}
         </li>
       ))}
     </ul>
@@ -178,30 +172,35 @@ export function Attention({
       ) : null}
 
       {partial.map((line) => (
-        <p key={line} role="status" className="text-red-deep mt-3 text-sm font-semibold">
-          {line}
-        </p>
+        <Warning key={line}>{line}</Warning>
       ))}
     </Section>
   );
 }
 
-/** The queues that are fine, name and count, one compact list. Nothing when the queues could not be read: the section above said so. */
+/**
+ * The queues that are fine, name and count, one compact list. Nothing when
+ * the queues could not be read: the section above said so. When every queue
+ * apps/app sent needs a person, they are all above and this says so, rather
+ * than claiming nothing was read.
+ */
 export function BeingWatched({ queues }: { queues: OpsResult<MachineQueues> }) {
   if (!queues.ok) return null;
   const fine = queues.data.queues.filter((q) => !q.needsAttention);
   return (
     <Section title="Being watched">
-      {fine.length === 0 ? (
-        <p className="text-muted text-sm">No queue was read in full.</p>
-      ) : (
+      {fine.length > 0 ? (
         <ul className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
           {fine.map((q) => (
             <li key={q.key}>
-              <span className="text-muted">{q.words}</span> {q.count}
+              <span className="text-muted">{q.words}</span> {countWords(q.count, q.lowerBound)}
             </li>
           ))}
         </ul>
+      ) : queues.data.queues.length > 0 ? (
+        <p className="text-muted text-sm">Every queue read is listed above.</p>
+      ) : (
+        <p className="text-muted text-sm">No queue was read in full.</p>
       )}
     </Section>
   );

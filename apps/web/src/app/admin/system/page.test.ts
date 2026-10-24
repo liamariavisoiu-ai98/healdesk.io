@@ -32,8 +32,8 @@ vi.mock("@/lib/admin/ops-client", () => {
         ok: true,
         data: {
           queues: [
-            { key: "outbox", words: "Emails waiting to send", count: 2, oldestAgeMinutes: 90, needsAttention: true, tone: "warn", href: "/admin/system#attention" },
-            { key: "billing_requests", words: "Billing requests not done", count: 0, oldestAgeMinutes: null, needsAttention: false, tone: "ok", href: "/admin/system#attention" },
+            { key: "outbox", words: "Emails waiting to send", count: 2, oldestAgeMinutes: 90, needsAttention: true, tone: "warn", href: "/admin/system#attention", lowerBound: false },
+            { key: "billing_requests", words: "Billing requests not done", count: 0, oldestAgeMinutes: null, needsAttention: false, tone: "ok", href: "/admin/system#attention", lowerBound: false },
           ],
           partial: [],
         },

@@ -24,12 +24,22 @@ const state = vi.hoisted(() => ({
   deadlineIso: "2026-11-01T00:00:00.000Z",
   deadlineAt: "2026-11-01 00:00 UTC",
   planStarted: false,
+  /** The clinic's bought channels as the cards read says them; null when the cards do not cover this clinic. */
+  channels: null as string[] | null,
+  /** Whether the ignore list holds this clinic (read apart from the lifecycle row). */
+  onIgnoreList: false,
+  demo: false,
 }));
-// The drift flag's clear enters through lib/admin/voice-drift.ts (the session, the fresh code, then the signed request), never the raw ops client.
+// The drift flag's clear and the retry that can buy a number enter through lib/admin/voice-drift.ts
+// (the session, the fresh code, then the signed request), never the raw ops client.
 vi.mock("@/lib/admin/voice-drift", () => ({
-  clearVoiceDriftFlag: async (clinicId: string, code: unknown) => {
-    state.writes.push(["voice-drift.clearVoiceDriftFlag", [clinicId, code]]);
+  clearVoiceDriftFlagWithCode: async (clinicId: string, code: unknown) => {
+    state.writes.push(["voice-drift.clearVoiceDriftFlagWithCode", [clinicId, code]]);
     return { ok: true, data: { outcome: "cleared", check: "clean", problems: [] } };
+  },
+  retryVoiceAgentWithCode: async (clinicId: string, code: unknown) => {
+    state.writes.push(["voice-drift.retryVoiceAgentWithCode", [clinicId, code]]);
+    return { ok: true, data: { outcome: "already", status: "ready" } };
   },
 }));
 
@@ -61,11 +71,23 @@ vi.mock("@/lib/admin/ops-client", () => {
   return {
     fetchOnboarding: async (clinicId: string) => {
       state.reads.push(["fetchOnboarding", clinicId]);
+      if (state.demo) return { ok: true, data: { booking: { demo: true } } };
       return state.onboarding;
     },
     fetchClinicCards: async () => {
       state.reads.push(["fetchClinicCards"]);
-      return { ok: true, data: { cards: [], limit: 50 } };
+      const cards =
+        state.channels === null
+          ? []
+          : [{ id: CLINIC, agreementKind: "baa", agreementLabel: "BAA 1.5.0", channels: state.channels.map((channel) => ({ channel, status: "setting_up" })), tracker: [], trackerLeft: [] }];
+      return { ok: true, data: { cards, limit: 50 } };
+    },
+    fetchLifecycleIgnored: async (clinicId?: string) => {
+      state.reads.push(["fetchLifecycleIgnored", clinicId ?? null]);
+      return {
+        ok: true,
+        data: state.onIgnoreList ? [{ clinicId: CLINIC, clinicSlug: "radiance", clinicName: "Radiance Med Spa", note: "internal_test_account", setBy: "ops@healdesk.test", setAt: "2026-10-24T09:00:00.000Z" }] : [],
+      };
     },
     fetchClinicChanges: async (filter: unknown) => {
       state.reads.push(["fetchClinicChanges", filter]);
@@ -160,8 +182,7 @@ vi.mock("@/lib/admin/ops-client", () => {
       state.reads.push(["fetchVoiceAgentReport", clinicId]);
       return { ok: true, data: { agents: [], report: null } };
     },
-    retryVoiceAgent: write("retryVoiceAgent", { outcome: "already", status: "ready" }),
-    setLifecycleIgnored: write("setLifecycleIgnored", { outcome: "saved", ignored: true, note: null, setAt: "2026-10-24T09:00:00.000Z", auditRecorded: true }),
+    setLifecycleIgnored: write("setLifecycleIgnored", { outcome: "saved", ignored: true, note: "internal_test_account", setAt: "2026-10-24T09:00:00.000Z", auditRecorded: true }),
     acknowledgeClinicChange: write("acknowledgeClinicChange", { status: "acknowledged", acknowledgedAt: "2026-10-24T10:00:00.000Z", auditRecorded: true }),
     decideLifecycle: write("decideLifecycle", { outcome: "saved" }),
     extendSetupDeadline: write("extendSetupDeadline", { status: "extended", setupDeadlineAt: "2026-11-15 00:00 UTC", auditRecorded: true }),
@@ -191,7 +212,7 @@ vi.mock("@/lib/admin/ops-client", () => {
 const { default: SetupPage } = await import("./page");
 const { AvailabilityChanges } = await import("./AvailabilityChanges");
 const { CalendarWrites } = await import("./CalendarWrites");
-const { SetupWindow } = await import("./SetupWindow");
+const { SetupWatchStub, SetupWindow } = await import("./SetupWindow");
 const { VoiceAgentCard } = await import("./VoiceAgentCard");
 
 type Props = Record<string, unknown>;
@@ -235,6 +256,9 @@ beforeEach(() => {
   state.deadlineIso = "2026-11-01T00:00:00.000Z";
   state.deadlineAt = "2026-11-01 00:00 UTC";
   state.planStarted = false;
+  state.channels = null;
+  state.onIgnoreList = false;
+  state.demo = false;
 });
 
 describe("the Setup tab", () => {
@@ -256,13 +280,31 @@ describe("the Setup tab", () => {
     expect(window.canExtend).toBe(true);
   });
 
-  test("draws no Setup window for a clinic the watch does not cover, and no Extend once the plan has started", async () => {
+  test("a clinic the watch does not cover gets the stub card while still in setup (not the demo), with the ignore list's own mark; no Extend once the plan has started", async () => {
     state.watched = false;
+    let html = renderToStaticMarkup((await page()) as ReactElement);
+    expect(html).not.toContain("Window ends");
+    expect(html).toContain("Not on the setup watch yet.");
+    expect(html).toContain("Do not watch this account");
+    expect(state.reads).toContainEqual(["fetchLifecycleIgnored", CLINIC]);
+    // Already marked before the watch's first tick: the stub says so and offers the way back.
+    state.onIgnoreList = true;
+    html = renderToStaticMarkup((await page()) as ReactElement);
+    expect(html).toContain("Watch this account again");
+    expect(html).not.toContain("Do not watch this account");
+    // Not for a clinic whose plan has started, nor for the demo clinic.
+    state.onIgnoreList = false;
+    state.planStarted = true;
     expect(renderToStaticMarkup((await page()) as ReactElement)).not.toContain("Setup window");
+    state.planStarted = false;
+    state.demo = true;
+    expect(renderToStaticMarkup((await page()) as ReactElement)).not.toContain("Setup window");
+    state.demo = false;
     state.watched = true;
     state.planStarted = true;
     const window = find(await page(), SetupWindow)!;
     expect(window.canExtend).toBe(false);
+    expect(find(await page(), SetupWatchStub)).toBeNull();
   });
 
   test("the extension names the deadline the page showed, and a second press after an extension works from the refreshed one", async () => {
@@ -339,16 +381,17 @@ describe("the Setup tab", () => {
     for (const label of ["Retry", "Check against Retell", "Clear flag and recheck"]) expect(words).toContain(label);
   });
 
-  test("the voice actions and the ignore switch carry this clinic's id; the drift clear goes through the voice-drift entry with the code", async () => {
+  test("the voice actions and the ignore switch carry this clinic's id; the retry and the drift clear go through the voice-drift entries with the code; the ignore carries the closed note", async () => {
     const tree = await page();
     const voice = find(tree, VoiceAgentCard)!;
-    const actions = voice.actions as { retry: () => Promise<unknown>; check: () => Promise<unknown>; clearFlag: (code: string) => Promise<unknown> };
-    await actions.retry();
-    expect(state.writes.at(-1)).toEqual(["retryVoiceAgent", [CLINIC]]);
+    const actions = voice.actions as { retry: (code: string) => Promise<unknown>; check: () => Promise<unknown>; clearFlag: (code: string) => Promise<unknown> };
+    await actions.retry("654321");
+    expect(state.writes.at(-1)).toEqual(["voice-drift.retryVoiceAgentWithCode", [CLINIC, "654321"]]);
+    expect(state.writes.some(([name]) => name === "retryVoiceAgent")).toBe(false);
     await actions.check();
     expect(state.reads.at(-1)).toEqual(["fetchVoiceAgentReport", CLINIC]);
     await actions.clearFlag("123456");
-    expect(state.writes.at(-1)).toEqual(["voice-drift.clearVoiceDriftFlag", [CLINIC, "123456"]]);
+    expect(state.writes.at(-1)).toEqual(["voice-drift.clearVoiceDriftFlagWithCode", [CLINIC, "123456"]]);
 
     const writes = find(tree, CalendarWrites)!;
     await (writes.onRetry as (id: string) => Promise<unknown>)(APPT);
@@ -356,8 +399,20 @@ describe("the Setup tab", () => {
 
     const window = find(tree, SetupWindow)!;
     await (window.onSetIgnored as (ignored: boolean) => Promise<unknown>)(true);
-    expect(state.writes.at(-1)).toEqual(["setLifecycleIgnored", [CLINIC, true]]);
+    expect(state.writes.at(-1)).toEqual(["setLifecycleIgnored", [CLINIC, true, "internal_test_account"]]);
     await (window.onSetIgnored as (ignored: boolean) => Promise<unknown>)(false);
-    expect(state.writes.at(-1)).toEqual(["setLifecycleIgnored", [CLINIC, false]]);
+    expect(state.writes.at(-1)).toEqual(["setLifecycleIgnored", [CLINIC, false, "internal_test_account"]]);
+  });
+
+  test("the Voice agent card is drawn only for a clinic whose package has phone; a clinic the cards do not cover keeps it", async () => {
+    state.channels = ["web", "meta"];
+    let html = renderToStaticMarkup((await page()) as ReactElement);
+    expect(html).not.toContain('id="voice"');
+    expect(html).toContain('id="calendar-writes"');
+    state.channels = ["web", "voice"];
+    html = renderToStaticMarkup((await page()) as ReactElement);
+    expect(html).toContain('id="voice"');
+    state.channels = null;
+    expect(renderToStaticMarkup((await page()) as ReactElement)).toContain('id="voice"');
   });
 });

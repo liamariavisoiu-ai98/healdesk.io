@@ -1,4 +1,4 @@
-import type { CalendarWriteReasonCode, StuckCalendarWriteView } from "@/lib/admin/ops-client";
+import type { CalendarWriteReasonCode, StuckCalendarWriteView, UndeliveredTranscriptClinicView } from "@/lib/admin/ops-client";
 
 /**
  * The plain words the System page's "Requires your attention" section and
@@ -33,14 +33,30 @@ export function hoursWaited(hours: number): string {
   return plural(Math.round(hours / 24), "day", "days");
 }
 
-/** apps/app's MAX_WRITE_ATTEMPTS: the sweep never makes a sixth attempt. */
+/** A queue's count: "at least N" when some clinic could not be read (`lowerBound`), else "N". */
+export function countWords(count: number, lowerBound: boolean): string {
+  return lowerBound ? `at least ${count}` : String(count);
+}
+
+/**
+ * apps/app's MAX_WRITE_ATTEMPTS: the desk sweep never makes a sixth attempt
+ * by itself. An operator's Retry does go past it (lib/booking/calendar.ts,
+ * the `operator` claim option), so a row can carry more tries than this.
+ */
 export const MAX_WRITE_TRIES = 5;
+
+/** "Tries 2 of 5" while within the sweep's five; "Tries 7" once an operator's retries have gone past them. */
+export function triesWords(attempts: number): string {
+  return attempts > MAX_WRITE_TRIES ? `Tries ${attempts}` : `Tries ${attempts} of ${MAX_WRITE_TRIES}`;
+}
 
 /**
  * Every reason code in plain words, for an operator who has never read the
  * adapter: what happened, and where that is a thing the clinic must do, that
- * too. Google's own word (`other`) is not ours to translate; the Calendar
- * card's list prints it beside the booking.
+ * too. `other` covers two cases apps/app folds into one code (writeReasonCode):
+ * no reason stored at all, which is an attempt cut off before one was written,
+ * and a word of Google's own, which the Calendar card's write list prints
+ * beside the booking as it came.
  */
 export const CALENDAR_WRITE_REASON_WORDS: Record<CalendarWriteReasonCode, string> = {
   timeout: "Google did not answer in time",
@@ -83,19 +99,25 @@ export const CALENDAR_WRITE_REASON_WORDS: Record<CalendarWriteReasonCode, string
   bad_window: "the availability window asked for is not valid",
   window_too_long: "the availability window asked for is too long",
   calendar_error: "Google reported a calendar error",
-  other: "Google's own words, printed beside the booking in the Calendar card",
+  other:
+    "no reason of ours was recorded: the attempt was cut off before one was written, or Google answered with a word of its own, which the Calendar card's write list prints beside the booking",
 };
 
-/** The write's state in words: "failed", "gave up after 5 tries", "waiting for its next try". */
+/**
+ * The write's state, without its reason: "failed, not retried by itself" (a
+ * refusal, which the sweep never retries), "gave up after 5 tries" (the
+ * sweep's five are spent), "will not be retried by itself" (a settled reason
+ * with tries to spare), or "waiting for its next try".
+ */
 export function writeProblemWords(write: Pick<StuckCalendarWriteView, "status" | "attempts" | "retryable">): string {
-  if (write.status === "failed") return "failed";
-  if (!write.retryable) return `gave up after ${plural(write.attempts, "try", "tries")}`;
-  return "waiting for its next try";
+  if (write.status === "failed") return "failed, not retried by itself";
+  if (write.retryable) return "waiting for its next try";
+  if (write.attempts >= MAX_WRITE_TRIES) return `gave up after ${plural(write.attempts, "try", "tries")}`;
+  return "will not be retried by itself";
 }
 
-/** When the sweep tries it next, from the server's clock: "in about 30 minutes", "due now", or "will not be tried again". */
-export function nextTryWords(write: Pick<StuckCalendarWriteView, "retryable" | "nextAttemptAt">, nowIso: string): string {
-  if (!write.retryable) return "will not be tried again by itself";
+/** When the sweep tries a retryable write next, from the server's clock: "in about 30 minutes", "due now". */
+export function nextTryWords(write: Pick<StuckCalendarWriteView, "nextAttemptAt">, nowIso: string): string {
   if (write.nextAttemptAt === null) return "due now";
   const minutes = Math.round((Date.parse(write.nextAttemptAt) - Date.parse(nowIso)) / 60_000);
   if (Number.isNaN(minutes) || minutes <= 0) return "due now";
@@ -107,4 +129,31 @@ export function nextTryWords(write: Pick<StuckCalendarWriteView, "retryable" | "
 export function slotWords(slotInDays: number): string {
   if (slotInDays <= 0) return "within 24 hours";
   return `in ${plural(slotInDays, "day", "days")}`;
+}
+
+/** One clinic's stuck writes in a phrase: "2 stuck, 1 will not be retried by itself"; "1 stuck" when the sweep still owns them all. */
+export function stuckSummaryWords(writes: readonly Pick<StuckCalendarWriteView, "retryable">[]): string {
+  const stuck = writes.length;
+  const notRetried = writes.filter((w) => !w.retryable).length;
+  const head = `${stuck} stuck`;
+  if (notRetried === 0) return head;
+  return `${head}, ${notRetried} will not be retried by itself`;
+}
+
+/**
+ * A clinic's undelivered transcript copies, in Home's words for the outbox's
+ * states (lib/conversations/transcript-outbox.ts): a held copy queued more
+ * than 72 hours ago is "waiting more than 72 hours"; "bounced"; a copy
+ * deleted unsent once its 30 days were up is "deleted unsent after 30 days";
+ * one SES accepted and never confirmed is "deleted after 72 hours with no
+ * answer from the mail service". Zeros are left out.
+ */
+export function transcriptCountWords(counts: UndeliveredTranscriptClinicView["counts"]): string {
+  const parts = [
+    counts.overdue > 0 ? `${counts.overdue} waiting more than 72 hours` : null,
+    counts.bounced > 0 ? `${counts.bounced} bounced` : null,
+    counts.expired > 0 ? `${counts.expired} deleted unsent after 30 days` : null,
+    counts.unconfirmed > 0 ? `${counts.unconfirmed} deleted after 72 hours with no answer from the mail service` : null,
+  ].filter((p): p is string => p !== null);
+  return parts.join(", ");
 }

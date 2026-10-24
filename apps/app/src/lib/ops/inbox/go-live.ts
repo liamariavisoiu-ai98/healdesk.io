@@ -27,10 +27,6 @@ import type { InboxContext, InboxRow } from "./types";
  * counted, and neither is an account on the lifecycle ignore list
  * (healdesk's own test accounts) or one of its locations. Each row opens the first clinic's Setup tab, where the go-live
  * view is.
- *
- * NOT REGISTERED YET: the row kind `go_live` needs its line in INBOX_KINDS
- * (./types.ts) and this source its line in ./sources.ts; types.ts is not this
- * lane's file, so the lead adds both (lane P5d's report).
  */
 
 export type GoLiveRow = Omit<InboxRow, "kind"> & { kind: "go_live" };

@@ -165,10 +165,13 @@ describe("Requires your attention", () => {
     expect(html).toContain('<div id="calendar-writes" class="scroll-mt-24"></div>');
     expect(html).toContain('<div id="transcripts" class="scroll-mt-24"></div>');
     expect(text(html)).toBe("Requires your attention Nothing needs you here.");
-    // With lists, the same ids wrap the sub-heading and its rows.
+    // With lists, the same ids wrap the sub-heading and its rows, and the
+    // block carries the gap above the list (the heading is always its first
+    // child, so a margin there would never apply).
     const full = renderToStaticMarkup(h(Attention, { queues, writes, transcripts }));
-    expect(full).toMatch(/<div id="calendar-writes" class="scroll-mt-24"><h3[^>]*>Calendar writes stuck<\/h3>/);
-    expect(full).toMatch(/<div id="transcripts" class="scroll-mt-24"><h3[^>]*>Transcript copies not delivered<\/h3>/);
+    expect(full).toMatch(/<div id="calendar-writes" class="mt-5 scroll-mt-24 first:mt-0"><h3[^>]*>Calendar writes stuck<\/h3>/);
+    expect(full).toMatch(/<div id="transcripts" class="mt-5 scroll-mt-24 first:mt-0"><h3[^>]*>Transcript copies not delivered<\/h3>/);
+    expect(full).not.toMatch(/<h3 class="[^"]*mt-/);
   });
 
   test("a part that could not be read is named and is never a zero, and 'Nothing needs you here' is not claimed", () => {

@@ -43,7 +43,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     steps: [
       "Open the Clinics page and read the Calendar column: degraded marks each clinic affected, and the Calendar card on its Setup tab says when it was last verified.",
       "Wait up to an hour: the check runs every five minutes, and one that passes clears this by itself. Nothing on the Calendar card needs pressing for an outage.",
-      "Check Google Workspace's status page if it lasts over an hour, then the Jobs page under System for the calendar watch row's last result: a run that fails every time points at our side, not Google's.",
+      "Check Google Workspace's status page if it lasts over an hour, then the Jobs page under System for the calendar-watch row's last result: a run that fails every time points at our side, not Google's.",
       "Check the Clinics page again. You are done when the Calendar column shows healthy, or the all-clear alert about calendar checks passing arrives.",
     ],
   },
@@ -70,7 +70,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "One slow run needs nothing. If this comes on most runs, Google is answering slowly or there are more calendars than one run can check, and a broken calendar could go unnoticed for longer than five minutes.",
     steps: [
-      "Open the Jobs page under System and read the calendar watch row's last result and note.",
+      "Open the Jobs page under System and read the calendar-watch row's last result and note.",
       "Wait for the next few runs if this is the first such alert: the connections it missed are checked first next time, and the Jobs page shows each run's result.",
       "Ask whoever maintains the engine to let the check run more connections at once if the alert keeps coming; the Jobs page has no setting for it.",
       "Check the Jobs page shows runs completing. You are done when this alert stops.",
@@ -86,7 +86,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "One failing step is usually a passing fault. A run that fails every time means the database or this deployment's configuration is the problem, and no calendar is being watched meanwhile.",
     steps: [
-      "Open the Jobs page under System and read the calendar watch row's last result and note.",
+      "Open the Jobs page under System and read the calendar-watch row's last result and note.",
       "Wait for the next run if this is the first such alert: a passing fault clears itself, and the Jobs page shows the run passing.",
       "Ask whoever maintains the engine to read the worker's error lines for the calendar check if every run fails; the Jobs page shows only the result, not the error.",
       "Check the Jobs page shows runs passing. You are done when this alert stops coming.",
@@ -136,7 +136,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     steps: [
       "Open the clinic's Setup tab and find the booking under Calendar writes needing attention. Google's reason is shown beside it.",
       "Press Retry beside the booking if a Retry button shows there and the reason is timeout, network or unconfirmed. If no Retry button shows, the write never finished: phone the clinic, using the number under Phone line, and check its staff added the booking by hand.",
-      "Do not press Retry if the reason says an event id is taken. Phone the clinic on its published number, shown under Phone line on its Setup tab, and ask them to look for a duplicate in their calendar.",
+      "Do not press Retry if the reason says an event id is taken: our own event for this booking is already in the clinic's Google Calendar, at another time. Phone the clinic on its published number, shown under Phone line on its Setup tab, and ask its staff to find that event and move it to the booked time by hand.",
       "Press Send calendar link on the Setup tab if the reason mentions the target calendar or a calendar that is not connected. The clinic reconnects from that link.",
       "Check under Calendar writes needing attention that the booking now shows as written. If the reason says the clinic deleted it in its own calendar, there is nothing to do and you are done.",
     ],
@@ -150,9 +150,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "Until each booking is in its calendar, its slot looks free and someone else could be booked into it. Nothing retries by itself, and a new failure after this is reported on its own again.",
     steps: [
-      "Open the Clinics page: each clinic with a stuck write needs its Setup tab opened. The Calendar column flags a broken calendar, not a stuck write.",
-      "Open each clinic's Setup tab and find its bookings under Calendar writes needing attention, with Google's reason beside each.",
-      "Press Retry beside a booking whose reason is timeout, network or unconfirmed. Do not press Retry where the reason says an event id is taken: phone the clinic, using the number under Phone line, and ask it to look for a duplicate.",
+      "Open the Clinics page: nothing in the console lists which clinics have a stuck write, and the Calendar column flags a broken calendar, not a stuck write, so open each clinic's Setup tab in turn.",
+      "Read Calendar writes needing attention on each Setup tab: a stuck booking shows there with Google's reason beside it.",
+      "Press Retry beside a booking whose reason is timeout, network or unconfirmed. Do not press Retry where the reason says an event id is taken: our own event for that booking is already in the clinic's Google Calendar at another time, so phone the clinic, using the number under Phone line, and ask its staff to find it and move it to the booked time by hand.",
       "Press Send calendar link on the Setup tab where the reason names the target calendar or a calendar that is not connected. The clinic reconnects from that link.",
       "Check under Calendar writes needing attention that each booking shows as written. You are done when none needs attention.",
     ],

@@ -156,6 +156,26 @@ const PLACES: Readonly<Record<string, Place>> = {
   ],
   "At the allowance": ["app/admin/clinics/[clinicId]/billing/BillingPanel.tsx", "At the allowance", "button"],
   Record: ["app/admin/clinics/[clinicId]/care/TouchLog.tsx", '"Record"', "button"],
+  // Lane N2d: the setup-progress, availability and digest alerts.
+  "Home page": ["app/admin/page.tsx", 'title: "Home"', "page"],
+  "Clinics page": ["app/admin/clinics/page.tsx", 'title: "Clinics"', "page"],
+  "Setup window": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'title="Setup window"', "page"],
+  "Availability changes": ["app/admin/clinics/[clinicId]/setup/AvailabilityChanges.tsx", 'title="Availability changes"', "page"],
+  Reminders: ["app/admin/clinics/[clinicId]/deliveries/Reminders.tsx", "title={`Reminders", "page"],
+  Channels: ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Channels"', "page"],
+  "Go live": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Go live"', "page"],
+  "The clinic's address": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", "title=\"The clinic's address\"", "page"],
+  "Offered a call": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Offered a call"', "button"],
+  "Let it close": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Let it close"', "button"],
+  "Snooze alerts": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Snooze alerts"', "button"],
+  "Run audit now": ["app/admin/clinics/[clinicId]/setup/AvailabilityChanges.tsx", 'label="Run audit now"', "button"],
+  "Mark as seen": ["app/admin/clinics/[clinicId]/setup/AvailabilityChanges.tsx", 'label="Mark as seen"', "button"],
+  "Ask the practice questions again": [
+    "app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx",
+    "Ask the practice questions again",
+    "button",
+  ],
+  "Enter the change": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", '"Enter the change"', "button"],
 };
 
 function escapeRe(text: string): string {
@@ -330,7 +350,7 @@ describe("the substitution", () => {
       fillWording(alertWording("lifecycle_decision_due", {}), { recommendation }).steps.join("\n");
     expect(steps("let_close")).not.toMatch(/Press Extend the setup window/);
     expect(steps("let_close")).toMatch(/Leave the setup window as it is/);
-    expect(steps("extend")).toMatch(/Press Extend the setup window on the clinic's Billing tab if the clinic needs more time/);
+    expect(steps("extend")).toMatch(/Press Extend the setup window on the Setup window card if the clinic needs more time/);
     expect(steps("wait")).toMatch(/only if the clinic asks for more time/);
     const why = (recommendation: string) =>
       fillWording(alertWording("lifecycle_decision_due", {}), { recommendation }).whyItMatters;

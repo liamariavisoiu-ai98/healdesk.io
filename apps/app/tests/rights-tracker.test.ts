@@ -18,6 +18,7 @@ import { NO_OPERATOR, NO_ROUTE, NO_ROUTE_AMENDMENT, NO_ROUTE_CORRECTION, prepare
 import { listRights, MATCHED_NOTE, RETELL_OUTSTANDING, type RightsRow } from "@/lib/rights/tracker";
 import { JOB_RIGHTS_WATCH, rightsAlertsFor, runRightsWatchJob, watchRights } from "@/lib/scheduler/rights-watch";
 import { getJob } from "@/lib/scheduler/jobs";
+import { runTick } from "@/lib/scheduler/tick";
 
 import { closePools, getAppPool, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { inTenant, seedClinic, seedDemoClinic } from "./setup/factories";
@@ -670,6 +671,14 @@ describeDb("the rights tracker, against the database", () => {
     expect(intake.dueOn).toBe("2026-10-22");
     const list = await listRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now: new Date("2026-10-26T08:00:00Z"), clinics: [{ id: c.clinicId, name: "D" }] });
     expect(list.rows).toMatchObject([{ id: intake.id, dueOn: "2026-10-22", state: "overdue", daysLeft: -2 }]);
+  });
+
+  test("runs from the 08 UTC tick and from no other hour's, reporting disabled while off", async () => {
+    const at = async (iso: string) => (await runTick(new Date(iso))).find((outcome) => outcome.job === "rights-watch");
+    expect(await at("2026-10-20T08:00:00Z")).toMatchObject({ status: "disabled" });
+    for (const hour of ["07", "09"]) {
+      expect(await at(`2026-10-20T${hour}:00:00Z`), hour).toBeUndefined();
+    }
   });
 
   test("Home shows one row for the due soon and one for the late, linking to the Patient rights page", async () => {

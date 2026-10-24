@@ -84,7 +84,7 @@ describe("disclosure", () => {
     expect(text).toMatch(/AI assistant at Radiance/);
     // Transcription specifically: the word the consent statutes turn on, and
     // the CIPA exposure in Ambriz is about a call's contents being captured.
-    expect(text).toMatch(/This call is transcribed/);
+    expect(text).toMatch(/this call's transcribed/);
     // Never "recorded": healdesk keeps no audio, so the line must not claim it does.
     expect(text).not.toMatch(/is recorded|no audio recording is kept/i);
     // Cut by the owner on 23 and 24 October 2026 (state-disclosure.md,
@@ -99,18 +99,18 @@ describe("disclosure", () => {
 
   test("the Spanish voice line mirrors the English one's claims, word for word, and adds none", () => {
     const text = voiceDisclosureEs({ clinicName: "Radiance" });
-    expect(text).toBe(`Le atiende el asistente de inteligencia artificial de Radiance. Esta llamada se transcribe.`);
+    expect(text).toBe(`Le atiende el asistente de inteligencia artificial de Radiance, y esta llamada se transcribe.`);
     // The same two facts as the English line, each present, and no claim it does not make.
     expect(text).toMatch(/inteligencia artificial/);
     expect(text).toMatch(/se transcribe/);
     expect(text).not.toMatch(/se graba|grabada|grabación|audio|le comunico con|le paso con|una persona|representante/i);
     // Both lines change together: a change to the English line must reach this pin too.
-    expect(voiceDisclosure({ clinicName: "Radiance", channel: "voice" })).toBe(`Hi, this is the AI assistant at Radiance. This call is transcribed.`);
+    expect(voiceDisclosure({ clinicName: "Radiance", channel: "voice" })).toBe(`Hi! I'm the AI assistant at Radiance, and this call's transcribed.`);
   });
 
   test("the voice and web chat lines are the decided text, word for word, and the Meta greeting is unchanged", () => {
     expect(voiceDisclosure({ clinicName: "Radiance", channel: "voice" })).toBe(
-      `Hi, this is the AI assistant at Radiance. This call is transcribed.`,
+      `Hi! I'm the AI assistant at Radiance, and this call's transcribed.`,
     );
     expect(disclosureFor({ clinicName: "Radiance", channel: "web_chat" })).toBe(
       `You're chatting with an AI assistant for Radiance. Ask for a person any time and I'll pass your details to the practice team, who will get back to you within a day.`,

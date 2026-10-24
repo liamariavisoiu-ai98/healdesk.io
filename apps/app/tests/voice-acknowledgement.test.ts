@@ -56,7 +56,7 @@ const FACTS: AssistantFacts = {
   escalationHours: null,
   neverSay: [],
   requirements: [],
-  greeting: { phone: "Are you looking to book, or do you have a question?", chat: "How can I help?" },
+  greeting: { phone: "Looking to book, or got a question?", chat: "How can I help?" },
   tone: "warm",
   languages: ["en"],
   suggestAddOns: false,
@@ -148,7 +148,7 @@ describe("the acknowledgement while the model thinks", () => {
     await owed.s.open();
     await owed.s.handle(said(1, [{ role: "user", content: "hi I would like to book an appointment" }]));
     expect(owed.raw().filter((r) => r.content_complete === false)).toEqual([]);
-    expect(owed.raw()[1]!.content).toMatch(/^Hi, this is the AI assistant at Lumen Aesthetics\./);
+    expect(owed.raw()[1]!.content).toMatch(/^Hi! I'm the AI assistant at Lumen Aesthetics,/);
     await owed.s.finish();
   });
 

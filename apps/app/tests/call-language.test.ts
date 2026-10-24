@@ -104,7 +104,7 @@ describe("the Spanish fixed lines", () => {
     const facts = { ...SAFETY_FACTS, urgentPhone: null, directLine: "+14155550124", urgentAlertsReady: true };
     const now = new Date("2026-11-03T15:00:00Z");
     const es = urgentReply(facts, "voice", { emergency: "911", language: "es" }, now);
-    expect(es).toMatch(/cuelgue y llame al 911/);
+    expect(es).toMatch(/cuelgue y llame al 9-1-1/);
     expect(es).toContain(spokenPhone("+14155550124", "es"));
     expect(es).toContain("Ya avisé al equipo.");
     const en = urgentReply(facts, "voice", { emergency: "911", language: "en" }, now);

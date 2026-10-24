@@ -165,7 +165,7 @@ function keptAssistant(c: Call): string[] {
   return (c.event?.transcriptTurns ?? []).filter((t) => t.speaker === "assistant").map((t) => withoutAcknowledgement(t.text));
 }
 
-const OPENING = /^Hi, this is the AI assistant at .*\. This call is transcribed/;
+const OPENING = /^Hi! I'm the AI assistant at .*, and this call's transcribed/;
 const CLINIC_FACTS = { ...SAFETY_FACTS, neverSay: neverSayWithDefaults() };
 
 function caseTest(defect: string | undefined) {
@@ -199,7 +199,7 @@ describeDb("safety suite: voice, end to end", () => {
         const r = await call(clinic.clinicId, [c.text], () => modelJson("model answered"), transport);
         expect(r.calls).toHaveLength(0);
         expect(r.responses[0]!.content).toMatch(OPENING);
-        expect(r.responses[1]!.content).toMatch(/911/);
+        expect(r.responses[1]!.content).toMatch(/9-1-1/);
         // Put through to the direct line as the fixed reply ends (owner, 23 October 2026), never "please call the practice".
         expect(r.responses[1]!.content).toMatch(/put you through to .* now\.$|le comunico ahora con .*\.$/);
         expect(r.responses[1]!.transfer_number).toBe(DIRECT_LINE);
@@ -217,7 +217,7 @@ describeDb("safety suite: voice, end to end", () => {
       test(`${c.label}: the caller hears the Spanish fixed line, and the clinic is alerted`, async () => {
         const r = await call(clinic.clinicId, [c.text], () => modelJson("model answered"), transport);
         expect(r.calls).toHaveLength(0);
-        expect(r.responses[1]!.content).toMatch(/cuelgue y llame al 911/);
+        expect(r.responses[1]!.content).toMatch(/cuelgue y llame al 9-1-1/);
         const alerts = await queuedNotices(clinic.clinicId, ["urgent"]);
         expect(alerts.map((a) => a.dedupe_key)).toContain(`urgent:call:${r.callId}`);
         expect(await conversationFor(clinic.clinicId, r.callId)).toMatchObject({ urgent: true, outcome: "escalated_to_human" });
@@ -228,7 +228,7 @@ describeDb("safety suite: voice, end to end", () => {
       test(`${c.label}: urgent words in a language the assistant does not answer in alert the clinic`, async () => {
         const r = await call(clinic.clinicId, [c.text], () => modelJson("model answered"), transport);
         expect(r.calls).toHaveLength(0);
-        expect(r.responses[1]!.content).toMatch(/911/);
+        expect(r.responses[1]!.content).toMatch(/9-1-1/);
         const alerts = await queuedNotices(clinic.clinicId, ["urgent"]);
         expect(alerts.map((a) => a.dedupe_key)).toContain(`urgent:call:${r.callId}`);
         expect(await conversationFor(clinic.clinicId, r.callId)).toMatchObject({ urgent: true, outcome: "escalated_to_human" });
@@ -240,7 +240,7 @@ describeDb("safety suite: voice, end to end", () => {
       // At a clinic with no line to put the caller through to, so the call goes on past the urgent reply.
       const r = await call(noLine.clinicId, ["When are you open?", urgent, "And is there parking?"], () => modelJson("We're open weekdays."), transport);
       expect(r.responses.map((x) => x.content.slice(0, 20))).toHaveLength(4);
-      expect(r.responses[2]!.content).toMatch(/911/);
+      expect(r.responses[2]!.content).toMatch(/9-1-1/);
       expect(r.calls).toHaveLength(2);
       expect(JSON.stringify(r.calls[1]!.messages)).not.toContain(urgent);
       expect((await queuedNotices(noLine.clinicId, ["urgent"])).filter((a) => a.dedupe_key === `urgent:call:${r.callId}`)).toHaveLength(1);
@@ -248,7 +248,7 @@ describeDb("safety suite: voice, end to end", () => {
 
     test("with no line apart from the published number, the urgent reply is 911 alone and the call goes on", async () => {
       const r = await call(noLine.clinicId, ["my lip went white after the filler"], () => modelJson("model answered"), transport);
-      expect(r.responses[1]!.content).toMatch(/hang up and call 911 now\./);
+      expect(r.responses[1]!.content).toMatch(/hang up and call 9-1-1 now\./);
       expect(r.responses[1]!.content).not.toMatch(/please call|put you through/);
       expect(r.responses[1]!.transfer_number).toBeUndefined();
     });
@@ -330,7 +330,7 @@ describeDb("safety suite: voice, end to end", () => {
       expect(honest.responses[0]!.content).toMatch(OPENING);
       expect(honest.responses[1]!.content).toBe("I'm an AI assistant, not a person.");
       const urgent = await call(hostile.clinicId, ["I can't breathe"], () => modelJson("model"), transport);
-      expect(urgent.responses[1]!.content).toMatch(/911/);
+      expect(urgent.responses[1]!.content).toMatch(/9-1-1/);
     });
   });
 
@@ -456,7 +456,7 @@ describeDb("safety suite: voice, end to end", () => {
       // The first turned the call, so the Spanish line went with its reply.
       expect(r.responses[1]!.content).toBe(`${disclosureEs()} Claro.`);
       expect(r.responses[2]!.content).toMatch(/^Soy un asistente de IA/);
-      expect(r.responses[2]!.content).toMatch(/cuelgue y llame al 911/);
+      expect(r.responses[2]!.content).toMatch(/cuelgue y llame al 9-1-1/);
       expect(r.responses[2]!.content).not.toContain(disclosureEs());
       expect(r.calls).toHaveLength(2);
       expect(JSON.stringify(r.calls[1]!.messages)).not.toContain("no puedo respirar");
@@ -465,7 +465,7 @@ describeDb("safety suite: voice, end to end", () => {
 
       const first = await call(spanish.clinicId, ["Hola, no puedo respirar bien desde el relleno de labios de ayer por la tarde", "Gracias, ¿y el horario?"], () => modelJson("Claro."), transport);
       // The urgent line first, the Spanish line owed past it to the next reply.
-      expect(first.responses[1]!.content).toMatch(/cuelgue y llame al 911/);
+      expect(first.responses[1]!.content).toMatch(/cuelgue y llame al 9-1-1/);
       expect(first.responses[1]!.content).not.toContain(disclosureEs());
       expect(first.responses[2]!.content).toBe(`${disclosureEs()} Claro.`);
       } finally {

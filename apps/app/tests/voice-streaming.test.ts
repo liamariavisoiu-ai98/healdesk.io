@@ -15,7 +15,7 @@ vi.mock("@/lib/email/outbox", () => ({ deliverCriticalAfterCommit: async () => {
 import type { AssistantFacts } from "@/lib/assistant/facts";
 import { guardedLine } from "@/lib/assistant/guard";
 import { SPOKEN_END } from "@/lib/assistant/prompt";
-import { answerTurn, SpokenStream, type AssistantResponder } from "@/lib/assistant/turn";
+import { answerTurn, SpokenStream, withoutRepeats, type AssistantResponder } from "@/lib/assistant/turn";
 import { log } from "@/lib/log";
 import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
 
@@ -51,7 +51,7 @@ const FACTS: AssistantFacts = {
   escalationHours: null,
   neverSay: [],
   requirements: [],
-  greeting: { phone: "Are you looking to book, or do you have a question?", chat: "How can I help?" },
+  greeting: { phone: "Looking to book, or got a question?", chat: "How can I help?" },
   tone: "warm",
   languages: ["en"],
   suggestAddOns: false,
@@ -191,18 +191,49 @@ describe("the opening on a recent call's facts", () => {
     const first = session(streaming(["Okay.\n###\n{}"]), { cacheFacts: true });
     await first.s.open();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(first.raw()[0]!.content).toMatch(/^Hi, this is the AI assistant at Lumen Cached\./);
+    expect(first.raw()[0]!.content).toMatch(/^Hi! I'm the AI assistant at Lumen Cached,/);
     await first.s.finish();
 
     // The database now hangs: a call with the cache opens at once on the recent facts.
     tenant.hang = true;
     const second = session(streaming(["Okay.\n###\n{}"]), { cacheFacts: true });
     await second.s.open();
-    expect(second.raw()[0]!.content).toMatch(/^Hi, this is the AI assistant at Lumen Cached\./);
+    expect(second.raw()[0]!.content).toMatch(/^Hi! I'm the AI assistant at Lumen Cached,/);
 
     // Without the cache, the same call waits for its own read and falls through.
     const third = session(streaming(["Okay.\n###\n{}"]));
     await third.s.open();
     expect(third.raw().some((r) => /AI assistant at Lumen Cached/.test(r.content))).toBe(false);
+  });
+});
+
+describe("never the same sentence twice in a row (owner, 24 October 2026)", () => {
+  test("a sentence said in the turn before, or twice in one reply, is left out; a word or two may repeat", () => {
+    const before = ["Okay. Are you looking to book, or do you have a question?"];
+    expect(withoutRepeats("Okay. Are you looking to book or do you have a question? We do nails on weekdays.", before)).toBe("Okay. We do nails on weekdays.");
+    expect(withoutRepeats("We do nails. We do nails. Which day suits you?", [])).toBe("We do nails. Which day suits you?");
+    expect(withoutRepeats("Are you looking to book, or do you have a question?", before)).toBe("");
+  });
+
+  test("a call drops the repeated sentence as it streams, and a whole repeat is still said rather than silence", async () => {
+    const history = [{ speaker: "assistant" as const, text: "Lovely. Which day suits you best?" }];
+    const speak = vi.fn();
+    const streamed = await answerTurn({
+      facts: FACTS,
+      channel: "voice",
+      history,
+      text: "nails please",
+      responder: streaming(["Which day suits you best? ", "We have lots of space on Friday mornings.\n", `${SPOKEN_END}\n{}`]),
+      speak,
+    });
+    expect(streamed.reply).toBe("We have lots of space on Friday mornings.");
+    expect(speak.mock.calls.map(([s]) => s).join(" ")).not.toMatch(/Which day/);
+
+    const whole = await answerTurn({ facts: FACTS, channel: "voice", history, text: "sorry?", responder: async () => `Which day suits you best?\n${SPOKEN_END}\n{}` });
+    expect(whole.reply).toBe("Which day suits you best?");
+
+    // Website chat is not a call: left as written.
+    const chat = await answerTurn({ facts: FACTS, channel: "web_chat", history, text: "nails", responder: async () => JSON.stringify({ reply: "Which day suits you best? Friday is open." }) });
+    expect(chat.reply).toBe("Which day suits you best? Friday is open.");
   });
 });

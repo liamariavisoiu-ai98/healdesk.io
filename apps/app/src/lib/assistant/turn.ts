@@ -579,6 +579,35 @@ function lastAssistantLine(history: readonly TranscriptTurn[]): string | null {
   return null;
 }
 
+/** Words a sentence needs before saying it twice counts as repeating it: "Okay." or "Got it." may come back. */
+const REPEAT_MIN_WORDS = 3;
+
+const sentencesOf = (text: string): string[] => text.split(/(?<=[.!?…]["'’”)\]]*)\s+/).filter((s) => s.trim());
+const sameWords = (sentence: string): string =>
+  sentence.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ").trim();
+
+/**
+ * `text` without any sentence already said in `said`, or twice in `text`
+ * itself (owner, 24 October 2026: "she should never repeat the same sentence
+ * twice in a row"). The prompt asks for it too; this holds it whatever the
+ * model writes. A call reads `said` as the turn before and what this turn has
+ * already spoken. A sentence of a word or two may repeat. Empty when every
+ * sentence is a repeat: the caller decides what to say then.
+ */
+export function withoutRepeats(text: string, said: readonly string[]): string {
+  const seen = new Set(said.flatMap(sentencesOf).map(sameWords).filter((s) => s.split(" ").length >= REPEAT_MIN_WORDS));
+  const kept: string[] = [];
+  for (const sentence of sentencesOf(text)) {
+    const words = sameWords(sentence);
+    if (words.split(" ").length >= REPEAT_MIN_WORDS) {
+      if (seen.has(words)) continue;
+      seen.add(words);
+    }
+    kept.push(sentence.trim());
+  }
+  return kept.join(" ");
+}
+
 export async function answerTurn(input: {
   facts: AssistantFacts;
   channel: AssistantChannel;
@@ -718,11 +747,18 @@ export async function answerTurn(input: {
   // Words the language check could not place yet ("Mm-hmm. Got it."): they
   // wait for the next sentence, and are judged with it or with the end.
   let unplaced = "";
+  // On a call, nothing said in the turn before is said again (withoutRepeats).
+  const before = channel === "voice" ? [lastAssistantLine(input.history) ?? ""] : null;
+  const fresh = (text: string) => (before ? withoutRepeats(text, [...before, ...spoken]) : text);
   const stream =
     input.speak && !toolsLive
       ? new SpokenStream((sentence) => {
           if (refusedMidway) return;
-          const piece = [unplaced, sentence].filter(Boolean).join(" ");
+          const piece = fresh([unplaced, sentence].filter(Boolean).join(" "));
+          if (!piece) {
+            unplaced = "";
+            return;
+          }
           // Read with everything already said, so a rule that needs the
           // sentence before it (a question asked back, the reply's language)
           // reads it as the whole reply would; what came before has passed.
@@ -767,7 +803,7 @@ export async function answerTurn(input: {
     // The words went out as they came: what is left is the end of the reply,
     // guarded on its own, or the fixed line for the sentence the guard refused.
     const merged = mergeCapture(capture, answer.booking);
-    const rest = refusedMidway ? null : [unplaced, stream.remainder()].filter(Boolean).join(" ");
+    const rest = refusedMidway ? null : fresh([unplaced, stream.remainder()].filter(Boolean).join(" "));
     const restVerdict = rest ? guardAssistantReply([saidSoFar(), rest].filter(Boolean).join(" "), facts, NO_BOOKING_WRITTEN) : null;
     const reason: GuardRefusal | null = refusedMidway ?? (restVerdict && !restVerdict.ok ? restVerdict.reason : null);
     const tail = reason ? guardedLine(reason, facts.clinicName, language === "es" ? "es" : "en") : (rest ?? "");
@@ -810,13 +846,15 @@ export async function answerTurn(input: {
       return { ...live, capture: merged, toolState: tool.state, tool, reply: tool.reply, source: "tool" };
     }
   }
-  const verdict = guardAssistantReply(answer.reply, facts, NO_BOOKING_WRITTEN);
+  // A reply that only repeats the turn before is said as written: silence would be worse.
+  const replyText = (before && fresh(answer.reply)) || answer.reply;
+  const verdict = guardAssistantReply(replyText, facts, NO_BOOKING_WRITTEN);
   if (!verdict.ok) {
     // The fixed line in the language of the reply it replaces, Spanish only
     // where that reply (or, for a reply in no screened language, the person)
     // was Spanish, or where the call is being spoken in Spanish; English
     // otherwise, as it always was.
-    const said = messageLanguage(answer.reply, { knownTerms: languageTerms(facts) });
+    const said = messageLanguage(replyText, { knownTerms: languageTerms(facts) });
     const spanish =
       language === "es" || said === "es" || (said === "other" && messageLanguage(personText, { knownTerms: languageTerms(facts) }) === "es");
     const line = guardedLine(verdict.reason, facts.clinicName, spanish ? "es" : "en");
@@ -828,5 +866,5 @@ export async function answerTurn(input: {
     }
     return { ...live, capture: merged, handoff: answer.handoff, reply: line, source: "guard", guard: verdict.reason };
   }
-  return { ...live, capture: merged, handoff: answer.handoff, end: answer.end, reply: answer.reply, source: "model" };
+  return { ...live, capture: merged, handoff: answer.handoff, end: answer.end, reply: replyText, source: "model" };
 }

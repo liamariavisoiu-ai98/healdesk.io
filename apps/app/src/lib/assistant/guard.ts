@@ -970,7 +970,8 @@ function neverSayInForm(reply: string, list: readonly string[], ownWords: readon
  * What the assistant must always be free to say, whatever a never-say list
  * holds: that it is an AI assistant and not a person, in the words the
  * opening lines (lib/compliance/disclosure.ts) and the prompts' rule for
- * when someone asks use, and that an emergency is for 911. The opening line
+ * when someone asks use, and that an emergency is for 911 (written "9-1-1"
+ * on a call, so the voice says "nine-one-one"). The opening line
  * is the code's and goes out whatever the list holds; an answer to "are you
  * a real person?" is the model's, and an entry such as "assistant" would
  * otherwise turn it into a fixed line that does not say AI at all. Some
@@ -982,6 +983,7 @@ export const NEVER_SAY_PROTECTED: readonly string[] = [
   "I'm an automated assistant, not a human.",
   "I am an automated assistant, not a person.",
   "Call 911.",
+  "Hang up and call 9-1-1 now.",
 ];
 
 /**

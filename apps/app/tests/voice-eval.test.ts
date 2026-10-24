@@ -268,7 +268,7 @@ describe("a dry run drives the real turn pipeline", () => {
     const result = await runConversation({ scenario, facts: evalFacts("med-spa"), client, tone: productionTone(), conversationId: "u1" });
     const first = result.turns.find((t) => t.speaker === "assistant" && t.source !== "opening")!;
     expect(first.source).toBe("urgent");
-    expect(first.text).toMatch(/911/);
+    expect(first.text).toMatch(/9-1-1/);
     expect(asked.every((m) => !m.includes("throat is closing"))).toBe(true);
   });
 

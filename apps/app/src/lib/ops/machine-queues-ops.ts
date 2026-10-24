@@ -40,6 +40,11 @@ export type MachineQueue = {
   needsAttention: boolean;
   tone: Tone;
   href: string;
+  /**
+   * Some clinic could not be read, so this per-clinic count is "at least N".
+   * needsAttention is still judged on what was read.
+   */
+  lowerBound: boolean;
 };
 
 export type MachineQueues = { queues: MachineQueue[]; partial: string[] };
@@ -61,6 +66,7 @@ export function machineQueuesOf(read: MachineQueueRead, now: Date): MachineQueue
       needsAttention: needsAttention(key, q.count, minutes),
       tone: q.count > 0 ? words.tone : "ok",
       href: queueHref(key, q),
+      lowerBound: read.lowerBound.has(key),
     };
   });
   const rank = (key: string) => {

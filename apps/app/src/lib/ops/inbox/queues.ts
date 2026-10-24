@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray, isNull, lt, min, ne, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNull, lt, lte, min, ne, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
@@ -70,6 +70,12 @@ const ALWAYS = 0;
 const HOUR = 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEAD_DAYS = 7;
+/**
+ * A failed background job counts for two days. pg-boss keeps a failed job for
+ * its keep_until (fourteen days), so a cron run that failed once last week
+ * would otherwise hold a Home row long after the next runs succeeded.
+ */
+const FAILED_JOB_DAYS = 2;
 /** The digest's email-health window: bounces and complaints of the last day. */
 const BOUNCE_WINDOW_MS = DAY_MS;
 /** Resend's later word that means an email to a clinic will not arrive (as lib/lifecycle/ledger.ts reads it). */
@@ -78,7 +84,7 @@ const UNDELIVERABLE = ["bounced", "complained", "suppressed"] as const;
 export const QUEUE_WORDS: Record<string, QueueWords> = {
   outbox: { words: "Emails waiting to send", href: MACHINE_QUEUES_PAGE, tone: "warn", patienceMinutes: HOUR },
   outbox_dead: {
-    words: "Emails to clinics that gave up after every attempt, in the last 7 days",
+    words: "Emails to clinics that could not be sent and will not be tried again, in the last 7 days",
     href: MACHINE_QUEUES_PAGE,
     tone: "warn",
     patienceMinutes: ALWAYS,
@@ -146,6 +152,8 @@ class Tally {
   readonly unread: string[] = [];
   /** The fixed kinds whose part was read in full, so a zero there is a real zero. */
   readonly complete = new Set<string>();
+  /** The per-clinic kinds counted with some clinic unread: their counts are "at least". */
+  readonly lowerBound = new Set<string>();
 
   add(
     kind: string,
@@ -183,6 +191,8 @@ export type MachineQueueRead = {
   queues: ReadonlyMap<string, QueueTotal>;
   /** Fixed queues whose part was read in full: absent from `queues`, they are empty. */
   complete: ReadonlySet<string>;
+  /** Per-clinic queues read while some clinic could not be: each count is a lower bound. */
+  lowerBound: ReadonlySet<string>;
   unread: readonly string[];
 };
 
@@ -194,21 +204,24 @@ export type MachineQueueRead = {
 export async function readMachineQueues(ctx: Pick<InboxContext, "now" | "actor" | "request">): Promise<MachineQueueRead> {
   const now = ctx.now;
   const deadSince = new Date(now.getTime() - DEAD_DAYS * DAY_MS);
+  const failedSince = new Date(now.getTime() - FAILED_JOB_DAYS * DAY_MS);
   const bounceSince = new Date(now.getTime() - BOUNCE_WINDOW_MS);
   const tally = new Tally();
 
   await tally.read("pg-boss", async () => {
+    // A job scheduled for later waits from when it became due, not from when it was queued.
     const waiting = await unsafeDb.execute(
-      sql`select name, count(*) as n, min(created_on) as oldest
+      sql`select name, count(*) as n, min(greatest(created_on, start_after)) as oldest
             from pgboss.job
            where state in ('created', 'retry') and start_after <= ${now}
            group by name`,
     );
     for (const r of rowsOf(waiting)) tally.add(`pgboss:${String(r.name)}`, r.n as string, r.oldest as string);
+    // Failed when it last failed (pg-boss stamps completed_on then), and only lately.
     const failed = await unsafeDb.execute(
-      sql`select name, count(*) as n, min(created_on) as oldest
+      sql`select name, count(*) as n, min(coalesce(completed_on, created_on)) as oldest
             from pgboss.job
-           where state = 'failed' and created_on >= ${deadSince}
+           where state = 'failed' and coalesce(completed_on, created_on) >= ${failedSince}
            group by name`,
     );
     for (const r of rowsOf(failed)) tally.add(`pgboss_failed:${String(r.name)}`, r.n as string, r.oldest as string);
@@ -274,10 +287,19 @@ export async function readMachineQueues(ctx: Pick<InboxContext, "now" | "actor" 
       try {
         await withTenant({ clinicId: String(id), actor: ctx.actor, request: ctx.request }, async (tx) => {
           const c = tx.clinicId;
+          // Only what is due: a notice meant to wait (quiet hours, a retry,
+          // a reminder for tomorrow) is not late, and waits from when it fell due.
           const [outbox] = await tx.db
-            .select({ n: count(), oldest: min(billingNotices.createdAt) })
+            .select({ n: count(), oldest: min(billingNotices.sendAfter) })
             .from(billingNotices)
-            .where(and(eq(billingNotices.clinicId, c), isNull(billingNotices.sentAt), lt(billingNotices.attempts, MAX_NOTICE_ATTEMPTS)));
+            .where(
+              and(
+                eq(billingNotices.clinicId, c),
+                isNull(billingNotices.sentAt),
+                lt(billingNotices.attempts, MAX_NOTICE_ATTEMPTS),
+                lte(billingNotices.sendAfter, now),
+              ),
+            );
           tally.add("outbox", outbox?.n, outbox?.oldest, c);
           const [dead] = await tx.db
             .select({ n: count(), oldest: min(billingNotices.createdAt) })
@@ -321,10 +343,12 @@ export async function readMachineQueues(ctx: Pick<InboxContext, "now" | "actor" 
       }
     }
   });
-  if (failedClinics > 0) tally.unread.push(`${failedClinics} clinic(s)`);
-  else if (!tally.unread.includes("the clinic list")) for (const kind of PART_KINDS.clinics!) tally.complete.add(kind);
+  if (failedClinics > 0) {
+    tally.unread.push(`${failedClinics} clinic(s)`);
+    for (const kind of PART_KINDS.clinics!) tally.lowerBound.add(kind);
+  } else if (!tally.unread.includes("the clinic list")) for (const kind of PART_KINDS.clinics!) tally.complete.add(kind);
 
-  return { queues: tally.queues, complete: tally.complete, unread: tally.unread };
+  return { queues: tally.queues, complete: tally.complete, lowerBound: tally.lowerBound, unread: tally.unread };
 }
 
 /** Whole minutes the oldest item has waited, or null when the queue does not date it. */

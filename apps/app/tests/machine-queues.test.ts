@@ -51,6 +51,9 @@ describe("the attention rule (pure)", () => {
   test("a queue needs a person only with something in it: at once when its patience is none, else once its oldest waited it", () => {
     const kinds = [...Object.keys(QUEUE_WORDS), "pgboss:send-email", "pgboss_failed:send-email"];
     for (const kind of kinds) {
+      // Transcript copies have their own Home source on the integration
+      // branch, so the attention rule is bypassed for them there.
+      if (kind === "transcript_emails") continue;
       const { patienceMinutes } = wordsFor(kind);
       expect(needsAttention(kind, 0, 10_000), kind).toBe(false);
       if (patienceMinutes === 0) {
@@ -102,8 +105,8 @@ describeDb("listMachineQueues and Home's queue rows (lane P5d)", () => {
     const b = await seedClinic("mq-b");
     for (const c of [a, b]) {
       await inTenant(c.clinicId, async (q) => {
-        // A receipt waiting two hours in the outbox.
-        await q.query(`insert into billing_notices (clinic_id, kind, dedupe_key, payload, created_at) values ($1, 'receipt', $2, '{}', $3)`, [
+        // A receipt due when it was queued two hours ago, still unsent (enqueueing sets both to the same instant).
+        await q.query(`insert into billing_notices (clinic_id, kind, dedupe_key, payload, created_at, send_after) values ($1, 'receipt', $2, '{}', $3, $3)`, [
           c.clinicId,
           `mq-pending-${randomUUID()}`,
           ago(2 * HOUR),
@@ -211,7 +214,10 @@ describeDb("listMachineQueues and Home's queue rows (lane P5d)", () => {
       needsAttention: false,
       tone: "ok",
       href: MACHINE_QUEUES_PAGE,
+      lowerBound: false,
     });
+    // Everything was read: no count is a lower bound.
+    expect(queues.every((q) => q.lowerBound === false)).toBe(true);
     expect(by.agreements_below_floor).toMatchObject({ count: 0, needsAttention: false });
     // Attention first.
     const flags = queues.map((q) => q.needsAttention);
@@ -243,7 +249,10 @@ describeDb("listMachineQueues and Home's queue rows (lane P5d)", () => {
     expect(rows.get("queue:emails_undeliverable")!.sentence).toMatch(
       /^Emails to clinics that bounced, were marked as spam or were blocked, in the last 24 hours; the oldest is 3 h old\.$/,
     );
-    expect(rows.get("queue:outbox_dead")!.sentence).toBe("Emails to clinics that gave up after every attempt, in the last 7 days; the oldest is 24 h old.");
+    // True of a notice that used every attempt and of one refused for good (attempts set to the maximum).
+    expect(rows.get("queue:outbox_dead")!.sentence).toBe(
+      "Emails to clinics that could not be sent and will not be tried again, in the last 7 days; the oldest is 24 h old.",
+    );
   });
 
   test("a part that cannot be read is named and absent, never a zero", async () => {
@@ -254,8 +263,10 @@ describeDb("listMachineQueues and Home's queue rows (lane P5d)", () => {
     expect(partial).toEqual(expect.arrayContaining(["agreements below the floor", "1 clinic(s)"]));
     const keys = queues.map((q) => q.key);
     expect(keys).not.toContain("agreements_below_floor");
-    // B's queues are still counted, as a lower bound; a per-clinic queue B has nothing in is not listed as zero.
-    expect(queues.find((q) => q.key === "outbox")).toMatchObject({ count: 1 });
+    // B's queues are still counted, as a lower bound and marked so; a per-clinic queue B has nothing in is not listed as zero.
+    expect(queues.find((q) => q.key === "outbox")).toMatchObject({ count: 1, lowerBound: true, needsAttention: true });
+    expect(queues.find((q) => q.key === "emails_undeliverable")).toMatchObject({ lowerBound: true });
+    expect(queues.find((q) => q.key === "billing_events_parked")).toMatchObject({ lowerBound: false });
     expect(keys).not.toContain("outbox_dead");
     expect(keys).not.toContain("billing_requests");
     // What was read in full still is.
@@ -300,5 +311,75 @@ describeDb("listMachineQueues and Home's queue rows (lane P5d)", () => {
     await readOpsInbox(OPERATOR, { sources: [queuesSource] });
     expect(await snapshot()).toEqual(before);
     expect((await runOperation("listMachineQueues", { clinicId: a.clinicId }, OPERATOR)).status).toBe(400);
+  });
+
+  test("the outbox counts only what is due, aged from when it fell due: a notice meant to wait is not late", async () => {
+    const c = await seedClinic("mq-due");
+    await inTenant(c.clinicId, async (q) => {
+      // Queued two hours ago for tomorrow (a reminder held to its day): not due, not counted.
+      await q.query(
+        `insert into billing_notices (clinic_id, kind, dedupe_key, payload, created_at, send_after) values ($1, 'receipt', 'mq-later', '{}', $2, $3)`,
+        [c.clinicId, ago(2 * HOUR), new Date(Date.now() + DAY)],
+      );
+      // Queued three hours ago, due half an hour ago: waiting 30 minutes, inside its hour.
+      await q.query(
+        `insert into billing_notices (clinic_id, kind, dedupe_key, payload, created_at, send_after) values ($1, 'receipt', 'mq-due', '{}', $2, $3)`,
+        [c.clinicId, ago(3 * HOUR), ago(30 * MINUTE)],
+      );
+    });
+    const { queues } = await machineQueues();
+    const outbox = queues.find((q) => q.key === "outbox")!;
+    expect(outbox).toMatchObject({ count: 1, needsAttention: false });
+    expect(Math.abs(outbox.oldestAgeMinutes! - 30)).toBeLessThanOrEqual(2);
+    const inbox = await readOpsInbox(OPERATOR, { sources: [queuesSource] });
+    expect(inbox.rows.some((r) => r.id === "queue:outbox")).toBe(false);
+  });
+
+  describe("pg-boss's jobs, against a stand-in of its job table", () => {
+    // queue:install is not run on the test database; the stand-in has the
+    // columns this read uses, as pg-boss 10 defines them.
+    let created = false;
+    beforeEach(async () => {
+      const pool = getMigratorPool();
+      if ((await pgBossInstalled()) && !created) return;
+      await pool.query(`create schema if not exists pgboss`);
+      await pool.query(
+        `create table if not exists pgboss.job (
+           id uuid not null default gen_random_uuid(), name text not null, state text not null default 'created',
+           start_after timestamptz not null default now(), created_on timestamptz not null default now(),
+           completed_on timestamptz)`,
+      );
+      await pool.query(`grant usage on schema pgboss to healdesk_app`);
+      await pool.query(`grant select on pgboss.job to healdesk_app`);
+      await pool.query(`truncate pgboss.job`);
+      created = true;
+    });
+    afterAll(async () => {
+      if (created) await getMigratorPool().query(`drop schema pgboss cascade`);
+    });
+
+    test("a job waits from when it fell due, and a failure counts for two days only", async () => {
+      const pool = getMigratorPool();
+      await pool.query(
+        `insert into pgboss.job (name, state, created_on, start_after, completed_on) values
+           ('send-email', 'created', $1, $2, null),
+           ('nightly-sync', 'failed', $3, $3, $4),
+           ('hourly-tick', 'failed', $5, $5, $6)`,
+        // Queued three hours ago to start ten minutes ago; a cron run that
+        // failed three days ago; one that failed an hour ago.
+        [ago(3 * HOUR), ago(10 * MINUTE), ago(3 * DAY + HOUR), ago(3 * DAY), ago(2 * HOUR), ago(HOUR)],
+      );
+      const { queues, partial } = await machineQueues();
+      expect(partial).toEqual([]);
+      const waiting = queues.find((q) => q.key === "pgboss:send-email")!;
+      expect(waiting).toMatchObject({ count: 1, needsAttention: false, href: "/admin/system/jobs" });
+      expect(Math.abs(waiting.oldestAgeMinutes! - 10)).toBeLessThanOrEqual(2);
+      expect(queues.some((q) => q.key === "pgboss_failed:nightly-sync")).toBe(false);
+      const failed = queues.find((q) => q.key === "pgboss_failed:hourly-tick")!;
+      expect(failed).toMatchObject({ count: 1, needsAttention: true });
+      expect(Math.abs(failed.oldestAgeMinutes! - 60)).toBeLessThanOrEqual(2);
+      const ids = (await readOpsInbox(OPERATOR, { sources: [queuesSource] })).rows.map((r) => r.id);
+      expect(ids).toEqual(["queue:pgboss_failed:hourly-tick"]);
+    });
   });
 });

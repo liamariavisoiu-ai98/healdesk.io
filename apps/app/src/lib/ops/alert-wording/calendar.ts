@@ -37,8 +37,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // connection that degrades again after recovering, is a new alert.
   calendar_degraded: {
     title: "Google Calendar checks are failing",
+    headline: "[{clinicName}: ]3 Google Calendar checks in a row failed[, {count:connection} in all]",
     whatHappened:
-      "The five-minute calendar check could not get an answer from Google three times in a row[ for {clinicName}][, {count:connection} in all]. Those locations take booking requests for their staff to confirm until a check passes again.",
+      "[{clinicName}: ]3 Google Calendar checks in a row failed[, {count:connection} in all]. The five-minute calendar check could not get an answer from Google three times in a row, so those locations take booking requests for their staff to confirm until a check passes again.",
     whyItMatters:
       "A short Google outage needs nothing from you: the next passing check puts the location back by itself and sends the all-clear alert. One lasting over an hour means Google, or this deployment's network, is the problem.",
     steps: [
@@ -52,8 +53,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // connections whose check passed again (ids when there is one).
   calendar_recovered: {
     title: "Google Calendar checks are passing again",
+    headline: "[{clinicName}'s ]Google Calendar answers checks again[, {count:connection} in all]",
     whatHappened:
-      "A calendar check passed again[ for {clinicName}][, {count:connection} in all]. Those locations book into their calendars as their settings allow, and no longer take booking requests only because of the check.",
+      "[{clinicName}'s ]Google Calendar answers checks again[, {count:connection} in all]. Those locations book into their calendars as their settings allow, and no longer take booking requests only because of the check.",
     whyItMatters:
       "This is good news: it closes the earlier alert about failing checks. Nothing is owed to the clinic unless a booking request waited on its staff meanwhile.",
     steps: [
@@ -66,8 +68,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // first in the next run.
   calendar_watch_incomplete: {
     title: "The calendar check ran out of time",
+    headline: "{count:connection} went unchecked: the calendar check ran out of time",
     whatHappened:
-      "A run of the five-minute calendar check stopped starting new checks after four minutes and left {count:connection} unchecked. Those go first in the next run.",
+      "{count:connection} went unchecked: the calendar check ran out of time. A run of the five-minute check stopped starting new checks after four minutes, and those it left go first in the next run.",
     whyItMatters:
       "One slow run needs nothing. If this comes on most runs, Google is answering slowly or there are more calendars than one run can check, and a broken calendar could go unnoticed for longer than five minutes.",
     steps: [
@@ -82,8 +85,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // `count` is how many; each is a log line with its ids.
   calendar_watch_failed: {
     title: "The calendar check hit errors",
+    headline: "The calendar check could not finish {count:step} this run",
     whatHappened:
-      "A run of the five-minute calendar check could not finish {count:step}: a calendar's check or its alert, or a location's calendar terms check. A location whose terms could not be checked is not checked with Google either, and stays as it was until a run gets through.",
+      "The calendar check could not finish {count:step} this run. A step is a calendar's check or its alert, or a location's calendar terms check. A location whose terms could not be checked is not checked with Google either, and stays as it was until a run gets through.",
     whyItMatters:
       "One failing step is usually a passing fault. A run that fails every time means the database or this deployment's configuration is the problem, and no calendar is being watched meanwhile.",
     steps: [
@@ -100,8 +104,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // the 07:00 digest as well.
   connection_broken: {
     title: "A clinic's connection stopped working",
+    headline: "{clinicName}'s connected channel stopped working: AYA cannot reply there",
     whatHappened:
-      "A connection {clinicName} made is now revoked or in error. For Instagram, Messenger or WhatsApp that means the platform no longer accepts our access, and AYA cannot reply to anyone there until the clinic connects it again.",
+      "{clinicName}'s connected channel stopped working: AYA cannot reply there. The connection is now revoked or in error. For Instagram, Messenger or WhatsApp that means the platform no longer accepts our access, and AYA cannot reply to anyone there until the clinic connects it again.",
     whyItMatters:
       "Messages on that channel go unanswered, and Meta's 24-hour reply window closes on each one. The clinic keeps its other channels.",
     steps: [
@@ -116,8 +121,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // connect (with its id) or from the watch (with a count per code).
   google_oauth_client_rejected: {
     title: "Google refused healdesk's own calendar sign-in",
+    headline: "No clinic can connect or keep a Google Calendar: Google refuses healdesk's own setup",
     whatHappened:
-      "Google refused healdesk's own sign-in app, or says the Calendar service is switched off in our Google Cloud project[; the check found {count:connection} affected].[ The latest to hit it: {clinicName}, whose calendar connect failed.]",
+      "No clinic can connect or keep a Google Calendar: Google refuses healdesk's own setup. Google refused healdesk's own sign-in app, or says the Calendar service is switched off in our Google Cloud project[; the check found {count:connection} affected].[ The latest to hit it: {clinicName}, whose calendar connect failed.]",
     whyItMatters:
       "This is every clinic at once, not one: no clinic can connect a calendar or keep one working, and each calendar the check reaches moves to booking requests until it is fixed.",
     steps: [
@@ -147,8 +153,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // by one: `count` of them, each recorded as told.
   calendar_writes_stuck_many: {
     title: "Several bookings are missing from calendars",
+    headline: "{count:booking} are missing from their Google Calendars: none will retry by itself",
     whatHappened:
-      "The hourly check[ on {windowStart}] found {count:booking} whose Google Calendar write failed or was given up on, more than it reports one by one. This one alert stands for all of them; none is sent separately. Each clinic's staff were already told in their portal to add the booking by hand.",
+      "{count:booking} are missing from their Google Calendars: none will retry by itself. The hourly check[ on {windowStart}] found them, each a Google Calendar write that failed or was given up on, more than it reports one by one. This one alert stands for all of them; none is sent separately. Each clinic's staff were already told in their portal to add the booking by hand.",
     whyItMatters:
       "Until each booking is in its calendar, its slot looks free and someone else could be booked into it. Nothing retries by itself, and a new failure after this is reported on its own again.",
     steps: [

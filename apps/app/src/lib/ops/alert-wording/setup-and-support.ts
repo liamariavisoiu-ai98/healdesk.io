@@ -25,8 +25,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // the payment.
   provisioning_follow_up_past_due: {
     title: "A paid order's sign-in link is overdue",
+    headline: "A buyer's promised sign-in link is overdue and the account still does not exist",
     whatHappened:
-      "A clinic paid for AYA, but its account could not be created, so we emailed the buyer that their sign-in link would come by the next business day. That day has passed and the account still does not exist.",
+      "A buyer's promised sign-in link is overdue and the account still does not exist. The clinic paid for AYA, but its account could not be created, so we emailed the buyer that their sign-in link would come by the next business day. That day has passed.",
     whyItMatters:
       "The buyer has paid and has heard nothing since the day we named in writing. Until the account exists nothing can be set up, and AYA cannot answer for them.",
     steps: [
@@ -40,8 +41,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // has passed in New York with no reply marked on Queues › Support.
   support_reply_past_due: {
     title: "A support request is still waiting for our reply",
+    headline: "{clinicName}'s support request has no reply marked, past the promised day",
     whatHappened:
-      "{clinicName} asked for help through its portal's support chat. We told it a person would reply by the next business day, and that day has passed with no reply marked.",
+      "{clinicName}'s support request has no reply marked, past the promised day. It asked for help through its portal's support chat, and we told it a person would reply by the next business day.",
     whyItMatters:
       "The clinic is waiting on a written promise. If the reply went out already, it only needs marking; if not, the clinic has been without help for a day or more.",
     steps: [
@@ -57,8 +59,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // practice questions have approved the script.
   assistant_knows_no_services: {
     title: "AYA is answering with no services to offer",
+    headline: "AYA is answering for {clinicName} with no services or prices to offer",
     whatHappened:
-      "A call or website chat was just answered for {clinicName} while AYA knew no service or price. She can only offer a consultation, and a caller asking what the practice does hears that she cannot say.",
+      "AYA is answering for {clinicName} with no services or prices to offer. A call or website chat was just answered while she knew no service or price, so she can only offer a consultation, and a caller asking what the practice does hears that she cannot say.",
     whyItMatters:
       "Every answer until this is fixed sends people to a consultation instead of the services the clinic sells. You hear this at most once an hour, per channel, while the gap lasts.",
     steps: [

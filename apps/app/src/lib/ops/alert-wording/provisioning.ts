@@ -19,8 +19,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // buyer is emailed (B3) only where the purchase itself was found.
   provisioning_rejected: {
     title: "A paid order was refused: no account made",
+    headline: "Someone paid for AYA, but the order was refused and no account was made",
     whatHappened:
-      "Someone paid for AYA, and the account could not be made: the order was missing something, could not be found, or its records did not match what was paid. If the order itself was found, the buyer has been emailed that one step is left on our side, with the next business day as the day we will write by. Otherwise nobody has written to them.",
+      "Someone paid for AYA, but the order was refused and no account was made. The order was missing something, could not be found, or its records did not match what was paid. If the order itself was found, the buyer has been emailed that one step is left on our side, with the next business day as the day we will write by. Otherwise nobody has written to them.",
     whyItMatters:
       "The buyer's money is taken and nothing answers for the clinic. Stripe will not resend a refused invoice: it is kept parked on our side until someone fixes the cause and replays it.",
     steps: [
@@ -35,8 +36,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // purchase's ref; `attempts` how many failed.
   provisioning_dead_lettered: {
     title: "Making a paid order's account keeps failing",
+    headline: "Someone paid for AYA, and making the account keeps failing[: {attempts:time} in a row]",
     whatHappened:
-      "Someone paid for AYA, and making the account failed {attempts:time} in a row, each in a way a retry could fix. The buyer has been emailed that one step is left on our side, with the next business day as the day we will write by.",
+      "Someone paid for AYA, and making the account keeps failing[: {attempts:time} in a row]. Each failure was one a retry could fix. The buyer has been emailed that one step is left on our side, with the next business day as the day we will write by.",
     whyItMatters:
       "The buyer's money is taken and nothing answers for the clinic yet. Stripe resends the paid invoice for up to three days and each delivery tries again, so a fix on our side finishes the account by itself; after three days it stops.",
     steps: [
@@ -51,8 +53,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // has refused it. `attempts` is how many tries ended in an error so far.
   paid_intent_without_clinic: {
     title: "A paid order has had no account for ten minutes",
+    headline: "Someone paid for AYA over 10 minutes ago and still has no account",
     whatHappened:
-      "Someone paid for AYA more than ten minutes ago, and no account exists for the order yet. Nothing has refused it.[ Attempts that ended in an error so far: {attempts}.]",
+      "Someone paid for AYA over 10 minutes ago and still has no account. Nothing has refused the order.[ Attempts that ended in an error so far: {attempts}.]",
     whyItMatters:
       "The buyer's money is taken and nothing answers for the clinic. Stripe resends the paid invoice for up to three days, so a short delay fixes itself; if the errors reach three, a separate alert says the order is stuck.",
     steps: [

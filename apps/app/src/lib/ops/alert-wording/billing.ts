@@ -29,8 +29,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // existing one, and the duplicate is the newer subscription.
   duplicate_subscription: {
     title: "A clinic was charged for a second subscription",
+    headline: "{clinicName} paid a second setup fee: it already has its account",
     whatHappened:
-      "{clinicName} already has its account, and Stripe has taken a second setup fee for the same practice on a newer subscription. Nothing was made for it; the account the clinic has is unchanged.",
+      "{clinicName} paid a second setup fee: it already has its account. Stripe took the fee on a newer subscription for the same practice. Nothing was made for it; the account the clinic has is unchanged.",
     whyItMatters:
       "The practice has paid a second setup fee. The duplicate subscription bills $0 a month until a plan starts, but it holds the card and should be cancelled.",
     steps: [
@@ -46,8 +47,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // with the new error; nothing retries it by itself.
   billing_event_dead_lettered: {
     title: "A Stripe event could not be applied and is parked",
+    headline: "A Stripe billing event[ about {clinicName}] failed[ {failures:time}] and is parked",
     whatHappened:
-      "Stripe told us something about the billing of a clinic[, {clinicName}], and applying it failed {failures:time}, so it is parked and nothing tries it again. Stripe has been answered, so it will not resend it.",
+      "A Stripe billing event[ about {clinicName}] failed[ {failures:time}] and is parked. Stripe told us something about a clinic's billing, and applying it failed on every try, so nothing tries it again by itself. Stripe has been answered, so it will not resend it.",
     whyItMatters:
       "Until it is applied, our record of the clinic's billing may be wrong: a payment, a failed charge or a cancellation Stripe knows about and we do not.",
     steps: [
@@ -65,8 +67,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // close_setup; `code` the last Stripe error.
   billing_request_dead_lettered: {
     title: "A billing change failed at Stripe after every retry",
+    headline: "{clinicName}'s billing change failed at Stripe on every try",
     whatHappened:
-      "A change to {clinicName}'s subscription failed at Stripe on every attempt[, {attempts} in all]: a plan start, a step up, a cancellation or a setup closure. The hourly check puts it back for one more try a day later and tells you again when it does; nothing else retries it.",
+      "{clinicName}'s billing change failed at Stripe on every try. The hourly check puts it back for one more try a day later and tells you again when it does; nothing else retries it.",
     whyItMatters:
       "Until it goes through, what Stripe bills and what the clinic has do not match: a plan start not charged, a channel not billed, a cancellation or a closure not carried out.",
     steps: [
@@ -81,8 +84,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // by its own switch is waiting by design and is not counted.
   billing_request_stuck: {
     title: "A billing change has waited at Stripe for over a day",
+    headline: "{clinicName}'s billing change has waited over a day without finishing",
     whatHappened:
-      "A change to {clinicName}'s subscription has been pending for more than a day without finishing: a plan start, a step up, a cancellation or a setup closure. It is marked STUCK on the clinic's Billing tab.",
+      "{clinicName}'s billing change has waited over a day without finishing. It has been pending for more than a day, and it is marked STUCK on the clinic's Billing tab.",
     whyItMatters:
       "Until it goes through, what Stripe bills and what the clinic has do not match. A change this late usually means nothing is carrying changes out at all.",
     steps: [
@@ -96,8 +100,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // live channel in the billing group and was skipped, once per request.
   setup_closure_skipped_live_channel: {
     title: "A setup closure was skipped: a channel is live",
+    headline: "{clinicName} stays open: its setup closure was skipped because a channel is live",
     whatHappened:
-      "{clinicName} reached the end of its setup window, but a channel was already live, so the closure that would have cancelled its subscription was skipped. The account stays open and nothing was changed.",
+      "{clinicName} stays open: its setup closure was skipped because a channel is live. It reached the end of its setup window with a channel already live, so the closure that would have cancelled its subscription was skipped and nothing was changed.",
     whyItMatters:
       "This is the right outcome: a clinic that is answering is not closed. Its plan starts, and billing begins, the first time AYA answers a patient, which happens by itself.",
     steps: [
@@ -111,8 +116,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // `count` is the location's number, as the Billing tab names it.
   location_charged_not_created: {
     title: "An extra location was charged but is not set up",
+    headline: "{clinicName} added an extra location[ (location {count})] that is still not set up",
     whatHappened:
-      "{clinicName} paid for an extra location[ (location {count})], and making it active failed. The charge stands; the location is not set up and is not answering yet.",
+      "{clinicName} added an extra location[ (location {count})] that is still not set up. Its charge was recorded and making it active failed, or the hourly check could not settle with Stripe whether it was charged at all. The location is not answering yet, and a charge that was taken stands.",
     whyItMatters:
       "The clinic is paying for a location that does not exist yet. The hourly check tries to finish it on its own; if it cannot, this waits until someone retries it.",
     steps: [
@@ -130,8 +136,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // clinic.
   connect_event_dead_lettered: {
     title: "A deposit event from Stripe is parked",
+    headline: "A deposit or disconnect event[ for {clinicName}] could not be applied and is parked",
     whatHappened:
-      "Stripe told us something about a clinic's own Stripe account[, {clinicName}'s]: a deposit paid through it, or the clinic disconnecting our access to it. Applying it failed three times, so it is parked, and nothing tries it again on its own.",
+      "A deposit or disconnect event[ for {clinicName}] could not be applied and is parked. Stripe told us something about a clinic's own Stripe account: a deposit paid through it, or the clinic disconnecting our access to it. Applying it failed on every try, so it is parked, and nothing tries it again on its own.",
     whyItMatters:
       "A deposit itself is in the clinic's own Stripe account either way, but our record of it may be wrong: a booking may still show its deposit unpaid, or a payment link open. If the clinic disconnected its account, deposits stay switched on here and payment links may still be offered on an account we can no longer use.",
     steps: [
@@ -149,8 +156,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // dunning). `windowStart` is the month's first day.
   overage_invoice_failed: {
     title: "An annual clinic's overage could not be invoiced",
+    headline: "{clinicName}'s extra usage[ for the month starting {windowStart}] could not be invoiced",
     whatHappened:
-      "{clinicName} is on an annual plan and used more than its allowance[ in the month starting {windowStart}]. Making the invoice for that extra in Stripe failed. The job that invoices overage tries again every day at 05:00 UTC while it is on, and tells you after each failure.",
+      "{clinicName}'s extra usage[ for the month starting {windowStart}] could not be invoiced. It is on an annual plan and used more than its allowance, and making the invoice for that extra in Stripe failed. The job that invoices overage tries again every day at 05:00 UTC while it is on, and tells you after each failure.",
     whyItMatters:
       "The clinic has used more than it paid for and has not been billed for it. This is Stripe refusing to make the invoice at all; a declined card is not this failure, since a declined card leaves the invoice open for Stripe to chase.",
     steps: [
@@ -167,8 +175,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // business day to arrange the refund.
   first_period_refund_due: {
     title: "A clinic is owed its first-period refund",
+    headline: "{clinicName} turned auto-renew off and is owed its first period back",
     whatHappened:
-      "{clinicName} turned auto-renew off within fourteen days of its plan starting. Under the Terms its first period's fee is due back in full, and the email it received promises we will write by the next business day to arrange it.",
+      "{clinicName} turned auto-renew off and is owed its first period back. It did so within fourteen days of its plan starting, so under the Terms its first period's fee is due back in full, and the email it received promises we will write by the next business day to arrange it.",
     whyItMatters:
       "A promise with a day on it. The refund also cancels the plan at once, so it must be the clinic's settled choice, and money is the owner's call.",
     steps: [
@@ -184,8 +193,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // period is charged, then the account closes.
   plan_start_after_cancel: {
     title: "A plan started while set to cancel",
+    headline: "{clinicName} was charged its first period on a plan already set to cancel",
     whatHappened:
-      "{clinicName}'s plan started and its first period was charged while its subscription was set to cancel at the end of that period. Both stand: it pays for one period, then the account closes.",
+      "{clinicName} was charged its first period on a plan already set to cancel. Its plan started while its subscription was set to cancel at the end of that period. Both stand: it pays for one period, then the account closes.",
     whyItMatters:
       "If the clinic meant to leave, the first period may be due back under the Terms, within fourteen days of the start. If it meant to stay, auto-renew needs turning back on before the period ends.",
     steps: [
@@ -200,8 +210,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // There is no console control for the pointer; it is a data change.
   billing_pointer_outside_practice: {
     title: "A location is billed to another practice",
+    headline: "{clinicName} is billed to another practice, so AYA is not answering for it",
     whatHappened:
-      "{clinicName}'s record says its bills go to a clinic in a different practice. AYA treats that as no billing at all: it does not answer this location's calls or messages, and passes them to the clinic instead.",
+      "{clinicName} is billed to another practice, so AYA is not answering for it. Its record says its bills go to a clinic in a different practice, which AYA treats as no billing at all: it does not answer this location's calls or messages, and passes them to the clinic instead.",
     whyItMatters:
       "Patients reaching this location get the clinic's own line or its contact form, not AYA, until the record is corrected. No charge is wrong; the pointer is.",
     steps: [
@@ -219,8 +230,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // row pending while the job is off.
   refund_cancel_job_off: {
     title: "A refunded plan is still billing",
+    headline: "{clinicName} was refunded, but its plan still bills: the cancellation job is off",
     whatHappened:
-      "{clinicName} was refunded its first period and its cancellation was recorded, but the job that carries cancellations out is switched off. Its subscription is still active in Stripe and will bill again.",
+      "{clinicName} was refunded, but its plan still bills: the cancellation job is off. Its first period was refunded and its cancellation recorded, but the job that carries cancellations out is switched off, so its subscription is still active in Stripe and will bill again.",
     whyItMatters:
       "The clinic was told its plan is cancelled. Every period that passes with the switch off charges it for a plan it no longer has.",
     steps: [
@@ -237,8 +249,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // the last change. `windowStart` is when the episode was first seen.
   location_quantity_drift: {
     title: "Stripe bills a different number of locations",
+    headline: "{clinicName} is billed for {billedCount:location}[, not the {locationCount} it should be]",
     whatHappened:
-      "Stripe bills {clinicName} for {billedCount:location}, but it should pay for {locationCount:location}: its active locations, plus one being added whose charge is recorded. Nothing was changed: the hourly check only reads[, and first saw this on {windowStart}].",
+      "{clinicName} is billed for {billedCount:location}[, not the {locationCount} it should be]. Stripe's count differs from what the account should pay for: its active locations, plus one being added whose charge is recorded. Nothing was changed: the hourly check only reads[, and first saw this on {windowStart}].",
     whyItMatters:
       "Too many billed means the clinic is overcharged and may be owed a refund; too few means it answers for a location it does not pay for. Either way the next invoice is wrong.",
     steps: [
@@ -252,8 +265,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // again. `windowStart` is the episode's start, so it names the alert it closes.
   location_quantity_agrees: {
     title: "Stripe's location count matches again",
+    headline: "{clinicName}'s location count in Stripe matches again[: {locationCount:location}]",
     whatHappened:
-      "Stripe now bills {clinicName} for the number of locations it should pay for[, {locationCount:location}].[ The mismatch first seen on {windowStart} has ended.]",
+      "{clinicName}'s location count in Stripe matches again[: {locationCount:location}]. Stripe now bills it for the number of locations it should pay for.[ The mismatch first seen on {windowStart} has ended.]",
     whyItMatters:
       "This closes the earlier alert. Nothing is left to do unless the clinic was overcharged while the two disagreed.",
     steps: [
@@ -268,8 +282,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // Dashboard".
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
+    headline: "{clinicName} is owed a refund for the time after its agreement ended",
     whatHappened:
-      "{clinicName} ended its agreement for a reason the agreement refunds: the fees it paid for any time after the termination day come back. Its subscription is already being cancelled.",
+      "{clinicName} is owed a refund for the time after its agreement ended. It ended its agreement for a reason the agreement refunds: the fees it paid for any time after the termination day come back. Its subscription is already being cancelled.",
     whyItMatters:
       "Confirm it before the practice's data is destroyed, at the earliest 29 days after the termination: destruction removes the billing records the console refunds from, and after it the refund has to be made by hand in the Stripe Dashboard.",
     steps: [

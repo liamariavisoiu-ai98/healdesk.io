@@ -660,6 +660,39 @@ describeDb("the approval inbox", () => {
       expect((await eventsOf(item!.id)).map((e) => e.event)).toEqual(["proposed", "approved", "executed"]);
     });
 
+    test("an operation slower than the 15-minute sweep still has its real outcome recorded and told", async () => {
+      const { clinic } = await deadLettered("cancel_now", "ap-slow");
+      await proposeApprovals(NOW);
+      const [item] = await itemsOfClinic(clinic.clinicId);
+      const stalled: Record<string, Executor> = {
+        // While it runs, the hourly sweep finds the item approved too long.
+        billing_request_retry: async () => {
+          await proposeApprovals(at(40 * MINUTE));
+          return { ok: true, outcomeCode: "rearmed", message: "Re-armed.", auditRecorded: true };
+        },
+      };
+      const out = dataOf(await decide({ id: item!.id, action: "approve", reasonCode: "cause_fixed" }, { executors: stalled }));
+      expect(out).toEqual({
+        status: "executed",
+        outcomeCode: "rearmed",
+        message:
+          "Re-armed. This took longer than 15 minutes, so the item was first recorded as interrupted; what the operation actually did is now recorded beside it.",
+        auditRecorded: true,
+      });
+      expect((await getApproval(item!.id))?.status).toBe("failed");
+      expect((await eventsOf(item!.id)).map((e) => [e.event, e.outcome_code])).toEqual([
+        ["proposed", null],
+        ["approved", "cause_fixed"],
+        ["failed", "interrupted"],
+        ["executed", "rearmed"],
+      ]);
+      expect((await securityEvents("approval_approved", item!.id))[0]!.metadata).toMatchObject({
+        moved: false,
+        outcome: "executed",
+        outcomeCode: "rearmed",
+      });
+    });
+
     test("reject runs nothing", async () => {
       const { clinic, epoch } = await deadLettered("cancel_now", "ap-reject");
       await proposeApprovals(NOW);

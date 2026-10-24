@@ -18,7 +18,7 @@ import {
   type KindSpec,
 } from "@/lib/approvals/kinds";
 import { packetFor, type Packet } from "@/lib/approvals/packets";
-import { getApproval, history, listByStatus, moveStatus, SERVICE_ACTOR, type EventActor } from "@/lib/approvals/store";
+import { getApproval, history, lastEventAt, listByStatus, moveStatus, recordEvent, SERVICE_ACTOR, type EventActor } from "@/lib/approvals/store";
 import { printableClinicName } from "@/lib/email/lint";
 import { describeError, log } from "@/lib/log";
 
@@ -251,24 +251,43 @@ export async function opDecideApproval(
   }
   const result = await execute(item, operator, { draft: draft.draft }, options.executors);
   const settled = result.ok ? "executed" : "failed";
-  const moved = await moveStatus(item.id, "approved", settled, settled, actor, new Date(now.getTime() + 2), {
+  const settledAt = new Date(now.getTime() + 2);
+  const moved = await moveStatus(item.id, "approved", settled, settled, actor, settledAt, {
     outcomeCode: result.outcomeCode,
   });
-  if (!moved) log.error("approval outcome not recorded", { kind: item.kind });
+  // Lost to the 15-minute sweep (lib/approvals/store.ts sweepInterrupted):
+  // the item already reads failed / interrupted, but the operation ran, so
+  // its real outcome is appended after the sweep's event. The record then
+  // never says only "interrupted" for an operation that did run.
+  let appended = false;
+  if (!moved) {
+    try {
+      const last = await lastEventAt(item.id);
+      const at = new Date(Math.max(settledAt.getTime(), (last?.getTime() ?? 0) + 1));
+      await recordEvent(unsafeDb, item.id, settled, actor, { outcomeCode: result.outcomeCode, at });
+      appended = true;
+    } catch (error) {
+      log.error("approval outcome not recorded", { kind: item.kind, error: describeError(error) });
+    }
+  }
   const auditRecorded = await audit(operator, "approval_approved", {
     approvalId: item.id,
     kind: item.kind,
     reasonCode,
     outcome: settled,
     outcomeCode: result.outcomeCode,
+    moved,
     freshCode,
     ...(item.subjectClinicId ? { clinicId: item.subjectClinicId } : {}),
   });
+  const late = moved
+    ? ""
+    : " This took longer than 15 minutes, so the item was first recorded as interrupted; what the operation actually did is now recorded beside it.";
   return ok({
     status: settled,
     outcomeCode: result.outcomeCode,
-    message: result.message,
-    auditRecorded: auditRecorded && moved,
+    message: result.message || late ? `${result.message ?? ""}${late}`.trim() : null,
+    auditRecorded: auditRecorded && (moved || appended),
   } satisfies DecisionOutcome);
 }
 

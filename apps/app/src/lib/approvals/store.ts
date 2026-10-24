@@ -206,6 +206,15 @@ export async function waitingItems(): Promise<OpsApproval[]> {
   return unsafeDb.select().from(opsApprovals).where(eq(opsApprovals.status, "waiting")).orderBy(asc(opsApprovals.dueAt));
 }
 
+/** When an item's latest event was recorded. */
+export async function lastEventAt(id: string): Promise<Date | null> {
+  const [row] = await unsafeDb
+    .select({ last: sql<Date | null>`max(${opsApprovalEvents.at})` })
+    .from(opsApprovalEvents)
+    .where(eq(opsApprovalEvents.approvalId, id));
+  return row?.last ? new Date(row.last) : null;
+}
+
 /** How many `reminded` events an item has, and when the last was. */
 export async function reminders(id: string): Promise<{ count: number; last: Date | null }> {
   const [row] = await unsafeDb

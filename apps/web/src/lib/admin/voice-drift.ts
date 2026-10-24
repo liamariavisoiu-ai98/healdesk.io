@@ -1,8 +1,8 @@
 import { checkFreshOperatorCode } from "./fresh-code";
 import { requireOperator } from "./operator";
 import {
-  clearVoiceDriftFlag as sendClearVoiceDriftFlag,
-  retryVoiceAgent as sendRetryVoiceAgent,
+  clearVoiceDriftFlag as sendClearVoiceDriftFlag, // raw: only here (ops-client-monitors.test.ts)
+  retryVoiceAgent as sendRetryVoiceAgent, // raw: only here
   type ClearVoiceDriftFlagOutcome,
   type OpsResult,
   type RetryVoiceAgentOutcome,
@@ -32,7 +32,7 @@ export type ClearVoiceDriftFlagEntry = ClearVoiceDriftFlagOutcome | { outcome: "
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export async function clearVoiceDriftFlag(
+export async function clearVoiceDriftFlagWithCode(
   clinicId: string,
   code: unknown,
 ): Promise<OpsResult<ClearVoiceDriftFlagEntry>> {

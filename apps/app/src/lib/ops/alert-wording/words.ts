@@ -1,4 +1,5 @@
 import type { EmailKind } from "@/lib/email/kind-rules";
+import type { OpsEvent } from "@/lib/ops/notify";
 
 /**
  * The closed word lists an ops alert may print (lane N3, from the accuracy
@@ -9,10 +10,15 @@ import type { EmailKind } from "@/lib/email/kind-rules";
  * raw word. Ids, codes outside these lists, free text and anything about a
  * patient stay out, as before.
  *
- * The keys are field names as the raise sites pass them. A field means the
- * same thing in every event that passes it, so one list per field serves
- * them all; the two lists that share a field name (`kind`: an email kind or
- * a billing request kind) share no value.
+ * Most lists are by field name (CLOSED_WORDS): `meter`, `section`, `kind`,
+ * `channel`, `provider`, `decision` and `recommendation` mean one closed set
+ * wherever they appear, and the two sets that share `kind` (an email kind
+ * or a billing request kind) share no value; the facts label `kind` by
+ * event (facts.ts). Two fields do not: `code` is a reason code on most
+ * events and a vendor only on the two vendor alerts, and `status` means
+ * something different at each raise site. Those are by event (EVENT_WORDS):
+ * a value prints only on an event whose own list has it, so a reason code
+ * that happens to equal a vendor id can never print as a vendor.
  */
 
 /** An email's kind (lib/email/kinds.ts and direct-kinds.ts), as "a … email". Typed so a new kind needs a phrase. */
@@ -109,10 +115,10 @@ export const REQUEST_KIND_WORDS: Readonly<Record<string, string>> = {
 
 /** The vendors in the BAA chain (lib/compliance/subjects.ts PLATFORM_VENDORS), on the two vendor alerts' `code`. */
 export const VENDOR_WORDS: Readonly<Record<string, string>> = {
-  anthropic: "Anthropic, the AI model provider",
+  anthropic: "Anthropic (the AI model provider)",
   database_host: "the database host",
-  aws: "AWS, our host",
-  retell: "Retell, the voice provider",
+  aws: "AWS (our host)",
+  retell: "Retell (the voice provider)",
 };
 
 /** A channel (catalog CHANNELS; the email allowlist admits these three only). */
@@ -127,33 +133,6 @@ export const PROVIDER_WORDS: Readonly<Record<string, string>> = {
   "meta-messenger": "Facebook Messenger",
   "meta-instagram": "Instagram",
   "meta-whatsapp": "WhatsApp",
-};
-
-/**
- * A status, as the raise sites pass it: a notice late or given up
- * (lib/email/outbox.ts), a billing request re-armed (lib/billing/reconcile.ts),
- * a connection revoked (connection-health.ts), a drift repaired or flagged
- * (lib/voice/provision.ts), a calendar write failed, unknown or never
- * finished (calendar-write-alerts.ts), and a transcript's send state or SES's
- * failure (lib/conversations/transcript-outbox.ts).
- */
-export const STATUS_WORDS: Readonly<Record<string, string>> = {
-  late: "late, still being retried",
-  dead: "given up",
-  rearmed: "set to try again",
-  revoked: "access removed",
-  repaired: "repaired",
-  flagged: "left for a person",
-  failed: "refused",
-  unknown: "never confirmed",
-  writing: "never finished",
-  retrying: "being retried",
-  expired: "deleted unsent after 30 days",
-  unconfirmed: "never confirmed by the mail service",
-  bounce: "bounced",
-  reject: "refused by the mail service",
-  rendering_failure: "could not be built by the mail service",
-  complaint: "marked as spam",
 };
 
 /** The Knowledge sections practice questions check (lib/engine/practice/types.ts PRACTICE_SECTIONS). */
@@ -199,15 +178,85 @@ export const CLOSED_WORDS: Readonly<Record<string, Readonly<Record<string, strin
     extended: "the window was extended",
   },
   kind: { ...EMAIL_KIND_WORDS, ...REQUEST_KIND_WORDS },
-  code: VENDOR_WORDS,
   channel: CHANNEL_WORDS,
   provider: PROVIDER_WORDS,
+};
+
+/**
+ * Each event's `status`, read from its raise site: what that status means
+ * for that event, and nothing printed for a status another site passes.
+ */
+export const STATUS_WORDS: Readonly<Partial<Record<OpsEvent, Readonly<Record<string, string>>>>> = {
+  // lib/email/outbox.ts: the health check's late notice, the sender's dead letter.
+  critical_notice_undelivered: { late: "late, still being retried", dead: "given up" },
+  // lib/billing/reconcile.ts: a dead request put back to try again.
+  billing_request_dead_lettered: { rearmed: "set to try again" },
+  // lib/scheduler/connection-health.ts: revoked connections only.
+  connection_broken: { revoked: "access removed" },
+  // lib/voice/provision.ts: a drift written again, or left for a person.
+  voice_agent_drift: { repaired: "repaired", flagged: "left for a person" },
+  // lib/ops/calendar-write-alerts.ts: the write's state. `failed` is any
+  // refusal, a timeout or a server error among them, so it says only that.
+  calendar_write_stuck: { failed: "not written", unknown: "never confirmed by Google", writing: "never finished" },
+  // lib/conversations/transcript-outbox.ts: the send's state, or SES's failure event.
+  transcript_undelivered: {
+    retrying: "being retried",
+    expired: "deleted unsent after 30 days",
+    unconfirmed: "never confirmed by the mail service",
+    bounce: "bounced",
+    reject: "refused by the mail service",
+    rendering_failure: "could not be built by the mail service",
+    complaint: "marked as spam",
+  },
+};
+
+/** The fields whose words depend on the event (see the header). */
+export const EVENT_WORDS: Readonly<Record<string, Readonly<Partial<Record<OpsEvent, Readonly<Record<string, string>>>>>>> = {
+  // lib/compliance/vendor-coverage.ts and platform.ts: the only raise sites
+  // whose `code` is a vendor (PLATFORM_VENDORS).
+  code: { vendor_agreement_expiring: VENDOR_WORDS, vendor_agreement_lapsed: VENDOR_WORDS },
   status: STATUS_WORDS,
 };
+
+/** Whether some event's list has this value: the allow-list admits it, and the event decides whether it prints. */
+export function anyEventWord(key: string, value: unknown): boolean {
+  const lists = EVENT_WORDS[key];
+  return (
+    typeof value === "string" && lists !== undefined && Object.values(lists).some((list) => Object.hasOwn(list!, value))
+  );
+}
+
+/** The words for an event-scoped value on this event, or null when this event's list does not have it. */
+export function eventWord(key: string, value: unknown, event: OpsEvent | undefined): string | null {
+  if (typeof value !== "string" || !event) return null;
+  const list = EVENT_WORDS[key]?.[event];
+  return list && Object.hasOwn(list, value) ? list[value]! : null;
+}
 
 /** The plain words for a closed value, or null when it is not in its field's list. */
 export function closedWord(key: string, value: unknown): string | null {
   if (typeof value !== "string") return null;
   const list = CLOSED_WORDS[key];
   return list && Object.hasOwn(list, value) ? list[value]! : null;
+}
+
+/**
+ * The values as this event may print them: each event-scoped field replaced
+ * by its words for this event, or dropped when this event's list does not
+ * have it (so its clause drops and no fact row shows). Both renderings call
+ * it, through fillWording and the facts, with the event their wording was
+ * looked up for.
+ */
+export function scopeToEvent(
+  values: Readonly<Record<string, string | number>>,
+  event: OpsEvent | undefined,
+): Record<string, string | number> {
+  const out = { ...values };
+  for (const key of Object.keys(EVENT_WORDS)) {
+    if (!Object.hasOwn(out, key)) continue;
+    const word = eventWord(key, out[key], event);
+    if (word === null) delete out[key];
+    else out[key] = word;
+  }
+  return out;
 }

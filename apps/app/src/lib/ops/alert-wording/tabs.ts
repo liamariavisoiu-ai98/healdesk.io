@@ -210,8 +210,8 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   patient_request_due_soon: "/admin/clinics",
   patient_request_past_due: "/admin/clinics",
   urgent_alert_not_queued: "/admin/clinics",
-  // no clinic: a day's cap.
-  access_requests_capped: "/admin/clinics",
+  // no clinic: a day's cap; its steps start on Home.
+  access_requests_capped: "/admin/",
   // no clinic when the email had none.
   email_refused: "/admin/clinics",
   // no clinic: a signer at checkout.
@@ -234,7 +234,7 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   lifecycle_reminder_undelivered: "/admin/clinics",
   lifecycle_reminders_unanswered: "/admin/clinics",
   lifecycle_closing_waiting_on_us: "/admin/clinics",
-  // no clinic: the digest's counts.
-  ops_digest_summary: "/admin/clinics",
+  // no clinic: the digest's counts; its steps start on Home.
+  ops_digest_summary: "/admin/",
   assistant_knows_no_services: "/admin/clinics",
 };

@@ -1,5 +1,5 @@
 import { DAY_KEYS } from "./allow-list";
-import { CLOSED_WORDS, closedWord } from "./words";
+import { CLOSED_WORDS, closedWord, scopeToEvent } from "./words";
 import type { AlertWording } from "./types";
 
 /**
@@ -160,7 +160,9 @@ export type FilledWording = {
 };
 
 /** A whole wording, filled. Steps that fill to nothing are dropped. */
-export function fillWording(wording: AlertWording, values: WordingValues): FilledWording {
+export function fillWording(wording: AlertWording, raw: WordingValues): FilledWording {
+  // `code` and `status` print only as this event's words (./words.ts).
+  const values = scopeToEvent(raw, wording.event);
   return {
     title: fill(wording.title, values),
     whatHappened: fill(wording.whatHappened, values),

@@ -128,8 +128,7 @@ import {
   setMetaFrontDoor,
 } from "@/lib/meta/channels";
 import type { MetaPlatform } from "@/lib/meta/front-door";
-import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
-import { touchRefusal } from "@/lib/ops/health";
+import { clinicHealth, recordTouch, touchRefusal, type ClinicHealth } from "@/lib/ops/health";
 import { hostStandbyCheck } from "@/lib/ops/host-standby";
 import { notifyOps } from "@/lib/ops/notify";
 import {

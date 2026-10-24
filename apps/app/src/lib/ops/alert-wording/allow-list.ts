@@ -1,6 +1,6 @@
 import { isAllowedClinicName, isCountKey } from "@/lib/email/lint";
 
-import { CHANGE_SECTION_WORDS, CLOSED_WORDS, closedWord } from "./words";
+import { anyEventWord, CHANGE_SECTION_WORDS, CLOSED_WORDS, closedWord, EVENT_WORDS } from "./words";
 
 /**
  * What an ops alert may say outside the ops log: the fields its Slack copy
@@ -104,6 +104,9 @@ export function allowedAlertFields(fields: Readonly<Record<string, unknown>>): R
       if (name) out.business = name;
     } else if (Object.hasOwn(CLOSED_WORDS, key)) {
       if (closedWord(key, value) !== null) out[key] = value as string;
+    } else if (Object.hasOwn(EVENT_WORDS, key)) {
+      // On some event's list; the event decides whether it prints (words.ts scopeToEvent).
+      if (anyEventWord(key, value)) out[key] = value as string;
     } else if (DAY_KEYS.has(key)) {
       if (isDay(value)) out[key] = value;
     } else if (isCountKey(key) && typeof value === "number" && Number.isFinite(value) && value >= 0) {
@@ -139,6 +142,7 @@ export const NAMED_PLACEHOLDERS: ReadonlySet<string> = new Set([
   "business",
   "percent",
   ...Object.keys(CLOSED_WORDS),
+  ...Object.keys(EVENT_WORDS),
   ...DAY_KEYS,
 ]);
 

@@ -3,6 +3,7 @@ import type { OpsEvent } from "@/lib/ops/notify";
 import { allowedAlertFields } from "./allow-list";
 import { LEGACY_WORDING } from "./index";
 import { formatValue, printedKeys } from "./render";
+import { scopeToEvent } from "./words";
 import type { AlertWording } from "./types";
 
 /**
@@ -41,6 +42,8 @@ const LABELS: Record<string, string> = {
   destroyAt: "Destruction due (UTC)",
   expiresOn: "Expires (UTC)",
   phase: "Phase",
+  // A Meta connection (lib/meta/providers.ts), on connection_broken and the two Meta revoke alerts.
+  provider: "Meta channel",
   serviceEndedAt: "Service ended (UTC)",
   lateDays: "Days late",
   conversationId: "Conversation id",
@@ -80,6 +83,12 @@ const LABELS: Record<string, string> = {
  */
 const EVENT_LABELS: Partial<Record<OpsEvent, Readonly<Record<string, string>>>> = {
   practice_question_failed: { section: "Section" },
+  // A billing request's kind (lib/billing/requests.ts), not an email's.
+  billing_request_dead_lettered: { kind: "Request" },
+  billing_request_stuck: { kind: "Request" },
+  // The two vendor alerts' `code` is the vendor (./words.ts EVENT_WORDS).
+  vendor_agreement_expiring: { code: "Vendor" },
+  vendor_agreement_lapsed: { code: "Vendor" },
 };
 
 /** The label a field prints under, in the email and the Slack copy alike. */
@@ -103,7 +112,9 @@ function rows(entries: [string, string | number | boolean][], event?: OpsEvent):
 export function sharedFacts(fields: Readonly<Record<string, unknown>>, wording: AlertWording): FactRow[] {
   const printed = printedKeys(wording);
   return rows(
-    Object.entries(allowedAlertFields(fields)).filter(([key]) => !NOT_FACTS.has(key) && !printed.has(key)),
+    Object.entries(scopeToEvent(allowedAlertFields(fields), wording.event)).filter(
+      ([key]) => !NOT_FACTS.has(key) && !printed.has(key),
+    ),
     wording.event,
   );
 }

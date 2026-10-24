@@ -14,7 +14,7 @@ import {
   RIGHTS_KINDS,
 } from "@/lib/rights/clocks";
 import { NO_OPERATOR, NO_ROUTE, prepareCommand, RUN_TASK } from "@/lib/rights/commands";
-import { listRights, RETELL_OUTSTANDING, type RightsRow } from "@/lib/rights/tracker";
+import { listRights, MATCHED_NOTE, RETELL_OUTSTANDING, type RightsRow } from "@/lib/rights/tracker";
 import { JOB_RIGHTS_WATCH, rightsAlertsFor, runRightsWatchJob, watchRights } from "@/lib/scheduler/rights-watch";
 import { getJob } from "@/lib/scheduler/jobs";
 
@@ -278,12 +278,18 @@ function data<T>(outcome: Awaited<ReturnType<typeof runOperation>>): T {
   return outcome.body.data as T;
 }
 
-async function seedPatientRequest(clinicId: string, receivedAt: string, replyBy: string, acknowledged = false): Promise<string> {
+async function seedPatientRequest(
+  clinicId: string,
+  receivedAt: string,
+  replyBy: string,
+  acknowledged = false,
+  kind = "deletion",
+): Promise<string> {
   return inTenant(clinicId, async (q) => {
     const { rows } = await q.query<{ id: string }>(
       `insert into patient_requests (clinic_id, kind, received_at, reply_by, recorded_by)
-       values ($1, 'deletion', $2, $3, 'ops') returning id`,
-      [clinicId, receivedAt, replyBy],
+       values ($1, $4, $2, $3, 'ops') returning id`,
+      [clinicId, receivedAt, replyBy, kind],
     );
     const id = rows[0]!.id;
     if (acknowledged) {
@@ -595,6 +601,29 @@ describeDb("the rights tracker, against the database", () => {
     expect((await runOperation("closeRightsIntake", { clinicId: c.clinicId, id: intake.id, status: "done" }, OPERATOR)).status).toBe(200);
     const open = await listRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now: new Date("2026-10-22T08:00:00Z"), clinics: [{ id: c.clinicId, name: "R" }] });
     expect(open.rows).toMatchObject([{ id: intake.id, recordId: passedOn, state: "due_soon" }]);
+  });
+
+  test("an intake recorded on the host afterwards is matched by day and kind: no command, no second row, no alert", async () => {
+    const c = await seedClinic("rights-match");
+    const intake = data<{ id: string }>(
+      await record({ clinicId: c.clinicId, kind: "patient_request", askedFor: "deletion", receivedOn: "2026-10-12", verifiedVia: "unverified" }),
+    );
+    const now = new Date("2026-10-13T08:00:00Z");
+    const before = await listRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now, clinics: [{ id: c.clinicId, name: "M" }] });
+    expect(before.rows).toMatchObject([{ id: intake.id, recordId: null, command: expect.stringContaining("patient-request") }]);
+    // Another kind the same day is not it.
+    const otherKind = await seedPatientRequest(c.clinicId, "2026-10-12T00:00:00Z", "2026-10-19", false, "access");
+    // The owner ran the command: the task records the request at the intake's day.
+    const onHost = await seedPatientRequest(c.clinicId, "2026-10-12T00:00:00Z", "2026-10-19");
+    const after = await listRights({ actor: { type: "service", serviceName: "t" }, operator: "ops@healdesk.test", now, clinics: [{ id: c.clinicId, name: "M" }] });
+    expect(after.rows.find((r) => r.id === intake.id)).toMatchObject({ recordId: onHost, command: null, commandNote: MATCHED_NOTE, dueOn: "2026-10-19" });
+    expect(after.rows.filter((r) => r.recordId === onHost)).toHaveLength(1);
+    expect(after.rows.find((r) => r.recordId === otherKind)).toMatchObject({ source: "patient_request" });
+    // Past its day, the L32 sweep has it: the tracker raises nothing for it.
+    await watchRights(new Date("2026-10-21T08:00:00Z"));
+    for (const event of ["rights_request_blocked", "rights_request_due_soon", "rights_request_overdue"]) {
+      expect((await alertsOf(event, c.clinicId)).some((f) => f.requestId === intake.id), event).toBe(false);
+    }
   });
 
   test("Home shows one row for the due soon and one for the late, linking to the Patient rights page", async () => {

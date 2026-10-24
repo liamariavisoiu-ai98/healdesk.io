@@ -28,6 +28,9 @@ import {
 } from "./clocks";
 import { NO_ROUTE, prepareCommand } from "./commands";
 
+/** What an intake shows once the patient's request it asked to record is on the host: no command, the L32 sweep's clock. */
+export const MATCHED_NOTE = "Recorded on the host: matched by its day and what was asked";
+
 /**
  * The patient-rights tracker's reads and writes (ops automation lane P6c;
  * design E6 item 16). It tracks; it never acts: nothing here runs an
@@ -178,6 +181,25 @@ export function clinicRows(
   const requests = new Map(read.requests.map((r) => [r.id, r]));
   const amendments = new Map(read.amendments.map((r) => [r.id, r]));
   const linked = new Set<string>();
+  for (const intake of read.intakes) if (intake.linkedRecordId) linked.add(intake.linkedRecordId);
+
+  // A patient's request recorded on the host after its intake was: the same
+  // clinic, what was asked and the day received (the command passes the
+  // intake's day, so the row's received time is that day in UTC). Matched one
+  // to one, the oldest intake first, and only while the intake is open: a
+  // closed one has no command to stop, and must not hide a request the
+  // practice has not marked.
+  const matched = new Map<string, (typeof read.requests)[number]>();
+  for (const intake of read.intakes) {
+    if (intake.kind !== "patient_request" || intake.linkedRecordId || intake.status !== "open") continue;
+    const found = read.requests.find(
+      (r) => !linked.has(r.id) && r.kind === intake.askedFor && utcDay(r.receivedAt) === intake.receivedOn,
+    );
+    if (found) {
+      linked.add(found.id);
+      matched.set(intake.id, found);
+    }
+  }
 
   for (const intake of read.intakes) {
     const base = {
@@ -196,10 +218,9 @@ export function clinicRows(
     const closedOn = intake.closedAt ? utcDay(intake.closedAt) : null;
     const link = intake.linkedRecordId;
     const erasure = link && intake.kind === "erasure" ? erasures.get(link) : undefined;
-    const request = link && intake.kind === "patient_request" ? requests.get(link) : undefined;
+    const request = link && intake.kind === "patient_request" ? requests.get(link) : matched.get(intake.id);
     const amendment = link && intake.kind === "amendment" ? amendments.get(link) : undefined;
     if (erasure) {
-      linked.add(erasure.id);
       // Done only once the subcontractor step is stamped: closing the intake
       // never counts (closeIntake refuses it while the step is outstanding).
       const stamped = erasure.stamped;
@@ -220,7 +241,6 @@ export function clinicRows(
       continue;
     }
     if (request) {
-      linked.add(request.id);
       // Done only once the practice marks it received, as the L32 sweep waits for.
       const done = request.acknowledgedAt !== null;
       out.push({
@@ -230,14 +250,13 @@ export function clinicRows(
         daysLeft: done ? null : businessDaysLeft(today, request.replyBy),
         state: stateOf(done, false, today, request.replyBy),
         command: null,
-        commandNote: null,
+        commandNote: link ? null : MATCHED_NOTE,
         retellStep: null,
         backupExpiresOn: null,
         closedOn: request.acknowledgedAt ? utcDay(request.acknowledgedAt) : closedOn,
       });
       continue;
     }
-    if (amendment) linked.add(amendment.id);
     // Linked to a record, it has run: an amendment is done once it exists,
     // and a record that is gone went by its own clock (an erasure's expiry
     // once its step was stamped, the purge, the clinic's destruction).

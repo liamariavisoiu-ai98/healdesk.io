@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { ActionButton, Section } from "@/components/admin/ui";
-import type { ExtendDeadlineOutcome, LifecycleRow, LifecycleWriteOutcome, OpsResult } from "@/lib/admin/ops-client";
+import type { ExtendDeadlineOutcome, LifecycleIgnoreOutcome, LifecycleRow, LifecycleWriteOutcome, OpsResult } from "@/lib/admin/ops-client";
 
 /**
  * The Setup tab's "Setup window" card (ops automation wave 2, lane A3), for
@@ -30,10 +30,27 @@ import type { ExtendDeadlineOutcome, LifecycleRow, LifecycleWriteOutcome, OpsRes
  *
  * What the header and the summary above already say (the stage chip, the
  * steps and channels left) is not said again here.
+ *
+ * "Do not watch this account" (Phase 5, lane P5b) takes an internal test
+ * account off the lifecycle watch: no setup reminders recorded, no setup
+ * alerts, no decision owed; its calendar, voice and billing alerts still
+ * arrive. A clearly secondary control, asking once. The card still draws for
+ * a clinic that is not watched, saying so ("Not watched (internal)") and
+ * offering the way back; the decision controls are not drawn then, since
+ * nothing is owed, and the recommendation sentence is apps/app's own for
+ * that state.
  */
 
 export const LET_CLOSE_CONFIRM =
   "The clinic's setup window will still close on its last day. The day-27 and day-30 warnings to ops stop; other alerts about this clinic continue.";
+
+export const IGNORE_CONFIRM = "No setup reminders or setup alerts for this account. Its calendar, voice and billing alerts still arrive.";
+
+/** The ignore outcome as the one button pattern reads it. */
+function asIgnoreStatus(result: OpsResult<LifecycleIgnoreOutcome>): OpsResult<{ status: string; ignored: boolean; auditRecorded: boolean }> {
+  if (!result.ok) return result;
+  return { ok: true, data: { status: "saved", ignored: result.data.ignored, auditRecorded: result.data.auditRecorded } };
+}
 
 const STAGE_WORDS: Record<LifecycleRow["stage"], string> = {
   not_started: "not started",
@@ -110,6 +127,7 @@ export function SetupWindow({
   onExtend,
   onDecide,
   onSnooze,
+  onSetIgnored,
 }: {
   row: LifecycleRow;
   /** The billing view's setup deadline; null when the clinic has none (or the billing read failed). */
@@ -121,12 +139,15 @@ export function SetupWindow({
   onExtend: ExtendWindow;
   onDecide: (decision: "extension_offered" | "let_close") => Promise<OpsResult<LifecycleWriteOutcome>>;
   onSnooze: (days: SnoozeDays) => Promise<OpsResult<LifecycleWriteOutcome>>;
+  onSetIgnored: (ignored: boolean) => Promise<OpsResult<LifecycleIgnoreOutcome>>;
 }) {
   const advice = row.recommendation;
   const [days, setDays] = useState(String(defaultExtendDays(advice.days)));
   const [snooze, setSnooze] = useState<SnoozeDays>(7);
   const left = deadline ? daysLeft(deadline.iso, now) : null;
-  const decidable = DECIDABLE.has(row.stage);
+  const ignored = row.ignored === true;
+  // Nothing is owed for an account that is not watched: no decision to record.
+  const decidable = !ignored && DECIDABLE.has(row.stage);
   const extendable = canExtend && deadline !== null;
 
   return (
@@ -144,6 +165,8 @@ export function SetupWindow({
         <dd>{decisionWords(row)}</dd>
         <dt className="text-muted">Routine ops alerts</dt>
         <dd>{row.snoozedUntil ? `snoozed until ${day(row.snoozedUntil)}${row.snoozedBy ? ` by ${row.snoozedBy}` : ""}` : "on"}</dd>
+        <dt className="text-muted">Watch</dt>
+        <dd>{ignored ? "Not watched (internal)" : "watched: setup reminders and setup alerts run"}</dd>
       </dl>
 
       <p className="border-line mt-3 border-t pt-3 text-sm">{advice.reason}</p>
@@ -205,6 +228,23 @@ export function SetupWindow({
           ) : null}
         </div>
       ) : null}
+
+      <div className="border-line mt-4 border-t pt-3">
+        {ignored ? (
+          <ActionButton
+            label="Watch this account again"
+            run={async () => asIgnoreStatus(await onSetIgnored(false))}
+            done={() => "Watched again: setup reminders and setup alerts run for this account from now."}
+          />
+        ) : (
+          <ActionButton
+            label="Do not watch this account"
+            confirm={IGNORE_CONFIRM}
+            run={async () => asIgnoreStatus(await onSetIgnored(true))}
+            done={() => "Not watched (internal): no setup reminders or setup alerts for this account."}
+          />
+        )}
+      </div>
     </Section>
   );
 }

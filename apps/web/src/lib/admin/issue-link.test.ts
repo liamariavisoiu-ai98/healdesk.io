@@ -44,7 +44,7 @@ describe("the issue link", () => {
     // Every lifecycle event in the mirrored list, and the availability change.
     const lifecycle = OPS_EVENTS.filter((e) => e.startsWith("lifecycle_"));
     expect(lifecycle).toHaveLength(9);
-    const tabOfCard = { availability: "setup", "setup-window": "setup", reminders: "deliveries" } as const;
+    const tabOfCard = { availability: "setup", "setup-window": "setup", reminders: "deliveries", voice: "setup", "calendar-writes": "setup" } as const;
     for (const event of [...lifecycle, "clinic_availability_changed" as const]) {
       const card = cardAnchorFor(event);
       expect(card, event).not.toBeNull();
@@ -56,8 +56,21 @@ describe("the issue link", () => {
     for (const event of ["lifecycle_no_progress", "lifecycle_closing_soon", "lifecycle_decision_due", "lifecycle_waiting_on_us", "lifecycle_waiting_on_us_long", "lifecycle_channel_waiting", "lifecycle_closing_waiting_on_us"] as const) {
       expect(cardAnchorFor(event)).toBe("setup-window");
     }
+    // Lane P5b: the Retell set-up's events land on the Voice agent card, a stuck write on Calendar writes, both on Setup.
+    const voice = ["voice_provision_failed", "voice_agent_drift", "voice_deprovision_failed", "retell_fallback_unsynced"] as const;
+    for (const event of voice) {
+      expect(cardAnchorFor(event), event).toBe("voice");
+      expect(issueTabFor(event), event).toBe("setup");
+    }
+    expect(cardAnchorFor("calendar_write_stuck")).toBe("calendar-writes");
+    expect(issueTabFor("calendar_write_stuck")).toBe("setup");
+    // The phone-settings voice events and the cross-clinic calendar alert have no card of their own.
+    for (const event of ["voice_direct_line_loops", "voice_fallback_no_direct_line", "voice_test_mode_refused", "voice_call_start_failed", "calendar_writes_stuck_many"] as const) {
+      expect(cardAnchorFor(event), event).toBeNull();
+    }
+    const withCard = new Set<string>([...voice, "calendar_write_stuck", "clinic_availability_changed"]);
     for (const event of OPS_EVENTS) {
-      if (!event.startsWith("lifecycle_") && event !== "clinic_availability_changed") expect(cardAnchorFor(event), event).toBeNull();
+      if (!event.startsWith("lifecycle_") && !withCard.has(event)) expect(cardAnchorFor(event), event).toBeNull();
     }
   });
 

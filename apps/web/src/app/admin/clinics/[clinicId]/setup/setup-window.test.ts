@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { UNAUDITED } from "@/components/admin/ui";
 import type { LifecycleRow } from "@/lib/admin/ops-client";
 
-import { daysLeft, defaultExtendDays, LET_CLOSE_CONFIRM, SetupWindow } from "./SetupWindow";
+import { daysLeft, defaultExtendDays, IGNORE_CONFIRM, LET_CLOSE_CONFIRM, SetupWindow } from "./SetupWindow";
 
 /**
  * The Setup tab's "Setup window" card (wave 2, lane A3): the watch's row in
@@ -57,7 +57,15 @@ const row: LifecycleRow = {
   recommendation: { action: "extend", days: 14, reason: "The clinic made progress in the last week and two steps are left: extend by 14 days." },
 };
 
-const base = { row, deadline: DEADLINE, canExtend: true, now: NOW, onExtend: NEVER, onDecide: NEVER, onSnooze: NEVER };
+const base = { row, deadline: DEADLINE, canExtend: true, now: NOW, onExtend: NEVER, onDecide: NEVER, onSnooze: NEVER, onSetIgnored: NEVER };
+
+/** A clinic on the lifecycle watch's ignore list, as apps/app projects it: nothing owed, its own recommendation sentence. */
+const notWatched: LifecycleRow = {
+  ...row,
+  ignored: true,
+  decisionOwed: false,
+  recommendation: { action: "wait", days: null, reason: "Not watched (internal): no setup reminders or alerts." },
+};
 
 describe("the card's words", () => {
   test("stage, the billing deadline with the days left from it, last progress, decision, snooze, and the watch's sentence once", () => {
@@ -78,7 +86,20 @@ describe("the card's words", () => {
     expect(page).not.toContain("channel waiting");
     expect(page).not.toContain("undelivered");
     expect(html).toMatch(/aria-label="Days to extend by"[^>]*value="14"/);
-    for (const label of ["Extend the setup window", "Offered a call", "Let it close", "Snooze alerts"]) expect(page).toContain(label);
+    for (const label of ["Extend the setup window", "Offered a call", "Let it close", "Snooze alerts", "Do not watch this account"]) expect(page).toContain(label);
+    expect(page).toContain("Watch watched: setup reminders and setup alerts run");
+    expect(page).not.toContain("Not watched (internal)");
+    expect(page).not.toContain("Watch this account again");
+  });
+
+  test("a clinic not watched says so, owes no decision, keeps Extend, and offers the way back (lane P5b)", () => {
+    const page = text(renderToStaticMarkup(h(SetupWindow, { ...base, row: notWatched })));
+    expect(page).toContain("Watch Not watched (internal)");
+    expect(page).toContain("Not watched (internal): no setup reminders or alerts.");
+    for (const label of ["Offered a call", "Let it close", "Snooze alerts", "Do not watch this account"]) expect(page).not.toContain(label);
+    expect(page).toContain("Extend the setup window");
+    expect(page).toContain("Watch this account again");
+    expect(renderToStaticMarkup(h(SetupWindow, { ...base, row: notWatched }))).toContain('id="setup-window"');
   });
 
   test("a decided, snoozed clinic says so; an extended one says 'Extended on'", () => {
@@ -211,5 +232,39 @@ describe("the four controls", () => {
     await act(async () => {});
     expect(onDecide).toHaveBeenCalledWith("let_close");
     expect(statuses()).toContain("This clinic is not watched, so nothing was recorded.");
+  });
+
+  test("Do not watch this account asks once with the one sentence, then sends true; Watch again sends false; an unaudited save says so", async () => {
+    const saved = (ignored: boolean, auditRecorded = true) => ({
+      ok: true as const,
+      data: { outcome: "saved" as const, ignored, note: null, setAt: "2026-10-24T09:00:00.000Z", auditRecorded },
+    });
+    const onSetIgnored = vi.fn(async (ignored: boolean) => saved(ignored));
+    await act(async () => {
+      root.render(h(SetupWindow, { ...base, onSetIgnored }));
+    });
+    await act(async () => {
+      button("Do not watch this account").click();
+    });
+    expect(onSetIgnored).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(IGNORE_CONFIRM);
+    expect(IGNORE_CONFIRM).toBe("No setup reminders or setup alerts for this account. Its calendar, voice and billing alerts still arrive.");
+    await act(async () => {
+      button("Yes, do not watch this account").click();
+    });
+    await act(async () => {});
+    expect(onSetIgnored).toHaveBeenCalledWith(true);
+    expect(statuses()).toContain("Not watched (internal): no setup reminders or setup alerts for this account.");
+
+    const back = vi.fn(async (ignored: boolean) => saved(ignored, false));
+    await act(async () => {
+      root.render(h(SetupWindow, { ...base, row: notWatched, onSetIgnored: back }));
+    });
+    await act(async () => {
+      button("Watch this account again").click();
+    });
+    await act(async () => {});
+    expect(back).toHaveBeenCalledWith(false);
+    expect(statuses()).toContain(`Watched again: setup reminders and setup alerts run for this account from now. ${UNAUDITED}`);
   });
 });

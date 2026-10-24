@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { LiveDemoPipelineRow } from "@/components/admin/DemoPipelineRow";
+import { HostStandbyNotice } from "@/components/admin/HostStandbyNotice";
 import { requireOperator } from "@/lib/admin/operator";
+import { fetchMachineQueues, fetchStuckCalendarWrites, fetchUndeliveredTranscripts } from "@/lib/admin/ops-client";
+import { isHostUnreachable } from "@/lib/host/state";
+
+import { Attention, BeingWatched } from "./Attention";
 
 /**
  * /admin/system: the pages an operator opens rarely and the owner opens on
@@ -12,6 +17,15 @@ import { requireOperator } from "@/lib/admin/operator";
  * are in runbooks. One screen of links with one line each; the demo
  * pipeline strip Phase 1 built for the home sits under Sales here, so Home
  * stays one list.
+ *
+ * Above the links, since Phase 5 (the owner's decision of 24 October 2026),
+ * the machine queues as a read-only section: what is past its patience under
+ * "Requires your attention" (the queues, the calendar writes stuck across
+ * clinics, the transcript copies that never reached a clinic), and the rest
+ * as counts under "Being watched". Three reads, settled independently: one
+ * that fails costs its part, which says so, never the page. With the AWS host
+ * in standby every read fails the same way, so one notice stands in for the
+ * two sections rather than three red lines saying one thing.
  */
 
 export const metadata: Metadata = { title: "System" };
@@ -47,9 +61,21 @@ function Links({ pages }: { pages: readonly { href: string; label: string; line:
 
 export default async function SystemPage() {
   if (!(await requireOperator())) redirect("/admin/sign-in");
+  // Demo clinics' writes stay out here (RULES: synthetic rows behind a filter); a clinic's own Setup tab shows its own.
+  const [queues, writes, transcripts] = await Promise.all([fetchMachineQueues(), fetchStuckCalendarWrites(), fetchUndeliveredTranscripts()]);
+  const standby = [queues, writes, transcripts].every(isHostUnreachable);
   return (
     <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
       <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">System</h1>
+      {standby ? (
+        <HostStandbyNotice what="The queues section" />
+      ) : (
+        <>
+          <Attention queues={queues} writes={writes} transcripts={transcripts} />
+          <BeingWatched queues={queues} />
+        </>
+      )}
+      <h2 className="mt-10 text-sm font-bold tracking-[0.08em] uppercase">Pages</h2>
       <Links pages={PAGES} />
       <h2 className="mt-10 text-sm font-bold tracking-[0.08em] uppercase">Sales</h2>
       <Links pages={SALES} />

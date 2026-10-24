@@ -90,7 +90,7 @@ export function RecordRequestForm({
       ) : (
         <form onSubmit={submit} className="grid gap-4">
           <p className="max-w-[68ch] text-sm">
-            A request as it reached us, so its clock is tracked from today. Nothing about the person is recorded here.
+            A request as it reached us, so its clock is tracked from the day it came. Nothing about the person is recorded here.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <label className="grid gap-1 text-sm">

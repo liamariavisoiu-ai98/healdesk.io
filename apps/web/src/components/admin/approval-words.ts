@@ -142,7 +142,8 @@ export const EVENT_WORDS: Record<ApprovalEventName, string> = {
   approved: "approved",
   rejected: "rejected",
   executed: "went through",
-  failed: "did not go through",
+  // The outcome says which failure: the operation's refusal, a process that died before the answer.
+  failed: "failed",
   expired: "left the list without running",
   reminded: "reminder sent",
 };

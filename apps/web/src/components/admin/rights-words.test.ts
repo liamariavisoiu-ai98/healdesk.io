@@ -114,10 +114,12 @@ describe("a row's words", () => {
   });
 
   test("the Retell step, for an erasure alone", () => {
-    expect(retellWords({ kind: "erasure", retellStep: "stamped" })).toBe("recorded");
-    expect(retellWords({ kind: "erasure", retellStep: "outstanding" })).toBe("outstanding: record it on the clinic's Care tab");
-    expect(retellWords({ kind: "erasure", retellStep: null })).toBe("not run yet");
-    expect(retellWords({ kind: "export", retellStep: null })).toBeNull();
+    expect(retellWords({ kind: "erasure", retellStep: "stamped", state: "due_soon" })).toBe("recorded");
+    expect(retellWords({ kind: "erasure", retellStep: "outstanding", state: "overdue" })).toBe("outstanding: record it on the clinic's Care tab");
+    expect(retellWords({ kind: "erasure", retellStep: null, state: "blocked" })).toBe("not run yet");
+    // A done erasure whose deletion record has since gone carries no step: nothing is said, never "not run yet".
+    expect(retellWords({ kind: "erasure", retellStep: null, state: "done" })).toBeNull();
+    expect(retellWords({ kind: "export", retellStep: null, state: "on_time" })).toBeNull();
   });
 
   test("what stands where a command would", () => {

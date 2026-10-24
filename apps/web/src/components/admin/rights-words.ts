@@ -92,14 +92,15 @@ export function daysLeftWords(row: Pick<RightsRowView, "daysLeft" | "state">): s
 /**
  * An erasure's Retell step (lib/rights/tracker.ts retellStep): recorded, or
  * outstanding, which is recorded on the clinic's Care tab; "not run yet" for
- * an erasure the host has not run (no step exists until it has). Null for
- * every other kind.
+ * an open erasure the host has not run (no step exists until it has). Null
+ * for every other kind, and for a done row whose deletion record has since
+ * gone, which carries no step to speak of.
  */
-export function retellWords(row: Pick<RightsRowView, "kind" | "retellStep">): string | null {
+export function retellWords(row: Pick<RightsRowView, "kind" | "retellStep" | "state">): string | null {
   if (row.kind !== "erasure") return null;
   if (row.retellStep === "stamped") return "recorded";
   if (row.retellStep === "outstanding") return "outstanding: record it on the clinic's Care tab";
-  return "not run yet";
+  return row.state === "done" ? null : "not run yet";
 }
 
 /**

@@ -6612,6 +6612,8 @@ export const TENANT_SCOPED_TABLES = [
   "clinic_audit_claims",
   "clinic_lifecycle",
   "lifecycle_waves",
+  // Ops automation lane P5d (drizzle/0118).
+  "lifecycle_ignored_clinics",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -7714,5 +7716,46 @@ export const lifecycleWaves = pgTable(
       "lifecycle_waves_link_check",
       sql`(${t.target} = 'clinic_email' and ${t.opsAlertId} is null) or (${t.target} <> 'clinic_email' and ${t.noticeId} is null)`,
     ),
+  ],
+);
+/**
+ * Why an operator took a clinic off the lifecycle watch: a closed list, never
+ * free text (lane P5d, owner's decision of 24 October 2026).
+ */
+export const LIFECYCLE_IGNORE_NOTES = [
+  "internal_test_account",
+  "healdesk_staff_account",
+  "sales_demo_account",
+] as const;
+export type LifecycleIgnoreNote = (typeof LIFECYCLE_IGNORE_NOTES)[number];
+
+/**
+ * The lifecycle watch's ignore list: healdesk's own test accounts, which the
+ * watch, its ops waves, Home's "decision owed" row and the digest's
+ * Lifecycle block leave out. One row per billing clinic an operator has ever
+ * set, flipped by `ignored` and never deleted, so turning it back on is one
+ * update, and who set it last and when stay on the row (the audit row and
+ * the security event keep the history). Its own table, not a column on
+ * clinic_lifecycle: that row exists only once the watch has observed the
+ * clinic, and an internal account must be ignorable before the watch first
+ * runs. Ids, a closed word, a label and a date; never a patient.
+ */
+export const lifecycleIgnoredClinics = pgTable(
+  "lifecycle_ignored_clinics",
+  {
+    clinicId: uuid("clinic_id")
+      .primaryKey()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    ignored: boolean("ignored").notNull(),
+    note: text("note").$type<LifecycleIgnoreNote>(),
+    setBy: text("set_by").notNull(),
+    setAt: timestamp("set_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    check(
+      "lifecycle_ignored_clinics_note_check",
+      sql`${t.note} is null or ${t.note} in (${sqlList(LIFECYCLE_IGNORE_NOTES)})`,
+    ),
+    check("lifecycle_ignored_clinics_set_by_check", sql`char_length(${t.setBy}) between 1 and 200`),
   ],
 );

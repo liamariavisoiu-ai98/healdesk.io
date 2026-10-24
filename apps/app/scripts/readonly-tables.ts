@@ -47,6 +47,9 @@ export const READONLY_TABLES = [
   // words and dates. Read column by column on 23 October 2026: no patient.
   "clinic_lifecycle",
   "lifecycle_waves",
+  // The lifecycle watch's ignore list (drizzle/0118): a clinic id, a boolean,
+  // a closed reason, the operator's label and a date. No patient.
+  "lifecycle_ignored_clinics",
 ] as const;
 
 /** Tables the role can never read, and why. */

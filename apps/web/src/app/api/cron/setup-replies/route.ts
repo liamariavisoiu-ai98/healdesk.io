@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 
 import { relaySetupRepliesPastDue } from "@/lib/admin/ops-client";
 import { emailKey, sendSafely } from "@/lib/email";
-import { setupRequestsPastReply } from "@/lib/setup-requests";
+import { pastReplyAlert, setupRequestsPastReply } from "@/lib/setup-requests";
 import { site } from "@/lib/site";
 
 export const runtime = "nodejs";
@@ -23,11 +23,14 @@ export const dynamic = "force-dynamic";
  *
  * Its ids are handed to apps/app's ops API (setupRepliesPastDue), which
  * raises one ops alert per request, once, in the one ops log every other
- * alert goes through. If the host does not answer, which before the first
+ * alert goes through; with each id go the requester's business name, when
+ * it is safe to print, and the day our reply was promised by, so the alert
+ * says who is waiting and since when (owner, 23 October 2026). Never the
+ * person's name, email or phone. If the host does not answer, which before the first
  * paid clinic is the usual case, the alert goes from here instead: one email
  * a day to the administrator naming the ids, from this app's own sender,
- * like the host wake (lib/host/wake.ts). Only the Sheet's random request ids
- * appear in either; never a name, an address or a clinic.
+ * like the host wake (lib/host/wake.ts). That email names the Sheet's random
+ * request ids only; never a name, an address or a clinic.
  *
  * Vercel Cron calls it with `Authorization: Bearer $CRON_SECRET`, compared in
  * constant time, as the other crons are.
@@ -47,10 +50,11 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const now = new Date();
-  const due = (await setupRequestsPastReply(now)).map((r) => r.id).slice(0, 50);
+  const requests = (await setupRequestsPastReply(now)).slice(0, 50).map(pastReplyAlert);
+  const due = requests.map((r) => r.id);
   if (due.length === 0) return NextResponse.json({ ok: true, due: 0 });
 
-  const relayed = await relaySetupRepliesPastDue(due);
+  const relayed = await relaySetupRepliesPastDue(due, requests);
   if (relayed.ok) {
     console.info("[healdesk] setup replies past due", {
       due: due.length,

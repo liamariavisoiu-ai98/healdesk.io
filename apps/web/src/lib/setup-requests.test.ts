@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { purgeStaleLeads, recordDemoUnlock } from "./leads";
-import { createSetupRequest, purgeStaleSetupRequests, setupRequestsPastReply, updateSetupRequest } from "./setup-requests";
+import {
+  alertBusinessName,
+  createSetupRequest,
+  pastReplyAlert,
+  purgeStaleSetupRequests,
+  setupRequestsPastReply,
+  updateSetupRequest,
+} from "./setup-requests";
 import { FakeSheets, __setSheetsClientForTests } from "./sheets/client";
 import { __resetSheetSchemaForTests } from "./sheets/schema";
 
@@ -79,5 +86,29 @@ describe("setup requests past the reply day P2 promised", () => {
     expect(due.map((r) => r.id)).toEqual([owed.id]);
     // A month on, it has long been raised once; the check stops looking.
     expect(await setupRequestsPastReply(new Date("2026-11-08T13:07:00Z"))).toEqual([]);
+  });
+});
+
+// Lane N1 (owner, 23 October 2026): the past-due ops alert may name the
+// requester's business, never the person, and never a name that could reach
+// someone. apps/app holds it to the same rule again before sending it.
+describe("the past-due alert's facts", () => {
+  test("the business name is kept when it is a name, cut at 80 characters, and refused when it could reach someone", () => {
+    expect(alertBusinessName("  Glow   Med Spa ")).toBe("Glow Med Spa");
+    const long = "The Very Long Name Aesthetic and Wellness Clinic of the Greater Riverside Valley Area North";
+    const cut = alertBusinessName(long)!;
+    expect(cut.length).toBeLessThanOrEqual(80);
+    expect(long.startsWith(cut)).toBe(true);
+    for (const bad of ["owner@glow.test", "https://glow.test", "www.glowspa", "glowspa.com", "Call 5551234567", "", null, 7]) {
+      expect(alertBusinessName(bad), String(bad)).toBeNull();
+    }
+  });
+
+  test("each request carries its id, its business name and the day we promised to reply by", async () => {
+    const made = await request("owner@radiance.test", null, new Date("2026-10-23T15:00:00Z"));
+    // Made on a Friday in New York: the reply was promised for Monday.
+    expect(pastReplyAlert(made)).toEqual({ id: made.id, business: "Radiance", promisedOn: "2026-10-26" });
+    expect(pastReplyAlert({ ...made, clinicName: "owner@radiance.test" })).toEqual({ id: made.id, promisedOn: "2026-10-26" });
+    expect(JSON.stringify(pastReplyAlert(made))).not.toMatch(/Alex|owner@/);
   });
 });

@@ -10,6 +10,8 @@ import { OPS_REASON } from "@/lib/email/templates/context";
 import { renderOpsAlert, type OpsAlertPayload } from "@/lib/email/templates/ops_alert";
 import { ALLOWED_LOG_KEYS, describeError, log, type LogFields } from "@/lib/log";
 
+import { issueTabFor, NO_CLINIC_PAGE } from "./alert-wording/tabs";
+
 /**
  * Ops alerting: I1 in Annex X5 of the funnel and portal plan, one call per
  * thing a person at healdesk has to act on. The caller names the event and
@@ -380,11 +382,21 @@ export async function notifyOps(event: OpsEvent, fields: OpsFields): Promise<voi
  * detected by every minute's sender and every health probe until it goes;
  * ops needs to hear it once. Logs only when it raises, for the same reason.
  * Never throws.
+ *
+ * `display` is what the alert may print but is not about: a setup
+ * requester's business name and the day our reply was promised by (lane N1).
+ * Kept on the alert's row and in its email and Slack copy under the same
+ * allowlist as every field, but never in the log line, and never part of the
+ * alert's identity, so the key stays what it was before they were sent.
  */
-export async function notifyOpsOnce(event: OpsEvent, fields: OpsFields): Promise<void> {
+export async function notifyOpsOnce(
+  event: OpsEvent,
+  fields: OpsFields,
+  display: OpsFields = {},
+): Promise<void> {
   try {
     const kept = loggable(fields);
-    if (await raise(event, kept, "once")) log.error("ops alert", { ...kept, event });
+    if (await raise(event, kept, "once", display)) log.error("ops alert", { ...kept, event });
   } catch {
     // Nothing reaches the caller; see notifyOps.
   }
@@ -475,10 +487,16 @@ function dedupeKeyOf(fields: Record<string, string | number | boolean | null>): 
 const raisedInMemory = new Map<string, number>();
 
 /** Record the alert, unless an identical one is inside its window; mail it if recorded. */
-async function raise(event: OpsEvent, kept: LogFields, window: "hour" | "once"): Promise<boolean> {
+async function raise(
+  event: OpsEvent,
+  kept: LogFields,
+  window: "hour" | "once",
+  display: OpsFields = {},
+): Promise<boolean> {
   const now = new Date();
-  const fields = emailable(kept);
-  const dedupeKey = dedupeKeyOf(fields);
+  const identity = emailable(kept);
+  const dedupeKey = dedupeKeyOf(identity);
+  const fields = { ...emailable(display), ...identity };
 
   let alertId: string | null;
   try {
@@ -570,72 +588,49 @@ export async function opsClinicName(clinicId: unknown): Promise<string | null> {
   }
 }
 
-/**
- * The alerts whose clinic is best looked at on its onboarding page (its
- * channels, calendar writes, go-live and voice set-up); every other clinic
- * alert opens its care page (mail, deliveries, incidents, the way out).
- */
-const ONBOARDING_PAGE_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
-  "calendar_broken",
-  "calendar_degraded",
-  "calendar_recovered",
-  "calendar_write_stuck",
-  "go_live_held",
-  "web_widget_to_confirm",
-  "voice_provision_failed",
-  "voice_agent_drift",
-  "voice_direct_line_loops",
-  "practice_question_failed",
-  "practice_question_review_past_due",
-  "connection_broken",
-  // The lifecycle watch's waves about setup progress open the onboarding
-  // page; an undelivered reminder opens the care page, with the deliveries.
-  "lifecycle_no_progress",
-  "lifecycle_closing_soon",
-  "lifecycle_decision_due",
-  "lifecycle_waiting_on_us",
-  "lifecycle_waiting_on_us_long",
-  "lifecycle_channel_waiting",
-  "lifecycle_reminders_unanswered",
-  "lifecycle_closing_waiting_on_us",
-]);
-
-/** Alerts that count across clinics, whose link is the console's clinic list. */
-const SUMMARY_EVENTS: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
-  "calendar_writes_stuck_many",
-  "ops_digest_summary",
-]);
+/** The alert's anchor on its tab, `#<event>-<alert id>`, when the id is a uuid. */
+function issueAnchor(event: OpsEvent, alertId: string | null | undefined): string {
+  return typeof alertId === "string" && UUID.test(alertId) ? `#${event}-${alertId.toLowerCase()}` : "";
+}
 
 /**
  * The one console link for an alert, which its email and its Slack copy
- * both print (owner decision D3, 23 October 2026): the clinic's page on the
- * ops console, `<HEALDESK_CONSOLE_ORIGIN>/admin/ops/<clinic id>/<page>`, ids
- * alone in the URL. Null when the alert names no clinic or the origin is
- * unset, which turns links off. The console stays behind its own sign-in.
- * Kept to this one shape on purpose: the admin redesign takes it over.
+ * both print (owner decision D3, 23 October 2026): the console's one issue
+ * shape, `<HEALDESK_CONSOLE_ORIGIN>/admin/clinics/<clinic id>/<tab>#<event>-<alert id>`
+ * (apps/web lib/admin/issue-link.ts `issueLink`), the tab the one that owns
+ * the event (./alert-wording/tabs.ts, held to apps/web's `issueTabFor` by a
+ * test), the alert id its ops_alerts row's. Ids alone in the URL. An alert
+ * about no clinic opens the page that owns it (NO_CLINIC_PAGE), or links
+ * nowhere. Null when the origin is unset, which turns links off. The console
+ * stays behind its own sign-in.
  */
-export function opsConsoleLink(event: OpsEvent, fields: Readonly<Record<string, unknown>>): string | null {
+export function opsConsoleLink(
+  event: OpsEvent,
+  fields: Readonly<Record<string, unknown>>,
+  alertId?: string | null,
+): string | null {
   const origin = consoleOrigin();
   if (!origin) return null;
-  // A summary across clinics opens the clinics list.
-  if (SUMMARY_EVENTS.has(event)) return `${origin}/admin/ops`;
-  const clinicId = fields.clinicId;
-  if (typeof clinicId !== "string" || !UUID.test(clinicId)) return null;
-  const page = ONBOARDING_PAGE_EVENTS.has(event) ? "onboarding" : "care";
-  return `${origin}/admin/ops/${clinicId.toLowerCase()}/${page}`;
+  const path = opsConsolePath(event, fields, alertId);
+  return path ? `${origin}${path}` : null;
 }
 
 /**
  * The same page as opsConsoleLink, as a path with no origin: the ops inbox's
  * button on the console itself (lib/ops/inbox/ops-alerts.ts), which needs no
- * HEALDESK_CONSOLE_ORIGIN. Null when the alert names no clinic.
+ * HEALDESK_CONSOLE_ORIGIN. Without an alert id it opens the tab with no
+ * issue named. Null when the alert names no clinic and no page owns it.
  */
-export function opsConsolePath(event: OpsEvent, fields: Readonly<Record<string, unknown>>): string | null {
-  if (SUMMARY_EVENTS.has(event)) return "/admin/ops";
+export function opsConsolePath(
+  event: OpsEvent,
+  fields: Readonly<Record<string, unknown>>,
+  alertId?: string | null,
+): string | null {
   const clinicId = fields.clinicId;
-  if (typeof clinicId !== "string" || !UUID.test(clinicId)) return null;
-  const page = ONBOARDING_PAGE_EVENTS.has(event) ? "onboarding" : "care";
-  return `/admin/ops/${clinicId.toLowerCase()}/${page}`;
+  if (typeof clinicId === "string" && UUID.test(clinicId)) {
+    return `/admin/clinics/${clinicId.toLowerCase()}/${issueTabFor(event)}${issueAnchor(event, alertId)}`;
+  }
+  return NO_CLINIC_PAGE[event] ?? null;
 }
 
 /**
@@ -734,7 +729,7 @@ async function mail(
       // and never stored on the alert's row.
       const clinicName = await opsClinicName(fields.clinicId);
       // And its console link (D3), the one the Slack copy prints too.
-      const consoleUrl = opsConsoleLink(event, fields);
+      const consoleUrl = opsConsoleLink(event, fields, alertId);
       const payload: OpsAlertPayload = {
         ...fields,
         ...(clinicName ? { clinicName } : {}),

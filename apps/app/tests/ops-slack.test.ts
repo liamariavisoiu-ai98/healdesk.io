@@ -82,7 +82,8 @@ describe("the Slack allow-list", () => {
     for (const name of ["<!channel> Spa", "<!here>", "Glow <@U123|x>", "<https://evil.example|click>"]) {
       const text = slackText({ event: "calendar_broken", fields: { clinicId: CLINIC }, clinicName: name });
       // Every < and > the name brought is escaped: Slack sees text, not a mention or a link.
-      const nameLine = text.split("\n")[1]!;
+      // The name's line follows what happened (lane N1), so it is found by its id.
+      const nameLine = text.split("\n").find((line) => line.includes("clinic id"))!;
       expect(nameLine, name).not.toMatch(/[<>]/);
       expect(nameLine, name).toContain("&lt;");
     }

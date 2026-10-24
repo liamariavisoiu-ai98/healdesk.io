@@ -250,7 +250,7 @@ describeDb("opsInbox (lane A2)", () => {
       count: 2,
       sentence: expect.stringMatching(/\.$/),
       clinic: { id: a.clinicId, name: "inbox-a Clinic" },
-      button: { label: "Open clinic", kind: "link", href: `/admin/ops/${a.clinicId}/onboarding` },
+      button: { label: "Open clinic", kind: "link", href: `/admin/clinics/${a.clinicId}/setup` },
       tone: "bad",
       dueAt: null,
     });

@@ -89,12 +89,22 @@ describe("the link scanner and the console", () => {
 });
 
 describe("one link for the email and the Slack copy", () => {
-  test("is the clinic's console page, ids alone, and null without a clinic or an origin", () => {
+  // Since lane N1 (23 October 2026): the console's one issue shape,
+  // /admin/clinics/<clinic id>/<tab>#<event>-<alert id>, the tab apps/web's
+  // issueTabFor names (tests/alert-wording.test.ts holds the two together).
+  test("is the clinic's tab on the console with the alert's anchor, ids alone, and null without a clinic or an origin", () => {
+    const ALERT = "9a8b7c6d-1111-4222-8333-444455556666";
     expect(opsConsoleLink("critical_notice_undelivered", { clinicId: CLINIC })).toBe(
-      `https://healdesk.test/admin/ops/${CLINIC}/care`,
+      `https://healdesk.test/admin/clinics/${CLINIC}/deliveries`,
     );
     expect(opsConsoleLink("calendar_broken", { clinicId: CLINIC })).toBe(
-      `https://healdesk.test/admin/ops/${CLINIC}/onboarding`,
+      `https://healdesk.test/admin/clinics/${CLINIC}/setup`,
+    );
+    expect(opsConsoleLink("calendar_broken", { clinicId: CLINIC }, ALERT)).toBe(
+      `https://healdesk.test/admin/clinics/${CLINIC}/setup#calendar_broken-${ALERT}`,
+    );
+    expect(opsConsoleLink("incident_notice_overdue", { clinicId: CLINIC }, ALERT)).toBe(
+      `https://healdesk.test/admin/clinics/${CLINIC}/care#incident_notice_overdue-${ALERT}`,
     );
     expect(opsConsoleLink("dmarc_review_due", {})).toBeNull();
     expect(opsConsoleLink("calendar_broken", { clinicId: "not-a-uuid" })).toBeNull();
@@ -103,7 +113,8 @@ describe("one link for the email and the Slack copy", () => {
   });
 
   test("the email prints it as its one link, and passes the scanner", () => {
-    const consoleUrl = opsConsoleLink("calendar_broken", { clinicId: CLINIC })!;
+    const consoleUrl = opsConsoleLink("calendar_broken", { clinicId: CLINIC }, "9a8b7c6d-1111-4222-8333-444455556666")!;
+    expect(consoleUrl).toContain("#calendar_broken-");
     const rendered = renderOpsAlert({ event: "calendar_broken", clinicId: CLINIC, consoleUrl }, CTX);
     expect(rendered.text).toContain(consoleUrl);
     expect(rendered.html).toContain(consoleUrl);
@@ -113,8 +124,9 @@ describe("one link for the email and the Slack copy", () => {
   });
 
   test("the Slack copy prints the identical URL", () => {
-    const consoleUrl = opsConsoleLink("calendar_broken", { clinicId: CLINIC })!;
-    const text = slackText({ event: "calendar_broken", fields: { clinicId: CLINIC }, clinicName: null });
+    const alertId = "9a8b7c6d-1111-4222-8333-444455556666";
+    const consoleUrl = opsConsoleLink("calendar_broken", { clinicId: CLINIC }, alertId)!;
+    const text = slackText({ event: "calendar_broken", fields: { clinicId: CLINIC }, clinicName: null, alertId });
     expect(text).toContain(`<${consoleUrl}|Open in the console>`);
   });
 });

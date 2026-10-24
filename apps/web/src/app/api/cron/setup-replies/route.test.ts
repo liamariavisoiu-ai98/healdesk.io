@@ -8,18 +8,21 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
  */
 
 const state = vi.hoisted(() => ({
-  due: [] as { id: string; email: string; clinicName: string }[],
+  due: [] as { id: string; email: string; name?: string; clinicName: string; createdAt?: Date }[],
   relay: { ok: true, data: { raised: 0 } } as unknown,
   relayed: [] as string[][],
+  requests: [] as unknown[],
   mailed: [] as { to: string; subject: string; text: string; idempotencyKey?: string }[],
 }));
 
-vi.mock("@/lib/setup-requests", () => ({
+vi.mock("@/lib/setup-requests", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/setup-requests")>()),
   setupRequestsPastReply: async () => state.due,
 }));
 vi.mock("@/lib/admin/ops-client", () => ({
-  relaySetupRepliesPastDue: async (ids: string[]) => {
+  relaySetupRepliesPastDue: async (ids: string[], requests?: unknown) => {
     state.relayed.push(ids);
+    state.requests.push(requests);
     return state.relay;
   },
 }));
@@ -58,6 +61,7 @@ beforeEach(() => {
   ];
   state.relay = { ok: true, data: { raised: 2 } };
   state.relayed = [];
+  state.requests = [];
   state.mailed = [];
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -84,6 +88,22 @@ describe("GET /api/cron/setup-replies", () => {
     expect(await response.json()).toEqual({ ok: true, due: 2, raised: 2 });
     expect(state.relayed).toEqual([[A, B]]);
     expect(state.mailed).toEqual([]);
+  });
+
+  // Lane N1 (owner, 23 October 2026): with each id, the requester's business
+  // name when it is safe to print and the day our reply was promised by, so
+  // the alert says who is waiting and since when. Never the person's name or
+  // email, and never a name that could reach someone.
+  test("sends each id's business name and promised day, and nothing about the person", async () => {
+    state.due = [
+      { id: A, email: "owner@glowspa.test", name: "Dana Ortiz", clinicName: "Glow Spa", createdAt: new Date("2026-10-20T15:00:00Z") },
+      { id: B, email: "other@radiance.test", clinicName: "radiance.com 5551234567" },
+    ];
+    expect((await call()).status).toBe(200);
+    expect(state.relayed).toEqual([[A, B]]);
+    expect(state.requests).toEqual([[{ id: A, business: "Glow Spa", promisedOn: "2026-10-21" }, { id: B }]]);
+    const sent = JSON.stringify(state.requests);
+    for (const secret of ["owner@glowspa.test", "Dana Ortiz", "radiance", "5551234567"]) expect(sent).not.toContain(secret);
   });
 
   test("nothing due asks nobody", async () => {

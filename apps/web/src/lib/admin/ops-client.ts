@@ -976,17 +976,22 @@ const EMAIL_QUOTA_TIMEOUT_MS = 3_000;
  * promised a reply by, from the daily cron (app/api/cron/setup-replies), so
  * each raises `setup_request_reply_past_due` once in the one ops log. A relay
  * op like emailQuota: no session and no browser context, because the caller
- * is Vercel's cron, which the route authenticates itself. Only the Sheet's
- * random request ids cross, never a name or an address.
+ * is Vercel's cron, which the route authenticates itself. The Sheet's random
+ * request ids cross, and with each the requester's business name and the
+ * promised day (owner, 23 October 2026); never a person's name or an address.
  */
 export function relaySetupRepliesPastDue(
   requestIds: readonly string[],
+  // Each id with the requester's business name and the day our reply was
+  // promised by (lib/setup-requests.ts pastReplyAlert; lane N1). An apps/app
+  // older than this ignores them and raises by id, as before.
+  requests?: readonly { id: string; business?: string; promisedOn?: string }[],
 ): Promise<OpsResult<{ raised: number }>> {
   return send(
     "setupRepliesPastDue",
     "write",
     (value) => ({ raised: count(object(value, "setupRepliesPastDue").raised, "setupRepliesPastDue.raised") }),
-    { requestIds: [...requestIds] },
+    { requestIds: [...requestIds], ...(requests ? { requests: requests.map((r) => ({ ...r })) } : {}) },
     { context: false, timeoutMs: SETUP_REPLIES_TIMEOUT_MS },
   );
 }

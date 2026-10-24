@@ -90,7 +90,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "Until it goes through, what Stripe bills and what the clinic has do not match. A change this late usually means nothing is carrying changes out at all.",
     steps: [
-      "Open the Jobs page under System and check whether the billing-requests row reads on. If it reads off, ask the owner before pressing Turn on: it carries out every waiting billing change for every clinic, plan starts that charge cards included. Billing requests not done under Requires your attention on the System page counts every clinic's change still waiting, so you can see whether this is one clinic or all.",
+      "Open the Jobs page under System and check whether the billing-requests row reads on. If it reads off, ask the owner before pressing Turn on: it carries out every waiting billing change for every clinic, plan starts that charge cards included. Billing requests not done under Requires your attention on the System page counts every clinic's waiting change, so a count much above one means it is not this clinic alone.",
       "Open the clinic's Billing tab and find the row marked STUCK under Billing requests. Its attempts and last error say whether it is being tried or only waiting.",
       "Press Retry on the row if it shows no attempt for an hour while the job is on. If the last error says the card was refused or the subscription has ended, ask the owner instead.",
       "Check the row under Billing requests an hour later. You are done when it reads done.",

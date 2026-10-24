@@ -305,9 +305,12 @@ notice ten minutes late is also `/api/health` answering 503 ("The signals" above
 count at 70 is Resend's free-plan quota of 100 a day, sign-in links and urgent alerts
 included: tell the owner the Resend account needs its paid plan, and hold back optional
 sends (setup links, agreement copies) until midnight UTC. System › "Requires your attention"
-counts, by clinic, the emails waiting to send (once the oldest has waited an hour; before
-that under "Being watched"), those that could not be sent and will not be tried again in
-the last 7 days, and the last day's bounces, spam reports and blocks (lib/ops/inbox/queues.ts);
+counts, by clinic, the emails waiting to send (only those already due, and a retry re-dates
+an email, so one waiting between retries is not counted: the count says whether mail in
+general is stuck, not whether one notice is late; under "Requires your attention" once the
+oldest has waited an hour, before that under "Being watched"), those that could not be sent
+and will not be tried again, for 7 days from when each was queued, and the last day's
+bounces, spam reports and blocks (lib/ops/inbox/queues.ts);
 a row with one clinic in it opens that clinic's Deliveries tab. A bounce on an address no
 account holds is counted nowhere.
 
@@ -347,7 +350,9 @@ Retell" (the read-back, saying what differs in words) and, while the clinic is f
 flag and recheck" (with the fresh code: clears the flag, resets the repair count and runs the
 check once; `lib/voice/provision.ts` `clearVoiceDriftFlag`). Drift is repaired by code up to
 three times, then flagged for a person, and a flagged clinic is skipped by the nightly check
-until the flag is cleared; after a clear, only a missing agent or number flags it again. A
+until the flag is cleared; in the check a clear runs, only a missing agent or number flags it
+again (the repair count was reset with the flag), and on later nights the three-repair rule
+applies as before. The card's confirm text says the same (lane P5c corrected it). A
 missing agent or number is never recreated by code: ask Retell support, or release the
 clinic's voice set-up and provision again. A `failed` set-up waits for Retry; a failed
 settings sync is retried by the hourly sweep by itself. Outage mode is a dashboard step,
@@ -365,8 +370,9 @@ writes not settled whose slot has not started, each with the reason in words
 (`components/admin/queue-words.ts`), the tries so far of five and the next try, and a "Retry"
 per row (`opRetryCalendarWrite`: reads Google back first, may go past the five, refuses a
 booking staff cancelled or marked). A write Google did not answer (a timeout, a lost reply, a
-429, a server error before the insert) is `unknown` and the desk sweep retries it on a ladder,
-2 min, 10 min, 30 min, 2 h, 6 h after each attempt, until the slot starts, five tries at most;
+429, a server error before the insert) is `unknown` and the desk sweep retries it 2 min, 10 min,
+30 min and 2 h after each failed try, five tries in all counting the first, until the slot starts
+(`WRITE_BACKOFF_MINUTES`; the fifth step, 6 h, is recorded and never run, `MAX_WRITE_ATTEMPTS`);
 settled reasons (deleted in the calendar, event id taken, not ours, no calendar connected, the
 target calendar refused, an access or connection break) are never retried by the sweep
 (`lib/booking/calendar.ts`, `CALENDAR_WRITE_REASONS`). `calendar_write_stuck` fires only for a
@@ -383,8 +389,11 @@ attempts and "Send again" where a sealed copy still exists. A copy unanswered 72
 goes, or undelivered after 30 days, is deleted and cannot be sent again; the clinic is told
 nothing was kept. Never ask apps/app for the words: there are none to read. System › "Requires
 your attention", "Transcript copies not delivered", lists every clinic with a copy waiting over
-72 hours, bounced or deleted unsent in the last 30 days, with counts and the oldest age in
-hours, linking to its Deliveries tab (`listUndeliveredTranscripts`, Phase 5).
+72 hours, bounced, or deleted undelivered (expired after 30 days, or unconfirmed 72 hours after
+an accepted send), among the copies queued in the last 60 days (`UNDELIVERED_WINDOW_DAYS`,
+twice the 30 days a copy can wait, so every copy that expired in the last 30 days is in it),
+with counts and the oldest held copy's age in hours, linking to its Deliveries tab
+(`listUndeliveredTranscripts`, Phase 5).
 
 ### Go live
 
@@ -404,8 +413,10 @@ the fresh code. A sign-in help request that matched no clinic is answered by han
 with no account detail in it. `step_up_phone_held`: phone cannot be billed per location yet
 (`lib/locations.ts` `phoneHeldByLocations`), and the owner decided on 24 October 2026 that
 phone does not stay on unbilled: the clinic switches "Phone" off under Channels in its
-portal's Settings (`lib/channels/switch.ts`: its calls then go to its direct line); nothing in
-the console flips that switch, and the plan is left as it is.
+portal's Settings, one switch for the whole account (`lib/channels/switch.ts`: its calls then
+go to its direct line); nothing in the console flips that switch, and the plan is left as it
+is. Phone the clinic on its direct line: with phone live its published number forwards to AYA.
+Done shows on the Billing tab's Channels card, whose Phone row ends "· switched off".
 
 ### Offboarding
 

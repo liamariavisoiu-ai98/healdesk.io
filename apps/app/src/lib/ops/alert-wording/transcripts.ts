@@ -24,7 +24,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Press Send again beside a Bounced row only once the new address is in effect, or the clinic has fixed its mailbox: until then the copy is kept and retried every hour, to the address on file. For a row that is Waiting to send, open the Map page under System and press Missing or broken first: Amazon's email setting must be in place for any to go.",
       "Phone the clinic if a row under Newest receipts says Deleted. For Deleted unanswered, ask whether that day's transcript arrived: Amazon accepted it but sent us no report, so the clinic may have it. For Deleted after 30 days it never arrived: say one transcript was lost and cannot be sent again. Never ask the clinic to read the transcript to you or to send it back.",
       "Tell whoever maintains the engine if several rows under Newest receipts say Deleted unanswered: delivery reports are not reaching us.",
-      "Check Newest receipts again. Transcript copies not delivered under Requires your attention on the System page lists every clinic with a copy waiting over 72 hours, bounced or deleted unsent, so you can see whether others are affected. You are done when the row shows Delivered, or the clinic has been told what happened to its copy.",
+      "Check Newest receipts again. Transcript copies not delivered under Requires your attention on the System page lists every clinic with a copy waiting over 72 hours, bounced, or deleted undelivered, so you can see whether others are affected. You are done when the row shows Delivered, or the clinic has been told what happened to its copy.",
     ],
   },
 };

@@ -68,7 +68,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "The buyer's money is taken and nothing answers for the clinic. Stripe resends the paid invoice for up to three days, so a short delay fixes itself; if the errors reach three, a separate alert says the order is stuck.",
     steps: [
       "Find the payment in Stripe's Dashboard, the newest paid first invoice from about when this alert was raised, to see the practice's name and address. Then open the Clinics page, newest first, and look for that practice. If it is listed, the account arrived and you are done.",
-      "Wait an hour if the error count is low: Stripe's next delivery usually makes the account. Paid orders without an account under Requires your attention on the System page counts this order, with how long it has waited, until the account exists.",
+      "Wait an hour if the error count is low: Stripe's next delivery usually makes the account. Paid orders without an account under Requires your attention on the System page counts this order, with how long the oldest has waited, until the account exists.",
       "Tell the owner the same day if the practice is still missing from the Clinics page, with this alert's code: the cause is in the error log, which only the owner can read. Do not create a clinic by hand.",
       "Check the Clinics page once more after the fix. You are done when the practice is listed, Paid orders without an account on the System page no longer counts it, and its Deliveries tab shows the welcome email under Reports and alerts.",
     ],

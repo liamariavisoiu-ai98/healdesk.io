@@ -47,8 +47,10 @@ const queues: OpsResult<{ queues: MachineQueue[]; partial: string[] }> = {
         href: `/admin/clinics/${CLINIC}/deliveries`,
       }),
       queue("pgboss_failed:ops-slack", { words: "Background jobs failed in ops-slack", count: 2, oldestAgeMinutes: 3 * 24 * 60, needsAttention: true, tone: "warn", href: "/admin/system/jobs" }),
-      queue("transcript_emails", { words: "Transcript copies not delivered", count: 4, oldestAgeMinutes: 80 * 60 }),
-      queue("billing_requests", { words: "Billing requests not done", count: 0 }),
+      // A clinic could not be read: the count is a floor.
+      queue("billing_requests_stuck", { words: "Billing requests not done", count: 5, oldestAgeMinutes: 70, needsAttention: true, tone: "warn", lowerBound: true }),
+      queue("transcript_emails", { words: "Transcript copies waiting for delivery", count: 4, oldestAgeMinutes: 80 * 60, lowerBound: true }),
+      queue("outbox_fine", { words: "Emails waiting to send today", count: 0 }),
       queue("billing_events_parked", { words: "Stripe events parked", count: 0 }),
     ],
     partial: [],
@@ -103,40 +105,45 @@ describe("Requires your attention", () => {
     expect(page).toContain("Emails waiting to send 3 oldest waiting 2 hours");
     expect(page).toContain("Emails to clinics that gave up after every attempt, in the last 7 days 1 oldest waiting 30 minutes");
     expect(page).toContain("Background jobs failed in ops-slack 2 oldest waiting 3 days");
+    // A count some clinic is missing from reads "at least".
+    expect(page).toContain("Billing requests not done at least 5 oldest waiting 1 hour");
     expect(html).toContain(`href="/admin/clinics/${CLINIC}/deliveries"`);
     expect(html).toContain('href="/admin/system/jobs"');
     expect(html).not.toContain(`href="${SELF}"`);
     // The fine queues are not here, and the transcript queue is never a row here (it has its own list below).
-    expect(page).not.toContain("Billing requests not done");
-    expect(page).not.toContain("Transcript copies not delivered 4");
+    expect(page).not.toContain("Emails waiting to send today");
+    expect(page).not.toContain("Transcript copies waiting for delivery");
     expect(page).not.toContain("Nothing needs you here.");
   });
 
-  test("Calendar writes stuck: one row per clinic with the count and the oldest problem, linking to its Setup tab's section", () => {
+  test("Calendar writes stuck: one row per clinic with the count and how many the sweep will not retry, linking to its Setup tab's section", () => {
     const html = renderToStaticMarkup(h(Attention, { queues, writes, transcripts }));
     const page = text(html);
     expect(html).toContain('id="calendar-writes"');
     expect(page).toContain("Calendar writes stuck");
-    expect(page).toContain("Radiance Med Spa 2 oldest gave up after 5 tries");
-    expect(page).toContain("Other Clinic 1 oldest failed");
+    expect(page).toContain("Radiance Med Spa 2 stuck, 1 will not be retried by itself");
+    expect(page).toContain("Other Clinic 1 stuck, 1 will not be retried by itself");
+    // Not an age: "oldest gave up after 5 tries" read as one.
+    expect(page).not.toContain("oldest gave up");
     expect(html).toContain(`href="/admin/clinics/${CLINIC}/setup#calendar-writes"`);
-    expect(page).not.toContain("Cut off");
-    expect(writesByClinic(writes.ok ? writes.data.writes : []).map((c) => [c.clinicName, c.count])).toEqual([
+    expect(page).not.toContain("Counts are of the first");
+    expect(writesByClinic(writes.ok ? writes.data.writes : []).map((c) => [c.clinicName, c.writes.length])).toEqual([
       ["Radiance Med Spa", 2],
       ["Other Clinic", 1],
     ]);
-    const cut = text(renderToStaticMarkup(h(Attention, { queues, writes: { ok: true, data: { ...writes.data, count: 140, truncated: true } }, transcripts })));
-    expect(cut).toContain("Cut off at 3: 140 stuck writes were found in all.");
+    const cut = renderToStaticMarkup(h(Attention, { queues, writes: { ok: true, data: { ...writes.data, count: 140, truncated: true } }, transcripts }));
+    expect(text(cut)).toContain("Counts are of the first 3 read; 140 stuck writes were found in all, so a clinic may have more, or be missing here.");
+    expect(cut).toMatch(/<p role="status" class="text-red-deep[^"]*">Counts are of the first/);
   });
 
-  test("Transcript copies not delivered: one row per clinic with the counts that are not zero and the oldest age, linking to its Deliveries tab", () => {
+  test("Transcript copies not delivered: one row per clinic in Home's words for the states, with the oldest held copy's age, linking to its Deliveries tab", () => {
     const html = renderToStaticMarkup(h(Attention, { queues, writes, transcripts }));
     const page = text(html);
     expect(html).toContain('id="transcripts"');
     expect(page).toContain("Transcript copies not delivered");
-    expect(page).toContain("Radiance Med Spa 1 overdue, 2 expired oldest waiting 3 days");
-    expect(page).toContain("Other Clinic 1 bounced, 1 unconfirmed");
-    expect(page).not.toContain("0 bounced");
+    expect(page).toContain("Radiance Med Spa 1 waiting more than 72 hours, 2 deleted unsent after 30 days oldest held copy queued 3 days ago");
+    expect(page).toContain("Other Clinic 1 bounced, 1 deleted after 72 hours with no answer from the mail service");
+    for (const old of ["overdue", "expired", "unconfirmed", "0 bounced"]) expect(page).not.toContain(old);
     expect(html).toContain(`href="/admin/clinics/${CLINIC}/deliveries"`);
     expect(html).toContain(`href="/admin/clinics/${OTHER}/deliveries"`);
   });
@@ -182,13 +189,22 @@ describe("Requires your attention", () => {
 });
 
 describe("Being watched", () => {
-  test("the queues that are fine, name and count, including the transcript queue and the zeros read in full; not those needing a person", () => {
+  test("the queues that are fine, name and count ('at least' when a clinic is missing), including the transcript queue and the zeros read in full; not those needing a person", () => {
     const page = text(renderToStaticMarkup(h(BeingWatched, { queues })));
     expect(page).toContain("Being watched");
-    expect(page).toContain("Transcript copies not delivered 4");
-    expect(page).toContain("Billing requests not done 0");
+    expect(page).toContain("Transcript copies waiting for delivery at least 4");
+    expect(page).toContain("Emails waiting to send today 0");
     expect(page).toContain("Stripe events parked 0");
-    expect(page).not.toContain("Emails waiting to send");
+    expect(page).not.toContain("Emails waiting to send 3");
     expect(page).not.toContain("Background jobs failed");
+    expect(page).not.toContain("Billing requests not done");
+  });
+
+  test("when every queue read needs a person it says they are above, never that nothing was read; an empty read says that", () => {
+    const allAbove = { ok: true as const, data: { queues: [queue("outbox", { words: "Emails waiting to send", count: 3, needsAttention: true })], partial: [] } };
+    const page = text(renderToStaticMarkup(h(BeingWatched, { queues: allAbove })));
+    expect(page).toContain("Every queue read is listed above.");
+    expect(page).not.toContain("No queue was read in full.");
+    expect(text(renderToStaticMarkup(h(BeingWatched, { queues: { ok: true, data: { queues: [], partial: ["Stripe events"] } } })))).toContain("No queue was read in full.");
   });
 });

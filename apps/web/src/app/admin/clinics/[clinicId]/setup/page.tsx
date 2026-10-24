@@ -16,10 +16,10 @@ import {
   fetchClinicBilling,
   fetchClinicChanges,
   fetchLifecycle,
+  fetchLifecycleIgnored,
   fetchStuckCalendarWrites,
   fetchVoiceAgentReport,
   fetchVoiceAgentStatus,
-  retryVoiceAgent as retryVoiceUpstream,
   runClinicAudit as runAuditUpstream,
   setLifecycleIgnored as setIgnoredUpstream,
   snoozeLifecycle as snoozeLifecycleUpstream,
@@ -45,7 +45,7 @@ import {
   type DepositPolicy,
   type MetaPlatform,
 } from "@/lib/admin/ops-client";
-import { clearVoiceDriftFlag as enterVoiceDriftClear } from "@/lib/admin/voice-drift";
+import { clearVoiceDriftFlag as enterVoiceDriftClear, retryVoiceAgentWithCode as enterVoiceRetry } from "@/lib/admin/voice-drift";
 import { isHostUnreachable } from "@/lib/host/state";
 
 import { AvailabilityChanges } from "./AvailabilityChanges";
@@ -54,7 +54,7 @@ import { ConnectLink } from "./ConnectLink";
 import { DemoVoiceAgent } from "./DemoVoiceAgent";
 import { OnboardingPanel } from "./OnboardingPanel";
 import { SetupSummary } from "./SetupSummary";
-import { SetupWindow, type SnoozeDays, type WindowDeadline } from "./SetupWindow";
+import { SetupWatchStub, SetupWindow, type SnoozeDays, type WindowDeadline } from "./SetupWindow";
 import { VoiceAgentCard } from "./VoiceAgentCard";
 
 /**
@@ -81,15 +81,17 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   const { clinicId } = await params;
   if (!isUuid(clinicId)) notFound();
 
-  // Eight reads, settled independently: the onboarding view, the clinic cards
+  // Nine reads, settled independently: the onboarding view, the clinic cards
   // (the agreement, channels and build line; not the whole Clinics strip),
   // the availability changes, this clinic's audits (no history: the page
   // does not show it), its lifecycle row alone, the billing view, whose
   // setup deadline is the live one the extension names, this clinic's voice
-  // set-up, and the stuck calendar writes (a cross-clinic read, filtered to
-  // this clinic below; demo clinics included so the demo clinic's own tab
-  // shows its own). One that fails costs its card.
-  const [view, cards, changes, audits, lifecycle, billing, voice, stuckWrites] = await Promise.all([
+  // set-up, the stuck calendar writes (a cross-clinic read, filtered to this
+  // clinic below; demo clinics included so the demo clinic's own tab shows
+  // its own), and the watch's ignore list for this clinic alone, read apart
+  // from the lifecycle row so a mark set before the watch's first tick is
+  // drawn. One that fails costs its card.
+  const [view, cards, changes, audits, lifecycle, billing, voice, stuckWrites, ignoreList] = await Promise.all([
     fetchOnboarding(clinicId),
     fetchClinicCards(),
     fetchClinicChanges({ clinicId }),
@@ -98,6 +100,7 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
     fetchClinicBilling(clinicId),
     fetchVoiceAgentStatus(clinicId),
     fetchStuckCalendarWrites({ includeDemo: true }),
+    fetchLifecycleIgnored(clinicId),
   ]);
   if (isHostUnreachable(view)) return <HostStandbyNotice what="Setup" />;
   const path = clinicTabPath(clinicId, "setup");
@@ -113,6 +116,13 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
   const deadline: WindowDeadline | null =
     entitlements?.setupDeadlineIso ? { at: entitlements.setupDeadlineAt ?? entitlements.setupDeadlineIso, iso: entitlements.setupDeadlineIso } : null;
   const canExtend = entitlements !== null && !entitlements.isPlanStarted && entitlements.status !== "canceled" && entitlements.status !== "purged";
+  // The voice card is for a clinic whose package has phone: the cards read
+  // says which channels were bought. A clinic the cards did not cover (a
+  // failed read, or one past the read's limit) keeps the card, since nothing
+  // says it has no phone.
+  const card = cards.ok ? (cards.data.cards.find((c) => c.id === clinicId.toLowerCase()) ?? null) : null;
+  const hasPhone = card === null || card.channels.some((c) => c.channel === "voice");
+  const onIgnoreList = ignoreList.ok && ignoreList.data.some((r) => r.clinicId === clinicId.toLowerCase());
 
   async function completeStep(step: string, note?: string) {
     "use server";
@@ -286,22 +296,25 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
     revalidatePath(path);
     return result;
   }
-  // The lifecycle watch's ignore list (lane P5d): an internal test account
-  // off the watch, or back on it. The clinic's id is this page's.
+  // The lifecycle watch's ignore list (lane P5d): one of healdesk's own test
+  // accounts off the watch, or back on it, with the closed reason word (apps/
+  // app clears the note itself when the mark is lifted). The clinic's id is
+  // this page's.
   async function setIgnored(ignored: boolean) {
     "use server";
-    const result = await setIgnoredUpstream(clinicId, ignored === true);
+    const result = await setIgnoredUpstream(clinicId, ignored === true, "internal_test_account");
     revalidatePath(path);
     revalidatePath("/admin/clinics");
     return result;
   }
   // The voice agent card (Phase 5, lane P5a's operations): one more
-  // provisioning run, the read-back against Retell, and the drift flag's
-  // clear, which enters through lib/admin/voice-drift.ts (the session, then
-  // the fresh code, then the signed request), never the raw ops client.
-  async function retryVoice() {
+  // provisioning run, which can buy a number, and the drift flag's clear,
+  // both entering through lib/admin/voice-drift.ts (the session, then the
+  // fresh code, then the signed request), never the raw ops client; and the
+  // read-back against Retell.
+  async function retryVoice(code: string) {
     "use server";
-    const result = await retryVoiceUpstream(clinicId);
+    const result = await enterVoiceRetry(clinicId, code);
     revalidatePath(path);
     return result;
   }
@@ -344,8 +357,10 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
           onSetIgnored={setIgnored}
         />
       ) : null}
+      {/* A clinic still in setup (the Billing tab's rule) that the watch has not seen yet, and is not the demo: the one line and the ignore control. */}
+      {!watched && lifecycle.ok && !demo && canExtend ? <SetupWatchStub ignored={onIgnoreList} onSetIgnored={setIgnored} /> : null}
       {!lifecycle.ok && !isHostUnreachable(lifecycle) ? <p role="status" className="text-red-deep mt-4 text-sm font-semibold">Could not read the setup window: {lifecycle.message}</p> : null}
-      <VoiceAgentCard read={voice} actions={{ retry: retryVoice, check: checkVoice, clearFlag: clearDriftFlag }} />
+      {hasPhone ? <VoiceAgentCard read={voice} actions={{ retry: retryVoice, check: checkVoice, clearFlag: clearDriftFlag }} /> : null}
       <CalendarWrites clinicId={clinicId} writes={stuckWrites} now={now} onRetry={retryCalendarWrite} />
       <AvailabilityChanges clinicId={clinicId} changes={changes} audits={audits} now={now} onRunAudit={runAudit} onAcknowledge={acknowledgeChange} />
       <OnboardingPanel

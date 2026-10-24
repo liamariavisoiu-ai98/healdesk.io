@@ -31,20 +31,30 @@ import type { ExtendDeadlineOutcome, LifecycleIgnoreOutcome, LifecycleRow, Lifec
  * What the header and the summary above already say (the stage chip, the
  * steps and channels left) is not said again here.
  *
- * "Do not watch this account" (Phase 5, lane P5b) takes an internal test
- * account off the lifecycle watch: no setup reminders recorded, no setup
- * alerts, no decision owed; its calendar, voice and billing alerts still
- * arrive. A clearly secondary control, asking once. The card still draws for
- * a clinic that is not watched, saying so ("Not watched (internal)") and
- * offering the way back; the decision controls are not drawn then, since
- * nothing is owed, and the recommendation sentence is apps/app's own for
- * that state.
+ * "Do not watch this account" (Phase 5, lane P5b) is for healdesk's own test
+ * accounts, which look like paying clinics to the lifecycle watch. It puts the
+ * account on the watch's ignore list (apps/app lib/lifecycle/ignore.ts),
+ * which exactly these read: the watch itself, so no setup-window wave goes
+ * to ops; Home's "needs a decision" and "ready to go live" rows; and the
+ * alert list, which drops the watch's waves for it. Nothing else reads the
+ * list: the clinic still gets its setup reminder emails every five days
+ * (lib/setup/reminders.ts), the account still closes at the end of its setup
+ * window unless the window is extended (the setup closure does not read it),
+ * and its calendar, voice and billing alerts still arrive. A clearly
+ * secondary control, asking once with that sentence. The card still draws
+ * for an account that is not watched, with apps/app's own recommendation
+ * sentence saying so, and offers the way back; the decision controls and the
+ * snooze row are not drawn then, since no wave is owed.
  */
 
 export const LET_CLOSE_CONFIRM =
   "The clinic's setup window will still close on its last day. The day-27 and day-30 warnings to ops stop; other alerts about this clinic continue.";
 
-export const IGNORE_CONFIRM = "No setup reminders or setup alerts for this account. Its calendar, voice and billing alerts still arrive.";
+export const IGNORE_CONFIRM =
+  "For healdesk's own test accounts. Ops stops getting this account's setup-window alerts, and it leaves Home's decision and go-live rows. The clinic still gets its setup reminder emails every five days, the account still closes at the end of its setup window unless the window is extended, and its calendar, voice and billing alerts still arrive.";
+
+export const IGNORED_DONE = "Not watched (internal): no more setup-window alerts to ops for this account. Its reminder emails and its closing day are unchanged.";
+export const WATCHED_DONE = "Watched again: setup-window alerts to ops and Home's decision and go-live rows resume for this account.";
 
 /** The ignore outcome as the one button pattern reads it. */
 function asIgnoreStatus(result: OpsResult<LifecycleIgnoreOutcome>): OpsResult<{ status: string; ignored: boolean; auditRecorded: boolean }> {
@@ -163,10 +173,12 @@ export function SetupWindow({
         <dd>{row.lastProgressAt ? day(row.lastProgressAt) : "none recorded"}</dd>
         <dt className="text-muted">Decision so far</dt>
         <dd>{decisionWords(row)}</dd>
-        <dt className="text-muted">Routine ops alerts</dt>
-        <dd>{row.snoozedUntil ? `snoozed until ${day(row.snoozedUntil)}${row.snoozedBy ? ` by ${row.snoozedBy}` : ""}` : "on"}</dd>
-        <dt className="text-muted">Watch</dt>
-        <dd>{ignored ? "Not watched (internal)" : "watched: setup reminders and setup alerts run"}</dd>
+        {!ignored ? (
+          <>
+            <dt className="text-muted">Routine ops alerts</dt>
+            <dd>{row.snoozedUntil ? `snoozed until ${day(row.snoozedUntil)}${row.snoozedBy ? ` by ${row.snoozedBy}` : ""}` : "on"}</dd>
+          </>
+        ) : null}
       </dl>
 
       <p className="border-line mt-3 border-t pt-3 text-sm">{advice.reason}</p>
@@ -230,20 +242,43 @@ export function SetupWindow({
       ) : null}
 
       <div className="border-line mt-4 border-t pt-3">
-        {ignored ? (
-          <ActionButton
-            label="Watch this account again"
-            run={async () => asIgnoreStatus(await onSetIgnored(false))}
-            done={() => "Watched again: setup reminders and setup alerts run for this account from now."}
-          />
-        ) : (
-          <ActionButton
-            label="Do not watch this account"
-            confirm={IGNORE_CONFIRM}
-            run={async () => asIgnoreStatus(await onSetIgnored(true))}
-            done={() => "Not watched (internal): no setup reminders or setup alerts for this account."}
-          />
-        )}
+        <IgnoreControl ignored={ignored} onSetIgnored={onSetIgnored} />
+      </div>
+    </Section>
+  );
+}
+
+/** The one control that puts a test account on the watch's ignore list, or takes it off. */
+function IgnoreControl({ ignored, onSetIgnored }: { ignored: boolean; onSetIgnored: (ignored: boolean) => Promise<OpsResult<LifecycleIgnoreOutcome>> }) {
+  return ignored ? (
+    <ActionButton label="Watch this account again" run={async () => asIgnoreStatus(await onSetIgnored(false))} done={() => WATCHED_DONE} />
+  ) : (
+    <ActionButton label="Do not watch this account" confirm={IGNORE_CONFIRM} run={async () => asIgnoreStatus(await onSetIgnored(true))} done={() => IGNORED_DONE} />
+  );
+}
+
+/**
+ * The card for a clinic still in setup that the watch has not seen yet (its
+ * hourly tick is behind a switch seeded off, so a clinic can be weeks into
+ * setup with no row): one line saying so, and the ignore control, so a test
+ * account can be marked before the watch ever chases it. `ignored` is the
+ * ignore list's own row, read apart from the watch; a mark set this way is
+ * drawn here and can be undone here.
+ */
+export function SetupWatchStub({
+  ignored,
+  onSetIgnored,
+}: {
+  ignored: boolean;
+  onSetIgnored: (ignored: boolean) => Promise<OpsResult<LifecycleIgnoreOutcome>>;
+}) {
+  return (
+    <Section id="setup-window" title="Setup window">
+      <p className="text-sm">
+        {ignored ? "Not watched (internal): one of healdesk's own test accounts, and not on the setup watch yet." : "Not on the setup watch yet."}
+      </p>
+      <div className="mt-3">
+        <IgnoreControl ignored={ignored} onSetIgnored={onSetIgnored} />
       </div>
     </Section>
   );

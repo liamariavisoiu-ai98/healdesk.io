@@ -3,41 +3,38 @@
 import { useState } from "react";
 
 import { ActionButton, CodeField, Failure, isCompleteCode, Section, type ActionOutcome } from "@/components/admin/ui";
-import { problemsWords, scrubContact, VOICE_ENGINE_WORDS, VOICE_STATUS_WORDS } from "@/components/admin/voice-words";
-import type {
-  OpsResult,
-  RetryVoiceAgentOutcome,
-  VoiceAgentReportView,
-  VoiceAgentStatusView,
-} from "@/lib/admin/ops-client";
-import type { ClearVoiceDriftFlagEntry } from "@/lib/admin/voice-drift";
+import { isPermanentRefusal, problemsWords, scrubContact, somethingGone, voiceStatusWords } from "@/components/admin/voice-words";
+import type { OpsResult, VoiceAgentReportView, VoiceAgentStatusView } from "@/lib/admin/ops-client";
+import type { ClearVoiceDriftFlagEntry, RetryVoiceAgentEntry } from "@/lib/admin/voice-drift";
 
 /**
  * The Setup tab's "Voice agent" card (ops automation Phase 5, lane P5b;
  * design E3 §2.4): one clinic's Retell set-up in words, and the three
  * controls the voice alerts quote. "Retry" runs one more provisioning run
- * under every guard a scheduled run has; "Check against Retell" reads the
- * agent and number back (GET requests, never a call placed) and says what
- * differs; "Clear flag and recheck" is drawn only while the clinic is
- * flagged as drifted, and asks for a fresh code from the operator's
- * authenticator, checked on this app before anything crosses
- * (lib/admin/voice-drift.ts), the way the Account tab's device acts do.
+ * under every guard a scheduled run has; it can buy a phone number, so it
+ * goes through lib/admin/voice-drift.ts with a fresh code from the
+ * operator's authenticator, checked on this app before anything crosses,
+ * and asks once more when a number may be bought. "Check against Retell"
+ * reads the agent and number back (GET requests, never a call placed) and
+ * says what differs. "Clear flag and recheck" is drawn only while the clinic
+ * is flagged as drifted and enters the same way, with the same code field.
  *
  * Never a phone number: apps/app sends whether one is held, the ops client
  * drops the number a ready retry binds, and the one free-text field here
  * (our own last reason) is scrubbed of anything shaped like one. A button
  * that the state does not allow is not drawn, and the line beside says why:
  * a ready agent has nothing to retry; one being set up or released is left
- * to finish.
+ * to finish; a released one has nothing left to read back.
  */
 
 export type VoiceAgentActions = {
-  retry: () => Promise<OpsResult<RetryVoiceAgentOutcome>>;
+  retry: (code: string) => Promise<OpsResult<RetryVoiceAgentEntry>>;
   check: () => Promise<OpsResult<{ agents: VoiceAgentStatusView[]; report: VoiceAgentReportView | null }>>;
   clearFlag: (code: string) => Promise<OpsResult<ClearVoiceDriftFlagEntry>>;
 };
 
 export const CLEAR_FLAG_CONFIRM = "Clears the drift flag and runs the Retell check once. The flag comes back if Retell still differs.";
+export const BUY_NUMBER_CONFIRM = "This may buy a phone number for the clinic.";
 
 function day(iso: string): string {
   return iso.slice(0, 10);
@@ -48,17 +45,27 @@ type Said = { status: "done" | "refused"; message: string };
 const done = (message: string): OpsResult<Said> => ({ ok: true, data: { status: "done", message } });
 const refused = (message: string): OpsResult<Said> => ({ ok: true, data: { status: "refused", message } });
 
-/** A retry's outcome as one sentence: ready, already set up, not allowed yet and why, or failed. */
-export function retryWords(result: OpsResult<RetryVoiceAgentOutcome>): OpsResult<Said> {
+/** What a retry found already there (apps/app answers `already` only for these three). */
+const ALREADY_WORDS: Record<VoiceAgentStatusView["status"], string> = {
+  ready: "the agent is already ready",
+  deprovisioning: "the agent is being released",
+  released: "the agent and number were already given back",
+  pending: "the agent is queued for its first run",
+  provisioning: "the agent is being set up",
+  failed: "the agent's set-up failed",
+};
+
+/** A retry's outcome as one sentence: ready, already set up, not allowed (for good, or yet) and why, failed, code refused. */
+export function retryWords(result: OpsResult<RetryVoiceAgentEntry>): OpsResult<Said> {
   if (!result.ok) return result;
   const r = result.data;
   switch (r.outcome) {
     case "ready":
       return done(`Ready: the agent is set up${r.adopted ? ", adopting the agent the clinic already had" : ""}, and a number is held.`);
     case "already":
-      return done(`Already ${VOICE_STATUS_WORDS[r.status].toLowerCase()}: nothing was run.`);
+      return done(`Nothing was run: ${ALREADY_WORDS[r.status]}.`);
     case "not_eligible":
-      return refused(`Not allowed yet: ${scrubContact(r.reason)}.`);
+      return refused(`${isPermanentRefusal(r.reason) ? "Not allowed" : "Not allowed yet"}: ${scrubContact(r.reason)}.`);
     case "switched_off":
       return refused("Not allowed yet: the owner's switch for voice provisioning is off.");
     case "no_key":
@@ -68,7 +75,9 @@ export function retryWords(result: OpsResult<RetryVoiceAgentOutcome>): OpsResult
     case "failed":
       return refused(`Failed (${r.code.replace(/_/g, " ")}): ${scrubContact(r.reason)}.`);
     case "retry":
-      return refused(`Not done this time: ${scrubContact(r.reason)}. The scheduled run tries again.`);
+      return refused(`Not done this time: ${scrubContact(r.reason)}. The hourly run tries again while the voice provisioning switch is on.`);
+    case "code_refused":
+      return refused(r.message);
     case "not_found":
       return refused("No such clinic.");
   }
@@ -84,7 +93,11 @@ export function checkWords(result: OpsResult<{ agents: VoiceAgentStatusView[]; r
   return refused(`Differs from Retell: ${problemsWords(report.problems)}.`);
 }
 
-/** The clear's outcome as one sentence: cleared (and what the check found), still drifted, code refused. */
+/** Who acts when the check finds the agent or the number gone at Retell: the nightly check cannot put either back. */
+export const GONE_AT_RETELL =
+  "The nightly check cannot put that back: ask Retell support what happened to it, or have whoever maintains the engine release this clinic's voice set-up and run provisioning again.";
+
+/** The clear's outcome as one sentence: cleared (and what the check found), still drifted with the problem and who acts, code refused. */
 export function clearWords(result: OpsResult<ClearVoiceDriftFlagEntry>): OpsResult<Said> {
   if (!result.ok) return result;
   const r = result.data;
@@ -102,7 +115,7 @@ export function clearWords(result: OpsResult<ClearVoiceDriftFlagEntry>): OpsResu
       }
       break;
     case "still_drifted":
-      return refused(`Still drifted: ${problemsWords(r.problems)}. The flag stays.`);
+      return refused(`Still drifted: ${problemsWords(r.problems)}. The flag stays.${somethingGone(r.problems) ? ` ${GONE_AT_RETELL}` : ""}`);
     case "code_refused":
       return refused(r.message);
     case "not_flagged":
@@ -113,22 +126,36 @@ export function clearWords(result: OpsResult<ClearVoiceDriftFlagEntry>): OpsResu
   return refused("The answer could not be read.");
 }
 
-/** Whether a retry is a thing to offer in this state, and the one line that says why when it is not. */
+/**
+ * Whether a retry is a thing to offer in this state, and the one line that
+ * says why when it is not. A `provisioning` row with a last reason is a run
+ * that stopped, so it may be retried; one without is a run in progress.
+ */
 export function retryAllowed(agent: VoiceAgentStatusView | null): { allowed: boolean; why: string | null } {
   if (agent === null) return { allowed: true, why: null };
   switch (agent.status) {
     case "pending":
     case "failed":
       return { allowed: true, why: null };
+    case "provisioning":
+      return agent.lastError ? { allowed: true, why: null } : { allowed: false, why: "Nothing to retry while it is being set up: wait for the run to finish." };
     case "ready":
       return { allowed: false, why: "Nothing to retry: the agent is ready." };
-    case "provisioning":
-      return { allowed: false, why: "Nothing to retry while it is being set up: wait for the run to finish." };
     case "deprovisioning":
       return { allowed: false, why: "Nothing to retry while it is being released." };
     case "released":
       return { allowed: false, why: "Nothing to retry: the agent and number were given back." };
   }
+}
+
+/** A retry may buy a number when none is held yet: before the first run, or after a run that stopped before the number. */
+export function mayBuyNumber(agent: VoiceAgentStatusView | null): boolean {
+  return agent === null || !agent.hasNumber;
+}
+
+/** The read-back has something to compare while the agent is kept; a released or releasing set-up has nothing left. */
+export function checkAllowed(agent: VoiceAgentStatusView | null): boolean {
+  return agent !== null && agent.status !== "released" && agent.status !== "deprovisioning";
 }
 
 const sentence = (said: ActionOutcome) => said.message ?? null;
@@ -138,6 +165,9 @@ export function VoiceAgentCard({ read, actions }: { read: OpsResult<VoiceAgentSt
   const agent = read.ok ? (read.data[0] ?? null) : null;
   const retry = retryAllowed(agent);
   const flagged = agent?.driftFlaggedAt ?? null;
+  const needsCode = read.ok && (retry.allowed || flagged !== null);
+  // The status line already carries the reason for a run that stopped; the row would say it twice.
+  const problemInStatus = agent?.status === "provisioning" && Boolean(agent.lastError);
 
   return (
     <Section id="voice" title="Voice agent">
@@ -148,15 +178,15 @@ export function VoiceAgentCard({ read, actions }: { read: OpsResult<VoiceAgentSt
       {agent ? (
         <dl className="grid gap-1 text-sm sm:grid-cols-[max-content_1fr] sm:gap-x-4">
           <dt className="text-muted">Status</dt>
-          <dd>{VOICE_STATUS_WORDS[agent.status]}</dd>
+          <dd>{voiceStatusWords(agent)}</dd>
           <dt className="text-muted">Phone number</dt>
           <dd>{agent.hasNumber ? "one is held" : "none held yet"}</dd>
-          <dt className="text-muted">Engine</dt>
-          <dd>{VOICE_ENGINE_WORDS[agent.engine]}</dd>
-          <dt className="text-muted">Last problem</dt>
-          <dd>{agent.lastError ? scrubContact(agent.lastError) : "none recorded"}</dd>
-          <dt className="text-muted">Attempts</dt>
-          <dd>{agent.attempts}</dd>
+          {!problemInStatus ? (
+            <>
+              <dt className="text-muted">Last problem</dt>
+              <dd>{agent.lastError ? scrubContact(agent.lastError) : "none recorded"}</dd>
+            </>
+          ) : null}
           <dt className="text-muted">Drift</dt>
           <dd>
             {flagged
@@ -169,26 +199,29 @@ export function VoiceAgentCard({ read, actions }: { read: OpsResult<VoiceAgentSt
       ) : null}
 
       {read.ok ? (
-        <div className="mt-3 flex flex-wrap items-start gap-3">
+        <form className="mt-4 flex flex-wrap items-end gap-3" onSubmit={(event) => event.preventDefault()}>
+          {needsCode ? <CodeField value={code} onChange={setCode} /> : null}
           {retry.allowed ? (
-            <ActionButton label="Retry" run={async () => retryWords(await actions.retry())} done={sentence} />
+            <ActionButton
+              label="Retry"
+              confirm={mayBuyNumber(agent) ? BUY_NUMBER_CONFIRM : undefined}
+              disabled={!isCompleteCode(code)}
+              run={async () => retryWords(await actions.retry(code))}
+              done={sentence}
+            />
           ) : (
             <p className="text-muted text-sm">{retry.why}</p>
           )}
-          {agent ? <ActionButton label="Check against Retell" run={async () => checkWords(await actions.check())} done={sentence} /> : null}
-        </div>
-      ) : null}
-
-      {flagged ? (
-        <form className="border-line mt-4 flex flex-wrap items-end gap-3 border-t pt-4" onSubmit={(event) => event.preventDefault()}>
-          <CodeField value={code} onChange={setCode} />
-          <ActionButton
-            label="Clear flag and recheck"
-            confirm={CLEAR_FLAG_CONFIRM}
-            disabled={!isCompleteCode(code)}
-            run={async () => clearWords(await actions.clearFlag(code))}
-            done={sentence}
-          />
+          {checkAllowed(agent) ? <ActionButton label="Check against Retell" run={async () => checkWords(await actions.check())} done={sentence} /> : null}
+          {flagged ? (
+            <ActionButton
+              label="Clear flag and recheck"
+              confirm={CLEAR_FLAG_CONFIRM}
+              disabled={!isCompleteCode(code)}
+              run={async () => clearWords(await actions.clearFlag(code))}
+              done={sentence}
+            />
+          ) : null}
         </form>
       ) : null}
     </Section>

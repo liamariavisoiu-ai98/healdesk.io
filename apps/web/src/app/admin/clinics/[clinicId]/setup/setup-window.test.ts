@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { UNAUDITED } from "@/components/admin/ui";
 import type { LifecycleRow } from "@/lib/admin/ops-client";
 
-import { daysLeft, defaultExtendDays, IGNORE_CONFIRM, LET_CLOSE_CONFIRM, SetupWindow } from "./SetupWindow";
+import { daysLeft, defaultExtendDays, IGNORE_CONFIRM, IGNORED_DONE, LET_CLOSE_CONFIRM, SetupWatchStub, SetupWindow, WATCHED_DONE } from "./SetupWindow";
 
 /**
  * The Setup tab's "Setup window" card (wave 2, lane A3): the watch's row in
@@ -87,19 +87,50 @@ describe("the card's words", () => {
     expect(page).not.toContain("undelivered");
     expect(html).toMatch(/aria-label="Days to extend by"[^>]*value="14"/);
     for (const label of ["Extend the setup window", "Offered a call", "Let it close", "Snooze alerts", "Do not watch this account"]) expect(page).toContain(label);
-    expect(page).toContain("Watch watched: setup reminders and setup alerts run");
+    // No "Watch" row: a watched clinic's state is the card itself, and an ignored one's is apps/app's sentence.
+    expect(page).not.toContain("Watch watched");
     expect(page).not.toContain("Not watched (internal)");
     expect(page).not.toContain("Watch this account again");
   });
 
-  test("a clinic not watched says so, owes no decision, keeps Extend, and offers the way back (lane P5b)", () => {
-    const page = text(renderToStaticMarkup(h(SetupWindow, { ...base, row: notWatched })));
-    expect(page).toContain("Watch Not watched (internal)");
+  test("a clinic not watched: apps/app's sentence says so once, no decision or snooze row, Extend kept, the way back offered (lane P5b)", () => {
+    const html = renderToStaticMarkup(h(SetupWindow, { ...base, row: notWatched }));
+    const page = text(html);
     expect(page).toContain("Not watched (internal): no setup reminders or alerts.");
+    expect(page.match(/Not watched \(internal\)/g)).toHaveLength(1);
+    expect(page).not.toContain("Routine ops alerts");
     for (const label of ["Offered a call", "Let it close", "Snooze alerts", "Do not watch this account"]) expect(page).not.toContain(label);
     expect(page).toContain("Extend the setup window");
     expect(page).toContain("Watch this account again");
-    expect(renderToStaticMarkup(h(SetupWindow, { ...base, row: notWatched }))).toContain('id="setup-window"');
+    expect(html).toContain('id="setup-window"');
+  });
+
+  test("the ignore sentences claim only what the ignore list does: ops alerts and Home's rows stop; the clinic's reminders and the closing day do not", () => {
+    for (const sentence of [IGNORE_CONFIRM, IGNORED_DONE]) {
+      expect(sentence).not.toMatch(/no setup reminders/i);
+      expect(sentence).toMatch(/reminder emails/);
+    }
+    expect(IGNORE_CONFIRM).toContain("For healdesk's own test accounts.");
+    expect(IGNORE_CONFIRM).toContain("still gets its setup reminder emails every five days");
+    expect(IGNORE_CONFIRM).toContain("still closes at the end of its setup window unless the window is extended");
+    expect(IGNORE_CONFIRM).toContain("calendar, voice and billing alerts still arrive");
+    expect(IGNORED_DONE).toContain("Its reminder emails and its closing day are unchanged.");
+    expect(WATCHED_DONE).toContain("Home's decision and go-live rows resume");
+  });
+
+  test("the stub card for a clinic the watch has not seen: one line and the ignore control, at the same anchor; an ignored one says so and offers the way back", () => {
+    const html = renderToStaticMarkup(h(SetupWatchStub, { ignored: false, onSetIgnored: NEVER }));
+    const page = text(html);
+    expect(html).toContain('id="setup-window"');
+    expect(page).toContain("Setup window");
+    expect(page).toContain("Not on the setup watch yet.");
+    expect(page).toContain("Do not watch this account");
+    expect(page).not.toContain("Window ends");
+    expect(page).not.toContain("Watch this account again");
+    const ignored = text(renderToStaticMarkup(h(SetupWatchStub, { ignored: true, onSetIgnored: NEVER })));
+    expect(ignored).toContain("Not watched (internal): one of healdesk's own test accounts, and not on the setup watch yet.");
+    expect(ignored).toContain("Watch this account again");
+    expect(ignored).not.toContain("Do not watch this account");
   });
 
   test("a decided, snoozed clinic says so; an extended one says 'Extended on'", () => {
@@ -248,13 +279,12 @@ describe("the four controls", () => {
     });
     expect(onSetIgnored).not.toHaveBeenCalled();
     expect(container.textContent).toContain(IGNORE_CONFIRM);
-    expect(IGNORE_CONFIRM).toBe("No setup reminders or setup alerts for this account. Its calendar, voice and billing alerts still arrive.");
     await act(async () => {
       button("Yes, do not watch this account").click();
     });
     await act(async () => {});
     expect(onSetIgnored).toHaveBeenCalledWith(true);
-    expect(statuses()).toContain("Not watched (internal): no setup reminders or setup alerts for this account.");
+    expect(statuses()).toContain(IGNORED_DONE);
 
     const back = vi.fn(async (ignored: boolean) => saved(ignored, false));
     await act(async () => {
@@ -265,6 +295,21 @@ describe("the four controls", () => {
     });
     await act(async () => {});
     expect(back).toHaveBeenCalledWith(false);
-    expect(statuses()).toContain(`Watched again: setup reminders and setup alerts run for this account from now. ${UNAUDITED}`);
+    expect(statuses()).toContain(`${WATCHED_DONE} ${UNAUDITED}`);
+
+    // The stub card's control sends the same argument.
+    const stub = vi.fn(async (ignored: boolean) => saved(ignored));
+    await act(async () => {
+      root.render(h(SetupWatchStub, { ignored: false, onSetIgnored: stub }));
+    });
+    await act(async () => {
+      button("Do not watch this account").click();
+    });
+    await act(async () => {
+      button("Yes, do not watch this account").click();
+    });
+    await act(async () => {});
+    expect(stub).toHaveBeenCalledWith(true);
+    expect(statuses()).toContain(IGNORED_DONE);
   });
 });

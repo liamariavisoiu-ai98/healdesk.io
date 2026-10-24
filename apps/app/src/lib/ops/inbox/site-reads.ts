@@ -24,7 +24,7 @@ export const siteReadsSource: InboxSource = {
           count: open,
           sentence: "Purchases whose website could not be read: read them again.",
           clinic: null,
-          button: { label: "Open site reads", kind: "link", href: "/admin/site-reads" },
+          button: { label: "Open site reads", kind: "link", href: "/admin/queues#site-reads" },
           tone: "warn",
           dueAt: null,
         },

@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 
@@ -21,7 +21,7 @@ import { runAuditPack, worstOf } from "@/lib/audits/run";
 import { JOB_CLINIC_AUDITS } from "@/lib/clinic/change-events";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
-import { withTenant } from "@/lib/tenant";
+import { withTenant, type TenantTx } from "@/lib/tenant";
 import { verifyVoiceAgent } from "@/lib/voice/provision";
 
 import { audit, clinicById, ok, opsProblem, stringArg, UUID_SHAPED, type Operator, type OpsOutcome } from "./api";
@@ -37,9 +37,10 @@ import { audit, clinicById, ok, opsProblem, stringArg, UUID_SHAPED, type Operato
  *     otherwise), and at most
  *     one each MANUAL_COOLDOWN_MS (`too_soon`), so a button pressed again and
  *     again runs once; `closed` for an account that has closed.
- *   - `clinicAudits {clinicId?}`, a read: per clinic, the newest result of
- *     each pack, an overall state and the last change; with `clinicId`, that
- *     clinic's history too. Codes, counts, fixed hints and times, never a
+ *   - `clinicAudits {clinicId?, history?, limit?}`, a read: per clinic, the
+ *     newest result of each pack, an overall state and the last change; with
+ *     `clinicId`, that clinic's history too (the newest 50 at most), unless
+ *     `history: false`. Codes, counts, fixed hints and times, never a
  *     name of a person, a date the clinic chose or anything it typed.
  */
 
@@ -213,58 +214,130 @@ export type ClinicAuditSummary = {
   clinicId: string;
   name: string;
   /** `audits_off`: changes wait for an audit while the clinic-audits job is switched off. */
-  overall: "pass" | "warn" | "fail" | "running" | "audits_off" | "never";
+  overall: AuditOverall;
   lastChange: { kind: ClinicChangeKind; at: string } | null;
   packs: Partial<
     Record<AuditPack, { result: AuditResult; at: string; trigger: AuditTrigger; failing: { id: string; hint: string | null }[] }>
   >;
 };
 
+export type AuditOverall = "pass" | "warn" | "fail" | "running" | "audits_off" | "never";
+
+/** The most history rows `clinicAudits` returns, newest first. */
+export const AUDIT_HISTORY_MAX = 50;
+
+/**
+ * Whether the clinic-audits job is switched on. One statement, across
+ * tenants: the switch is the scheduler's, not a clinic's.
+ */
+export async function clinicAuditsOn(): Promise<boolean> {
+  const [job] = await unsafeDb
+    .select({ enabled: scheduledJobs.enabled })
+    .from(scheduledJobs)
+    .where(eq(scheduledJobs.name, JOB_CLINIC_AUDITS))
+    .limit(1);
+  return job?.enabled === true;
+}
+
+/** What one clinic's audits say now: the newest row of each pack, its newest change, and whether a change waits. */
+export type ClinicAuditFacts = {
+  latest: ClinicAuditRow[];
+  change: { kind: ClinicChangeKind; at: Date } | null;
+  pending: boolean;
+};
+
+/**
+ * One clinic's audit facts, inside its tenant, in a FIXED two statements
+ * (the Clinics strip counts them): the newest row of each pack, and the
+ * newest change with whether any change is still queued or running.
+ */
+export async function readClinicAuditFacts(tx: TenantTx): Promise<ClinicAuditFacts> {
+  const latest = await tx.db
+    .selectDistinctOn([clinicAudits.pack])
+    .from(clinicAudits)
+    .where(eq(clinicAudits.clinicId, tx.clinicId))
+    .orderBy(clinicAudits.pack, desc(clinicAudits.startedAt), desc(clinicAudits.finishedAt));
+  const [change] = await tx.db
+    .select({
+      kind: clinicChangeEvents.kind,
+      at: clinicChangeEvents.changedAt,
+      pending: sql<boolean>`exists (select 1 from clinic_change_events p
+        where p.clinic_id = ${tx.clinicId} and p.audit_status in ('queued', 'running'))`,
+    })
+    .from(clinicChangeEvents)
+    .where(eq(clinicChangeEvents.clinicId, tx.clinicId))
+    .orderBy(desc(clinicChangeEvents.changedAt))
+    .limit(1);
+  return {
+    latest,
+    change: change ? { kind: change.kind, at: change.at } : null,
+    pending: change?.pending === true,
+  };
+}
+
+/**
+ * The one rule for a clinic's overall audit state, which the console's
+ * audits card, the Clinics strip and Home all read: a change still waiting
+ * is `running` while the audits are on and `audits_off` while they are off
+ * (nobody is checking it then); else the worst of each pack's newest
+ * result, an `error` read as `fail`; `never` with no audit at all.
+ */
+export function auditOverall(f: { pending: boolean; auditsOn: boolean; latest: readonly AuditResult[] }): AuditOverall {
+  if (f.pending) return f.auditsOn ? "running" : "audits_off";
+  if (f.latest.length === 0) return "never";
+  const worst = worstOf(f.latest);
+  return worst === "error" ? "fail" : worst;
+}
+
+/**
+ * `clinicAudits {clinicId?, history?, limit?}`. With `clinicId`, that
+ * clinic's history too, newest first and at most `limit` rows (1 to
+ * AUDIT_HISTORY_MAX, the default), unless `history: false`, for a page
+ * that does not show it. Without `clinicId` there is no history, and
+ * `history` or `limit` is refused rather than ignored.
+ */
 export async function opClinicAudits(args: Record<string, unknown>): Promise<OpsOutcome> {
   const clinicId = stringArg(args, "clinicId", 64);
   if (clinicId !== undefined && !UUID_SHAPED.test(clinicId)) {
     return opsProblem("A clinic id must be a uuid.", 400, "invalid_args");
   }
+  if (args.history !== undefined && typeof args.history !== "boolean") {
+    return opsProblem("history is true or false.", 400, "invalid_args");
+  }
+  const limitArg = args.limit;
+  if (
+    limitArg !== undefined &&
+    (typeof limitArg !== "number" || !Number.isInteger(limitArg) || limitArg < 1 || limitArg > AUDIT_HISTORY_MAX)
+  ) {
+    return opsProblem(`limit is a whole number from 1 to ${AUDIT_HISTORY_MAX}.`, 400, "invalid_args");
+  }
+  if (!clinicId && (args.history !== undefined || limitArg !== undefined)) {
+    return opsProblem("History is read for one clinic: pass its clinicId.", 400, "invalid_args");
+  }
+  const historyLimit = clinicId && args.history !== false ? ((limitArg as number | undefined) ?? AUDIT_HISTORY_MAX) : 0;
   try {
     const clinics = (await listClinics()).filter((c) => (clinicId ? c.id === clinicId : c.destroyedAt === null));
     // Changes left waiting while the audits are switched off are not being
     // checked by anyone: they read as `audits_off`, never `running`.
-    const [job] = await unsafeDb
-      .select({ enabled: scheduledJobs.enabled })
-      .from(scheduledJobs)
-      .where(eq(scheduledJobs.name, JOB_CLINIC_AUDITS))
-      .limit(1);
-    const auditsOn = job?.enabled === true;
+    const auditsOn = await clinicAuditsOn();
     const summaries: ClinicAuditSummary[] = [];
     let history: AuditView[] | null = null;
     for (const clinic of clinics) {
       const read = await withTenant({ clinicId: clinic.id, actor: READ_ACTOR }, async (tx) => {
-        const rows = await tx.db
-          .select()
-          .from(clinicAudits)
-          .where(eq(clinicAudits.clinicId, tx.clinicId))
-          .orderBy(desc(clinicAudits.startedAt), desc(clinicAudits.finishedAt));
-        const [change] = await tx.db
-          .select({ kind: clinicChangeEvents.kind, at: clinicChangeEvents.changedAt })
-          .from(clinicChangeEvents)
-          .where(eq(clinicChangeEvents.clinicId, tx.clinicId))
-          .orderBy(desc(clinicChangeEvents.changedAt))
-          .limit(1);
-        const [pending] = await tx.db
-          .select({ id: clinicChangeEvents.id })
-          .from(clinicChangeEvents)
-          .where(
-            and(
-              eq(clinicChangeEvents.clinicId, tx.clinicId),
-              inArray(clinicChangeEvents.auditStatus, ["queued", "running"]),
-            ),
-          )
-          .limit(1);
-        return { rows, change: change ?? null, pending: Boolean(pending) };
+        const facts = await readClinicAuditFacts(tx);
+        const rows =
+          historyLimit > 0
+            ? await tx.db
+                .select()
+                .from(clinicAudits)
+                .where(eq(clinicAudits.clinicId, tx.clinicId))
+                .orderBy(desc(clinicAudits.startedAt), desc(clinicAudits.finishedAt))
+                .limit(historyLimit)
+            : null;
+        return { facts, rows };
       });
       const packs: ClinicAuditSummary["packs"] = {};
-      for (const row of read.rows) {
-        if (packs[row.pack]) continue;
+      for (const row of read.facts.latest) {
         packs[row.pack] = {
           result: row.result,
           at: row.startedAt.toISOString(),
@@ -272,24 +345,20 @@ export async function opClinicAudits(args: Record<string, unknown>): Promise<Ops
           failing: row.checks.filter((c) => c.result !== "pass").map((c) => ({ id: c.id, hint: c.hint ?? null })),
         };
       }
-      const latest = Object.values(packs).map((p) => p!.result);
-      const worst = worstOf(latest);
       summaries.push({
         clinicId: clinic.id,
         name: clinic.name,
-        overall: read.pending
-          ? auditsOn
-            ? "running"
-            : "audits_off"
-          : latest.length === 0
-            ? "never"
-            : worst === "error"
-              ? "fail"
-              : worst,
-        lastChange: read.change ? { kind: read.change.kind, at: read.change.at.toISOString() } : null,
+        overall: auditOverall({
+          pending: read.facts.pending,
+          auditsOn,
+          latest: read.facts.latest.map((r) => r.result),
+        }),
+        lastChange: read.facts.change
+          ? { kind: read.facts.change.kind, at: read.facts.change.at.toISOString() }
+          : null,
         packs,
       });
-      if (clinicId) history = read.rows.map(auditView);
+      if (clinicId) history = read.rows ? read.rows.map(auditView) : null;
     }
     return ok({ clinics: summaries, history });
   } catch (error) {

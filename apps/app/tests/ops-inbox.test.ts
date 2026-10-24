@@ -17,13 +17,43 @@ vi.mock("@/lib/reporting/recipients", async (importOriginal) => {
   };
 });
 
+// Lane A4: one clinic's audit facts, or the whole lifecycle read, can be
+// made to fail, to prove each new source degrades on its own.
+const failingA4 = vi.hoisted(() => ({ auditClinicId: null as string | null, lifecycle: false }));
+vi.mock("@/lib/ops/audit-ops", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ops/audit-ops")>();
+  return {
+    ...actual,
+    readClinicAuditFacts: async (...args: Parameters<typeof actual.readClinicAuditFacts>) => {
+      if (failingA4.auditClinicId && args[0].clinicId === failingA4.auditClinicId) throw new Error("synthetic read failure");
+      return actual.readClinicAuditFacts(...args);
+    },
+  };
+});
+vi.mock("@/lib/ops/lifecycle-ops", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ops/lifecycle-ops")>();
+  return {
+    ...actual,
+    readLifecycleViews: async (...args: Parameters<typeof actual.readLifecycleViews>) => {
+      if (failingA4.lifecycle) throw new Error("synthetic read failure");
+      return actual.readLifecycleViews(...args);
+    },
+  };
+});
+
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
+
 import { POST as opsRoute } from "@/app/api/ops/route";
+import { setupDeadline } from "@/lib/clinic/setup-window";
+import { AVAILABILITY_WORDS } from "@/lib/ops/inbox/availability";
 import { isMutating, isOpName, parseEnvelope, runOperation, type Operator } from "@/lib/ops/api";
 import { orderInbox, readOpsInbox } from "@/lib/ops/inbox/run";
 import { INBOX_SOURCES } from "@/lib/ops/inbox/sources";
 import { INBOX_KINDS, type InboxRow, type InboxSource } from "@/lib/ops/inbox/types";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { seedAudit, seedChange, seedLifecycleRow, setClinicAudits } from "./setup/audit-lifecycle-seeds";
 import { inTenant, seedClinic } from "./setup/factories";
 
 /**
@@ -76,6 +106,41 @@ function row(rows: InboxRow[], id: string): InboxRow {
   return found;
 }
 
+/** apps/web's routes, read from its source: the inbox may only link to a page that exists and is not a redirect. */
+const WEB_APP = resolve(__dirname, "..", "..", "web", "src", "app");
+const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ISSUE_ANCHOR = /^[a-z0-9_]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function sourcesUnder(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return sourcesUnder(path);
+    return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [readFileSync(path, "utf8")] : [];
+  });
+}
+
+/**
+ * The href is a console page: under /admin/, a page.tsx that is not a
+ * permanent redirect, and a fixed anchor that some component on that route
+ * renders as an id. An issue anchor (`#<event>-<alert id>`) is drawn by the
+ * tab's issue list from the alert itself, so only its page is checked.
+ */
+function expectConsolePage(href: string): void {
+  expect(href.startsWith("/admin/"), href).toBe(true);
+  const [path, anchor] = href.split("#") as [string, string | undefined];
+  const segments = path.split("/").filter(Boolean).map((seg) => (UUID_SEGMENT.test(seg) ? "[clinicId]" : seg));
+  const dir = join(WEB_APP, ...segments);
+  const page = join(dir, "page.tsx");
+  expect(existsSync(page), `${href}: no page at ${page}`).toBe(true);
+  expect(readFileSync(page, "utf8"), `${href} is a retired address`).not.toMatch(/permanentRedirect\(/);
+  if (anchor && !ISSUE_ANCHOR.test(anchor)) {
+    expect(
+      sourcesUnder(dir).some((text) => text.includes(`id="${anchor}"`)),
+      `${href}: no element with id="${anchor}"`,
+    ).toBe(true);
+  }
+}
+
 function fake(id: string, over: Partial<InboxRow> = {}): InboxRow {
   return {
     id,
@@ -113,6 +178,8 @@ describe("the inbox's order (pure)", () => {
       "the support replies",
       "the Retell deletions",
       "the site reads",
+      "the availability audits",
+      "the setup decisions",
     ]);
     expect([...INBOX_KINDS]).toEqual([
       "ops_alert",
@@ -122,6 +189,8 @@ describe("the inbox's order (pure)", () => {
       "support_reply",
       "recording_alert",
       "site_read",
+      "availability",
+      "decision",
     ]);
   });
 });
@@ -250,19 +319,26 @@ describeDb("opsInbox (lane A2)", () => {
       count: 2,
       sentence: expect.stringMatching(/\.$/),
       clinic: { id: a.clinicId, name: "inbox-a Clinic" },
-      button: { label: "Open clinic", kind: "link", href: `/admin/clinics/${a.clinicId}/setup` },
+      button: { label: "Open clinic", kind: "link", href: expect.stringMatching(new RegExp(`^/admin/clinics/${a.clinicId}/setup#calendar_broken-[0-9a-f-]{36}$`)) },
       tone: "bad",
       dueAt: null,
     });
+    // The anchor names the newest of the clinic's calendar_broken alerts.
+    const anchored = row(rows, `alert:calendar_broken:${a.clinicId}`).button;
+    const { rows: newest } = await getMigratorPool().query<{ id: string }>(
+      `select id from ops_alerts where event = 'calendar_broken' and fields->>'clinicId' = $1 order by last_raised_at desc, id`,
+      [a.clinicId],
+    );
+    expect(newest.map((r) => r.id)).toContain(anchored.kind === "link" ? anchored.href.split("#calendar_broken-")[1] : null);
     expect(row(rows, "alert:daily_email_count_70:all")).toMatchObject({
       count: 1,
       clinic: null,
-      button: { kind: "link", href: "/admin/ops" },
+      button: { kind: "link", href: "/admin/clinics" },
       tone: "warn",
     });
     expect(row(rows, `alert:flag_alert:${b.clinicId}`)).toMatchObject({
       sentence: "A clinic flagged one of AYA's answers.",
-      button: { href: `/admin/ops/${b.clinicId}/care` },
+      button: { href: `/admin/clinics/${b.clinicId}/care` },
     });
     expect(rows.some((r) => r.id === "queue:billing_events_retrying")).toBe(false);
     for (const gone of ["support_reply_past_due", "calendar_recovered", "ops_digest", "transcript_undelivered"]) {
@@ -282,7 +358,7 @@ describeDb("opsInbox (lane A2)", () => {
       count: 1,
       sentence: "No conversations since going live, past day 7: check the call forwarding.",
       clinic: { id: live.clinicId, name: "inbox-live Clinic" },
-      button: { label: "Open clinic", kind: "link", href: `/admin/ops/${live.clinicId}/onboarding` },
+      button: { label: "Open clinic", kind: "link", href: `/admin/clinics/${live.clinicId}/setup` },
       tone: "warn",
       dueAt: null,
     });
@@ -293,7 +369,7 @@ describeDb("opsInbox (lane A2)", () => {
       count: 1,
       sentence: "Practice question reviews past the day promised.",
       clinic: { id: b.clinicId, name: "inbox-b Clinic" },
-      button: { label: "Open reviews", kind: "link", href: "/admin/reviews" },
+      button: { label: "Open reviews", kind: "link", href: "/admin/queues#reviews" },
       tone: "bad",
       dueAt: "2000-01-03",
     });
@@ -304,7 +380,7 @@ describeDb("opsInbox (lane A2)", () => {
       count: 2,
       sentence: "Support replies past the day promised.",
       clinic: { id: a.clinicId, name: "inbox-a Clinic" },
-      button: { label: "Open support", kind: "link", href: "/admin/support" },
+      button: { label: "Open support", kind: "link", href: "/admin/queues#support" },
       tone: "warn",
       dueAt: "2000-01-03",
     });
@@ -312,13 +388,13 @@ describeDb("opsInbox (lane A2)", () => {
     expect(row(rows, `recording:${b.clinicId}`)).toMatchObject({
       count: 1,
       clinic: { id: b.clinicId, name: "inbox-b Clinic" },
-      button: { href: "/admin/recordings" },
+      button: { href: "/admin/queues#retell-deletions" },
     });
 
     expect(row(rows, "site-read:all")).toMatchObject({
       count: 1,
       clinic: null,
-      button: { href: "/admin/site-reads" },
+      button: { href: "/admin/queues#site-reads" },
     });
 
     // Every row: the contract's keys, a known kind, one sentence that does
@@ -327,7 +403,7 @@ describeDb("opsInbox (lane A2)", () => {
       expect(Object.keys(r).sort()).toEqual(ROW_KEYS);
       expect((INBOX_KINDS as readonly string[]).includes(r.kind)).toBe(true);
       expect(r.button.kind).toBe("link");
-      if (r.button.kind === "link") expect(r.button.href.startsWith("/admin/")).toBe(true);
+      if (r.button.kind === "link") expectConsolePage(r.button.href);
       expect(r.sentence).toMatch(/^[A-Z0-9][^\n]*\.$/);
       if (r.clinic) expect(r.sentence).not.toContain(r.clinic.name);
       expect(r.sentence).not.toMatch(/Paid Practice|Unread Practice|unread\.example/);
@@ -475,5 +551,193 @@ describeDb("opsInbox (lane A2)", () => {
       reason: "Only the newest 500 alerts of the last day were read.",
     });
     expect(inbox.rows.find((r) => r.id === "alert:daily_email_count_70:all")?.count).toBe(500);
+  });
+  test("the two anchors Home's new rows open are rendered by apps/web's Setup tab", () => {
+    const setup = sourcesUnder(join(WEB_APP, "admin", "clinics", "[clinicId]", "setup")).join("\n");
+    expect(setup).toContain('id="availability"');
+    expect(setup).toContain('id="setup-window"');
+    expectConsolePage(`/admin/clinics/${randomUUID()}/setup#availability`);
+    expectConsolePage(`/admin/clinics/${randomUUID()}/setup#setup-window`);
+    // And the guard catches a retired address and a missing anchor.
+    expect(() => expectConsolePage(`/admin/ops/${randomUUID()}/care`)).toThrow();
+    expect(() => expectConsolePage(`/admin/clinics/${randomUUID()}/setup#no-such-card`)).toThrow();
+  });
+
+  test("availability: a failing or warning audit, changes nobody checks, and changes unseen for a day are each one row per clinic", async () => {
+    await setClinicAudits(false);
+    const failing = await seedClinic("inbox-av-fail");
+    await seedChange(failing.clinicId, { auditStatus: "attention", changedAt: new Date(Date.now() - 2 * DAY) });
+    await seedChange(failing.clinicId, { auditStatus: "attention", changedAt: new Date(Date.now() - 3 * DAY) });
+    await seedAudit(failing.clinicId, "availability", "fail");
+    await seedAudit(failing.clinicId, "roster", "pass");
+    const warning = await seedClinic("inbox-av-warn");
+    await seedAudit(warning.clinicId, "golive", "warn");
+    const unchecked = await seedClinic("inbox-av-off");
+    await seedChange(unchecked.clinicId, { auditStatus: "queued", changedAt: new Date(Date.now() - HOUR) });
+    const unseen = await seedClinic("inbox-av-unseen");
+    for (const days of [2, 3, 4]) {
+      await seedChange(unseen.clinicId, { auditStatus: "passed", changedAt: new Date(Date.now() - days * DAY) });
+    }
+    await seedChange(unseen.clinicId, { auditStatus: "passed", changedAt: new Date(Date.now() - 5 * DAY), seenAt: new Date() });
+    await seedAudit(unseen.clinicId, "availability", "pass");
+    // Nothing owed: a change an hour old, audited and passed; and one seen.
+    const fresh = await seedClinic("inbox-av-fresh");
+    await seedChange(fresh.clinicId, { auditStatus: "passed", changedAt: new Date(Date.now() - HOUR) });
+    await seedAudit(fresh.clinicId, "availability", "pass");
+    const seen = await seedClinic("inbox-av-seen");
+    await seedChange(seen.clinicId, { auditStatus: "passed", changedAt: new Date(Date.now() - 3 * DAY), seenAt: new Date() });
+
+    const { rows, unreadable } = await readOpsInbox(OPERATOR);
+    expect(unreadable).toEqual(await expectedUnreadable());
+    const mine = rows.filter((r) => r.kind === "availability");
+    expect(mine.map((r) => r.clinic?.id).sort()).toEqual(
+      [failing.clinicId, warning.clinicId, unchecked.clinicId, unseen.clinicId].sort(),
+    );
+    const link = (id: string) => ({ label: "Open availability", kind: "link", href: `/admin/clinics/${id}/setup#availability` });
+    expect(row(rows, `availability:${failing.clinicId}`)).toEqual({
+      id: `availability:${failing.clinicId}`,
+      kind: "availability",
+      count: 1,
+      sentence: AVAILABILITY_WORDS.fail,
+      clinic: { id: failing.clinicId, name: "inbox-av-fail Clinic" },
+      button: link(failing.clinicId),
+      tone: "warn",
+      dueAt: null,
+    });
+    expect(row(rows, `availability:${warning.clinicId}`)).toMatchObject({ count: 1, sentence: AVAILABILITY_WORDS.warn });
+    expect(row(rows, `availability:${unchecked.clinicId}`)).toMatchObject({
+      count: 1,
+      sentence: AVAILABILITY_WORDS.audits_off,
+      button: link(unchecked.clinicId),
+    });
+    expect(row(rows, `availability:${unseen.clinicId}`)).toMatchObject({ count: 3, sentence: AVAILABILITY_WORDS.unseen });
+
+    // With the audits on, the waiting change is being checked: no row for it.
+    await setClinicAudits(true);
+    try {
+      const on = await readOpsInbox(OPERATOR);
+      expect(on.rows.some((r) => r.id === `availability:${unchecked.clinicId}`)).toBe(false);
+    } finally {
+      await setClinicAudits(false);
+    }
+  });
+
+  test("needs a decision: every clinic the lifecycle view says owes one, with the recommendation, due on the window's last day", async () => {
+    const zone = "America/New_York";
+    const now = Date.now();
+    // In setup, stalled, two days left: red.
+    const closing = await seedClinic("inbox-dec-closing");
+    await seedLifecycleRow(closing.clinicId, {
+      stage: "in_setup",
+      stageSince: new Date(now - 20 * DAY),
+      stepsLeft: 3,
+      lastProgressAt: new Date(now - 12 * DAY),
+      deadlineAt: setupDeadline(new Date(now - 28 * DAY), zone),
+    });
+    // In setup, stalled, six days left: amber.
+    const stalled = await seedClinic("inbox-dec-stalled");
+    await seedLifecycleRow(stalled.clinicId, {
+      stage: "in_setup",
+      stageSince: new Date(now - 20 * DAY),
+      stepsLeft: 2,
+      lastProgressAt: new Date(now - 2 * DAY),
+      deadlineAt: setupDeadline(new Date(now - 24 * DAY), zone),
+    });
+    // Waiting on us for five days, twenty days left.
+    const waiting = await seedClinic("inbox-dec-waiting");
+    await seedLifecycleRow(waiting.clinicId, {
+      stage: "waiting_on_us",
+      stageSince: new Date(now - 5 * DAY),
+      deadlineAt: setupDeadline(new Date(now - 10 * DAY), zone),
+    });
+    // Owing nothing: decided already; early in the window; no lifecycle row.
+    const decided = await seedClinic("inbox-dec-decided");
+    await seedLifecycleRow(decided.clinicId, {
+      stage: "in_setup",
+      stepsLeft: 3,
+      deadlineAt: setupDeadline(new Date(now - 28 * DAY), zone),
+      decision: "let_close",
+    });
+    const early = await seedClinic("inbox-dec-early");
+    await seedLifecycleRow(early.clinicId, { stage: "in_setup", stepsLeft: 3, deadlineAt: setupDeadline(new Date(now - 3 * DAY), zone) });
+    const unwatched = await seedClinic("inbox-dec-unwatched");
+    for (const c of [closing, stalled, waiting, decided, early, unwatched]) {
+      await getMigratorPool().query(`update clinics set timezone = $2 where id = $1`, [c.clinicId, zone]);
+    }
+
+    const { rows, unreadable } = await readOpsInbox(OPERATOR);
+    expect(unreadable).toEqual(await expectedUnreadable());
+    const mine = rows.filter((r) => r.kind === "decision");
+    expect(mine.map((r) => r.clinic?.id).sort()).toEqual([closing.clinicId, stalled.clinicId, waiting.clinicId].sort());
+    const link = (id: string) => ({ label: "Decide", kind: "link", href: `/admin/clinics/${id}/setup#setup-window` });
+    const lastDay = (start: number) => {
+      const deadline = setupDeadline(new Date(start), zone);
+      return new Date(deadline.getTime() + 1 - DAY).toLocaleDateString("en-CA", { timeZone: zone });
+    };
+    expect(row(rows, `decision:${closing.clinicId}`)).toEqual({
+      id: `decision:${closing.clinicId}`,
+      kind: "decision",
+      count: 1,
+      sentence: expect.stringMatching(/^Setup has stalled with 2 days left; recommended: [a-z].*\.$/),
+      clinic: { id: closing.clinicId, name: "inbox-dec-closing Clinic" },
+      button: link(closing.clinicId),
+      tone: "bad",
+      dueAt: lastDay(now - 28 * DAY),
+    });
+    expect(row(rows, `decision:${stalled.clinicId}`)).toMatchObject({
+      sentence: expect.stringMatching(/^Setup has stalled with 6 days left; recommended: [a-z].*\.$/),
+      tone: "warn",
+      dueAt: lastDay(now - 24 * DAY),
+    });
+    expect(row(rows, `decision:${waiting.clinicId}`)).toMatchObject({
+      sentence: expect.stringMatching(/^The clinic has waited on us for over a business day; recommended: [a-z].*\.$/),
+      tone: "warn",
+      button: link(waiting.clinicId),
+    });
+    for (const r of mine) {
+      expect(r.sentence).not.toMatch(/_|\bnull\b|undefined/);
+      expect(r.sentence).not.toContain(r.clinic!.name);
+      expectConsolePage((r.button as { href: string }).href);
+    }
+    // Dated rows lead: the window closing soonest first.
+    expect(rows.filter((r) => r.dueAt !== null).map((r) => r.id).slice(0, 2)).toEqual([
+      `decision:${closing.clinicId}`,
+      `decision:${stalled.clinicId}`,
+    ]);
+  });
+
+  test("each new source degrades on its own: an unreadable clinic makes availability partial; an unreadable lifecycle loses only the decisions", async () => {
+    await setClinicAudits(false);
+    const good = await seedClinic("inbox-a4-good");
+    await seedChange(good.clinicId, { auditStatus: "queued" });
+    const bad = await seedClinic("inbox-a4-bad");
+    await seedChange(bad.clinicId, { auditStatus: "queued" });
+    const owed = await seedClinic("inbox-a4-owed");
+    await seedLifecycleRow(owed.clinicId, { stage: "waiting_on_us", stageSince: new Date(Date.now() - 5 * DAY) });
+
+    failingA4.auditClinicId = bad.clinicId;
+    try {
+      const inbox = await readOpsInbox(OPERATOR);
+      expect(inbox.unreadable).toContainEqual({ source: "the availability audits", reason: "1 clinic(s) could not be read." });
+      expect(inbox.rows.map((r) => r.id)).toEqual(
+        expect.arrayContaining([`availability:${good.clinicId}`, `decision:${owed.clinicId}`]),
+      );
+      expect(inbox.rows.some((r) => r.id === `availability:${bad.clinicId}`)).toBe(false);
+    } finally {
+      failingA4.auditClinicId = null;
+    }
+
+    failingA4.lifecycle = true;
+    try {
+      const inbox = await readOpsInbox(OPERATOR);
+      expect(inbox.unreadable).toContainEqual({ source: "the setup decisions", reason: "The read failed." });
+      expect(inbox.unreadable.some((u) => u.source === "the availability audits")).toBe(false);
+      expect(inbox.rows.some((r) => r.kind === "decision")).toBe(false);
+      expect(inbox.rows.map((r) => r.id)).toEqual(
+        expect.arrayContaining([`availability:${good.clinicId}`, `availability:${bad.clinicId}`]),
+      );
+    } finally {
+      failingA4.lifecycle = false;
+    }
   });
 });

@@ -1,11 +1,14 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
-import { clinicLifecycle } from "@/db/schema";
+import { unsafeDb } from "@/db";
+
+import { clinicLifecycle, opsAlerts } from "@/db/schema";
+import type { ActorContext, RequestContext } from "@/lib/audit";
 import { readLedger } from "@/lib/lifecycle/ledger";
 import { lifecycleView, type LifecycleView } from "@/lib/lifecycle/view";
 import { readLifecycleRow } from "@/lib/lifecycle/watch";
 import { describeError, log } from "@/lib/log";
-import { listClinics } from "@/lib/ops/clinics";
+import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -26,14 +29,15 @@ import {
  * the ops API's dispatch rather than in it. Ids, counts, dates, closed words
  * and the clinic's name; never a patient, never a notice's words.
  *
- *   - `listLifecycle`, a read: every billing clinic the watch has seen, its
- *     stage, steps left, days left, decision, snooze and the recommendation,
- *     those owing a decision first. healdesk's demo clinic is never in it:
+ *   - `listLifecycle {clinicId?}`, a read: every billing clinic the watch has
+ *     seen (or only the one named), its stage, steps left, days left,
+ *     decision, snooze and the recommendation, those owing a decision first. healdesk's demo clinic is never in it:
  *     the watch never observes its `demo` billing row, so it has no row. A
  *     paying clinic still classed synthetic before it goes live is a real
  *     one and is shown.
  *   - `listLifecycleWaves {clinicId}`, a read: the clinic's reminder ledger,
- *     each wave with its target, outcome and provider id.
+ *     each wave with its target, outcome and provider id, and for an ops
+ *     wave the event of the alert that carried it.
  *   - `snoozeLifecycle {clinicId, days: 3 | 7 | 14}`: mutes the clinic's ops
  *     waves until then. Never the clinic's own reminders.
  *   - `decideLifecycle {clinicId, decision}`: none, extension_offered or
@@ -71,24 +75,56 @@ function iso(value: Date | null): string | null {
 
 const STAGE_ORDER = ["waiting_on_us", "in_setup", "not_started", "partly_live", "live", "closed"];
 
+/** One watched clinic and its lifecycle view. */
+export type WatchedLifecycle = { clinic: ClinicOverview; view: LifecycleView };
+
+/**
+ * The lifecycle view of every billing clinic the watch has seen, or of the
+ * one named (any other id reads nothing), each in its own tenant, under the
+ * caller's actor. Locations and destroyed clinics have none. Throws when a
+ * clinic cannot be read. Home's "Needs a decision" rows read this too.
+ */
+export async function readLifecycleViews(options: {
+  actor: ActorContext;
+  request?: RequestContext;
+  now: Date;
+  clinicId?: string;
+}): Promise<WatchedLifecycle[]> {
+  const out: WatchedLifecycle[] = [];
+  const wanted = options.clinicId?.toLowerCase();
+  for (const clinic of await listClinics()) {
+    if (wanted !== undefined && clinic.id !== wanted) continue;
+    if (clinic.billingClinicId || clinic.destroyedAt) continue;
+    const view = await withTenant(
+      { clinicId: clinic.id, actor: options.actor, request: options.request },
+      async (tx) => {
+        const row = await readLifecycleRow(tx);
+        if (!row) return null;
+        return lifecycleView(row, await readLedger(tx), clinic.timezone, options.now);
+      },
+    );
+    if (view) out.push({ clinic, view });
+  }
+  return out;
+}
+
 export async function opListLifecycle(
-  _args: Record<string, unknown>,
+  args: Record<string, unknown>,
   operator: Operator,
   now: Date = new Date(),
 ): Promise<OpsOutcome> {
+  const raw = args.clinicId;
+  if (raw !== undefined && (typeof raw !== "string" || !UUID_SHAPED.test(raw))) {
+    return opsProblem("A clinic id must be a uuid.", 400, "invalid_args");
+  }
   try {
     const rows: LifecycleListRow[] = [];
-    for (const clinic of await listClinics()) {
-      if (clinic.billingClinicId || clinic.destroyedAt) continue;
-      const seen = await withTenant(
-        { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-        async (tx) => {
-          const row = await readLifecycleRow(tx);
-          if (!row) return null;
-          return lifecycleView(row, await readLedger(tx), clinic.timezone, now);
-        },
-      );
-      if (!seen) continue;
+    for (const { clinic, view: seen } of await readLifecycleViews({
+      actor: actorFor(operator),
+      request: operator.request,
+      now,
+      clinicId: raw,
+    })) {
       rows.push({
         ...seen,
         clinicId: clinic.id,
@@ -129,6 +165,17 @@ export async function opListLifecycleWaves(
       { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
       (tx) => readLedger(tx),
     );
+    // The event of the alert each ops wave carried (day_22 a decision or a
+    // closing-soon, say), from the ops log, which is not a tenant table.
+    const alertIds = [...new Set(waves.flatMap((w) => (w.opsAlertId ? [w.opsAlertId] : [])))];
+    const events = new Map<string, string>();
+    if (alertIds.length > 0) {
+      const found = await unsafeDb
+        .select({ id: opsAlerts.id, event: opsAlerts.event })
+        .from(opsAlerts)
+        .where(inArray(opsAlerts.id, alertIds));
+      for (const { id, event } of found) events.set(id, event);
+    }
     return ok({
       waves: waves.map((w) => ({
         id: w.id,
@@ -140,6 +187,7 @@ export async function opListLifecycleWaves(
         outcome: w.outcome,
         providerId: w.providerId,
         escalated: w.escalated,
+        event: w.opsAlertId ? (events.get(w.opsAlertId) ?? null) : null,
         manualBy: w.manualBy,
         skippedBecause: w.outcome === "skipped" ? w.error : null,
       })),

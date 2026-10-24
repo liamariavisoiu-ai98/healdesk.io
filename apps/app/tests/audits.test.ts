@@ -14,7 +14,7 @@ import { voiceOutsideCoverage } from "@/lib/billing/answering";
 import { recordClinicChange } from "@/lib/clinic/change-events";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { withTenant } from "@/lib/tenant";
-import { opClinicAudits, opRunClinicAudit, __setAuditDepsForTests } from "@/lib/ops/audit-ops";
+import { AUDIT_HISTORY_MAX, auditOverall, opClinicAudits, opRunClinicAudit, __setAuditDepsForTests } from "@/lib/ops/audit-ops";
 import { opAcknowledgeClinicChange, opListClinicChanges } from "@/lib/ops/change-ops";
 import type { Operator } from "@/lib/ops/api";
 import { saveKnowledge } from "@/lib/portal/knowledge";
@@ -54,6 +54,15 @@ const EVERY_DAY = Object.fromEntries(
 const LABEL = "Staff training at 12 Main Street";
 
 describe("the audit's pure parts", () => {
+  test("the overall rule: a waiting change is running or audits_off; else the worst pack, error read as fail; never with none", () => {
+    expect(auditOverall({ pending: true, auditsOn: true, latest: ["fail"] })).toBe("running");
+    expect(auditOverall({ pending: true, auditsOn: false, latest: [] })).toBe("audits_off");
+    expect(auditOverall({ pending: false, auditsOn: true, latest: [] })).toBe("never");
+    expect(auditOverall({ pending: false, auditsOn: false, latest: ["pass", "warn"] })).toBe("warn");
+    expect(auditOverall({ pending: false, auditsOn: false, latest: ["pass", "error", "warn"] })).toBe("fail");
+    expect(auditOverall({ pending: false, auditsOn: true, latest: ["pass", "pass"] })).toBe("pass");
+  });
+
   test("the worst result wins: error, fail, warn, pass", () => {
     expect(worstOf([])).toBe("pass");
     expect(worstOf(["pass", "warn"])).toBe("warn");
@@ -514,6 +523,51 @@ describeDb("the clinic audits", () => {
       await getMigratorPool().query(`update clinics set account_closed_at = now() where id = $1`, [f.clinicId]);
       const closed = await opRunClinicAudit({ clinicId: f.clinicId, pack: "transcripts" }, OPERATOR);
       expect(closed.body).toEqual({ data: { status: "closed" } });
+    },
+    SLOW,
+  );
+
+  test(
+    "history: the newest first, capped at 50 and at `limit`, none with history false; the summary reads each pack's newest whatever the cap",
+    async () => {
+      // 60 stored audits, as the migrator, oldest first: the availability
+      // pack's newest is the last one, a warn.
+      const start = Date.now() - 60 * 60_000;
+      for (let i = 0; i < 60; i++) {
+        await inTenant(f.clinicId, (client) =>
+          client.query(
+            `insert into clinic_audits (clinic_id, pack, trigger, result, checks, requested_by, started_at)
+             values ($1, $2, 'scheduled', $3, '[]'::jsonb, 'clinic-audits', $4)`,
+            [f.clinicId, i === 0 ? "golive" : "availability", i === 59 ? "warn" : "pass", new Date(start + i * 60_000)],
+          ),
+        );
+      }
+      type Read = { data: { clinics: { overall: string; packs: Record<string, { result: string }> }[]; history: { startedAt: string; pack: string }[] | null } };
+      const whole = (await opClinicAudits({ clinicId: f.clinicId })).body as Read;
+      expect(whole.data.history).toHaveLength(AUDIT_HISTORY_MAX);
+      const times = whole.data.history!.map((h) => Date.parse(h.startedAt));
+      expect([...times].sort((a, b) => b - a)).toEqual(times);
+      expect(whole.data.history!.some((h) => h.pack === "golive")).toBe(false);
+      // The pack summary still has the oldest pack, which the history cap cut.
+      expect(whole.data.clinics[0]!.packs).toMatchObject({ availability: { result: "warn" }, golive: { result: "pass" } });
+      expect(whole.data.clinics[0]!.overall).toBe("warn");
+
+      const five = (await opClinicAudits({ clinicId: f.clinicId, limit: 5 })).body as Read;
+      expect(five.data.history).toHaveLength(5);
+      const none = (await opClinicAudits({ clinicId: f.clinicId, history: false })).body as Read;
+      expect(none.data.history).toBeNull();
+      expect(none.data.clinics[0]!.packs).toEqual(whole.data.clinics[0]!.packs);
+
+      for (const args of [
+        { clinicId: f.clinicId, limit: 0 },
+        { clinicId: f.clinicId, limit: 51 },
+        { clinicId: f.clinicId, limit: 2.5 },
+        { clinicId: f.clinicId, history: "no" },
+        { history: false },
+        { limit: 5 },
+      ]) {
+        expect((await opClinicAudits(args)).status, JSON.stringify(args)).toBe(400);
+      }
     },
     SLOW,
   );

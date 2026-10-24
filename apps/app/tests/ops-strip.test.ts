@@ -22,7 +22,9 @@ import { isMutating, isOpName, parseEnvelope, runOperation, type Operator } from
 import type { Entitlements } from "@/db/schema";
 import type { ClinicOverview } from "@/lib/ops/clinics";
 import {
+  availabilityOf,
   calendarOf,
+  lastReminderOf,
   listClinicStrip,
   stageOf,
   STRIP_STATEMENTS_PER_CLINIC,
@@ -31,6 +33,7 @@ import {
   type StripFacts,
 } from "@/lib/ops/strip";
 
+import { seedAudit, seedChange, seedLifecycleRow, seedWave, setClinicAudits } from "./setup/audit-lifecycle-seeds";
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import {
   inTenant,
@@ -146,11 +149,13 @@ const ENUMS = new Set([
   "healthy", "degraded", "broken", "none",
   "ok", "drift", "failed", "not_provisioned",
   "voice", "web", "meta",
+  "pass", "warn", "fail", "running", "never",
 ]);
 
 describeDb("listClinicStrip (lane A2)", () => {
   const now = new Date();
   const seeded: Record<string, string> = {};
+  const changedAt: Record<string, Date> = {};
   let names: Map<string, string>;
 
   beforeAll(async () => {
@@ -269,11 +274,44 @@ describeDb("listClinicStrip (lane A2)", () => {
     const demo = await seedDemoClinic("strip-demo");
     seeded.demo = demo.clinicId;
 
+    // Lane A4: the audits and the lifecycle watch. The clinic-audits job is
+    // off unless a test turns it on.
+    await setClinicAudits(false);
+    // Day 3: a change two hours ago and a failing availability audit after
+    // it; the watch has a row and no reminder yet.
+    changedAt.early = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+    await seedChange(early.clinicId, { auditStatus: "attention", changedAt: changedAt.early });
+    await seedAudit(early.clinicId, "availability", "pass", new Date(now.getTime() - DAY));
+    await seedAudit(early.clinicId, "availability", "fail", new Date(now.getTime() - 60 * 60 * 1000));
+    await seedLifecycleRow(early.clinicId);
+    // Day 29: a change still waiting for an audit while the audits are off;
+    // reminders 4 and 5 recorded, then the after-live one and two ops waves,
+    // which have no setup-window day: the last reminder is day 25.
+    changedAt.late = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+    await seedChange(late.clinicId, { auditStatus: "passed", changedAt: new Date(now.getTime() - 5 * DAY) });
+    await seedChange(late.clinicId, { auditStatus: "queued", changedAt: changedAt.late });
+    await seedLifecycleRow(late.clinicId);
+    await seedWave(late.clinicId, "setup_reminder:4", { queuedAt: new Date(now.getTime() - 9 * DAY) });
+    await seedWave(late.clinicId, "setup_reminder:5", { queuedAt: new Date(now.getTime() - 4 * DAY) });
+    await seedWave(late.clinicId, "setup_reminder:live:web", { queuedAt: new Date(now.getTime() - 2 * DAY) });
+    await seedWave(late.clinicId, "day_22:2026-11-01", { target: "slack", queuedAt: new Date(now.getTime() - DAY) });
+    // Live on voice alone: every pack passed, nothing changed; watched.
+    for (const pack of ["availability", "roster", "golive", "transcripts"] as const) {
+      await seedAudit(half.clinicId, pack, "pass");
+    }
+    await seedLifecycleRow(half.clinicId, { stage: "live" });
+    // Paused: one pack warns, one passes; an older change, audited.
+    changedAt.paused = new Date(now.getTime() - 3 * DAY);
+    await seedChange(paused.clinicId, { auditStatus: "attention", changedAt: changedAt.paused });
+    await seedAudit(paused.clinicId, "availability", "warn");
+    await seedAudit(paused.clinicId, "roster", "pass");
+
     const { rows } = await migrator(`select id, name from clinics`, []);
     names = new Map(rows.map((r: { id: string; name: string }) => [r.id, r.name]));
   }, 240_000);
 
   afterAll(async () => {
+    await setClinicAudits(false);
     await closePools();
   });
 
@@ -293,12 +331,12 @@ describeDb("listClinicStrip (lane A2)", () => {
       synthetic: false,
       stage: { kind: "setup", day: 3, of: 30, deadlineAt: setupDeadline(new Date(now.getTime() - 3 * DAY), ZONE).toISOString() },
       channels: { web: "waiting", meta: "off", voice: "waiting" },
-      availability: null,
+      availability: { changedAt: changedAt.early!.toISOString(), audit: "fail" },
       calendar: "broken",
       voice: "drift",
       transcripts: { waiting: 0, bounced: 0 },
       usage: { percent: null, meter: null },
-      lastReminder: null,
+      lastReminder: { day: null },
       blocking: null,
     });
 
@@ -313,12 +351,13 @@ describeDb("listClinicStrip (lane A2)", () => {
         deadlineAt: setupDeadline(new Date(now.getTime() - 29 * DAY), ZONE).toISOString(),
       },
       channels: { web: "off", meta: "waiting", voice: "off" },
-      availability: null,
+      // A change waits and the audits are off: not audited, never "running".
+      availability: { changedAt: changedAt.late!.toISOString(), audit: "never" },
       calendar: "none",
       voice: "failed",
       transcripts: { waiting: 0, bounced: 0 },
       usage: { percent: null, meter: null },
-      lastReminder: null,
+      lastReminder: { day: 25 },
       blocking: null,
     });
 
@@ -326,6 +365,8 @@ describeDb("listClinicStrip (lane A2)", () => {
       stage: { kind: "live", since: new Date(now.getTime() - 6 * DAY).toISOString() },
       channels: { web: "off", meta: "off", voice: "live" },
       usage: { percent: 50, meter: "voice" },
+      availability: { changedAt: null, audit: "pass" },
+      lastReminder: { day: null },
     });
 
     expect(rowOf(rows, "location")).toEqual({
@@ -339,11 +380,12 @@ describeDb("listClinicStrip (lane A2)", () => {
         deadlineAt: setupDeadline(new Date(now.getTime() - 3 * DAY), ZONE).toISOString(),
       },
       channels: { web: "off", meta: "off", voice: "off" },
-      availability: null,
+      availability: { changedAt: null, audit: "never" },
       calendar: "none",
       voice: "not_provisioned",
       transcripts: { waiting: 0, bounced: 0 },
       usage: { percent: null, meter: null },
+      // A location has no lifecycle row: the watch does not cover it.
       lastReminder: null,
       blocking: null,
     });
@@ -354,11 +396,12 @@ describeDb("listClinicStrip (lane A2)", () => {
       synthetic: false,
       stage: { kind: "live", since: new Date(now.getTime() - 5 * DAY).toISOString() },
       channels: { web: "live", meta: "off", voice: "live" },
-      availability: null,
+      availability: { changedAt: null, audit: "never" },
       calendar: "healthy",
       voice: "ok",
       transcripts: { waiting: 2, bounced: 1 },
       usage: { percent: 95, meter: "web" },
+      // Never seen by the watch: not measured, rather than "none".
       lastReminder: null,
       blocking: "Marked production with no signed BAA — the database is refusing all patient data.",
     });
@@ -369,7 +412,10 @@ describeDb("listClinicStrip (lane A2)", () => {
       calendar: "degraded",
       voice: "not_provisioned",
       usage: { percent: 100, meter: "meta" },
+      availability: { changedAt: changedAt.paused!.toISOString(), audit: "warn" },
+      lastReminder: null,
     });
+    expect(rowOf(rows, "demo").lastReminder).toBeNull();
 
     expect(rowOf(rows, "leaving").stage).toEqual({
       kind: "offboarding",
@@ -437,11 +483,13 @@ describeDb("listClinicStrip (lane A2)", () => {
 
     expect(added).toBeGreaterThan(15);
     expect(after).toHaveLength(30);
-    // Per clinic: BEGIN, set_config, the four reads, COMMIT.
+    // Per clinic: BEGIN, set_config, the seven reads, COMMIT.
+    expect(STRIP_STATEMENTS_PER_CLINIC).toBe(7);
     const perClinic = STRIP_STATEMENTS_PER_CLINIC + 3;
     expect(second - first).toBe(added * perClinic);
-    // And one statement across tenants (the overview).
-    expect(first).toBe(before.length * perClinic + 1);
+    // And two statements across tenants: the overview, and whether the
+    // clinic-audits job is on.
+    expect(first).toBe(before.length * perClinic + 2);
   });
 
   test("the operation is a read on the closed list, takes no arguments, and refuses any", async () => {
@@ -498,6 +546,19 @@ describeDb("listClinicStrip (lane A2)", () => {
     expect(row.transcripts).toEqual({ waiting: 2, bounced: 3 });
   });
 
+  test("availability: a change waiting while the audits are on is running; the same change with them off is not audited", async () => {
+    await setClinicAudits(true);
+    try {
+      const on = await listClinicStrip(now);
+      expect(rowOf(on, "late").availability).toEqual({ changedAt: changedAt.late!.toISOString(), audit: "running" });
+      // Nothing waits at the day-3 clinic: its failing audit stands.
+      expect(rowOf(on, "early").availability).toEqual({ changedAt: changedAt.early!.toISOString(), audit: "fail" });
+    } finally {
+      await setClinicAudits(false);
+    }
+    expect(rowOf(await listClinicStrip(now), "late").availability?.audit).toBe("never");
+  });
+
   test("one clinic that cannot be read fails the whole read: a 500, and no partial list", async () => {
     failing.clinicId = seeded.live!;
     try {
@@ -532,8 +593,28 @@ describe("the strip's states at their edges (pure)", () => {
     entitlements: null,
     channels: [],
     transcripts: { waiting: 0, bounced: 0 },
+    audit: { changedAt: null, overall: "never" },
+    lifecycle: { watched: false, reminder: null },
   };
   const billing = (status: string) => ({ status, setupDeadlineAt: null }) as unknown as Entitlements;
+
+  test("availability maps the console's audits_off to never, keeps the change's time, and is never null", () => {
+    const at = new Date("2026-10-22T09:00:00.000Z");
+    expect(availabilityOf({ audit: { changedAt: at, overall: "audits_off" } })).toEqual({
+      changedAt: at.toISOString(),
+      audit: "never",
+    });
+    for (const overall of ["pass", "warn", "fail", "running", "never"] as const) {
+      expect(availabilityOf({ audit: { changedAt: null, overall } })).toEqual({ changedAt: null, audit: overall });
+    }
+  });
+
+  test("the last reminder: day n × 5 when watched, none when watched with no reminder, not measured when not watched", () => {
+    expect(lastReminderOf({ lifecycle: { watched: true, reminder: 6 } })).toEqual({ day: 30 });
+    expect(lastReminderOf({ lifecycle: { watched: true, reminder: 1 } })).toEqual({ day: 5 });
+    expect(lastReminderOf({ lifecycle: { watched: true, reminder: null } })).toEqual({ day: null });
+    expect(lastReminderOf({ lifecycle: { watched: false, reminder: null } })).toBeNull();
+  });
 
   test("billing paused or suspended is paused; canceled or purged is closed", () => {
     expect(stageOf(clinic, facts, now, billing("paused"))).toEqual({ kind: "paused", since: null });

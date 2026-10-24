@@ -11,11 +11,11 @@ import type { InboxRow, InboxSource, Tone } from "./types";
  * clinic it could not read makes this source partial, never silent.
  */
 
-const FLAGS: Record<HealthFlag, { sentence: string; tone: Tone; page: "care" | "onboarding" | "billing" }> = {
+const FLAGS: Record<HealthFlag, { sentence: string; tone: Tone; page: "care" | "setup" | "billing" }> = {
   no_calls_after_day_7: {
     sentence: "No conversations since going live, past day 7: check the call forwarding.",
     tone: "warn",
-    page: "onboarding",
+    page: "setup",
   },
   first_win: {
     sentence: "First booking by AYA, and nobody has phoned the clinic since.",
@@ -49,7 +49,7 @@ export const healthFlagsSource: InboxSource = {
           count: 1,
           sentence: words.sentence,
           clinic: { id: clinic.clinicId, name: clinic.name },
-          button: { label: "Open clinic", kind: "link", href: `/admin/ops/${clinic.clinicId}/${words.page}` },
+          button: { label: "Open clinic", kind: "link", href: `/admin/clinics/${clinic.clinicId.toLowerCase()}/${words.page}` },
           tone: words.tone,
           dueAt: null,
         });

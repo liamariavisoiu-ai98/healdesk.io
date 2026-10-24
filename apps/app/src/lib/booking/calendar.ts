@@ -380,10 +380,31 @@ type Prepared = {
   attempt: number;
 };
 
-type Prepare = { kind: "go"; prepared: Prepared } | { kind: "done"; outcome: CalendarWriteOutcome };
+/**
+ * Why the writer made no attempt at Google, read from the row at the claim:
+ * already written; terms that never write; no healthy calendar; a booking
+ * staff marked cancelled, showed or no-show; another attempt in flight; out
+ * of attempts; not yet due on the ladder (or its slot started, or a settled
+ * reason: the sweep's own claim); or in a state this caller may not claim.
+ */
+export type NoAttemptCause =
+  | "written"
+  | "terms_do_not_write"
+  | "no_healthy_calendar"
+  | "booking_not_on"
+  | "in_flight"
+  | "out_of_attempts"
+  | "not_due"
+  | "not_claimable";
 
-/** What one call of the writer did: its outcome, and whether it made an attempt at Google at all. */
-export type CalendarWriteResult = { outcome: CalendarWriteOutcome; attempted: boolean };
+type Prepare =
+  | { kind: "go"; prepared: Prepared }
+  | { kind: "done"; outcome: CalendarWriteOutcome; cause: NoAttemptCause };
+
+/** What one call of the writer did: its outcome, and whether it made an attempt at Google at all (and if not, why). */
+export type CalendarWriteResult =
+  | { outcome: CalendarWriteOutcome; attempted: true }
+  | { outcome: CalendarWriteOutcome; attempted: false; cause: NoAttemptCause };
 
 export type CalendarWriteOptions = {
   /** Also claim from `failed`: an operator's retry, after someone has looked at why. */
@@ -456,9 +477,10 @@ export async function writeToCalendarAttempt(
     return {
       outcome: await withTenant({ clinicId, actor }, (tx) => recordNotConnected(tx, appointmentId, allowed)),
       attempted: false,
+      cause: "no_healthy_calendar",
     };
   }
-  if (step.kind === "done") return { outcome: step.outcome, attempted: false };
+  if (step.kind === "done") return { outcome: step.outcome, attempted: false, cause: step.cause };
   const p = step.prepared;
 
   // 2. Google, with no transaction open.
@@ -612,6 +634,33 @@ export async function writeToCalendarAttempt(
 
 type ClaimOptions = { operator: boolean; sweepNow: Date | null };
 
+/** The first of the claim's conditions the row fails, in the order a person would want to hear it. */
+async function whyNotClaimed(
+  tx: TenantTx,
+  appointmentId: string,
+  allowed: CalendarWriteStatus[],
+  options: ClaimOptions,
+): Promise<NoAttemptCause> {
+  const [row] = await tx.db
+    .select({
+      status: appointments.status,
+      writeStatus: appointments.calendarWriteStatus,
+      attempts: appointments.calendarWriteAttempts,
+      stuck: sql<boolean>`coalesce(${appointments.calendarWriteClaimedAt}, ${appointments.updatedAt})
+        < clock_timestamp() - make_interval(mins => ${STUCK_CLAIM_MINUTES})`,
+    })
+    .from(appointments)
+    .where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)))
+    .limit(1);
+  if (!row) return "not_claimable";
+  if (row.writeStatus === "written") return "written";
+  if (!(WRITABLE_APPOINTMENT_STATUSES as readonly string[]).includes(row.status)) return "booking_not_on";
+  if (row.writeStatus === "writing" && !row.stuck) return "in_flight";
+  if (!options.operator && row.attempts >= MAX_WRITE_ATTEMPTS) return "out_of_attempts";
+  if (row.writeStatus !== "writing" && !allowed.includes(row.writeStatus)) return "not_claimable";
+  return options.sweepNow ? "not_due" : "not_claimable";
+}
+
 async function claim(
   tx: TenantTx,
   appointmentId: string,
@@ -639,20 +688,24 @@ async function claim(
     .where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)))
     .limit(1);
   if (!row) throw new Error("Calendar write: no such appointment on a booking request.");
-  if (row.status === "written") return { kind: "done", outcome: "written" };
+  if (row.status === "written") return { kind: "done", outcome: "written", cause: "written" };
 
   // Under terms that never write (not used, none, an election still owed)
   // nothing happens: the confirmation is recorded in healdesk only.
   const terms = await calendarTermsFor(tx);
   if (terms.kind !== "covered" && terms.kind !== "uncovered") {
-    return { kind: "done", outcome: "not-connected" };
+    return { kind: "done", outcome: "not-connected", cause: "terms_do_not_write" };
   }
 
   const target = await writableConnection(tx);
   if (!target) {
     // The terms allow writing but there is no healthy calendar: staff add it
     // by hand, and it is never written later on its own (plan §7.12).
-    return { kind: "done", outcome: await recordNotConnected(tx, appointmentId, allowed) };
+    return {
+      kind: "done",
+      outcome: await recordNotConnected(tx, appointmentId, allowed),
+      cause: "no_healthy_calendar",
+    };
   }
 
   // The claim. Whoever moves the row to `writing` with a new lease owns the
@@ -685,9 +738,13 @@ async function claim(
     )
     .returning({ attempts: appointments.calendarWriteAttempts });
   if (!claimed) {
-    // In flight, refused and not asked to retry, or out of attempts: report
-    // what the row says.
-    return { kind: "done", outcome: row.status === "failed" ? "failed" : "unknown" };
+    // In flight, refused and not asked to retry, out of attempts, or not due:
+    // report what the row says, and why, read again now.
+    return {
+      kind: "done",
+      outcome: row.status === "failed" ? "failed" : "unknown",
+      cause: await whyNotClaimed(tx, appointmentId, allowed, options),
+    };
   }
 
   // The calendar the booking occupies: a named provider's, or the
@@ -938,12 +995,14 @@ export function sweepable(now: Date) {
     inArray(appointments.status, [...WRITABLE_APPOINTMENT_STATUSES]),
     // A slot that has started is never written: the booking is past.
     sql`${appointments.scheduledFor} > ${now}`,
+    // No settled reason, on either branch: the claim refuses one
+    // (sweepClaimable), so a listed row would take a place every run forever.
+    sql`coalesce(${appointments.calendarWriteError}, '') not in (${sql.join(
+      NEVER_RETRIED_REASONS.map((reason) => sql`${reason}`),
+      sql`, `,
+    )})`,
     sql`((${appointments.calendarWriteStatus} = 'unknown'
-          and (${appointments.calendarWriteNextAt} is null or ${appointments.calendarWriteNextAt} <= ${now})
-          and coalesce(${appointments.calendarWriteError}, '') not in (${sql.join(
-            NEVER_RETRIED_REASONS.map((reason) => sql`${reason}`),
-            sql`, `,
-          )}))
+          and (${appointments.calendarWriteNextAt} is null or ${appointments.calendarWriteNextAt} <= ${now}))
          or (${appointments.calendarWriteStatus} = 'writing'
              and coalesce(${appointments.calendarWriteClaimedAt}, ${appointments.updatedAt})
                  < clock_timestamp() - make_interval(mins => ${STUCK_CLAIM_MINUTES})))`,

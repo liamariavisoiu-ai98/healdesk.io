@@ -1,7 +1,13 @@
 import { setGoogleTimeouts, type FakeGoogleCalendar } from "@healdesk/connectors";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
-import { queueTranscriptEmail, endTranscriptCopy } from "@/lib/conversations/transcript-outbox";
+import {
+  deliverTranscriptEmail,
+  endTranscriptCopy,
+  queueTranscriptEmail,
+  recordSesTranscriptEvent,
+} from "@/lib/conversations/transcript-outbox";
+import type { EmailTransport } from "@/lib/reporting/deliver";
 import { runOperation, type Operator } from "@/lib/ops/api";
 import { TRANSCRIPTS_PAGE, transcriptDeliverySource } from "@/lib/ops/inbox/transcript-delivery";
 import { readOpsInbox } from "@/lib/ops/inbox/run";
@@ -282,5 +288,33 @@ describeDb("cross-clinic monitors (lane P5a)", () => {
     expect(writes).toMatchObject({ writes: [], count: 0, unreadClinics: 1 });
     const transcripts = await listUndeliveredTranscripts({ actor: ACTOR, clinics: [broken, { id: real.clinicId, name: "Real" }] });
     expect(transcripts).toEqual({ clinics: [], unreadClinics: 1 });
+  }, 60_000);
+
+  test("a bounced copy older than 72 hours is bounced, never also overdue: the outbox's own states, through a real bounce", async () => {
+    const clinic = await seedClinic("tx-bounced-old");
+    const id = await queued(clinic.clinicId);
+    const transport: EmailTransport = {
+      name: "fake",
+      send: async () => ({ status: "sent", messageId: `ses-${crypto.randomUUID()}` }),
+    };
+    expect(await deliverTranscriptEmail(clinic.clinicId, id, { transport })).toBe("sent");
+    const { rows } = await inTenant(clinic.clinicId, (c) =>
+      c.query<{ ses_message_id: string }>(`select ses_message_id from transcript_emails where id = $1`, [id]),
+    );
+    await recordSesTranscriptEvent({ messageId: rows[0]!.ses_message_id, type: "bounce", bounceType: "Permanent" });
+    await age(clinic.clinicId, id, `created_at = now() - interval '100 hours'`);
+    const { rows: status } = await inTenant(clinic.clinicId, (c) =>
+      c.query<{ status: string }>(`select status from transcript_emails where id = $1`, [id]),
+    );
+    expect(status[0]!.status).toBe("bounced");
+    const listed = await listUndeliveredTranscripts({ actor: ACTOR });
+    expect(listed.clinics).toEqual([
+      {
+        clinicId: clinic.clinicId,
+        clinicName: expect.any(String),
+        counts: { overdue: 0, bounced: 1, expired: 0, unconfirmed: 0 },
+        oldestAgeHours: 100,
+      },
+    ]);
   }, 60_000);
 });

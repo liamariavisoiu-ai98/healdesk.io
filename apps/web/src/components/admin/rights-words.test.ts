@@ -9,10 +9,12 @@ import {
   ASKED_FOR_WORDS,
   closedWords,
   closesWords,
+  commandNoteWords,
   daysLeftWords,
+  followsPractice,
   kindWords,
   MARK_DONE_CONFIRM,
-  noCommandWords,
+  markDoneConfirm,
   onDay,
   recordedWords,
   RETELL_NOT_RECORDED,
@@ -122,14 +124,28 @@ describe("a row's words", () => {
     expect(retellWords({ kind: "export", retellStep: null, state: "on_time" })).toBeNull();
   });
 
-  test("what stands where a command would", () => {
-    expect(noCommandWords(toRun)).toBeNull();
+  test("the note beside or in place of a command: apps/app's own sentence first, then why nothing is owed", () => {
+    expect(commandNoteWords(toRun)).toBeNull();
+    // A patient's own request keeps its command and apps/app's note that the practice's side is chased separately (tracker.ts RUN_THEN_MARK).
+    const runThenMark = "Run this on the host, then press Mark done here. The practice's own request is chased separately once it is recorded." as const;
+    expect(commandNoteWords({ ...toRun, commandNote: runThenMark })).toBe(runThenMark);
     const blocked = { ...toRun, kind: "erasure" as const, command: null, commandNote: "No portal route yet turns this request into a contact id" as const, state: "blocked" as const };
-    expect(noCommandWords(blocked)).toBe("No portal route yet turns this request into a contact id");
-    expect(noCommandWords({ ...toRun, command: null, state: "done" })).toBeNull();
-    expect(noCommandWords({ ...toRun, kind: "erasure", command: null, recordId: RECORD })).toBe("Nothing to run: the deletion has run on the host.");
-    expect(noCommandWords({ ...toRun, command: null, recordId: RECORD })).toBe("Nothing to run: it is on the host, passed to the practice.");
-    expect(noCommandWords({ ...toRun, kind: "export", command: null })).toBe("No command for this request.");
+    expect(commandNoteWords(blocked)).toBe("No portal route yet turns this request into a contact id");
+    expect(commandNoteWords({ ...toRun, command: null, state: "done" })).toBeNull();
+    expect(commandNoteWords({ ...toRun, kind: "erasure", command: null, recordId: RECORD })).toBe("Nothing to run: the deletion has run on the host.");
+    expect(commandNoteWords({ ...toRun, command: null, recordId: RECORD })).toBe("Nothing to run: it is on the host, passed to the practice.");
+    expect(commandNoteWords({ ...toRun, kind: "export", command: null })).toBe("No command for this request.");
+  });
+
+  test("an intake linked to the patient request it became follows the practice: Mark done says the row stays open", () => {
+    expect(followsPractice(toRun)).toBe(false);
+    const linked = { ...toRun, recordId: RECORD };
+    expect(followsPractice(linked)).toBe(true);
+    expect(followsPractice({ ...linked, kind: "erasure" })).toBe(false);
+    expect(followsPractice({ ...linked, intakeId: null })).toBe(false);
+    expect(markDoneConfirm(toRun)).toBe(MARK_DONE_CONFIRM);
+    expect(markDoneConfirm(linked)).toBe("Closes this intake as done. The row stays open until the practice marks the request received.");
+    expect(closedWords({ outcome: "closed", status: "done" }, linked)).toBe("Marked done. The row stays open until the practice marks the request received.");
   });
 
   test("how a row with no intake closes", () => {
@@ -142,9 +158,9 @@ describe("a row's words", () => {
   });
 
   test("the outcomes of Mark done and Record a request, and a day", () => {
-    expect(closedWords({ outcome: "closed", status: "done" })).toBe("Marked done.");
-    expect(closedWords({ outcome: "already_closed", status: "done" })).toBe("It was already marked done.");
-    expect(closedWords({ outcome: "already_closed", status: "not_applicable" })).toBe("It was already closed as not applicable.");
+    expect(closedWords({ outcome: "closed", status: "done" }, toRun)).toBe("Marked done.");
+    expect(closedWords({ outcome: "already_closed", status: "done" }, toRun)).toBe("It was already marked done.");
+    expect(closedWords({ outcome: "already_closed", status: "not_applicable" }, toRun)).toBe("It was already closed as not applicable.");
     expect(recordedWords({ outcome: "recorded", dueOn: "2026-10-28" })).toBe("Recorded. It is due on 28 Oct 2026.");
     expect(recordedWords({ outcome: "already_recorded", dueOn: "2026-10-28" })).toBe(
       "Already recorded from this form, so nothing was added. It is due on 28 Oct 2026.",

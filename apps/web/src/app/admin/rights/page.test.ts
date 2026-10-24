@@ -55,7 +55,8 @@ describe("/admin/rights", () => {
     expect(metadata.title).toBe("Patient rights");
     const html = await render();
     expect(html).toContain(">Patient rights<");
-    expect(html).toContain("ten business days for an");
+    expect(html).toContain("demo clinics left out");
+    expect(html).toContain("business days for an erasure");
     expect(html).toContain("This page runs nothing. You run each command yourself.");
     expect(html).toContain("No open requests.");
     expect(html).toContain("Record a request");

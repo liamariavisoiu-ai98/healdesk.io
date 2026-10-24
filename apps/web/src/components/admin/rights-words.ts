@@ -104,17 +104,34 @@ export function retellWords(row: Pick<RightsRowView, "kind" | "retellStep" | "st
 }
 
 /**
- * What stands where a command would, when the row has none: apps/app's own
- * fixed note (a blocked request, an operator address the task would not
- * take, a request matched on the host), else why nothing is owed here.
+ * The note beside, or in place of, a row's command: apps/app's own fixed
+ * sentence whenever it sends one (a blocked request; an operator address the
+ * task would not take; a patient's own request, whose command is shown with
+ * the note that the practice's side is chased separately), else, when there
+ * is no command either, why nothing is owed here.
  */
-export function noCommandWords(row: Pick<RightsRowView, "command" | "commandNote" | "state" | "source" | "kind" | "recordId">): string | null {
-  if (row.command !== null) return null;
+export function commandNoteWords(row: Pick<RightsRowView, "command" | "commandNote" | "state" | "source" | "kind" | "recordId">): string | null {
   if (row.commandNote !== null) return row.commandNote;
+  if (row.command !== null) return null;
   if (row.state === "done") return null;
   if (row.kind === "erasure" && row.recordId !== null) return "Nothing to run: the deletion has run on the host.";
   if (row.kind === "patient_request" && row.recordId !== null) return "Nothing to run: it is on the host, passed to the practice.";
   return "No command for this request.";
+}
+
+/**
+ * An intake recorded with the patient request it became (lib/rights/
+ * tracker.ts: a linked `patient_request` intake): its row's state and days
+ * follow the request, done only once the practice marks it received, so
+ * closing the intake leaves the row open.
+ */
+export function followsPractice(row: Pick<RightsRowView, "kind" | "intakeId" | "recordId">): boolean {
+  return row.kind === "patient_request" && row.intakeId !== null && row.recordId !== null;
+}
+
+/** The second press on Mark done, saying when the row stays open anyway. */
+export function markDoneConfirm(row: Pick<RightsRowView, "kind" | "intakeId" | "recordId">): string {
+  return followsPractice(row) ? "Closes this intake as done. The row stays open until the practice marks the request received." : MARK_DONE_CONFIRM;
 }
 
 /**
@@ -130,9 +147,14 @@ export function closesWords(row: Pick<RightsRowView, "intakeId" | "state" | "sou
   return null;
 }
 
-/** The outcome of Mark done in one line (apps/app closeRightsIntake). */
-export function closedWords(data: { outcome: "closed" | "already_closed"; status: "done" | "not_applicable" }): string {
-  if (data.outcome === "closed") return "Marked done.";
+/** The outcome of Mark done in one line (apps/app closeRightsIntake), true to what the row then does. */
+export function closedWords(
+  data: { outcome: "closed" | "already_closed"; status: "done" | "not_applicable" },
+  row: Pick<RightsRowView, "kind" | "intakeId" | "recordId">,
+): string {
+  if (data.outcome === "closed") {
+    return followsPractice(row) ? "Marked done. The row stays open until the practice marks the request received." : "Marked done.";
+  }
   return data.status === "done" ? "It was already marked done." : "It was already closed as not applicable.";
 }
 

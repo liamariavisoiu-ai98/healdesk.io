@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { MARK_DONE_CONFIRM, RETELL_NOT_RECORDED, RUNS_NOTHING } from "@/components/admin/rights-words";
 import type { OpsResult, RightsListView, RightsRowView } from "@/lib/admin/ops-client";
 
-import { EMPTY_WORDS, RightsTable, type CloseAction } from "./RightsTable";
+import { COPY_FAILED, EMPTY_WORDS, RightsTable, type CloseAction } from "./RightsTable";
 
 /**
  * The Patient rights table (lane P6b): the sentence that the page runs
@@ -142,6 +142,15 @@ describe("the table's words", () => {
     expect(page).not.toContain("on_time");
   });
 
+  test("a patient's own request shows its command with apps/app's note that the practice's side is chased separately", () => {
+    const runThenMark = "Run this on the host, then press Mark done here. The practice's own request is chased separately once it is recorded." as const;
+    const page = text(render(list([{ ...toRun, commandNote: runThenMark }])));
+    expect(page).toContain("Copy command");
+    expect(page).toContain(COMMAND);
+    expect(page).toContain(runThenMark);
+    expect(page).toContain("Mark done");
+  });
+
   test("a blocked row shows apps/app's note where its command would be, and no Copy command; the command text never appears for it", () => {
     const html = render(list([blocked]));
     const page = text(html);
@@ -214,6 +223,48 @@ describe("the two controls", () => {
     expect(writeText).toHaveBeenCalledWith(COMMAND);
     expect(button("Copied")).toBeDefined();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("a clipboard that refuses is said, and the command stays on screen to select", async () => {
+    writeText.mockImplementationOnce(async () => {
+      throw new Error("denied");
+    });
+    await act(async () => {
+      root.render(h(RightsTable, { rights: list([toRun]), onClose: NEVER }));
+    });
+    await act(async () => {
+      button("Copy command").click();
+    });
+    await act(async () => {});
+    expect(container.textContent).toContain(COPY_FAILED);
+    expect(COPY_FAILED).toBe("Could not copy: select the command and copy it yourself.");
+    expect(container.textContent).toContain(COMMAND);
+    expect(button("Copy command")).toBeDefined();
+  });
+
+  test("Mark done on an intake linked to the request it became says the row stays open until the practice marks it received", async () => {
+    const linked: RightsRowView = { ...toRun, recordId: RECORD, command: null, commandNote: null };
+    const onClose = vi.fn<CloseAction>(async () => ({ ok: true, data: { outcome: "closed", status: "done", auditRecorded: true } }));
+    await act(async () => {
+      root.render(h(RightsTable, { rights: list([linked]), onClose }));
+    });
+    expect(container.textContent).toContain("Nothing to run: it is on the host, passed to the practice.");
+    await act(async () => {
+      button("Mark done").click();
+    });
+    expect(container.textContent).toContain("Closes this intake as done. The row stays open until the practice marks the request received.");
+    await act(async () => {
+      button("Yes, mark done").click();
+    });
+    await act(async () => {});
+    expect(onClose).toHaveBeenCalledWith(CLINIC, INTAKE);
+    expect(container.textContent).toContain("Marked done. The row stays open until the practice marks the request received.");
+    // The row is still open after the re-read (its state follows the practice), and still says it.
+    await act(async () => {
+      root.render(h(RightsTable, { rights: list([linked]), onClose }));
+    });
+    expect(container.textContent).toContain("Marked done. The row stays open until the practice marks the request received.");
+    expect([...container.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Mark done");
   });
 
   test("Mark done asks once, calls the close action with the row's clinic and intake, and says it; the line stays once the row has gone", async () => {

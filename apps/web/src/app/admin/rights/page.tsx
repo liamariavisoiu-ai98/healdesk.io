@@ -72,8 +72,9 @@ export default async function RightsPage() {
     <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
       <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">Patient rights</h1>
       <p className="text-muted mt-2 max-w-[68ch] text-[15.6px]">
-        Every open patient-rights request across clinics, with the day the agreement gives it: ten business days for an
-        erasure, an amendment, a correction or an export, five to pass a patient&apos;s own request to the practice.
+        Every open patient-rights request across clinics, demo clinics left out, with the day the agreement gives it: ten
+        business days for an erasure, an amendment, a correction or an export, five to pass a patient&apos;s own request to the
+        practice.
       </p>
       {standby ? (
         <HostStandbyNotice what="The patient-rights requests" />

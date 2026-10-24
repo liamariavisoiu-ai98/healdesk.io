@@ -5,10 +5,10 @@ import { useState } from "react";
 import {
   closedWords,
   closesWords,
+  commandNoteWords,
   daysLeftWords,
   kindWords,
-  MARK_DONE_CONFIRM,
-  noCommandWords,
+  markDoneConfirm,
   onDay,
   RETELL_NOT_RECORDED,
   retellWords,
@@ -27,13 +27,17 @@ import type { CloseRightsIntakeOutcome, OpsResult, RightsListView, RightsRowView
  * owner copies and runs himself in AWS CloudShell, and "Copy command" puts
  * it on the clipboard and does nothing else. A blocked row has no command
  * and shows apps/app's own note in its place; no command is ever drawn for
- * it. "Mark done" closes an intake (closeRightsIntake), once; it is not
- * drawn for an erasure whose deletion still owes its Retell step, because
- * apps/app refuses that close and the refusal reaches this app only as the
- * ops client's generic sentence, so the row says why itself, from its own
- * facts. A row with no intake of its own closes by itself (a deletion once
- * its Retell step is recorded, a patient's request once the practice marks
- * it received), and the row says so.
+ * it. A patient's own request shows its command with apps/app's note that
+ * the practice's side is chased separately. "Mark done" closes an intake
+ * (closeRightsIntake), once; it is not drawn for an erasure whose deletion
+ * still owes its Retell step, because apps/app refuses that close and the
+ * refusal reaches this app only as the ops client's generic sentence, so the
+ * row says why itself, from its own facts. An intake linked to the patient
+ * request it became follows the practice, and Mark done says the row stays
+ * open until the practice marks the request received. A row with no intake
+ * of its own closes by itself (a deletion once its Retell step is recorded,
+ * a patient's request once the practice marks it received), and the row
+ * says so.
  *
  * On screen: the clinic's name (linked to its Care tab, where a deletion's
  * steps are recorded), the request's kind, its days and its state. Never a
@@ -44,19 +48,29 @@ export type CloseAction = (clinicId: string, intakeId: string) => Promise<OpsRes
 
 export const EMPTY_WORDS = "No open requests.";
 
+export const COPY_FAILED = "Could not copy: select the command and copy it yourself.";
+
 function CopyCommand({ command }: { command: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"no" | "yes" | "failed">("no");
   return (
     <div className="grid gap-1">
       <button
         type="button"
         onClick={() => {
-          void navigator.clipboard.writeText(command).then(() => setCopied(true));
+          navigator.clipboard
+            .writeText(command)
+            .then(() => setCopied("yes"))
+            .catch(() => setCopied("failed"));
         }}
         className="border-line-strong hover:border-ink inline-flex min-h-9 w-max items-center rounded-full border px-4 py-1.5 text-sm font-bold transition-colors"
       >
-        {copied ? "Copied" : "Copy command"}
+        {copied === "yes" ? "Copied" : "Copy command"}
       </button>
+      {copied === "failed" ? (
+        <p role="status" className="text-red-deep text-sm font-semibold">
+          {COPY_FAILED}
+        </p>
+      ) : null}
       <code className="text-muted font-mono text-xs break-all select-all">{command}</code>
     </div>
   );
@@ -73,11 +87,11 @@ function Done({ row, onClose, closed, onClosed }: { row: RightsRowView; onClose:
   return (
     <ActionButton
       label="Mark done"
-      confirm={MARK_DONE_CONFIRM}
+      confirm={markDoneConfirm(row)}
       run={async () => {
         const result = await onClose(row.clinicId, intakeId);
         if (!result.ok) return result;
-        const text = closedWords(result.data);
+        const text = closedWords(result.data, row);
         onClosed(text);
         return { ok: true as const, data: { status: "done", message: text, auditRecorded: result.data.auditRecorded } };
       }}
@@ -128,7 +142,7 @@ export function RightsTable({ rights, onClose }: { rights: OpsResult<RightsListV
               {rows.map((row) => {
                 const state = STATE_WORDS[row.state];
                 const retell = retellWords(row);
-                const note = noCommandWords(row);
+                const note = commandNoteWords(row);
                 return (
                   <tr key={row.id}>
                     <td className={TD}>
@@ -147,7 +161,10 @@ export function RightsTable({ rights, onClose }: { rights: OpsResult<RightsListV
                       <Chip tone={state.tone}>{state.label}</Chip>
                     </td>
                     <td className={TD}>{retell ?? ""}</td>
-                    <td className={`${TD} max-w-[28rem]`}>{row.command !== null ? <CopyCommand command={row.command} /> : note ? <span className="text-muted">{note}</span> : null}</td>
+                    <td className={`${TD} max-w-[28rem]`}>
+                      {row.command !== null ? <CopyCommand command={row.command} /> : null}
+                      {note ? <p className={`text-muted${row.command !== null ? " mt-1" : ""}`}>{note}</p> : null}
+                    </td>
                     <td className={TD}>
                       <Done
                         row={row}

@@ -105,12 +105,22 @@ describe("the request key and the outcome", () => {
   }
   const statuses = () => [...container.querySelectorAll('[role="status"]')].map((n) => n.textContent ?? "");
 
-  test("the key is minted once when the form opens and sent with each submit; a recorded request mints the next", async () => {
+  test("the key is minted once when the form opens: a double click sends it twice; once apps/app has answered, the next request gets a new key", async () => {
+    const pending: ((value: Awaited<ReturnType<RecordAction>>) => void)[] = [];
     let answer: Awaited<ReturnType<RecordAction>> = {
       ok: true,
-      data: { outcome: "already_recorded", id: OTHER, dueOn: "2026-11-04", auditRecorded: true },
+      data: { outcome: "recorded", id: OTHER, dueOn: "2026-10-30", auditRecorded: true },
     };
-    const record = vi.fn<RecordAction>(async () => answer);
+    /** Answers every call made so far with the current answer, the way one upstream answers a double click. */
+    const release = () => {
+      for (const resolve of pending.splice(0)) resolve(answer);
+    };
+    const record = vi.fn<RecordAction>(
+      () =>
+        new Promise((resolve) => {
+          pending.push(resolve);
+        }),
+    );
     await act(async () => {
       root.render(h(RecordRequestForm, { clinics, today: TODAY, onRecord: record }));
     });
@@ -120,26 +130,44 @@ describe("the request key and the outcome", () => {
     await choose("askedFor", "deletion");
     await choose("verifiedVia", "phone_confirmed");
 
-    await submit();
-    await submit();
+    // Two clicks before the first answer: both carry the one key, so apps/app records once.
+    const form = container.querySelector("form")!;
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
     expect(record).toHaveBeenCalledTimes(2);
     const [first, second] = record.mock.calls.map((c) => c[0] as RecordRequestInput);
     expect(first).toEqual({ clinicId: OTHER, requestKey: first!.requestKey, kind: "patient_request", receivedOn: TODAY, verifiedVia: "phone_confirmed", askedFor: "deletion" });
     expect(first!.requestKey).toMatch(UUID);
     expect(second!.requestKey).toBe(first!.requestKey);
-    expect(statuses()).toContain("Already recorded from this form, so nothing was added. It is due on 4 Nov 2026.");
-
-    answer = { ok: true, data: { outcome: "recorded", id: OTHER, dueOn: "2026-10-30", auditRecorded: true } };
-    await submit();
-    expect((record.mock.calls[2]![0] as RecordRequestInput).requestKey).toBe(first!.requestKey);
+    await act(async () => {
+      release();
+    });
+    await act(async () => {});
     expect(statuses()).toContain("Recorded. It is due on 30 Oct 2026.");
-    // Recorded: the form is a fresh one, so the next request is a new key.
+
+    // Recorded: the form is a fresh one, so the next request is a new key, with the choices kept.
+    await submit();
+    const third = record.mock.calls[2]![0] as RecordRequestInput;
+    expect(third.requestKey).toMatch(UUID);
+    expect(third.requestKey).not.toBe(first!.requestKey);
+    expect(third).toMatchObject({ clinicId: OTHER, kind: "patient_request", askedFor: "deletion" });
+    answer = { ok: true, data: { outcome: "already_recorded", id: OTHER, dueOn: "2026-11-04", auditRecorded: true } };
+    await act(async () => {
+      release();
+    });
+    await act(async () => {});
+    expect(statuses()).toContain("Already recorded from this form, so nothing was added. It is due on 4 Nov 2026.");
+    // Found already recorded: that request exists, so the next submit is a new request too (the host refuses a key reused with other choices).
     await submit();
     const fourth = record.mock.calls[3]![0] as RecordRequestInput;
-    expect(fourth.requestKey).toMatch(UUID);
+    expect(fourth.requestKey).not.toBe(third.requestKey);
     expect(fourth.requestKey).not.toBe(first!.requestKey);
-    // The choices stay: the next request of the same kind on the same day is one more row.
-    expect(fourth).toMatchObject({ clinicId: OTHER, kind: "patient_request", askedFor: "deletion" });
+    // Nothing is left in flight when the form unmounts.
+    await act(async () => {
+      release();
+    });
   });
 
   test("a refusal and a failed call are each said in one line, and change nothing about the key", async () => {

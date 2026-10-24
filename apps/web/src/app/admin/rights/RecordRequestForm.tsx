@@ -18,10 +18,14 @@ import type { RecordRequestInput } from "./record-input";
  * about the person: the request names nobody here.
  *
  * The request key is a uuid generated once when the form opens and sent
- * with it, so a double click, or a retried submit, records one request
- * (apps/app answers `already_recorded` for the same key). A form that has
- * recorded one is a fresh form for the next: it keeps its choices and mints
- * a new key, since a second request of one kind on one day is a second row.
+ * with it, so a double click, or a submit retried after no answer, records
+ * one request (apps/app answers `already_recorded` for the same key with
+ * the same choices). Once apps/app has answered that the request is
+ * recorded, this is a fresh form for the next: it keeps its choices and
+ * mints a new key, since a second request of one kind on one day is a
+ * second row, and since the same key sent with other choices is refused on
+ * the host (tracker.ts `key_reused`), which would reach here only as the
+ * ops client's generic refusal.
  */
 
 export type RecordAction = (input: RecordRequestInput) => Promise<OpsResult<RecordRightsIntakeOutcome | { status: "refused"; message: string }>>;
@@ -76,8 +80,8 @@ export function RecordRequestForm({
         return;
       }
       setSaid({ tone: "ok", text: recordedWords(result.data) });
-      // Recorded: the next request is a new one, under a new key.
-      if (result.data.outcome === "recorded") setKey(newKey());
+      // Recorded, or found already recorded: the next request is a new one, under a new key.
+      setKey(newKey());
     });
   }
 

@@ -19,6 +19,7 @@ const db = vi.hoisted(() => ({
   setting: "" as string,
   touched: [] as string[],
   calls: [] as string[],
+  texts: [] as string[],
 }));
 
 vi.mock("pg", () => ({
@@ -27,6 +28,7 @@ vi.mock("pg", () => ({
     async end() {}
     async query(text: string) {
       db.calls.push(text.trim().split(/\s+/)[0]!.toUpperCase());
+      db.texts.push(text);
       if (text.includes("current_setting('app.clinic_id'")) return { rows: [{ clinic: db.setting }], rowCount: 1 };
       if (text.includes("app_clinics_changed_in_transaction")) {
         return { rows: db.touched.map((id) => ({ id })), rowCount: db.touched.length };
@@ -53,6 +55,7 @@ const run = (mode: "dry-run" | "apply") =>
 
 beforeEach(() => {
   db.calls = [];
+  db.texts = [];
 });
 
 describe("db-apply's post-statement checks, each alone", () => {
@@ -88,5 +91,18 @@ describe("db-apply's post-statement checks, each alone", () => {
     const out = await run("apply");
     expect(out).toMatchObject({ committed: true, verdict: "applied: committed" });
     expect(db.calls).toContain("COMMIT");
+  });
+});
+
+describe("the statement's names resolve in the catalog, then public", () => {
+  test("search_path is pinned for the transaction after the clinic is set and before the statement", async () => {
+    db.setting = A;
+    db.touched = [A];
+    await run("dry-run");
+    const at = (needle: string) => db.texts.findIndex((t) => t.includes(needle));
+    expect(db.texts[0]).toBe("BEGIN");
+    expect(at("set_config('app.clinic_id'")).toBe(1);
+    expect(db.texts[2]).toBe("SET LOCAL search_path = pg_catalog, public");
+    expect(db.texts[3]).toBe(STATEMENT.statement);
   });
 });

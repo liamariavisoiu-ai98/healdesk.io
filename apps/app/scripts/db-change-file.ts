@@ -23,26 +23,50 @@ export function isChangeName(name: string): boolean {
   return NAME.test(name);
 }
 
+/** Trim only the plain whitespace a file may hold: space, tab and newline. */
+function trimPlain(text: string): string {
+  return text.replace(/^[ \t\n]+|[ \t\n]+$/g, "");
+}
+
 /**
  * The statement: the file without its header (the leading lines that start
- * `--`, and blank lines), a final `;` and surrounding space. A `--` anywhere
- * after the header is inside the statement, and the grammar refuses it.
+ * `--`, and blank lines), a final `;` and surrounding plain whitespace. A
+ * `--` anywhere after the header is inside the statement, and the grammar
+ * refuses it. Nothing else is changed: the runner sends these exact
+ * characters, so a carriage return (which the database would read inside a
+ * value) is refused rather than rewritten.
  */
 function statementOf(text: string): string {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const cr = text.indexOf("\r");
+  if (cr >= 0) {
+    throw new ChangeFileError(`a change file uses LF line endings: carriage return (U+000D) at character ${cr + 1}`);
+  }
+  const lines = text.split("\n");
   let first = 0;
-  while (first < lines.length && (lines[first]!.trim() === "" || lines[first]!.trimStart().startsWith("--"))) first++;
-  return lines.slice(first).join("\n").trim().replace(/;\s*$/, "").trim();
+  while (first < lines.length && (trimPlain(lines[first]!) === "" || /^[ \t]*--/.test(lines[first]!))) first++;
+  return trimPlain(trimPlain(lines.slice(first).join("\n")).replace(/;[ \t\n]*$/, ""));
 }
 
 export type ChangeFile = { statement: string; verb: "insert" | "update"; table: string; ast: Statement };
+
+/**
+ * The two layers, on one object so a test can see parseChangeFile call both
+ * (a refactor that drops the second layer fails tests/db-change-file.test.ts).
+ */
+export const layers = {
+  grammar: parseStatement,
+  denylist,
+};
 
 /** The file's statement, exactly as the runner will send it, or a ChangeFileError saying why not. */
 export function parseChangeFile(text: string): ChangeFile {
   const statement = statementOf(text);
   if (statement === "") throw new ChangeFileError("a change file holds one statement");
-  const ast = parseStatement(statement);
-  denylist(statement, ast);
+  const ast = layers.grammar(statement);
+  const old = layers.denylist(statement);
+  if (old.verb !== ast.verb || old.table !== ast.table) {
+    throw new ChangeFileError("the two layers read the statement differently");
+  }
   return { statement, verb: ast.verb, table: ast.table, ast };
 }
 
@@ -51,13 +75,17 @@ export function parseChangeFile(text: string): ChangeFile {
  * kept as a second layer: it refuses nothing the grammar accepts, and would
  * still stand if a later edit widened the grammar by mistake.
  */
-function denylist(statement: string, ast: Statement): void {
-  if (!(WRITABLE_TABLES as readonly string[]).includes(ast.table)) {
-    throw new ChangeFileError(`${ast.table} is not a table a change may write (scripts/readonly-tables.ts, WRITABLE_TABLES)`);
-  }
+export function denylist(statement: string): { verb: "insert" | "update"; table: string } {
   if (statement.replace(/'(?:[^']|'')*'/g, "''").includes(";")) throw new ChangeFileError("a change file is exactly one statement");
   if (statement.includes("/*") || statement.includes("$$") || statement.includes("\\")) {
     throw new ChangeFileError("no block comments, dollar quoting or backslashes");
+  }
+  const head = /^\s*(insert\s+into|update)\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/i.exec(statement);
+  if (!head) throw new ChangeFileError("a change file starts with INSERT INTO or UPDATE");
+  const verb = head[1]!.toLowerCase().startsWith("insert") ? "insert" : "update";
+  const table = head[2]!.toLowerCase();
+  if (!(WRITABLE_TABLES as readonly string[]).includes(table)) {
+    throw new ChangeFileError(`${table} is not a table a change may write (scripts/readonly-tables.ts, WRITABLE_TABLES)`);
   }
   // Words inside a quoted value ('Drop-in day') are data, not statements.
   const code = statement.replace(/'(?:[^']|'')*'/g, "''");
@@ -76,4 +104,5 @@ function denylist(statement: string, ast: Statement): void {
   if (/\b(set_config|current_setting|pg_[a-z_]+|dblink|lo_[a-z]+|copy|truncate|delete|drop|alter|grant|revoke|create)\b/i.test(code)) {
     throw new ChangeFileError("a change file does not call set_config, current_setting, pg_* functions or DDL");
   }
+  return { verb, table };
 }

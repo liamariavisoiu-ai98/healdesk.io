@@ -1,21 +1,44 @@
-import { describe, expect, test } from "vitest";
+import { randomUUID } from "node:crypto";
 
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
+
+import { runParsed } from "../scripts/db-apply-lib";
 import { ChangeFileError, parseChangeFile } from "../scripts/db-change-file";
-import { TABLE_COLUMNS, parseStatement, serialize, tokenize } from "../scripts/db-change-grammar";
+import {
+  MAX_DEPTH,
+  TABLE_COLUMNS,
+  parseStatement,
+  serialize,
+  tokenize,
+} from "../scripts/db-change-grammar";
+
+import { closePools, hasTestDatabase } from "./setup/db";
+import { seedClinic, type SeededClinic } from "./setup/factories";
 
 /**
  * The change file's allowlist grammar (scripts/db-change-grammar.ts,
- * docs/design/db-apply-grammar-2026-10-24.md). Every accepted form runs as
- * written; ordinary forms outside the grammar are refused, each for its own
- * reason; and a mutated corpus is either accepted as grammar text or refused,
- * never thrown at with anything but a ChangeFileError.
+ * docs/design/db-apply-grammar-2026-10-24.md).
+ *
+ * What these tests show: every accepted form parses to its own text, with no
+ * rewriting; ordinary forms outside the grammar are refused, each for its
+ * own reason; a mutated corpus is refused with a ChangeFileError or accepted,
+ * and an accepted mutant holds only the grammar's words and punctuation; and,
+ * with a database, every accepted form and every accepted mutant is valid SQL
+ * to Postgres itself (a dry run under the writer role raises no syntax
+ * error, SQLSTATE 42601).
+ *
+ * What they do not show: the corpus checks re-tokenize with the grammar's own
+ * tokenizer, so they are not a differential check against Postgres's lexer
+ * (no libpg_query or pgsql-parser is in the repo). The database test is the
+ * only comparison with Postgres, and it covers the corpus, not every string
+ * the grammar accepts.
  */
 
 const C = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 const P = "7d1e2f3a-2222-4c2a-9a8b-1f2e3d4c5b6b";
 
 /** Every form the grammar doc lists, as the file would hold it. */
-const ACCEPTED = [
+const ACCEPTED: string[] = [
   "update clinic_closures set label = label where false",
   `insert into clinic_closures (clinic_id, closed_on, label) values ('${C}', '2026-12-25', 'Christmas')`,
   `insert into clinic_closures (clinic_id, closed_on, label) values ('${C}', '2026-12-24'::date, 'Closed'), ('${C}', '2026-12-25'::date, null)`,
@@ -31,7 +54,49 @@ const ACCEPTED = [
   "UPDATE Clinic_Closures SET label = 'Closed' WHERE closed_on >= current_date AND closed_on <> '2027-01-01' AND label IS NOT NULL",
   "update clinic_closures set label = 'Costs $0, closed' where ((closed_on > '2026-01-01') and (closed_on <= '2026-12-31'))",
   "update clinic_closures set label = 'x' where true",
+  "update clinic_closures set closed_on = '2027-01-02' where closed_on = '2027-01-01'",
+  "update clinic_provider_services set provider_id = '7d1e2f3a-2222-4c2a-9a8b-1f2e3d4c5b6b' where service_key = 'botox'",
+  "update clinic_closures set label = 'Café closed, Zoë away' where true",
 ];
+
+const INJECT = [
+  "set_config('app.clinic_id', 'x', true)",
+  "; ",
+  "-- ",
+  "/* */",
+  "$$x$$",
+  "delete ",
+  "returning * ",
+  "pg_sleep(1) ",
+  "E'x' ",
+  '"label" ',
+  "public.",
+  "(select 1) ",
+];
+
+/** Delete or duplicate each token in turn, and insert each forbidden fragment before it. */
+function mutants(sql: string): string[] {
+  const tokens = tokenize(sql).filter((t) => t.kind !== "end");
+  const out: string[] = [];
+  for (const t of tokens) {
+    const end = t.at + t.text.length;
+    out.push(sql.slice(0, t.at) + sql.slice(end));
+    out.push(sql.slice(0, end) + " " + sql.slice(t.at));
+    for (const bad of INJECT) out.push(sql.slice(0, t.at) + bad + sql.slice(t.at));
+  }
+  return out;
+}
+
+function acceptedMutants(base: string): string[] {
+  return mutants(base).filter((sql) => {
+    try {
+      parseChangeFile(sql);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
 
 describe("the forms the grammar accepts", () => {
   test.each(ACCEPTED)("%s", (sql) => {
@@ -172,9 +237,77 @@ const REFUSED: Record<string, [string, RegExp][]> = {
     ["update clinic_closures set label = 'a' where true extra", /nothing after it/],
   ],
   "a comment inside the statement": [
-    ["update clinic_closures set label = 'a' -- why\nwhere true", /no comments/],
-    ["update clinic_closures set label = 'a' /* x */ where true", /unexpected "\/"/],
-    ["update clinic_closures set label = 'a' where true --", /no comments/],
+    [
+      "update clinic_closures set label = 'a' -- why\nwhere true",
+      /unexpected "--" at character 40: comments are not allowed/,
+    ],
+    [
+      "update clinic_closures set label = 'a' /* x */ where true",
+      /unexpected "\/\*" at character 40: comments are not allowed/,
+    ],
+    ["update clinic_closures set label = 'a' where true --", /comments are not allowed/],
+    [
+      "update clinic_closures set label = 'a' where true; -- note",
+      /unexpected "--" at character 52: comments are not allowed/,
+    ],
+  ],
+  "an invisible or control character": [
+    [
+      "update clinic_closures set label = 'a\u0000b' where true",
+      /unexpected "U\+0000" at character 38: no control/,
+    ],
+    [
+      "update clinic_closures set label = 'a\u001bb' where true",
+      /unexpected "U\+001B" at character 38/,
+    ],
+    [
+      "update clinic_closures set label = 'a\tb' where true",
+      /unexpected "U\+0009" at character 38/,
+    ],
+    [
+      "update clinic_closures set label = 'a\nb' where true",
+      /unexpected "U\+000A" at character 38/,
+    ],
+    [
+      "update clinic_closures set label = 'a\u0085b' where true",
+      /unexpected "U\+0085" at character 38/,
+    ],
+    [
+      "update clinic_closures set label = 'a\u202eb' where true",
+      /unexpected "U\+202E" at character 38/,
+    ],
+    [
+      "update clinic_closures set label = 'a\u2066b' where true",
+      /unexpected "U\+2066" at character 38/,
+    ],
+    [
+      "update clinic_closures set label = 'a\u200bb' where true",
+      /unexpected "U\+200B" at character 38/,
+    ],
+    [
+      "update clinic_closures set label = 'a\ufeffb' where true",
+      /unexpected "U\+FEFF" at character 38/,
+    ],
+    [
+      "update clinic_closures set label = 'a\u2028b' where true",
+      /unexpected "U\+2028" at character 38/,
+    ],
+    [
+      "update clinic_closures set label = 'a\u2029b' where true",
+      /unexpected "U\+2029" at character 38/,
+    ],
+    [
+      "update clinic_closures set label = 'a\u00a0b' where true",
+      /unexpected "U\+00A0" at character 38/,
+    ],
+    [
+      "update clinic_closures set label = 'a'\u00a0where true",
+      /unexpected "U\+00A0" at character 39/,
+    ],
+    [
+      "update\u00a0clinic_closures set label = 'a' where true",
+      /unexpected "U\+00A0" at character 7/,
+    ],
   ],
   "a string that is not a plain '...'": [
     ["update clinic_closures set label = E'a\\nb' where true", /only plain/],
@@ -236,6 +369,26 @@ const REFUSED: Record<string, [string, RegExp][]> = {
     ["update clinic_closures set nope = 'x' where true", /expected a column of clinic_closures/],
     ["update clinic_closures set clinic_id = 'x' where true", /never sets clinic_id/],
     ["update clinic_providers set id = gen_random_uuid() where true", /never sets clinic_id or id/],
+    [
+      "update clinic_closures set created_at = now() where true",
+      /created_at is the database's own/,
+    ],
+    [
+      "update clinic_providers set active = true, created_at = now() where true",
+      /created_at is the database's own/,
+    ],
+    [
+      `insert into clinic_closures (clinic_id, closed_on, created_at) values ('${C}', '2027-01-01', now())`,
+      /created_at is the database's own/,
+    ],
+    [
+      `insert into clinic_provider_services (created_at, clinic_id) values (now(), '${C}')`,
+      /created_at is the database's own/,
+    ],
+    [
+      "update clinic_closures set location_id = gen_random_uuid() where true",
+      /location never changes \(the trigger app_location_fixed/,
+    ],
     ["update clinic_closures set label = 'a', label = 'b' where true", /set once/],
     ["insert into clinic_closures (clinic_id, clinic_id) values ('a', 'b')", /named once/],
     ["insert into clinic_closures (clinic_id, closed_on) values ('a')", /1 values for 2 columns/],
@@ -287,18 +440,23 @@ describe("statements outside the grammar are refused", () => {
     expect(message).not.toContain("a".repeat(41));
   });
 
-  test("parentheses nest only so deep", () => {
-    const deep = `update clinic_closures set label = 'x' where ${"(".repeat(40)}true${")".repeat(40)}`;
-    expect(() => parseChangeFile(deep)).toThrow(/levels of parentheses/);
+  test(`parentheses nest ${MAX_DEPTH} deep and no deeper`, () => {
+    const nested = (n: number) =>
+      `update clinic_closures set label = 'x' where ${"(".repeat(n)}true${")".repeat(n)}`;
+    expect(MAX_DEPTH).toBe(16);
+    expect(() => parseChangeFile(nested(16))).not.toThrow();
+    expect(() => parseChangeFile(nested(17))).toThrow(/no more than 16 levels of parentheses/);
   });
 });
 
 /**
  * A fixed corpus, mutated by deleting or duplicating each token in turn and
  * by inserting a forbidden piece of text before each token. Every mutant is
- * either refused with a ChangeFileError or accepted as text that goes back to
- * grammar text, and nothing accepted holds a word outside the grammar's own
- * vocabulary outside a quoted value.
+ * either refused with a ChangeFileError or accepted; an accepted one goes
+ * back to grammar text and, re-read by the same tokenizer, holds no word or
+ * punctuation outside the grammar's own vocabulary. (Same tokenizer: this is
+ * a self-consistency check, not a comparison with Postgres; the database
+ * test below is that.)
  */
 describe("a mutated corpus", () => {
   const VOCAB = new Set<string>([
@@ -329,33 +487,6 @@ describe("a mutated corpus", () => {
     ...Object.values(TABLE_COLUMNS).flat(),
   ]);
   const PUNCT = new Set(["::", "<=", ">=", "<>", "(", ")", ",", "=", "<", ">", "-"]);
-  const INJECT = [
-    "set_config('app.clinic_id', 'x', true)",
-    "; ",
-    "-- ",
-    "/* */",
-    "$$x$$",
-    "delete ",
-    "returning * ",
-    "pg_sleep(1) ",
-    "E'x' ",
-    '"label" ',
-    "public.",
-    "(select 1) ",
-  ];
-
-  function mutants(sql: string): string[] {
-    const tokens = tokenize(sql).filter((t) => t.kind !== "end");
-    const out: string[] = [];
-    for (const t of tokens) {
-      const end = t.at + t.text.length;
-      out.push(sql.slice(0, t.at) + sql.slice(end));
-      out.push(sql.slice(0, end) + " " + sql.slice(t.at));
-      for (const bad of INJECT) out.push(sql.slice(0, t.at) + bad + sql.slice(t.at));
-    }
-    return out;
-  }
-
   test("every mutant is refused cleanly or accepted as grammar text", () => {
     let accepted = 0;
     let refused = 0;
@@ -395,5 +526,65 @@ describe("a mutated corpus", () => {
         expect(ok, sql).toBe(false);
       }
     }
+  });
+});
+
+/**
+ * Postgres itself on the corpus: every accepted form, and every accepted
+ * mutant, run through runParsed as a DRY RUN under the writer role
+ * (TEST_WRITER_URL) against a seeded clinic. A refusal by data (a foreign
+ * key, row-level security, the BAA gate's privilege, a bad date) is fine; a
+ * syntax error (SQLSTATE 42601), or any other class-42 error but a missing
+ * privilege (42501), would mean the grammar accepts what Postgres reads
+ * differently, and fails the test. Skipped without that database.
+ */
+const WRITER_URL = process.env.TEST_WRITER_URL;
+const describeDb = hasTestDatabase && WRITER_URL ? describe : describe.skip;
+
+describeDb("every accepted form is valid SQL to Postgres", () => {
+  let clinic: SeededClinic;
+
+  beforeAll(async () => {
+    clinic = await seedClinic(`grammar${randomUUID().slice(0, 6)}`);
+  });
+
+  afterAll(async () => {
+    await closePools();
+  });
+
+  test("the forms and the accepted mutants dry-run without a syntax error", async () => {
+    const corpus = ACCEPTED.map((sql) => sql.replaceAll(C, clinic.clinicId));
+    const all = [...new Set([...corpus, ...corpus.flatMap(acceptedMutants)])];
+    expect(all.length).toBeGreaterThan(corpus.length);
+    const wrong: string[] = [];
+    let ran = 0;
+    let refusedByData = 0;
+    for (const sql of all) {
+      const parsed = parseChangeFile(sql);
+      try {
+        const out = await runParsed(
+          {
+            change: "grammar",
+            clinic: clinic.clinicId,
+            mode: "dry-run",
+            expectRows: null,
+            connectionString: WRITER_URL!,
+          },
+          parsed,
+        );
+        expect(out.committed).toBe(false);
+        ran++;
+      } catch (error) {
+        const code = (error as { code?: string }).code ?? "";
+        if (code === "42601" || (code.startsWith("42") && code !== "42501") || code === "") {
+          wrong.push(`${code} ${(error as Error).message.slice(0, 120)} :: ${sql}`);
+        } else {
+          refusedByData++;
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+    expect(ran).toBeGreaterThan(0);
+    expect(ran + refusedByData).toBe(all.length);
   });
 });

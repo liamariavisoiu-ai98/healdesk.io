@@ -31,11 +31,28 @@ export const TABLE_COLUMNS = {
 
 export type GrammarTable = keyof typeof TABLE_COLUMNS;
 
-/** Columns an UPDATE may never set: which clinic a row is, and its identity. */
-const NEVER_SET = new Set(["clinic_id", "id"]);
+/**
+ * Columns a change may never write, with the reason it is refused. `SET`
+ * never names which clinic a row is or its identity; `created_at` is the
+ * database's own clock, never set or inserted; a closed day's location never
+ * moves (the trigger app_location_fixed raises on any change, so the grammar
+ * refuses it first, with a message a reviewer can read).
+ */
+function neverSet(table: GrammarTable, column: string): string | null {
+  if (column === "clinic_id" || column === "id") return "an update never sets clinic_id or id";
+  if (column === "created_at") return "created_at is the database's own: never set or inserted";
+  if (table === "clinic_closures" && column === "location_id") {
+    return "a closed day's location never changes (the trigger app_location_fixed refuses it)";
+  }
+  return null;
+}
+function neverInserted(column: string): string | null {
+  return column === "created_at" ? "created_at is the database's own: never set or inserted" : null;
+}
 const CASTS = new Set(["date", "timestamptz", "uuid", "text"]);
 const OPS = new Set(["=", "<>", "<", "<=", ">", ">="]);
-const MAX_DEPTH = 16;
+/** Levels of parentheses a predicate may nest: 16 pass, 17 are refused. */
+export const MAX_DEPTH = 16;
 
 export class ChangeFileError extends Error {}
 
@@ -52,12 +69,32 @@ export type Token =
   | { kind: "bad"; text: string; value: string; at: number; why?: string }
   | { kind: "end"; text: ""; value: ""; at: number };
 
+const COMMENTS = "comments are not allowed";
 const PUNCT = ["::", "<=", ">=", "<>", "(", ")", ",", "=", "<", ">", "-", ";"] as const;
 
-function show(text: string): string {
-  const flat = text.replace(/\s+/g, " ");
-  return flat.length > 40 ? `${flat.slice(0, 37)}...` : flat;
+/**
+ * A token as an error message shows it: anything outside printable ASCII as
+ * U+XXXX, so an invisible or look-alike character is named rather than
+ * printed, and never more than 40 characters.
+ */
+export function show(text: string): string {
+  let out = "";
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    out += cp >= 0x20 && cp < 0x7f ? ch : `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+  }
+  return out.length > 40 ? `${out.slice(0, 37)}...` : out;
 }
+
+/**
+ * Inside a value: control characters (NUL, ESC, tab, newline, C0 and C1),
+ * format characters (bidi overrides and isolates, zero-width characters, the
+ * byte-order mark), line and paragraph separators, and every space but the
+ * plain one (a no-break space reads as a space and is not one). A reviewed
+ * file then reads as what runs. Labels and names are one line, so tab and
+ * newline are refused too.
+ */
+const INVISIBLE_IN_VALUE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Zs}]/u;
 
 function refuse(what: string, at: number, why?: string): never {
   throw new ChangeFileError(`unexpected ${what} at character ${at + 1}${why ? `: ${why}` : ""}`);
@@ -80,11 +117,12 @@ export function tokenize(sql: string): Token[] {
   };
   while (i < sql.length) {
     const c = sql[i]!;
-    if (c === " " || c === "\t" || c === "\n" || c === "\r") {
+    if (c === " " || c === "\t" || c === "\n") {
       i++;
       continue;
     }
-    if (c === "-" && sql[i + 1] === "-") return bad("--", i, "no comments inside the statement");
+    if (c === "-" && sql[i + 1] === "-") return bad("--", i, COMMENTS);
+    if (c === "/" && sql[i + 1] === "*") return bad("/*", i, COMMENTS);
     if (c === "'") {
       // A prefix touching the quote (E'', U&'', B'', X'', N'') changes what the
       // string means; only a bare '...' with '' doubling is a value here.
@@ -106,8 +144,17 @@ export function tokenize(sql: string): Token[] {
         }
         if (d === "\\") return bad("\\", j, "no backslashes, in a value or out of one");
         if (d === ";") return bad(";", j, "no semicolon inside a value");
-        value += d;
-        j++;
+        // By code point, so a character outside the basic plane is one character.
+        const ch = String.fromCodePoint(sql.codePointAt(j)!);
+        if (ch !== " " && INVISIBLE_IN_VALUE.test(ch)) {
+          return bad(
+            ch,
+            j,
+            "no control, format, separator or non-plain space characters in a value",
+          );
+        }
+        value += ch;
+        j += ch.length;
       }
       out.push({ kind: "string", text: sql.slice(i, j + 1), value, at: i });
       i = j + 1;
@@ -145,7 +192,7 @@ export function tokenize(sql: string): Token[] {
       i += p.length;
       continue;
     }
-    return bad(c, i);
+    return bad(String.fromCodePoint(sql.codePointAt(i)!), i);
   }
   out.push({ kind: "end", text: "", value: "", at: sql.length });
   return out;
@@ -208,8 +255,13 @@ class Parser {
   private fail(why?: string): never {
     const t = this.peek();
     if (t.kind === "bad") refuse(`"${show(t.text)}"`, t.at, t.why);
-    if (t.kind === "punct" && t.value === ";")
+    if (t.kind === "punct" && t.value === ";") {
+      // "...; -- note": the comment is the problem, not a second statement.
+      const next = this.tokens[this.i + 1];
+      if (next?.kind === "bad" && (next.text === "--" || next.text === "/*"))
+        refuse(`"${next.text}"`, next.at, COMMENTS);
       refuse(`";"`, t.at, "a change file is exactly one statement");
+    }
     refuse(t.kind === "end" ? "end of statement" : `"${show(t.text)}"`, t.at, why);
   }
 
@@ -314,13 +366,11 @@ class Parser {
   }
 
   private predicate(table: GrammarTable): Predicate {
-    if (++this.depth > MAX_DEPTH) this.fail(`no more than ${MAX_DEPTH} levels of parentheses`);
     const parts = [this.conjunct(table)];
     while (this.isWord("or")) {
       this.i++;
       parts.push(this.conjunct(table));
     }
-    this.depth--;
     return parts.length === 1 ? parts[0]! : { kind: "or", parts };
   }
 
@@ -335,9 +385,11 @@ class Parser {
 
   private term(table: GrammarTable): Predicate {
     if (this.isPunct("(")) {
+      if (++this.depth > MAX_DEPTH) this.fail(`no more than ${MAX_DEPTH} levels of parentheses`);
       this.i++;
       const inner = this.predicate(table);
       this.punct(")");
+      this.depth--;
       return inner;
     }
     if (this.isWord("true", "false")) {
@@ -377,14 +429,16 @@ class Parser {
 
   private columnList(table: GrammarTable): string[] {
     this.punct("(");
-    const cols = [this.column(table)];
-    while (this.isPunct(",")) {
-      this.i++;
+    const cols: string[] = [];
+    do {
+      if (cols.length > 0) this.i++;
       const at = this.peek();
       const c = this.column(table);
+      const never = neverInserted(c);
+      if (never) refuse(`"${c}"`, at.at, never);
       if (cols.includes(c)) refuse(`"${c}"`, at.at, "a column is named once");
       cols.push(c);
-    }
+    } while (this.isPunct(","));
     this.punct(")");
     return cols;
   }
@@ -455,8 +509,8 @@ class Parser {
         if (set.length > 0) this.i++;
         const at = this.peek();
         const column = this.column(table);
-        if (NEVER_SET.has(column))
-          refuse(`"${column}"`, at.at, "an update never sets clinic_id or id");
+        const never = neverSet(table, column);
+        if (never) refuse(`"${column}"`, at.at, never);
         if (set.some((s) => s.column === column))
           refuse(`"${column}"`, at.at, "a column is set once");
         this.punct("=");

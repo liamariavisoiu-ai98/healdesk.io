@@ -1,9 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
-import { ChangeFileError, isChangeName, parseChangeFile } from "../scripts/db-change-file";
+import { ChangeFileError, denylist, isChangeName, layers, parseChangeFile } from "../scripts/db-change-file";
+import { TABLE_COLUMNS } from "../scripts/db-change-grammar";
 import { READONLY_TABLES, READONLY_WITHHELD, WRITABLE_TABLES, WRITER_ALSO_READS } from "../scripts/readonly-tables";
 
 /**
@@ -99,5 +100,55 @@ describe("a change file", () => {
       // The runner sends the statement as the file holds it, header and final ";" aside.
       expect(text).toContain(parsed.statement);
     }
+  });
+});
+
+describe("the file around the statement", () => {
+  test("a carriage return anywhere is refused, with its position: files use LF", () => {
+    expect(() => parseChangeFile("-- header\r\nupdate clinic_closures set label = 'x' where true\r\n")).toThrow(
+      /LF line endings: carriage return \(U\+000D\) at character 10/,
+    );
+    expect(() => parseChangeFile("update clinic_closures set label = 'a\rb' where true")).toThrow(/carriage return/);
+    expect(() => parseChangeFile("-- header\nupdate clinic_closures set label = 'x' where true\n")).not.toThrow();
+  });
+});
+
+describe("the old word list, the second layer", () => {
+  test.each([
+    ["U&", `update clinic_closures set label = U&"!0061" UESCAPE '!'`],
+    ["a dollar tag", "update clinic_closures set label = $tag$x$tag$"],
+    ["*_to_xml", "update clinic_closures set label = 'x' where query_to_xml('select 1', true, false, '') is null"],
+    ["set_config", "update clinic_closures set label = set_config('app.clinic_id', 'x', true)"],
+    ["current_setting", "update clinic_closures set label = current_setting('app.clinic_id')"],
+    ["pg_*", "update clinic_closures set label = pg_read_file('x')"],
+    ["RETURNING", "update clinic_closures set label = 'x' returning *"],
+    ["DDL", "update clinic_closures set label = 'x' where true and drop"],
+    ["a second statement", "update clinic_closures set label = 'a'; select 1"],
+    ["a table it may not write", "update clinics set name = 'x'"],
+    ["a block comment", "update clinic_closures set label = 'a' /* x */"],
+  ])("still refuses %s on its own", (_what, sql) => {
+    expect(() => denylist(sql)).toThrow(ChangeFileError);
+  });
+
+  test("passes what the grammar accepts, reading the same verb and table", () => {
+    expect(denylist("update clinic_closures set label = label where false")).toEqual({ verb: "update", table: "clinic_closures" });
+  });
+
+  test("parseChangeFile runs it after the grammar", () => {
+    const grammar = vi.spyOn(layers, "grammar");
+    const words = vi.spyOn(layers, "denylist");
+    try {
+      parseChangeFile("update clinic_closures set label = 'x' where true");
+      expect(grammar).toHaveBeenCalledTimes(1);
+      expect(words).toHaveBeenCalledWith("update clinic_closures set label = 'x' where true");
+      expect(grammar.mock.invocationCallOrder[0]!).toBeLessThan(words.mock.invocationCallOrder[0]!);
+    } finally {
+      grammar.mockRestore();
+      words.mockRestore();
+    }
+  });
+
+  test("the grammar's tables are exactly WRITABLE_TABLES", () => {
+    expect(new Set(Object.keys(TABLE_COLUMNS))).toEqual(new Set<string>(WRITABLE_TABLES));
   });
 });

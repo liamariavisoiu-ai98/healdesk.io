@@ -64,12 +64,13 @@ afterEach(() => {
 
 const QUEUE = {
   key: "outbox_dead",
-  words: "Emails to clinics that gave up after every attempt, in the last 7 days",
+  words: "Emails to clinics that could not be sent and will not be tried again, in the last 7 days",
   count: 2,
   oldestAgeMinutes: 1440,
   needsAttention: true,
   tone: "warn",
   href: `/admin/clinics/${CLINIC}/deliveries`,
+  lowerBound: false,
 };
 
 describe("fetchMachineQueues", () => {
@@ -80,7 +81,15 @@ describe("fetchMachineQueues", () => {
     expect(sent).toEqual([{ op: "listMachineQueues", args: {} }]);
   });
 
+  test("reads a count some clinic could not add to as a lower bound", async () => {
+    reply({ data: { queues: [{ ...QUEUE, lowerBound: true }], partial: ["1 clinic(s)"] } });
+    const result = await fetchMachineQueues();
+    expect(result.ok && result.data.queues[0]!.lowerBound).toBe(true);
+  });
+
   test.each([
+    ["a missing lower-bound flag", { queues: [(({ lowerBound: _l, ...rest }) => rest)(QUEUE)], partial: [] }],
+    ["a lower-bound flag that is not a boolean", { queues: [{ ...QUEUE, lowerBound: "maybe" }], partial: [] }],
     ["a missing partial", { queues: [QUEUE] }],
     ["an unknown tone", { queues: [{ ...QUEUE, tone: "red" }], partial: [] }],
     ["a negative count", { queues: [{ ...QUEUE, count: -1 }], partial: [] }],

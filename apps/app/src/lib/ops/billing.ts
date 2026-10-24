@@ -1628,6 +1628,12 @@ export async function opExtendSetupDeadline(
     if (billing) {
       const stamped = await recordExtension(billing, operator, new Date(result.setupDeadlineAt));
       lifecycle = stamped.outcome === "saved" ? "recorded" : "not_watched";
+    } else {
+      // A location whose account is not in the clinic list: the deadline moved, the row was not stamped.
+      log.error("setup extension not recorded on the lifecycle row: no billing clinic", {
+        clinicId: clinic.id,
+        billingClinicId: clinic.billingClinicId,
+      });
     }
   } catch (error) {
     log.error("setup extension not recorded on the lifecycle row", {

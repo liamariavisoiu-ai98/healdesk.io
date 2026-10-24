@@ -4,6 +4,9 @@ import { unsafeDb } from "@/db";
 import { opsAlerts } from "@/db/schema";
 import { opsAlertTitle } from "@/lib/email/templates/ops_alert";
 
+import { readIgnoredClinicIds } from "@/lib/lifecycle/ignore";
+import { LIFECYCLE_EVENTS } from "@/lib/lifecycle/waves";
+
 import { FLAG_ALERT_EVENT } from "../flag-alert";
 import { OPS_EVENTS, opsConsolePath, type OpsEvent } from "../notify";
 
@@ -60,6 +63,9 @@ const BAD: ReadonlySet<string> = new Set<OpsEvent>([
   "incident_notice_overdue",
 ]);
 
+/** The lifecycle watch's wave events, every one (lib/lifecycle/waves.ts). */
+const WAVE_EVENTS: ReadonlySet<string> = new Set(LIFECYCLE_EVENTS);
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isOpsEvent(event: string): event is OpsEvent {
@@ -87,8 +93,22 @@ export const opsAlertsSource: InboxSource = {
         fields: Record<string, string | number | boolean | null>;
       }
     >();
+    // The lifecycle watch's waves for an account on its ignore list (healdesk's
+    // own test accounts): raised before it was ignored, they are about
+    // nothing the operator must do. Read only when there is such a wave.
+    const waveClinics = raised.some((r) => WAVE_EVENTS.has(r.event) && typeof r.fields?.clinicId === "string");
+    const { ignored, failed: unreadMarks } = waveClinics
+      ? await readIgnoredClinicIds({ actor: ctx.actor, request: ctx.request })
+      : { ignored: new Set<string>(), failed: 0 };
     for (const { id: alertId, event, fields } of raised) {
       if (LEFT_OUT.has(event)) continue;
+      if (
+        WAVE_EVENTS.has(event) &&
+        typeof fields?.clinicId === "string" &&
+        ignored.has(fields.clinicId.toLowerCase())
+      ) {
+        continue;
+      }
       if (!isOpsEvent(event) && event !== FLAG_ALERT_EVENT) continue;
       const raw = fields?.clinicId;
       const clinicId = typeof raw === "string" && UUID.test(raw) ? raw.toLowerCase() : null;
@@ -100,7 +120,12 @@ export const opsAlertsSource: InboxSource = {
       groups.set(key, seen);
     }
     const partial =
-      raised.length >= MAX_READ ? `Only the newest ${MAX_READ} alerts of the last day were read.` : undefined;
+      [
+        raised.length >= MAX_READ ? `Only the newest ${MAX_READ} alerts of the last day were read.` : null,
+        unreadMarks > 0 ? `The ignore list of ${unreadMarks} clinic(s) could not be read.` : null,
+      ]
+        .filter((p): p is string => p !== null)
+        .join(" ") || undefined;
     if (groups.size === 0) return { rows: [], partial };
 
     const names = await ctx.clinicNames();

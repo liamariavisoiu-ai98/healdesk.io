@@ -1,4 +1,5 @@
 import { readGoLiveCheck } from "@/lib/channels/events";
+import { readIgnoredClinicIds } from "@/lib/lifecycle/ignore";
 import { describeError, log } from "@/lib/log";
 import type { GoLiveCheck, GoLiveCode } from "@/lib/onboarding/go-live";
 import { withTenant } from "@/lib/tenant";
@@ -23,7 +24,8 @@ import type { InboxContext, InboxRow } from "./types";
  *     done, or its agreement is what stands in the way).
  *
  * healdesk's demo clinic and a leaving clinic never go live and are never
- * counted. Each row opens the first clinic's Setup tab, where the go-live
+ * counted, and neither is an account on the lifecycle ignore list
+ * (healdesk's own test accounts) or one of its locations. Each row opens the first clinic's Setup tab, where the go-live
  * view is.
  *
  * NOT REGISTERED YET: the row kind `go_live` needs its line in INBOX_KINDS
@@ -68,9 +70,11 @@ export const goLiveSource = {
   name: "go-live",
   async read(ctx: InboxContext): Promise<{ rows: GoLiveRow[]; partial?: string }> {
     const found: Record<"ready" | "held", { id: string; name: string }[]> = { ready: [], held: [] };
-    let failed = 0;
+    // healdesk's own test accounts (the lifecycle ignore list) never make a row.
+    const { ignored, failed: unreadMarks } = await readIgnoredClinicIds({ actor: ctx.actor, request: ctx.request });
+    let failed = unreadMarks;
     for (const clinic of await listClinics()) {
-      if (clinic.destroyedAt) continue;
+      if (clinic.destroyedAt || ignored.has(clinic.id)) continue;
       try {
         const read = await withTenant(
           { clinicId: clinic.id, actor: ctx.actor, request: ctx.request },

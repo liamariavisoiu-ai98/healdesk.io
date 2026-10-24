@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { ActorContext } from "@/lib/audit";
+import { runOperation } from "@/lib/ops/api";
 import { goLiveSource, goLiveStanding } from "@/lib/ops/inbox/go-live";
 import type { GoLiveCheck, GoLiveCode, GoLiveMissing } from "@/lib/onboarding/go-live";
 import type { InboxContext } from "@/lib/ops/inbox/types";
@@ -89,5 +90,23 @@ describeDb("Home's go-live rows, against the database", () => {
         dueAt: null,
       },
     ]);
+  }, 120_000);
+
+  test("an account on the lifecycle ignore list (healdesk's own test account) never makes a ready row", async () => {
+    const internal = await seedClinic("golive-internal");
+    await readyForGoLive(internal.clinicId, internal.organizationId);
+    const real = await seedClinic("golive-real");
+    await readyForGoLive(real.clinicId, real.organizationId);
+    const set = await runOperation(
+      "setLifecycleIgnored",
+      { clinicId: internal.clinicId, ignored: true, note: "internal_test_account" },
+      { email: "ops@healdesk.test", request: {} },
+    );
+    expect(set.status).toBe(200);
+
+    const { rows } = await goLiveSource.read(ctx());
+    const ready = rows.find((r) => r.id === "go_live:ready")!;
+    expect(ready).toMatchObject({ count: 1, clinic: { id: real.clinicId } });
+    expect(JSON.stringify(rows)).not.toContain(internal.clinicId);
   }, 120_000);
 });

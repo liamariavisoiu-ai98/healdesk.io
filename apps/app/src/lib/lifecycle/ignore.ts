@@ -5,7 +5,10 @@ import {
   lifecycleIgnoredClinics,
   type LifecycleIgnoreNote,
 } from "@/db/schema";
-import type { TenantTx } from "@/lib/tenant";
+import type { ActorContext, RequestContext } from "@/lib/audit";
+import { describeError, log } from "@/lib/log";
+import { listClinics } from "@/lib/ops/clinics";
+import { withTenant, type TenantTx } from "@/lib/tenant";
 
 /**
  * The lifecycle watch's ignore list (lane P5d; the owner's decision of 24
@@ -91,4 +94,38 @@ export async function writeLifecycleIgnore(
     metadata: { ignored: values.ignored, reason: values.note },
   });
   return values;
+}
+
+/**
+ * Every clinic the watch leaves out, across tenants, under the caller's
+ * actor: the billing clinics on the list and their locations (a location is
+ * watched with its account). For the readers outside the watch that must
+ * agree with it: Home's go-live row and its lifecycle alerts. A clinic whose
+ * row cannot be read is counted in `failed` and treated as watched, so a
+ * failure never hides a real clinic.
+ */
+export async function readIgnoredClinicIds(context: {
+  actor: ActorContext;
+  request?: RequestContext;
+}): Promise<{ ignored: ReadonlySet<string>; failed: number }> {
+  const clinics = await listClinics();
+  const ignored = new Set<string>();
+  let failed = 0;
+  for (const clinic of clinics) {
+    if (clinic.billingClinicId || clinic.destroyedAt) continue;
+    try {
+      const mark = await withTenant(
+        { clinicId: clinic.id, actor: context.actor, request: context.request },
+        (tx) => isLifecycleIgnored(tx),
+      );
+      if (mark) ignored.add(clinic.id);
+    } catch (error) {
+      failed += 1;
+      log.warn("lifecycle ignore mark not read", { clinicId: clinic.id, error: describeError(error) });
+    }
+  }
+  for (const clinic of clinics) {
+    if (clinic.billingClinicId && ignored.has(clinic.billingClinicId)) ignored.add(clinic.id);
+  }
+  return { ignored, failed };
 }

@@ -1,7 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { clinicLifecycle, lifecycleWaves, type LifecycleStage } from "@/db/schema";
+import { clinicLifecycle, entitlements, lifecycleWaves, type LifecycleStage } from "@/db/schema";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { setupLastDay, setupWindowStart } from "@/lib/clinic/setup-window";
 import { describeError, log } from "@/lib/log";
@@ -124,7 +124,18 @@ async function observe(tx: TenantTx, now: Date): Promise<WatchedClinic | null> {
     .for("update")
     .limit(1);
 
-  const deadline = billing.setupDeadlineAt;
+  // The deadline is read again under the row lock: one read with the setup
+  // state, before the lock, could be older than an extension that committed
+  // and stamped this row in between, and writing it would put the old
+  // deadline and last day back over the fresh ones (and the next run would
+  // read the extension a second time). Once the lock is held, an extension's
+  // stamp waits for this transaction, so this read is the newest.
+  const [current] = await tx.db
+    .select({ setupDeadlineAt: entitlements.setupDeadlineAt })
+    .from(entitlements)
+    .where(eq(entitlements.clinicId, tx.clinicId))
+    .limit(1);
+  const deadline = current ? current.setupDeadlineAt : billing.setupDeadlineAt;
   const lastProgressAt = latest([prev?.lastProgressAt, progressAt]);
   // An extension moves the window's last day later; a time-zone correction
   // moves the deadline's instant and keeps its last day, so it is not one.

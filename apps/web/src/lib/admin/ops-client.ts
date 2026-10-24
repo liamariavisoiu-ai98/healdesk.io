@@ -2203,6 +2203,8 @@ export type MachineQueue = {
   needsAttention: boolean;
   tone: Tone;
   href: string;
+  /** Some clinic could not be read: the count is "at least N". */
+  lowerBound: boolean;
 };
 
 /** The queues, those needing a person first; `partial` names each part that could not be read, never as zeros. */
@@ -2231,6 +2233,7 @@ export function fetchMachineQueues(): Promise<OpsResult<MachineQueues>> {
           needsAttention: bool(field(r, "needsAttention", at), `${at}.needsAttention`),
           tone: literal(field(r, "tone", at), TONES, `${at}.tone`),
           href,
+          lowerBound: bool(field(r, "lowerBound", at), `${at}.lowerBound`),
         };
       }),
       partial: list(field(data, "partial", "listMachineQueues"), "listMachineQueues.partial").map((p, i) =>

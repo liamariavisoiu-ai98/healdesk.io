@@ -10,6 +10,7 @@ import { watchLifecycles } from "@/lib/lifecycle/watch";
 import { isMutating, runOperation, type Operator } from "@/lib/ops/api";
 import { collectDigest } from "@/lib/ops/digest";
 import { readOpsInbox } from "@/lib/ops/inbox/run";
+import { reconcileBilling } from "@/lib/billing/reconcile";
 import { runConnectionHealthJob } from "@/lib/scheduler/connection-health";
 import { JOB_CONNECTION_HEALTH, setJobEnabled } from "@/lib/scheduler/jobs";
 import { SETUP_SCREENS } from "@/lib/setup/screen-ids";
@@ -28,6 +29,23 @@ import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic"
  * "decision owed" row at once, with the watch never run. Resend is stubbed;
  * the clock is the test's.
  */
+
+// The race of finding 6: a hook run inside the watch's transaction, right
+// after it read the setup state and before it locks the lifecycle row.
+const race = vi.hoisted(() => ({ afterStateRead: null as null | (() => Promise<void>) }));
+vi.mock("@/lib/setup/state", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/setup/state")>();
+  return {
+    ...actual,
+    readSetupState: async (...args: Parameters<typeof actual.readSetupState>) => {
+      const state = await actual.readSetupState(...args);
+      const hook = race.afterStateRead;
+      race.afterStateRead = null;
+      if (hook) await hook();
+      return state;
+    },
+  };
+});
 
 const send = vi.fn();
 vi.mock("resend", () => ({
@@ -141,8 +159,93 @@ describeDb("the lifecycle ignore list and the extension's stamp (lane P5d)", () 
   });
 
   afterAll(async () => {
+    race.afterStateRead = null;
     await closePools();
   });
+
+  async function raiseAlert(event: string, clinicId: string): Promise<void> {
+    await getMigratorPool().query(
+      `insert into ops_alerts (event, dedupe_key, fields, raised_at, last_raised_at) values ($1, $2, $3, now(), now())`,
+      [event, `${event}|${randomUUID()}`, JSON.stringify({ clinicId })],
+    );
+  }
+
+  test("Home leaves off every lifecycle wave of an ignored clinic, raised before it was ignored; a watched clinic's and the ignored one's real alerts stay", async () => {
+    vi.useRealTimers();
+    const internal = await clinic("waves-internal", { day: 23 });
+    const real = await clinic("waves-real", { day: 23 });
+    for (const c of [internal, real]) {
+      for (const event of ["lifecycle_no_progress", "lifecycle_closing_soon", "lifecycle_decision_due", "lifecycle_reminders_unanswered"]) {
+        await raiseAlert(event, c.clinicId);
+      }
+    }
+    await raiseAlert("connection_broken", internal.clinicId);
+    await op("setLifecycleIgnored", { clinicId: internal.clinicId, ignored: true, note: "internal_test_account" });
+
+    const ids = (await readOpsInbox(OPERATOR)).rows.filter((r) => r.kind === "ops_alert").map((r) => r.id);
+    for (const event of ["lifecycle_no_progress", "lifecycle_closing_soon", "lifecycle_reminders_unanswered"]) {
+      expect(ids, event).not.toContain(`alert:${event}:${internal.clinicId}`);
+      expect(ids, event).toContain(`alert:${event}:${real.clinicId}`);
+    }
+    expect(ids).toContain(`alert:connection_broken:${internal.clinicId}`);
+
+    // Taken off the list: its waves are back.
+    await op("setLifecycleIgnored", { clinicId: internal.clinicId, ignored: false });
+    expect((await readOpsInbox(OPERATOR)).rows.map((r) => r.id)).toContain(`alert:lifecycle_no_progress:${internal.clinicId}`);
+  }, 120_000);
+
+  test("the watch re-reads the deadline under its lock: an extension committed while a run is under way is not written back over", async () => {
+    const c = await clinic("race", { day: 25, screens: 1 });
+    const deadline = deadlineFor(25);
+    await watchLifecycles(NOON);
+    expect(await lifecycleRow(c)).toMatchObject({ deadline_at: deadline, decision: "none" });
+
+    // The next run has read the setup state (the old deadline) when the
+    // operator's extension commits and stamps the row; only then does the
+    // run lock the row and write.
+    let extended: Date | null = null;
+    race.afterStateRead = async () => {
+      const result = await op<{ status: string; setupDeadlineAt: string; lifecycle: string }>("extendSetupDeadline", {
+        clinicId: c.clinicId,
+        days: 14,
+        fromDeadline: deadline.toISOString(),
+      });
+      expect(result.data).toMatchObject({ status: "extended", lifecycle: "recorded" });
+      extended = new Date(result.data.setupDeadlineAt);
+    };
+    await watchLifecycles(new Date(NOON.getTime() + HOUR));
+    expect(extended).not.toBeNull();
+    const row = await lifecycleRow(c);
+    expect(row).toMatchObject({ deadline_at: extended, decision: "extended", decided_by: OPERATOR.email });
+    const lastDay = await inTenant(c.clinicId, (q) =>
+      q.query<{ d: string }>(`select last_day::text as d from clinic_lifecycle where clinic_id = $1`, [c.clinicId]),
+    );
+    expect(lastDay.rows[0]!.d).toBe(setupLastDay(extended!, ZONE));
+    // And the run after that sees no second extension.
+    await watchLifecycles(new Date(NOON.getTime() + 2 * HOUR));
+    expect(await lifecycleRow(c)).toMatchObject({ deadline_at: extended, decided_by: OPERATOR.email });
+  }, 120_000);
+
+  test("day 30 for an ignored account, as built today: no warning wave, and the billing reconcile still records its setup closure", async () => {
+    // Documents the owner's open question: the ignore list silences the
+    // watch only. The closure itself (reconcile's close_setup, carried out by
+    // the setup-closure worker while its switch is on) does not read it.
+    const c = await clinic("day30", { day: 30 });
+    await op("setLifecycleIgnored", { clinicId: c.clinicId, ignored: true, note: "internal_test_account" });
+    await watchLifecycles(NOON);
+    expect(await waves(c)).toBe(0);
+    expect(await alertsFor(c.clinicId)).toEqual([]);
+
+    const pastDeadline = new Date(deadlineFor(30).getTime() + HOUR);
+    vi.setSystemTime(pastDeadline);
+    await reconcileBilling(pastDeadline);
+    const requests = await inTenant(c.clinicId, (q) =>
+      q.query<{ kind: string; reason: string }>(`select kind, reason from billing_requests where clinic_id = $1`, [c.clinicId]),
+    );
+    expect(requests.rows).toEqual([{ kind: "close_setup", reason: "deadline" }]);
+    await watchLifecycles(pastDeadline);
+    expect(await alertsFor(c.clinicId)).toEqual([]);
+  }, 120_000);
 
   test("an ignored clinic is absent from the watch, its waves, Home's decisions, the digest and the recommendation; un-ignoring restores it", async () => {
     const internal = await clinic("internal", { day: 23, screens: 1 });
@@ -367,6 +470,15 @@ describe("the ignore list is read only by the lifecycle watch and its consumers"
       .filter((f) => /lifecycle\/ignore"|from "\.\/ignore"|lifecycleIgnoredClinics|lifecycle_ignored_clinics/.test(readFileSync(f, "utf8")))
       .map((f) => f.slice(src.length + 1))
       .sort();
-    expect(readers).toEqual(["db/schema.ts", "lib/lifecycle/ignore.ts", "lib/lifecycle/watch.ts", "lib/offboarding/account-closure.ts", "lib/ops/lifecycle-ops.ts", "lib/retention/purge.ts"]);
+    expect(readers).toEqual([
+      "db/schema.ts",
+      "lib/lifecycle/ignore.ts",
+      "lib/lifecycle/watch.ts",
+      "lib/offboarding/account-closure.ts",
+      "lib/ops/inbox/go-live.ts",
+      "lib/ops/inbox/ops-alerts.ts",
+      "lib/ops/lifecycle-ops.ts",
+      "lib/retention/purge.ts",
+    ]);
   });
 });

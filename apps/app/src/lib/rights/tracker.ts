@@ -467,13 +467,23 @@ export type RecordIntakeInput = {
 
 export type RecordIntakeOutcome =
   | { outcome: "recorded" | "already_recorded"; id: string; dueOn: string }
-  | { outcome: "not_found" };
+  | { outcome: "not_found" }
+  /** The linked patient request asked for something other than `askedFor`. */
+  | { outcome: "asked_for_mismatch" };
 
-/** Whether the record an intake names is this clinic's, of the kind's table. RLS hides every other clinic's. */
-async function linkedExists(tx: TenantTx, kind: RightsKind, recordId: string): Promise<boolean> {
+/**
+ * The record an intake names, if it is this clinic's and of the kind's
+ * table (RLS hides every other clinic's): for a patient request, with what
+ * it asked for, so an intake cannot name one of another kind.
+ */
+async function linkedRecord(
+  tx: TenantTx,
+  kind: RightsKind,
+  recordId: string,
+): Promise<{ askedFor: PatientRequestKind | null } | null> {
   const target = LINKABLE[kind];
   if (target === "erasure_request") {
-    return (await listErasureRequests(tx)).some((r) => r.id === recordId);
+    return (await listErasureRequests(tx)).some((r) => r.id === recordId) ? { askedFor: null } : null;
   }
   if (target === "record_amendment") {
     const [row] = await tx.db
@@ -481,17 +491,17 @@ async function linkedExists(tx: TenantTx, kind: RightsKind, recordId: string): P
       .from(recordAmendments)
       .where(and(eq(recordAmendments.clinicId, tx.clinicId), eq(recordAmendments.id, recordId)))
       .limit(1);
-    return Boolean(row);
+    return row ? { askedFor: null } : null;
   }
   if (target === "patient_request") {
     const [row] = await tx.db
-      .select({ id: patientRequests.id })
+      .select({ kind: patientRequests.kind })
       .from(patientRequests)
       .where(and(eq(patientRequests.clinicId, tx.clinicId), eq(patientRequests.id, recordId)))
       .limit(1);
-    return Boolean(row);
+    return row ? { askedFor: row.kind } : null;
   }
-  return false;
+  return null;
 }
 
 /**
@@ -504,8 +514,10 @@ async function linkedExists(tx: TenantTx, kind: RightsKind, recordId: string): P
  * (the audit's number check reads a date as digits) and nothing typed.
  */
 export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Promise<RecordIntakeOutcome> {
-  if (input.linkedRecordId && !(await linkedExists(tx, input.kind, input.linkedRecordId))) {
-    return { outcome: "not_found" };
+  if (input.linkedRecordId) {
+    const record = await linkedRecord(tx, input.kind, input.linkedRecordId);
+    if (!record) return { outcome: "not_found" };
+    if (input.kind === "patient_request" && record.askedFor !== input.askedFor) return { outcome: "asked_for_mismatch" };
   }
   const dueOn = dueOnFor(input.kind, input.receivedOn);
   const [inserted] = await tx.db

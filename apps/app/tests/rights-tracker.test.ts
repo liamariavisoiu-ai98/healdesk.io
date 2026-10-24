@@ -477,6 +477,18 @@ describeDb("the rights tracker, against the database", () => {
     for (const requestKey of [undefined, "", "retry-1", 42]) {
       expect((await runOperation("recordRightsIntake", { ...base, requestKey }, OPERATOR)).status, String(requestKey)).toBe(400);
     }
+    // A linked patient request must have asked for what the intake says.
+    const passedOn = await seedPatientRequest(c.clinicId, "2026-10-19T10:00:00Z", "2026-10-26");
+    const mismatch = await record({ ...base, kind: "patient_request", askedFor: "access", linkedRecordId: passedOn });
+    expect(mismatch.status).toBe(400);
+    expect(JSON.stringify(mismatch.body)).toContain("asked for something else");
+    expect((await record({ ...base, kind: "patient_request", askedFor: "deletion", linkedRecordId: passedOn })).status).toBe(200);
+    // One intake per record: a second key naming the same record returns the first.
+    const first = await inTenant(c.clinicId, (q) => q.query<{ id: string }>(`select id from rights_intakes where linked_record_id = $1`, [passedOn]));
+    expect(data<{ outcome: string; id: string }>(await record({ ...base, kind: "patient_request", askedFor: "deletion", linkedRecordId: passedOn }))).toMatchObject({
+      outcome: "already_recorded",
+      id: first.rows[0]!.id,
+    });
     expect((await runOperation("listRights", { status: "late" }, OPERATOR)).status).toBe(400);
     expect((await runOperation("listRights", { limit: 0 }, OPERATOR)).status).toBe(400);
   });

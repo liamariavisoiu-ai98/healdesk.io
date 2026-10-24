@@ -151,6 +151,9 @@ export async function opRecordRightsIntake(
     if (outcome.outcome === "not_found") {
       return opsProblem("No such record at this clinic for that kind of request.", 404, "invalid_args");
     }
+    if (outcome.outcome === "asked_for_mismatch") {
+      return opsProblem("That patient request asked for something else.", 400, "invalid_args");
+    }
     // Nothing changed, so nothing was owed to the log.
     if (outcome.outcome === "already_recorded") return ok({ ...outcome, auditRecorded: true });
     const auditRecorded = await audit(operator, "rights_intake_recorded", {

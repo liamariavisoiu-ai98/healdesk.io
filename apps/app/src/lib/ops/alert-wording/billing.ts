@@ -53,7 +53,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "Until it is applied, our record of the clinic's billing may be wrong: a payment, a failed charge or a cancellation Stripe knows about and we do not.",
     steps: [
-      "Open the clinic's Billing tab if this alert names a clinic, and find the event under Parked Stripe events: its type, its failures and a short reason are on its row. If it names none, tell the owner today: the event shows on no Billing tab, and only the owner can look into it.",
+      "Open the clinic's Billing tab if this alert names a clinic, and find the event under Parked Stripe events: its type, its failures and a short reason are on its row. If it names none, open the System page: Stripe events parked under Requires your attention counts it, with how long the oldest has waited, though nothing there replays it. Tell the owner today, since only the owner can look into an event that names no clinic.",
       "Press Replay on the row. The event is applied again from the start; if it fails again, it stays listed as failed with the new reason, and nothing retries it by itself.",
       "Tell the owner today if the replay fails again, with the reason the row under Parked Stripe events shows.",
       "Check Parked Stripe events on the Billing tab again. You are done when the event is gone from the list.",
@@ -90,7 +90,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "Until it goes through, what Stripe bills and what the clinic has do not match. A change this late usually means nothing is carrying changes out at all.",
     steps: [
-      "Open the Jobs page under System and check whether the billing-requests row reads on. If it reads off, ask the owner before pressing Turn on: it carries out every waiting billing change for every clinic, plan starts that charge cards included.",
+      "Open the Jobs page under System and check whether the billing-requests row reads on. If it reads off, ask the owner before pressing Turn on: it carries out every waiting billing change for every clinic, plan starts that charge cards included. Billing requests not done under Requires your attention on the System page counts every clinic's change still waiting, so you can see whether this is one clinic or all.",
       "Open the clinic's Billing tab and find the row marked STUCK under Billing requests. Its attempts and last error say whether it is being tried or only waiting.",
       "Press Retry on the row if it shows no attempt for an hour while the job is on. If the last error says the card was refused or the subscription has ended, ask the owner instead.",
       "Check the row under Billing requests an hour later. You are done when it reads done.",
@@ -142,7 +142,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whyItMatters:
       "A deposit itself is in the clinic's own Stripe account either way, but our record of it may be wrong: a booking may still show its deposit unpaid, or a payment link open. If the clinic disconnected its account, deposits stay switched on here and payment links may still be offered on an account we can no longer use.",
     steps: [
-      "Open the clinic's Billing tab if this alert names a clinic, and find the event under Parked Stripe events, marked Connect: its type, its failures and a short reason are on its row. If it names none, tell the owner today: the event shows on no Billing tab.",
+      "Open the clinic's Billing tab if this alert names a clinic, and find the event under Parked Stripe events, marked Connect: its type, its failures and a short reason are on its row. If it names none, open the System page: Stripe Connect events parked under Requires your attention counts it, with how long the oldest has waited, though nothing there replays it. Tell the owner today, since the event shows on no Billing tab.",
       "Press Replay on the row. The event is fetched again from the clinic's own Stripe account and applied; if that fails, it stays listed as failed with the new reason, and nothing retries it by itself.",
       "Check Deposits and Stripe Connect on the same tab if the event's type says the application was deauthorized: the clinic revoked our access. Ask the owner whether to press Disconnect Stripe there, which switches deposits off and closes open payment links, and tell the owner today if the replay fails again.",
       "Check Parked Stripe events on the Billing tab again. You are done when the event is gone from the list.",

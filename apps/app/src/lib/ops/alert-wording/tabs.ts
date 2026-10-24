@@ -112,25 +112,38 @@ export function issueTabFor(event: OpsEvent): IssueTab {
  * has today, and every anchor a section on it (tests/alert-wording.test.ts
  * checks both). The comment beside an entry says when it is raised with no
  * clinic.
+ *
+ * Since Phase 5 (lane P5c) an alert about machine work that the System page
+ * lists under "Requires your attention" (lib/ops/inbox/queues.ts: the email
+ * outbox and its dead letters, bounces, Stripe and Connect events, billing
+ * requests not done, paid orders without an account) opens that section,
+ * and a stuck calendar write or an undelivered transcript copy its own list
+ * there. Two stay on the Clinics list on purpose: a refused order
+ * (provisioning_rejected) is counted as a paid order without an account only
+ * when its payment was recorded before the refusal (app/api/provision/route.ts
+ * stamps paid_seen_at once the intent is found), and a dead-lettered billing
+ * request has its done_at set (lib/billing/requests.ts settle), so neither
+ * reliably shows on the System page.
  */
 export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
-  // no clinic yet: a paid order.
+  // no clinic yet: a paid order, refused; see the header.
   provisioning_rejected: "/admin/clinics",
-  // no clinic yet: a paid order.
-  provisioning_dead_lettered: "/admin/clinics",
-  // no clinic yet: a paid order.
-  paid_intent_without_clinic: "/admin/clinics",
+  // no clinic yet: a paid order, counted under "Paid orders without an account".
+  provisioning_dead_lettered: "/admin/system#attention",
+  // no clinic yet: a paid order, counted under "Paid orders without an account".
+  paid_intent_without_clinic: "/admin/system#attention",
   duplicate_subscription: "/admin/clinics",
   practice_question_failed: "/admin/clinics",
-  // no clinic when the event names none.
-  billing_event_dead_lettered: "/admin/clinics",
-  critical_notice_undelivered: "/admin/clinics",
-  // no clinic when only the delivery is known.
-  clinic_address_bounced: "/admin/clinics",
-  // no clinic when only the delivery is known.
-  clinic_address_complained: "/admin/clinics",
-  // no clinic when only the delivery is known.
-  clinic_address_suppressed: "/admin/clinics",
+  // no clinic when the event names none: "Stripe events parked" counts it.
+  billing_event_dead_lettered: "/admin/system#attention",
+  // the outbox: "Emails waiting to send".
+  critical_notice_undelivered: "/admin/system#attention",
+  // no clinic when only the delivery is known; the bounces of the last day are counted by clinic.
+  clinic_address_bounced: "/admin/system#attention",
+  // no clinic when only the delivery is known; the bounces of the last day are counted by clinic.
+  clinic_address_complained: "/admin/system#attention",
+  // no clinic when only the delivery is known; the bounces of the last day are counted by clinic.
+  clinic_address_suppressed: "/admin/system#attention",
   // no clinic: the optional sends to hold back are here.
   daily_email_count_70: "/admin/queues#setup-requests",
   // no clinic: the request is in the marketing Sheet.
@@ -144,12 +157,14 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   agreement_below_floor_unsigned: "/admin/clinics",
   no_interactions_48_hours: "/admin/clinics",
   no_inbound_calls_14_days: "/admin/clinics",
+  // a dead letter has its done_at set, so "Billing requests not done" does not count it; see the header.
   billing_request_dead_lettered: "/admin/clinics",
-  billing_request_stuck: "/admin/clinics",
+  // a pending request over a day old: "Billing requests not done" counts it.
+  billing_request_stuck: "/admin/system#attention",
   setup_closure_skipped_live_channel: "/admin/clinics",
   location_charged_not_created: "/admin/clinics",
-  // no clinic when the event names none.
-  connect_event_dead_lettered: "/admin/clinics",
+  // no clinic when the event names none: "Stripe Connect events parked" counts it.
+  connect_event_dead_lettered: "/admin/system#attention",
   overage_invoice_failed: "/admin/clinics",
   meter_report_failing: "/admin/system/jobs",
   first_period_refund_due: "/admin/clinics",
@@ -189,7 +204,8 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   incident_notice_overdue: "/admin/compliance/incidents",
   // no clinic when the whole run failed.
   retention_purge_failed: "/admin/system/jobs",
-  transcript_undelivered: "/admin/clinics",
+  // the list of clinics with a copy not delivered.
+  transcript_undelivered: "/admin/system#transcripts",
   first_answer_not_recorded: "/admin/clinics",
   go_live_held: "/admin/clinics",
   web_widget_to_confirm: "/admin/clinics",
@@ -221,9 +237,10 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   step_up_phone_held: "/admin/clinics",
   usage_near_cap: "/admin/clinics",
   usage_cap_reached: "/admin/clinics",
-  calendar_write_stuck: "/admin/clinics",
-  // no clinic: a count across clinics.
-  calendar_writes_stuck_many: "/admin/clinics",
+  // the stuck writes across clinics, one row per clinic.
+  calendar_write_stuck: "/admin/system#calendar-writes",
+  // no clinic: a count across clinics, listed there one clinic per row.
+  calendar_writes_stuck_many: "/admin/system#calendar-writes",
   clinic_availability_changed: "/admin/clinics",
   lifecycle_no_progress: "/admin/clinics",
   lifecycle_closing_soon: "/admin/clinics",
@@ -244,6 +261,7 @@ const PAGE_NAMES: Readonly<Record<string, string>> = {
   "/admin/": "Home",
   "/admin/clinics": "Clinics",
   "/admin/queues": "Queues",
+  "/admin/system": "System",
   "/admin/system/jobs": "Jobs",
   "/admin/map": "Map",
   "/admin/compliance": "Compliance",

@@ -18,11 +18,10 @@ export const PLACES: Readonly<Record<string, Place>> = {
   "Account tab": ["app/admin/clinics/[clinicId]/ClinicTabs.tsx", 'account: "Account"', "page"],
   "Queues page": ["app/admin/queues/page.tsx", 'title: "Queues"', "page"],
   "Setup requests": ["app/admin/queues/SetupRequestsSection.tsx", 'title="Setup requests"', "page"],
-  "Calendar writes needing attention": [
-    "app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx",
-    "Calendar writes needing attention",
-    "page",
-  ],
+  // Phase 5 (lane P5b): the Setup tab's own section for the writes that have
+  // not settled, with a Retry per row. The old Calendar card's list no longer
+  // offers one (lane P5c), so this is the one proof of the button's name.
+  "Calendar writes": ["app/admin/clinics/[clinicId]/setup/CalendarWrites.tsx", 'title="Calendar writes"', "page"],
   "Phone line": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", 'title="Phone line"', "page"],
   "Usage and the allowance": [
     "app/admin/clinics/[clinicId]/billing/BillingPanel.tsx",
@@ -34,7 +33,7 @@ export const PLACES: Readonly<Record<string, Place>> = {
   Decline: ["app/admin/queues/SetupRequestsSection.tsx", "Decline", "button"],
   "Link sent": ["app/admin/queues/SetupRequestsSection.tsx", "`Link sent ", "button"],
   "the email didn't send": ["app/admin/queues/SetupRequestsSection.tsx", "the email didn't send", "button"],
-  Retry: ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Retry\n", "button"],
+  Retry: ["app/admin/clinics/[clinicId]/setup/CalendarWrites.tsx", 'label="Retry"', "button"],
   "Send calendar link": ["app/admin/clinics/[clinicId]/setup/OnboardingPanel.tsx", "Send calendar link", "button"],
   "Extend the setup window": [
     "app/admin/clinics/[clinicId]/billing/BillingPanel.tsx",
@@ -197,4 +196,24 @@ export const PLACES: Readonly<Record<string, Place>> = {
   // Lane N2c, after its accuracy review: the covered-entity answer on the Account tab.
   "Covered entity": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", 'title="Covered entity"', "page"],
   "Record the answer": ["app/admin/clinics/[clinicId]/account/AccountPanel.tsx", '"Record the answer"', "button"],
+  // Phase 5 (lanes P5a, P5b, P5d; wording by lane P5c): the Voice agent card
+  // and its three controls, the System page's read-only sections for the
+  // machine work past its patience, and the lifecycle watch's ignore control.
+  "Voice agent": ["app/admin/clinics/[clinicId]/setup/VoiceAgentCard.tsx", 'title="Voice agent"', "page"],
+  "Check against Retell": ["app/admin/clinics/[clinicId]/setup/VoiceAgentCard.tsx", 'label="Check against Retell"', "button"],
+  "Clear flag and recheck": [
+    "app/admin/clinics/[clinicId]/setup/VoiceAgentCard.tsx",
+    'label="Clear flag and recheck"',
+    "button",
+  ],
+  "System page": ["app/admin/system/page.tsx", 'title: "System"', "page"],
+  "Requires your attention": ["app/admin/system/Attention.tsx", 'title="Requires your attention"', "page"],
+  "Being watched": ["app/admin/system/Attention.tsx", 'title="Being watched"', "page"],
+  "Calendar writes stuck": ["app/admin/system/Attention.tsx", ">Calendar writes stuck<", "page"],
+  "Transcript copies not delivered": ["app/admin/system/Attention.tsx", ">Transcript copies not delivered<", "page"],
+  "Do not watch this account": [
+    "app/admin/clinics/[clinicId]/setup/SetupWindow.tsx",
+    'label="Do not watch this account"',
+    "button",
+  ],
 };

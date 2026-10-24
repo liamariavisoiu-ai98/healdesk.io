@@ -265,7 +265,10 @@ no console button finishes it: find the payment in Stripe's Dashboard, check the
 in case the order was finished another way, and tell the owner, who reads the cause in
 apps/app's error log and replays the paid invoice once it is fixed. Write to the buyer from
 hello@ by the day we promised. Never create a clinic by hand: provisioning is gated on the
-first paid invoice.
+first paid invoice. System › "Requires your attention" counts "Paid orders without an
+account" (a purchase whose paid relay was stamped once its intent was found, with no account
+yet: a dead-lettered order and one waiting ten minutes count; one refused before that point
+does not), with how long the oldest has waited; the section only reads.
 
 ### Billing
 
@@ -278,7 +281,10 @@ Billing tab shows the request, the parked event or the invoice, each with its re
 Money is the owner's: a refund, a credit or a manual charge waits for the owner's word. The
 console's refund on the Billing tab asks for no authenticator code (apps/web `commitRefund`
 sends none), only a preview and the confirmed amount, so have the owner's word before you
-press it.
+press it. System › "Requires your attention" counts, across clinics, the Stripe and Connect
+events parked or retrying and the billing requests still pending ("Billing requests not
+done": a dead-lettered request has its done_at set, so it is not among them); it only reads,
+and an event that names no clinic shows nowhere else.
 
 ### Usage
 
@@ -298,7 +304,12 @@ wrong: phone the clinic, then change it from the Account tab with the fresh code
 notice ten minutes late is also `/api/health` answering 503 ("The signals" above). The daily
 count at 70 is Resend's free-plan quota of 100 a day, sign-in links and urgent alerts
 included: tell the owner the Resend account needs its paid plan, and hold back optional
-sends (setup links, agreement copies) until midnight UTC.
+sends (setup links, agreement copies) until midnight UTC. System › "Requires your attention"
+counts, by clinic, the emails waiting to send (once the oldest has waited an hour; before
+that under "Being watched"), those that could not be sent and will not be tried again in
+the last 7 days, and the last day's bounces, spam reports and blocks (lib/ops/inbox/queues.ts);
+a row with one clinic in it opens that clinic's Deliveries tab. A bounce on an address no
+account holds is counted nowhere.
 
 ### Setup and support
 
@@ -327,9 +338,20 @@ cannot be rendered again is a code or template fault: read the register row's ve
 `voice_provision_failed`, `voice_provision_cap_reached`, `voice_agent_drift`,
 `voice_deprovision_failed`, `voice_direct_line_loops`, `voice_test_mode_refused`. "Voice:
 where a call goes when something fails" above is the whole runbook; the clinic's Setup tab
-holds the phone line, the direct line and the forwarding test. Drift is repaired by code up to
-three times, then flagged for a person: compare the agent Retell holds with what
-`lib/voice/provision.ts` writes. Outage mode is a dashboard step, never automated.
+holds the phone line, the direct line and the forwarding test. Its "Voice agent" card
+(apps/web `setup/VoiceAgentCard.tsx`, Phase 5) shows the set-up's status in words, whether a
+number is held (never the number), the last problem and the drift flag, and offers three
+controls: "Retry" (one more provisioning run under every guard a scheduled run has, with the
+operator's fresh authenticator code; it can buy a number, and asks first), "Check against
+Retell" (the read-back, saying what differs in words) and, while the clinic is flagged, "Clear
+flag and recheck" (with the fresh code: clears the flag, resets the repair count and runs the
+check once; `lib/voice/provision.ts` `clearVoiceDriftFlag`). Drift is repaired by code up to
+three times, then flagged for a person, and a flagged clinic is skipped by the nightly check
+until the flag is cleared; after a clear, only a missing agent or number flags it again. A
+missing agent or number is never recreated by code: ask Retell support, or release the
+clinic's voice set-up and provision again. A `failed` set-up waits for Retry; a failed
+settings sync is retried by the hourly sweep by itself. Outage mode is a dashboard step,
+never automated.
 
 ### Calendar
 
@@ -337,16 +359,32 @@ three times, then flagged for a person: compare the agent Retell holds with what
 `calendar_watch_failed`, `google_oauth_client_rejected`, `connection_broken`,
 `calendar_write_stuck`, `calendar_writes_stuck_many`. "What the worker runs" above describes
 the watch; the clinic's Setup tab, "Calendar", shows the connection and offers the link and a
-disconnect, and "Calendar writes" the retry. A broken connection already flipped the clinic to
-manual booking in the same turn: the clinic takes booking requests and is not down. Google
-refusing our OAuth client is every clinic at once: the Google Cloud project, not the clinics.
+disconnect, and keeps the history of every write attempted with Google's own word where it
+gave one; "Calendar writes" (apps/web `setup/CalendarWrites.tsx`, Phase 5) lists this clinic's
+writes not settled whose slot has not started, each with the reason in words
+(`components/admin/queue-words.ts`), the tries so far of five and the next try, and a "Retry"
+per row (`opRetryCalendarWrite`: reads Google back first, may go past the five, refuses a
+booking staff cancelled or marked). A write Google did not answer (a timeout, a lost reply, a
+429, a server error before the insert) is `unknown` and the desk sweep retries it on a ladder,
+2 min, 10 min, 30 min, 2 h, 6 h after each attempt, until the slot starts, five tries at most;
+settled reasons (deleted in the calendar, event id taken, not ours, no calendar connected, the
+target calendar refused, an access or connection break) are never retried by the sweep
+(`lib/booking/calendar.ts`, `CALENDAR_WRITE_REASONS`). `calendar_write_stuck` fires only for a
+write the sweep no longer takes. System › "Requires your attention", "Calendar writes stuck",
+lists the stuck writes across clinics, one row per clinic, linking to its "Calendar writes". A
+broken connection already flipped the clinic to manual booking in the same turn: the clinic
+takes booking requests and is not down. Google refusing our OAuth client is every clinic at
+once: the Google Cloud project, not the clinics.
 
 ### Transcripts
 
 `transcript_undelivered`. The clinic's Deliveries tab, "Transcripts": the receipt's status,
 attempts and "Send again" where a sealed copy still exists. A copy unanswered 72 hours after it
 goes, or undelivered after 30 days, is deleted and cannot be sent again; the clinic is told
-nothing was kept. Never ask apps/app for the words: there are none to read.
+nothing was kept. Never ask apps/app for the words: there are none to read. System › "Requires
+your attention", "Transcript copies not delivered", lists every clinic with a copy waiting over
+72 hours, bounced or deleted unsent in the last 30 days, with counts and the oldest age in
+hours, linking to its Deliveries tab (`listUndeliveredTranscripts`, Phase 5).
 
 ### Go live
 
@@ -363,7 +401,11 @@ missing: read `lib/billing/answering.ts` before touching the row.
 `access_requests_capped`, `step_up_phone_held`. The clinic's Account tab: the address change
 and its 72-hour clock, the devices, the recovery link. Every act here needs the call back and
 the fresh code. A sign-in help request that matched no clinic is answered by hand from hello@
-with no account detail in it.
+with no account detail in it. `step_up_phone_held`: phone cannot be billed per location yet
+(`lib/locations.ts` `phoneHeldByLocations`), and the owner decided on 24 October 2026 that
+phone does not stay on unbilled: the clinic switches "Phone" off under Channels in its
+portal's Settings (`lib/channels/switch.ts`: its calls then go to its direct line); nothing in
+the console flips that switch, and the plan is left as it is.
 
 ### Offboarding
 
@@ -454,7 +496,11 @@ does the same); "Offered a call" and "Let it close", the decision, where letting
 stops only the day-27 and day-30 warnings to us and the window still closes on its last day;
 "Snooze alerts" for 3, 7 or 14 days, which mutes the routine waves only, never an escalation
 and never the clinic's own reminders. Days a clinic waited on us never extend its deadline by
-themselves (D6): the extension is always the button. Finishing our side is the Setup tab's
+themselves (D6): the extension is always the button. "Do not watch this account", on the same
+card (Phase 5, `lib/lifecycle/ignore.ts`), is for healdesk's own test accounts: the watch skips
+the clinic, so no wave goes to ops, and Home's decision and go-live rows leave it out; its
+setup reminders, its closing day and its calendar, voice and billing alerts are unchanged,
+since none of those reads the list. "Watch this account again" undoes it. Finishing our side is the Setup tab's
 "Channels" and "Go live" cards, which list what is missing; go-live is automatic once nothing
 is left, and "Ask the practice questions again" is the one push the console has. A partly
 live clinic whose phone channel is live forwards its published number to AYA: phone it on the

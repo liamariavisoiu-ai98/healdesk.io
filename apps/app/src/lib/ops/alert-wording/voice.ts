@@ -56,7 +56,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Until it is fixed, Retell's outage mode and a call that cannot read the database cannot send that clinic's callers to its direct line. Those callers would hear a closing line instead.",
     steps: [
       "Open the clinic's Setup tab and check the assistant number under Phone line is the clinic's AYA number in Retell. If two clinics show the same number, correct the wrong one and press Save phone settings.",
-      "Open Retell's dashboard and find that number: check it is in the workspace and that its fallback can be set to the direct line shown under Pause AI and the direct line on the clinic's Billing tab.",
+      "Press Check against Retell on the Voice agent card of the same tab: it reads the number back and says whether its fallback is the clinic's direct line. Then open Retell's dashboard and find that number: check it is in the workspace and that its fallback can be set to the direct line shown under Pause AI and the direct line on the clinic's Billing tab.",
       "Check Retell's status page first if the alert names no clinic: either Retell refused our key or three numbers in a row timed out, and the run stopped, so clinics after that point were not set this hour. Then open the Map page under System and press Missing or broken: the Retell key must be in place.",
       "Check the alert does not come again next hour. You are done when it stops, or when you have set the fallback in Retell's dashboard by hand to the direct line shown on the clinic's Billing tab.",
     ],
@@ -64,22 +64,25 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // lib/voice/provision.ts: a provisioning run that stopped with our reason
   // (not_implemented, no_voice, config, number_missing, unsupported_country,
   // not_kept, rejected), once a day per clinic and reason, or a changed
-  // setting not written to Retell (phase sync). A failed run is retried only
-  // by the ops operation retryVoiceAgent, which the console does not offer
-  // yet.
+  // setting not written to Retell (phase sync). A failed run (status
+  // `failed`) is left by the hourly sweep for a person (provision-job.ts):
+  // the ops operation retryVoiceAgent runs it again, which is the Voice
+  // agent card's Retry on the Setup tab (apps/web VoiceAgentCard.tsx, lane
+  // P5b), behind the operator's fresh authenticator code. A failed sync is
+  // tried again every hour by the same sweep, by hash.
   voice_provision_failed: {
     title: "A clinic's AYA phone set-up stopped",
     headline: "{clinicName}'s AYA phone set-up stopped, or a changed setting did not reach Retell",
     whatHappened:
-      "{clinicName}'s AYA phone set-up stopped, or a changed setting did not reach Retell. If the Voice agent column on the Clinics page shows failed, the set-up itself stopped[ on {windowStart}][, at attempt {count}] and waits for a person; if it shows ok, only a later settings change failed, and the hourly check retries it. The usual causes: the clinic's own number is not a US or Canadian number, its AYA number is not in our Retell workspace, Retell refused or did not keep a setting, or a voice setting on our side is missing.",
+      "{clinicName}'s AYA phone set-up stopped, or a changed setting did not reach Retell. The Voice agent card on the clinic's Setup tab says which: Status reads Set-up failed when the set-up itself stopped[ on {windowStart}][, at attempt {count}] and waits for a person, with the reason under Last problem; it reads Ready when only a later settings change failed, which the hourly check tries again by itself. The usual causes: the clinic's own number is not a US or Canadian number, its AYA number is not in our Retell workspace, Retell refused or did not keep a setting, or a voice setting on our side is missing.",
     whyItMatters:
-      "Until the set-up finishes, the clinic's phone channel cannot be switched on and no call reaches AYA. A failed set-up waits for a person: nothing retries it by itself. A changed setting that did not reach Retell is tried again every hour by itself.",
+      "Until the set-up finishes, the clinic's phone channel cannot be switched on and no call reaches AYA. A failed set-up waits for a person: nothing retries it until someone presses Retry. A changed setting that did not reach Retell is tried again every hour by itself.",
     steps: [
-      "Open the Clinics page and read the Voice agent column for the clinic. If it shows ok, the set-up is done and only a changed setting failed to reach Retell: the hourly check retries it, so wait an hour and stop here unless the alert keeps coming. If it shows failed, the set-up stopped: go on.",
+      "Open the clinic's Setup tab and read the Voice agent card. If Status reads Ready, the set-up is done and only a changed setting failed to reach Retell: the hourly check tries it again, so wait an hour and stop here unless the alert keeps coming. If it reads Set-up failed, the set-up stopped: go on.",
       "Check in Retell's dashboard that the clinic's AYA number is in the workspace and on its agent, and that the published number under Phone line on the Setup tab is a US or Canadian number.",
       "Open the Map page under System and press Missing or broken: the Retell key and the voice settings must all be in place.",
-      "Ask whoever maintains the engine to run the set-up again once the cause is fixed; it runs from the engine by clinic id. The Setup tab has no retry button for it yet.",
-      "Check the Voice agent column on the Clinics page afterwards. You are done when it shows ok and the alert has stopped.",
+      "Press Retry on the Voice agent card once the cause is fixed, with a fresh code from your authenticator. It runs the set-up once more under every check a scheduled run has, says why when it is not allowed, and asks you to confirm first when it may buy a phone number.",
+      "Check the Voice agent card afterwards. You are done when Status reads Ready and the alert has stopped.",
     ],
   },
   // lib/voice/provision.ts reserveOrder, once a day: as many numbers were
@@ -103,20 +106,25 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // first difference as a code (storage, engine, webhook, voice, language,
   // number_agent, number_outbound, fallback, agent_missing, number_missing);
   // status repaired, with the repair count, or flagged after three repairs
-  // or a missing agent or number, when the clinic is left for a person and
-  // the Clinics page shows drift.
+  // (MAX_DRIFT_REPAIRS) or a missing agent or number, when the clinic is
+  // left for a person and skipped on later nights while flagged. Since Phase
+  // 5 the Setup tab's Voice agent card shows the flag and offers Check
+  // against Retell (the read-back) and Clear flag and recheck
+  // (clearVoiceDriftFlag, behind the operator's fresh code: it clears the
+  // flag, resets the repair count and runs the check once; only a missing
+  // agent or number flags it again).
   voice_agent_drift: {
     title: "A clinic's Retell agent differs from what we set",
     headline: "{clinicName}'s Retell agent or number differed from what we set[ ({status})]",
     whatHappened:
       "{clinicName}'s Retell agent or number differed from what we set. The nightly read-back found its voice, its language, where calls are sent or the fallback number changed, or the agent or number itself missing. Where it could, the code wrote the right settings again.[ Repairs so far: {count}.]",
     whyItMatters:
-      "Settings changed in Retell by hand undo what the clinic chose, and a missing agent or number means its calls go nowhere. After three repairs, or when the agent or number is gone, the code stops repairing, leaves the clinic to you and skips it on later nights.",
+      "Settings changed in Retell by hand undo what the clinic chose, and a missing agent or number means its calls go nowhere. After three repairs, or when the agent or number is gone, the code stops repairing, flags the clinic for a person and skips it on later nights until the flag is cleared.",
     steps: [
-      "Open the Clinics page and read the Voice agent column for the clinic: ok means the repair held; drift means it is flagged for a person, and the nightly check skips it from now on.",
-      "Open Retell's dashboard and compare the clinic's agent and number with the settings under Phone line on its Setup tab: the assistant number must be on that agent, and nobody should change them in Retell by hand.",
-      "Ask whoever has Retell access who changed it, and stop the change at its source. If the agent or number is gone from Retell, nothing recreates it by itself: tell the owner before a new number is bought, and note it in the Touch log on the clinic's Care tab.",
-      "Ask whoever maintains the engine to clear the flag once Retell matches our settings again: nothing in the console clears it, and the Voice agent column shows drift until then. You are done when the column shows ok, or Retell matches again and the flag has been handed to whoever maintains the engine.",
+      "Open the clinic's Setup tab and read the Voice agent card: Drift reads Not flagged when the repair held, or Flagged with the day, when the nightly check skips the clinic until the flag is cleared.",
+      "Press Check against Retell on the Voice agent card: it reads the agent and number back and says what differs in plain words, or that Retell matches. Then open Retell's dashboard and compare them with the settings under Phone line on the Setup tab: the assistant number must be on that agent, and nobody should change them in Retell by hand.",
+      "Ask whoever has Retell access who changed it, and stop the change at its source. If the check says the agent or the phone number is missing at Retell, nothing recreates it by itself: ask Retell support what happened to it, or have whoever maintains the engine release this clinic's voice set-up and run provisioning again, and tell the owner before a new number is bought. Note it in the Touch log on the clinic's Care tab.",
+      "Press Clear flag and recheck on the Voice agent card once Retell matches our settings again, with a fresh code from your authenticator. It clears the flag and runs the check once: what re-applying can put right is written again, and the flag comes back only if the agent or number is still missing at Retell. You are done when Drift reads Not flagged and the check says Retell matches.",
     ],
   },
   // lib/voice/provision.ts deprovisionVoiceAgent, once a day per clinic: the

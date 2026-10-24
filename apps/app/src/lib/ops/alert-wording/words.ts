@@ -195,8 +195,14 @@ export const STATUS_WORDS: Readonly<Partial<Record<OpsEvent, Readonly<Record<str
   connection_broken: { revoked: "access removed" },
   // lib/voice/provision.ts: a drift written again, or left for a person.
   voice_agent_drift: { repaired: "repaired", flagged: "left for a person" },
-  // lib/ops/calendar-write-alerts.ts: the write's state. `failed` is any
-  // refusal, a timeout or a server error among them, so it says only that.
+  // lib/ops/calendar-write-alerts.ts: the write's state. `failed` is an
+  // answer that settled it (lib/booking/calendar.ts failureOutcome and
+  // readBackOutcome: Google or our own set-up refused the write, the clinic
+  // deleted the event, our id is taken or not ours, the calendar is broken
+  // or none is connected), never retried by the sweep. A timeout, a lost
+  // reply, a rate limit or a server error before the insert ends `unknown`
+  // instead, retried on the ladder; since 24 October 2026 none of them ends
+  // `failed`. So `failed` says only that the booking is not written.
   calendar_write_stuck: { failed: "not written", unknown: "never confirmed by Google", writing: "never finished" },
   // lib/conversations/transcript-outbox.ts: the send's state, or SES's failure event.
   transcript_undelivered: {

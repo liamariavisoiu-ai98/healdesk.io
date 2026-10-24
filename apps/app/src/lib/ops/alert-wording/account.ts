@@ -88,7 +88,12 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     ],
   },
   // lib/billing/reconcile.ts and requests.ts: once per account, ever.
-  // `count` is the account's locations; `channel` is not printable.
+  // `count` is the account's locations; `channel` is not printable. The
+  // owner decided on 24 October 2026 that the clinic switches phone off
+  // meanwhile: phone does not stay on unbilled. The switch is the clinic's
+  // own, in its portal's Settings under Channels, labelled "Phone"
+  // (@healdesk/catalog CHANNEL_NAMES; lib/channels/switch.ts: Off sends a
+  // call to the direct line); nothing in the console flips it.
   step_up_phone_held: {
     title: "Phone is held off a plan with more than one location",
     // "Or is adding": the hold also covers one location with a second on the
@@ -97,12 +102,12 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whatHappened:
       "{clinicName} is not billed for phone: it has, or is adding, a second location.[ Its plan counts {count:location}.] Phone is answering, or is due to join the price. Phone is billed per location and each location needs its own AYA number, which is not built yet, so it was not added to the price and nothing was charged for it.",
     whyItMatters:
-      "The clinic gets phone without paying for it until phone per location exists. Nothing in the console lifts the hold; a person decides what happens meanwhile.",
+      "The clinic gets phone without paying for it until it switches phone off, and the owner has decided phone does not stay on unbilled while the account has more than one location. Nothing in the console lifts the hold or switches the channel off: the clinic does that in its portal's Settings.",
     steps: [
       "Open the clinic's Billing tab and read Plan: Locations says how many, and Billed says what the price covers today. Channels shows phone in service.",
-      "Phone the clinic on its published number, shown under Phone line on its Setup tab, and explain phone cannot be added to its price while it has more than one location. Agree whether phone stays on meanwhile.",
-      "Tell the owner what was agreed, naming the clinic's Billing tab: whether phone stays on unbilled, or the clinic switches phone off in its own Settings, is the owner's call. Do not change the plan in Stripe by hand.",
-      `${NOTE_IT} You are done when the owner has decided and the clinic knows.`,
+      "Phone the clinic on its published number, shown under Phone line on its Setup tab. Ask it to switch Phone off under Channels in its portal's Settings, and explain why: phone cannot be billed per location yet, so it does not stay on while the account has more than one location. Its calls then go to its direct line.",
+      "Leave the Plan card on the Billing tab and the subscription in Stripe as they are: nothing is charged for phone, and leaving phone on is not on offer.",
+      `${NOTE_IT} You are done when the clinic confirms Phone is off in its Settings.`,
     ],
   },
 };

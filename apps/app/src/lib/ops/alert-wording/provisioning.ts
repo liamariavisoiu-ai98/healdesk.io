@@ -11,6 +11,14 @@ import type { AlertWording } from "./types";
  * finished account appears, and to the owner, who alone can read the error
  * log and replay a parked invoice. Never "create the clinic by hand":
  * provisioning is gated on the paid invoice (CLAUDE.md).
+ *
+ * Since Phase 5 the System page counts "Paid orders without an account"
+ * under "Requires your attention" (lib/ops/inbox/queues.ts: a purchase whose
+ * paid relay was stamped, paid_seen_at, and that has no account yet). The
+ * route stamps it once the intent is found (app/api/provision/route.ts), so a
+ * dead-lettered order and one waiting ten minutes are counted; an order
+ * refused before that point is not, so provisioning_rejected does not point
+ * at the count.
  */
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // /api/provision, on every refusal of a paid order (a 422): the request
@@ -45,7 +53,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Find the payment in Stripe's Dashboard, the newest paid first invoice from about when this alert was raised, to see the practice's name and address. Then open the Clinics page, newest first, and look for that practice. If it is listed, a later delivery made the account and you are done.",
       "Tell the owner today, with this alert's code and the day it was raised: the cause is in the error log, which only the owner can read, and nothing on the Clinics page or a Billing tab finishes the order. Do not create a clinic by hand.",
       "Email the buyer from hello@ by the next business day if the practice is still missing from the Clinics page, at the address on the Stripe payment. Say the account is being finished on our side and name the day you will write again.",
-      "Check the Clinics page again after the fix. You are done when the practice is listed and its Deliveries tab shows the welcome email under Reports and alerts.",
+      "Check the Clinics page again after the fix, and Paid orders without an account under Requires your attention on the System page, which counts this order until the account exists. You are done when the practice is listed, the count no longer includes it, and its Deliveries tab shows the welcome email under Reports and alerts.",
     ],
   },
   // Raised by the ops watch (lib/ops/watch.ts), once per purchase: the paid
@@ -60,9 +68,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "The buyer's money is taken and nothing answers for the clinic. Stripe resends the paid invoice for up to three days, so a short delay fixes itself; if the errors reach three, a separate alert says the order is stuck.",
     steps: [
       "Find the payment in Stripe's Dashboard, the newest paid first invoice from about when this alert was raised, to see the practice's name and address. Then open the Clinics page, newest first, and look for that practice. If it is listed, the account arrived and you are done.",
-      "Wait an hour if the error count is low: Stripe's next delivery usually makes the account. Check the Clinics page again afterwards.",
+      "Wait an hour if the error count is low: Stripe's next delivery usually makes the account. Paid orders without an account under Requires your attention on the System page counts this order, with how long it has waited, until the account exists.",
       "Tell the owner the same day if the practice is still missing from the Clinics page, with this alert's code: the cause is in the error log, which only the owner can read. Do not create a clinic by hand.",
-      "Check the Clinics page once more after the fix. You are done when the practice is listed and its Deliveries tab shows the welcome email under Reports and alerts.",
+      "Check the Clinics page once more after the fix. You are done when the practice is listed, Paid orders without an account on the System page no longer counts it, and its Deliveries tab shows the welcome email under Reports and alerts.",
     ],
   },
 };

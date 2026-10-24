@@ -22,6 +22,20 @@ import type { AlertWording } from "./types";
 const CLOSURE =
   "If nothing is live when the window ends, the account is closed and the setup fee is not refunded. The closure waits while the setup-closure row in System › Jobs is off.";
 
+/**
+ * The one step for healdesk's own test accounts, which look like paying
+ * clinics to the watch (Phase 5, lane P5d: lib/lifecycle/ignore.ts; the
+ * control on the Setup window card, apps/web SetupWindow.tsx IGNORE_CONFIRM).
+ * Exactly what the list does: the watch skips the clinic, so no wave goes to
+ * ops (lib/lifecycle/watch.ts), and Home's decision and go-live rows leave it
+ * out (lib/ops/inbox/decisions.ts, go-live.ts). Nothing else reads it: the
+ * setup reminders (lib/setup/reminders.ts) and the setup closure
+ * (lib/billing/requests.ts) do not, and the calendar, voice and billing
+ * alerts still come.
+ */
+const IGNORE_STEP =
+  "Press Do not watch this account on the Setup window card of the clinic's Setup tab if this is one of healdesk's own test accounts. Ops then gets no more setup-window alerts about it, and it leaves Home's decision and go-live rows. The clinic still gets its setup reminder emails every five days, and the account still closes at the end of its window unless it is extended.";
+
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // Days 7 and 15 of the window, while the clinic has not moved for five
   // days or never has. Routine: Slack alone.
@@ -40,6 +54,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Phone the clinic on its published number, shown under Phone line on the Setup tab, and offer a five-minute call to finish setup together.",
       "Press Offered a call on the Setup window card once you have offered one, so the card and later alerts know.",
       "Press Snooze alerts on the Setup window card if you want no routine alert about this clinic for 3, 7 or 14 days. Escalations still come through.",
+      IGNORE_STEP,
       "Check the Setup window card in a few days: you are done when Last progress has moved, or Decision so far shows the call you offered.",
     ],
   },
@@ -61,6 +76,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "[?recommendation=extend: Press Extend the setup window on the Setup window card if the clinic asks for more time. The days box starts at our suggestion; change it if you agreed otherwise.]",
       "[?recommendation=wait|offer_call|phone_the_clinic: Press Extend the setup window on the Setup window card if the clinic asks for more time, and set the days you agreed.]",
       "[?recommendation=let_close: Leave the Setup window card as it is: you decided to let this setup close, and the day-27 and day-30 warnings to us are off.]",
+      IGNORE_STEP,
       "Check the Setup window card: you are done when the clinic is live, Window ends has moved, or the clinic has said it will finish in time.",
     ],
   },
@@ -81,6 +97,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "[?recommendation=extend: Press Extend the setup window on the Setup window card if the clinic needs more time. The days box starts at our suggestion; change it if you agreed otherwise.]",
       "[?recommendation=offer_call|phone_the_clinic|wait: Press Offered a call on the Setup window card once you have offered one. Press Extend the setup window there only if the clinic asks for more time.]",
       "[?recommendation=let_close: Leave the setup window as it is. Press Let it close on the Setup window card to record the clinic's agreement, unless Decision so far already shows it: the window still closes on its last day, and only the two closing warnings to us stop. Do not press it if the clinic wants to go on.]",
+      IGNORE_STEP,
       "Check the Setup window card: Decision so far shows what you recorded. You are done when Window ends has moved, a call is offered and recorded, or Let it close is recorded.",
     ],
   },
@@ -98,6 +115,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Press Extend the setup window on the Setup window card first. Set the days box to at least the days the clinic waited. Do not press Let it close: the delay is ours.",
       "Fix today what the Go live and Channels cards on the Setup tab list as missing on our side. Go-live is automatic once that list is empty.",
       "Phone the clinic on its published number, shown under Phone line on the Setup tab, if our side will take more than a day, and tell it we are finishing it.",
+      IGNORE_STEP,
       "Check the Setup window card: you are done when Window ends shows the new date and the Channels card shows the channel ready or live.",
     ],
   },
@@ -115,6 +133,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Fix what the Channels card and the Go live card list on our side. Go-live is automatic: the clinic goes live by itself once nothing is left.",
       "Press Ask the practice questions again on the Channels card if a channel is waiting on its practice questions after a fix on our side.",
       "Phone the clinic on its published number, shown under Phone line on the Setup tab, if our side will take more than a day, and tell it we are finishing it.",
+      IGNORE_STEP,
       "Check the Channels card: you are done when the channel shows ready or live.",
     ],
   },
@@ -132,6 +151,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Fix today what the Channels card and the Go live card list. Press Ask the practice questions again on the Channels card if a channel waits on its practice questions after your fix.",
       "Press Extend the setup window on the Setup window card. Set the days box to at least the days the clinic waited. Do not press Let it close: the delay is ours.",
       "Phone the clinic on its published number, shown under Phone line on the Setup tab, and tell it we are finishing our side.",
+      IGNORE_STEP,
       "Check the Channels card: you are done when the channel shows ready or live and Window ends on the Setup window card has moved.",
     ],
   },
@@ -152,6 +172,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Open the clinic's Setup tab: the Channels card shows which channel is waiting and the one step the clinic owes for it.",
       "Check the clinic's Deliveries tab under Reminders: the clinic's one reminder for that channel shows there if it was sent, and whether it arrived.",
       "Phone the clinic on its direct line, shown under Pause AI and the direct line on its Billing tab, and offer a five-minute call to do that step together. With phone live, its published number forwards to AYA. If no direct line is on file, phone is not live: use the published number.",
+      IGNORE_STEP,
       "Check the Channels card on the Setup tab: you are done when that channel shows live.",
     ],
   },
@@ -172,6 +193,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Open the clinic's Deliveries tab and find the reminder under Reminders: it shows bounced or failed, with the date.",
       "Open the clinic's Account tab: The clinic's address shows the address we have. Phone the clinic on its published number, shown under Phone line on its Setup tab, and check it.",
       "Press Enter the change under The clinic's address on the Account tab if the clinic gives a corrected address. Tick that you called the practice back on its published number and it confirmed the address, and enter your authenticator code. The change takes effect 72 hours later, and both addresses are told.",
+      IGNORE_STEP,
       "Check the Account tab and the Deliveries tab: you are done when the corrected address shows under The clinic's address, or the next reminder under Reminders shows delivered.",
     ],
   },
@@ -188,6 +210,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Phone the clinic on its published number, shown under Phone line on the Setup tab, and offer a five-minute call to finish setup together. Ask whether our emails reach the right person.",
       "Press Offered a call on the Setup window card once you have offered one, to record it.",
       "Press Extend the setup window on the Setup window card only if the clinic asks for more time. Do not extend because the reminders went unanswered: that is not a request.",
+      IGNORE_STEP,
       "Check the Setup window card: you are done when Last progress has moved or Decision so far shows the call you offered.",
     ],
   },

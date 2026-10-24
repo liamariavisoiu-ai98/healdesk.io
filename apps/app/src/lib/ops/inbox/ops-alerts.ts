@@ -45,6 +45,13 @@ const LEFT_OUT: ReadonlySet<string> = new Set<OpsEvent>([
   "lifecycle_waiting_on_us",
   "lifecycle_waiting_on_us_long",
   "lifecycle_closing_waiting_on_us",
+  // Phase 6: the approvals source lists each kind waiting for the owner's yes
+  // (./approvals.ts), and the rights source the requests due soon and past
+  // their day (./rights.ts), so their alerts would say each twice. A blocked
+  // request has no row of its own, so its alert stays.
+  "approval_waiting",
+  "rights_request_due_soon",
+  "rights_request_overdue",
 ]);
 
 /** Alerts about a patient who may not reach the clinic, or a paid buyer with no account. */

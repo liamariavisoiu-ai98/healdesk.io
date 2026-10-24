@@ -443,25 +443,36 @@ console does. Chase the subcontractor step (Retell) before the due date.
 
 `rights_request_blocked`, `rights_request_due_soon`, `rights_request_overdue`. Raised once per
 request each by the daily `rights-watch` job (`apps/app/src/lib/scheduler/rights-watch.ts`, off
-until the owner switches it on). The Patient rights page (`/admin/rights`) lists every request with
-a clock across clinics: the intakes recorded the day a request came (`recordRightsIntake`), the
-deletions waiting on their Retell step, and the patient requests not yet marked received. The clocks
+until the owner switches it on). Home lists a rights row only while a request is due soon or past
+its day (those two alerts are left off Home for that reason; the blocked one stays), so the alerts
+open the page from Compliance. The Patient rights page (`/admin/rights`, under Compliance) lists
+every open request with a clock across clinics, demo clinics left out: the intakes recorded the day
+a request came (`recordRightsIntake`), the deletions waiting on their Retell step, and the patient
+requests not yet marked received. The clocks
 are business days, Monday to Friday in UTC (`apps/app/src/lib/rights/clocks.ts`): ten for an erasure,
 an amendment, a correction or an export, five to pass a patient's own request on. A row with a
 prepared command shows the exact `run-task.sh` line; the owner copies it and runs it himself in AWS
 CloudShell, and nothing in the console runs it. A row with no route shows "No portal route yet turns
 this request into a contact id" (owner decision D19): it is not a go-live blocker, but its clock
 keeps running, so agree with the practice how it is handled in time. A patient's own request is two
-rows and two alerts on purpose. Its intake keeps its command, with "Run this on the host, then press
-Mark done here. The practice's own request is chased separately once it is recorded.", until you
-press Mark done: nothing pairs the intake with the request the command records, because two
-people's requests of one kind on one day cannot be told apart by clinic, kind and day. The tracker's
-alerts on the intake are about running the command. Once the host has recorded the request, the
-practice's side (marking it received) is `patient_request_due_soon` and `patient_request_past_due`,
-a separate reminder. An intake recorded with the request's id (linked) shows the request's clock
-instead and is left to those two alone. The console's form sends a new request key for every
-request; the same key with other contents is refused ("That request key was used for a different
-request").
+rows and two alert families on purpose. Its intake keeps its command, shown beside "Run this on the
+host, then press Mark done here. The practice's own request is chased separately once it is
+recorded.", until you press Mark done: nothing pairs the intake with the request the command
+records, because two people's requests of one kind on one day cannot be told apart by clinic, kind
+and day. The tracker's three alerts on the intake are about running the command. Once the host has
+recorded the request, the practice's side (marking it received) is the other family,
+`patient_request_due_soon` and `patient_request_past_due`. An intake recorded with the request's id
+(linked) shows the request's clock instead and is left to those two alone; only a direct
+`recordRightsIntake` call records one, since the console's form never sends a record id, and Mark
+done on such an intake says the row stays open until the practice marks the request received.
+Mark done is not offered for an erasure whose deletion still owes its Retell step: the row says why
+from its own facts, because apps/app refuses that close with a 409 and the console shows a non-200
+answer to a rights write only as the ops client's generic sentence ("The ops API refused this. The
+reason is in our logs; nothing was changed."), the reason being in the app's log. The form mints a
+request key when it opens and again after each answer that a request is recorded, and sends the same
+key when a submit is retried before an answer, so a double click records once; the same key sent
+with other choices is refused on the host (`key_reused`), and the console shows that refusal as the
+same generic sentence.
 
 ### Incidents
 
@@ -587,15 +598,25 @@ holds only what no automatic process will retry (owner decision D17), put there 
   with none.
 
 Turning one of those two jobs on takes the items it now covers off the list (expired, unrun).
-The alert comes once an item has waited a day, one per kind, by email and Slack. The items are
-on the Queues page, under Approvals: each says what approving does. Approve asks for the code
-from your authenticator and runs the same operation as the clinic's Billing tab button, once.
-For a billing change that only makes it due again: the billing worker carries it out at its
-next run, if it still applies and while its switch (and, for a closure, setup closure's) is on
-at System > Jobs. An extra-usage invoice is invoiced at once. Reject runs nothing. Nothing is
-ever approved by waiting: after seven days an item leaves the list unrun (expired), and so does
-one whose change or event has since gone through, or whose clinic is now closed or a demo. An
-item left half-decided by a process that stopped is recorded as failed (interrupted) after 15
-minutes; if the operation finishes after that, its real outcome is recorded too, so check
-History before acting. History, on the same page, is the add-only record of who decided what
-and when (the operator account, its IP address and browser), read from `ops_approval_events`.
+The alert comes once an item has waited a day, one per kind, by email and Slack; Home lists the
+waiting items from the inbox itself, so this alert is left off Home. The items are on the Queues
+page, under Approvals: each says what approving does, and says when it can no longer be approved
+(after that moment a decision is refused and the approvals job takes it off the list). Approve
+asks for the code from your authenticator and runs the same operation as the clinic's Billing
+tab button, once. For a billing change that only makes it due again: the billing worker carries
+it out at its next run, if it still applies and while its switch (and, for a closure, setup
+closure's) is on at System > Jobs. An extra-usage invoice is invoiced at once. Reject asks for
+the code too and runs nothing now: the failure is not proposed again, and if the job that
+retries it is switched on later, that job still retries it; the clinic's Billing tab is where to
+retry it by hand. A Stripe event that resolved to no clinic is on no clinic's Billing tab (the
+tab lists parked events by resolved clinic); Approve on the Queues page is the only button that
+replays it, and the card says so. A refused decision (already decided, window passed, no code)
+comes back as its own sentence on the card; a decided item leaves the list and its outcome line
+stays on the section. Nothing is ever approved by waiting: after seven days an item leaves the
+list unrun (expired), and so does one whose change or event has since gone through, or whose
+clinic is now closed or a demo. An item left half-decided by a process that stopped is recorded
+as failed (interrupted) after 15 minutes; if the operation finishes after that, its real outcome
+is recorded too, so check History before acting. History, on the same page, is the add-only
+record of who decided what and when (the operator account, its IP address and browser), read
+from `ops_approval_events`; the event an item ends on reads went through, failed, rejected or
+left the list without running, with the outcome's words beside it.

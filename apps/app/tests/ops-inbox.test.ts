@@ -259,6 +259,11 @@ describeDb("opsInbox (lane A2)", () => {
     await raiseAlert("calendar_recovered", { clinicId: a.clinicId });
     await raiseAlert("ops_digest", {});
     await raiseAlert("transcript_undelivered", { clinicId: b.clinicId }, 2 * DAY);
+    // Phase 6: the approvals and rights sources have their own rows for these, so the alerts are left out; a blocked request has none, so its alert stays.
+    await raiseAlert("approval_waiting", { kind: "billing_request_retry", count: 1 });
+    await raiseAlert("rights_request_due_soon", { clinicId: a.clinicId, requestId: randomUUID() });
+    await raiseAlert("rights_request_overdue", { clinicId: a.clinicId, requestId: randomUUID() });
+    await raiseAlert("rights_request_blocked", { clinicId: a.clinicId, requestId: randomUUID() });
 
     // The queues: a paid order with no account (always a row), and a Stripe
     // event retrying for ten minutes, younger than its hour (no row).
@@ -363,9 +368,18 @@ describeDb("opsInbox (lane A2)", () => {
       button: { href: `/admin/clinics/${b.clinicId}/care` },
     });
     expect(rows.some((r) => r.id === "queue:billing_events_retrying")).toBe(false);
-    for (const gone of ["support_reply_past_due", "calendar_recovered", "ops_digest", "transcript_undelivered"]) {
+    for (const gone of [
+      "support_reply_past_due",
+      "calendar_recovered",
+      "ops_digest",
+      "transcript_undelivered",
+      "approval_waiting",
+      "rights_request_due_soon",
+      "rights_request_overdue",
+    ]) {
       expect(rows.some((r) => r.id.startsWith(`alert:${gone}:`)), gone).toBe(false);
     }
+    expect(rows.some((r) => r.id === `alert:rights_request_blocked:${a.clinicId}`)).toBe(true);
 
     expect(row(rows, "queue:orders_without_account")).toMatchObject({
       kind: "queue",

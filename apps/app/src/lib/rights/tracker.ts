@@ -472,7 +472,12 @@ export type RecordIntakeOutcome =
   | { outcome: "recorded" | "already_recorded"; id: string; dueOn: string }
   | { outcome: "not_found" }
   /** The linked patient request asked for something other than `askedFor`. */
-  | { outcome: "asked_for_mismatch" };
+  | { outcome: "asked_for_mismatch" }
+  /** The request key was already used for a request with other contents. */
+  | { outcome: "key_reused" };
+
+/** What recordRightsIntake says when a request key comes back with other contents. */
+export const KEY_REUSED = "That request key was used for a different request";
 
 /**
  * The record an intake names, if it is this clinic's and of the kind's
@@ -551,7 +556,15 @@ export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Prom
     return { outcome: "recorded", id: inserted.id, dueOn: inserted.dueOn };
   }
   const [existing] = await tx.db
-    .select({ id: rightsIntakes.id, dueOn: rightsIntakes.dueOn })
+    .select({
+      id: rightsIntakes.id,
+      dueOn: rightsIntakes.dueOn,
+      requestKey: rightsIntakes.requestKey,
+      kind: rightsIntakes.kind,
+      receivedOn: rightsIntakes.receivedOn,
+      askedFor: rightsIntakes.askedFor,
+      linkedRecordId: rightsIntakes.linkedRecordId,
+    })
     .from(rightsIntakes)
     .where(
       and(
@@ -565,6 +578,18 @@ export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Prom
     .orderBy(sql`${rightsIntakes.requestKey} = ${input.requestKey} desc`)
     .limit(1);
   if (!existing) throw new Error("The intake was neither recorded nor found.");
+  // The same key is the same request only with the same contents: a key
+  // reused for another kind, day, ask or record is a caller's bug, refused
+  // rather than answered with a row that is not the request it sent.
+  if (
+    existing.requestKey === input.requestKey &&
+    (existing.kind !== input.kind ||
+      existing.receivedOn !== input.receivedOn ||
+      (existing.askedFor ?? null) !== input.askedFor ||
+      (existing.linkedRecordId ?? null) !== input.linkedRecordId)
+  ) {
+    return { outcome: "key_reused" };
+  }
   return { outcome: "already_recorded", id: existing.id, dueOn: existing.dueOn };
 }
 

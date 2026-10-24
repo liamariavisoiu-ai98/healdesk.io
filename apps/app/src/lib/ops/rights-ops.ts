@@ -4,6 +4,7 @@ import { isIsoDay, RIGHTS_KINDS, RIGHTS_VERIFICATIONS, utcDay, type RightsKind, 
 import {
   closeIntake,
   LINKABLE,
+  KEY_REUSED,
   RETELL_OUTSTANDING,
   listRights,
   recordIntake,
@@ -151,6 +152,7 @@ export async function opRecordRightsIntake(
     if (outcome.outcome === "not_found") {
       return opsProblem("No such record at this clinic for that kind of request.", 404, "invalid_args");
     }
+    if (outcome.outcome === "key_reused") return opsProblem(`${KEY_REUSED}.`, 409, "invalid_args");
     if (outcome.outcome === "asked_for_mismatch") {
       return opsProblem("That patient request asked for something else.", 400, "invalid_args");
     }

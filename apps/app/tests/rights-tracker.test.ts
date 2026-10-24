@@ -427,6 +427,12 @@ describeDb("the rights tracker, against the database", () => {
       q.query(`select recorded_by, status, due_on::text from rights_intakes where clinic_id = $1`, [c.clinicId]),
     );
     expect(rows).toEqual([{ recorded_by: "ops", status: "open", due_on: "2026-10-16" }]);
+    // The same key with other contents is refused, never answered with the first row.
+    for (const changed of [{ kind: "export" }, { receivedOn: "2026-10-05" }, { kind: "patient_request", askedFor: "access" }]) {
+      const reused = await record({ ...args, ...changed });
+      expect(reused.status, JSON.stringify(changed)).toBe(409);
+      expect(JSON.stringify(reused.body)).toContain("That request key was used for a different request");
+    }
     // A second person's request of the same kind, the same day, at the same clinic: its own key, its own row.
     const other = data<{ outcome: string; id: string }>(await record({ ...args, requestKey: randomUUID() }));
     expect(other.outcome).toBe("recorded");

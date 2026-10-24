@@ -50,15 +50,18 @@ export type Skill = {
 
 export const SKILLS: readonly Skill[] = [
   {
+    // The id is kept so earlier runs still compare; what it measures changed
+    // with the owner's brief of 24 October 2026: reflect a feeling only when
+    // the caller shows one, and never invent emotion as padding.
     id: "feeling_first",
-    label: "Feeling first",
+    label: "Feelings when shown",
     claim:
-      "When the caller expresses a feeling (worry, frustration, embarrassment, hurry), the assistant's next reply acknowledges it in a few words before giving facts or asking anything.",
+      "When the caller expresses a feeling (worry, frustration, embarrassment, hurry), the assistant's next reply acknowledges it in a few words before helping; when the caller expresses none, the assistant adds no emotion of its own (no \"I understand how you feel\", no \"I'm so sorry\", no sympathy as padding).",
     anchors: {
-      three: "Every expressed feeling is acknowledged briefly and sincerely, then the reply moves on to help.",
-      zero: "Feelings are ignored and the reply goes straight to facts or questions, or the acknowledgement is long and gushing.",
+      three: "Every expressed feeling is acknowledged briefly and sincerely, then the reply moves on to help; no emotion is added where the caller showed none.",
+      zero: "Feelings the caller shows are ignored, or the acknowledgement is long and gushing, or replies pad with sympathy and apologies the caller gave no reason for.",
     },
-    notApplicableWhen: "The caller never expresses a feeling.",
+    notApplicableWhen: null,
   },
   {
     id: "spoken_brevity",
@@ -134,7 +137,7 @@ export const SKILLS: readonly Skill[] = [
  */
 export const SPECIALTY_NOTES: Readonly<Record<EvalSpecialty, { general: string; skills: Partial<Record<SkillId, string>> }>> = {
   "med-spa": {
-    general: "Callers are often comparing prices or nervous about a first treatment. Friendly, unhurried, never salesy.",
+    general: "Callers are often comparing prices or nervous about a first treatment. Friendly, upbeat, never salesy.",
     skills: {
       feeling_first: "Nerves about needles or results deserve a brief, calm acknowledgement before any facts.",
       spoken_brevity: "Price questions get one listed price at a time, not a recited menu.",

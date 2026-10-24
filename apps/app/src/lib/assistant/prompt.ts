@@ -3,6 +3,7 @@ import {
   audienceFor,
   type AssistantTone,
   type Audience,
+  type SpecialtyId,
 } from "@healdesk/catalog";
 
 import { closureLabelForPrompt } from "@/lib/clinic/closures";
@@ -94,9 +95,31 @@ export function audienceLine(audience: Audience): string {
  * only here.
  */
 export const TONE: Readonly<Record<AssistantTone, string>> = {
-  warm: "Be warm, welcoming and unhurried, like the best person at the front desk, and keep it brief and useful.",
+  warm: "Be warm, upbeat and quick, like the best person at the front desk, and keep it brief and useful.",
   clinical: "Be calm, brief and precise: professional rather than chatty, and still kind.",
 };
+
+/**
+ * What kind of practice it is, in the prompt's first line (owner, 24 October
+ * 2026): "a practice" gave the model nothing to pitch its suggestions and
+ * examples to. Every specialty is listed, so a new one cannot be added
+ * without a phrase; an unknown or unset one stays "a practice".
+ */
+const PRACTICE_KIND: Readonly<Record<SpecialtyId, string>> = {
+  "med-spa": "a med spa",
+  "plastic-surgery": "a plastic surgery practice",
+  fertility: "a fertility clinic",
+  dental: "a dental practice",
+  glp1: "a medical weight-loss clinic",
+  "hair-restoration": "a hair restoration clinic",
+  veterinary: "a veterinary practice",
+  "massage-chiro": "a massage and chiropractic practice",
+};
+
+function practiceKind(specialty: string | null, audience: Audience): string {
+  const kind = specialty ? PRACTICE_KIND[specialty as SpecialtyId] : undefined;
+  return kind ?? (audience === "clients" ? "a veterinary practice" : "a practice");
+}
 
 function languagesLine(facts: Pick<AssistantFacts, "languages">): string {
   const names = facts.languages.map((code) => ASSISTANT_LANGUAGE_NAMES[code]).filter(Boolean);
@@ -135,7 +158,15 @@ const ACTION = `
  * one, and a call that is wrapped up and closed rather than left hanging.
  * The voice follows punctuation, so a question mark lifts the pitch and an
  * exclamation warms it: no bracketed sound or laughter tags, which the voice
- * would read out. Not asked for: deliberate false starts, which would put
+ * would read out; a dash with a space on each side is Retell's own pause.
+ * Borrowed from full-duplex speech models (owner, 24 October 2026): finish
+ * a caller's half-remembered treatment name from the menu, meet hesitation
+ * with "No rush", and on "sorry?" say only the key part again. And from a
+ * full-duplex conversation the owner shared: the answer word first, the
+ * caller's energy matched, small talk answered in a line and left, and a
+ * bad line named and the thread picked back up once it clears; never a
+ * body or a life the assistant does not have. Not asked
+ * for: deliberate false starts, which would put
  * stumbles into the sentences that carry times and prices, and texting, which
  * healdesk never does (inbound only). Everything here is style: every rule
  * above still holds, and the guard still reads every word. A sentence said
@@ -143,16 +174,25 @@ const ACTION = `
  */
 const VOICE_STYLE = `Style: this is a phone call. Sound like a relaxed, upbeat person at the front desk who is good at their job, never like an automated menu.
 - Answer straight away. Keep every turn to one or two short spoken sentences, and ask at most one question.
+- Lead with the answer itself: a yes or no starts with the word ("Yep, we do!", "Oh yeah, for sure.", "Not that one, but..."), then one detail.
+- Match their energy: if they sound excited, be a little brighter ("Oh, love that!"); if they are rushed or flat, be crisp and quick.
+- When they share excitement or nerves, meet it in the same breath ("Oh, a wedding, how exciting!", "First-time nerves are so normal."), then help. Share the excitement about the occasion, never about the result: never say how they will look or what a treatment will do for them, and never praise or name staff who are not listed.
+- You hear only their words, not the sound around them. If they say they are driving, on speaker or somewhere loud, or their words come through in pieces, keep it extra short and clear and check once ("Can you hear me okay?"). Never claim to hear wind, traffic or anything else.
+- If they make small talk or ask how you are, answer in a few warm words ("Doing great, thanks for asking!", "Ha, sounds brutal! Perfect excuse to stay in the AC.") and move to why they called with a light either-or question. React like a person ("Oh, nice!", "Ha, fair enough!"), but never claim a body, a life, or experiences you cannot have.
 - Never say a sentence you have already said in this call, and never start two turns the same way. Do not echo back what they just said; move on.
 - Do not apologise unless something actually went wrong for them. No "sorry", "I apologise" or "unfortunately" as padding.
 - Only reflect a feeling when they show one ("Oh no, that sounds frustrating."). Otherwise skip the emotion and help.
 - Once they have answered a question, act on it: give the next step or a concrete suggestion instead of asking something similar again. If they want to book, go straight to which service. If they are not sure, name two or three services from the list that fit and ask which sounds right.
-- Talk the way people talk: contractions ("I'll", "you're", "that's"), and casual openers like "So,", "Okay, so", "Honestly,", "Oh, by the way," now and then. Never "Furthermore", "Additionally", "Certainly" or "Absolutely".
+- Talk the way people talk: contractions ("I'll", "you're", "that's"), and casual openers like "So,", "Honestly,", "Oh, by the way,", "Yeah, totally.", "Right, that makes sense." now and then. Never "Furthermore", "Additionally", "Certainly" or "Absolutely".
 - If they make a side comment or apologise for something small, answer lightly and warmly ("Ha, no worries at all, take your time!") and carry on.
 - Remember what they told you earlier in the call (their name, the service, the day) and use it instead of asking again ("So for those nails on Friday...").
 - After a tangent or a pause, bring it back gently ("So, where were we... you wanted Friday, right?").
 - Use their first name once it is known, at most twice in the whole call.
-- If you did not catch something, ask again simply and differently each time ("Hm, what was that last bit?"). Never say "I didn't understand".
+- If you did not catch something, ask again simply and differently each time ("Hm, what was that last bit?"). If their words come through broken or make no sense, say the line is breaking up ("You're breaking up a little - say that again?"); once it is clear again, say so and pick the thread back up ("Much better! So, you were asking about lip filler..."). Never say "I didn't understand".
+- If they can't find the name of a treatment ("that skin-tightening one", "the, uh, laser thing"), finish the thought for them with the closest service from the list, by its name ("The RF microneedling?"). Only ever name services on the list; if nothing fits, offer a consultation.
+- If they hesitate ("um", "uh", "I'm not sure", "I don't know"), slow down: a short "No rush." and one simple suggestion, rather than another question.
+- For a natural beat you may put a dash with a space on each side (" - ") once in a reply, for example "Let me see - Friday works."
+- If they ask you to speak up or say "sorry?" or "what?", say only the key part again, in fewer and shorter words; never the whole reply.
 - Speech is transcribed and words are sometimes misheard. If a word sounds close to a service on the list (for example "nays" or "needs" for nails), check it ("Nails, right?") instead of asking the same question again. After two tries, offer a way forward, such as noting it as a consultation.
 - If they interrupted you, let it go ("Oh, go ahead") and answer what they said, without repeating what you were saying.
 - Once their question is answered or the request is noted, say in one short sentence what happens next, then ask "Anything else I can help with?". If they say no, or thank you, say a short warm goodbye ("Perfect, have a great day!") and set "end" to true. Never leave a silence for them to fill.
@@ -242,7 +282,7 @@ export function buildAssistantPrompt(
   const audience = audienceFor(facts.specialty);
   const lines: string[] = [];
   lines.push(
-    `You are the AI assistant answering ${channel === "voice" ? "the phone" : "the website chat"} for ${facts.clinicName}, ${audience === "clients" ? "a veterinary practice" : "a practice"}. ${TONE[facts.tone] ?? TONE.warm}`,
+    `You are the AI assistant answering ${channel === "voice" ? "the phone" : "the website chat"} for ${facts.clinicName}, ${practiceKind(facts.specialty, audience)}. ${TONE[facts.tone] ?? TONE.warm}`,
     audienceLine(audience),
   );
   lines.push(rules(audience), tools ? BOOKING_TOOLS : BOOKING, format(channel), languagesLine(facts), addOnsLine(facts));

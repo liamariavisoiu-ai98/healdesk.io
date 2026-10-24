@@ -114,7 +114,7 @@ describe("the assistant's prompt, by audienceFor", () => {
 
   test("everyone else's says patients, as it always has", () => {
     const prompt = buildAssistantPrompt(PEOPLE, "voice");
-    expect(prompt).toContain("Radiance Med Spa, a practice.");
+    expect(prompt).toContain("Radiance Med Spa, a med spa.");
     expect(prompt).toContain(
       "The people who contact the practice are its patients, or people thinking of becoming one.",
     );

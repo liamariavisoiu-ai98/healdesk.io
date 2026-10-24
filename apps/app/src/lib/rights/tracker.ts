@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 
 import {
   patientRequests,
@@ -28,8 +28,16 @@ import {
 } from "./clocks";
 import { NO_ROUTE, prepareCommand } from "./commands";
 
-/** What an intake shows once the patient's request it asked to record is on the host: no command, the L32 sweep's clock. */
-export const MATCHED_NOTE = "Recorded on the host: matched by its day and what was asked";
+/**
+ * What an open, unlinked patient-request intake shows beside its command.
+ * Nothing pairs the intake with the request the command records on the host
+ * (a pairing by clinic, kind and day could take another person's request):
+ * the intake keeps its command and its own clock until the owner presses
+ * Mark done, and the request the host records is its own row, chased by the
+ * L32 sweep.
+ */
+export const RUN_THEN_MARK =
+  "Run this on the host, then press Mark done here. The practice's own request is chased separately once it is recorded.";
 
 /**
  * The patient-rights tracker's reads and writes (ops automation lane P6c;
@@ -60,6 +68,10 @@ export const MATCHED_NOTE = "Recorded on the host: matched by its day and what w
 export type RightsState = "on_time" | "due_soon" | "overdue" | "blocked" | "done";
 export type RightsSource = "intake" | "erasure_request" | "patient_request" | "record_amendment";
 
+/**
+ * One row of the list. Never the intake's request_key: that is the caller's
+ * own uuid, written once for idempotency and never echoed back.
+ */
 export type RightsRow = {
   /** The intake's id when there is one, else the record's. */
   id: string;
@@ -128,8 +140,19 @@ type ClinicRead = {
   amendments: { id: string; requestedAt: Date; recordedAt: Date }[];
 };
 
-async function readClinic(tx: TenantTx, filter: RightsFilter): Promise<ClinicRead> {
-  const intakes = await tx.db.select().from(rightsIntakes).where(eq(rightsIntakes.clinicId, tx.clinicId));
+/**
+ * One clinic's rows with a clock, each list in a fixed order (oldest first,
+ * the id breaking a tie), so the same database always reads the same way:
+ * intakes by when they were recorded, patient requests by when they reached
+ * us, then when they were recorded, amendments by when they were appended.
+ * Exported for its test.
+ */
+export async function readClinic(tx: TenantTx, filter: RightsFilter): Promise<ClinicRead> {
+  const intakes = await tx.db
+    .select()
+    .from(rightsIntakes)
+    .where(eq(rightsIntakes.clinicId, tx.clinicId))
+    .orderBy(asc(rightsIntakes.recordedAt), asc(rightsIntakes.id));
   // Through the erasure module's own reader, which returns no reference to anyone
   // (the deletion record's one reader outside it: tests/person-erasure.test.ts).
   const erasures = (await listErasureRequests(tx)).map((r) => ({
@@ -148,14 +171,16 @@ async function readClinic(tx: TenantTx, filter: RightsFilter): Promise<ClinicRea
       acknowledgedAt: patientRequests.acknowledgedAt,
     })
     .from(patientRequests)
-    .where(eq(patientRequests.clinicId, tx.clinicId));
+    .where(eq(patientRequests.clinicId, tx.clinicId))
+    .orderBy(asc(patientRequests.receivedAt), asc(patientRequests.recordedAt), asc(patientRequests.id));
   const amendments =
     filter === "open"
       ? []
       : await tx.db
           .select({ id: recordAmendments.id, requestedAt: recordAmendments.requestedAt, recordedAt: recordAmendments.recordedAt })
           .from(recordAmendments)
-          .where(eq(recordAmendments.clinicId, tx.clinicId));
+          .where(eq(recordAmendments.clinicId, tx.clinicId))
+          .orderBy(asc(recordAmendments.recordedAt), asc(recordAmendments.id));
   const read = erasures.length + requests.length + amendments.length;
   if (read > 0) {
     tx.audit.record({
@@ -183,24 +208,6 @@ export function clinicRows(
   const linked = new Set<string>();
   for (const intake of read.intakes) if (intake.linkedRecordId) linked.add(intake.linkedRecordId);
 
-  // A patient's request recorded on the host after its intake was: the same
-  // clinic, what was asked and the day received (the command passes the
-  // intake's day, so the row's received time is that day in UTC). Matched one
-  // to one, the oldest intake first, and only while the intake is open: a
-  // closed one has no command to stop, and must not hide a request the
-  // practice has not marked.
-  const matched = new Map<string, (typeof read.requests)[number]>();
-  for (const intake of read.intakes) {
-    if (intake.kind !== "patient_request" || intake.linkedRecordId || intake.status !== "open") continue;
-    const found = read.requests.find(
-      (r) => !linked.has(r.id) && r.kind === intake.askedFor && utcDay(r.receivedAt) === intake.receivedOn,
-    );
-    if (found) {
-      linked.add(found.id);
-      matched.set(intake.id, found);
-    }
-  }
-
   /** The agreement counts from receipt: the earlier of the intake's day and the record's. */
   const earlier = (a: string, b: string) => (a < b ? a : b);
 
@@ -221,7 +228,7 @@ export function clinicRows(
     const closedOn = intake.closedAt ? utcDay(intake.closedAt) : null;
     const link = intake.linkedRecordId;
     const erasure = link && intake.kind === "erasure" ? erasures.get(link) : undefined;
-    const request = link && intake.kind === "patient_request" ? requests.get(link) : matched.get(intake.id);
+    const request = link && intake.kind === "patient_request" ? requests.get(link) : undefined;
     const amendment = link && intake.kind === "amendment" ? amendments.get(link) : undefined;
     if (erasure) {
       // Done only once the subcontractor step is stamped: closing the intake
@@ -254,7 +261,7 @@ export function clinicRows(
         daysLeft: done ? null : daysLeftFor(today, due),
         state: stateOf(done, false, today, due),
         command: null,
-        commandNote: link ? null : MATCHED_NOTE,
+        commandNote: null,
         retellStep: null,
         backupExpiresOn: null,
         closedOn: request.acknowledgedAt ? utcDay(request.acknowledgedAt) : closedOn,
@@ -288,6 +295,7 @@ export function clinicRows(
           receivedOn: intake.receivedOn,
           askedFor: intake.askedFor,
           operator,
+          today,
         });
     const isBlocked = prepared?.blocked === true;
     out.push({
@@ -297,7 +305,7 @@ export function clinicRows(
       daysLeft: closed ? null : daysLeftFor(today, intake.dueOn),
       state: stateOf(closed, isBlocked, today, intake.dueOn),
       command: prepared?.command ?? null,
-      commandNote: prepared && !prepared.command ? prepared.note : null,
+      commandNote: prepared && !prepared.command ? prepared.note : prepared?.command && intake.kind === "patient_request" ? RUN_THEN_MARK : null,
       retellStep: null,
       backupExpiresOn: null,
       closedOn,
@@ -469,7 +477,12 @@ export type RecordIntakeOutcome =
   | { outcome: "recorded" | "already_recorded"; id: string; dueOn: string }
   | { outcome: "not_found" }
   /** The linked patient request asked for something other than `askedFor`. */
-  | { outcome: "asked_for_mismatch" };
+  | { outcome: "asked_for_mismatch" }
+  /** The request key was already used for a request with other contents. */
+  | { outcome: "key_reused" };
+
+/** What recordRightsIntake says when a request key comes back with other contents. */
+export const KEY_REUSED = "That request key was used for a different request";
 
 /**
  * The record an intake names, if it is this clinic's and of the kind's
@@ -548,7 +561,15 @@ export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Prom
     return { outcome: "recorded", id: inserted.id, dueOn: inserted.dueOn };
   }
   const [existing] = await tx.db
-    .select({ id: rightsIntakes.id, dueOn: rightsIntakes.dueOn })
+    .select({
+      id: rightsIntakes.id,
+      dueOn: rightsIntakes.dueOn,
+      requestKey: rightsIntakes.requestKey,
+      kind: rightsIntakes.kind,
+      receivedOn: rightsIntakes.receivedOn,
+      askedFor: rightsIntakes.askedFor,
+      linkedRecordId: rightsIntakes.linkedRecordId,
+    })
     .from(rightsIntakes)
     .where(
       and(
@@ -562,6 +583,18 @@ export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Prom
     .orderBy(sql`${rightsIntakes.requestKey} = ${input.requestKey} desc`)
     .limit(1);
   if (!existing) throw new Error("The intake was neither recorded nor found.");
+  // The same key is the same request only with the same contents: a key
+  // reused for another kind, day, ask or record is a caller's bug, refused
+  // rather than answered with a row that is not the request it sent.
+  if (
+    existing.requestKey === input.requestKey &&
+    (existing.kind !== input.kind ||
+      existing.receivedOn !== input.receivedOn ||
+      (existing.askedFor ?? null) !== input.askedFor ||
+      (existing.linkedRecordId ?? null) !== input.linkedRecordId)
+  ) {
+    return { outcome: "key_reused" };
+  }
   return { outcome: "already_recorded", id: existing.id, dueOn: existing.dueOn };
 }
 

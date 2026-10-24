@@ -82,6 +82,12 @@ export type CommandInput = {
   clearFields?: readonly ClearableField[] | null;
   /** The operator's address, as run-task.sh's check_operator requires it. */
   operator: string;
+  /**
+   * Today's UTC date, YYYY-MM-DD (now's, when omitted). The day passed to the
+   * host is never later: an intake may be dated a day ahead of UTC for a
+   * clinic east of it, and the task would read a later received time as now.
+   */
+  today?: string;
 };
 
 export type PreparedCommand =
@@ -120,6 +126,9 @@ export function prepareCommand(input: CommandInput): PreparedCommand {
   const clinicId = uuid(input.clinicId);
   if (!clinicId) throw new Error("A prepared command needs the clinic's uuid.");
   if (!ISO_DAY.test(input.receivedOn)) throw new Error("A prepared command needs the day received, YYYY-MM-DD.");
+  const today = input.today ?? new Date().toISOString().slice(0, 10);
+  if (!ISO_DAY.test(today)) throw new Error("A prepared command needs today's UTC date, YYYY-MM-DD.");
+  const received = input.receivedOn > today ? today : input.receivedOn;
   const contactId = input.contactId ? uuid(input.contactId) : null;
   const who = requester(input.requestedBy);
 
@@ -151,7 +160,7 @@ export function prepareCommand(input: CommandInput): PreparedCommand {
 
   switch (input.kind) {
     case "erasure":
-      return line("erase-person", [clinicId, contactId!, who!, operator, input.receivedOn]);
+      return line("erase-person", [clinicId, contactId!, who!, operator, received]);
     case "export":
       return line("patient-export", [clinicId, contactId!, who!]);
     case "correction":
@@ -161,7 +170,7 @@ export function prepareCommand(input: CommandInput): PreparedCommand {
         clinicId,
         input.askedFor as string,
         operator,
-        input.receivedOn,
+        received,
         ...(contactId ? [contactId] : []),
       ]);
   }

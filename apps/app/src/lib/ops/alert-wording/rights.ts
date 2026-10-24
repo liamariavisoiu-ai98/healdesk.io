@@ -14,6 +14,12 @@ import type { AlertWording } from "./types";
  * Care tab, its Touch log), which tests/alert-wording.test.ts proves in
  * apps/web's source. The tracker never runs anything: the owner runs every
  * prepared command himself, in AWS CloudShell. Nothing here names a person.
+ *
+ * For a patient's own request, these alerts are about the intake: running
+ * its command and pressing Mark done. Once the host records the request,
+ * the practice's side (marking it received) is chased by a different
+ * alert, patient_request_due_soon and patient_request_past_due, so each
+ * wording says the practice reminder is separate.
  */
 
 const FIND_IT =
@@ -42,7 +48,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whatHappened:
       "{clinicName} has a patient-rights request due within two business days. It is an erasure, an amendment, a correction, an export or a patient's own request still to pass on. Nothing on our side has marked it done.",
     whyItMatters:
-      "The agreement sets the day: ten business days for an erasure, an amendment, a correction or an export, and five to pass a patient's own request on. Missing it breaks a promise to the practice.",
+      "The agreement sets the day: ten business days for an erasure, an amendment, a correction or an export, and five to pass a patient's own request on. Missing it breaks a promise to the practice. For a patient's own request, this is about running the command; the practice reminder is separate.",
     steps: [
       `${FIND_IT} Press Copy command where it has one, and run it yourself in AWS CloudShell. Where it shows as blocked, follow the steps of its blocked alert instead.`,
       "Check the clinic's Care tab afterwards: a deletion shows under its deletion requests, and its Retell step stays outstanding until it is recorded there.",
@@ -55,7 +61,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whatHappened:
       "{clinicName} has a patient-rights request past its due day. It is an erasure, an amendment, a correction, an export or a patient's own request still to pass on. Nothing on our side has marked it done.",
     whyItMatters:
-      "The agreement's day has passed. Finishing it today, and telling the practice when it was done, is what closes the gap and leaves a record of it.",
+      "The agreement's day has passed. Finishing it today, and telling the practice when it was done, is what closes the gap and leaves a record of it. For a patient's own request, this is about running the command; the practice reminder is separate.",
     steps: [
       `${FIND_IT} Press Copy command where it has one, and run it yourself in AWS CloudShell today. Where it shows as blocked, tell the owner today.`,
       "Phone the clinic on its published number, shown under Phone line on its Setup tab, and tell it the request is late and when it will be done. Never email the person's details.",

@@ -16,7 +16,10 @@ import type { AssistantChannel } from "./facts";
  * Per channel (MODEL_CONFIG), because a call cannot wait:
  *   - the web chat: HEALDESK_CHAT_MODEL, default claude-opus-5-5, 800 output
  *     tokens, 30 seconds, one retry;
- *   - the call: HEALDESK_VOICE_MODEL, default claude-sonnet-5-5, 400 tokens,
+ *   - the call: HEALDESK_VOICE_MODEL, default claude-haiku-5-5 (Sonnet 5.5
+ *     until 24 October 2026, when the owner chose speed: the marketing demo
+ *     measured Haiku's share of a pause at 0.63s median against Sonnet 5.5's
+ *     1.07s, apps/web/scripts/retell-demo-agent.ts), streamed, 400 tokens,
  *     8 seconds and no retry, after which the caller hears the failure line
  *     instead of silence;
  *   - the Meta front door: claude-opus-5-5, 800 tokens, adaptive thinking,
@@ -33,8 +36,10 @@ import type { AssistantChannel } from "./facts";
  *
  * Every channel runs at low effort. Opus 5.5 and Sonnet 5.5 think adaptively
  * whether or not the request says so, and low effort keeps that short; the
- * Meta channel asks for it explicitly, as it did on its own client. No
- * streaming: the guard reads the whole reply before anyone sees it.
+ * Meta channel asks for it explicitly, as it did on its own client. Only a
+ * call streams (owner, 24 October 2026), and only so its turn can speak each
+ * sentence once the guard has read that sentence (turn.ts); the website chat
+ * and the Meta front door are read whole before anyone sees a word.
  *
  * The system prompt arrives in two parts (prompt.ts): a stable prefix, sent
  * with a cache breakpoint so every turn after the first reads it from the
@@ -71,6 +76,13 @@ export type AssistantResponder = (request: {
   system: AssistantPrompt;
   messages: AssistantMessage[];
   channel: AssistantChannel;
+  /**
+   * Each piece of text as the model writes it, for a turn that speaks it
+   * sentence by sentence (turn.ts, a call). The answer still resolves to the
+   * whole text, which is what the turn parses; a responder that does not
+   * stream simply never calls it.
+   */
+  onText?: (delta: string) => void;
 }) => Promise<string | ModelRefusal>;
 
 /** Every channel the client serves: the assistant's two, and the Meta front door. */
@@ -103,7 +115,7 @@ export const MODEL_CONFIG: Readonly<Record<ModelChannel, ChannelConfig>> = {
   },
   voice: {
     modelEnv: "HEALDESK_VOICE_MODEL",
-    model: "claude-sonnet-5-5",
+    model: "claude-haiku-5-5",
     maxTokens: 400,
     timeoutMs: 8_000,
     maxRetries: 0,
@@ -190,10 +202,21 @@ export async function callModel(input: {
   channel: ModelChannel;
   system: AssistantPrompt;
   messages: AssistantMessage[];
+  onText?: (delta: string) => void;
 }): Promise<string | ModelRefusal> {
   const client = await clientFor(input.apiKey, input.channel);
-  const response = await client.messages.create(modelRequest(input));
-  return readModelResponse(input.channel, response);
+  if (!input.onText) {
+    const response = await client.messages.create(modelRequest(input));
+    return readModelResponse(input.channel, response);
+  }
+  // Streamed (a call, since 24 October 2026): each text delta goes to the
+  // turn as it arrives, so it can speak a sentence as soon as the guard has
+  // read it; the final message is read exactly as a non-streamed one is.
+  const stream = client.messages.stream(modelRequest(input));
+  for await (const event of stream) {
+    if (event.type === "content_block_delta" && event.delta.type === "text_delta") input.onText(event.delta.text);
+  }
+  return readModelResponse(input.channel, await stream.finalMessage());
 }
 
 /**
@@ -228,5 +251,5 @@ function clientFor(apiKey: string, channel: ModelChannel): Promise<Anthropic> {
 export function anthropicAssistantResponder(): AssistantResponder | null {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
-  return ({ system, messages, channel }) => callModel({ apiKey, channel, system, messages });
+  return ({ system, messages, channel, onText }) => callModel({ apiKey, channel, system, messages, ...(onText ? { onText } : {}) });
 }

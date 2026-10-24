@@ -47,7 +47,7 @@ export const piece: Piece = {
           kind: "p",
           text:
             "AYA is built to open its side of every conversation it holds by saying it is an AI assistant, before it says anything else. " +
-            "On a call the same line says the call is transcribed, that healdesk keeps no audio and that the voice provider holds a recording for no more than a day. On Instagram, Messenger and WhatsApp it says the channel is not secure. " +
+            "On a call the same line says the call is transcribed. On Instagram, Messenger and WhatsApp it says the channel is not secure. " +
             "The line is fixed in the product, so the clinic cannot switch it off or edit it out through the greeting it writes, which follows the line. " +
             "The record of each call notes when the line was given. " +
             "A call AYA does not hold, because it passes the call to the clinic's direct line or cannot take calls, hears only a fixed line saying so.",
@@ -60,7 +60,7 @@ export const piece: Piece = {
           rows: [
             [
               "Phone",
-              "Hi, thanks for calling [practice name]! I'm the AI assistant. This call is transcribed by our providers, who keep the recording for a day at most.",
+              "Hi, this is the AI assistant at [practice name]. This call is transcribed.",
             ],
             [
               "Website chat",

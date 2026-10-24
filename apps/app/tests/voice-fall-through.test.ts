@@ -94,7 +94,7 @@ const FACTS: AssistantFacts = {
   suggestAddOns: false,
   providerNames: [],
 };
-const OPENING = /^Hi, thanks for calling Fall Clinic! I'm the AI assistant\. This call is transcribed/;
+const OPENING = /^Hi, this is the AI assistant at Fall Clinic\. This call is transcribed/;
 const URGENT_WORDS = "Hello? I'm having a severe reaction to my filler";
 
 type Recorded = Pick<VoiceCallEvent, "urgent" | "disclosurePlayedAt" | "transcriptTurns">;

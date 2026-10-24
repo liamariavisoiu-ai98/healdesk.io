@@ -128,6 +128,9 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "olderThanDays",
   "months",
   "ms",
+  // A call turn's whole answer time beside `ms`, its time to first audio
+  // (lib/voice/retell.ts, "retell turn timing"): numbers, never words.
+  "totalMs",
   "attempt",
   "units",
   "lateDays",

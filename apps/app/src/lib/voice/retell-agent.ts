@@ -215,7 +215,14 @@ export function retellAgentSettings(clinicId: string, options: RetellAgentOption
  *     uninterruptible (lib/voice/retell.ts);
  *   - responsiveness 1: the agent answers as soon as the caller stops;
  *   - voice_temperature 1.2 (0 to 2, default 1): a little more variety of
- *     pitch, so the voice is less monotone without becoming unstable.
+ *     pitch, so the voice is less monotone without becoming unstable;
+ *   - enable_dynamic_responsiveness and voice_speed 1.05 (24 October 2026,
+ *     after a third test call that was still slow): the agent answers as
+ *     fast as the caller's own pace allows, and speaks a touch quicker;
+ *   - a pronunciation dictionary (IPA) for treatment brands a voice tends
+ *     to read wrong. Retell applies it only on voices that support it (its
+ *     dashboard shows which); the brand names are public words, no clinic's
+ *     or patient's. Listen to each on the demo agent before relying on it.
  *
  * Fillers and acknowledgements are said by healdesk itself (retell.ts,
  * ACKNOWLEDGEMENTS; prompt.ts, VOICE_STYLE), never by a Retell feature that
@@ -227,7 +234,17 @@ export const RETELL_CONVERSATION_SETTINGS = {
   backchannel_words: ["mm-hmm", "right", "gotcha", "okay"],
   interruption_sensitivity: 1,
   responsiveness: 1,
+  enable_dynamic_responsiveness: true,
   voice_temperature: 1.2,
+  voice_speed: 1.05,
+  pronunciation_dictionary: [
+    { word: "Juvederm", alphabet: "ipa", phoneme: "ˈdʒuvədɝm" },
+    { word: "Restylane", alphabet: "ipa", phoneme: "ˈrɛstəleɪn" },
+    { word: "Dysport", alphabet: "ipa", phoneme: "ˈdɪspɔɹt" },
+    { word: "Xeomin", alphabet: "ipa", phoneme: "ˈzioʊmɪn" },
+    { word: "Kybella", alphabet: "ipa", phoneme: "kaɪˈbɛlə" },
+    { word: "HydraFacial", alphabet: "ipa", phoneme: "ˈhaɪdɹəˌfeɪʃəl" },
+  ],
 } as const;
 
 async function send(path: string, init: RequestInit, options: RetellApiOptions): Promise<unknown> {

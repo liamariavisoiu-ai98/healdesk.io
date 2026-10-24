@@ -357,9 +357,12 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   patient did not ask for (`lib/meta/booking-requests.ts`,
   `lib/booking/reschedule.ts`, `sendMetaReply`).
 - **The assistant says it is an AI assistant in its opening line, on every
-  channel.** On calls the same line says the call is transcribed, healdesk keeps no call
-  audio and the voice provider holds a recording for a day at most. The clinic cannot switch this off or edit it out through the
-  greeting field.
+  channel.** On calls the same line says the call is transcribed, and nothing
+  about retention (owner, 24 October 2026: the consent laws ask that a caller
+  be told the call is transcribed, not for how long anything is kept, which
+  the written notice, the agreements and the privacy policy state;
+  `docs/counsel/state-disclosure.md`, decision 11). The clinic cannot switch
+  this off or edit it out through the greeting field.
 - **The Meta 24-hour window is enforced in the adapter, not the prompt.** A
   send attempted outside the window is dropped by the adapter, whatever the
   model asked for.

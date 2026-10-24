@@ -126,8 +126,8 @@ describeDb("the Retell voice endpoint", () => {
     expect(c.received[0]).toEqual({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
     const opening = responses(c.received)[0]!;
     expect(opening.response_id).toBe(0);
-    expect(opening.content).toMatch(/^Hi, thanks for calling retell-call Clinic! I'm the AI assistant\. This call is transcribed/);
-    expect(opening.content).toMatch(/who keep the recording for a day at most/);
+    expect(opening.content).toMatch(/^Hi, this is the AI assistant at retell-call Clinic\. This call is transcribed/);
+    expect(opening.content).not.toMatch(/recording|audio|a day/);
 
     c.send({ interaction_type: "call_details", call: { call_id: "call_abc123", from_number: "+14155550192", direction: "inbound", start_timestamp: Date.now() - 60_000 } });
     c.send({ interaction_type: "ping_pong", timestamp: 1234 });
@@ -169,7 +169,7 @@ describeDb("the Retell voice endpoint", () => {
     const transcripts = transport.sent.filter((s) => s.message.phiClass === "may-carry-phi");
     expect(transcripts).toHaveLength(1);
     expect(transcripts[0]!.message.text).toContain("Caller: When are you open?");
-    expect(transcripts[0]!.message.text).toContain("Assistant: Hi, thanks for calling");
+    expect(transcripts[0]!.message.text).toContain("Assistant: Hi, this is the AI assistant at");
   });
 
   test("a refused call with a direct line is transferred to a person, never left in silence", async () => {
@@ -211,7 +211,7 @@ describeDb("the Retell voice endpoint", () => {
       const c = await call(port, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_loop`);
       await c.waitFor((r) => responses(r).length >= 1);
       expect(responses(c.received)[0]).not.toHaveProperty("transfer_number");
-      expect(String(responses(c.received)[0]!.content)).toMatch(/^Hi, thanks for calling .*! I'm the AI assistant\./);
+      expect(String(responses(c.received)[0]!.content)).toMatch(/^Hi, this is the AI assistant at .*\./);
       await c.close();
     } finally {
       await withdrawPlatform(COVERAGE_VENDORS);
@@ -565,7 +565,7 @@ describeDb("the Retell voice endpoint", () => {
       await c.waitFor((r) => responses(r).length >= 1);
       const opening = responses(c.received)[0]!;
       expect(opening).not.toHaveProperty("transfer_number");
-      expect(String(opening.content)).toMatch(/^Hi, thanks for calling .*! I'm the AI assistant\. This call is transcribed/);
+      expect(String(opening.content)).toMatch(/^Hi, this is the AI assistant at .*\. This call is transcribed/);
       c.send({ interaction_type: "call_details", call: { call_id: "call_test_demo_line", from_number: "+14155550195", direction: "inbound" } });
       c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "agent", content: String(opening.content) }, { role: "user", content: "When are you open?" }] });
       await c.waitFor((r) => responses(r).length >= 2);
@@ -595,7 +595,7 @@ describeDb("the Retell voice endpoint", () => {
       await c.waitFor((r) => responses(r).length >= 1);
       expect(c.received[0]).toEqual({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
       const opening = String(responses(c.received)[0]!.content);
-      expect(opening).toMatch(/^Hi, thanks for calling .*! I'm the AI assistant\. This call is transcribed/);
+      expect(opening).toMatch(/^Hi, this is the AI assistant at .*\. This call is transcribed/);
       c.send({ interaction_type: "call_details", call: { call_id: "call_test_demo", from_number: "+14155550194", direction: "inbound" } });
       // As Retell sends it: the opening line, spoken, is in the transcript.
       c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "agent", content: opening }, { role: "user", content: "When are you open?" }] });

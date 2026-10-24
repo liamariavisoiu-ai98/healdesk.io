@@ -116,7 +116,7 @@ describeDb("the voice fall-through, with the database", () => {
     const said = sent.filter((m): m is Extract<RetellOutbound, { response_type: "response" }> => m.response_type === "response");
     const last = said[said.length - 1]!;
     expect(last.response_id).toBe(1);
-    expect(last.content).toMatch(/^Hi, thanks for calling .*! I'm the AI assistant\./);
+    expect(last.content).toMatch(/^Hi, this is the AI assistant at .*\./);
     await session.handle(
       JSON.stringify({ interaction_type: "response_required", response_id: 2, transcript: [{ role: "agent", content: last.content }, { role: "user", content: "Thanks" }] }),
     );

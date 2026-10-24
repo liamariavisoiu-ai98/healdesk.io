@@ -38,8 +38,8 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *
  *   on connect      `config` (auto-reconnect pings, call details), then the
  *                   answer gate, then response 0: the locked AI line, said
- *                   before anything else, with the call's transcription and
- *                   that healdesk keeps no audio and the provider holds a recording for a day at most (lib/compliance/disclosure.ts),
+ *                   before anything else, with the call's transcription
+ *                   (lib/compliance/disclosure.ts),
  *                   then the clinic's phone greeting. The time it was sent is
  *                   the call's disclosure_played_at. A caller who spoke
  *                   before it went out never heard it: it is said again
@@ -208,7 +208,22 @@ export type RetellSessionDeps = {
   tools?: (facts: AssistantFacts) => BookingTools | null;
   /** The redial lookup (lib/voice/redial.ts, takeRedialContext); unset uses it. */
   redial?: (clinicId: string, callerPhone: string) => Promise<RedialContext | null>;
+  /**
+   * Answer with the clinic's facts as a recent call read them (FACTS_FRESH_MS)
+   * while this call's own read is still out, so the opening line waits only
+   * for the answer gate (owner, 24 October 2026). Only the facts: the gate,
+   * which decides pause, suspension and the end of the service, is asked on
+   * every call. The call's own read replaces them as soon as it lands. Set by
+   * src/voice/server.ts in the running process, never by default.
+   */
+  cacheFacts?: boolean;
 };
+
+/** How long a clinic's facts read by one call may open the next. */
+const FACTS_FRESH_MS = 2 * 60_000;
+
+/** The facts the last call for each clinic read, in this process only. */
+const recentFacts = new Map<string, { facts: AssistantFacts; at: number }>();
 
 /**
  * A database that hangs rather than refuses (a blackholed route, a stalled
@@ -419,12 +434,12 @@ export class RetellCallSession {
     content: string,
     options: { endCall?: boolean; transferTo?: string | null; spokenBefore?: string | null; noInterruption?: boolean } = {},
   ): void {
-    this.turns.push({ speaker: "assistant", text: options.spokenBefore ? `${options.spokenBefore} ${content}` : content });
+    this.turns.push({ speaker: "assistant", text: [options.spokenBefore, content].filter(Boolean).join(" ") });
     if (options.endCall || options.transferTo) this.final = { content, endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
     this.send({
       response_type: "response",
       response_id: responseId,
-      content: options.spokenBefore ? ` ${content}` : content,
+      content: options.spokenBefore ? (content ? ` ${content}` : "") : content,
       content_complete: true,
       end_call: Boolean(options.endCall),
       ...(options.transferTo ? { transfer_number: options.transferTo } : {}),
@@ -454,12 +469,26 @@ export class RetellCallSession {
       (await clinicHasLeft(tx)) ? null : assistantFacts(tx, { alertTransport: this.deps.transport }),
     );
     reading.catch(() => {});
+    const recent = this.deps.cacheFacts ? recentFacts.get(this.clinicId) : undefined;
+    const cached = recent && Date.now() - recent.at < FACTS_FRESH_MS ? recent.facts : null;
+    if (this.deps.cacheFacts) {
+      reading
+        .then((fresh) => {
+          if (fresh) recentFacts.set(this.clinicId, { facts: fresh, at: Date.now() });
+          else recentFacts.delete(this.clinicId);
+          // The call opened on a recent read: its own takes over for the
+          // turns. Never with nothing: a call with no facts answers nobody,
+          // and the gate, asked fresh, has already decided whether to answer.
+          if (fresh && cached && this.facts === cached) this.facts = fresh;
+        })
+        .catch(() => {});
+    }
     const started: Promise<Started> = (async () => {
       const decision = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
       gated = decision;
       // The one write before the deadline: it only ever keeps less.
       if (decision.decision === "pass_through" && patientDataRefused(decision.reason)) this.keepsNothing = true;
-      const facts = await reading;
+      const facts = cached ?? (await reading);
       return { decision, facts };
     })();
     let result: Started;
@@ -821,6 +850,14 @@ export class RetellCallSession {
     }
     const words = latestCallerWords(event.transcript);
     if (!words) return;
+    // The turn's timing, from Retell asking for an answer: when the caller
+    // first heard something and when the answer was complete. Logged once
+    // the answer is said, as numbers only (owner, 24 October 2026).
+    const askedAt = Date.now();
+    let firstHeardAt: number | null = null;
+    const heard = () => {
+      firstHeardAt ??= Date.now();
+    };
 
     const facts = this.facts;
     const resumed = await this.redialContext();
@@ -854,15 +891,23 @@ export class RetellCallSession {
     // transcript yet), which is settled after the answer below; asked here
     // too, so nothing is ever said ahead of it.
     const agentSpokeYet = Array.isArray(event.transcript) && (event.transcript as RetellTranscriptEntry[]).some((e) => e.role === "agent");
-    const acknowledgeable =
+    // Nothing may go ahead of the reply's fixed beginnings: an owed opening
+    // line, the Spanish line the first time, the welcome-back line. While one
+    // is due, the reply is neither acknowledged nor spoken as it is written.
+    const nothingDue =
       !this.openingOwed &&
       !(this.disclosurePlayedAt && !agentSpokeYet) &&
+      !(language.language === "es" && !this.spanishDisclosed) &&
+      !(resumed && !this.welcomedBack);
+    const acknowledgeable =
+      nothingDue &&
       // In the caller's own language only: no English "Okay." to Spanish words.
       messageLanguage(words, { knownTerms: languageTerms(facts) }) === language.language &&
-      !(language.language === "es" && !this.spanishDisclosed) &&
-      !(resumed && !this.welcomedBack) &&
       words.split(/\s+/).filter(Boolean).length >= ACKNOWLEDGE_MIN_WORDS &&
       !/[()[\]]/.test(words);
+    // The reply's sentences as they are written and guarded (turn.ts, speak),
+    // appended to the response after the acknowledgement.
+    let streamed = "";
     const ackLines = ACKNOWLEDGEMENTS[language.language];
     const ackLine = ackLines[this.acknowledged % ackLines.length]!;
     const turn = await answerTurn({
@@ -877,7 +922,17 @@ export class RetellCallSession {
               this.send({ response_type: "response", response_id: responseId, content: ackLine, content_complete: false, end_call: false });
               acknowledgement = ackLine;
               this.acknowledged += 1;
+              heard();
             },
+          }
+        : null,
+      speak: nothingDue
+        ? (sentence: string) => {
+            if (responseId !== this.latestResponseId || this.closing) return;
+            const lead = acknowledgement || streamed ? " " : "";
+            this.send({ response_type: "response", response_id: responseId, content: `${lead}${sentence}`, content_complete: false, end_call: false });
+            streamed = streamed ? `${streamed} ${sentence}` : sentence;
+            heard();
           }
         : null,
       interruptedAt: interruptedAt(event.transcript, this.turns),
@@ -996,7 +1051,22 @@ export class RetellCallSession {
     // fixed reply ends "I'll put you through", and the call is.
     const transferTo = turn.urgent ? (turn.transferTo ?? null) : null;
     if (transferTo) this.closing = true;
-    this.say(responseId, reply, { endCall: turn.end && !transferTo, transferTo, spokenBefore: acknowledgement });
+    // Spoken as it was written: only what is left goes now, after the
+    // acknowledgement and the sentences already sent (turn.ts, `spoken`).
+    const already = turn.spoken && reply.startsWith(turn.spoken) ? turn.spoken : "";
+    this.say(responseId, already ? reply.slice(already.length).trim() : reply, {
+      endCall: turn.end && !transferTo,
+      transferTo,
+      spokenBefore: [acknowledgement, already].filter(Boolean).join(" ") || null,
+    });
+    heard();
+    log.info("retell turn timing", {
+      clinicId: this.clinicId,
+      callId: this.callId,
+      source: turn.source,
+      ms: (firstHeardAt ?? Date.now()) - askedAt,
+      totalMs: Date.now() - askedAt,
+    });
     // The urgent alert is critical: sent in-process once its row has
     // committed, after the caller has heard the reply, so the line never
     // waits on an email. It never rejects; whatever it misses, the minute

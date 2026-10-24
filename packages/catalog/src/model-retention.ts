@@ -50,12 +50,20 @@
 
 /**
  * The models apps/app calls on the patient-data organisation's key: the web
- * chat and the Meta front door on Opus 5.5, calls on Sonnet 5.5
- * (lib/assistant/responder.ts), and the portal's support chat, which carries
- * no patient's words by design, on Opus 5.5 (lib/support/model.ts). None is a
- * Covered Model.
+ * chat and the Meta front door on Opus 5.5, calls on Haiku 5.5 since 24
+ * October 2026 (lib/assistant/responder.ts; Sonnet 5.5 before, and still
+ * allowed through HEALDESK_VOICE_MODEL), and the portal's support chat,
+ * which carries no patient's words by design, on Opus 5.5
+ * (lib/support/model.ts). None is a Covered Model.
+ *
+ * Haiku 5.5 was added by the owner's decision of 24 October 2026, for the
+ * speed of a call. The sentences below hold for it as for the others: it is
+ * not a Covered Model, and Anthropic's HIPAA-ready article (15455031,
+ * re-read that day) restricts no model, naming only Claude Code as outside
+ * its Eligible Services. The executed BAA is still the source of truth
+ * Anthropic names: read it for the model list when it is signed.
  */
-export const PATIENT_MODEL_IDS = ["claude-opus-5-5", "claude-sonnet-5-5"] as const;
+export const PATIENT_MODEL_IDS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"] as const;
 
 export type PatientModelId = (typeof PATIENT_MODEL_IDS)[number];
 

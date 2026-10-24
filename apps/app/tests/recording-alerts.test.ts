@@ -118,8 +118,13 @@ describe("a clinic's Retell agent", () => {
       backchannel_words: ["mm-hmm", "right", "gotcha", "okay"],
       interruption_sensitivity: 1,
       responsiveness: 1,
+      enable_dynamic_responsiveness: true,
       voice_temperature: 1.2,
+      voice_speed: 1.05,
+      pronunciation_dictionary: RETELL_CONVERSATION_SETTINGS.pronunciation_dictionary,
     });
+    // Every word in the dictionary is a public treatment brand, written in IPA.
+    for (const entry of RETELL_CONVERSATION_SETTINGS.pronunciation_dictionary) expect(entry.alphabet).toBe("ipa");
   });
 
   test("refuses to build without a usable secret, an https origin or a clinic id, naming no value", () => {

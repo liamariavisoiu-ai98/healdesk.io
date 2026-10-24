@@ -781,7 +781,14 @@ describeDb("the approval inbox", () => {
         "Applies a payment dispute: where the account can be suspended, AYA is suspended until support lifts it and the clinic is emailed its call-forwarding steps; otherwise the dispute is noted in its billing history. It is applied as if it had just arrived, and may send the clinic the billing email that event calls for.",
       );
       expect(eventEffect("customer.subscription.deleted")).toMatch(/^Applies the end of the subscription: the account is cancelled/);
-      expect(eventEffect("invoice.payment_failed")).toMatch(/^Applies a failed payment: the clinic is emailed Stripe's page to pay/);
+      expect(eventEffect("invoice.payment_failed")).toMatch(
+        /^Applies a failed payment: the invoice is recorded as owed, the clinic is emailed Stripe's page to pay, an active account moves to past due, and its grace period starts if none is running\./,
+      );
+      // Not a failure yet (events.ts onInvoiceUnpaid): the status stays and no grace starts.
+      expect(eventEffect("invoice.payment_action_required")).toBe(
+        "Applies a payment the clinic's bank wants confirmed: the invoice is recorded as owed and the clinic is emailed Stripe's page to confirm it. The account's status does not change and no grace period starts. It is applied as if it had just arrived, and may send the clinic the billing email that event calls for.",
+      );
+      expect(eventEffect("invoice.payment_action_required")).not.toMatch(/past due/);
       expect(eventEffect("customer.created")).toBe(
         "Applies the parked Stripe event again from the start. It is applied as if it had just arrived, and may send the clinic the billing email that event calls for.",
       );

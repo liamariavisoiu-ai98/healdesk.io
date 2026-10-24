@@ -140,9 +140,9 @@ const EVENT_EFFECTS: Readonly<Record<string, string>> = {
   "invoice.paid":
     "Applies a paid invoice: it can activate a clinic still being set up, start its plan, move its billing period on, or lift a suspension for non-payment.",
   "invoice.payment_failed":
-    "Applies a failed payment: the clinic is emailed Stripe's page to pay, and an active account moves to past due with its grace period.",
+    "Applies a failed payment: the invoice is recorded as owed, the clinic is emailed Stripe's page to pay, an active account moves to past due, and its grace period starts if none is running.",
   "invoice.payment_action_required":
-    "Applies a payment the clinic's bank wants confirmed: the clinic is emailed Stripe's page to confirm it, and an active account moves to past due with its grace period.",
+    "Applies a payment the clinic's bank wants confirmed: the invoice is recorded as owed and the clinic is emailed Stripe's page to confirm it. The account's status does not change and no grace period starts.",
   "charge.refunded": "Applies a refund Stripe made: it is recorded in the clinic's billing history.",
 };
 

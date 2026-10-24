@@ -429,6 +429,8 @@ export async function listRights(options: RightsReadOptions & { limit?: number }
 // -----------------------------------------------------------------------------
 
 export type RecordIntakeInput = {
+  /** The form's own key, generated once when it opened: the idempotency key. */
+  requestKey: string;
   kind: RightsKind;
   receivedOn: string;
   verifiedVia: RightsVerification;
@@ -467,9 +469,11 @@ async function linkedExists(tx: TenantTx, kind: RightsKind, recordId: string): P
 }
 
 /**
- * Record one intake, once: a second call for the same clinic, kind, linked
- * record and day received returns the first (`already_recorded`), changing
- * nothing. The due day comes from the kind's clock. The audit row carries
+ * Record one intake, once per request key: the same key again returns the
+ * first (`already_recorded`), changing nothing, while two people's requests
+ * of one kind on one day, under two keys, are two rows. A record already
+ * named by another intake returns that intake too, since one record came
+ * from one request. The due day comes from the kind's clock. The audit row carries
  * the kind, how it was verified and whether it names a record: no date
  * (the audit's number check reads a date as digits) and nothing typed.
  */
@@ -482,6 +486,7 @@ export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Prom
     .insert(rightsIntakes)
     .values({
       clinicId: tx.clinicId,
+      requestKey: input.requestKey,
       kind: input.kind,
       askedFor: input.askedFor,
       receivedOn: input.receivedOn,
@@ -490,7 +495,8 @@ export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Prom
       linkedRecordId: input.linkedRecordId,
       recordedBy: input.recordedBy,
     })
-    // The one unique constraint besides the key: rights_intakes_request_key, NULLS NOT DISTINCT.
+    // Either unique: rights_intakes_request_key (clinic, key) or
+    // rights_intakes_linked_key (clinic, kind, linked record).
     .onConflictDoNothing()
     .returning({ id: rightsIntakes.id, dueOn: rightsIntakes.dueOn });
   if (inserted) {
@@ -509,13 +515,13 @@ export async function recordIntake(tx: TenantTx, input: RecordIntakeInput): Prom
     .where(
       and(
         eq(rightsIntakes.clinicId, tx.clinicId),
-        eq(rightsIntakes.kind, input.kind),
         input.linkedRecordId
-          ? eq(rightsIntakes.linkedRecordId, input.linkedRecordId)
-          : sql`${rightsIntakes.linkedRecordId} is null`,
-        eq(rightsIntakes.receivedOn, input.receivedOn),
+          ? sql`(${rightsIntakes.requestKey} = ${input.requestKey}
+                 or (${rightsIntakes.kind} = ${input.kind} and ${rightsIntakes.linkedRecordId} = ${input.linkedRecordId}))`
+          : eq(rightsIntakes.requestKey, input.requestKey),
       ),
     )
+    .orderBy(sql`${rightsIntakes.requestKey} = ${input.requestKey} desc`)
     .limit(1);
   if (!existing) throw new Error("The intake was neither recorded nor found.");
   return { outcome: "already_recorded", id: existing.id, dueOn: existing.dueOn };

@@ -268,8 +268,9 @@ async function asApp<T>(clinicId: string, fn: (q: { query: (text: string, values
   }
 }
 
+/** recordRightsIntake as the form sends it: with a fresh request key unless the test gives one. */
 async function record(args: Record<string, unknown>) {
-  return runOperation("recordRightsIntake", args, OPERATOR);
+  return runOperation("recordRightsIntake", { requestKey: randomUUID(), ...args }, OPERATOR);
 }
 
 function data<T>(outcome: Awaited<ReturnType<typeof runOperation>>): T {
@@ -329,8 +330,8 @@ describeDb("the rights tracker, against the database", () => {
       const v = { kind: "erasure", asked_for: null, received_on: "2026-10-01", verified_via: "notice_address", due_on: "2026-10-15", recorded_by: "ops", ...over };
       return asApp(c.clinicId, (q) =>
         q.query(
-          `insert into rights_intakes (clinic_id, kind, asked_for, received_on, verified_via, due_on, recorded_by)
-           values ($1, $2, $3, $4, $5, $6, $7)`,
+          `insert into rights_intakes (clinic_id, request_key, kind, asked_for, received_on, verified_via, due_on, recorded_by)
+           values ($1, gen_random_uuid(), $2, $3, $4, $5, $6, $7)`,
           [c.clinicId, v.kind, v.asked_for, v.received_on, v.verified_via, v.due_on, v.recorded_by],
         ),
       );
@@ -362,7 +363,7 @@ describeDb("the rights tracker, against the database", () => {
     await expect(
       asApp(b.clinicId, (q) =>
         q.query(
-          `insert into rights_intakes (clinic_id, kind, received_on, verified_via, due_on, recorded_by) values ($1, 'export', '2026-10-01', 'unverified', '2026-10-15', 'ops')`,
+          `insert into rights_intakes (clinic_id, request_key, kind, received_on, verified_via, due_on, recorded_by) values ($1, gen_random_uuid(), 'export', '2026-10-01', 'unverified', '2026-10-15', 'ops')`,
           [a.clinicId],
         ),
       ),
@@ -380,26 +381,38 @@ describeDb("the rights tracker, against the database", () => {
     expect((await runOperation("closeRightsIntake", { clinicId: b.clinicId, id: recorded.id, status: "done" }, OPERATOR)).status).toBe(404);
   });
 
-  test("recording is idempotent, writes for the operator, and names no person", async () => {
+  test("recording is idempotent by the form's key, writes for the operator, and names no person", async () => {
     const c = await seedClinic("rights-once");
-    const args = { clinicId: c.clinicId, kind: "erasure", receivedOn: "2026-10-02", verifiedVia: "notice_address" };
+    const args = { clinicId: c.clinicId, requestKey: randomUUID(), kind: "erasure", receivedOn: "2026-10-02", verifiedVia: "notice_address" };
     const first = data<{ outcome: string; id: string; dueOn: string }>(await record(args));
     expect(first).toMatchObject({ outcome: "recorded", dueOn: "2026-10-16" });
+    // The same key again (a retried submit): the same request, nothing written.
     const again = data<{ outcome: string; id: string }>(await record(args));
     expect(again).toMatchObject({ outcome: "already_recorded", id: first.id });
     const { rows } = await inTenant(c.clinicId, (q) =>
       q.query(`select recorded_by, status, due_on::text from rights_intakes where clinic_id = $1`, [c.clinicId]),
     );
     expect(rows).toEqual([{ recorded_by: "ops", status: "open", due_on: "2026-10-16" }]);
+    // A second person's request of the same kind, the same day, at the same clinic: its own key, its own row.
+    const other = data<{ outcome: string; id: string }>(await record({ ...args, requestKey: randomUUID() }));
+    expect(other.outcome).toBe("recorded");
+    expect(other.id).not.toBe(first.id);
+    const both = await inTenant(c.clinicId, (q) => q.query(`select id from rights_intakes where clinic_id = $1`, [c.clinicId]));
+    expect(both.rows).toHaveLength(2);
+    // The first request's own trail: one audit row and one security event, the retry adding none.
     const audit = await inTenant(c.clinicId, (q) =>
-      q.query(`select action, actor_service_name, metadata from audit_log where resource_type = 'rights_intake' and clinic_id = $1`, [
+      q.query(`select action, actor_service_name, metadata from audit_log where resource_type = 'rights_intake' and clinic_id = $1 and resource_id = $2`, [
         c.clinicId,
+        first.id,
       ]),
     );
     expect(audit.rows).toEqual([
       { action: "create", actor_service_name: "ops@healdesk.test", metadata: { kind: "erasure", verifiedVia: "notice_address", linked: false } },
     ]);
-    const events = await getMigratorPool().query(`select actor_label, metadata from security_events where event = 'rights_intake_recorded'`);
+    const events = await getMigratorPool().query(
+      `select actor_label, metadata from security_events where event = 'rights_intake_recorded' and metadata->>'intakeId' = $1`,
+      [first.id],
+    );
     expect(events.rows).toEqual([
       {
         actor_label: "ops@healdesk.test",
@@ -428,6 +441,10 @@ describeDb("the rights tracker, against the database", () => {
       expect((await record(bad)).status, JSON.stringify(bad)).toBe(400);
     }
     expect((await record({ ...base, linkedRecordId: randomUUID() })).status).toBe(404);
+    // The request key: required, and a uuid.
+    for (const requestKey of [undefined, "", "retry-1", 42]) {
+      expect((await runOperation("recordRightsIntake", { ...base, requestKey }, OPERATOR)).status, String(requestKey)).toBe(400);
+    }
     expect((await runOperation("listRights", { status: "late" }, OPERATOR)).status).toBe(400);
     expect((await runOperation("listRights", { limit: 0 }, OPERATOR)).status).toBe(400);
   });

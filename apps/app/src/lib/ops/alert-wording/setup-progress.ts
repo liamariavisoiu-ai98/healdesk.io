@@ -27,8 +27,12 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // days or never has. Routine: Slack alone.
   lifecycle_no_progress: {
     title: "A clinic's setup has not moved for days",
+    // The days without progress are absent for a clinic that never started;
+    // the days left stay in the detail, so the line holds the two facts
+    // that say how stuck it is.
+    headline: "{clinicName}: no setup progress[ for {noProgressDays:day}], {stepsLeftCount:step} to go",
     whatHappened:
-      "{clinicName} has {stepsLeftCount:step} still to do[ and {remainingDays:day} left] in its 30-day setup window.[ It has made no progress for {noProgressDays:day}.] Its own setup reminders keep going every five days.",
+      "{clinicName}: no setup progress[ for {noProgressDays:day}], {stepsLeftCount:step} to go.[ It has {remainingDays:day} left in its 30-day setup window.] Its own setup reminders keep going every five days.",
     whyItMatters: `A setup that stops moving usually needs a nudge, not a rescue. ${CLOSURE}`,
     steps: [
       "Open the clinic's Setup tab and read the Setup window card: the days left, the last progress and what we suggest.",
@@ -45,8 +49,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // call (more time already offered or given), so the steps follow it.
   lifecycle_closing_soon: {
     title: "A setup window closes soon and the clinic is nearly done",
+    headline: "{clinicName} is nearly set up: {stepsLeftCount:step} to go, {remainingDays:day} left",
     whatHappened:
-      "{clinicName} has {remainingDays:day} left in its setup window (0 means today is the last day) and only {stepsLeftCount:step} to do.[ It has made no progress for {noProgressDays:day}.]",
+      "{clinicName} is nearly set up: {stepsLeftCount:step} to go, {remainingDays:day} left in its setup window. 0 days left means today is the last day.[ It has made no progress for {noProgressDays:day}.]",
     whyItMatters: `No decision is owed: the clinic has one step left or none. ${CLOSURE} A short extension is cheap if it asks.[?recommendation=extend: Our rules suggest {extendDays:day} more.][?recommendation=offer_call: Our rules suggest offering a five-minute call.][?recommendation=wait: Our rules suggest waiting.][?recommendation=phone_the_clinic: Our rules suggest phoning the clinic.][?recommendation=let_close: You decided to let this setup close.]`,
     steps: [
       "Open the clinic's Setup tab and read the Setup window card: the window's end, the last progress and what we suggest.",
@@ -83,8 +88,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // escalation, whatever was decided before: a closure now would be our delay.
   lifecycle_closing_waiting_on_us: {
     title: "A setup waiting on us is about to close",
+    headline: "{clinicName} has waited on us {waitedDays:day}; its window closes in {remainingDays:day}",
     whatHappened:
-      "{clinicName} has finished every setup step it can and has waited on us for {waitedDays:day} to finish a channel. Its setup window has {remainingDays:day} left (0 means today is the last day).",
+      "{clinicName} has waited on us {waitedDays:day}; its setup window closes in {remainingDays:day}. It has finished every setup step it can; a channel it bought is still being finished on our side. 0 days means today is the last day.",
     whyItMatters:
       "If nothing is live when the window ends, the account is closed whether the delay was ours or not, and the setup fee is not refunded. The closure waits while the setup-closure row in System › Jobs is off. Days waiting on us never extend the window by themselves.[?recommendation=extend: Our rules suggest extending by {extendDays:day}, the time it waited.]",
     steps: [
@@ -98,8 +104,10 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // Four hours, then one business day, into waiting on us. Routine: Slack alone.
   lifecycle_waiting_on_us: {
     title: "A clinic is waiting on us to finish its setup",
+    // Hours, not days: the first wave comes four hours in, when the days are 0.
+    headline: "{clinicName} has done its part and waited on us for {waitedHours:hour} to finish a channel",
     whatHappened:
-      "{clinicName} has done every setup step it can. A channel it bought is still being prepared on our side, and it has waited {waitedHours:hour}.",
+      "{clinicName} has done its part and waited on us for {waitedHours:hour} to finish a channel. Every setup step it can do is done; a channel it bought is still being prepared on our side.",
     whyItMatters:
       "Nothing answers for this clinic until we finish, and every hour it waits is ours, not the clinic's. Its setup window keeps running meanwhile: the days it waits on us do not extend it by themselves.",
     steps: [
@@ -114,8 +122,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // days waited as the extension.
   lifecycle_waiting_on_us_long: {
     title: "A clinic has waited on us for two business days",
+    headline: "{clinicName} has waited on us {waitedDays:day} for a channel: two business days or more",
     whatHappened:
-      "{clinicName} finished every setup step it can {waitedDays:day} ago and is still waiting for us to finish a channel. That is two business days or more.",
+      "{clinicName} has waited on us {waitedDays:day} for a channel: two business days or more. It finished every setup step it can, and a channel it bought is still being prepared on our side.",
     whyItMatters:
       "The clinic did its part and nothing answers for it yet. Its setup window keeps running: the days it waited do not extend it by themselves. Our rules suggest giving them back by extending the window[ by {extendDays:day}].",
     steps: [
@@ -134,8 +143,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // phone live (lib/channels/events.ts), so its published number is the desk.
   lifecycle_channel_waiting: {
     title: "A live clinic still has a channel waiting on it",
+    headline: "{clinicName}: partly live {waitedDays:day}, {channelsWaitingCount:channel} waiting on it",
     whatHappened:
-      "{clinicName} has had a channel answering for {waitedDays:day}, with {channelsWaitingCount:channel} still waiting on one step from the clinic.",
+      "{clinicName}: partly live {waitedDays:day}, {channelsWaitingCount:channel} waiting on it. A channel has been answering all that time; each waiting one needs one step only the clinic can do.",
     whyItMatters:
       "The clinic is paying for a channel it is not getting, and people on that channel still reach nobody from AYA. Its setup window no longer closes the account, so this is a nudge, not a deadline.",
     steps: [
@@ -153,8 +163,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // the corrected address or a later reminder delivered.
   lifecycle_reminder_undelivered: {
     title: "A setup reminder did not reach the clinic",
+    headline: "{clinicName} is not getting our email: a setup reminder did not arrive, nor any since",
     whatHappened:
-      "A setup reminder we emailed {clinicName} bounced or could not be sent, and no later reminder has arrived. The clinic is not hearing from us.",
+      "{clinicName} is not getting our email: a setup reminder did not arrive, nor any since. The reminder bounced, or could not be sent at all.",
     whyItMatters:
       "Every reminder, every notice and the sign-in link go to this one address. Until it works, the clinic cannot be reached by email at all, and its setup window keeps running.",
     steps: [
@@ -168,8 +179,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // since the first. An escalation, once until the clinic moves.
   lifecycle_reminders_unanswered: {
     title: "Two setup reminders arrived and nothing moved",
+    headline: "{clinicName} has not moved after two setup reminders in a row: {stepsLeftCount:step} to go",
     whatHappened:
-      "{clinicName} was sent two setup reminders in a row that arrived[, {reminderCount:reminder} in all,] and has made no progress since the first of them.[ Its last progress was {noProgressDays:day} ago.] It has {stepsLeftCount:step} still to do.",
+      "{clinicName} has not moved after two setup reminders in a row, with {stepsLeftCount:step} still to do. Both arrived, and nothing has changed since the first of them.[ It has had {reminderCount:reminder} in all.][ Its last progress was {noProgressDays:day} ago.]",
     whyItMatters: `Email is not moving this clinic. ${CLOSURE} A phone call is the next step, not another email.`,
     steps: [
       "Open the clinic's Setup tab and read the Setup window card: the days left, the last progress and what we suggest.",

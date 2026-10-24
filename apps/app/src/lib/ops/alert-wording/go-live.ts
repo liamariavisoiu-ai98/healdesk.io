@@ -15,8 +15,12 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // not printable and the steps cover every branch.
   practice_question_failed: {
     title: "AYA's practice questions did not pass for a clinic",
+    // The outcome is not printable, and a run after go-live never takes a
+    // channel offline (lib/channels/audit-seam.ts), so the headline names
+    // what is owed in every branch and promises nothing about a channel.
+    headline: "{clinicName}'s practice questions did not pass: a review, a fix or a rerun is owed",
     whatHappened:
-      "{clinicName}'s practice questions, the test conversations AYA must pass before a channel goes live, did not pass. Either a judge flagged answers for a person to review, the clinic has something to fix in its portal, or the run itself could not finish.",
+      "{clinicName}'s practice questions did not pass: a review, a fix or a rerun is owed. They are the test conversations AYA must pass before a channel goes live. Either a judge flagged answers for a person to review, the clinic has something to fix in its portal, or the run itself could not finish.",
     whyItMatters:
       "Until a run passes, that channel cannot go live and AYA answers no one on it. A review has a due day the clinic can see in its portal.",
     steps: [
@@ -31,8 +35,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // lib/engine/practice/job.ts claimPastDueReviews, once per review.
   practice_question_review_past_due: {
     title: "A practice-question review is past the day we promised",
+    headline: "{clinicName} is waiting on our practice-question review, past the day we promised it",
     whatHappened:
-      "A run of {clinicName}'s practice questions is waiting for a person to review it, and the day we gave the clinic for that review has passed. The clinic's portal told it we would be done by then.",
+      "{clinicName} is waiting on our review of its practice questions, and the day we gave it for that review has passed. Its portal told the clinic we would be done by then.",
     whyItMatters:
       "The channel waiting on this review cannot go live until someone decides it. The clinic is waiting on a date we set.",
     steps: [
@@ -46,6 +51,9 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // health-flags job: never shown to the clinic. Once per clinic.
   no_interactions_48_hours: {
     title: "A live clinic has heard from nobody in 48 hours",
+    // "Or more": the hourly check raises it at its first run past 48 hours,
+    // which is later when the job was off.
+    headline: "{clinicName} is live, and in 2 days or more no call, chat or message has reached AYA",
     whatHappened:
       "{clinicName}'s first channel went live at least two days ago, and since then no call, website chat or message has reached AYA on any channel. Our hourly check raised this once; the clinic has not been told.",
     whyItMatters:
@@ -63,6 +71,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // log note until its account is closed (lib/ops/health.ts touchRefusal).
   no_inbound_calls_14_days: {
     title: "A clinic's phone line has had no calls for 14 days",
+    headline: "{clinicName}'s phone is live, yet no call has reached AYA for 14 days",
     whatHappened:
       "{clinicName} has phone live and switched on, yet no call has reached AYA for 14 days. The count starts at its go-live, its last call, or when phone was last switched back on, whichever is latest.",
     whyItMatters:
@@ -79,6 +88,11 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // answer.
   first_answer_not_recorded: {
     title: "A channel's first answer could not be recorded",
+    // The channel is a fact row, not a headline word: "Meta (Instagram,
+    // Messenger, WhatsApp)" alone is 37 characters, so a headline naming it
+    // with a clinic could not keep to 90. "Unbilled" holds for a first
+    // channel (no plan start) and a later one (no step-up) alike.
+    headline: "{clinicName}'s first answer on a channel was not recorded, so that channel is unbilled",
     whatHappened:
       "AYA answered a patient on one of {clinicName}'s live channels, but the first answer on that channel could not be recorded. The conversation itself is recorded. The next answered conversation on the channel tries again by itself.",
     whyItMatters:
@@ -96,8 +110,12 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // own list passed.
   go_live_held: {
     title: "A clinic is held back from going live",
+    // `count` is absent when the database refused after the card's own list
+    // passed, so its clause drops; step 1 already sends the reader to the
+    // Go live card for the list itself.
+    headline: "{clinicName} cannot go live yet, so AYA answers no one there[: {count:thing} to put right]",
     whatHappened:
-      "{clinicName} cannot go live yet, so AYA answers no one there. Either its agreement or its covered-entity answer is not in order, or its part of setup is done and something on our side is missing.[ The Go live card on its Setup tab lists {count:thing} to put right.] Nothing live was taken offline.",
+      "{clinicName} cannot go live yet, so AYA answers no one there[, with {count:thing} to put right]. Either its agreement or its covered-entity answer is not in order, or its part of setup is done and something on our side is missing. Nothing live was taken offline.",
     whyItMatters:
       "Go-live is automatic once nothing is left, so the clinic waits on whatever is listed. Its setup window keeps running meanwhile, and a window that ends with nothing live closes the account.",
     steps: [
@@ -113,8 +131,11 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // chat waits on its line.
   web_widget_to_confirm: {
     title: "Confirm a clinic's website chat is on its site",
+    // "Seems": the load's Origin matched the clinic's recorded website
+    // (lib/chat/web-chat.ts isClinicSiteOrigin), which any client can send.
+    headline: "{clinicName} seems to have put website chat on its site: check it before confirming",
     whatHappened:
-      "{clinicName} has website chat waiting on its own step, and the chat was just opened from what claims to be the clinic's website. A claim is not proof: any page can say it is the clinic's site, so nothing was recorded.",
+      "{clinicName}'s website chat, still waiting on the clinic's own step, was just opened from a page that says it is the clinic's website. That is not proof: any page can say it is the clinic's site, so nothing was recorded.",
     whyItMatters:
       "Until a person confirms the chat is on the site, website chat stays off and tells visitors to call the practice. Confirming on a claim alone could take website chat live on a site that is not the clinic's.",
     steps: [

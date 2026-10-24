@@ -8897,15 +8897,16 @@ exports[`ops alerts beyond the fixture > a subscription's end processed over a w
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">TODAY: A subscription&#39;s end was processed over a week late</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">TODAY: This clinic&#39;s data is due to be destroyed 3 days later than its agreement counts</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 8px;"><span style="display:inline-block;background:#7d4e00;color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.08em;padding:3px 9px;border-radius:4px;">TODAY</span></p>
-<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">A subscription&#39;s end was processed over a week late</p>
+<p style="margin:0 0 16px;font-size:20px;line-height:1.3;font-weight:700;">This clinic&#39;s data is due to be destroyed <strong>3 days</strong> later than its agreement counts</p>
 <div style="margin:0 0 20px;padding:12px 14px;background:#fff8c5;color:#1f2328;border:1px solid #d4a72c;border-radius:6px;"><p style="margin:0 0 6px;color:#1f2328;"><strong>Do this first</strong></p><p style="margin:0;color:#1f2328;">Open the clinic&#39;s <strong><u>Care tab</u></strong> and read <strong><u>Offboarding</u></strong>: the day the clock started and the destruction day that follows from it.</p></div>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 12px;">
 <p class="hd-muted" style="margin:0 0 12px;color:#57606a;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">More detail</p>
-<p style="margin:0 0 16px;">This clinic&#39;s subscription ended on <strong><mark style="background:#fff3a3;color:#1f2328;padding:0 2px;">27 Oct</mark></strong>, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.</p>
+<p style="margin:0 0 16px;">We processed the end more than a week after it happened, and the destruction clock starts at most a week back.</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
+<p style="margin:0 0 4px;"><strong>Service ended (UTC):</strong> 27 Oct</p>
 <p style="margin:0 0 4px;"><strong>Raised:</strong> 6 Oct</p>
 <p style="margin:0 0 16px;"><strong>Why it matters:</strong> The agreement counts destruction from the day service ended, not from when we noticed. Only the database owner can bring the destruction forward; nothing in the console can.</p>
 <p style="margin:0 0 16px;"><strong>Then:</strong><br>2. Open the clinic&#39;s <strong><u>Billing tab</u></strong> and look under <strong><u>Parked Stripe events</u></strong> for the subscription&#39;s end: an event parked and replayed late is one cause, the host being off is another.<br>3. Tell the owner, naming the clinic&#39;s <strong><u>Care tab</u></strong> and the days late, so the destruction can be brought forward in the database if the owner decides so. Do not change any date yourself.<br>4. Press <strong><u>Record</u></strong> in the <strong><u>Touch log</u></strong> on the clinic&#39;s <strong><u>Care tab</u></strong> to note it. If the clinic&#39;s account is already closed, it takes no note: tell the owner what you did instead, with no patient detail. You are done when the owner has decided whether to bring it forward.</p>
@@ -8917,17 +8918,18 @@ exports[`ops alerts beyond the fixture > a subscription's end processed over a w
 </div>
 </body>
 </html>",
-  "preheader": "TODAY: A subscription's end was processed over a week late",
+  "preheader": "TODAY: This clinic's data is due to be destroyed 3 days later than its agreement counts",
   "subject": "healdesk ops: A subscription's end was processed over a week late",
-  "text": "TODAY: A subscription's end was processed over a week late
+  "text": "TODAY: This clinic's data is due to be destroyed 3 days later than its agreement counts
 
 DO THIS FIRST: Open the clinic's Care tab and read Offboarding: the day the clock started and the destruction day that follows from it.
 
 MORE DETAIL
 
-This clinic's subscription ended on 27 Oct, and we processed the end more than a week after it happened. The destruction clock starts at most a week back, so its data is destroyed 3 days later than its agreement counts from the end.
+We processed the end more than a week after it happened, and the destruction clock starts at most a week back.
 
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000
+Service ended (UTC): 27 Oct
 Raised: 6 Oct
 
 WHY IT MATTERS: The agreement counts destruction from the day service ended, not from when we noticed. Only the database owner can bring the destruction forward; nothing in the console can.

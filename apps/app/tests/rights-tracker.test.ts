@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -395,6 +397,32 @@ describeDb("the rights tracker, against the database", () => {
     await expect(insert({ due_on: "2026-10-02" })).rejects.toMatchObject({ constraint: "rights_intakes_due_check" });
     await expect(insert({ received_on: "2999-01-01", due_on: "2999-01-15" })).rejects.toThrow(/cannot be received after today/);
     await insert({});
+  });
+
+  test("the migration's self-check refuses an UPDATE grant on any column but the status", async () => {
+    const sql = readFileSync(join(__dirname, "..", "drizzle", "0120_rights_intakes.sql"), "utf8");
+    const check = sql.slice(sql.lastIndexOf("DO $$"));
+    const pool = getMigratorPool();
+    await pool.query(check); // as migrated: passes
+    for (const column of ["verified_via", "recorded_by", "asked_for"]) {
+      await pool.query(`grant update (${column}) on rights_intakes to healdesk_app`);
+      try {
+        await expect(pool.query(check), column).rejects.toThrow(new RegExp(`rights_intakes\\.${column}`));
+      } finally {
+        await pool.query(`revoke update (${column}) on rights_intakes from healdesk_app`);
+      }
+    }
+    await pool.query(check);
+  });
+
+  test("no list row carries the request key", async () => {
+    const c = await seedClinic("rights-nokey");
+    const requestKey = randomUUID();
+    await record({ clinicId: c.clinicId, requestKey, kind: "export", receivedOn: "2026-10-12", verifiedVia: "unverified" });
+    const list = data<{ rows: RightsRow[] }>(await runOperation("listRights", {}, OPERATOR));
+    expect(list.rows).toHaveLength(1);
+    expect(JSON.stringify(list)).not.toContain(requestKey);
+    expect(Object.keys(list.rows[0]!)).not.toContain("requestKey");
   });
 
   test("row security: a clinic sees only its own; the runtime role cannot delete, move or reopen one", async () => {

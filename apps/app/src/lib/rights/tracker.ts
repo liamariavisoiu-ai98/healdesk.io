@@ -68,6 +68,10 @@ export const RUN_THEN_MARK =
 export type RightsState = "on_time" | "due_soon" | "overdue" | "blocked" | "done";
 export type RightsSource = "intake" | "erasure_request" | "patient_request" | "record_amendment";
 
+/**
+ * One row of the list. Never the intake's request_key: that is the caller's
+ * own uuid, written once for idempotency and never echoed back.
+ */
 export type RightsRow = {
   /** The intake's id when there is one, else the record's. */
   id: string;

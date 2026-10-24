@@ -127,16 +127,27 @@ INSERT INTO scheduled_jobs (name, cadence, enabled) VALUES
   ('rights-watch', 'Daily; tells ops, once each, about every patient-rights request that cannot run on the host yet, that is due within two business days, or that is past its day. Sends nothing to a clinic or a patient. Off until the owner switches it on', false)
 ON CONFLICT (name) DO NOTHING;--> statement-breakpoint
 
+-- The runtime role may change an intake's status and nothing else: no
+-- delete, no truncate, and no UPDATE on any column but status and closed_at
+-- (every column is checked, so a column added later is covered). The
+-- request key is the caller's own uuid, written once and never echoed in a
+-- list row.
 DO $$
+DECLARE
+  col name;
 BEGIN
   IF has_table_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'DELETE')
-     OR has_table_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'TRUNCATE')
-     OR has_column_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'clinic_id', 'UPDATE')
-     OR has_column_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'request_key', 'UPDATE')
-     OR has_column_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'kind', 'UPDATE')
-     OR has_column_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'linked_record_id', 'UPDATE')
-     OR has_column_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'due_on', 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app can delete an intake or change more than its status.';
+     OR has_table_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'TRUNCATE') THEN
+    RAISE EXCEPTION 'healdesk_app can delete or truncate rights_intakes.';
   END IF;
+  FOR col IN
+    SELECT attname FROM pg_attribute
+     WHERE attrelid = 'rights_intakes'::regclass AND attnum > 0 AND NOT attisdropped
+       AND attname NOT IN ('status', 'closed_at')
+  LOOP
+    IF has_column_privilege('healdesk_app'::name, 'rights_intakes'::regclass, col, 'UPDATE') THEN
+      RAISE EXCEPTION 'healdesk_app can update rights_intakes.%, not only its status.', col;
+    END IF;
+  END LOOP;
 END;
 $$;

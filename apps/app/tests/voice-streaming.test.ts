@@ -303,4 +303,14 @@ describe("borrowed from full-duplex speech (owner, 24 October 2026)", () => {
     expect(prompt).toMatch(/"No rush\."/);
     expect(prompt).toContain('(" - ")');
   });
+
+  test("the prompt asks for the answer word first, matched energy, short small talk, and a bad line picked back up", () => {
+    const prompt = buildAssistantPrompt(FACTS, "voice");
+    expect(prompt).toMatch(/Lead with the answer itself/);
+    expect(prompt).toMatch(/Match their energy/);
+    expect(prompt).toMatch(/never claim a body, a life, or experiences you cannot have/);
+    expect(prompt).toMatch(/pick the thread back up/);
+    // Website chat is not a call: none of it.
+    expect(buildAssistantPrompt(FACTS, "web_chat")).not.toMatch(/Lead with the answer itself|breaking up/);
+  });
 });

@@ -40,14 +40,25 @@ describe("the issue link", () => {
     expect(parseIssueHash(`#voice_agent_drift-${ALERT}<script>`)).toBeNull();
   });
 
-  test("the events with a card of their own name it; the rest land on the panel", () => {
+  test("the events with a card of their own name it, on the tab that draws that card; the rest land on the panel", () => {
+    // Every lifecycle event in the mirrored list, and the availability change.
+    const lifecycle = OPS_EVENTS.filter((e) => e.startsWith("lifecycle_"));
+    expect(lifecycle).toHaveLength(9);
+    const tabOfCard = { availability: "setup", "setup-window": "setup", reminders: "deliveries" } as const;
+    for (const event of [...lifecycle, "clinic_availability_changed" as const]) {
+      const card = cardAnchorFor(event);
+      expect(card, event).not.toBeNull();
+      expect(issueTabFor(event), event).toBe(tabOfCard[card!]);
+    }
     expect(cardAnchorFor("clinic_availability_changed")).toBe("availability");
     expect(cardAnchorFor("lifecycle_reminder_undelivered")).toBe("reminders");
-    for (const event of ["lifecycle_no_progress", "lifecycle_closing_soon", "lifecycle_decision_due", "lifecycle_waiting_on_us", "lifecycle_closing_waiting_on_us"] as const) {
+    expect(cardAnchorFor("lifecycle_reminders_unanswered")).toBe("setup-window");
+    for (const event of ["lifecycle_no_progress", "lifecycle_closing_soon", "lifecycle_decision_due", "lifecycle_waiting_on_us", "lifecycle_waiting_on_us_long", "lifecycle_channel_waiting", "lifecycle_closing_waiting_on_us"] as const) {
       expect(cardAnchorFor(event)).toBe("setup-window");
     }
-    expect(cardAnchorFor("transcript_undelivered")).toBeNull();
-    expect(cardAnchorFor("calendar_broken")).toBeNull();
+    for (const event of OPS_EVENTS) {
+      if (!event.startsWith("lifecycle_") && event !== "clinic_availability_changed") expect(cardAnchorFor(event), event).toBeNull();
+    }
   });
 
   test("every event has a tab from the closed list", () => {

@@ -546,7 +546,7 @@ function Usage({ view }: { view: View }) {
   );
 }
 
-function UsageSwitches({ e, actions }: { e: Entitlements; actions: Actions }) {
+export function UsageSwitches({ e, actions }: { e: Entitlements; actions: Actions }) {
   const mode = useCall();
   const alerts = useCall();
   const changed = (data: BillingSwitchOutcome) =>

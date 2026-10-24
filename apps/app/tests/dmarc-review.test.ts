@@ -190,7 +190,7 @@ describeDb("the DMARC review reminder", { timeout: TEST_MS }, () => {
     const text = String(payload.text);
     expect(text).toContain("p=none");
     expect(text).toContain("p=quarantine");
-    expect(text).toContain("Day: 2026-10-06");
+    expect(text).toContain("Day: 6 Oct");
     // An ops alert names no clinic and no address but our own.
     expect(`${text}\n${String(payload.html)}`).not.toContain("example-clinic.test");
 

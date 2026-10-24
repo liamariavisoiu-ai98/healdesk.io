@@ -232,6 +232,13 @@ function checkObject(
   for (const [key, field] of Object.entries(value)) {
     const path = prefix ? `${prefix}.${key}` : key;
     const cls = classOfKey(key);
+    // A setup requester's business name, in an ops alert only (lane N1, the
+    // owner's decision of 23 October 2026): held to a clinic name's rule here,
+    // and to printableBusinessName's stricter one before it is sent.
+    if (key === "business" && kind === "ops_alert") {
+      checkValue(field, "clinicName", path, depth, kind);
+      continue;
+    }
     if (!cls) {
       throw new PayloadNotAllowedError(
         path,

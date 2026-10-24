@@ -104,7 +104,7 @@ describe("the voice eval's tone gate", () => {
           const results = await run([c.text], toned(model.responder, TONE_UNDER_TEST), channel);
           expect(model.calls).toHaveLength(0);
           expect(results[0]!.source).toBe("urgent");
-          expect(results[0]!.reply).toMatch(/911/);
+          expect(results[0]!.reply).toMatch(/911|9-1-1/);
         });
       }
 

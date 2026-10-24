@@ -16,8 +16,9 @@ import type { UrgentEmergency, UrgentLanguage } from "./urgent-content";
  *   1. The AI line: the assistant says what it is, which is also why it is
  *      handing the person on.
  *   2. The emergency service. For a person, 911: "call 911 now" in writing,
- *      "hang up and call 911" on a call, where the person is still on our
- *      line. For an animal (a veterinary practice), the emergency vet the
+ *      "hang up and call 9-1-1" on a call, where the person is still on our
+ *      line. On a call it is written "9-1-1", in Spanish too: a voice reads
+ *      "911" as "nine hundred eleven" (owner's test call, 24 October 2026). For an animal (a veterinary practice), the emergency vet the
  *      practice refers to, by its number (clinic_settings.vet_referral_e164),
  *      and then, always, 911 for a person who is hurt or in danger: whoever
  *      wrote may be the one in trouble. At a veterinary practice a person's
@@ -101,11 +102,11 @@ const LINES: Readonly<Record<UrgentLanguage, Lines>> = {
     ai: "I'm an AI assistant, so I can't help with anything urgent here.",
     call911: (voice) =>
       voice
-        ? "If this is an emergency, hang up and call 911 now."
+        ? "If this is an emergency, hang up and call 9-1-1 now."
         : "If this is an emergency, call 911 now.",
     person911: (voice) =>
       voice
-        ? "If a person is hurt or in danger, hang up and call 911 now."
+        ? "If a person is hurt or in danger, hang up and call 9-1-1 now."
         : "If a person is hurt or in danger, call 911 now.",
     vet: (voice, referral) =>
       referral
@@ -129,11 +130,11 @@ const LINES: Readonly<Record<UrgentLanguage, Lines>> = {
     ai: "Soy un asistente de IA, así que no puedo ayudar con nada urgente aquí.",
     call911: (voice) =>
       voice
-        ? "Si es una emergencia, cuelgue y llame al 911 ahora."
+        ? "Si es una emergencia, cuelgue y llame al 9-1-1 ahora."
         : "Si es una emergencia, llame al 911 ahora.",
     person911: (voice) =>
       voice
-        ? "Si una persona está herida o en peligro, cuelgue y llame al 911 ahora."
+        ? "Si una persona está herida o en peligro, cuelgue y llame al 9-1-1 ahora."
         : "Si una persona está herida o en peligro, llame al 911 ahora.",
     vet: (voice, referral) =>
       referral
@@ -227,7 +228,7 @@ export function otherLanguageReply(input: OtherLanguageReplyInput): string {
   const en = [
     "I'm an AI assistant, and I can only help in English or Spanish.",
     voice
-      ? "If this is an emergency, hang up and call 911 now."
+      ? "If this is an emergency, hang up and call 9-1-1 now."
       : "If this is an emergency, call 911 now.",
     input.veterinary
       ? referral
@@ -239,7 +240,7 @@ export function otherLanguageReply(input: OtherLanguageReplyInput): string {
   const es = [
     "Soy un asistente de IA y solo puedo ayudar en inglés o en español.",
     voice
-      ? "Si es una emergencia, cuelgue y llame al 911 ahora."
+      ? "Si es una emergencia, cuelgue y llame al 9-1-1 ahora."
       : "Si es una emergencia, llame al 911 ahora.",
     input.veterinary
       ? referral

@@ -448,7 +448,7 @@ describeDb("the live alerts' hooks", () => {
       transport,
     });
     if (first.mode !== "chat") throw new Error("no chat");
-    expect(first.reply).toMatch(/call 911/);
+    expect(first.reply).toMatch(/call (911|9-1-1)/);
 
     const queued = await queuedNotices(seeded.clinicId);
     expect(queued.map((n) => n.kind)).toEqual(["urgent"]);
@@ -509,7 +509,7 @@ describeDb("the live alerts' hooks", () => {
       transport,
     });
     if (answer.mode !== "chat") throw new Error("no chat");
-    expect(answer.reply).toMatch(/call 911/);
+    expect(answer.reply).toMatch(/call (911|9-1-1)/);
     expect(answer.reply).toContain("Otherwise, please call");
     expect(answer.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
     // Queued exactly as before, so it goes the moment the sender is switched on.
@@ -535,7 +535,7 @@ describeDb("the live alerts' hooks", () => {
     if (first.mode !== "chat") throw new Error("no chat");
     const conversationId = readToken(first.token, seeded.clinicId)!.conversationId!;
     // Still 911 and the clinic's number; never a promise that was not kept.
-    expect(first.reply).toMatch(/call 911/);
+    expect(first.reply).toMatch(/call (911|9-1-1)/);
     expect(first.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
     expect(first.reply).toContain("Leave a number for the clinic to call you.");
     expect(await queuedNotices(seeded.clinicId)).toEqual([]);
@@ -729,7 +729,7 @@ describeDb("the live alerts' hooks", () => {
     const urgentReply = said
       .filter((m) => m.response_type === "response")
       .map((m) => String((m as { content?: unknown }).content))
-      .find((r) => /911/.test(r));
+      .find((r) => /9-1-1/.test(r));
     // Still 911 and the clinic's number; never a promise that was not kept.
     expect(urgentReply).toBeDefined();
     expect(urgentReply).not.toContain(URGENT_TEAM_TOLD_LINE);

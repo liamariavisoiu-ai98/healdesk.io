@@ -60,7 +60,7 @@ export const piece: Piece = {
           rows: [
             [
               "Phone",
-              "Hi, this is the AI assistant at [practice name]. This call is transcribed.",
+              "Hi! I'm the AI assistant at [practice name], and this call's transcribed.",
             ],
             [
               "Website chat",

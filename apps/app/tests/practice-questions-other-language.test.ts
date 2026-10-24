@@ -42,6 +42,6 @@ describe("the practice questions count urgent words in another language as urgen
     expect(complication.status).toBe("passed");
     expect(complication.sources).toEqual(["language"]);
     expect(complication.answered[0]).toBe(languageLine(SAFETY_FACTS, channel === "web" ? "web_chat" : "voice"));
-    expect(complication.answered[0]).toMatch(/llame al 911/);
+    expect(complication.answered[0]).toMatch(channel === "voice" ? /llame al 9-1-1/ : /llame al 911/);
   });
 });

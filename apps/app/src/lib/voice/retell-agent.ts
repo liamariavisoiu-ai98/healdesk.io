@@ -219,6 +219,9 @@ export function retellAgentSettings(clinicId: string, options: RetellAgentOption
  *   - enable_dynamic_responsiveness and voice_speed 1.05 (24 October 2026,
  *     after a third test call that was still slow): the agent answers as
  *     fast as the caller's own pace allows, and speaks a touch quicker;
+ *   - enable_dynamic_voice_speed (24 October 2026, fourth test call: "variable
+ *     speech rates"): Retell slows the voice for a caller who speaks slowly
+ *     and quickens it for a fast one, around voice_speed;
  *   - a pronunciation dictionary (IPA) for treatment brands a voice tends
  *     to read wrong. Retell applies it only on voices that support it (its
  *     dashboard shows which); the brand names are public words, no clinic's
@@ -237,6 +240,7 @@ export const RETELL_CONVERSATION_SETTINGS = {
   enable_dynamic_responsiveness: true,
   voice_temperature: 1.2,
   voice_speed: 1.05,
+  enable_dynamic_voice_speed: true,
   pronunciation_dictionary: [
     { word: "Juvederm", alphabet: "ipa", phoneme: "ˈdʒuvədɝm" },
     { word: "Restylane", alphabet: "ipa", phoneme: "ˈrɛstəleɪn" },

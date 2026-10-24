@@ -62,7 +62,7 @@ const FACTS = {
   escalationHours: null,
   neverSay: [],
   requirements: [],
-  greeting: { phone: "Are you looking to book, or do you have a question?", chat: "How can I help?" },
+  greeting: { phone: "Looking to book, or got a question?", chat: "How can I help?" },
   tone: "warm",
   languages: ["en"],
   suggestAddOns: false,

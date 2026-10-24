@@ -142,10 +142,12 @@ export const REMINDER_LINE_ES = "¿Sigue ahí? Con gusto le ayudo con cualquier 
  * The first time the model fails in a row on a call: a person's reset, not
  * an error message (owner, 24 October 2026). A second failure in a row is
  * put through to the direct line, or hears the plain failure line
- * (turn.ts failureLine), which says to contact the practice.
+ * (turn.ts failureLine), which says to contact the practice. No apology
+ * (owner, 24 October 2026: "less apologetic"): a person who missed a word
+ * just asks for it again.
  */
-export const RETRY_LINE = "Sorry, I lost my train of thought for a second there. Could you say that again?";
-export const RETRY_LINE_ES = "Perdone, me distraje un segundo. ¿Me lo puede repetir?";
+export const RETRY_LINE = "Hm, say that one more time for me?";
+export const RETRY_LINE_ES = "¿Me lo repite, por favor?";
 
 /**
  * What a call hears the moment the caller's words go to the model, so there

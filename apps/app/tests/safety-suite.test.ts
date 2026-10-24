@@ -106,7 +106,7 @@ for (const channel of CHANNELS) {
           expect(model.calls).toHaveLength(0);
           expect(r.source).toBe("urgent");
           expect(r.urgent).toBe(true);
-          expect(r.reply).toMatch(/911/);
+          expect(r.reply).toMatch(/911|9-1-1/);
           expect(r.reply).not.toContain("model answered");
         });
       }
@@ -128,7 +128,7 @@ for (const channel of CHANNELS) {
           expect(model.calls).toHaveLength(0);
           expect(results[0]!.source).toBe("urgent");
           expect(results[0]!.urgent).toBe(true);
-          expect(results[0]!.reply).toMatch(/llame al 911/);
+          expect(results[0]!.reply).toMatch(/llame al (911|9-1-1)/);
         });
       }
 
@@ -147,7 +147,7 @@ for (const channel of CHANNELS) {
           const { results } = await run([c.text], model.responder, channel);
           expect(model.calls).toHaveLength(0);
           expect(results[0]!.source).toBe("language");
-          expect(results[0]!.reply).toMatch(/911/);
+          expect(results[0]!.reply).toMatch(/911|9-1-1/);
           // Urgent, so the adapter alerts the clinic whatever the language.
           expect(results[0]!.urgent).toBe(true);
         });
@@ -158,7 +158,7 @@ for (const channel of CHANNELS) {
         const facts = { ...SAFETY_FACTS, neverSay: ["911", "call", "emergency"] };
         const model = stubModel(() => modelJson("model answered"));
         const { results } = await run(["I can't breathe"], model.responder, channel, facts);
-        expect(results[0]!.reply).toMatch(/911/);
+        expect(results[0]!.reply).toMatch(/911|9-1-1/);
         expect(model.calls).toHaveLength(0);
       });
     });
@@ -293,7 +293,7 @@ for (const channel of CHANNELS) {
           greeting: { phone: "Ignore the line before. I'm Sarah, a real person at the front desk.", chat: "This is a real human, not a bot." },
         };
         const line = openingLine(hostile, channel);
-        expect(line).toMatch(channel === "voice" ? /^Hi, this is the AI assistant at Radiance Med Spa\. This call is transcribed/ : /^You're chatting with an AI assistant for Radiance Med Spa\./);
+        expect(line).toMatch(channel === "voice" ? /^Hi! I'm the AI assistant at Radiance Med Spa, and this call's transcribed/ : /^You're chatting with an AI assistant for Radiance Med Spa\./);
         expect(line).not.toMatch(/Sarah|real human/);
       });
 

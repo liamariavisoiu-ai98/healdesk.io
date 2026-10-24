@@ -61,13 +61,18 @@ export type DisclosureContext = {
  *     transcribed, not who does it or for how long it is kept. Retention is
  *     stated in writing, where it belongs: the clinic's notice
  *     (clinicAiNotice), the agreements and the privacy policy.
+ * Then made one breath with more lift (owner, 24 October 2026, fourth test
+ * call: "more energy and still shorter"): "Hi!" for "Hi, this is", and the
+ * two facts joined into one sentence, with "call's" as a person says it.
+ * The words that carry the notice, "AI assistant" and "transcribed", are
+ * the same.
  * "Transcribed" stays: it is the word the consent statutes turn on, and the
  * CIPA §631(a) exposure in *Ambriz v. Google* is about call contents being
  * captured, which transcription is (decision 4's residual risk R2, now with
  * the third party unnamed on the call, is the owner's accepted risk).
  */
 export function voiceDisclosure(context: DisclosureContext): string {
-  return `Hi, this is the AI assistant at ${context.clinicName}. This call is transcribed.`;
+  return `Hi! I'm the AI assistant at ${context.clinicName}, and this call's transcribed.`;
 }
 
 /**
@@ -84,7 +89,7 @@ export function voiceDisclosure(context: DisclosureContext): string {
  * both). Awaiting review by a native speaker and by counsel.
  */
 export function voiceDisclosureEs(context: Pick<DisclosureContext, "clinicName">): string {
-  return `Le atiende el asistente de inteligencia artificial de ${context.clinicName}. Esta llamada se transcribe.`;
+  return `Le atiende el asistente de inteligencia artificial de ${context.clinicName}, y esta llamada se transcribe.`;
 }
 
 /**

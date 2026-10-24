@@ -121,6 +121,7 @@ describe("a clinic's Retell agent", () => {
       enable_dynamic_responsiveness: true,
       voice_temperature: 1.2,
       voice_speed: 1.05,
+      enable_dynamic_voice_speed: true,
       pronunciation_dictionary: RETELL_CONVERSATION_SETTINGS.pronunciation_dictionary,
     });
     // Every word in the dictionary is a public treatment brand, written in IPA.

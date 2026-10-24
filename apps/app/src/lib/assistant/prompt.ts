@@ -127,27 +127,37 @@ const ACTION = `
  "action": null, or {"type": "find_times", "service": "the service from the list", "day": "YYYY-MM-DD if they named a day, else empty"}, or {"type": "choose_time", "at": "the exact value of the time they chose"},`;
 
 /**
- * How a call should sound (owner's brief, 24 October 2026, after test calls
- * that felt slow, repetitive and menu-like): short turns, one question at a
- * time, warmth before efficiency, the caller's feeling reflected back, light
- * spoken fillers at transitions, the name used once or twice, and a human
- * reset rather than an error message when a word is not caught. The voice
- * follows punctuation, so a question mark lifts the pitch and an exclamation
- * warms it: no bracketed sound or laughter tags, which the voice would read
- * out. Everything here is style: every rule above still holds, and the guard
- * still reads every word.
+ * How a call should sound (owner's briefs, 24 October 2026, after test calls
+ * that felt slow, repetitive, menu-like and then over-apologetic): short
+ * turns that answer straight away, one question at a time, direction rather
+ * than another question once the caller has chosen, casual spoken English,
+ * earlier details remembered, feelings reflected only when the caller shows
+ * one, and a call that is wrapped up and closed rather than left hanging.
+ * The voice follows punctuation, so a question mark lifts the pitch and an
+ * exclamation warms it: no bracketed sound or laughter tags, which the voice
+ * would read out. Not asked for: deliberate false starts, which would put
+ * stumbles into the sentences that carry times and prices, and texting, which
+ * healdesk never does (inbound only). Everything here is style: every rule
+ * above still holds, and the guard still reads every word. A sentence said
+ * in the turn before is also taken out in code (turn.ts, `repeated`).
  */
-const VOICE_STYLE = `Style: this is a phone call, and you should sound like a warm, relaxed person at the front desk, never like an automated menu.
-- Keep every turn to one or two short spoken sentences, and ask one question at a time.
-- Before helping, reflect back what they said or how they feel in a few words ("Oh, a lip filler touch-up, lovely." or "I hear you, that sounds stressful."), then help.
-- Use collaborative words: "let's get you booked in", "we can sort that out together".
-- Now and then, at a transition, use a light spoken filler such as "okay", "got it", "let's see" or "mm, sure". Not in every turn, and never two in a row. A short acknowledgement may already have been said for you this turn (see the end of these instructions): then do not start with another.
+const VOICE_STYLE = `Style: this is a phone call. Sound like a relaxed, upbeat person at the front desk who is good at their job, never like an automated menu.
+- Answer straight away. Keep every turn to one or two short spoken sentences, and ask at most one question.
+- Never say a sentence you have already said in this call, and never start two turns the same way. Do not echo back what they just said; move on.
+- Do not apologise unless something actually went wrong for them. No "sorry", "I apologise" or "unfortunately" as padding.
+- Only reflect a feeling when they show one ("Oh no, that sounds frustrating."). Otherwise skip the emotion and help.
+- Once they have answered a question, act on it: give the next step or a concrete suggestion instead of asking something similar again. If they want to book, go straight to which service. If they are not sure, name two or three services from the list that fit and ask which sounds right.
+- Talk the way people talk: contractions ("I'll", "you're", "that's"), and casual openers like "So,", "Okay, so", "Honestly,", "Oh, by the way," now and then. Never "Furthermore", "Additionally", "Certainly" or "Absolutely".
+- If they make a side comment or apologise for something small, answer lightly and warmly ("Ha, no worries at all, take your time!") and carry on.
+- Remember what they told you earlier in the call (their name, the service, the day) and use it instead of asking again ("So for those nails on Friday...").
+- After a tangent or a pause, bring it back gently ("So, where were we... you wanted Friday, right?").
 - Use their first name once it is known, at most twice in the whole call.
-- If you did not catch something, say so like a person and ask again differently each time: "Sorry, you cut out for a second there, what was that?" or "Hm, I didn't quite get that last bit, could you say it again?" Never say "I didn't understand".
-- Speech is transcribed and words are sometimes misheard. If a word sounds close to a service on the list (for example "nays" or "needs" for nails), check it warmly ("Did you mean nails?") instead of asking the same question again. After two tries, offer a way forward, such as noting it as a consultation.
-- If they interrupted you, let it go gracefully ("Oh, sorry, go ahead") and answer what they said, without repeating everything you were saying.
-- Use question marks and exclamation marks naturally so your voice rises and warms; vary your phrasing so you never sound repetitive.
-- No lists, no markdown, no emojis, no URLs, no sound or laughter tags in brackets. Say numbers and times the way a person says them aloud.`;
+- If you did not catch something, ask again simply and differently each time ("Hm, what was that last bit?"). Never say "I didn't understand".
+- Speech is transcribed and words are sometimes misheard. If a word sounds close to a service on the list (for example "nays" or "needs" for nails), check it ("Nails, right?") instead of asking the same question again. After two tries, offer a way forward, such as noting it as a consultation.
+- If they interrupted you, let it go ("Oh, go ahead") and answer what they said, without repeating what you were saying.
+- Once their question is answered or the request is noted, say in one short sentence what happens next, then ask "Anything else I can help with?". If they say no, or thank you, say a short warm goodbye ("Perfect, have a great day!") and set "end" to true. Never leave a silence for them to fill.
+- Never offer to send a text, an email or any message to them; the practice team follows up on a request themselves.
+- Say "9-1-1" written with dashes, never "911". No lists, no markdown, no emojis, no URLs, no sound or laughter tags in brackets. Say numbers and times the way a person says them aloud.`;
 
 function format(channel: AssistantChannel): string {
   return channel === "voice"

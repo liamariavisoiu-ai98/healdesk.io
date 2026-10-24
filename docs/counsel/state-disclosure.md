@@ -14,11 +14,11 @@
 
 Voice, `apps/app/src/lib/compliance/disclosure.ts` `voiceDisclosure()`:
 
-> "Hi, this is the AI assistant at {clinic}. This call is transcribed."
+> "Hi! I'm the AI assistant at {clinic}, and this call's transcribed."
 
-followed by the clinic's phone greeting, by default "Are you looking to book,
-or do you have a question?" (shortened 23 and 24 October 2026; see decisions
-10 and 11).
+followed by the clinic's phone greeting, by default "Looking to book, or got
+a question?" (shortened 23 and 24 October 2026; see decisions 10, 11 and
+12).
 
 Web chat: "You're chatting with an AI assistant for {clinic}. Ask for a
 person any time and the practice team will get back to you within a day."
@@ -215,6 +215,15 @@ The product announces on every call regardless.
    unchanged, because the line still announces transcription. Counsel has not
    reviewed this wording. CLAUDE.md's product rule was changed in the same
    commit to match.
+12. **One breath, same two facts (owner, 24 October 2026).** After a fourth
+   test call asked for "more energy and still shorter", the line became "Hi!
+   I'm the AI assistant at {clinic}, and this call's transcribed." The two
+   facts the statutes turn on, "AI assistant" and "transcribed", are word
+   for word the same, and nothing was added or taken out; only the
+   framing ("Hi, this is" to "Hi! I'm") and the join (two sentences to one,
+   "call is" to "call's"). The Spanish line was joined the same way. The
+   default phone greeting after it became "Looking to book, or got a
+   question?". Counsel has not reviewed this wording.
 
 ## Review log (2026-10-01)
 

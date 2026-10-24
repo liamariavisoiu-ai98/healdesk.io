@@ -23,7 +23,7 @@
     "docs:build": "node scripts/docs-site/build.mjs"
   },
   "devDependencies": {
-    "turbo": "^2.3.3",
+    "turbo": "^2.11.9",
     "typescript": "^5.7.2"
   }
 }

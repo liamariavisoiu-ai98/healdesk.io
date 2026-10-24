@@ -62,6 +62,7 @@ import { DESK_TZ, deskLocation, deskTime, freshGoogle, installGoogleEnv, restore
 import { bindAgreementInEffect, inTenant, queuedNotices, seedEntitled } from "./setup/factories";
 import { attestPlatform } from "./setup/platform";
 import { createStripeFake, stripeError, type StripeFake } from "./setup/stripe-fake";
+import { spokenAfterAcknowledgement } from "./setup/retell-responses";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const SLOW = 120_000;
@@ -294,7 +295,7 @@ describeDb("the booking tool layer in the web chat and the call", () => {
     const transcript: { role: string; content: string }[] = [];
     let id = 0;
     const lastSaid = () => {
-      const responses = sent.filter((m): m is Extract<RetellOutbound, { response_type: "response" }> => m.response_type === "response");
+      const responses = spokenAfterAcknowledgement(sent.filter((m): m is Extract<RetellOutbound, { response_type: "response" }> => m.response_type === "response"));
       return responses[responses.length - 1]!.content;
     };
     transcript.push({ role: "agent", content: lastSaid() });

@@ -14,13 +14,12 @@
 
 Voice, `apps/app/src/lib/compliance/disclosure.ts` `voiceDisclosure()`:
 
-> "Hi, this is the AI assistant for {clinic}. This call is transcribed by
-> our service providers; we keep no audio, and they hold a recording for a
-> day at most."
+> "Hi, thanks for calling {clinic}! I'm the AI assistant. This call is
+> transcribed by our providers, who keep the recording for a day at most."
 
-followed by the clinic's phone greeting, by default "Are you looking to book
-an appointment, or do you have a question?" (shortened 23 October 2026; see
-decision 10).
+followed by the clinic's phone greeting, by default "Are you looking to book,
+or do you have a question?" (shortened 23 and 24 October 2026; see decision
+10).
 
 Web chat: "You're chatting with an AI assistant for {clinic}. Ask for a
 person any time and the practice team will get back to you within a day."
@@ -195,6 +194,14 @@ The product announces on every call regardless.
    residual point (a) now applies to the handover AYA offers during the call,
    not to the opener. The Spanish line changed with it. Counsel has not
    reviewed the new wording.
+   **Shortened again (owner, 24 October 2026)**, after a second test call
+   found the line "still too long and not smooth enough": it now opens with
+   a thank-you, says "I'm the AI assistant", and says the call "is
+   transcribed by our providers, who keep the recording for a day at most".
+   "We keep no audio" is dropped: saying less about what healdesk keeps
+   understates nothing, while the provider's recording, the one that exists,
+   is still disclosed with its limit. "Our providers" (no longer "service
+   providers") still names a third party for decision 4.
 
 ## Review log (2026-10-01)
 

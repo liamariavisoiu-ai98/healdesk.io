@@ -84,9 +84,14 @@ const ACKNOWLEDGE = "That sounds stressful, I'm glad you called.";
  */
 export const DEFAULT_MOCK: MockBehaviour = {
   agent(params) {
-    const system = systemText(params);
+    // The tone sentence alone, the one thing the hill-climb edits: it ends
+    // the prompt's first line (prompt.ts, buildAssistantPrompt). The rest of
+    // the prompt, the voice style included, has asked for reflective
+    // listening on every call since 24 October 2026, so reading all of it
+    // would make every candidate look the same.
+    const toneLine = systemText(params).split("\n")[0] ?? "";
     const said = lastUserText(params).toLowerCase();
-    const feelingFirst = /acknowledge|how they feel|feelings?/i.test(system);
+    const feelingFirst = /acknowledge|how they feel|feelings?/i.test(toneLine);
     const feeling = /nervous|annoyed|worried|sorry|frustrat|ages/.test(said);
     const bye = /\b(bye|that's all|thanks, bye)\b/.test(said);
     let reply: string;

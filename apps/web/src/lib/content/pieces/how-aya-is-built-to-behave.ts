@@ -55,12 +55,12 @@ export const piece: Piece = {
         },
         {
           kind: "table",
-          caption: "AYA's opening lines as built on 23 October 2026, with [practice name] standing for the clinic's name",
+          caption: "AYA's opening lines as built on 24 October 2026, with [practice name] standing for the clinic's name",
           head: ["Channel", "Opening line"],
           rows: [
             [
               "Phone",
-              "Hi, this is the AI assistant for [practice name]. This call is transcribed by our service providers; we keep no audio, and they hold a recording for a day at most.",
+              "Hi, thanks for calling [practice name]! I'm the AI assistant. This call is transcribed by our providers, who keep the recording for a day at most.",
             ],
             [
               "Website chat",

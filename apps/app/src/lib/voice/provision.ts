@@ -3,11 +3,12 @@ import { createHash } from "node:crypto";
 import { getPlan, type AssistantLanguage } from "@healdesk/catalog";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
-import { clinics, entitlements, voiceAgents, type VoiceAgentRow, type VoiceEngine } from "@/db/schema";
+import { clinicProviders, clinics, entitlements, voiceAgents, type VoiceAgentRow, type VoiceEngine } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { describeError, log } from "@/lib/log";
 import { passThroughEndsAt, releaseNumberAfterPassThrough } from "@/lib/offboarding/offboarding";
 import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
+import { readKnowledge } from "@/lib/setup/knowledge";
 import { readSetupSettings } from "@/lib/setup/settings";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -204,6 +205,8 @@ type Facts = {
   assistantNumber: string | null;
   directLine: string | null;
   languages: AssistantLanguage[];
+  /** The clinic's own words for the transcriber (voiceKeywords). */
+  boostedKeywords: string[];
   row: VoiceAgentRow | null;
 };
 
@@ -212,6 +215,7 @@ const ENDED_STATUSES = new Set(["suspended", "canceled", "purged"]);
 async function readFacts(tx: TenantTx): Promise<Facts> {
   const [clinic] = await tx.db
     .select({
+      name: clinics.name,
       offboardingStartedAt: clinics.offboardingStartedAt,
       destroyedAt: clinics.destroyedAt,
       publishedPhone: clinics.publishedPhoneE164,
@@ -232,6 +236,11 @@ async function readFacts(tx: TenantTx): Promise<Facts> {
     .limit(1);
   const [row] = await tx.db.select().from(voiceAgents).where(eq(voiceAgents.clinicId, tx.clinicId)).limit(1);
   const settings = await readSetupSettings(tx.db, tx.clinicId);
+  const knowledge = await readKnowledge(tx.db, tx.clinicId);
+  const providers = await tx.db
+    .select({ name: clinicProviders.displayName })
+    .from(clinicProviders)
+    .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)));
 
   let reason = "";
   if (!clinic) reason = "no such clinic";
@@ -249,8 +258,31 @@ async function readFacts(tx: TenantTx): Promise<Facts> {
     assistantNumber: clinic?.assistantNumber ?? null,
     directLine: settings.directLineE164,
     languages: settings.languages,
+    boostedKeywords: voiceKeywords([clinic?.name ?? "", ...knowledge.services.map((sv) => sv.name), ...providers.map((pr) => pr.name)]),
     row: row ?? null,
   };
+}
+
+/**
+ * The words Retell's transcriber is biased towards for a clinic: its name,
+ * its services as Knowledge names them and its providers, so "nails" is not
+ * heard as "needs" (test call of 24 October 2026), plus "consultation", the
+ * word every call may need. Cleaned to what Retell takes (retell-agent.ts,
+ * keywordsBody): each 1 to 80 characters, no "{{", no repeats, at most 100.
+ * Knowledge, not only the approved script: a word heard right costs nothing
+ * even before AYA may say it.
+ */
+export function voiceKeywords(words: readonly string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of [...words, "consultation"]) {
+    const word = raw.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+    if (!word || word.length > 80 || word.includes("{{") || seen.has(word.toLowerCase())) continue;
+    seen.add(word.toLowerCase());
+    out.push(word);
+    if (out.length === 100) break;
+  }
+  return out;
 }
 
 function facts(clinicId: string): Promise<Facts> {
@@ -435,7 +467,7 @@ export async function provisionVoiceAgent(clinicId: string, deps: ProvisionDeps 
   let options: RetellAgentOptions;
   try {
     options = agentOptions(row.engine, deps, key);
-    config = expectedConfig({ engine: row.engine, languages: f.languages, directLine: f.directLine, assistantNumber: row.phoneNumberE164 ?? f.assistantNumber, publishedPhone: f.publishedPhone }, env);
+    config = expectedConfig({ engine: row.engine, languages: f.languages, boostedKeywords: f.boostedKeywords, directLine: f.directLine, assistantNumber: row.phoneNumberE164 ?? f.assistantNumber, publishedPhone: f.publishedPhone }, env);
     publicHost(clinicId, options);
   } catch (error) {
     return fail(clinicId, row, error);
@@ -684,7 +716,7 @@ export async function syncVoiceAgent(clinicId: string, deps: ProvisionDeps = {})
   const api: RetellApiOptions = { key, fetch: deps.fetch, timeoutMs: 10_000 };
   try {
     const options = agentOptions(row.engine, deps, key);
-    const config = expectedConfig({ engine: row.engine, languages: f.languages, directLine: f.directLine, assistantNumber: row.phoneNumberE164, publishedPhone: f.publishedPhone }, env);
+    const config = expectedConfig({ engine: row.engine, languages: f.languages, boostedKeywords: f.boostedKeywords, directLine: f.directLine, assistantNumber: row.phoneNumberE164, publishedPhone: f.publishedPhone }, env);
     const hash = configHash(config, publicHost(clinicId, options));
     if (hash === row.configHash) return { outcome: "unchanged" };
     await reapply(clinicId, row.retellAgentId, row.phoneNumberE164, config, options, api);
@@ -745,7 +777,7 @@ export async function checkVoiceAgentDrift(clinicId: string, deps: ProvisionDeps
   const api: RetellApiOptions = { key, fetch: deps.fetch, timeoutMs: 10_000 };
   try {
     const options = agentOptions(row.engine, deps, key);
-    const config = expectedConfig({ engine: row.engine, languages: f.languages, directLine: f.directLine, assistantNumber: row.phoneNumberE164, publishedPhone: f.publishedPhone }, env);
+    const config = expectedConfig({ engine: row.engine, languages: f.languages, boostedKeywords: f.boostedKeywords, directLine: f.directLine, assistantNumber: row.phoneNumberE164, publishedPhone: f.publishedPhone }, env);
     const back = await readBack(clinicId, row.retellAgentId, row.phoneNumberE164, config, options, api);
     if (back.problems.length === 0) {
       if (row.driftRepairs !== 0) await update(clinicId, { driftRepairs: 0 });
@@ -878,7 +910,7 @@ export async function verifyVoiceAgent(clinicId: string, deps: ProvisionDeps = {
   if (!key) return { ...base, note: "HEALDESK_RETELL_API_KEY is not set" };
   try {
     const options = agentOptions(row.engine, deps, key);
-    const config = expectedConfig({ engine: row.engine, languages: f.languages, directLine: f.directLine, assistantNumber: row.phoneNumberE164, publishedPhone: f.publishedPhone }, env);
+    const config = expectedConfig({ engine: row.engine, languages: f.languages, boostedKeywords: f.boostedKeywords, directLine: f.directLine, assistantNumber: row.phoneNumberE164, publishedPhone: f.publishedPhone }, env);
     const back = await readBack(clinicId, row.retellAgentId, row.phoneNumberE164, config, options, { key, fetch: deps.fetch, timeoutMs: 10_000 });
     return { ...base, checked: true, ok: back.problems.length === 0, agentExists: back.agentExists, numberExists: back.numberExists, problems: back.problems };
   } catch (error) {

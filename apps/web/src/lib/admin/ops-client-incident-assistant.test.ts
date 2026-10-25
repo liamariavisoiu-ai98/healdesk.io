@@ -88,6 +88,7 @@ const SCOPE_CLINIC = {
   billingClinicId: null,
   conversations: { voice: 2, web: 1, meta: 1 },
   total: 4,
+  holdsData: null,
   agreementVersion: "1.5.0",
   coveredEntity: true,
   demo: false,
@@ -98,6 +99,7 @@ const SCOPE_CLINIC = {
 const SCOPE = {
   source: "vendor",
   value: "anthropic",
+  reach: "window_only",
   channels: ["voice", "web", "meta"],
   from: "2026-10-29T00:00:00.000Z",
   to: "2026-10-31T00:00:00.000Z",
@@ -171,10 +173,15 @@ const BATCH_ITEM = {
       kind: "incident_open_batch",
       source: "vendor",
       value: "anthropic",
+      reach: "window_only",
       from: "2026-10-29T00:00:00.000Z",
       to: "2026-10-31T00:00:00.000Z",
       incidentClass: "security_incident",
       discoveredAt: "2026-11-01T12:00:00.000Z",
+      clinicsTotal: 1,
+      toOpen: 1,
+      alreadyOpen: 0,
+      outOfService: 0,
       clinics: [
         {
           clinicId: CLINIC,
@@ -219,6 +226,7 @@ describe("fetchIncidentScope", () => {
       { ...SCOPE, clinics: [{ ...SCOPE_CLINIC, conversations: { voice: "two", web: 1, meta: 1 } }] },
       { ...SCOPE, clinics: [{ ...SCOPE_CLINIC, clocks: { ...CLOCKS, agreementRule: "whenever" } }] },
       { ...SCOPE, extra: true },
+      { ...SCOPE, reach: "everyone" },
     ]) {
       reply(bad);
       expect(await fetchIncidentScope({ vendor: "anthropic", from: SCOPE.from, to: SCOPE.to })).toMatchObject(MALFORMED);
@@ -287,7 +295,7 @@ describe("the inbox's incident items", () => {
     reply({ items: [REPORT_ITEM, BATCH_ITEM], partial: [] });
     const read = await fetchIncidentApprovals();
     expect(read).toEqual({ ok: true, data: { items: [REPORT_ITEM, { ...BATCH_ITEM }], partial: [] } });
-    expect(sent[0]).toEqual({ op: "listApprovals", args: {} });
+    expect(sent[0]).toEqual({ op: "listApprovals", args: { family: "incident" } });
 
     reply({ items: [REPORT_ITEM, BATCH_ITEM], partial: [] });
     expect(await fetchApprovals()).toEqual({ ok: true, data: { items: [], partial: [] } });

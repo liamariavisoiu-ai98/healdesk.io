@@ -12,7 +12,10 @@ import type { AlertWording } from "./types";
  * P6j adds the assistant's section ("Incident assistant") to the existing
  * page, with Approve and Reject behind the field "Code from your
  * authenticator". Until P6j lands, apps/web reads the items
- * (lib/admin/ops-client.ts fetchIncidentApprovals) but no screen draws them.
+ * (lib/admin/ops-client.ts fetchIncidentApprovals) but no screen draws them:
+ * P6j must draw them before this wording, which sends the owner to the
+ * Incidents page, is true. Raised by lib/approvals/incident-sweep.ts from the
+ * hourly incident-deadlines job (seeded on) and from approvals-propose.
  */
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // lib/approvals/proposers.ts remind, once per kind, for the two incident
@@ -24,7 +27,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     title: "An incident step is waiting for your yes",
     headline: "{count:incident step} waiting for your yes: an agreement's clock is running",
     whatHappened:
-      "{count:incident step} waiting for your yes: an agreement's clock is running. Each is either opening an incident at every clinic a vendor's or one of our channels' incident reached, or sending one practice its incident report, built only from fixed choices. Nothing is opened or sent until you approve it, and nothing is approved, sent or closed by waiting. This alert comes again every 4 hours while one waits.",
+      "{count:incident step} waiting for your yes: an agreement's clock is running. Each is either opening an incident at every clinic a vendor's or one of our channels' incident reached, or sending one practice its incident report, built only from fixed choices. Nothing is opened or sent until you approve it, and nothing is approved, sent or closed by waiting. This alert comes at the first hourly check after an item arrives, then again at the first hourly check 4 hours or more after the last one, for as long as one waits.",
     whyItMatters:
       "Each practice's agreement promises it notice by a deadline, shown beside each report. Our own target, 24 hours from discovery, is internal and never quoted to a practice. A report still waiting at the agreement's deadline breaks that promise.",
     steps: [

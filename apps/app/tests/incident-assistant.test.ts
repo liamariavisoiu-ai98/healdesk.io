@@ -5,8 +5,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import { FIELD_EDITORS, reportEffect, batchEffect } from "@/lib/approvals/incident-kinds";
 import { parseIncidentBatchPayload, parseIncidentReportPayload } from "@/lib/approvals/incident-payloads";
 import { KIND_SPECS, parsePayload } from "@/lib/approvals/kinds";
+import { MAX_BATCH_CLINICS } from "@/lib/approvals/incident-payloads";
+import { runIncidentSweep } from "@/lib/approvals/incident-sweep";
 import { proposeApprovals } from "@/lib/approvals/proposers";
-import { getApproval } from "@/lib/approvals/store";
+import { getApproval, propose } from "@/lib/approvals/store";
+import { runOpsSlackSweep } from "@/lib/ops/slack";
+import { runIncidentDeadlinesJob } from "@/lib/scheduler/incident-deadlines";
 import { fieldsHash, parseReportFields, prefillReport, type ReportFields } from "@/lib/incidents/assistant/report-draft";
 import { readScopeArgs } from "@/lib/incidents/assistant/scope";
 import { CHECKLIST_STEPS, SCOPE_CHANNELS, SCOPE_VENDORS, VENDOR_CHANNELS } from "@/lib/incidents/assistant/vocab";
@@ -234,6 +238,20 @@ describe("the closed lists", () => {
       "problem",
     );
   });
+
+  test("the database host and AWS reach every clinic holding data unless narrowed; the rest are read by the window", () => {
+    const now = new Date("2026-11-02T10:00:00.000Z");
+    const w = { from: "2026-10-30T00:00:00.000Z", to: "2026-11-01T00:00:00.000Z" };
+    expect(readScopeArgs({ vendor: "database_host", ...w }, now)).toMatchObject({ reach: "all_holding" });
+    expect(readScopeArgs({ vendor: "aws", ...w }, now)).toMatchObject({ reach: "all_holding" });
+    expect(readScopeArgs({ vendor: "aws", ...w, reach: "window_only" }, now)).toMatchObject({ reach: "window_only" });
+    for (const vendor of ["retell", "anthropic", "meta"]) {
+      expect(readScopeArgs({ vendor, ...w }, now)).toMatchObject({ reach: "window_only" });
+      expect(readScopeArgs({ vendor, ...w, reach: "all_holding" }, now)).toHaveProperty("problem");
+    }
+    expect(readScopeArgs({ channel: "voice", ...w, reach: "all_holding" }, now)).toHaveProperty("problem");
+    expect(readScopeArgs({ vendor: "aws", ...w, reach: "everyone" }, now)).toHaveProperty("problem");
+  });
 });
 
 describe("the report draft", () => {
@@ -297,9 +315,15 @@ describe("the report draft", () => {
       to: "2026-10-02T00:00:00.000Z",
       incidentClass: "security_incident",
       discoveredAt: "2026-10-03T00:00:00.000Z",
+      reach: "window_only",
       clinicIds: [randomUUID()],
+      counts: [3],
     };
     expect(parseIncidentBatchPayload(batch)).toEqual(batch);
+    // Retell sees a call only while it happens: never every clinic holding data.
+    expect(parseIncidentBatchPayload({ ...batch, reach: "all_holding" })).toBeNull();
+    expect(parseIncidentBatchPayload({ ...batch, value: "aws", reach: "all_holding" })).not.toBeNull();
+    expect(parseIncidentBatchPayload({ ...batch, counts: [] })).toBeNull();
     expect(parseIncidentBatchPayload({ ...batch, value: "voice" })).toBeNull();
     expect(parseIncidentBatchPayload({ ...batch, clinicIds: [] })).toBeNull();
     expect(parseIncidentBatchPayload({ ...batch, incidentClass: "service_complaint" })).toBeNull();
@@ -313,13 +337,7 @@ describe("the report draft", () => {
     );
     expect(effect).not.toMatch(/24 hours|internal/);
     expect(
-      batchEffect({
-        incidentClass: "security_incident",
-        clinics: [
-          { opened: false, inService: true },
-          { opened: true, inService: true },
-        ] as never,
-      }),
+      batchEffect({ incidentClass: "security_incident", toOpen: 1, alreadyOpen: 1, reach: "window_only" }),
     ).toBe(
       "Opens an incident at the 1 clinic below, classed as a security incident, and puts each one's report in this list for your yes. Nothing is sent to any clinic. 1 clinic already has this incident open and is left as it is.",
     );
@@ -386,7 +404,7 @@ describeDb("the incident assistant (database)", () => {
       expect(ids.indexOf(s.b.clinicId)).toBeLessThan(ids.indexOf(s.a.clinicId));
       // Nothing but ids, counts, versions, dates, codes and the clinic's name.
       expect(Object.keys(a).sort()).toEqual(
-        ["agreementVersion", "billingClinicId", "clinicId", "clinicName", "clocks", "conversations", "coveredEntity", "demo", "offboarding", "total"].sort(),
+        ["agreementVersion", "billingClinicId", "clinicId", "clinicName", "clocks", "conversations", "coveredEntity", "holdsData", "demo", "offboarding", "total"].sort(),
       );
 
       const voice = data<{ clinics: { clinicId: string; conversations: Record<string, number> }[] }>(
@@ -507,10 +525,20 @@ describeDb("the incident assistant (database)", () => {
       expect((await eventsOf(item!.id))[0]).toMatchObject({ event: "proposed", actor_label: "ops@healdesk.test" });
 
       // Its packet: both clocks per clinic, and what approving does.
-      const listed = (await opListApprovals({}, OPERATOR)).body as {
-        data: { items: { id: string; packet: { effect: string; facts: { clinics: { clinicId: string; clocks: unknown; conversations: number }[] } } }[] };
+      const listed = (await opListApprovals({ family: "incident" }, OPERATOR)).body as {
+        data: {
+          items: {
+            id: string;
+            packet: { effect: string; facts: { clinicsTotal: number; toOpen: number; clinics: { clinicId: string; clocks: unknown; conversations: number }[] } };
+          }[];
+        };
       };
       const packet = listed.data.items.find((x) => x.id === item!.id)!.packet;
+      expect(packet.facts).toMatchObject({ clinicsTotal: 2, toOpen: 2 });
+      // The billing family's list never carries, or builds, an incident item.
+      const billing = (await opListApprovals({ family: "billing" }, OPERATOR)).body as { data: { items: { kind: string }[] } };
+      expect(billing.data.items.filter((x) => x.kind.startsWith("incident_"))).toEqual([]);
+      expect((await opListApprovals({ family: "everything" }, OPERATOR)).status).toBe(400);
       expect(packet.effect).toBe(
         "Opens an incident at each of the 2 clinics below, classed as a security incident, and puts each one's report in this list for your yes. Nothing is sent to any clinic.",
       );
@@ -758,6 +786,252 @@ describeDb("the incident assistant (database)", () => {
       expect(await reportNotices(c.clinicId)).toEqual([]);
       // Each is a row in the ops log, which the ops-slack sweep posts whatever its event (lib/ops/slack.ts).
       expect(await stepAlerts()).toHaveLength(3);
+    });
+  });
+
+  describe("the review's fixes", () => {
+    const CHOICES: ReportFields = {
+      event: "software_fault",
+      occurredOn: null,
+      info: [{ type: "first_name", count: 1 }],
+      mitigations: ["investigating"],
+      steps: [],
+      recommendations: ["keep_record"],
+      delayedByLawEnforcement: false,
+      delayEndedOn: null,
+    };
+
+    async function openBreach(label: string) {
+      const c = await seedClinic(label);
+      await bindAgreementInEffect(c.clinicId, "1.5.0");
+      const i = await openAt(c.clinicId, "breach", new Date(Date.now() - HOUR));
+      return { c, i };
+    }
+
+    async function setJob(name: string, enabled: boolean) {
+      await getMigratorPool().query(`update scheduled_jobs set enabled = $2 where name = $1`, [name, enabled]);
+    }
+
+    test("a rejected or failed first report is never proposed again by the hourly pass, nor one whose practice was told", async () => {
+      const { c, i } = await openBreach("stick-reject");
+      const t0 = new Date(Date.now() + MINUTE);
+      await runIncidentSweep(t0);
+      const [first] = await itemsOf("incident_report_send", [c.clinicId]);
+      expect(await decide({ id: first!.id, action: "reject", reasonCode: "handled_elsewhere" })).toMatchObject({ status: "rejected" });
+      const alertsBefore = (await stepAlerts()).length;
+      await runIncidentSweep(new Date(t0.getTime() + 5 * HOUR));
+      expect((await itemsOf("incident_report_send", [c.clinicId])).map((r) => r.status)).toEqual(["rejected"]);
+      expect(await stepAlerts()).toHaveLength(alertsBefore);
+      // By hand it can still be proposed.
+      expect(
+        data<{ status: string }>(await runOperation("proposeIncidentReport", { clinicId: c.clinicId, incidentId: i.id }, OPERATOR)).status,
+      ).toBe("proposed");
+
+      // A failed one: approved, and its operation failed.
+      const failedCase = await openBreach("stick-failed");
+      await runIncidentSweep(t0);
+      const [item] = await itemsOf("incident_report_send", [failedCase.c.clinicId]);
+      await getMigratorPool().query(`update ops_approvals set status = 'approved', decided_at = now() where id = $1`, [item!.id]);
+      await getMigratorPool().query(`update ops_approvals set status = 'failed', outcome_code = 'refused' where id = $1`, [item!.id]);
+      await runIncidentSweep(new Date(t0.getTime() + HOUR));
+      expect((await itemsOf("incident_report_send", [failedCase.c.clinicId])).map((r) => r.status)).toEqual(["failed"]);
+
+      // Told by phone and recorded: nothing proposed.
+      const told = await openBreach("stick-told");
+      await runOperation("markIncidentNotified", { clinicId: told.c.clinicId, incidentId: told.i.id, how: "Phoned the practice manager" }, OPERATOR);
+      await runIncidentSweep(t0);
+      expect(await itemsOf("incident_report_send", [told.c.clinicId])).toEqual([]);
+    });
+
+    test("two waiting items for one report approved at once send one report; the loser is refused, never an update", async () => {
+      const { c, i } = await openBreach("race");
+      const a = data<{ approvalId: string }>(await runOperation("proposeIncidentReport", { clinicId: c.clinicId, incidentId: i.id }, OPERATOR));
+      const first = (await getApproval(a.approvalId))!;
+      const b = await propose(
+        {
+          kind: "incident_report_send",
+          subjectClinicId: c.clinicId,
+          subjectRef: `${i.id}:1:1`,
+          payload: parsePayload("incident_report_send", first.payload)!,
+          dueAt: first.dueAt,
+          proposedBy: "incident-assistant",
+        },
+        new Date(),
+      );
+      expect(b).not.toBeNull();
+      const outcomes = await Promise.all(
+        [a.approvalId, b!].map((id) => decide({ id, action: "approve", reasonCode: "owner_checked", editedFields: CHOICES })),
+      );
+      expect(outcomes.map((o) => o.status).sort()).toEqual(["executed", "failed"]);
+      expect(await reportNotices(c.clinicId)).toHaveLength(1);
+      expect((await reportNotices(c.clinicId))[0]!.dedupe_key).toBe(`incident_report:${i.id}:1`);
+      expect((await incidentsOf(c.clinicId))[0]!.reports_sent).toBe(1);
+    });
+
+    test("the sender itself refuses a report number that has already gone", async () => {
+      const { c, i } = await openBreach("expected");
+      const send = (expectedReport: number) =>
+        runOperation(
+          "sendIncidentReport",
+          { clinicId: c.clinicId, incidentId: i.id, event: "misdirected_email", info: [], mitigations: ["investigating"], expectedReport },
+          OPERATOR,
+        );
+      expect(data<{ status: string }>(await send(1)).status).toBe("sent");
+      expect(data<{ status: string }>(await send(1))).toMatchObject({ status: "refused" });
+      expect(await reportNotices(c.clinicId)).toHaveLength(1);
+    });
+
+    test("with approvals-propose off, the incident-deadlines job proposes the first report and alerts by email and Slack", async () => {
+      await setJob("approvals-propose", false);
+      await setJob("incident-deadlines", true);
+      const { c } = await openBreach("safety-net");
+      const t0 = new Date(Date.now() + MINUTE);
+      await runIncidentDeadlinesJob({ now: t0 });
+      expect((await itemsOf("incident_report_send", [c.clinicId])).map((r) => r.status)).toEqual(["waiting"]);
+      const { rows } = await getMigratorPool().query<{ fields: Record<string, unknown>; mailed: boolean }>(
+        `select fields, (sent_at is not null or last_error is not null) as mailed from ops_alerts where event = 'incident_step_waiting'`,
+      );
+      // Raised for email: the ops address was tried (sent, or why not, is on the row).
+      expect(rows).toEqual([{ fields: { kind: "incident_report_send", count: 1 }, mailed: true }]);
+      // And Slack: the sweep posts it.
+      vi.stubEnv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/T000/B000/abcdefghijkl");
+      const posted: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: unknown, init: { body: string }) => {
+          posted.push(init.body);
+          return new Response("ok", { status: 200 });
+        }),
+      );
+      try {
+        await runOpsSlackSweep(new Date());
+      } finally {
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+      }
+      expect(posted.some((body) => body.includes("incident step"))).toBe(true);
+      // Four hours on, the same job alerts again; it has proposed nothing more.
+      await runIncidentDeadlinesJob({ now: new Date(t0.getTime() + 4 * HOUR + MINUTE) });
+      expect(await stepAlerts()).toHaveLength(2);
+      expect(await itemsOf("incident_report_send", [c.clinicId])).toHaveLength(1);
+    });
+
+    test("a report item at the demo clinic, or about an incident reported by hand, leaves the list unrun", async () => {
+      const demo = await seedDemoClinic("gone-demo");
+      const di = await openAt(demo.clinicId, "breach", new Date(Date.now() - HOUR));
+      const proposed = data<{ approvalId: string }>(
+        await runOperation("proposeIncidentReport", { clinicId: demo.clinicId, incidentId: di.id }, OPERATOR),
+      );
+      await runIncidentSweep(new Date(Date.now() + MINUTE));
+      expect(await getApproval(proposed.approvalId)).toMatchObject({ status: "expired", outcomeCode: "clinic_out_of_service" });
+    });
+
+    test("approving a report the Incidents page already sent by hand runs nothing", async () => {
+      const { c, i } = await openBreach("by-hand");
+      const p = data<{ approvalId: string }>(await runOperation("proposeIncidentReport", { clinicId: c.clinicId, incidentId: i.id }, OPERATOR));
+      await runOperation(
+        "sendIncidentReport",
+        { clinicId: c.clinicId, incidentId: i.id, event: "misdirected_email", info: [], mitigations: ["investigating"] },
+        OPERATOR,
+      );
+      const out = await decide({ id: p.approvalId, action: "approve", reasonCode: "owner_checked", editedFields: CHOICES });
+      expect(out).toMatchObject({ status: "failed", outcomeCode: "no_longer_needed" });
+      expect(await reportNotices(c.clinicId)).toHaveLength(1);
+    });
+
+    test("an edit whose every key is valid but whose event is not a code is refused on the event", async () => {
+      const { c, i } = await openBreach("bad-event");
+      const p = data<{ approvalId: string }>(await runOperation("proposeIncidentReport", { clinicId: c.clinicId, incidentId: i.id }, OPERATOR));
+      const out = await decide({
+        id: p.approvalId,
+        action: "approve",
+        reasonCode: "owner_checked",
+        editedFields: { ...CHOICES, event: "A caller's details went to the wrong inbox" },
+      });
+      expect(out.status).toBe("error");
+      expect(out.message).toContain("each one must come from its list");
+      expect(await reportNotices(c.clinicId)).toEqual([]);
+      void i;
+    });
+
+    test("two batch items for one scope approved at once open each clinic's incident once; the database refuses a second open tick", async () => {
+      const s = await seededWindow();
+      const args = {
+        vendor: "retell",
+        from: s.from.toISOString(),
+        to: s.to.toISOString(),
+        class: "improper_use_or_disclosure",
+        discoveredAt: s.now.toISOString(),
+      };
+      const first = data<{ approvalId: string }>(await runOperation("proposeIncidentBatch", args, OPERATOR));
+      const item = (await getApproval(first.approvalId))!;
+      const copy = await propose(
+        {
+          kind: "incident_open_batch",
+          subjectClinicId: null,
+          subjectRef: `${item.subjectRef}:copy`,
+          payload: parsePayload("incident_open_batch", item.payload)!,
+          proposedBy: "incident-assistant",
+        },
+        new Date(),
+      );
+      const outcomes = await Promise.all(
+        [first.approvalId, copy!].map((id) => decide({ id, action: "approve", reasonCode: "owner_checked" })),
+      );
+      expect(outcomes.map((o) => o.status)).toEqual(["executed", "executed"]);
+      const opened = await incidentsOf(s.a.clinicId);
+      expect(opened).toHaveLength(1);
+      const key = `vendor:retell:window_only:${s.from.toISOString()}:${s.to.toISOString()}:improper_use_or_disclosure`;
+      await expect(
+        inTenant(s.a.clinicId, async (cl) => {
+          const other = await openAt(s.a.clinicId, "breach", new Date(Date.now() - HOUR));
+          await cl.query(
+            `insert into incident_checklist_ticks (clinic_id, incident_id, step, ticked_by, batch_key) values ($1, $2, 'open', 'ops@healdesk.test', $3)`,
+            [s.a.clinicId, other.id, key],
+          );
+        }),
+      ).rejects.toThrow();
+    });
+
+    test("a database host scope reaches every clinic holding data unless narrowed to its window", async () => {
+      const s = await seededWindow();
+      const empty = await seedClinic("holds-nothing");
+      const base = { vendor: "database_host", from: s.from.toISOString(), to: s.to.toISOString() };
+      const all = data<{ reach: string; clinics: { clinicId: string; total: number; holdsData: boolean | null }[] }>(
+        await runOperation("incidentScope", base, OPERATOR),
+      );
+      expect(all.reach).toBe("all_holding");
+      const ids = all.clinics.map((c) => c.clinicId);
+      // scope-none had a conversation only before the window: it holds data, so it is in scope.
+      expect(ids).toEqual(expect.arrayContaining([s.a.clinicId, s.b.clinicId, s.none.clinicId]));
+      expect(all.clinics.find((c) => c.clinicId === s.none.clinicId)).toMatchObject({ total: 0, holdsData: true });
+      expect(ids).not.toContain(empty.clinicId);
+      expect(ids).not.toContain(s.demo.clinicId);
+      const narrow = data<{ reach: string; clinics: { clinicId: string; holdsData: boolean | null }[] }>(
+        await runOperation("incidentScope", { ...base, reach: "window_only" }, OPERATOR),
+      );
+      expect(narrow.reach).toBe("window_only");
+      expect(narrow.clinics.map((c) => c.clinicId)).not.toContain(s.none.clinicId);
+      expect(narrow.clinics[0]!.holdsData).toBeNull();
+      expect((await runOperation("incidentScope", { ...base, vendor: "retell", reach: "all_holding" }, OPERATOR)).status).toBe(400);
+    });
+
+    test("a batch opens at most 100 clinics", () => {
+      expect(MAX_BATCH_CLINICS).toBe(100);
+      const ids = Array.from({ length: 101 }, () => randomUUID());
+      expect(
+        parseIncidentBatchPayload({
+          source: "vendor",
+          value: "aws",
+          from: "2026-10-01T00:00:00.000Z",
+          to: "2026-10-02T00:00:00.000Z",
+          incidentClass: "breach",
+          discoveredAt: "2026-10-03T00:00:00.000Z",
+          reach: "all_holding",
+          clinicIds: ids,
+          counts: ids.map(() => 0),
+        }),
+      ).toBeNull();
     });
   });
 });

@@ -1,6 +1,7 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 
-import { incidents, type OpsApproval } from "@/db/schema";
+import { unsafeDb } from "@/db";
+import { incidents, opsApprovals, type OpsApproval } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import { checklistOf, incidentOpenedBy, tickStep } from "@/lib/incidents/assistant/checklist";
 import {
@@ -10,8 +11,8 @@ import {
   senderInput,
   type ReportFields,
 } from "@/lib/incidents/assistant/report-draft";
-import { batchKey, clocksFor, scopeCounts, type ScopeClocks } from "@/lib/incidents/assistant/scope";
-import { channelsOf, type BatchClass, type ScopeSource } from "@/lib/incidents/assistant/vocab";
+import { batchKey, clocksFor, type ScopeClocks } from "@/lib/incidents/assistant/scope";
+import type { BatchClass, ScopeReach, ScopeSource } from "@/lib/incidents/assistant/vocab";
 import { openIncident } from "@/lib/incidents/incidents";
 import { isReportableClass } from "@/lib/incidents/reporting-rules";
 import { describeError, log } from "@/lib/log";
@@ -25,7 +26,7 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
 import type { ExecutionContext, ExecutionResult, Executor } from "./executors";
 import type { IncidentBatchPayload, IncidentReportPayload } from "./incident-payloads";
 import { KIND_SPECS, parsePayload, type ApprovalKind } from "./kinds";
-import { propose, waitingItems, type EventActor, type Proposal } from "./store";
+import { propose, type EventActor, type Proposal } from "./store";
 
 /**
  * The incident assistant's two approval kinds (ops automation Phase 6, lane
@@ -49,11 +50,20 @@ import { propose, waitingItems, type EventActor, type Proposal } from "./store";
  *     agreement's clock cannot pass unnoticed. Due at the incident's
  *     agreement deadline.
  *
- * Both are legal clocks: re-alerted every 4 hours while they wait, by email
- * and Slack (lib/approvals/proposers.ts remind, event incident_step_waiting),
- * never expired and never approved by time. Not reportable stays the
- * Incidents page's own owner-only button: nothing here records it, and
- * nothing here resolves an incident.
+ * Both are legal clocks: alerted on arrival and re-alerted every 4 hours
+ * while they wait, by email and Slack (event incident_step_waiting), never
+ * expired by time and never approved by time. The proposal of first reports,
+ * the clean-up of overtaken items and those alerts run from the hourly
+ * incident-deadlines job, which ships on, as well as from approvals-propose
+ * (./incident-sweep.ts), so neither depends on the other's switch. Not
+ * reportable stays the Incidents page's own owner-only button: nothing here
+ * records it, and nothing here resolves an incident.
+ *
+ * Until lane P6j draws these items on the Incidents page, no apps/web screen
+ * shows them: the Approvals section reads only the billing family
+ * (lib/ops/approval-ops.ts `family`), and apps/web's
+ * fetchIncidentApprovals has no caller yet. P6j must draw them before the
+ * Home row and the alert, which point at the Incidents page, are true.
  */
 
 export const INCIDENT_KINDS: ReadonlySet<string> = new Set<ApprovalKind>(["incident_open_batch", "incident_report_send"]);
@@ -97,8 +107,8 @@ async function batchOf(tx: TenantTx, incidentId: string): Promise<{ source: Scop
   const result = await tx.db.execute<{ batch_key: string | null }>(
     sql`select batch_key from incident_checklist_ticks where clinic_id = ${tx.clinicId} and incident_id = ${incidentId} and step = 'open'`,
   );
-  // "<source>:<value>:<from ISO>:<to ISO>:<class>" (lib/incidents/assistant/scope.ts batchKey).
-  const match = /^(vendor|channel):[a-z_]+:(\d{4}-\d{2}-\d{2})T/.exec(result.rows[0]?.batch_key ?? "");
+  // "<source>:<value>:<reach>:<from ISO>:<to ISO>:<class>" (lib/incidents/assistant/scope.ts batchKey).
+  const match = /^(vendor|channel):[a-z_]+:[a-z_]+:(\d{4}-\d{2}-\d{2})T/.exec(result.rows[0]?.batch_key ?? "");
   return match ? { source: match[1] as ScopeSource, fromDay: match[2]! } : null;
 }
 
@@ -138,32 +148,72 @@ export type IncidentFound = {
   /** "<incident id>:<report>" for every open incident's next report, at the clinics read. */
   awaiting: Set<string>;
   readClinics: Set<string>;
+  /** Clinics destroyed, or healdesk's demo clinic: an item about one leaves the list as `clinic_out_of_service`. */
+  goneClinics: Set<string>;
+  /** Every clinic the overview lists; empty when it could not be read. */
+  listed: Set<string>;
   unread: number;
 };
 
+/** "<incident id>:<report>" of every report item ever proposed, in any status. */
+async function reportsEverProposed(): Promise<Set<string>> {
+  const rows = await unsafeDb
+    .select({ subjectRef: opsApprovals.subjectRef })
+    .from(opsApprovals)
+    .where(eq(opsApprovals.kind, "incident_report_send"));
+  const seen = new Set<string>();
+  for (const { subjectRef } of rows) {
+    const s = parseReportSubject(subjectRef);
+    if (s) seen.add(`${s.incidentId}:${s.report}`);
+  }
+  return seen;
+}
+
 /**
- * Every open reportable incident whose first report has not been queued
- * gets one waiting item, so the agreement's clock is in the owner's list
- * even when nobody pressed the button. Updates are proposed by an operator
- * only. healdesk's demo clinic and destroyed clinics are left out.
+ * The first report of an open reportable incident gets one item, so the
+ * agreement's clock is in the owner's list even when nobody pressed the
+ * button, but only once, ever: never again after the owner rejected it, it
+ * failed or it was overtaken (any item for that report, in any status, as
+ * proposeIncidentReport reads them), and never for an incident whose
+ * practice has already been told and the notice recorded (`notified_at`:
+ * the owner phoned and recorded it). An operator can still propose one by
+ * hand. Updates are proposed by an operator only. healdesk's demo clinic and
+ * destroyed clinics are left out. Nothing here throws: a failure to read is
+ * counted in `unread`, so the billing proposer that calls it carries on.
  */
 export async function findIncidentSubjects(now: Date, ctx: Ctx): Promise<IncidentFound> {
   void now;
-  const found: IncidentFound = { proposals: [], awaiting: new Set(), readClinics: new Set(), unread: 0 };
-  // A report already waiting under any subject (an operator's after a rejection) is not proposed twice.
-  const waiting = new Set(
-    (await waitingItems())
-      .filter((i) => i.kind === "incident_report_send")
-      .map((i) => parseReportSubject(i.subjectRef))
-      .filter((s): s is { incidentId: string; report: number } => s !== null)
-      .map((s) => `${s.incidentId}:${s.report}`),
-  );
-  for (const clinic of await listClinics()) {
-    if (clinic.destroyedAt) continue;
+  const found: IncidentFound = {
+    proposals: [],
+    awaiting: new Set(),
+    readClinics: new Set(),
+    goneClinics: new Set(),
+    listed: new Set(),
+    unread: 0,
+  };
+  let proposedBefore: Set<string>;
+  let clinics: ClinicOverview[];
+  try {
+    proposedBefore = await reportsEverProposed();
+    clinics = await listClinics();
+  } catch (error) {
+    found.unread += 1;
+    log.warn("approvals: the incidents could not be read", { error: describeError(error) });
+    return found;
+  }
+  for (const clinic of clinics) found.listed.add(clinic.id);
+  for (const clinic of clinics) {
+    if (clinic.destroyedAt) {
+      found.goneClinics.add(clinic.id);
+      continue;
+    }
     try {
       await withTenant({ clinicId: clinic.id, actor: ctx.actor }, async (tx) => {
         const demo = await tx.db.execute<{ demo: boolean }>(sql`select app_clinic_is_demo(${tx.clinicId}) as demo`);
-        if (demo.rows[0]?.demo === true) return;
+        if (demo.rows[0]?.demo === true) {
+          found.goneClinics.add(clinic.id);
+          return;
+        }
         const open = await tx.db
           .select()
           .from(incidents)
@@ -171,7 +221,7 @@ export async function findIncidentSubjects(now: Date, ctx: Ctx): Promise<Inciden
         for (const row of open) {
           if (!isReportableClass(row.class)) continue;
           found.awaiting.add(`${row.id}:${row.reportsSent + 1}`);
-          if (row.reportsSent > 0 || waiting.has(`${row.id}:1`)) continue;
+          if (row.reportsSent > 0 || row.notifiedAt !== null || proposedBefore.has(`${row.id}:1`)) continue;
           const proposal = await reportProposal(tx, row);
           if (proposal) found.proposals.push(proposal);
         }
@@ -186,16 +236,20 @@ export async function findIncidentSubjects(now: Date, ctx: Ctx): Promise<Inciden
 }
 
 /**
- * Whether a waiting incident item has been overtaken, read this run: a
- * report whose incident has since been reported, recorded not reportable,
- * or resolved, by the Incidents page's own buttons. A batch waits until the
+ * Why a waiting incident item leaves the list unrun, read this run, or null
+ * while it is still owed: `clinic_out_of_service` when its clinic has been
+ * destroyed or is healdesk's demo clinic; `no_longer_needed` for a report
+ * whose incident has since been reported, recorded not reportable or
+ * resolved by the Incidents page's own buttons. A batch waits until the
  * owner decides it.
  */
-export function incidentItemResolved(item: OpsApproval, found: IncidentFound): boolean {
-  if (item.kind !== "incident_report_send") return false;
+export function incidentItemResolution(item: OpsApproval, found: IncidentFound): "no_longer_needed" | "clinic_out_of_service" | null {
+  if (item.kind !== "incident_report_send" || item.subjectClinicId === null) return null;
+  if (found.goneClinics.has(item.subjectClinicId)) return "clinic_out_of_service";
+  if (found.listed.size > 0 && !found.listed.has(item.subjectClinicId)) return "clinic_out_of_service";
   const subject = parseReportSubject(item.subjectRef);
-  if (!subject || item.subjectClinicId === null || !found.readClinics.has(item.subjectClinicId)) return false;
-  return !found.awaiting.has(`${subject.incidentId}:${subject.report}`);
+  if (!subject || !found.readClinics.has(item.subjectClinicId)) return null;
+  return found.awaiting.has(`${subject.incidentId}:${subject.report}`) ? null : "no_longer_needed";
 }
 
 // -----------------------------------------------------------------------------
@@ -279,6 +333,17 @@ function answerOf(outcome: OpsOutcome): Record<string, unknown> | { problem: str
   return typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
 }
 
+function keyOf(payload: IncidentBatchPayload): string {
+  return batchKey({
+    source: payload.source,
+    value: payload.value,
+    reach: payload.reach,
+    from: new Date(payload.from),
+    to: new Date(payload.to),
+    incidentClass: payload.incidentClass,
+  });
+}
+
 /** The summary an opened incident carries: ids and codes only, no date (the PHI guard reads one as a number). */
 function batchSummary(payload: IncidentBatchPayload, approvalId: string): string {
   return `Opened by the incident assistant from an approved ${payload.source} scope (${payload.value}), approval ${approvalId}. The scope's window is on the incident's checklist.`;
@@ -287,13 +352,7 @@ function batchSummary(payload: IncidentBatchPayload, approvalId: string): string
 const openBatch: Executor = async (approval, operator) => {
   const payload = parsePayload("incident_open_batch", approval.payload);
   if (!payload) return MALFORMED;
-  const key = batchKey({
-    source: payload.source,
-    value: payload.value,
-    from: new Date(payload.from),
-    to: new Date(payload.to),
-    incidentClass: payload.incidentClass,
-  });
+  const key = keyOf(payload);
   const discoveredAt = new Date(payload.discoveredAt);
   const overviews = new Map((await listClinics()).map((c) => [c.id, c]));
   let opened = 0;
@@ -307,8 +366,9 @@ const openBatch: Executor = async (approval, operator) => {
       gone += 1;
       continue;
     }
+    let result: { opened: IncidentRow | null; proposal?: Proposal<"incident_report_send"> | null };
     try {
-      const result = await withTenant(
+      result = await withTenant(
         { clinicId, actor: actorFor(operator), request: operator.request },
         async (tx) => {
           // One opening per clinic per scope, even under two racing requests.
@@ -327,22 +387,29 @@ const openBatch: Executor = async (approval, operator) => {
           return { opened: row, proposal };
         },
       );
-      if (!result.opened) {
-        already += 1;
-        continue;
-      }
-      opened += 1;
-      audited =
-        (await audit(operator, "incident_opened", {
-          clinicSlug: clinic.slug,
-          class: payload.incidentClass,
-          incidentId: result.opened.id,
-          approvalId: approval.id,
-        })) && audited;
-      if (result.proposal) await propose(result.proposal, new Date());
     } catch (error) {
       failed += 1;
       log.error("incident batch: a clinic's incident was not opened", { clinicId, error: describeError(error) });
+      continue;
+    }
+    if (!result.opened) {
+      already += 1;
+      continue;
+    }
+    // Committed: the incident is open, whatever happens to its audit row or its report's proposal.
+    opened += 1;
+    audited =
+      (await audit(operator, "incident_opened", {
+        clinicSlug: clinic.slug,
+        class: payload.incidentClass,
+        incidentId: result.opened.id,
+        approvalId: approval.id,
+      })) && audited;
+    try {
+      if (result.proposal) await propose(result.proposal, new Date());
+    } catch (error) {
+      // The hourly sweep proposes its first report (./incident-sweep.ts).
+      log.error("incident batch: an opened incident's report was not proposed", { clinicId, error: describeError(error) });
     }
   }
   const parts = [
@@ -375,7 +442,13 @@ const sendReport: Executor = async (approval, operator, context: ExecutionContex
   });
   if (!still) return NO_LONGER_NEEDED;
   const answer = answerOf(
-    await opSendIncidentReport({ clinicId, incidentId: payload.incidentId, ...senderInput(fields) }, operator),
+    // The report's number goes too: the sender refuses, under its row lock,
+    // when another item for the same incident sent first, rather than send
+    // this one as an update nobody approved.
+    await opSendIncidentReport(
+      { clinicId, incidentId: payload.incidentId, ...senderInput(fields), expectedReport: payload.report },
+      operator,
+    ),
   );
   if ("problem" in answer) return { ok: false, outcomeCode: "operation_refused", message: String(answer.problem), auditRecorded: null };
   if (answer.status !== "sent") {
@@ -407,6 +480,7 @@ export const INCIDENT_EXECUTORS: Readonly<Record<"incident_open_batch" | "incide
 export type BatchClinicFacts = {
   clinicId: string;
   clinicName: string;
+  /** Its conversations in the window when the scope was proposed (never recounted here). */
   conversations: number;
   agreementVersion: string | null;
   clocks: ScopeClocks;
@@ -415,14 +489,24 @@ export type BatchClinicFacts = {
   inService: boolean;
 };
 
+/** The most clinics a batch's packet lists one by one; the counts cover them all. */
+export const BATCH_CLINICS_SHOWN = 20;
+
 export type IncidentBatchFacts = {
   kind: "incident_open_batch";
   source: ScopeSource;
   value: string;
+  reach: ScopeReach;
   from: string;
   to: string;
   incidentClass: BatchClass;
   discoveredAt: string;
+  /** Every clinic the item lists, and of them: still to open, already open, out of service. */
+  clinicsTotal: number;
+  toOpen: number;
+  alreadyOpen: number;
+  outOfService: number;
+  /** The first BATCH_CLINICS_SHOWN, soonest agreement deadline first. */
   clinics: BatchClinicFacts[];
 };
 
@@ -459,12 +543,14 @@ function dayWords(iso: string): string {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
-export function batchEffect(facts: Pick<IncidentBatchFacts, "incidentClass" | "clinics">): string {
-  const toOpen = facts.clinics.filter((c) => c.inService && !c.opened).length;
-  const open = facts.clinics.filter((c) => c.opened).length;
+export function batchEffect(facts: Pick<IncidentBatchFacts, "incidentClass" | "toOpen" | "alreadyOpen" | "reach">): string {
+  const { toOpen, alreadyOpen: open } = facts;
   const words = CLASS_WORDS[facts.incidentClass];
   return (
     `Opens an incident at ${toOpen === 1 ? "the 1 clinic" : `each of the ${toOpen} clinics`} below, classed as ${words}, and puts each one's report in this list for your yes. Nothing is sent to any clinic.` +
+    (facts.reach === "all_holding"
+      ? " Every clinic holding data is listed, whether or not it had a conversation in the window."
+      : "") +
     (open ? ` ${open === 1 ? "1 clinic already has" : `${open} clinics already have`} this incident open and ${open === 1 ? "is" : "are"} left as ${open === 1 ? "it is" : "they are"}.` : "")
   );
 }
@@ -495,20 +581,21 @@ export type IncidentPacket = {
 async function batchPacket(approval: OpsApproval, ctx: Ctx): Promise<IncidentPacket | null> {
   const payload = parsePayload("incident_open_batch", approval.payload);
   if (!payload) return null;
-  const from = new Date(payload.from);
-  const to = new Date(payload.to);
+  // Cheap by construction: the counts are the proposal's, never recounted;
+  // the clinics' names and versions come from one overview read; and each
+  // clinic costs one indexed lookup of its open tick. At most
+  // MAX_BATCH_CLINICS clinics, of which BATCH_CLINICS_SHOWN are listed.
   const discoveredAt = new Date(payload.discoveredAt);
-  const key = batchKey({ source: payload.source, value: payload.value, from, to, incidentClass: payload.incidentClass });
+  const key = keyOf(payload);
   const overviews = new Map<string, ClinicOverview>((await listClinics()).map((c) => [c.id, c]));
-  const channels = channelsOf(payload.source, payload.value);
-  const clinics: BatchClinicFacts[] = [];
-  for (const clinicId of payload.clinicIds) {
+  const all: BatchClinicFacts[] = [];
+  for (const [i, clinicId] of payload.clinicIds.entries()) {
     const clinic = overviews.get(clinicId);
     if (!clinic || clinic.destroyedAt) {
-      clinics.push({
+      all.push({
         clinicId,
         clinicName: clinic?.name ?? "",
-        conversations: 0,
+        conversations: payload.counts[i] ?? 0,
         agreementVersion: null,
         clocks: clocksFor(payload.incidentClass, discoveredAt, null, null),
         opened: false,
@@ -516,32 +603,39 @@ async function batchPacket(approval: OpsApproval, ctx: Ctx): Promise<IncidentPac
       });
       continue;
     }
-    const counts = await scopeCounts(clinic, channels, from, to, ctx);
     const opened = await withTenant({ clinicId, actor: ctx.actor, request: ctx.request }, (tx) => incidentOpenedBy(tx, key));
-    clinics.push({
+    all.push({
       clinicId,
       clinicName: clinic.name,
-      conversations: counts.counts.voice + counts.counts.web + counts.counts.meta,
+      conversations: payload.counts[i] ?? 0,
       agreementVersion: clinic.baaVersion,
       clocks: clocksFor(payload.incidentClass, discoveredAt, clinic.baaVersion, clinic.isCoveredEntity),
       opened: opened !== null,
       inService: true,
     });
   }
+  const toOpen = all.filter((c) => c.inService && !c.opened).length;
   const facts: IncidentBatchFacts = {
     kind: "incident_open_batch",
     source: payload.source,
     value: payload.value,
+    reach: payload.reach,
     from: payload.from,
     to: payload.to,
     incidentClass: payload.incidentClass,
     discoveredAt: payload.discoveredAt,
-    clinics,
+    clinicsTotal: all.length,
+    toOpen,
+    alreadyOpen: all.filter((c) => c.opened).length,
+    outOfService: all.filter((c) => !c.inService).length,
+    clinics: [...all]
+      .sort((a, b) => (a.clocks.agreementDeadline ?? "").localeCompare(b.clocks.agreementDeadline ?? ""))
+      .slice(0, BATCH_CLINICS_SHOWN),
   };
   return {
     operation: KIND_SPECS.incident_open_batch.operation,
     irreversible: KIND_SPECS.incident_open_batch.irreversible,
-    stillNeeded: clinics.some((c) => c.inService && !c.opened),
+    stillNeeded: toOpen > 0,
     effect: batchEffect(facts),
     facts,
   };

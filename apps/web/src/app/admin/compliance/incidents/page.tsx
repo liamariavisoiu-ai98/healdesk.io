@@ -13,6 +13,7 @@ import {
   fetchIncidentChecklist,
   fetchIncidentRegister,
   fetchIncidentScope,
+  fetchJobs,
   markIncidentNotReportable as notReportableUpstream,
   proposeIncidentBatch,
   proposeIncidentReport,
@@ -26,7 +27,7 @@ import {
 } from "@/lib/admin/ops-client";
 import { isHostUnreachable } from "@/lib/host/state";
 
-import { IncidentAssistant } from "./IncidentAssistant";
+import { INCIDENT_PROPOSER_JOBS, IncidentAssistant } from "./IncidentAssistant";
 import { IncidentsBoard } from "./IncidentsBoard";
 import { checkScopeQuery } from "./scope-input";
 
@@ -62,9 +63,15 @@ const NOT_THIS_PAGE = { ok: false as const, code: "refused" as const, message: "
 
 export default async function IncidentsPage() {
   if (!(await requireOperator())) redirect("/admin/sign-in");
-  const [register, items] = await Promise.all([fetchIncidentRegister(), fetchIncidentApprovals()]);
+  // The jobs are read for two switches: with both proposer jobs off, no
+  // incident's first report is proposed by itself, which the empty line
+  // then says. A failed jobs read says nothing extra.
+  const [register, items, jobs] = await Promise.all([fetchIncidentRegister(), fetchIncidentApprovals(), fetchJobs()]);
   if (isHostUnreachable(register)) return <HostStandbyPage title="Incidents" />;
   const now = new Date().toISOString();
+  const proposersOff = jobs.ok
+    ? INCIDENT_PROPOSER_JOBS.every((name) => jobs.data.some((job) => job.name === name && !job.enabled))
+    : null;
 
   async function sendReport(clinicId: string, incidentId: string, fields: IncidentReportFields) {
     "use server";
@@ -143,7 +150,7 @@ export default async function IncidentsPage() {
 
   return (
     <IncidentsBoard register={register} now={now} actions={{ sendReport, notReportable, assistant: { checklist, tick, proposeReport } }}>
-      <IncidentAssistant items={items} now={now} onDecide={decide} onReadScope={readScope} onProposeBatch={proposeBatch} />
+      <IncidentAssistant items={items} proposersOff={proposersOff} now={now} onDecide={decide} onReadScope={readScope} onProposeBatch={proposeBatch} />
     </IncidentsBoard>
   );
 }

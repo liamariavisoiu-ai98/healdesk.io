@@ -31,6 +31,18 @@ import { IncidentScope, type ProposeBatch, type ReadScope } from "./IncidentScop
 
 export const WAITING_EMPTY = "No incident step is waiting for your yes.";
 
+/** The two jobs that propose an incident's first report by themselves (apps/app lib/approvals/incident-sweep.ts), as the Jobs page names them. */
+export const INCIDENT_PROPOSER_JOBS = ["incident-deadlines", "approvals-propose"] as const;
+
+/** Empty with both of those switches read off (listJobs): no first report is proposed by itself; the owner's own proposals still arrive. */
+export const WAITING_EMPTY_JOBS_OFF =
+  "No incident step is waiting for your yes. The incident-deadlines and approvals-propose jobs are both off at System > Jobs, so no incident's first report is proposed by itself; what you propose on this page still arrives.";
+
+/** The empty line, by whether both proposer jobs are known to be off (null: the jobs could not be read, so nothing extra is said). */
+export function waitingEmptyWords(proposersOff: boolean | null): string {
+  return proposersOff === true ? WAITING_EMPTY_JOBS_OFF : WAITING_EMPTY;
+}
+
 const TEXT: Record<Tone, string> = {
   ok: "text-done",
   warn: "text-ink",
@@ -41,12 +53,15 @@ const TEXT: Record<Tone, string> = {
 
 export function IncidentAssistant({
   items,
+  proposersOff,
   now,
   onDecide,
   onReadScope,
   onProposeBatch,
 }: {
   items: OpsResult<{ items: IncidentApprovalItem[]; partial: string[] }>;
+  /** Whether both proposer jobs are switched off (read from listJobs); null when the jobs could not be read. */
+  proposersOff: boolean | null;
   now: string;
   onDecide: DecideApproval;
   onReadScope: ReadScope;
@@ -71,7 +86,7 @@ export function IncidentAssistant({
         </ul>
       ) : null}
       {!items.ok ? <Failure failure={items} what="the incident assistant's items" /> : null}
-      {items.ok && waiting.length === 0 ? <p className="mt-2 text-sm">{WAITING_EMPTY}</p> : null}
+      {items.ok && waiting.length === 0 ? <p className="mt-2 text-sm">{waitingEmptyWords(proposersOff)}</p> : null}
       {waiting.length > 0 ? (
         <ul className="mt-2 grid gap-3">
           {waiting.map((item) => (

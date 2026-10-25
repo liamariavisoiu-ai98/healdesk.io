@@ -7,6 +7,8 @@ import { CHECKLIST_STEP_WORDS, PROPOSE_REPORT_WORDS, STEP_NEEDS, TICK_CONFIRM, T
 import { ActionButton } from "@/components/admin/ui";
 import type { ChecklistStep, IncidentChecklistResult, IncidentChecklistStep, IncidentProposalOutcome, OpsResult, TickIncidentStepOutcome } from "@/lib/admin/ops-client";
 
+import { WAITS_UNDER } from "./IncidentScope";
+
 /**
  * One incident's checklist on its card (ops automation lane P6j; the
  * operations are lane P6i's, apps/app lib/ops/incident-assistant-ops.ts):
@@ -33,8 +35,8 @@ export type ChecklistActions = { checklist: ReadChecklist; tick: TickStep; propo
 /** What the report's proposal answered, in one line. */
 export function reportProposedWords(outcome: Extract<IncidentProposalOutcome, { status: "proposed" | "already_waiting" }>): string {
   return outcome.status === "already_waiting"
-    ? "This incident's report is already waiting for your yes under Approvals."
-    : "Proposed: the report is waiting for your yes under Approvals, on this page and under Queues. Nothing has been sent.";
+    ? `This incident's report is already ${WAITS_UNDER}.`
+    : `Proposed: the report is ${WAITS_UNDER}. Nothing has been sent.`;
 }
 
 /** A ticked step's line: when, by whom, and what a batch or the affected list left on it. */

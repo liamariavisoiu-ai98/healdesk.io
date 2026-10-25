@@ -43,10 +43,13 @@ export const WINDOW_WORDS = "Days are UTC: the window runs from the first day's 
 export const SCOPE_INCOMPLETE = (n: number) => `${n} ${n === 1 ? "clinic" : "clinics"} could not be read, so this list may be missing some. Nothing can be proposed until every clinic is read.`;
 export const PROPOSE_WORDS = "Propose opening these incidents puts one item in Approvals, read again at that moment. Nothing is opened until you approve it in Approvals.";
 
+/** Where a proposed item waits: the section above on this page, and the Queues page. */
+export const WAITS_UNDER = "waiting for your yes under Incident assistant on this page, and under Queues > Approvals";
+
 /** What the proposal answered, in one line. */
 export function proposedWords(outcome: Extract<IncidentProposalOutcome, { status: "proposed" | "already_waiting" }>): string {
-  if (outcome.status === "already_waiting") return "This scope is already waiting for your yes under Approvals.";
-  return `Proposed: one item${outcome.clinics !== null ? ` for ${outcome.clinics} ${outcome.clinics === 1 ? "clinic" : "clinics"}` : ""} is waiting for your yes under Approvals, on this page and under Queues.`;
+  if (outcome.status === "already_waiting") return `This scope is already ${WAITS_UNDER}.`;
+  return `Proposed: one item${outcome.clinics !== null ? ` for ${outcome.clinics} ${outcome.clinics === 1 ? "clinic" : "clinics"}` : ""} is ${WAITS_UNDER}.`;
 }
 
 const LABEL = "text-muted block text-[13.2px] font-bold tracking-[0.06em] uppercase";

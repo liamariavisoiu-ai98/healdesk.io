@@ -11,7 +11,7 @@ import type { DecideApproval } from "@/app/admin/queues/ApprovalDecision";
 import { INTERNAL_TARGET_LABEL, TICK_CONFIRM, TICK_WORDS } from "@/components/admin/incident-words";
 import type { IncidentApprovalItem, IncidentChecklistStep, IncidentRegisterRow, IncidentScopeView, OpsResult } from "@/lib/admin/ops-client";
 
-import { IncidentAssistant, WAITING_EMPTY } from "./IncidentAssistant";
+import { INCIDENT_PROPOSER_JOBS, IncidentAssistant, WAITING_EMPTY, WAITING_EMPTY_JOBS_OFF, waitingEmptyWords } from "./IncidentAssistant";
 import { IncidentChecklist, reportProposedWords, tickedWords, type ChecklistActions } from "./IncidentChecklist";
 import { IncidentScope, PROPOSE_NEEDS, PROPOSE_WORDS, proposedWords, SCOPE_INCOMPLETE, type ProposeBatch, type ReadScope } from "./IncidentScope";
 import { IncidentsBoard } from "./IncidentsBoard";
@@ -40,6 +40,7 @@ function text(html: string): string {
     .replace(/<[^>]+>/g, " ")
     .replace(/&#x27;|&#39;|&rsquo;|’/g, "'")
     .replace(/&amp;/g, "&")
+    .replace(/&gt;/g, ">")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -163,7 +164,7 @@ const assistant: ChecklistActions = { checklist: NEVER, tick: NEVER, proposeRepo
 describe("the section", () => {
   test("its anchor and title, the waiting items as Approvals cards with both clocks, and the scope form", () => {
     const html = renderToStaticMarkup(
-      h(IncidentAssistant, { items: { ok: true, data: { items: [batch], partial: [] } }, now: NOW, onDecide: NEVER as DecideApproval, onReadScope: NEVER as ReadScope, onProposeBatch: NEVER as ProposeBatch }),
+      h(IncidentAssistant, { items: { ok: true, data: { items: [batch], partial: [] } }, proposersOff: null, now: NOW, onDecide: NEVER as DecideApproval, onReadScope: NEVER as ReadScope, onProposeBatch: NEVER as ProposeBatch }),
     );
     const page = text(html);
     expect(html).toContain('id="incident-assistant"');
@@ -184,20 +185,42 @@ describe("the section", () => {
   });
 
   test("empty and failed reads say so, never a zero count for a failed read", () => {
-    const empty = text(renderToStaticMarkup(h(IncidentAssistant, { items: { ok: true, data: { items: [], partial: [] } }, now: NOW, onDecide: NEVER, onReadScope: NEVER, onProposeBatch: NEVER })));
+    const none = { ok: true as const, data: { items: [], partial: [] } };
+    const empty = text(renderToStaticMarkup(h(IncidentAssistant, { items: none, proposersOff: null, now: NOW, onDecide: NEVER, onReadScope: NEVER, onProposeBatch: NEVER })));
     expect(empty).toContain(WAITING_EMPTY);
+    expect(empty).not.toContain("both off");
     expect(empty).toContain("Waiting for your yes (0)");
-    const failed = text(renderToStaticMarkup(h(IncidentAssistant, { items: { ok: false, code: "failed", message: "x" }, now: NOW, onDecide: NEVER, onReadScope: NEVER, onProposeBatch: NEVER })));
+    const failed = text(renderToStaticMarkup(h(IncidentAssistant, { items: { ok: false, code: "failed", message: "x" }, proposersOff: null, now: NOW, onDecide: NEVER, onReadScope: NEVER, onProposeBatch: NEVER })));
     expect(failed).toContain("Could not read the incident assistant's items: x");
     expect(failed).not.toContain(WAITING_EMPTY);
     expect(failed).not.toContain("(0)");
+    // Both proposer jobs read off: the empty line says no first report is proposed by itself; one of them on, nothing extra.
+    const bothOff = text(renderToStaticMarkup(h(IncidentAssistant, { items: none, proposersOff: true, now: NOW, onDecide: NEVER, onReadScope: NEVER, onProposeBatch: NEVER })));
+    expect(bothOff).toContain(WAITING_EMPTY_JOBS_OFF);
+    expect(WAITING_EMPTY_JOBS_OFF).toContain("The incident-deadlines and approvals-propose jobs are both off at System > Jobs");
+    expect(text(renderToStaticMarkup(h(IncidentAssistant, { items: none, proposersOff: false, now: NOW, onDecide: NEVER, onReadScope: NEVER, onProposeBatch: NEVER })))).not.toContain("both off");
+    expect(waitingEmptyWords(true)).toBe(WAITING_EMPTY_JOBS_OFF);
+    expect(waitingEmptyWords(false)).toBe(WAITING_EMPTY);
+    expect(waitingEmptyWords(null)).toBe(WAITING_EMPTY);
+    // The two jobs are the ones apps/app's sweep runs from (incident-sweep.ts, incident-kinds.ts), named as the Jobs page names them.
+    expect([...INCIDENT_PROPOSER_JOBS]).toEqual(["incident-deadlines", "approvals-propose"]);
+    const APP = join(__dirname, "..", "..", "..", "..", "..", "..", "app", "src");
+    expect(readFileSync(join(APP, "lib", "scheduler", "jobs.ts"), "utf8")).toContain('export const JOB_INCIDENT_DEADLINES = "incident-deadlines"');
+    expect(readFileSync(join(APP, "lib", "approvals", "kinds.ts"), "utf8")).toContain('export const PROPOSER = "approvals-propose"');
+    // Items waiting: the switches are not mentioned, whatever they say.
+    expect(text(renderToStaticMarkup(h(IncidentAssistant, { items: { ok: true, data: { items: [batch], partial: [] } }, proposersOff: true, now: NOW, onDecide: NEVER, onReadScope: NEVER, onProposeBatch: NEVER })))).not.toContain("both off");
   });
 
   test("the outcome lines of the two proposals say what waits where, and that nothing was opened or sent", () => {
     expect(proposedWords({ status: "proposed", approvalId: batch.id, clinics: 3, auditRecorded: true })).toBe(
-      "Proposed: one item for 3 clinics is waiting for your yes under Approvals, on this page and under Queues.",
+      "Proposed: one item for 3 clinics is waiting for your yes under Incident assistant on this page, and under Queues > Approvals.",
     );
-    expect(proposedWords({ status: "already_waiting", approvalId: batch.id, clinics: null, auditRecorded: true })).toBe("This scope is already waiting for your yes under Approvals.");
+    expect(proposedWords({ status: "already_waiting", approvalId: batch.id, clinics: null, auditRecorded: true })).toBe(
+      "This scope is already waiting for your yes under Incident assistant on this page, and under Queues > Approvals.",
+    );
+    expect(reportProposedWords({ status: "proposed", approvalId: batch.id, clinics: null, auditRecorded: true })).toBe(
+      "Proposed: the report is waiting for your yes under Incident assistant on this page, and under Queues > Approvals. Nothing has been sent.",
+    );
     expect(reportProposedWords({ status: "proposed", approvalId: batch.id, clinics: null, auditRecorded: true })).toContain("Nothing has been sent.");
     expect(reportProposedWords({ status: "already_waiting", approvalId: batch.id, clinics: null, auditRecorded: true })).toContain("already waiting");
     expect(PROPOSE_WORDS).toContain("Nothing is opened until you approve it in Approvals.");
@@ -315,7 +338,7 @@ describe("the controls", () => {
     await click("Yes, propose opening these incidents");
     await act(async () => {});
     expect(propose).toHaveBeenCalledWith(read.mock.calls[1]![0]);
-    expect(statuses()).toContain("Proposed: one item for 1 clinic is waiting for your yes under Approvals, on this page and under Queues.");
+    expect(statuses()).toContain("Proposed: one item for 1 clinic is waiting for your yes under Incident assistant on this page, and under Queues > Approvals.");
   });
 
   test("a scope with a clinic unread cannot be proposed, and says why", async () => {
@@ -372,7 +395,7 @@ describe("the controls", () => {
     await click("Propose the report");
     await act(async () => {});
     expect(proposeReport).toHaveBeenCalledWith(CLINIC, INCIDENT);
-    expect(statuses()).toContain("This incident's report is already waiting for your yes under Approvals.");
+    expect(statuses()).toContain("This incident's report is already waiting for your yes under Incident assistant on this page, and under Queues > Approvals.");
   });
 
   test("a checklist apps/app refused says so; a report is not offered where none is awaited", async () => {

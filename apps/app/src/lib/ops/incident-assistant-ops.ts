@@ -154,11 +154,15 @@ export async function opProposeIncidentBatch(args: Record<string, unknown>, oper
   }
   if (scope.clinics.length === 0) {
     return refused(
-      "No clinic had a conversation through this in that window, so there is nothing to open. Record the vendor's notice as an incident finding with no clinic affected.",
+      input.reach === "all_holding"
+        ? "No clinic holds any data yet, so there is nothing to open. Record the vendor's notice as an incident finding with no clinic affected."
+        : "No clinic had a conversation through this in that window, so there is nothing to open. Record the vendor's notice as an incident finding with no clinic affected.",
     );
   }
   if (scope.clinics.length > MAX_BATCH_CLINICS) {
-    return refused(`The scope reaches ${scope.clinics.length} clinics, more than one item may open (${MAX_BATCH_CLINICS}). Split the window.`);
+    return refused(
+      `This scope reaches ${scope.clinics.length} clinics, more than the ${MAX_BATCH_CLINICS} one approval may open. Split it into shorter windows and propose each one.`,
+    );
   }
   const subjectRef = batchKey({ ...input, incidentClass: input.incidentClass });
   const waiting = await waitingFor("incident_open_batch", subjectRef);
@@ -176,7 +180,9 @@ export async function opProposeIncidentBatch(args: Record<string, unknown>, oper
         to: input.to.toISOString(),
         incidentClass: input.incidentClass,
         discoveredAt: input.discoveredAt.toISOString(),
+        reach: input.reach,
         clinicIds: scope.clinics.map((c) => c.clinicId),
+        counts: scope.clinics.map((c) => c.total),
       },
       // Due at the internal target: the agreements' deadlines are each incident's report's.
       dueAt: new Date(input.discoveredAt.getTime() + 24 * 60 * 60 * 1000),
@@ -186,7 +192,11 @@ export async function opProposeIncidentBatch(args: Record<string, unknown>, oper
     now,
   );
   if (!id) {
-    return refused("This scope was decided before (rejected), so it was not proposed again. Its incidents can be opened one by one on each clinic's Care tab.");
+    // propose() inserts nothing while an item for this scope waits, or after
+    // the owner rejected one; another request may also have just proposed it.
+    return refused(
+      "This scope is already waiting for your yes, or you rejected it before, so nothing new was proposed. Look for it under the incident assistant's items; to open an incident at one clinic, use its Care tab.",
+    );
   }
   const auditRecorded = await audit(operator, "incident_batch_proposed", {
     approvalId: id,

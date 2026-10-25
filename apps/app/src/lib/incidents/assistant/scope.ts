@@ -11,6 +11,9 @@ import { agreementReportDeadline, type ReportingRule } from "../reporting-rules"
 
 import {
   channelsOf,
+  HOLDING_VENDORS,
+  isScopeReach,
+  type ScopeReach,
   isBatchClass,
   isScopeChannel,
   isScopeVendor,
@@ -30,7 +33,9 @@ import {
  *
  * A clinic is in scope when the service kept at least one conversation of a
  * channel the vendor carries (./vocab.ts VENDOR_CHANNELS) that started in
- * [from, to). Counted, never read: the count per channel is all that leaves
+ * [from, to); for the database host and AWS, by default, when it holds any
+ * data at all (`reach` all_holding, ./vocab.ts SCOPE_REACHES), the window's
+ * counts then shown as information only. Counted, never read: the count per channel is all that leaves
  * the clinic's tenant, with the clinic's id, name, agreement version and
  * covered-entity answer, which are the clinic's business data. Where each
  * count comes from:
@@ -69,6 +74,8 @@ export type ScopeInput = {
   incidentClass: BatchClass | null;
   discoveredAt: Date | null;
   includeDemo: boolean;
+  /** Which clinics are in scope: every one holding data, or those with conversations in the window (./vocab.ts REACHES). */
+  reach: ScopeReach;
 };
 
 export type ScopeClocks = {
@@ -86,8 +93,11 @@ export type ScopeClinic = {
   clinicName: string;
   /** The account's billing clinic for an added location; null for the account itself. */
   billingClinicId: string | null;
+  /** Conversations that started in the window, per channel: information only when the reach is every clinic holding data. */
   conversations: Record<ScopeChannel, number>;
   total: number;
+  /** Whether the clinic holds any data the vendor stores (a conversation, a contact or a Meta conversation, ever); null when the reach is the window. */
+  holdsData: boolean | null;
   agreementVersion: string | null;
   coveredEntity: boolean | null;
   demo: boolean;
@@ -98,11 +108,12 @@ export type ScopeClinic = {
 export type ScopeResult = {
   source: ScopeSource;
   value: ScopeVendor | ScopeChannel;
+  reach: ScopeReach;
   channels: readonly ScopeChannel[];
   from: string;
   to: string;
   clinics: ScopeClinic[];
-  /** Clinics read and found with nothing in the window. */
+  /** Clinics read and found out of scope: nothing in the window, or (every clinic holding data) holding nothing. */
   clinicsWithNone: number;
   /** Clinics whose rows could not be read: the scope is incomplete while this is above 0. */
   unread: number;
@@ -155,7 +166,19 @@ export function readScopeArgs(args: Record<string, unknown>, now: Date = new Dat
   if (args.includeDemo !== undefined && typeof args.includeDemo !== "boolean") {
     return { problem: "includeDemo is true or false." };
   }
-  return { source, value, from, to, incidentClass, discoveredAt, includeDemo: args.includeDemo === true };
+  // The database host and AWS hold everything the service stores: by
+  // default every clinic holding data is in scope, and only a vendor notice
+  // that says the exposure was in transit, in the window, narrows it.
+  const holdsAll = source === "vendor" && HOLDING_VENDORS.has(value as ScopeVendor);
+  let reach: ScopeReach = holdsAll ? "all_holding" : "window_only";
+  if (args.reach !== undefined) {
+    if (!isScopeReach(args.reach)) return { problem: "Pick the reach from the list: every clinic holding data, or the window only." };
+    if (args.reach === "all_holding" && !holdsAll) {
+      return { problem: "Only the database host and AWS hold every clinic's data; this scope is read by its window." };
+    }
+    reach = args.reach;
+  }
+  return { source, value, from, to, incidentClass, discoveredAt, includeDemo: args.includeDemo === true, reach };
 }
 
 function instant(value: unknown): Date | null {
@@ -194,10 +217,20 @@ export async function scopeCounts(
   from: Date,
   to: Date,
   ctx: Ctx,
-): Promise<{ demo: boolean; counts: Record<ScopeChannel, number> }> {
+  options: { holding?: boolean } = {},
+): Promise<{ demo: boolean; counts: Record<ScopeChannel, number>; holdsData: boolean | null }> {
   const counts: Record<ScopeChannel, number> = { voice: 0, web: 0, meta: 0 };
+  let holdsData: boolean | null = null;
   const demo = await withTenant({ clinicId: clinic.id, actor: ctx.actor, request: ctx.request }, async (tx) => {
     const result = await tx.db.execute<{ demo: boolean }>(sql`select app_clinic_is_demo(${tx.clinicId}) as demo`);
+    if (options.holding) {
+      // Any row the service keeps about a person who contacted the clinic, ever: a conversation or a contact.
+      const held = await tx.db.execute<{ held: boolean }>(
+        sql`select exists (select 1 from conversations where clinic_id = ${tx.clinicId})
+                or exists (select 1 from contacts where clinic_id = ${tx.clinicId}) as held`,
+      );
+      holdsData = held.rows[0]?.held === true;
+    }
     const rows = async (kinds: readonly ConversationChannel[]) => {
       const [row] = await tx.db
         .select({ n: count() })
@@ -237,7 +270,17 @@ export async function scopeCounts(
       return row?.n ?? 0;
     });
   }
-  return { demo, counts };
+  if (options.holding && !holdsData) {
+    // A Meta conversation leaves only the usage ledger's row.
+    const account = clinic.billingClinicId ?? clinic.id;
+    holdsData = await withTenant({ clinicId: account, actor: ctx.actor, request: ctx.request }, async (tx) => {
+      const held = await tx.db.execute<{ held: boolean }>(
+        sql`select exists (select 1 from usage_events where clinic_id = ${tx.clinicId} and location_clinic_id = ${clinic.id} and source = 'meta') as held`,
+      );
+      return held.rows[0]?.held === true;
+    });
+  }
+  return { demo, counts, holdsData };
 }
 
 /** The scope, read now: every clinic with at least one conversation through the scope's channels in the window. */
@@ -246,6 +289,7 @@ export async function incidentScope(input: ScopeInput, ctx: Ctx): Promise<ScopeR
   const result: ScopeResult = {
     source: input.source,
     value: input.value,
+    reach: input.reach,
     channels,
     from: input.from.toISOString(),
     to: input.to.toISOString(),
@@ -253,11 +297,12 @@ export async function incidentScope(input: ScopeInput, ctx: Ctx): Promise<ScopeR
     clinicsWithNone: 0,
     unread: 0,
   };
+  const holding = input.reach === "all_holding";
   for (const clinic of await listClinics()) {
     if (clinic.destroyedAt) continue;
-    let read: { demo: boolean; counts: Record<ScopeChannel, number> };
+    let read: Awaited<ReturnType<typeof scopeCounts>>;
     try {
-      read = await scopeCounts(clinic, channels, input.from, input.to, ctx);
+      read = await scopeCounts(clinic, channels, input.from, input.to, ctx, { holding });
     } catch (error) {
       result.unread += 1;
       log.warn("incident scope: a clinic could not be read", { clinicId: clinic.id, error: describeError(error) });
@@ -265,7 +310,7 @@ export async function incidentScope(input: ScopeInput, ctx: Ctx): Promise<ScopeR
     }
     if (read.demo && !input.includeDemo) continue;
     const total = read.counts.voice + read.counts.web + read.counts.meta;
-    if (total === 0) {
+    if (holding ? read.holdsData !== true : total === 0) {
       result.clinicsWithNone += 1;
       continue;
     }
@@ -275,6 +320,7 @@ export async function incidentScope(input: ScopeInput, ctx: Ctx): Promise<ScopeR
       billingClinicId: clinic.billingClinicId,
       conversations: read.counts,
       total,
+      holdsData: read.holdsData,
       agreementVersion: clinic.baaVersion,
       coveredEntity: clinic.isCoveredEntity,
       demo: read.demo,
@@ -298,9 +344,10 @@ export async function incidentScope(input: ScopeInput, ctx: Ctx): Promise<ScopeR
 export function batchKey(input: {
   source: ScopeSource;
   value: ScopeVendor | ScopeChannel;
+  reach: ScopeReach;
   from: Date;
   to: Date;
   incidentClass: BatchClass;
 }): string {
-  return `${input.source}:${input.value}:${input.from.toISOString()}:${input.to.toISOString()}:${input.incidentClass}`;
+  return `${input.source}:${input.value}:${input.reach}:${input.from.toISOString()}:${input.to.toISOString()}:${input.incidentClass}`;
 }

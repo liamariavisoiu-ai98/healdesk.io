@@ -43,6 +43,23 @@ export const VENDOR_CHANNELS: Readonly<Record<ScopeVendor, readonly ScopeChannel
   meta: ["meta"],
 };
 
+/**
+ * Which clinics a scope reaches. The database host and AWS hold everything
+ * the service stores, so an incident there reaches every clinic holding
+ * data, whatever started in the window (`all_holding`, their default); the
+ * operator narrows it to the window (`window_only`) only when the vendor's
+ * notice says the exposure was of data in transit in that window. Retell,
+ * Anthropic and Meta see a conversation only while it happens, so theirs,
+ * and a channel's, is always the window.
+ */
+export const SCOPE_REACHES = ["all_holding", "window_only"] as const;
+export type ScopeReach = (typeof SCOPE_REACHES)[number];
+export const HOLDING_VENDORS: ReadonlySet<ScopeVendor> = new Set<ScopeVendor>(["database_host", "aws"]);
+
+export function isScopeReach(value: unknown): value is ScopeReach {
+  return typeof value === "string" && (SCOPE_REACHES as readonly string[]).includes(value);
+}
+
 /** What a scope is read by: a vendor's notice, or one of our own channels. */
 export const SCOPE_SOURCES = ["vendor", "channel"] as const;
 export type ScopeSource = (typeof SCOPE_SOURCES)[number];

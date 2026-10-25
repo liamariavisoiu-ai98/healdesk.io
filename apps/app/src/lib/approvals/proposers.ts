@@ -31,6 +31,8 @@ import {
   type Proposal,
 } from "./store";
 import { classifyUnresolvedEvent } from "./stripe-ids";
+import { INCIDENT_KINDS, waitingAlertEvent } from "./incident-kinds";
+import { runIncidentSweep } from "./incident-sweep";
 
 /**
  * The `approvals-propose` job (ops automation Phase 6, lane P6a; design E6
@@ -308,10 +310,11 @@ async function dueReminders(items: OpsApproval[], now: Date): Promise<{ item: Op
  * recording the reminders raises nothing twice. Slack and the ops address
  * (an approval waiting is the owner's to act on).
  */
-async function remind(now: Date): Promise<number> {
+export async function remind(now: Date, which: (kind: string) => boolean = () => true): Promise<number> {
   const waiting = await waitingItems();
   const byKind = new Map<ApprovalKind, OpsApproval[]>();
   for (const item of waiting) {
+    if (!which(item.kind)) continue;
     const kind = item.kind as ApprovalKind;
     byKind.set(kind, [...(byKind.get(kind) ?? []), item]);
   }
@@ -324,8 +327,9 @@ async function remind(now: Date): Promise<number> {
       .sort()
       .join(",");
     // An email to a clinic has its own alert and words (lane P6f): the
-    // billing alert's sentences about retries and Stripe are not about it.
-    const event = isContactKind(kind) ? "clinic_email_waiting" : "approval_waiting";
+    // billing alert's sentences about retries and Stripe are not about it;
+    // and so does an incident item (lane P6i, ./incident-kinds.ts).
+    const event = isContactKind(kind) ? "clinic_email_waiting" : waitingAlertEvent(kind);
     const alertKey = `${event}:${kind}:${createHash("sha256").update(identity).digest("hex").slice(0, 32)}`;
     const alertId = await raiseOpsAlertKeyed(event, { kind, count: due.length }, { key: alertKey, email: true });
     if (!alertId) continue;
@@ -355,6 +359,9 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
   let outOfService = 0;
   let retriedAutomatically = 0;
   for (const item of await waitingItems()) {
+    // An incident item is a legal clock, swept by its own rules below
+    // (./incident-sweep.ts), never by the billing ones.
+    if (INCIDENT_KINDS.has(item.kind)) continue;
     if (retriedNow(item.kind as ApprovalKind, item.payload, on)) {
       if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "retried_automatically" })) {
         retriedAutomatically += 1;
@@ -372,8 +379,21 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
       gone += 1;
     }
   }
-  const reminded = await remind(now);
-  return { proposed, expired, resolved: gone, outOfService, interrupted, retriedAutomatically, reminded, unread: found.unread };
+  const reminded = await remind(now, (kind) => !INCIDENT_KINDS.has(kind));
+  // The incident assistant (lane P6i): its first reports, overtaken items and
+  // 4-hourly alerts. The incident-deadlines job runs the same sweep, so it
+  // does not wait on this job's switch.
+  const incidents = await runIncidentSweep(now);
+  return {
+    proposed: proposed + incidents.proposed,
+    expired,
+    resolved: gone + incidents.resolved,
+    outOfService: outOfService + incidents.outOfService,
+    interrupted,
+    retriedAutomatically,
+    reminded: reminded + incidents.reminded,
+    unread: found.unread + incidents.unread,
+  };
 }
 
 /** The `approvals-propose` job: hourly from the tick, behind its switch. */

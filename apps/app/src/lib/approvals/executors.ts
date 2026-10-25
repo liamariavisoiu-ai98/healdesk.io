@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 
 import { billingEvents, billingRequests, overageInvoices, type OpsApproval } from "@/db/schema";
 import { unsafeDb } from "@/db";
+import type { ReportFields } from "@/lib/incidents/assistant/report-draft";
 import { describeError, log } from "@/lib/log";
 import { opReplayBillingEvent, opRetryBillingRequest, opRetryOverageInvoice } from "@/lib/ops/billing";
 import { actorFor, type Operator, type OpsOutcome } from "@/lib/ops/api";
@@ -9,6 +10,7 @@ import { withTenant } from "@/lib/tenant";
 
 import { CONTACT_EXECUTORS } from "./contact-executors";
 import type { Draft } from "./drafts";
+import { INCIDENT_EXECUTORS } from "./incident-kinds";
 import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind } from "./kinds";
 import { billingSwitches, stillParkedAsProposed } from "./packets";
 
@@ -35,15 +37,22 @@ export type ExecutionResult = {
   /** Whether the operation's own audit row was written, when it says. */
   auditRecorded: boolean | null;
   /**
-   * For an email kind (lane P6f): the SHA-256 of what was sent, for
+   * For an email kind (lane P6f), or a kind that sends fixed fields (lane
+   * P6i: the incident report's): the SHA-256 of what was sent, for
    * ops_approval_events.draft_hash_sent beside the hash approved.
    */
   draftHashSent?: string | null;
 };
 
-/** What a decision hands its executor: the draft the owner approved (the edit when there was one), for an email kind. */
+/**
+ * What a decision hands its executor: the draft the owner approved (the edit
+ * when there was one), for an email kind; for a kind whose fixed fields the
+ * owner may choose (lane P6i), those fields as checked
+ * (./incident-kinds.ts FIELD_EDITORS); and the decision's own clock.
+ */
 export type ExecutionContext = {
   draft: Draft | null;
+  fields?: ReportFields | null;
   /** The decision's own clock (approval-ops.ts), for an executor whose rule reads the time. */
   now?: Date;
 };
@@ -157,10 +166,11 @@ const replayBillingEvent: Executor = async (approval, operator) => {
 
 /** One executor per kind, closed: a new kind does not compile until it has one. */
 //
-// Read at call time, not spread at load: contact-executors.ts reaches back
-// here through lib/ops/api.ts and approval-ops.ts, so in some load orders it
-// is not yet evaluated when this module is, and a spread would silently
-// leave the contact kinds out (every one then "malformed").
+// Read at call time, not spread at load: contact-executors.ts and
+// ./incident-kinds.ts reach back here through lib/ops/api.ts and
+// approval-ops.ts, so in some load orders they are not yet evaluated when
+// this module is, and a spread would silently leave their kinds out (every
+// one then "malformed").
 export function allExecutors(): Readonly<Record<ApprovalKind, Executor>> {
   return {
     billing_request_retry: retryBillingRequest,
@@ -169,6 +179,9 @@ export function allExecutors(): Readonly<Record<ApprovalKind, Executor>> {
     // The clinic-contact kinds (lane P6f): the outbox, the direct sender's
     // ledger, extendSetupDeadline and queueSetupReminderNow (./contact-executors.ts).
     ...CONTACT_EXECUTORS,
+    // The incident assistant (lane P6i): openIncident per clinic, and Send report.
+    incident_open_batch: INCIDENT_EXECUTORS.incident_open_batch,
+    incident_report_send: INCIDENT_EXECUTORS.incident_report_send,
   };
 }
 

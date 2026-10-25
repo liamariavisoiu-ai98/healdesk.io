@@ -574,7 +574,17 @@ export async function sendIncidentReport(
   clinicId: string,
   incidentId: string,
   input: IncidentReportInput,
-  options: { actorLabel: string; now?: Date },
+  options: {
+    actorLabel: string;
+    now?: Date;
+    /**
+     * The report's number the caller approved (the incident assistant's
+     * item, lane P6i). Checked under the incident's row lock: when another
+     * request sent that report first, this one is refused, never sent as an
+     * update nobody approved. Absent from the Incidents page's own button.
+     */
+    expectedReport?: number;
+  },
 ): Promise<IncidentReportSent | OperatorNoticeRefusal> {
   const now = options.now ?? new Date();
   const actor = actorFor(options.actorLabel);
@@ -584,6 +594,13 @@ export async function sendIncidentReport(
       const found = await incidentForDecision(tx, incidentId, "report");
       if ("refused" in found) return refuse(DECISION_REFUSALS[found.refused]);
       const row = found.row;
+      if (options.expectedReport !== undefined && row.reportsSent + 1 !== options.expectedReport) {
+        return refuse(
+          options.expectedReport === 1
+            ? "This incident's report has already gone, so this one was not sent."
+            : `Update ${options.expectedReport - 1} to this incident's report has already gone, or an earlier one has not, so this one was not sent.`,
+        );
+      }
       if (!isReportableClass(row.class)) return refuse(DECISION_REFUSALS.not_reportable_class);
       const fields = readIncidentReportFields(
         input,

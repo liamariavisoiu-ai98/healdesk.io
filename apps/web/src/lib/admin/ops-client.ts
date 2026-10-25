@@ -429,7 +429,17 @@ type OperatorOp =
   // Counts, ids, dates and closed words; nothing contacts anyone.
   | "getCompliancePack"
   | "listCompliancePacks"
-  | "generateCompliancePack";
+  | "generateCompliancePack"
+  // The incident assistant (apps/app lib/ops/incident-assistant-ops.ts; ops
+  // automation lane P6i): which clinics a vendor's or a channel's incident
+  // window reached, with both clocks each; an incident's checklist and a
+  // tick on it; and two proposals into the approval inbox. Ids, counts,
+  // codes, dates and the clinic's name. Nothing opens or sends here.
+  | "incidentScope"
+  | "incidentChecklist"
+  | "tickIncidentStep"
+  | "proposeIncidentBatch"
+  | "proposeIncidentReport";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -7514,13 +7524,18 @@ function readApprovalItem(value: unknown, at: string): ApprovalItem {
 export function fetchApprovals(
   options: { status?: ApprovalStatus; limit?: number } = {},
 ): Promise<OpsResult<{ items: ApprovalItem[]; partial: string[] }>> {
-  const args: Record<string, unknown> = {};
+  // The billing and clinic-contact families only (lanes P6i, P6f): the
+  // Approvals section draws both and never builds an incident packet.
+  const args: Record<string, unknown> = { family: ["billing", "contact"] };
   if (options.status) args.status = options.status;
   if (options.limit !== undefined) args.limit = options.limit;
   return callOps("listApprovals", "read", args, (value) => {
     const data = exactKeys(value, ["items", "partial"], "listApprovals");
     return {
-      items: list(data.items, "listApprovals.items").map((row, i) => readApprovalItem(row, `listApprovals.items[${i}]`)),
+      // The incident assistant's items are fetchIncidentApprovals' (lane P6i): the Approvals section does not draw them.
+      items: list(data.items, "listApprovals.items")
+        .filter((row) => !isIncidentApprovalRow(row))
+        .map((row, i) => readApprovalItem(row, `listApprovals.items[${i}]`)),
       partial: list(data.partial, "listApprovals.partial").map((p, i) => id(p, `listApprovals.partial[${i}]`)),
     };
   });
@@ -7535,7 +7550,8 @@ export function fetchApprovalHistory(
   if (options.kind) args.kind = options.kind;
   return callOps("listApprovalHistory", "read", args, (value) => {
     const data = exactKeys(value, ["events"], "listApprovalHistory");
-    return list(data.events, "listApprovalHistory.events").map((row, i) => {
+    // The incident assistant's events are fetchIncidentApprovalHistory's (lane P6i).
+    return list(data.events, "listApprovalHistory.events").filter((row) => !isIncidentApprovalRow(row)).map((row, i) => {
       const at = `listApprovalHistory.events[${i}]`;
       const r = exactKeys(
         row,
@@ -7571,11 +7587,23 @@ export function decideApproval(
   action: "approve" | "reject",
   reasonCode: ApproveReason | RejectReason,
   editedDraft?: { subject: string; body: string } | { fields: ApprovalEditFields },
+  editedFields?: IncidentReportChoices,
 ): Promise<OpsResult<ApprovalDecision>> {
   const args: Record<string, unknown> = { id: approvalId, action, reasonCode, codeChecked: true };
   // A clinic-contact item's edit is its closed fields only, never text (owner decision D12; lane P6f).
   if (editedDraft && "fields" in editedDraft) args.editedDraft = { fields: editFieldsArgs(editedDraft.fields) };
   else if (editedDraft) args.editedDraft = { subject: editedDraft.subject, body: editedDraft.body };
+  // An incident report's choices (lane P6i): codes from the catalog's lists, copied key by key.
+  if (editedFields) {
+    try {
+      args.editedFields = incidentChoicesArgs(editedFields);
+    } catch {
+      return Promise.resolve({
+        ok: true,
+        data: { status: "refused", message: "Each choice must come from its list. Nothing was sent." },
+      });
+    }
+  }
   return callOps("decideApproval", "write", args, (value): ApprovalDecision => {
     const data = object(value, "decideApproval");
     const status = literal(data.status, ["rejected", "executed", "failed", "error"] as const, "decideApproval.status");
@@ -8220,6 +8248,223 @@ export function fetchOpenResigns(): Promise<OpsResult<{ resigns: OpenResignRow[]
   });
 }
 
+// -----------------------------------------------------------------------------
+// The incident assistant (ops automation Phase 6, lane P6i)
+// -----------------------------------------------------------------------------
+
+/** apps/app's closed lists (lib/incidents/assistant/vocab.ts; db/schema.ts APPROVAL_KINDS), mirrored by hand. */
+export const INCIDENT_APPROVAL_KINDS = ["incident_open_batch", "incident_report_send"] as const;
+export type IncidentApprovalKind = (typeof INCIDENT_APPROVAL_KINDS)[number];
+export const SCOPE_VENDORS = ["retell", "anthropic", "database_host", "aws", "meta"] as const;
+export type ScopeVendor = (typeof SCOPE_VENDORS)[number];
+export const SCOPE_CHANNELS = ["voice", "web", "meta"] as const;
+export type ScopeChannel = (typeof SCOPE_CHANNELS)[number];
+export const BATCH_CLASSES = ["breach", "security_incident", "improper_use_or_disclosure"] as const;
+export type BatchClass = (typeof BATCH_CLASSES)[number];
+export const CHECKLIST_STEPS = [
+  "contain",
+  "open",
+  "preserve_ids",
+  "investigate",
+  "notify_email",
+  "notify_phone",
+  "affected_list_recorded",
+  "help_clinic",
+  "resolve",
+] as const;
+export type ChecklistStep = (typeof CHECKLIST_STEPS)[number];
+const REPORTING_RULE_NAMES = ["sixty_calendar_days", "five_days"] as const;
+const INCIDENT_OPERATIONS = ["openIncident", "sendIncidentReport"] as const;
+
+/** An L29 report's choices, every one a code from the catalog's lists (packages/catalog operator-notices.ts). */
+export type IncidentReportChoices = {
+  event: IncidentReportEvent | null;
+  occurredOn: string | null;
+  info: { type: IncidentInformationType; count: number }[];
+  mitigations: IncidentMitigation[];
+  steps: IncidentPatientStep[];
+  recommendations: IncidentRecommendation[];
+  delayedByLawEnforcement: boolean;
+  delayEndedOn: string | null;
+};
+
+const CHOICE_KEYS = [
+  "event",
+  "occurredOn",
+  "info",
+  "mitigations",
+  "steps",
+  "recommendations",
+  "delayedByLawEnforcement",
+  "delayEndedOn",
+] as const;
+
+function keyOf<T extends Record<string, unknown>>(table: T, value: unknown, at: string): keyof T & string {
+  if (typeof value !== "string" || !Object.hasOwn(table, value)) throw new ShapeError(at);
+  return value as keyof T & string;
+}
+
+function uniqueKeys<T extends Record<string, unknown>>(table: T, value: unknown, at: string): (keyof T & string)[] {
+  const codes = list(value, at).map((v, i) => keyOf(table, v, `${at}[${i}]`));
+  if (new Set(codes).size !== codes.length) throw new ShapeError(at);
+  return codes;
+}
+
+function readChoices(value: unknown, at: string): IncidentReportChoices {
+  const f = exactKeys(value, CHOICE_KEYS, at);
+  return {
+    event: nullable(f.event, (v) => keyOf(INCIDENT_REPORT_EVENTS, v, `${at}.event`)),
+    occurredOn: nullable(f.occurredOn, (v) => date(v, `${at}.occurredOn`)),
+    info: list(f.info, `${at}.info`).map((row, i) => {
+      const r = exactKeys(row, ["type", "count"], `${at}.info[${i}]`);
+      const n = count(r.count, `${at}.info[${i}].count`);
+      if (n < 1) throw new ShapeError(`${at}.info[${i}].count`);
+      return { type: keyOf(INCIDENT_INFORMATION_TYPES, r.type, `${at}.info[${i}].type`), count: n };
+    }),
+    mitigations: uniqueKeys(INCIDENT_MITIGATIONS, f.mitigations, `${at}.mitigations`),
+    steps: uniqueKeys(INCIDENT_PATIENT_STEPS, f.steps, `${at}.steps`),
+    recommendations: uniqueKeys(INCIDENT_RECOMMENDATIONS, f.recommendations, `${at}.recommendations`),
+    delayedByLawEnforcement: bool(f.delayedByLawEnforcement, `${at}.delayedByLawEnforcement`),
+    delayEndedOn: nullable(f.delayEndedOn, (v) => date(v, `${at}.delayEndedOn`)),
+  };
+}
+
+/** The choices as the decision sends them: checked against the lists first, then copied key by key, so nothing else rides along. */
+function incidentChoicesArgs(choices: IncidentReportChoices): Record<string, unknown> {
+  const c = readChoices(choices, "editedFields");
+  return {
+    event: c.event,
+    occurredOn: c.occurredOn,
+    info: c.info.map((r) => ({ type: r.type, count: r.count })),
+    mitigations: [...c.mitigations],
+    steps: [...c.steps],
+    recommendations: [...c.recommendations],
+    delayedByLawEnforcement: c.delayedByLawEnforcement,
+    delayEndedOn: c.delayEndedOn,
+  };
+}
+
+/** Whether an approvals row is one of the incident assistant's: those are read by fetchIncidentApprovals. */
+function isIncidentApprovalRow(row: unknown): boolean {
+  return (
+    typeof row === "object" &&
+    row !== null &&
+    (INCIDENT_APPROVAL_KINDS as readonly unknown[]).includes((row as Record<string, unknown>).kind)
+  );
+}
+
+export type ScopeClocksView = {
+  /** Our own target: internal, never quoted to a clinic. Label it "internal target". */
+  internalTarget: string;
+  agreementDeadline: string | null;
+  agreementRule: (typeof REPORTING_RULE_NAMES)[number];
+  ownerNoticeBy: string | null;
+};
+
+export const SCOPE_REACHES = ["all_holding", "window_only"] as const;
+export type ScopeReach = (typeof SCOPE_REACHES)[number];
+
+function readClocks(value: unknown, at: string): ScopeClocksView {
+  const c = exactKeys(value, ["internalTarget", "agreementDeadline", "agreementRule", "ownerNoticeBy"], at);
+  return {
+    internalTarget: isoInstant(c.internalTarget, `${at}.internalTarget`),
+    agreementDeadline: optionalIsoInstant(c.agreementDeadline, `${at}.agreementDeadline`),
+    agreementRule: literal(c.agreementRule, REPORTING_RULE_NAMES, `${at}.agreementRule`),
+    ownerNoticeBy: optionalIsoInstant(c.ownerNoticeBy, `${at}.ownerNoticeBy`),
+  };
+}
+
+function readConversationCounts(value: unknown, at: string): Record<ScopeChannel, number> {
+  const c = exactKeys(value, SCOPE_CHANNELS, at);
+  return { voice: count(c.voice, `${at}.voice`), web: count(c.web, `${at}.web`), meta: count(c.meta, `${at}.meta`) };
+}
+
+export type IncidentScopeClinic = {
+  clinicId: string;
+  clinicName: string;
+  billingClinicId: string | null;
+  conversations: Record<ScopeChannel, number>;
+  total: number;
+  /** Whether it holds any data; null when the reach is the window. */
+  holdsData: boolean | null;
+  agreementVersion: string | null;
+  coveredEntity: boolean | null;
+  demo: boolean;
+  offboarding: boolean;
+  clocks: ScopeClocksView | null;
+};
+
+export type IncidentScopeView = {
+  source: "vendor" | "channel";
+  value: ScopeVendor | ScopeChannel;
+  reach: ScopeReach;
+  channels: ScopeChannel[];
+  from: string;
+  to: string;
+  clinics: IncidentScopeClinic[];
+  clinicsWithNone: number;
+  /** Clinics that could not be read: the scope is incomplete while this is above 0. */
+  unread: number;
+};
+
+export type IncidentScopeQuery = (
+  | { vendor: ScopeVendor; channel?: never }
+  | { channel: ScopeChannel; vendor?: never }
+) & { from: string; to: string; class?: BatchClass; discoveredAt?: string; includeDemo?: boolean; reach?: ScopeReach };
+
+function scopeArgs(query: IncidentScopeQuery): Record<string, unknown> {
+  const args: Record<string, unknown> = { from: query.from, to: query.to };
+  if (query.vendor !== undefined) args.vendor = query.vendor;
+  if (query.channel !== undefined) args.channel = query.channel;
+  if (query.class !== undefined) args.class = query.class;
+  if (query.discoveredAt !== undefined) args.discoveredAt = query.discoveredAt;
+  if (query.includeDemo !== undefined) args.includeDemo = query.includeDemo;
+  if (query.reach !== undefined) args.reach = query.reach;
+  return args;
+}
+
+/** The clinics a vendor's or a channel's incident window reached, each with its counts, its version and, given the class and discovery, both clocks. */
+export function fetchIncidentScope(query: IncidentScopeQuery): Promise<OpsResult<IncidentScopeView>> {
+  return callOps("incidentScope", "read", scopeArgs(query), (value) => {
+    const d = exactKeys(value, ["source", "value", "reach", "channels", "from", "to", "clinics", "clinicsWithNone", "unread"], "incidentScope");
+    const source = literal(d.source, ["vendor", "channel"] as const, "incidentScope.source");
+    return {
+      source,
+      value:
+        source === "vendor"
+          ? literal(d.value, SCOPE_VENDORS, "incidentScope.value")
+          : literal(d.value, SCOPE_CHANNELS, "incidentScope.value"),
+      reach: literal(d.reach, SCOPE_REACHES, "incidentScope.reach"),
+      channels: list(d.channels, "incidentScope.channels").map((c, i) => literal(c, SCOPE_CHANNELS, `incidentScope.channels[${i}]`)),
+      from: isoInstant(d.from, "incidentScope.from"),
+      to: isoInstant(d.to, "incidentScope.to"),
+      clinics: list(d.clinics, "incidentScope.clinics").map((row, i) => {
+        const at = `incidentScope.clinics[${i}]`;
+        const r = exactKeys(
+          row,
+          ["clinicId", "clinicName", "billingClinicId", "conversations", "total", "holdsData", "agreementVersion", "coveredEntity", "demo", "offboarding", "clocks"],
+          at,
+        );
+        return {
+          clinicId: id(r.clinicId, `${at}.clinicId`),
+          clinicName: text(r.clinicName, `${at}.clinicName`),
+          billingClinicId: nullable(r.billingClinicId, (v) => id(v, `${at}.billingClinicId`)),
+          conversations: readConversationCounts(r.conversations, `${at}.conversations`),
+          total: count(r.total, `${at}.total`),
+          holdsData: nullable(r.holdsData, (v) => bool(v, `${at}.holdsData`)),
+          agreementVersion: optionalText(r.agreementVersion, `${at}.agreementVersion`),
+          coveredEntity: nullable(r.coveredEntity, (v) => bool(v, `${at}.coveredEntity`)),
+          demo: bool(r.demo, `${at}.demo`),
+          offboarding: bool(r.offboarding, `${at}.offboarding`),
+          clocks: nullable(r.clocks, (v) => readClocks(v, `${at}.clocks`)),
+        };
+      }),
+      clinicsWithNone: count(d.clinicsWithNone, "incidentScope.clinicsWithNone"),
+      unread: count(d.unread, "incidentScope.unread"),
+    };
+  });
+}
+
 /** A button's answer: the item proposed in the approval inbox (nothing sent), or why not. */
 export type ProposeOutcome =
   | { status: "proposed"; approvalId: string; reminderNumber?: number; normallyDueOn?: string }
@@ -8600,5 +8845,312 @@ export function generateCompliancePack(week?: string): Promise<OpsResult<Generat
       unreadSections: count(data.unreadSections, "generateCompliancePack.unreadSections"),
       auditRecorded: bool(data.auditRecorded, "generateCompliancePack.auditRecorded"),
     };
+  });
+}
+
+export type IncidentChecklistStep = {
+  step: ChecklistStep;
+  tickedAt: string | null;
+  tickedBy: string | null;
+  affectedCount: number | null;
+  fromBatch: boolean;
+};
+
+export type IncidentChecklistResult = { status: "read"; steps: IncidentChecklistStep[] } | { status: "refused"; message: string };
+
+/** An incident's checklist: every step of the procedure, ticked or not, with who and when. */
+export function fetchIncidentChecklist(clinicId: string, incidentId: string): Promise<OpsResult<IncidentChecklistResult>> {
+  return callOps("incidentChecklist", "read", { clinicId, incidentId }, (value) => {
+    const data = object(value, "incidentChecklist");
+    if (data.status === "refused") {
+      exactKeys(data, ["status", "message"], "incidentChecklist");
+      return refusal(data, "incidentChecklist");
+    }
+    const d = exactKeys(data, ["incidentId", "steps"], "incidentChecklist");
+    id(d.incidentId, "incidentChecklist.incidentId");
+    return {
+      status: "read",
+      steps: list(d.steps, "incidentChecklist.steps").map((row, i) => {
+        const at = `incidentChecklist.steps[${i}]`;
+        const r = exactKeys(row, ["step", "tickedAt", "tickedBy", "affectedCount", "fromBatch"], at);
+        return {
+          step: literal(r.step, CHECKLIST_STEPS, `${at}.step`),
+          tickedAt: optionalIsoInstant(r.tickedAt, `${at}.tickedAt`),
+          tickedBy: optionalText(r.tickedBy, `${at}.tickedBy`),
+          affectedCount: nullable(r.affectedCount, (v) => count(v, `${at}.affectedCount`)),
+          fromBatch: bool(r.fromBatch, `${at}.fromBatch`),
+        };
+      }),
+    };
+  });
+}
+
+export type TickIncidentStepOutcome =
+  | { status: "ticked" | "already"; step: ChecklistStep; tickedAt: string; affectedCount: number | null; auditRecorded: boolean }
+  | { status: "refused"; message: string };
+
+/** One step ticked, once, by the operator account. It records the step; it does not do it. */
+export function tickIncidentStep(
+  clinicId: string,
+  incidentId: string,
+  step: ChecklistStep,
+): Promise<OpsResult<TickIncidentStepOutcome>> {
+  return callOps("tickIncidentStep", "write", { clinicId, incidentId, step }, (value): TickIncidentStepOutcome => {
+    const data = object(value, "tickIncidentStep");
+    const status = literal(data.status, ["ticked", "already", "refused"] as const, "tickIncidentStep.status");
+    if (status === "refused") {
+      exactKeys(data, ["status", "message"], "tickIncidentStep");
+      return refusal(data, "tickIncidentStep");
+    }
+    const d = exactKeys(data, ["status", "step", "tickedAt", "affectedCount", "auditRecorded"], "tickIncidentStep");
+    return {
+      status,
+      step: literal(d.step, CHECKLIST_STEPS, "tickIncidentStep.step"),
+      tickedAt: isoInstant(d.tickedAt, "tickIncidentStep.tickedAt"),
+      affectedCount: nullable(d.affectedCount, (v) => count(v, "tickIncidentStep.affectedCount")),
+      auditRecorded: bool(d.auditRecorded, "tickIncidentStep.auditRecorded"),
+    };
+  });
+}
+
+export type IncidentProposalOutcome =
+  | { status: "proposed" | "already_waiting"; approvalId: string; clinics: number | null; auditRecorded: boolean }
+  | { status: "refused"; message: string };
+
+function readProposal(op: "proposeIncidentBatch" | "proposeIncidentReport") {
+  return (value: unknown): IncidentProposalOutcome => {
+    const data = object(value, op);
+    const status = literal(data.status, ["proposed", "already_waiting", "refused"] as const, `${op}.status`);
+    if (status === "refused") {
+      exactKeys(data, ["status", "message"], op);
+      return refusal(data, op);
+    }
+    const keys = "clinics" in data ? ["status", "approvalId", "clinics", "auditRecorded"] : ["status", "approvalId", "auditRecorded"];
+    const d = exactKeys(data, keys, op);
+    return {
+      status,
+      approvalId: id(d.approvalId, `${op}.approvalId`),
+      clinics: "clinics" in d ? count(d.clinics, `${op}.clinics`) : null,
+      auditRecorded: bool(d.auditRecorded, `${op}.auditRecorded`),
+    };
+  };
+}
+
+/** Proposes one inbox item that, approved with the owner's fresh code, opens an incident at each clinic the scope reaches. Opens nothing now. */
+export function proposeIncidentBatch(
+  query: IncidentScopeQuery & { class: BatchClass; discoveredAt: string },
+): Promise<OpsResult<IncidentProposalOutcome>> {
+  return callOps("proposeIncidentBatch", "write", scopeArgs(query), readProposal("proposeIncidentBatch"));
+}
+
+/** Proposes the incident's next report, pre-filled from fixed lists, due at its agreement deadline. Sends nothing now. */
+export function proposeIncidentReport(clinicId: string, incidentId: string): Promise<OpsResult<IncidentProposalOutcome>> {
+  return callOps("proposeIncidentReport", "write", { clinicId, incidentId }, readProposal("proposeIncidentReport"));
+}
+
+export type IncidentBatchFacts = {
+  kind: "incident_open_batch";
+  source: "vendor" | "channel";
+  value: ScopeVendor | ScopeChannel;
+  reach: ScopeReach;
+  from: string;
+  to: string;
+  incidentClass: BatchClass;
+  discoveredAt: string;
+  clinicsTotal: number;
+  toOpen: number;
+  alreadyOpen: number;
+  outOfService: number;
+  /** At most 20 of them, soonest agreement deadline first; the counts above cover all. */
+  clinics: {
+    clinicId: string;
+    clinicName: string | null;
+    conversations: number;
+    agreementVersion: string | null;
+    clocks: ScopeClocksView;
+    opened: boolean;
+    inService: boolean;
+  }[];
+};
+
+export type IncidentReportFacts = {
+  kind: "incident_report_send";
+  incidentId: string;
+  incidentClass: BatchClass;
+  report: number;
+  discoveredAt: string;
+  /** Our own target: internal, never quoted to the practice and never in the report. Label it "internal target". */
+  internalTarget: string;
+  agreementDeadline: string | null;
+  agreementVersion: string | null;
+  ownerNoticeBy: string | null;
+  affectedRecorded: number;
+  ticked: ChecklistStep[];
+  /** The report as it goes unless the owner chooses otherwise. */
+  fields: IncidentReportChoices;
+};
+
+export type IncidentApprovalItem = Omit<ApprovalItem, "kind" | "operation" | "packet"> & {
+  kind: IncidentApprovalKind;
+  operation: (typeof INCIDENT_OPERATIONS)[number];
+  packet: {
+    operation: (typeof INCIDENT_OPERATIONS)[number];
+    irreversible: boolean;
+    stillNeeded: boolean;
+    effect: string;
+    facts: IncidentBatchFacts | IncidentReportFacts;
+  } | null;
+};
+
+function readIncidentFacts(value: unknown, at: string): IncidentBatchFacts | IncidentReportFacts {
+  const kind = literal(field(object(value, at), "kind", at), INCIDENT_APPROVAL_KINDS, `${at}.kind`);
+  if (kind === "incident_open_batch") {
+    const f = exactKeys(
+      value,
+      ["kind", "source", "value", "reach", "from", "to", "incidentClass", "discoveredAt", "clinicsTotal", "toOpen", "alreadyOpen", "outOfService", "clinics"],
+      at,
+    );
+    const source = literal(f.source, ["vendor", "channel"] as const, `${at}.source`);
+    return {
+      kind,
+      source,
+      value: source === "vendor" ? literal(f.value, SCOPE_VENDORS, `${at}.value`) : literal(f.value, SCOPE_CHANNELS, `${at}.value`),
+      reach: literal(f.reach, SCOPE_REACHES, `${at}.reach`),
+      from: isoInstant(f.from, `${at}.from`),
+      to: isoInstant(f.to, `${at}.to`),
+      incidentClass: literal(f.incidentClass, BATCH_CLASSES, `${at}.incidentClass`),
+      discoveredAt: isoInstant(f.discoveredAt, `${at}.discoveredAt`),
+      clinicsTotal: count(f.clinicsTotal, `${at}.clinicsTotal`),
+      toOpen: count(f.toOpen, `${at}.toOpen`),
+      alreadyOpen: count(f.alreadyOpen, `${at}.alreadyOpen`),
+      outOfService: count(f.outOfService, `${at}.outOfService`),
+      clinics: list(f.clinics, `${at}.clinics`).map((row, i) => {
+        const a = `${at}.clinics[${i}]`;
+        const r = exactKeys(row, ["clinicId", "clinicName", "conversations", "agreementVersion", "clocks", "opened", "inService"], a);
+        return {
+          clinicId: id(r.clinicId, `${a}.clinicId`),
+          clinicName: optionalText(r.clinicName, `${a}.clinicName`),
+          conversations: count(r.conversations, `${a}.conversations`),
+          agreementVersion: optionalText(r.agreementVersion, `${a}.agreementVersion`),
+          clocks: readClocks(r.clocks, `${a}.clocks`),
+          opened: bool(r.opened, `${a}.opened`),
+          inService: bool(r.inService, `${a}.inService`),
+        };
+      }),
+    };
+  }
+  const f = exactKeys(
+    value,
+    ["kind", "incidentId", "incidentClass", "report", "discoveredAt", "internalTarget", "agreementDeadline", "agreementVersion", "ownerNoticeBy", "affectedRecorded", "ticked", "fields"],
+    at,
+  );
+  const report = count(f.report, `${at}.report`);
+  if (report < 1) throw new ShapeError(`${at}.report`);
+  return {
+    kind,
+    incidentId: id(f.incidentId, `${at}.incidentId`),
+    incidentClass: literal(f.incidentClass, BATCH_CLASSES, `${at}.incidentClass`),
+    report,
+    discoveredAt: isoInstant(f.discoveredAt, `${at}.discoveredAt`),
+    internalTarget: isoInstant(f.internalTarget, `${at}.internalTarget`),
+    agreementDeadline: optionalIsoInstant(f.agreementDeadline, `${at}.agreementDeadline`),
+    agreementVersion: optionalText(f.agreementVersion, `${at}.agreementVersion`),
+    ownerNoticeBy: optionalIsoInstant(f.ownerNoticeBy, `${at}.ownerNoticeBy`),
+    affectedRecorded: count(f.affectedRecorded, `${at}.affectedRecorded`),
+    ticked: list(f.ticked, `${at}.ticked`).map((s, i) => literal(s, CHECKLIST_STEPS, `${at}.ticked[${i}]`)),
+    fields: readChoices(f.fields, `${at}.fields`),
+  };
+}
+
+function readIncidentApprovalItem(value: unknown, at: string): IncidentApprovalItem {
+  const r = exactKeys(
+    value,
+    ["id", "kind", "clinic", "subjectRef", "urgency", "status", "proposedAt", "dueAt", "expiresAt", "decidedAt", "outcomeCode", "pastDue", "irreversible", "operation", "hasDraft", "packet"],
+    at,
+  );
+  if (typeof r.subjectRef !== "string" || !APPROVAL_SUBJECT.test(r.subjectRef)) throw new ShapeError(`${at}.subjectRef`);
+  const kind = literal(r.kind, INCIDENT_APPROVAL_KINDS, `${at}.kind`);
+  const packet = nullable(r.packet, (v) => {
+    const p = exactKeys(v, ["operation", "irreversible", "stillNeeded", "effect", "facts"], `${at}.packet`);
+    return {
+      operation: literal(p.operation, INCIDENT_OPERATIONS, `${at}.packet.operation`),
+      irreversible: bool(p.irreversible, `${at}.packet.irreversible`),
+      stillNeeded: bool(p.stillNeeded, `${at}.packet.stillNeeded`),
+      effect: text(p.effect, `${at}.packet.effect`),
+      facts: readIncidentFacts(p.facts, `${at}.packet.facts`),
+    };
+  });
+  if (packet && packet.facts.kind !== kind) throw new ShapeError(`${at}.packet.facts.kind`);
+  return {
+    id: id(r.id, `${at}.id`),
+    kind,
+    clinic: readApprovalClinic(r.clinic, `${at}.clinic`),
+    subjectRef: r.subjectRef,
+    urgency: literal(r.urgency, APPROVAL_URGENCIES, `${at}.urgency`),
+    status: literal(r.status, APPROVAL_STATUSES, `${at}.status`),
+    proposedAt: isoInstant(r.proposedAt, `${at}.proposedAt`),
+    dueAt: isoInstant(r.dueAt, `${at}.dueAt`),
+    expiresAt: optionalIsoInstant(r.expiresAt, `${at}.expiresAt`),
+    decidedAt: optionalIsoInstant(r.decidedAt, `${at}.decidedAt`),
+    outcomeCode: approvalCode(r.outcomeCode, `${at}.outcomeCode`),
+    pastDue: bool(r.pastDue, `${at}.pastDue`),
+    irreversible: bool(r.irreversible, `${at}.irreversible`),
+    operation: literal(r.operation, INCIDENT_OPERATIONS, `${at}.operation`),
+    hasDraft: bool(r.hasDraft, `${at}.hasDraft`),
+    packet,
+  };
+}
+
+/** The incident assistant's items in one status (waiting by default), earliest due first, each waiting one with its packet. */
+export function fetchIncidentApprovals(
+  options: { status?: ApprovalStatus; limit?: number } = {},
+): Promise<OpsResult<{ items: IncidentApprovalItem[]; partial: string[] }>> {
+  // The incident family only: the billing items' packets are never built for this read.
+  const args: Record<string, unknown> = { family: "incident" };
+  if (options.status) args.status = options.status;
+  if (options.limit !== undefined) args.limit = options.limit;
+  return callOps("listApprovals", "read", args, (value) => {
+    const data = exactKeys(value, ["items", "partial"], "listApprovals");
+    return {
+      items: list(data.items, "listApprovals.items")
+        .filter(isIncidentApprovalRow)
+        .map((row, i) => readIncidentApprovalItem(row, `listApprovals.items[${i}]`)),
+      partial: list(data.partial, "listApprovals.partial").map((p, i) => id(p, `listApprovals.partial[${i}]`)),
+    };
+  });
+}
+
+export type IncidentApprovalHistoryEvent = Omit<ApprovalHistoryEvent, "kind"> & { kind: IncidentApprovalKind };
+
+/** The add-only record of the incident assistant's items, newest first. */
+export function fetchIncidentApprovalHistory(options: { limit?: number } = {}): Promise<OpsResult<IncidentApprovalHistoryEvent[]>> {
+  const args: Record<string, unknown> = {};
+  if (options.limit !== undefined) args.limit = options.limit;
+  return callOps("listApprovalHistory", "read", args, (value) => {
+    const data = exactKeys(value, ["events"], "listApprovalHistory");
+    return list(data.events, "listApprovalHistory.events")
+      .filter(isIncidentApprovalRow)
+      .map((row, i) => {
+        const at = `listApprovalHistory.events[${i}]`;
+        const r = exactKeys(
+          row,
+          ["id", "approvalId", "kind", "clinic", "event", "actorLabel", "ip", "userAgent", "draftHashApproved", "draftHashSent", "outcomeCode", "at"],
+          at,
+        );
+        return {
+          id: id(r.id, `${at}.id`),
+          approvalId: id(r.approvalId, `${at}.approvalId`),
+          kind: literal(r.kind, INCIDENT_APPROVAL_KINDS, `${at}.kind`),
+          clinic: readApprovalClinic(r.clinic, `${at}.clinic`),
+          event: literal(r.event, APPROVAL_EVENT_NAMES, `${at}.event`),
+          actorLabel: text(r.actorLabel, `${at}.actorLabel`),
+          ip: optionalText(r.ip, `${at}.ip`),
+          userAgent: optionalText(r.userAgent, `${at}.userAgent`),
+          draftHashApproved: nullable(r.draftHashApproved, (v) => hash(v, `${at}.draftHashApproved`)),
+          draftHashSent: nullable(r.draftHashSent, (v) => hash(v, `${at}.draftHashSent`)),
+          outcomeCode: approvalCode(r.outcomeCode, `${at}.outcomeCode`),
+          at: isoInstant(r.at, `${at}.at`),
+        };
+      });
   });
 }

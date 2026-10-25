@@ -7,6 +7,7 @@ import {
   type ApprovalDecision,
   type ApprovalEditFields,
   type ApproveReason,
+  type IncidentReportChoices,
   type OpsResult,
   type RejectReason,
 } from "./ops-client";
@@ -44,6 +45,8 @@ export async function decideApprovalWithCode(
   code: unknown,
   // A clinic-contact item's edit is its closed fields only (owner decision D12; lane P6f).
   editedDraft?: { subject: string; body: string } | { fields: ApprovalEditFields },
+  /** An incident report's choices (lane P6i): codes from the catalog's lists only, never typed words. */
+  editedFields?: IncidentReportChoices,
 ): Promise<OpsResult<ApprovalDecisionEntry>> {
   if (!(await requireOperator())) return UNAUTHENTICATED;
   if (!UUID.test(approvalId)) return { ok: true, data: { status: "refused", message: "No such approval." } };
@@ -56,5 +59,5 @@ export async function decideApprovalWithCode(
   }
   const fresh = checkFreshOperatorCode(code);
   if (!fresh.ok) return { ok: true, data: { status: "code_refused", message: fresh.message } };
-  return sendDecideApproval(approvalId, action, reasonCode, editedDraft);
+  return sendDecideApproval(approvalId, action, reasonCode, editedDraft, editedFields);
 }

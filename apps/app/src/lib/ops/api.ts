@@ -155,6 +155,13 @@ import {
 import { opListLifecycleIgnored, opSetLifecycleIgnored } from "@/lib/ops/lifecycle-ops";
 import { opCloseRightsIntake, opListRights, opRecordRightsIntake } from "@/lib/ops/rights-ops";
 import { opGenerateCompliancePack, opGetCompliancePack, opListCompliancePacks } from "@/lib/ops/pack-ops";
+import {
+  opIncidentChecklist,
+  opIncidentScope,
+  opProposeIncidentBatch,
+  opProposeIncidentReport,
+  opTickIncidentStep,
+} from "@/lib/ops/incident-assistant-ops";
 import { opListMachineQueues } from "@/lib/ops/machine-queues-ops";
 import { opDecideApproval, opListApprovalHistory, opListApprovals } from "@/lib/ops/approval-ops";
 import { opPreviewApprovalDraft, opProposeLifecycleNotice, opPullReminderForward } from "@/lib/ops/notice-ops";
@@ -720,6 +727,18 @@ const OPERATIONS = [
   "getCompliancePack",
   "listCompliancePacks",
   "generateCompliancePack",
+  // The incident assistant (ops automation lane P6i, lib/ops/incident-assistant-ops.ts;
+  // design E6 item 17): which clinics a vendor's or a channel's incident
+  // window reached, with both clocks each; an incident's checklist and a
+  // tick on it; and two proposals into the approval inbox, an incident at
+  // each clinic of a scope and an incident's report. Ids, counts, codes,
+  // dates and the clinic's name. Nothing here opens, sends, marks or closes
+  // anything: the owner approves in the inbox.
+  "incidentScope",
+  "incidentChecklist",
+  "tickIncidentStep",
+  "proposeIncidentBatch",
+  "proposeIncidentReport",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -878,6 +897,10 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "pullReminderForward",
   // Mutating: a missed week's compliance pack made and stored, once.
   "generateCompliancePack",
+  // Mutating: an incident checklist step ticked, or an incident item proposed into the inbox. Nothing is run.
+  "tickIncidentStep",
+  "proposeIncidentBatch",
+  "proposeIncidentReport",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1569,6 +1592,16 @@ export async function runOperation(
       return opListCompliancePacks(args);
     case "generateCompliancePack":
       return opGenerateCompliancePack(args, operator);
+    case "incidentScope":
+      return opIncidentScope(args, operator);
+    case "incidentChecklist":
+      return opIncidentChecklist(args, operator);
+    case "tickIncidentStep":
+      return opTickIncidentStep(args, operator);
+    case "proposeIncidentBatch":
+      return opProposeIncidentBatch(args, operator);
+    case "proposeIncidentReport":
+      return opProposeIncidentReport(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

@@ -14,6 +14,12 @@ import {
 } from "@/db/schema";
 
 import { parseContactPayload, type ContactPayloads } from "./contact-payloads";
+import {
+  parseIncidentBatchPayload,
+  parseIncidentReportPayload,
+  type IncidentBatchPayload,
+  type IncidentReportPayload,
+} from "./incident-payloads";
 
 export {
   APPROVAL_EVENTS,
@@ -58,7 +64,10 @@ export type KindSpec = {
     | "sendAgreementQuestion"
     | "extendSetupDeadline"
     | "sendSetupNotice"
-    | "queueSetupReminder";
+    | "queueSetupReminder"
+    // The incident assistant (lane P6i): the existing openIncident, per clinic, and Send report.
+    | "openIncident"
+    | "sendIncidentReport";
   readonly urgency: ApprovalUrgency;
   /** Past this many hours after it was proposed, a waiting item is past due (one alert; a legal clock re-alerts every 4 hours). */
   readonly dueHours: number;
@@ -77,6 +86,13 @@ export type KindSpec = {
    * requests the job is per request kind (RETRIED_BY_REQUEST_KIND).
    */
   readonly retriedBy: string | null;
+  /**
+   * The owner may change the item's fixed fields before approving, by
+   * choosing from closed lists only, never by typing (lane P6i: the L29
+   * report). Checked again before the decision is recorded
+   * (./incident-kinds.ts FIELD_EDITORS).
+   */
+  readonly fieldsEditable?: boolean;
 };
 
 export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
@@ -179,6 +195,30 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
     hasDraft: false,
     retriedBy: null,
   },
+  // The incident assistant (lane P6i; design E6 §3 item 17; owner decision
+  // D18). Both are legal clocks: re-alerted every 4 hours while they wait,
+  // never expired, never approved by time. A batch is due at the internal
+  // 24-hour target; a report at its incident's agreement deadline, set when
+  // it is proposed (./incident-kinds.ts).
+  incident_open_batch: {
+    operation: "openIncident",
+    urgency: "legal_clock",
+    dueHours: 24,
+    expiryDays: null,
+    irreversible: true,
+    hasDraft: false,
+    retriedBy: null,
+  },
+  incident_report_send: {
+    operation: "sendIncidentReport",
+    urgency: "legal_clock",
+    dueHours: 24,
+    expiryDays: null,
+    irreversible: true,
+    hasDraft: false,
+    retriedBy: null,
+    fieldsEditable: true,
+  },
 };
 
 /** The kinds that email a clinic (lane P6f): proposed by an operator's button, or the BAA chase by the job. */
@@ -213,6 +253,33 @@ export const RETRIED_BY_REQUEST_KIND: Readonly<Record<BillingRequestKind, string
   cancel_now: null,
   close_setup: null,
 };
+
+/**
+ * Which screen each kind belongs to, so a list read for one screen never
+ * builds another's packets (lane P6i): the Approvals section reads
+ * `billing`, the Incidents page `incident`, the clinic-contact drafts
+ * `contact` (lane P6f's kinds, drawn in the Approvals section beside the
+ * billing kinds).
+ */
+export const APPROVAL_FAMILIES = ["billing", "incident", "contact"] as const;
+export type ApprovalFamily = (typeof APPROVAL_FAMILIES)[number];
+export const KIND_FAMILY: Readonly<Record<ApprovalKind, ApprovalFamily>> = {
+  billing_request_retry: "billing",
+  overage_invoice_retry: "billing",
+  billing_event_replay: "billing",
+  baa_resign_chase: "contact",
+  agreement_question: "contact",
+  setup_extended: "contact",
+  setup_waiting_on_us: "contact",
+  setup_help_offer: "contact",
+  setup_reminder_now: "contact",
+  incident_open_batch: "incident",
+  incident_report_send: "incident",
+};
+
+export function kindsOfFamily(family: ApprovalFamily): ApprovalKind[] {
+  return APPROVAL_KINDS.filter((kind) => KIND_FAMILY[kind] === family);
+}
 
 /** An item still `approved` this long after its decision lost its process: the sweep records it failed. */
 export const APPROVED_STUCK_MS = 15 * 60 * 1000;
@@ -253,6 +320,8 @@ export type Payloads = {
   overage_invoice_retry: { billingClinicId: string; overageId: string; windowStart: string };
   /** `parkedAt`: when the event was parked, the episode the item was proposed for. */
   billing_event_replay: { eventType: string; parkedAt: string };
+  incident_open_batch: IncidentBatchPayload;
+  incident_report_send: IncidentReportPayload;
 } & ContactPayloads;
 
 /**
@@ -287,6 +356,10 @@ export function parsePayload<K extends ApprovalKind>(kind: K, raw: unknown): Pay
       if (typeof p.parkedAt !== "string" || !ISO_INSTANT.test(p.parkedAt)) return null;
       return p as Payloads[K];
     }
+    case "incident_open_batch":
+      return parseIncidentBatchPayload(p) as Payloads[K] | null;
+    case "incident_report_send":
+      return parseIncidentReportPayload(p) as Payloads[K] | null;
   }
   return null;
 }

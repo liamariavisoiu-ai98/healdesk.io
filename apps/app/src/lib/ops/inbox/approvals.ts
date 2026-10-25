@@ -54,6 +54,18 @@ const WORDS: Readonly<Record<ApprovalKind, { one: string; many: string }>> = {
     one: "1 setup reminder to send sooner is waiting for your yes.",
     many: "{n} setup reminders to send sooner are waiting for your yes.",
   },
+  // The incident assistant (lane P6i): legal clocks, so these rows read
+  // "bad". The row opens the Approvals section, which reads only the billing
+  // family: lane P6j must draw these items (on the Incidents page) and point
+  // this row there before it is true.
+  incident_open_batch: {
+    one: "1 incident scope is waiting for your yes to open its incidents.",
+    many: "{n} incident scopes are waiting for your yes to open their incidents.",
+  },
+  incident_report_send: {
+    one: "1 incident report is waiting for your yes.",
+    many: "{n} incident reports are waiting for your yes.",
+  },
 };
 
 const TONE: Readonly<Record<ApprovalUrgency, Tone>> = { legal_clock: "bad", money: "warn", routine: "info" };

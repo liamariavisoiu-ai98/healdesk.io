@@ -3,6 +3,7 @@ import type { OpsEvent } from "@/lib/ops/notify";
 import * as account from "./account";
 import * as agreements from "./agreements";
 import * as approvals from "./approvals";
+import * as incidentAssistant from "./incident-assistant";
 import * as availability from "./availability";
 import * as billing from "./billing";
 import * as calendar from "./calendar";
@@ -58,6 +59,7 @@ export const SECTIONS = {
   "morning-digest": morningDigest,
   approvals,
   "compliance-pack": compliancePack,
+  "incident-assistant": incidentAssistant,
 } as const;
 
 export const ALERT_WORDING: Partial<Record<OpsEvent, AlertWording>> = Object.assign(

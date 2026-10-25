@@ -56,6 +56,8 @@ const LEFT_OUT: ReadonlySet<string> = new Set<OpsEvent>([
   // The weekly compliance pack's pointer is for the owner's inbox only (owner
   // decision D20): Home would repeat a weekly email as a row for a day.
   "compliance_pack_ready",
+  // The incident assistant's items have the approvals source's row too (lane P6i).
+  "incident_step_waiting",
 ]);
 
 /** Alerts about a patient who may not reach the clinic, or a paid buyer with no account. */

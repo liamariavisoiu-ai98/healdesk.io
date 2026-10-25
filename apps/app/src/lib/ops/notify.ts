@@ -357,6 +357,12 @@ export const OPS_EVENTS = [
   // and the same week failing twice in a row, once per week. No clinic.
   "compliance_pack_ready",
   "compliance_pack_failed",
+  // The incident assistant's items in the approval inbox (lib/approvals/
+  // incident-kinds.ts; ops automation lane P6i, owner decision D18): an
+  // incident batch or report waiting for the owner's yes, on arrival and
+  // every 4 hours while it waits, one alert per kind with the count. No
+  // clinic: the items are listed on one page.
+  "incident_step_waiting",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

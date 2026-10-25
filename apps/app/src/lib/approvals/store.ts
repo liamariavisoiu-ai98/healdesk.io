@@ -63,6 +63,12 @@ export type Proposal<K extends ApprovalKind = ApprovalKind> = {
   subjectClinicId: string | null;
   subjectRef: string;
   payload: Payloads[K];
+  /** When it is due, where the kind's clock is not hours from now (lane P6i: an incident report's agreement deadline). */
+  dueAt?: Date;
+  /** Who proposed it, where not the job: a service name (lane P6i: the console's incident assistant). */
+  proposedBy?: string;
+  /** Whom the `proposed` event names, where not the job: the operator who pressed the button. */
+  actor?: EventActor;
 };
 
 /**
@@ -119,17 +125,18 @@ export async function propose(
         subjectClinicId: proposal.subjectClinicId,
         subjectRef: proposal.subjectRef,
         payload: proposal.payload as Record<string, string | number | boolean | null>,
-        dueAt: new Date(now.getTime() + spec.dueHours * HOUR_MS),
+        dueAt: proposal.dueAt ?? new Date(now.getTime() + spec.dueHours * HOUR_MS),
         expiresAt: spec.expiryDays === null ? null : new Date(now.getTime() + spec.expiryDays * DAY_MS),
         urgency: spec.urgency,
-        proposedBy: options.proposedBy ?? PROPOSER,
+        // Either lane's way of naming the proposer (P6i on the proposal, P6f in the options).
+        proposedBy: proposal.proposedBy ?? options.proposedBy ?? PROPOSER,
         proposedAt: now,
         ...(options.draft !== undefined ? { draft: options.draft, draftHash: draftHash(options.draft) } : {}),
       })
       .onConflictDoNothing()
       .returning({ id: opsApprovals.id });
     if (!row) return null;
-    await recordEvent(tx, row.id, "proposed", options.actor ?? SERVICE_ACTOR, { at: now });
+    await recordEvent(tx, row.id, "proposed", proposal.actor ?? options.actor ?? SERVICE_ACTOR, { at: now });
     return row.id;
   });
 }
@@ -233,11 +240,20 @@ export async function getApproval(id: string): Promise<OpsApproval | null> {
   return row ?? null;
 }
 
-export async function listByStatus(statuses: readonly ApprovalStatus[], limit: number): Promise<OpsApproval[]> {
+export async function listByStatus(
+  statuses: readonly ApprovalStatus[],
+  limit: number,
+  kinds?: readonly ApprovalKind[],
+): Promise<OpsApproval[]> {
+  if (kinds && kinds.length === 0) return [];
   return unsafeDb
     .select()
     .from(opsApprovals)
-    .where(inArray(opsApprovals.status, [...statuses]))
+    .where(
+      kinds
+        ? and(inArray(opsApprovals.status, [...statuses]), inArray(opsApprovals.kind, [...kinds]))
+        : inArray(opsApprovals.status, [...statuses]),
+    )
     .orderBy(asc(opsApprovals.dueAt), asc(opsApprovals.proposedAt))
     .limit(limit);
 }

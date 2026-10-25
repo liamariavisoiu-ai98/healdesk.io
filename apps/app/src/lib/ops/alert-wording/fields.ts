@@ -244,4 +244,6 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
     "lateDays",
   ],
   compliance_pack_failed: ["windowStart"],
+  // The incident assistant (lane P6i), raised by the same remind: the kind and how many are due a reminder; no clinic.
+  incident_step_waiting: ["kind", "count"],
 };

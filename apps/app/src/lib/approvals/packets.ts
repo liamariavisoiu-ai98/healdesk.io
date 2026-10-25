@@ -25,6 +25,7 @@ import {
   type ContactFacts,
   type ContactPacketExtra,
 } from "./contact-packets";
+import { incidentPacketFor, type IncidentBatchFacts, type IncidentReportFacts } from "./incident-kinds";
 import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind, type ContactKind } from "./kinds";
 
 /**
@@ -80,7 +81,7 @@ export type Packet = {
   stillNeeded: boolean;
   /** What approving does, in plain words. */
   effect: string;
-  facts: BillingRequestFacts | OverageFacts | EventFacts | ContactFacts;
+  facts: BillingRequestFacts | OverageFacts | EventFacts | ContactFacts | IncidentBatchFacts | IncidentReportFacts;
 } & Partial<ContactPacketExtra>;
 
 /** Every key a packet carries, for the test that holds it to no free text. */
@@ -331,6 +332,10 @@ export async function packetFor(approval: OpsApproval, ctx: Ctx): Promise<Packet
     case "setup_help_offer":
     case "setup_reminder_now":
       return contactPacket(kind, approval, ctx);
+    // The incident assistant (lane P6i).
+    case "incident_open_batch":
+    case "incident_report_send":
+      return incidentPacketFor(approval, ctx);
   }
   return null;
 }

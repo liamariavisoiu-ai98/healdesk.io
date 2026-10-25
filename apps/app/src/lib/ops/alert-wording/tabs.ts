@@ -269,6 +269,8 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   // printable pack page (/admin/compliance/pack/<week>) lands.
   compliance_pack_ready: "/admin/compliance",
   compliance_pack_failed: "/admin/system/jobs",
+  // The incident assistant (lane P6i): always raised with no clinic; decided on the Incidents page (lane P6j).
+  incident_step_waiting: "/admin/compliance/incidents",
 };
 
 /** The console pages an alert with no clinic opens, by path, as a button names them. */

@@ -123,8 +123,9 @@ describe("fetchApprovals", () => {
     reply({ items: [{ ...ITEM_ROW, status: "rejected", decidedAt: "2026-11-02T11:00:00.000Z", outcomeCode: "not_needed", packet: null }], partial: [] });
     expect(await fetchApprovals({ status: "rejected", limit: 20 })).toMatchObject({ ok: true });
     expect(sent).toEqual([
-      { op: "listApprovals", args: {} },
-      { op: "listApprovals", args: { status: "rejected", limit: 20 } },
+      // The billing and clinic-contact families (lanes P6i, P6f): never an incident packet.
+      { op: "listApprovals", args: { family: ["billing", "contact"] } },
+      { op: "listApprovals", args: { family: ["billing", "contact"], status: "rejected", limit: 20 } },
     ]);
     const overage = {
       ...ITEM_ROW,

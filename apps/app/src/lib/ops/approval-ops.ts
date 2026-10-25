@@ -4,7 +4,11 @@ import { unsafeDb } from "@/db";
 import type { OpsApproval } from "@/db/schema";
 import { decideDraft } from "@/lib/approvals/drafts";
 import { execute, type Executor } from "@/lib/approvals/executors";
+import { FIELD_EDITORS, type FieldDecision } from "@/lib/approvals/incident-kinds";
 import {
+  APPROVAL_FAMILIES,
+  kindsOfFamily,
+  type ApprovalFamily,
   APPROVAL_KINDS,
   APPROVAL_STATUSES,
   APPROVE_REASONS,
@@ -106,8 +110,27 @@ export async function opListApprovals(
   const status: ApprovalStatus = rawStatus ?? "waiting";
   const limit = limitOf(args);
   if (limit === null) return opsProblem(`limit is a whole number from 1 to ${MAX_LIMIT}.`, 400, "invalid_args");
+  // One screen's items only (lane P6i): a family, or one kind. Absent: every kind, as before.
+  // A screen that draws two families (the Approvals section: billing and
+  // the clinic-contact emails, lane P6f) names both, as a list.
+  let kinds: ApprovalKind[] | undefined;
+  if (args.family !== undefined) {
+    const families = Array.isArray(args.family) ? args.family : [args.family];
+    if (
+      families.length === 0 ||
+      new Set(families).size !== families.length ||
+      !families.every((f) => (APPROVAL_FAMILIES as readonly unknown[]).includes(f))
+    ) {
+      return opsProblem(`family is one of ${APPROVAL_FAMILIES.join(", ")}, or a list of them.`, 400, "invalid_args");
+    }
+    kinds = (families as ApprovalFamily[]).flatMap((f) => kindsOfFamily(f));
+  }
+  if (args.kind !== undefined) {
+    if (!isApprovalKind(args.kind)) return opsProblem(`kind is one of ${APPROVAL_KINDS.join(", ")}.`, 400, "invalid_args");
+    kinds = (kinds ?? [args.kind]).filter((k) => k === args.kind);
+  }
   try {
-    const rows = await listByStatus([status], limit);
+    const rows = await listByStatus([status], limit, kinds);
     const names = await clinicNames(rows.map((r) => r.subjectClinicId));
     const partial: string[] = [];
     const items: ApprovalItem[] = [];
@@ -229,11 +252,25 @@ export async function opDecideApproval(
           : `The edited email cannot go as written (${draft.problems.join("; ")}). Nothing was changed.`,
     );
   }
+  // A kind whose fixed fields the owner may choose (lane P6i: the incident
+  // report): his choices, read from the lists and held to the operation's
+  // own rules now, so a choice it would refuse changes nothing.
+  const editor = spec.fieldsEditable ? FIELD_EDITORS[item.kind as ApprovalKind] : undefined;
+  if (!editor && args.editedFields !== undefined && args.editedFields !== null) {
+    return refusal("This item has no choices to edit. Nothing was changed.");
+  }
+  let fields: FieldDecision | null = null;
+  if (editor) {
+    fields = await editor(item, args.editedFields, now, { actor: actorFor(operator), request: operator.request });
+    if (!fields.ok) return refusal(fields.message);
+  }
+  const hashApproved = draft.hashApproved ?? (fields?.ok ? fields.hashApproved : null);
+  const edited = draft.edited || (fields?.ok === true && fields.edited);
   // The edit is recorded only once the decision has won the item: a losing
   // decision leaves no trace of an edit that was never approved.
   const approvedAt = new Date(now.getTime() + 1);
-  const before = draft.edited
-    ? [{ event: "edited" as const, at: now, extra: { draftHashApproved: draft.hashApproved } }]
+  const before = edited
+    ? [{ event: "edited" as const, at: now, extra: { draftHashApproved: hashApproved } }]
     : [];
   if (
     !(await moveStatus(
@@ -243,13 +280,18 @@ export async function opDecideApproval(
       "approved",
       actor,
       approvedAt,
-      { outcomeCode: reasonCode, draftHashApproved: draft.hashApproved },
+      { outcomeCode: reasonCode, draftHashApproved: hashApproved },
       before,
     ))
   ) {
     return refusal(ALREADY);
   }
-  const result = await execute(item, operator, { draft: draft.draft, now }, options.executors);
+  const result = await execute(
+    item,
+    operator,
+    { draft: draft.draft, fields: fields?.ok ? fields.fields : null, now },
+    options.executors,
+  );
   const settled = result.ok ? "executed" : "failed";
   const settledAt = new Date(now.getTime() + 2);
   // An email kind's executor returns the hash of what it sent (lane P6f): kept beside the hash approved.

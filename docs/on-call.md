@@ -634,6 +634,7 @@ made when it is sent and never stored. The alert comes once an item has waited t
 for a reminder sooner), one per kind; an email leaves the list unsent after 14 days, a reminder
 sooner after three. The agreement question's answer is recorded by the owner, as he heard it,
 with a fresh code; a Yes or Not sure pauses AYA at every location until the BAA is signed.
+
 ### Compliance pack
 
 `compliance_pack_ready`, `compliance_pack_failed`. The weekly compliance pack
@@ -666,3 +667,31 @@ stored.
 trying every hour; read its last run at System > Jobs (it names the weeks that failed), check
 System > Requires your attention for a database that cannot be reached, and the next good run
 stores the week.
+
+### Incident assistant
+
+`incident_step_waiting`. The incident assistant's two kinds of item in the approval inbox
+(`apps/app/src/lib/approvals/incident-kinds.ts`, ops automation Phase 6, lane P6i; owner
+decision D18): an incident opened at every clinic a vendor's or a channel's incident window
+reached (proposed by an operator after reading the scope), and one practice's incident report,
+pre-filled from fixed lists (proposed by an operator, by an approved batch for each incident it
+opened, and by the hourly pass for any open reportable incident with no report proposed before
+and no notice recorded; a report the owner rejected, or one that failed, is never proposed again
+by the pass, only by hand). The hourly pass runs from the `incident-deadlines` job (seeded on)
+and from `approvals-propose` (off until switched on). Both kinds are legal clocks: the alert
+comes, by email and Slack, at the first hourly pass after an item arrives and again at the first
+pass 4 hours or more after the last, while one waits; an item never expires and is never
+approved by waiting. A scope for the database host or AWS lists every clinic holding data by
+default (the window's counts as information); narrow it to the window only when the vendor's
+notice says the exposure was in transit. One batch opens at most 100 clinics, and each opened
+incident's report is then its own approval with its own fresh code. They are
+decided on Compliance › Incidents (lane P6j draws them there): Approve asks for the code from
+your authenticator and runs the console's own operation once, openIncident at each listed clinic
+(never twice for one scope) or Send report with the choices shown. A report's choices are changed
+only by picking from the lists, and a choice Send report would refuse is refused before anything
+is recorded. Reject runs nothing and leaves the incident's clock running. Not reportable stays
+its own button on the Incidents page; nothing here records it or resolves an incident. A report
+item leaves the list unrun once the incident has been reported, recorded not reportable or
+resolved from that page. Each incident's checklist records the procedure's steps, once each, by
+the operator account; the email step needs a report or a recorded notice first, and the resolve
+step a resolved incident.

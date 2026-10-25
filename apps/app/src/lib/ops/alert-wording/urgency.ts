@@ -159,6 +159,8 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   // twice needs a person today, before the record is missing for good.
   compliance_pack_ready: "fyi",
   compliance_pack_failed: "today",
+  // The incident assistant (lane P6i): a legal clock waiting on the owner.
+  incident_step_waiting: "urgent",
 };
 
 /** The tag's word and colour, the subject's prefix and Slack's emoji, by level. */

@@ -154,6 +154,7 @@ import {
 } from "@/lib/ops/lifecycle-ops";
 import { opListLifecycleIgnored, opSetLifecycleIgnored } from "@/lib/ops/lifecycle-ops";
 import { opCloseRightsIntake, opListRights, opRecordRightsIntake } from "@/lib/ops/rights-ops";
+import { opGenerateCompliancePack, opGetCompliancePack, opListCompliancePacks } from "@/lib/ops/pack-ops";
 import { opListMachineQueues } from "@/lib/ops/machine-queues-ops";
 import { opDecideApproval, opListApprovalHistory, opListApprovals } from "@/lib/ops/approval-ops";
 import { opPreviewApprovalDraft, opProposeLifecycleNotice, opPullReminderForward } from "@/lib/ops/notice-ops";
@@ -712,6 +713,13 @@ const OPERATIONS = [
   "proposeLifecycleNotice",
   "pullReminderForward",
   "previewApprovalDraft",
+  // The weekly compliance pack (ops automation lane P6h, lib/ops/pack-ops.ts;
+  // design E6 item 18): one stored week, the newest weeks with their five
+  // headline numbers, and a missed week made by hand (never one already
+  // stored). Counts, ids, dates and closed words; nothing contacts anyone.
+  "getCompliancePack",
+  "listCompliancePacks",
+  "generateCompliancePack",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -868,6 +876,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "recordAgreementAnswer",
   "proposeLifecycleNotice",
   "pullReminderForward",
+  // Mutating: a missed week's compliance pack made and stored, once.
+  "generateCompliancePack",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1553,6 +1563,12 @@ export async function runOperation(
       return opPullReminderForward(args, operator);
     case "previewApprovalDraft":
       return opPreviewApprovalDraft(args);
+    case "getCompliancePack":
+      return opGetCompliancePack(args);
+    case "listCompliancePacks":
+      return opListCompliancePacks(args);
+    case "generateCompliancePack":
+      return opGenerateCompliancePack(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

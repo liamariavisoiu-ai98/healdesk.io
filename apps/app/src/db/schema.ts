@@ -8029,3 +8029,40 @@ export const rightsIntakes = pgTable(
     ),
   ],
 );
+
+// -----------------------------------------------------------------------------
+// The weekly compliance pack (ops automation Phase 6, lane P6h; drizzle/0123)
+// -----------------------------------------------------------------------------
+
+/**
+ * One week's compliance pack (design E6 item 18; owner decision D20: for the
+ * owner only): counts, ids, dates and closed words read from the database
+ * for the week that starts on `weekStart`, a Monday in New York, stored once
+ * and never changed. A trigger refuses UPDATE, DELETE and TRUNCATE for every
+ * role, the migrator included. `payloadHash` is the SHA-256 of the payload's
+ * canonical JSON (lib/compliance-pack/hash.ts), so a printed page can be
+ * checked against the row. Platform-wide: no clinic column, no RLS, like
+ * ops_approval_events (drizzle/0119 says why).
+ */
+export const compliancePacks = pgTable(
+  "compliance_packs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    weekStart: date("week_start", { mode: "string" }).notNull(),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    generatedBy: text("generated_by").notNull(),
+  },
+  (t) => [
+    uniqueIndex("compliance_packs_week_key").on(t.weekStart),
+    check("compliance_packs_week_check", sql`extract(isodow from ${t.weekStart}) = 1`),
+    check("compliance_packs_hash_check", sql`${t.payloadHash} ~ '^[0-9a-f]{64}$'`),
+    check("compliance_packs_generated_by_check", sql`${t.generatedBy} ~ '^[a-z][a-z0-9-]{0,63}$'`),
+    check(
+      "compliance_packs_payload_check",
+      sql`jsonb_typeof(${t.payload}) = 'object' and position('@' in ${t.payload}::text) = 0 and regexp_replace(regexp_replace(${t.payload}::text, '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '', 'g'), '[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?(Z|[+-][0-9]{2}:[0-9]{2})?)?', '', 'g') !~ '[0-9]([ ().-]{0,2}[0-9]){6,}'`,
+    ),
+  ],
+);
+export type CompliancePackRow = typeof compliancePacks.$inferSelect;

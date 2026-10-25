@@ -57,6 +57,11 @@ export const READONLY_TABLES = [
   // none of which exists yet; the first one reviews it again.
   "ops_approvals",
   "ops_approval_events",
+  // The weekly compliance pack (drizzle/0123): a week's Monday, counts, ids
+  // (uuids), dates, versions and closed words, its hash and the service that
+  // made it. Read column by column on 25 October 2026: no patient, nothing
+  // typed, no address.
+  "compliance_packs",
 ] as const;
 
 /** Tables the role can never read, and why. */

@@ -53,6 +53,9 @@ const LEFT_OUT: ReadonlySet<string> = new Set<OpsEvent>([
   "clinic_email_waiting",
   "rights_request_due_soon",
   "rights_request_overdue",
+  // The weekly compliance pack's pointer is for the owner's inbox only (owner
+  // decision D20): Home would repeat a weekly email as a row for a day.
+  "compliance_pack_ready",
 ]);
 
 /** Alerts about a patient who may not reach the clinic, or a paid buyer with no account. */

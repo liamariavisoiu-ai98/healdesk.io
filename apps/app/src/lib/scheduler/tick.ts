@@ -31,6 +31,7 @@ import { runClinicAuditsHourly, runClinicChangesMinute } from "@/lib/audits/jobs
 import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
 import { runApprovalsProposeJob } from "@/lib/approvals/proposers";
+import { runCompliancePackJob } from "@/lib/compliance-pack/job";
 import { runLifecycleWatchJob } from "@/lib/lifecycle/watch";
 import { runRightsWatchJob } from "./rights-watch";
 import { runAddressChangesJob } from "@/lib/sign-in/address-change";
@@ -323,6 +324,8 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // items past their window and re-alerts the ones past due. It never
   // retries, invoices or replays anything itself.
   await record("approvals-propose", () => runApprovalsProposeJob({ now }));
+  // The weekly compliance pack (drizzle/0123), behind its switch: due from 07:00 New York on Monday (lib/compliance-pack/week.ts).
+  await record("compliance-pack", () => runCompliancePackJob({ now }));
   // L8, hourly behind its switch: each clinic's "request still open" goes at
   // its own opening hour, so the hour it runs is the clinic's, not UTC's.
   await record("requests-still-open", () => runRequestsStillOpenJob({ now }));

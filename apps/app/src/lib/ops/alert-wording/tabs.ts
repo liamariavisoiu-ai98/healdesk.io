@@ -265,6 +265,10 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   approval_waiting: "/admin/queues#approvals",
   // always raised with no clinic: the same section (lane P6f).
   clinic_email_waiting: "/admin/queues#approvals",
+  // always raised with no clinic: the Compliance page, until lane P6j's
+  // printable pack page (/admin/compliance/pack/<week>) lands.
+  compliance_pack_ready: "/admin/compliance",
+  compliance_pack_failed: "/admin/system/jobs",
 };
 
 /** The console pages an alert with no clinic opens, by path, as a button names them. */

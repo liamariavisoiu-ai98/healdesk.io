@@ -155,6 +155,10 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   // An email to a clinic waiting for the owner's yes: nothing is late for
   // the clinic, and no clock runs (lane P6f).
   clinic_email_waiting: "fyi",
+  // The weekly compliance pack: its pointer is news; a week that failed
+  // twice needs a person today, before the record is missing for good.
+  compliance_pack_ready: "fyi",
+  compliance_pack_failed: "today",
 };
 
 /** The tag's word and colour, the subject's prefix and Slack's emoji, by level. */

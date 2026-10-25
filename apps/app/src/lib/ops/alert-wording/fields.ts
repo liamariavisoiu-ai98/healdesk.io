@@ -231,4 +231,17 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
   approval_waiting: ["kind", "count"],
   // lib/approvals/proposers.ts remind, for the clinic-contact kinds (lane P6f).
   clinic_email_waiting: ["kind", "count"],
+  // lib/compliance-pack/job.ts: the week's Monday and the five headline
+  // numbers (each left out when its section could not be read), no clinic.
+  compliance_pack_ready: [
+    "windowStart",
+    "incidentsOpenCount",
+    "rightsOverdueCount",
+    "resignsOpenCount",
+    "vendorsCount",
+    "transcriptCopiesCount",
+    "unreadCount",
+    "lateDays",
+  ],
+  compliance_pack_failed: ["windowStart"],
 };

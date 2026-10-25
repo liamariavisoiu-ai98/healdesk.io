@@ -49,6 +49,7 @@ export const RUNBOOK_ANCHORS = [
   "setup-progress",
   "morning-digest",
   "approvals",
+  "compliance-pack",
 ] as const;
 
 export type RunbookAnchor = (typeof RUNBOOK_ANCHORS)[number];
@@ -160,6 +161,8 @@ export const RUNBOOK_ANCHOR: Record<OpsEvent, RunbookAnchor> = {
   rights_request_blocked: "patient-rights-tracker",
   rights_request_due_soon: "patient-rights-tracker",
   rights_request_overdue: "patient-rights-tracker",
+  compliance_pack_ready: "compliance-pack",
+  compliance_pack_failed: "compliance-pack",
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

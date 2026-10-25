@@ -862,6 +862,13 @@
       "when": 1792862451003,
       "tag": "0122_clinic_contact_approvals",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1792866051003,
+      "tag": "0123_compliance_packs",
+      "breakpoints": true
     }
   ]
 }

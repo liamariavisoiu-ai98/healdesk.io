@@ -351,6 +351,12 @@ export const OPS_EVENTS = [
   "rights_request_blocked",
   "rights_request_due_soon",
   "rights_request_overdue",
+  // The weekly compliance pack (lib/compliance-pack/job.ts; ops automation
+  // lane P6h, owner decision D20): the pointer to a week's stored pack with
+  // its five headline numbers, once per week and emailed to the ops address;
+  // and the same week failing twice in a row, once per week. No clinic.
+  "compliance_pack_ready",
+  "compliance_pack_failed",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

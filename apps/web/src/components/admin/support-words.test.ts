@@ -35,11 +35,14 @@ import {
   proposeRefusalWords,
   REGENERATE_NOTE,
   regenerateWords,
+  REPLY_SUBJECTS,
   replyByWords,
+  replySubject,
   rulesClause,
   saveWords,
   sectionOf,
   sendOutcomeWords,
+  SIGN_OFF_NOTE,
   SOURCE_WORDS,
   STAGE_LABELS,
   STAGE_STATE_WORDS,
@@ -115,7 +118,7 @@ describe("the case's closed lists have words", () => {
     expect(CLOSE_CHOICES).toEqual(["replied_by_hand", "no_reply_needed", "duplicate", "not_a_clinic", "spam"]);
     for (const choice of CLOSE_CHOICES) expect(reasons).toContain(choice);
     // The one reason Close does not offer is the watch's own (lane P7e): nothing in the console writes it.
-    expect(reasons.filter((r) => !CLOSE_CHOICES.includes(r))).toEqual(["no_further_reply"]);
+    expect(reasons.filter((r) => !(CLOSE_CHOICES as readonly string[]).includes(r))).toEqual(["no_further_reply"]);
   });
 
   test("every topic and symptom, word for word the chat's own (lib/support/escalation-fields.ts)", () => {
@@ -217,6 +220,15 @@ describe("the draft's closed lists have words", () => {
       "No draft: the model is not available on this host (3 Nov 2026, 10:01 UTC).",
     );
     expect(draftHeadWords(null)).toBe("No draft yet.");
+  });
+
+  test("the subject per topic is apps/app's, word for word (lib/support/send-vocab.ts), and the email signs itself", () => {
+    expect(REPLY_SUBJECTS).toEqual(wordTable("lib/support/send-vocab.ts", "SUPPORT_REPLY_SUBJECTS"));
+    expect(source("lib/support/send-vocab.ts")).toContain("return `Re: ${base} (ref ${printedRef})`;");
+    expect(replySubject("forwarding", "HD-7F3KQ")).toBe("Re: Your call forwarding (ref HD-7F3KQ)");
+    expect(source("lib/email/templates/support_reply.ts")).toContain('{ type: "paragraph", text: SUPPORT_SIGN_OFF }');
+    expect(source("lib/support/draft/checks.ts")).toContain("function withoutSignOff(text: string): string");
+    expect(SIGN_OFF_NOTE).toContain("The Healdesk Team");
   });
 
   test("the text rule is apps/app's (lib/support/send.ts MAX_DRAFT_CHARS), and a typed reply is kept the same way", () => {

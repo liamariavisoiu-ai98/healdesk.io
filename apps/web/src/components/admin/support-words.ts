@@ -336,6 +336,31 @@ export const SEND_NOTE =
 /** The second press on Send. */
 export const SEND_CONFIRM = "Send this reply? It cannot be undone once the reply has gone.";
 
+/**
+ * The subject a reply goes under, fixed per topic and never the owner's or
+ * the model's words (apps/app lib/support/send-vocab.ts SUPPORT_REPLY_SUBJECTS,
+ * word for word): "Re: <this> (ref HD-7F3KQ)". Shown beside the editor so
+ * Send's "under the subject shown" is true before a reply is proposed; the
+ * decision itself carries the subject apps/app stored on the item.
+ */
+export const REPLY_SUBJECTS: Record<SupportCaseCategory, string> = {
+  forwarding: "Your call forwarding",
+  calendar: "Your calendar connection",
+  channel: "Your channels",
+  plan: "Your plan",
+  billing: "Your billing question",
+  transcript: "Your transcripts",
+  sign_in: "Signing in",
+  other: "Your question to healdesk",
+};
+
+export function replySubject(category: SupportCaseCategory, printedRef: string): string {
+  return `Re: ${REPLY_SUBJECTS[category]} (ref ${printedRef})`;
+}
+
+/** The email adds the sign-off itself (lib/email/templates/support_reply.ts, SUPPORT_SIGN_OFF); a pasted one costs nothing (checks.ts withoutSignOff). */
+export const SIGN_OFF_NOTE = "The email signs itself The Healdesk Team; leave the sign-off out of the text.";
+
 /** The longest draft the editor may save (lib/support/send.ts MAX_DRAFT_CHARS). */
 export const MAX_REPLY_CHARS = 1500;
 
@@ -346,7 +371,6 @@ export const TEXT_RULE = `The text is the reply itself: 1 to ${MAX_REPLY_CHARS.t
 export function normaliseReply(raw: string): string | null {
   const text = raw
     .replace(/\r\n?/g, "\n")
-    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, "")
     .split("\n")
     .map((line) => line.replace(/\s+$/, ""))

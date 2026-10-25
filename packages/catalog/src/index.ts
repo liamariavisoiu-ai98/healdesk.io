@@ -55,6 +55,7 @@ export * from "./segments";
 export * from "./sender-identity";
 export * from "./specialties";
 export * from "./subprocessor-notice";
+export * from "./support-copy";
 export * from "./time-zones";
 export * from "./treatment-names";
 export * from "./demo-call";

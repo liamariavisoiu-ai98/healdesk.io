@@ -29,7 +29,8 @@ import {
  * (plan Part F8: "streamed replies announced once complete"). The input
  * carries the permanent line "This is product support. Please don't paste
  * {patient|client} information" (spec, "One rule that has to be in the
- * interface").
+ * interface"), and the conversation's opening message says it again, since
+ * helper text under an input is easy to miss (design E5 §3).
  */
 
 type ChatLink = { label: string; url: string };
@@ -374,7 +375,8 @@ export function SupportChat(props: {
             {messages.length === 0 ? (
               <li className="text-muted">
                 Ask how to do something in healdesk, or why something isn&rsquo;t working. It
-                answers from this account&rsquo;s setup, and can pass you to a person.
+                answers from this account&rsquo;s setup, and can pass you to a person. Please
+                don&rsquo;t paste {one} information here.
               </li>
             ) : null}
             {messages.map((m) => (

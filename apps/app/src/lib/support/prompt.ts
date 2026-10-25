@@ -2,6 +2,8 @@ import {
   agreementClaim,
   audienceSingular,
   DPA_SAFEGUARDS_LINE,
+  SUPPORT_BANNED_PHRASES,
+  SUPPORT_TONE_RULES,
   type AgreementKind,
   type Audience,
 } from "@healdesk/catalog";
@@ -42,8 +44,19 @@ Rules:
 - Never say "HIPAA compliant". Describe the practice's agreement with healdesk only in the words the turn context gives: not every practice signs a business associate agreement. Never say "revenue", and never "collected" except in "deposits collected". Never promise a date or a time for a channel to go live.
 - Use the word the turn context gives for the people the practice serves: "patients" or, at a veterinary practice, "clients".`;
 
+/**
+ * How every reply sounds (design E5 §7; owner, 24 and 25 October 2026): the
+ * catalog's eight tone rules and its banned phrases, word for word, so the
+ * chat, the email drafter and the send path's lint (lintSupportTone in
+ * @healdesk/catalog) hold one standard. In the stable prefix: the same bytes
+ * for every clinic.
+ */
+export const SUPPORT_TONE = `How you sound: a calm, competent colleague who already knows this account. The person is often a receptionist or an owner between patients, and often worried that something is wrong with their phones or their money. Keep them calm with facts, briefly.
+${SUPPORT_TONE_RULES.map((rule, i) => `${i + 1}. ${rule}`).join("\n")}
+Never write any of these: ${SUPPORT_BANNED_PHRASES.map((p) => `"${p}"`).join(", ")}. No exclamation marks and no emoji, ever.`;
+
 /** The cached prefix: identical for every clinic and every turn. */
-export const SUPPORT_PROMPT_STABLE = `${RULES}\n\n${HELP_TEXT}`;
+export const SUPPORT_PROMPT_STABLE = `${RULES}\n\n${SUPPORT_TONE}\n\n${HELP_TEXT}`;
 
 export function buildSupportPrompt(input: {
   clinicName: string;

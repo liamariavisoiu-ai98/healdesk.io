@@ -1,5 +1,13 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { CARRIERS, CARRIER_SERVICE_NUMBERS, COVERAGE_MODES, PATIENT_MODEL_IDS } from "@healdesk/catalog";
+import {
+  CARRIERS,
+  CARRIER_SERVICE_NUMBERS,
+  COVERAGE_MODES,
+  lintSupportTone,
+  PATIENT_MODEL_IDS,
+  SUPPORT_BANNED_PHRASES,
+  SUPPORT_TONE_RULES,
+} from "@healdesk/catalog";
 import { SETTING_KEYS } from "@/lib/portal/settings";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -18,7 +26,7 @@ import { forwardingAnswerFrom, forwardingStepsFrom, type ForwardingFacts } from 
 import { HELP_TEXT } from "@/lib/support/help-text";
 import { SUPPORT_LIMITS, SupportLimiter } from "@/lib/support/limits";
 import { SUPPORT_MODEL, supportRequest, type SupportModelClient } from "@/lib/support/model";
-import { buildSupportPrompt, SUPPORT_PROMPT_STABLE } from "@/lib/support/prompt";
+import { buildSupportPrompt, SUPPORT_PROMPT_STABLE, SUPPORT_TONE } from "@/lib/support/prompt";
 import { linkTo, LINK_TARGETS, SETTING_PLACES } from "@/lib/support/targets";
 import { SUPPORT_TOOLS } from "@/lib/support/tools";
 import type { SupportEvent } from "@/lib/support/turn";
@@ -255,6 +263,27 @@ describe("the request", () => {
       expect(tool.strict, tool.name).toBe(true);
       expect(tool.input_schema.additionalProperties, tool.name).toBe(false);
     }
+  });
+
+  test("the tone layer: every rule and every banned phrase is in the cached prefix, before the help text", () => {
+    for (const rule of SUPPORT_TONE_RULES) expect(SUPPORT_PROMPT_STABLE, rule).toContain(rule);
+    for (const phrase of SUPPORT_BANNED_PHRASES) expect(SUPPORT_TONE, phrase).toContain(`"${phrase}"`);
+    expect(SUPPORT_PROMPT_STABLE.indexOf(SUPPORT_TONE)).toBeGreaterThan(0);
+    expect(SUPPORT_PROMPT_STABLE.indexOf(SUPPORT_TONE)).toBeLessThan(SUPPORT_PROMPT_STABLE.indexOf(HELP_TEXT));
+    // Signed by the team, never a first name.
+    expect(SUPPORT_TONE).toContain('signed "The Healdesk Team", never with a first name');
+    // The prefix names no clinic and no day, so the tone block keeps it cacheable.
+    expect(SUPPORT_TONE).not.toMatch(/\b20\d\d\b/);
+  });
+
+  test("a scripted reply with an exclamation mark or a banned phrase fails the tone lint; a calm one passes", () => {
+    const calm =
+      "Calls are going to your direct line, so nobody is missed. The forwarding codes are in Settings, Channels; once they are set, AYA answers from the next call.";
+    expect(lintSupportTone(calm)).toEqual([]);
+    expect(lintSupportTone(`${calm} All done!`)).toEqual([{ rule: "exclamation" }]);
+    expect(lintSupportTone(`Unfortunately the calendar disconnected. ${calm}`)).toEqual([
+      { rule: "banned_phrase", phrase: "unfortunately" },
+    ]);
   });
 
   test("the help text is partly generated from the Settings registry: every switch is in it", () => {

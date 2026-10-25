@@ -78,8 +78,7 @@ const SAVED: Record<string, string | undefined> = {};
 let keys = 0;
 
 /** Noon in New York today, by the real clock. */
-// Tomorrow 16:00 UTC: always later than every row the database stamps with its own clock today (a "today 16:00" fixed the tests only before 16:00 UTC).
-const NOW = new Date(Math.floor(Date.now() / DAY) * DAY + DAY + 16 * HOUR);
+const NOW = new Date(Math.floor(Date.now() / DAY) * DAY + 16 * HOUR);
 const at = (ms: number) => new Date(NOW.getTime() + ms);
 
 const CTX = { clinicName: "Radiance Med Spa", audience: "patients" as const, timeZone: "America/New_York" };

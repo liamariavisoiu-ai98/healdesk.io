@@ -1,7 +1,7 @@
 "use client";
 
 import { onDay, whenWords } from "@/components/admin/approval-words";
-import { generatedByWords, HEADLINE_WORDS } from "@/components/admin/pack-words";
+import { generatedByWords, HEADLINE_WORDS, PACK_JOB_OFF } from "@/components/admin/pack-words";
 import { ActionButton, Failure, Section } from "@/components/admin/ui";
 import type { CompliancePackHeadline, CompliancePackSummaryView, GenerateCompliancePackOutcome, OpsResult } from "@/lib/admin/ops-client";
 
@@ -10,16 +10,19 @@ import type { CompliancePackHeadline, CompliancePackSummaryView, GenerateComplia
  * operations are lane P6h's, apps/app lib/ops/pack-ops.ts): the recent
  * weeks, newest first, each either a link to its stored pack with the five
  * headline numbers (a number that could not be read says so, never a zero)
- * or "not stored" with "Make this week's pack", which asks apps/app to make
- * and store that week's pack now (generateCompliancePack). apps/app refuses
- * a week that has not ended, a week already stored (a stored pack is never
- * made again) and, inside the week's first two days, a week with a section
- * it cannot read. Older stored packs follow.
+ * or "Not stored" with a control that asks apps/app to make and store that
+ * week's pack now (generateCompliancePack): "Make this week's pack" on the
+ * week now due, "Make this pack" on an older week. apps/app refuses a week
+ * that has not ended, a week already stored (a stored pack is never made
+ * again) and, inside the week's first two days, a week with a section it
+ * cannot read. Older stored packs follow. When the compliance-pack job's
+ * switch is read off (listJobs), the list says so: no week is made by
+ * itself then.
  */
 
 export type MakePack = (week: string) => Promise<OpsResult<GenerateCompliancePackOutcome>>;
 
-export const MAKE_WORDS = "Makes and stores this week's pack now from the host's records, read as of the week's end. A stored pack is never made again.";
+export const MAKE_WORDS = "Makes and stores this pack now from the host's records, read as of the week's end. A stored pack is never made again.";
 
 /** What apps/app answered once the pack was stored. */
 export function madeWords(data: Extract<GenerateCompliancePackOutcome, { status: "stored" }>): string {
@@ -37,7 +40,19 @@ function headlineCells(headline: CompliancePackHeadline | null): React.ReactNode
   });
 }
 
-export function PackList({ weeks, packs, onMake }: { weeks: string[]; packs: OpsResult<CompliancePackSummaryView[]>; onMake: MakePack }) {
+export function PackList({
+  weeks,
+  packs,
+  packJobOn,
+  onMake,
+}: {
+  /** The recent weeks, newest first: the first is the week now due. */
+  weeks: string[];
+  packs: OpsResult<CompliancePackSummaryView[]>;
+  /** The compliance-pack job's switch (listJobs); null when the jobs could not be read or it is not listed. */
+  packJobOn: boolean | null;
+  onMake: MakePack;
+}) {
   const stored = new Map(packs.ok ? packs.data.map((p) => [p.weekStart, p]) : []);
   const recent = new Set(weeks);
   const older = packs.ok ? packs.data.filter((p) => !recent.has(p.weekStart)) : [];
@@ -47,6 +62,11 @@ export function PackList({ weeks, packs, onMake }: { weeks: string[]; packs: Ops
       <p className="text-muted text-sm">
         One pack a week, stored at 07:00 New York on the Monday after it by the compliance-pack job while that job is on. The headline numbers are as the pack recorded them; open a week for every section.
       </p>
+      {packJobOn === false ? (
+        <p role="status" className="mt-2 text-sm font-semibold">
+          {PACK_JOB_OFF}
+        </p>
+      ) : null}
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead>
@@ -61,7 +81,7 @@ export function PackList({ weeks, packs, onMake }: { weeks: string[]; packs: Ops
             </tr>
           </thead>
           <tbody className="divide-line divide-y">
-            {weeks.map((week) => {
+            {weeks.map((week, i) => {
               const pack = stored.get(week);
               if (pack) return <PackRow key={week} pack={pack} />;
               return (
@@ -72,7 +92,7 @@ export function PackList({ weeks, packs, onMake }: { weeks: string[]; packs: Ops
                       <div className="flex flex-wrap items-center gap-3">
                         <span className="text-muted">Not stored.</span>
                         <ActionButton
-                          label="Make this week's pack"
+                          label={i === 0 ? "Make this week's pack" : "Make this pack"}
                           confirm={MAKE_WORDS}
                           run={() => onMake(week)}
                           done={(data) => (data.status === "stored" ? madeWords(data) : null)}

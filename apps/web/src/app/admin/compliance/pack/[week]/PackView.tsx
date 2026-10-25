@@ -3,6 +3,8 @@ import {
   ACCESS_EVENT_WORDS,
   AGREEMENT_WORDS,
   APPROVAL_INBOX_WORDS,
+  AT_RISK_HEADING,
+  AT_RISK_WORDS,
   couldNotReadWords,
   FAILURE_EVENT_WORDS,
   FRESH_CODE_WORDS,
@@ -17,10 +19,14 @@ import {
   PACK_CLASS_WORDS,
   partialWords,
   RIGHTS_WORDS,
+  runStatusWords,
   SECTION_WORDS,
   SIGN_INS_WORDS,
   SUBJECT_WORDS,
+  TARGET_MISSED_HEADING,
+  TARGET_MISSED_WORDS,
   TRANSCRIPT_WORDS,
+  VENDOR_RECORDED_WORDS,
   VENDOR_STATE_WORDS,
   weekWords,
   WHEN_WORDS,
@@ -47,13 +53,17 @@ import { PrintButton } from "../PrintButton";
  * so in a banner. The launch promises are read from this app when the page
  * is drawn, never stored in the pack, and the page says so.
  *
- * Printing hides the console's header and the controls, and starts each
- * group of sections on a new page: the week and the agreements; incidents
- * and patient rights; data, access and the inbox; the launch promises.
+ * Printing hides the console's header (the one `<header>` the admin layout
+ * renders, app/admin/layout.tsx; this page renders none of its own) and the
+ * controls, and starts each group of sections on a new page: the week and
+ * the agreements; incidents and patient rights; data, access and the inbox;
+ * the launch promises.
  */
 
+export const PRINT_HIDE_RULE = "header, .no-print { display: none !important; }";
+
 const PRINT_CSS = `@media print {
-  body > div > header, .no-print { display: none !important; }
+  ${PRINT_HIDE_RULE}
   .pack-group { break-before: page; page-break-before: always; }
   .pack-group:first-of-type { break-before: auto; page-break-before: auto; }
   main { padding: 0 !important; max-width: none !important; }
@@ -163,7 +173,7 @@ function Vendors({ section }: { section: CompliancePackView["vendors"] }) {
           ))}
         </tbody>
       </table>
-      <Number_ value={section.recordedThisWeek} words={{ label: "Attestations recorded", measures: "attestations and withdrawals entered on the Compliance page this week", when: "this week" }} />
+      <Number_ value={section.recordedThisWeek} words={VENDOR_RECORDED_WORDS} />
     </div>
   );
 }
@@ -179,8 +189,8 @@ function Incidents({ section }: { section: CompliancePackView["incidents"] }) {
         <Counted rows={openedByClass.map((r) => ({ key: r.class, count: r.count }))} words={PACK_CLASS_WORDS} none="None opened this week." />
       </div>
       <div>
-        <h3 className="font-semibold">Our own 24-hour target missed</h3>
-        <p className="text-muted">Open at the week&rsquo;s end with no notice recorded and the target passed, or a target that fell in the week and passed unmet; never one recorded not reportable. The target is internal and never a promise to a clinic.</p>
+        <h3 className="font-semibold">{TARGET_MISSED_HEADING}</h3>
+        <p className="text-muted">{TARGET_MISSED_WORDS}</p>
         {targetMissed.length === 0 ? (
           <p className="text-muted">None.</p>
         ) : (
@@ -197,8 +207,8 @@ function Incidents({ section }: { section: CompliancePackView["incidents"] }) {
         )}
       </div>
       <div>
-        <h3 className="font-semibold">Agreement deadline at risk</h3>
-        <p className="text-muted">Open at the week&rsquo;s end, no notice recorded, and the agreement&rsquo;s deadline within 14 days of the week&rsquo;s end or past.</p>
+        <h3 className="font-semibold">{AT_RISK_HEADING}</h3>
+        <p className="text-muted">{AT_RISK_WORDS}</p>
         {agreementDeadlineAtRisk.length === 0 ? (
           <p className="text-muted">None.</p>
         ) : (
@@ -259,7 +269,7 @@ function DataLifecycle({ section }: { section: CompliancePackView["dataLifecycle
                 <td className="py-1.5 pr-3">{LIFECYCLE_JOB_WORDS[job.job]}</td>
                 <td className={`py-1.5 pr-3 ${job.enabled ? "" : "text-red-deep font-semibold"}`}>{job.enabled ? "on" : "off"}</td>
                 <td className="py-1.5 pr-3">{job.lastRunAt ? whenWords(job.lastRunAt) : "never"}</td>
-                <td className="py-1.5 pr-3">{job.lastRunStatus ?? "—"}</td>
+                <td className="py-1.5 pr-3">{runStatusWords(job.lastRunStatus)}</td>
               </tr>
             ))}
           </tbody>
@@ -284,7 +294,8 @@ function Access({ section }: { section: CompliancePackView["access"] }) {
       </div>
       <div>
         <h3 className="font-semibold">Steps taken with a fresh authenticator code</h3>
-        <Numbers values={section.freshCodeSteps} words={FRESH_CODE_WORDS} />
+        {/* The attestations are counted once, under Vendors and readiness. */}
+        <Numbers values={{ approvalDecisions: section.freshCodeSteps.approvalDecisions, deviceRecoveriesIssued: section.freshCodeSteps.deviceRecoveriesIssued }} words={FRESH_CODE_WORDS} />
       </div>
       <p className="text-muted">{SIGN_INS_WORDS}</p>
     </div>

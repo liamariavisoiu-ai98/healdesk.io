@@ -43,7 +43,7 @@ export default async function CompliancePackPage({ params }: { params: Promise<{
         {!result.ok ? (
           <Failure failure={result} what="the compliance pack" />
         ) : (
-          <p className="mt-4 text-[15.6px]">No pack is stored for this week. The list of packs has Make this week&rsquo;s pack beside each week that has none.</p>
+          <p className="mt-4 text-[15.6px]">No pack is stored for this week. The list of packs offers to make one for any of the last twelve weeks that has none.</p>
         )}
       </main>
     );

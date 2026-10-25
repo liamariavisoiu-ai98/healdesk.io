@@ -1,13 +1,16 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { couldNotReadWords, lateWords, LAUNCH_PROMISES_WORDS, partialWords, SIGN_INS_WORDS } from "@/components/admin/pack-words";
+import { couldNotReadWords, lateWords, LAUNCH_PROMISES_WORDS, PACK_JOB_OFF, partialWords, SIGN_INS_WORDS, TARGET_MISSED_HEADING } from "@/components/admin/pack-words";
 import type { CompliancePackRecordView, CompliancePackSummaryView, CompliancePackView, OpsResult } from "@/lib/admin/ops-client";
 
-import { PackView } from "./[week]/PackView";
+import { PackView, PRINT_HIDE_RULE } from "./[week]/PackView";
 import { madeWords, MAKE_WORDS, PackList, type MakePack } from "./PackList";
 
 /**
@@ -32,6 +35,7 @@ function text(html: string): string {
     .replace(/<[^>]+>/g, " ")
     .replace(/&#x27;|&#39;|&rsquo;|’/g, "'")
     .replace(/&amp;/g, "&")
+    .replace(/&gt;/g, ">")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -133,16 +137,26 @@ describe("the printable pack", () => {
     // Incidents, with the two lists.
     expect(page).toContain("1 Of them, reportable at week end");
     expect(page).toContain("1 breach of unsecured PHI");
-    expect(page).toContain("Our own 24-hour target missed");
+    expect(page).toContain(TARGET_MISSED_HEADING);
+    expect(page).toContain("two business days to a first reply");
+    expect(page).not.toContain("24-hour target missed");
     expect(page).toContain("never a promise to a clinic");
+    expect(page.match(/never one recorded not reportable/g)).toHaveLength(2);
     expect(html).toContain(`href="/admin/clinics/${CLINIC}/care"`);
     expect(page).toContain(`incident ${INCIDENT} : agreement deadline 3 Nov 2026`);
     // Data lifecycle, access, approvals.
-    expect(page).toContain("Transcript emails off never —");
+    // A job's last run in words (jobs.ts record statuses), never the raw status or a dash.
+    expect(page).toContain("Retention purge on 25 Oct 2026, 03:00 UTC went through");
+    expect(page).toContain("Transcript emails off never no run recorded");
+    expect(page).not.toContain("never —");
     expect(page).toContain("1 a transcript copy was not delivered");
     expect(page).toContain("2 an approval approved");
     expect(page).toContain(SIGN_INS_WORDS);
+    // The attestations are counted once, under Vendors and readiness, never again under Access.
+    expect(page.match(/Attestations recorded/g)).toHaveLength(1);
+    expect(page).not.toContain("Platform attestations");
     expect(page).toContain("1 Waiting at week end");
+    expect(page).toContain("Taken off the list without running this week");
     expect(page).toContain("1.6 hours Median time to decide this week");
     // The launch promises from this app, said to be read now.
     expect(page).toContain(LAUNCH_PROMISES_WORDS);
@@ -150,7 +164,7 @@ describe("the printable pack", () => {
     expect(page).toContain("blocks go-live");
     // No banner when complete and on time.
     expect(page).not.toContain("Incomplete:");
-    expect(page).not.toContain("late:");
+    expect(page).not.toContain("Made after its due time");
     for (const raw of ["in_force", "not_attested", "retention-purge", "approval_approved", "openAtWeekEnd", "could_not_read"]) expect(page).not.toContain(raw);
   });
 
@@ -166,12 +180,21 @@ describe("the printable pack", () => {
     expect(withNull).not.toContain("0 Patient-rights requests overdue");
   });
 
-  test("the incomplete and late banners, in their words", () => {
+  test("the incomplete and late banners, in their words: a hand-made partial pack, and one hours late with zero whole days", () => {
     const late = { ...record, generatedBy: "ops-console", payload: { ...payload, build: { partial: true, unreadSections: ["rights" as const], builtLate: true, lateDays: 3 } } };
     const page = text(renderToStaticMarkup(h(PackView, { record: late })));
     expect(page).toContain(partialWords(["rights"]));
+    expect(page).toContain("Incomplete: the Patient rights section could not be read when the pack was made, two or more days after the week was due, so it was stored missing.");
     expect(page).toContain(lateWords(3));
+    expect(page).toContain("Made after its due time (07:00 New York on the Monday after the week): 3 days late.");
+    expect(page).not.toContain("did not run");
     expect(page).toContain("by the console, by hand");
+    // builtLate with lateDays 0 (job.ts buildInfo: an hour late, under a day): a real banner, never "0 days late".
+    const hoursLate = { ...record, payload: { ...payload, build: { partial: false, unreadSections: [], builtLate: true, lateDays: 0 } } };
+    const hours = text(renderToStaticMarkup(h(PackView, { record: hoursLate })));
+    expect(hours).toContain("Made after its due time (07:00 New York on the Monday after the week): less than a day late.");
+    expect(hours).not.toContain("0 days late");
+    expect(hours).not.toContain("Incomplete:");
   });
 
   test("a median with no decision says so", () => {
@@ -181,10 +204,16 @@ describe("the printable pack", () => {
     expect(page).toContain("No decision was made this week, so there is no median.");
   });
 
-  test("the print markup: a stylesheet that hides the header and the controls and breaks before each group after the first", () => {
+  test("the print markup: a stylesheet that hides the console's one header and the controls and breaks before each group after the first", () => {
     const html = renderToStaticMarkup(h(PackView, { record }));
     expect(html).toContain("@media print");
-    expect(html).toContain("header, .no-print { display: none !important; }");
+    expect(html).toContain(PRINT_HIDE_RULE);
+    // The rule hides every <header>: the admin layout renders exactly one (its chrome), and this page renders none, so it hides that and nothing else.
+    expect(PRINT_HIDE_RULE).toBe("header, .no-print { display: none !important; }");
+    const layout = readFileSync(join(__dirname, "..", "..", "layout.tsx"), "utf8");
+    expect(layout.match(/<header\b/g)).toHaveLength(1);
+    expect(layout).toMatch(/<header className="[^"]*sticky top-0[^"]*"/);
+    expect(html).not.toMatch(/<header\b/);
     expect(html).toContain(".pack-group { break-before: page;");
     expect((html.match(/class="pack-group print:break-before-page"/g) ?? []).length).toBe(3);
     expect(html).toContain('class="pack-group"');
@@ -203,25 +232,38 @@ const NO_MAKE: MakePack = async () => ({ ok: true, data: { status: "refused", me
 
 describe("the list of packs", () => {
   test("each recent week stored or not, the headline numbers, a null said as not read, and the older packs after", () => {
-    const html = renderToStaticMarkup(h(PackList, { weeks, packs: { ok: true, data: packs } as OpsResult<CompliancePackSummaryView[]>, onMake: NO_MAKE }));
+    const html = renderToStaticMarkup(h(PackList, { weeks, packs: { ok: true, data: packs } as OpsResult<CompliancePackSummaryView[]>, packJobOn: true, onMake: NO_MAKE }));
     const page = text(html);
     expect(html).toContain('href="/admin/compliance/pack/2026-10-19"');
     expect(html).toContain('href="/admin/compliance/pack/2026-10-05"');
     expect(html).toContain('href="/admin/compliance/pack/2026-06-01"');
     expect(html).not.toContain('href="/admin/compliance/pack/2026-10-12"');
-    expect(page).toContain("12 Oct 2026 Not stored. Make this week's pack");
+    // An older missing week: "Make this pack"; "Make this week's pack" is the due week's alone.
+    expect(page).toContain("12 Oct 2026 Not stored. Make this pack");
+    expect(page).not.toContain("Make this week's pack");
     expect(page).toContain("26 Oct 2026, 11:00 UTC by the weekly compliance-pack job");
     expect(page).toContain("12 Oct 2026, 11:00 UTC by the console, by hand");
     expect(page).toContain("not read");
-    expect(page.match(/Make this week's pack/g)).toHaveLength(1);
+    expect(page).not.toContain(PACK_JOB_OFF);
     // The older pack with no headline shows "not read" five times, never zeros.
     expect(page).not.toContain("1 Jun 2026 8 Jun 2026, 11:00 UTC by the weekly compliance-pack job 0");
+    // The due week missing: its control is "Make this week's pack", once.
+    const dueMissing = text(renderToStaticMarkup(h(PackList, { weeks: ["2026-10-26", ...weeks], packs: { ok: true, data: packs }, packJobOn: true, onMake: NO_MAKE })));
+    expect(dueMissing).toContain("26 Oct 2026 Not stored. Make this week's pack");
+    expect(dueMissing.match(/Make this week's pack/g)).toHaveLength(1);
+    expect(dueMissing.match(/Make this pack/g)).toHaveLength(1);
+  });
+
+  test("the pack job's switch read off says no week is made by itself; read on or unread, nothing extra", () => {
+    const off = text(renderToStaticMarkup(h(PackList, { weeks, packs: { ok: true, data: packs }, packJobOn: false, onMake: NO_MAKE })));
+    expect(off).toContain(PACK_JOB_OFF);
+    expect(text(renderToStaticMarkup(h(PackList, { weeks, packs: { ok: true, data: packs }, packJobOn: null, onMake: NO_MAKE })))).not.toContain("is off at System");
   });
 
   test("a failed read says so and offers no Make control: a missing week is not known", () => {
-    const page = text(renderToStaticMarkup(h(PackList, { weeks, packs: { ok: false, code: "failed", message: "x" }, onMake: NO_MAKE })));
+    const page = text(renderToStaticMarkup(h(PackList, { weeks, packs: { ok: false, code: "failed", message: "x" }, packJobOn: null, onMake: NO_MAKE })));
     expect(page).toContain("Could not read the stored packs: x");
-    expect(page).not.toContain("Make this week's pack");
+    expect(page).not.toContain("Make this");
     expect(page).toContain("Not known: the stored packs could not be read.");
   });
 
@@ -251,18 +293,18 @@ describe("the list of packs", () => {
       return found;
     };
 
-    test("Make this week's pack asks once, then calls the action with that week and says what was stored", async () => {
+    test("Make this pack asks once, then calls the action with that week and says what was stored", async () => {
       const make = vi.fn<MakePack>(async () => ({ ok: true, data: { status: "stored", weekStart: "2026-10-12", packId: "x", payloadHash: HASH, unreadSections: 0, auditRecorded: true } }));
       await act(async () => {
-        root.render(h(PackList, { weeks, packs: { ok: true, data: packs }, onMake: make }));
+        root.render(h(PackList, { weeks, packs: { ok: true, data: packs }, packJobOn: true, onMake: make }));
       });
       await act(async () => {
-        button("Make this week's pack").click();
+        button("Make this pack").click();
       });
       expect(make).not.toHaveBeenCalled();
       expect(container.textContent).toContain(MAKE_WORDS);
       await act(async () => {
-        button("Yes, make this week's pack").click();
+        button("Yes, make this pack").click();
       });
       await act(async () => {});
       expect(make).toHaveBeenCalledWith("2026-10-12");

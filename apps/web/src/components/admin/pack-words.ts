@@ -48,20 +48,38 @@ export const SECTION_WORDS: Record<PackSectionName, string> = {
   approvals: "The approval inbox",
 };
 
+/** The job that stores the packs (apps/app lib/compliance-pack/job.ts JOB_COMPLIANCE_PACK), as the Jobs page names it. */
+export const PACK_JOB = "compliance-pack";
+
+/** The list page's line when that job's switch is read off (listJobs): no week is made by itself. */
+export const PACK_JOB_OFF = "The weekly pack job is off at System > Jobs, so no week is made automatically; use Make this week's pack.";
+
 /** A section that could not be read: its numbers are missing, never zero (build.ts: a failed read is never stored as a zero). */
 export function couldNotReadWords(unreadClinics?: number): string {
   return `This section could not be read when the pack was made${unreadClinics !== undefined ? ` (${unreadClinics} ${unreadClinics === 1 ? "clinic" : "clinics"} could not be read)` : ""}. Its numbers are missing, not zero.`;
 }
 
-/** The banner over a pack stored with sections missing (job.ts: only after the week's due time plus 48 hours of hourly tries). */
+/**
+ * The banner over a pack stored with sections missing. The job stores such a
+ * pack only once the week's due time plus 48 hours has passed (job.ts
+ * PARTIAL_AFTER_MS); a pack made by hand from the console is refused inside
+ * those two days (pack-ops.ts), so either way the pack was made two or more
+ * days after the week was due.
+ */
 export function partialWords(unread: readonly PackSectionName[]): string {
   const names = unread.map((s) => SECTION_WORDS[s]);
-  return `Incomplete: ${names.length === 1 ? `the ${names[0]} section` : `${names.length} sections (${names.join(", ")})`} could not be read for two days after the week was due, so the pack was stored with ${names.length === 1 ? "it" : "them"} missing. ${names.length === 1 ? "Its" : "Their"} numbers are missing, not zero.`;
+  const which = names.length === 1 ? `the ${names[0]} section` : `${names.length} sections (${names.join(", ")})`;
+  return `Incomplete: ${which} could not be read when the pack was made, two or more days after the week was due, so it was stored missing. ${names.length === 1 ? "Its" : "Their"} numbers are missing, not zero.`;
 }
 
-/** The banner over a pack made after its due hour (job.ts LATE_AFTER_MS: an hour's grace). */
+/**
+ * The banner over a pack made late (job.ts buildInfo: `builtLate` from an
+ * hour after the due time, `lateDays` the whole days since it, so a pack
+ * made hours late is late with zero days).
+ */
 export function lateWords(lateDays: number): string {
-  return `Made ${lateDays} ${lateDays === 1 ? "day" : "days"} late: the pack is due at 07:00 New York on the Monday after the week, and the job did not run then. Its numbers are read as of the week's end all the same, except those marked now.`;
+  const how = lateDays === 0 ? "less than a day late" : `${lateDays} ${lateDays === 1 ? "day" : "days"} late`;
+  return `Made after its due time (07:00 New York on the Monday after the week): ${how}. Its numbers are as of the week's end, except those marked now.`;
 }
 
 /** Who stored the pack (lib/compliance-pack/job.ts PACK_SERVICE; lib/ops/pack-ops.ts CONSOLE_SERVICE). */
@@ -71,16 +89,16 @@ export function generatedByWords(service: string): string {
   return service;
 }
 
-export const HEADLINE_WORDS: Record<keyof CompliancePackHeadline, { label: string; measures: string; when: When }> = {
+/** A number's words: its label, what it measures, and when it is measured. Every printed number has one. */
+export type NumberWords = { label: string; measures: string; when: When };
+
+export const HEADLINE_WORDS: Record<keyof CompliancePackHeadline, NumberWords> = {
   incidentsOpen: { label: "Incidents open", measures: "incidents not resolved when the week ended, less service complaints, which no agreement reports", when: "at week end" },
   rightsOverdue: { label: "Patient-rights requests overdue", measures: "open requests past the day the agreement gives them, in UTC days", when: "at week end" },
   resignsOpen: { label: "Re-signs open", measures: "agreements asked to be signed again and not yet signed or withdrawn", when: "at week end" },
   vendorsNeedingAttention: { label: "Vendor agreements needing attention", measures: "vendors not attested, lapsed or withdrawn, or in force but ending within 30 days of the week's end", when: "at week end" },
-  transcriptCopiesPast30Days: { label: "Transcript copies held past 30 days", measures: "sealed transcript copies queued more than 30 days before the week's end and still held; the promise is none", when: "now" },
+  transcriptCopiesPast30Days: { label: "Transcript copies held past 30 days", measures: "the data lifecycle section's copies held past 30 days; the promise is none", when: "now" },
 };
-
-/** A section's numbers: field by field, what each measures and when. */
-export type NumberWords = { label: string; measures: string; when: When };
 
 export const AGREEMENT_WORDS = {
   resigns: {
@@ -100,6 +118,13 @@ export const AGREEMENT_WORDS = {
     openAtWeekEndNow: { label: "Agreement checks open", measures: "undecided when the week ended, less any since superseded (that status keeps no date)", when: "now" },
   },
 } satisfies Record<string, Record<string, NumberWords>>;
+
+/** The one count of attestations: platform_compliance rows recorded in the week (the access section does not count them again). */
+export const VENDOR_RECORDED_WORDS: NumberWords = {
+  label: "Attestations recorded",
+  measures: "attestations and withdrawals entered on the Compliance page this week, each with a fresh authenticator code",
+  when: "this week",
+};
 
 export const INCIDENT_WORDS = {
   openedThisWeek: { label: "Opened", measures: "incidents discovered this week", when: "this week" },
@@ -129,9 +154,9 @@ export const TRANSCRIPT_WORDS = {
   copiesPast30DaysNow: { label: "Copies held past 30 days", measures: "sealed copies queued more than 30 days before the week's end and still held; the promise is none", when: "now" },
 } satisfies Record<string, NumberWords>;
 
+/** The steps taken with a fresh code, less the attestations, which the vendors section counts once (VENDOR_RECORDED_WORDS). */
 export const FRESH_CODE_WORDS = {
   approvalDecisions: { label: "Approval decisions with a fresh code", measures: "approvals and rejections recorded with the authenticator's code", when: "this week" },
-  platformAttestations: { label: "Platform attestations", measures: "attestations and withdrawals recorded on the Compliance page", when: "this week" },
   deviceRecoveriesIssued: { label: "Device recovery links issued", measures: "links sent to a clinic that lost every device", when: "this week" },
 } satisfies Record<string, NumberWords>;
 
@@ -140,11 +165,29 @@ export const APPROVAL_INBOX_WORDS = {
   rejectedThisWeek: { label: "Rejected", measures: "items rejected this week", when: "this week" },
   executedThisWeek: { label: "Went through", measures: "approved items whose operation went through this week", when: "this week" },
   failedThisWeek: { label: "Failed", measures: "approved items whose operation did not go through this week", when: "this week" },
-  expiredThisWeek: { label: "Left the list unrun", measures: "items that passed their window undecided this week", when: "this week" },
+  expiredThisWeek: {
+    label: "Taken off the list without running",
+    measures: "items taken off the list without running this week: their window passed, or they were dealt with, replaced or left service",
+    when: "this week",
+  },
   waitingAtWeekEnd: { label: "Waiting", measures: "items proposed and not decided when the week ended", when: "at week end" },
 } satisfies Record<string, NumberWords>;
 
 export const MEDIAN_WORDS: NumberWords = { label: "Median time to decide", measures: "minutes from proposal to the owner's decision, over this week's decisions", when: "this week" };
+
+/** Every table of numbers the page prints, so one test can hold each entry to a label, a measure and a when. */
+export const NUMBER_TABLES: Readonly<Record<string, Readonly<Record<string, NumberWords>>>> = {
+  headline: HEADLINE_WORDS,
+  resigns: AGREEMENT_WORDS.resigns,
+  reviews: AGREEMENT_WORDS.reviews,
+  vendors: { recordedThisWeek: VENDOR_RECORDED_WORDS },
+  incidents: INCIDENT_WORDS,
+  rights: RIGHTS_WORDS,
+  transcripts: TRANSCRIPT_WORDS,
+  freshCode: FRESH_CODE_WORDS,
+  approvals: APPROVAL_INBOX_WORDS,
+  median: { medianMinutesToDecide: MEDIAN_WORDS },
+};
 
 /** The platform subjects (apps/app lib/compliance/subjects.ts): the four vendors of the BAA chain, and Gate B's readiness flags. */
 export const SUBJECT_WORDS: Record<Subject, string> = {
@@ -181,6 +224,22 @@ export const LIFECYCLE_JOB_WORDS: Record<LifecycleJob, string> = {
   "offboarding-destroy": "Offboarding destruction",
 };
 
+/**
+ * A job's last run, as the scheduler records it (apps/app
+ * lib/scheduler/jobs.ts record(): ok, failed, disabled); a status nobody
+ * listed is printed as its own words.
+ */
+export const RUN_STATUS_WORDS: Readonly<Record<string, string>> = {
+  ok: "went through",
+  failed: "failed",
+  disabled: "skipped: the job was switched off",
+};
+
+export function runStatusWords(status: string | null): string {
+  if (status === null) return "no run recorded";
+  return RUN_STATUS_WORDS[status] ?? status.replace(/[-_]/g, " ");
+}
+
 /** The ops alerts a failed data-lifecycle run raises (build.ts LIFECYCLE_FAILURE_EVENTS). */
 export const FAILURE_EVENT_WORDS: Record<FailureEvent, string> = {
   retention_purge_failed: "a retention purge failed",
@@ -213,6 +272,20 @@ export const SIGN_INS_WORDS = "Operator sign-ins are not recorded on the host: t
 
 /** The launch promises are apps/web's list, read when the page is drawn, never stored in the pack (build.ts launchPromises). */
 export const LAUNCH_PROMISES_WORDS = "Read from the console now, not stored with the pack: the list lives in this app, which the host cannot read.";
+
+/**
+ * The incidents section's two lists, in the builder's own terms (build.ts
+ * readIncidents): our own target is 24 hours from discovery for a reportable
+ * class and two business days to a first reply for a service complaint
+ * (lib/incidents/incidents.ts notifyDeadline); both lists leave out an
+ * incident recorded not reportable.
+ */
+export const TARGET_MISSED_HEADING = "Our own target missed (24 hours; for a service complaint, two business days to a first reply)";
+export const TARGET_MISSED_WORDS =
+  "Open at the week's end with no notice recorded and the target passed, or a target that fell in the week and passed unmet; never one recorded not reportable. The target is internal and never a promise to a clinic.";
+export const AT_RISK_HEADING = "Agreement deadline at risk";
+export const AT_RISK_WORDS =
+  "Open at the week's end, no notice recorded, and the agreement's deadline within 14 days of the week's end or past; never one recorded not reportable.";
 
 /** A pack's week in words: "Monday 26 Oct to Sunday 1 Nov 2026, New York". */
 export function weekWords(week: CompliancePackView["week"]): string {

@@ -175,11 +175,21 @@ function capture(): EmailTransport & { sent: Sent[] } {
   } as EmailTransport & { sent: Sent[] };
 }
 
+/** What each escalation handed the case writer (lib/support/cases.ts is the database's; support-cases-db.test.ts). */
+let recordedCases: Parameters<NonNullable<SupportChatContext["recordCase"]>>[0][] = [];
+beforeEach(() => {
+  recordedCases = [];
+});
+
 function context(
   client: SupportModelClient | null,
   over: Partial<SupportChatContext> = {},
 ): SupportChatContext {
   return {
+    recordCase: async (input) => {
+      recordedCases.push(input);
+      return { outcome: "opened", caseId: "7a1b2c3d-0000-4000-8000-000000000000", ref: "7F3KQ" };
+    },
     clinicId: CLINIC_ID,
     slug: "glow",
     deviceKey: "device-a",
@@ -797,6 +807,67 @@ describe("an escalation", () => {
     expect(events.filter((e) => e.type === "escalated")).toEqual([
       { type: "escalated", topic: "forwarding", replyByOn: "2026-10-15", to: null },
     ]);
+
+    // Once I3 has gone, the request becomes a case: its id, the fields and
+    // L25's day, never a word of the chat.
+    expect(recordedCases).toHaveLength(1);
+    expect(recordedCases[0]).toMatchObject({
+      clinicId: CLINIC_ID,
+      requestId: "6f1e2d3c-4b5a-4968-8776-655443322110",
+      replyByOn: "2026-10-15",
+      fields: {
+        topic: "forwarding",
+        symptom: "calls_not_reaching_aya",
+        carrier: "verizon",
+        phoneSystem: "landline",
+        mode: "overflow_after_hours",
+        channel: null,
+      },
+    });
+    for (const word of ["zebra", "quokka", "Marisol", "wombat", "narwhal", "pangolin"]) {
+      expect(JSON.stringify(recordedCases), word).not.toContain(word);
+    }
+  });
+
+  test("a case that cannot be written is logged and the escalation still stands", async () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    });
+    const transport = capture();
+    const model = fakeModel([
+      { tools: [{ name: "escalate_to_support", input: { category: "other", symptom: "other", fields: {} } }] },
+      { text: ["Sent."] },
+    ]);
+    const { events } = await chat(
+      context(model, {
+        email: { transport },
+        recordCase: async () => {
+          throw new Error("database unavailable");
+        },
+      }),
+      "Please get me a person",
+    );
+    expect(transport.sent).toHaveLength(1);
+    expect(events.some((e) => e.type === "escalated")).toBe(true);
+    expect(lines.some((l) => l.includes("support case not recorded"))).toBe(true);
+  });
+
+  test("an escalation that never reached hello@ opens no case", async () => {
+    const model = fakeModel([
+      { tools: [{ name: "escalate_to_support", input: { category: "other", symptom: "other", fields: {} } }] },
+      { text: ["Please call or email us."] },
+    ]);
+    const failing: EmailTransport = {
+      name: "failing",
+      async send(): Promise<DeliveryResult> {
+        return { status: "failed", reason: "transport_down" } as DeliveryResult;
+      },
+    } as EmailTransport;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await chat(context(model, { email: { transport: failing } }), "Please get me a person");
+    expect(recordedCases).toHaveLength(0);
   });
 
   test("a topic or a symptom off its list sends nothing", async () => {

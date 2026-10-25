@@ -8,7 +8,7 @@ import { helpContacts } from "@/lib/setup/help";
 import type { SetupState } from "@/lib/setup/state";
 
 import type { AccountState } from "./account-state";
-import { escalateToSupport } from "./escalate";
+import { escalateToSupport, type EscalationContext } from "./escalate";
 import { supportLines } from "./lines";
 import type { ForwardingAnswer } from "./forwarding";
 import type { SupportLimiter } from "./limits";
@@ -79,6 +79,8 @@ export type SupportChatContext = {
   email?: SendEmailOptions;
   now?: Date;
   newId?: () => string;
+  /** The escalation's case writer, for the tests (lib/support/cases.ts otherwise). */
+  recordCase?: EscalationContext["recordCase"];
 };
 
 /** What the screen lets through: the practice's own numbers, the sign-in's address, healdesk's line. */
@@ -192,6 +194,7 @@ export async function handleSupportChat(
             email: ctx.email,
             now,
             newId: ctx.newId,
+            recordCase: ctx.recordCase,
           },
           input,
         ),

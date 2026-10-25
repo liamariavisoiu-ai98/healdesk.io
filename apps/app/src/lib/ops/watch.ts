@@ -7,6 +7,8 @@ import { notifyOpsOnce } from "@/lib/ops/notify";
 import { replyByDay, replyByPassed } from "@/lib/reply-by";
 import { JOB_OPS_WATCH, runSwitchedJob, type JobOutcome } from "@/lib/scheduler/jobs";
 
+import { alertNowCases, requestIdsOnCases, watchSupportCases } from "@/lib/support/watch";
+
 import { listSupportRequests } from "./support-replies";
 
 /**
@@ -94,7 +96,10 @@ export type SupportWatch = { pastDue: number; failures: number };
 
 export async function watchSupportReplies(now: Date = new Date()): Promise<SupportWatch> {
   const { rows, failures } = await listSupportRequests(now);
-  const due = rows.filter((row) => row.pastDue);
+  // Lane P7e: a request recorded on a support case is the case's promise, and
+  // the case's own alert (support_case_past_due) chases it: one alert per promise.
+  const onCases = await requestIdsOnCases(rows.map((row) => row.requestId));
+  const due = rows.filter((row) => row.pastDue && !onCases.has(row.requestId));
   for (const row of due) {
     await notifyOpsOnce("support_reply_past_due", {
       clinicId: row.clinicId,
@@ -116,16 +121,25 @@ export async function runOpsWatchJob(
     JOB_OPS_WATCH,
     async () => {
       const purchases = await watchPurchases(now);
+      // Lane P7e: a support case of urgency `now`, told to ops and Slack within the minute, once each.
+      const nowCases = await alertNowCases(now);
       // Every run: a lapse stops AYA at once, so ops hears of it within the minute.
       const vendors = await watchVendorAgreements(unsafeDb, now);
       const notes = [
         `${purchases.paidWithoutClinic} paid without an account`,
         `${purchases.followUpsPastDue} order follow-ups past due`,
         `${vendors.expiring} vendor agreements expiring, ${vendors.lapsed} lapsed`,
+        `${nowCases} support cases needing us now`,
       ];
       if (options.supportReplies) {
         const support = await watchSupportReplies(now);
         notes.push(`${support.pastDue} support replies past due`);
+        // Lane P7e: the support cases' clocks (snoozes, the 14-day quiet close, past-due alerts).
+        const cases = await watchSupportCases(now);
+        notes.push(
+          `${cases.pastDue} support cases past their day, ${cases.woke} back from a snooze, ${cases.closed} closed after 14 quiet days`,
+        );
+        if (cases.failures > 0) throw new Error(`${notes.join(", ")}; ${cases.failures} support case steps failed.`);
         if (support.failures > 0) {
           throw new Error(`${notes.join(", ")}; ${support.failures} clinics unreadable.`);
         }

@@ -51,6 +51,8 @@ import { raiseOpsAlertKeyed } from "./notify";
 import { SLACK_MAX_ATTEMPTS, slackWebhookUrl } from "./slack";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
+import { requestIdsOnCases, supportCaseCounts } from "@/lib/support/watch";
+
 import { listSupportRequests } from "./support-replies";
 
 /**
@@ -276,7 +278,9 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
 
   await tally.read("support_replies", async () => {
     const { rows, failures } = await listSupportRequests(now);
-    const owed = rows.filter((r) => r.repliedAt === null);
+    // Lane P7e: a request recorded on a support case is counted on the support line below, once.
+    const onCases = await requestIdsOnCases(rows.map((r) => r.requestId));
+    const owed = rows.filter((r) => r.repliedAt === null && !onCases.has(r.requestId));
     tally.queue(
       "support_replies",
       owed.length,
@@ -353,6 +357,17 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
 
   const lifecycle = await collectLifecycle(tally, now, since);
 
+  // The support cases (lane P7e; design E5 S7): "Support: N need you, M past their day, K waiting on a clinic".
+  let support: Pick<OpsDigestPayload, "supportNeedYouCount" | "supportPastDueCount" | "supportWaitingClinicCount"> = {};
+  await tally.read("support_cases", async () => {
+    const counts = await supportCaseCounts(now);
+    support = {
+      supportNeedYouCount: counts.needYou,
+      supportPastDueCount: counts.pastDue,
+      supportWaitingClinicCount: counts.waitingClinic,
+    };
+  });
+
   // Ops alerts Slack never took (lib/ops/slack.ts gives up after its tries);
   // null while Slack is off, when none is posted at all.
   let slackUnpostedCount: number | null = null;
@@ -411,6 +426,7 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
     signInHelpNoAccountCount,
     ...lifecycle,
     slackUnpostedCount,
+    ...support,
   };
 }
 

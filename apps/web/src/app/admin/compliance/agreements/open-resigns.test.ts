@@ -71,10 +71,15 @@ describe("the section", () => {
     expect(page).toContain("Open BAA re-signs");
     expect(page).toContain(CHASE_RULE);
     expect(html).toContain(`href="/admin/clinics/${CLINIC}/care"`);
-    expect(page).toContain("Radiance Med Spa Below the floor: phone the practice a newer version of the business associate agreement 1.5.0 → 1.5.1 14 days, since 20 Oct 2026 27 Oct 2026 10 Nov 2026, 09:00 UTC none yet may be proposed now by the approvals job");
     expect(page).toContain(
-      "A clinic with no printable name Holds AYA paused answered Not sure whether HIPAA covers it: its DPA no longer covers it dpa/1.0.0 → 1.5.1 1 day, since 20 Oct 2026 none recorded 21 Oct 2026, 09:00 UTC (expired) 1 Nov 2026 not now: this is not an updated-version re-sign: it pauses AYA, and its own emails say so",
+      "Radiance Med Spa Below the floor: phone the practice a newer version of the business associate agreement 1.5.0 → 1.5.1 14 days, since 20 Oct 2026 27 Oct 2026 10 Nov 2026, 09:00 UTC none yet nothing in the re-sign blocks one; the approvals job proposes it at its next run while it is on, unless this round's chase is already waiting or was rejected",
     );
+    expect(page).toContain(
+      "A clinic with no printable name Holds AYA paused answered Not sure whether HIPAA covers it: its DPA no longer covers it dpa/1.0.0 → 1.5.1 1 day, since 20 Oct 2026 none recorded 21 Oct 2026, 09:00 UTC (expired) 1 Nov 2026 not now: this is not a BAA version re-sign: it pauses AYA, and its own emails say so",
+    );
+    // The rule once, above the table, not per row.
+    expect(page.match(/Chases are the approvals job's/g)).toHaveLength(1);
+    expect(page).toContain("for a BAA version re-sign");
     // No button of any kind: apps/app has none to call.
     expect(html).not.toContain("<button");
     expect(page).not.toContain("Propose a chase");
@@ -91,8 +96,10 @@ describe("the section", () => {
     expect(failed).not.toContain(EMPTY_RESIGNS);
   });
 
-  test("whether a chase may go now, in words from the closed list", () => {
-    expect(chaseWords({ chaseBlocked: null })).toBe("may be proposed now by the approvals job");
+  test("whether a chase may go now, in words from the closed list; nothing blocking is not a promise that one is proposed", () => {
+    expect(chaseWords({ chaseBlocked: null })).toBe(
+      "nothing in the re-sign blocks one; the approvals job proposes it at its next run while it is on, unless this round's chase is already waiting or was rejected",
+    );
     expect(chaseWords({ chaseBlocked: "chased_recently" })).toBe("not now: the practice was chased less than 7 days ago");
     expect(chaseWords({ chaseBlocked: "too_early" })).toContain("a chase can go from day 8");
   });

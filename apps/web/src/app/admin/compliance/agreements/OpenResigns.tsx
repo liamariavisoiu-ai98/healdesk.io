@@ -22,7 +22,7 @@ import type { OpenResignRow, OpsResult } from "@/lib/admin/ops-client";
  */
 
 export const CHASE_RULE =
-  "Chases are the approvals job's: for an updated-version re-sign, from day 8 once the re-sign's own reminders (days 0, 3 and 7) have gone, and at most once every 7 days, it proposes a chase email for your yes under Queues › Approvals. Nothing is sent from this page.";
+  "Chases are the approvals job's: for a BAA version re-sign, from day 8 once the re-sign's own reminders (days 0, 3 and 7) have gone, and at most once every 7 days, it proposes a chase email for your yes under Queues › Approvals. Nothing is sent from this page.";
 
 export const EMPTY_RESIGNS = "No re-sign is open.";
 
@@ -31,9 +31,16 @@ export function unreadWords(n: number): string {
   return `${n} ${n === 1 ? "re-sign" : "re-signs"} could not be read, so this list may be missing some.`;
 }
 
-/** Whether a chase may be proposed now, or why not, in one phrase. */
+/**
+ * Whether a chase may be proposed now, or why not, in one phrase. The
+ * re-sign's facts can say nothing blocks one; whether the job proposes it
+ * is the job's switch and the inbox's own rule (store.ts propose(): nothing
+ * while this round's chase waits or was rejected).
+ */
 export function chaseWords(row: Pick<OpenResignRow, "chaseBlocked">): string {
-  return row.chaseBlocked === null ? "may be proposed now by the approvals job" : `not now: ${CHASE_BLOCK_WORDS[row.chaseBlocked]}`;
+  return row.chaseBlocked === null
+    ? "nothing in the re-sign blocks one; the approvals job proposes it at its next run while it is on, unless this round's chase is already waiting or was rejected"
+    : `not now: ${CHASE_BLOCK_WORDS[row.chaseBlocked]}`;
 }
 
 export function OpenResigns({ resigns, now }: { resigns: OpsResult<{ resigns: OpenResignRow[]; unread: number }>; now: string }) {

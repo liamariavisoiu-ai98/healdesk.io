@@ -232,7 +232,7 @@ describeDb("the misclassification signal on re-reads", () => {
     // Ops asks the practice, which still bills no insurance electronically.
     const decided = (await runOperation(
       "decideAgreementReview",
-      { clinicId: practice.clinicId, reviewId: review!.id, answer: "no" },
+      { clinicId: practice.clinicId, reviewId: review!.id, answer: "no", codeChecked: true },
       OPERATOR,
     )) as { body: { data?: Record<string, unknown> } };
     expect(decided.body.data).toMatchObject({ status: "recorded", covered: true });

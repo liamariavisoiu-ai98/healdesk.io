@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { CodeField, isCompleteCode } from "@/components/admin/ui";
+
 import type {
   AgreementReview,
   CoveredAnswer,
@@ -23,7 +25,8 @@ type Decide = (
   clinicId: string,
   reviewId: string,
   answer: CoveredAnswer,
-) => Promise<OpsResult<SetCoveredEntityOutcome>>;
+  code: string,
+) => Promise<OpsResult<SetCoveredEntityOutcome | { status: "code_refused"; message: string }>>;
 
 const ANSWERS: readonly { answer: CoveredAnswer; label: string; done: string }[] = [
   {
@@ -69,13 +72,15 @@ export function AgreementChecks({
 function AgreementCheckRow({ review, decide }: { review: AgreementReview; decide: Decide }) {
   const [pending, setPending] = useState(false);
   const [answer, setAnswer] = useState<{ ok: boolean; text: string } | null>(null);
+  const [code, setCode] = useState("");
   const open = review.status === "open";
 
   async function send(choice: (typeof ANSWERS)[number]) {
     setPending(true);
     setAnswer(null);
     try {
-      const result = await decide(review.clinicId, review.id, choice.answer);
+      const result = await decide(review.clinicId, review.id, choice.answer, code);
+      setCode("");
       if (!result.ok) setAnswer({ ok: false, text: result.message });
       else if (result.data.status !== "recorded")
         setAnswer({ ok: false, text: result.data.message });
@@ -109,12 +114,13 @@ function AgreementCheckRow({ review, decide }: { review: AgreementReview; decide
         claims to insurers electronically.
       </p>
       {open ? (
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <CodeField value={code} onChange={setCode} disabled={pending} />
           {ANSWERS.map((choice) => (
             <button
               key={choice.answer}
               type="button"
-              disabled={pending}
+              disabled={pending || !isCompleteCode(code)}
               onClick={() => send(choice)}
               className="border-line-strong inline-flex min-h-11 items-center rounded-full border px-5 py-2 text-sm font-bold disabled:opacity-50"
             >

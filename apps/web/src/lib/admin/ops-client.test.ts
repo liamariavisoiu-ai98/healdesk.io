@@ -1620,7 +1620,7 @@ describe("the agreement checks (plan Part L, WP9)", () => {
     expect((await opsClient.fetchAgreementReviews()).ok).toBe(false);
   });
 
-  test("a decision sends the clinic, the check and the practice's answer, and reads setCoveredEntity's reply", async () => {
+  test("a decision sends the clinic, the check, the practice's answer and the fresh-code mark, and reads setCoveredEntity's reply", async () => {
     reply({
       data: {
         status: "recorded",
@@ -1632,17 +1632,18 @@ describe("the agreement checks (plan Part L, WP9)", () => {
         auditRecorded: true,
       },
     });
-    expect(await opsClient.decideAgreementReview(CLINIC, CHECK, "yes")).toMatchObject({
+    // Raw here: the screen reaches it only through lib/admin/agreement-answer.ts (lane P6f).
+    expect(await opsClient.recordAgreementAnswer(CLINIC, CHECK, "yes")).toMatchObject({
       ok: true,
       data: { status: "recorded", supersedeStarted: true, linkSent: true },
     });
     expect(sent[0]).toEqual({
-      op: "decideAgreementReview",
-      args: { clinicId: CLINIC, reviewId: CHECK, answer: "yes" },
+      op: "recordAgreementAnswer",
+      args: { clinicId: CLINIC, reviewId: CHECK, answer: "yes", codeChecked: true },
     });
 
     reply({ data: { status: "refused", message: "This review has been decided already." } });
-    expect(await opsClient.decideAgreementReview(CLINIC, CHECK, "no")).toEqual({
+    expect(await opsClient.recordAgreementAnswer(CLINIC, CHECK, "no")).toEqual({
       ok: true,
       data: { status: "refused", message: "This review has been decided already." },
     });

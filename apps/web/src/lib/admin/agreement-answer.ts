@@ -1,7 +1,7 @@
 import { checkFreshOperatorCode } from "./fresh-code";
 import { requireOperator } from "./operator";
 import {
-  recordAgreementAnswer as sendRecordAgreementAnswer, // raw: only here (agreement-answer.test.ts)
+  recordAgreementAnswer as sendRecordAgreementAnswer, // raw: only here (clinic-contact-client.test.ts)
   type AgreementAnswer,
   type OpsResult,
   type SetCoveredEntityOutcome,

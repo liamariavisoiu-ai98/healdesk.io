@@ -1,13 +1,16 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 
-import { DEMO_CALL_PATH } from "@healdesk/catalog";
+import { DEMO_CALL_PATH, findUrgentContent } from "@healdesk/catalog";
 import { WebSocketServer, type WebSocket } from "ws";
 
+import { guardAssistantReply } from "@/lib/assistant/guard";
+import { buildAssistantPrompt } from "@/lib/assistant/prompt";
 import { anthropicAssistantResponder } from "@/lib/assistant/responder";
 import type { AssistantResponder } from "@/lib/assistant/turn";
 import { describeError, log } from "@/lib/log";
 import type { EmailTransport } from "@/lib/reporting/deliver";
+import { demoAssistantFacts } from "@/lib/voice/demo-facts";
 import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
 import { voiceRealCallsAllowed } from "@/lib/voice/test-calls";
 
@@ -167,6 +170,45 @@ export function createVoiceServer(options: VoiceServerOptions = {}): { server: S
   return { server, sessions, drain };
 }
 
+/**
+ * Runs once at boot what every call's first turn would otherwise run cold
+ * (owner, 25 October 2026: "still way too slow to answer"): the model SDK's
+ * import, the prompt, the urgent screen and the guard, whose patterns
+ * compile on first use. Measured on a full core: the guard's first run 80 ms
+ * against 3 warm, the SDK's import 148 ms, each several times that on the
+ * voice task's quarter vCPU, and all of it heard by the first caller after
+ * a deploy. Made-up business data only; never throws.
+ */
+export async function warmProcess(): Promise<number> {
+  const started = Date.now();
+  try {
+    await import("@anthropic-ai/sdk");
+    const facts = demoAssistantFacts({
+      slug: "warm-up",
+      clinic: {
+        clinicName: "Warm-up Clinic",
+        summary: null,
+        specialty: "med-spa",
+        phone: null,
+        address: null,
+        hours: [{ days: "Mon-Fri", hours: "9am-5pm" }],
+        services: [{ name: "Botox", description: null, price: "$12/unit", duration: "30 min" }],
+        providers: [],
+        faqs: [],
+        policies: [],
+        booking: null,
+        highlights: [],
+      },
+    });
+    buildAssistantPrompt(facts, "voice");
+    findUrgentContent("hi, how much is botox and can I book friday", facts.specialty, { clinicName: facts.clinicName });
+    guardAssistantReply("Yep, we do! Botox is $12 per unit, about thirty minutes. Want me to note a time?", facts);
+  } catch (error) {
+    log.warn("voice endpoint warm-up failed", { error: describeError(error) });
+  }
+  return Date.now() - started;
+}
+
 async function main(): Promise<void> {
   const port = Number(process.env.PORT ?? 3001);
   const host = process.env.HOSTNAME ?? "0.0.0.0";
@@ -181,6 +223,7 @@ async function main(): Promise<void> {
     log.info("voice endpoint in test mode: only a made-up clinic's calls are answered", { status: "test-calls" });
   }
   server.listen(port, host, () => log.info("voice endpoint ready", { status: "listening" }));
+  void warmProcess().then((ms) => log.info("voice endpoint warmed", { ms }));
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.on(signal, () => {
       log.info("voice endpoint draining on signal", { signal });

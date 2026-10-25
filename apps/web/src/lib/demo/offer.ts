@@ -1,4 +1,8 @@
-import { demoOfferEndsAt, demoSetupCredit, type DemoSession } from "@/lib/demo/sessions";
+import { demoOfferEndsAt, demoSetupCredit, isSelfServeDemo, type DemoSession } from "@/lib/demo/sessions";
+import { site } from "@/lib/site";
+
+/** The header button of a demo an operator built (app/demo/[slug]/page.tsx), which opens checkout with the demo's discount. */
+export const DEMO_ONBOARD_LABEL = "Book Onboarding";
 
 /**
  * A demo's live setup-fee discount at call time, for `demoEngineCall`
@@ -20,4 +24,14 @@ export function demoOfferFor(session: DemoSession, now: number = Date.now()): { 
   } catch {
     return null;
   }
+}
+
+/**
+ * The buy button the demo page shows, labelled as the page labels it, for
+ * Aya to close on (DemoCallContext.buyButton): a homepage demo's opens the
+ * purchase in place, an operator-built demo's goes to checkout, each with the
+ * demo's discount applied. Read from the same rule the page reads.
+ */
+export function demoBuyButton(session: Pick<DemoSession, "createdBy">): string {
+  return isSelfServeDemo(session) ? site.cta.primary.label : DEMO_ONBOARD_LABEL;
 }

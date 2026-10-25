@@ -21,6 +21,7 @@ vi.mock("@/lib/leads", () => ({
 }));
 vi.mock("@/lib/demo/sessions", () => ({
   isDemoSlug: () => true,
+  isSelfServeDemo: () => false,
   getDemoSession: async () => ({ slug: SLUG, profile: true }),
   isDemoActive: () => true,
   profileOf: () => ({

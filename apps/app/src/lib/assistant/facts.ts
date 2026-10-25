@@ -108,6 +108,12 @@ export type AssistantFacts = {
    * anywhere else never promise an alert.
    */
   urgentAlertsReady?: boolean;
+  /**
+   * Dollar amounts the call may say beyond the menu's, each exactly. Only a
+   * demo call has them (demo-facts.ts): healdesk's own catalog prices for the
+   * pitch. A clinic's facts never do, so its calls quote its menu alone.
+   */
+  quotedAmountsUsd?: readonly number[];
 };
 
 

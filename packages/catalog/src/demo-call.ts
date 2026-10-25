@@ -80,6 +80,15 @@ export type DemoCallContext = {
    * keeps no transcript (the Privacy page). Sealed, so no caller can set it.
    */
   test: boolean;
+  /**
+   * The buy button the demo page shows the requester, as labelled there
+   * ("Book Onboarding" on a demo an operator built, "Get AYA" on one asked
+   * for on the homepage), each opening checkout with the demo's discount
+   * applied; null where the page shows none (a demo already bought). What
+   * Aya closes on (owner, 25 October 2026: "the absolute best closer"),
+   * since she can send nothing herself.
+   */
+  buyButton: string | null;
 };
 
 export const DEMO_CALL_LIMITS = {
@@ -187,7 +196,7 @@ export function parseDemoCallContext(input: unknown): DemoCallContext | null {
   const mode = MODES.find((m) => m === o.mode);
   const clinic = parseDemoCallClinic(o.clinic);
   if (!slug || !mode || !clinic || typeof o.issuedAt !== "number" || !Number.isFinite(o.issuedAt)) return null;
-  return { v: 1, slug, mode, firstName: demoFirstName(o.firstName), issuedAt: o.issuedAt, clinic, offer: parseDemoCallOffer(o.offer), test: o.test === true };
+  return { v: 1, slug, mode, firstName: demoFirstName(o.firstName), issuedAt: o.issuedAt, clinic, offer: parseDemoCallOffer(o.offer), test: o.test === true, buyButton: text(o.buyButton, 40) };
 }
 
 function mac(body: string, secret: string): string {

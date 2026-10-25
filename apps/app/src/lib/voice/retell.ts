@@ -24,7 +24,7 @@ import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
-import { DEMO_TIME_ZONE, demoAssistantFacts, demoContextFromCall, demoStageNote, nextDemoStage, type DemoStage } from "./demo-facts";
+import { DEMO_TIME_ZONE, demoAssistantFacts, demoContextFromCall, demoPitchFacts, demoStageNote, nextDemoStage, type DemoStage } from "./demo-facts";
 import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, type FallbackLookup } from "./fallback-line";
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
@@ -139,9 +139,12 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *   - the start: the demo opening line (disclosure.ts, demoVoiceOpening),
  *     with the same two facts, then three stages (owner, 25 October 2026;
  *     demo-facts.ts, DemoStage), each with its own note: intro (who they
- *     are, their role, the choice), role-play (from Aya's "Ring ring!") and
- *     pitch (from her "how was that?"), so no stage's instructions run into
- *     another; a goodbye inside the role-play never ends the call;
+ *     are, their role, the choice), role-play (from Aya's "Ring ring!", again
+ *     from the pitch for a second one) and pitch (from her "how was that?",
+ *     or her "how many calls" when the role-play is skipped), so no stage's
+ *     instructions run into another; a goodbye inside the role-play never
+ *     ends the call; only the pitch may quote healdesk's own prices
+ *     (demoPitchFacts), and it closes on the demo page's own buy button;
  *   - nothing is written or sent anywhere: no answer gate or billing, no
  *     test-mode screen (voice_real_calls governs clinics' calls, and a demo
  *     is no clinic's: no clinic row is read, and no patient's call reaches
@@ -1170,8 +1173,26 @@ export class RetellCallSession {
     };
     this.answering = true;
     this.lastModelAt = Date.now();
+    // When the model's first words came, apart from ours (the log below).
+    let modelFirstAt: number | null = null;
+    const base = this.deps.responder;
+    const responder: AssistantResponder | null = base
+      ? (request) =>
+          base({
+            ...request,
+            ...(request.onText
+              ? {
+                  onText: (delta: string) => {
+                    modelFirstAt ??= Date.now();
+                    request.onText!(delta);
+                  },
+                }
+              : {}),
+          })
+      : null;
     const turn = await answerTurn({
-      facts,
+      // A demo's pitch may quote healdesk's own prices; nothing else may (demo-facts.ts).
+      facts: this.demoContext && this.demoStage === "pitch" ? demoPitchFacts(facts, this.demoContext, this.now().getTime()) : facts,
       channel: "voice",
       acknowledge: acknowledgeable
         ? {
@@ -1204,7 +1225,7 @@ export class RetellCallSession {
       history: this.turns,
       text: words,
       capture: this.capture,
-      responder: this.deps.responder,
+      responder,
       now: this.now(),
       tools: this.tools,
       toolState: this.toolState,
@@ -1349,6 +1370,8 @@ export class RetellCallSession {
       source: turn.source,
       ms: (firstHeardAt ?? Date.now()) - askedAt,
       totalMs: Date.now() - askedAt,
+      // The model's own time to its first words, so a slow turn says whose time it was.
+      modelMs: modelFirstAt === null ? null : modelFirstAt - askedAt,
     });
     // The urgent alert is critical: sent in-process once its row has
     // committed, after the caller has heard the reply, so the line never

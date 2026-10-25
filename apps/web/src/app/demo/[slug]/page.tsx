@@ -14,6 +14,7 @@ import { CoverageOffer } from "@/components/demo/CoverageOffer";
 import { demoCheckout, demoPrefill } from "@/lib/demo/checkout";
 import { chatGreeting, demoModeLine } from "@/lib/demo/clinic-prompts";
 import { readableOn } from "@/lib/demo/colour";
+import { DEMO_ONBOARD_LABEL } from "@/lib/demo/offer";
 import { weekSchedule } from "@/lib/demo/opening-hours";
 import type { ClinicProfile } from "@/lib/demo/profile";
 import {
@@ -266,7 +267,7 @@ export default async function DemoPage({ params }: Props) {
               className="ml-auto shrink-0 rounded-full px-4 py-2 text-[15px] font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
               style={ctaStyle}
             >
-              Book Onboarding
+              {DEMO_ONBOARD_LABEL}
             </a>
           )}
         </div>

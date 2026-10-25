@@ -44,6 +44,27 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Check History on the Queues page. You are done when each item reads went through, failed, rejected or left the list without running.",
     ],
   },
+  // Lane P6f: the same reminder for an email to a clinic (the BAA version
+  // re-sign chase, the agreement question, more time for setup, the
+  // waiting-on-us note, the five-minute call, a setup reminder sooner), once
+  // past its due time (two days, one for the reminder), per kind with the
+  // count and no clinic. Their windows are KIND_SPECS': 14 days, 3 for the
+  // reminder. An extension runs before its email, and the email goes only
+  // if it went through (lib/approvals/contact-executors.ts).
+  clinic_email_waiting: {
+    title: "Emails to clinics are waiting for your yes",
+    headline: "{count:email} to a clinic waiting for your yes, now past due",
+    whatHappened:
+      "{count:email} to a clinic waiting for your yes, now past due. Each is an email only you can send: a chase to sign an updated agreement, a question about which agreement a practice needs, more time to finish setup, a note that we are finishing a step, an offer of a five-minute call, or a setup reminder sent sooner. Nothing goes to a clinic until you approve it, and nothing is sent by waiting.",
+    whyItMatters:
+      "Until you decide, none of these emails goes. A setup deadline has not moved until you approve its extension, and the clinic's own setup reminders keep going on their days. After two weeks an email leaves the list unsent, and a reminder sent sooner after three days.",
+    steps: [
+      "Open the Queues page and find each email under Approvals: it shows the email as the clinic would read it, what approving does, and the choices you may change.",
+      "Press Approve on the Queues page and enter the code from your authenticator, after changing any of the offered choices you need to. The email goes once. For more time, the deadline moves first and the email goes only if it moved.",
+      "Press Reject on the Queues page if it should not go, pick the reason and enter the code. Nothing is sent.",
+      "Check History on the Queues page. You are done when each item reads went through, failed, rejected or left the list without running.",
+    ],
+  },
 };
 
 /** This section's events still in their pre-rewrite wording (LEGACY_WORDING, ./index.ts). */

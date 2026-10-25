@@ -410,7 +410,19 @@ type OperatorOp =
   // name; never a person, a contact id or anything typed. Nothing runs here.
   | "listRights"
   | "recordRightsIntake"
-  | "closeRightsIntake";
+  | "closeRightsIntake"
+  // The clinic-contact approvals (apps/app lib/ops/resign-ops.ts,
+  // lib/ops/notice-ops.ts; ops automation lane P6f): the open re-signs, the
+  // buttons that only propose an email to a clinic in the approval inbox, an
+  // email item's draft with other fields, and the agreement answer the owner
+  // heard, which goes only through lib/admin/agreement-answer.ts after his
+  // fresh code.
+  | "listOpenResigns"
+  | "proposeAgreementQuestion"
+  | "recordAgreementAnswer"
+  | "proposeLifecycleNotice"
+  | "pullReminderForward"
+  | "previewApprovalDraft";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -6551,28 +6563,10 @@ export function fetchAgreementReviews(): Promise<OpsResult<AgreementReview[]>> {
   );
 }
 
-/** The practice's answer, as the operator heard it: recorded through setCoveredEntity. */
-export function decideAgreementReview(
-  clinicId: string,
-  reviewId: string,
-  answer: CoveredAnswer,
-): Promise<OpsResult<SetCoveredEntityOutcome>> {
-  return callOps("decideAgreementReview", "write", { clinicId, reviewId, answer }, (value) => {
-    const data = object(value, "decideAgreementReview");
-    if (state(data, "decideAgreementReview") !== "recorded") {
-      return refusal(data, "decideAgreementReview");
-    }
-    return {
-      status: "recorded",
-      agreementKind: literal(data.agreementKind, ["baa", "dpa"] as const, "decideAgreementReview.agreementKind"),
-      isCoveredEntity: optionalBoolean(data.isCoveredEntity, "decideAgreementReview.isCoveredEntity"),
-      covered: bool(data.covered, "decideAgreementReview.covered"),
-      supersedeStarted: bool(data.supersedeStarted, "decideAgreementReview.supersedeStarted"),
-      linkSent: bool(data.linkSent, "decideAgreementReview.linkSent"),
-      auditRecorded: bool(data.auditRecorded, "decideAgreementReview.auditRecorded"),
-    };
-  });
-}
+// decideAgreementReview has no client here (lane P6f): every answer needs a
+// fresh code, so it is recorded only through lib/admin/agreement-answer.ts
+// (recordAgreementAnswer below), and apps/app refuses the old op without
+// the mark.
 
 const CARD_CHANNELS = ["web", "meta", "voice"] as const;
 const CARD_CHANNEL_STATUSES = ["off", "paused", "live", "waiting", "setting_up"] as const;
@@ -7221,7 +7215,18 @@ export function fetchOpsInbox(): Promise<OpsResult<OpsInbox>> {
 // -----------------------------------------------------------------------------
 
 /** apps/app's closed lists (db/schema.ts APPROVAL_*; lib/approvals/kinds.ts reasons), mirrored by hand. */
-export const APPROVAL_KINDS = ["billing_request_retry", "overage_invoice_retry", "billing_event_replay"] as const;
+export const APPROVAL_KINDS = [
+  "billing_request_retry",
+  "overage_invoice_retry",
+  "billing_event_replay",
+  // The clinic-contact kinds (lane P6f).
+  "baa_resign_chase",
+  "agreement_question",
+  "setup_extended",
+  "setup_waiting_on_us",
+  "setup_help_offer",
+  "setup_reminder_now",
+] as const;
 export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
 export const APPROVAL_STATUSES = ["waiting", "approved", "rejected", "expired", "executed", "failed"] as const;
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
@@ -7229,7 +7234,17 @@ const APPROVAL_URGENCIES = ["legal_clock", "money", "routine"] as const;
 export type ApprovalUrgency = (typeof APPROVAL_URGENCIES)[number];
 const APPROVAL_EVENT_NAMES = ["proposed", "edited", "approved", "rejected", "executed", "failed", "expired", "reminded"] as const;
 export type ApprovalEventName = (typeof APPROVAL_EVENT_NAMES)[number];
-const APPROVAL_OPERATIONS = ["retryBillingRequest", "retryOverageInvoice", "replayBillingEvent"] as const;
+const APPROVAL_OPERATIONS = [
+  "retryBillingRequest",
+  "retryOverageInvoice",
+  "replayBillingEvent",
+  // The clinic-contact kinds' (lane P6f).
+  "sendResignChase",
+  "sendAgreementQuestion",
+  "extendSetupDeadline",
+  "sendSetupNotice",
+  "queueSetupReminder",
+] as const;
 export const APPROVE_REASONS = ["cause_fixed", "passing_fault", "owner_checked"] as const;
 export type ApproveReason = (typeof APPROVE_REASONS)[number];
 export const REJECT_REASONS = ["not_needed", "wrong_amount", "handled_elsewhere", "ask_clinic_first", "other"] as const;
@@ -7252,7 +7267,8 @@ export type ApprovalFacts =
       closureOn: boolean | null;
     }
   | { kind: "overage_invoice_retry"; windowStart: string; amountCents: number; lastErrorCode: string | null }
-  | { kind: "billing_event_replay"; eventType: string; failures: number; maxFailures: number };
+  | { kind: "billing_event_replay"; eventType: string; failures: number; maxFailures: number }
+  | ContactFacts;
 
 /** The facts the owner decides on, read live by apps/app, and the one sentence of what approving does. */
 export type ApprovalPacket = {
@@ -7261,6 +7277,8 @@ export type ApprovalPacket = {
   stillNeeded: boolean;
   effect: string;
   facts: ApprovalFacts;
+  /** A clinic-contact item's (lane P6f): the email as the clinic reads it, what may change, and the values now. */
+  contact?: ContactPacketExtra;
 };
 
 export type ApprovalItem = {
@@ -7430,19 +7448,24 @@ function readFacts(value: unknown, at: string): ApprovalFacts {
       }),
     };
   }
+  if (kind !== "billing_event_replay") return readContactFacts(value, kind, at);
   const f = exactKeys(value, ["kind", "eventType", "failures", "maxFailures"], at);
   if (typeof f.eventType !== "string" || !EVENT_TYPE.test(f.eventType)) throw new ShapeError(`${at}.eventType`);
   return { kind, eventType: f.eventType, failures: count(f.failures, `${at}.failures`), maxFailures: count(f.maxFailures, `${at}.maxFailures`) };
 }
 
 function readPacket(value: unknown, at: string): ApprovalPacket {
-  const p = exactKeys(value, ["operation", "irreversible", "stillNeeded", "effect", "facts"], at);
+  const keys = ["operation", "irreversible", "stillNeeded", "effect", "facts"];
+  // A clinic-contact item's packet carries its draft, editable fields and values too (lane P6f).
+  const contact = "editable" in object(value, at);
+  const p = exactKeys(value, contact ? [...keys, "draft", "editable", "fields"] : keys, at);
   return {
     operation: literal(p.operation, APPROVAL_OPERATIONS, `${at}.operation`),
     irreversible: bool(p.irreversible, `${at}.irreversible`),
     stillNeeded: bool(p.stillNeeded, `${at}.stillNeeded`),
     effect: text(p.effect, `${at}.effect`),
     facts: readFacts(p.facts, `${at}.facts`),
+    ...(contact ? { contact: readContactExtra(p, at) } : {}),
   };
 }
 
@@ -7540,10 +7563,12 @@ export function decideApproval(
   approvalId: string,
   action: "approve" | "reject",
   reasonCode: ApproveReason | RejectReason,
-  editedDraft?: { subject: string; body: string },
+  editedDraft?: { subject: string; body: string } | { fields: ApprovalEditFields },
 ): Promise<OpsResult<ApprovalDecision>> {
   const args: Record<string, unknown> = { id: approvalId, action, reasonCode, codeChecked: true };
-  if (editedDraft) args.editedDraft = { subject: editedDraft.subject, body: editedDraft.body };
+  // A clinic-contact item's edit is its closed fields only, never text (owner decision D12; lane P6f).
+  if (editedDraft && "fields" in editedDraft) args.editedDraft = { fields: editFieldsArgs(editedDraft.fields) };
+  else if (editedDraft) args.editedDraft = { subject: editedDraft.subject, body: editedDraft.body };
   return callOps("decideApproval", "write", args, (value): ApprovalDecision => {
     const data = object(value, "decideApproval");
     const status = literal(data.status, ["rejected", "executed", "failed", "error"] as const, "decideApproval.status");
@@ -7690,6 +7715,423 @@ export function closeRightsIntake(
       outcome: literal(data.outcome, ["closed", "already_closed"] as const, "closeRightsIntake.outcome"),
       status: literal(data.status, ["done", "not_applicable"] as const, "closeRightsIntake.status"),
       auditRecorded: bool(data.auditRecorded, "closeRightsIntake.auditRecorded"),
+    };
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The clinic-contact approvals (ops automation lane P6f)
+// -----------------------------------------------------------------------------
+
+/** apps/app's closed lists (lib/email/templates/contact-words.ts, lib/approvals/contact-payloads.ts), mirrored by hand. */
+export const CONTACT_PHRASES = ["phone", "website_chat", "meta", "calendar"] as const;
+export type ContactPhrase = (typeof CONTACT_PHRASES)[number];
+export const CONTACT_NOTES = ["call_offer", "thanks", "reply_questions", "thanks_sign"] as const;
+export type ContactNote = (typeof CONTACT_NOTES)[number];
+const LIFECYCLE_STAGE_CODES = ["not_started", "in_setup", "waiting_on_us", "partly_live", "live", "closed"] as const;
+const RECOMMENDATION_ACTIONS = ["extend", "offer_call", "let_close", "wait", "phone_the_clinic"] as const;
+const CHASE_BLOCKS = ["not_baa_version", "switched_off", "too_early", "chased_recently"] as const;
+const REMINDER_BLOCKS = ["not_billed", "window_over", "live", "last_reminder", "night", "recently_sent", "already_queued"] as const;
+const RESIGN_REASONS = ["now_covered", "not_sure", "baa_version"] as const;
+const AGREEMENT_VERSION = /^(?:[a-z]{2,8}\/)?\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[a-z0-9.]{1,20})?$/;
+/** A draft's body: our template's plain text, footer included, line breaks kept (apps/app MAX_BODY). */
+const MAX_DRAFT_BODY = 10_000;
+
+export type ContactRecommendation = { action: (typeof RECOMMENDATION_ACTIONS)[number]; days: number | null; reason: string };
+
+export type ContactFacts =
+  | {
+      kind: "baa_resign_chase";
+      resignId: string;
+      fromVersion: string | null;
+      toVersion: string;
+      startedAt: string | null;
+      daysOpen: number;
+      lastL22SentAt: string | null;
+      linkExpiresAt: string | null;
+      lastChaseAt: string | null;
+      belowFloor: boolean;
+      fromVersionAcceptable: boolean;
+      isAnswering: boolean;
+      blocked: (typeof CHASE_BLOCKS)[number] | null;
+      callFirst: boolean;
+      /** The practice's published number, shown only when the version is below the floor (phone it). */
+      publishedPhoneE164: string | null;
+    }
+  | {
+      kind: "agreement_question";
+      reviewId: string;
+      reviewStatus: "open" | "passed" | "failed" | "superseded" | null;
+      reviewDueOn: string | null;
+      agreementKind: "dpa" | "baa" | null;
+      agreementVersion: string | null;
+      signedAt: string | null;
+      coveredAnswer: "yes" | "no" | "unknown";
+      siteAcceptsInsurance: "yes" | "no" | "unknown";
+      earlierDecisions: number;
+      openResign: boolean;
+      locationsToPause: number;
+      isAnswering: boolean;
+    }
+  | {
+      kind: "setup_extended" | "setup_waiting_on_us" | "setup_help_offer";
+      stage: (typeof LIFECYCLE_STAGE_CODES)[number] | null;
+      stageSince: string | null;
+      remainingDays: number | null;
+      lastDay: string | null;
+      newLastDay: string | null;
+      stepsLeft: number | null;
+      alreadySent: boolean;
+      /** The clinic has left the stage entry the item was proposed for: approving sends nothing. */
+      stageMoved: boolean;
+      recommendation: ContactRecommendation | null;
+    }
+  | {
+      kind: "setup_reminder_now";
+      reminderNumber: number;
+      ofTotal: number;
+      normallyDueOn: string;
+      sentSoFar: number | null;
+      blocked: (typeof REMINDER_BLOCKS)[number] | null;
+      recommendation: ContactRecommendation | null;
+    };
+
+/** One field the owner may change: a day count, or a choice from a closed list. */
+export type ContactEditable =
+  | { field: "days"; type: "days"; min: number; max: number }
+  | { field: "phrase"; type: "choice"; options: ContactPhrase[]; optional: false }
+  | { field: "note"; type: "choice"; options: ContactNote[]; optional: true };
+
+/** The fields an edit sends: never text (owner decision D12). */
+export type ApprovalEditFields = { days?: number; phrase?: ContactPhrase; note?: ContactNote | null };
+
+export type ContactPacketExtra = {
+  /** The email as the clinic would read it; the chase's link shows as a placeholder. Null for the reminder. */
+  draft: { subject: string; body: string } | null;
+  editable: ContactEditable[];
+  fields: ApprovalEditFields | null;
+};
+
+function version(value: unknown, at: string): string {
+  if (typeof value !== "string" || !AGREEMENT_VERSION.test(value)) throw new ShapeError(at);
+  return value;
+}
+
+function readRecommendation(value: unknown, at: string): ContactRecommendation | null {
+  return nullable(value, (v) => {
+    const r = exactKeys(v, ["action", "days", "reason"], at);
+    return {
+      action: literal(r.action, RECOMMENDATION_ACTIONS, `${at}.action`),
+      days: optionalCount(r.days, `${at}.days`),
+      reason: text(r.reason, `${at}.reason`),
+    };
+  });
+}
+
+function readContactFacts(value: unknown, kind: Exclude<ApprovalKind, "billing_request_retry" | "overage_invoice_retry" | "billing_event_replay">, at: string): ContactFacts {
+  switch (kind) {
+    case "baa_resign_chase": {
+      const f = exactKeys(
+        value,
+        ["kind", "resignId", "fromVersion", "toVersion", "startedAt", "daysOpen", "lastL22SentAt", "linkExpiresAt", "lastChaseAt", "belowFloor", "fromVersionAcceptable", "isAnswering", "blocked", "callFirst", "publishedPhoneE164"],
+        at,
+      );
+      return {
+        kind,
+        resignId: id(f.resignId, `${at}.resignId`),
+        fromVersion: nullable(f.fromVersion, (v) => version(v, `${at}.fromVersion`)),
+        toVersion: version(f.toVersion, `${at}.toVersion`),
+        startedAt: f.startedAt === "" ? null : optionalIsoInstant(f.startedAt, `${at}.startedAt`),
+        daysOpen: count(f.daysOpen, `${at}.daysOpen`),
+        lastL22SentAt: optionalIsoInstant(f.lastL22SentAt, `${at}.lastL22SentAt`),
+        linkExpiresAt: optionalIsoInstant(f.linkExpiresAt, `${at}.linkExpiresAt`),
+        lastChaseAt: optionalIsoInstant(f.lastChaseAt, `${at}.lastChaseAt`),
+        belowFloor: bool(f.belowFloor, `${at}.belowFloor`),
+        fromVersionAcceptable: bool(f.fromVersionAcceptable, `${at}.fromVersionAcceptable`),
+        isAnswering: bool(f.isAnswering, `${at}.isAnswering`),
+        blocked: nullable(f.blocked, (v) => literal(v, CHASE_BLOCKS, `${at}.blocked`)),
+        callFirst: bool(f.callFirst, `${at}.callFirst`),
+        publishedPhoneE164: nullable(f.publishedPhoneE164, (v) => e164(v, `${at}.publishedPhoneE164`)),
+      };
+    }
+    case "agreement_question": {
+      const f = exactKeys(
+        value,
+        ["kind", "reviewId", "reviewStatus", "reviewDueOn", "agreementKind", "agreementVersion", "signedAt", "coveredAnswer", "siteAcceptsInsurance", "earlierDecisions", "openResign", "locationsToPause", "isAnswering"],
+        at,
+      );
+      return {
+        kind,
+        reviewId: id(f.reviewId, `${at}.reviewId`),
+        reviewStatus: nullable(f.reviewStatus, (v) => literal(v, ["open", "passed", "failed", "superseded"] as const, `${at}.reviewStatus`)),
+        reviewDueOn: nullable(f.reviewDueOn, (v) => date(v, `${at}.reviewDueOn`)),
+        agreementKind: nullable(f.agreementKind, (v) => literal(v, ["dpa", "baa"] as const, `${at}.agreementKind`)),
+        agreementVersion: nullable(f.agreementVersion, (v) => version(v, `${at}.agreementVersion`)),
+        signedAt: optionalIsoInstant(f.signedAt, `${at}.signedAt`),
+        coveredAnswer: literal(f.coveredAnswer, ["yes", "no", "unknown"] as const, `${at}.coveredAnswer`),
+        siteAcceptsInsurance: literal(f.siteAcceptsInsurance, ["yes", "no", "unknown"] as const, `${at}.siteAcceptsInsurance`),
+        earlierDecisions: count(f.earlierDecisions, `${at}.earlierDecisions`),
+        openResign: bool(f.openResign, `${at}.openResign`),
+        locationsToPause: count(f.locationsToPause, `${at}.locationsToPause`),
+        isAnswering: bool(f.isAnswering, `${at}.isAnswering`),
+      };
+    }
+    case "setup_extended":
+    case "setup_waiting_on_us":
+    case "setup_help_offer": {
+      const f = exactKeys(
+        value,
+        ["kind", "stage", "stageSince", "remainingDays", "lastDay", "newLastDay", "stepsLeft", "alreadySent", "stageMoved", "recommendation"],
+        at,
+      );
+      return {
+        kind,
+        stage: nullable(f.stage, (v) => literal(v, LIFECYCLE_STAGE_CODES, `${at}.stage`)),
+        stageSince: optionalIsoInstant(f.stageSince, `${at}.stageSince`),
+        remainingDays: optionalCount(f.remainingDays, `${at}.remainingDays`),
+        lastDay: nullable(f.lastDay, (v) => date(v, `${at}.lastDay`)),
+        newLastDay: nullable(f.newLastDay, (v) => date(v, `${at}.newLastDay`)),
+        stepsLeft: optionalCount(f.stepsLeft, `${at}.stepsLeft`),
+        alreadySent: bool(f.alreadySent, `${at}.alreadySent`),
+        stageMoved: bool(f.stageMoved, `${at}.stageMoved`),
+        recommendation: readRecommendation(f.recommendation, `${at}.recommendation`),
+      };
+    }
+    case "setup_reminder_now": {
+      const f = exactKeys(value, ["kind", "reminderNumber", "ofTotal", "normallyDueOn", "sentSoFar", "blocked", "recommendation"], at);
+      return {
+        kind,
+        reminderNumber: count(f.reminderNumber, `${at}.reminderNumber`),
+        ofTotal: count(f.ofTotal, `${at}.ofTotal`),
+        normallyDueOn: date(f.normallyDueOn, `${at}.normallyDueOn`),
+        sentSoFar: optionalCount(f.sentSoFar, `${at}.sentSoFar`),
+        blocked: nullable(f.blocked, (v) => literal(v, REMINDER_BLOCKS, `${at}.blocked`)),
+        recommendation: readRecommendation(f.recommendation, `${at}.recommendation`),
+      };
+    }
+  }
+}
+
+function readEditFields(value: unknown, at: string): ApprovalEditFields {
+  const f = object(value, at);
+  const out: ApprovalEditFields = {};
+  for (const key of Object.keys(f)) {
+    if (key === "days") out.days = count(f.days, `${at}.days`);
+    else if (key === "phrase") out.phrase = literal(f.phrase, CONTACT_PHRASES, `${at}.phrase`);
+    else if (key === "note") out.note = nullable(f.note, (v) => literal(v, CONTACT_NOTES, `${at}.note`));
+    else throw new ShapeError(`${at}.${key}`);
+  }
+  return out;
+}
+
+function readEditable(value: unknown, at: string): ContactEditable {
+  const field_ = literal(field(object(value, at), "field", at), ["days", "phrase", "note"] as const, `${at}.field`);
+  if (field_ === "days") {
+    const f = exactKeys(value, ["field", "type", "min", "max"], at);
+    literal(f.type, ["days"] as const, `${at}.type`);
+    return { field: "days", type: "days", min: count(f.min, `${at}.min`), max: count(f.max, `${at}.max`) };
+  }
+  const f = exactKeys(value, ["field", "type", "options", "optional"], at);
+  literal(f.type, ["choice"] as const, `${at}.type`);
+  if (field_ === "phrase") {
+    if (bool(f.optional, `${at}.optional`)) throw new ShapeError(`${at}.optional`);
+    return {
+      field: "phrase",
+      type: "choice",
+      options: list(f.options, `${at}.options`).map((o, i) => literal(o, CONTACT_PHRASES, `${at}.options[${i}]`)),
+      optional: false,
+    };
+  }
+  if (!bool(f.optional, `${at}.optional`)) throw new ShapeError(`${at}.optional`);
+  return {
+    field: "note",
+    type: "choice",
+    options: list(f.options, `${at}.options`).map((o, i) => literal(o, CONTACT_NOTES, `${at}.options[${i}]`)),
+    optional: true,
+  };
+}
+
+function readDraft(value: unknown, at: string): { subject: string; body: string } {
+  const d = exactKeys(value, ["subject", "body"], at);
+  return { subject: text(d.subject, `${at}.subject`), body: editable(d.body, `${at}.body`, MAX_DRAFT_BODY) };
+}
+
+function readContactExtra(p: Record<string, unknown>, at: string): ContactPacketExtra {
+  return {
+    draft: nullable(p.draft, (v) => readDraft(v, `${at}.draft`)),
+    editable: list(p.editable, `${at}.editable`).map((e, i) => readEditable(e, `${at}.editable[${i}]`)),
+    fields: nullable(p.fields, (v) => readEditFields(v, `${at}.fields`)),
+  };
+}
+
+/** The fields as the request sends them: the closed keys only, whatever the caller passed. */
+function editFieldsArgs(fields: ApprovalEditFields): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (fields.days !== undefined) out.days = fields.days;
+  if (fields.phrase !== undefined) out.phrase = fields.phrase;
+  if (fields.note !== undefined) out.note = fields.note;
+  return out;
+}
+
+export type OpenResignRow = {
+  resignId: string;
+  clinic: { id: string; name: string | null };
+  reason: (typeof RESIGN_REASONS)[number];
+  fromVersion: string | null;
+  toVersion: string;
+  startedAt: string;
+  lastL22SentAt: string | null;
+  daysOpen: number;
+  linkExpiresAt: string | null;
+  belowFloor: boolean;
+  fromVersionAcceptable: boolean;
+  /** Whether it holds AYA paused: a DPA re-sign does, a BAA version re-sign never. */
+  holdsPause: boolean;
+  lastChaseAt: string | null;
+  /** Why a chase cannot be proposed now, or null when it can. */
+  chaseBlocked: (typeof CHASE_BLOCKS)[number] | null;
+};
+
+/** Every open re-sign across clinics, below the floor first, then the longest open. */
+export function fetchOpenResigns(): Promise<OpsResult<{ resigns: OpenResignRow[]; unread: number }>> {
+  return callOps("listOpenResigns", "read", {}, (value) => {
+    const data = exactKeys(value, ["resigns", "unread"], "listOpenResigns");
+    return {
+      resigns: list(data.resigns, "listOpenResigns.resigns").map((row, i) => {
+        const at = `listOpenResigns.resigns[${i}]`;
+        const r = exactKeys(
+          row,
+          ["resignId", "clinic", "reason", "fromVersion", "toVersion", "startedAt", "lastL22SentAt", "daysOpen", "linkExpiresAt", "belowFloor", "fromVersionAcceptable", "holdsPause", "lastChaseAt", "chaseBlocked"],
+          at,
+        );
+        const clinic = readApprovalClinic(r.clinic, `${at}.clinic`);
+        if (!clinic) throw new ShapeError(`${at}.clinic`);
+        return {
+          resignId: id(r.resignId, `${at}.resignId`),
+          clinic,
+          reason: literal(r.reason, RESIGN_REASONS, `${at}.reason`),
+          fromVersion: nullable(r.fromVersion, (v) => version(v, `${at}.fromVersion`)),
+          toVersion: version(r.toVersion, `${at}.toVersion`),
+          startedAt: isoInstant(r.startedAt, `${at}.startedAt`),
+          lastL22SentAt: optionalIsoInstant(r.lastL22SentAt, `${at}.lastL22SentAt`),
+          daysOpen: count(r.daysOpen, `${at}.daysOpen`),
+          linkExpiresAt: optionalIsoInstant(r.linkExpiresAt, `${at}.linkExpiresAt`),
+          belowFloor: bool(r.belowFloor, `${at}.belowFloor`),
+          fromVersionAcceptable: bool(r.fromVersionAcceptable, `${at}.fromVersionAcceptable`),
+          holdsPause: bool(r.holdsPause, `${at}.holdsPause`),
+          lastChaseAt: optionalIsoInstant(r.lastChaseAt, `${at}.lastChaseAt`),
+          chaseBlocked: nullable(r.chaseBlocked, (v) => literal(v, CHASE_BLOCKS, `${at}.chaseBlocked`)),
+        };
+      }),
+      unread: count(data.unread, "listOpenResigns.unread"),
+    };
+  });
+}
+
+/** A button's answer: the item proposed in the approval inbox (nothing sent), or why not. */
+export type ProposeOutcome =
+  | { status: "proposed"; approvalId: string; reminderNumber?: number; normallyDueOn?: string }
+  | { status: "refused"; message: string };
+
+function readProposed(value: unknown, at: string, reminder = false): ProposeOutcome {
+  const data = object(value, at);
+  const status = literal(data.status, ["proposed", "refused"] as const, `${at}.status`);
+  if (status === "refused") {
+    exactKeys(data, ["status", "message"], at);
+    return refusal(data, at);
+  }
+  if (reminder) {
+    const r = exactKeys(data, ["status", "approvalId", "reminderNumber", "normallyDueOn"], at);
+    return {
+      status,
+      approvalId: id(r.approvalId, `${at}.approvalId`),
+      reminderNumber: count(r.reminderNumber, `${at}.reminderNumber`),
+      normallyDueOn: date(r.normallyDueOn, `${at}.normallyDueOn`),
+    };
+  }
+  const r = exactKeys(data, ["status", "approvalId"], at);
+  return { status, approvalId: id(r.approvalId, `${at}.approvalId`) };
+}
+
+/** Puts the agreement question for an open review in Approvals. Sends nothing. */
+export function proposeAgreementQuestion(clinicId: string, reviewId: string): Promise<OpsResult<ProposeOutcome>> {
+  return callOps("proposeAgreementQuestion", "write", { clinicId, reviewId }, (value) => readProposed(value, "proposeAgreementQuestion"));
+}
+
+export type LifecycleNoticeKind = "setup_extended" | "setup_waiting_on_us" | "setup_help_offer";
+
+/** Puts a setup notice in Approvals, with its draft. Sends nothing; an extension runs only on approve. */
+export function proposeLifecycleNotice(input: {
+  clinicId: string;
+  kind: LifecycleNoticeKind;
+  days?: number;
+  phrase?: ContactPhrase;
+  note?: ContactNote | null;
+}): Promise<OpsResult<ProposeOutcome>> {
+  const args: Record<string, unknown> = { clinicId: input.clinicId, kind: input.kind };
+  if (input.days !== undefined) args.days = input.days;
+  if (input.phrase !== undefined) args.phrase = input.phrase;
+  if (input.note !== undefined) args.note = input.note;
+  return callOps("proposeLifecycleNotice", "write", args, (value) => readProposed(value, "proposeLifecycleNotice"));
+}
+
+/** "Send reminder now": puts the next spec reminder, sooner, in Approvals. Sends nothing. */
+export function pullReminderForward(clinicId: string): Promise<OpsResult<ProposeOutcome>> {
+  return callOps("pullReminderForward", "write", { clinicId }, (value) => readProposed(value, "pullReminderForward", true));
+}
+
+export type DraftPreview =
+  | { status: "preview"; draft: { subject: string; body: string }; editable: ContactEditable[] }
+  | { status: "problems"; problems: string[] }
+  | { status: "refused"; message: string };
+
+/** An email item's draft as it would read with other fields. Writes nothing. */
+export function previewApprovalDraft(approvalId: string, fields: ApprovalEditFields): Promise<OpsResult<DraftPreview>> {
+  return callOps("previewApprovalDraft", "read", { id: approvalId, fields: editFieldsArgs(fields) }, (value): DraftPreview => {
+    const data = object(value, "previewApprovalDraft");
+    const status = literal(data.status, ["preview", "problems", "refused"] as const, "previewApprovalDraft.status");
+    if (status === "refused") {
+      exactKeys(data, ["status", "message"], "previewApprovalDraft");
+      return refusal(data, "previewApprovalDraft");
+    }
+    if (status === "problems") {
+      const p = exactKeys(data, ["status", "problems"], "previewApprovalDraft");
+      return { status, problems: list(p.problems, "previewApprovalDraft.problems").map((x, i) => text(x, `previewApprovalDraft.problems[${i}]`)) };
+    }
+    const p = exactKeys(data, ["status", "draft", "editable"], "previewApprovalDraft");
+    return {
+      status,
+      draft: readDraft(p.draft, "previewApprovalDraft.draft"),
+      editable: list(p.editable, "previewApprovalDraft.editable").map((e, i) => readEditable(e, `previewApprovalDraft.editable[${i}]`)),
+    };
+  });
+}
+
+export type AgreementAnswer = "yes" | "no" | "not_sure";
+
+/**
+ * The raw answer to the agreement question, as the owner heard it. It sends
+ * the fresh-code mark apps/app requires, so it is imported by
+ * lib/admin/agreement-answer.ts alone, after the operator's authenticator
+ * code; a test fails if any other file names it. The reply is
+ * setCoveredEntity's, as decideAgreementReview's is.
+ */
+export function recordAgreementAnswer(
+  clinicId: string,
+  reviewId: string,
+  answer: AgreementAnswer,
+): Promise<OpsResult<SetCoveredEntityOutcome>> {
+  return callOps("recordAgreementAnswer", "write", { clinicId, reviewId, answer, codeChecked: true }, (value) => {
+    const data = object(value, "recordAgreementAnswer");
+    if (state(data, "recordAgreementAnswer") !== "recorded") return refusal(data, "recordAgreementAnswer");
+    return {
+      status: "recorded",
+      agreementKind: literal(data.agreementKind, ["baa", "dpa"] as const, "recordAgreementAnswer.agreementKind"),
+      isCoveredEntity: optionalBoolean(data.isCoveredEntity, "recordAgreementAnswer.isCoveredEntity"),
+      covered: bool(data.covered, "recordAgreementAnswer.covered"),
+      supersedeStarted: bool(data.supersedeStarted, "recordAgreementAnswer.supersedeStarted"),
+      linkSent: bool(data.linkSent, "recordAgreementAnswer.linkSent"),
+      auditRecorded: bool(data.auditRecorded, "recordAgreementAnswer.auditRecorded"),
     };
   });
 }

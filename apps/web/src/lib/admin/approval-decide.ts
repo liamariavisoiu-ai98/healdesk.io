@@ -5,6 +5,7 @@ import {
   decideApproval as sendDecideApproval, // raw: only here (approval-decide.test.ts)
   REJECT_REASONS,
   type ApprovalDecision,
+  type ApprovalEditFields,
   type ApproveReason,
   type OpsResult,
   type RejectReason,
@@ -41,7 +42,8 @@ export async function decideApprovalWithCode(
   action: "approve" | "reject",
   reasonCode: ApproveReason | RejectReason,
   code: unknown,
-  editedDraft?: { subject: string; body: string },
+  // A clinic-contact item's edit is its closed fields only (owner decision D12; lane P6f).
+  editedDraft?: { subject: string; body: string } | { fields: ApprovalEditFields },
 ): Promise<OpsResult<ApprovalDecisionEntry>> {
   if (!(await requireOperator())) return UNAUTHENTICATED;
   if (!UUID.test(approvalId)) return { ok: true, data: { status: "refused", message: "No such approval." } };

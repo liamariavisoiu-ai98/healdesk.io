@@ -282,10 +282,18 @@ describeDb("the misclassification review", () => {
     const [stayReview] = await reviewsOf(stays.clinicId);
     const [moveReview] = await reviewsOf(moves.clinicId);
 
+    // Without apps/web's fresh-code mark no answer is recorded (lane P6f).
+    for (const answer of ["no", "yes", "not_sure"]) {
+      const unmarked = await op("decideAgreementReview", { clinicId: stays.clinicId, reviewId: stayReview!.id, answer });
+      expect(unmarked.body.data, answer).toMatchObject({ status: "refused", message: expect.stringContaining("authenticator") });
+    }
+    expect((await reviewsOf(stays.clinicId))[0]!.status).toBe("open");
+
     const no = await op("decideAgreementReview", {
       clinicId: stays.clinicId,
       reviewId: stayReview!.id,
       answer: "no",
+      codeChecked: true,
     });
     expect(no.body.data).toMatchObject({
       status: "recorded",
@@ -301,6 +309,7 @@ describeDb("the misclassification review", () => {
       clinicId: moves.clinicId,
       reviewId: moveReview!.id,
       answer: "yes",
+      codeChecked: true,
     });
     expect(yes.body.data).toMatchObject({
       status: "recorded",
@@ -323,6 +332,7 @@ describeDb("the misclassification review", () => {
       clinicId: moves.clinicId,
       reviewId: moveReview!.id,
       answer: "no",
+      codeChecked: true,
     });
     expect(twice.body.data).toMatchObject({ status: "refused" });
   });

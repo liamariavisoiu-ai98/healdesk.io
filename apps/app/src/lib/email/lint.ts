@@ -10,6 +10,7 @@ import {
 import { publicOrigin } from "@/lib/public-url";
 
 import { carriesUnsubscribe, isLinkEmail, isEmailKind, type EmailKind } from "./kind-rules";
+import { NOTES, PHRASES } from "./templates/contact-words";
 
 /**
  * The checks every email passes (Annex X4), in one place so the sender, the
@@ -66,7 +67,10 @@ type ValueClass =
   | "phone"
   | "url"
   | "flag"
-  | "rows";
+  | "rows"
+  // Lane P6f: a code from lib/email/templates/contact-words.ts's own lists.
+  | "note"
+  | "phrase";
 
 /** Counters that do not end in Count, Days, Hours, Minutes or Percent. */
 const COUNT_KEYS: ReadonlySet<string> = new Set([
@@ -148,12 +152,19 @@ function classOfKey(key: string): ValueClass | null {
   // An opening date never enters a payload (X4); opening dates are gone.
   if (/open(ing|s)/i.test(key)) return null;
   if (key === "clinicName") return "clinicName";
+  // Lane P6f (owner decision D12): the approved closing sentence and the part
+  // of setup a notice names, each checked against its own closed list, never
+  // the generic token pattern.
+  if (key === "note") return "note";
+  if (key === "phrase") return "phrase";
   if (key === "deviceName") return "deviceName";
   // P6, the agreement copy: who signed it, as typed, and the document's
   // SHA-256, the one reference the email gives for it.
   if (key === "signatoryName") return "personName";
   if (key === "documentHash") return "sha256";
   if (key === "documentVersion") return "documentVersion";
+  // Lane P6f, the BAA re-sign chase: the version in force and the one to sign.
+  if (key === "fromVersion" || key === "toVersion") return "documentVersion";
   if (key === "planName") return "planName";
   if (key === "planId" || key === "plan" || key === "boughtPlanId") return "planId";
   if (key === "channel" || key === "channels") return "channel";
@@ -343,6 +354,12 @@ function checkValue(
     }
     case "flag":
       if (typeof value !== "boolean") fail("must be true or false.");
+      return;
+    case "note":
+      if (typeof value !== "string" || !(NOTES as readonly string[]).includes(value)) fail("must be an approved closing sentence's code.");
+      return;
+    case "phrase":
+      if (typeof value !== "string" || !(PHRASES as readonly string[]).includes(value)) fail("must be one of the listed parts of setup.");
       return;
   }
 }

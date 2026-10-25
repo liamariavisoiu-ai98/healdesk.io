@@ -9,7 +9,16 @@ import { raiseOpsAlertKeyed } from "@/lib/ops/notify";
 import { getJob, runJob, type JobOutcome } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
-import { KIND_SPECS, LEGAL_CLOCK_REMINDER_MS, parsePayload, PROPOSER, RETRIED_BY_REQUEST_KIND, type ApprovalKind } from "./kinds";
+import { contactResolved, proposeChases, type ChaseScan } from "./contact-proposers";
+import {
+  isContactKind,
+  KIND_SPECS,
+  LEGAL_CLOCK_REMINDER_MS,
+  parsePayload,
+  PROPOSER,
+  RETRIED_BY_REQUEST_KIND,
+  type ApprovalKind,
+} from "./kinds";
 import {
   expireDue,
   moveStatus,
@@ -265,7 +274,9 @@ export async function findOpenSubjects(now: Date, on: ReadonlySet<string> = new 
 }
 
 /** Whether a waiting item's subject was read this run and is no longer open, or its kind is no longer proposed. */
-function resolved(item: OpsApproval, found: Found): boolean {
+function resolved(item: OpsApproval, found: Found, chases: ChaseScan): boolean {
+  // The clinic-contact kinds (lane P6f) are judged by their own rule.
+  if (isContactKind(item.kind)) return contactResolved(item, chases);
   if (found.open.has(key(item.kind as ApprovalKind, item.subjectRef))) return false;
   if (item.kind === "billing_event_replay") return found.eventsRead;
   const clinic = item.subjectClinicId;
@@ -312,8 +323,11 @@ async function remind(now: Date): Promise<number> {
       .map((d) => `${d.item.id}:${d.count}`)
       .sort()
       .join(",");
-    const alertKey = `approval_waiting:${kind}:${createHash("sha256").update(identity).digest("hex").slice(0, 32)}`;
-    const alertId = await raiseOpsAlertKeyed("approval_waiting", { kind, count: due.length }, { key: alertKey, email: true });
+    // An email to a clinic has its own alert and words (lane P6f): the
+    // billing alert's sentences about retries and Stripe are not about it.
+    const event = isContactKind(kind) ? "clinic_email_waiting" : "approval_waiting";
+    const alertKey = `${event}:${kind}:${createHash("sha256").update(identity).digest("hex").slice(0, 32)}`;
+    const alertId = await raiseOpsAlertKeyed(event, { kind, count: due.length }, { key: alertKey, email: true });
     if (!alertId) continue;
     for (const { item } of due) {
       await recordEvent(unsafeDb, item.id, "reminded", SERVICE_ACTOR, { at: now });
@@ -332,6 +346,9 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
     if (!KIND_SPECS[proposal.kind] || retriedNow(proposal.kind, proposal.payload, on)) continue;
     if (await propose(proposal, now)) proposed += 1;
   }
+  // The BAA version re-sign chase (lane P6f, ./contact-proposers.ts).
+  const chases = await proposeChases(now);
+  proposed += chases.proposed;
   const interrupted = await sweepInterrupted(now);
   const expired = await expireDue(now);
   let gone = 0;
@@ -350,7 +367,7 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
       }
       continue;
     }
-    if (!resolved(item, found)) continue;
+    if (!resolved(item, found, chases)) continue;
     if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "no_longer_needed" })) {
       gone += 1;
     }

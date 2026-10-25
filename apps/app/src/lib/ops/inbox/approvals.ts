@@ -29,6 +29,31 @@ const WORDS: Readonly<Record<ApprovalKind, { one: string; many: string }>> = {
     one: "1 Stripe event replay is waiting for your yes.",
     many: "{n} Stripe event replays are waiting for your yes.",
   },
+  // The emails to a clinic (lane P6f): each goes only once you approve it.
+  baa_resign_chase: {
+    one: "1 email chasing a practice to sign its updated agreement is waiting for your yes.",
+    many: "{n} emails chasing practices to sign their updated agreement are waiting for your yes.",
+  },
+  agreement_question: {
+    one: "1 email asking a practice which agreement it needs is waiting for your yes.",
+    many: "{n} emails asking practices which agreement they need are waiting for your yes.",
+  },
+  setup_extended: {
+    one: "1 setup extension and its email are waiting for your yes.",
+    many: "{n} setup extensions and their emails are waiting for your yes.",
+  },
+  setup_waiting_on_us: {
+    one: "1 email telling a clinic we're finishing its setup is waiting for your yes.",
+    many: "{n} emails telling clinics we're finishing their setup are waiting for your yes.",
+  },
+  setup_help_offer: {
+    one: "1 offer of a five-minute setup call is waiting for your yes.",
+    many: "{n} offers of a five-minute setup call are waiting for your yes.",
+  },
+  setup_reminder_now: {
+    one: "1 setup reminder to send sooner is waiting for your yes.",
+    many: "{n} setup reminders to send sooner are waiting for your yes.",
+  },
 };
 
 const TONE: Readonly<Record<ApprovalUrgency, Tone>> = { legal_clock: "bad", money: "warn", routine: "info" };

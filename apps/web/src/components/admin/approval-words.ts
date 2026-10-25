@@ -31,6 +31,13 @@ export const APPROVAL_KIND_WORDS: Record<ApprovalKind, string> = {
   billing_request_retry: "Retry a billing change the billing worker gave up on",
   overage_invoice_retry: "Retry an extra-usage invoice that failed",
   billing_event_replay: "Replay a Stripe event that was parked",
+  // The emails to a clinic (lane P6f); their screen is lane P6g's.
+  baa_resign_chase: "Chase a practice to sign its updated agreement",
+  agreement_question: "Ask a practice which agreement it needs",
+  setup_extended: "Give a clinic more time to finish setup, and tell it",
+  setup_waiting_on_us: "Tell a clinic we are finishing its setup",
+  setup_help_offer: "Offer a clinic a five-minute setup call",
+  setup_reminder_now: "Send the next setup reminder sooner",
 };
 
 /** The same words apps/app's alerts use for a request's kind (lib/ops/alert-wording/words.ts REQUEST_KIND_WORDS). */
@@ -177,6 +184,18 @@ export const OUTCOME_WORDS: Readonly<Record<string, string>> = {
   window_passed: "its window passed",
   clinic_out_of_service: "its clinic left service",
   interrupted: "the process died before the answer came",
+  // The clinic-contact executors (apps/app lib/approvals/contact-executors.ts, lane P6f).
+  sent: "the email was sent",
+  queued: "the email was queued to send",
+  already_sent: "it had already gone, so it was not sent again",
+  send_failed: "the email did not go",
+  no_public_origin: "no signing link could be made",
+  extension_refused: "the extension did not go through, so nothing was emailed",
+  extended_email_not_queued: "the deadline moved but the email could not be queued",
+  reminder_not_queued: "the reminder was not queued",
+  reminder_night: "it was night at the clinic, so the reminder was not sent",
+  reminder_too_soon: "a reminder went less than five days before, so this one was not sent",
+  superseded_by_next_round: "a newer chase of the same re-sign replaced it",
 };
 
 /** An outcome code in words; one this table does not know is printed as its own words. */
@@ -201,6 +220,12 @@ export const IRREVERSIBLE_CONFIRM: Record<ApprovalKind, string> = {
   billing_request_retry: "This cannot be undone once the billing worker has carried it out.",
   overage_invoice_retry: "This cannot be undone once Stripe has issued the invoice.",
   billing_event_replay: "This cannot be undone once the event has been applied.",
+  baa_resign_chase: "This cannot be undone once the email has gone.",
+  agreement_question: "This cannot be undone once the email has gone.",
+  setup_extended: "This cannot be undone once the deadline has moved and the email has gone.",
+  setup_waiting_on_us: "This cannot be undone once the email has gone.",
+  setup_help_offer: "This cannot be undone once the email has gone.",
+  setup_reminder_now: "This cannot be undone once the reminder has gone.",
 };
 
 /**
@@ -339,6 +364,8 @@ export function factLines(item: ApprovalItem): [string, string][] {
     lines.push(["Runs", "at once, in the same request, when approved"]);
     return lines;
   }
+  // The clinic-contact kinds' lines are lane P6g's (the screen); none yet.
+  if (facts.kind !== "billing_event_replay") return [];
   return [
     ["Stripe event", eventTypeWords(facts.eventType)],
     ["Failed", `${facts.failures} of ${facts.maxFailures} times`],

@@ -7789,6 +7789,16 @@ export const APPROVAL_KINDS = [
   "billing_request_retry",
   "overage_invoice_retry",
   "billing_event_replay",
+  // The clinic-contact kinds (ops automation lane P6f, drizzle/0122): the
+  // BAA version re-sign chase, the agreement question and the setup
+  // notices, each an email from a fixed template, and the next setup
+  // reminder sooner.
+  "baa_resign_chase",
+  "agreement_question",
+  "setup_extended",
+  "setup_waiting_on_us",
+  "setup_help_offer",
+  "setup_reminder_now",
 ] as const;
 export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
 

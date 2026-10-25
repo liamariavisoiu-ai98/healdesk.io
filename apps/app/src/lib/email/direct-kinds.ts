@@ -194,6 +194,17 @@ export const DIRECT_KIND_REGISTRY = {
    * tag: it goes to our own inbox, as the support escalation does.
    */
   access_request: direct("I3", "transactional", "plan", { linkEmail: false, locksOut: false }),
+  /**
+   * L22c, the owner's chase of a BAA version re-sign after L22's reminders
+   * (ops automation lane P6f), only through the approval inbox: a link email
+   * with a fresh signing link minted at send, on the ledger under the
+   * approval's id.
+   */
+  baa_resign_chase: direct("L22", "transactional", "plan", {
+    linkEmail: true,
+    locksOut: false,
+    ledger: true,
+  }),
 } as const;
 
 export type DirectKind = keyof typeof DIRECT_KIND_REGISTRY;
@@ -212,4 +223,5 @@ export const LEDGER_DIRECT_KINDS = [
   "address_changing",
   "agreement_to_sign",
   "data_destroyed",
+  "baa_resign_chase",
 ] as const;

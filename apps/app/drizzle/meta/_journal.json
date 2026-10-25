@@ -855,6 +855,13 @@
       "when": 1792858851003,
       "tag": "0121_rights_intakes_destroyed",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1792862451003,
+      "tag": "0122_clinic_contact_approvals",
+      "breakpoints": true
     }
   ]
 }

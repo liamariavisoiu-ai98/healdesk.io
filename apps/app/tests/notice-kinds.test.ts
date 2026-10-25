@@ -78,6 +78,11 @@ const REGISTERED_AHEAD: Record<
   practice_questions_failed: ["O9", "normal", null, "daytime"],
   // At once: the clinic has just closed the day itself (owner decision D10).
   closed_day_bookings: ["O17", "normal", null, "any_hour"],
+  // Lane P6f: sent only through the approval inbox, in the clinic's daytime.
+  setup_extended: ["O18", "normal", null, "daytime"],
+  setup_waiting_on_us: ["O19", "normal", null, "daytime"],
+  setup_help_offer: ["O20", "normal", null, "daytime"],
+  agreement_question: ["L36", "normal", null, "daytime"],
 };
 
 const F0_KINDS = [

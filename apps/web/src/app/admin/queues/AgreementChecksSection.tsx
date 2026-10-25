@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { HostStandbyNotice } from "@/components/admin/HostStandbyNotice";
 import { Failure, Section } from "@/components/admin/ui";
 import { requireOperator } from "@/lib/admin/operator";
-import { decideAgreementReview as decideUpstream, fetchAgreementReviews, type CoveredAnswer } from "@/lib/admin/ops-client";
+import { recordAgreementAnswerWithCode } from "@/lib/admin/agreement-answer";
+import { fetchAgreementReviews, type CoveredAnswer } from "@/lib/admin/ops-client";
 import { isHostUnreachable } from "@/lib/host/state";
 
 import { AgreementChecks } from "./AgreementChecks";
@@ -19,9 +20,11 @@ import { AgreementChecks } from "./AgreementChecks";
 
 const PATH = "/admin/queues";
 
-async function decide(clinicId: string, reviewId: string, answer: CoveredAnswer) {
+// Every answer needs the code from the operator's authenticator (lane P6f):
+// a Yes or Not sure pauses AYA at every location of the practice.
+async function decide(clinicId: string, reviewId: string, answer: CoveredAnswer, code: string) {
   "use server";
-  const result = await decideUpstream(clinicId, reviewId, answer);
+  const result = await recordAgreementAnswerWithCode(clinicId, reviewId, answer, code);
   revalidatePath(PATH);
   return result;
 }

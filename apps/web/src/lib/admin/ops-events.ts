@@ -107,6 +107,7 @@ export const OPS_EVENTS = [
   "ops_digest_summary",
   "assistant_knows_no_services",
   "approval_waiting",
+  "clinic_email_waiting",
   "rights_request_blocked",
   "rights_request_due_soon",
   "rights_request_overdue",

@@ -17,7 +17,15 @@ import { MAX_BILLING_REQUEST_ATTEMPTS } from "@/lib/billing/requests";
 import { getJob, JOB_ANNUAL_OVERAGE_INVOICE, JOB_BILLING_RECONCILE, JOB_BILLING_REQUESTS, JOB_SETUP_CLOSURE } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
-import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind } from "./kinds";
+import {
+  contactEffect,
+  contactExtra,
+  contactFacts,
+  contactStillNeeded,
+  type ContactFacts,
+  type ContactPacketExtra,
+} from "./contact-packets";
+import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind, type ContactKind } from "./kinds";
 
 /**
  * Each waiting item's packet: the facts the owner needs to say yes or no,
@@ -72,11 +80,14 @@ export type Packet = {
   stillNeeded: boolean;
   /** What approving does, in plain words. */
   effect: string;
-  facts: BillingRequestFacts | OverageFacts | EventFacts;
-};
+  facts: BillingRequestFacts | OverageFacts | EventFacts | ContactFacts;
+} & Partial<ContactPacketExtra>;
 
 /** Every key a packet carries, for the test that holds it to no free text. */
 export const PACKET_KEYS = ["effect", "facts", "irreversible", "operation", "stillNeeded"] as const;
+
+/** A clinic-contact item's packet carries these as well (lane P6f): its draft, what may change, and the values now. */
+export const CONTACT_PACKET_KEYS = [...PACKET_KEYS, "draft", "editable", "fields"].sort();
 
 const ENGINE_CODE = /^[a-z][a-z0-9_]{0,40}(:[a-z0-9_]{1,40})?$/;
 
@@ -313,6 +324,27 @@ export async function packetFor(approval: OpsApproval, ctx: Ctx): Promise<Packet
       return overagePacket(approval, ctx);
     case "billing_event_replay":
       return eventPacket(approval);
+    case "baa_resign_chase":
+    case "agreement_question":
+    case "setup_extended":
+    case "setup_waiting_on_us":
+    case "setup_help_offer":
+    case "setup_reminder_now":
+      return contactPacket(kind, approval, ctx);
   }
   return null;
+}
+
+/** A clinic-contact item's packet (lane P6f, ./contact-packets.ts). */
+async function contactPacket(kind: ContactKind, approval: OpsApproval, ctx: Ctx): Promise<Packet | null> {
+  const facts = await contactFacts(kind, approval.payload, ctx, new Date());
+  if (!facts) return null;
+  return {
+    operation: KIND_SPECS[kind].operation,
+    irreversible: KIND_SPECS[kind].irreversible,
+    stillNeeded: contactStillNeeded(facts),
+    effect: contactEffect(facts),
+    facts,
+    ...contactExtra(kind, approval.payload, approval.draft),
+  };
 }

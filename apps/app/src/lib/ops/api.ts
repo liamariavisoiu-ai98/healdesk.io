@@ -156,6 +156,8 @@ import { opListLifecycleIgnored, opSetLifecycleIgnored } from "@/lib/ops/lifecyc
 import { opCloseRightsIntake, opListRights, opRecordRightsIntake } from "@/lib/ops/rights-ops";
 import { opListMachineQueues } from "@/lib/ops/machine-queues-ops";
 import { opDecideApproval, opListApprovalHistory, opListApprovals } from "@/lib/ops/approval-ops";
+import { opPreviewApprovalDraft, opProposeLifecycleNotice, opPullReminderForward } from "@/lib/ops/notice-ops";
+import { opListOpenResigns, opProposeAgreementQuestion, opRecordAgreementAnswer } from "@/lib/ops/resign-ops";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -696,6 +698,20 @@ const OPERATIONS = [
   "listRights",
   "recordRightsIntake",
   "closeRightsIntake",
+  // The clinic-contact approvals (ops automation lane P6f; lib/ops/resign-ops.ts,
+  // lib/ops/notice-ops.ts, lib/approvals/contact-*.ts): the open re-signs
+  // across clinics; the buttons that only PROPOSE an email to a clinic in the
+  // approval inbox (the agreement question, a setup notice, the next setup
+  // reminder sooner); an email item's draft with other fields; and the
+  // answer the owner heard to the agreement question, behind apps/web's
+  // fresh-code wrapper. Ids, versions, dates, closed words, our own fixed
+  // sentences and the clinic's name.
+  "listOpenResigns",
+  "proposeAgreementQuestion",
+  "recordAgreementAnswer",
+  "proposeLifecycleNotice",
+  "pullReminderForward",
+  "previewApprovalDraft",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -846,6 +862,12 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   // Mutating: a patient-rights intake recorded, or closed. Nothing is run.
   "recordRightsIntake",
   "closeRightsIntake",
+  // Mutating: an email to a clinic proposed in the approval inbox (nothing
+  // is sent), or the agreement answer the owner heard recorded.
+  "proposeAgreementQuestion",
+  "recordAgreementAnswer",
+  "proposeLifecycleNotice",
+  "pullReminderForward",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1444,6 +1466,12 @@ export async function runOperation(
     case "listAgreementReviews":
       return opListAgreementReviews(operator);
     case "decideAgreementReview":
+      // Every answer needs apps/web's fresh-code mark (lane P6f): a Yes or Not
+      // sure pauses AYA at every location, and only the wrapper
+      // (lib/admin/agreement-answer.ts) sets it after the operator's code.
+      if (booleanArg(args, "codeChecked") !== true) {
+        return ok({ status: "refused", message: "This needs the code from your authenticator. Nothing was changed." });
+      }
       return opDecideAgreementReview(args, operator);
     case "listPlatformCompliance":
       return opListPlatformCompliance();
@@ -1513,6 +1541,18 @@ export async function runOperation(
       return opRecordRightsIntake(args, operator);
     case "closeRightsIntake":
       return opCloseRightsIntake(args, operator);
+    case "listOpenResigns":
+      return opListOpenResigns(operator);
+    case "proposeAgreementQuestion":
+      return opProposeAgreementQuestion(args, operator);
+    case "recordAgreementAnswer":
+      return opRecordAgreementAnswer(args, operator);
+    case "proposeLifecycleNotice":
+      return opProposeLifecycleNotice(args, operator);
+    case "pullReminderForward":
+      return opPullReminderForward(args, operator);
+    case "previewApprovalDraft":
+      return opPreviewApprovalDraft(args);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

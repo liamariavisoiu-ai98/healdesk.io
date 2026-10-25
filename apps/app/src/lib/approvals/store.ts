@@ -5,6 +5,7 @@ import { opsApprovalEvents, opsApprovals, type OpsApproval } from "@/db/schema";
 
 import {
   APPROVED_STUCK_MS,
+  draftHash,
   KIND_SPECS,
   OUTCOME_CODE,
   PROPOSER,
@@ -77,8 +78,24 @@ export type Proposal<K extends ApprovalKind = ApprovalKind> = {
  * the guard against two proposers racing; a lost race is "not proposed",
  * never an error. Returns the new id or null.
  */
-export async function propose(proposal: Proposal, now: Date): Promise<string | null> {
+export async function propose(
+  proposal: Proposal,
+  now: Date,
+  options: {
+    /**
+     * Lane P6f: an operator's button proposes too, recorded under the
+     * console (CONSOLE_PROPOSER) with the operator as the event's actor,
+     * and an email kind's draft is stored with its hash.
+     */
+    proposedBy?: string;
+    actor?: EventActor;
+    draft?: string;
+    /** Statuses that also block a new proposal of the same subject: a once-only kind's `executed`. */
+    blockedBy?: readonly ApprovalStatus[];
+  } = {},
+): Promise<string | null> {
   const spec = KIND_SPECS[proposal.kind];
+  const blocking: ApprovalStatus[] = ["waiting", "rejected", ...(options.blockedBy ?? [])];
   return unsafeDb.transaction(async (tx) => {
     const [seen] = await tx
       .select({ id: opsApprovals.id })
@@ -88,7 +105,7 @@ export async function propose(proposal: Proposal, now: Date): Promise<string | n
           eq(opsApprovals.kind, proposal.kind),
           eq(opsApprovals.subjectRef, proposal.subjectRef),
           or(
-            inArray(opsApprovals.status, ["waiting", "rejected"]),
+            inArray(opsApprovals.status, blocking),
             and(eq(opsApprovals.status, "expired"), eq(opsApprovals.outcomeCode, "window_passed")),
           ),
         ),
@@ -105,13 +122,14 @@ export async function propose(proposal: Proposal, now: Date): Promise<string | n
         dueAt: new Date(now.getTime() + spec.dueHours * HOUR_MS),
         expiresAt: spec.expiryDays === null ? null : new Date(now.getTime() + spec.expiryDays * DAY_MS),
         urgency: spec.urgency,
-        proposedBy: PROPOSER,
+        proposedBy: options.proposedBy ?? PROPOSER,
         proposedAt: now,
+        ...(options.draft !== undefined ? { draft: options.draft, draftHash: draftHash(options.draft) } : {}),
       })
       .onConflictDoNothing()
       .returning({ id: opsApprovals.id });
     if (!row) return null;
-    await recordEvent(tx, row.id, "proposed", SERVICE_ACTOR, { at: now });
+    await recordEvent(tx, row.id, "proposed", options.actor ?? SERVICE_ACTOR, { at: now });
     return row.id;
   });
 }
@@ -186,6 +204,28 @@ export async function expireDue(now: Date): Promise<number> {
     }
   }
   return expired;
+}
+
+/**
+ * The subject an operator's button proposes under (lane P6f): the base
+ * reference, or after the owner rejected n items for it, `<base>:r<n>`. A
+ * rejection stops the approvals job proposing the same failure again
+ * (propose() above), but must not stop an operator pressing the button
+ * again for a fresh draft; the unique waiting index still allows one
+ * waiting item per subject.
+ */
+export async function subjectAfterRejections(kind: ApprovalKind, base: string): Promise<string> {
+  const rows = await unsafeDb
+    .select({ status: opsApprovals.status })
+    .from(opsApprovals)
+    .where(
+      and(
+        eq(opsApprovals.kind, kind),
+        or(eq(opsApprovals.subjectRef, base), sql`starts_with(${opsApprovals.subjectRef}, ${`${base}:r`})`),
+      ),
+    );
+  const rejected = rows.filter((r) => r.status === "rejected").length;
+  return rejected === 0 ? base : `${base}:r${rejected}`;
 }
 
 export async function getApproval(id: string): Promise<OpsApproval | null> {

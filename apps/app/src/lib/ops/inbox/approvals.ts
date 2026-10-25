@@ -21,8 +21,8 @@ import type { InboxRow, InboxSource, Tone } from "./types";
 
 export const APPROVALS_PAGE = "/admin/queues#approvals";
 
-/** Lane P7c: a support reply waits beside its case, in the Queues page's Support section. */
-export const SUPPORT_PAGE = "/admin/queues#support";
+/** Lane P7c: a support reply waits beside its case, on the Support console (lane P7d), where its case's page has Send. */
+export const SUPPORT_PAGE = "/admin/support";
 
 /** Each kind's words, for one item and for many. */
 const WORDS: Readonly<Record<ApprovalKind, { one: string; many: string }>> = {

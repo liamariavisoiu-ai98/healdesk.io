@@ -81,7 +81,9 @@ export const PLACES: Readonly<Record<string, Place>> = {
   "Home page": ["app/admin/page.tsx", 'title: "Home"', "page"],
   "Voice agent column": ["app/admin/clinics/ClinicTable.tsx", 'label: "Voice agent"', "page"],
   "Calendar column": ["app/admin/clinics/ClinicTable.tsx", 'label: "Calendar"', "page"],
-  Support: ["app/admin/queues/SupportSection.tsx", 'id="support" title={`Support', "page"],
+  // Since lane P7d "Support" is the Support console, the list of cases at /admin/support; Queues › Support, the
+  // chat's dated promises with their mark, keeps its two places below.
+  Support: ["app/admin/support/page.tsx", 'title: "Support"', "page"],
   "Waiting for a reply": ["app/admin/queues/SupportSection.tsx", "Waiting for a reply", "page"],
   "Mark replied": ["app/admin/queues/SupportSection.tsx", "Mark replied", "button"],
   "Site reads": ["app/admin/queues/page.tsx", 'label: "Site reads"', "page"],
@@ -257,4 +259,19 @@ export const PLACES: Readonly<Record<string, Place>> = {
   // ("Ask the practice, on its published number"), which the renderer would
   // otherwise underline as a button.
   "Ask the practice under Agreement checks": ["app/admin/queues/AgreementChecks.tsx", 'label="Ask the practice"', "button"],
+  // Phase 7 (lanes P7a, P7b, P7c; console by lane P7d): the Support console's
+  // "Needs you" section and the case view's controls. "Check the reply",
+  // "Send the reply" and "Close the case" are keyed with their object, as
+  // "Extend the setup window on the Setup window card" is: bare, Check, Send
+  // and Close are verbs in a hundred steps, which the renderer would
+  // underline as buttons.
+  "Needs you": ["components/admin/support-words.ts", 'title: "Needs you"', "page"],
+  "Save draft": ["app/admin/support/[caseId]/CaseView.tsx", 'label="Save draft"', "button"],
+  "Check the reply": ["app/admin/support/[caseId]/CaseView.tsx", 'label="Check"', "button"],
+  Regenerate: ["app/admin/support/[caseId]/CaseView.tsx", 'label="Regenerate"', "button"],
+  "Send the reply": ["app/admin/support/[caseId]/CaseView.tsx", 'label="Send"', "button"],
+  Snooze: ["app/admin/support/[caseId]/CaseView.tsx", 'label="Snooze"', "button"],
+  Assign: ["app/admin/support/[caseId]/CaseView.tsx", 'label="Assign"', "button"],
+  Match: ["app/admin/support/[caseId]/CaseView.tsx", 'label="Match"', "button"],
+  "Close the case": ["app/admin/support/[caseId]/CaseView.tsx", 'label="Close"', "button"],
 };

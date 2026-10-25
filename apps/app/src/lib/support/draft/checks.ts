@@ -193,7 +193,8 @@ function bareRef(ref: string): string {
 }
 
 function normal(value: string): string {
-  return value.normalize("NFC").toLowerCase().replace(/[’‘]/gu, "'").replace(/\s+/gu, " ").trim();
+  // Commas out: "Wednesday, 28 October" and "Wednesday 28 October" are one fact.
+  return value.normalize("NFC").toLowerCase().replace(/[’‘]/gu, "'").replace(/,(?=\s)/gu, "").replace(/\s+/gu, " ").trim();
 }
 
 // -----------------------------------------------------------------------------

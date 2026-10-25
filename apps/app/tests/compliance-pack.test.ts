@@ -727,7 +727,12 @@ describeDb("the compliance pack, against the database", () => {
       note: `due week ${weeks[6]}: stored ${weeks[5]}, ${weeks[6]}; 3 already stored`,
     });
     expect((await getPack(weeks[5]!))!.payload.build).toEqual({ partial: false, unreadSections: [], builtLate: true, lateDays: 10 });
-    expect((await getPack(weeks[6]!))!.payload.build).toMatchObject({ builtLate: true, lateDays: 3 });
+    // Three days late, give or take the hour a clock change moves a Monday's 07:00 in UTC: the
+    // whole days are worked out from the week's own due time, so the test does too (a random week
+    // across a change would otherwise read 2 or 3).
+    const lateDays6 = Math.floor((back.getTime() - packWeek(weeks[6]!).dueAt.getTime()) / 86_400_000);
+    expect([2, 3]).toContain(lateDays6);
+    expect((await getPack(weeks[6]!))!.payload.build).toMatchObject({ builtLate: true, lateDays: lateDays6 });
     expect((await getPack(weeks[4]!))!.payload.build).toMatchObject({ builtLate: false });
     // One pointer per new week, each saying how late it is.
     expect(state.sent).toHaveLength(2);
@@ -908,7 +913,16 @@ describeDb("the compliance pack, against the database", () => {
       weekStart: string;
       headline: unknown;
     }[];
-    expect(packs.find((p) => p.weekStart === week)?.headline).toMatchObject({ incidentsOpen: 0 });
+    // The list is the newest 104 packs. The tests store random past weeks into one shared
+    // database, so this week is among them only while fewer than 104 newer ones exist (a fresh
+    // CI database; a long-lived local one fills up): check its headline when it is there, and
+    // always check the order and that every row carries its headline.
+    const mine = packs.find((p) => p.weekStart === week);
+    if (mine) expect(mine.headline).toMatchObject({ incidentsOpen: 0 });
+    expect(packs.length).toBeGreaterThan(0);
+    expect(packs.length).toBeLessThanOrEqual(104);
+    expect(packs.map((p) => p.weekStart)).toEqual([...packs.map((p) => p.weekStart)].sort().reverse());
+    for (const p of packs) expect(p).toHaveProperty("headline");
     expect((await runOperation("listCompliancePacks", { limit: 0 }, OPERATOR)).status).toBe(400);
     // The operator's generation sends nothing: the pointer is the job's.
     expect(state.sent).toEqual([]);

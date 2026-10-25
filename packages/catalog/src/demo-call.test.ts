@@ -10,6 +10,7 @@ const CONTEXT: DemoCallContext = {
   firstName: "John",
   issuedAt: 1_800_000_000_000,
   offer: { percentOfSetupFee: 50, endsAt: 1_800_000_000_000 + 48 * 60 * 60_000 },
+  test: false,
   clinic: {
     clinicName: "Lumen Aesthetics",
     summary: "A med spa in Austin.",
@@ -60,6 +61,14 @@ describe("the demo call context (owner, 24 October 2026)", () => {
   test("a demo without a live discount carries none, and a forged one does not open", () => {
     const sealed = sealDemoCallContext({ ...CONTEXT, offer: null }, SECRET);
     expect(openDemoCallContext(sealed, SECRET, CONTEXT.issuedAt)?.offer).toBeNull();
+  });
+
+  test("an operator's test call is marked only when it was sealed so, and only with true", () => {
+    expect(openDemoCallContext(sealDemoCallContext({ ...CONTEXT, test: true }, SECRET), SECRET, CONTEXT.issuedAt)?.test).toBe(true);
+    expect(openDemoCallContext(sealDemoCallContext(CONTEXT, SECRET), SECRET, CONTEXT.issuedAt)?.test).toBe(false);
+    // Anything but the boolean true is not a test call.
+    const loose = sealDemoCallContext({ ...CONTEXT, test: "yes" as unknown as boolean }, SECRET);
+    expect(openDemoCallContext(loose, SECRET, CONTEXT.issuedAt)?.test).toBe(false);
   });
 
   test("an offer is a whole percent from 1 to 100 with a real end time, or none", () => {

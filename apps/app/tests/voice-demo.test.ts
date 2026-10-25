@@ -75,6 +75,7 @@ function context(overrides: Partial<DemoCallContext> = {}): DemoCallContext {
     firstName: "Sam",
     issuedAt: Date.now(),
     offer: null,
+    test: false,
     clinic: {
       clinicName: "Lumen Aesthetics",
       summary: "A boutique med spa in downtown Austin.",
@@ -448,6 +449,45 @@ describe("a demo call on the voice engine", () => {
     expect(spoken.find((r) => r.content.includes("how was that"))!.end_call).toBe(false);
     expect(spoken.at(-1)).toMatchObject({ content: "Thanks so much, Sam, have a great day!", end_call: true });
     await s.finish();
+  });
+
+  test("an operator's test call emails its transcript to hello@, as a clinic's goes to the clinic, and keeps nothing", async () => {
+    const mails: { to: string; subject: string; text: string; phiClass: unknown }[] = [];
+    const transport = {
+      name: "ses-fake",
+      send: async (target: { to: string }, message: { subject: string; text: string; phiClass?: unknown }) => {
+        mails.push({ to: target.to, subject: message.subject, text: message.text, phiClass: message.phiClass });
+        return { status: "sent" as const, messageId: "ses-1" };
+      },
+    };
+    const info = vi.spyOn(log, "info");
+    const { s, raw, heard, touched } = demoSession(model("Botox is $12 per unit here.").responder, SECRET, { transport });
+    await s.open();
+    await s.handle(details({ retell_llm_dynamic_variables: { demo_context: sealed(context({ test: true })) } }));
+    await vi.waitFor(() => expect(raw()).toHaveLength(1));
+    await s.handle(said(1, [{ role: "agent", content: heard()[0]!.content }, { role: "user", content: "how much is botox" }]));
+    expect(await s.finish()).toBeNull();
+    expect(mails).toHaveLength(1);
+    expect(mails[0]!.to).toBe("hello@healdesk.io");
+    expect(mails[0]!.phiClass).toBe("may-carry-phi");
+    expect(mails[0]!.text).toContain("how much is botox");
+    expect(mails[0]!.text).toContain("Botox is $12 per unit here.");
+    expect(info).toHaveBeenCalledWith("retell demo call ended", expect.objectContaining({ status: "transcript_sent" }));
+    expect(touched).toEqual([]);
+    expect(tenant.calls).toBe(0);
+  });
+
+  test("a prospect's demo call sends no transcript anywhere", async () => {
+    const transport = { name: "ses-fake", send: vi.fn(async () => ({ status: "sent" as const, messageId: "x" })) };
+    const info = vi.spyOn(log, "info");
+    const { s, raw, heard } = demoSession(model("Botox is $12 per unit here.").responder, SECRET, { transport });
+    await s.open();
+    await s.handle(details({ retell_llm_dynamic_variables: { demo_context: sealed() } }));
+    await vi.waitFor(() => expect(raw()).toHaveLength(1));
+    await s.handle(said(1, [{ role: "agent", content: heard()[0]!.content }, { role: "user", content: "how much is botox" }]));
+    await s.finish();
+    expect(transport.send).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith("retell demo call ended", expect.objectContaining({ status: "nothing_kept" }));
   });
 
   test("a price off the website is refused by the guard, as on any call", async () => {

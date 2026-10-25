@@ -86,7 +86,7 @@ export const EXTEND_MAX_DAYS = 30;
  * for a reply; the help offer already offers a call).
  */
 export const NOTES_BY_KIND: Readonly<Record<DraftKind, readonly NoteCode[]>> = {
-  baa_resign_chase: ["call_offer", "thanks"],
+  baa_resign_chase: ["call_offer", "thanks_sign"],
   agreement_question: ["call_offer", "thanks"],
   setup_extended: ["call_offer", "thanks"],
   setup_waiting_on_us: ["thanks", "reply_questions"],
@@ -175,7 +175,8 @@ export type ContactPayloads = {
     resignId: string;
     /** Which seven-day round of chasing it is for: 1 from day 8, 2 from day 15, and so on. */
     round: number;
-    fromVersion: string;
+    /** The version in force, when the record names one; the email then leaves the version out. */
+    fromVersion: string | null;
     toVersion: string;
     isAnswering: boolean;
     note: NoteCode | null;
@@ -256,7 +257,7 @@ export function parseContactPayload<K extends keyof ContactPayloads>(kind: K, ra
     case "baa_resign_chase":
       if (typeof p.resignId !== "string" || !UUID.test(p.resignId)) return null;
       if (!count(p.round, 1, 1000) || typeof p.isAnswering !== "boolean") return null;
-      if (typeof p.fromVersion !== "string" || !VERSION.test(p.fromVersion)) return null;
+      if (p.fromVersion !== null && (typeof p.fromVersion !== "string" || !VERSION.test(p.fromVersion))) return null;
       if (typeof p.toVersion !== "string" || !VERSION.test(p.toVersion)) return null;
       return note(kind) ? (p as ContactPayloads[K]) : null;
     case "agreement_question":

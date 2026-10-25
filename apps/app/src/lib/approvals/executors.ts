@@ -156,21 +156,28 @@ const replayBillingEvent: Executor = async (approval, operator) => {
 };
 
 /** One executor per kind, closed: a new kind does not compile until it has one. */
-export const EXECUTORS: Readonly<Record<ApprovalKind, Executor>> = {
-  billing_request_retry: retryBillingRequest,
-  overage_invoice_retry: retryOverageInvoice,
-  billing_event_replay: replayBillingEvent,
-  // The clinic-contact kinds (lane P6f): the outbox, the direct sender's
-  // ledger, extendSetupDeadline and queueSetupReminder (./contact-executors.ts).
-  ...CONTACT_EXECUTORS,
-};
+//
+// Read at call time, not spread at load: contact-executors.ts reaches back
+// here through lib/ops/api.ts and approval-ops.ts, so in some load orders it
+// is not yet evaluated when this module is, and a spread would silently
+// leave the contact kinds out (every one then "malformed").
+export function allExecutors(): Readonly<Record<ApprovalKind, Executor>> {
+  return {
+    billing_request_retry: retryBillingRequest,
+    overage_invoice_retry: retryOverageInvoice,
+    billing_event_replay: replayBillingEvent,
+    // The clinic-contact kinds (lane P6f): the outbox, the direct sender's
+    // ledger, extendSetupDeadline and queueSetupReminderNow (./contact-executors.ts).
+    ...CONTACT_EXECUTORS,
+  };
+}
 
 /** Run an item's executor; one that throws is a failure with a code, never an unrecorded item. */
 export async function execute(
   approval: OpsApproval,
   operator: Operator,
   context: ExecutionContext,
-  executors: Readonly<Record<string, Executor>> = EXECUTORS,
+  executors: Readonly<Record<string, Executor>> = allExecutors(),
 ): Promise<ExecutionResult> {
   const executor = executors[approval.kind];
   if (!executor || !KIND_SPECS[approval.kind as ApprovalKind]) return malformed();

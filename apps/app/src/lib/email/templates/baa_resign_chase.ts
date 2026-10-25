@@ -32,8 +32,8 @@ export type BaaResignChasePayload = {
   signUrl: string;
   /** How many days the link works. */
   validDays: number;
-  /** The version in force, which the current one replaces. */
-  fromVersion: string;
+  /** The version in force, which the current one replaces; null when the record names none (the clause is left out). */
+  fromVersion: string | null;
   /** The version to sign. */
   toVersion: string;
   /** Whether AYA answers anywhere: a practice not yet live is not told she "keeps answering". */
@@ -53,8 +53,8 @@ export const renderBaaResignChase: EmailTemplate<BaaResignChasePayload> = (paylo
     {
       type: "paragraph",
       text: payload.isAnswering
-        ? `AYA keeps answering as normal under the version you signed (${payload.fromVersion}). Nothing changes until you sign.`
-        : `The version you signed (${payload.fromVersion}) stays in force until you sign the new one.`,
+        ? `AYA keeps answering as normal under the version you signed${payload.fromVersion ? ` (${payload.fromVersion})` : ""}. Nothing changes until you sign.`
+        : `The version you signed${payload.fromVersion ? ` (${payload.fromVersion})` : ""} stays in force until you sign the new one.`,
     },
     { type: "action", label: "Open, read and sign", url: payload.signUrl },
     { type: "paragraph", text: `This link works for ${payload.validDays} days.` },

@@ -1,7 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
-import { auditReviewQueue, clinics, type OpsApproval } from "@/db/schema";
-import { chaseBlocked, organisationAnswering, resignFactsIn } from "@/lib/agreements/open-resigns";
+import { auditReviewQueue, clinics, reportDeliveries, type OpsApproval } from "@/db/schema";
+import { chaseBlocked, chaseKey, chaseRound, organisationAnswering, resignFactsIn } from "@/lib/agreements/open-resigns";
 import { openResign, resignPath } from "@/lib/agreements/resign";
 import { setupLastDay } from "@/lib/clinic/setup-window";
 import { printableClinicName } from "@/lib/email/lint";
@@ -52,6 +52,9 @@ import { draftHash, type ContactKind } from "./kinds";
  * the draft shows, so the two hashes are equal exactly when the words sent
  * are the words approved).
  */
+
+/** A chase slot claimed this recently and not yet recorded is another approval's send in flight. */
+const IN_FLIGHT_MS = 10 * 60 * 1000;
 
 /** A contact executor's result, with the hash of what it sent when it sent. */
 export type ContactResult = ExecutionResult & { draftHashSent?: string | null };
@@ -122,11 +125,31 @@ export async function sendResignChase(
     const signIn = await clinicSignIn(tx);
     const ctx = await renderContextIn(tx);
     if (!signIn || !ctx) return { state: "closed" as const, reason: "not_baa_version" as const };
-    const deliveryId = await claimDelivery(tx, {
-      kind: "baa_resign_chase",
-      periodKey: `resign:${facts.resignId}:chase:${approval.id}`,
-      recipient: signIn.email,
-    });
+    // One chase per re-sign and round, whoever approves: the claim is made
+    // under a lock on the re-sign, and a slot another approval has just
+    // claimed and is sending counts as taken (claimDelivery alone would
+    // re-claim it, so two racing approvals could both send).
+    await tx.db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`resign-chase:${facts.resignId}`}, 0))`);
+    const periodKey = chaseKey(facts.resignId, chaseRound(facts.daysOpen));
+    const [slot] = await tx.db
+      .select({ status: reportDeliveries.status, reason: reportDeliveries.reason, attemptedAt: reportDeliveries.attemptedAt })
+      .from(reportDeliveries)
+      .where(
+        and(
+          eq(reportDeliveries.clinicId, tx.clinicId),
+          eq(reportDeliveries.kind, "baa_resign_chase"),
+          eq(reportDeliveries.periodKey, periodKey),
+        ),
+      )
+      .limit(1);
+    if (
+      slot &&
+      (slot.status === "sent" ||
+        (slot.reason?.startsWith("claimed") === true && now.getTime() - slot.attemptedAt.getTime() < IN_FLIGHT_MS))
+    ) {
+      return { state: "sent" as const };
+    }
+    const deliveryId = await claimDelivery(tx, { kind: "baa_resign_chase", periodKey, recipient: signIn.email });
     if (!deliveryId) return { state: "sent" as const };
     return {
       state: "claimed" as const,
@@ -137,7 +160,7 @@ export async function sendResignChase(
     };
   });
   if (claim.state === "closed") return fail("no_longer_needed", CHASE_BLOCKED_WORDS[claim.reason]);
-  if (claim.state === "sent") return fail("already_sent", "This chase was already sent, so it was not sent again.");
+  if (claim.state === "sent") return fail("already_sent", "This practice has already been chased this week, so it was not sent again.");
 
   // Minted now, from BETTER_AUTH_URL: never stored, here or in the draft.
   const signUrl = publicUrl(resignPath({ id: payload.resignId, clinicId: payload.clinicId }, now));
@@ -235,6 +258,14 @@ export async function sendAgreementQuestion(approval: OpsApproval, fields: unkno
  * An email that cannot be queued after the extension went through is a
  * failure of its own (`extended_email_not_queued`): the deadline has moved.
  */
+/** The extension went through and its email did not: the deadline HAS moved, said first. */
+function emailNotQueued(deadline: Date, timeZone: string, why: string | null): ContactResult {
+  return fail(
+    "extended_email_not_queued",
+    `The deadline did move: the clinic now has until the end of ${setupLastDay(deadline, timeZone)}. The email telling it was not queued${why ? ` (${why.replace(/\.$/, "")})` : ""}, so tell the clinic yourself.`,
+  );
+}
+
 export async function extendThenNotify(approval: OpsApproval, operator: Operator, fields: unknown): Promise<ContactResult> {
   const payload = effectivePayload("setup_extended", approval, fields);
   if (!payload) return MALFORMED;
@@ -273,16 +304,11 @@ export async function extendThenNotify(approval: OpsApproval, operator: Operator
         emailPayloadOf("setup_extended", fresh, closesOn),
       );
     });
+    if (!result.ok) return { ...emailNotQueued(deadline, payload.timeZone, result.message), auditRecorded };
     return { ...result, auditRecorded };
   } catch (error) {
     log.error("setup extension email not queued", { clinicId: payload.clinicId, error: describeError(error) });
-    return {
-      ...fail(
-        "extended_email_not_queued",
-        `The deadline was extended to the end of ${setupLastDay(deadline, payload.timeZone)}, but the email to the clinic could not be queued. Tell the clinic yourself.`,
-      ),
-      auditRecorded,
-    };
+    return { ...emailNotQueued(deadline, payload.timeZone, null), auditRecorded };
   }
 }
 
@@ -337,7 +363,7 @@ export async function pullReminder(approval: OpsApproval, now: Date = new Date()
 
 /** One executor per contact kind. */
 export const CONTACT_EXECUTORS: Readonly<Record<ContactKind, Executor>> = {
-  baa_resign_chase: (approval, _operator, ctx) => sendResignChase(approval, ctx.draft?.fields),
+  baa_resign_chase: (approval, _operator, ctx) => sendResignChase(approval, ctx.draft?.fields, ctx.now ?? new Date()),
   agreement_question: (approval, _operator, ctx) => sendAgreementQuestion(approval, ctx.draft?.fields),
   setup_extended: (approval, operator, ctx) => extendThenNotify(approval, operator, ctx.draft?.fields),
   setup_waiting_on_us: (approval, _operator, ctx) => sendSetupNotice("setup_waiting_on_us", approval, ctx.draft?.fields),

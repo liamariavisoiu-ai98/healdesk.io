@@ -7,7 +7,8 @@ import { DRAFT_KINDS, EDITABLE, parseContactPayload, parseFields, type ContactPa
 import { decideDraft, NOT_FIELDS, serialiseDraft } from "@/lib/approvals/drafts";
 import { CONTACT_KINDS, draftHash, KIND_SPECS } from "@/lib/approvals/kinds";
 import { proposeApprovals } from "@/lib/approvals/proposers";
-import { getApproval } from "@/lib/approvals/store";
+import { sendResignChase } from "@/lib/approvals/contact-executors";
+import { getApproval, propose } from "@/lib/approvals/store";
 import { agreementInEffect } from "@/lib/agreements/in-effect";
 import { flagInsuranceMismatch } from "@/lib/agreements/misclassification";
 import { openAgreementResign, readResignToken, sendAgreementToSign } from "@/lib/agreements/resign";
@@ -38,6 +39,18 @@ import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic"
 vi.setConfig({ testTimeout: 90_000 });
 
 const send = vi.fn();
+/** An outbox kind whose enqueue throws, for the extension's email failing after the deadline moved. */
+const outbox = vi.hoisted(() => ({ failKind: null as string | null }));
+vi.mock("@/lib/notices/plan-notices", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/notices/plan-notices")>();
+  return {
+    ...actual,
+    enqueuePlanNotice: ((...args: Parameters<typeof actual.enqueuePlanNotice>) => {
+      if (args[2] === outbox.failKind) throw new Error("outbox unavailable");
+      return actual.enqueuePlanNotice(...args);
+    }) as typeof actual.enqueuePlanNotice,
+  };
+});
 vi.mock("resend", () => ({
   Resend: class {
     emails = { send };
@@ -183,13 +196,21 @@ describe("the drafts: fixed words from closed fields only (D12)", () => {
   });
 
   test("the chase names no pause, suspension or deadline, and its draft holds no link", () => {
-    for (const isAnswering of [true, false]) {
-      for (const note of [null, "call_offer", "thanks"] as const) {
-        const payload = { ...FIXTURES.baa_resign_chase, isAnswering, note };
+    // Every field combination the chase can carry: answering or not, a version or none, each note.
+    const combos = [true, false].flatMap((isAnswering) =>
+      ["1.5.0", null].flatMap((fromVersion) =>
+        [null, "call_offer", "thanks_sign"].map((note) => ({ isAnswering, fromVersion, note })),
+      ),
+    );
+    expect(parseFields("baa_resign_chase", { note: "thanks" }).ok).toBe(false);
+    for (const combo of combos) {
+      {
+        const payload = { ...FIXTURES.baa_resign_chase, ...combo } as ContactPayloads["baa_resign_chase"];
         const draft = renderContactDraft("baa_resign_chase", payload);
         const sent = renderContactEmail("baa_resign_chase", payload, "https://app.healdesk.test/agreement/Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7dEf0hIj3kLm6nOp9qRs2tUv5wXy8zAb1dEf4hIj7kLm0nOp3qRs6tUv9w");
         for (const text of [draft.subject, draft.body, sent.text, sent.html]) {
-          expect(text).not.toMatch(/\b(pause|paused|pauses|suspend|suspended|suspension|deadline|until \w+ \d)/i);
+          expect(text, JSON.stringify(combo)).not.toMatch(/\b(pause|paused|pauses|suspend|suspended|suspension|deadline|until \w+ \d)/i);
+          expect(text, JSON.stringify(combo)).not.toMatch(/\b(must|or else|required|within \d+ days)\b/i);
         }
         expect(draft.body).toContain(LINK_PLACEHOLDER);
         expect(draft.body).not.toMatch(/\/agreement\/[A-Za-z0-9_-]{32,}/);
@@ -198,6 +219,13 @@ describe("the drafts: fixed words from closed fields only (D12)", () => {
     }
     expect(renderContactDraft("baa_resign_chase", FIXTURES.baa_resign_chase).body).toContain(
       "AYA keeps answering as normal under the version you signed (1.5.0).",
+    );
+    // No version on record: the clause is left out, never a made-up number.
+    const unversioned = renderContactDraft("baa_resign_chase", { ...FIXTURES.baa_resign_chase, fromVersion: null }).body;
+    expect(unversioned).toContain("AYA keeps answering as normal under the version you signed. Nothing changes");
+    expect(unversioned).not.toContain("0.0.0");
+    expect(renderContactDraft("baa_resign_chase", { ...FIXTURES.baa_resign_chase, note: "thanks_sign" }).body).toContain(
+      "Thank you for taking a moment to sign it.",
     );
   });
 
@@ -231,6 +259,11 @@ describe("the drafts: fixed words from closed fields only (D12)", () => {
     expect(() => assertPayloadAllowed({ note: "free words in a note" }, "setup_help_offer")).toThrow();
     expect(() => assertPayloadAllowed({ phrase: "call 5551234567 now" }, "setup_help_offer")).toThrow();
     expect(() => assertPayloadAllowed({ fromVersion: "one point five" }, "baa_resign_chase")).toThrow();
+    // Token-shaped hostile values are refused too: each field is held to its own list.
+    expect(() => assertPayloadAllowed({ phrase: "call5551234567" }, "setup_help_offer")).toThrow(/phrase/);
+    expect(() => assertPayloadAllowed({ note: "tel:5551234567" }, "setup_help_offer")).toThrow(/note/);
+    expect(() => assertPayloadAllowed({ note: "thanks_sign", phrase: "calendar" }, "setup_help_offer")).not.toThrow();
+    expect(() => assertPayloadAllowed({ note: null }, "setup_help_offer")).not.toThrow();
     // A signing token is a link email's alone: in any outbox kind it is refused.
     const tokenLink = "https://app.healdesk.test/agreement/Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7dEf0hIj3kLm6n";
     expect(linkProblems({ subject: "s", text: tokenLink, html: "" }, "setup_help_offer")).not.toEqual([]);
@@ -333,6 +366,7 @@ describeDb("the clinic-contact approvals, against the database", () => {
   }, 60_000);
   afterEach(() => {
     restoreEnv();
+    outbox.failKind = null;
     vi.restoreAllMocks();
   });
   afterAll(async () => {
@@ -392,7 +426,7 @@ describeDb("the clinic-contact approvals, against the database", () => {
     expect(row!.lastL22SentAt).not.toBeNull();
 
     send.mockClear();
-    const out = await decide(items[0]!.id, { editedDraft: { fields: { note: "thanks" } } }, NOW);
+    const out = await decide(items[0]!.id, { editedDraft: { fields: { note: "thanks_sign" } } }, NOW);
     expect(out).toMatchObject({ status: "executed", outcomeCode: "sent" });
     expect(send).toHaveBeenCalledTimes(1);
     const mail = send.mock.calls[0]![0] as { to: string; text: string; subject: string };
@@ -401,7 +435,7 @@ describeDb("the clinic-contact approvals, against the database", () => {
     const token = /\/agreement\/([A-Za-z0-9_-]{92})/.exec(mail.text)?.[1];
     expect(token).toBeDefined();
     expect(readResignToken(token, NOW)).toMatchObject({ ok: true, resignId, clinicId: c.clinicId });
-    expect(mail.text).toContain("Thank you for your patience");
+    expect(mail.text).toContain("Thank you for taking a moment to sign it.");
     // Both hashes kept: the edit's, approved, and what was sent, equal word for word.
     const events = await eventsOf(items[0]!.id);
     expect(events.map((e) => e.event)).toEqual(["proposed", "edited", "approved", "executed"]);
@@ -427,6 +461,111 @@ describeDb("the clinic-contact approvals, against the database", () => {
     );
     expect(rejected).toMatchObject({ status: "rejected" });
     expect(send).not.toHaveBeenCalled();
+  });
+
+  /** A BAA version re-sign opened ten days ago with L22 and both its reminders sent: chaseable now. */
+  async function chaseable(label: string): Promise<{ c: PortalClinic; resignId: string }> {
+    const c = await setupClinic(label, 10);
+    const started = at(-10 * DAY);
+    const resignId = await withTenant({ clinicId: c.clinicId, actor: { type: "service", serviceName: "test" } }, async (tx) => {
+      const agreement = await agreementInEffect(tx);
+      return (
+        await openAgreementResign(tx, {
+          fromAgreementId: agreement!.agreementId,
+          reason: "baa_version",
+          source: "operator",
+          requestedBy: "ops@healdesk.test",
+          pause: false,
+          now: started,
+        })
+      ).resignId;
+    });
+    for (const [days, sentAt] of [[0, started], [3, at(-7 * DAY)], [7, at(-3 * DAY)]] as const) {
+      expect(await sendAgreementToSign({ clinicId: c.clinicId, resignId, waitingDays: days }, { now: sentAt })).toBe(true);
+    }
+    return { c, resignId };
+  }
+
+  test("the chase: a failed send does not hold off the next; a new round replaces the waiting one; two racing approvals send once", async () => {
+    const { c, resignId } = await chaseable("race");
+    await proposeApprovals(NOW);
+    const [a] = (await itemsOf(c.clinicId, "baa_resign_chase")).filter((i) => i.status === "waiting");
+    expect(a).toBeDefined();
+    // Resend refuses: the approval fails and nothing was sent.
+    send.mockResolvedValueOnce({ data: null, error: { name: "application_error", message: "down", statusCode: 500 }, headers: {} });
+    expect(await decide(a!.id, {}, NOW)).toMatchObject({ status: "failed", outcomeCode: "send_failed" });
+    // The failed send holds nothing off: the same round is proposed again.
+    await proposeApprovals(at(HOUR));
+    const [b] = (await itemsOf(c.clinicId, "baa_resign_chase")).filter((i) => i.status === "waiting");
+    expect(b?.subject_ref).toBe(`${resignId}:1`);
+    // Round 2 begins with b still waiting: b is replaced, one item stands.
+    await proposeApprovals(at(6 * DAY));
+    const after = await itemsOf(c.clinicId, "baa_resign_chase");
+    expect(after.find((i) => i.id === b!.id)).toMatchObject({ status: "expired", outcome_code: "superseded_by_next_round" });
+    const waiting = after.filter((i) => i.status === "waiting");
+    expect(waiting.map((i) => i.subject_ref)).toEqual([`${resignId}:2`]);
+    // A second item for the same re-sign (as a race would leave), approved at the same moment as the first.
+    const stored = (await getApproval(waiting[0]!.id))!;
+    const other = await propose(
+      { kind: "baa_resign_chase", subjectClinicId: c.clinicId, subjectRef: `${resignId}:9`, payload: { ...(stored.payload as object), round: 9 } as never },
+      at(6 * DAY),
+      { draft: stored.draft! },
+    );
+    send.mockClear();
+    const outcomes = await Promise.all([decide(waiting[0]!.id, {}, at(6 * DAY + HOUR)), decide(other!, {}, at(6 * DAY + HOUR))]);
+    expect(send).toHaveBeenCalledTimes(1);
+    // One sends; the other finds the slot taken (in flight) or the chase already sent this week.
+    const codes = outcomes.map((o) => o.outcomeCode);
+    expect(codes.filter((code) => code === "sent")).toHaveLength(1);
+    expect(codes.find((code) => code !== "sent")).toMatch(/^(already_sent|no_longer_needed)$/);
+    // The sender asked again for an approval that went: nothing more.
+    const again = await sendResignChase((await getApproval(waiting[0]!.id))!, null, at(6 * DAY + 2 * HOUR));
+    expect(again.ok).toBe(false);
+    expect(again.outcomeCode).toMatch(/^(already_sent|no_longer_needed)$/);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  test("more time whose email fails after the deadline moved says so plainly, both ways it can fail", async () => {
+    const c = await setupClinic("extfail", 23);
+    const deadline = async () =>
+      (await inTenant(c.clinicId, (q) => q.query<{ d: Date }>(`select setup_deadline_at as d from entitlements where clinic_id = $1`, [c.clinicId]))).rows[0]!.d;
+    // The outbox already holds this item's email: it is not queued twice, and the operator is told the deadline moved.
+    const first = data(await runOperation("proposeLifecycleNotice", { clinicId: c.clinicId, kind: "setup_extended", days: 3 }, OPERATOR));
+    await inTenant(c.clinicId, (q) =>
+      q.query(`insert into billing_notices (clinic_id, kind, dedupe_key, payload) values ($1, 'setup_extended', $2, '{}'::jsonb)`, [
+        c.clinicId,
+        `setup_extended:${first.approvalId}`,
+      ]),
+    );
+    const before = await deadline();
+    const out1 = await decide(first.approvalId as string, {}, NOW);
+    expect(out1).toMatchObject({ status: "failed", outcomeCode: "extended_email_not_queued" });
+    expect(out1.message).toMatch(/^The deadline did move/);
+    expect(Math.round(((await deadline()).getTime() - before.getTime()) / DAY)).toBe(3);
+    // The outbox throws.
+    const second = data(await runOperation("proposeLifecycleNotice", { clinicId: c.clinicId, kind: "setup_extended", days: 2 }, OPERATOR));
+    outbox.failKind = "setup_extended";
+    const out2 = await decide(second.approvalId as string, {}, NOW);
+    expect(out2).toMatchObject({ status: "failed", outcomeCode: "extended_email_not_queued" });
+    expect(out2.message).toMatch(/^The deadline did move/);
+    expect(Math.round(((await deadline()).getTime() - before.getTime()) / DAY)).toBe(5);
+  });
+
+  test("a rejection does not stop an operator proposing again; a decided item has no draft to preview", async () => {
+    const c = await setupClinic("again", 12);
+    const first = data(await runOperation("proposeLifecycleNotice", { clinicId: c.clinicId, kind: "setup_help_offer", phrase: "phone" }, OPERATOR));
+    expect(
+      data(await opDecideApproval({ id: first.approvalId, action: "reject", reasonCode: "not_needed", codeChecked: true }, OPERATOR, { now: at(HOUR) })),
+    ).toMatchObject({ status: "rejected" });
+    expect(data(await runOperation("previewApprovalDraft", { id: first.approvalId, fields: { phrase: "phone", note: null } }, OPERATOR))).toMatchObject({
+      status: "refused",
+    });
+    const second = data(await runOperation("proposeLifecycleNotice", { clinicId: c.clinicId, kind: "setup_help_offer", phrase: "calendar" }, OPERATOR));
+    expect(second).toMatchObject({ status: "proposed" });
+    expect((await getApproval(second.approvalId as string))?.subjectRef).toMatch(/:r1$/);
+    expect(data(await runOperation("previewApprovalDraft", { id: second.approvalId, fields: { phrase: "meta", note: "thanks" } }, OPERATOR))).toMatchObject({
+      status: "preview",
+    });
   });
 
   test("an email item past its 14 days cannot be approved and sends nothing", async () => {

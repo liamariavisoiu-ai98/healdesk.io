@@ -341,7 +341,7 @@ export function contactEffect(facts: ContactFacts): string {
   switch (facts.kind) {
     case "baa_resign_chase":
       return (
-        `Emails the clinic a fresh link to sign version ${facts.toVersion} of the business associate agreement, made when it is sent. It names no pause, suspension or date: AYA keeps answering under version ${facts.fromVersion ?? "in force"} until it is signed.` +
+        `Emails the clinic a fresh link to sign version ${facts.toVersion} of the business associate agreement, made when it is sent. It names no pause, suspension or date: ${facts.isAnswering ? `AYA keeps answering under ${facts.fromVersion ? `version ${facts.fromVersion}` : "the version in force"} until it is signed.` : "The version in force stays in force until it is signed."}` +
         (facts.callFirst ? " The version in force is below the one go-live accepts: phone the practice as well." : "")
       );
     case "agreement_question":

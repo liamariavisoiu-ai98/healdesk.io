@@ -28,13 +28,15 @@ export const PHRASE_WORDS: Readonly<Record<PhraseCode, string>> = {
 };
 
 /** The approved closing sentences, one of which an email may carry. */
-export const NOTES = ["call_offer", "thanks", "reply_questions"] as const;
+export const NOTES = ["call_offer", "thanks", "reply_questions", "thanks_sign"] as const;
 export type NoteCode = (typeof NOTES)[number];
 
 export const NOTE_WORDS: Readonly<Record<NoteCode, string>> = {
   call_offer: "If it's easier to talk it through, reply with a time that suits you and we'll call.",
   thanks: "Thank you for your patience while we sort this out.",
   reply_questions: "If anything is unclear, reply to this email and we'll help.",
+  // The chase's own closing line: nothing is being sorted out, a signature is asked for.
+  thanks_sign: "Thank you for taking a moment to sign it.",
 };
 
 /** The note's sentence, or nothing for a code that is not on the list. */

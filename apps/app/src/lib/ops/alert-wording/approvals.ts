@@ -57,7 +57,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
     whatHappened:
       "{count:email} to a clinic waiting for your yes, now past due. Each is an email only you can send: a chase to sign an updated agreement, a question about which agreement a practice needs, more time to finish setup, a note that we are finishing a step, an offer of a five-minute call, or a setup reminder sent sooner. Nothing goes to a clinic until you approve it, and nothing is sent by waiting.",
     whyItMatters:
-      "Until you decide, the clinic hears nothing more from us about it. After two weeks an email leaves the list unsent, and a reminder sent sooner after three days; the clinic's own setup reminders still go on their days.",
+      "Until you decide, none of these emails goes. A setup deadline has not moved until you approve its extension, and the clinic's own setup reminders keep going on their days. After two weeks an email leaves the list unsent, and a reminder sent sooner after three days.",
     steps: [
       "Open the Queues page and find each email under Approvals: it shows the email as the clinic would read it, what approving does, and the choices you may change.",
       "Press Approve on the Queues page and enter the code from your authenticator, after changing any of the offered choices you need to. The email goes once. For more time, the deadline moves first and the email goes only if it moved.",

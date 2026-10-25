@@ -8,7 +8,7 @@ import { locationCount } from "@/lib/approvals/contact-packets";
 import { storableName, type ContactPayloads } from "@/lib/approvals/contact-payloads";
 import { serialiseDraft } from "@/lib/approvals/drafts";
 import { CONSOLE_PROPOSER, UUID } from "@/lib/approvals/kinds";
-import { propose } from "@/lib/approvals/store";
+import { propose, subjectAfterRejections } from "@/lib/approvals/store";
 import { chaseBlocked, organisationAnswering, readOpenResigns } from "@/lib/agreements/open-resigns";
 import { openResign } from "@/lib/agreements/resign";
 import { printableClinicName } from "@/lib/email/lint";
@@ -170,7 +170,7 @@ export async function opProposeAgreementQuestion(
   };
   const draft = serialiseDraft(renderContactDraft("agreement_question", payload));
   const approvalId = await propose(
-    { kind: "agreement_question", subjectClinicId: clinic.id, subjectRef: reviewId, payload },
+    { kind: "agreement_question", subjectClinicId: clinic.id, subjectRef: await subjectAfterRejections("agreement_question", reviewId), payload },
     now,
     { proposedBy: CONSOLE_PROPOSER, actor: operatorEventActor(operator), draft },
   );

@@ -116,7 +116,7 @@ export async function resignFactsIn(tx: TenantTx, resignId: string, now: Date): 
       and(
         eq(reportDeliveries.clinicId, tx.clinicId),
         sql`${reportDeliveries.kind} in ('agreement_to_sign', 'baa_resign_chase')`,
-        sql`starts_with(${reportDeliveries.periodKey}, ${`resign:${row.id}:`})`,
+        sql`(starts_with(${reportDeliveries.periodKey}, ${`resign:${row.id}:`}) or starts_with(${reportDeliveries.periodKey}, ${chaseKeyPrefix(row.id)}))`,
       ),
     );
   const l22 = sends.filter((s) => s.kind === "agreement_to_sign" && L22_KEY.test(s.periodKey));
@@ -124,8 +124,9 @@ export async function resignFactsIn(tx: TenantTx, resignId: string, now: Date): 
     dates.filter((d): d is Date => d !== null).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
   const lastL22SentAt = latest(l22.filter((s) => s.status === "sent").map((s) => s.sentAt));
   const chases = sends.filter((s) => s.kind === "baa_resign_chase");
-  const lastChaseAt = latest(chases.map((s) => s.sentAt ?? s.attemptedAt));
-  const lastLink = latest([lastL22SentAt, latest(chases.filter((s) => s.status === "sent").map((s) => s.sentAt))]);
+  // Sent chases only: a send that failed must not hold off the next one.
+  const lastChaseAt = latest(chases.filter((s) => s.status === "sent").map((s) => s.sentAt));
+  const lastLink = latest([lastL22SentAt, lastChaseAt]);
   const isAnswering = await organisationAnswering(tx);
   const fromVersion = org?.fromVersion ?? (await agreementInEffect(tx))?.documentVersion ?? null;
   const fromVersionAcceptable = org?.fromVersionAcceptable === true;
@@ -170,6 +171,20 @@ export async function readOpenResigns(input: {
     }
   }
   return { resigns, unread };
+}
+
+/**
+ * The chase's ledger key (lane P6f): one per re-sign and seven-day round,
+ * `chase:<resign id>:<round>`, the round taken from the day the email is
+ * sent, so two approvals racing in one round claim the same slot and one
+ * sends.
+ */
+export function chaseKey(resignId: string, round: number): string {
+  return `${chaseKeyPrefix(resignId)}${round}`;
+}
+
+function chaseKeyPrefix(resignId: string): string {
+  return `chase:${resignId}:`;
 }
 
 /** The chase's own rule (design E6 §3 item 14): days of rest between two chases of one re-sign. */

@@ -18,7 +18,7 @@ import {
 import { reminderPlanIn } from "@/lib/approvals/contact-reminders";
 import { serialiseDraft } from "@/lib/approvals/drafts";
 import { CONSOLE_PROPOSER, UUID } from "@/lib/approvals/kinds";
-import { getApproval, propose } from "@/lib/approvals/store";
+import { getApproval, propose, subjectAfterRejections } from "@/lib/approvals/store";
 import { copyProblems, printableClinicName, subjectProblems } from "@/lib/email/lint";
 import type { NoteCode, PhraseCode } from "@/lib/email/templates/contact-words";
 import { audienceFor } from "@/lib/email/templates/context";
@@ -170,7 +170,8 @@ export async function opProposeLifecycleNotice(
   }
 
   const draft = serialiseDraft(renderContactDraft(k, proposal.payload));
-  const approvalId = await propose({ kind: k, subjectClinicId: clinic.id, subjectRef: proposal.subjectRef, payload: proposal.payload }, now, {
+  const subjectRef = await subjectAfterRejections(k, proposal.subjectRef);
+  const approvalId = await propose({ kind: k, subjectClinicId: clinic.id, subjectRef, payload: proposal.payload }, now, {
     proposedBy: CONSOLE_PROPOSER,
     actor: operatorEventActor(operator),
     draft,
@@ -209,7 +210,12 @@ export async function opPullReminderForward(
     normallyDueOn: plan.normallyDueOn,
   };
   const approvalId = await propose(
-    { kind: "setup_reminder_now", subjectClinicId: clinic.id, subjectRef: `${clinic.id}:${plan.reminderNumber}`, payload },
+    {
+      kind: "setup_reminder_now",
+      subjectClinicId: clinic.id,
+      subjectRef: await subjectAfterRejections("setup_reminder_now", `${clinic.id}:${plan.reminderNumber}`),
+      payload,
+    },
     now,
     { proposedBy: CONSOLE_PROPOSER, actor: operatorEventActor(operator), blockedBy: ["executed"] },
   );
@@ -223,6 +229,7 @@ export async function opPreviewApprovalDraft(args: Record<string, unknown>): Pro
   if (!id || !UUID.test(id)) return refused("No such approval.");
   const item = await getApproval(id);
   if (!item || !isDraftKind(item.kind)) return refused("This item has no email to preview.");
+  if (item.status !== "waiting") return refused("This item has been decided or has left the list, so there is no email to change.");
   const payload = parseContactPayload(item.kind, item.payload);
   if (!payload) return refused("This item's details could not be read.");
   const parsed = parseFields(item.kind, args.fields);

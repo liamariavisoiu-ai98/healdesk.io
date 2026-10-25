@@ -206,6 +206,28 @@ export async function expireDue(now: Date): Promise<number> {
   return expired;
 }
 
+/**
+ * The subject an operator's button proposes under (lane P6f): the base
+ * reference, or after the owner rejected n items for it, `<base>:r<n>`. A
+ * rejection stops the approvals job proposing the same failure again
+ * (propose() above), but must not stop an operator pressing the button
+ * again for a fresh draft; the unique waiting index still allows one
+ * waiting item per subject.
+ */
+export async function subjectAfterRejections(kind: ApprovalKind, base: string): Promise<string> {
+  const rows = await unsafeDb
+    .select({ status: opsApprovals.status })
+    .from(opsApprovals)
+    .where(
+      and(
+        eq(opsApprovals.kind, kind),
+        or(eq(opsApprovals.subjectRef, base), sql`starts_with(${opsApprovals.subjectRef}, ${`${base}:r`})`),
+      ),
+    );
+  const rejected = rows.filter((r) => r.status === "rejected").length;
+  return rejected === 0 ? base : `${base}:r${rejected}`;
+}
+
 export async function getApproval(id: string): Promise<OpsApproval | null> {
   const [row] = await unsafeDb.select().from(opsApprovals).where(eq(opsApprovals.id, id)).limit(1);
   return row ?? null;

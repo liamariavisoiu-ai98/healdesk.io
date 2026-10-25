@@ -107,3 +107,9 @@ Then write your report in the format below. **Report only what you ran; say what
 4. Forbidden files untouched? (list `git diff --stat origin/main..HEAD` for hot files and say which are REGISTER).
 5. Anything you could not verify, assumptions, risks, questions for the owner (decisions only the owner can make).
 6. Container removed? Commit trailers checked?
+
+## Working rules added 25 Oct 2026 (owner; also in CLAUDE.md, "How work is reviewed, tested and landed")
+- Merge the integration branch (or main) into your branch BEFORE you report; resolve conflicts there; run `bash scripts/verify-local.sh` on that merged tree (it starts its own throwaway Postgres on a free port, so it does not use the container recipe above) and paste its pass/fail/SKIP counts in your report. A lane-scoped run is not enough: guard tests that read the whole source tree have been missed twice.
+- Commit after each piece. Never `git checkout <ref> -- .` or any command that overwrites the working tree. No bare `git stash`.
+- Tests you write must be deterministic: fixed weeks and dates (never random ones that can cross a daylight-saving change), no assumption that a shared table (`ops_alerts`, `scheduled_jobs`) is empty; set unrelated rows aside or clear them per file.
+- You get ONE independent review at the end of your lane (plus the lead's combined review). Fix what it finds; a second round happens only for money, legal clocks, email sends, or recording an agreement answer.

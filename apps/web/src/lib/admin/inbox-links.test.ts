@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { CARD_ANCHORS, ISSUE_TABS, QUEUE_ANCHORS, SYSTEM_ANCHORS } from "./issue-link";
+import { CARD_ANCHORS, COMPLIANCE_ANCHORS, ISSUE_TABS, QUEUE_ANCHORS, SYSTEM_ANCHORS } from "./issue-link";
 
 /**
  * Every console address apps/app's inbox sources carry (lib/ops/inbox/*.ts:
@@ -110,5 +110,16 @@ describe("the addresses apps/app's inbox sources carry", () => {
     for (const anchor of QUEUE_ANCHORS) {
       expect(sourcesUnder(join(APP, "admin", "queues")).some((text) => text.includes(`id="${anchor}"`)), anchor).toBe(true);
     }
+    for (const anchor of COMPLIANCE_ANCHORS) {
+      expect(sourcesUnder(join(APP, "admin", "compliance")).some((text) => text.includes(`id="${anchor}"`)), anchor).toBe(true);
+    }
+  });
+
+  test("the wave B pages exist: the Incidents page with the assistant, the open re-signs, the pack list and one week's pack", () => {
+    expectConsolePage("/admin/compliance/incidents#incident-assistant");
+    expectConsolePage("/admin/compliance/agreements#open-resigns");
+    expectConsolePage("/admin/compliance/pack");
+    // One week's pack is a dynamic route, its segment a Monday, not a uuid: checked by its own folder.
+    expect(existsSync(join(APP, "admin", "compliance", "pack", "[week]", "page.tsx"))).toBe(true);
   });
 });

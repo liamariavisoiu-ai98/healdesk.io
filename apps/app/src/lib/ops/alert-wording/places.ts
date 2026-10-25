@@ -221,12 +221,34 @@ export const PLACES: Readonly<Record<string, Place>> = {
   // authenticator field both decisions ask for (the shared CodeField), and
   // the Patient rights page with its three controls.
   Approvals: ["app/admin/queues/ApprovalsSection.tsx", 'title="Approvals"', "page"],
-  Approve: ["app/admin/queues/ApprovalsSection.tsx", 'label="Approve"', "button"],
-  Reject: ["app/admin/queues/ApprovalsSection.tsx", 'label="Reject"', "button"],
+  // Since lane P6j the two decisions live in the shared decision form every approval card ends in.
+  Approve: ["app/admin/queues/ApprovalDecision.tsx", 'label="Approve"', "button"],
+  Reject: ["app/admin/queues/ApprovalDecision.tsx", 'label="Reject"', "button"],
   History: ["app/admin/queues/ApprovalsSection.tsx", "History\n", "page"],
   "Code from your authenticator": ["components/admin/ui.tsx", "Code from your authenticator", "button"],
   "Patient rights": ["app/admin/rights/page.tsx", 'title: "Patient rights"', "page"],
   "Record a request": ["app/admin/rights/RecordRequestForm.tsx", '"Record a request"', "button"],
   "Copy command": ["app/admin/rights/RightsTable.tsx", '"Copy command"', "button"],
   "Mark done": ["app/admin/rights/RightsTable.tsx", 'label="Mark done"', "button"],
+  // Wave B (lanes P6f, P6h, P6i; screens by lane P6j): the Incident
+  // assistant on the Incidents page with its scope, checklist and two
+  // proposals; the compliance pack's list and printable page; the open
+  // re-signs on the Agreements page; an email item's Edit and Preview under
+  // Approvals; and the Setup window card's four proposals.
+  "Incident assistant": ["app/admin/compliance/incidents/IncidentAssistant.tsx", 'title="Incident assistant"', "page"],
+  "Read the scope": ["app/admin/compliance/incidents/IncidentScope.tsx", "Read the scope", "button"],
+  "Propose opening these incidents": ["app/admin/compliance/incidents/IncidentScope.tsx", 'label="Propose opening these incidents"', "button"],
+  Checklist: ["app/admin/compliance/incidents/IncidentChecklist.tsx", '"Checklist"', "button"],
+  Tick: ["app/admin/compliance/incidents/IncidentChecklist.tsx", 'label="Tick"', "button"],
+  "Propose the report": ["app/admin/compliance/incidents/IncidentChecklist.tsx", 'label="Propose the report"', "button"],
+  "Compliance pack": ["app/admin/compliance/pack/[week]/page.tsx", 'title: "Compliance pack"', "page"],
+  "Compliance packs": ["app/admin/compliance/pack/page.tsx", 'title: "Compliance packs"', "page"],
+  "Make this week's pack": ["app/admin/compliance/pack/PackList.tsx", `label="Make this week's pack"`, "button"],
+  "Open BAA re-signs": ["app/admin/compliance/agreements/OpenResigns.tsx", 'title="Open BAA re-signs"', "page"],
+  Edit: ["app/admin/queues/ContactDraft.tsx", "Edit\n", "button"],
+  Preview: ["app/admin/queues/ContactDraft.tsx", '"Preview"', "button"],
+  "Propose more time": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Propose more time"', "button"],
+  "Propose: we are finishing it": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Propose: we are finishing it"', "button"],
+  "Offer a five-minute call": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Offer a five-minute call"', "button"],
+  "Send the next reminder now": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Send the next reminder now"', "button"],
 };

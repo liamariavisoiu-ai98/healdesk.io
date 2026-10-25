@@ -174,6 +174,15 @@ export const SYSTEM_ANCHORS = ["attention", "calendar-writes", "transcripts"] as
  */
 export const QUEUE_ANCHORS = ["approvals"] as const;
 
+/**
+ * The sections under Compliance that lane P6j's screens add, which the
+ * `incident_step_waiting` alert's page (the Incidents page) and the
+ * Agreements page render: the incident assistant and the open re-signs.
+ * Listed for the same one test; the pack pages
+ * (`/admin/compliance/pack`, `/admin/compliance/pack/<week>`) have no anchor.
+ */
+export const COMPLIANCE_ANCHORS = ["incident-assistant", "open-resigns"] as const;
+
 /** The voice events about the agent and number at Retell, which the Setup tab's "Voice agent" card acts on. */
 const VOICE_CARD: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "voice_provision_failed",

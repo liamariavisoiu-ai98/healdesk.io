@@ -7,12 +7,14 @@ import type { ApprovalItem } from "@/lib/admin/ops-client";
 
 import {
   actorWords,
+  APPROVAL_FAMILIES,
   APPROVAL_KIND_WORDS,
   APPROVALS_JOB,
   approveConfirm,
   APPROVE_REASON_WORDS,
   BILLING_STATUS_WORDS,
   BILLING_TAB_RETRY,
+  CHASE_BLOCK_WORDS,
   decisionWords,
   dollars,
   EMPTY_JOB_OFF,
@@ -23,16 +25,23 @@ import {
   eventTypeWords,
   expiryWords,
   factLines,
+  familyOf,
   IRREVERSIBLE_CONFIRM,
   isClinicless,
   NO_CLINIC_EVENT,
+  NOTE_WORDS,
   onDay,
   OUTCOME_WORDS,
   outcomeWords,
+  PHRASE_WORDS,
+  RECOMMENDATION_WORDS,
   REJECT_HEAD,
   REJECT_REASON_WORDS,
   rejectConfirm,
+  REMINDER_BLOCK_WORDS,
   REQUEST_KIND_WORDS,
+  REVIEW_STATUS_WORDS,
+  STAGE_WORDS,
   STOP_REASON_WORDS,
   waitingWords,
   whenWords,
@@ -55,9 +64,22 @@ function constList(file: string, name: string): string[] {
   return [...match[1]!.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]!);
 }
 
+/** The quoted words of a union type `"a" | "b" | null` on the line that declares `name`. */
+function unionOf(file: string, pattern: RegExp): string[] {
+  const match = pattern.exec(source(file));
+  if (!match) throw new Error(`${pattern} was not found in ${file}`);
+  return [...match[1]!.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]!);
+}
+
 /** Every `outcomeCode: "<code>"` literal a file records. */
 function outcomeCodesIn(file: string): string[] {
   return [...new Set([...source(file).matchAll(/outcomeCode: "([a-z_]+)"/g)].map((m) => m[1]!))];
+}
+
+/** The keys of `export const NAME ... = { a: "...", b: "..." }` with their words. */
+function wordTable(file: string, name: string): Record<string, string> {
+  const block = new RegExp(`export const ${name}[^{]*\\{([\\s\\S]*?)\\};`).exec(source(file))?.[1] ?? "";
+  return Object.fromEntries([...block.matchAll(/^\s+([a-z_]+):\s*"([^"]+)",?$/gm)].map((m) => [m[1], m[2]]));
 }
 
 describe("the closed lists have words", () => {
@@ -65,6 +87,16 @@ describe("the closed lists have words", () => {
     expect(Object.keys(APPROVAL_KIND_WORDS).sort()).toEqual(constList("db/schema.ts", "APPROVAL_KINDS").sort());
     expect(Object.keys(REQUEST_KIND_WORDS).sort()).toEqual(constList("db/schema.ts", "BILLING_REQUEST_KINDS").sort());
     expect(Object.keys(EVENT_WORDS).sort()).toEqual(constList("db/schema.ts", "APPROVAL_EVENTS").sort());
+  });
+
+  test("every kind is in one of the three groups, which are apps/app's families (lib/approvals/kinds.ts KIND_FAMILY)", () => {
+    const block = /export const KIND_FAMILY[^{]*\{([\s\S]*?)\};/.exec(source("lib/approvals/kinds.ts"))?.[1] ?? "";
+    const theirs = Object.fromEntries([...block.matchAll(/([a-z_]+): "([a-z]+)"/g)].map((m) => [m[1], m[2]]));
+    expect(Object.keys(theirs).sort()).toEqual(Object.keys(APPROVAL_KIND_WORDS).sort());
+    for (const kind of Object.keys(APPROVAL_KIND_WORDS) as (keyof typeof APPROVAL_KIND_WORDS)[]) expect(familyOf(kind), kind).toBe(theirs[kind]);
+    expect([...APPROVAL_FAMILIES].sort()).toEqual([...new Set(Object.values(theirs))].sort());
+    // The legal clocks lead.
+    expect(APPROVAL_FAMILIES[0]).toBe("incident");
   });
 
   test("the request kind words are the alerts' own (lib/ops/alert-wording/words.ts)", () => {
@@ -90,15 +122,24 @@ describe("the closed lists have words", () => {
     expect(Object.keys(STOP_REASON_WORDS).sort()).toEqual(codes.sort());
   });
 
-  test("every outcome code the executors, the store and the proposer record", () => {
+  test("every outcome code the executors, the store and the proposers record, the clinic-contact and incident ones included", () => {
     const codes = [
       ...outcomeCodesIn("lib/approvals/executors.ts"),
       ...outcomeCodesIn("lib/approvals/store.ts"),
       ...outcomeCodesIn("lib/approvals/proposers.ts"),
+      ...outcomeCodesIn("lib/approvals/contact-executors.ts"),
+      ...outcomeCodesIn("lib/approvals/contact-proposers.ts"),
+      ...outcomeCodesIn("lib/approvals/incident-kinds.ts"),
+      // contact-executors.ts records its failures through fail("<code>", ...).
+      ...[...source("lib/approvals/contact-executors.ts").matchAll(/fail\("([a-z_]+)"/g)].map((m) => m[1]!),
     ];
     expect(codes).toContain("rearmed");
     expect(codes).toContain("window_passed");
-    for (const code of codes) expect(OUTCOME_WORDS[code], code).toBeDefined();
+    expect(codes).toContain("send_failed");
+    expect(codes).toContain("superseded_by_next_round");
+    // incident-kinds.ts picks between the two in one expression.
+    expect(source("lib/approvals/incident-kinds.ts")).toContain('"opened" : "partly_opened"');
+    for (const code of [...codes, "opened", "partly_opened"]) expect(OUTCOME_WORDS[code], code).toBeDefined();
     for (const words of Object.values(OUTCOME_WORDS)) expect(words).not.toMatch(/_/);
     expect(outcomeWords(null)).toBeNull();
     expect(outcomeWords("rearmed")).toBe("made due again for the billing worker");
@@ -127,10 +168,13 @@ describe("the closed lists have words", () => {
     expect(engineWords("something_new:x")).toBe('the engine recorded "something new" (x)');
   });
 
-  test("the approvals job is named as apps/app names it (lib/approvals/kinds.ts PROPOSER)", () => {
+  test("the approvals job and the incident assistant are named as apps/app names them (kinds.ts PROPOSER, incident-kinds.ts ASSISTANT)", () => {
     const theirs = /export const PROPOSER = "([a-z-]+)";/.exec(source("lib/approvals/kinds.ts"))?.[1];
     expect(theirs).toBeDefined();
     expect(APPROVALS_JOB).toBe(theirs);
+    const assistant = /export const ASSISTANT = "([a-z-]+)";/.exec(source("lib/approvals/incident-kinds.ts"))?.[1];
+    expect(assistant).toBeDefined();
+    expect(actorWords(assistant!)).toBe("the incident assistant");
     // The on-screen name is the job's, which the Jobs page prints as its name.
     expect(EMPTY_JOB_OFF).toContain("the approvals job is off at System > Jobs");
     expect(emptyWords(false)).toBe(EMPTY_JOB_OFF);
@@ -138,8 +182,45 @@ describe("the closed lists have words", () => {
     expect(emptyWords(null)).toBe(EMPTY_WORDS);
   });
 
+  test("the email phrases and closing sentences (lib/email/templates/contact-words.ts), the sentences word for word", () => {
+    expect(Object.keys(PHRASE_WORDS).sort()).toEqual(constList("lib/email/templates/contact-words.ts", "PHRASES").sort());
+    expect(Object.keys(NOTE_WORDS).sort()).toEqual(constList("lib/email/templates/contact-words.ts", "NOTES").sort());
+    expect(wordTable("lib/email/templates/contact-words.ts", "NOTE_WORDS")).toEqual(NOTE_WORDS);
+  });
+
+  test("why a chase or a reminder would send nothing (open-resigns.ts chaseBlocked, contact-reminders.ts ReminderBlock, contact-packets.ts already_queued)", () => {
+    const chase = unionOf("lib/agreements/open-resigns.ts", /\): ((?:"[a-z_]+" \| )+)null \{/);
+    expect(chase.length).toBeGreaterThan(2);
+    expect(Object.keys(CHASE_BLOCK_WORDS).sort()).toEqual(chase.sort());
+    const reminder = unionOf("lib/approvals/contact-reminders.ts", /export type ReminderBlock = ((?:"[a-z_]+"(?: \| )?)+);/);
+    expect(reminder.length).toBeGreaterThan(4);
+    expect(source("lib/approvals/contact-packets.ts")).toContain('ReminderBlock | "already_queued"');
+    expect(Object.keys(REMINDER_BLOCK_WORDS).sort()).toEqual([...reminder, "already_queued"].sort());
+  });
+
+  test("the lifecycle stages, the watch's recommendations and a review's statuses", () => {
+    expect(Object.keys(STAGE_WORDS).sort()).toEqual(constList("db/schema.ts", "LIFECYCLE_STAGES").sort());
+    expect(Object.keys(RECOMMENDATION_WORDS).sort()).toEqual(constList("lib/lifecycle/recommend.ts", "RECOMMENDATIONS").sort());
+    const review = unionOf("lib/approvals/contact-packets.ts", /reviewStatus: ((?:"[a-z_]+" \| )+)null;/);
+    expect(Object.keys(REVIEW_STATUS_WORDS).sort()).toEqual(review.sort());
+  });
+
   test("the words are plain: no underscores, no raw codes", () => {
-    for (const table of [APPROVAL_KIND_WORDS, REQUEST_KIND_WORDS, STOP_REASON_WORDS, BILLING_STATUS_WORDS, APPROVE_REASON_WORDS, REJECT_REASON_WORDS, EVENT_WORDS]) {
+    for (const table of [
+      APPROVAL_KIND_WORDS,
+      REQUEST_KIND_WORDS,
+      STOP_REASON_WORDS,
+      BILLING_STATUS_WORDS,
+      APPROVE_REASON_WORDS,
+      REJECT_REASON_WORDS,
+      EVENT_WORDS,
+      PHRASE_WORDS,
+      CHASE_BLOCK_WORDS,
+      REMINDER_BLOCK_WORDS,
+      STAGE_WORDS,
+      REVIEW_STATUS_WORDS,
+      RECOMMENDATION_WORDS,
+    ]) {
       for (const [code, words] of Object.entries(table)) {
         expect(words, code).not.toMatch(/_/);
         expect(words, code).toMatch(/^[A-Za-z]/);
@@ -190,6 +271,11 @@ const request: ApprovalItem = {
     },
   },
 };
+
+/** A contact item with the given facts; the packet's extra is not read by factLines. */
+function contact(facts: NonNullable<ApprovalItem["packet"]>["facts"]): ApprovalItem {
+  return { ...request, kind: facts.kind as ApprovalItem["kind"], packet: { ...request.packet!, facts } };
+}
 
 describe("the facts and the timing", () => {
   test("a billing request: the change, the tries, why it stopped, the last error, billing now, and the worker's switch", () => {
@@ -273,6 +359,118 @@ describe("the facts and the timing", () => {
     expect(dollars(90)).toBe("$0.90");
   });
 
+  test("a chase: the versions, how long open, the emails and link, the last chase, whether AYA answers, the number to phone below the floor, and why it would send nothing", () => {
+    const facts = {
+      kind: "baa_resign_chase" as const,
+      resignId: "aa0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a",
+      fromVersion: "1.5.0",
+      toVersion: "1.5.1",
+      startedAt: "2026-10-20T09:00:00.000Z",
+      daysOpen: 14,
+      lastL22SentAt: "2026-10-27T09:00:00.000Z",
+      linkExpiresAt: "2026-11-10T09:00:00.000Z",
+      lastChaseAt: null,
+      belowFloor: true,
+      fromVersionAcceptable: false,
+      isAnswering: true,
+      blocked: null,
+      callFirst: true,
+      publishedPhoneE164: "+15555550100",
+    };
+    expect(factLines(contact(facts))).toEqual([
+      ["Agreement", "from version 1.5.0 to version 1.5.1"],
+      ["Re-sign open", "14 days, since 20 Oct 2026"],
+      ["Last signing email", "27 Oct 2026"],
+      ["Latest link works until", "10 Nov 2026, 09:00 UTC"],
+      ["Last chase", "none yet"],
+      ["AYA answering", "yes"],
+      ["Phone the practice on", "+15555550100"],
+    ]);
+    expect(factLines(contact({ ...facts, fromVersion: null, startedAt: null, daysOpen: 1, lastL22SentAt: null, linkExpiresAt: null, belowFloor: false, callFirst: false, publishedPhoneE164: null, blocked: "too_early" }))).toEqual([
+      ["Agreement", "from the version in force to version 1.5.1"],
+      ["Re-sign open", "1 day"],
+      ["Last signing email", "none recorded"],
+      ["Latest link works until", "no link sent yet"],
+      ["Last chase", "none yet"],
+      ["AYA answering", "yes"],
+      ["Would send nothing now", "the re-sign's own reminders (days 0, 3 and 7) are not spent yet; a chase can go from day 8"],
+    ]);
+  });
+
+  test("the agreement question: the review and our own day, the agreement in force, the two answers, earlier reviews, and an open re-sign", () => {
+    const facts = {
+      kind: "agreement_question" as const,
+      reviewId: "bb0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a",
+      reviewStatus: "open" as const,
+      reviewDueOn: "2026-11-07",
+      agreementKind: "dpa" as const,
+      agreementVersion: "dpa/1.0.0",
+      signedAt: "2026-10-01T09:00:00.000Z",
+      coveredAnswer: "no" as const,
+      siteAcceptsInsurance: "unknown" as const,
+      earlierDecisions: 1,
+      openResign: false,
+      locationsToPause: 2,
+      isAnswering: false,
+    };
+    expect(factLines(contact(facts))).toEqual([
+      ["Review", "open; our own day to decide it: 7 Nov 2026"],
+      ["Agreement in force", "DPA dpa/1.0.0, signed 1 Oct 2026"],
+      ["Covered by HIPAA, as answered at checkout", "no"],
+      ["Website says it takes insurance", "not read"],
+      ["Earlier reviews decided", "1"],
+    ]);
+    expect(factLines(contact({ ...facts, reviewStatus: "passed", reviewDueOn: null, agreementKind: null, agreementVersion: null, signedAt: null, coveredAnswer: "unknown", siteAcceptsInsurance: "yes", openResign: true }))).toEqual([
+      ["Review", "decided: the DPA stands"],
+      ["Agreement in force", "none on file"],
+      ["Covered by HIPAA, as answered at checkout", "not known"],
+      ["Website says it takes insurance", "yes"],
+      ["Earlier reviews decided", "1"],
+      ["A re-sign is already open", "yes: approving sends nothing"],
+    ]);
+  });
+
+  test("a setup notice: the stage, the window and its new end, the steps, the once-only guards, and the watch's sentence as it came", () => {
+    const facts = {
+      kind: "setup_help_offer" as const,
+      stage: "partly_live" as const,
+      stageSince: "2026-10-20T09:00:00.000Z",
+      remainingDays: null,
+      lastDay: null,
+      newLastDay: null,
+      stepsLeft: 1,
+      alreadySent: true,
+      stageMoved: true,
+      recommendation: { action: "offer_call" as const, days: null, reason: "A channel is live and 1 step on another has waited 14 days: offer a five-minute call." },
+    };
+    expect(factLines(contact(facts))).toEqual([
+      ["Stage", "partly live since 20 Oct 2026"],
+      ["Window ends", "no setup deadline"],
+      ["Steps left", "1"],
+      ["Already sent for this stage", "yes: approving sends nothing"],
+      ["Stage moved since proposed", "yes: approving sends nothing"],
+      ["The setup watch recommends", "A channel is live and 1 step on another has waited 14 days: offer a five-minute call."],
+    ]);
+    expect(factLines(contact({ ...facts, kind: "setup_extended", stage: null, stageSince: null, remainingDays: 3, lastDay: "2026-11-06", newLastDay: "2026-11-20", stepsLeft: null, alreadySent: false, stageMoved: false, recommendation: null }))).toEqual([
+      ["Stage", "not on the setup watch"],
+      ["Window ends", "6 Nov 2026 (3 days left)"],
+      ["If approved, ends", "20 Nov 2026"],
+    ]);
+  });
+
+  test("a reminder sent sooner: which of the six and its own day, how many went, why it would send nothing", () => {
+    const facts = { kind: "setup_reminder_now" as const, reminderNumber: 3, ofTotal: 6, normallyDueOn: "2026-11-10", sentSoFar: 2, blocked: "already_queued" as const, recommendation: null };
+    expect(factLines(contact(facts))).toEqual([
+      ["Reminder", "3 of 6, normally due 10 Nov 2026"],
+      ["Sent so far", "2"],
+      ["Would send nothing now", "it is no longer the next reminder to send"],
+    ]);
+    expect(factLines(contact({ ...facts, sentSoFar: null, blocked: null }))).toEqual([
+      ["Reminder", "3 of 6, normally due 10 Nov 2026"],
+      ["Sent so far", "not read"],
+    ]);
+  });
+
   test("how long it has waited, whether it is past due, and the moment after which it can no longer be approved", () => {
     expect(waitingWords(request, NOW)).toBe("Waiting 2 days, past due");
     expect(waitingWords({ ...request, pastDue: false }, "2026-11-01T10:30:00.000Z")).toBe("Waiting 30 minutes");
@@ -280,6 +478,7 @@ describe("the facts and the timing", () => {
     expect(expiryWords(request)).toBe("Can no longer be approved after 8 Nov 2026, 10:00 UTC; the approvals job then takes it off the list.");
     expect(expiryWords({ expiresAt: null })).toBe("Waits until decided.");
     expect(onDay("2026-10-31T23:30:00.000Z")).toBe("31 Oct 2026");
+    expect(onDay("2026-10-31")).toBe("31 Oct 2026");
     expect(whenWords("2026-11-02T10:01:00.000Z")).toBe("2 Nov 2026, 10:01 UTC");
   });
 
@@ -287,15 +486,20 @@ describe("the facts and the timing", () => {
     expect(IRREVERSIBLE_CONFIRM.billing_request_retry).toBe("This cannot be undone once the billing worker has carried it out.");
     expect(IRREVERSIBLE_CONFIRM.overage_invoice_retry).toContain("Stripe has issued the invoice");
     expect(IRREVERSIBLE_CONFIRM.billing_event_replay).toContain("the event has been applied");
+    expect(IRREVERSIBLE_CONFIRM.setup_extended).toContain("the deadline has moved and the email has gone");
+    expect(IRREVERSIBLE_CONFIRM.incident_open_batch).toContain("the incidents have been opened");
+    expect(IRREVERSIBLE_CONFIRM.incident_report_send).toContain("the report has been emailed");
   });
 
   test("the second press on Approve: once now, and for a billing change the worker's part", () => {
     expect(approveConfirm("billing_request_retry")).toBe(
       "Approve this item? Its operation runs once now. A billing change is then carried out by the billing worker, with fresh tries.",
     );
-    // The other two kinds' operations do the whole thing in the same request: no worker follows.
+    // Every other kind's operation does the whole thing in the same request: no worker follows.
     expect(approveConfirm("overage_invoice_retry")).toBe("Approve this item? Its operation runs once now.");
     expect(approveConfirm("billing_event_replay")).toBe("Approve this item? Its operation runs once now.");
+    expect(approveConfirm("setup_extended")).toBe("Approve this item? Its operation runs once now.");
+    expect(approveConfirm("incident_report_send")).toBe("Approve this item? Its operation runs once now.");
   });
 
   test("the second press on Reject: nothing now, not proposed again, a later job still retries it, and where to retry by hand", () => {
@@ -311,6 +515,18 @@ describe("the facts and the timing", () => {
     expect(rejectConfirm(orphan)).toBe(`${REJECT_HEAD} ${NO_CLINIC_EVENT}`);
     expect(NO_CLINIC_EVENT).toBe("This event is on no clinic's Billing tab; Approve here is the only button that replays it.");
     expect(rejectConfirm({ kind: "billing_request_retry", clinic: null })).toBe(REJECT_HEAD);
+  });
+
+  test("the second press on Reject for an email or an incident item: nothing is sent or opened, and whether it comes back", () => {
+    const clinic = { id: CLINIC, name: "Radiance Med Spa" };
+    for (const kind of ["baa_resign_chase", "agreement_question", "setup_extended", "setup_waiting_on_us", "setup_help_offer", "setup_reminder_now"] as const) {
+      const words = rejectConfirm({ kind, clinic });
+      expect(words, kind).toMatch(/^Nothing is sent/);
+      expect(words, kind).not.toContain("billing");
+    }
+    expect(rejectConfirm({ kind: "setup_reminder_now", clinic })).toContain("the reminder still goes on its own day");
+    expect(rejectConfirm({ kind: "incident_open_batch", clinic: null })).toMatch(/^Nothing is opened/);
+    expect(rejectConfirm({ kind: "incident_report_send", clinic })).toContain("Send report");
   });
 });
 
@@ -329,7 +545,7 @@ describe("the decision's outcome line", () => {
     );
   });
 
-  test("an invoice, a skip, a replay, and an outcome nobody listed", () => {
+  test("an invoice, a skip, a replay, an email sent or queued, incidents opened, and an outcome nobody listed", () => {
     expect(decisionWords({ status: "executed", outcomeCode: "invoiced", message: null, auditRecorded: true }, request).text).toBe("Approved. Invoiced in Stripe.");
     expect(decisionWords({ status: "executed", outcomeCode: "skipped", message: null, auditRecorded: true }, request).text).toBe(
       "Approved. Nothing was invoiced: the month was already settled, or had nothing to bill.",
@@ -339,6 +555,13 @@ describe("the decision's outcome line", () => {
       text: "Approved. The Stripe event was applied again.",
       auditRecorded: false,
     });
+    const chase = { kind: "baa_resign_chase" as const, clinic: request.clinic };
+    expect(decisionWords({ status: "executed", outcomeCode: "sent", message: null, auditRecorded: true }, chase).text).toBe("Approved. The email was sent.");
+    expect(decisionWords({ status: "executed", outcomeCode: "queued", message: null, auditRecorded: true }, chase).text).toBe(
+      "Approved. The email is queued in the outbox; the billing-notices job sends it.",
+    );
+    const opened = "Opened 2 incidents; each one's report is now waiting in this list for your yes.";
+    expect(decisionWords({ status: "executed", outcomeCode: "opened", message: opened, auditRecorded: true }, { kind: "incident_open_batch", clinic: null }).text).toBe(`Approved. ${opened}`);
     expect(decisionWords({ status: "executed", outcomeCode: "new_thing", message: null, auditRecorded: true }, request).text).toBe("Approved. Went through: new thing.");
   });
 
@@ -361,9 +584,12 @@ describe("the decision's outcome line", () => {
     expect(decisionWords({ status: "failed", outcomeCode: "threw", message: null, auditRecorded: true }, request).text).toBe(
       "Approved, but it did not go through: the operation failed partway.",
     );
+    expect(decisionWords({ status: "failed", outcomeCode: "partly_opened", message: null, auditRecorded: true }, { kind: "incident_open_batch", clinic: null }).text).toBe(
+      "Approved, but it did not go through: some of the incidents were opened, not all.",
+    );
   });
 
-  test("a rejection runs nothing now and leaves the list, naming where to retry by hand; a refusal and a refused code change nothing and keep it", () => {
+  test("a rejection runs nothing now and leaves the list, naming where to retry by hand or what comes back; a refusal and a refused code change nothing and keep it", () => {
     expect(decisionWords({ status: "rejected", outcomeCode: "not_needed", auditRecorded: true }, request)).toEqual({
       left: true,
       tone: "ok",
@@ -377,6 +603,8 @@ describe("the decision's outcome line", () => {
     expect(decisionWords({ status: "rejected", outcomeCode: "other", auditRecorded: true }, { kind: "billing_request_retry", clinic: null }).text).toBe(
       `Rejected. ${REJECT_HEAD}`,
     );
+    const email = { kind: "setup_help_offer" as const, clinic: request.clinic };
+    expect(decisionWords({ status: "rejected", outcomeCode: "not_needed", auditRecorded: true }, email).text).toBe(`Rejected. ${rejectConfirm(email)}`);
     expect(decisionWords({ status: "refused", message: "This has already been decided, so nothing more was done. Reload to see where it stands." }, request)).toEqual({
       left: false,
       tone: "bad",

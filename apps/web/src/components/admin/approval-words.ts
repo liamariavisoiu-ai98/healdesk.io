@@ -6,6 +6,11 @@ import type {
   ApproveReason,
   BillingRequestKind,
   BillingStatus,
+  ContactFacts,
+  ContactNote,
+  ContactPhrase,
+  ContactRecommendation,
+  IncidentApprovalKind,
   RejectReason,
 } from "@/lib/admin/ops-client";
 import type { Tone } from "@/lib/admin/strip-types";
@@ -15,30 +20,68 @@ import { waited } from "./queue-words";
 /**
  * The plain words the Queues page's "Approvals" section puts on apps/app's
  * approval inbox (ops automation Phase 6, lane P6b; the operations are lane
- * P6a's, apps/app lib/ops/approval-ops.ts). Every value here is a closed code
- * of apps/app's, read in its source by `approval-words.test.ts`, so a code
- * added there with no words here fails the build rather than reaching the
- * operator as a code: the kinds and the request kinds (db/schema.ts), the
- * approve and reject reasons (lib/approvals/kinds.ts), why a request stopped
- * (lib/approvals/packets.ts), the billing engine's Stripe error families
- * (lib/billing/requests.ts), the event names (db/schema.ts APPROVAL_EVENTS)
- * and the outcome codes the executors, the store and the proposer record.
- * Types only from ops-client, so a client component may import this
- * (lib/admin/client-imports.test.ts).
+ * P6a's, apps/app lib/ops/approval-ops.ts; the clinic-contact kinds lane
+ * P6f's and the incident kinds lane P6i's, both drawn by lane P6j). Every
+ * value here is a closed code of apps/app's, read in its source by
+ * `approval-words.test.ts`, so a code added there with no words here fails
+ * the build rather than reaching the operator as a code: the kinds and the
+ * request kinds (db/schema.ts), the approve and reject reasons
+ * (lib/approvals/kinds.ts), why a request stopped (lib/approvals/packets.ts),
+ * the billing engine's Stripe error families (lib/billing/requests.ts), the
+ * event names (db/schema.ts APPROVAL_EVENTS), the outcome codes the
+ * executors, the store and the proposers record, the email phrases and
+ * closing sentences (lib/email/templates/contact-words.ts), and why a chase
+ * or a reminder would send nothing (lib/agreements/open-resigns.ts,
+ * lib/approvals/contact-reminders.ts). Types only from ops-client, so a
+ * client component may import this (lib/admin/client-imports.test.ts).
  */
 
-export const APPROVAL_KIND_WORDS: Record<ApprovalKind, string> = {
+/** Every kind the inbox holds: the billing and clinic-contact kinds ops-client lists, and the incident assistant's two. */
+export type AnyApprovalKind = ApprovalKind | IncidentApprovalKind;
+
+export const APPROVAL_KIND_WORDS: Record<AnyApprovalKind, string> = {
   billing_request_retry: "Retry a billing change the billing worker gave up on",
   overage_invoice_retry: "Retry an extra-usage invoice that failed",
   billing_event_replay: "Replay a Stripe event that was parked",
-  // The emails to a clinic (lane P6f); their screen is lane P6g's.
+  // The emails to a clinic (lane P6f).
   baa_resign_chase: "Chase a practice to sign its updated agreement",
   agreement_question: "Ask a practice which agreement it needs",
   setup_extended: "Give a clinic more time to finish setup, and tell it",
   setup_waiting_on_us: "Tell a clinic we are finishing its setup",
   setup_help_offer: "Offer a clinic a five-minute setup call",
   setup_reminder_now: "Send the next setup reminder sooner",
+  // The incident assistant (lane P6i): legal clocks.
+  incident_open_batch: "Open an incident at each clinic a vendor's or a channel's incident reached",
+  incident_report_send: "Send a practice its incident report",
 };
+
+/** The three groups the section draws, in the order the owner reads them: the legal clocks first. */
+export const APPROVAL_FAMILIES = ["incident", "contact", "billing"] as const;
+export type ApprovalFamily = (typeof APPROVAL_FAMILIES)[number];
+
+export const FAMILY_WORDS: Record<ApprovalFamily, string> = {
+  incident: "Incidents: an agreement's clock is running",
+  contact: "Emails to clinics",
+  billing: "Billing",
+};
+
+const FAMILY_OF: Record<AnyApprovalKind, ApprovalFamily> = {
+  billing_request_retry: "billing",
+  overage_invoice_retry: "billing",
+  billing_event_replay: "billing",
+  baa_resign_chase: "contact",
+  agreement_question: "contact",
+  setup_extended: "contact",
+  setup_waiting_on_us: "contact",
+  setup_help_offer: "contact",
+  setup_reminder_now: "contact",
+  incident_open_batch: "incident",
+  incident_report_send: "incident",
+};
+
+export function familyOf(kind: AnyApprovalKind): ApprovalFamily {
+  return FAMILY_OF[kind];
+}
 
 /** The same words apps/app's alerts use for a request's kind (lib/ops/alert-wording/words.ts REQUEST_KIND_WORDS). */
 export const REQUEST_KIND_WORDS: Record<BillingRequestKind, string> = {
@@ -145,7 +188,7 @@ export const REJECT_REASON_WORDS: Record<RejectReason, string> = {
 /** What happened to an item, as the History tab reads each row (db/schema.ts APPROVAL_EVENTS). */
 export const EVENT_WORDS: Record<ApprovalEventName, string> = {
   proposed: "proposed",
-  edited: "email edited",
+  edited: "choices changed",
   approved: "approved",
   rejected: "rejected",
   executed: "went through",
@@ -158,8 +201,9 @@ export const EVENT_WORDS: Record<ApprovalEventName, string> = {
 /**
  * The outcome codes a row can carry, in words: the owner's reasons (an
  * approved or rejected row), what the executor answered (lib/approvals/
- * executors.ts), and the store's and proposer's reasons for taking an item
- * off the list (lib/approvals/store.ts, proposers.ts).
+ * executors.ts, contact-executors.ts, incident-kinds.ts), and the store's
+ * and proposers' reasons for taking an item off the list
+ * (lib/approvals/store.ts, proposers.ts, contact-proposers.ts).
  */
 export const OUTCOME_WORDS: Readonly<Record<string, string>> = {
   cause_fixed: "the cause is fixed",
@@ -185,8 +229,8 @@ export const OUTCOME_WORDS: Readonly<Record<string, string>> = {
   clinic_out_of_service: "its clinic left service",
   interrupted: "the process died before the answer came",
   // The clinic-contact executors (apps/app lib/approvals/contact-executors.ts, lane P6f).
-  sent: "the email was sent",
-  queued: "the email was queued to send",
+  sent: "sent",
+  queued: "queued to send",
   already_sent: "it had already gone, so it was not sent again",
   send_failed: "the email did not go",
   no_public_origin: "no signing link could be made",
@@ -196,6 +240,9 @@ export const OUTCOME_WORDS: Readonly<Record<string, string>> = {
   reminder_night: "it was night at the clinic, so the reminder was not sent",
   reminder_too_soon: "a reminder went less than five days before, so this one was not sent",
   superseded_by_next_round: "a newer chase of the same re-sign replaced it",
+  // The incident assistant's executors (apps/app lib/approvals/incident-kinds.ts, lane P6i).
+  opened: "the incidents were opened",
+  partly_opened: "some of the incidents were opened, not all",
 };
 
 /** An outcome code in words; one this table does not know is printed as its own words. */
@@ -204,19 +251,27 @@ export function outcomeWords(code: string | null): string | null {
   return OUTCOME_WORDS[code] ?? code.replace(/_/g, " ");
 }
 
-/** The actor on a history row: the operator's account, or the proposer job (lib/approvals/kinds.ts PROPOSER). */
+/**
+ * The actor on a history row: the operator's account, or one of the two
+ * services that propose items (lib/approvals/kinds.ts PROPOSER,
+ * lib/approvals/incident-kinds.ts ASSISTANT).
+ */
 export function actorWords(label: string): string {
-  return label === "approvals-propose" ? "the approvals job" : label;
+  if (label === "approvals-propose") return "the approvals job";
+  if (label === "incident-assistant") return "the incident assistant";
+  return label;
 }
 
 /**
  * The sentence before the code field on an irreversible item, true to what
- * each kind's operation does (lib/approvals/executors.ts): a billing request
- * is re-armed for the billing worker, which carries it out; an overage retry
- * has Stripe issue the invoice in the same request; a replay applies the
- * event in the same request.
+ * each kind's operation does: a billing request is re-armed for the billing
+ * worker, which carries it out; an overage retry has Stripe issue the
+ * invoice in the same request; a replay applies the event in the same
+ * request (lib/approvals/executors.ts); an email goes or is queued
+ * (contact-executors.ts); a batch opens its incidents and a report is
+ * emailed in the same request (incident-kinds.ts).
  */
-export const IRREVERSIBLE_CONFIRM: Record<ApprovalKind, string> = {
+export const IRREVERSIBLE_CONFIRM: Record<AnyApprovalKind, string> = {
   billing_request_retry: "This cannot be undone once the billing worker has carried it out.",
   overage_invoice_retry: "This cannot be undone once Stripe has issued the invoice.",
   billing_event_replay: "This cannot be undone once the event has been applied.",
@@ -226,6 +281,8 @@ export const IRREVERSIBLE_CONFIRM: Record<ApprovalKind, string> = {
   setup_waiting_on_us: "This cannot be undone once the email has gone.",
   setup_help_offer: "This cannot be undone once the email has gone.",
   setup_reminder_now: "This cannot be undone once the reminder has gone.",
+  incident_open_batch: "This cannot be undone once the incidents have been opened.",
+  incident_report_send: "This cannot be undone once the report has been emailed.",
 };
 
 /**
@@ -233,22 +290,49 @@ export const IRREVERSIBLE_CONFIRM: Record<ApprovalKind, string> = {
  * same request (lib/approvals/executors.ts). A billing request's operation
  * only re-arms it; the billing worker then carries the change out at its
  * next run, with fresh tries (lib/billing/requests.ts rearmBillingRequest),
- * so that kind's sentence says so, and the other two kinds' does not.
+ * so that kind's sentence says so, and no other kind's does.
  */
-export function approveConfirm(kind: ApprovalKind): string {
+export function approveConfirm(kind: AnyApprovalKind): string {
   const head = "Approve this item? Its operation runs once now.";
   return kind === "billing_request_retry" ? `${head} A billing change is then carried out by the billing worker, with fresh tries.` : head;
 }
 
 /**
- * What rejecting does, true to lib/approvals/store.ts propose() (nothing is
- * proposed again for a subject while a rejected item stands for it) and
- * proposers.ts (a plan start, a step-up or an overage invoice is in the
- * list only while the job that retries it is off: switched on later, that
- * job retries it regardless of the rejection).
+ * What rejecting a billing item does, true to lib/approvals/store.ts
+ * propose() (nothing is proposed again for a subject while a rejected item
+ * stands for it) and proposers.ts (a plan start, a step-up or an overage
+ * invoice is in the list only while the job that retries it is off:
+ * switched on later, that job retries it regardless of the rejection).
  */
 export const REJECT_HEAD =
   "Nothing is run now, and this failure is not proposed again. If the job that retries it is switched on later, that job still retries it.";
+
+/**
+ * What rejecting each email or incident item does: nothing is sent or
+ * opened, and whether it can be proposed again. A chase is the approvals
+ * job's, one item per re-sign and seven-day round, so a rejection holds for
+ * its round and the next round's chase is proposed from 7 days later while
+ * the re-sign stays open (contact-proposers.ts). The operator's own
+ * proposals get a new reference after a rejection (store.ts
+ * subjectAfterRejections), so the same button proposes again. An incident
+ * scope is never proposed again once rejected (store.ts propose(), as
+ * opProposeIncidentBatch says); a report can be proposed again by hand, and
+ * the hourly job proposes a first report once only (incident-kinds.ts
+ * findIncidentSubjects).
+ */
+const REJECT_WORDS: Record<Exclude<AnyApprovalKind, "billing_request_retry" | "overage_invoice_retry" | "billing_event_replay">, string> = {
+  baa_resign_chase:
+    "Nothing is sent. This round's chase is not proposed again; while the re-sign stays open, the approvals job proposes the next round's chase 7 days on.",
+  agreement_question: "Nothing is sent. The question can be proposed again.",
+  setup_extended: "Nothing is sent and the deadline does not move. It can be proposed again from the clinic's Setup window card.",
+  setup_waiting_on_us: "Nothing is sent. It can be proposed again from the clinic's Setup window card.",
+  setup_help_offer: "Nothing is sent. It can be proposed again from the clinic's Setup window card.",
+  setup_reminder_now: "Nothing is sent now; the reminder still goes on its own day. It can be proposed again from the clinic's Setup window card.",
+  incident_open_batch:
+    "Nothing is opened, and this scope is not proposed again. To open an incident at one clinic, use its Care tab; a new scope can be proposed from the Incidents page.",
+  incident_report_send:
+    "Nothing is sent, and the agreement's clock keeps running. The report can be proposed again from the Incidents page, or sent from there with Send report; the hourly job does not propose it again.",
+};
 
 /** Where to retry an item that has a clinic by hand: its Billing tab has the same button. */
 export const BILLING_TAB_RETRY = "The clinic's Billing tab is where to retry it by hand.";
@@ -263,15 +347,16 @@ export const NO_CLINIC_EVENT = "This event is on no clinic's Billing tab; Approv
 /** The same fact once the item is rejected and gone: no button replays it. */
 const NO_CLINIC_EVENT_REJECTED = "This event is on no clinic's Billing tab.";
 
-type Subject = Pick<ApprovalItem, "kind" | "clinic">;
+type Subject = { kind: AnyApprovalKind; clinic: ApprovalItem["clinic"] };
 
 /** Whether the item is a Stripe event no clinic's Billing tab lists. */
 export function isClinicless(item: Subject): boolean {
   return item.clinic === null && item.kind === "billing_event_replay";
 }
 
-/** The second press on Reject, with where to retry by hand for an item that has a Billing tab. */
+/** The second press on Reject: per family, what runs (nothing) and where the subject can still be acted on. */
 export function rejectConfirm(item: Subject): string {
+  if (familyOf(item.kind) !== "billing") return REJECT_WORDS[item.kind as keyof typeof REJECT_WORDS];
   if (isClinicless(item)) return `${REJECT_HEAD} ${NO_CLINIC_EVENT}`;
   return item.clinic ? `${REJECT_HEAD} ${BILLING_TAB_RETRY}` : REJECT_HEAD;
 }
@@ -312,7 +397,7 @@ const WHEN = new Intl.DateTimeFormat("en-GB", {
   minute: "2-digit",
 });
 
-/** An instant as its UTC day: "31 Oct 2026". */
+/** An instant as its UTC day, or a YYYY-MM-DD as that day: "31 Oct 2026". */
 export function onDay(iso: string): string {
   return DAY.format(new Date(iso));
 }
@@ -327,14 +412,171 @@ export function eventTypeWords(type: string): string {
   return type.replace(/[._]/g, " ");
 }
 
+function days(n: number): string {
+  return `${n} ${n === 1 ? "day" : "days"}`;
+}
+
+// -----------------------------------------------------------------------------
+// The clinic-contact kinds' closed words (lane P6f)
+// -----------------------------------------------------------------------------
+
+/** What a setup notice names, as the operator picks it (apps/app PHRASES; the email prints its own words for each). */
+export const PHRASE_WORDS: Record<ContactPhrase, string> = {
+  phone: "the phone line",
+  website_chat: "website chat",
+  meta: "Meta chat (Instagram, Messenger and WhatsApp)",
+  calendar: "the Google Calendar connection",
+};
+
+/**
+ * The approved closing sentences, word for word as the email prints them
+ * (apps/app lib/email/templates/contact-words.ts NOTE_WORDS): the owner
+ * picks one, or none, and reads exactly what the clinic will.
+ */
+export const NOTE_WORDS: Record<ContactNote, string> = {
+  call_offer: "If it's easier to talk it through, reply with a time that suits you and we'll call.",
+  thanks: "Thank you for your patience while we sort this out.",
+  reply_questions: "If anything is unclear, reply to this email and we'll help.",
+  thanks_sign: "Thank you for taking a moment to sign it.",
+};
+
+export const NO_NOTE_WORDS = "No closing sentence";
+
+type ChaseBlock = NonNullable<Extract<ContactFacts, { kind: "baa_resign_chase" }>["blocked"]>;
+type ReminderBlock = NonNullable<Extract<ContactFacts, { kind: "setup_reminder_now" }>["blocked"]>;
+type StageCode = NonNullable<Extract<ContactFacts, { newLastDay: string | null }>["stage"]>;
+type ReviewStatus = NonNullable<Extract<ContactFacts, { kind: "agreement_question" }>["reviewStatus"]>;
+
+/**
+ * Why a chase cannot go now (apps/app lib/agreements/open-resigns.ts
+ * chaseBlocked): only an updated-version re-sign is chased (a re-sign that
+ * replaces a DPA pauses AYA, and its own emails say so), only while version
+ * re-signs are switched on, only from day 8 once the re-sign's own
+ * reminders (days 0, 3 and 7) have gone, and never within 7 days of the last
+ * chase sent.
+ */
+export const CHASE_BLOCK_WORDS: Record<ChaseBlock, string> = {
+  not_baa_version: "this is not an updated-version re-sign: it pauses AYA, and its own emails say so",
+  switched_off: "version re-signs are switched off, so the practice is not being asked to sign",
+  too_early: "the re-sign's own reminders (days 0, 3 and 7) are not spent yet; a chase can go from day 8",
+  chased_recently: "the practice was chased less than 7 days ago",
+};
+
+/**
+ * Why "Send the next reminder now" would send nothing (apps/app
+ * lib/approvals/contact-reminders.ts reminderPlanIn, and contact-packets.ts
+ * `already_queued` when the item's reminder is no longer the next one).
+ */
+export const REMINDER_BLOCK_WORDS: Record<ReminderBlock, string> = {
+  not_billed: "the clinic has no billing row of its own: its reminders are its account's",
+  window_over: "the setup window is over",
+  live: "a channel is live, so the setup reminders have stopped",
+  last_reminder: "the next reminder is the sixth, which goes only on the window's last day",
+  night: "it is night at the clinic: it would wait until morning",
+  recently_sent: "a reminder went less than five days ago",
+  already_queued: "it is no longer the next reminder to send",
+};
+
+/** The lifecycle watch's stages (apps/app db/schema.ts LIFECYCLE_STAGES), as the Setup window card words them. */
+export const STAGE_WORDS: Record<StageCode, string> = {
+  not_started: "not started",
+  in_setup: "in setup",
+  waiting_on_us: "waiting on us",
+  partly_live: "partly live",
+  live: "live",
+  closed: "closed",
+};
+
+/** An agreement-kind review's status, as Queues › Agreement checks words a decision (passed: the DPA stands; failed: the BAA was sent). */
+export const REVIEW_STATUS_WORDS: Record<ReviewStatus, string> = {
+  open: "open",
+  passed: "decided: the DPA stands",
+  failed: "decided: the BAA was sent to sign",
+  superseded: "superseded by a later review",
+};
+
+/** The watch's recommended action (apps/app lib/lifecycle/recommend.ts RECOMMENDATIONS); its reason is a fixed sentence, printed as it came. */
+export const RECOMMENDATION_WORDS: Record<ContactRecommendation["action"], string> = {
+  extend: "extend",
+  offer_call: "offer a call",
+  let_close: "let it close",
+  wait: "wait",
+  phone_the_clinic: "phone the clinic",
+};
+
+const YES_NO_UNKNOWN: Record<"yes" | "no" | "unknown", string> = { yes: "yes", no: "no", unknown: "not known" };
+
+function contactLines(facts: ContactFacts): [string, string][] {
+  switch (facts.kind) {
+    case "baa_resign_chase": {
+      const lines: [string, string][] = [
+        ["Agreement", `${facts.fromVersion ? `from version ${facts.fromVersion}` : "from the version in force"} to version ${facts.toVersion}`],
+        ["Re-sign open", `${days(facts.daysOpen)}${facts.startedAt ? `, since ${onDay(facts.startedAt)}` : ""}`],
+        ["Last signing email", facts.lastL22SentAt ? onDay(facts.lastL22SentAt) : "none recorded"],
+        ["Latest link works until", facts.linkExpiresAt ? whenWords(facts.linkExpiresAt) : "no link sent yet"],
+        ["Last chase", facts.lastChaseAt ? onDay(facts.lastChaseAt) : "none yet"],
+        ["AYA answering", facts.isAnswering ? "yes" : "no"],
+      ];
+      if (facts.belowFloor) lines.push(["Phone the practice on", facts.publishedPhoneE164 ?? "no published number on file"]);
+      if (facts.blocked) lines.push(["Would send nothing now", CHASE_BLOCK_WORDS[facts.blocked]]);
+      return lines;
+    }
+    case "agreement_question": {
+      const lines: [string, string][] = [
+        [
+          "Review",
+          `${facts.reviewStatus ? REVIEW_STATUS_WORDS[facts.reviewStatus] : "not found"}${facts.reviewDueOn ? `; our own day to decide it: ${onDay(facts.reviewDueOn)}` : ""}`,
+        ],
+        [
+          "Agreement in force",
+          facts.agreementKind
+            ? `${facts.agreementKind === "baa" ? "BAA" : "DPA"}${facts.agreementVersion ? ` ${facts.agreementVersion}` : ""}${facts.signedAt ? `, signed ${onDay(facts.signedAt)}` : ""}`
+            : "none on file",
+        ],
+        ["Covered by HIPAA, as answered at checkout", YES_NO_UNKNOWN[facts.coveredAnswer]],
+        ["Website says it takes insurance", facts.siteAcceptsInsurance === "unknown" ? "not read" : YES_NO_UNKNOWN[facts.siteAcceptsInsurance]],
+        ["Earlier reviews decided", String(facts.earlierDecisions)],
+      ];
+      if (facts.openResign) lines.push(["A re-sign is already open", "yes: approving sends nothing"]);
+      return lines;
+    }
+    case "setup_extended":
+    case "setup_waiting_on_us":
+    case "setup_help_offer": {
+      const lines: [string, string][] = [
+        ["Stage", facts.stage ? `${STAGE_WORDS[facts.stage]}${facts.stageSince ? ` since ${onDay(facts.stageSince)}` : ""}` : "not on the setup watch"],
+        ["Window ends", facts.lastDay ? `${onDay(facts.lastDay)}${facts.remainingDays !== null ? ` (${days(facts.remainingDays)} left)` : ""}` : "no setup deadline"],
+      ];
+      if (facts.kind === "setup_extended" && facts.newLastDay) lines.push(["If approved, ends", onDay(facts.newLastDay)]);
+      if (facts.stepsLeft !== null) lines.push(["Steps left", String(facts.stepsLeft)]);
+      if (facts.alreadySent) lines.push(["Already sent for this stage", "yes: approving sends nothing"]);
+      if (facts.stageMoved) lines.push(["Stage moved since proposed", "yes: approving sends nothing"]);
+      if (facts.recommendation) lines.push(["The setup watch recommends", facts.recommendation.reason]);
+      return lines;
+    }
+    case "setup_reminder_now": {
+      const lines: [string, string][] = [
+        ["Reminder", `${facts.reminderNumber} of ${facts.ofTotal}, normally due ${onDay(facts.normallyDueOn)}`],
+        ["Sent so far", facts.sentSoFar === null ? "not read" : String(facts.sentSoFar)],
+      ];
+      if (facts.blocked) lines.push(["Would send nothing now", REMINDER_BLOCK_WORDS[facts.blocked]]);
+      if (facts.recommendation) lines.push(["The setup watch recommends", facts.recommendation.reason]);
+      return lines;
+    }
+  }
+}
+
 /**
  * The packet's facts as label and value pairs, per kind: what the owner
  * decides on, read live by apps/app from the rows the Billing tab reads. For
  * a billing request, whether the billing worker that would carry a re-armed
  * request out is switched on, and for a closure the setup-closure switch
  * too, as one word each: the packet's `effect` already says what an off
- * switch means, and the card prints that sentence once. The other two kinds
- * run in the same request as the approval, with no worker in between.
+ * switch means, and the card prints that sentence once. The other two
+ * billing kinds run in the same request as the approval, with no worker in
+ * between. An email kind's facts are the re-sign's, the review's, the setup
+ * window's or the reminder's, with the setup watch's recommendation as it
+ * came (never recomputed here).
  */
 export function factLines(item: ApprovalItem): [string, string][] {
   const packet = item.packet;
@@ -364,14 +606,22 @@ export function factLines(item: ApprovalItem): [string, string][] {
     lines.push(["Runs", "at once, in the same request, when approved"]);
     return lines;
   }
-  // The clinic-contact kinds' lines are lane P6g's (the screen); none yet.
-  if (facts.kind !== "billing_event_replay") return [];
+  if (facts.kind !== "billing_event_replay") return contactLines(facts);
   return [
     ["Stripe event", eventTypeWords(facts.eventType)],
     ["Failed", `${facts.failures} of ${facts.maxFailures} times`],
     ["Runs", "at once, in the same request, when approved"],
   ];
 }
+
+/** The line under a reminder item, whose wording is the reminder's own (contact-packets.ts: its draft is null). */
+export const REMINDER_FIXED_WORDS = "The reminder's wording is fixed: nothing in it can be changed.";
+
+/** The heading over a draft: the email exactly as the clinic reads it, the chase's link shown as a placeholder until it is minted at send. */
+export const DRAFT_HEADING = "The email as the clinic will read it";
+
+/** The line beside the Edit control: what may change, and what never does (owner decision D12). */
+export const EDIT_WORDS = "Only the choices below can change; nothing typed reaches the email.";
 
 /** How long the item has waited since it was proposed, and whether it is past due: "Waiting 2 days, past due". */
 export function waitingWords(item: Pick<ApprovalItem, "proposedAt" | "pastDue">, nowIso: string): string {
@@ -399,15 +649,16 @@ export type Decided = {
 };
 
 /**
- * The decision's answer in one line, true to lib/approvals/executors.ts and
- * approval-ops.ts: a rejection runs nothing and takes the item off the list;
- * an approval that went through says what the operation did, in the
- * operation's own sentence where it gave one (a re-armed request is due
- * again, not carried out: the billing worker does that at its next run);
- * one that did not go through says why in the operation's words; a refusal
- * (already decided, window passed, the code) changes nothing. A rejection's
- * line says where the failure can still be retried: the clinic's Billing
- * tab, or for a Stripe event no clinic's tab lists, nowhere.
+ * The decision's answer in one line, true to lib/approvals/executors.ts,
+ * contact-executors.ts, incident-kinds.ts and approval-ops.ts: a rejection
+ * runs nothing and takes the item off the list; an approval that went
+ * through says what the operation did, in the operation's own sentence
+ * where it gave one (a re-armed request is due again, not carried out: the
+ * billing worker does that at its next run; a queued email is sent by the
+ * billing-notices job from the outbox); one that did not go through says
+ * why in the operation's words; a refusal (already decided, window passed,
+ * the code) changes nothing. A rejection's line says what the kind's
+ * rejection means (rejectConfirm).
  */
 export function decisionWords(entry: ApprovalDecisionEntry, item: Subject): Decided {
   switch (entry.status) {
@@ -415,6 +666,9 @@ export function decisionWords(entry: ApprovalDecisionEntry, item: Subject): Deci
     case "code_refused":
       return { left: false, tone: "bad", text: entry.message, auditRecorded: null };
     case "rejected": {
+      if (familyOf(item.kind) !== "billing") {
+        return { left: true, tone: "ok", text: `Rejected. ${rejectConfirm(item)}`, auditRecorded: entry.auditRecorded };
+      }
       const where = isClinicless(item) ? NO_CLINIC_EVENT_REJECTED : item.clinic ? BILLING_TAB_RETRY : null;
       return {
         left: true,
@@ -434,6 +688,10 @@ export function decisionWords(entry: ApprovalDecisionEntry, item: Subject): Deci
             return "Nothing was invoiced: the month was already settled, or had nothing to bill.";
           case "replayed":
             return "The Stripe event was applied again.";
+          case "sent":
+            return entry.message ?? "The email was sent.";
+          case "queued":
+            return entry.message ?? "The email is queued in the outbox; the billing-notices job sends it.";
           default:
             return entry.message ?? `Went through: ${outcomeWords(entry.outcomeCode)}.`;
         }

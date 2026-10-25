@@ -30,6 +30,9 @@ vi.mock("@/lib/admin/ops-client", () => {
     fetchSiteReadFailures: never,
     fetchApprovals: never,
     fetchApprovalHistory: never,
+    fetchIncidentApprovals: never,
+    fetchIncidentApprovalHistory: never,
+    previewApprovalDraft: never,
     fetchJobs: never,
   };
 });

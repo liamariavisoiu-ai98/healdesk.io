@@ -26,10 +26,13 @@ export const RETELL_CALL_SETTINGS = {
   reminder_trigger_ms: 8_000,
   reminder_max_count: 3,
   pronunciation_dictionary: [
-    // "AYA" is how the assistant writes her own name (disclosure.ts,
-    // prompt.ts): spoken as the name "Aya" (rhymes with "Maya" without the
-    // M), never spelled out letter by letter (owner, 24 October 2026). Listen
-    // on the demo agent and correct the phoneme if a voice reads it wrong.
+    // Her name, "Eye-uh" (owner, 24 and 25 October 2026), never spelled out
+    // letter by letter. Everything spoken writes it "Aya" since 25 October
+    // (disclosure.ts, demo-facts.ts), because a voice provider that ignores
+    // this dictionary still spells capitals out; "AYA" stays listed for any
+    // reply that writes it so anyway. Listen on the demo agent and correct
+    // the phoneme if a voice reads it wrong.
+    { word: "Aya", alphabet: "ipa", phoneme: "ˈaɪə" },
     { word: "AYA", alphabet: "ipa", phoneme: "ˈaɪə" },
     { word: "Juvederm", alphabet: "ipa", phoneme: "ˈdʒuvədɝm" },
     { word: "Restylane", alphabet: "ipa", phoneme: "ˈrɛstəleɪn" },

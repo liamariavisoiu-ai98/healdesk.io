@@ -152,9 +152,12 @@ enforceable rather than aspirational.
    apps/app answers it with the same turn pipeline, prompt and guard as a
    clinic's patients, from that context instead of the database, and keeps
    nothing: no gate, no ingest, no transcript, no alert, no booking. Only the
-   start differs: AYA greets the requester by name with the AI and
-   transcription notice, says what she can do for their clinic, and offers a
-   role-play. While the host is in standby, the demo falls back to the
+   start differs: Aya gives the AI and transcription notice, checks she has
+   the requester by name, asks their role, offers to explain or to role-play
+   a patient call (opened with "Ring ring!" and the clinic's own notice),
+   then pitches and asks about call volume (owner, 25 October 2026;
+   `lib/voice/demo-facts.ts`, `DemoStage`). Spoken text writes "Aya", never
+   "AYA", which a voice spells out. While the host is in standby, the demo falls back to the
    Retell-hosted clinic demo agent, so a demo never depends on AWS being on.
 
 3. **`/admin` on `apps/web` is deliberate, not a shortcut.** It is our tool,

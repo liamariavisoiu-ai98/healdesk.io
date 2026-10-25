@@ -552,7 +552,13 @@ export async function sendQueuedTranscriptNow(
   if (!id) return null;
   try {
     const job = await getJob(JOB_TRANSCRIPT_EMAILS);
-    if (!job?.enabled) return "disabled";
+    if (!job?.enabled) {
+      // Said, never silent (owner, 25 October 2026: "transcripts are no longer
+      // being received"): the copy waits sealed, and is deleted unsent after
+      // 30 days, until someone turns the job on at System > Jobs.
+      log.warn("transcript waiting: the transcript-emails job is off", { clinicId, jobId: id });
+      return "disabled";
+    }
     return await deliverTranscriptEmail(clinicId, id, options);
   } catch (error) {
     log.error("transcript send-now failed", { clinicId, jobId: id, error: describeError(error) });

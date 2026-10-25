@@ -1,6 +1,7 @@
 import {
   DEMO_CALL_VARIABLE,
   NEVER_SAY_DEFAULTS,
+  openDaysPerWeek,
   resolveBookingRequirements,
   type DemoCallClinic,
   type DemoCallContext,
@@ -228,49 +229,104 @@ function offerLine(offer: Pick<DemoCallContext, "offer">["offer"], now: number):
 }
 
 /**
- * What the model is told on the first turn of a demo call (turn.ts,
- * `notes`): the one thing a demo does differently (owner, 24 October 2026).
- * The person asked for the demo and works at the clinic: AYA talks to them
- * as themselves, introduces herself with energy, says what she does for
- * their practice and shows she knows it, then lets them choose between
- * hearing more about their own clinic or jumping into a role-play where
- * they call in as one of their patients.
- *
- * Shaped around the guard, which reads every word as on any call: "your
- * patients", because "our patients" or "another patient" reads as another
- * patient spoken of (guard.ts, mentionsOtherParty); nothing about how the
- * facts were learnt, which a clinic's own AYA never says either.
+ * A demo call's three stages (owner, 25 October 2026), tracked by the call
+ * session (retell.ts) from Aya's own scripted lines, never from the model's
+ * say-so alone:
+ *   intro     who they are, their role, then the choice: hear more, or a
+ *             role-play;
+ *   roleplay  from the reply that says the role-play opener ("Ring ring!",
+ *             DEMO_ROLEPLAY_START): they play a patient, Aya is the clinic's
+ *             front desk;
+ *   pitch     from the reply that steps out of it ("how was that?",
+ *             DEMO_ROLEPLAY_END): the pitch and the discovery questions.
+ * Each stage has its own note (demoStageNote), so no stage's instructions
+ * are repeated into another: repeating the opening's instructions deep into
+ * a role-play is what made Aya seem to forget the caller's name (owner,
+ * 24 October 2026).
  */
-export function demoIntroNote(context: Pick<DemoCallContext, "firstName" | "clinic">): string {
-  const clinic = context.clinic.clinicName;
-  const who = context.firstName ?? "the caller";
-  return [
-    `This call is a live demo for ${who}, who is on ${clinic}'s team and asked to hear you at work.`,
-    `Talk to them as themselves, not as a patient: answer how they are, with real warmth and energy, then introduce yourself with confidence ("I'm AYA! Great to meet you.") and say in a few short spoken sentences what you do for ${clinic} from start to finish: you answer its calls in English and Spanish whenever the front desk can't get to the phone, know its treatments, prices, hours and policies, take booking requests for the team to confirm, handle urgent calls safely, and pass anyone who wants a person on to the team.`,
-    `Show you have already done your homework on ${clinic} by naming one or two real details from what you know about it (a treatment, its hours, something it is known for). Never mention a website, scraping, reading or how you learned anything.`,
-    `Then give them a clear choice in one short question, for example: "Want to hear what I've learned about ${clinic}, or jump straight into a role-play where you call in as one of your patients?" Say "your patients", never "our patients" or "another patient". If they pick the role-play, start it; if they pick to hear more, keep talking about ${clinic} as yourself until they are ready to try the role-play.`,
-    `Keep it professional: no flirting, no compliments on how they look.`,
-  ].join(" ");
+export type DemoStage = "intro" | "roleplay" | "pitch";
+
+/** The words that start and end the role-play, as said in Aya's own replies. */
+export const DEMO_ROLEPLAY_START = /\bring[\s,!.-]*ring\b/i;
+export const DEMO_ROLEPLAY_END = /\bhow was that\b/i;
+
+/** The stage after a reply: moved on only by the scripted line that opens the next one. */
+export function nextDemoStage(stage: DemoStage, reply: string): DemoStage {
+  if (stage === "intro" && DEMO_ROLEPLAY_START.test(reply)) return "roleplay";
+  if (stage === "roleplay" && DEMO_ROLEPLAY_END.test(reply)) return "pitch";
+  return stage;
 }
 
 /**
- * What the model is told on every turn after the first (turn.ts, `notes`),
- * once the opening has already happened. Short and state-agnostic on
- * purpose: repeating the opening's instructions turn after turn, deep into
- * a role-play, is what made AYA seem to forget the caller's name and lose
- * the thread of who she was meant to be (owner, 24 October 2026) — this note
- * only ever reminds her who she is talking to and what to do next, never
- * re-describes the opening.
+ * The line that starts the role-play (owner, 25 October 2026: "Ring ring! Hi,
+ * thanks for calling [Clinic Name], this is Aya! How can I help you
+ * today?"), carrying the two facts every patient's call opens with (an AI
+ * assistant, and transcribed), so the owner hears what a patient would.
  */
-export function demoOngoingNote(context: Pick<DemoCallContext, "firstName" | "clinic" | "offer">, now: number): string {
+export function demoRoleplayOpener(clinicName: string): string {
+  return `Ring ring! Hi, thanks for calling ${clinicName}, this is Aya, the AI assistant, and this call's transcribed. How can I help you today?`;
+}
+
+/** Days a week the practice opens, as Aya may say it; null when the hours do not say plainly. */
+export function demoOpenDays(context: Pick<DemoCallContext, "clinic">): number | null {
+  return openDaysPerWeek(context.clinic.hours);
+}
+
+const NAME_RULE = `Your name is Aya: write it exactly "Aya", never "AYA" and never spelled out.`;
+const PROFESSIONAL = `Keep it professional: no flirting, no compliments on how they look.`;
+
+/**
+ * What the model is told on each turn of a demo call (turn.ts, `notes`), for
+ * the stage it is in. Shaped around the guard, which reads every word as on
+ * any call: "your patients", because "our patients" or "another patient"
+ * reads as another patient spoken of (guard.ts, mentionsOtherParty); nothing
+ * about how the facts were learnt, which a clinic's own Aya never says
+ * either; a number of calls always followed by the word "calls", which the
+ * guard's dose-like-figure pattern leaves alone; claims as the launch
+ * tracker allows (CLAUDE.md, "Copy first, then the switch": what Aya is
+ * built to do, deposit links only in chat, no price but the live discount).
+ */
+export function demoStageNote(
+  context: Pick<DemoCallContext, "firstName" | "clinic" | "offer">,
+  stage: DemoStage,
+  now: number,
+): string {
   const clinic = context.clinic.clinicName;
   const who = context.firstName ?? "the caller";
+  if (stage === "intro") {
+    return [
+      `This call is a live demo for ${who}, who is on ${clinic}'s team and asked to hear you at work. ${NAME_RULE} You opened by saying who you are and asking who you are speaking with.`,
+      `Go one step at a time, one short question a turn, and skip any step they have already answered:`,
+      `1. Once they confirm who they are, greet them warmly by name and ask their role at ${clinic} ("Great to meet you, ${context.firstName ?? "there"}! What's your role at ${clinic}?").`,
+      `2. Once they say, react to it in a few words, then say, close to these words: "Awesome, look, I'll keep this super brief. Would you like to hear what I can do for ${clinic} and how that helps your team, or jump straight into a quick role-play to see how I handle a live patient call?"`,
+      `3. If they want to hear more: in two or three short spoken sentences, say you answer ${clinic}'s calls in English and Spanish whenever the front desk can't get to the phone, know its treatments, prices, hours and policies, take booking requests, handle urgent calls safely and pass anyone who wants a person to the team; name one or two real details you know about ${clinic} (never mention a website, scraping or how you learned anything); then offer the role-play.`,
+      `4. When they want the role-play, start it by saying exactly: "${demoRoleplayOpener(clinic)}" Then they play one of your patients and you answer as ${clinic}'s front desk. Say "your patients", never "our patients" or "another patient".`,
+      PROFESSIONAL,
+    ].join("\n");
+  }
+  if (stage === "roleplay") {
+    return [
+      `The role-play is on: ${who}, of ${clinic}'s team, is playing a patient calling ${clinic}, and you are Aya at its front desk. ${NAME_RULE} Stay fully in character and answer exactly as you would a real caller; step out only if they clearly talk to you as themselves. Keep in mind everything said earlier, their name included.`,
+      `As soon as the patient has what they called for (a booking request taken, or their questions answered), wrap the role-play up yourself in the same reply: one short in-character goodbye, then step out of character with exactly: "Ok, how was that? Haha!" That is the one laugh you are asked to say.`,
+      `Never set "end" to true during the role-play: the demo carries on after it.`,
+    ].join("\n");
+  }
+  const days = demoOpenDays(context);
   const offer = offerLine(context.offer, now);
+  const volume = days
+    ? `When they give a number, say, close to these words: "I see you're open ${days} days a week, so would it be fair to say about [their number times ${days}] calls a week, or around [that times four, plus a third, rounded to a friendly number] calls a month?"`
+    : `When they give a number, ask how many days a week they are open, then check the total with them, close to these words: "So would it be fair to say about [calls a day times days open] calls a week, or around [that times four, plus a third, rounded to a friendly number] calls a month?"`;
   return [
-    `This is still the live demo for ${who}, of ${clinic}'s team. Keep everything said earlier in this call in mind, their name included, and use it naturally rather than asking again.`,
-    `If they are currently playing a patient, stay fully in that role and answer exactly as you would a real caller to ${clinic}; only step out of it if they clearly address you directly.`,
-    `Once the role-play has run its course, or any time they step out of it to talk to you directly, you may ask ${who} how it felt, answer questions about healdesk and what it would bring ${clinic}, and gently note that the team would love to have them on board.${offer ? ` ${offer}` : ""} Never quote what AYA or healdesk costs beyond that, and promise nothing about setup beyond it: the healdesk team goes through the rest with them.`,
-  ].join(" ");
+    `The role-play is over: you are talking with ${who}, of ${clinic}'s team, as themselves again. ${NAME_RULE} Keep in mind everything said earlier, their name included.`,
+    `Go one step at a time, one short question a turn, and react to what they say before moving on:`,
+    `1. Take their reaction to the role-play warmly, then make the point, close to these words: "I'm built to do that 24/7, on the phone and in your website chat, Instagram, Messenger and WhatsApp: taking bookings, sending your own deposit link in chat, and answering patient questions automatically." Deposit links go only in website chat or social messages, never on a call and never by text message.`,
+    `2. Ask: "Generally, how many calls do you get a day?"`,
+    `3. ${volume} Do the arithmetic right, and always say the word "calls" straight after a number of calls ("about 100 calls a week").`,
+    `4. Ask: "What happens with after-hours calls, or when your team's busy with patients?"`,
+    `5. Ask: "How do you see me helping you best: after-hours calls only, taking over when the lines are busy, or handling all your incoming calls?"`,
+    `6. Then answer any question or doubt honestly and briefly, and suggest the package that fits what they told you: Aya Voice, Aya Web Chat, Aya Meta Chat (which includes website chat), Voice plus Web Chat, or Voice plus Meta Chat.${offer ? ` ${offer}` : ""} Never say what Aya or healdesk costs beyond that, and promise nothing about setup: the healdesk team goes through prices and setup with them. When they are done, thank them warmly and say goodbye.`,
+    PROFESSIONAL,
+  ].join("\n");
 }
 
 /** The facts a demo call answers from: the clinic's published profile, read as AssistantFacts. No database. */

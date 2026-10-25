@@ -21,7 +21,7 @@ import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
-import { demoAssistantFacts, demoContextFromCall, demoIntroNote, demoOngoingNote } from "./demo-facts";
+import { demoAssistantFacts, demoContextFromCall, demoStageNote, nextDemoStage, type DemoStage } from "./demo-facts";
 import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, type FallbackLookup } from "./fallback-line";
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
@@ -134,11 +134,11 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *     context that does not open (forged, older than two hours, malformed,
  *     missing) hears DEMO_EXPIRED_LINE and the call ends;
  *   - the start: the demo opening line (disclosure.ts, demoVoiceOpening),
- *     with the same two facts, an intro note on the first turn only, and a
- *     short, state-agnostic note every turn after (demo-facts.ts,
- *     demoIntroNote and demoOngoingNote: the opening's own instructions are
- *     never repeated once it has happened, so they cannot work against
- *     staying in a role-play, or in remembering the caller's name);
+ *     with the same two facts, then three stages (owner, 25 October 2026;
+ *     demo-facts.ts, DemoStage), each with its own note: intro (who they
+ *     are, their role, the choice), role-play (from Aya's "Ring ring!") and
+ *     pitch (from her "how was that?"), so no stage's instructions run into
+ *     another; a goodbye inside the role-play never ends the call;
  *   - nothing is written or sent anywhere: no answer gate or billing, no
  *     test-mode screen (voice_real_calls governs clinics' calls, and a demo
  *     is no clinic's: no clinic row is read, and no patient's call reaches
@@ -501,6 +501,8 @@ export class RetellCallSession {
   private reminders = 0;
   /** A demo call's context, once opened: the requester's first name and the clinic's profile. In memory only. */
   private demoContext: DemoCallContext | null = null;
+  /** Where a demo call is (demo-facts.ts, DemoStage), moved on by Aya's own scripted lines. */
+  private demoStage: DemoStage = "intro";
   /** Retell's call object from call details, for a demo call's context; dropped once read. */
   private demoCall: unknown = null;
 
@@ -1146,12 +1148,9 @@ export class RetellCallSession {
       language: language.language,
       // A demo call is never put through anywhere.
       urgentTransferTo: this.deps.demo ? null : this.urgentLine(facts),
-      // The intro note runs once, before any turn has answered; every later
-      // turn gets the shorter, state-agnostic one (demo-facts.ts), so her
-      // own opening instructions are never repeated deep into a role-play.
-      notes: this.demoContext
-        ? [this.answered ? demoOngoingNote(this.demoContext, this.now().getTime()) : demoIntroNote(this.demoContext)]
-        : null,
+      // The note for the stage the demo is in (demo-facts.ts), so no stage's
+      // instructions are ever repeated into another, a role-play above all.
+      notes: this.demoContext ? [demoStageNote(this.demoContext, this.demoStage, this.now().getTime())] : null,
     }).finally(stopAck);
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.
@@ -1162,6 +1161,12 @@ export class RetellCallSession {
     this.capture = turn.capture;
     this.toolState = turn.toolState;
     this.handoff ||= turn.handoff;
+    // A demo's stage moves on only with an answer that is said. A goodbye
+    // inside the role-play, its "patient" signing off included, never ends
+    // the call: the pitch comes after it.
+    const stageBefore = this.demoStage;
+    if (this.demoContext && turn.source !== "fallback") this.demoStage = nextDemoStage(stageBefore, turn.reply);
+    const ends = turn.end && !(this.demoContext && stageBefore === "roleplay");
 
     let urgentQueued = false;
     if (turn.urgent && !this.urgent && this.deps.demo) {
@@ -1218,7 +1223,7 @@ export class RetellCallSession {
     } else {
       this.failures = 0;
     }
-    if (turn.end) this.closing = true;
+    if (ends) this.closing = true;
     // Retell keeps only the latest response: a caller who spoke before the
     // opening line went out may never have heard it. Retell's transcript
     // then holds no word of the agent's, and the opening line is owed. It
@@ -1264,7 +1269,7 @@ export class RetellCallSession {
     // acknowledgement and the sentences already sent (turn.ts, `spoken`).
     const already = turn.spoken && reply.startsWith(turn.spoken) ? turn.spoken : "";
     this.say(responseId, already ? reply.slice(already.length).trim() : reply, {
-      endCall: turn.end && !transferTo,
+      endCall: ends && !transferTo,
       transferTo,
       spokenBefore: [acknowledgement, already].filter(Boolean).join(" ") || null,
     });
@@ -1374,7 +1379,14 @@ export class RetellCallSession {
     };
     try {
       const result = await (this.deps.ingest ?? ((e) => ingestCall(e, ACTOR, { transport: this.deps.transport })))(event);
-      log.info("retell call recorded", { clinicId: this.clinicId, conversationId: result.conversationId, outcome: event.outcome ?? "none", count: this.turns.length });
+      log.info("retell call recorded", {
+        clinicId: this.clinicId,
+        conversationId: result.conversationId,
+        outcome: event.outcome ?? "none",
+        count: this.turns.length,
+        // The transcript's: queued for the clinic, or why none was.
+        status: result.transcriptEmailId ? "queued" : result.duplicate ? "duplicate" : event.transcriptTurns ? "none" : "caller_silent",
+      });
       return result;
     } catch (error) {
       log.error("retell call not recorded", { clinicId: this.clinicId, error: describeError(error) });

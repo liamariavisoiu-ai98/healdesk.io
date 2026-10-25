@@ -816,6 +816,13 @@ describeDb("the compliance pack, against the database", () => {
     );
     try {
       const now = new Date();
+      // ops_alerts is not emptied between files: alerts other tests left unposted can fill the
+      // sweep's batch before this test's own two rows, so set them aside first (they are not
+      // what this test is about).
+      await getMigratorPool().query(
+        `update ops_alerts set slack_posted_at = now(), slack_attempts = 1
+          where slack_posted_at is null and event <> 'compliance_pack_ready'`,
+      );
       await getMigratorPool().query(
         `insert into ops_alerts (event, dedupe_key, fields, raised_at, last_raised_at)
          values ('compliance_pack_ready', $1, '{"windowStart":"2026-10-19","unreadCount":0}'::jsonb, $2, $2),

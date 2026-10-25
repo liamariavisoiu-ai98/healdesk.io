@@ -509,6 +509,8 @@ describe("the ignore list is read only by the lifecycle watch and its consumers"
       .sort();
     expect(readers).toEqual([
       "db/schema.ts",
+      // The chase proposer skips an internal test account (lane P6f).
+      "lib/approvals/contact-proposers.ts",
       "lib/lifecycle/ignore.ts",
       "lib/lifecycle/watch.ts",
       "lib/offboarding/account-closure.ts",

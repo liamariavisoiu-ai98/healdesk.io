@@ -31,6 +31,8 @@ import {
   goLive as goLiveUpstream,
   issueCalendarLink as calendarLinkUpstream,
   issueConnectLink as issueConnectLinkUpstream,
+  proposeLifecycleNotice as proposeNoticeUpstream,
+  pullReminderForward as pullReminderUpstream,
   reopenOnboardingStep as reopenUpstream,
   rerunPracticeQuestions as rerunPracticeUpstream,
   retryCalendarWrite as retryWriteUpstream,
@@ -42,10 +44,13 @@ import {
   syncDemoVoiceAgent as demoAgentUpstream,
   updateAgentConfig as agentUpstream,
   type AgentService,
+  type ContactPhrase,
   type DepositPolicy,
+  type LifecycleNoticeKind,
   type MetaPlatform,
 } from "@/lib/admin/ops-client";
 import { clearVoiceDriftFlagWithCode as enterVoiceDriftClear, retryVoiceAgentWithCode as enterVoiceRetry } from "@/lib/admin/voice-drift";
+import { PHRASE_WORDS } from "@/components/admin/approval-words";
 import { isHostUnreachable } from "@/lib/host/state";
 
 import { AvailabilityChanges } from "./AvailabilityChanges";
@@ -295,6 +300,35 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
     revalidatePath(path);
     return result;
   }
+  // The Setup window card's four proposals (lane P6j; the operations are lane
+  // P6f's): each puts an email to the clinic in Approvals for the owner's
+  // yes and sends nothing. The kind, the days and the phrase are checked
+  // here against apps/app's own list and range; a note is never sent from
+  // this card (the owner adds one under Approvals, from the approved list).
+  const NOTICE_KINDS: readonly LifecycleNoticeKind[] = ["setup_extended", "setup_waiting_on_us", "setup_help_offer"];
+  async function proposeNotice(input: { kind: LifecycleNoticeKind; days?: number; phrase?: ContactPhrase }) {
+    "use server";
+    const refused = (message: string) => ({ ok: true as const, data: { status: "refused" as const, message } });
+    if (!NOTICE_KINDS.includes(input.kind)) return refused("Pick one of the three notices.");
+    if (input.days !== undefined && (!Number.isInteger(input.days) || input.days < 1 || input.days > 30)) {
+      return refused("Days must be a whole number from 1 to 30.");
+    }
+    if (input.phrase !== undefined && !Object.hasOwn(PHRASE_WORDS, input.phrase)) return refused("What the email names must be one of the listed parts of setup.");
+    const result = await proposeNoticeUpstream({
+      clinicId,
+      kind: input.kind,
+      ...(input.kind === "setup_extended" && input.days !== undefined ? { days: input.days } : {}),
+      ...(input.kind !== "setup_extended" && input.phrase !== undefined ? { phrase: input.phrase } : {}),
+    });
+    revalidatePath(path);
+    return result;
+  }
+  async function pullReminder() {
+    "use server";
+    const result = await pullReminderUpstream(clinicId);
+    revalidatePath(path);
+    return result;
+  }
   // The lifecycle watch's ignore list (lane P5d): one of healdesk's own test
   // accounts off the watch, or back on it, with the closed reason word (apps/
   // app clears the note itself when the mark is lifted). The clinic's id is
@@ -354,6 +388,8 @@ export default async function SetupPage({ params }: { params: Promise<{ clinicId
           onDecide={decideWindow}
           onSnooze={snoozeWindow}
           onSetIgnored={setIgnored}
+          onProposeNotice={proposeNotice}
+          onPullReminder={pullReminder}
         />
       ) : null}
       {/* A clinic still in setup (the Billing tab's rule) that the watch has not seen yet, and is not the demo: the one line and the ignore control. */}

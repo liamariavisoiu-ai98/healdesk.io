@@ -1,10 +1,20 @@
 "use client";
 
+import { onDay, PHRASE_WORDS } from "@/components/admin/approval-words";
 import { extendedWords } from "@/components/admin/extension-words";
 import { useState } from "react";
 
 import { ActionButton, Section } from "@/components/admin/ui";
-import type { ExtendDeadlineOutcome, LifecycleIgnoreOutcome, LifecycleRow, LifecycleWriteOutcome, OpsResult } from "@/lib/admin/ops-client";
+import type {
+  ContactPhrase,
+  ExtendDeadlineOutcome,
+  LifecycleIgnoreOutcome,
+  LifecycleNoticeKind,
+  LifecycleRow,
+  LifecycleWriteOutcome,
+  OpsResult,
+  ProposeOutcome,
+} from "@/lib/admin/ops-client";
 
 /**
  * The Setup tab's "Setup window" card (ops automation wave 2, lane A3), for
@@ -46,6 +56,25 @@ import type { ExtendDeadlineOutcome, LifecycleIgnoreOutcome, LifecycleRow, Lifec
  * for an account that is not watched, with apps/app's own recommendation
  * sentence saying so, and offers the way back; the decision controls and the
  * snooze row are not drawn then, since no wave is owed.
+ *
+ * The four proposals (ops automation lane P6j; the operations are lane
+ * P6f's, apps/app lib/ops/notice-ops.ts) each only PROPOSE an email to the
+ * clinic, with its draft, for the owner's yes under Queues › Approvals;
+ * nothing is sent from here. "Propose more time" proposes an extension by
+ * the days in the field and the email telling the clinic (on approve, the
+ * extension runs first and the email goes only if it went through); it is
+ * drawn beside "Extend the setup window", which extends at once with no
+ * email, in the stages still inside the window. "Propose: we are finishing
+ * it" is drawn only while the clinic waits on us (apps/app refuses it in any
+ * other stage), once per entry into that stage, and extends nothing (owner
+ * decision D6). "Offer a five-minute call" is drawn while setup is still
+ * open, partly live included, once per stage entry. "Send the next reminder
+ * now" proposes the next of the six setup reminders sooner, never a seventh,
+ * and apps/app refuses it when it is night at the clinic, a reminder went in
+ * the last five days, the next would be the sixth (sent only on the last
+ * day), a channel is live or the window is over; each refusal is shown in
+ * apps/app's own sentence. The watch's recommendation sentence already on
+ * the card is the advice beside them; nothing is recomputed here.
  */
 
 export const LET_CLOSE_CONFIRM =
@@ -56,6 +85,27 @@ export const IGNORE_CONFIRM =
 
 export const IGNORED_DONE = "Not watched (internal): no more setup-window alerts to ops for this account. Its reminder emails and its closing day are unchanged.";
 export const WATCHED_DONE = "Watched again: setup-window alerts to ops and Home's decision and go-live rows resume for this account.";
+
+/** The one sentence over the four proposals: what each does, and what none does. */
+export const PROPOSALS_WORDS = "Each of these only proposes an email, with its draft, for your yes under Queues › Approvals. Nothing is sent from here.";
+
+export const PROPOSED_WORDS = "Proposed: waiting for your yes under Queues › Approvals.";
+
+/** What "Send the next reminder now" proposed: which of the six, and its own day. */
+export function reminderProposedWords(data: ProposeOutcome): string | null {
+  if (data.status !== "proposed") return null;
+  if (data.reminderNumber === undefined || data.normallyDueOn === undefined) return PROPOSED_WORDS;
+  return `Proposed: reminder ${data.reminderNumber} of 6, normally due ${onDay(data.normallyDueOn)}, waiting for your yes under Queues › Approvals.`;
+}
+
+export type ProposeNotice = (input: { kind: LifecycleNoticeKind; days?: number; phrase?: ContactPhrase }) => Promise<OpsResult<ProposeOutcome>>;
+export type PullReminder = () => Promise<OpsResult<ProposeOutcome>>;
+
+/** The stages a setup notice applies to (apps/app lib/ops/notice-ops.ts SETUP_STAGES, HELP_STAGES). */
+const SETUP_STAGES: ReadonlySet<LifecycleRow["stage"]> = new Set(["not_started", "in_setup", "waiting_on_us"]);
+const HELP_STAGES: ReadonlySet<LifecycleRow["stage"]> = new Set(["not_started", "in_setup", "waiting_on_us", "partly_live"]);
+
+const PHRASES = Object.keys(PHRASE_WORDS) as ContactPhrase[];
 
 /** The ignore outcome as the one button pattern reads it. */
 function asIgnoreStatus(result: OpsResult<LifecycleIgnoreOutcome>): OpsResult<{ status: string; ignored: boolean; auditRecorded: boolean }> {
@@ -139,6 +189,8 @@ export function SetupWindow({
   onDecide,
   onSnooze,
   onSetIgnored,
+  onProposeNotice,
+  onPullReminder,
 }: {
   row: LifecycleRow;
   /** The billing view's setup deadline; null when the clinic has none (or the billing read failed). */
@@ -151,15 +203,25 @@ export function SetupWindow({
   onDecide: (decision: "extension_offered" | "let_close") => Promise<OpsResult<LifecycleWriteOutcome>>;
   onSnooze: (days: SnoozeDays) => Promise<OpsResult<LifecycleWriteOutcome>>;
   onSetIgnored: (ignored: boolean) => Promise<OpsResult<LifecycleIgnoreOutcome>>;
+  onProposeNotice: ProposeNotice;
+  onPullReminder: PullReminder;
 }) {
   const advice = row.recommendation;
   const [days, setDays] = useState(String(defaultExtendDays(advice.days)));
   const [snooze, setSnooze] = useState<SnoozeDays>(7);
+  const [phrase, setPhrase] = useState<ContactPhrase>(PHRASES[0]!);
   const left = deadline ? daysLeft(deadline.iso, now) : null;
   const ignored = row.ignored === true;
   // Nothing is owed for an account that is not watched: no decision to record.
   const decidable = !ignored && DECIDABLE.has(row.stage);
   const extendable = canExtend && deadline !== null;
+  // The proposals, each in the stages apps/app accepts it; none for an account on the ignore list (apps/app refuses).
+  const canProposeTime = !ignored && extendable && SETUP_STAGES.has(row.stage);
+  const canProposeWaiting = !ignored && row.stage === "waiting_on_us";
+  const canProposeCall = !ignored && HELP_STAGES.has(row.stage);
+  const canPullReminder = !ignored && SETUP_STAGES.has(row.stage);
+  const proposals = canProposeTime || canProposeWaiting || canProposeCall || canPullReminder;
+  const proposed = (data: ProposeOutcome) => (data.status === "proposed" ? PROPOSED_WORDS : null);
 
   return (
     <Section id="setup-window" title="Setup window">
@@ -207,6 +269,7 @@ export function SetupWindow({
                 run={() => onExtend({ days: Number(days), fromDeadline: deadline.iso })}
                 done={extendedWords}
               />
+              {canProposeTime ? <ActionButton label="Propose more time" run={() => onProposeNotice({ kind: "setup_extended", days: Number(days) })} done={proposed} /> : null}
             </form>
           ) : null}
           {decidable ? (
@@ -239,6 +302,36 @@ export function SetupWindow({
               </div>
             </>
           ) : null}
+        </div>
+      ) : null}
+
+      {proposals ? (
+        <div className="border-line mt-4 border-t pt-3">
+          <p className="text-sm">{PROPOSALS_WORDS}</p>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            {canProposeWaiting || canProposeCall ? (
+              <label className="text-sm">
+                <span className="text-muted block text-xs font-bold uppercase">What the email names</span>
+                <select
+                  value={phrase}
+                  onChange={(event) => setPhrase(event.target.value as ContactPhrase)}
+                  aria-label="What the email names"
+                  className="border-line mt-1 rounded-sm border bg-white px-3 py-2"
+                >
+                  {PHRASES.map((p) => (
+                    <option key={p} value={p}>
+                      {PHRASE_WORDS[p]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {canProposeWaiting ? (
+              <ActionButton label="Propose: we are finishing it" run={() => onProposeNotice({ kind: "setup_waiting_on_us", phrase })} done={proposed} />
+            ) : null}
+            {canProposeCall ? <ActionButton label="Offer a five-minute call" run={() => onProposeNotice({ kind: "setup_help_offer", phrase })} done={proposed} /> : null}
+            {canPullReminder ? <ActionButton label="Send the next reminder now" run={() => onPullReminder()} done={reminderProposedWords} /> : null}
+          </div>
         </div>
       ) : null}
 

@@ -7,7 +7,21 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { UNAUDITED } from "@/components/admin/ui";
 import type { LifecycleRow } from "@/lib/admin/ops-client";
 
-import { daysLeft, defaultExtendDays, IGNORE_CONFIRM, IGNORED_DONE, LET_CLOSE_CONFIRM, SetupWatchStub, SetupWindow, WATCHED_DONE } from "./SetupWindow";
+import {
+  daysLeft,
+  defaultExtendDays,
+  IGNORE_CONFIRM,
+  IGNORED_DONE,
+  LET_CLOSE_CONFIRM,
+  PROPOSALS_WORDS,
+  PROPOSED_WORDS,
+  reminderProposedWords,
+  SetupWatchStub,
+  SetupWindow,
+  WATCHED_DONE,
+  type ProposeNotice,
+  type PullReminder,
+} from "./SetupWindow";
 
 /**
  * The Setup tab's "Setup window" card (wave 2, lane A3): the watch's row in
@@ -57,7 +71,9 @@ const row: LifecycleRow = {
   recommendation: { action: "extend", days: 14, reason: "The clinic made progress in the last week and two steps are left: extend by 14 days." },
 };
 
-const base = { row, deadline: DEADLINE, canExtend: true, now: NOW, onExtend: NEVER, onDecide: NEVER, onSnooze: NEVER, onSetIgnored: NEVER };
+const base = { row, deadline: DEADLINE, canExtend: true, now: NOW, onExtend: NEVER, onDecide: NEVER, onSnooze: NEVER, onSetIgnored: NEVER, onProposeNotice: NEVER, onPullReminder: NEVER };
+
+const PROPOSALS = ["Propose more time", "Propose: we are finishing it", "Offer a five-minute call", "Send the next reminder now"] as const;
 
 /** A clinic on the lifecycle watch's ignore list, as apps/app projects it: nothing owed, its own recommendation sentence. */
 const notWatched: LifecycleRow = {
@@ -158,6 +174,47 @@ describe("the card's words", () => {
       const page = text(renderToStaticMarkup(h(SetupWindow, { ...base, row: { ...row, stage } })));
       for (const label of ["Offered a call", "Let it close", "Snooze alerts"]) expect(page, stage).toContain(label);
     }
+  });
+
+  test("the four proposals: each in the stages apps/app accepts it, none for an account not watched, with the one sentence saying they only propose", () => {
+    const inSetup = text(renderToStaticMarkup(h(SetupWindow, base)));
+    expect(inSetup).toContain(PROPOSALS_WORDS);
+    for (const label of ["Propose more time", "Offer a five-minute call", "Send the next reminder now"]) expect(inSetup).toContain(label);
+    // Not waiting on us: no note that we are finishing it.
+    expect(inSetup).not.toContain("Propose: we are finishing it");
+    expect(inSetup).toContain("What the email names");
+    expect(inSetup).toContain("the phone line");
+    expect(inSetup).toContain("Meta chat (Instagram, Messenger and WhatsApp)");
+    expect(inSetup).not.toContain("website_chat");
+
+    const waiting = text(renderToStaticMarkup(h(SetupWindow, { ...base, row: { ...row, stage: "waiting_on_us" } })));
+    for (const label of PROPOSALS) expect(waiting).toContain(label);
+
+    // Partly live: a channel is live, so no more time and no reminder (apps/app refuses both); the call offer stays.
+    const partlyLive = text(renderToStaticMarkup(h(SetupWindow, { ...base, row: { ...row, stage: "partly_live" } })));
+    expect(partlyLive).toContain("Offer a five-minute call");
+    for (const label of ["Propose more time", "Propose: we are finishing it", "Send the next reminder now"]) expect(partlyLive).not.toContain(label);
+
+    for (const stage of ["live", "closed"] as const) {
+      const page = text(renderToStaticMarkup(h(SetupWindow, { ...base, row: { ...row, stage } })));
+      for (const label of PROPOSALS) expect(page, stage).not.toContain(label);
+      expect(page, stage).not.toContain(PROPOSALS_WORDS);
+    }
+    // No deadline, or the plan started: more time cannot be proposed; the others stand.
+    expect(text(renderToStaticMarkup(h(SetupWindow, { ...base, deadline: null })))).not.toContain("Propose more time");
+    expect(text(renderToStaticMarkup(h(SetupWindow, { ...base, canExtend: false })))).not.toContain("Propose more time");
+    // An account on the ignore list: apps/app refuses every proposal, so none is drawn.
+    const ignored = text(renderToStaticMarkup(h(SetupWindow, { ...base, row: notWatched })));
+    for (const label of PROPOSALS) expect(ignored).not.toContain(label);
+    expect(ignored).not.toContain(PROPOSALS_WORDS);
+  });
+
+  test("the reminder's outcome names which of the six and its own day", () => {
+    expect(reminderProposedWords({ status: "proposed", approvalId: CLINIC, reminderNumber: 3, normallyDueOn: "2026-11-10" })).toBe(
+      "Proposed: reminder 3 of 6, normally due 10 Nov 2026, waiting for your yes under Queues › Approvals.",
+    );
+    expect(reminderProposedWords({ status: "proposed", approvalId: CLINIC })).toBe(PROPOSED_WORDS);
+    expect(reminderProposedWords({ status: "refused", message: "x" })).toBeNull();
   });
 
   test("the days left and the default days are held to what is true and allowed", () => {
@@ -316,5 +373,63 @@ describe("the four controls", () => {
     await act(async () => {});
     expect(stub).toHaveBeenCalledWith(true);
     expect(statuses()).toContain(IGNORED_DONE);
+  });
+
+  test("the four proposals each call their action with the kind, the days typed or the phrase chosen, and say they wait under Approvals; a refusal says apps/app's sentence", async () => {
+    const propose = vi.fn<ProposeNotice>(async () => ({ ok: true, data: { status: "proposed", approvalId: CLINIC } }));
+    const pull = vi.fn<PullReminder>(async () => ({ ok: true, data: { status: "proposed", approvalId: CLINIC, reminderNumber: 3, normallyDueOn: "2026-11-10" } }));
+    await act(async () => {
+      root.render(h(SetupWindow, { ...base, row: { ...row, stage: "waiting_on_us" }, onProposeNotice: propose, onPullReminder: pull }));
+    });
+    const days = container.querySelector<HTMLInputElement>('input[aria-label="Days to extend by"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+      setter?.call(days, "21");
+      days.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      button("Propose more time").click();
+    });
+    await act(async () => {});
+    expect(propose).toHaveBeenCalledWith({ kind: "setup_extended", days: 21 });
+    expect(statuses()).toContain(PROPOSED_WORDS);
+
+    const phrase = container.querySelector<HTMLSelectElement>('select[aria-label="What the email names"]')!;
+    const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+    await act(async () => {
+      selectSetter?.call(phrase, "calendar");
+      phrase.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {
+      button("Propose: we are finishing it").click();
+    });
+    await act(async () => {});
+    expect(propose).toHaveBeenLastCalledWith({ kind: "setup_waiting_on_us", phrase: "calendar" });
+    await act(async () => {
+      button("Offer a five-minute call").click();
+    });
+    await act(async () => {});
+    expect(propose).toHaveBeenLastCalledWith({ kind: "setup_help_offer", phrase: "calendar" });
+
+    await act(async () => {
+      button("Send the next reminder now").click();
+    });
+    await act(async () => {});
+    expect(pull).toHaveBeenCalledTimes(1);
+    expect(statuses()).toContain("Proposed: reminder 3 of 6, normally due 10 Nov 2026, waiting for your yes under Queues › Approvals.");
+
+    // A refusal is apps/app's own sentence (notice-ops.ts PLAN_WORDS), shown as it came.
+    const night = "It is night at the clinic: a reminder now would wait until morning. Press Send reminder now in the clinic's daytime.";
+    const refusing = vi.fn<PullReminder>(async () => ({ ok: true, data: { status: "refused", message: night } }));
+    await act(async () => {
+      root.render(h(SetupWindow, { ...base, onPullReminder: refusing }));
+    });
+    await act(async () => {
+      button("Send the next reminder now").click();
+    });
+    await act(async () => {});
+    expect(statuses()).toContain(night);
+    // Nothing was sent by any of them: the actions are the page's proposals, and the card says so once.
+    expect(container.textContent).toContain(PROPOSALS_WORDS);
   });
 });

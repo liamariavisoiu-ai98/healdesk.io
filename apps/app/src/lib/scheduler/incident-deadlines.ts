@@ -75,6 +75,7 @@ export async function runIncidentDeadlinesJob(options: { now?: Date } = {}): Pro
       return (
         `${result.overdue} overdue incident(s) alerted, ${result.failures} clinic(s) unread; ` +
         `${sweep.proposed} report(s) proposed, ${sweep.resolved + sweep.outOfService} left the list, ${sweep.reminded} reminded` +
+        (sweep.interrupted ? `, ${sweep.interrupted} interrupted` : "") +
         (sweep.unread ? `, ${sweep.unread} could not be read` : "") +
         "."
       );

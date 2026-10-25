@@ -168,13 +168,26 @@ describeDb("the account operations", () => {
     expect(stopped[0]!.metadata).toMatchObject({ stoppedBy: "operator" });
   });
 
+  test("setCoveredEntity records no answer without apps/web's fresh-code mark (lane P6f)", async () => {
+    const clinic = await seedClinic("opsnocode");
+    for (const answer of ["yes", "no", "not_sure"]) {
+      const outcome = await op("setCoveredEntity", { clinicId: clinic.clinicId, answer });
+      expect(outcome.body.data, answer).toMatchObject({ status: "refused", message: expect.stringContaining("authenticator") });
+    }
+    const { rows } = await getMigratorPool().query<{ covered: boolean | null }>(
+      `select is_covered_entity as covered from clinics where id = $1`,
+      [clinic.clinicId],
+    );
+    expect(rows[0]!.covered).toBeNull();
+  });
+
   test("setCoveredEntity refuses a veterinary practice", async () => {
     const vet = await seedClinic("opsvet");
     await getMigratorPool().query(
       `update clinics set specialty = 'veterinary', regulatory_regime = 'non-hipaa', agreement_kind = 'dpa', is_covered_entity = false where id = $1`,
       [vet.clinicId],
     );
-    const outcome = await op("setCoveredEntity", { clinicId: vet.clinicId, answer: "yes" });
+    const outcome = await op("setCoveredEntity", { clinicId: vet.clinicId, answer: "yes" , codeChecked: true });
     expect(outcome.body.data).toMatchObject({ status: "refused" });
     const { rows } = await getMigratorPool().query<{ covered: boolean | null }>(
       `select is_covered_entity as covered from clinics where id = $1`,
@@ -189,7 +202,7 @@ describeDb("the account operations", () => {
       `update clinics set regulatory_regime = 'hipaa-if-covered', agreement_kind = 'baa', is_covered_entity = null where id = $1`,
       [clinic.clinicId],
     );
-    const outcome = await op("setCoveredEntity", { clinicId: clinic.clinicId, answer: "no" });
+    const outcome = await op("setCoveredEntity", { clinicId: clinic.clinicId, answer: "no" , codeChecked: true });
     expect(outcome.body.data).toEqual({
       status: "recorded",
       agreementKind: "baa",
@@ -205,7 +218,7 @@ describeDb("the account operations", () => {
       coveredEntity: false,
     });
     expect(
-      (await op("setCoveredEntity", { clinicId: clinic.clinicId, answer: "maybe" })).body.data,
+      (await op("setCoveredEntity", { clinicId: clinic.clinicId, answer: "maybe" , codeChecked: true })).body.data,
     ).toMatchObject({
       status: "refused",
     });
@@ -233,7 +246,7 @@ describeDb("the account operations", () => {
     expect(await acceptsPhi(clinic.clinicId)).toBe(true);
     await expect(seedContact(clinic.clinicId, "+15550190101")).resolves.toBeTruthy();
 
-    const outcome = await op("setCoveredEntity", { clinicId: clinic.clinicId, answer: "yes" });
+    const outcome = await op("setCoveredEntity", { clinicId: clinic.clinicId, answer: "yes" , codeChecked: true });
     expect(outcome.body.data).toMatchObject({
       status: "recorded",
       agreementKind: "dpa",
@@ -259,13 +272,13 @@ describeDb("the account operations", () => {
 
     // "Not sure" is no cover for a DPA either; "No" again restores it.
     expect(
-      (await op("setCoveredEntity", { clinicId: clinic.clinicId, answer: "not_sure" })).body.data,
+      (await op("setCoveredEntity", { clinicId: clinic.clinicId, answer: "not_sure" , codeChecked: true })).body.data,
     ).toMatchObject({
       covered: false,
       supersedeStarted: true,
     });
     expect(
-      (await op("setCoveredEntity", { clinicId: clinic.clinicId, answer: "no" })).body.data,
+      (await op("setCoveredEntity", { clinicId: clinic.clinicId, answer: "no" , codeChecked: true })).body.data,
     ).toMatchObject({
       covered: true,
       supersedeStarted: false,

@@ -20,7 +20,7 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers({ "user-agent": "vitest", "x-forwarded-for": "203.0.113.9" }),
 }));
 
-import { recordAgreementAnswerWithCode } from "@/lib/admin/agreement-answer";
+import { recordAgreementAnswerWithCode, setCoveredEntityWithCode } from "@/lib/admin/agreement-answer";
 import { decideApprovalWithCode } from "@/lib/admin/approval-decide";
 import {
   fetchApprovals,
@@ -244,7 +244,15 @@ describe("the edits and the answer", () => {
     expect(JSON.stringify(sent)).not.toContain(code);
   });
 
-  test("nothing in apps/web source names the raw recordAgreementAnswer but ops-client.ts and agreement-answer.ts", () => {
+  test("the covered-entity answer from the Account tab needs a fresh code too, and sends the mark", async () => {
+    expect(await setCoveredEntityWithCode(CLINIC, "yes", "000000")).toMatchObject({ ok: true, data: { status: "code_refused" } });
+    expect(sent).toEqual([]);
+    reply({ status: "recorded", agreementKind: "dpa", isCoveredEntity: true, covered: false, supersedeStarted: true, linkSent: true, auditRecorded: true });
+    expect(await setCoveredEntityWithCode(CLINIC, "not_sure", fresh())).toMatchObject({ ok: true, data: { status: "recorded" } });
+    expect(sent).toEqual([{ op: "setCoveredEntity", args: { clinicId: CLINIC, answer: "not_sure", codeChecked: true } }]);
+  });
+
+  test("nothing in apps/web source names the raw recordAgreementAnswer or setCoveredEntity but ops-client.ts and agreement-answer.ts", () => {
     const root = join(__dirname, "../..");
     const files: string[] = [];
     const walk = (dir: string) => {
@@ -261,7 +269,8 @@ describe("the edits and the answer", () => {
     expect(files.length).toBeGreaterThan(50);
     const allowed = [join("lib", "admin", "ops-client.ts"), join("lib", "admin", "agreement-answer.ts")];
     const offenders = files.filter(
-      (file) => !allowed.some((end) => file.endsWith(end)) && /\brecordAgreementAnswer\b/.test(readFileSync(file, "utf8")),
+      (file) =>
+        !allowed.some((end) => file.endsWith(end)) && /\b(recordAgreementAnswer|setCoveredEntity)\b/.test(readFileSync(file, "utf8")),
     );
     expect(offenders).toEqual([]);
   });

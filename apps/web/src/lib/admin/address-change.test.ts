@@ -201,7 +201,7 @@ describe("the account readers are strict", () => {
     });
     expect(sent.at(-1)).toEqual({
       op: "setCoveredEntity",
-      args: { clinicId: CLINIC, answer: "yes" },
+      args: { clinicId: CLINIC, answer: "yes", codeChecked: true },
     });
   });
 

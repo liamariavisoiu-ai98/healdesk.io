@@ -10,6 +10,13 @@ import type { InboxRow, InboxSource, Tone } from "./types";
  * page (lane P6b builds it there, `#approvals`). A plain sentence, never a
  * code; the tone follows the most urgent item. Reads one table, writes
  * nothing.
+ *
+ * It counts what the table says is waiting. An item moves to expired only
+ * when a sweep runs: approvals-propose (OFF until the owner switches it on)
+ * for every kind, and for the incident kinds also the incident-deadlines
+ * job (ON). So while approvals-propose is off, a billing or clinic-contact
+ * item past its window is still counted here; approving it is refused
+ * (approval-ops.ts checks the window itself), so nothing goes late.
  */
 
 export const APPROVALS_PAGE = "/admin/queues#approvals";

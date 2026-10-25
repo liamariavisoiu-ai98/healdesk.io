@@ -186,13 +186,15 @@ export async function moveStatus(
  * `failed` / `interrupted`, never run again here; whether the operation ran
  * is for the owner to read on the clinic's Billing tab.
  */
-export async function sweepInterrupted(now: Date): Promise<number> {
+export async function sweepInterrupted(now: Date, only?: (kind: string) => boolean): Promise<number> {
   const stuck = await unsafeDb
-    .select({ id: opsApprovals.id })
+    .select({ id: opsApprovals.id, kind: opsApprovals.kind })
     .from(opsApprovals)
     .where(and(eq(opsApprovals.status, "approved"), lte(opsApprovals.decidedAt, new Date(now.getTime() - APPROVED_STUCK_MS))));
   let swept = 0;
-  for (const { id } of stuck) {
+  for (const { id, kind } of stuck) {
+    // `only`: the incident sweep's own kinds (./incident-sweep.ts), run from a job that is on.
+    if (only && !only(kind)) continue;
     if (await moveStatus(id, "approved", "failed", "failed", SERVICE_ACTOR, now, { outcomeCode: "interrupted" })) swept += 1;
   }
   return swept;

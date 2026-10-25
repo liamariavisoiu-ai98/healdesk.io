@@ -56,6 +56,14 @@ function view(overrides: Partial<ClinicSignInView> = {}): OpsResult<ClinicSignIn
 }
 
 describe("the account page", () => {
+  test("the covered-entity answer asks for the authenticator code, and its button waits for six digits (lane P6f)", () => {
+    const html = renderToStaticMarkup(
+      h(AccountPanel, { view: view({ coveredEntity: { specialty: "med-spa", regime: "hipaa-if-covered", agreementKind: "dpa", isCoveredEntity: false } }), actions: ACTIONS }),
+    );
+    expect(html).toContain("Code from your authenticator");
+    expect(html).toMatch(/<button[^>]*type="submit"[^>]*disabled=""[^>]*>Record the answer/);
+  });
+
   test("with no change under way: the address, and a change that asks for the call back and a fresh code", () => {
     const page = text(h(AccountPanel, { view: view(), actions: ACTIONS }));
     expect(page).toContain("info@radiance.test");

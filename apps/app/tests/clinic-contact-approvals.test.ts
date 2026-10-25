@@ -18,7 +18,9 @@ import { watchLifecycles } from "@/lib/lifecycle/watch";
 import { isMutating, isOpName, runOperation, type Operator } from "@/lib/ops/api";
 import { opDecideApproval } from "@/lib/ops/approval-ops";
 import { approvalSentence } from "@/lib/ops/inbox/approvals";
+import { tooManyClinics } from "@/lib/ops/incident-assistant-ops";
 import { opPullReminderForward } from "@/lib/ops/notice-ops";
+import { runIncidentDeadlinesJob } from "@/lib/scheduler/incident-deadlines";
 import { queueSetupReminder, queueSetupReminderNow } from "@/lib/setup/reminders";
 import { withTenant } from "@/lib/tenant";
 
@@ -271,6 +273,18 @@ describe("the drafts: fixed words from closed fields only (D12)", () => {
     for (const note of NOTES) expect(note).toMatch(/^[a-z_]+$/);
   });
 
+  test("an incident batch too big for one approval gets advice that works for its reach", () => {
+    expect(tooManyClinics("window_only", 140)).toBe(
+      "This scope reaches 140 clinics, more than the 100 one approval may open. Split it into shorter windows and propose each one.",
+    );
+    const all = tooManyClinics("all_holding", 140);
+    expect(all).toBe(
+      "This scope reaches 140 clinics, more than the 100 one approval may open. Open the incidents for the rest from each clinic's Care tab, or propose the batch in parts by clinic group once the console offers it.",
+    );
+    // Every clinic that ever held data is in it whatever the window: a shorter one changes nothing.
+    expect(all).not.toContain("shorter windows");
+  });
+
   test("the kinds: routine, a fresh code, a 14-day window for each email (3 for the reminder); Home's words plain", () => {
     for (const kind of CONTACT_KINDS) {
       expect(KIND_SPECS[kind], kind).toMatchObject({ urgency: "routine", irreversible: true, retriedBy: null });
@@ -372,6 +386,33 @@ describeDb("the clinic-contact approvals, against the database", () => {
   afterAll(async () => {
     await setAsideWaiting();
     await closePools();
+  });
+
+  test("an incident item left approved by a dead process is swept by incident-deadlines while approvals-propose is off; other kinds wait for it", async () => {
+    const pool = getMigratorPool();
+    expect((await pool.query(`select enabled from scheduled_jobs where name = 'approvals-propose'`)).rows[0]).toEqual({ enabled: false });
+    const stuck = async (kind: string) => {
+      const { rows } = await pool.query<{ id: string }>(
+        `insert into ops_approvals (kind, subject_ref, payload, due_at, urgency, proposed_by) values ($1, $2, '{}'::jsonb, now() + interval '1 day', 'legal_clock', 'ops-console') returning id`,
+        [kind, `stuck-${randomUUID()}`],
+      );
+      await pool.query(`update ops_approvals set status = 'approved', decided_at = now() - interval '20 minutes' where id = $1`, [rows[0]!.id]);
+      return rows[0]!.id;
+    };
+    const incident = await stuck("incident_report_send");
+    const contact = await stuck("setup_help_offer");
+    // As production seeds it: on (the test database ships every job off).
+    const was = (await pool.query<{ enabled: boolean }>(`select enabled from scheduled_jobs where name = 'incident-deadlines'`)).rows[0]!.enabled;
+    await pool.query(`update scheduled_jobs set enabled = true where name = 'incident-deadlines'`);
+    try {
+      expect(await runIncidentDeadlinesJob({ now: new Date() })).toMatchObject({ status: "ok" });
+    } finally {
+      await pool.query(`update scheduled_jobs set enabled = $1 where name = 'incident-deadlines'`, [was]);
+    }
+    expect(await getApproval(incident)).toMatchObject({ status: "failed", outcomeCode: "interrupted" });
+    expect((await getApproval(contact))?.status).toBe("approved");
+    // Left for approvals-propose's own sweep, which moves it when switched on.
+    await pool.query(`update ops_approvals set status = 'failed' where id = $1`, [contact]);
   });
 
   test("the CHECK on ops_approvals.kind takes the new kinds and nothing else", async () => {

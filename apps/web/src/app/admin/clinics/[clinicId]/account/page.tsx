@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { HostStandbyNotice } from "@/components/admin/HostStandbyNotice";
 import { enterClinicEmailChange } from "@/lib/admin/address-change";
+import { setCoveredEntityWithCode } from "@/lib/admin/agreement-answer";
 import { enterDeviceRecovery, enterDeviceRemoval } from "@/lib/admin/device-recovery";
 import { clinicTabPath, isUuid } from "@/lib/admin/issue-link";
 import { requireOperator } from "@/lib/admin/operator";
@@ -11,7 +12,6 @@ import {
   endDeviceRecovery as endRecoveryUpstream,
   fetchClinicDevices,
   fetchClinicSignIn,
-  setCoveredEntity as setCoveredEntityUpstream,
   stopClinicEmailChange as stopUpstream,
   type ChangeClinicEmailOutcome,
   type CoveredAnswer,
@@ -84,9 +84,10 @@ export default async function AccountPage({ params }: { params: Promise<{ clinic
     return result;
   }
 
-  async function setCovered(answer: CoveredAnswer) {
+  // Every answer needs a fresh authenticator code (lib/admin/agreement-answer.ts).
+  async function setCovered(answer: CoveredAnswer, code: string) {
     "use server";
-    const result = await setCoveredEntityUpstream(clinicId, answer);
+    const result = await setCoveredEntityWithCode(clinicId, answer, code);
     revalidatePath(path);
     revalidatePath("/admin/clinics");
     return result;

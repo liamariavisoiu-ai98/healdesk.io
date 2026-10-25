@@ -142,6 +142,19 @@ function operatorActor(operator: Operator) {
   return { label: operator.email, ip: operator.request.ipAddress ?? null, userAgent: operator.request.userAgent ?? null };
 }
 
+/**
+ * Why a scope is too big for one approval, and what to do instead. A
+ * window-bound scope (a vendor whose incident window names the
+ * conversations) shrinks with a shorter window; an all-holding one
+ * (database_host, aws) selects every clinic that ever held data, whatever
+ * the window, so a shorter window changes nothing.
+ */
+export function tooManyClinics(reach: "window_only" | "all_holding", n: number): string {
+  return reach === "all_holding"
+    ? `This scope reaches ${n} clinics, more than the ${MAX_BATCH_CLINICS} one approval may open. Open the incidents for the rest from each clinic's Care tab, or propose the batch in parts by clinic group once the console offers it.`
+    : `This scope reaches ${n} clinics, more than the ${MAX_BATCH_CLINICS} one approval may open. Split it into shorter windows and propose each one.`;
+}
+
 export async function opProposeIncidentBatch(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
   const input = readScopeArgs(args);
   if ("problem" in input) return refused(input.problem);
@@ -159,11 +172,7 @@ export async function opProposeIncidentBatch(args: Record<string, unknown>, oper
         : "No clinic had a conversation through this in that window, so there is nothing to open. Record the vendor's notice as an incident finding with no clinic affected.",
     );
   }
-  if (scope.clinics.length > MAX_BATCH_CLINICS) {
-    return refused(
-      `This scope reaches ${scope.clinics.length} clinics, more than the ${MAX_BATCH_CLINICS} one approval may open. Split it into shorter windows and propose each one.`,
-    );
-  }
+  if (scope.clinics.length > MAX_BATCH_CLINICS) return refused(tooManyClinics(input.reach, scope.clinics.length));
   const subjectRef = batchKey({ ...input, incidentClass: input.incidentClass });
   const waiting = await waitingFor("incident_open_batch", subjectRef);
   if (waiting) return ok({ status: "already_waiting", approvalId: waiting, auditRecorded: true } satisfies ProposalOutcome);

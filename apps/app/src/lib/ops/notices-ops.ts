@@ -91,6 +91,11 @@ export async function opSendIncidentReport(
   if (!clinic) return refused("No such clinic.");
   const incidentId = stringArg(args, "incidentId");
   if (!incidentId || !UUID_SHAPED.test(incidentId)) return refused("Which incident?");
+  // The report's number an approval was for (lane P6i), checked under the incident's lock.
+  const expected = args.expectedReport;
+  if (expected !== undefined && (typeof expected !== "number" || !Number.isInteger(expected) || expected < 1)) {
+    return refused("Which report? A whole number, from 1.");
+  }
   const result = await sendIncidentReport(
     clinic.id,
     incidentId,
@@ -104,7 +109,7 @@ export async function opSendIncidentReport(
       delayedByLawEnforcement: args.delayedByLawEnforcement,
       delayEndedOn: args.delayEndedOn,
     },
-    { actorLabel: operator.email },
+    { actorLabel: operator.email, ...(expected !== undefined ? { expectedReport: expected as number } : {}) },
   );
   if (result.status !== "sent") return ok(result);
   const auditRecorded = await audit(operator, "incident_report_sent", {

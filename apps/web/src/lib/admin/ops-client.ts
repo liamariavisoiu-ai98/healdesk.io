@@ -7494,7 +7494,8 @@ function readApprovalItem(value: unknown, at: string): ApprovalItem {
 export function fetchApprovals(
   options: { status?: ApprovalStatus; limit?: number } = {},
 ): Promise<OpsResult<{ items: ApprovalItem[]; partial: string[] }>> {
-  const args: Record<string, unknown> = {};
+  // The billing family only (lane P6i): the Approvals section never builds an incident packet.
+  const args: Record<string, unknown> = { family: "billing" };
   if (options.status) args.status = options.status;
   if (options.limit !== undefined) args.limit = options.limit;
   return callOps("listApprovals", "read", args, (value) => {
@@ -7833,6 +7834,9 @@ export type ScopeClocksView = {
   ownerNoticeBy: string | null;
 };
 
+export const SCOPE_REACHES = ["all_holding", "window_only"] as const;
+export type ScopeReach = (typeof SCOPE_REACHES)[number];
+
 function readClocks(value: unknown, at: string): ScopeClocksView {
   const c = exactKeys(value, ["internalTarget", "agreementDeadline", "agreementRule", "ownerNoticeBy"], at);
   return {
@@ -7854,6 +7858,8 @@ export type IncidentScopeClinic = {
   billingClinicId: string | null;
   conversations: Record<ScopeChannel, number>;
   total: number;
+  /** Whether it holds any data; null when the reach is the window. */
+  holdsData: boolean | null;
   agreementVersion: string | null;
   coveredEntity: boolean | null;
   demo: boolean;
@@ -7864,6 +7870,7 @@ export type IncidentScopeClinic = {
 export type IncidentScopeView = {
   source: "vendor" | "channel";
   value: ScopeVendor | ScopeChannel;
+  reach: ScopeReach;
   channels: ScopeChannel[];
   from: string;
   to: string;
@@ -7876,7 +7883,7 @@ export type IncidentScopeView = {
 export type IncidentScopeQuery = (
   | { vendor: ScopeVendor; channel?: never }
   | { channel: ScopeChannel; vendor?: never }
-) & { from: string; to: string; class?: BatchClass; discoveredAt?: string; includeDemo?: boolean };
+) & { from: string; to: string; class?: BatchClass; discoveredAt?: string; includeDemo?: boolean; reach?: ScopeReach };
 
 function scopeArgs(query: IncidentScopeQuery): Record<string, unknown> {
   const args: Record<string, unknown> = { from: query.from, to: query.to };
@@ -7885,13 +7892,14 @@ function scopeArgs(query: IncidentScopeQuery): Record<string, unknown> {
   if (query.class !== undefined) args.class = query.class;
   if (query.discoveredAt !== undefined) args.discoveredAt = query.discoveredAt;
   if (query.includeDemo !== undefined) args.includeDemo = query.includeDemo;
+  if (query.reach !== undefined) args.reach = query.reach;
   return args;
 }
 
 /** The clinics a vendor's or a channel's incident window reached, each with its counts, its version and, given the class and discovery, both clocks. */
 export function fetchIncidentScope(query: IncidentScopeQuery): Promise<OpsResult<IncidentScopeView>> {
   return callOps("incidentScope", "read", scopeArgs(query), (value) => {
-    const d = exactKeys(value, ["source", "value", "channels", "from", "to", "clinics", "clinicsWithNone", "unread"], "incidentScope");
+    const d = exactKeys(value, ["source", "value", "reach", "channels", "from", "to", "clinics", "clinicsWithNone", "unread"], "incidentScope");
     const source = literal(d.source, ["vendor", "channel"] as const, "incidentScope.source");
     return {
       source,
@@ -7899,6 +7907,7 @@ export function fetchIncidentScope(query: IncidentScopeQuery): Promise<OpsResult
         source === "vendor"
           ? literal(d.value, SCOPE_VENDORS, "incidentScope.value")
           : literal(d.value, SCOPE_CHANNELS, "incidentScope.value"),
+      reach: literal(d.reach, SCOPE_REACHES, "incidentScope.reach"),
       channels: list(d.channels, "incidentScope.channels").map((c, i) => literal(c, SCOPE_CHANNELS, `incidentScope.channels[${i}]`)),
       from: isoInstant(d.from, "incidentScope.from"),
       to: isoInstant(d.to, "incidentScope.to"),
@@ -7906,7 +7915,7 @@ export function fetchIncidentScope(query: IncidentScopeQuery): Promise<OpsResult
         const at = `incidentScope.clinics[${i}]`;
         const r = exactKeys(
           row,
-          ["clinicId", "clinicName", "billingClinicId", "conversations", "total", "agreementVersion", "coveredEntity", "demo", "offboarding", "clocks"],
+          ["clinicId", "clinicName", "billingClinicId", "conversations", "total", "holdsData", "agreementVersion", "coveredEntity", "demo", "offboarding", "clocks"],
           at,
         );
         return {
@@ -7915,6 +7924,7 @@ export function fetchIncidentScope(query: IncidentScopeQuery): Promise<OpsResult
           billingClinicId: nullable(r.billingClinicId, (v) => id(v, `${at}.billingClinicId`)),
           conversations: readConversationCounts(r.conversations, `${at}.conversations`),
           total: count(r.total, `${at}.total`),
+          holdsData: nullable(r.holdsData, (v) => bool(v, `${at}.holdsData`)),
           agreementVersion: optionalText(r.agreementVersion, `${at}.agreementVersion`),
           coveredEntity: nullable(r.coveredEntity, (v) => bool(v, `${at}.coveredEntity`)),
           demo: bool(r.demo, `${at}.demo`),
@@ -8032,10 +8042,16 @@ export type IncidentBatchFacts = {
   kind: "incident_open_batch";
   source: "vendor" | "channel";
   value: ScopeVendor | ScopeChannel;
+  reach: ScopeReach;
   from: string;
   to: string;
   incidentClass: BatchClass;
   discoveredAt: string;
+  clinicsTotal: number;
+  toOpen: number;
+  alreadyOpen: number;
+  outOfService: number;
+  /** At most 20 of them, soonest agreement deadline first; the counts above cover all. */
   clinics: {
     clinicId: string;
     clinicName: string | null;
@@ -8079,16 +8095,25 @@ export type IncidentApprovalItem = Omit<ApprovalItem, "kind" | "operation" | "pa
 function readIncidentFacts(value: unknown, at: string): IncidentBatchFacts | IncidentReportFacts {
   const kind = literal(field(object(value, at), "kind", at), INCIDENT_APPROVAL_KINDS, `${at}.kind`);
   if (kind === "incident_open_batch") {
-    const f = exactKeys(value, ["kind", "source", "value", "from", "to", "incidentClass", "discoveredAt", "clinics"], at);
+    const f = exactKeys(
+      value,
+      ["kind", "source", "value", "reach", "from", "to", "incidentClass", "discoveredAt", "clinicsTotal", "toOpen", "alreadyOpen", "outOfService", "clinics"],
+      at,
+    );
     const source = literal(f.source, ["vendor", "channel"] as const, `${at}.source`);
     return {
       kind,
       source,
       value: source === "vendor" ? literal(f.value, SCOPE_VENDORS, `${at}.value`) : literal(f.value, SCOPE_CHANNELS, `${at}.value`),
+      reach: literal(f.reach, SCOPE_REACHES, `${at}.reach`),
       from: isoInstant(f.from, `${at}.from`),
       to: isoInstant(f.to, `${at}.to`),
       incidentClass: literal(f.incidentClass, BATCH_CLASSES, `${at}.incidentClass`),
       discoveredAt: isoInstant(f.discoveredAt, `${at}.discoveredAt`),
+      clinicsTotal: count(f.clinicsTotal, `${at}.clinicsTotal`),
+      toOpen: count(f.toOpen, `${at}.toOpen`),
+      alreadyOpen: count(f.alreadyOpen, `${at}.alreadyOpen`),
+      outOfService: count(f.outOfService, `${at}.outOfService`),
       clinics: list(f.clinics, `${at}.clinics`).map((row, i) => {
         const a = `${at}.clinics[${i}]`;
         const r = exactKeys(row, ["clinicId", "clinicName", "conversations", "agreementVersion", "clocks", "opened", "inService"], a);
@@ -8170,7 +8195,8 @@ function readIncidentApprovalItem(value: unknown, at: string): IncidentApprovalI
 export function fetchIncidentApprovals(
   options: { status?: ApprovalStatus; limit?: number } = {},
 ): Promise<OpsResult<{ items: IncidentApprovalItem[]; partial: string[] }>> {
-  const args: Record<string, unknown> = {};
+  // The incident family only: the billing items' packets are never built for this read.
+  const args: Record<string, unknown> = { family: "incident" };
   if (options.status) args.status = options.status;
   if (options.limit !== undefined) args.limit = options.limit;
   return callOps("listApprovals", "read", args, (value) => {

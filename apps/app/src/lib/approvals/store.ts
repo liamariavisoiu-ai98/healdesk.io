@@ -199,11 +199,20 @@ export async function getApproval(id: string): Promise<OpsApproval | null> {
   return row ?? null;
 }
 
-export async function listByStatus(statuses: readonly ApprovalStatus[], limit: number): Promise<OpsApproval[]> {
+export async function listByStatus(
+  statuses: readonly ApprovalStatus[],
+  limit: number,
+  kinds?: readonly ApprovalKind[],
+): Promise<OpsApproval[]> {
+  if (kinds && kinds.length === 0) return [];
   return unsafeDb
     .select()
     .from(opsApprovals)
-    .where(inArray(opsApprovals.status, [...statuses]))
+    .where(
+      kinds
+        ? and(inArray(opsApprovals.status, [...statuses]), inArray(opsApprovals.kind, [...kinds]))
+        : inArray(opsApprovals.status, [...statuses]),
+    )
     .orderBy(asc(opsApprovals.dueAt), asc(opsApprovals.proposedAt))
     .limit(limit);
 }

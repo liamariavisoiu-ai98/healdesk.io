@@ -164,6 +164,26 @@ export const RETRIED_BY_REQUEST_KIND: Readonly<Record<BillingRequestKind, string
   close_setup: null,
 };
 
+/**
+ * Which screen each kind belongs to, so a list read for one screen never
+ * builds another's packets (lane P6i): the Approvals section reads
+ * `billing`, the Incidents page `incident`, the clinic-contact drafts
+ * `contact` (lane P6f adds its kinds there).
+ */
+export const APPROVAL_FAMILIES = ["billing", "incident", "contact"] as const;
+export type ApprovalFamily = (typeof APPROVAL_FAMILIES)[number];
+export const KIND_FAMILY: Readonly<Record<ApprovalKind, ApprovalFamily>> = {
+  billing_request_retry: "billing",
+  overage_invoice_retry: "billing",
+  billing_event_replay: "billing",
+  incident_open_batch: "incident",
+  incident_report_send: "incident",
+};
+
+export function kindsOfFamily(family: ApprovalFamily): ApprovalKind[] {
+  return APPROVAL_KINDS.filter((kind) => KIND_FAMILY[kind] === family);
+}
+
 /** An item still `approved` this long after its decision lost its process: the sweep records it failed. */
 export const APPROVED_STUCK_MS = 15 * 60 * 1000;
 

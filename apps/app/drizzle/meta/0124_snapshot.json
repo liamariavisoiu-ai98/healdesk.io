@@ -8573,7 +8573,7 @@
         },
         "incident_checklist_ticks_batch_check": {
           "name": "incident_checklist_ticks_batch_check",
-          "value": "\"incident_checklist_ticks\".\"batch_key\" is null or (\"incident_checklist_ticks\".\"step\" = 'open' and \"incident_checklist_ticks\".\"batch_key\" ~ '^(vendor|channel):[a-z_]{1,40}:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[a-z_]{1,40}$')"
+          "value": "\"incident_checklist_ticks\".\"batch_key\" is null or (\"incident_checklist_ticks\".\"step\" = 'open' and \"incident_checklist_ticks\".\"batch_key\" ~ '^(vendor|channel):[a-z_]{1,40}:(all_holding|window_only):[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[a-z_]{1,40}$')"
         },
         "incident_checklist_ticks_by_check": {
           "name": "incident_checklist_ticks_by_check",

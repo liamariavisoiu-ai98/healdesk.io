@@ -8078,7 +8078,7 @@ export const incidentChecklistTicks = pgTable(
     ),
     check(
       "incident_checklist_ticks_batch_check",
-      sql`${t.batchKey} is null or (${t.step} = 'open' and ${t.batchKey} ~ '^(vendor|channel):[a-z_]{1,40}:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[a-z_]{1,40}$')`,
+      sql`${t.batchKey} is null or (${t.step} = 'open' and ${t.batchKey} ~ '^(vendor|channel):[a-z_]{1,40}:(all_holding|window_only):[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[a-z_]{1,40}$')`,
     ),
     check(
       "incident_checklist_ticks_by_check",

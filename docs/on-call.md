@@ -628,9 +628,16 @@ left the list without running, with the outcome's words beside it.
 decision D18): an incident opened at every clinic a vendor's or a channel's incident window
 reached (proposed by an operator after reading the scope), and one practice's incident report,
 pre-filled from fixed lists (proposed by an operator, by an approved batch for each incident it
-opened, and by the `approvals-propose` job for any open reportable incident whose first report
-has not gone). Both are legal clocks: the alert comes on arrival and every 4 hours while one
-waits, by email and Slack, and an item never expires and is never approved by waiting. They are
+opened, and by the hourly pass for any open reportable incident with no report proposed before
+and no notice recorded; a report the owner rejected, or one that failed, is never proposed again
+by the pass, only by hand). The hourly pass runs from the `incident-deadlines` job (seeded on)
+and from `approvals-propose` (off until switched on). Both kinds are legal clocks: the alert
+comes, by email and Slack, at the first hourly pass after an item arrives and again at the first
+pass 4 hours or more after the last, while one waits; an item never expires and is never
+approved by waiting. A scope for the database host or AWS lists every clinic holding data by
+default (the window's counts as information); narrow it to the window only when the vendor's
+notice says the exposure was in transit. One batch opens at most 100 clinics, and each opened
+incident's report is then its own approval with its own fresh code. They are
 decided on Compliance › Incidents (lane P6j draws them there): Approve asks for the code from
 your authenticator and runs the console's own operation once, openIncident at each listed clinic
 (never twice for one scope) or Send report with the choices shown. A report's choices are changed

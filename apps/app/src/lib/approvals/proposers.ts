@@ -22,7 +22,8 @@ import {
   type Proposal,
 } from "./store";
 import { classifyUnresolvedEvent } from "./stripe-ids";
-import { findIncidentSubjects, INCIDENT_KINDS, incidentItemResolved, waitingAlertEvent } from "./incident-kinds";
+import { INCIDENT_KINDS, waitingAlertEvent } from "./incident-kinds";
+import { runIncidentSweep } from "./incident-sweep";
 
 /**
  * The `approvals-propose` job (ops automation Phase 6, lane P6a; design E6
@@ -298,10 +299,11 @@ async function dueReminders(items: OpsApproval[], now: Date): Promise<{ item: Op
  * recording the reminders raises nothing twice. Slack and the ops address
  * (an approval waiting is the owner's to act on).
  */
-async function remind(now: Date): Promise<number> {
+export async function remind(now: Date, which: (kind: string) => boolean = () => true): Promise<number> {
   const waiting = await waitingItems();
   const byKind = new Map<ApprovalKind, OpsApproval[]>();
   for (const item of waiting) {
+    if (!which(item.kind)) continue;
     const kind = item.kind as ApprovalKind;
     byKind.set(kind, [...(byKind.get(kind) ?? []), item]);
   }
@@ -333,30 +335,15 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
     if (!KIND_SPECS[proposal.kind] || retriedNow(proposal.kind, proposal.payload, on)) continue;
     if (await propose(proposal, now)) proposed += 1;
   }
-  // The incident assistant (lane P6i): an open reportable incident whose
-  // first report has not gone gets its item, so its clock is in the list.
-  const incidentsFound = await findIncidentSubjects(now, { actor: ACTOR });
-  for (const proposal of incidentsFound.proposals) {
-    if (await propose(proposal, now)) proposed += 1;
-  }
   const interrupted = await sweepInterrupted(now);
   const expired = await expireDue(now);
   let gone = 0;
   let outOfService = 0;
   let retriedAutomatically = 0;
   for (const item of await waitingItems()) {
-    // An incident item is a legal clock: never out of service, never
-    // retried by a job; it leaves the list only when the Incidents page has
-    // already done what it asks (reported, not reportable, resolved).
-    if (INCIDENT_KINDS.has(item.kind)) {
-      if (
-        incidentItemResolved(item, incidentsFound) &&
-        (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "no_longer_needed" }))
-      ) {
-        gone += 1;
-      }
-      continue;
-    }
+    // An incident item is a legal clock, swept by its own rules below
+    // (./incident-sweep.ts), never by the billing ones.
+    if (INCIDENT_KINDS.has(item.kind)) continue;
     if (retriedNow(item.kind as ApprovalKind, item.payload, on)) {
       if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "retried_automatically" })) {
         retriedAutomatically += 1;
@@ -374,16 +361,20 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
       gone += 1;
     }
   }
-  const reminded = await remind(now);
+  const reminded = await remind(now, (kind) => !INCIDENT_KINDS.has(kind));
+  // The incident assistant (lane P6i): its first reports, overtaken items and
+  // 4-hourly alerts. The incident-deadlines job runs the same sweep, so it
+  // does not wait on this job's switch.
+  const incidents = await runIncidentSweep(now);
   return {
-    proposed,
+    proposed: proposed + incidents.proposed,
     expired,
-    resolved: gone,
-    outOfService,
+    resolved: gone + incidents.resolved,
+    outOfService: outOfService + incidents.outOfService,
     interrupted,
     retriedAutomatically,
-    reminded,
-    unread: found.unread + incidentsFound.unread,
+    reminded: reminded + incidents.reminded,
+    unread: found.unread + incidents.unread,
   };
 }
 

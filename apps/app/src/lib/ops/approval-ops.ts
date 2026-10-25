@@ -6,6 +6,9 @@ import { decideDraft } from "@/lib/approvals/drafts";
 import { execute, type Executor } from "@/lib/approvals/executors";
 import { FIELD_EDITORS, type FieldDecision } from "@/lib/approvals/incident-kinds";
 import {
+  APPROVAL_FAMILIES,
+  kindsOfFamily,
+  type ApprovalFamily,
   APPROVAL_KINDS,
   APPROVAL_STATUSES,
   APPROVE_REASONS,
@@ -107,8 +110,20 @@ export async function opListApprovals(
   const status: ApprovalStatus = rawStatus ?? "waiting";
   const limit = limitOf(args);
   if (limit === null) return opsProblem(`limit is a whole number from 1 to ${MAX_LIMIT}.`, 400, "invalid_args");
+  // One screen's items only (lane P6i): a family, or one kind. Absent: every kind, as before.
+  let kinds: ApprovalKind[] | undefined;
+  if (args.family !== undefined) {
+    if (!(APPROVAL_FAMILIES as readonly unknown[]).includes(args.family)) {
+      return opsProblem(`family is one of ${APPROVAL_FAMILIES.join(", ")}.`, 400, "invalid_args");
+    }
+    kinds = kindsOfFamily(args.family as ApprovalFamily);
+  }
+  if (args.kind !== undefined) {
+    if (!isApprovalKind(args.kind)) return opsProblem(`kind is one of ${APPROVAL_KINDS.join(", ")}.`, 400, "invalid_args");
+    kinds = (kinds ?? [args.kind]).filter((k) => k === args.kind);
+  }
   try {
-    const rows = await listByStatus([status], limit);
+    const rows = await listByStatus([status], limit, kinds);
     const names = await clinicNames(rows.map((r) => r.subjectClinicId));
     const partial: string[] = [];
     const items: ApprovalItem[] = [];

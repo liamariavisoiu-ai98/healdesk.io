@@ -29,7 +29,10 @@ const WORDS: Readonly<Record<ApprovalKind, { one: string; many: string }>> = {
     one: "1 Stripe event replay is waiting for your yes.",
     many: "{n} Stripe event replays are waiting for your yes.",
   },
-  // The incident assistant (lane P6i): legal clocks, so these rows read "bad".
+  // The incident assistant (lane P6i): legal clocks, so these rows read
+  // "bad". The row opens the Approvals section, which reads only the billing
+  // family: lane P6j must draw these items (on the Incidents page) and point
+  // this row there before it is true.
   incident_open_batch: {
     one: "1 incident scope is waiting for your yes to open its incidents.",
     many: "{n} incident scopes are waiting for your yes to open their incidents.",

@@ -1,3 +1,4 @@
+import { runIncidentSweep } from "@/lib/approvals/incident-sweep";
 import { overdueIncidents } from "@/lib/incidents/incidents";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
@@ -67,7 +68,16 @@ export async function runIncidentDeadlinesJob(options: { now?: Date } = {}): Pro
     JOB_INCIDENT_DEADLINES,
     async () => {
       const result = await alertOverdueIncidents(now);
-      return `${result.overdue} overdue incident(s) alerted, ${result.failures} clinic(s) unread.`;
+      // The incident assistant's safety net (lane P6i): first reports into
+      // the approval inbox and their 4-hourly alerts, whatever the switch of
+      // approvals-propose says (lib/approvals/incident-sweep.ts).
+      const sweep = await runIncidentSweep(now);
+      return (
+        `${result.overdue} overdue incident(s) alerted, ${result.failures} clinic(s) unread; ` +
+        `${sweep.proposed} report(s) proposed, ${sweep.resolved + sweep.outOfService} left the list, ${sweep.reminded} reminded` +
+        (sweep.unread ? `, ${sweep.unread} could not be read` : "") +
+        "."
+      );
     },
     now,
   );

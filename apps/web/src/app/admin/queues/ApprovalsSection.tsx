@@ -43,10 +43,12 @@ import { IncidentCard } from "./IncidentApprovalCard";
  * waiting for the owner's yes, one card each, in three groups (the incident
  * assistant's legal clocks first, then the emails to clinics, then billing),
  * and a History tab of the add-only record across all of them. Home's
- * approval rows and the `approval_waiting`, `clinic_email_waiting` and
- * `incident_step_waiting` alerts open this section (`#approvals`), and the
- * alerts' steps quote the names here, so the words are fixed: "Approve",
- * "Reject", "History", and the field "Code from your authenticator"
+ * approval rows (every kind's, the incident assistant's included) and the
+ * `approval_waiting` and `clinic_email_waiting` alerts open this section
+ * (`#approvals`); the `incident_step_waiting` alert opens the Incidents
+ * page, which draws the incident items with the same cards. The alerts'
+ * steps quote the names here, so the words are fixed: "Approve", "Reject",
+ * "History", and the field "Code from your authenticator"
  * (components/admin/ui.tsx CodeField).
  *
  * A card says what approving does in apps/app's one sentence (the packet's

@@ -225,9 +225,12 @@ export function retellAgentSettings(clinicId: string, options: RetellAgentOption
  *   - responsiveness 1: the agent answers as soon as the caller stops;
  *   - voice_temperature 1.2 (0 to 2, default 1): a little more variety of
  *     pitch, so the voice is less monotone without becoming unstable;
- *   - enable_dynamic_responsiveness and voice_speed 1.05 (24 October 2026,
- *     after a third test call that was still slow): the agent answers as
- *     fast as the caller's own pace allows, and speaks a touch quicker;
+ *   - voice_speed 1.05 (24 October 2026, after a third test call that was
+ *     still slow): the agent speaks a touch quicker. Dynamic responsiveness
+ *     was turned on that day and off again on 25 October ("still way too
+ *     slow to answer"): Retell adjusts it "based on the user's speech rate",
+ *     and with responsiveness already at its maximum of 1 that can only make
+ *     the agent wait longer for a slower talker;
  *   - enable_dynamic_voice_speed (24 October 2026, fourth test call: "variable
  *     speech rates"): Retell slows the voice for a caller who speaks slowly
  *     and quickens it for a fast one, around voice_speed;

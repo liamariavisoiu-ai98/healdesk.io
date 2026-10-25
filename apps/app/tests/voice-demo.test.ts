@@ -477,6 +477,40 @@ describe("a demo call on the voice engine", () => {
     expect(tenant.calls).toBe(0);
   });
 
+  test("the model is readied while the opening line plays, kept warm while idle, never mid-turn, and let go when the call ends", async () => {
+    const warms: { stable: string; turn: string; channel: string; answering: boolean }[] = [];
+    let answering = false;
+    const base = model("Botox is $12 per unit here.");
+    const responder: AssistantResponder = Object.assign(
+      async (request: Parameters<AssistantResponder>[0]) => {
+        answering = true;
+        await new Promise((r) => setTimeout(r, 120));
+        answering = false;
+        return base.responder(request);
+      },
+      {
+        prewarm: async (system: { stable: string; turn: string }, channel: string) => {
+          warms.push({ ...system, channel, answering });
+        },
+      },
+    );
+    const { s, raw, heard } = demoSession(responder, SECRET, { keepWarmMs: 60 });
+    await s.open();
+    await s.handle(details({ retell_llm_dynamic_variables: { demo_context: sealed() } }));
+    await vi.waitFor(() => expect(raw()).toHaveLength(1));
+    // At once, with the opening line: the stable prompt the turns will send, and nothing of the turn's own.
+    expect(warms).toHaveLength(1);
+    expect(warms[0]!).toMatchObject({ turn: "", channel: "voice", answering: false });
+    expect(warms[0]!.stable).toContain("You are the AI assistant answering the phone for Lumen Aesthetics");
+    await vi.waitFor(() => expect(warms.length).toBeGreaterThanOrEqual(3), { timeout: 2_000 });
+    await s.handle(said(1, [{ role: "agent", content: heard()[0]!.content }, { role: "user", content: "how much is botox" }]));
+    expect(warms.every((w) => !w.answering)).toBe(true);
+    await s.finish();
+    const after = warms.length;
+    await new Promise((r) => setTimeout(r, 250));
+    expect(warms.length).toBe(after);
+  });
+
   test("a prospect's demo call sends no transcript anywhere", async () => {
     const transport = { name: "ses-fake", send: vi.fn(async () => ({ status: "sent" as const, messageId: "x" })) };
     const info = vi.spyOn(log, "info");

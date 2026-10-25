@@ -2,7 +2,7 @@ import { describeError, log } from "@/lib/log";
 
 import { findIncidentSubjects, INCIDENT_KINDS, incidentItemResolution } from "./incident-kinds";
 import { remind } from "./proposers";
-import { moveStatus, propose, SERVICE_ACTOR, waitingItems } from "./store";
+import { moveStatus, propose, SERVICE_ACTOR, sweepInterrupted, waitingItems } from "./store";
 
 /**
  * The incident assistant's hourly sweep (lane P6i; owner decision D18), the
@@ -19,7 +19,12 @@ import { moveStatus, propose, SERVICE_ACTOR, waitingItems } from "./store";
  *   2. Take off the list, unrun, a report item the Incidents page has
  *      overtaken (`no_longer_needed`) or whose clinic has gone or is the demo
  *      clinic (`clinic_out_of_service`).
- *   3. Alert ops, by email and Slack (incident_step_waiting): for an item on
+ *   3. Record as failed (`interrupted`) an incident item left `approved` by a
+ *      process that died more than 15 minutes ago, so its report can be
+ *      proposed again, even while approvals-propose is switched off (that
+ *      job sweeps every kind; this one only its own, so the billing and
+ *      clinic-contact kinds still wait on approvals-propose).
+ *   4. Alert ops, by email and Slack (incident_step_waiting): for an item on
  *      its first sweep after it arrived, and again at the first sweep at
  *      least 4 hours after its last alert, so at most every 4 hours and at
  *      most an hour late, while it waits.
@@ -35,11 +40,13 @@ export type IncidentSweepSummary = {
   resolved: number;
   outOfService: number;
   reminded: number;
+  /** Incident items left `approved` by a dead process, now failed / interrupted. */
+  interrupted: number;
   unread: number;
 };
 
 export async function runIncidentSweep(now: Date = new Date()): Promise<IncidentSweepSummary> {
-  const summary: IncidentSweepSummary = { proposed: 0, resolved: 0, outOfService: 0, reminded: 0, unread: 0 };
+  const summary: IncidentSweepSummary = { proposed: 0, resolved: 0, outOfService: 0, reminded: 0, interrupted: 0, unread: 0 };
   try {
     const found = await findIncidentSubjects(now, { actor: ACTOR });
     summary.unread += found.unread;
@@ -55,6 +62,7 @@ export async function runIncidentSweep(now: Date = new Date()): Promise<Incident
         else summary.resolved += 1;
       }
     }
+    summary.interrupted = await sweepInterrupted(now, (kind) => INCIDENT_KINDS.has(kind));
     summary.reminded = await remind(now, (kind) => INCIDENT_KINDS.has(kind));
   } catch (error) {
     summary.unread += 1;

@@ -137,6 +137,14 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
   // legal clock: a BAA version re-sign never pauses AYA and has no date the
   // practice must meet (lib/agreements/resign-pause.ts), and the agreement
   // question's review has an internal day only. Nothing retries any of them.
+  //
+  // Their windows, past-due alerts (clinic_email_waiting) and the
+  // interrupted sweep all run from approvals-propose, which ships OFF. While
+  // it is off an item past its window still shows on Home and in Approvals
+  // as waiting until the job next runs; a decision on it is refused all the
+  // same (approval-ops.ts checks expires_at itself), so nothing is ever
+  // sent late, and no past-due alert goes. Only the incident kinds have an
+  // independent sweep (./incident-sweep.ts, from incident-deadlines, ON).
   baa_resign_chase: {
     operation: "sendResignChase",
     urgency: "routine",

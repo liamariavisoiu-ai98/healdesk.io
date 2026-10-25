@@ -1,5 +1,6 @@
 import {
   DEMO_CALL_VARIABLE,
+  FIRST_PERIOD_REFUND_DAYS,
   NEVER_SAY_DEFAULTS,
   openDaysPerWeek,
   PACKAGES,
@@ -224,14 +225,34 @@ export function demoContextFromCall(call: unknown): string | null {
  * catches needs a dollar sign, a currency word or a currency code).
  */
 function offerLine(offer: Pick<DemoCallContext, "offer">["offer"], now: number): string | null {
-  if (!offer || offer.endsAt <= now) return null;
-  const hoursLeft = Math.max(1, Math.round((offer.endsAt - now) / 3_600_000));
+  const live = liveDiscount(offer, now);
+  if (!live) return null;
   // "hours left", not "more hours": with a word between the number and the
   // unit, the guard's own dose-like-figure pattern (guard.ts, PLAIN_CLINICAL)
   // reads "about 10 more hours" as a figure it cannot place and refuses the
   // whole sentence as clinical. "about 10 hours left" keeps the unit right
   // after the number, which that pattern already knows to leave alone.
-  return `A real, live discount applies right now: ${offer.percentOfSetupFee}% off healdesk's setup fee, with about ${hoursLeft} hour${hoursLeft === 1 ? "" : "s"} left on it, already applied at checkout. Say that percentage, that rough window and the discounted setup fees given here, and never a different number or a different amount of time.`;
+  return `A real, live discount applies right now: ${live.percent}% off healdesk's setup fee, with about ${live.hours} hour${live.hours === 1 ? "" : "s"} left on it, already applied at checkout. Say that percentage, that rough window and the discounted setup fees given here, and never a different number or a different amount of time.`;
+}
+
+/**
+ * The cost anchor the pitch may quote once (owner, 25 October 2026): a
+ * full-time receptionist's loaded monthly cost and the usual range for an
+ * answering service. The owner's figures, said as context, never as
+ * healdesk's prices; the guard lets exactly these through in the pitch only
+ * (demoPitchFacts).
+ */
+export const MARKET_ANCHORS_USD = { receptionistFrom: 3_900, receptionistTo: 4_800, answeringFrom: 400, answeringTo: 1_500 } as const;
+
+/**
+ * The live discount as checkout applies it: the demo's own share of the
+ * setup fee (50% for a demo an operator built and sent, 30% for one asked
+ * for on the homepage) and the whole hours left of its 48. Null once it has
+ * ended, so Aya never names a discount checkout would not give.
+ */
+export function liveDiscount(offer: Pick<DemoCallContext, "offer">["offer"], now: number): { percent: number; hours: number } | null {
+  if (!offer || offer.endsAt <= now) return null;
+  return { percent: offer.percentOfSetupFee, hours: Math.max(1, Math.round((offer.endsAt - now) / 3_600_000)) };
 }
 
 /**
@@ -280,7 +301,18 @@ export function nextDemoStage(stage: DemoStage, reply: string): DemoStage {
  * is sold (owner, 25 October 2026: "before getting into selling healdesk to
  * us she should ask questions, to understand what the caller is after").
  */
-export type DemoQuestion = "role" | "choice" | "goal" | "volume" | "volumeCheck" | "missed" | "coverage" | "ask";
+export type DemoQuestion = "role" | "choice" | "goal" | "volume" | "volumeCheck" | "missed" | "coverage" | "tiedown" | "ask";
+
+/**
+ * The pitch, in the owner's order (25 October 2026), each said once: tie to
+ * their pain, the reveal, keeping their number, what is not finished yet
+ * with the discount, the cost anchor, value in their terms, one package, no
+ * commitment, and the refund. Tracked from Aya's own words (BEAT_WORDS), so
+ * the note names the next beat and never has her say one twice.
+ */
+export type DemoBeat = "pain" | "reveal" | "number" | "finish" | "anchor" | "value" | "recommend" | "noStrings" | "refund";
+
+export const DEMO_BEATS: readonly DemoBeat[] = ["pain", "reveal", "number", "finish", "anchor", "value", "recommend", "noStrings", "refund"];
 
 /**
  * What a demo call has found out, kept by the session from Aya's own
@@ -300,9 +332,11 @@ export type DemoProgress = {
   answers: Partial<Record<DemoQuestion, string>>;
   /** The caller's turns inside the role-play being run. */
   roleplayTurns: number;
+  /** The pitch's beats already said (DemoBeat). */
+  said: readonly DemoBeat[];
 };
 
-export const DEMO_START_PROGRESS: DemoProgress = { asked: null, answers: {}, roleplayTurns: 0 };
+export const DEMO_START_PROGRESS: DemoProgress = { asked: null, answers: {}, roleplayTurns: 0, said: [] };
 
 /** How Aya's scripted questions read, in her own replies (demoStageNote words each one). */
 const QUESTION_WORDS: readonly (readonly [DemoQuestion, RegExp])[] = [
@@ -313,8 +347,27 @@ const QUESTION_WORDS: readonly (readonly [DemoQuestion, RegExp])[] = [
   ["volumeCheck", /\bfair to say\b/i],
   ["missed", /\bwhat happens (?:to|with)\b/i],
   ["coverage", /\bhow do you see me helping\b|\bafter[- ]hours(?: calls)? only\b/i],
+  ["tiedown", /\bstop you from\b/i],
   ["ask", /\bset up\?|\bget (?:started|going)\?/i],
 ];
+
+/** How each pitch beat reads in Aya's own replies (demoStageNote words each one). */
+const BEAT_WORDS: Readonly<Record<DemoBeat, RegExp>> = {
+  pain: /\bthe ones I'?d be picking up\b|\bthose are the ones\b/i,
+  reveal: /\bhaven'?t seen on this call\b|\bevery way a patient\b|\bbilingual\b/i,
+  number: /\bkeep your (?:own )?number\b/i,
+  finish: /\bquick read of your\b|\bpart of what I can do\b/i,
+  anchor: /\breceptionist\b|\banswering services?\b/i,
+  value: /\bon your books\b/i,
+  recommend: /\blooks like the (?:right )?fit\b/i,
+  noStrings: /\bno strings\b/i,
+  refund: /\brefund/i,
+};
+
+/** The beats a reply says. */
+export function demoBeatsSaid(reply: string): DemoBeat[] {
+  return DEMO_BEATS.filter((beat) => BEAT_WORDS[beat].test(reply));
+}
 
 /** Answers longer than this are cut: what is kept is a reminder, not a record. */
 const ANSWER_MAX = 200;
@@ -342,10 +395,12 @@ export function withDemoAnswer(progress: DemoProgress, stage: DemoStage, words: 
 
 /** The progress once a reply is said: what it asked, and a fresh count for a role-play it starts. */
 export function afterDemoReply(progress: DemoProgress, stageBefore: DemoStage, stageAfter: DemoStage, reply: string): DemoProgress {
+  const beats = stageBefore === "pitch" && stageAfter === "pitch" ? demoBeatsSaid(reply).filter((b) => !progress.said.includes(b)) : [];
   return {
     ...progress,
     asked: stageAfter === "roleplay" ? null : demoQuestionAsked(reply),
     roleplayTurns: stageAfter === "roleplay" && stageBefore !== "roleplay" ? 0 : progress.roleplayTurns,
+    said: beats.length > 0 ? [...progress.said, ...beats] : progress.said,
   };
 }
 
@@ -360,6 +415,7 @@ const ANSWER_LABELS: Readonly<Record<DemoQuestion, string>> = {
   volumeCheck: "the weekly and monthly calls you checked",
   missed: "what happens to after-hours and busy calls now",
   coverage: "how they want you to help",
+  tiedown: "when you asked what would stop them getting it running today",
   ask: "when you asked them to get set up",
 };
 
@@ -501,36 +557,68 @@ export function demoStageNote(
   }
   const days = demoOpenDays(context);
   const offer = offerLine(context.offer, now);
+  const discount = liveDiscount(context.offer, now);
   const prices = demoPriceList(context.offer, now).line;
   const example = examplePrice(context);
   const button = context.buyButton?.replace(/\bAYA\b/g, "Aya") ?? null;
+  const discountWords = discount ? `${discount.percent}% off the setup fee, for the next ${discount.hours} hour${discount.hours === 1 ? "" : "s"}` : null;
   const close = button
-    ? `Close on the button on their demo page: "${button}" opens checkout${offer ? " with their discount already applied" : ""}, for example "Just tap ${button} at the top of your demo page${offer ? ` and your ${context.offer!.percentOfSetupFee}% is already applied` : ""}."`
+    ? `Close on the button on their demo page: "${button}" opens checkout${discount ? " with their discount already applied" : ""}, for example "Just tap ${button} at the top of your demo page${discount ? `, and your ${discount.percent}% off the setup fee is already applied, for the next ${discount.hours} hour${discount.hours === 1 ? "" : "s"}` : ""}."`
     : `Tell them the healdesk team will help them get started.`;
   const volumeCheck = days
     ? `Check the total with them, close to these words: "I see you're open ${days} days a week, so would it be fair to say about [their calls a day times ${days}] calls a week, or around [that times four, plus a third, rounded to a friendly number] calls a month?" Do the arithmetic right, and always say the word "calls" straight after a number of calls.`
     : null;
-  const pitch = `Now, and only now, tie what you do to what they told you: you're built to answer 24/7, on the phone and in their website chat, Instagram, Messenger and WhatsApp, taking bookings, sending their own deposit link in chat, and answering patient questions, said in their terms ("so those after-hours calls stop going to voicemail"). Deposit links go only in website chat or social messages, never on a call and never by text message.${context.mode === "browser" ? " Mention once that they can try you in chat too, right there on their demo page." : ""} Recommend the one package that fits (Aya Voice, Aya Web Chat, Aya Meta Chat, Voice plus Web Chat, or Voice plus Meta Chat) and the step that covers their volume.${example ? ` If it helps, put a value on it in ${clinic}'s own terms: each of those calls that becomes a booking is, say, a ${example.name} on their books at ${usd(example.price)}. Never call it revenue, profit or money they will make, and never promise a number of bookings.` : ""} Then ask for it plainly, once: "Want to get ${clinic} set up?" ${close}`;
+  // The owner's pitch (25 October 2026), each beat in close-to-these-words
+  // form, as the launch tracker allows it (CLAUDE.md, "Copy first, then the
+  // switch"): direct booking and the chat deposit link are still being
+  // built, so both are what she is designed to do; the refund is the terms'
+  // own (FIRST_PERIOD_REFUND_DAYS, terms section 5) and the setup fee is
+  // never refunded; the discount is the live one checkout applies, never a
+  // fixed figure.
+  const beatLines: Record<DemoBeat, string> = {
+    pain: `Tie it to their pain, in their own numbers and words: "So those [the calls they said go missed, as a number a month if they gave one] that go to voicemail after hours, those are the ones I'd be picking up."`,
+    reveal: `The reveal: "Here's what you haven't seen on this call: I answer 24/7, bilingual, English and Spanish, and it's not just the phone. The same me is built to cover your website chat, Instagram, Messenger and WhatsApp. One assistant, every way a patient reaches you."`,
+    number: `Take away the fear of switching: "And you keep your own number: your calls just forward to me, nothing to switch."`,
+    finish: `What is not finished yet${discount ? ", and the discount, together" : ""}: "Right now I'm working off a quick read of your public website, so you're only seeing part of what I can do. Finishing it takes about fifteen minutes of your time: we connect your calendar and your real menu, and from then on I work from your actual systems and I'm designed to book straight into your calendar, not just take a request."${discountWords ? ` Then: "And there's a real discount on finishing it right now: ${discountWords}."` : ""}`,
+    anchor: `A light cost anchor, once: "For context, a full-time receptionist runs ${usd(MARKET_ANCHORS_USD.receptionistFrom)} to ${usd(MARKET_ANCHORS_USD.receptionistTo)} a month loaded, and most answering services are ${usd(MARKET_ANCHORS_USD.answeringFrom)} to ${usd(MARKET_ANCHORS_USD.answeringTo)} and still can't book or quote your menu."`,
+    value: `Value in their terms, never revenue: ${example ? `"Every one of those calls that turns into a booking is, say, a ${example.name} on your books at ${usd(example.price)}. Can't promise you a number, but that's the shape of it."` : `"Every one of those calls that turns into a booking is one more appointment on your books. Can't promise you a number, but that's the shape of it."`} Once: "And in your website chat and messages I'm designed to send your own deposit link while they book, which helps with no-shows." Never call it revenue, profit or money they will make.`,
+    recommend: `Recommend one package from what they told you: "Based on what you've told me, [Aya Voice, Aya Web Chat, Aya Meta Chat, Voice plus Web Chat, or Voice plus Meta Chat] at [the step of 100 that covers their volume] looks like the fit." Quote its price from the list below only if they ask or it helps.`,
+    noStrings: `No commitment: "You've already tried it, no strings attached."`,
+    refund: `Risk reversal, exactly this and nothing more generous: "And if it's not a fit once you're live, cancel within your first ${FIRST_PERIOD_REFUND_DAYS} days and your first subscription period is refunded in full. The setup fee is the only part that's firm, since that's your setup getting built and checked."`,
+  };
+  const nextBeat = DEMO_BEATS.find((beat) => !progress.said.includes(beat)) ?? null;
+  const pitch = [
+    `The pitch, in this order, one or two short beats a turn, reacting to anything they say before going on, each beat said once:`,
+    ...DEMO_BEATS.map((beat, i) => `${i + 1}. ${beatLines[beat]}${progress.said.includes(beat) ? " (said: never again)" : ""}`),
+    ...(context.mode === "browser" ? ["Mention once that they can try you in chat too, right there on their demo page."] : []),
+  ].join("\n");
+  const discovered = Boolean(a.goal && a.volume && (!volumeCheck || a.volumeCheck) && a.missed && a.coverage);
   const next = !a.goal
-    ? `Next: take their reaction to the role-play in a few words (if they are unsure or not convinced, ask what would make it convincing for them), then find out what they are after: ${goalQuestion}, or what the biggest headache with the phones is right now.`
+    ? `Next: take their reaction to the role-play in a few words (if they are unsure or not convinced, ask what would make it convincing for them), then find out what they are after: ${goalQuestion}`
     : !a.volume
     ? `Next: react to what they said in a few words, then ask: "Generally, how many calls do you get a day?"`
     : volumeCheck && !a.volumeCheck
     ? `Next: ${volumeCheck}`
     : !a.missed
-    ? `Next: ask: "What happens with after-hours calls, or when your team's busy with patients?"`
+    ? `Next: ask: "What happens with those calls after hours, or when your team's busy with patients?"`
     : !a.coverage
-    ? `Next: ask: "How do you see me helping you best: after-hours calls only, taking over when the lines are busy, or handling all your incoming calls?"`
+    ? `Next: ask: "How do you see me helping you best: after-hours only, picking up when the lines are busy, or handling everything that comes in?"`
+    : nextBeat
+    ? `Next: pitch beat ${DEMO_BEATS.indexOf(nextBeat) + 1}, as written below${nextBeat === DEMO_BEATS[0] ? "" : ", then the one after it if it flows"}.`
+    : !a.tiedown
+    ? `Next, the tie-down: "Anything that'd stop you from getting that running today?"`
     : !a.ask
-    ? `Next: ${pitch}`
-    : `Next: if they said yes, ${close.charAt(0).toLowerCase()}${close.slice(1)} If they hesitated, ask what is holding them back, answer that one thing and ask once more; if they are still not ready, thank them warmly, mention the discount window once if there is one, and say goodbye.`;
+    ? `Next: if something holds them back, answer that one thing in a sentence and ask the tie-down once more in other words; then ask for it plainly: "Want to get ${clinic} set up?"`
+    : `Next: if they said yes, ${close.charAt(0).toLowerCase()}${close.slice(1)} If they hesitate, ask what is holding them back, answer that one thing and ask once more.`;
   return [
     `The role-play is over: you are talking with ${who}, of ${clinic}'s team, as themselves again. ${NAME_RULE}`,
     ...(known ? [known] : []),
-    `Find out what they need before you sell anything: one short question a turn, a few words reacting to each answer before the next, and no pitch until the questions are answered. If they ask about price, what you do or how to start before then, answer that briefly and come back to the next question.`,
+    `Find out what they need before you sell anything: one short question a turn, a few words reacting to each answer before the next, and no pitch until the questions are answered. If they ask about price, what you do or how to start before then, answer that briefly and come back to the next question. If they want the package now, skip the rest of the questions and go to the pitch.`,
     next,
-    `If they want the package now, skip the rest of the questions: ${pitch}`,
-    `Never say you will send a link, an email or a text, and never take payment details on the call.`,
+    ...(discovered || nextBeat !== DEMO_BEATS[0] ? [pitch] : []),
+    `Close: "Want to get ${clinic} set up?" ${close}${discountWords ? ` Say the discount exactly so: ${discountWords}.` : ""}`,
+    `If they are still hesitant, or ask to speak to a person: "No problem at all. Whenever you're ready, ${button ? `${button} is right there on your demo page` : "the healdesk team can get you started"}, and you can reach the team at hello at healdesk dot io if you'd like to talk it through."${discountWords ? " Mention the discount window once." : ""} Then thank them and say a warm goodbye. Never offer a call-back, never take a phone number for one, and never say the team has been told or will call: nothing on this call reaches them.`,
+    `Never say you will send a link, an email or a text, and never take payment details on the call. Deposit links go only in website chat or social messages, never on a call and never by text message.`,
     `True answers to the usual doubts, in a sentence each: patients minding an AI (you say you are an AI in your first line, and anyone who wants a person gets passed to the team); patient data ("We sign a business associate agreement and handle patient data under it", never "HIPAA compliant"); setup (about fifteen minutes of their attention; phone goes live once they set up call forwarding on their own line, so they keep their number; website chat once a snippet is on their site); mistakes (you never diagnose or quote a price that is not on their list, urgent calls go straight to their team, and if anything fails, calls go to their own direct line); cost (the monthly price only starts once you are answering their patients).`,
     prices,
     ...(offer ? [offer] : []),
@@ -546,7 +634,7 @@ export function demoStageNote(
  * healdesk's would otherwise pass.
  */
 export function demoPitchFacts(facts: AssistantFacts, context: Pick<DemoCallContext, "offer">, now: number): AssistantFacts {
-  return { ...facts, quotedAmountsUsd: demoPriceList(context.offer, now).amounts };
+  return { ...facts, quotedAmountsUsd: [...demoPriceList(context.offer, now).amounts, ...Object.values(MARKET_ANCHORS_USD)] };
 }
 
 /** The facts a demo call answers from: the clinic's published profile, read as AssistantFacts. No database. */

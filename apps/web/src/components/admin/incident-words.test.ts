@@ -11,7 +11,7 @@ import {
   batchClinicState,
   batchCountWords,
   CHECKLIST_STEP_WORDS,
-  clockLines,
+  deadlineWords,
   INTERNAL_TARGET_LABEL,
   REACH_WORDS,
   reportFactLines,
@@ -120,22 +120,22 @@ describe("the lines", () => {
     expect(batchCountWords({ clinicsTotal: 1, toOpen: 1, alreadyOpen: 0, outOfService: 0 })).toBe("1 clinic listed: 1 to open");
     expect(shownWords(batch)).toBe("The first 20 of 25, soonest agreement deadline first; the counts cover all 25.");
     expect(shownWords({ clinicsTotal: 2, clinics: batch.clinics.slice(0, 2) })).toBeNull();
-    expect(batchClinicState(batch.clinics[0]!)).toBe("already open: left as it is");
-    expect(batchClinicState(batch.clinics[1]!)).toBe("out of service: skipped");
+    // A word or two: the packet's effect sentence already says what is done with an open or out-of-service clinic, once.
+    expect(batchClinicState(batch.clinics[0]!)).toBe("already open");
+    expect(batchClinicState(batch.clinics[1]!)).toBe("out of service");
     expect(batchClinicState(batch.clinics[2]!)).toBe("to open");
   });
 
-  test("both clocks, the internal one always under its label, and the agreement's rule in words", () => {
-    expect(clockLines(clocks, "1.5.1")).toEqual([
-      [AGREEMENT_DEADLINE_LABEL, "2 Jan 2027 (agreement 1.5.1: no later than 60 calendar days after discovery)"],
-      [INTERNAL_TARGET_LABEL, "4 Nov 2026, 08:00 UTC"],
-    ]);
-    expect(clockLines({ ...clocks, agreementRule: "five_days", agreementDeadline: "2026-11-08T08:00:00.000Z", ownerNoticeBy: "2026-12-03T08:00:00.000Z" }, null)).toEqual([
-      [AGREEMENT_DEADLINE_LABEL, "8 Nov 2026 (no agreement on file: the strictest rule: five calendar days for a breach, five business days otherwise (BAA 1.2.1 and before, or no agreement on file))"],
-      [INTERNAL_TARGET_LABEL, "4 Nov 2026, 08:00 UTC"],
-      ["The practice tells the people affected by", "3 Dec 2026"],
-    ]);
+  test("the agreement's deadline with its basis, and the rule in words where one is given", () => {
+    expect(deadlineWords(clocks.agreementDeadline, "1.5.1", "sixty_calendar_days")).toBe("2 Jan 2027 (agreement 1.5.1: no later than 60 calendar days after discovery)");
+    expect(deadlineWords("2026-11-08T08:00:00.000Z", null, "five_days")).toBe(
+      "8 Nov 2026 (no agreement on file, so the strictest rule: five calendar days for a breach, five business days otherwise (BAA 1.2.1 and before))",
+    );
+    expect(deadlineWords("2026-11-08T08:00:00.000Z", "1.5.1")).toBe("8 Nov 2026 (agreement 1.5.1)");
+    expect(deadlineWords(null, "1.5.1")).toBe("none");
     expect(INTERNAL_TARGET_LABEL).toBe("Our own target (never shown to the clinic)");
+    // The five-day rule is 1.2.1 and before (reporting-rules.ts); no agreement, or a version the map does not know, gets it as the strictest.
+    expect(RULE_WORDS.five_days).not.toContain("no agreement");
   });
 
   test("a report's facts: which report, both clocks, the people recorded as a count, the steps ticked; and whether it may go", () => {
@@ -164,7 +164,16 @@ describe("the lines", () => {
       ["People recorded as affected", "0"],
       ["Checklist steps ticked", "none yet"],
     ]);
+    expect(reportFactLines({ ...report, agreementDeadline: "2026-11-06T08:00:00.000Z" })[2]).toEqual([AGREEMENT_DEADLINE_LABEL, "6 Nov 2026 (no agreement on file, so the strictest rule)"]);
     expect(reportReady(report)).toBe(false);
     expect(reportReady(report, "other")).toBe(true);
+  });
+
+  test("the words the card no longer repeats are apps/app's to leave out: its report effect names neither the deadline nor the missing choice", () => {
+    const kinds = readFileSync(join(APP, "lib", "approvals", "incident-kinds.ts"), "utf8");
+    const effect = kinds.slice(kinds.indexOf("export function reportEffect"), kinds.indexOf("export type IncidentPacket"));
+    expect(effect).not.toContain("Pick what happened");
+    expect(effect).not.toContain("agreement deadline");
+    expect(effect).toContain("Phone the practice as well");
   });
 });

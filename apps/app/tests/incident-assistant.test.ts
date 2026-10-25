@@ -330,12 +330,15 @@ describe("the report draft", () => {
     expect(parsePayload("incident_open_batch", { ...batch, extra: 1 })).toBeNull();
   });
 
-  test("its sentences say what approving does, and never the internal target", () => {
-    const effect = reportEffect({ report: 1, incidentClass: "breach", agreementDeadline: "2026-12-04T12:00:00.000Z", fields: BREACH });
+  test("its sentences say what approving does, and never the internal target; the deadline and the missing choice are the card's lines, not repeated here", () => {
+    const effect = reportEffect({ report: 1, incidentClass: "breach" });
     expect(effect).toBe(
-      "Emails the practice's address this incident's report, built only from the choices below, and records the practice as told. It cannot be taken back. It links to the incident's page, where the practice reads who it affected; that list is never emailed. Pick what happened before you approve: the report cannot go without it. The practice's agreement deadline for this notice is 4 Dec. Phone the practice as well: the report does not replace the call.",
+      "Emails the practice's address this incident's report, built only from the choices below, and records the practice as told. It cannot be taken back. It links to the incident's page, where the practice reads who it affected; that list is never emailed. Phone the practice as well: the report does not replace the call.",
     );
-    expect(effect).not.toMatch(/24 hours|internal/);
+    expect(effect).not.toMatch(/24 hours|internal|deadline|Pick what happened/);
+    expect(reportEffect({ report: 3, incidentClass: "security_incident" })).toBe(
+      "Emails the practice's address update 2 to this incident's report, built only from the choices below, and records the practice as told. It cannot be taken back. Phone the practice as well: the report does not replace the call.",
+    );
     expect(
       batchEffect({ incidentClass: "security_incident", toOpen: 1, alreadyOpen: 1, reach: "window_only" }),
     ).toBe(

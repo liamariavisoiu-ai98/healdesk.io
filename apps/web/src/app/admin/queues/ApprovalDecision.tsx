@@ -5,6 +5,7 @@ import { useState } from "react";
 import {
   approveConfirm,
   APPROVE_REASON_WORDS,
+  approveReasonsFor,
   decisionWords,
   familyOf,
   IRREVERSIBLE_CONFIRM,
@@ -57,7 +58,6 @@ export type DecisionSubject = {
   hasPacket: boolean;
 };
 
-const APPROVE_REASONS = Object.keys(APPROVE_REASON_WORDS) as ApproveReason[];
 const REJECT_REASONS = Object.keys(REJECT_REASON_WORDS) as RejectReason[];
 
 const LABEL = "text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase";
@@ -94,8 +94,10 @@ export function DecisionForm({
   /** A sentence that holds Approve back until the card's choices allow it; null when nothing does. */
   approveHeldBy?: string | null;
 }) {
+  // The reasons that fit the kind, the first the default (approveReasonsFor): an email or an incident step is approved because the owner checked it.
+  const approveReasons = approveReasonsFor(subject.kind);
   const [code, setCode] = useState("");
-  const [approveReason, setApproveReason] = useState<ApproveReason>(APPROVE_REASONS[0]!);
+  const [approveReason, setApproveReason] = useState<ApproveReason>(approveReasons[0]!);
   const [rejectReason, setRejectReason] = useState<RejectReason>(REJECT_REASONS[0]!);
 
   /**
@@ -122,7 +124,7 @@ export function DecisionForm({
           <label className="grid gap-1 text-sm">
             <span className={LABEL}>Why approve</span>
             <select name="approveReason" value={approveReason} onChange={(event) => setApproveReason(event.target.value as ApproveReason)} className={SELECT}>
-              {APPROVE_REASONS.map((reason) => (
+              {approveReasons.map((reason) => (
                 <option key={reason} value={reason}>
                   {APPROVE_REASON_WORDS[reason]}
                 </option>

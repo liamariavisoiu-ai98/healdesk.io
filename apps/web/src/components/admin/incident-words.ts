@@ -1,7 +1,6 @@
 import type {
   BatchClass,
   ChecklistStep,
-  IncidentApprovalItem,
   IncidentBatchFacts,
   IncidentReportFacts,
   ScopeChannel,
@@ -83,10 +82,16 @@ export const STEP_NEEDS: Partial<Record<ChecklistStep, string>> = {
   resolve: "ticked only once the incident is resolved on the clinic's Care tab",
 };
 
-/** What each agreement promises about the notice (lib/incidents/reporting-rules.ts). */
+/**
+ * What each agreement promises about the notice (lib/incidents/
+ * reporting-rules.ts): BAA 1.2.2 on and the DPA, 60 calendar days; BAA 1.2.1
+ * and before, five days. A practice with no agreement on file, or a version
+ * the map does not know, gets the five-day rule, the strictest; the lines
+ * that print a rule say so beside it.
+ */
 export const RULE_WORDS: Record<ScopeClocksView["agreementRule"], string> = {
   sixty_calendar_days: "no later than 60 calendar days after discovery",
-  five_days: "five calendar days for a breach, five business days otherwise (BAA 1.2.1 and before, or no agreement on file)",
+  five_days: "five calendar days for a breach, five business days otherwise (BAA 1.2.1 and before)",
 };
 
 /** The one label our own target ever carries: it is never a promise to a clinic. */
@@ -99,11 +104,10 @@ export const TICK_WORDS = "Ticking records that you did a step, by you and when.
 
 export const TICK_CONFIRM = "Record this step as done by you, now? It cannot be unticked.";
 
-/** What the two propose controls do: nothing until the owner's yes under Approvals. */
-export const PROPOSE_BATCH_WORDS = "Nothing is opened until you approve it in Approvals.";
+/** What the report proposal does: nothing until the owner's yes under Approvals. */
 export const PROPOSE_REPORT_WORDS = "Nothing is sent until you approve it in Approvals.";
 
-/** The scope's source and window in one line: "Retell (the voice provider), phone conversations from … to …". */
+/** The scope's source and window in one line: "Retell (the voice provider)'s incident, window … to …". */
 export function scopeWords(facts: Pick<IncidentBatchFacts, "source" | "value" | "from" | "to">): string {
   const what =
     facts.source === "vendor"
@@ -117,18 +121,11 @@ export function reportWords(report: number): string {
   return report === 1 ? "the report" : `update ${report - 1}`;
 }
 
-/** The two clocks as label and value pairs, the internal one always labelled as never shown. */
-export function clockLines(clocks: ScopeClocksView, agreementVersion: string | null): [string, string][] {
-  return [
-    [
-      AGREEMENT_DEADLINE_LABEL,
-      clocks.agreementDeadline
-        ? `${onDay(clocks.agreementDeadline)} (${agreementVersion ? `agreement ${agreementVersion}` : "no agreement on file: the strictest rule"}: ${RULE_WORDS[clocks.agreementRule]})`
-        : "none",
-    ],
-    [INTERNAL_TARGET_LABEL, whenWords(clocks.internalTarget)],
-    ...(clocks.ownerNoticeBy ? [["The practice tells the people affected by", onDay(clocks.ownerNoticeBy)] as [string, string]] : []),
-  ];
+/** The agreement's deadline with its basis: the version in force, or no agreement on file and so the strictest rule. */
+export function deadlineWords(deadline: string | null, agreementVersion: string | null, rule?: ScopeClocksView["agreementRule"]): string {
+  if (!deadline) return "none";
+  const basis = agreementVersion ? `agreement ${agreementVersion}` : "no agreement on file, so the strictest rule";
+  return `${onDay(deadline)} (${basis}${rule ? `: ${RULE_WORDS[rule]}` : ""})`;
 }
 
 /** The counts over a batch's clinics in one line. */
@@ -145,10 +142,10 @@ export function shownWords(facts: Pick<IncidentBatchFacts, "clinicsTotal" | "cli
   return `The first ${facts.clinics.length} of ${facts.clinicsTotal}, soonest agreement deadline first; the counts cover all ${facts.clinicsTotal}.`;
 }
 
-/** A batch clinic's state in one word or two. */
+/** A batch clinic's state in a word or two; the packet's effect sentence already says what is done with each. */
 export function batchClinicState(clinic: IncidentBatchFacts["clinics"][number]): string {
-  if (!clinic.inService) return "out of service: skipped";
-  return clinic.opened ? "already open: left as it is" : "to open";
+  if (!clinic.inService) return "out of service";
+  return clinic.opened ? "already open" : "to open";
 }
 
 /** The report item's facts as label and value pairs, both clocks included. */
@@ -156,12 +153,7 @@ export function reportFactLines(facts: IncidentReportFacts): [string, string][] 
   const lines: [string, string][] = [
     ["Report", `${reportWords(facts.report)}, for ${BATCH_CLASS_WORDS[facts.incidentClass].toLowerCase()}`],
     ["Discovered", whenWords(facts.discoveredAt)],
-    [
-      AGREEMENT_DEADLINE_LABEL,
-      facts.agreementDeadline
-        ? `${onDay(facts.agreementDeadline)}${facts.agreementVersion ? ` (agreement ${facts.agreementVersion})` : " (no agreement on file: the strictest rule)"}`
-        : "none",
-    ],
+    [AGREEMENT_DEADLINE_LABEL, deadlineWords(facts.agreementDeadline, facts.agreementVersion)],
     [INTERNAL_TARGET_LABEL, whenWords(facts.internalTarget)],
   ];
   if (facts.ownerNoticeBy) lines.push(["The practice tells the people affected by", onDay(facts.ownerNoticeBy)]);
@@ -170,15 +162,10 @@ export function reportFactLines(facts: IncidentReportFacts): [string, string][] 
   return lines;
 }
 
-/** The sentence under a report whose "what happened" is not picked: apps/app refuses to send without it. */
+/** The sentence under a report whose "what happened" is not picked: apps/app refuses to send without it (operator-notices.ts). */
 export const PICK_EVENT_WORDS = "Pick what happened before you approve: the report cannot go without it.";
 
 /** Whether a report item can be approved as its choices stand. */
 export function reportReady(facts: Pick<IncidentReportFacts, "fields">, event: string | null = facts.fields.event): boolean {
   return event !== null;
-}
-
-/** The incident's class behind an approval item, for the choices a breach alone may carry. */
-export function classOf(item: IncidentApprovalItem): BatchClass | null {
-  return item.packet?.facts.incidentClass ?? null;
 }

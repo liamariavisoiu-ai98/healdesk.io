@@ -16,9 +16,11 @@ import { useState } from "react";
 
 import { APPROVAL_KIND_WORDS, expiryWords, FACTS_NOT_READ, NO_LONGER_NEEDED, onDay, waitingWords, whenWords, type Decided } from "@/components/admin/approval-words";
 import {
+  AGREEMENT_DEADLINE_LABEL,
   BATCH_CLASS_WORDS,
   batchClinicState,
   batchCountWords,
+  INTERNAL_TARGET_LABEL,
   PICK_EVENT_WORDS,
   REACH_WORDS,
   reportFactLines,
@@ -52,7 +54,8 @@ import { ClinicName, DecisionForm, type DecideApproval } from "./ApprovalDecisio
  *     enforcement delay. Approve carries the choices as they stand; apps/app
  *     holds them to the sender's own rules before anything is recorded. A
  *     report with nothing picked for what happened cannot go, so Approve
- *     waits until one is.
+ *     waits until one is, with the one sentence saying so here; the packet's
+ *     effect repeats neither it nor the deadline the facts lines print.
  */
 
 const EVENTS = Object.entries(INCIDENT_REPORT_EVENTS) as [IncidentReportEvent, { label: string }][];
@@ -98,8 +101,8 @@ function BatchFacts({ facts }: { facts: IncidentBatchFacts }) {
               <th className="py-1 pr-3">Clinic</th>
               <th className="py-1 pr-3">Conversations in the window</th>
               <th className="py-1 pr-3">Agreement</th>
-              <th className="py-1 pr-3">Agreement deadline</th>
-              <th className="py-1 pr-3">Our own target (never shown to the clinic)</th>
+              <th className="py-1 pr-3">{AGREEMENT_DEADLINE_LABEL}</th>
+              <th className="py-1 pr-3">{INTERNAL_TARGET_LABEL}</th>
               <th className="py-1">State</th>
             </tr>
           </thead>
@@ -200,7 +203,7 @@ function ReportChoices({
         </div>
       </fieldset>
       <fieldset>
-        <legend className={LABEL}>What the people affected can do (a breach&rsquo;s report must give these, in writing)</legend>
+        <legend className={LABEL}>What the people affected can do</legend>
         <div className="mt-2 grid gap-1">
           {STEPS.map(([code, sentence]) => (
             <label key={code} className="flex items-start gap-2">

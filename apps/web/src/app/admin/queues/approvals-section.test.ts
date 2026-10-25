@@ -31,6 +31,7 @@ import type {
   ApprovalItem,
   IncidentApprovalHistoryEvent,
   IncidentApprovalItem,
+  IncidentBatchFacts,
   IncidentReportChoices,
   OpsResult,
 } from "@/lib/admin/ops-client";
@@ -427,7 +428,7 @@ describe("the waiting items", () => {
     expect(text(render(read([]), { proposerOn: null }))).not.toContain("approvals job is off");
     // Items waiting: the switch is not mentioned, whatever it says.
     expect(text(render(read([request]), { proposerOn: false }))).not.toContain("approvals job is off");
-    expect(EMPTY_JOB_OFF).toBe("Nothing is waiting for your yes, but the approvals job is off at System > Jobs, so nothing is being proposed.");
+    expect(EMPTY_JOB_OFF).toContain("so no billing retry or re-sign chase is being proposed; incident reports and your own proposals still arrive.");
   });
 
   test("an item whose facts could not be read offers Reject alone and says why", () => {
@@ -475,6 +476,10 @@ describe("an email to a clinic", () => {
     // Closed: no free-text field anywhere on the card.
     expect(html).not.toContain("<textarea");
     expect(html).not.toMatch(/<input[^>]*type="text"/);
+    // An email has no fault behind it: the one approve reason is that the owner checked it; a billing retry offers all three.
+    expect(page).toContain("I checked it and it is right");
+    expect(page).not.toContain("The cause is fixed");
+    expect(text(render(read([request])))).toContain("The cause is fixed");
     expect(page).toContain(IRREVERSIBLE_CONFIRM.setup_extended);
     expect(page).toContain("Waiting 2 days. Can no longer be approved after 15 Nov 2026, 10:00 UTC; the approvals job then takes it off the list.");
     for (const raw of ["setup_extended", "in_setup", "call_offer", EMAIL]) expect(page).not.toContain(raw);
@@ -496,7 +501,7 @@ describe("an email to a clinic", () => {
 
   test("rejecting an email says nothing is sent and whether it can be proposed again, per kind", () => {
     expect(rejectConfirm({ kind: "setup_extended", clinic: extension.clinic })).toContain("Nothing is sent and the deadline does not move.");
-    expect(rejectConfirm({ kind: "baa_resign_chase", clinic: extension.clinic })).toContain("the approvals job proposes the next round's chase 7 days on");
+    expect(rejectConfirm({ kind: "baa_resign_chase", clinic: extension.clinic })).toContain("the approvals job proposes the next round's chase when its next seven-day round begins");
     expect(rejectConfirm({ kind: "incident_open_batch", clinic: null })).toContain("Nothing is opened, and this scope is not proposed again.");
     expect(rejectConfirm({ kind: "incident_report_send", clinic: extension.clinic })).toContain("the agreement's clock keeps running");
     // A billing kind keeps its own words.
@@ -525,6 +530,24 @@ describe("the incident assistant's items", () => {
     expect(page).toContain("4 Nov 2026, 08:00 UTC");
     expect(page).toContain("none on file");
     expect(page).toContain("to open");
+    // A clinic already open is said once, by the packet's effect; the state column adds a word, not the sentence again.
+    const batchFacts = batch.packet!.facts as IncidentBatchFacts;
+    const withOpen = text(
+      render(read([]), {
+        incidents: read([
+          {
+            ...batch,
+            packet: {
+              ...batch.packet!,
+              effect: `${batch.packet!.effect} 1 clinic already has this incident open and is left as it is.`,
+              facts: { ...batchFacts, alreadyOpen: 1, toOpen: 1, clinics: [{ ...batchFacts.clinics[0]!, opened: true }, batchFacts.clinics[1]!] },
+            },
+          },
+        ]),
+      }),
+    );
+    expect(withOpen.match(/left as it is/g)).toHaveLength(1);
+    expect(withOpen).toContain("already open");
     // Every clinic is listed, so no "first N of" line.
     expect(page).not.toContain("soonest agreement deadline first");
     expect(page).toContain(IRREVERSIBLE_CONFIRM.incident_open_batch);
@@ -546,6 +569,11 @@ describe("the incident assistant's items", () => {
     expect(html).toMatch(/name="done:investigating"[^>]*checked=""/);
     expect(html).toMatch(/name="advise:keep_record"[^>]*checked=""/);
     expect(page).toContain("Notice delayed (45 CFR 164.412)");
+    expect(page).toContain("What the people affected can do");
+    expect(page).not.toContain("must give these");
+    // Said once: the hold sentence is the card's, the deadline the facts line's (the packet's effect repeats neither).
+    expect(page.match(/Pick what happened before you approve/g)).toHaveLength(1);
+    expect(page.match(/31 Dec 2026/g)).toHaveLength(1);
     expect(page).toContain(PICK_EVENT_WORDS);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Approve<\/button>/);
     expect(html).not.toContain("<textarea");
@@ -762,7 +790,8 @@ describe("the controls", () => {
     await click("Approve");
     await click("Yes, approve");
     await act(async () => {});
-    expect(decide).toHaveBeenCalledWith(EMAIL, "approve", "cause_fixed", "123456", undefined);
+    // The default reason for an email: the owner checked it.
+    expect(decide).toHaveBeenCalledWith(EMAIL, "approve", "owner_checked", "123456", undefined);
     expect(statuses()).toContain("Approved. The email is queued in the outbox; the billing-notices job sends it.");
 
     // Again (the section remembers the decided id, so a second item), with the choices changed.
@@ -785,7 +814,7 @@ describe("the controls", () => {
     await click("Approve");
     await click("Yes, approve");
     await act(async () => {});
-    expect(decide).toHaveBeenLastCalledWith(OTHER, "approve", "cause_fixed", "123456", { fields: { days: 21, note: "call_offer" } });
+    expect(decide).toHaveBeenLastCalledWith(OTHER, "approve", "owner_checked", "123456", { fields: { days: 21, note: "call_offer" } });
   });
 
   test("an email whose preview found problems says them, in apps/app's words", async () => {
@@ -817,7 +846,7 @@ describe("the controls", () => {
     await click("Approve");
     await click("Yes, approve");
     await act(async () => {});
-    expect(decide).toHaveBeenCalledWith(REPORT, "approve", "cause_fixed", "123456", {
+    expect(decide).toHaveBeenCalledWith(REPORT, "approve", "owner_checked", "123456", {
       incident: {
         event: "subcontractor_incident",
         occurredOn: null,

@@ -178,6 +178,18 @@ export const APPROVE_REASON_WORDS: Record<ApproveReason, string> = {
   owner_checked: "I checked it and it is right",
 };
 
+/**
+ * The approve reasons that make sense for a kind, the first the default: a
+ * billing retry is approved because its cause is fixed or was a passing
+ * fault, or because the owner checked it; an email to a clinic or an
+ * incident step has no fault behind it, so the one reason is that the owner
+ * checked it (the reasons are apps/app's closed list, lib/approvals/kinds.ts
+ * APPROVE_REASONS, and every one is accepted for every kind there).
+ */
+export function approveReasonsFor(kind: AnyApprovalKind): readonly ApproveReason[] {
+  return familyOf(kind) === "billing" ? ["cause_fixed", "passing_fault", "owner_checked"] : ["owner_checked"];
+}
+
 export const REJECT_REASON_WORDS: Record<RejectReason, string> = {
   not_needed: "Not needed",
   wrong_amount: "The amount is wrong",
@@ -232,7 +244,7 @@ export const OUTCOME_WORDS: Readonly<Record<string, string>> = {
   // The clinic-contact executors (apps/app lib/approvals/contact-executors.ts, lane P6f).
   sent: "sent",
   queued: "queued to send",
-  already_sent: "it had already gone, so it was not sent again",
+  already_sent: "it had already been queued, so it was not queued again",
   send_failed: "the email did not go",
   no_public_origin: "no signing link could be made",
   extension_refused: "the extension did not go through, so nothing was emailed",
@@ -312,8 +324,10 @@ export const REJECT_HEAD =
  * What rejecting each email or incident item does: nothing is sent or
  * opened, and whether it can be proposed again. A chase is the approvals
  * job's, one item per re-sign and seven-day round, so a rejection holds for
- * its round and the next round's chase is proposed from 7 days later while
- * the re-sign stays open (contact-proposers.ts). The operator's own
+ * its round and the next round's chase is proposed when the next seven-day
+ * round begins, while the re-sign stays open (contact-proposers.ts;
+ * open-resigns.ts chaseRound: round 1 from day 8, 2 from day 15, and so
+ * on). The operator's own
  * proposals get a new reference after a rejection (store.ts
  * subjectAfterRejections), so the same button proposes again. An incident
  * scope is never proposed again once rejected (store.ts propose(), as
@@ -323,7 +337,7 @@ export const REJECT_HEAD =
  */
 const REJECT_WORDS: Record<Exclude<AnyApprovalKind, "billing_request_retry" | "overage_invoice_retry" | "billing_event_replay">, string> = {
   baa_resign_chase:
-    "Nothing is sent. This round's chase is not proposed again; while the re-sign stays open, the approvals job proposes the next round's chase 7 days on.",
+    "Nothing is sent. This round's chase is not proposed again; while the re-sign stays open, the approvals job proposes the next round's chase when its next seven-day round begins (day 15, 22, ...).",
   agreement_question: "Nothing is sent. The question can be proposed again.",
   setup_extended: "Nothing is sent and the deadline does not move. It can be proposed again from the clinic's Setup window card.",
   setup_waiting_on_us: "Nothing is sent. It can be proposed again from the clinic's Setup window card.",
@@ -373,9 +387,15 @@ export const EMPTY_WORDS = "Nothing is waiting for your yes.";
 /** The job that proposes items (lib/approvals/kinds.ts PROPOSER), as the Jobs page names it. */
 export const APPROVALS_JOB = "approvals-propose";
 
-/** Empty because nothing is proposed: the approvals job's switch is off (read from listJobs). */
+/**
+ * Empty with the approvals job's switch off (read from listJobs): that job
+ * proposes the billing retries (lib/approvals/proposers.ts) and the re-sign
+ * chases (contact-proposers.ts); an incident's first report is proposed by
+ * the hourly incident-deadlines job as well (incident-sweep.ts), and the
+ * owner's own buttons propose the rest, so those still arrive.
+ */
 export const EMPTY_JOB_OFF =
-  "Nothing is waiting for your yes, but the approvals job is off at System > Jobs, so nothing is being proposed.";
+  "Nothing is waiting for your yes, but the approvals job is off at System > Jobs, so no billing retry or re-sign chase is being proposed; incident reports and your own proposals still arrive.";
 
 /** The empty line, by whether the approvals job is known to be off (null: its switch could not be read, so nothing extra is said). */
 export function emptyWords(proposerOn: boolean | null): string {
@@ -457,9 +477,9 @@ type ReviewStatus = NonNullable<Extract<ContactFacts, { kind: "agreement_questio
  * chase sent.
  */
 export const CHASE_BLOCK_WORDS: Record<ChaseBlock, string> = {
-  not_baa_version: "this is not an updated-version re-sign: it pauses AYA, and its own emails say so",
-  switched_off: "version re-signs are switched off, so the practice is not being asked to sign",
-  too_early: "the re-sign's own reminders (days 0, 3 and 7) are not spent yet; a chase can go from day 8",
+  not_baa_version: "this is not a BAA version re-sign: it pauses AYA, and its own emails say so",
+  switched_off: "BAA version re-signs are switched off, so the practice is not being asked to sign",
+  too_early: "the re-sign's own reminders (days 0, 3 and 7) are not spent yet; a chase can go from day 8, once the day-7 reminder has gone",
   chased_recently: "the practice was chased less than 7 days ago",
 };
 

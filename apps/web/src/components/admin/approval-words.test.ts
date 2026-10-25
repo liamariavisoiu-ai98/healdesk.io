@@ -12,6 +12,7 @@ import {
   APPROVALS_JOB,
   approveConfirm,
   APPROVE_REASON_WORDS,
+  approveReasonsFor,
   BILLING_STATUS_WORDS,
   BILLING_TAB_RETRY,
   CHASE_BLOCK_WORDS,
@@ -114,6 +115,12 @@ describe("the closed lists have words", () => {
     expect(Object.keys(APPROVE_REASON_WORDS).sort()).toEqual(approve.sort());
     expect(Object.keys(REJECT_REASON_WORDS).sort()).toEqual(reject.sort());
     for (const code of [...approve, ...reject]) expect(OUTCOME_WORDS[code], code).toBeDefined();
+    // The reasons offered per kind, the first the default: every reason for a billing retry; for an email or an incident step, that the owner checked it.
+    expect([...approveReasonsFor("billing_request_retry")].sort()).toEqual([...approve].sort());
+    expect(approveReasonsFor("overage_invoice_retry")[0]).toBe("cause_fixed");
+    for (const kind of ["baa_resign_chase", "agreement_question", "setup_extended", "setup_waiting_on_us", "setup_help_offer", "setup_reminder_now", "incident_open_batch", "incident_report_send"] as const) {
+      expect([...approveReasonsFor(kind)], kind).toEqual(["owner_checked"]);
+    }
   });
 
   test("why a request stopped (lib/approvals/packets.ts)", () => {
@@ -176,8 +183,13 @@ describe("the closed lists have words", () => {
     const assistant = /export const ASSISTANT = "([a-z-]+)";/.exec(source("lib/approvals/incident-kinds.ts"))?.[1];
     expect(assistant).toBeDefined();
     expect(actorWords(assistant!)).toBe("the incident assistant");
-    // The on-screen name is the job's, which the Jobs page prints as its name.
-    expect(EMPTY_JOB_OFF).toContain("the approvals job is off at System > Jobs");
+    // The on-screen name is the job's, which the Jobs page prints as its name; the line says what that job alone proposes.
+    expect(EMPTY_JOB_OFF).toBe(
+      "Nothing is waiting for your yes, but the approvals job is off at System > Jobs, so no billing retry or re-sign chase is being proposed; incident reports and your own proposals still arrive.",
+    );
+    // The chases are that job's (contact-proposers.ts); an incident's first report is also the incident-deadlines job's (incident-sweep.ts).
+    expect(source("lib/approvals/contact-proposers.ts")).toContain("The one clinic-contact kind the approvals job proposes by itself");
+    expect(source("lib/approvals/incident-kinds.ts")).toContain("incident-deadlines job");
     expect(emptyWords(false)).toBe(EMPTY_JOB_OFF);
     expect(emptyWords(true)).toBe(EMPTY_WORDS);
     expect(emptyWords(null)).toBe(EMPTY_WORDS);
@@ -197,6 +209,15 @@ describe("the closed lists have words", () => {
     expect(reminder.length).toBeGreaterThan(4);
     expect(source("lib/approvals/contact-packets.ts")).toContain('ReminderBlock | "already_queued"');
     expect(Object.keys(REMINDER_BLOCK_WORDS).sort()).toEqual([...reminder, "already_queued"].sort());
+    // Too early: day 8 and the day-7 reminder sent, both (open-resigns.ts chaseBlocked).
+    expect(source("lib/agreements/open-resigns.ts")).toContain("facts.daysOpen < CHASE_FROM_DAY || !facts.daySevenSent");
+    expect(CHASE_BLOCK_WORDS.too_early).toContain("once the day-7 reminder has gone");
+    // A re-sign's next round: 1 from day 8, 2 from day 15 (chaseRound), so a rejected round's chase comes back at day 15, 22, ...
+    expect(source("lib/agreements/open-resigns.ts")).toContain("Math.max(1, Math.floor((daysOpen - 1) / CHASE_EVERY_DAYS))");
+    expect(rejectConfirm({ kind: "baa_resign_chase", clinic: null })).toContain("when its next seven-day round begins (day 15, 22, ...)");
+    // Already sent: the outbox kinds say "already queued" (contact-executors.ts queueNotice).
+    expect(source("lib/approvals/contact-executors.ts")).toContain('fail("already_sent", "This email was already queued, so it was not queued again.")');
+    expect(OUTCOME_WORDS.already_sent).toBe("it had already been queued, so it was not queued again");
   });
 
   test("the lifecycle stages, the watch's recommendations, a review's statuses and a re-sign's reasons", () => {
@@ -398,7 +419,7 @@ describe("the facts and the timing", () => {
       ["Latest link works until", "no link sent yet"],
       ["Last chase", "none yet"],
       ["AYA answering", "yes"],
-      ["Would send nothing now", "the re-sign's own reminders (days 0, 3 and 7) are not spent yet; a chase can go from day 8"],
+      ["Would send nothing now", "the re-sign's own reminders (days 0, 3 and 7) are not spent yet; a chase can go from day 8, once the day-7 reminder has gone"],
     ]);
   });
 

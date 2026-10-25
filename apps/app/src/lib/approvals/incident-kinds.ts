@@ -537,12 +537,6 @@ const CLASS_WORDS: Readonly<Record<BatchClass, string>> = {
   improper_use_or_disclosure: "an improper use or disclosure",
 };
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-function dayWords(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
-}
-
 export function batchEffect(facts: Pick<IncidentBatchFacts, "incidentClass" | "toOpen" | "alreadyOpen" | "reach">): string {
   const { toOpen, alreadyOpen: open } = facts;
   const words = CLASS_WORDS[facts.incidentClass];
@@ -555,15 +549,19 @@ export function batchEffect(facts: Pick<IncidentBatchFacts, "incidentClass" | "t
   );
 }
 
-export function reportEffect(facts: Pick<IncidentReportFacts, "report" | "incidentClass" | "agreementDeadline" | "fields">): string {
+/**
+ * What approving does, once. The agreement's deadline and whether what
+ * happened is picked are not repeated here: the card prints both clocks
+ * among its facts and holds Approve with its own sentence while nothing is
+ * picked (apps/web IncidentApprovalCard.tsx), read live as the owner picks.
+ */
+export function reportEffect(facts: Pick<IncidentReportFacts, "report" | "incidentClass">): string {
   const what = facts.report === 1 ? "this incident's report" : `update ${facts.report - 1} to this incident's report`;
   return [
     `Emails the practice's address ${what}, built only from the choices below, and records the practice as told. It cannot be taken back.`,
     facts.incidentClass === "breach"
       ? "It links to the incident's page, where the practice reads who it affected; that list is never emailed."
       : "",
-    facts.fields.event === null ? "Pick what happened before you approve: the report cannot go without it." : "",
-    facts.agreementDeadline ? `The practice's agreement deadline for this notice is ${dayWords(facts.agreementDeadline)}.` : "",
     "Phone the practice as well: the report does not replace the call.",
   ]
     .filter(Boolean)

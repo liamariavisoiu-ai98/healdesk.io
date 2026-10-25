@@ -273,6 +273,12 @@ describe("the template registry", () => {
       "device_recovery_link",
       "agreement_copy",
       "access_request",
+      // Lane P6f: the emails the owner sends through the approval inbox.
+      "setup_extended",
+      "setup_waiting_on_us",
+      "setup_help_offer",
+      "agreement_question",
+      "baa_resign_chase",
     ]);
   });
 
@@ -286,7 +292,10 @@ describe("the template registry", () => {
       "address_changing",
       "agreement_to_sign",
       "data_destroyed",
+      "baa_resign_chase",
     ]);
+    // Lane P6f: the owner's re-sign chase carries a fresh signing link.
+    expect(isLinkEmail("baa_resign_chase")).toBe(true);
     // X1.5 names O5's confirmation and L22 link emails; O5's notice and E6 carry no token.
     expect(isLinkEmail("address_change_confirm")).toBe(true);
     expect(isLinkEmail("agreement_to_sign")).toBe(true);

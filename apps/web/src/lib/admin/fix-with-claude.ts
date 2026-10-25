@@ -156,6 +156,7 @@ export const RUNBOOK_ANCHOR: Record<OpsEvent, RunbookAnchor> = {
   ops_digest_summary: "morning-digest",
   assistant_knows_no_services: "setup-and-support",
   approval_waiting: "approvals",
+  clinic_email_waiting: "approvals",
   rights_request_blocked: "patient-rights-tracker",
   rights_request_due_soon: "patient-rights-tracker",
   rights_request_overdue: "patient-rights-tracker",

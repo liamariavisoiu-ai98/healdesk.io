@@ -78,6 +78,11 @@ import { WEEKLY_RECAP_ENTRY } from "./weekly_recap";
 import { WEBSITE_CHANGES_ENTRY } from "./website_changes";
 import { CLOSED_DAY_BOOKINGS_ENTRY } from "./closed_day_bookings";
 import { WELCOME_ENTRY } from "./welcome";
+import { AGREEMENT_QUESTION_ENTRY } from "./agreement_question";
+import { BAA_RESIGN_CHASE_ENTRY } from "./baa_resign_chase";
+import { SETUP_EXTENDED_ENTRY } from "./setup_extended";
+import { SETUP_HELP_OFFER_ENTRY } from "./setup_help_offer";
+import { SETUP_WAITING_ON_US_ENTRY } from "./setup_waiting_on_us";
 
 /**
  * Which kinds have a template, and who owes the rest.
@@ -223,6 +228,14 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // I3's access request (19 October 2026): an unmatched /sign-in/help request,
   // to hello@ with structured fields, as plan Part D5 has it.
   access_request: ACCESS_REQUEST_ENTRY,
+  // Ops automation lane P6f: the emails the owner sends a clinic through the
+  // approval inbox, each from fixed words and closed fields (owner decision
+  // D12): O18, O19, O20 and L36 from the outbox, L22c straight (a link email).
+  setup_extended: SETUP_EXTENDED_ENTRY,
+  setup_waiting_on_us: SETUP_WAITING_ON_US_ENTRY,
+  setup_help_offer: SETUP_HELP_OFFER_ENTRY,
+  agreement_question: AGREEMENT_QUESTION_ENTRY,
+  baa_resign_chase: BAA_RESIGN_CHASE_ENTRY,
 };
 
 /**
@@ -298,6 +311,14 @@ type OperatorTemplatedKind =
   | "suspended_for_cause"
   | "product_update";
 
+/** The emails the owner sends through the approval inbox (lane P6f), templated above. */
+type ContactTemplatedKind =
+  | "setup_extended"
+  | "setup_waiting_on_us"
+  | "setup_help_offer"
+  | "agreement_question"
+  | "baa_resign_chase";
+
 /** Every kind still waiting for its template, with the session that owes it. */
 export const PENDING_TEMPLATES: Record<
   Exclude<
@@ -342,6 +363,7 @@ export const PENDING_TEMPLATES: Record<
     | "device_recovery_link"
     | "agreement_copy"
     | "access_request"
+    | ContactTemplatedKind
     | BillingTemplatedKind
   >,
   PendingTemplate

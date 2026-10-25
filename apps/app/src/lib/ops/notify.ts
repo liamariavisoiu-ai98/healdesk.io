@@ -337,6 +337,10 @@ export const OPS_EVENTS = [
   // or every 4 hours for a legal clock (owner decision D18), one alert per
   // kind with the count. No clinic: the items are listed on one page.
   "approval_waiting",
+  // The same reminder for an email to a clinic waiting in the approval
+  // inbox (lane P6f: the BAA re-sign chase, the agreement question, the
+  // setup notices): once past its due time, with the kind and the count.
+  "clinic_email_waiting",
   // The patient-rights tracker's daily watch (lib/scheduler/rights-watch.ts;
   // ops automation lane P6c, owner decision D19), once per request each,
   // with the clinic's id and the request's: a request with no route to run

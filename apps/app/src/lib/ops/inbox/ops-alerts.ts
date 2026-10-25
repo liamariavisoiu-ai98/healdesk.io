@@ -50,6 +50,7 @@ const LEFT_OUT: ReadonlySet<string> = new Set<OpsEvent>([
   // their day (./rights.ts), so their alerts would say each twice. A blocked
   // request has no row of its own, so its alert stays.
   "approval_waiting",
+  "clinic_email_waiting",
   "rights_request_due_soon",
   "rights_request_overdue",
 ]);

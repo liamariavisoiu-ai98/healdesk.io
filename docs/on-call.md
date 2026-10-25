@@ -620,3 +620,17 @@ is recorded too, so check History before acting. History, on the same page, is t
 record of who decided what and when (the operator account, its IP address and browser), read
 from `ops_approval_events`; the event an item ends on reads went through, failed, rejected or
 left the list without running, with the outcome's words beside it.
+
+`clinic_email_waiting`. The same inbox also holds every email the owner sends a clinic by hand
+(ops automation lane P6f): the chase of a business associate agreement version re-sign, proposed
+by the approvals job from day 8 once L22's day-7 reminder has gone, at most once in seven days;
+and, proposed only by an operator's button, the question of which agreement a practice needs,
+more time to finish setup, the note that we are finishing a step, the offer of a five-minute
+call, and the next setup reminder sooner. Each card shows the email as the clinic would read it
+and the only choices that may change (a number of days, what the email names, one approved
+closing sentence); no typed text goes in. Approve asks for the code and sends it once: for more
+time, the deadline moves first and the email goes only if it moved. The chase's signing link is
+made when it is sent and never stored. The alert comes once an item has waited two days (one
+for a reminder sooner), one per kind; an email leaves the list unsent after 14 days, a reminder
+sooner after three. The agreement question's answer is recorded by the owner, as he heard it,
+with a fresh code; a Yes or Not sure pauses AYA at every location until the BAA is signed.

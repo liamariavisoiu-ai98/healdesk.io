@@ -229,4 +229,6 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
   ],
   // lib/approvals/proposers.ts remind: the kind and how many items are due a reminder; no clinic.
   approval_waiting: ["kind", "count"],
+  // lib/approvals/proposers.ts remind, for the clinic-contact kinds (lane P6f).
+  clinic_email_waiting: ["kind", "count"],
 };

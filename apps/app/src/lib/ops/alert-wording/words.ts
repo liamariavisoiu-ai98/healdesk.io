@@ -103,6 +103,12 @@ export const EMAIL_KIND_WORDS: Readonly<Record<EmailKind, string>> = {
   support_escalation: "a support escalation",
   agreement_copy: "an agreement copy",
   access_request: "an access request",
+  // Lane P6f: the emails the owner sends a clinic through the approval inbox.
+  setup_extended: "a more-time-for-setup email",
+  setup_waiting_on_us: "a we're-finishing-it email",
+  setup_help_offer: "a five-minute-call offer",
+  agreement_question: "an agreement question",
+  baa_resign_chase: "an agreement re-sign chase",
 };
 
 /** A billing request's kind (db/schema.ts BILLING_REQUEST_KINDS). */

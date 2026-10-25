@@ -141,6 +141,12 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   // The lifecycle watch's recommended action (lib/lifecycle/recommend.ts
   // RECOMMENDATIONS), a closed word in an ops alert.
   "recommendation",
+  // Ops automation lane P6f, the emails the owner sends by hand (owner
+  // decision D12): the approved closing sentence and the part of setup a
+  // notice names, each a code from lib/email/templates/contact-words.ts,
+  // printed by the template, never words.
+  "note",
+  "phrase",
 ]);
 
 /** The class a key's value must belong to, or null when the key is not on the list. */
@@ -154,6 +160,8 @@ function classOfKey(key: string): ValueClass | null {
   if (key === "signatoryName") return "personName";
   if (key === "documentHash") return "sha256";
   if (key === "documentVersion") return "documentVersion";
+  // Lane P6f, the BAA re-sign chase: the version in force and the one to sign.
+  if (key === "fromVersion" || key === "toVersion") return "documentVersion";
   if (key === "planName") return "planName";
   if (key === "planId" || key === "plan" || key === "boughtPlanId") return "planId";
   if (key === "channel" || key === "channels") return "channel";

@@ -152,6 +152,9 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   // The approval inbox: billing items past due wait on the owner today. A
   // legal-clock kind (none yet) is the owner's to rank: urgent if it joins.
   approval_waiting: "today",
+  // An email to a clinic waiting for the owner's yes: nothing is late for
+  // the clinic, and no clock runs (lane P6f).
+  clinic_email_waiting: "fyi",
 };
 
 /** The tag's word and colour, the subject's prefix and Slack's emoji, by level. */

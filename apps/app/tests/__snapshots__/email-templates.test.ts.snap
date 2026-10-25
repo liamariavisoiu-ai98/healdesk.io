@@ -776,6 +776,104 @@ Replies reach the healdesk team. Please leave out patient details.
 }
 `;
 
+exports[`each template's output > agreement_question, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>A quick question about your healdesk agreement</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">One word back from you: Yes, No or Not sure.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Hi Radiance Med Spa team, when you signed up you told us your practice doesn&#39;t bill insurance electronically, so you signed our Data Protection Agreement. Your website mentions accepting insurance. That can be fine (superbills, or being out of network).</p>
+<p style="margin:0 0 16px;">If your practice sends insurance claims or eligibility checks electronically, though, you need our business associate agreement instead.</p>
+<p style="margin:0 0 16px;">Could you reply with one word: Yes, No or Not sure?</p>
+<p style="margin:0 0 16px;">If it&#39;s Yes or Not sure, we&#39;ll send the business associate agreement to sign, and AYA pauses until it&#39;s signed. If it&#39;s No, nothing changes.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "One word back from you: Yes, No or Not sure.",
+  "subject": "A quick question about your healdesk agreement",
+  "text": "Hi Radiance Med Spa team, when you signed up you told us your practice doesn't bill insurance electronically, so you signed our Data Protection Agreement. Your website mentions accepting insurance. That can be fine (superbills, or being out of network).
+
+If your practice sends insurance claims or eligibility checks electronically, though, you need our business associate agreement instead.
+
+Could you reply with one word: Yes, No or Not sure?
+
+If it's Yes or Not sure, we'll send the business associate agreement to sign, and AYA pauses until it's signed. If it's No, nothing changes.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out your clients' details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > agreement_question, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>A quick question about your healdesk agreement</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">One word back from you: Yes, No or Not sure.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Hi Radiance Med Spa team, when you signed up you told us your practice doesn&#39;t bill insurance electronically, so you signed our Data Protection Agreement. Your website mentions accepting insurance. That can be fine (superbills, or being out of network).</p>
+<p style="margin:0 0 16px;">If your practice sends insurance claims or eligibility checks electronically, though, you need our business associate agreement instead.</p>
+<p style="margin:0 0 16px;">Could you reply with one word: Yes, No or Not sure?</p>
+<p style="margin:0 0 16px;">If it&#39;s Yes or Not sure, we&#39;ll send the business associate agreement to sign, and AYA pauses until it&#39;s signed. If it&#39;s No, nothing changes.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "One word back from you: Yes, No or Not sure.",
+  "subject": "A quick question about your healdesk agreement",
+  "text": "Hi Radiance Med Spa team, when you signed up you told us your practice doesn't bill insurance electronically, so you signed our Data Protection Agreement. Your website mentions accepting insurance. That can be fine (superbills, or being out of network).
+
+If your practice sends insurance claims or eligibility checks electronically, though, you need our business associate agreement instead.
+
+Could you reply with one word: Yes, No or Not sure?
+
+If it's Yes or Not sure, we'll send the business associate agreement to sign, and AYA pauses until it's signed. If it's No, nothing changes.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > agreement_to_sign, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>
@@ -1175,6 +1273,110 @@ exports[`each template's output > assistant_ready, for patients: the snapshot 1`
 Talk to her before anyone else does. Ask what your patients ask; in the preview nothing reaches a patient, and nothing is booked. If she gets something wrong, change it in Knowledge and she uses it from then on.
 
 Talk to your AYA: https://app.healdesk.test/c/radiance-med-spa
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > baa_resign_chase, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your updated business associate agreement is waiting</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Version 1.5.1 is ready for your signature.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Hi Radiance Med Spa team, version 1.5.1 of our business associate agreement is ready for your signature.</p>
+<p style="margin:0 0 16px;">AYA keeps answering as normal under the version you signed (1.4.0). Nothing changes until you sign.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/agreement/Bq7LmW2pXr9VtN4bKc8HsJ3dFg6Ae1UoIiQ5yBxCvMnTwPkRlSjDhGfEaOuYzX0q1w2e3r4t5y6u7i8o9p0aZxCvBnM1" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open, read and sign</a></p>
+<p style="margin:0 0 16px;">This link works for 14 days.</p>
+<p style="margin:0 0 16px;">If anything in it raises a question, just reply to this email.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Version 1.5.1 is ready for your signature.",
+  "subject": "Your updated business associate agreement is waiting",
+  "text": "Hi Radiance Med Spa team, version 1.5.1 of our business associate agreement is ready for your signature.
+
+AYA keeps answering as normal under the version you signed (1.4.0). Nothing changes until you sign.
+
+Open, read and sign: https://app.healdesk.test/agreement/Bq7LmW2pXr9VtN4bKc8HsJ3dFg6Ae1UoIiQ5yBxCvMnTwPkRlSjDhGfEaOuYzX0q1w2e3r4t5y6u7i8o9p0aZxCvBnM1
+
+This link works for 14 days.
+
+If anything in it raises a question, just reply to this email.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out your clients' details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > baa_resign_chase, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your updated business associate agreement is waiting</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Version 1.5.1 is ready for your signature.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Hi Radiance Med Spa team, version 1.5.1 of our business associate agreement is ready for your signature.</p>
+<p style="margin:0 0 16px;">AYA keeps answering as normal under the version you signed (1.4.0). Nothing changes until you sign.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/agreement/Bq7LmW2pXr9VtN4bKc8HsJ3dFg6Ae1UoIiQ5yBxCvMnTwPkRlSjDhGfEaOuYzX0q1w2e3r4t5y6u7i8o9p0aZxCvBnM1" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open, read and sign</a></p>
+<p style="margin:0 0 16px;">This link works for 14 days.</p>
+<p style="margin:0 0 16px;">If anything in it raises a question, just reply to this email.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Version 1.5.1 is ready for your signature.",
+  "subject": "Your updated business associate agreement is waiting",
+  "text": "Hi Radiance Med Spa team, version 1.5.1 of our business associate agreement is ready for your signature.
+
+AYA keeps answering as normal under the version you signed (1.4.0). Nothing changes until you sign.
+
+Open, read and sign: https://app.healdesk.test/agreement/Bq7LmW2pXr9VtN4bKc8HsJ3dFg6Ae1UoIiQ5yBxCvMnTwPkRlSjDhGfEaOuYzX0q1w2e3r4t5y6u7i8o9p0aZxCvBnM1
+
+This link works for 14 days.
+
+If anything in it raises a question, just reply to this email.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -6652,6 +6854,204 @@ Replies reach the healdesk team. Please leave out patient details.
 }
 `;
 
+exports[`each template's output > setup_extended, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>More time to finish setting up AYA</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You now have until Friday 20 November to finish setup.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">We&#39;ve given you 14 more days: you now have until the end of Friday 20 November to finish setting up AYA for Radiance Med Spa. What&#39;s left:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Finish setup: one step left</li><li>Phone: Set call forwarding on your main line</li></ul>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/setup" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Continue setup</a></p>
+<p style="margin:0 0 16px;">If something on your side is in the way, reply to this email and we&#39;ll sort it out with you.</p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include client details.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "You now have until Friday 20 November to finish setup.",
+  "subject": "More time to finish setting up AYA",
+  "text": "We've given you 14 more days: you now have until the end of Friday 20 November to finish setting up AYA for Radiance Med Spa. What's left:
+
+- Finish setup: one step left
+- Phone: Set call forwarding on your main line
+
+Continue setup: https://app.healdesk.test/c/radiance-med-spa/setup
+
+If something on your side is in the way, reply to this email and we'll sort it out with you.
+
+Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include client details.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out your clients' details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > setup_extended, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>More time to finish setting up AYA</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You now have until Friday 20 November to finish setup.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">We&#39;ve given you 14 more days: you now have until the end of Friday 20 November to finish setting up AYA for Radiance Med Spa. What&#39;s left:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Finish setup: one step left</li><li>Phone: Set call forwarding on your main line</li></ul>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/setup" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Continue setup</a></p>
+<p style="margin:0 0 16px;">If something on your side is in the way, reply to this email and we&#39;ll sort it out with you.</p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include patient details.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "You now have until Friday 20 November to finish setup.",
+  "subject": "More time to finish setting up AYA",
+  "text": "We've given you 14 more days: you now have until the end of Friday 20 November to finish setting up AYA for Radiance Med Spa. What's left:
+
+- Finish setup: one step left
+- Phone: Set call forwarding on your main line
+
+Continue setup: https://app.healdesk.test/c/radiance-med-spa/setup
+
+If something on your side is in the way, reply to this email and we'll sort it out with you.
+
+Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include patient details.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > setup_help_offer, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Want us to finish this with you?</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Five minutes on a call, and we&#39;ll do it together.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Setting up your phone line takes about five minutes with someone on the line. Pick a time and we&#39;ll do it together.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
+<p style="margin:0 0 16px;">Or reply with a time that suits you.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Five minutes on a call, and we'll do it together.",
+  "subject": "Want us to finish this with you?",
+  "text": "Setting up your phone line takes about five minutes with someone on the line. Pick a time and we'll do it together.
+
+Book a five-minute call: https://app.healdesk.test/help/call
+
+Or reply with a time that suits you.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out your clients' details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > setup_help_offer, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Want us to finish this with you?</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Five minutes on a call, and we&#39;ll do it together.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Setting up your phone line takes about five minutes with someone on the line. Pick a time and we&#39;ll do it together.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
+<p style="margin:0 0 16px;">Or reply with a time that suits you.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Five minutes on a call, and we'll do it together.",
+  "subject": "Want us to finish this with you?",
+  "text": "Setting up your phone line takes about five minutes with someone on the line. Pick a time and we'll do it together.
+
+Book a five-minute call: https://app.healdesk.test/help/call
+
+Or reply with a time that suits you.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > setup_reminder, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>
@@ -6759,6 +7159,86 @@ Call forwarding is easier with someone on the line. Book a five-minute call and 
 Book a five-minute call: https://app.healdesk.test/help/call
 
 Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include patient details.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > setup_waiting_on_us, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Nothing for you to do: we&#39;re finishing your phone line</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You&#39;ve done your part. The next step is ours.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">You&#39;ve done your part. We&#39;re finishing your phone line on our side and will email you when it&#39;s ready. You don&#39;t need to do anything.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out your clients&#39; details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "You've done your part. The next step is ours.",
+  "subject": "Nothing for you to do: we're finishing your phone line",
+  "text": "You've done your part. We're finishing your phone line on our side and will email you when it's ready. You don't need to do anything.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out your clients' details.
+800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > setup_waiting_on_us, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Nothing for you to do: we&#39;re finishing your phone line</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You&#39;ve done your part. The next step is ours.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">You&#39;ve done your part. We&#39;re finishing your phone line on our side and will email you when it&#39;s ready. You don&#39;t need to do anything.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "You've done your part. The next step is ours.",
+  "subject": "Nothing for you to do: we're finishing your phone line",
+  "text": "You've done your part. We're finishing your phone line on our side and will email you when it's ready. You don't need to do anything.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

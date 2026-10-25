@@ -215,6 +215,18 @@ export const NOTICE_KIND_REGISTRY = {
   // at once and at any hour: the clinic has just made the change, and the
   // email backs up the note the save showed it.
   closed_day_bookings: kind("O17", "transactional", "normal", null, "any_hour", "plan"),
+  // Ops automation lane P6f: emails the owner sends a clinic by hand, each
+  // only through the approval inbox after his yes, each from a fixed
+  // template whose only editable parts are closed fields (owner decision
+  // D12). Daytime: none is an alert, and a clinic should not get one at 3 am.
+  // O18: more time to finish setup, queued only after the extension went through.
+  setup_extended: kind("O18", "transactional", "normal", null, "daytime", "plan"),
+  // O19: the clinic has done its part and a step is ours (never extends anything, D6).
+  setup_waiting_on_us: kind("O19", "transactional", "normal", null, "daytime", "plan"),
+  // O20: the offer of a five-minute call, once per lifecycle stage entry.
+  setup_help_offer: kind("O20", "transactional", "normal", null, "daytime", "plan"),
+  // L36: which agreement a DPA "No" practice whose website takes insurance needs.
+  agreement_question: kind("L36", "transactional", "normal", null, "daytime", "plan"),
 } as const;
 
 export type NoticeKind = keyof typeof NOTICE_KIND_REGISTRY;

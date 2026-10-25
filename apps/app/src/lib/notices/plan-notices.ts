@@ -33,6 +33,10 @@ import type { TermsNoticePayload } from "@/lib/email/templates/terms_notice";
 import type { WeeklyRecapPayload } from "@/lib/email/templates/weekly_recap";
 import type { WebsiteChangesPayload } from "@/lib/email/templates/website_changes";
 import type { ClosedDayBookingsPayload } from "@/lib/email/templates/closed_day_bookings";
+import type { AgreementQuestionPayload } from "@/lib/email/templates/agreement_question";
+import type { SetupExtendedPayload } from "@/lib/email/templates/setup_extended";
+import type { SetupHelpOfferPayload } from "@/lib/email/templates/setup_help_offer";
+import type { SetupWaitingOnUsPayload } from "@/lib/email/templates/setup_waiting_on_us";
 
 /**
  * The plan's own outbox kinds (lib/email/kinds.ts, owner "plan"): their
@@ -157,6 +161,17 @@ export type PlanNoticePayloads = {
    * set of days a save closed that already had bookings (lib/portal/knowledge.ts).
    */
   closed_day_bookings: ClosedDayBookingsPayload;
+  // Ops automation lane P6f: queued only by the approval inbox's executors
+  // (lib/approvals/contact-executors.ts), each under `<kind>:<approval id>`,
+  // once per approved item, and help offers once per lifecycle stage entry.
+  /** Dedupe `setup_extended:<approval id>`. */
+  setup_extended: SetupExtendedPayload;
+  /** Dedupe `setup_waiting_on_us:<stage since>`: once per entry into waiting on us. */
+  setup_waiting_on_us: SetupWaitingOnUsPayload;
+  /** Dedupe `setup_help_offer:<stage>:<stage since>`: once per stage entry (E2). */
+  setup_help_offer: SetupHelpOfferPayload;
+  /** Dedupe `agreement_question:<approval id>`. */
+  agreement_question: AgreementQuestionPayload;
 };
 
 // The payload map and the registry's plan kinds name the same kinds: adding a

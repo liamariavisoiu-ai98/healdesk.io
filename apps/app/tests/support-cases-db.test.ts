@@ -18,7 +18,7 @@ import { ESCALATION_TOPICS, type EscalationFields } from "@/lib/support/escalati
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getAppPool, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { seedClinic } from "./setup/factories";
+import { inTenant, seedClinic } from "./setup/factories";
 
 /**
  * Support cases (ops automation lane P7a; drizzle/0125) against the real
@@ -395,7 +395,16 @@ describeDb("support cases (drizzle/0125)", () => {
 
     const results = (await destroyDueClinics()).filter((r) => r.clinicId === leaving.clinicId);
     expect(results).toHaveLength(1);
-    expect(results[0]!.deleted).toMatchObject({ support_cases: 2 });
+    // Counted in the destruction's audit row, beside the tenant tables' counts.
+    const audits = await inTenant(leaving.clinicId, async (q) =>
+      (
+        await q.query<{ metadata: Record<string, unknown> }>(
+          `select metadata from audit_log where resource_type = 'clinic_destruction' and resource_id = $1`,
+          [leaving.clinicId],
+        )
+      ).rows,
+    );
+    expect(audits).toEqual([expect.objectContaining({ metadata: expect.objectContaining({ supportCasesDeleted: 2 }) })]);
     expect(await casesOf(leaving.clinicId)).toEqual([]);
     const { rows: orphans } = await getMigratorPool().query(`select 1 from support_messages where case_id = $1`, [mine.caseId]);
     expect(orphans).toEqual([]);

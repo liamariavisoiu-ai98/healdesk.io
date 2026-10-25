@@ -1,4 +1,6 @@
-import { PATIENT_REQUEST_KINDS, type PatientRequestKind } from "@/db/schema";
+import { eq } from "drizzle-orm";
+
+import { clinics, PATIENT_REQUEST_KINDS, type PatientRequestKind } from "@/db/schema";
 import { describeError, log } from "@/lib/log";
 import { isIsoDay, RIGHTS_KINDS, RIGHTS_VERIFICATIONS, utcDay, type RightsKind, type RightsVerification } from "@/lib/rights/clocks";
 import {
@@ -11,7 +13,7 @@ import {
   RIGHTS_LIST_MAX,
   type RightsFilter,
 } from "@/lib/rights/tracker";
-import { withTenant } from "@/lib/tenant";
+import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { actorFor, audit, clinicById, ok, opsProblem, UUID_SHAPED, type Operator, type OpsOutcome } from "./api";
 
@@ -47,6 +49,29 @@ const UNKNOWN = (args: Record<string, unknown>, allowed: readonly string[]) =>
 export function operatorLabel(email: string): string {
   const local = email.split("@")[0]?.toLowerCase() ?? "";
   return /^[a-z0-9._+-]{1,64}$/.test(local) && !/[0-9]{3,}/.test(local) ? local : "operator";
+}
+
+/** The refusal for a clinic whose data was destroyed: its intakes went with it (drizzle/0121). */
+export const RIGHTS_CLINIC_DESTROYED =
+  "This clinic's data has already been destroyed; its patient-rights records went with it.";
+/** The refusal for a clinic whose account is closed (app_refuse_after_account_closure). */
+export const RIGHTS_ACCOUNT_CLOSED = "This clinic's account is closed.";
+
+/**
+ * Whether the clinic has left past the point an intake can be written: read
+ * in the write's own transaction, before it, so the operator gets the reason
+ * as a 409 rather than the database's refusal as a 500. A closed account is
+ * named first: it was destroyed too, and the closure is the later fact.
+ */
+async function clinicGone(tx: TenantTx): Promise<string | null> {
+  const [row] = await tx.db
+    .select({ closedAt: clinics.accountClosedAt, destroyedAt: clinics.destroyedAt })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  if (row?.closedAt) return RIGHTS_ACCOUNT_CLOSED;
+  if (row?.destroyedAt) return RIGHTS_CLINIC_DESTROYED;
+  return null;
 }
 
 export async function opListRights(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
@@ -138,8 +163,10 @@ export async function opRecordRightsIntake(
   try {
     const outcome = await withTenant(
       { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-      (tx) =>
-        recordIntake(tx, {
+      async (tx) => {
+        const gone = await clinicGone(tx);
+        if (gone) return { outcome: "gone" as const, why: gone };
+        return recordIntake(tx, {
           requestKey,
           kind,
           receivedOn,
@@ -147,8 +174,10 @@ export async function opRecordRightsIntake(
           askedFor,
           linkedRecordId,
           recordedBy: operatorLabel(operator.email),
-        }),
+        });
+      },
     );
+    if (outcome.outcome === "gone") return opsProblem(outcome.why, 409, "invalid_args");
     if (outcome.outcome === "not_found") {
       return opsProblem("No such record at this clinic for that kind of request.", 404, "invalid_args");
     }
@@ -191,8 +220,13 @@ export async function opCloseRightsIntake(args: Record<string, unknown>, operato
   try {
     const outcome = await withTenant(
       { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-      (tx) => closeIntake(tx, { id: rawId, status }),
+      async (tx) => {
+        const gone = await clinicGone(tx);
+        if (gone) return { outcome: "gone" as const, why: gone };
+        return closeIntake(tx, { id: rawId, status });
+      },
     );
+    if (outcome.outcome === "gone") return opsProblem(outcome.why, 409, "invalid_args");
     if (outcome.outcome === "not_found") return opsProblem("No such intake at this clinic.", 404, "invalid_args");
     if (outcome.outcome === "retell_outstanding") return opsProblem(`${RETELL_OUTSTANDING}.`, 409, "invalid_args");
     if (outcome.outcome === "already_closed") return ok({ ...outcome, auditRecorded: true });

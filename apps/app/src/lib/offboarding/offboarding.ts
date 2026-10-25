@@ -25,6 +25,7 @@ import {
   providerConnections,
   reconciliationExceptions,
   retellRecordingAlerts,
+  rightsIntakes,
   securityEvents,
   slotHolds,
   transactions,
@@ -705,9 +706,27 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // other patient-rights records, open or closed, as an open patient request
   // or an erasure with its Retell step outstanding does (owner, 25 October
   // 2026). The app role cannot delete one, so app_destroy_rights_intakes()
-  // does, on the same floor (drizzle/0121).
+  // does, on the same floor (drizzle/0121). The open ones are read first:
+  // an open request was still owed to someone, and the delete leaves no
+  // trace of it, so ops is told which (ids and kinds only), as the open
+  // Retell alerts are above, and the audit row counts both.
+  const intakeRows = await tx.db
+    .select({ id: rightsIntakes.id, kind: rightsIntakes.kind, status: rightsIntakes.status })
+    .from(rightsIntakes)
+    .where(eq(rightsIntakes.clinicId, c));
+  const openIntakes = intakeRows.filter((r) => r.status === "open");
   const intakes = await tx.db.execute<{ n: number }>(sql`select app_destroy_rights_intakes(${c}::uuid) as n`);
   deleted.rights_intakes = intakes.rows[0]?.n ?? 0;
+  if (openIntakes.length > 0) {
+    log.error("destruction took open patient-rights intakes: check each was answered or passed on", {
+      clinicId: c,
+      // Allowlisted keys only (lib/log.ts): the intake ids under requestId
+      // and their kinds under kind, comma-joined, in the same order.
+      count: openIntakes.length,
+      requestId: openIntakes.map((r) => r.id).join(","),
+      kind: openIntakes.map((r) => r.kind).join(","),
+    });
+  }
   // sync_runs and connection_links are append-only by grant (0015, 0024):
   // operational history with no patient in it, kept as the record of what
   // ran. The credentials go with the connection row below.
@@ -762,7 +781,12 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
     resourceType: "clinic_destruction",
     resourceId: c,
     resultCount: total,
-    metadata: { ...Object.fromEntries(Object.entries(deleted).map(([k, v]) => [k, v])), stripe_connect_events: connectEvents },
+    metadata: {
+      ...Object.fromEntries(Object.entries(deleted).map(([k, v]) => [k, v])),
+      stripe_connect_events: connectEvents,
+      rightsIntakesOpen: openIntakes.length,
+      rightsIntakesClosed: intakeRows.length - openIntakes.length,
+    },
   });
   return { clinicId: c, deleted };
 }

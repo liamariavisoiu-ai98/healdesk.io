@@ -79,8 +79,12 @@ export function voiceDisclosure(context: DisclosureContext): string {
  * The opener of a personalised demo call (owner, 24 October 2026: the demo
  * AYA and the client AYA are the same, "only difference should be the
  * start"). The demo is asked for by someone on the clinic's own team, who
- * typed their first name on the demo page, so AYA greets them by it and asks
- * how they are, as a person would, rather than asking what they want to book.
+ * typed their first name on the demo page, so Aya checks she has them, as a
+ * person calling would (owner, 25 October 2026: "Hi, am I speaking with
+ * [Name]?"), rather than asking what they want to book; the question comes
+ * last, after the notice, so it hands the turn over. Their role at the
+ * clinic is asked next, in the first reply (demo-facts.ts, demoIntroNote).
+ * "Aya", never "AYA": a voice spells capitals out letter by letter.
  *
  * It carries the same two facts as voiceDisclosure, in the same breath and
  * first, before anything else is said: "AI assistant" and "transcribed"
@@ -91,7 +95,8 @@ export function voiceDisclosure(context: DisclosureContext): string {
  * cleaned it (letters, apostrophes and hyphens), or "there" without one.
  */
 export function demoVoiceOpening(context: { clinicName: string; firstName: string | null }): string {
-  return `Hi ${context.firstName ?? "there"}! I'm AYA, the AI assistant for ${context.clinicName}, and this call's transcribed. How are you doing today?`;
+  const ask = context.firstName ? `Am I speaking with ${context.firstName}?` : "Who am I speaking with?";
+  return `Hi! This is Aya, the AI assistant for ${context.clinicName}, and this call's transcribed. ${ask}`;
 }
 
 /**

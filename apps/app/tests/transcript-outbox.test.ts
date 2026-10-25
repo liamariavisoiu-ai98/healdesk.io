@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { sql } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
   deliverTranscriptEmail,
@@ -15,6 +15,7 @@ import {
   sendQueuedTranscriptNow,
   transcriptWork,
 } from "@/lib/conversations/transcript-outbox";
+import { log } from "@/lib/log";
 import { isMutating, runOperation, type Operator } from "@/lib/ops/api";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { JOB_TRANSCRIPT_EMAILS } from "@/lib/scheduler/jobs";
@@ -555,7 +556,11 @@ describeDb("the transcript outbox", () => {
     await setSwitch(false);
     const transport = new FakeTransport();
     expect((await runTranscriptEmailsJob({ transport })).status).toBe("disabled");
+    const warn = vi.spyOn(log, "warn");
     expect(await sendQueuedTranscriptNow(clinicId, id, { transport })).toBe("disabled");
+    // Said, never silent: the switch being off is why a clinic gets no transcript.
+    expect(warn).toHaveBeenCalledWith("transcript waiting: the transcript-emails job is off", { clinicId, jobId: id });
+    warn.mockRestore();
     expect(transport.sent).toHaveLength(0);
     await setSwitch(true);
     expect(await sendQueuedTranscriptNow(clinicId, id, { transport })).toBe("sent");

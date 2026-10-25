@@ -20,8 +20,9 @@ import type { AssistantChannel } from "./facts";
  *     until 24 October 2026, when the owner chose speed: the marketing demo
  *     measured Haiku's share of a pause at 0.63s median against Sonnet 5.5's
  *     1.07s, apps/web/scripts/retell-demo-agent.ts), streamed, 400 tokens,
- *     8 seconds and no retry, after which the caller hears the failure line
- *     instead of silence;
+ *     thinking off (THINKING_OFF: Haiku 5.5 thinks by default, silently,
+ *     before its first word), 8 seconds and no retry, after which the
+ *     caller hears the failure line instead of silence;
  *   - the Meta front door: claude-opus-5-5, 800 tokens, adaptive thinking,
  *     the SDK's own timeout and retries, as it always had.
  *
@@ -97,8 +98,12 @@ type ChannelConfig = {
   timeoutMs: number | undefined;
   /** Undefined keeps the SDK's default. */
   maxRetries: number | undefined;
-  /** "adaptive" asks for adaptive thinking; null leaves the model's own default. */
-  thinking: "adaptive" | null;
+  /**
+   * "adaptive" asks for adaptive thinking; "off" turns thinking off where the
+   * model in use accepts that (THINKING_OFF), and leaves its own default
+   * elsewhere; null leaves the model's own default.
+   */
+  thinking: "adaptive" | "off" | null;
   /** The longest message passed on, in characters. */
   maxMessageChars: number;
 };
@@ -119,7 +124,7 @@ export const MODEL_CONFIG: Readonly<Record<ModelChannel, ChannelConfig>> = {
     maxTokens: 400,
     timeoutMs: 8_000,
     maxRetries: 0,
-    thinking: null,
+    thinking: "off",
     maxMessageChars: 4_000,
   },
   meta: {
@@ -131,6 +136,21 @@ export const MODEL_CONFIG: Readonly<Record<ModelChannel, ChannelConfig>> = {
     thinking: "adaptive",
     maxMessageChars: 2_000,
   },
+};
+
+/**
+ * Which patient models accept thinking turned off at low effort. Haiku 5.5
+ * thinks by default, and its thinking text is omitted, so on a call it is
+ * silence before the first word (owner, 25 October 2026: "an awkward 2 to 5
+ * second pause"). Opus 5.5 and Sonnet 5.5 refuse `disabled` with a 400, so a
+ * call moved onto one by HEALDESK_VOICE_MODEL keeps its default at low effort
+ * rather than failing every turn. Safe to switch per request: no channel
+ * replays a thinking block, only text.
+ */
+const THINKING_OFF: Readonly<Record<PatientModelId, boolean>> = {
+  "claude-haiku-5-5": true,
+  "claude-sonnet-5-5": false,
+  "claude-opus-5-5": false,
 };
 
 /** Each refused override is warned about once per process, not on every turn. */
@@ -172,10 +192,17 @@ export function modelRequest(input: {
     { type: "text", text: input.system.stable, cache_control: { type: "ephemeral" } },
   ];
   if (input.system.turn.trim()) system.push({ type: "text", text: input.system.turn });
+  const model = assistantModel(input.channel);
+  const thinking: Anthropic.ThinkingConfigParam | null =
+    config.thinking === "adaptive"
+      ? { type: "adaptive" }
+      : config.thinking === "off" && THINKING_OFF[model]
+      ? { type: "disabled" }
+      : null;
   return {
-    model: assistantModel(input.channel),
+    model,
     max_tokens: config.maxTokens,
-    ...(config.thinking ? { thinking: { type: config.thinking } } : {}),
+    ...(thinking ? { thinking } : {}),
     output_config: { effort: "low" },
     system,
     messages: input.messages.map((m) => ({ role: m.role, content: m.content.slice(0, config.maxMessageChars) })),

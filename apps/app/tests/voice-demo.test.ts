@@ -43,10 +43,12 @@ import {
   demoAssistantFacts,
   demoContextFromCall,
   demoDuration,
-  demoIntroNote,
-  demoOngoingNote,
+  demoOpenDays,
   demoPrice,
+  demoRoleplayOpener,
+  demoStageNote,
   demoTimeZone,
+  nextDemoStage,
 } from "@/lib/voice/demo-facts";
 import { DEMO_EXPIRED_LINE, RetellCallSession, type RetellOutbound, type RetellSessionDeps } from "@/lib/voice/retell";
 import { createVoiceServer } from "@/voice/server";
@@ -220,60 +222,106 @@ describe("a demo call's facts", () => {
     expect(demoContextFromCall(null)).toBeNull();
   });
 
-  test("the opening line says AI assistant and transcribed, by name or not", () => {
+  test("the opening line says AI assistant and transcribed first, writes 'Aya', and asks who it has", () => {
     const named = demoVoiceOpening({ clinicName: "Lumen Aesthetics", firstName: "Sam" });
-    expect(named).toBe("Hi Sam! I'm AYA, the AI assistant for Lumen Aesthetics, and this call's transcribed. How are you doing today?");
+    expect(named).toBe("Hi! This is Aya, the AI assistant for Lumen Aesthetics, and this call's transcribed. Am I speaking with Sam?");
     const unnamed = demoVoiceOpening({ clinicName: "Lumen Aesthetics", firstName: null });
-    expect(unnamed).toBe("Hi there! I'm AYA, the AI assistant for Lumen Aesthetics, and this call's transcribed. How are you doing today?");
+    expect(unnamed).toBe("Hi! This is Aya, the AI assistant for Lumen Aesthetics, and this call's transcribed. Who am I speaking with?");
     for (const line of [named, unnamed]) {
       expect(line).toContain("AI assistant");
       expect(line).toContain("transcribed");
+      // A voice spells capitals out letter by letter (owner, 25 October 2026: "A-Y-A").
+      expect(line).not.toContain("AYA");
     }
   });
 
-  test("the intro note says who is calling, gives the A/B choice and keeps to 'your patients'", () => {
-    const note = demoIntroNote(context());
+  test("the intro note asks the role, then gives the owner's A/B choice, and starts the role-play with its opener", () => {
+    const note = demoStageNote(context(), "intro", Date.now());
     expect(note).toContain("live demo for Sam");
-    expect(note).toContain("Lumen Aesthetics's team");
-    expect(note).toMatch(/hear what I've learned about Lumen Aesthetics, or jump straight into a role-play/);
+    expect(note).toContain("What's your role at Lumen Aesthetics?");
+    expect(note).toContain("I'll keep this super brief. Would you like to hear what I can do for Lumen Aesthetics and how that helps your team, or jump straight into a quick role-play");
+    expect(note).toContain(`start it by saying exactly: "${demoRoleplayOpener("Lumen Aesthetics")}"`);
     expect(note).toMatch(/English and Spanish/);
-    expect(note).toMatch(/Never mention a website, scraping/);
+    expect(note).toMatch(/never mention a website, scraping/);
     expect(note).toContain('Say "your patients", never "our patients"');
+    expect(note).toContain('write it exactly "Aya", never "AYA"');
     expect(note).toMatch(/no flirting/);
-    expect(demoIntroNote(context({ firstName: null }))).toContain("live demo for the caller");
+    expect(demoStageNote(context({ firstName: null }), "intro", Date.now())).toContain("live demo for the caller");
   });
 
-  test("the ongoing note keeps the name and role-play state without repeating the opening", () => {
-    const now = Date.now();
-    const note = demoOngoingNote(context(), now);
-    expect(note).toContain("still the live demo for Sam");
-    expect(note).toMatch(/Keep everything said earlier in this call in mind, their name included/);
-    expect(note).toMatch(/stay fully in that role/);
-    expect(note).not.toMatch(/role-play where you call in as one of your patients\?/);
-    expect(note).not.toMatch(/jump straight into a role-play/);
-    expect(demoOngoingNote(context({ firstName: null }), now)).toContain("still the live demo for the caller");
+  test("the role-play note keeps her in character, wraps up on its own and never ends the call", () => {
+    const note = demoStageNote(context(), "roleplay", Date.now());
+    expect(note).toContain("The role-play is on: Sam");
+    expect(note).toContain("Keep in mind everything said earlier, their name included");
+    expect(note).toContain('step out of character with exactly: "Ok, how was that? Haha!"');
+    expect(note).toContain('Never set "end" to true during the role-play');
+    // No stage's script runs into another.
+    expect(note).not.toMatch(/super brief|how many calls/);
   });
 
-  test("the ongoing note mentions a live discount only while it is live, as a percentage and a window, never a dollar amount", () => {
+  test("the pitch note makes the point, asks the discovery questions from the open days, and pitches without a price", () => {
     const now = Date.now();
-    const live = demoOngoingNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), now);
+    const note = demoStageNote(context(), "pitch", now);
+    expect(note).toContain("I'm built to do that 24/7, on the phone and in your website chat, Instagram, Messenger and WhatsApp");
+    expect(note).toContain("never on a call and never by text message");
+    expect(note).toContain('"Generally, how many calls do you get a day?"');
+    // Mon-Fri on the website: five days, said as a fact only because the hours say so plainly.
+    expect(note).toContain(`"I see you're open 5 days a week, so would it be fair to say about [their number times 5] calls a week`);
+    expect(note).toContain("after-hours calls only, taking over when the lines are busy, or handling all your incoming calls?");
+    expect(note).toContain("Aya Voice, Aya Web Chat, Aya Meta Chat");
+    // Capitals only in the rule against them, so nothing she copies spells it out.
+    expect(note.replace('never "AYA"', "")).not.toContain("AYA");
+    expect(note).not.toMatch(/super brief|Ring ring/);
+    // Hours it cannot read: it asks rather than says a number of days.
+    const unread = demoStageNote(context({ clinic: { ...context().clinic, hours: [{ days: "Most days", hours: "by arrangement" }] } }), "pitch", now);
+    expect(unread).toContain("ask how many days a week they are open");
+    expect(unread).not.toMatch(/you're open \d days/);
+  });
+
+  test("the pitch note mentions a live discount only while it is live, as a percentage and a window, never a dollar amount", () => {
+    const now = Date.now();
+    const live = demoStageNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), "pitch", now);
     expect(live).toMatch(/50% off healdesk's setup fee, with about 10 hours left on it/);
     expect(live).toMatch(/never a dollar amount/);
-    // A spoken sentence in the shape the note asks for trips nothing the guard
-    // checks: no dollar sign, currency word or code, so amountsIn finds none,
-    // and "hours left" (the unit right after the number) is not read as a
-    // dose-like figure the way "10 more hours" would be (guard.ts PLAIN_CLINICAL).
-    const facts = demoAssistantFacts(context());
-    expect(guardAssistantReply("There's actually a 50% discount on healdesk's setup fee, with about 10 hours left on it.", facts)).toEqual({ ok: true });
-
-    const almostOver = demoOngoingNote(context({ offer: { percentOfSetupFee: 30, endsAt: now + 30 * 60_000 } }), now);
+    const almostOver = demoStageNote(context({ offer: { percentOfSetupFee: 30, endsAt: now + 30 * 60_000 } }), "pitch", now);
     expect(almostOver).toMatch(/30% off healdesk's setup fee, with about 1 hour left on it\b/);
+    for (const offer of [{ percentOfSetupFee: 50, endsAt: now - 1_000 }, null]) {
+      expect(demoStageNote(context({ offer }), "pitch", now)).not.toMatch(/% off healdesk's setup fee/);
+    }
+    // Only the pitch carries it.
+    const intro = demoStageNote(context({ offer: { percentOfSetupFee: 50, endsAt: now + 10 * 3_600_000 } }), "intro", now);
+    expect(intro).not.toMatch(/% off/);
+  });
 
-    const ended = demoOngoingNote(context({ offer: { percentOfSetupFee: 50, endsAt: now - 1_000 } }), now);
-    expect(ended).not.toMatch(/% off healdesk's setup fee/);
+  test("every line the notes put in Aya's mouth passes the guard, a number of calls included", () => {
+    const facts = demoAssistantFacts(context());
+    const lines = [
+      "Great to meet you, Sam! What's your role at Lumen Aesthetics?",
+      "Awesome, look, I'll keep this super brief. Would you like to hear what I can do for Lumen Aesthetics and how that helps your team, or jump straight into a quick role-play to see how I handle a live patient call?",
+      demoRoleplayOpener("Lumen Aesthetics"),
+      "Perfect, we'll see you Friday! Ok, how was that? Haha!",
+      "I'm built to do that 24/7, on the phone and in your website chat, Instagram, Messenger and WhatsApp: taking bookings, sending your own deposit link in chat, and answering patient questions automatically.",
+      "Generally, how many calls do you get a day?",
+      "I see you're open 5 days a week, so would it be fair to say about 100 calls a week, or around 430 calls a month?",
+      "What happens with after-hours calls, or when your team's busy with patients?",
+      "How do you see me helping you best: after-hours calls only, taking over when the lines are busy, or handling all your incoming calls?",
+      "Sounds like Voice plus Web Chat would fit you best.",
+      "There's actually a 50% discount on healdesk's setup fee, with about 10 hours left on it.",
+    ];
+    for (const line of lines) expect([line, guardAssistantReply(line, facts)]).toEqual([line, { ok: true }]);
+    // A count without "calls" after it is still read as a dose: "about 2 a day".
+    expect(guardAssistantReply("Most people take about 2 a day.", facts)).toMatchObject({ ok: false });
+  });
 
-    const none = demoOngoingNote(context({ offer: null }), now);
-    expect(none).not.toMatch(/% off healdesk's setup fee/);
+  test("the stage moves on only on the scripted lines, and the open days come from hours it can read", () => {
+    expect(nextDemoStage("intro", "Would you like to hear more, or jump into a role-play?")).toBe("intro");
+    expect(nextDemoStage("intro", demoRoleplayOpener("Lumen Aesthetics"))).toBe("roleplay");
+    expect(nextDemoStage("roleplay", "Sure, Friday at 3 works. Anything else?")).toBe("roleplay");
+    expect(nextDemoStage("roleplay", "See you then! Ok, how was that? Haha!")).toBe("pitch");
+    expect(nextDemoStage("pitch", "Ring ring!")).toBe("pitch");
+    expect(demoOpenDays(context())).toBe(5);
+    expect(demoOpenDays(context({ clinic: { ...context().clinic, hours: [{ days: "Mon-Fri", hours: "9am-6pm" }, { days: "Saturday", hours: "10am-2pm" }, { days: "Sunday", hours: "Closed" }] } }))).toBe(6);
+    expect(demoOpenDays(context({ clinic: { ...context().clinic, hours: [] } }))).toBeNull();
   });
 });
 
@@ -341,35 +389,65 @@ describe("a demo call on the voice engine", () => {
     await vi.waitFor(() => expect(raw()).toHaveLength(1));
     expect(raw()[0]).toMatchObject({
       response_id: 0,
-      content: "Hi Sam! I'm AYA, the AI assistant for Lumen Aesthetics, and this call's transcribed. How are you doing today?",
+      content: "Hi! This is Aya, the AI assistant for Lumen Aesthetics, and this call's transcribed. Am I speaking with Sam?",
       end_call: false,
       no_interruption_allowed: true,
     });
 
-    await s.handle(said(1, [{ role: "agent", content: raw()[0]!.content }, { role: "user", content: "I'm good thanks, how much is botox" }]));
+    await s.handle(said(1, [{ role: "agent", content: raw()[0]!.content }, { role: "user", content: "yes that's me, how much is botox" }]));
     expect(heard().at(-1)!.content).toBe("Doing great, thanks for asking! Botox is $12 per unit here.");
     expect(m.seen).toHaveLength(1);
     expect(m.seen[0]!.turn).toContain("This call is a live demo for Sam, who is on Lumen Aesthetics's team");
-    expect(m.seen[0]!.turn).toContain(`You opened the conversation with: "Hi Sam! I'm AYA`);
+    expect(m.seen[0]!.turn).toContain(`You opened the conversation with: "Hi! This is Aya`);
     expect(m.seen[0]!.stable).toContain("- Botox: from $12 per unit, about 30 minutes");
     expect(m.seen[0]!.stable).toContain("- Laser Hair Removal: no price is quoted: offer a consultation");
-    // The same rules as a clinic's call: the opener says AYA is an AI, and it is the same prompt.
+    // The same rules as a clinic's call: the opener says Aya is an AI, and it is the same prompt.
     expect(m.seen[0]!.stable).toContain("You are the AI assistant answering the phone for Lumen Aesthetics, a med spa.");
 
-    // A second turn gets the shorter ongoing note, not the opening repeated
-    // (owner, 24 October 2026: repeating the opening's script was why she
-    // seemed to forget the caller's name deep into a role-play).
+    // Still the intro until the role-play opener is said.
     await s.handle(said(2, [{ role: "agent", content: heard().at(-1)!.content }, { role: "user", content: "can I book one for Friday" }]));
     expect(m.seen).toHaveLength(2);
-    expect(m.seen[1]!.turn).toContain("still the live demo for Sam");
-    expect(m.seen[1]!.turn).toMatch(/Keep everything said earlier in this call in mind, their name included/);
-    expect(m.seen[1]!.turn).not.toContain("what you do for Lumen Aesthetics from start to finish");
-    expect(m.seen[1]!.turn).not.toMatch(/Want to hear what I've learned/);
+    expect(m.seen[1]!.turn).toContain("This call is a live demo for Sam");
+    expect(m.seen[1]!.turn).not.toContain("The role-play is on");
 
     expect(await s.finish()).toBeNull();
     expect(touched).toEqual([]);
     expect(tenant.calls).toBe(0);
     expect(ops.calls).toEqual([]);
+  });
+
+  test("walks intro, role-play and pitch on Aya's own lines, and a goodbye inside the role-play never hangs up", async () => {
+    const replies: [string, boolean][] = [
+      ["Great to meet you, Sam! What's your role at Lumen Aesthetics?", false],
+      [demoRoleplayOpener("Lumen Aesthetics"), false],
+      // The patient says bye and the model marks the end: the demo goes on.
+      ["Perfect, we'll see you Friday! Ok, how was that? Haha!", true],
+      ["Generally, how many calls do you get a day?", false],
+      ["Thanks so much, Sam, have a great day!", true],
+    ];
+    const seen: string[] = [];
+    const responder: AssistantResponder = async ({ system }) => {
+      seen.push((system as { turn: string }).turn);
+      const [text, end] = replies[seen.length - 1]!;
+      return `${text}\n###\n{"handoff": false, "end": ${end}}`;
+    };
+    const { s, raw, heard } = demoSession(responder);
+    await s.open();
+    await s.handle(details({ retell_llm_dynamic_variables: { demo_context: sealed() } }));
+    await vi.waitFor(() => expect(raw()).toHaveLength(1));
+    const words = ["yes it's me", "I'm the owner, let's do the role-play", "hi, can I book a HydraFacial Friday? bye!", "that was great", "about 20, thanks, bye"];
+    for (const [i, text] of words.entries()) {
+      await s.handle(said(i + 1, [{ role: "agent", content: heard().at(-1)!.content }, { role: "user", content: text }]));
+    }
+    expect(seen[0]).toContain("This call is a live demo for Sam");
+    expect(seen[1]).toContain("This call is a live demo for Sam");
+    expect(seen[2]).toContain("The role-play is on");
+    expect(seen[3]).toContain("The role-play is over");
+    expect(seen[4]).toContain("The role-play is over");
+    const spoken = heard();
+    expect(spoken.find((r) => r.content.includes("how was that"))!.end_call).toBe(false);
+    expect(spoken.at(-1)).toMatchObject({ content: "Thanks so much, Sam, have a great day!", end_call: true });
+    await s.finish();
   });
 
   test("a price off the website is refused by the guard, as on any call", async () => {
@@ -423,7 +501,7 @@ describe("a demo call on the voice engine", () => {
     await s.open();
     await s.handle(details({ direction: "outbound", retell_llm_dynamic_variables: { demo_context: sealed(context({ mode: "phone" })) } }));
     await vi.waitFor(() => expect(raw()).toHaveLength(1));
-    expect(raw()[0]!.content).toMatch(/^Hi Sam! I'm AYA/);
+    expect(raw()[0]!.content).toMatch(/^Hi! This is Aya, .*Am I speaking with Sam\?$/);
     expect(raw()[0]!.end_call).toBe(false);
     await s.finish();
   });
@@ -516,7 +594,7 @@ describe("the voice server's demo path", () => {
     c.ws.send(details({ call_id: "call_demo_1", retell_llm_dynamic_variables: { demo_context: sealed() } }));
     await vi.waitFor(() => expect(c.received.filter((r) => r.response_type === "response")).toHaveLength(1));
     const opening = c.received.find((r) => r.response_type === "response")!;
-    expect(opening.content).toMatch(/^Hi Sam! I'm AYA, the AI assistant for Lumen Aesthetics, and this call's transcribed\./);
+    expect(opening.content).toMatch(/^Hi! This is Aya, the AI assistant for Lumen Aesthetics, and this call's transcribed\./);
     c.ws.send(said(1, [{ role: "agent", content: String(opening.content) }, { role: "user", content: "good thanks, and you?" }]));
     await vi.waitFor(() => expect(spokenResponses(c.received as never[]).length).toBe(2));
     await new Promise<void>((resolve) => {

@@ -22,7 +22,8 @@ import { isSpecialtyId, type SpecialtyId } from "./specialties";
  * the demo read it, the requester's first name, the demo's slug, and, when
  * one is genuinely live, the time-limited setup-fee discount the demo
  * carries (packages/catalog/src/plans.ts; apps/web computes it from the
- * demo's own row, never invented downstream). Never a patient's.
+ * demo's own row, never invented downstream), and whether an operator signed
+ * in to /admin started it (`test`). Never a patient's.
  */
 
 export const DEMO_CALL_VARIABLE = "demo_context";
@@ -71,6 +72,14 @@ export type DemoCallContext = {
   clinic: DemoCallClinic;
   /** The demo's live setup-fee discount, or null when none applies or it has ended. */
   offer: DemoCallOffer | null;
+  /**
+   * Started by a healdesk operator signed in to /admin, testing (owner,
+   * 25 October 2026: "for our test demos right now, the client is always
+   * hello@healdesk.io"): only then does the call's transcript go to hello@
+   * when it ends, as a clinic's goes to the clinic. A prospect's demo call
+   * keeps no transcript (the Privacy page). Sealed, so no caller can set it.
+   */
+  test: boolean;
 };
 
 export const DEMO_CALL_LIMITS = {
@@ -178,7 +187,7 @@ export function parseDemoCallContext(input: unknown): DemoCallContext | null {
   const mode = MODES.find((m) => m === o.mode);
   const clinic = parseDemoCallClinic(o.clinic);
   if (!slug || !mode || !clinic || typeof o.issuedAt !== "number" || !Number.isFinite(o.issuedAt)) return null;
-  return { v: 1, slug, mode, firstName: demoFirstName(o.firstName), issuedAt: o.issuedAt, clinic, offer: parseDemoCallOffer(o.offer) };
+  return { v: 1, slug, mode, firstName: demoFirstName(o.firstName), issuedAt: o.issuedAt, clinic, offer: parseDemoCallOffer(o.offer), test: o.test === true };
 }
 
 function mac(body: string, secret: string): string {

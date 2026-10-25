@@ -14,6 +14,9 @@ const SLUG = "peachy-studio-k7q2mz9xwa";
 
 const appAnswers = vi.fn();
 vi.mock("@/lib/admin/ops-client", () => ({ appAnswers: (...args: unknown[]) => appAnswers(...args) }));
+/** Who is signed in to /admin on this browser: nobody, unless a test says so. */
+const operator = vi.hoisted(() => ({ email: null as string | null }));
+vi.mock("@/lib/admin/operator", () => ({ requireOperator: async () => operator.email }));
 /**
  * A minimal row by default, so every test but the offer's own keeps working
  * without a real demo row: `demoOfferFor` (lib/demo/offer.ts) catches what a
@@ -106,6 +109,18 @@ describe("POST /api/demo/[slug]/retell/v3/create-web-call, the engine", () => {
     // Where the hours came from is the demo's own business, not the engine's.
     expect(JSON.stringify(context!.clinic)).not.toContain("SoHo");
     expect(calls[0]!.body.metadata).toMatchObject({ demo_slug: SLUG, engine: "aya" });
+    // A visitor's call: no transcript goes anywhere (the Privacy page).
+    expect(context!.test).toBe(false);
+  });
+
+  test("marks the call as a test only when an operator is signed in to /admin, so its transcript goes to hello@", async () => {
+    operator.email = "ops@healdesk.test";
+    try {
+      expect((await post({ firstName: "Sam" })).status).toBe(201);
+      expect(openDemoCallContext(variables().demo_context, SECRET)!.test).toBe(true);
+    } finally {
+      operator.email = null;
+    }
   });
 
   test("carries the demo's live setup discount, real and server-computed, never a made-up one", async () => {

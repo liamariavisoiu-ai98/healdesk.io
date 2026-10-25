@@ -238,3 +238,15 @@ condition = "AND"
 regexTarget = "line"
 paths = ['''^apps/app/tests/voice-demo\.test\.ts$''']
 regexes = ['''^\s*const LLM_SECRET = "test-retell-llm-secret-0123456789";$''']
+
+# Phase 6's patient-rights tests (24 October 2026) use a made-up request key,
+# a UUID-shaped fixture named KEY, never issued and opening nothing; gitleaks
+# reads its entropy as an API key. Only that exact declaration, in these two
+# files, is excepted.
+[[allowlists]]
+description = "Patient-rights tests: made-up request key (a UUID), never issued"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^apps/web/src/lib/admin/ops-client-rights\.test\.ts$''', '''^apps/web/src/app/admin/rights/record-input\.test\.ts$''']
+regexes = ['''^\s*const KEY = "0b5e1c2d-3f40-4a51-8b62-7c83d94ea5f6";$''']

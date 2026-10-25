@@ -992,13 +992,29 @@ describe("the model request", () => {
     expect(at("web_chat")).toMatchObject({ model: "claude-opus-5-5", max_tokens: 800, output_config: { effort: "low" } });
     expect(at("web_chat")).not.toHaveProperty("thinking");
     // Calls on Haiku 5.5 since 24 October 2026 (the owner chose speed).
-    expect(at("voice")).toMatchObject({ model: "claude-haiku-5-5", max_tokens: 400, output_config: { effort: "low" } });
+    // Thinking off on calls (owner, 25 October 2026: a 2-5 second pause): Haiku 5.5 thinks by default, in silence.
+    expect(at("voice")).toMatchObject({ model: "claude-haiku-5-5", max_tokens: 400, thinking: { type: "disabled" }, output_config: { effort: "low" } });
     // The Meta front door moved onto this client from its own, on claude-opus-5.
     expect(at("meta")).toMatchObject({ model: "claude-opus-5-5", max_tokens: 800, thinking: { type: "adaptive" }, output_config: { effort: "low" } });
     expect(at("meta").messages[0]!.content).toHaveLength(2_000);
     expect(at("voice").messages[0]!.content).toHaveLength(4_000);
     expect(MODEL_CONFIG.voice).toMatchObject({ timeoutMs: 8_000, maxRetries: 0 });
     expect(MODEL_CONFIG.web_chat).toMatchObject({ timeoutMs: 30_000, maxRetries: 1 });
+  });
+
+  test("a call moved onto a model that refuses thinking off keeps that model's default, rather than failing every turn", () => {
+    const voice = () => modelRequest({ channel: "voice", system, messages: [{ role: "user", content: "hi" }] });
+    try {
+      for (const model of ["claude-opus-5-5", "claude-sonnet-5-5"]) {
+        vi.stubEnv("HEALDESK_VOICE_MODEL", model);
+        expect(voice()).toMatchObject({ model, output_config: { effort: "low" } });
+        expect(voice()).not.toHaveProperty("thinking");
+      }
+      vi.stubEnv("HEALDESK_VOICE_MODEL", "claude-haiku-5-5");
+      expect(voice().thinking).toEqual({ type: "disabled" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   test("a refusal is read as its own outcome, never as empty text", () => {

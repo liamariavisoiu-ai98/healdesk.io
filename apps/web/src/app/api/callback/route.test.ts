@@ -14,6 +14,7 @@ const SLUG = "peachy-studio-k7q2mz9xwa";
 
 const appAnswers = vi.fn();
 vi.mock("@/lib/admin/ops-client", () => ({ appAnswers: (...args: unknown[]) => appAnswers(...args) }));
+vi.mock("@/lib/admin/operator", () => ({ requireOperator: async () => null }));
 vi.mock("@/lib/leads", () => ({
   recordCallConsent: async () => "consent_1",
   markCallPlaced: async () => {},
@@ -103,7 +104,7 @@ describe("POST /api/callback on a personalised demo", () => {
     expect(Object.keys(variables())).toEqual(["demo_context"]);
 
     const context = openDemoCallContext(variables().demo_context, SECRET);
-    expect(context).toMatchObject({ mode: "phone", slug: SLUG, firstName: "Sam" });
+    expect(context).toMatchObject({ mode: "phone", slug: SLUG, firstName: "Sam", test: false });
     expect(context!.clinic.clinicName).toBe("Peachy Studio");
   });
 

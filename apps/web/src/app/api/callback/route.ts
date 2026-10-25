@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { demoFirstName } from "@healdesk/catalog";
+import { requireOperator } from "@/lib/admin/operator";
 import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
 import { demoEngineCall } from "@/lib/demo/engine";
 import { demoOfferFor } from "@/lib/demo/offer";
@@ -237,7 +238,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   // and apps/app answers (lib/demo/engine.ts), with the name the visitor
   // gave; otherwise the clinic demo agent, exactly as before.
   const engine = demo
-    ? await demoEngineCall({ slug: demo.slug, profile: demo.profile, mode: "phone", firstName: demoFirstName(callerName), offer: demoOfferFor(demo.session) })
+    ? await demoEngineCall({ slug: demo.slug, profile: demo.profile, mode: "phone", firstName: demoFirstName(callerName), offer: demoOfferFor(demo.session), test: (await requireOperator()) !== null })
     : null;
 
   const result = await placeCall(engine ? { ...config.config, agentId: engine.agentId } : config.config, {

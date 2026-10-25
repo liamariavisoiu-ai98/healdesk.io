@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 
 import { auditReviewQueue, clinics, type OpsApproval } from "@/db/schema";
-import { chaseBlocked, resignFactsIn } from "@/lib/agreements/open-resigns";
+import { chaseBlocked, organisationAnswering, resignFactsIn } from "@/lib/agreements/open-resigns";
 import { openResign, resignPath } from "@/lib/agreements/resign";
 import { setupLastDay } from "@/lib/clinic/setup-window";
 import { printableClinicName } from "@/lib/email/lint";
@@ -220,8 +220,7 @@ export async function sendAgreementQuestion(approval: OpsApproval, fields: unkno
     if (review?.status !== "open") return fail("no_longer_needed", "This review has been decided since, so nothing was sent.");
     if (await openResign(tx)) return fail("no_longer_needed", "A re-sign is already open for this practice, so nothing was sent.");
     // Counted again now: a location added since is a location that would pause.
-    const live = (await readSetupState(tx, { userId: null }))?.channels.some((c) => c.liveAt !== null) ?? payload.isAnswering;
-    const fresh = { ...payload, locations: await locationCount(tx), isAnswering: live };
+    const fresh = { ...payload, locations: await locationCount(tx), isAnswering: await organisationAnswering(tx) };
     return queueNotice(tx, "agreement_question", `agreement_question:${approval.id}`, fresh, emailPayloadOf("agreement_question", fresh));
   });
 }

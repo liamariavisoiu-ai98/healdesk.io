@@ -4,7 +4,7 @@ import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import { agreementResigns, clinicChannels, reportDeliveries, type AgreementResignReason } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
-import { withTenant, type TenantTx } from "@/lib/tenant";
+import { TENANT_GUC, withTenant, type TenantTx } from "@/lib/tenant";
 
 import { agreementInEffect } from "./in-effect";
 import { organisationOpenResigns } from "./resign-pause";
@@ -56,6 +56,39 @@ export type ResignFacts = {
   isAnswering: boolean;
 };
 
+/**
+ * Whether AYA answers on any channel at any location of the clinic's
+ * organisation (app_organisation_clinics): the agreement is the
+ * organisation's, and so is what a re-sign pauses. Each location is read in
+ * its own tenant inside the caller's transaction (clinic_channels forces
+ * row-level security), and the caller's tenant is set back after.
+ */
+export async function organisationAnswering(tx: TenantTx): Promise<boolean> {
+  const rows = await tx.db.execute<{ clinic_id: string }>(
+    sql`select clinic_id from app_organisation_clinics(${tx.clinicId}::uuid)`,
+  );
+  const ids = rows.rows.map((r) => r.clinic_id);
+  if (!ids.includes(tx.clinicId)) ids.unshift(tx.clinicId);
+  let answering = false;
+  try {
+    for (const clinicId of ids) {
+      await tx.db.execute(sql`select set_config(${TENANT_GUC}, ${clinicId}, true)`);
+      const live = await tx.db
+        .select({ channel: clinicChannels.channel })
+        .from(clinicChannels)
+        .where(and(eq(clinicChannels.clinicId, clinicId), eq(clinicChannels.enabled, true), isNotNull(clinicChannels.liveAt)))
+        .limit(1);
+      if (live.length > 0) {
+        answering = true;
+        break;
+      }
+    }
+  } finally {
+    await tx.db.execute(sql`select set_config(${TENANT_GUC}, ${tx.clinicId}, true)`);
+  }
+  return answering;
+}
+
 /** One re-sign's facts, inside its clinic's tenant; null when it is not this clinic's or not open. */
 export async function resignFactsIn(tx: TenantTx, resignId: string, now: Date): Promise<ResignFacts | null> {
   const [row] = await tx.db
@@ -93,11 +126,7 @@ export async function resignFactsIn(tx: TenantTx, resignId: string, now: Date): 
   const chases = sends.filter((s) => s.kind === "baa_resign_chase");
   const lastChaseAt = latest(chases.map((s) => s.sentAt ?? s.attemptedAt));
   const lastLink = latest([lastL22SentAt, latest(chases.filter((s) => s.status === "sent").map((s) => s.sentAt))]);
-  const live = await tx.db
-    .select({ channel: clinicChannels.channel })
-    .from(clinicChannels)
-    .where(and(eq(clinicChannels.clinicId, tx.clinicId), eq(clinicChannels.enabled, true), isNotNull(clinicChannels.liveAt)))
-    .limit(1);
+  const isAnswering = await organisationAnswering(tx);
   const fromVersion = org?.fromVersion ?? (await agreementInEffect(tx))?.documentVersion ?? null;
   const fromVersionAcceptable = org?.fromVersionAcceptable === true;
   return {
@@ -115,7 +144,7 @@ export async function resignFactsIn(tx: TenantTx, resignId: string, now: Date): 
     daySevenSent: l22.some((s) => s.status === "sent" && s.periodKey.endsWith(":7")),
     linkExpiresAt: lastLink ? new Date(lastLink.getTime() + RESIGN_LINK_TTL_MS) : null,
     lastChaseAt,
-    isAnswering: live.length > 0,
+    isAnswering,
   };
 }
 

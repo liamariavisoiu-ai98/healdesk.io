@@ -1,15 +1,15 @@
 import { isCoveredAnswer } from "@healdesk/catalog";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { auditReviewQueue, clinicChannels, clinics } from "@/db/schema";
+import { auditReviewQueue, clinics } from "@/db/schema";
 import { renderContactDraft } from "@/lib/approvals/contact-drafts";
 import { locationCount } from "@/lib/approvals/contact-packets";
 import { storableName, type ContactPayloads } from "@/lib/approvals/contact-payloads";
 import { serialiseDraft } from "@/lib/approvals/drafts";
 import { CONSOLE_PROPOSER, UUID } from "@/lib/approvals/kinds";
 import { propose } from "@/lib/approvals/store";
-import { chaseBlocked, readOpenResigns } from "@/lib/agreements/open-resigns";
+import { chaseBlocked, organisationAnswering, readOpenResigns } from "@/lib/agreements/open-resigns";
 import { openResign } from "@/lib/agreements/resign";
 import { printableClinicName } from "@/lib/email/lint";
 import { audienceFor } from "@/lib/email/templates/context";
@@ -147,17 +147,12 @@ export async function opProposeAgreementQuestion(
         and(eq(auditReviewQueue.id, reviewId), eq(auditReviewQueue.clinicId, tx.clinicId), eq(auditReviewQueue.kind, "agreement_kind")),
       )
       .limit(1);
-    const live = await tx.db
-      .select({ channel: clinicChannels.channel })
-      .from(clinicChannels)
-      .where(and(eq(clinicChannels.clinicId, tx.clinicId), eq(clinicChannels.enabled, true), isNotNull(clinicChannels.liveAt)))
-      .limit(1);
     const [row] = await tx.db.select({ timezone: clinics.timezone }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
     return {
       status: review?.status ?? null,
       resignOpen: (await openResign(tx)) !== null,
       locations: await locationCount(tx),
-      isAnswering: live.length > 0,
+      isAnswering: await organisationAnswering(tx),
       timeZone: row?.timezone ?? clinic.timezone,
     };
   });

@@ -1,9 +1,9 @@
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 import { auditReviewQueue, billingNotices, clinicChannels, clinics, type LifecycleStage } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import { agreementInEffect } from "@/lib/agreements/in-effect";
-import { chaseBlocked, resignFactsIn } from "@/lib/agreements/open-resigns";
+import { chaseBlocked, organisationAnswering, resignFactsIn } from "@/lib/agreements/open-resigns";
 import { openResign } from "@/lib/agreements/resign";
 import { setupLastDay } from "@/lib/clinic/setup-window";
 import type { Recommendation } from "@/lib/lifecycle/recommend";
@@ -264,14 +264,7 @@ export async function contactFacts(kind: ContactKind, rawPayload: unknown, ctx: 
           earlierDecisions: decided.length,
           openResign: (await openResign(tx)) !== null,
           locationsToPause: await locationCount(tx),
-          isAnswering:
-            (
-              await tx.db
-                .select({ channel: clinicChannels.channel })
-                .from(clinicChannels)
-                .where(and(eq(clinicChannels.clinicId, tx.clinicId), eq(clinicChannels.enabled, true), isNotNull(clinicChannels.liveAt)))
-                .limit(1)
-            ).length > 0,
+          isAnswering: await organisationAnswering(tx),
         } satisfies QuestionFacts;
       });
     }

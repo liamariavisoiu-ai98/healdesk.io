@@ -22,7 +22,7 @@ import { queueSetupReminder, queueSetupReminderNow } from "@/lib/setup/reminders
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant } from "./setup/factories";
+import { inTenant, seedChannels } from "./setup/factories";
 import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic";
 
 /**
@@ -329,6 +329,7 @@ describeDb("the clinic-contact approvals, against the database", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
     await truncateAll();
+    await getMigratorPool().query(`truncate ops_alerts, email_daily_quota`);
   }, 60_000);
   afterEach(() => {
     restoreEnv();
@@ -539,6 +540,37 @@ describeDb("the clinic-contact approvals, against the database", () => {
     expect(data(await runOperation("proposeLifecycleNotice", { clinicId: c.clinicId, kind: "setup_waiting_on_us", phrase: "phone" }, OPERATOR))).toMatchObject({
       status: "refused",
     });
+  });
+
+  test("isAnswering is the organisation's: a second location live makes the question say AYA pauses, at both", async () => {
+    const c = await setupClinic("orgwide", 8);
+    await getMigratorPool().query(
+      `update clinics set regulatory_regime = 'hipaa-if-covered', agreement_kind = 'dpa', is_covered_entity = false,
+              site_profile = coalesce(site_profile, '{}'::jsonb) || '{"acceptsInsurance": "yes"}'::jsonb
+        where id = $1`,
+      [c.clinicId],
+    );
+    // A second location of the same organisation, answering on website chat.
+    const second = (
+      await getMigratorPool().query<{ id: string }>(
+        `insert into clinics (organization_id, slug, name, specialty, billing_clinic_id)
+         select organization_id, slug || '-loc2', name || ' Downtown', specialty, id from clinics where id = $1 returning id`,
+        [c.clinicId],
+      )
+    ).rows[0]!.id;
+    await seedChannels(second, [{ channel: "web", readyAt: at(-3 * DAY), liveAt: at(-2 * DAY) }]);
+    await withTenant({ clinicId: c.clinicId, actor: { type: "service", serviceName: "test" } }, (tx) => flagInsuranceMismatch(tx, NOW));
+    const reviewId = (
+      await inTenant(c.clinicId, (q) => q.query<{ id: string }>(`select id from audit_review_queue where clinic_id = $1 and kind = 'agreement_kind'`, [c.clinicId]))
+    ).rows[0]!.id;
+    const proposed = data(await runOperation("proposeAgreementQuestion", { clinicId: c.clinicId, reviewId }, OPERATOR));
+    expect(proposed).toMatchObject({ status: "proposed" });
+    const item = await getApproval(proposed.approvalId as string);
+    expect(item?.payload).toMatchObject({ isAnswering: true, locations: 2 });
+    expect(item?.draft).toContain("AYA pauses at all 2 of your locations until it's signed");
+    const listed = data(await runOperation("listApprovals", {}, OPERATOR));
+    const card = (listed.items as Data[]).find((i) => i.id === proposed.approvalId)!;
+    expect(card.packet).toMatchObject({ facts: { isAnswering: true, locationsToPause: 2 } });
   });
 
   test("a setup notice whose stage entry has passed sends nothing, and its card says so", async () => {

@@ -148,7 +148,7 @@ export async function proposeSupportReplyFor(input: {
       dueAt: supportReplyDueAt(c, input.now),
     },
     input.now,
-    { draft, proposedBy: input.proposedBy ?? SUPPORT_PROPOSER, ...(input.actor ? { actor: input.actor } : {}) },
+    { draft, proposedBy: input.proposedBy ?? SUPPORT_PROPOSER, actor: input.actor ?? { label: SUPPORT_PROPOSER } },
   );
   if (approvalId) return { status: "proposed", approvalId, draftVersion };
   const [waiting] = await unsafeDb

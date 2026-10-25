@@ -635,6 +635,20 @@ for a reminder sooner), one per kind; an email leaves the list unsent after 14 d
 sooner after three. The agreement question's answer is recorded by the owner, as he heard it,
 with a fresh code; a Yes or Not sure pauses AYA at every location until the BAA is signed.
 
+The same inbox holds every composed reply to a clinic's support request (`support_reply_send`,
+ops automation lane P7c; owner decision D12), the one email whose body is prose. A reply is put
+there only when its draft passes every reply check: by Save draft on the case (the operator's own
+text, saved as the next version) or Propose, and later by the drafter. The item shows the reply as
+the clinic would read it, under a subject fixed for its topic with the case's ref, signed The
+Healdesk Team. Approve asks for the code from your authenticator; you may edit the body (never the
+subject) first, and the checks run again on exactly the text approved: if one fails, nothing is
+sent and the card names the rule, never the words. A case closed since, or a newer draft, sends
+nothing. The reply goes to the practice's one sign-in address, once; a failed try is tried again on
+the email outbox's schedule, and after six the sending stops (`support_reply_dead`). These items
+are drawn beside their case under Support, not under Approvals; Home's row for them opens Support.
+They raise no reminder of their own: the case's `support_reply_past_due` already does. An item
+leaves the list unsent after 14 days.
+
 ### Compliance pack
 
 `compliance_pack_ready`, `compliance_pack_failed`. The weekly compliance pack
@@ -695,3 +709,14 @@ item leaves the list unrun once the incident has been reported, recorded not rep
 resolved from that page. Each incident's checklist records the procedure's steps, once each, by
 the operator account; the email step needs a report or a recorded notice first, and the resolve
 step a resolved incident.
+
+### Support replies
+
+`support_reply_dead`. A support reply the owner approved (ops automation lane P7c,
+`apps/app/src/lib/support/send.ts`) failed every try: one at approval, then after 1, 5, 30, 120
+and 360 minutes, the email outbox's schedule. The sending has stopped; the text stays as approved
+and is never tried again, so the clinic has not heard. The clinic's Deliveries tab lists the reply
+under Reports and alerts (kind support_reply) with the last try's status and reason. Check the
+clinic's address if it bounced, then write to the clinic from hello@ with the same answer and
+close the case. The retries run from `retrySupportReplies`, which no job calls yet: until one
+does, only the first try at approval happens, and a failed first try stays waiting with no alert.

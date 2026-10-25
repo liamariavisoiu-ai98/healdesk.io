@@ -114,6 +114,7 @@ export const OPS_EVENTS = [
   "compliance_pack_ready",
   "compliance_pack_failed",
   "incident_step_waiting",
+  "support_reply_dead",
 ] as const;
 
 export type OpsEvent = (typeof OPS_EVENTS)[number];

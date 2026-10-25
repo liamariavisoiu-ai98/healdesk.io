@@ -279,6 +279,8 @@ describe("the template registry", () => {
       "setup_help_offer",
       "agreement_question",
       "baa_resign_chase",
+      // Lane P7c: L37, the support reply the owner approves.
+      "support_reply",
     ]);
   });
 
@@ -293,7 +295,11 @@ describe("the template registry", () => {
       "agreement_to_sign",
       "data_destroyed",
       "baa_resign_chase",
+      "support_reply",
     ]);
+    // Lane P7c: a support reply carries no token and locks no one out.
+    expect(isLinkEmail("support_reply")).toBe(false);
+    expect(locksOutClinic("support_reply")).toBe(false);
     // Lane P6f: the owner's re-sign chase carries a fresh signing link.
     expect(isLinkEmail("baa_resign_chase")).toBe(true);
     // X1.5 names O5's confirmation and L22 link emails; O5's notice and E6 carry no token.

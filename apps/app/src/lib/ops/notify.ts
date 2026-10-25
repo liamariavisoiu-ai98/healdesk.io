@@ -363,6 +363,11 @@ export const OPS_EVENTS = [
   // every 4 hours while it waits, one alert per kind with the count. No
   // clinic: the items are listed on one page.
   "incident_step_waiting",
+  // A support reply the owner approved that every try failed to send
+  // (lib/support/send.ts; ops automation lane P7c): six tries on the email
+  // outbox's schedule, then the sending stops and the clinic has not heard.
+  // Once an hour per clinic; the clinic and the count of tries, no words.
+  "support_reply_dead",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

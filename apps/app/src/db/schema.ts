@@ -133,6 +133,11 @@ import {
   type SupportMessageDirection,
   type SupportMessageKind,
 } from "../lib/support/case-vocab";
+import {
+  SUPPORT_SEND_MAX_ATTEMPTS,
+  SUPPORT_SEND_STOPPED_REASONS,
+  type SupportSendStoppedReason,
+} from "../lib/support/send-vocab";
 
 import { organization, user } from "./auth-schema";
 
@@ -7820,6 +7825,9 @@ export const APPROVAL_KINDS = [
   // The incident assistant (ops automation lane P6i, drizzle/0124).
   "incident_open_batch",
   "incident_report_send",
+  // A composed support reply, sent only once the owner approves it (ops
+  // automation lane P7c, drizzle/0126; owner decision D12).
+  "support_reply_send",
 ] as const;
 export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
 
@@ -8280,6 +8288,21 @@ export const supportMessages = pgTable(
     approvedByLabel: text("approved_by_label"),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     deliveryId: uuid("delivery_id"),
+    /**
+     * A reply's send (lane P7c, drizzle/0126): the subject it goes under
+     * (fixed per topic, with the case's ref) and the SHA-256 of the subject
+     * and the approved text, both frozen with the approval; how many sends
+     * were tried, when the next is due, and why the sending stopped without
+     * the email going.
+     */
+    replySubject: text("reply_subject"),
+    approvedHash: text("approved_hash"),
+    sendAttempts: integer("send_attempts").notNull().default(0),
+    nextSendAt: timestamp("next_send_at", { withTimezone: true }),
+    sendStoppedAt: timestamp("send_stopped_at", { withTimezone: true }),
+    sendStoppedReason: text("send_stopped_reason").$type<SupportSendStoppedReason>(),
+    /** When the approved text is deleted: 12 months after it was sent (the row stays). */
+    textDeleteAfter: timestamp("text_delete_after", { withTimezone: true }),
     /** Names, types and sizes only: an attachment is never opened or kept. */
     attachmentsJson: jsonb("attachments_json"),
     receivedAt: timestamp("received_at", { withTimezone: true }),
@@ -8312,6 +8335,17 @@ export const supportMessages = pgTable(
     check(
       "support_messages_draft_check",
       sql`(${t.draftText} is null) = (${t.draftVersion} is null) and (${t.draftVersion} is null or ${t.draftVersion} >= 1)`,
+    ),
+    // A reply is ours, outbound. Its text is only ever the approved text: set
+    // with the approval and its frozen subject and hash, never before. A send
+    // stops once, sent or not; at most six tries (lib/support/send.ts).
+    check(
+      "support_messages_reply_check",
+      sql`${t.kind} <> 'reply' or (${t.direction} = 'out' and (${t.approvedAt} is null) = (${t.approvedHash} is null) and (${t.approvedAt} is null) = (${t.replySubject} is null) and (${t.text} is null or ${t.approvedAt} is not null) and (${t.sentAt} is null or ${t.approvedAt} is not null) and (${t.nextSendAt} is null or ${t.approvedAt} is not null))`,
+    ),
+    check(
+      "support_messages_send_check",
+      sql`(${t.kind} = 'reply' or (${t.replySubject} is null and ${t.approvedHash} is null and ${t.sendAttempts} = 0 and ${t.nextSendAt} is null and ${t.sendStoppedAt} is null and ${t.textDeleteAfter} is null)) and ${t.sendAttempts} between 0 and ${sql.raw(String(SUPPORT_SEND_MAX_ATTEMPTS))} and (${t.approvedHash} is null or ${t.approvedHash} ~ '^[0-9a-f]{64}$') and (${t.replySubject} is null or char_length(${t.replySubject}) between 1 and 200) and (${t.sendStoppedAt} is null) = (${t.sendStoppedReason} is null) and (${t.sendStoppedReason} is null or ${t.sendStoppedReason} in (${sqlList(SUPPORT_SEND_STOPPED_REASONS)})) and not (${t.sendStoppedAt} is not null and ${t.sentAt} is not null) and (${t.textDeleteAfter} is null or ${t.sentAt} is not null)`,
     ),
     check(
       "support_messages_approved_check",

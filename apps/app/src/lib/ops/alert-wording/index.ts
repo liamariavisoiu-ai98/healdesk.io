@@ -20,6 +20,7 @@ import * as retention from "./retention";
 import * as rights from "./rights";
 import * as setupAndSupport from "./setup-and-support";
 import * as setupProgress from "./setup-progress";
+import * as supportReplies from "./support-replies";
 import * as transcripts from "./transcripts";
 import type { AlertWording } from "./types";
 import * as usage from "./usage";
@@ -60,6 +61,7 @@ export const SECTIONS = {
   approvals,
   "compliance-pack": compliancePack,
   "incident-assistant": incidentAssistant,
+  "support-replies": supportReplies,
 } as const;
 
 export const ALERT_WORDING: Partial<Record<OpsEvent, AlertWording>> = Object.assign(

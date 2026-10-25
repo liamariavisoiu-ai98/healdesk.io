@@ -21,6 +21,9 @@ import type { InboxRow, InboxSource, Tone } from "./types";
 
 export const APPROVALS_PAGE = "/admin/queues#approvals";
 
+/** Lane P7c: a support reply waits beside its case, in the Queues page's Support section. */
+export const SUPPORT_PAGE = "/admin/queues#support";
+
 /** Each kind's words, for one item and for many. */
 const WORDS: Readonly<Record<ApprovalKind, { one: string; many: string }>> = {
   billing_request_retry: {
@@ -73,6 +76,12 @@ const WORDS: Readonly<Record<ApprovalKind, { one: string; many: string }>> = {
     one: "1 incident report is waiting for your yes.",
     many: "{n} incident reports are waiting for your yes.",
   },
+  // Lane P7c: a composed reply to a clinic's support request; the support
+  // console (lane P7d) draws these items, beside their case.
+  support_reply_send: {
+    one: "1 support reply is waiting for your yes.",
+    many: "{n} support replies are waiting for your yes.",
+  },
 };
 
 const TONE: Readonly<Record<ApprovalUrgency, Tone>> = { legal_clock: "bad", money: "warn", routine: "info" };
@@ -105,7 +114,10 @@ export const approvalsSource: InboxSource = {
       count: r.count,
       sentence: approvalSentence(kind, r.count),
       clinic: null,
-      button: { label: "Open approvals", kind: "link", href: APPROVALS_PAGE },
+      button:
+        kind === "support_reply_send"
+          ? { label: "Open support", kind: "link", href: SUPPORT_PAGE }
+          : { label: "Open approvals", kind: "link", href: APPROVALS_PAGE },
       tone: TONE[r.urgency],
       dueAt: r.dueAt.toISOString(),
     }));

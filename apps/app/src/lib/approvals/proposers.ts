@@ -10,6 +10,8 @@ import { getJob, runJob, type JobOutcome } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
 import { contactResolved, proposeChases, type ChaseScan } from "./contact-proposers";
+import { isSupportReplyKind } from "./support-payload";
+import { supportReplyResolved } from "./support-reply";
 import {
   isContactKind,
   KIND_SPECS,
@@ -362,6 +364,17 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
     // An incident item is a legal clock, swept by its own rules below
     // (./incident-sweep.ts), never by the billing ones.
     if (INCIDENT_KINDS.has(item.kind)) continue;
+    // A support reply (lane P7c) is judged by its case alone: closed, a
+    // newer draft, or the reply already approved takes it off the list.
+    if (isSupportReplyKind(item.kind)) {
+      if (
+        (await supportReplyResolved(item)) &&
+        (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "no_longer_needed" }))
+      ) {
+        gone += 1;
+      }
+      continue;
+    }
     if (retriedNow(item.kind as ApprovalKind, item.payload, on)) {
       if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "retried_automatically" })) {
         retriedAutomatically += 1;
@@ -379,7 +392,8 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
       gone += 1;
     }
   }
-  const reminded = await remind(now, (kind) => !INCIDENT_KINDS.has(kind));
+  // A support reply is chased by its case's own alert (support_reply_past_due), not here.
+  const reminded = await remind(now, (kind) => !INCIDENT_KINDS.has(kind) && !isSupportReplyKind(kind));
   // The incident assistant (lane P6i): its first reports, overtaken items and
   // 4-hourly alerts. The incident-deadlines job runs the same sweep, so it
   // does not wait on this job's switch.

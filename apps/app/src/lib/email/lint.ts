@@ -70,7 +70,11 @@ type ValueClass =
   | "rows"
   // Lane P6f: a code from lib/email/templates/contact-words.ts's own lists.
   | "note"
-  | "phrase";
+  | "phrase"
+  // Lane P7c (owner decision D12): the one prose class, a support reply's
+  // approved text, for kind support_reply alone; and its case's printed ref.
+  | "approvedReplyText"
+  | "supportRef";
 
 /** Counters that do not end in Count, Days, Hours, Minutes or Percent. */
 const COUNT_KEYS: ReadonlySet<string> = new Set([
@@ -157,6 +161,12 @@ function classOfKey(key: string): ValueClass | null {
   // the generic token pattern.
   if (key === "note") return "note";
   if (key === "phrase") return "phrase";
+  // Lane P7c (owner decision D12): a support reply's approved text, prose,
+  // refused on every kind but support_reply (checkObject); the case's ref
+  // ("HD-7F3KQ"); and the label the approval was recorded under.
+  if (key === "approvedReplyText") return "approvedReplyText";
+  if (key === "supportRef") return "supportRef";
+  if (key === "approvedByLabel") return "personName";
   if (key === "deviceName") return "deviceName";
   // P6, the agreement copy: who signed it, as typed, and the document's
   // SHA-256, the one reference the email gives for it.
@@ -231,8 +241,21 @@ export function assertPayloadAllowed(payload: unknown, kind?: EmailKind): void {
   if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_PAYLOAD_BYTES) {
     throw new PayloadNotAllowedError("(payload)", `is over ${MAX_PAYLOAD_BYTES} bytes.`);
   }
+  // Lane P7c: a support reply goes only with its text and the approval it
+  // carries (the reply row's approved_by_label and approved_at, which only
+  // the approval's executor sets, after the reply checks passed again).
+  if (kind === "support_reply") {
+    for (const key of ["approvedReplyText", "approvedAt", "approvedByLabel", "supportRef"] as const) {
+      if (typeof payload[key] !== "string") {
+        throw new PayloadNotAllowedError(key, "is required: a support reply goes only with its approved text and its approval.");
+      }
+    }
+  }
   checkObject(payload, "", 0, kind);
 }
+
+/** The longest approved support reply the payload class takes, in characters (the reply checks hold it to fewer). */
+export const MAX_APPROVED_REPLY_CHARS = 1500;
 
 function checkObject(
   value: Record<string, unknown>,
@@ -256,6 +279,11 @@ function checkObject(
         "is not on the allowlist: ids, counts, cents, ISO dates, plan and channel names, " +
           "the clinic's name, masked addresses, the clinic's own numbers and public URLs.",
       );
+    }
+    // Prose, only in a support reply and only at its top level (owner
+    // decision D12): every other kind refuses it, as it refuses any text.
+    if (cls === "approvedReplyText" && (kind !== "support_reply" || depth > 0)) {
+      throw new PayloadNotAllowedError(path, "is prose, which only an approved support reply may carry.");
     }
     checkValue(field, cls, path, depth, kind);
   }
@@ -361,7 +389,34 @@ function checkValue(
     case "phrase":
       if (typeof value !== "string" || !(PHRASES as readonly string[]).includes(value)) fail("must be one of the listed parts of setup.");
       return;
+    case "approvedReplyText":
+      if (!isApprovedReplyShape(value)) {
+        fail("must be an approved reply: plain text, no address, no number someone could call, no markup.");
+      }
+      return;
+    case "supportRef":
+      if (typeof value !== "string" || !/^HD-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(value)) fail("must be a support case's ref.");
+      return;
   }
+}
+
+/**
+ * The shape an approved support reply's text must have to ride in a payload
+ * (lane P7c). Not the reply checks, which the send path runs on the text
+ * before it is approved and again before it goes (lib/support/send.ts): a
+ * backstop the sender itself holds, refusing what no reply needs and what
+ * would carry a person's details out (an address, a phone-shaped run of
+ * digits), and anything a mail client could read as markup.
+ */
+export function isApprovedReplyShape(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    [...value].length <= MAX_APPROVED_REPLY_CHARS &&
+    // eslint-disable-next-line no-control-regex
+    !/[\u0000-\u0009\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069<>@]/.test(value) &&
+    !/[0-9](?:[ ().-]{0,2}[0-9]){6,}/.test(value)
+  );
 }
 
 /**
@@ -555,6 +610,8 @@ export function linkProblem(link: string, kind?: EmailKind | string): string | n
   if (!allowedOrigins().includes(url.origin)) {
     return `a link to ${url.origin}, which is not a public origin of ours`;
   }
+  // Lane P7c: a support reply links into the portal only, never to a payment page.
+  if (kind === "support_reply" && url.origin !== ours) return "a link outside the portal in a support reply";
   if (url.username || url.password) return "a link with credentials in it";
 
   if (url.origin === ours) {
@@ -590,10 +647,13 @@ export function linkProblems(message: MessageParts, kind?: EmailKind | string): 
   const problems: string[] = [];
   if (findLinks(message.subject).length > 0) problems.push("a link in the subject");
   const headerValues = Object.values(message.headers ?? {}).join("\n");
-  for (const link of findLinks([message.text, message.html, headerValues].join("\n"))) {
+  const links = findLinks([message.text, message.html, headerValues].join("\n"));
+  for (const link of links) {
     const problem = linkProblem(link, kind);
     if (problem) problems.push(problem);
   }
+  // Lane P7c: a support reply carries one link at most (design E5 §6, check 7).
+  if (kind === "support_reply" && links.length > 1) problems.push("more than one link in a support reply");
   return [...new Set(problems)];
 }
 

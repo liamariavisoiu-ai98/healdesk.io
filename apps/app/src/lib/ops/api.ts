@@ -162,6 +162,7 @@ import {
   opMatchSupportCase,
   opSnoozeSupportCase,
 } from "@/lib/ops/support-case-ops";
+import { opPreviewSupportReply, opProposeSupportReply, opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
 import { opGenerateCompliancePack, opGetCompliancePack, opListCompliancePacks } from "@/lib/ops/pack-ops";
 import {
   opIncidentChecklist,
@@ -759,6 +760,15 @@ const OPERATIONS = [
   "assignSupportCase",
   "matchSupportCase",
   "closeSupportCase",
+  // A support reply (ops automation Phase 7, lane P7c;
+  // lib/ops/support-reply-ops.ts, lib/support/send.ts): the reply checks on
+  // an edited text (rule names only), the operator's own draft saved as the
+  // next version, and a draft proposed into the approval inbox. Nothing here
+  // sends: a reply goes only when the owner approves its item there, with a
+  // fresh code (decideApproval).
+  "previewSupportReply",
+  "saveSupportDraft",
+  "proposeSupportReply",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -926,6 +936,9 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "assignSupportCase",
   "matchSupportCase",
   "closeSupportCase",
+  // Mutating: a support reply's draft saved as a new version, or proposed into the inbox. Nothing is sent.
+  "saveSupportDraft",
+  "proposeSupportReply",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1645,6 +1658,12 @@ export async function runOperation(
       return opMatchSupportCase(args, operator);
     case "closeSupportCase":
       return opCloseSupportCase(args, operator);
+    case "previewSupportReply":
+      return opPreviewSupportReply(args, operator);
+    case "saveSupportDraft":
+      return opSaveSupportDraft(args, operator);
+    case "proposeSupportReply":
+      return opProposeSupportReply(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

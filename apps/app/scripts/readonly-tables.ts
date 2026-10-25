@@ -60,6 +60,12 @@ export const READONLY_TABLES = [
   // and user agent their request carried, and hashes. Read column by column
   // on 24 October 2026: no patient. ops_approvals.draft is for email kinds,
   // none of which exists yet; the first one reviews it again.
+  // Reviewed again 25 October 2026 for lane P7c's support_reply_send, whose
+  // draft is prose: a reply the drafter or the operator wrote for a case,
+  // stored there only once it passed every reply check (no number, address,
+  // treatment or person's name; lib/approvals/support-reply.ts never proposes
+  // a failing draft). Never the clinic's own words, which stay withheld on
+  // support_messages. Still no patient.
   "ops_approvals",
   "ops_approval_events",
   // The weekly compliance pack (drizzle/0123): a week's Monday, counts, ids

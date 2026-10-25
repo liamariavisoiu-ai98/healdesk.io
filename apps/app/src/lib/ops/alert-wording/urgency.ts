@@ -161,6 +161,9 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   compliance_pack_failed: "today",
   // The incident assistant (lane P6i): a legal clock waiting on the owner.
   incident_step_waiting: "urgent",
+  // An approved support reply that never went (lane P7c): the clinic is
+  // still waiting on a promised day, so a person answers it today.
+  support_reply_dead: "today",
 };
 
 /** The tag's word and colour, the subject's prefix and Slack's emoji, by level. */

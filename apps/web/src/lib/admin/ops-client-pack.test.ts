@@ -84,6 +84,7 @@ const PAYLOAD: CompliancePackView = {
     from: "2026-10-19T04:00:00.000Z",
     to: "2026-10-26T04:00:00.000Z",
   },
+  build: { partial: true, unreadSections: ["agreements"], builtLate: true, lateDays: 3 },
   headline: HEADLINE,
   agreements: { status: "could_not_read", unreadClinics: 1 },
   vendors: {
@@ -107,6 +108,7 @@ const PAYLOAD: CompliancePackView = {
     notReportableThisWeek: 0,
     resolvedThisWeek: 0,
     openAtWeekEnd: 1,
+    reportableOpenAtWeekEnd: 1,
     targetMissed: [{ clinicId: CLINIC, incidentId: INCIDENT }],
     agreementDeadlineAtRisk: [{ clinicId: CLINIC, incidentId: INCIDENT, agreementNotifyBy: "2026-10-31T04:00:00.000Z" }],
   },
@@ -121,11 +123,12 @@ const PAYLOAD: CompliancePackView = {
     overdueAtWeekEnd: 0,
     dueSoonAtWeekEnd: 0,
     blockedNow: 1,
+    doneWithNoClosingDayNow: 0,
   },
   dataLifecycle: {
     status: "ok",
     transcripts: { queuedThisWeek: 3, deliveredThisWeek: 3, copiesPast30DaysNow: 0 },
-    jobs: PACK_LIFECYCLE_JOBS.map((job) => ({ job, enabled: job !== "transcript-emails", lastRunAt: "2026-10-25T03:00:00.000Z", lastRunStatus: "ok" })),
+    jobsNow: PACK_LIFECYCLE_JOBS.map((job) => ({ job, enabled: job !== "transcript-emails", lastRunAt: "2026-10-25T03:00:00.000Z", lastRunStatus: "ok" })),
     failureAlertsThisWeek: PACK_FAILURE_EVENTS.map((event) => ({ event, count: 0 })),
   },
   access: {
@@ -175,10 +178,12 @@ describe("fetchCompliancePack", () => {
       { ...PAYLOAD, access: { ...PAYLOAD.access, events: [{ event: "something_new", count: 1 }] } },
       { ...PAYLOAD, week: { ...PAYLOAD.week, timeZone: "UTC" } },
       { ...PAYLOAD, schema: 2 },
+      { ...PAYLOAD, build: { ...PAYLOAD.build, unreadSections: ["Agreements could not be read: timeout"] } },
+      { ...PAYLOAD, build: { partial: true, unreadSections: [] } },
       { ...PAYLOAD, launchPromises: { status: "ok", open: ["x"] } },
       { ...PAYLOAD, agreements: { status: "ok" } },
       { ...PAYLOAD, approvals: { ...PAYLOAD.approvals, medianMinutesToDecide: -1 } },
-      { ...PAYLOAD, dataLifecycle: { ...PAYLOAD.dataLifecycle, jobs: [{ job: "retention-purge", enabled: true, lastRunAt: null, lastRunStatus: "Ran at 3am for clinic 42" }] } },
+      { ...PAYLOAD, dataLifecycle: { ...PAYLOAD.dataLifecycle, jobsNow: [{ job: "retention-purge", enabled: true, lastRunAt: null, lastRunStatus: "Ran at 3am for clinic 42" }] } },
     ];
     for (const payload of bad) {
       reply({ data: { status: "found", pack: { ...RECORD, payload } } });

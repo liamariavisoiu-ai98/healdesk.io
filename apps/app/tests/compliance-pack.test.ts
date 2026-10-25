@@ -45,9 +45,16 @@ vi.mock("@/lib/email/send", async (importOriginal) => {
   };
 });
 
+import type { SQL } from "drizzle-orm";
+
+import { unsafeDb } from "@/db";
 import { buildCompliancePack, headlineOf, median, rightsSection, unreadSections, type CompliancePack } from "@/lib/compliance-pack/build";
-import { JOB_COMPLIANCE_PACK, readyFields, runCompliancePackJob } from "@/lib/compliance-pack/job";
-import { canonicalJson, getPack, packHash } from "@/lib/compliance-pack/store";
+import { buildInfo, failedWeeksOf, JOB_COMPLIANCE_PACK, readyFields, runCompliancePackJob } from "@/lib/compliance-pack/job";
+import { canonicalJson, getPack, insertPack, packHash } from "@/lib/compliance-pack/store";
+import { opGenerateCompliancePack } from "@/lib/ops/pack-ops";
+import { runOpsSlackSweep } from "@/lib/ops/slack";
+import { opsAlertsSource } from "@/lib/ops/inbox/ops-alerts";
+import type { RightsRow } from "@/lib/rights/tracker";
 import { dueWeekStart, isWeekStart, packWeek } from "@/lib/compliance-pack/week";
 import { isMutating, runOperation, type Operator } from "@/lib/ops/api";
 import { addLocalDays } from "@/lib/scheduler/summary-clock";
@@ -59,17 +66,23 @@ const describeDb = hasTestDatabase ? describe : describe.skip;
 const OPERATOR: Operator = { email: "ops@healdesk.test", request: { ipAddress: "203.0.113.9", userAgent: "vitest" } };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** A Monday drawn from the past (2000 to 2024), never the same twice in a run. */
+/**
+ * Consecutive Mondays drawn from the past (2000 to 2024), none of them handed
+ * out before in this run, nor next to one that was: the job looks back four
+ * weeks from the week it is due, so each test's weeks must never meet another's.
+ */
 const used = new Set<string>();
-function randomPastWeek(): string {
+function reserveWeeks(count: number): string[] {
   for (;;) {
-    const start = addLocalDays("2000-01-03", 7 * Math.floor(Math.random() * 1300));
-    if (!used.has(start)) {
-      used.add(start);
-      return start;
-    }
+    const first = addLocalDays("2000-01-03", 7 * Math.floor(Math.random() * 1300));
+    const run = Array.from({ length: count }, (_, i) => addLocalDays(first, 7 * i));
+    const guard = Array.from({ length: count + 10 }, (_, i) => addLocalDays(first, 7 * (i - 5)));
+    if (guard.some((w) => used.has(w))) continue;
+    for (const w of run) used.add(w);
+    return run;
   }
 }
+const randomPastWeek = (): string => reserveWeeks(1)[0]!;
 
 // -----------------------------------------------------------------------------
 // The week (pure)
@@ -169,9 +182,72 @@ describe("the pack's pure pieces", () => {
       vendorsNeedingAttention: 0,
       transcriptCopiesPast30Days: null,
     });
-    const full = { ...pack, headline } as CompliancePack;
-    expect(unreadSections(full)).toEqual(["agreements", "incidents", "dataLifecycle", "access", "approvals"]);
-    expect(readyFields(full)).toEqual({ windowStart: "2026-10-19", rightsOverdueCount: 0, vendorsCount: 0, unreadCount: 5 });
+    const unread = unreadSections(pack);
+    expect(unread).toEqual(["agreements", "incidents", "dataLifecycle", "access", "approvals"]);
+    const full = { ...pack, headline, build: buildInfo("2026-10-19", new Date("2026-10-29T12:00:00Z"), unread) } as CompliancePack;
+    expect(full.build).toEqual({ partial: true, unreadSections: unread, builtLate: true, lateDays: 3 });
+    expect(readyFields(full)).toEqual({
+      windowStart: "2026-10-19",
+      rightsOverdueCount: 0,
+      vendorsCount: 0,
+      unreadCount: 5,
+      lateDays: 3,
+    });
+  });
+
+  test("a pack made in the due hour is on time; one an hour or more later is built late", () => {
+    expect(buildInfo("2026-10-19", new Date("2026-10-26T11:59:59Z"), [])).toEqual({
+      partial: false,
+      unreadSections: [],
+      builtLate: false,
+      lateDays: 0,
+    });
+    expect(buildInfo("2026-10-19", new Date("2026-10-26T12:00:00Z"), []).builtLate).toBe(true);
+  });
+
+  test("the job's note gives back the weeks that failed, and nothing from a run that did not fail", () => {
+    expect([...failedWeeksOf("failed", "due week 2026-10-19: 3 already stored; failed 2026-10-05, 2026-10-12")]).toEqual([
+      "2026-10-05",
+      "2026-10-12",
+    ]);
+    expect(failedWeeksOf("ok", "due week 2026-10-19: failed 2026-10-12").size).toBe(0);
+    expect(failedWeeksOf("failed", "Unknown job").size).toBe(0);
+  });
+
+  test("a rights row done with no closing day is never open, overdue or closed this week", () => {
+    // A standalone erasure whose subcontractor step was stamped before the
+    // week: the tracker says done and keeps no closing day (closedOn null).
+    const stampedErasure = {
+      id: "0c1d2e3f-0000-4000-8000-000000000011",
+      source: "erasure_request",
+      intakeId: null,
+      recordId: "0c1d2e3f-0000-4000-8000-000000000011",
+      clinicId: "0c1d2e3f-0000-4000-8000-000000000001",
+      clinicName: "",
+      kind: "erasure",
+      askedFor: null,
+      verifiedVia: null,
+      receivedOn: "2026-09-01",
+      dueOn: "2026-09-15",
+      dueDerived: false,
+      daysLeft: null,
+      state: "done",
+      command: null,
+      commandNote: null,
+      retellStep: "stamped",
+      backupExpiresOn: "2026-10-06",
+      closedOn: null,
+    } as RightsRow;
+    const ranIntake = { ...stampedErasure, id: "0c1d2e3f-0000-4000-8000-000000000012", source: "intake", receivedOn: "2026-10-20", dueOn: "2026-11-03" } as RightsRow;
+    const section = rightsSection([stampedErasure, ranIntake], { start: "2026-10-19", lastDay: "2026-10-25" });
+    expect(section).toMatchObject({
+      status: "ok",
+      receivedThisWeek: 1,
+      openAtWeekEnd: 0,
+      overdueAtWeekEnd: 0,
+      closedThisWeek: 0,
+      doneWithNoClosingDayNow: 2,
+    });
   });
 });
 
@@ -183,15 +259,16 @@ describe("the pack's pure pieces", () => {
 const PAYLOAD_KEYS = new Set([
   "schema", "week", "start", "lastDay", "timeZone", "from", "to", "headline",
   "incidentsOpen", "rightsOverdue", "resignsOpen", "vendorsNeedingAttention", "transcriptCopiesPast30Days",
-  "agreements", "status", "unreadClinics", "signed", "kind", "version", "count",
-  "resigns", "openedThisWeek", "signedThisWeek", "withdrawnThisWeek", "openAtWeekEnd", "belowFloorAtWeekEnd",
-  "reviews", "decidedThisWeek",
+  "build", "partial", "unreadSections", "builtLate", "lateDays",
+  "agreements", "status", "unreadClinics", "boundThisWeek", "kind", "version", "count",
+  "resigns", "openedThisWeek", "signedThisWeek", "withdrawnThisWeek", "openAtWeekEnd", "openAtWeekEndBelowFloorNow",
+  "reviews", "decidedThisWeek", "openAtWeekEndNow",
   "vendors", "subjects", "subject", "state", "effectiveOn", "expiresOn", "expiresWithin30Days", "recordedThisWeek",
   "incidents", "openedByClass", "class", "notifiedThisWeek", "reportedThisWeek", "notReportableThisWeek",
-  "resolvedThisWeek", "targetMissed", "clinicId", "incidentId", "agreementDeadlineAtRisk", "agreementNotifyBy",
+  "resolvedThisWeek", "reportableOpenAtWeekEnd", "targetMissed", "clinicId", "incidentId", "agreementDeadlineAtRisk", "agreementNotifyBy",
   "rights", "receivedThisWeek", "receivedByKind", "closedThisWeek", "closedOnTimeThisWeek", "closedLateThisWeek",
-  "overdueAtWeekEnd", "dueSoonAtWeekEnd", "blockedNow",
-  "dataLifecycle", "transcripts", "queuedThisWeek", "deliveredThisWeek", "copiesPast30DaysNow", "jobs", "job",
+  "overdueAtWeekEnd", "dueSoonAtWeekEnd", "blockedNow", "doneWithNoClosingDayNow",
+  "dataLifecycle", "transcripts", "queuedThisWeek", "deliveredThisWeek", "copiesPast30DaysNow", "jobsNow", "job",
   "enabled", "lastRunAt", "lastRunStatus", "failureAlertsThisWeek", "event",
   "access", "events", "freshCodeSteps", "approvalDecisions", "platformAttestations", "deviceRecoveriesIssued",
   "operatorSignIns",
@@ -227,6 +304,9 @@ const at = (iso: Date, hours: number) => new Date(iso.getTime() + hours * 3_600_
 describeDb("the compliance pack, against the database", () => {
   beforeAll(async () => {
     await runMigrations();
+    // Weeks an earlier run of this file stored on the same database: never handed out again.
+    const { rows } = await getMigratorPool().query<{ week: string }>(`select week_start::text as week from compliance_packs`);
+    for (const { week } of rows) used.add(week);
   });
   beforeEach(async () => {
     await truncateAll();
@@ -313,7 +393,8 @@ describeDb("the compliance pack, against the database", () => {
       vendorsNeedingAttention: 4,
       transcriptCopiesPast30Days: 0,
     });
-    expect(first.agreements).toMatchObject({ status: "ok", signed: [], resigns: { openAtWeekEnd: 0 }, reviews: { openAtWeekEnd: 0 } });
+    expect(first.agreements).toMatchObject({ status: "ok", boundThisWeek: [], resigns: { openAtWeekEnd: 0 }, reviews: { openAtWeekEndNow: 0 } });
+    expect(first.build).toEqual({ partial: false, unreadSections: [], builtLate: false, lateDays: 0 });
     expect(first.incidents).toMatchObject({ status: "ok", openedThisWeek: 0, targetMissed: [], agreementDeadlineAtRisk: [] });
     expect(first.access).toMatchObject({ status: "ok", operatorSignIns: "not_recorded_on_the_host" });
     expect(first.approvals).toMatchObject({ status: "ok", medianMinutesToDecide: null, waitingAtWeekEnd: 0 });
@@ -350,28 +431,73 @@ describeDb("the compliance pack, against the database", () => {
         );
       });
     }
+    // Live clinic only: one discovered and resolved long before the week, its
+    // target missed then (never listed); one discovered before the week and
+    // resolved only after it (open at the week's end, its target missed); and
+    // a service complaint open at the week's end (no agreement reports it, so
+    // it stays out of the headline).
+    await inTenant(live.clinicId, async (q) => {
+      await q.query(
+        `insert into incidents (clinic_id, class, summary, discovered_at, notify_by, resolved_at, opened_by)
+         values ($1, 'security_incident', 'synthetic: long ago', $2, $3, $4, 'ops')`,
+        [live.clinicId, at(w.from, -24 * 60), at(w.from, -24 * 59), at(w.from, -24 * 50)],
+      );
+      await q.query(
+        `insert into incidents (clinic_id, class, summary, discovered_at, notify_by, resolved_at, opened_by)
+         values ($1, 'improper_use_or_disclosure', 'synthetic: resolved after', $2, $3, $4, 'ops')`,
+        [live.clinicId, at(w.from, -72), at(w.from, -48), at(w.to, 5)],
+      );
+      await q.query(
+        `insert into incidents (clinic_id, class, summary, discovered_at, notify_by, opened_by)
+         values ($1, 'service_complaint', 'synthetic: complaint', $2, $3, 'ops')`,
+        [live.clinicId, at(w.from, -100), at(w.from, 200)],
+      );
+    });
+    const [{ id: resolvedAfter }] = (
+      await inTenant(live.clinicId, (q) =>
+        q.query<{ id: string }>(`select id from incidents where clinic_id = $1 and class = 'improper_use_or_disclosure'`, [live.clinicId]),
+      )
+    ).rows as [{ id: string }];
     const [{ id: openIncident }] = (
       await inTenant(live.clinicId, (q) =>
-        q.query<{ id: string }>(`select id from incidents where clinic_id = $1 and class = 'security_incident'`, [live.clinicId]),
+        q.query<{ id: string }>(`select id from incidents where clinic_id = $1 and class = 'security_incident' and resolved_at is null`, [live.clinicId]),
       )
     ).rows as [{ id: string }];
 
-    // A re-sign opened in the week, still open at its end.
+    // Re-signs: one opened in the week, still open at its end; one signed
+    // exactly at the week's end (still open AT it); one signed inside it.
     const agreementId = await bindAgreementInEffect(live.clinicId);
-    await inTenant(live.clinicId, (q) =>
-      q.query(
-        `insert into agreement_resigns (clinic_id, from_agreement_id, reason, source, requested_by, started_at)
-         values ($1, $2, 'baa_version', 'operator', 'ops', $3)`,
-        [live.clinicId, agreementId, at(w.from, 50)],
-      ),
-    );
-    // A signature in the week (the factory's is a month before now, so add one dated inside).
-    await migrator.query(
-      `insert into baa_acceptances (id, organization_id, document_version, document_hash, rendered_text, variables, assent_label,
-         accepted_by_name, accepted_by_email, accepted_at)
-       values ($1, $2, '1.5.1', repeat('f', 64), 'AGREEMENT (synthetic test)', '{}'::jsonb, 'I agree', 'Alex Chen', 'alex@agreement.test', $3)`,
-      [randomUUID(), live.organizationId, at(w.from, 3)],
-    );
+    await inTenant(live.clinicId, async (q) => {
+      for (const [started, signed] of [
+        [at(w.from, 50), null],
+        [at(w.from, -100), w.to],
+        [at(w.from, -100), at(w.from, 20)],
+      ] as const) {
+        await q.query(
+          `insert into agreement_resigns
+             (clinic_id, from_agreement_id, reason, source, requested_by, started_at, signed_at, status,
+              superseding_agreement_id, resolved_at, resolved_by)
+           values ($1, $2, 'baa_version', 'operator', 'ops', $3, $4::timestamptz, $5,
+                   case when $4::timestamptz is null then null else $2::uuid end, $4::timestamptz,
+                   case when $4::timestamptz is null then null else 'practice' end)`,
+          [live.clinicId, agreementId, started, signed, signed ? "signed" : "open"],
+        );
+      }
+    });
+    // Agreements, counted the week they were bound: one signed at checkout
+    // weeks before and bound (imported at provisioning) in the week counts;
+    // one signed in the week but bound after it does not.
+    for (const [version, accepted, bound] of [
+      ["1.5.1", at(w.from, -24 * 30), at(w.from, 3)],
+      ["1.5.0", at(w.from, 4), at(w.to, 1)],
+    ] as const) {
+      await migrator.query(
+        `insert into baa_acceptances (id, organization_id, document_version, document_hash, rendered_text, variables, assent_label,
+           accepted_by_name, accepted_by_email, accepted_at, bound_at)
+         values ($1, $2, $3, repeat('f', 64), 'AGREEMENT (synthetic test)', '{}'::jsonb, 'I agree', 'Alex Chen', 'alex@agreement.test', $4, $5)`,
+        [randomUUID(), live.organizationId, version, accepted, bound],
+      );
+    }
 
     // Patient rights: an erasure received on the week's Tuesday, ten business days to run, still open.
     const tuesday = addLocalDays(week, 1);
@@ -388,8 +514,10 @@ describeDb("the compliance pack, against the database", () => {
       `insert into platform_compliance (subject, action, document_ref, effective_on, expires_on, actor_label, recorded_at)
        values ('aws', 'attested', 'synthetic ref', $1, $2, 'ops', $3),
               ('anthropic', 'attested', 'synthetic ref', $1, null, 'ops', $4),
-              ('anthropic', 'withdrawn', 'synthetic ref', $1, null, 'ops', $5)`,
-      [week, addLocalDays(week, 20), at(w.from, 5), at(w.from, -500), at(w.from, -400)],
+              ('anthropic', 'withdrawn', 'synthetic ref', $1, null, 'ops', $5),
+              ('retell', 'attested', 'synthetic ref', $1, null, 'ops', $6)`,
+      // Retell attested at the week's end: after it, so not in force in it and not recorded in it.
+      [week, addLocalDays(week, 20), at(w.from, 5), at(w.from, -500), at(w.from, -400), w.to],
     );
 
     // The access log: two passkeys and one approval decided with a fresh code, inside; one just outside.
@@ -426,14 +554,18 @@ describeDb("the compliance pack, against the database", () => {
       openedThisWeek: 1,
       openedByClass: [{ class: "security_incident", count: 1 }],
       resolvedThisWeek: 1,
-      openAtWeekEnd: 1,
-      targetMissed: [{ clinicId: live.clinicId, incidentId: openIncident }],
+      openAtWeekEnd: 3,
+      reportableOpenAtWeekEnd: 2,
+      targetMissed: [
+        { clinicId: live.clinicId, incidentId: openIncident },
+        { clinicId: live.clinicId, incidentId: resolvedAfter },
+      ].sort((a, b) => a.incidentId.localeCompare(b.incidentId)),
       agreementDeadlineAtRisk: [{ clinicId: live.clinicId, incidentId: openIncident, agreementNotifyBy: at(w.to, 120).toISOString() }],
     });
     expect(pack.agreements).toMatchObject({
       status: "ok",
-      signed: [{ kind: "baa", version: "1.5.1", count: 1 }],
-      resigns: { openedThisWeek: 1, openAtWeekEnd: 1, signedThisWeek: 0 },
+      boundThisWeek: [{ kind: "baa", version: "1.5.1", count: 1 }],
+      resigns: { openedThisWeek: 1, openAtWeekEnd: 2, signedThisWeek: 1 },
     });
     expect(pack.rights).toMatchObject({
       status: "ok",
@@ -450,10 +582,11 @@ describeDb("the compliance pack, against the database", () => {
     const events = pack.access.status === "ok" ? pack.access.events : [];
     expect(events.find((e) => e.event === "passkey_added")?.count).toBe(2);
     expect(pack.approvals).toMatchObject({ status: "ok", approvedThisWeek: 1, medianMinutesToDecide: 90 });
+    expect(pack.vendors).toMatchObject({ recordedThisWeek: 1 });
     expect(pack.headline).toEqual({
-      incidentsOpen: 1,
+      incidentsOpen: 2,
       rightsOverdue: 0,
-      resignsOpen: 1,
+      resignsOpen: 2,
       vendorsNeedingAttention: 4,
       transcriptCopiesPast30Days: 0,
     });
@@ -478,35 +611,60 @@ describeDb("the compliance pack, against the database", () => {
     expect(readyFields(pack)).not.toHaveProperty("incidentsOpenCount");
   });
 
-  test("the job is off by default, stores the due week once, and tells only the ops address, once", async () => {
+  test("a read of vendors, access or approvals that fails makes that section could_not_read", async () => {
+    await seedClinic("pack-platform-unread");
+    const original = unsafeDb.execute.bind(unsafeDb);
+    const text = (q: unknown) =>
+      ((q as SQL)?.queryChunks ?? []).map((c) => (Array.isArray((c as { value?: unknown }).value) ? (c as { value: string[] }).value.join("") : "")).join("");
+    for (const [table, unread] of [
+      ["platform_compliance", ["vendors", "access"]],
+      ["security_events", ["access"]],
+      ["ops_approval", ["approvals"]],
+    ] as const) {
+      const spy = vi.spyOn(unsafeDb, "execute").mockImplementation(((q: SQL) =>
+        text(q).includes(`from ${table}`) ? Promise.reject(new Error("unreachable (test)")) : original(q)) as never);
+      try {
+        const pack = await buildCompliancePack(randomPastWeek());
+        expect(unreadSections(pack), table).toEqual(unread);
+        for (const section of unread as readonly ("vendors" | "access" | "approvals")[]) expect(pack[section], `${table} ${section}`).toEqual({ status: "could_not_read" });
+        if (unread.includes("vendors")) expect(pack.headline.vendorsNeedingAttention).toBeNull();
+      } finally {
+        spy.mockRestore();
+      }
+    }
+  });
+
+  test("the job is off by default, stores the due weeks once, and tells only the ops address, once a week", async () => {
     await seedClinic("pack-job");
-    const week = randomPastWeek();
+    const weeks = reserveWeeks(6);
+    const week = weeks[5]!;
     const due = packWeek(week).dueAt;
     const app = getAppPool();
-    const count = async () => (await app.query(`select count(*)::int as n from compliance_packs where week_start = $1`, [week])).rows[0]!.n;
+    const count = async (list: readonly string[]) =>
+      (await app.query(`select count(*)::int as n from compliance_packs where week_start = any($1::date[])`, [list])).rows[0]!.n;
 
     expect(await runCompliancePackJob({ now: due })).toEqual({ status: "disabled" });
-    expect(await count()).toBe(0);
+    expect(await count(weeks)).toBe(0);
 
     await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = $1`, [JOB_COMPLIANCE_PACK]);
-    // A minute before 07:00 New York, the week before is the one due.
+    // A minute before 07:00 New York, the week before is the one due, and the four before it are filled.
     const early = await runCompliancePackJob({ now: new Date(due.getTime() - 60_000) });
-    expect(early.status).toBe("ok");
-    expect(await count()).toBe(0);
-    const firstWeek = addLocalDays(week, -7);
-    expect(early).toMatchObject({ note: `week ${firstWeek}: stored` });
+    expect(early).toEqual({ status: "ok", note: `due week ${weeks[4]}: stored ${weeks.slice(0, 5).join(", ")}; 0 already stored` });
+    expect(await count([week])).toBe(0);
+    expect(await count(weeks.slice(0, 5))).toBe(5);
+    expect(state.sent).toHaveLength(5);
     state.sent = [];
 
     const stored = await runCompliancePackJob({ now: due });
-    expect(stored).toMatchObject({ status: "ok", note: `week ${week}: stored` });
-    expect(await count()).toBe(1);
+    expect(stored).toEqual({ status: "ok", note: `due week ${week}: stored ${week}; 4 already stored` });
     const again = await runCompliancePackJob({ now: new Date(due.getTime() + 3_600_000) });
-    expect(again).toMatchObject({ status: "ok", note: `week ${week}: already stored` });
-    expect(await count()).toBe(1);
+    expect(again).toEqual({ status: "ok", note: `due week ${week}: 5 already stored` });
+    expect(await count(weeks)).toBe(6);
 
     const row = await getPack(week);
     expect(row).toMatchObject({ weekStart: week, generatedBy: "compliance-pack", generatedAt: due.toISOString() });
     expect(row!.payloadHash).toBe(packHash(row!.payload));
+    expect(row!.payload.build).toEqual({ partial: false, unreadSections: [], builtLate: false, lateDays: 0 });
 
     // One pointer, to the ops address only, as an ops alert with the week and the numbers.
     expect(state.sent).toHaveLength(1);
@@ -526,9 +684,12 @@ describeDb("the compliance pack, against the database", () => {
       vendorsCount: 4,
       transcriptCopiesCount: 0,
       unreadCount: 0,
+      lateDays: 0,
     });
     expect(mail.text).toContain("Vendor agreements lapsed, withdrawn, missing or ending within 30 days: 4.");
-    expect(mail.text).toContain("Incidents still open when the week ended: 0.");
+    expect(mail.text).toContain("Incidents still open when the week ended, less service complaints: 0.");
+    expect(mail.text).toContain("counted in UTC days");
+    expect(mail.text).not.toMatch(/incomplete|after it was due/);
     expect(mail.html).toContain("https://healdesk.test/admin/compliance");
     expect(`${mail.subject}\n${mail.text}`.match(/@/g) ?? []).toEqual([]);
     if (process.env.PACK_EMAIL_OUT) {
@@ -538,8 +699,83 @@ describeDb("the compliance pack, against the database", () => {
     }
   });
 
-  test("the same week failing twice in a row raises compliance_pack_failed, once", async () => {
-    const week = randomPastWeek();
+  test("a stored pack whose pointer never went is told on the next run, once", async () => {
+    await seedClinic("pack-reraise");
+    const weeks = reserveWeeks(5);
+    const week = weeks[4]!;
+    const due = packWeek(week).dueAt;
+    await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = $1`, [JOB_COMPLIANCE_PACK]);
+    // Stored with no pointer, as when the ops log could not be reached.
+    for (const w of weeks) await insertPack(await buildCompliancePack(w), "compliance-pack", due);
+    expect(await runCompliancePackJob({ now: due })).toEqual({ status: "ok", note: `due week ${week}: 5 already stored` });
+    expect(state.sent).toHaveLength(5);
+    await runCompliancePackJob({ now: at(due, 1) });
+    expect(state.sent).toHaveLength(5);
+  });
+
+  test("a worker down for ten days fills the gap on its first run back, each pack marked late", async () => {
+    await seedClinic("pack-gap");
+    const weeks = reserveWeeks(7);
+    await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = $1`, [JOB_COMPLIANCE_PACK]);
+    // Running on the Monday weeks[4] fell due: weeks[0..4] stored.
+    await runCompliancePackJob({ now: packWeek(weeks[4]!).dueAt });
+    state.sent = [];
+    // Down from then until ten days after weeks[5] fell due.
+    const back = new Date(packWeek(weeks[5]!).dueAt.getTime() + 10 * 86_400_000);
+    expect(await runCompliancePackJob({ now: back })).toEqual({
+      status: "ok",
+      note: `due week ${weeks[6]}: stored ${weeks[5]}, ${weeks[6]}; 3 already stored`,
+    });
+    expect((await getPack(weeks[5]!))!.payload.build).toEqual({ partial: false, unreadSections: [], builtLate: true, lateDays: 10 });
+    expect((await getPack(weeks[6]!))!.payload.build).toMatchObject({ builtLate: true, lateDays: 3 });
+    expect((await getPack(weeks[4]!))!.payload.build).toMatchObject({ builtLate: false });
+    // One pointer per new week, each saying how late it is.
+    expect(state.sent).toHaveLength(2);
+    expect(state.sent.map((m) => m.text).join("\n")).toContain("It was made 10 days after it was due");
+  });
+
+  test("a week with a section unread is not stored for 48 hours, then stored as incomplete", async () => {
+    await seedClinic("pack-partial");
+    const weeks = reserveWeeks(5);
+    const week = weeks[4]!;
+    const due = packWeek(week).dueAt;
+    await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = $1`, [JOB_COMPLIANCE_PACK]);
+    state.extraClinics = [{ id: "not-a-clinic-id" }];
+
+    // The four older weeks are long past their 48 hours: stored, marked partial. The due one is not.
+    const first = await runCompliancePackJob({ now: due });
+    expect(first).toEqual({
+      status: "failed",
+      note: `due week ${week}: stored ${weeks.slice(0, 4).join(", ")}; 0 already stored; failed ${week}`,
+    });
+    expect(await getPack(week)).toBeNull();
+    expect((await getPack(weeks[0]!))!.payload.build).toMatchObject({
+      partial: true,
+      unreadSections: ["agreements", "incidents", "rights", "dataLifecycle"],
+    });
+    expect(await runCompliancePackJob({ now: at(due, 47.9) })).toMatchObject({ status: "failed" });
+    expect(await getPack(week)).toBeNull();
+    state.sent = [];
+
+    const late = await runCompliancePackJob({ now: at(due, 48) });
+    expect(late).toEqual({ status: "ok", note: `due week ${week}: stored ${week}; 4 already stored` });
+    const pack = (await getPack(week))!.payload;
+    expect(pack.build).toEqual({
+      partial: true,
+      unreadSections: ["agreements", "incidents", "rights", "dataLifecycle"],
+      builtLate: true,
+      lateDays: 2,
+    });
+    expect(pack.incidents).toEqual({ status: "could_not_read", unreadClinics: 1 });
+    // compliance_pack_failed went once (the second failing run); the pointer says incomplete in plain words.
+    expect(state.sent).toHaveLength(1);
+    expect(state.sent[0]!.text).toContain("This pack is incomplete: 4 sections could not be read for two days");
+    expect(state.sent[0]!.text).not.toContain("Incidents still open");
+  });
+
+  test("the same week failing on two runs in a row raises compliance_pack_failed, once", async () => {
+    const weeks = reserveWeeks(5);
+    const week = weeks[4]!;
     const due = packWeek(week).dueAt;
     await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = $1`, [JOB_COMPLIANCE_PACK]);
     state.clinicsThrow = true;
@@ -550,24 +786,65 @@ describeDb("the compliance pack, against the database", () => {
         ])
       ).rows[0]!.n;
 
-    expect(await runCompliancePackJob({ now: due })).toMatchObject({ status: "failed", note: `week ${week}: could not be made` });
+    const note = `due week ${week}: 0 already stored; failed ${weeks.join(", ")}`;
+    expect(await runCompliancePackJob({ now: due })).toEqual({ status: "failed", note });
     expect(await failed()).toBe(0);
-    expect(await runCompliancePackJob({ now: at(due, 1) })).toMatchObject({
-      status: "failed",
-      note: `week ${week}: could not be made again; ops told`,
-    });
+    expect(await runCompliancePackJob({ now: at(due, 1) })).toEqual({ status: "failed", note });
     expect(await failed()).toBe(1);
     await runCompliancePackJob({ now: at(due, 2) });
     expect(await failed()).toBe(1);
-    expect(state.sent.filter((m) => m.kind === "ops_alert")).toHaveLength(1);
+    // One alert per failing week, each once; never the driver's words in the note.
+    expect(state.sent.filter((m) => m.kind === "ops_alert")).toHaveLength(5);
+    expect(note).not.toMatch(/unreachable/);
 
     state.clinicsThrow = false;
-    expect(await runCompliancePackJob({ now: at(due, 3) })).toMatchObject({ status: "ok", note: `week ${week}: stored` });
+    expect(await runCompliancePackJob({ now: at(due, 3) })).toEqual({
+      status: "ok",
+      note: `due week ${week}: stored ${weeks.join(", ")}; 0 already stored`,
+    });
+  });
+
+  test("the pointer is never posted to Slack and never a Home row; other alerts still are", async () => {
+    vi.stubEnv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/T000/B000/xxxxxxxxxxxxxxxx");
+    const posted: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init: { body: string }) => {
+        posted.push(init.body);
+        return new Response("ok", { status: 200 });
+      }),
+    );
+    try {
+      const now = new Date();
+      await getMigratorPool().query(
+        `insert into ops_alerts (event, dedupe_key, fields, raised_at, last_raised_at)
+         values ('compliance_pack_ready', $1, '{"windowStart":"2026-10-19","unreadCount":0}'::jsonb, $2, $2),
+                ('dmarc_review_due', $3, '{}'::jsonb, $2, $2)`,
+        [`key:compliance_pack_ready:test-${randomUUID()}`, now, `key:dmarc-${randomUUID()}`],
+      );
+      const result = await runOpsSlackSweep(now);
+      expect(result.status).toBe("ok");
+      // Other files' alerts of the last day are posted too (ops_alerts is not emptied between tests).
+      expect(posted.length).toBeGreaterThanOrEqual(1);
+      expect(posted.some((body) => /DMARC/i.test(body))).toBe(true);
+      expect(posted.some((body) => /compliance pack is stored/i.test(body))).toBe(false);
+      const { rows: unposted } = await getMigratorPool().query(
+        `select count(*)::int as n from ops_alerts where event = 'compliance_pack_ready' and slack_posted_at is null and slack_attempts = 0`,
+      );
+      const { rows: all } = await getMigratorPool().query(`select count(*)::int as n from ops_alerts where event = 'compliance_pack_ready'`);
+      expect(unposted[0]!.n).toBe(all[0]!.n);
+      const { rows } = await opsAlertsSource.read({ now, actor: { type: "system" }, request: {}, clinicNames: async () => new Map() } as never);
+      expect(rows.some((r: { id: string }) => r.id.startsWith("alert:compliance_pack_ready"))).toBe(false);
+      expect(rows.some((r: { id: string }) => r.id.startsWith("alert:dmarc_review_due"))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   test("the three operations: read one, list the newest, and make a missed week once", async () => {
     await seedClinic("pack-ops");
     const week = randomPastWeek();
+    const now = at(packWeek(week).dueAt, 24 * 30);
     const data = (outcome: { status: number; body: unknown }) => {
       expect(outcome.status).toBe(200);
       return (outcome.body as { data: Record<string, unknown> }).data;
@@ -580,7 +857,7 @@ describeDb("the compliance pack, against the database", () => {
     expect((await runOperation("getCompliancePack", { week: addLocalDays(week, 2) }, OPERATOR)).status).toBe(400);
     expect((await runOperation("getCompliancePack", { week, extra: 1 }, OPERATOR)).status).toBe(400);
 
-    const made = data(await runOperation("generateCompliancePack", { week }, OPERATOR));
+    const made = data(await opGenerateCompliancePack({ week }, OPERATOR, now));
     expect(made).toMatchObject({ status: "stored", weekStart: week, unreadSections: 0, auditRecorded: true });
     const packId = made.packId as string;
     expect(packId).toMatch(UUID);
@@ -590,21 +867,34 @@ describeDb("the compliance pack, against the database", () => {
     );
     expect(events).toEqual([{ actor_label: "ops@healdesk.test", ip_address: "203.0.113.9", metadata: { packId } }]);
 
-    expect(data(await runOperation("generateCompliancePack", { week }, OPERATOR))).toMatchObject({
+    expect(data(await opGenerateCompliancePack({ week }, OPERATOR, now))).toMatchObject({
       status: "refused",
       message: expect.stringContaining("already stored"),
     });
-    // A week that has not ended cannot be made.
-    const future = addLocalDays(dueWeekStart(new Date()), 14);
-    expect(data(await runOperation("generateCompliancePack", { week: future }, OPERATOR))).toMatchObject({
+    // Not a week still to come, and not more than 104 weeks back.
+    expect(data(await runOperation("generateCompliancePack", { week: addLocalDays(dueWeekStart(new Date()), 14) }, OPERATOR))).toMatchObject({
       status: "refused",
       message: expect.stringContaining("has not ended"),
     });
+    const oldest = addLocalDays(dueWeekStart(now), -7 * 104);
+    expect(data(await opGenerateCompliancePack({ week: addLocalDays(oldest, -7) }, OPERATOR, now))).toMatchObject({
+      status: "refused",
+      message: expect.stringContaining("last 104 weeks"),
+    });
     expect((await runOperation("generateCompliancePack", { week: addLocalDays(week, 3) }, OPERATOR)).status).toBe(400);
+    // A week with a section unread inside its 48 hours is refused, and nothing is stored.
+    const [fresh] = reserveWeeks(1);
+    state.extraClinics = [{ id: "not-a-clinic-id" }];
+    expect(data(await opGenerateCompliancePack({ week: fresh }, OPERATOR, at(packWeek(fresh!).dueAt, 1)))).toMatchObject({
+      status: "refused",
+      message: expect.stringContaining("could not be read"),
+    });
+    expect(await getPack(fresh!)).toBeNull();
+    state.extraClinics = [];
 
     expect(data(await runOperation("getCompliancePack", { week }, OPERATOR))).toMatchObject({
       status: "found",
-      pack: { id: packId, weekStart: week, generatedBy: "ops-console" },
+      pack: { id: packId, weekStart: week, generatedBy: "ops-console", payload: { build: { builtLate: true, lateDays: 30 } } },
     });
 
     const packs = data(await runOperation("listCompliancePacks", { limit: 104 }, OPERATOR)).packs as {

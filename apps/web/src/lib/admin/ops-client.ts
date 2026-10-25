@@ -7761,20 +7761,31 @@ export type CompliancePackHeadline = {
   transcriptCopiesPast30Days: number | null;
 };
 
+/** The sections a pack can mark unread (apps/app lib/compliance-pack/build.ts unreadSections). */
+export const PACK_SECTIONS = ["agreements", "vendors", "incidents", "rights", "dataLifecycle", "access", "approvals"] as const;
+
 export type CompliancePackView = {
   schema: 1;
   week: { start: string; lastDay: string; timeZone: "America/New_York"; from: string; to: string };
+  /** How it was made: partial (with the unread sections) only after two days of tries; late after a gap. */
+  build: {
+    partial: boolean;
+    unreadSections: (typeof PACK_SECTIONS)[number][];
+    builtLate: boolean;
+    lateDays: number;
+  };
   headline: CompliancePackHeadline;
   agreements: PackSection<{
-    signed: { kind: "baa" | "dpa"; version: string; count: number }[];
+    /** Bound to a paying account this week (by bound time, so a checkout signing counts the week it was imported). */
+    boundThisWeek: { kind: "baa" | "dpa"; version: string; count: number }[];
     resigns: {
       openedThisWeek: number;
       signedThisWeek: number;
       withdrawnThisWeek: number;
       openAtWeekEnd: number;
-      belowFloorAtWeekEnd: number;
+      openAtWeekEndBelowFloorNow: number;
     };
-    reviews: { openedThisWeek: number; decidedThisWeek: number; openAtWeekEnd: number };
+    reviews: { openedThisWeek: number; decidedThisWeek: number; openAtWeekEndNow: number };
   }>;
   vendors: PackSection<{
     subjects: {
@@ -7795,6 +7806,7 @@ export type CompliancePackView = {
     notReportableThisWeek: number;
     resolvedThisWeek: number;
     openAtWeekEnd: number;
+    reportableOpenAtWeekEnd: number;
     targetMissed: { clinicId: string; incidentId: string }[];
     agreementDeadlineAtRisk: { clinicId: string; incidentId: string; agreementNotifyBy: string }[];
   }>;
@@ -7808,10 +7820,11 @@ export type CompliancePackView = {
     overdueAtWeekEnd: number;
     dueSoonAtWeekEnd: number;
     blockedNow: number;
+    doneWithNoClosingDayNow: number;
   }>;
   dataLifecycle: PackSection<{
     transcripts: { queuedThisWeek: number; deliveredThisWeek: number; copiesPast30DaysNow: number };
-    jobs: {
+    jobsNow: {
       job: (typeof PACK_LIFECYCLE_JOBS)[number];
       enabled: boolean;
       lastRunAt: string | null;
@@ -7921,7 +7934,7 @@ const nullableIso = (v: unknown, at: string) => optionalIsoInstant(v, at);
 function readCompliancePack(value: unknown, at: string): CompliancePackView {
   const data = exactKeys(
     value,
-    ["schema", "week", "headline", "agreements", "vendors", "incidents", "rights", "dataLifecycle", "access", "approvals", "launchPromises"],
+    ["schema", "week", "build", "headline", "agreements", "vendors", "incidents", "rights", "dataLifecycle", "access", "approvals", "launchPromises"],
     at,
   );
   if (data.schema !== 1) throw new ShapeError(`${at}.schema`);
@@ -7938,9 +7951,19 @@ function readCompliancePack(value: unknown, at: string): CompliancePackView {
       },
       `${at}.week`,
     ),
+    build: fields<CompliancePackView["build"]>(
+      data.build,
+      {
+        partial: bool,
+        unreadSections: (v, a) => rowsOf(v, a, (x, xa) => literal(x, PACK_SECTIONS, xa)),
+        builtLate: bool,
+        lateDays: count,
+      },
+      `${at}.build`,
+    ),
     headline: readHeadline(data.headline, `${at}.headline`),
     agreements: packSection(data.agreements, `${at}.agreements`, {
-      signed: (v, a) =>
+      boundThisWeek: (v, a) =>
         rowsOf(v, a, (row, ra) =>
           fields<{ kind: "baa" | "dpa"; version: string; count: number }>(
             row,
@@ -7956,8 +7979,8 @@ function readCompliancePack(value: unknown, at: string): CompliancePackView {
           ),
         ),
       resigns: (v, a) =>
-        fields(v, counts(["openedThisWeek", "signedThisWeek", "withdrawnThisWeek", "openAtWeekEnd", "belowFloorAtWeekEnd"] as const), a),
-      reviews: (v, a) => fields(v, counts(["openedThisWeek", "decidedThisWeek", "openAtWeekEnd"] as const), a),
+        fields(v, counts(["openedThisWeek", "signedThisWeek", "withdrawnThisWeek", "openAtWeekEnd", "openAtWeekEndBelowFloorNow"] as const), a),
+      reviews: (v, a) => fields(v, counts(["openedThisWeek", "decidedThisWeek", "openAtWeekEndNow"] as const), a),
     }),
     vendors: packSection(data.vendors, `${at}.vendors`, {
       subjects: (v, a) =>
@@ -7985,6 +8008,7 @@ function readCompliancePack(value: unknown, at: string): CompliancePackView {
         "notReportableThisWeek",
         "resolvedThisWeek",
         "openAtWeekEnd",
+        "reportableOpenAtWeekEnd",
       ] as const),
       openedByClass: (v, a) =>
         rowsOf(v, a, (row, ra) =>
@@ -8004,13 +8028,14 @@ function readCompliancePack(value: unknown, at: string): CompliancePackView {
         "overdueAtWeekEnd",
         "dueSoonAtWeekEnd",
         "blockedNow",
+        "doneWithNoClosingDayNow",
       ] as const),
       receivedByKind: (v, a) =>
         rowsOf(v, a, (row, ra) => fields(row, { kind: (x, xa) => literal(x, RIGHTS_KINDS, xa), count }, ra)),
     }),
     dataLifecycle: packSection(data.dataLifecycle, `${at}.dataLifecycle`, {
       transcripts: (v, a) => fields(v, counts(["queuedThisWeek", "deliveredThisWeek", "copiesPast30DaysNow"] as const), a),
-      jobs: (v, a) =>
+      jobsNow: (v, a) =>
         rowsOf(v, a, (row, ra) =>
           fields(
             row,

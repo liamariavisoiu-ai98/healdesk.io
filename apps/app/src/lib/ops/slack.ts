@@ -262,6 +262,13 @@ const LEASE = "2 minutes";
 export const SLACK_LOOKBACK_MS = 24 * 60 * 60_000;
 const BATCH = 10;
 
+/**
+ * Alerts that are never posted to Slack. The weekly compliance pack's
+ * pointer is for the owner only (owner decision D20; lib/compliance-pack/
+ * job.ts): it goes to the ops address by email and nowhere else.
+ */
+export const SLACK_EXCLUDED_EVENTS: readonly string[] = ["compliance_pack_ready"];
+
 export type SlackSweepResult = { status: "ok" | "failed"; note: string };
 
 /**
@@ -296,6 +303,7 @@ export async function runOpsSlackSweep(now: Date = new Date()): Promise<SlackSwe
         where slack_posted_at is null
           and slack_attempts < ${SLACK_MAX_ATTEMPTS}
           and raised_at > ${new Date(now.getTime() - SLACK_LOOKBACK_MS)}
+          and event not in (${sql.join(SLACK_EXCLUDED_EVENTS.map((e) => sql`${e}`), sql`, `)})
           and (slack_next_at is null or slack_next_at <= ${now})
         order by raised_at
         limit ${BATCH}

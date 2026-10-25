@@ -627,20 +627,29 @@ left the list without running, with the outcome's words beside it.
 (`apps/app/src/lib/compliance-pack/`, ops automation lane P6h; owner decision D20: for the owner
 only) is one stored row per week, Monday to Sunday on New York's clock, made by the hourly
 `compliance-pack` job (off until the owner switches it on) from 07:00 New York on the Monday
-after the week (11:00 UTC in summer, 12:00 UTC in winter). Once stored it never changes: the
-table refuses every update and delete, for every role. It holds counts, ids, dates and closed
-words: agreements signed and re-signs, the vendor chain's attestations, incidents and their two
-clocks, patient-rights requests and their clocks, transcript copies and the purge jobs, the
-security log's counts and the approval inbox's decisions. Never a patient, never anything typed.
+after the week (11:00 UTC in summer, 12:00 UTC in winter). Each run also checks the four weeks
+before and makes any that is missing (a pack made late says so). Once stored it never changes:
+the table refuses every update and delete, for every role. It holds counts, ids, dates and
+closed words: agreements bound and re-signs, the vendor chain's attestations, incidents and their
+two clocks, patient-rights requests and their clocks (counted in UTC days, the tracker's own
+days, not New York's), transcript copies and the purge jobs, the security log's counts and the
+approval inbox's decisions. Never a patient, never anything typed. Demo clinics are left out of
+the per-clinic counts only; the platform-wide counts (agreements bound, attestations, the
+security log, the approval inbox, the job rows) include any demo clinic's rows. Numbers named
+"...Now" are as the database stands when the pack is made, because no history of them is kept.
 
-`compliance_pack_ready` comes once a week by email (and Slack): the week and five numbers
-(incidents still open, rights requests past their day, re-signs unsigned, vendor agreements not in
-force or ending within 30 days, transcript copies held past 30 days). Each is a promise; any number
-above zero needs a person that week. A section that could not be read is stored as such and its
-number is left out of the email, never shown as zero. The printable page is
-`/admin/compliance/pack/<week>` (lane P6j); a missed week is made from there by hand
-(`generateCompliancePack`), never one already stored.
+`compliance_pack_ready` comes once a week by email to the ops address only: never Slack, never
+a Home row. It gives the week and five numbers (incidents still open, less service complaints;
+rights requests past their day; re-signs unsigned; vendor agreements not in force or ending
+within 30 days; transcript copies held past 30 days). Each is a promise; any number above zero
+needs a person that week. A week with a section that could not be read is not stored at first:
+the job tries every hour, and after two days from its due time stores it marked incomplete, with
+that section's number left out of the email, never shown as zero. The printable page is
+`/admin/compliance/pack/<week>` (lane P6j); a week older than the job's four-week look-back is
+made from there by hand (`generateCompliancePack`, at most 104 weeks back), never one already
+stored.
 
-`compliance_pack_failed` comes when the same week failed twice in a row. The job keeps trying every
-hour; read its last run at System > Jobs, check System > Requires your attention for a database
-that cannot be reached, and the next good run stores the week.
+`compliance_pack_failed` comes when the same week failed on two runs in a row. The job keeps
+trying every hour; read its last run at System > Jobs (it names the weeks that failed), check
+System > Requires your attention for a database that cannot be reached, and the next good run
+stores the week.

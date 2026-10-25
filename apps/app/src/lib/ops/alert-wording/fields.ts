@@ -239,6 +239,7 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
     "vendorsCount",
     "transcriptCopiesCount",
     "unreadCount",
+    "lateDays",
   ],
   compliance_pack_failed: ["windowStart"],
 };

@@ -17,7 +17,8 @@ import { watchLifecycles } from "@/lib/lifecycle/watch";
 import { isMutating, isOpName, runOperation, type Operator } from "@/lib/ops/api";
 import { opDecideApproval } from "@/lib/ops/approval-ops";
 import { approvalSentence } from "@/lib/ops/inbox/approvals";
-import { queueSetupReminder } from "@/lib/setup/reminders";
+import { opPullReminderForward } from "@/lib/ops/notice-ops";
+import { queueSetupReminder, queueSetupReminderNow } from "@/lib/setup/reminders";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -540,20 +541,57 @@ describeDb("the clinic-contact approvals, against the database", () => {
     });
   });
 
-  test("send reminder now pulls the next spec reminder forward and never adds one: six at most", async () => {
-    const c = await setupClinic("pull", 6);
-    // Day 5's reminder, as the hourly job sent it.
-    expect(await queueSetupReminder(c.clinicId, at(-DAY))).toBe("queued");
+  test("send reminder now: the next reminder by the real clock, never the sixth, never at night, never twice in five days, never twice on its day", async () => {
+    const c = await setupClinic("pull", 7);
     const keysOf = async () => (await notices(c, "setup_reminder")).map((n) => n.dedupe_key).sort();
-    for (const n of [2, 3, 4, 5]) {
-      const proposed = data(await runOperation("pullReminderForward", { clinicId: c.clinicId }, OPERATOR));
-      expect(proposed).toMatchObject({ status: "proposed", reminderNumber: n });
-      expect(await decide(proposed.approvalId as string)).toMatchObject({ status: "executed", outcomeCode: "queued" });
+    const backdate = (days: number) =>
+      inTenant(c.clinicId, (q) =>
+        q.query(`update billing_notices set created_at = created_at - make_interval(days => $2) where clinic_id = $1 and kind = 'setup_reminder'`, [
+          c.clinicId,
+          days,
+        ]),
+      );
+    const night = at(-12 * HOUR); // 04:00 in New York
+    // Day 5's reminder, as the hourly job sent it, just now: no burst.
+    expect(await queueSetupReminder(c.clinicId, at(-2 * DAY))).toBe("queued");
+    expect(data(await opPullReminderForward({ clinicId: c.clinicId }, OPERATOR, NOW))).toMatchObject({
+      status: "refused",
+      message: expect.stringContaining("less than five days ago"),
+    });
+    await backdate(6);
+    // At night the outbox would hold it until morning: refused.
+    expect(data(await opPullReminderForward({ clinicId: c.clinicId }, OPERATOR, night))).toMatchObject({
+      status: "refused",
+      message: expect.stringContaining("night"),
+    });
+    const proposed = data(await opPullReminderForward({ clinicId: c.clinicId }, OPERATOR, NOW));
+    expect(proposed).toMatchObject({ status: "proposed", reminderNumber: 2 });
+    // Approved at night: the sender refuses and nothing is queued.
+    expect(await decide(proposed.approvalId as string, {}, night)).toMatchObject({ status: "failed", outcomeCode: "reminder_night" });
+    expect(await keysOf()).toEqual(["setup_reminder:1"]);
+    // Proposed again (the failed item does not block) and approved in the daytime.
+    const again = data(await opPullReminderForward({ clinicId: c.clinicId }, OPERATOR, NOW));
+    expect(await decide(again.approvalId as string, {}, NOW)).toMatchObject({ status: "executed", outcomeCode: "queued" });
+    expect(await keysOf()).toEqual(["setup_reminder:1", "setup_reminder:2"]);
+    // Its own day comes: the job sends nothing twice.
+    expect(await queueSetupReminder(c.clinicId, at(3 * DAY))).toBe("already_queued");
+    // Straight after, a burst is refused.
+    expect(data(await opPullReminderForward({ clinicId: c.clinicId }, OPERATOR, NOW))).toMatchObject({ status: "refused" });
+    // Reminders 3 to 5 queued long ago: the next is the sixth, never sent sooner.
+    for (const n of [3, 4, 5]) {
+      await inTenant(c.clinicId, (q) =>
+        q.query(
+          `insert into billing_notices (clinic_id, kind, dedupe_key, payload, created_at) select clinic_id, kind, $2, payload, created_at from billing_notices where clinic_id = $1 and dedupe_key = 'setup_reminder:1'`,
+          [c.clinicId, `setup_reminder:${n}`],
+        ),
+      );
     }
-    expect(await keysOf()).toEqual([1, 2, 3, 4, 5].map((n) => `setup_reminder:${n}`));
-    // The sixth goes only on the last day, and the schedule sends nothing twice.
-    expect(data(await runOperation("pullReminderForward", { clinicId: c.clinicId }, OPERATOR))).toMatchObject({ status: "refused" });
-    expect(await queueSetupReminder(c.clinicId, at(4 * DAY))).toBe("already_queued");
-    expect((await keysOf()).length).toBeLessThanOrEqual(6);
+    await backdate(10);
+    expect(data(await opPullReminderForward({ clinicId: c.clinicId }, OPERATOR, NOW))).toMatchObject({
+      status: "refused",
+      message: expect.stringContaining("sixth"),
+    });
+    expect(await queueSetupReminderNow(c.clinicId, 6, NOW)).toBe("not_due");
+    expect((await keysOf()).length).toBe(5);
   });
 });

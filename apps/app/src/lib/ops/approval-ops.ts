@@ -249,11 +249,14 @@ export async function opDecideApproval(
   ) {
     return refusal(ALREADY);
   }
-  const result = await execute(item, operator, { draft: draft.draft }, options.executors);
+  const result = await execute(item, operator, { draft: draft.draft, now }, options.executors);
   const settled = result.ok ? "executed" : "failed";
   const settledAt = new Date(now.getTime() + 2);
+  // An email kind's executor returns the hash of what it sent (lane P6f): kept beside the hash approved.
+  const draftHashSent = result.draftHashSent ?? null;
   const moved = await moveStatus(item.id, "approved", settled, settled, actor, settledAt, {
     outcomeCode: result.outcomeCode,
+    draftHashSent,
   });
   // Lost to the 15-minute sweep (lib/approvals/store.ts sweepInterrupted):
   // the item already reads failed / interrupted, but the operation ran, so
@@ -264,7 +267,7 @@ export async function opDecideApproval(
     try {
       const last = await lastEventAt(item.id);
       const at = new Date(Math.max(settledAt.getTime(), (last?.getTime() ?? 0) + 1));
-      await recordEvent(unsafeDb, item.id, settled, actor, { outcomeCode: result.outcomeCode, at });
+      await recordEvent(unsafeDb, item.id, settled, actor, { outcomeCode: result.outcomeCode, draftHashSent, at });
       appended = true;
     } catch (error) {
       log.error("approval outcome not recorded", { kind: item.kind, error: describeError(error) });

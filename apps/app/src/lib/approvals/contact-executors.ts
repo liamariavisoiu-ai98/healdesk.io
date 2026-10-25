@@ -15,7 +15,7 @@ import { opExtendSetupDeadline } from "@/lib/ops/billing";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { claimDelivery, recordDelivery } from "@/lib/reporting/recipients";
 import { channelNextStep } from "@/lib/setup/channels";
-import { queueSetupReminder } from "@/lib/setup/reminders";
+import { queueSetupReminderNow } from "@/lib/setup/reminders";
 import { stepsLeft, wizardFinished } from "@/lib/setup/screens";
 import { readSetupState } from "@/lib/setup/state";
 import { clinicSignIn } from "@/lib/sign-in/address-change";
@@ -43,7 +43,7 @@ import { draftHash, type ContactKind } from "./kinds";
  * one path for a clinic's account email), the direct sender and its ledger
  * for the one link email (sendEmail, claimDelivery, as L22 sends), the
  * console's own extendSetupDeadline, and the setup reminders' own
- * queueSetupReminder. No second send path.
+ * queueSetupReminderNow. No second send path.
  *
  * Each sends with the owner's fields (the draft's `fields`, checked again
  * here), re-checks that the item still applies before anything goes, and
@@ -313,10 +313,16 @@ export async function pullReminder(approval: OpsApproval, now: Date = new Date()
   const payload = parseContactPayload("setup_reminder_now", approval.payload);
   if (!payload) return MALFORMED;
   const plan = await withTenant({ clinicId: payload.clinicId, actor: ACTOR }, (tx) => reminderPlanIn(tx, now));
+  if (!plan.ok && plan.reason === "night") {
+    return fail("reminder_night", "It is night at the clinic, so the reminder was not sent: it would wait until morning. Propose it again in the clinic's daytime.");
+  }
+  if (!plan.ok && plan.reason === "recently_sent") {
+    return fail("reminder_too_soon", "A reminder went to this clinic less than five days ago, so this one was not sent.");
+  }
   if (!plan.ok || plan.reminderNumber !== payload.reminderNumber) {
     return fail("no_longer_needed", "That reminder is no longer the next one to send, so nothing was sent. Press Send reminder now again to see which is.");
   }
-  const outcome = await queueSetupReminder(payload.clinicId, plan.asOf);
+  const outcome = await queueSetupReminderNow(payload.clinicId, payload.reminderNumber, now);
   if (outcome === "queued") return { ok: true, outcomeCode: "queued", message: null, auditRecorded: null, draftHashSent: null };
   if (outcome === "already_queued") return fail("already_sent", "That reminder was already queued, so it was not queued again.");
   return fail("reminder_not_queued", `The reminder was not queued (${outcome.replace(/_/g, " ")}).`);
@@ -329,5 +335,5 @@ export const CONTACT_EXECUTORS: Readonly<Record<ContactKind, Executor>> = {
   setup_extended: (approval, operator, ctx) => extendThenNotify(approval, operator, ctx.draft?.fields),
   setup_waiting_on_us: (approval, _operator, ctx) => sendSetupNotice("setup_waiting_on_us", approval, ctx.draft?.fields),
   setup_help_offer: (approval, _operator, ctx) => sendSetupNotice("setup_help_offer", approval, ctx.draft?.fields),
-  setup_reminder_now: (approval) => pullReminder(approval),
+  setup_reminder_now: (approval, _operator, ctx) => pullReminder(approval, ctx.now ?? new Date()),
 };

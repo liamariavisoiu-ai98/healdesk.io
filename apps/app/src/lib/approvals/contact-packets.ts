@@ -20,7 +20,7 @@ import {
   type ContactPayloads,
   type EditableField,
 } from "./contact-payloads";
-import { reminderPlanIn } from "./contact-reminders";
+import { reminderPlanIn, type ReminderBlock } from "./contact-reminders";
 import { parseDraft, type Draft } from "./drafts";
 import type { ContactKind } from "./kinds";
 
@@ -102,7 +102,7 @@ export type ReminderNowFacts = {
   normallyDueOn: string;
   sentSoFar: number | null;
   /** Why it would send nothing now, or null when it would send. */
-  blocked: "not_billed" | "window_over" | "live" | "last_reminder" | "already_queued" | null;
+  blocked: ReminderBlock | "already_queued" | null;
   recommendation: Recommendation | null;
 };
 

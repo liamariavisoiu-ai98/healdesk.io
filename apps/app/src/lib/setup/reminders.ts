@@ -112,7 +112,21 @@ export async function queueSetupReminder(clinicId: string, now: Date): Promise<R
   return withTenant({ clinicId, actor: ACTOR }, (tx) => queueWithin(tx, now));
 }
 
-async function queueWithin(tx: TenantTx, now: Date): Promise<ReminderOutcome> {
+/**
+ * "Send reminder now" (ops automation lane P6f, through the approval inbox):
+ * reminder `number` of the six, now, by the real clock. The same rendering
+ * and the same dedupe key `setup_reminder:<n>` as the hourly job's, so the
+ * job finds it already queued on its own day and the total never passes six.
+ * Every rule of the job holds (billed, in its window, nothing live, daytime
+ * at the clinic, something to do) except the day: the caller (lib/approvals/
+ * contact-reminders.ts) decides which number may go sooner. Never the sixth.
+ */
+export async function queueSetupReminderNow(clinicId: string, number: number, now: Date): Promise<ReminderOutcome> {
+  if (!Number.isInteger(number) || number < 1 || number >= SETUP_REMINDER_COUNT) return "not_due";
+  return withTenant({ clinicId, actor: ACTOR }, (tx) => queueWithin(tx, now, number));
+}
+
+async function queueWithin(tx: TenantTx, now: Date, sooner?: number): Promise<ReminderOutcome> {
   const state = await readSetupState(tx, { userId: null, now });
   // Locations bill on their billing clinic and are set up from it; a clinic
   // with no billing row of its own is not reminded.
@@ -124,15 +138,17 @@ async function queueWithin(tx: TenantTx, now: Date): Promise<ReminderOutcome> {
     .map((c) => c.liveAt?.getTime())
     .filter((t): t is number => t !== undefined)
     .sort((a, b) => a - b)[0];
-  if (firstLive !== undefined) return queueAfterLive(tx, state, firstLive, now);
+  if (firstLive !== undefined) return sooner === undefined ? queueAfterLive(tx, state, firstLive, now) : "live";
   if (!billing.setupDeadlineAt) return "window_over";
   if (now.getTime() > billing.setupDeadlineAt.getTime()) return "window_over";
   if (billing.planStartedAt) return "live";
 
-  const n = dueReminderNumber(
-    setupWindowStart(billing.setupDeadlineAt, clinic.timezone),
-    clinicLocalDate(now, clinic.timezone),
-  );
+  const n =
+    sooner ??
+    dueReminderNumber(
+      setupWindowStart(billing.setupDeadlineAt, clinic.timezone),
+      clinicLocalDate(now, clinic.timezone),
+    );
   if (n === null) return "not_due";
   if (!isDaytime(now, clinic.timezone)) return "night";
 

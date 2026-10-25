@@ -8,7 +8,6 @@ import { actorFor, type Operator, type OpsOutcome } from "@/lib/ops/api";
 import { withTenant } from "@/lib/tenant";
 
 import { CONTACT_EXECUTORS } from "./contact-executors";
-import { noteSentHash } from "./store";
 import type { Draft } from "./drafts";
 import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind } from "./kinds";
 import { billingSwitches, stillParkedAsProposed } from "./packets";
@@ -43,7 +42,11 @@ export type ExecutionResult = {
 };
 
 /** What a decision hands its executor: the draft the owner approved (the edit when there was one), for an email kind. */
-export type ExecutionContext = { draft: Draft | null };
+export type ExecutionContext = {
+  draft: Draft | null;
+  /** The decision's own clock (approval-ops.ts), for an executor whose rule reads the time. */
+  now?: Date;
+};
 
 export type Executor = (approval: OpsApproval, operator: Operator, context: ExecutionContext) => Promise<ExecutionResult>;
 
@@ -172,10 +175,7 @@ export async function execute(
   const executor = executors[approval.kind];
   if (!executor || !KIND_SPECS[approval.kind as ApprovalKind]) return malformed();
   try {
-    const result = await executor(approval, operator, context);
-    // What an email kind sent, for the settling move's event (store.ts).
-    if (result.draftHashSent) noteSentHash(approval.id, result.draftHashSent);
-    return result;
+    return await executor(approval, operator, context);
   } catch (error) {
     log.error("approval executor threw", { kind: approval.kind, error: describeError(error) });
     return { ok: false, outcomeCode: "threw", message: "The operation failed partway. Nothing more was run; the item records it.", auditRecorded: null };

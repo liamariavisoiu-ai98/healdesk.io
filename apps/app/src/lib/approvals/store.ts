@@ -137,22 +137,6 @@ export async function propose(
 type EventExtra = { outcomeCode?: string | null; draftHashApproved?: string | null; draftHashSent?: string | null };
 
 /**
- * The hash of what an email kind's executor sent (lane P6f), held for the
- * move that settles its item: lib/ops/approval-ops.ts settles an approved
- * item with its outcome code only, so the executor (./executors.ts
- * execute) notes the hash here and moveStatus writes it on the
- * `executed`/`failed` event of that same item, then forgets it. In-process
- * and per item: the decision, the executor and the settling move run in one
- * request. NOTE for the lead: passing `draftHashSent: result.draftHashSent`
- * in approval-ops.ts's settling call would make this map unnecessary.
- */
-const sentHashes = new Map<string, string>();
-
-export function noteSentHash(approvalId: string, hash: string): void {
-  if (/^[0-9a-f]{64}$/.test(hash)) sentHashes.set(approvalId, hash);
-}
-
-/**
  * Move one item from the status it is expected to hold, recording the event
  * in the same transaction. False when the item was not in that status: a
  * second decision, a decision that lost to the expiry, or the reverse. Under
@@ -171,10 +155,6 @@ export async function moveStatus(
   extra: EventExtra = {},
   before: { event: ApprovalEventName; at: Date; extra: EventExtra }[] = [],
 ): Promise<boolean> {
-  if (from === "approved" && extra.draftHashSent === undefined && sentHashes.has(id)) {
-    extra = { ...extra, draftHashSent: sentHashes.get(id)! };
-    sentHashes.delete(id);
-  }
   return unsafeDb.transaction(async (tx) => {
     const code = extra.outcomeCode ?? null;
     const moved = await tx

@@ -368,6 +368,13 @@ export const OPS_EVENTS = [
   // outbox's schedule, then the sending stops and the clinic has not heard.
   // Once an hour per clinic; the clinic and the count of tries, no words.
   "support_reply_dead",
+  // The support cases' watch (lib/support/watch.ts; ops automation lane
+  // P7e): a case that still needs us past its reply-by day, once per case
+  // (it replaces support_reply_past_due for every chat escalation that is a
+  // case); and a case of urgency `now`, once per case, which Slack posts.
+  // The clinic, the case's id and ref, and its reply-by day; never words.
+  "support_case_past_due",
+  "support_case_now",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

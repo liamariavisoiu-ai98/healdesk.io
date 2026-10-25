@@ -106,6 +106,14 @@ export type OpsDigestPayload = {
   waitingOnUsCount?: number;
   /** Ops alerts Slack never took in the window; null while Slack is off. */
   slackUnpostedCount?: number | null;
+  /**
+   * The support cases (lane P7e; design E5 S7): those that need us, those of
+   * them past their reply-by day, and those waiting on a clinic. Absent from
+   * a digest collected before 25 October 2026.
+   */
+  supportNeedYouCount?: number;
+  supportPastDueCount?: number;
+  supportWaitingClinicCount?: number;
 };
 
 /** Resend's free plan stops at 100 a day; the alarm is at 70 (Annex X2). */
@@ -237,6 +245,14 @@ export const renderOpsDigest: EmailTemplate<OpsDigestPayload> = (payload, ctx) =
     },
     ...(warnings.length > 0 ? [{ type: "list" as const, items: warnings }] : []),
     ...lifecycleBlocks(payload),
+    ...(payload.supportNeedYouCount === undefined
+      ? []
+      : [
+          {
+            type: "paragraph" as const,
+            text: `Support: ${payload.supportNeedYouCount} need you, ${payload.supportPastDueCount ?? 0} past their day, ${payload.supportWaitingClinicCount ?? 0} waiting on a clinic.`,
+          },
+        ]),
     { type: "paragraph", text: "Email sent through Resend, the whole account (both apps):" },
     {
       type: "facts",

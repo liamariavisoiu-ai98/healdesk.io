@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { CARD_ANCHORS, COMPLIANCE_ANCHORS, ISSUE_TABS, QUEUE_ANCHORS, SYSTEM_ANCHORS } from "./issue-link";
+import { CARD_ANCHORS, COMPLIANCE_ANCHORS, ISSUE_TABS, QUEUE_ANCHORS, SUPPORT_ANCHORS, SYSTEM_ANCHORS } from "./issue-link";
 
 /**
  * Every console address apps/app's inbox sources carry (lib/ops/inbox/*.ts:
@@ -81,6 +81,10 @@ describe("the addresses apps/app's inbox sources carry", () => {
     // Phase 6: the approval inbox and the patient-rights tracker.
     expect(hrefs).toContain("/admin/queues#approvals");
     expect(hrefs).toContain("/admin/rights");
+    // Phase 7: a support reply waiting for the owner's Send opens the Support console (lane P7d); the chat's
+    // dated promises still open Queues › Support, where their mark is.
+    expect(hrefs).toContain("/admin/support");
+    expect(hrefs).toContain("/admin/queues#support");
   });
 
   test("each opens a page that exists and an anchor that is rendered", () => {
@@ -113,6 +117,15 @@ describe("the addresses apps/app's inbox sources carry", () => {
     for (const anchor of COMPLIANCE_ANCHORS) {
       expect(sourcesUnder(join(APP, "admin", "compliance")).some((text) => text.includes(`id="${anchor}"`)), anchor).toBe(true);
     }
+    // Lane P7d: the Support console's sections and the case view's anchor, written literally in their sources.
+    for (const anchor of SUPPORT_ANCHORS) {
+      expect(sourcesUnder(join(APP, "admin", "support")).some((text) => text.includes(`id="${anchor}"`)), anchor).toBe(true);
+    }
+  });
+
+  test("the Support console exists at the address Home's support-reply row names, and one case's page beside it", () => {
+    expectConsolePage("/admin/support");
+    expect(existsSync(join(APP, "admin", "support", "[caseId]", "page.tsx"))).toBe(true);
   });
 
   test("the wave B pages exist: the Incidents page with the assistant, the open re-signs, the pack list and one week's pack", () => {

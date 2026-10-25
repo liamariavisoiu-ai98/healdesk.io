@@ -91,11 +91,26 @@ function Rows({ rows, waiting }: { rows: SupportCaseRowView[]; waiting: Readonly
   );
 }
 
+type Groups = ReadonlyMap<CaseSectionId, SupportCaseRowView[]>;
+
+/** One open section: its title with the count, its rows, or its one empty line. The id is written literally so the link guards can read it. */
+function Group({ id, groups, waiting }: { id: Exclude<CaseSectionId, "closed">; groups: Groups; waiting: ReadonlySet<string> }) {
+  const section = CASE_SECTIONS.find((s) => s.id === id)!;
+  const rows = groups.get(id)!;
+  return (
+    <Section id={id} title={`${section.title} (${rows.length})`}>
+      {rows.length === 0 ? <p className="text-sm">{section.empty}</p> : <Rows rows={rows} waiting={waiting} />}
+    </Section>
+  );
+}
+
 export function CaseList({ cases, waiting }: { cases: OpsResult<SupportCasesView>; waiting: WaitingReplies }) {
   if (!cases.ok) return <Failure failure={cases} what="the support cases" />;
   const byCase = waitingByCase(waiting);
   const groups = new Map<CaseSectionId, SupportCaseRowView[]>(CASE_SECTIONS.map((s) => [s.id, []]));
   for (const row of cases.data.rows) groups.get(sectionOf(row.state))!.push(row);
+  const closed = CASE_SECTIONS.find((s) => s.id === "closed")!;
+  const closedRows = groups.get("closed")!;
   return (
     <>
       {cases.data.truncated ? (
@@ -104,26 +119,17 @@ export function CaseList({ cases, waiting }: { cases: OpsResult<SupportCasesView
         </p>
       ) : null}
       {!waiting.ok ? <Failure failure={waiting} what="the replies waiting for your Send" /> : null}
-      {CASE_SECTIONS.map((section) => {
-        const rows = groups.get(section.id)!;
-        if (section.id === "closed") {
-          return (
-            <section key={section.id} id={section.id} className="border-line mt-8 scroll-mt-24 rounded-md border bg-white p-5">
-              <details>
-                <summary className="cursor-pointer text-sm font-bold tracking-[0.08em] uppercase">
-                  {section.title} ({rows.length})
-                </summary>
-                {rows.length === 0 ? <p className="text-muted mt-3 text-sm">{section.empty}</p> : <Rows rows={rows} waiting={byCase} />}
-              </details>
-            </section>
-          );
-        }
-        return (
-          <Section key={section.id} id={section.id} title={`${section.title} (${rows.length})`}>
-            {rows.length === 0 ? <p className="text-sm">{section.empty}</p> : <Rows rows={rows} waiting={byCase} />}
-          </Section>
-        );
-      })}
+      <Group id="needs-you" groups={groups} waiting={byCase} />
+      <Group id="waiting-on-the-clinic" groups={groups} waiting={byCase} />
+      <Group id="snoozed" groups={groups} waiting={byCase} />
+      <section id="closed" className="border-line mt-8 scroll-mt-24 rounded-md border bg-white p-5">
+        <details>
+          <summary className="cursor-pointer text-sm font-bold tracking-[0.08em] uppercase">
+            {closed.title} ({closedRows.length})
+          </summary>
+          {closedRows.length === 0 ? <p className="text-muted mt-3 text-sm">{closed.empty}</p> : <Rows rows={closedRows} waiting={byCase} />}
+        </details>
+      </section>
     </>
   );
 }

@@ -183,6 +183,14 @@ export const QUEUE_ANCHORS = ["approvals"] as const;
  */
 export const COMPLIANCE_ANCHORS = ["incident-assistant", "open-resigns"] as const;
 
+/**
+ * The sections of the Support console (lane P7d; `/admin/support`, which
+ * Home's support-reply row and the support alerts open): the list's four
+ * sections and the case view's own anchor (`/admin/support/<case id>`).
+ * Listed for the same one test.
+ */
+export const SUPPORT_ANCHORS = ["needs-you", "waiting-on-the-clinic", "snoozed", "closed", "support-case"] as const;
+
 /** The voice events about the agent and number at Retell, which the Setup tab's "Voice agent" card acts on. */
 const VOICE_CARD: ReadonlySet<OpsEvent> = new Set<OpsEvent>([
   "voice_provision_failed",

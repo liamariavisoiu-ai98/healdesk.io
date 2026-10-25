@@ -12,7 +12,7 @@ import {
   type IncidentRecommendation,
   type IncidentReportEvent,
 } from "@healdesk/catalog";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 
 import type { IncidentClass } from "@/lib/admin/incident-classes";
 import type {
@@ -22,6 +22,8 @@ import type {
   IncidentReportOutcome,
   OpsResult,
 } from "@/lib/admin/ops-client";
+
+import { IncidentChecklist, type ChecklistActions } from "./IncidentChecklist";
 
 type Actions = {
   sendReport: (
@@ -34,6 +36,8 @@ type Actions = {
     incidentId: string,
     reason: string,
   ) => Promise<OpsResult<CareOutcome>>;
+  /** The incident assistant's checklist and report proposal (lane P6j), drawn on each card when given. */
+  assistant?: ChecklistActions;
 };
 
 /**
@@ -129,10 +133,13 @@ export function IncidentsBoard({
   register,
   now,
   actions,
+  children,
 }: {
   register: OpsResult<IncidentRegisterRow[]>;
   now: string;
   actions: Actions;
+  /** The Incident assistant's section (lane P6j), drawn after the list, whether or not the register was read. */
+  children?: ReactNode;
 }) {
   if (!register.ok) {
     return (
@@ -140,6 +147,7 @@ export function IncidentsBoard({
         <a href="/admin/compliance" className="text-muted text-sm underline underline-offset-2">← Compliance</a>
         <h1 className="font-display mt-2 text-[28px] font-semibold tracking-[-0.02em]">Incidents</h1>
         <p className="text-red-deep mt-4 font-semibold">{register.message}</p>
+        {children}
       </main>
     );
   }
@@ -182,6 +190,7 @@ export function IncidentsBoard({
           ))}
         </ul>
       )}
+      {children}
     </main>
   );
 }
@@ -315,6 +324,10 @@ function IncidentCard({
       ) : null}
       {problem ? <p className="text-red-deep mt-3 text-xs">{problem}</p> : null}
       {done ? <p className="text-done mt-3 text-xs">{done}</p> : null}
+      {/* The incident assistant's checklist (lane P6j): every incident has one; a report is proposed only while one is awaited. */}
+      {actions.assistant ? (
+        <IncidentChecklist clinicId={incident.clinicId} incidentId={incident.id} reportable={decidable} actions={actions.assistant} />
+      ) : null}
     </li>
   );
 }

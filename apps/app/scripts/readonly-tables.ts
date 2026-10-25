@@ -67,6 +67,12 @@ export const READONLY_TABLES = [
   // made it. Read column by column on 25 October 2026: no patient, nothing
   // typed, no address.
   "compliance_packs",
+  // The support team's cases (drizzle/0125): a ref, the clinic's id, closed
+  // words for the source, state, topic, symptom, urgency and closing
+  // reason, counts of what an inbound screen hid, dates and the assignee's
+  // label from HEALDESK_OPS_PEOPLE. Read column by column on 25 October
+  // 2026: no patient and no text; the words are on support_messages.
+  "support_cases",
 ] as const;
 
 /** Tables the role can never read, and why. */
@@ -151,6 +157,9 @@ export const READONLY_WITHHELD: Record<string, "patient" | "credential" | "unrev
   security_events: "unreviewed",
   site_rereads: "unreviewed",
   sync_runs: "unreviewed",
+  // Typed correspondence (drizzle/0125): screened inbound email text, the
+  // drafts and the replies the owner approved. Never readable as data.
+  support_messages: "unreviewed",
   webhook_events: "unreviewed",
   website_changes: "unreviewed",
 };

@@ -118,6 +118,21 @@ import {
   type WebsiteChangeState,
 } from "../lib/website/types";
 import { CHECKLIST_STEPS, type ChecklistStep } from "../lib/incidents/assistant/vocab";
+import {
+  SUPPORT_CASE_CATEGORIES,
+  SUPPORT_CASE_SOURCES,
+  SUPPORT_CASE_STATES,
+  SUPPORT_CASE_URGENCIES,
+  SUPPORT_CLOSED_REASONS,
+  SUPPORT_MESSAGE_DIRECTIONS,
+  SUPPORT_MESSAGE_KINDS,
+  type SupportCaseSource,
+  type SupportCaseState,
+  type SupportCaseUrgency,
+  type SupportClosedReason,
+  type SupportMessageDirection,
+  type SupportMessageKind,
+} from "../lib/support/case-vocab";
 
 import { organization, user } from "./auth-schema";
 
@@ -8136,3 +8151,172 @@ export const incidentChecklistTicks = pgTable(
 );
 
 export type IncidentChecklistTick = typeof incidentChecklistTicks.$inferSelect;
+
+/**
+ * The support team's cases (ops automation Phase 7, lane P7a; design E5
+ * §2.2; drizzle/0125). One row per request a clinic, or later anyone by
+ * email, brought to healdesk: its ref, the clinic it is about, where it came
+ * from, its state, topic, what is wrong and how urgent, who has it, the day
+ * we promised a reply by, and when it was closed and why.
+ *
+ * Platform-wide, like ops_alerts and ops_approvals: the console lists cases
+ * across clinics, and a case from an email nobody matched has no clinic, so
+ * the clinic is `subject_clinic_id` and the table has no RLS (every table
+ * with a clinic_id is a FORCE-RLS tenant table, tests/rls-drift.test.ts).
+ * Unlike ops_approvals it has a foreign key: a clinic's cases go with it at
+ * destruction (app_destroy_support_cases, owner's rule of 25 October 2026),
+ * and the clinics row itself is never deleted. A write that names a clinic
+ * runs in that clinic's tenant, so the guard can read the clinic's row and
+ * refuse one that has left.
+ *
+ * No text: ids, closed words, counts, dates and the operator's label. A chat
+ * case can carry no words at all (the CHECKs below and on support_messages).
+ */
+export const supportCases = pgTable(
+  "support_cases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Five characters of Crockford base32, printed "HD-" + ref (lib/support/case-vocab.ts). */
+    ref: text("ref").notNull(),
+    subjectClinicId: uuid("subject_clinic_id").references(() => clinics.id, { onDelete: "cascade" }),
+    source: text("source").$type<SupportCaseSource>().notNull(),
+    state: text("state").$type<SupportCaseState>().notNull().default("new"),
+    category: text("category").notNull(),
+    symptom: text("symptom").notNull(),
+    urgency: text("urgency").$type<SupportCaseUrgency>().notNull(),
+    /** A name from HEALDESK_OPS_PEOPLE: a label, not an identity (one shared operator sign-in, D21). */
+    assigneeLabel: text("assignee_label"),
+    /** The day we promised a reply by (L25's day: replyByDay, New York's next business day). */
+    replyByOn: date("reply_by_on").notNull(),
+    snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+    /** The inbound screen hid something, or found clinical words (email only; never on a chat case). */
+    phiSuspected: boolean("phi_suspected").notNull().default(false),
+    hiddenNumbers: integer("hidden_numbers").notNull().default(0),
+    hiddenEmails: integer("hidden_emails").notNull().default(0),
+    hiddenTreatments: integer("hidden_treatments").notNull().default(0),
+    clinicalMatches: integer("clinical_matches").notNull().default(0),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+    lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }).notNull().defaultNow(),
+    lastOutboundAt: timestamp("last_outbound_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedReason: text("closed_reason").$type<SupportClosedReason>(),
+    /** When the retention sweep (follow-up S7) nulls the case's inbound text: 30 days after close, 7 if phi_suspected. */
+    inboundTextDeleteAfter: timestamp("inbound_text_delete_after", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("support_cases_ref_key").on(t.ref),
+    // One open chat case per clinic and topic: a second escalation about the
+    // same topic joins it (lib/support/cases.ts), and two racing ones cannot
+    // open two.
+    uniqueIndex("support_cases_open_chat_key")
+      .on(t.subjectClinicId, t.category)
+      .where(sql`${t.source} = 'chat' and ${t.state} <> 'closed'`),
+    index("support_cases_state_idx").on(t.state, t.replyByOn),
+    index("support_cases_clinic_idx").on(t.subjectClinicId, t.openedAt),
+    check("support_cases_ref_check", sql`${t.ref} ~ '^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$'`),
+    check("support_cases_source_check", sql`${t.source} in (${sqlList(SUPPORT_CASE_SOURCES)})`),
+    check("support_cases_state_check", sql`${t.state} in (${sqlList(SUPPORT_CASE_STATES)})`),
+    check("support_cases_category_check", sql`${t.category} in (${sqlList(SUPPORT_CASE_CATEGORIES)})`),
+    check("support_cases_symptom_check", sql`${t.symptom} ~ '^[a-z][a-z0-9_]{0,63}$'`),
+    check("support_cases_urgency_check", sql`${t.urgency} in (${sqlList(SUPPORT_CASE_URGENCIES)})`),
+    check(
+      "support_cases_closed_check",
+      sql`(${t.state} = 'closed') = (${t.closedAt} is not null) and (${t.state} = 'closed') = (${t.closedReason} is not null) and (${t.closedReason} is null or ${t.closedReason} in (${sqlList(SUPPORT_CLOSED_REASONS)}))`,
+    ),
+    check("support_cases_snoozed_check", sql`(${t.state} = 'snoozed') = (${t.snoozedUntil} is not null)`),
+    check(
+      "support_cases_assignee_check",
+      sql`${t.assigneeLabel} is null or (char_length(${t.assigneeLabel}) between 1 and 60 and ${t.assigneeLabel} ~ '^[A-Za-z][A-Za-z .''-]*$')`,
+    ),
+    check(
+      "support_cases_counts_check",
+      sql`${t.hiddenNumbers} >= 0 and ${t.hiddenEmails} >= 0 and ${t.hiddenTreatments} >= 0 and ${t.clinicalMatches} >= 0 and (${t.phiSuspected} or ${t.hiddenNumbers} + ${t.hiddenEmails} + ${t.hiddenTreatments} + ${t.clinicalMatches} = 0)`,
+    ),
+    // A chat case is always a clinic's, and the chat screens before the
+    // model, stores nothing and carries fields only: nothing to suspect.
+    check(
+      "support_cases_chat_check",
+      sql`${t.source} <> 'chat' or (${t.subjectClinicId} is not null and not ${t.phiSuspected} and ${t.hiddenNumbers} + ${t.hiddenEmails} + ${t.hiddenTreatments} + ${t.clinicalMatches} = 0)`,
+    ),
+  ],
+);
+export type SupportCase = typeof supportCases.$inferSelect;
+
+/**
+ * What passed on a case, one row each (design E5 §2.2): a chat escalation's
+ * fields (no words), and later an inbound email's screened text, our fixed
+ * acknowledgement, and a reply's drafts and the text the owner approved.
+ * Withheld from the read-only role (scripts/readonly-tables.ts): `text`,
+ * `subject_screened` and `draft_text` are typed correspondence. Never on
+ * apps/web: the console reads the case's facts and the draft through the ops
+ * envelope, never the clinic's own words (owner, D15).
+ *
+ * A chat escalation holds NULL text by CHECK, and the guard refuses one on a
+ * case that did not come from the chat. Inbound text may only ever be set to
+ * NULL (the retention sweep); a message's identity never changes.
+ */
+export const supportMessages = pgTable(
+  "support_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    caseId: uuid("case_id")
+      .notNull()
+      .references(() => supportCases.id, { onDelete: "cascade" }),
+    direction: text("direction").$type<SupportMessageDirection>().notNull(),
+    kind: text("kind").$type<SupportMessageKind>().notNull(),
+    /** A chat escalation's request id (the I3 email's and L25's): a retried escalation is the same row. */
+    requestId: uuid("request_id"),
+    /** A chat escalation's fields, ids from fixed lists only (lib/support/escalation-fields.ts). */
+    fieldsJson: jsonb("fields_json").$type<Record<string, string | null>>(),
+    messageId: text("message_id"),
+    inReplyTo: text("in_reply_to"),
+    subjectScreened: text("subject_screened"),
+    text: text("text"),
+    draftText: text("draft_text"),
+    draftVersion: integer("draft_version"),
+    factsJson: jsonb("facts_json"),
+    checksJson: jsonb("checks_json"),
+    approvedByLabel: text("approved_by_label"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    deliveryId: uuid("delivery_id"),
+    /** Names, types and sizes only: an attachment is never opened or kept. */
+    attachmentsJson: jsonb("attachments_json"),
+    receivedAt: timestamp("received_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("support_messages_request_key").on(t.requestId),
+    index("support_messages_case_idx").on(t.caseId, t.createdAt),
+    check("support_messages_direction_check", sql`${t.direction} in (${sqlList(SUPPORT_MESSAGE_DIRECTIONS)})`),
+    check("support_messages_kind_check", sql`${t.kind} in (${sqlList(SUPPORT_MESSAGE_KINDS)})`),
+    // A chat escalation carries no words: no text, subject, draft, ids of
+    // mail or attachments, only its request id and its fields.
+    check(
+      "support_messages_chat_check",
+      sql`(${t.kind} = 'chat_escalation') = (${t.requestId} is not null) and (${t.kind} <> 'chat_escalation' or (${t.direction} = 'in' and ${t.text} is null and ${t.subjectScreened} is null and ${t.draftText} is null and ${t.attachmentsJson} is null and ${t.messageId} is null and ${t.inReplyTo} is null and ${t.fieldsJson} is not null))`,
+    ),
+    check(
+      "support_messages_fields_check",
+      sql`${t.fieldsJson} is null or (jsonb_typeof(${t.fieldsJson}) = 'object' and char_length(${t.fieldsJson}::text) <= 1000 and position('@' in ${t.fieldsJson}::text) = 0 and ${t.fieldsJson}::text !~ '[0-9]{3,}')`,
+    ),
+    check(
+      "support_messages_inbound_check",
+      sql`${t.direction} <> 'in' or (${t.draftText} is null and ${t.draftVersion} is null and ${t.approvedByLabel} is null and ${t.approvedAt} is null and ${t.deliveryId} is null and ${t.sentAt} is null)`,
+    ),
+    check(
+      "support_messages_text_check",
+      sql`(${t.text} is null or char_length(${t.text}) <= 20000) and (${t.draftText} is null or char_length(${t.draftText}) <= 20000) and (${t.subjectScreened} is null or char_length(${t.subjectScreened}) <= 300) and (${t.messageId} is null or char_length(${t.messageId}) <= 998) and (${t.inReplyTo} is null or char_length(${t.inReplyTo}) <= 998)`,
+    ),
+    check(
+      "support_messages_draft_check",
+      sql`(${t.draftText} is null) = (${t.draftVersion} is null) and (${t.draftVersion} is null or ${t.draftVersion} >= 1)`,
+    ),
+    check(
+      "support_messages_approved_check",
+      sql`(${t.approvedByLabel} is null) = (${t.approvedAt} is null) and (${t.approvedByLabel} is null or (char_length(${t.approvedByLabel}) between 1 and 60 and ${t.approvedByLabel} ~ '^[A-Za-z][A-Za-z .''-]*$'))`,
+    ),
+  ],
+);
+export type SupportMessage = typeof supportMessages.$inferSelect;

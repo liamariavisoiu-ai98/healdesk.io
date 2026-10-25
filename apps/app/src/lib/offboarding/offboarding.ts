@@ -727,6 +727,17 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
       kind: openIntakes.map((r) => r.kind).join(","),
     });
   }
+  // The clinic's support cases (drizzle/0125) and what passed on them: ids,
+  // closed words and dates, with screened correspondence on the messages
+  // once email arrives. A clinic's cases go with it (owner's rule of
+  // 25 October 2026 for the records of a clinic's requests). The app role
+  // cannot delete one, so app_destroy_support_cases() does, on the same
+  // floor, locking the clinic's row first so a case opened concurrently is
+  // taken or refused; the messages go by cascade. Counted in the audit row
+  // beside `deleted`, not in it: `deleted` is the tenant tables that
+  // app_mark_clinic_destroyed() checks, and this one is platform-wide.
+  const supportCaseRows = await tx.db.execute<{ n: number }>(sql`select app_destroy_support_cases(${c}::uuid) as n`);
+  const supportCasesDeleted = supportCaseRows.rows[0]?.n ?? 0;
   // sync_runs and connection_links are append-only by grant (0015, 0024):
   // operational history with no patient in it, kept as the record of what
   // ran. The credentials go with the connection row below.
@@ -786,6 +797,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
       stripe_connect_events: connectEvents,
       rightsIntakesOpen: openIntakes.length,
       rightsIntakesClosed: intakeRows.length - openIntakes.length,
+      supportCasesDeleted,
     },
   });
   return { clinicId: c, deleted };

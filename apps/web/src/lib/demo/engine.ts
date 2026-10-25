@@ -80,6 +80,8 @@ export async function demoEngineCall(input: {
    * no discount at all.
    */
   offer?: { percentOfSetupFee: number; endsAt: Date } | null;
+  /** A healdesk operator signed in to /admin started it: its transcript goes to hello@ (DemoCallContext.test). */
+  test?: boolean;
 }): Promise<DemoEngineCall | null> {
   const agentId = demoEngineAgentId();
   const secret = process.env.HEALDESK_PROVISION_SECRET;
@@ -96,6 +98,7 @@ export async function demoEngineCall(input: {
     issuedAt: Date.now(),
     clinic,
     offer: input.offer ? { percentOfSetupFee: input.offer.percentOfSetupFee, endsAt: input.offer.endsAt.getTime() } : null,
+    test: input.test === true,
   };
   try {
     return { agentId, variables: { [DEMO_CALL_VARIABLE]: sealDemoCallContext(context, secret) } };

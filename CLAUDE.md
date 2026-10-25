@@ -151,7 +151,12 @@ enforceable rather than aspirational.
    (`packages/catalog/src/demo-call.ts`; business data, never a patient's).
    apps/app answers it with the same turn pipeline, prompt and guard as a
    clinic's patients, from that context instead of the database, and keeps
-   nothing: no gate, no ingest, no transcript, no alert, no booking. Only the
+   nothing: no gate, no ingest, no transcript, no alert, no booking. One
+   exception (owner, 25 October 2026): a demo call started by an operator
+   signed in to `/admin` is sealed as a test, and its transcript is emailed
+   to hello@ through SES as it ends, as a clinic's goes to the clinic, with
+   nothing queued or kept; a prospect's demo call still keeps no transcript,
+   as the Privacy page says. Only the
    start differs: Aya gives the AI and transcription notice, checks she has
    the requester by name, asks their role, offers to explain or to role-play
    a patient call (opened with "Ring ring!" and the clinic's own notice),

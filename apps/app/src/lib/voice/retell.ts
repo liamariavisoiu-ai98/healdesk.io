@@ -1,4 +1,6 @@
-import { messageLanguage, openDemoCallContext, type DemoCallContext } from "@healdesk/catalog";
+import { randomUUID } from "node:crypto";
+
+import { audienceFor, messageLanguage, openDemoCallContext, SENDER_IDENTITY, type DemoCallContext } from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
 
 import { clinics, clinicSettings } from "@/db/schema";
@@ -11,7 +13,7 @@ import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, type AssistantRe
 import { assistantFallbackRefused, patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { demoVoiceOpening, voiceDisclosureEs } from "@/lib/compliance/disclosure";
-import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
+import { renderTranscriptEmail, sendTranscriptEmail, type TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { raiseHandover } from "@/lib/handovers/record";
 import { describeError, log } from "@/lib/log";
@@ -21,7 +23,7 @@ import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
-import { demoAssistantFacts, demoContextFromCall, demoStageNote, nextDemoStage, type DemoStage } from "./demo-facts";
+import { DEMO_TIME_ZONE, demoAssistantFacts, demoContextFromCall, demoStageNote, nextDemoStage, type DemoStage } from "./demo-facts";
 import { fallbackLineFor, rememberDirectLine, rememberedDirectLine, usableLine, type FallbackLookup } from "./fallback-line";
 import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
@@ -146,7 +148,10 @@ import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./te
  *     redial store, no urgent or handover alert, no ops notice, no ingest,
  *     transcript or conversation row, and no transfer: an urgent caller
  *     hears the fixed 9-1-1 line and stays on the call. A phone call-back
- *     demo is an outbound call, which only demo mode lets go on.
+ *     demo is an outbound call, which only demo mode lets go on. One
+ *     exception, kept nowhere either: an operator's test call (the sealed
+ *     context's `test`) has its transcript emailed to hello@ as it ends
+ *     (emailDemoTranscript).
  *
  * Nothing here is written to disk or a log but ids, counts and outcomes. The
  * call's words live in this object until the ingest seals them.
@@ -1328,6 +1333,37 @@ export class RetellCallSession {
     return { outcome: this.urgent || this.handoff ? "escalated_to_human" : this.turns.some((t) => t.speaker === "person") ? "qualified_no_booking" : "abandoned" };
   }
 
+  /**
+   * An operator's test demo call (DemoCallContext.test, sealed by apps/web
+   * only for someone signed in to /admin): its transcript, rendered exactly
+   * as a clinic's (transcript-email.ts) and sent the same way, through SES,
+   * to hello@, the one mailbox, which stands in for the clinic on a test
+   * (owner, 25 October 2026). Nothing is queued or kept: no outbox row, no
+   * conversation, so a failed send is logged and not retried. A prospect's
+   * demo call never comes here (the Privacy page: no transcript is kept).
+   * Never throws.
+   */
+  private async emailDemoTranscript(context: DemoCallContext): Promise<string> {
+    if (!this.turns.some((t) => t.speaker === "person")) return "caller_silent";
+    const clinicName = context.clinic.clinicName;
+    const clinicId = this.facts?.clinicId ?? `demo:${context.slug}`;
+    try {
+      const rendered = renderTranscriptEmail({
+        conversationId: randomUUID(),
+        clinic: { id: clinicId, name: clinicName, timeZone: this.facts?.timeZone ?? DEMO_TIME_ZONE, audience: audienceFor(context.clinic.specialty) },
+        channel: "voice",
+        startedAt: this.startedAt ?? this.openedAt,
+        turns: this.turns,
+      });
+      const result = await sendTranscriptEmail(rendered, { to: SENDER_IDENTITY.replyTo, clinicId, clinicName }, { transport: this.deps.transport });
+      if (result.status === "sent") return "transcript_sent";
+      log.error("retell demo transcript not sent", { callId: this.callId, transport: result.transport, reason: result.reason });
+    } catch (error) {
+      log.error("retell demo transcript not sent", { callId: this.callId, error: describeError(error) });
+    }
+    return "transcript_failed";
+  }
+
   /** The socket closed: record the call once, however many times this is called. */
   finish(): Promise<IngestResult | null> {
     this.finished ??= this.record();
@@ -1341,8 +1377,10 @@ export class RetellCallSession {
     this.redial = null;
     this.redialLookup = null;
     if (this.deps.demo) {
-      // A demo call keeps nothing: no conversation, no minutes, no transcript.
-      log.info("retell demo call ended", { clinicId: this.clinicId, callId: this.callId, count: this.turns.length });
+      // A demo call keeps nothing: no conversation, no minutes, no transcript
+      // row. An operator's test call alone emails its transcript to hello@.
+      const status = this.demoContext?.test ? await this.emailDemoTranscript(this.demoContext) : "nothing_kept";
+      log.info("retell demo call ended", { clinicId: this.clinicId, callId: this.callId, count: this.turns.length, status });
       this.turns = [];
       this.demoContext = null;
       this.demoCall = null;

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { AgreementReview } from "@/lib/admin/ops-client";
 
-import { AgreementChecks } from "./AgreementChecks";
+import { AgreementChecks, ASK_WORDS, ASKED_WORDS, type Ask } from "./AgreementChecks";
 
 /**
  * Queues › Agreement checks (lane P6f): every answer, Yes, No or Not sure,
@@ -51,15 +51,22 @@ function buttons(): HTMLButtonElement[] {
   return [...container.querySelectorAll("button")] as HTMLButtonElement[];
 }
 
+const NO_ASK: Ask = async () => {
+  throw new Error("nothing is proposed in this test");
+};
+
+/** The answers' buttons: everything but the proposal, which needs no code. */
+const answerButtons = () => buttons().filter((b) => b.textContent !== "Ask the practice");
+
 describe("Agreement checks", () => {
   test("the answers wait for six digits, then send the answer with the code", async () => {
     const decide = vi.fn(async () => ({
       ok: true as const,
       data: { status: "code_refused" as const, message: "That code was not right." },
     }));
-    await act(async () => root.render(h(AgreementChecks, { reviews: [REVIEW], decide })));
+    await act(async () => root.render(h(AgreementChecks, { reviews: [REVIEW], decide, ask: NO_ASK })));
     expect(container.textContent).toContain("Code from your authenticator");
-    expect(buttons().every((b) => b.disabled)).toBe(true);
+    expect(answerButtons().every((b) => b.disabled)).toBe(true);
     const input = container.querySelector("input[name=code]") as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
     await act(async () => {
@@ -73,9 +80,36 @@ describe("Agreement checks", () => {
     expect(container.textContent).toContain("That code was not right.");
   });
 
-  test("the section's action goes through the fresh-code wrapper, and the old client is gone", () => {
+  test("Ask the practice needs no code, proposes the question with the row's ids and says it waits under Approvals; a refusal is apps/app's sentence", async () => {
+    const ask = vi.fn<Ask>(async () => ({ ok: true, data: { status: "proposed", approvalId: REVIEW.id } }));
+    const decide = vi.fn(async () => ({ ok: true as const, data: { status: "code_refused" as const, message: "x" } }));
+    await act(async () => root.render(h(AgreementChecks, { reviews: [REVIEW], decide, ask })));
+    expect(container.textContent).toContain(ASK_WORDS);
+    expect(ASK_WORDS).toContain("Nothing is sent until you approve it in Approvals.");
+    const button = buttons().find((b) => b.textContent === "Ask the practice")!;
+    expect(button.disabled).toBe(false);
+    await act(async () => button.click());
+    await act(async () => {});
+    expect(ask).toHaveBeenCalledWith(REVIEW.clinicId, REVIEW.id);
+    expect(decide).not.toHaveBeenCalled();
+    expect([...container.querySelectorAll('[role="status"]')].map((n) => n.textContent)).toContain(ASKED_WORDS);
+
+    // Decided: no question to propose, no button.
+    await act(async () => root.render(h(AgreementChecks, { reviews: [{ ...REVIEW, id: "1", status: "passed", decidedAt: { on: "2026-10-20", at: "20 Oct 2026, 10:00 UTC" }, decidedByLabel: "ops@healdesk.test" }], decide, ask })));
+    expect(buttons().find((b) => b.textContent === "Ask the practice")).toBeUndefined();
+
+    // A refusal, in apps/app's words (resign-ops.ts opProposeAgreementQuestion).
+    const refusing = vi.fn<Ask>(async () => ({ ok: true, data: { status: "refused", message: "A re-sign is already open for this practice, so there is nothing to ask." } }));
+    await act(async () => root.render(h(AgreementChecks, { reviews: [REVIEW], decide, ask: refusing })));
+    await act(async () => buttons().find((b) => b.textContent === "Ask the practice")!.click());
+    await act(async () => {});
+    expect(container.textContent).toContain("A re-sign is already open for this practice, so there is nothing to ask.");
+  });
+
+  test("the section's actions: the answer through the fresh-code wrapper, the question through the proposal alone, and the old client gone", () => {
     const source = readFileSync(join(__dirname, "AgreementChecksSection.tsx"), "utf8");
     expect(source).toContain("recordAgreementAnswerWithCode(clinicId, reviewId, answer, code)");
+    expect(source).toContain("proposeAgreementQuestion(clinicId, reviewId)");
     expect(source).not.toMatch(/\bdecideAgreementReview\b/);
     const client = readFileSync(join(__dirname, "..", "..", "..", "lib", "admin", "ops-client.ts"), "utf8");
     expect(client).not.toMatch(/export function decideAgreementReview\b/);

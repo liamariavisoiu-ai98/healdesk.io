@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 
-import { CodeField, isCompleteCode } from "@/components/admin/ui";
+import { ActionButton, CodeField, isCompleteCode } from "@/components/admin/ui";
 
 import type {
   AgreementReview,
   CoveredAnswer,
   OpsResult,
+  ProposeOutcome,
   SetCoveredEntityOutcome,
 } from "@/lib/admin/ops-client";
 
@@ -19,6 +20,16 @@ import type {
  * answer here: "No" leaves the DPA in force; "Yes" or "Not sure" pauses AYA
  * and sends the practice its business associate agreement to sign (L22).
  * Either closes the review. Business data only.
+ *
+ * "Ask the practice" (ops automation lane P6j; the operation is lane P6f's,
+ * apps/app lib/ops/resign-ops.ts proposeAgreementQuestion) puts the question
+ * email, with its draft, in Queues › Approvals for the owner's yes. It only
+ * proposes, so it asks for no code, like the other proposal buttons; the
+ * email goes once approved there with a fresh code. apps/app refuses it for
+ * a review already decided, a practice with a re-sign already open, the demo
+ * clinic or a closed account, and a question already waiting or rejected, in
+ * its own sentences. The answers below still need the code: a Yes or Not
+ * sure pauses AYA.
  */
 
 type Decide = (
@@ -27,6 +38,11 @@ type Decide = (
   answer: CoveredAnswer,
   code: string,
 ) => Promise<OpsResult<SetCoveredEntityOutcome | { status: "code_refused"; message: string }>>;
+
+export type Ask = (clinicId: string, reviewId: string) => Promise<OpsResult<ProposeOutcome>>;
+
+export const ASK_WORDS = "Ask the practice puts the question email in Queues › Approvals for your yes. Nothing is sent until you approve it in Approvals.";
+export const ASKED_WORDS = "Proposed: the question is waiting for your yes under Queues › Approvals. Nothing has been sent.";
 
 const ANSWERS: readonly { answer: CoveredAnswer; label: string; done: string }[] = [
   {
@@ -49,9 +65,11 @@ const ANSWERS: readonly { answer: CoveredAnswer; label: string; done: string }[]
 export function AgreementChecks({
   reviews,
   decide,
+  ask,
 }: {
   reviews: AgreementReview[];
   decide: Decide;
+  ask: Ask;
 }) {
   if (reviews.length === 0) {
     return (
@@ -63,13 +81,13 @@ export function AgreementChecks({
   return (
     <ul className="mt-4 grid gap-4">
       {reviews.map((review) => (
-        <AgreementCheckRow key={review.id} review={review} decide={decide} />
+        <AgreementCheckRow key={review.id} review={review} decide={decide} ask={ask} />
       ))}
     </ul>
   );
 }
 
-function AgreementCheckRow({ review, decide }: { review: AgreementReview; decide: Decide }) {
+function AgreementCheckRow({ review, decide, ask }: { review: AgreementReview; decide: Decide; ask: Ask }) {
   const [pending, setPending] = useState(false);
   const [answer, setAnswer] = useState<{ ok: boolean; text: string } | null>(null);
   const [code, setCode] = useState("");
@@ -113,6 +131,16 @@ function AgreementCheckRow({ review, decide }: { review: AgreementReview; decide
         says it accepts insurance. Ask the practice whether it, or a billing service for it, sends
         claims to insurers electronically.
       </p>
+      {open ? (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <ActionButton
+            label="Ask the practice"
+            run={() => ask(review.clinicId, review.id)}
+            done={(data) => (data.status === "proposed" ? ASKED_WORDS : null)}
+          />
+          <span className="text-muted text-sm">{ASK_WORDS}</span>
+        </div>
+      ) : null}
       {open ? (
         <div className="mt-4 flex flex-wrap items-end gap-3">
           <CodeField value={code} onChange={setCode} disabled={pending} />

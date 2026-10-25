@@ -243,12 +243,18 @@ export const PLACES: Readonly<Record<string, Place>> = {
   "Propose the report": ["app/admin/compliance/incidents/IncidentChecklist.tsx", 'label="Propose the report"', "button"],
   "Compliance pack": ["app/admin/compliance/pack/[week]/page.tsx", 'title: "Compliance pack"', "page"],
   "Compliance packs": ["app/admin/compliance/pack/page.tsx", 'title: "Compliance packs"', "page"],
-  "Make this week's pack": ["app/admin/compliance/pack/PackList.tsx", `label="Make this week's pack"`, "button"],
+  // The due week's control; an older missing week's reads "Make this pack".
+  "Make this week's pack": ["app/admin/compliance/pack/PackList.tsx", `"Make this week's pack"`, "button"],
   "Open BAA re-signs": ["app/admin/compliance/agreements/OpenResigns.tsx", 'title="Open BAA re-signs"', "page"],
   Edit: ["app/admin/queues/ContactDraft.tsx", "Edit\n", "button"],
   Preview: ["app/admin/queues/ContactDraft.tsx", '"Preview"', "button"],
   "Propose more time": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Propose more time"', "button"],
   "Propose: we are finishing it": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Propose: we are finishing it"', "button"],
   "Offer a five-minute call": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Offer a five-minute call"', "button"],
-  "Send the next reminder now": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Send the next reminder now"', "button"],
+  "Propose the next reminder": ["app/admin/clinics/[clinicId]/setup/SetupWindow.tsx", 'label="Propose the next reminder"', "button"],
+  // Keyed with its section, as "Extend the setup window on the Setup window
+  // card" is: the bare words are ordinary prose in the offboarding alert
+  // ("Ask the practice, on its published number"), which the renderer would
+  // otherwise underline as a button.
+  "Ask the practice under Agreement checks": ["app/admin/queues/AgreementChecks.tsx", 'label="Ask the practice"', "button"],
 };

@@ -265,9 +265,10 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   approval_waiting: "/admin/queues#approvals",
   // always raised with no clinic: the same section (lane P6f).
   clinic_email_waiting: "/admin/queues#approvals",
-  // always raised with no clinic: the Compliance page, until lane P6j's
-  // printable pack page (/admin/compliance/pack/<week>) lands.
-  compliance_pack_ready: "/admin/compliance",
+  // always raised with no clinic: the list of packs (lane P6j), each week a
+  // link to its printable page (/admin/compliance/pack/<week>); the page
+  // here is fixed, so the list rather than the alert's week.
+  compliance_pack_ready: "/admin/compliance/pack",
   compliance_pack_failed: "/admin/system/jobs",
   // The incident assistant (lane P6i): always raised with no clinic; decided on the Incidents page (lane P6j).
   incident_step_waiting: "/admin/compliance/incidents",
@@ -284,6 +285,7 @@ const PAGE_NAMES: Readonly<Record<string, string>> = {
   "/admin/compliance": "Compliance",
   "/admin/compliance/incidents": "Incidents",
   "/admin/compliance/agreements": "the Agreements register",
+  "/admin/compliance/pack": "Compliance packs",
 };
 
 /**

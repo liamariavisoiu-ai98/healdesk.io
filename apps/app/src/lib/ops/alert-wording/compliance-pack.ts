@@ -16,16 +16,17 @@ import type { AlertWording } from "./types";
  */
 export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
   // The pointer, once per week (key compliance_pack_ready:<week>), emailed to
-  // the ops address: the week's Monday and the five headline numbers. A
-  // number whose section could not be read is not sent, so its clause drops
-  // and unreadCount says how many sections are missing: never a zero for a
-  // read that failed. Each number is the pack's headline
-  // (lib/compliance-pack/build.ts headlineOf).
+  // the ops address only and kept off Slack and Home (owner decision D20):
+  // the week's Monday and the five headline numbers. A pack is stored with a
+  // section unread only after two days of hourly tries; then that section's
+  // number is not sent, its clause drops, and the pack is called incomplete
+  // in plain words. lateDays says how late a pack made after a gap was. Each
+  // number is the pack's headline (lib/compliance-pack/build.ts headlineOf).
   compliance_pack_ready: {
     title: "The weekly compliance pack is stored",
     headline: "Compliance pack for the week of {windowStart} is stored, with five numbers",
     whatHappened:
-      "The compliance pack for the week of {windowStart}, Monday to Sunday in New York, is stored and can no longer change.[ Incidents still open when the week ended: {incidentsOpenCount}.][ Patient-rights requests past their day: {rightsOverdueCount}.][ Re-signs still unsigned: {resignsOpenCount}.][ Vendor agreements lapsed, withdrawn, missing or ending within 30 days: {vendorsCount}.][ Transcript copies held more than 30 days: {transcriptCopiesCount}.][?unreadCount>0: {unreadCount:section} could not be read, so their numbers are left out rather than shown as zero.]",
+      "The compliance pack for the week of {windowStart}, Monday to Sunday in New York, is stored and can no longer change.[?unreadCount>0: This pack is incomplete: {unreadCount:section} could not be read for two days, so their numbers are missing, not zero.][?lateDays>0: It was made {lateDays:day} after it was due, because the job did not run then.][ Incidents still open when the week ended, less service complaints: {incidentsOpenCount}.][ Patient-rights requests past their day, counted in UTC days: {rightsOverdueCount}.][ Re-signs still unsigned: {resignsOpenCount}.][ Vendor agreements lapsed, withdrawn, missing or ending within 30 days: {vendorsCount}.][ Transcript copies held more than 30 days: {transcriptCopiesCount}.]",
     whyItMatters:
       "Each number is a promise we make in our agreements or our policies. Any number above zero needs a person this week.",
     steps: [

@@ -189,7 +189,7 @@ const PLAN_WORDS = {
   window_over: "The setup window is over, so there are no reminders left to send.",
   live: "A channel is live, so the six setup reminders have stopped.",
   last_reminder: "The next reminder is the sixth, which goes only on the window's last day, so it cannot be sent sooner.",
-  night: "It is night at the clinic: a reminder now would wait until morning. Press Send reminder now in the clinic's daytime.",
+  night: "It is night at the clinic: a reminder now would wait until morning. Press Propose the next reminder in the clinic's daytime.",
   recently_sent: "A reminder went to this clinic less than five days ago, so another is not sent yet.",
 } as const;
 

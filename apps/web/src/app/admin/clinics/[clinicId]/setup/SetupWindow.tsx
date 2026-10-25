@@ -61,15 +61,15 @@ import type {
  * P6f's, apps/app lib/ops/notice-ops.ts) each only PROPOSE an email to the
  * clinic, with its draft, for the owner's yes under Queues › Approvals;
  * nothing is sent from here. "Propose more time" proposes an extension by
- * the days in the field and the email telling the clinic (on approve, the
- * extension runs first and the email goes only if it went through); it is
- * drawn beside "Extend the setup window", which extends at once with no
- * email, in the stages still inside the window. "Propose: we are finishing
+ * the days in the field above and the email telling the clinic (on approve,
+ * the extension runs first and the email goes only if it went through); it
+ * is drawn in the stages still inside the window, under "Extend the setup
+ * window", which extends at once with no email. "Propose: we are finishing
  * it" is drawn only while the clinic waits on us (apps/app refuses it in any
  * other stage), once per entry into that stage, and extends nothing (owner
  * decision D6). "Offer a five-minute call" is drawn while setup is still
- * open, partly live included, once per stage entry. "Send the next reminder
- * now" proposes the next of the six setup reminders sooner, never a seventh,
+ * open, partly live included, once per stage entry. "Propose the next
+ * reminder" proposes the next of the six setup reminders sooner, never a seventh,
  * and apps/app refuses it when it is night at the clinic, a reminder went in
  * the last five days, the next would be the sixth (sent only on the last
  * day), a channel is live or the window is over; each refusal is shown in
@@ -86,12 +86,13 @@ export const IGNORE_CONFIRM =
 export const IGNORED_DONE = "Not watched (internal): no more setup-window alerts to ops for this account. Its reminder emails and its closing day are unchanged.";
 export const WATCHED_DONE = "Watched again: setup-window alerts to ops and Home's decision and go-live rows resume for this account.";
 
-/** The one sentence over the four proposals: what each does, and what none does. */
-export const PROPOSALS_WORDS = "Each of these only proposes an email, with its draft, for your yes under Queues › Approvals. Nothing is sent from here.";
+/** The one sentence beside the four proposals: what each does, and what none does (the reminder has no draft: contact-packets.ts). */
+export const PROPOSALS_WORDS =
+  "Each of these only proposes an email (the reminder's wording is fixed) for your yes under Queues › Approvals; nothing is sent from here.";
 
 export const PROPOSED_WORDS = "Proposed: waiting for your yes under Queues › Approvals.";
 
-/** What "Send the next reminder now" proposed: which of the six, and its own day. */
+/** What "Propose the next reminder" proposed: which of the six, and its own day. */
 export function reminderProposedWords(data: ProposeOutcome): string | null {
   if (data.status !== "proposed") return null;
   if (data.reminderNumber === undefined || data.normallyDueOn === undefined) return PROPOSED_WORDS;
@@ -269,7 +270,6 @@ export function SetupWindow({
                 run={() => onExtend({ days: Number(days), fromDeadline: deadline.iso })}
                 done={extendedWords}
               />
-              {canProposeTime ? <ActionButton label="Propose more time" run={() => onProposeNotice({ kind: "setup_extended", days: Number(days) })} done={proposed} /> : null}
             </form>
           ) : null}
           {decidable ? (
@@ -309,6 +309,9 @@ export function SetupWindow({
         <div className="border-line mt-4 border-t pt-3">
           <p className="text-sm">{PROPOSALS_WORDS}</p>
           <div className="mt-3 flex flex-wrap items-end gap-3">
+            {canProposeTime ? (
+              <ActionButton label="Propose more time" run={() => onProposeNotice({ kind: "setup_extended", days: Number(days) })} done={proposed} />
+            ) : null}
             {canProposeWaiting || canProposeCall ? (
               <label className="text-sm">
                 <span className="text-muted block text-xs font-bold uppercase">What the email names</span>
@@ -330,7 +333,7 @@ export function SetupWindow({
               <ActionButton label="Propose: we are finishing it" run={() => onProposeNotice({ kind: "setup_waiting_on_us", phrase })} done={proposed} />
             ) : null}
             {canProposeCall ? <ActionButton label="Offer a five-minute call" run={() => onProposeNotice({ kind: "setup_help_offer", phrase })} done={proposed} /> : null}
-            {canPullReminder ? <ActionButton label="Send the next reminder now" run={() => onPullReminder()} done={reminderProposedWords} /> : null}
+            {canPullReminder ? <ActionButton label="Propose the next reminder" run={() => onPullReminder()} done={reminderProposedWords} /> : null}
           </div>
         </div>
       ) : null}

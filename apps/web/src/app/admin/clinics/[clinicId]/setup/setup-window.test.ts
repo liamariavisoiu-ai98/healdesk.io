@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -73,7 +76,7 @@ const row: LifecycleRow = {
 
 const base = { row, deadline: DEADLINE, canExtend: true, now: NOW, onExtend: NEVER, onDecide: NEVER, onSnooze: NEVER, onSetIgnored: NEVER, onProposeNotice: NEVER, onPullReminder: NEVER };
 
-const PROPOSALS = ["Propose more time", "Propose: we are finishing it", "Offer a five-minute call", "Send the next reminder now"] as const;
+const PROPOSALS = ["Propose more time", "Propose: we are finishing it", "Offer a five-minute call", "Propose the next reminder"] as const;
 
 /** A clinic on the lifecycle watch's ignore list, as apps/app projects it: nothing owed, its own recommendation sentence. */
 const notWatched: LifecycleRow = {
@@ -177,9 +180,17 @@ describe("the card's words", () => {
   });
 
   test("the four proposals: each in the stages apps/app accepts it, none for an account not watched, with the one sentence saying they only propose", () => {
-    const inSetup = text(renderToStaticMarkup(h(SetupWindow, base)));
+    const html = renderToStaticMarkup(h(SetupWindow, base));
+    const inSetup = text(html);
     expect(inSetup).toContain(PROPOSALS_WORDS);
-    for (const label of ["Propose more time", "Offer a five-minute call", "Send the next reminder now"]) expect(inSetup).toContain(label);
+    expect(PROPOSALS_WORDS).toBe("Each of these only proposes an email (the reminder's wording is fixed) for your yes under Queues › Approvals; nothing is sent from here.");
+    for (const label of ["Propose more time", "Offer a five-minute call", "Propose the next reminder"]) expect(inSetup).toContain(label);
+    // The sentence stands beside the buttons it describes: every proposal follows it, none comes before it.
+    const sentenceAt = inSetup.indexOf(PROPOSALS_WORDS);
+    expect(sentenceAt).toBeGreaterThan(-1);
+    for (const label of ["Propose more time", "Offer a five-minute call", "Propose the next reminder"]) expect(inSetup.indexOf(label) > sentenceAt, label).toBe(true);
+    expect(inSetup.indexOf("Extend the setup window")).toBeLessThan(sentenceAt);
+    expect(inSetup).not.toContain("Send the next reminder now");
     // Not waiting on us: no note that we are finishing it.
     expect(inSetup).not.toContain("Propose: we are finishing it");
     expect(inSetup).toContain("What the email names");
@@ -193,7 +204,7 @@ describe("the card's words", () => {
     // Partly live: a channel is live, so no more time and no reminder (apps/app refuses both); the call offer stays.
     const partlyLive = text(renderToStaticMarkup(h(SetupWindow, { ...base, row: { ...row, stage: "partly_live" } })));
     expect(partlyLive).toContain("Offer a five-minute call");
-    for (const label of ["Propose more time", "Propose: we are finishing it", "Send the next reminder now"]) expect(partlyLive).not.toContain(label);
+    for (const label of ["Propose more time", "Propose: we are finishing it", "Propose the next reminder"]) expect(partlyLive).not.toContain(label);
 
     for (const stage of ["live", "closed"] as const) {
       const page = text(renderToStaticMarkup(h(SetupWindow, { ...base, row: { ...row, stage } })));
@@ -412,24 +423,34 @@ describe("the four controls", () => {
     expect(propose).toHaveBeenLastCalledWith({ kind: "setup_help_offer", phrase: "calendar" });
 
     await act(async () => {
-      button("Send the next reminder now").click();
+      button("Propose the next reminder").click();
     });
     await act(async () => {});
     expect(pull).toHaveBeenCalledTimes(1);
     expect(statuses()).toContain("Proposed: reminder 3 of 6, normally due 10 Nov 2026, waiting for your yes under Queues › Approvals.");
 
-    // A refusal is apps/app's own sentence (notice-ops.ts PLAN_WORDS), shown as it came.
-    const night = "It is night at the clinic: a reminder now would wait until morning. Press Send reminder now in the clinic's daytime.";
+    // A refusal is apps/app's own sentence (notice-ops.ts PLAN_WORDS), shown as it came, and it names this button.
+    const night = "It is night at the clinic: a reminder now would wait until morning. Press Propose the next reminder in the clinic's daytime.";
     const refusing = vi.fn<PullReminder>(async () => ({ ok: true, data: { status: "refused", message: night } }));
     await act(async () => {
       root.render(h(SetupWindow, { ...base, onPullReminder: refusing }));
     });
     await act(async () => {
-      button("Send the next reminder now").click();
+      button("Propose the next reminder").click();
     });
     await act(async () => {});
     expect(statuses()).toContain(night);
     // Nothing was sent by any of them: the actions are the page's proposals, and the card says so once.
     expect(container.textContent).toContain(PROPOSALS_WORDS);
+  });
+
+  test("apps/app's two sentences that name this button name it as it reads here, never the old 'Send reminder now'", () => {
+    const APP = join(__dirname, "..", "..", "..", "..", "..", "..", "..", "app", "src");
+    const noticeOps = readFileSync(join(APP, "lib", "ops", "notice-ops.ts"), "utf8");
+    const executors = readFileSync(join(APP, "lib", "approvals", "contact-executors.ts"), "utf8");
+    expect(noticeOps).toContain("Press Propose the next reminder in the clinic's daytime.");
+    expect(executors).toContain("Press Propose the next reminder again to see which is.");
+    for (const source of [noticeOps, executors]) expect(source).not.toMatch(/Press Send reminder now/);
+    expect(readFileSync(join(__dirname, "SetupWindow.tsx"), "utf8")).toContain('label="Propose the next reminder"');
   });
 });

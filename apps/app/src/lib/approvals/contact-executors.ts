@@ -353,7 +353,7 @@ export async function pullReminder(approval: OpsApproval, now: Date = new Date()
     return fail("reminder_too_soon", "A reminder went to this clinic less than five days ago, so this one was not sent.");
   }
   if (!plan.ok || plan.reminderNumber !== payload.reminderNumber) {
-    return fail("no_longer_needed", "That reminder is no longer the next one to send, so nothing was sent. Press Send reminder now again to see which is.");
+    return fail("no_longer_needed", "That reminder is no longer the next one to send, so nothing was sent. Press Propose the next reminder again to see which is.");
   }
   const outcome = await queueSetupReminderNow(payload.clinicId, payload.reminderNumber, now);
   if (outcome === "queued") return { ok: true, outcomeCode: "queued", message: null, auditRecorded: null, draftHashSent: null };

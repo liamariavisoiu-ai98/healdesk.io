@@ -49,8 +49,8 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
     <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
       <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">Support</h1>
       <p className="text-muted mt-2 max-w-[68ch] text-[15.6px]">
-        Every support case across clinics: what a clinic asked through its portal chat, as fields from fixed lists, with the
-        draft reply waiting for your Send. Open a case for its facts, its draft and the controls.
+        Every support case across clinics, from the portal chat&apos;s escalations (fields from fixed lists, never the chat&apos;s
+        words), each with its state and its reply-by day. Open a case for its facts, its draft and the controls.
       </p>
       {standby ? (
         <HostStandbyNotice what="The support cases" />

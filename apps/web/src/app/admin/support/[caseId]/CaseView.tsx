@@ -177,12 +177,12 @@ export function CaseView({ view, item, waitingRead, clinics, now, actions }: Cas
         {c.clinicId ? <ClinicId id={c.clinicId} /> : null}
         <p className="mt-3 text-[15.6px]">{topicWords(c.category, c.symptom)}</p>
         <p className="text-muted mt-1 text-sm">
-          {SOURCE_WORDS[c.source]} · {inboundWords(c)} · {ageWords(c.ageHours)} (opened {whenWords(c.openedAt)}) ·{" "}
+          {SOURCE_WORDS[c.source]} · {inboundWords(c)} · {ageWords(c.ageHours)} ({whenWords(c.openedAt)}) ·{" "}
           <span className={c.pastDue ? "text-red-deep font-semibold" : undefined}>{replyByWords(c)}</span>
           {c.assigneeLabel ? ` · with ${c.assigneeLabel}` : " · with nobody yet"}
         </p>
         <p className="mt-2 text-sm">{STATE_NOTES[c.state]}</p>
-        {c.state === "snoozed" && c.snoozedUntil ? <p className="text-muted mt-1 text-sm">Comes back {whenWords(c.snoozedUntil)}.</p> : null}
+        {c.state === "snoozed" && c.snoozedUntil ? <p className="text-muted mt-1 text-sm">Snoozed until {whenWords(c.snoozedUntil)}.</p> : null}
         {closed && c.closedAt ? (
           <p className="text-muted mt-1 text-sm">
             Closed {onDay(c.closedAt)}{c.closedReason ? `: ${CLOSED_REASON_WORDS[c.closedReason]}` : ""}.

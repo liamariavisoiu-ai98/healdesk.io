@@ -68,7 +68,7 @@ function CaseRow({ row, replyWaiting }: { row: SupportCaseRowView; replyWaiting:
         <span className={row.pastDue ? "text-red-deep font-semibold" : undefined}>{replyByWords(row)}</span>
         {row.assigneeLabel ? ` · with ${row.assigneeLabel}` : ""}
       </p>
-      {row.state === "snoozed" && row.snoozedUntil ? <p className="text-muted mt-1 text-sm">Comes back {whenWords(row.snoozedUntil)}.</p> : null}
+      {row.state === "snoozed" && row.snoozedUntil ? <p className="text-muted mt-1 text-sm">Snoozed until {whenWords(row.snoozedUntil)}.</p> : null}
       {row.state === "closed" && row.closedAt ? (
         <p className="text-muted mt-1 text-sm">
           Closed {onDay(row.closedAt)}{row.closedReason ? `: ${CLOSED_REASON_WORDS[row.closedReason]}` : ""}.

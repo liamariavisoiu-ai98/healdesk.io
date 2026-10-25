@@ -157,7 +157,7 @@ describe("/admin/support", () => {
     for (const raw of ["calls_ring_out", "drafted", "this_week", CASE]) expect(page).not.toContain(raw);
   });
 
-  test("each state falls in its section; a snoozed row says when it comes back, a closed one its reason", async () => {
+  test("each state falls in its section; a snoozed row says until when, a closed one its reason", async () => {
     state.cases = read([
       row,
       { ...row, id: OTHER, ref: "HD-8G4MP", state: "new", clinicId: null, clinicName: null, assigneeLabel: null },
@@ -176,7 +176,7 @@ describe("/admin/support", () => {
     expect(page).toContain("New, no draft yet");
     expect(page).toContain("Being drafted");
     expect(page).toContain("Draft needs an edit");
-    expect(page).toContain("Comes back 4 Nov 2026, 14:00 UTC.");
+    expect(page).toContain("Snoozed until 4 Nov 2026, 14:00 UTC.");
     expect(page).toContain("Closed 1 Nov 2026: Replied by hand from the mailbox.");
   });
 

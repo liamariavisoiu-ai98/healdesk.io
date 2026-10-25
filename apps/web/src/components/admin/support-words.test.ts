@@ -255,7 +255,10 @@ describe("the draft's closed lists have words", () => {
     expect(saveWords({ ref: "HD-7F3KQ", draftVersion: 3, state: "drafted", approvalId: null, ok: true, checks: [], failed: [], auditRecorded: true })).toBe("Saved as draft 3. Every check passed.");
     expect(checkWords({ ref: "HD-7F3KQ", ok: true, checks: [], failed: [] })).toBe("Every check passes.");
     expect(checkWords({ ref: "HD-7F3KQ", ok: false, checks, failed: ["The reply names no person."] })).toBe("Fails: The reply names no person.");
-    expect(regenerateWords({ outcome: "done", ref: "HD-7F3KQ", state: "new", auditRecorded: true })).toContain("the support-draft job writes the draft at its next run");
+    expect(regenerateWords({ outcome: "done", ref: "HD-7F3KQ", state: "new", auditRecorded: true })).toContain("the support-draft job writes the draft when it next runs");
+    // The job's name is apps/app's (lib/scheduler/jobs.ts); it is seeded off, so no line says the draft comes at once.
+    expect(source("lib/scheduler/jobs.ts")).toContain('export const JOB_SUPPORT_DRAFT = "support-draft";');
+    expect(REGENERATE_NOTE).not.toMatch(/at once|now\b/);
     expect(regenerateWords({ outcome: "unchanged", ref: "HD-7F3KQ", state: "new", auditRecorded: true })).toBe("A new draft was already asked for.");
     expect(proposeRefusalWords({ outcome: "checks_failed", ref: "HD-7F3KQ", approvalId: null, draftVersion: 2, failed: ["The reply names no person."], auditRecorded: true })).toBe(
       "Nothing was sent: the saved draft fails: The reply names no person. Edit it, press Save draft, then Send.",
@@ -263,10 +266,12 @@ describe("the draft's closed lists have words", () => {
   });
 
   test("Send's outcome, true to the executor (lib/approvals/support-reply.ts) and the send (lib/support/send.ts recordSent)", () => {
-    expect(source("lib/support/send.ts")).toContain('state: "waiting_clinic" as const');
+    // A sent reply moves the case to waiting on the clinic only where case-vocab.ts allows the move (not from snoozed), so the line claims the send alone.
+    expect(source("lib/support/send.ts")).toContain('canMove(c.state, "waiting_clinic")');
+    expect(source("lib/support/case-vocab.ts")).toContain('snoozed: ["new", "drafted", "needs_edit", "closed", "snoozed"],');
     expect(sendOutcomeWords({ status: "executed", outcomeCode: "sent", message: null, auditRecorded: true })).toEqual({
       ok: true,
-      text: "Sent to the practice's sign-in address. The case now waits on the clinic.",
+      text: "Sent to the practice's one sign-in address.",
       auditRecorded: true,
     });
     const retrying = "Approved, but the first try did not go, so the clinic has not received it yet.";

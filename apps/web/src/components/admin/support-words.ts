@@ -320,7 +320,7 @@ export function draftHeadWords(draft: SupportDraftView | null): string {
 }
 
 /** The one line under the Regenerate control, true to draft/store.ts queueRegeneration and send.ts saveReplyDraft. */
-export const REGENERATE_NOTE = `Asks the assistant for a new draft: the case goes back to new and the support-draft job writes it at its next run. The assistant writes at most ${DRAFTS_PER_CASE} drafts a case; drafts saved from this editor do not count.`;
+export const REGENERATE_NOTE = `Asks the assistant for a new draft: the case goes back to new, and the support-draft job writes the draft when it next runs. The assistant writes at most ${DRAFTS_PER_CASE} drafts a case; drafts saved from this editor do not count.`;
 
 /** The one line under Save draft (lib/ops/support-reply-ops.ts opSaveSupportDraft). */
 export const SAVE_NOTE =
@@ -400,7 +400,7 @@ export function checkWords(preview: SupportReplyPreview): string {
 /** What Regenerate answered (opRegenerateSupportDraft): queued, or already queued. */
 export function regenerateWords(outcome: SupportCaseMoveOutcome): string {
   return outcome.outcome === "done"
-    ? "A new draft is asked for: the case is new again, and the support-draft job writes the draft at its next run."
+    ? "A new draft is asked for: the case is new again, and the support-draft job writes the draft when it next runs."
     : "A new draft was already asked for.";
 }
 
@@ -414,10 +414,12 @@ export type SendAnswer = ApprovalDecisionEntry | { status: "not_proposed"; messa
 
 /**
  * Send's outcome in one line, true to lib/approvals/support-reply.ts
- * sendSupportReply and lib/support/send.ts: sent, the case waits on the
- * clinic (recordSent); approved but not yet sent, in apps/app's own sentence;
- * not sent, in the executor's words (the rules' names, never the words); or a
- * refusal that changed nothing.
+ * sendSupportReply and lib/support/send.ts: sent (the page then draws the
+ * case's new state: waiting on the clinic, unless it was snoozed, which
+ * case-vocab.ts lets move nowhere but new, drafted, needs_edit or closed);
+ * approved but not yet sent, in apps/app's own sentence; not sent, in the
+ * executor's words (the rules' names, never the words); or a refusal that
+ * changed nothing.
  */
 export function sendOutcomeWords(answer: SendAnswer): { ok: boolean; text: string; auditRecorded: boolean | null } {
   switch (answer.status) {
@@ -429,7 +431,7 @@ export function sendOutcomeWords(answer: SendAnswer): { ok: boolean; text: strin
       return { ok: false, text: `Rejected: ${outcomeWords(answer.outcomeCode)}. Nothing was sent.`, auditRecorded: answer.auditRecorded };
     case "executed": {
       if (answer.outcomeCode === "sent") {
-        return { ok: true, text: "Sent to the practice's sign-in address. The case now waits on the clinic.", auditRecorded: answer.auditRecorded };
+        return { ok: true, text: "Sent to the practice's one sign-in address.", auditRecorded: answer.auditRecorded };
       }
       return { ok: true, text: answer.message ?? `Approved: ${outcomeWords(answer.outcomeCode)}.`, auditRecorded: answer.auditRecorded };
     }
@@ -448,7 +450,8 @@ export function waitingItemWords(item: Pick<SupportReplyApprovalItem, "proposedA
 // The case's moves
 // -----------------------------------------------------------------------------
 
-export const SNOOZE_NOTE = "Puts the case aside until the time chosen; it comes back to the list then. Nothing is sent.";
+/** Snooze only records the time (lib/support/cases.ts snoozeSupportCase); what acts on it is the watch lane P7e builds, so nothing here says the case comes back by itself. */
+export const SNOOZE_NOTE = "Puts the case aside, under Snoozed, until the time chosen. Nothing is sent.";
 export const ASSIGN_NOTE = "Puts a name on the case so the list says who has it. v1 has one shared sign-in, so it is a label, not an identity.";
 export const MATCH_NOTE = "Names the clinic this case is about, once. Until then no draft is written and no reply can go.";
 export const CLOSE_NOTE = "Closes the case for good, with the reason chosen. Nothing is sent; a clinic that writes again opens a new case.";
@@ -459,7 +462,7 @@ export function assignWords(outcome: SupportCaseMoveOutcome, label: string): str
 }
 
 export function matchWords(outcome: SupportCaseMoveOutcome, clinicName: string): string {
-  return outcome.outcome === "done" ? `Matched to ${clinicName}. The assistant can draft it now.` : `Already matched to ${clinicName}.`;
+  return outcome.outcome === "done" ? `Matched to ${clinicName}; the assistant drafts it when the support-draft job next runs.` : `Already matched to ${clinicName}.`;
 }
 
 export const CLOSED_WORDS = "Closed.";

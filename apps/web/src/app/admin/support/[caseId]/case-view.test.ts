@@ -86,7 +86,7 @@ describe("a drafted case", () => {
     expect(page).toContain("Now");
     expect(page).toContain("Drafted");
     expect(page).toContain("Call forwarding: Calls ring out unanswered");
-    expect(page).toContain("Portal support chat · 1 escalation from the portal chat · opened 3 hours ago (opened 2 Nov 2026, 15:00 UTC) · reply by 3 Nov 2026 · with nobody yet");
+    expect(page).toContain("Portal support chat · 1 escalation from the portal chat · opened 3 hours ago (2 Nov 2026, 15:00 UTC) · reply by 3 Nov 2026 · with nobody yet");
     expect(page).toContain(STATE_NOTES.drafted);
     expect(page).not.toContain("patient details hidden");
     // The escalation's field codes never print as the case's words.
@@ -237,10 +237,12 @@ describe("the other states", () => {
     for (const label of ["Snooze", "Assign", "Close"]) expect(html).toMatch(new RegExp(`<button[^>]*>${label}</button>`));
   });
 
-  test("snoozed: when it comes back, Save draft and Check offered (a save wakes it), no Regenerate, no Send without a waiting reply", () => {
+  test("snoozed: until when, Save draft and Check offered (a save wakes it), no Regenerate, no Send without a waiting reply", () => {
     const html = render({ ...view, case: { ...view.case, state: "snoozed", snoozedUntil: "2026-11-03T14:00:00.000Z" } });
     const page = text(html);
-    expect(page).toContain("Comes back 3 Nov 2026, 14:00 UTC.");
+    expect(page).toContain("Snoozed until 3 Nov 2026, 14:00 UTC.");
+    // Nothing on this host acts on the time yet (the watch is lane P7e's), so no line says the case comes back by itself.
+    expect(page).not.toMatch(/comes back/i);
     expect(html).toMatch(/<button[^>]*>Save draft<\/button>/);
     expect(html).not.toMatch(/<button[^>]*>Regenerate<\/button>/);
     expect(html).not.toMatch(/<button[^>]*>Send<\/button>/);
@@ -359,7 +361,7 @@ describe("the controls", () => {
     await mount({ onRegenerate });
     await click("Regenerate");
     expect(onRegenerate).toHaveBeenCalledWith(CASE);
-    expect(statuses()[0]).toBe(`A new draft is asked for: the case is new again, and the support-draft job writes the draft at its next run. ${UNAUDITED}`);
+    expect(statuses()[0]).toBe(`A new draft is asked for: the case is new again, and the support-draft job writes the draft when it next runs. ${UNAUDITED}`);
   });
 
   test("Send runs nothing without six digits, asks once, sends the case id, the code and the editor's text, and says the reply went", async () => {
@@ -376,7 +378,7 @@ describe("the controls", () => {
     expect(container.textContent).toContain(SEND_CONFIRM);
     await click("Yes, send");
     expect(onSend).toHaveBeenCalledWith(CASE, "123456", `${DRAFT_TEXT} Thank you.`);
-    expect(statuses()).toContain("Sent to the practice's sign-in address. The case now waits on the clinic.");
+    expect(statuses()).toContain("Sent to the practice's one sign-in address.");
     // The code is spent: the field is cleared.
     expect(container.querySelector<HTMLInputElement>('input[name="code"]')!.value).toBe("");
   });
@@ -407,7 +409,7 @@ describe("the controls", () => {
     expect(statuses()).toContain("Nothing was sent: the saved draft fails: The reply names no person. Edit it, press Save draft, then Send.");
   });
 
-  test("Snooze sends the choice and says when the case comes back; a picked day needs a day", async () => {
+  test("Snooze sends the choice and says until when; a picked day needs a day", async () => {
     const onSnooze = vi.fn<CaseActions["onSnooze"]>(async () => ({ ...moved(), data: { ...moved().data, until: "2026-11-03T14:00:00.000Z" } }));
     await mount({ onSnooze });
     await click("Snooze");
@@ -452,7 +454,7 @@ describe("the controls", () => {
     await setValue('select[name="clinicId"]', "4fa85f64-5717-4562-b3fc-2c963f66afa7", "change");
     await click("Match");
     expect(onMatch).toHaveBeenCalledWith(CASE, "4fa85f64-5717-4562-b3fc-2c963f66afa7");
-    expect(statuses()).toContain("Matched to Glow. The assistant can draft it now.");
+    expect(statuses()).toContain("Matched to Glow; the assistant drafts it when the support-draft job next runs.");
   });
 
   test("a failed call says the ops client's own sentence", async () => {

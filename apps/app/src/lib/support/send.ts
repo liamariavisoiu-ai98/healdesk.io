@@ -5,9 +5,9 @@ import { clinics, supportCases, supportMessages, type SupportCase, type SupportM
 import type { ActorContext } from "@/lib/audit";
 import { draftHash } from "@/lib/approvals/kinds";
 import { serialiseDraft } from "@/lib/approvals/drafts";
-import { printableClinicName } from "@/lib/email/lint";
+import { LinkNotAllowedError, PayloadNotAllowedError, printableClinicName } from "@/lib/email/lint";
 import { RETRY_DELAYS_MINUTES } from "@/lib/email/outbox";
-import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
+import { EmailEnvelopeError, sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import { audienceFor } from "@/lib/email/templates/context";
 import { renderSupportReplyWith, SUPPORT_REPLY_REASON, type SupportReplyPayload } from "@/lib/email/templates/support_reply";
 import { describeError, log } from "@/lib/log";
@@ -156,6 +156,10 @@ export async function checkReplyText(
 ): Promise<ReplyCheckResult> {
   const clinicId = context.supportCase.subjectClinicId;
   const practice = clinicId ? await readReplyCheckContext({ clinicId, actor }).catch(() => null) : null;
+  // Without the practice's context, check 8 cannot see the other practices' names: fail closed.
+  if (clinicId && !practice) {
+    return { ok: false, results: [{ id: "reply_checks", ok: false, rule: PRACTICE_UNREAD }] };
+  }
   return runSupportReplyChecks({
     text,
     clinicName: practice?.clinicName ?? context.clinicName,
@@ -176,6 +180,9 @@ export async function checkReplyText(
       : {}),
   });
 }
+
+/** Shown when the practice's account could not be read for the checks: nothing passes then. */
+export const PRACTICE_UNREAD = "The practice's account could not be read for the checks, so the reply cannot pass them now";
 
 /** A typed draft as it is kept: line breaks normalised, trimmed, nothing invisible. */
 export function normaliseDraftText(raw: unknown): string | null {
@@ -459,6 +466,10 @@ export async function deliverReply(
     await withTenant({ clinicId, actor: SERVICE }, (tx) =>
       recordDelivery(tx, claim.deliveryId!, { status: "failed", reason: describeError(error) }),
     ).catch(() => undefined);
+    // A refusal by the sender's own rules cannot pass on a later try: stop now, dead.
+    if (error instanceof PayloadNotAllowedError || error instanceof LinkNotAllowedError || error instanceof EmailEnvelopeError) {
+      return afterFailure(message.id, clinicId, SUPPORT_SEND_MAX_ATTEMPTS, "refused", now, attempts);
+    }
   }
   return afterFailure(message.id, clinicId, attempts, failure, now);
 }
@@ -469,14 +480,16 @@ async function afterFailure(
   attempts: number,
   failure: string,
   now: Date,
+  /** The tries actually made, when the sending stops before its sixth (a refusal). */
+  tried: number = attempts,
 ): Promise<DeliverOutcome> {
   if (attempts >= SUPPORT_SEND_MAX_ATTEMPTS) {
     await unsafeDb
       .update(supportMessages)
-      .set({ sendAttempts: attempts, sendStoppedAt: now, sendStoppedReason: "dead", nextSendAt: null })
+      .set({ sendAttempts: tried, sendStoppedAt: now, sendStoppedReason: "dead", nextSendAt: null })
       .where(and(eq(supportMessages.id, messageId), isNull(supportMessages.sentAt), isNull(supportMessages.sendStoppedAt)));
-    log.error("support reply dead", { clinicId, count: attempts, outcome: failure });
-    await notifyOps("support_reply_dead", { clinicId, count: attempts });
+    log.error("support reply dead", { clinicId, count: tried, outcome: failure });
+    await notifyOps("support_reply_dead", { clinicId, count: tried });
     return { status: "stopped", reason: "dead" };
   }
   const delay = RETRY_DELAYS_MINUTES[attempts - 1] ?? RETRY_DELAYS_MINUTES.at(-1)!;

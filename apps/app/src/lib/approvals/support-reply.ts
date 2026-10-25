@@ -149,7 +149,8 @@ export async function proposeSupportReplyFor(input: {
       .where(and(eq(supportCases.id, c.id), eq(supportCases.state, "needs_edit")));
   }
   const subject = subjectForCase(c);
-  const draft = serialiseDraft({ subject, body: reply.draftText });
+  // As the inbox's draft reader reads it back (drafts.ts parseDraft), so the hash approved is the hash of what is sent.
+  const draft = serialiseDraft({ subject, body: reply.draftText.replace(/\r\n?/g, "\n").trim() });
   const base = supportReplySubjectRef(reply.id, draftVersion);
   const subjectRef = input.actor ? await subjectAfterRejections(SUPPORT_REPLY_KIND, base) : base;
   const approvalId = await propose(
@@ -300,7 +301,7 @@ export async function supportReplyPacket(
   if (!s.supportCase) return null;
   const stored = parseStoredDraft(approval.draft);
   const checks = stored
-    ? await checkReplyText(stored.body, { supportCase: s.supportCase, clinicName: s.clinicName }, ctx.actor)
+    ? await checkReplyText(stored.body, { supportCase: s.supportCase, clinicName: s.clinicName, facts: s.facts }, ctx.actor)
     : { ok: false, results: [] };
   return {
     operation: "sendSupportReply",
@@ -374,6 +375,8 @@ export async function sendSupportReply(
     return fail("not_a_reply", "This case has no message from the clinic to reply to, so nothing was sent.");
   }
   const subject = subjectForCase(c);
+  // The case's topic changed since this was proposed: its subject is no longer the case's, so it is stale.
+  if (parseStoredDraft(approval.draft)?.subject !== subject) return NO_LONGER_NEEDED;
   if (draft.subject !== subject) {
     return fail("subject_changed", "The subject of a support reply is fixed for its topic and cannot be edited, so nothing was sent. Edit the body only.");
   }
@@ -402,7 +405,7 @@ export async function sendSupportReply(
         ok: true,
         outcomeCode: "send_retrying",
         message:
-          "Approved, and the first try did not go. It is tried again on the email outbox's schedule, and you are told if every try fails. The text cannot change now.",
+          "Approved, but the first try did not go, so the clinic has not received it yet. It is tried again only while the support send retries run on this host; if the clinic's Deliveries tab still shows it unsent, write to the clinic from hello@. The text cannot change now.",
         auditRecorded: null,
         draftHashSent: null,
       };

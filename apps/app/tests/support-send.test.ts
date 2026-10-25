@@ -685,6 +685,27 @@ describeDb("approve and send a support reply (drizzle/0126)", () => {
     expect(replySends()).toHaveLength(1);
   });
 
+  test("a case the clinic never wrote on cannot be proposed; a case whose topic changed since makes its item stale", async () => {
+    const clinic = await seedClinic("send-no-inbound");
+    const { insertCase } = await import("@/lib/support/cases");
+    const { withTenant } = await import("@/lib/tenant");
+    const opened = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      insertCase(tx.db, { subjectClinicId: clinic.clinicId, source: "email", category: "billing", symptom: "other", urgency: "today", replyByOn: REPLY_BY, now: NOW }),
+    );
+    const saved = await saveAndPropose(opened.id, GOOD);
+    expect(saved.approvalId).toBeNull();
+    expect((await opProposeSupportReply({ caseId: opened.id }, OPERATOR, NOW)).status).toBe(409);
+
+    const c = await chatCase("send-recategorised");
+    const item = await saveAndPropose(c.caseId, GOOD);
+    await getMigratorPool().query(`update support_cases set category = 'billing' where id = $1`, [c.caseId]);
+    expect(ok<{ status: string; outcomeCode: string }>(await decide(item.approvalId!))).toMatchObject({
+      status: "failed",
+      outcomeCode: "no_longer_needed",
+    });
+    expect(replySends()).toHaveLength(0);
+  });
+
   test("a reply goes only on a case with a clinic that wrote first, to its one address", async () => {
     const c = await chatCase("send-address");
     const saved = await saveAndPropose(c.caseId, GOOD);

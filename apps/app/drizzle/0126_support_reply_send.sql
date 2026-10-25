@@ -38,7 +38,9 @@ ALTER TABLE "support_messages" ADD CONSTRAINT "support_messages_send_check" CHEC
 -- The record is immutable by trigger, for every role: once a reply carries
 -- its approval, its approved text, subject, hash, approval label and time,
 -- and the draft it came from never change. The text may only be deleted
--- (set to NULL, the 12-month sweep), never rewritten. Its sent time,
+-- (set to NULL, the 12-month sweep), never rewritten. The same words also
+-- stay in the approval item's draft (ops_approvals.draft, which 0119 makes
+-- immutable): deleting those with the reply is the owner's open question. Its sent time,
 -- delivery and stop are set once. app_support_messages_guard() is the
 -- function 0125 created, redefined here with the reply rules added after
 -- 0125's own, which are unchanged.
@@ -108,8 +110,9 @@ BEGIN
   -- 0126: a reply's approval is the record of what the owner said yes to.
   IF OLD.kind = 'reply' THEN
     IF OLD.approved_at IS NULL AND NEW.approved_at IS NOT NULL
-       AND (NEW.text IS NULL OR NEW.approved_hash IS NULL OR NEW.reply_subject IS NULL) THEN
-      RAISE EXCEPTION 'a support reply is approved with its text, subject and hash together'
+       AND (NEW.text IS NULL OR NEW.approved_hash IS NULL OR NEW.reply_subject IS NULL OR NEW.approved_by_label IS NULL
+            OR NEW.draft_text IS DISTINCT FROM OLD.draft_text OR NEW.draft_version IS DISTINCT FROM OLD.draft_version) THEN
+      RAISE EXCEPTION 'a support reply is approved with its text, subject, hash and label together, and its draft as it stood'
         USING ERRCODE = 'check_violation';
     END IF;
     IF OLD.approved_at IS NOT NULL AND (
@@ -123,7 +126,9 @@ BEGIN
       RAISE EXCEPTION 'an approved support reply is fixed: its text may only be deleted, never rewritten'
         USING ERRCODE = 'insufficient_privilege';
     END IF;
-    IF (OLD.sent_at IS NOT NULL AND NEW.sent_at IS DISTINCT FROM OLD.sent_at)
+    IF (OLD.sent_at IS NOT NULL AND (NEW.sent_at IS DISTINCT FROM OLD.sent_at
+             OR NEW.send_attempts IS DISTINCT FROM OLD.send_attempts
+             OR NEW.next_send_at IS DISTINCT FROM OLD.next_send_at))
        OR (OLD.delivery_id IS NOT NULL AND NEW.delivery_id IS DISTINCT FROM OLD.delivery_id)
        OR (OLD.text_delete_after IS NOT NULL AND NEW.text_delete_after IS DISTINCT FROM OLD.text_delete_after)
        OR (OLD.send_stopped_at IS NOT NULL AND (NEW.send_stopped_at IS DISTINCT FROM OLD.send_stopped_at
@@ -146,7 +151,7 @@ REVOKE ALL ON FUNCTION app_support_messages_guard() FROM PUBLIC;--> statement-br
 ALTER TABLE support_messages ENABLE ALWAYS TRIGGER support_messages_guard;--> statement-breakpoint
 
 COMMENT ON TABLE support_messages IS
-  'What passed on a support case (0125): a chat escalation''s fields (never words), and later screened inbound text, drafts and approved replies. A reply''s approved text, subject and hash are fixed by trigger once approved (0126); its text is deleted 12 months after it was sent. Withheld from the read-only role.';--> statement-breakpoint
+  'What passed on a support case (0125): a chat escalation''s fields (never words), and later screened inbound text, drafts and approved replies. A reply''s approved text, subject and hash are fixed by trigger once approved (0126); its text is deleted here 12 months after it was sent (its approval item keeps the draft). Withheld from the read-only role.';--> statement-breakpoint
 
 DO $$
 DECLARE

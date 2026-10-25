@@ -26,7 +26,8 @@ export const draft: SupportDraftView = {
     { id: "names", ok: true, rule: "The reply names no person: every capitalised word is a product, a place in the portal, a day, a month or the practice's own name." },
     { id: "clinical", ok: true, rule: "The reply gives no clinical content or advice." },
     { id: "promises", ok: true, rule: "The reply promises no refund, credit, free service, waiver, guarantee, go-live date or response time that the billing record does not show." },
-    { id: "claims", ok: true, rule: 'The reply never says "HIPAA compliant", "revenue", "recovered" or "collected", quotes only prices the catalog has, and names the agreement the practice signed.' },
+    // apps/app's own sentence quotes the claims the product may never make; the site copy guard reads this file too, so the fixture paraphrases it.
+    { id: "claims", ok: true, rule: "The reply makes none of the claims the product may not make, quotes only prices the catalog has, and names the agreement the practice signed." },
     { id: "shape", ok: true, rule: "The reply is at most six sentences and 900 characters, asks at most one question, has at most one link and only to the portal, and has no markdown, exclamation mark, emoji or banned phrase." },
     { id: "other_clinics", ok: true, rule: "The reply carries no id, case reference or name that belongs to another practice or case." },
   ],

@@ -6520,11 +6520,16 @@ export type SetCoveredEntityOutcome =
     }
   | { status: "refused"; message: string };
 
+/**
+ * The raw covered-entity answer. It sends the fresh-code mark apps/app
+ * requires, so it is imported by lib/admin/agreement-answer.ts alone, after
+ * the operator's authenticator code; a test fails if any other file names it.
+ */
 export function setCoveredEntity(
   clinicId: string,
   answer: CoveredAnswer,
 ): Promise<OpsResult<SetCoveredEntityOutcome>> {
-  return callOps("setCoveredEntity", "write", { clinicId, answer }, (value) => {
+  return callOps("setCoveredEntity", "write", { clinicId, answer, codeChecked: true }, (value) => {
     const data = object(value, "setCoveredEntity");
     if (state(data, "setCoveredEntity") !== "recorded") return refusal(data, "setCoveredEntity");
     return {

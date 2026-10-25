@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 
-import { Section } from "@/components/admin/ui";
+import { CodeField, isCompleteCode, Section } from "@/components/admin/ui";
 import type {
   AddressChangeRow,
   ChangeClinicEmailOutcome,
@@ -19,7 +19,11 @@ type Actions = {
     calledBack: boolean;
   }) => Promise<OpsResult<ChangeClinicEmailOutcome>>;
   stopChange: () => Promise<OpsResult<{ status: "stopped" | "none" }>>;
-  setCovered: (answer: CoveredAnswer) => Promise<OpsResult<SetCoveredEntityOutcome>>;
+  /** Every answer with the operator's fresh authenticator code (lib/admin/agreement-answer.ts). */
+  setCovered: (
+    answer: CoveredAnswer,
+    code: string,
+  ) => Promise<OpsResult<SetCoveredEntityOutcome | { status: "code_refused"; message: string }>>;
 };
 
 /** "2026-10-09 14:32 UTC": the console's clock, as everywhere else in it. */
@@ -248,6 +252,7 @@ function CoveredEntity({ view, onSet }: { view: ClinicSignInView; onSet: Actions
   const c = view.coveredEntity;
   const [note, setNote] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const [pending, start] = useTransition();
+  const [code, setCode] = useState("");
 
   if (c.regime === "non-hipaa") {
     return (
@@ -293,7 +298,8 @@ function CoveredEntity({ view, onSet }: { view: ClinicSignInView; onSet: Actions
           const answer = new FormData(event.currentTarget).get("answer");
           if (answer !== "yes" && answer !== "no" && answer !== "not_sure") return;
           start(async () => {
-            const result = await onSet(answer);
+            const result = await onSet(answer, code);
+            setCode("");
             if (!result.ok) return setNote({ tone: "bad", text: result.message });
             if (result.data.status !== "recorded")
               return setNote({ tone: "bad", text: result.data.message });
@@ -317,9 +323,10 @@ function CoveredEntity({ view, onSet }: { view: ClinicSignInView; onSet: Actions
             {a.label}
           </label>
         ))}
+        <CodeField value={code} onChange={setCode} disabled={pending} />
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || !isCompleteCode(code)}
           className="bg-ink mt-1 w-fit rounded-full px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50"
         >
           {pending ? "Recording…" : "Record the answer"}

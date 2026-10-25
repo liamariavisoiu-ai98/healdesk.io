@@ -14,7 +14,7 @@ import { AgreementChecks } from "./AgreementChecks";
  * Queues › Agreement checks (plan Part L): a practice that signed the Data
  * Protection Agreement as billing no insurance electronically, whose website
  * says it accepts insurance, waits here until the operator asks it and
- * records its answer, which setCoveredEntity carries out on apps/app. Until
+ * records its answer, which apps/app carries out (the covered-entity write). Until
  * the admin redesign (23 October 2026) this was the foot of /admin/reviews.
  */
 

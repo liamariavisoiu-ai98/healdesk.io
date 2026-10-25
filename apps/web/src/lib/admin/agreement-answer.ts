@@ -2,7 +2,9 @@ import { checkFreshOperatorCode } from "./fresh-code";
 import { requireOperator } from "./operator";
 import {
   recordAgreementAnswer as sendRecordAgreementAnswer, // raw: only here (clinic-contact-client.test.ts)
+  setCoveredEntity as sendSetCoveredEntity, // raw: only here (clinic-contact-client.test.ts)
   type AgreementAnswer,
+  type CoveredAnswer,
   type OpsResult,
   type SetCoveredEntityOutcome,
 } from "./ops-client";
@@ -45,4 +47,22 @@ export async function recordAgreementAnswerWithCode(
   const fresh = checkFreshOperatorCode(code);
   if (!fresh.ok) return { ok: true, data: { status: "code_refused", message: fresh.message } };
   return sendRecordAgreementAnswer(clinicId, reviewId, answer);
+}
+
+/**
+ * The covered-entity answer from a clinic's Account tab, gated the same way:
+ * it runs the same setCoveredEntity on apps/app, which on Yes or Not sure
+ * opens the re-sign to the BAA and pauses AYA at every location.
+ */
+export async function setCoveredEntityWithCode(
+  clinicId: string,
+  answer: CoveredAnswer,
+  code: unknown,
+): Promise<OpsResult<AgreementAnswerEntry>> {
+  if (!(await requireOperator())) return UNAUTHENTICATED;
+  if (!UUID.test(clinicId)) return { ok: true, data: { status: "refused", message: "No such clinic." } };
+  if (!ANSWERS.includes(answer)) return { ok: true, data: { status: "refused", message: "Pick Yes, No or Not sure." } };
+  const fresh = checkFreshOperatorCode(code);
+  if (!fresh.ok) return { ok: true, data: { status: "code_refused", message: fresh.message } };
+  return sendSetCoveredEntity(clinicId, answer);
 }

@@ -1483,6 +1483,12 @@ export async function runOperation(
     case "stopClinicEmailChange":
       return opStopClinicEmailChange(args, operator);
     case "setCoveredEntity":
+      // Every answer needs apps/web's fresh-code mark, as decideAgreementReview
+      // does: a Yes or Not sure opens the DPA->BAA re-sign and pauses AYA at
+      // every location. Only lib/admin/agreement-answer.ts sets it.
+      if (booleanArg(args, "codeChecked") !== true) {
+        return ok({ status: "refused", message: "This needs the code from your authenticator. Nothing was changed." });
+      }
       return opSetCoveredEntity(args, operator);
     case "listClinicCards":
       return opListClinicCards(operator);

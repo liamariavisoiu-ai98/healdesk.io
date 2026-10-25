@@ -18,20 +18,39 @@ const DAY_INDEX: Record<string, number> = {
   sun: 6, sunday: 6,
 };
 
+/**
+ * The two sides of a range ("mon - fri", "9am to 5pm"), split at the first
+ * dash, or at "to" or "through" between spaces; null without one. A plain
+ * search, not one pattern capturing both sides: the hours reach the demo call
+ * through Retell's socket, and `^(.+?)\s*-\s*(.+)$` backtracks polynomially
+ * on a long label built to make it.
+ */
+function rangeSides(text: string): [string, string] | null {
+  const at = / ?[-–—] ?| (?:to|through) /.exec(text);
+  if (!at) return null;
+  return [text.slice(0, at.index).trim(), text.slice(at.index + at[0].length).trim()];
+}
+
+/** Lower case, dots dropped, every run of spaces one space: what every pattern below reads. */
+function normalise(label: string): string {
+  return label.toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
+}
+
 /** The set of weekdays (0 = Monday) a "days" label names, or null when it cannot be read. */
 export function parseDays(label: string): Set<number> | null {
-  const text = label.toLowerCase().replace(/\./g, "").trim();
-  if (/^(daily|every ?day|7 days( a week)?|mon(day)?\s*[-–—to]+\s*sun(day)?)$/.test(text)) return new Set([0, 1, 2, 3, 4, 5, 6]);
+  const text = normalise(label);
+  if (/^(daily|every ?day|7 days( a week)?|mon(day)? ?[-–—to]+ ?sun(day)?)$/.test(text)) return new Set([0, 1, 2, 3, 4, 5, 6]);
   if (/^(weekdays?|monday through friday)$/.test(text)) return new Set([0, 1, 2, 3, 4]);
   if (/^weekends?$/.test(text)) return new Set([5, 6]);
 
   const days = new Set<number>();
-  for (const part of text.split(/\s*(?:,|&|\band\b|\/)\s*/)) {
+  for (const part of text.split(/ ?(?:,|&|\band\b|\/) ?/)) {
     if (!part) continue;
-    const range = /^([a-z]+)\s*(?:-|–|—|to|through)\s*([a-z]+)$/.exec(part);
-    if (range) {
-      const from = DAY_INDEX[range[1]!];
-      const to = DAY_INDEX[range[2]!];
+    const sides = rangeSides(part);
+    if (sides) {
+      if (!/^[a-z]+$/.test(sides[0]) || !/^[a-z]+$/.test(sides[1])) return null;
+      const from = DAY_INDEX[sides[0]];
+      const to = DAY_INDEX[sides[1]];
       if (from === undefined || to === undefined) return null;
       for (let d = from; ; d = (d + 1) % 7) {
         days.add(d);
@@ -64,15 +83,15 @@ function parseTime(raw: string, fallbackMeridiem?: "am" | "pm"): number | null {
 
 /** A day's open spans as [start, end] minutes after midnight, for "9am–1pm, 2pm–6pm" or "Closed"; null when it cannot be read. */
 export function parseSpans(label: string): [number, number][] | null {
-  const text = label.toLowerCase().trim();
+  const text = label.toLowerCase().replace(/\s+/g, " ").trim();
   if (/^(closed|by appointment( only)?|appointment only)$/.test(text)) return [];
   if (/^(open )?24 ?(hours|hrs|h)$/.test(text)) return [[0, 24 * 60]];
   const spans: [number, number][] = [];
   // "9am–1pm, 2pm–6pm" splits into its spans.
-  for (const span of text.split(/\s*(?:,|;|&|\band\b)\s*/)) {
-    const m = /^(.+?)\s*(?:-|–|—|to)\s*(.+)$/.exec(span);
-    if (!m) return null;
-    const [startText, endText] = [m[1]!, m[2]!];
+  for (const span of text.split(/ ?(?:,|;|&|\band\b) ?/)) {
+    const sides = rangeSides(span);
+    if (!sides || !sides[0] || !sides[1]) return null;
+    const [startText, endText] = sides;
     const endMeridiem = /pm/.test(endText) ? "pm" : /am/.test(endText) ? "am" : undefined;
     // A start with no am/pm takes the end's, except "9-5pm", where a start
     // hour larger than the end hour can only be the morning.

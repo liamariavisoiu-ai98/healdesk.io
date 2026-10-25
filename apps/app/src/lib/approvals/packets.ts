@@ -17,6 +17,7 @@ import { MAX_BILLING_REQUEST_ATTEMPTS } from "@/lib/billing/requests";
 import { getJob, JOB_ANNUAL_OVERAGE_INVOICE, JOB_BILLING_RECONCILE, JOB_BILLING_REQUESTS, JOB_SETUP_CLOSURE } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
+import { incidentPacketFor, type IncidentBatchFacts, type IncidentReportFacts } from "./incident-kinds";
 import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind } from "./kinds";
 
 /**
@@ -72,7 +73,7 @@ export type Packet = {
   stillNeeded: boolean;
   /** What approving does, in plain words. */
   effect: string;
-  facts: BillingRequestFacts | OverageFacts | EventFacts;
+  facts: BillingRequestFacts | OverageFacts | EventFacts | IncidentBatchFacts | IncidentReportFacts;
 };
 
 /** Every key a packet carries, for the test that holds it to no free text. */
@@ -313,6 +314,10 @@ export async function packetFor(approval: OpsApproval, ctx: Ctx): Promise<Packet
       return overagePacket(approval, ctx);
     case "billing_event_replay":
       return eventPacket(approval);
+    // The incident assistant (lane P6i).
+    case "incident_open_batch":
+    case "incident_report_send":
+      return incidentPacketFor(approval, ctx);
   }
   return null;
 }

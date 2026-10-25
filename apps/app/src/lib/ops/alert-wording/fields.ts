@@ -229,4 +229,6 @@ export const EVENT_FIELDS: Partial<Record<OpsEvent, readonly string[]>> = {
   ],
   // lib/approvals/proposers.ts remind: the kind and how many items are due a reminder; no clinic.
   approval_waiting: ["kind", "count"],
+  // The incident assistant (lane P6i), raised by the same remind: the kind and how many are due a reminder; no clinic.
+  incident_step_waiting: ["kind", "count"],
 };

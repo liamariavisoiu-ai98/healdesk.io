@@ -62,6 +62,12 @@ export type Proposal<K extends ApprovalKind = ApprovalKind> = {
   subjectClinicId: string | null;
   subjectRef: string;
   payload: Payloads[K];
+  /** When it is due, where the kind's clock is not hours from now (lane P6i: an incident report's agreement deadline). */
+  dueAt?: Date;
+  /** Who proposed it, where not the job: a service name (lane P6i: the console's incident assistant). */
+  proposedBy?: string;
+  /** Whom the `proposed` event names, where not the job: the operator who pressed the button. */
+  actor?: EventActor;
 };
 
 /**
@@ -102,16 +108,16 @@ export async function propose(proposal: Proposal, now: Date): Promise<string | n
         subjectClinicId: proposal.subjectClinicId,
         subjectRef: proposal.subjectRef,
         payload: proposal.payload as Record<string, string | number | boolean | null>,
-        dueAt: new Date(now.getTime() + spec.dueHours * HOUR_MS),
+        dueAt: proposal.dueAt ?? new Date(now.getTime() + spec.dueHours * HOUR_MS),
         expiresAt: spec.expiryDays === null ? null : new Date(now.getTime() + spec.expiryDays * DAY_MS),
         urgency: spec.urgency,
-        proposedBy: PROPOSER,
+        proposedBy: proposal.proposedBy ?? PROPOSER,
         proposedAt: now,
       })
       .onConflictDoNothing()
       .returning({ id: opsApprovals.id });
     if (!row) return null;
-    await recordEvent(tx, row.id, "proposed", SERVICE_ACTOR, { at: now });
+    await recordEvent(tx, row.id, "proposed", proposal.actor ?? SERVICE_ACTOR, { at: now });
     return row.id;
   });
 }

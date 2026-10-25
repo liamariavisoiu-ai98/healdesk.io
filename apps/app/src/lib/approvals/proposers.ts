@@ -22,6 +22,7 @@ import {
   type Proposal,
 } from "./store";
 import { classifyUnresolvedEvent } from "./stripe-ids";
+import { findIncidentSubjects, INCIDENT_KINDS, incidentItemResolved, waitingAlertEvent } from "./incident-kinds";
 
 /**
  * The `approvals-propose` job (ops automation Phase 6, lane P6a; design E6
@@ -313,7 +314,7 @@ async function remind(now: Date): Promise<number> {
       .sort()
       .join(",");
     const alertKey = `approval_waiting:${kind}:${createHash("sha256").update(identity).digest("hex").slice(0, 32)}`;
-    const alertId = await raiseOpsAlertKeyed("approval_waiting", { kind, count: due.length }, { key: alertKey, email: true });
+    const alertId = await raiseOpsAlertKeyed(waitingAlertEvent(kind), { kind, count: due.length }, { key: alertKey, email: true });
     if (!alertId) continue;
     for (const { item } of due) {
       await recordEvent(unsafeDb, item.id, "reminded", SERVICE_ACTOR, { at: now });
@@ -332,12 +333,30 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
     if (!KIND_SPECS[proposal.kind] || retriedNow(proposal.kind, proposal.payload, on)) continue;
     if (await propose(proposal, now)) proposed += 1;
   }
+  // The incident assistant (lane P6i): an open reportable incident whose
+  // first report has not gone gets its item, so its clock is in the list.
+  const incidentsFound = await findIncidentSubjects(now, { actor: ACTOR });
+  for (const proposal of incidentsFound.proposals) {
+    if (await propose(proposal, now)) proposed += 1;
+  }
   const interrupted = await sweepInterrupted(now);
   const expired = await expireDue(now);
   let gone = 0;
   let outOfService = 0;
   let retriedAutomatically = 0;
   for (const item of await waitingItems()) {
+    // An incident item is a legal clock: never out of service, never
+    // retried by a job; it leaves the list only when the Incidents page has
+    // already done what it asks (reported, not reportable, resolved).
+    if (INCIDENT_KINDS.has(item.kind)) {
+      if (
+        incidentItemResolved(item, incidentsFound) &&
+        (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "no_longer_needed" }))
+      ) {
+        gone += 1;
+      }
+      continue;
+    }
     if (retriedNow(item.kind as ApprovalKind, item.payload, on)) {
       if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "retried_automatically" })) {
         retriedAutomatically += 1;
@@ -356,7 +375,16 @@ export async function proposeApprovals(now: Date = new Date()): Promise<ProposeS
     }
   }
   const reminded = await remind(now);
-  return { proposed, expired, resolved: gone, outOfService, interrupted, retriedAutomatically, reminded, unread: found.unread };
+  return {
+    proposed,
+    expired,
+    resolved: gone,
+    outOfService,
+    interrupted,
+    retriedAutomatically,
+    reminded,
+    unread: found.unread + incidentsFound.unread,
+  };
 }
 
 /** The `approvals-propose` job: hourly from the tick, behind its switch. */

@@ -347,6 +347,12 @@ export const OPS_EVENTS = [
   "rights_request_blocked",
   "rights_request_due_soon",
   "rights_request_overdue",
+  // The incident assistant's items in the approval inbox (lib/approvals/
+  // incident-kinds.ts; ops automation lane P6i, owner decision D18): an
+  // incident batch or report waiting for the owner's yes, on arrival and
+  // every 4 hours while it waits, one alert per kind with the count. No
+  // clinic: the items are listed on one page.
+  "incident_step_waiting",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

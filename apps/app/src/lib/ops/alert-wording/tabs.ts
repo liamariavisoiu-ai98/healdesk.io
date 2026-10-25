@@ -263,6 +263,8 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   assistant_knows_no_services: "/admin/clinics",
   // always raised with no clinic: the Approvals section of the Queues page (lane P6b).
   approval_waiting: "/admin/queues#approvals",
+  // The incident assistant (lane P6i): always raised with no clinic; decided on the Incidents page (lane P6j).
+  incident_step_waiting: "/admin/compliance/incidents",
 };
 
 /** The console pages an alert with no clinic opens, by path, as a button names them. */

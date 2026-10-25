@@ -297,6 +297,7 @@ export const PURGE_COVERAGE: Readonly<{
     agreement_resigns: "contract metadata, kept",
     sign_in_address_changes: "the record of the notice addresses, kept",
     incidents: "the record of each incident and its notice, kept",
+    incident_checklist_ticks: "the steps taken on each incident (drizzle/0124), no patient: kept with the incident",
   },
 };
 

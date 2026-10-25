@@ -13,6 +13,13 @@ import {
   type BillingRequestKind,
 } from "@/db/schema";
 
+import {
+  parseIncidentBatchPayload,
+  parseIncidentReportPayload,
+  type IncidentBatchPayload,
+  type IncidentReportPayload,
+} from "./incident-payloads";
+
 export {
   APPROVAL_EVENTS,
   APPROVAL_KINDS,
@@ -47,7 +54,13 @@ export {
 
 export type KindSpec = {
   /** The existing ops operation approving runs, as the console names it. */
-  readonly operation: "retryBillingRequest" | "retryOverageInvoice" | "replayBillingEvent";
+  readonly operation:
+    | "retryBillingRequest"
+    | "retryOverageInvoice"
+    | "replayBillingEvent"
+    // The incident assistant (lane P6i): the existing openIncident, per clinic, and Send report.
+    | "openIncident"
+    | "sendIncidentReport";
   readonly urgency: ApprovalUrgency;
   /** Past this many hours after it was proposed, a waiting item is past due (one alert; a legal clock re-alerts every 4 hours). */
   readonly dueHours: number;
@@ -66,6 +79,13 @@ export type KindSpec = {
    * requests the job is per request kind (RETRIED_BY_REQUEST_KIND).
    */
   readonly retriedBy: string | null;
+  /**
+   * The owner may change the item's fixed fields before approving, by
+   * choosing from closed lists only, never by typing (lane P6i: the L29
+   * report). Checked again before the decision is recorded
+   * (./incident-kinds.ts FIELD_EDITORS).
+   */
+  readonly fieldsEditable?: boolean;
 };
 
 export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
@@ -102,6 +122,30 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
     // provisioned names: provisioning replays those (replayParkedBillingEvents;
     // lib/approvals/stripe-ids.ts). No job replays a parked event.
     retriedBy: null,
+  },
+  // The incident assistant (lane P6i; design E6 §3 item 17; owner decision
+  // D18). Both are legal clocks: re-alerted every 4 hours while they wait,
+  // never expired, never approved by time. A batch is due at the internal
+  // 24-hour target; a report at its incident's agreement deadline, set when
+  // it is proposed (./incident-kinds.ts).
+  incident_open_batch: {
+    operation: "openIncident",
+    urgency: "legal_clock",
+    dueHours: 24,
+    expiryDays: null,
+    irreversible: true,
+    hasDraft: false,
+    retriedBy: null,
+  },
+  incident_report_send: {
+    operation: "sendIncidentReport",
+    urgency: "legal_clock",
+    dueHours: 24,
+    expiryDays: null,
+    irreversible: true,
+    hasDraft: false,
+    retriedBy: null,
+    fieldsEditable: true,
   },
 };
 
@@ -159,6 +203,8 @@ export type Payloads = {
   overage_invoice_retry: { billingClinicId: string; overageId: string; windowStart: string };
   /** `parkedAt`: when the event was parked, the episode the item was proposed for. */
   billing_event_replay: { eventType: string; parkedAt: string };
+  incident_open_batch: IncidentBatchPayload;
+  incident_report_send: IncidentReportPayload;
 };
 
 /**
@@ -192,6 +238,10 @@ export function parsePayload<K extends ApprovalKind>(kind: K, raw: unknown): Pay
       if (typeof p.parkedAt !== "string" || !ISO_INSTANT.test(p.parkedAt)) return null;
       return p as Payloads[K];
     }
+    case "incident_open_batch":
+      return parseIncidentBatchPayload(p) as Payloads[K] | null;
+    case "incident_report_send":
+      return parseIncidentReportPayload(p) as Payloads[K] | null;
   }
   return null;
 }

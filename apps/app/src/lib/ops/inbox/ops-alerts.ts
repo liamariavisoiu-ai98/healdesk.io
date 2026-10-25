@@ -52,6 +52,8 @@ const LEFT_OUT: ReadonlySet<string> = new Set<OpsEvent>([
   "approval_waiting",
   "rights_request_due_soon",
   "rights_request_overdue",
+  // The incident assistant's items have the approvals source's row too (lane P6i).
+  "incident_step_waiting",
 ]);
 
 /** Alerts about a patient who may not reach the clinic, or a paid buyer with no account. */

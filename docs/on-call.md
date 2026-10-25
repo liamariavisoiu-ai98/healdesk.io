@@ -620,3 +620,24 @@ is recorded too, so check History before acting. History, on the same page, is t
 record of who decided what and when (the operator account, its IP address and browser), read
 from `ops_approval_events`; the event an item ends on reads went through, failed, rejected or
 left the list without running, with the outcome's words beside it.
+
+### Incident assistant
+
+`incident_step_waiting`. The incident assistant's two kinds of item in the approval inbox
+(`apps/app/src/lib/approvals/incident-kinds.ts`, ops automation Phase 6, lane P6i; owner
+decision D18): an incident opened at every clinic a vendor's or a channel's incident window
+reached (proposed by an operator after reading the scope), and one practice's incident report,
+pre-filled from fixed lists (proposed by an operator, by an approved batch for each incident it
+opened, and by the `approvals-propose` job for any open reportable incident whose first report
+has not gone). Both are legal clocks: the alert comes on arrival and every 4 hours while one
+waits, by email and Slack, and an item never expires and is never approved by waiting. They are
+decided on Compliance › Incidents (lane P6j draws them there): Approve asks for the code from
+your authenticator and runs the console's own operation once, openIncident at each listed clinic
+(never twice for one scope) or Send report with the choices shown. A report's choices are changed
+only by picking from the lists, and a choice Send report would refuse is refused before anything
+is recorded. Reject runs nothing and leaves the incident's clock running. Not reportable stays
+its own button on the Incidents page; nothing here records it or resolves an incident. A report
+item leaves the list unrun once the incident has been reported, recorded not reportable or
+resolved from that page. Each incident's checklist records the procedure's steps, once each, by
+the operator account; the email step needs a report or a recorded notice first, and the resolve
+step a resolved incident.

@@ -117,6 +117,7 @@ import {
   type WebsiteChangeSection,
   type WebsiteChangeState,
 } from "../lib/website/types";
+import { CHECKLIST_STEPS, type ChecklistStep } from "../lib/incidents/assistant/vocab";
 
 import { organization, user } from "./auth-schema";
 
@@ -6629,6 +6630,8 @@ export const TENANT_SCOPED_TABLES = [
   "lifecycle_ignored_clinics",
   // Ops automation lane P6c (drizzle/0120).
   "rights_intakes",
+  // Ops automation lane P6i (drizzle/0124).
+  "incident_checklist_ticks",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -7789,6 +7792,9 @@ export const APPROVAL_KINDS = [
   "billing_request_retry",
   "overage_invoice_retry",
   "billing_event_replay",
+  // The incident assistant (ops automation lane P6i, drizzle/0124).
+  "incident_open_batch",
+  "incident_report_send",
 ] as const;
 export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
 
@@ -8018,3 +8024,67 @@ export const rightsIntakes = pgTable(
     ),
   ],
 );
+
+// -----------------------------------------------------------------------------
+// The incident assistant's checklist (ops automation Phase 6, lane P6i; drizzle/0124)
+// -----------------------------------------------------------------------------
+
+/**
+ * One tick on an incident's checklist: a step of docs/incident-response.md's
+ * procedure (lib/incidents/assistant/vocab.ts CHECKLIST_STEPS), when, and
+ * the operator account that ticked it. Add-only, like ops_approval_events:
+ * the runtime role holds SELECT and INSERT, and a trigger refuses UPDATE and
+ * DELETE for every role. Each step is ticked once per incident. Never free
+ * text: the step is a code, `ticked_by` is the operator account's address
+ * and nothing else, `affected_count` is the number of people the incident's
+ * list named when its step was ticked (read from incidents.affected_recorded,
+ * never typed, never who), and `batch_key` names the vendor or channel scope
+ * an `open` tick came from when the incident assistant opened the incident
+ * from an approved batch, which is what makes that batch open each clinic's
+ * incident once (the partial unique index). A tenant table, FORCE RLS like
+ * incidents, and kept for good with them.
+ */
+export const incidentChecklistTicks = pgTable(
+  "incident_checklist_ticks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "restrict" }),
+    incidentId: uuid("incident_id").notNull(),
+    step: text("step").$type<ChecklistStep>().notNull(),
+    affectedCount: integer("affected_count"),
+    batchKey: text("batch_key"),
+    tickedBy: text("ticked_by").notNull(),
+    tickedAt: timestamp("ticked_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    unique("incident_checklist_ticks_step_key").on(t.incidentId, t.step),
+    uniqueIndex("incident_checklist_ticks_batch_key")
+      .on(t.clinicId, t.batchKey)
+      .where(sql`${t.batchKey} is not null`),
+    index("incident_checklist_ticks_clinic_idx").on(t.clinicId, t.incidentId),
+    foreignKey({
+      name: "incident_checklist_ticks_incident_fk",
+      columns: [t.clinicId, t.incidentId],
+      foreignColumns: [incidents.clinicId, incidents.id],
+    }).onDelete("restrict"),
+    check("incident_checklist_ticks_step_check", sql`${t.step} in (${sqlList(CHECKLIST_STEPS)})`),
+    check(
+      "incident_checklist_ticks_count_check",
+      sql`(${t.step} = 'affected_list_recorded') = (${t.affectedCount} is not null) and (${t.affectedCount} is null or ${t.affectedCount} >= 0)`,
+    ),
+    check(
+      "incident_checklist_ticks_batch_check",
+      sql`${t.batchKey} is null or (${t.step} = 'open' and ${t.batchKey} ~ '^(vendor|channel):[a-z_]{1,40}:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z:[a-z_]{1,40}$')`,
+    ),
+    check(
+      "incident_checklist_ticks_by_check",
+      sql`char_length(${t.tickedBy}) between 3 and 200 and ${t.tickedBy} ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$'`,
+    ),
+  ],
+);
+
+export type IncidentChecklistTick = typeof incidentChecklistTicks.$inferSelect;

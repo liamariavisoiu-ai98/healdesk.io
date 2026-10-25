@@ -50,6 +50,11 @@ export const READONLY_TABLES = [
   // The lifecycle watch's ignore list (drizzle/0118): a clinic id, a boolean,
   // a closed reason, the operator's label and a date. No patient.
   "lifecycle_ignored_clinics",
+  // The incident assistant's checklist (drizzle/0124): ids, a step code, a
+  // count of people (never who), a scope key of codes and times, the
+  // operator's address and a date. Read column by column on 25 October 2026:
+  // no patient and no free text.
+  "incident_checklist_ticks",
   // The approval inbox (drizzle/0119): kinds, the clinic's id, subjects by
   // id, ids and closed codes, dates, the operator's label with the IP address
   // and user agent their request carried, and hashes. Read column by column

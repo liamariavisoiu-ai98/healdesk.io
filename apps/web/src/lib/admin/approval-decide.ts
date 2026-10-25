@@ -6,6 +6,7 @@ import {
   REJECT_REASONS,
   type ApprovalDecision,
   type ApproveReason,
+  type IncidentReportChoices,
   type OpsResult,
   type RejectReason,
 } from "./ops-client";
@@ -42,6 +43,8 @@ export async function decideApprovalWithCode(
   reasonCode: ApproveReason | RejectReason,
   code: unknown,
   editedDraft?: { subject: string; body: string },
+  /** An incident report's choices (lane P6i): codes from the catalog's lists only, never typed words. */
+  editedFields?: IncidentReportChoices,
 ): Promise<OpsResult<ApprovalDecisionEntry>> {
   if (!(await requireOperator())) return UNAUTHENTICATED;
   if (!UUID.test(approvalId)) return { ok: true, data: { status: "refused", message: "No such approval." } };
@@ -54,5 +57,5 @@ export async function decideApprovalWithCode(
   }
   const fresh = checkFreshOperatorCode(code);
   if (!fresh.ok) return { ok: true, data: { status: "code_refused", message: fresh.message } };
-  return sendDecideApproval(approvalId, action, reasonCode, editedDraft);
+  return sendDecideApproval(approvalId, action, reasonCode, editedDraft, editedFields);
 }

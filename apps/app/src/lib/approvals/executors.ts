@@ -7,7 +7,10 @@ import { opReplayBillingEvent, opRetryBillingRequest, opRetryOverageInvoice } fr
 import { actorFor, type Operator, type OpsOutcome } from "@/lib/ops/api";
 import { withTenant } from "@/lib/tenant";
 
+import type { ReportFields } from "@/lib/incidents/assistant/report-draft";
+
 import type { Draft } from "./drafts";
+import { INCIDENT_EXECUTORS } from "./incident-kinds";
 import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind } from "./kinds";
 import { billingSwitches, stillParkedAsProposed } from "./packets";
 
@@ -33,10 +36,17 @@ export type ExecutionResult = {
   message: string | null;
   /** Whether the operation's own audit row was written, when it says. */
   auditRecorded: boolean | null;
+  /** The hash of what was sent, where the kind sends fixed fields (lane P6i: the report's), for the record. */
+  draftHashSent?: string | null;
 };
 
-/** What a decision hands its executor: the draft the owner approved (the edit when there was one), for an email kind. */
-export type ExecutionContext = { draft: Draft | null };
+/**
+ * What a decision hands its executor: the draft the owner approved (the edit
+ * when there was one), for an email kind; and for a kind whose fixed fields
+ * the owner may choose (lane P6i), those fields as checked
+ * (./incident-kinds.ts FIELD_EDITORS).
+ */
+export type ExecutionContext = { draft: Draft | null; fields?: ReportFields | null };
 
 export type Executor = (approval: OpsApproval, operator: Operator, context: ExecutionContext) => Promise<ExecutionResult>;
 
@@ -150,6 +160,11 @@ export const EXECUTORS: Readonly<Record<ApprovalKind, Executor>> = {
   billing_request_retry: retryBillingRequest,
   overage_invoice_retry: retryOverageInvoice,
   billing_event_replay: replayBillingEvent,
+  // The incident assistant (lane P6i): openIncident per clinic, and Send
+  // report. Looked up at the call, not at load: ./incident-kinds.ts reaches
+  // lib/ops/api.ts, which loads this file, so either may load first.
+  incident_open_batch: (approval, operator, context) => INCIDENT_EXECUTORS.incident_open_batch(approval, operator, context),
+  incident_report_send: (approval, operator, context) => INCIDENT_EXECUTORS.incident_report_send(approval, operator, context),
 };
 
 /** Run an item's executor; one that throws is a failure with a code, never an unrecorded item. */

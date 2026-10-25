@@ -102,6 +102,9 @@ export const KEPT_FOR_GOOD: Readonly<Record<string, string>> = {
     "the record of the practice's Retell agent and AYA number and of their release at the end (0107, lib/voice/provision.ts): healdesk's own vendor ids and dates, no caller, no call, no patient",
   incidents:
     "the record of each security incident and of the notice given for it: a breach notice the business associate must be able to prove (45 CFR 164.414(b)), kept six years (164.316(b)(2))",
+  // The incident assistant's checklist (drizzle/0124), with the incidents it belongs to.
+  incident_checklist_ticks:
+    "the record of each step taken on an incident and when (notified by email, by phone, the affected list recorded): part of proving the notice, kept with the incident; step codes, a count, the operator's address and dates, no patient",
 
   // The billing records.
   entitlements:

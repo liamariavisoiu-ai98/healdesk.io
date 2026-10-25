@@ -18,6 +18,7 @@ import { watchLifecycles } from "@/lib/lifecycle/watch";
 import { isMutating, isOpName, runOperation, type Operator } from "@/lib/ops/api";
 import { opDecideApproval } from "@/lib/ops/approval-ops";
 import { approvalSentence } from "@/lib/ops/inbox/approvals";
+import { tooManyClinics } from "@/lib/ops/incident-assistant-ops";
 import { opPullReminderForward } from "@/lib/ops/notice-ops";
 import { runIncidentDeadlinesJob } from "@/lib/scheduler/incident-deadlines";
 import { queueSetupReminder, queueSetupReminderNow } from "@/lib/setup/reminders";
@@ -270,6 +271,18 @@ describe("the drafts: fixed words from closed fields only (D12)", () => {
     expect(linkProblems({ subject: "s", text: tokenLink, html: "" }, "setup_help_offer")).not.toEqual([]);
     expect(linkProblems({ subject: "s", text: tokenLink, html: "" }, "baa_resign_chase")).toEqual([]);
     for (const note of NOTES) expect(note).toMatch(/^[a-z_]+$/);
+  });
+
+  test("an incident batch too big for one approval gets advice that works for its reach", () => {
+    expect(tooManyClinics("window_only", 140)).toBe(
+      "This scope reaches 140 clinics, more than the 100 one approval may open. Split it into shorter windows and propose each one.",
+    );
+    const all = tooManyClinics("all_holding", 140);
+    expect(all).toBe(
+      "This scope reaches 140 clinics, more than the 100 one approval may open. Open the incidents for the rest from each clinic's Care tab, or propose the batch in parts by clinic group once the console offers it.",
+    );
+    // Every clinic that ever held data is in it whatever the window: a shorter one changes nothing.
+    expect(all).not.toContain("shorter windows");
   });
 
   test("the kinds: routine, a fresh code, a 14-day window for each email (3 for the reminder); Home's words plain", () => {

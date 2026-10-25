@@ -420,7 +420,8 @@ export async function listSupportCases(options: {
   return {
     rows: page.map((c) => rowOf(c, names, inbound, options.now)),
     count: page.length,
-    truncated: kept.length > options.limit,
+    // Also when the fetch itself hit its cap: demo cases left out may have hidden real ones further down.
+    truncated: kept.length > options.limit || cases.length === SUPPORT_CASES_LIST_MAX * 2,
   };
 }
 

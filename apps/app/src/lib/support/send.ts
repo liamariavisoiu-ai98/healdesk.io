@@ -17,6 +17,8 @@ import { clinicSignIn } from "@/lib/sign-in/address-change";
 import { withTenant } from "@/lib/tenant";
 
 import { canMove, printRef } from "./case-vocab";
+import type { FactsUsed } from "./draft/checks";
+import { readReplyCheckContext } from "./draft/run";
 import { runSupportReplyChecks, type ReplyCheckResult } from "./send-checks";
 import { SUPPORT_SEND_MAX_ATTEMPTS, supportReplySubject, type SupportSendStoppedReason } from "./send-vocab";
 
@@ -27,14 +29,14 @@ import { SUPPORT_SEND_MAX_ATTEMPTS, supportReplySubject, type SupportSendStopped
  * (lib/approvals/support-reply.ts, kind `support_reply_send`): this file is
  * the support side of it.
  *
- * ## One row per reply
+ * ## One row per draft version
  *
- * A reply is one `support_messages` row, direction `out`, kind `reply`. Its
- * draft (`draft_text`, `draft_version`, `checks_json`, `facts_json`) is
- * rewritten in place, each new draft one version up, until it is approved;
- * once approved the row is fixed by trigger (drizzle/0126) and the next
- * reply on the case is a new row. Lane P7b's drafter writes its drafts with
- * `saveReplyDraft` too, so the version rule is one rule.
+ * A draft is a `support_messages` row, direction `out`, kind `reply`, as
+ * lane P7b's drafter writes them (lib/support/draft/store.ts): each new
+ * draft a new row one version above the case's highest, the drafter's runs
+ * and the operator's saved edits alike (`saveReplyDraft`). The current draft
+ * is the row with the highest version; only it can be approved. Once
+ * approved its row is fixed by trigger (drizzle/0126).
  *
  * ## The send
  *
@@ -93,15 +95,31 @@ export async function readCaseForReply(
   return { supportCase: c, clinicName };
 }
 
-/** The case's reply still being drafted (unapproved), newest first, or null. */
-export async function openReplyDraft(caseId: string): Promise<SupportMessage | null> {
-  const [row] = await unsafeDb
+/** The case's current draft: the reply row with the highest version, or null when there is none. */
+export async function currentReplyDraft(caseId: string, db: Pick<typeof unsafeDb, "select"> = unsafeDb): Promise<SupportMessage | null> {
+  const [row] = await db
     .select()
     .from(supportMessages)
-    .where(and(eq(supportMessages.caseId, caseId), eq(supportMessages.kind, "reply"), isNull(supportMessages.approvedAt)))
-    .orderBy(desc(supportMessages.createdAt), desc(supportMessages.id))
+    .where(and(eq(supportMessages.caseId, caseId), eq(supportMessages.kind, "reply"), isNotNull(supportMessages.draftVersion)))
+    .orderBy(desc(supportMessages.draftVersion), desc(supportMessages.createdAt))
     .limit(1);
   return row ?? null;
+}
+
+/** The current draft while it is still a draft (not approved), or null. */
+export async function openReplyDraft(caseId: string): Promise<SupportMessage | null> {
+  const row = await currentReplyDraft(caseId);
+  return row && row.approvedAt === null ? row : null;
+}
+
+/** The facts a draft relied on (lane P7b's facts_json.factsUsed), for check 5's billing facts. */
+export function factsOfDraft(row: Pick<SupportMessage, "factsJson">): FactsUsed[] {
+  const used = (row.factsJson as { factsUsed?: unknown } | null)?.factsUsed;
+  if (!Array.isArray(used)) return [];
+  return used.flatMap((f) => {
+    const { tool, field, value } = (f ?? {}) as Record<string, unknown>;
+    return typeof tool === "string" && typeof field === "string" && typeof value === "string" ? [{ tool, field, value }] : [];
+  });
 }
 
 /** Whether the clinic wrote first: a reply goes only on a case with something inbound (a chat escalation counts). */
@@ -124,19 +142,38 @@ export function subjectForCase(c: Pick<SupportCase, "category" | "ref">): string
   return supportReplySubject(c.category, printRef(c.ref));
 }
 
-/** The reply checks on one text, for this case. */
+/**
+ * The reply checks on one text, for this case, as Send runs them: lane P7b's
+ * eight less check 1 (facts, which needs the model's run), with the
+ * practice's own context, and the send path's floor. An operator's text and
+ * the owner's edit are checked this way; a drafter's draft also passed check
+ * 1 when it was written (its checks_json).
+ */
 export async function checkReplyText(
   text: string,
-  context: { supportCase: SupportCase; clinicName: string | null; facts?: readonly unknown[] },
-  mode: "draft" | "send",
+  context: { supportCase: SupportCase; clinicName: string | null; facts?: readonly FactsUsed[] },
+  actor: ActorContext = SERVICE,
 ): Promise<ReplyCheckResult> {
+  const clinicId = context.supportCase.subjectClinicId;
+  const practice = clinicId ? await readReplyCheckContext({ clinicId, actor }).catch(() => null) : null;
   return runSupportReplyChecks({
     text,
-    clinicName: context.clinicName,
+    clinicName: practice?.clinicName ?? context.clinicName,
     ...(context.facts ? { facts: context.facts } : {}),
-    ...(context.clinicName ? { allowNames: [context.clinicName] } : {}),
     ownCaseRef: printRef(context.supportCase.ref),
-    mode,
+    mode: "send",
+    ...(practice
+      ? {
+          context: {
+            allowNumbers: practice.allowNumbers,
+            serviceNames: practice.serviceNames,
+            clinicId: practice.clinicId,
+            otherClinicNames: practice.otherClinicNames,
+            agreementKind: practice.agreementKind,
+            portalOrigin: practice.portalOrigin,
+          },
+        }
+      : {}),
   });
 }
 
@@ -162,39 +199,34 @@ export function normaliseDraftText(raw: unknown): string | null {
 
 export type SavedDraft = { messageId: string; draftVersion: number };
 
+/** Who wrote a draft, in its facts_json: lane P7b's drafter marks its own "drafter". */
+export const OPERATOR_MARK = "operator";
+
 /**
- * Write a new draft version of the case's reply: the open draft's row one
- * version up, or a new reply row at version 1 when there is none (the last
- * reply was approved, or nothing was drafted yet). For the operator's edit
- * (lib/ops/support-reply-ops.ts saveSupportDraft) and lane P7b's drafter.
- * The checks' results are kept as rule names and ids, never words.
+ * Save the operator's own text as the case's next draft: a new reply row one
+ * version above the case's highest (counting the drafter's failed runs, as
+ * lane P7b's store does, so the two never take the same version), marked
+ * `facts_json.by = "operator"` so it costs none of the drafter's five
+ * attempts. Under the case's row lock, so a drafter run racing it finds the
+ * version taken and writes nothing. Its checks are kept as ids and rules,
+ * never words. Null when the case is closed.
  */
 export async function saveReplyDraft(input: {
   caseId: string;
   text: string;
   checks: ReplyCheckResult;
-  facts?: unknown;
   now: Date;
-}): Promise<SavedDraft> {
+}): Promise<SavedDraft | null> {
   return unsafeDb.transaction(async (tx) => {
-    const [open] = await tx
-      .select({ id: supportMessages.id, version: supportMessages.draftVersion })
+    const [c] = await tx.select({ state: supportCases.state }).from(supportCases).where(eq(supportCases.id, input.caseId)).limit(1).for("update");
+    if (!c || c.state === "closed") return null;
+    const [top] = await tx
+      .select({
+        top: sql<number>`coalesce(max(coalesce(${supportMessages.draftVersion}, (${supportMessages.factsJson}->>'attempt')::int)), 0)::int`,
+      })
       .from(supportMessages)
-      .where(
-        and(eq(supportMessages.caseId, input.caseId), eq(supportMessages.kind, "reply"), isNull(supportMessages.approvedAt)),
-      )
-      .orderBy(desc(supportMessages.createdAt), desc(supportMessages.id))
-      .limit(1)
-      .for("update");
-    const checksJson = input.checks.results.map((c) => ({ id: c.id, ok: c.ok, rule: c.rule }));
-    if (open) {
-      const version = (open.version ?? 0) + 1;
-      await tx
-        .update(supportMessages)
-        .set({ draftText: input.text, draftVersion: version, checksJson, factsJson: input.facts ?? null })
-        .where(and(eq(supportMessages.id, open.id), isNull(supportMessages.approvedAt)));
-      return { messageId: open.id, draftVersion: version };
-    }
+      .where(and(eq(supportMessages.caseId, input.caseId), eq(supportMessages.kind, "reply"), eq(supportMessages.direction, "out")));
+    const version = Number(top?.top ?? 0) + 1;
     const [row] = await tx
       .insert(supportMessages)
       .values({
@@ -202,13 +234,13 @@ export async function saveReplyDraft(input: {
         direction: "out",
         kind: "reply",
         draftText: input.text,
-        draftVersion: 1,
-        checksJson,
-        factsJson: input.facts ?? null,
+        draftVersion: version,
+        checksJson: { ok: input.checks.ok, results: input.checks.results.map((r) => ({ id: r.id, ok: r.ok, rule: r.rule })) },
+        factsJson: { by: OPERATOR_MARK, attempt: version },
         createdAt: input.now,
       })
       .returning({ id: supportMessages.id });
-    return { messageId: row!.id, draftVersion: 1 };
+    return { messageId: row!.id, draftVersion: version };
   });
 }
 
@@ -244,12 +276,15 @@ export async function freezeApproval(input: {
     const [row] = await tx
       .select({ approvedAt: supportMessages.approvedAt, version: supportMessages.draftVersion })
       .from(supportMessages)
-      .where(and(eq(supportMessages.id, input.messageId), eq(supportMessages.caseId, input.caseId)))
+      .where(and(eq(supportMessages.id, input.messageId), eq(supportMessages.caseId, input.caseId), eq(supportMessages.kind, "reply")))
       .limit(1)
       .for("update");
     if (!row) return "stale";
     if (row.approvedAt) return "already_approved";
     if (row.version !== input.draftVersion) return "stale";
+    // Only the case's current draft: a newer version written since replaces this one.
+    const current = await currentReplyDraft(input.caseId, tx);
+    if (!current || current.id !== input.messageId) return "stale";
     await tx
       .update(supportMessages)
       .set({

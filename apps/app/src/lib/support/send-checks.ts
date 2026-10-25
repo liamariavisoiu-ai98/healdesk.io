@@ -2,23 +2,22 @@ import { lintSupportTone } from "@healdesk/catalog";
 
 import { copyProblems, isApprovedReplyShape, linkProblems } from "@/lib/email/lint";
 
+import { runReplyChecks, type FactsUsed, type ReplyCheckInput as DraftCheckInput } from "./draft/checks";
+
 /**
  * The reply checks a support reply must pass when it is drafted, and again on
  * the exact text the owner approves before anything is sent (ops automation
  * lane P7c; design E5 §6, checks 2 to 8 on Send; owner decision D12).
  *
  * The eight checks are lane P7b's (`runReplyChecks` in
- * lib/support/draft/checks.ts). This lane was built before that file existed,
- * against the signature the lane brief fixes:
- *
- *   runReplyChecks({ text, clinicName, facts?, toolResults?, allowNames?,
- *                    ownCaseRef, mode: "draft" | "send" })
- *     -> { ok, results: [{ id, ok, rule }] }
- *
- * It is plugged in here, once, by `installReplyChecks` (the lead wires P7b's
- * function at landing: one import and one call). Until it is installed the
- * send path FAILS CLOSED: every check run carries a failing `reply_checks`
- * result, so nothing is proposed and nothing is sent. Beside it, three checks
+ * lib/support/draft/checks.ts), installed here by default with the
+ * practice's own context (lib/support/draft/run.ts readReplyCheckContext:
+ * its numbers, its services, the other practices' names, its agreement, the
+ * portal's origin). On Send they run in "send" mode, which leaves out check 1
+ * (facts): Send never calls the model, so there is no run to hold facts to.
+ * `installReplyChecks` replaces them for a test; with none installed the send
+ * path FAILS CLOSED: every check run carries a failing `reply_checks`
+ * result, so nothing is proposed and nothing is sent. Beside them, checks
  * of the send path's own always run, whatever is installed: the tone lint
  * the chat and the drafter share (lintSupportTone, @healdesk/catalog), the
  * email copy lint (claims, treatment names; lib/email/lint.ts copyProblems),
@@ -36,8 +35,8 @@ export type ReplyCheckInput = {
   text: string;
   /** The clinic's printable name, or null; its words may appear in the reply. */
   clinicName: string | null;
-  /** The facts the draft relied on (lane P7b's facts_used), when there are any. */
-  facts?: readonly unknown[];
+  /** The facts the draft relied on (lane P7b's facts_used), when there are any: check 5's billing facts. */
+  facts?: readonly FactsUsed[];
   /** The tool results the draft was written from, when there are any. */
   toolResults?: readonly unknown[];
   /** Further names the reply may print (the clinic's own, carrier names...). */
@@ -45,15 +44,38 @@ export type ReplyCheckInput = {
   /** This case's printed ref ("HD-7F3KQ"): the only ref the reply may carry. */
   ownCaseRef: string;
   mode: "draft" | "send";
+  /** The practice's context for the eight (readReplyCheckContext), when its account could be read. */
+  context?: Pick<
+    DraftCheckInput,
+    "allowNumbers" | "serviceNames" | "clinicId" | "otherClinicNames" | "agreementKind" | "portalOrigin"
+  >;
 };
 
 export type ReplyChecker = (input: ReplyCheckInput) => ReplyCheckResult | Promise<ReplyCheckResult>;
 
-let installed: ReplyChecker | null = null;
+/** Lane P7b's eight, with the practice's context. */
+export const P7B_REPLY_CHECKS: ReplyChecker = (input) =>
+  runReplyChecks({
+    text: input.text,
+    clinicName: input.clinicName ?? "",
+    facts: input.facts ?? [],
+    ...(input.toolResults ? { toolResults: input.toolResults as DraftCheckInput["toolResults"] } : {}),
+    ...(input.allowNames ? { allowNames: input.allowNames } : {}),
+    ownCaseRef: input.ownCaseRef,
+    mode: input.mode,
+    ...(input.context ?? {}),
+  });
 
-/** Plug in lane P7b's runReplyChecks; null takes it out again (tests). */
+let installed: ReplyChecker | null = P7B_REPLY_CHECKS;
+
+/** Replace the checks (tests); null takes them out, and every run then fails closed. */
 export function installReplyChecks(checker: ReplyChecker | null): void {
   installed = checker;
+}
+
+/** Put lane P7b's eight back. */
+export function restoreReplyChecks(): void {
+  installed = P7B_REPLY_CHECKS;
 }
 
 export function replyChecksInstalled(): boolean {
@@ -64,7 +86,7 @@ export function replyChecksInstalled(): boolean {
 export const CHECKS_NOT_INSTALLED: ReplyCheck = {
   id: "reply_checks",
   ok: false,
-  rule: "The reply checks are not installed on this host yet, so no reply can be proposed or sent",
+  rule: "The reply checks are not installed, so no reply can be proposed or sent",
 };
 
 /** The send path's own floor, run on every text whatever is installed. */

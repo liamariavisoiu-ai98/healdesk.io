@@ -20,7 +20,14 @@ import { approvalSentence } from "@/lib/ops/inbox/approvals";
 import { opPreviewSupportReply, opProposeSupportReply, opSaveSupportDraft } from "@/lib/ops/support-reply-ops";
 import { closeSupportCase, recordChatEscalation } from "@/lib/support/cases";
 import { retrySupportReplies, sweepSentReplyText } from "@/lib/support/send";
-import { CHECKS_NOT_INSTALLED, installReplyChecks, runSupportReplyChecks, type ReplyCheckInput } from "@/lib/support/send-checks";
+import {
+  CHECKS_NOT_INSTALLED,
+  installReplyChecks,
+  restoreReplyChecks,
+  runSupportReplyChecks,
+  type ReplyCheckInput,
+} from "@/lib/support/send-checks";
+import { CHECK_RULES } from "@/lib/support/draft/checks";
 import { SUPPORT_REPLY_SUBJECTS, SUPPORT_SEND_MAX_ATTEMPTS, supportReplySubject } from "@/lib/support/send-vocab";
 
 import { closePools, getAppPool, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -37,10 +44,11 @@ import { inTenant, seedClinic } from "./setup/factories";
  * once the case closed or a newer draft replaced it; and the record (both
  * hashes, the frozen text) immutable for every role.
  *
- * Lane P7b's eight checks are not on its branch yet, so the checker here is
- * a fake installed through installReplyChecks, keyed on fixed markers, one
- * rule per check 2 to 8; the send path's own floor (tone, copy, shape,
- * links) runs for real. Fixed dates throughout; the clock is passed in.
+ * Most tests install a fake in place of lane P7b's eight checks, keyed on
+ * fixed markers, one rule per check 2 to 8, so each is driven on its own;
+ * the send path's own floor (tone, copy, shape, links) runs for real, and
+ * one test runs P7b's real eight end to end. Fixed dates throughout; the
+ * clock is passed in.
  */
 
 vi.setConfig({ testTimeout: 90_000 });
@@ -211,7 +219,7 @@ describe("L37, the reply as the clinic reads it", () => {
 });
 
 describe("the reply checks: P7b's eight plugged in, the send path's floor always on", () => {
-  afterEach(() => installReplyChecks(null));
+  afterEach(() => restoreReplyChecks());
 
   test("fail closed while P7b's checks are not installed", async () => {
     installReplyChecks(null);
@@ -361,7 +369,7 @@ describeDb("approve and send a support reply (drizzle/0126)", () => {
   });
 
   afterEach(() => {
-    installReplyChecks(null);
+    restoreReplyChecks();
     restoreEnv();
     vi.restoreAllMocks();
   });
@@ -400,8 +408,9 @@ describeDb("approve and send a support reply (drizzle/0126)", () => {
     const subject = `Re: Your call forwarding (ref HD-${c.ref})`;
     expect(JSON.parse(item.draft!)).toEqual({ subject, body: GOOD });
     expect(item.dueAt.toISOString()).toBe("2026-10-16T04:00:00.000Z");
-    // The checks ran with this case's ref and the clinic's name, in draft mode.
-    expect(seen.at(-1)).toMatchObject({ ownCaseRef: `HD-${c.ref}`, mode: "draft", clinicName: "send-once Clinic" });
+    // The checks ran with this case's ref and the clinic's name and context, as Send runs them (no model run to hold facts to).
+    expect(seen.at(-1)).toMatchObject({ ownCaseRef: `HD-${c.ref}`, mode: "send", clinicName: "send-once Clinic" });
+    expect(seen.at(-1)!.context).toMatchObject({ clinicId: c.clinicId, portalOrigin: "https://app.healdesk.test" });
 
     const decided = ok<{ status: string; outcomeCode: string }>(await decide(item.id));
     expect(decided).toMatchObject({ status: "executed", outcomeCode: "sent" });
@@ -653,6 +662,27 @@ describeDb("approve and send a support reply (drizzle/0126)", () => {
     const swept = await replyRow(c.caseId);
     expect(swept).toMatchObject({ text: null, approved_hash: row.approved_hash, reply_subject: row.reply_subject });
     expect(swept.sent_at).not.toBeNull();
+  });
+
+  test("with P7b's real eight installed: a plain reply goes, and one naming a person is refused by its rule", async () => {
+    restoreReplyChecks();
+    const c = await chatCase("send-real-checks");
+    const saved = await saveAndPropose(c.caseId, GOOD);
+    expect(saved, JSON.stringify(saved.failed)).toMatchObject({ state: "drafted", ok: true });
+    const subject = `Re: Your call forwarding (ref HD-${c.ref})`;
+    const named = `Hi Dana, ${GOOD.slice(4)}`;
+    const refused = ok<{ status: string; outcomeCode: string; message: string }>(
+      await decide(saved.approvalId!, { editedDraft: { subject, body: named } }),
+    );
+    expect(refused).toMatchObject({ status: "failed", outcomeCode: "checks_failed" });
+    expect(refused.message).toContain(CHECK_RULES.names);
+    expect(refused.message).not.toContain("Dana");
+    expect(replySends()).toHaveLength(0);
+    // Proposed again (a rejection-free resubmission of the same draft) and approved as written, it goes.
+    const again = ok<{ outcome: string; approvalId: string | null }>(await opProposeSupportReply({ caseId: c.caseId }, OPERATOR, at(MINUTE)));
+    expect(again.outcome).toBe("proposed");
+    expect(ok<{ status: string; outcomeCode: string }>(await decide(again.approvalId!))).toMatchObject({ status: "executed", outcomeCode: "sent" });
+    expect(replySends()).toHaveLength(1);
   });
 
   test("a reply goes only on a case with a clinic that wrote first, to its one address", async () => {

@@ -60,7 +60,7 @@ export async function opPreviewSupportReply(args: Record<string, unknown>, opera
   try {
     const read = await readCaseForReply(caseId, actorFor(operator));
     if (!read) return opsProblem("No such support case.", 404, "invalid_args");
-    const result = await checkReplyText(text, read, "send");
+    const result = await checkReplyText(text, read, actorFor(operator));
     return ok({ ref: printRef(read.supportCase.ref), ...checksView(result.results) });
   } catch (error) {
     log.error("support reply not checked", { error: describeError(error) });
@@ -145,12 +145,13 @@ export async function opSaveSupportDraft(
     const ref = printRef(c.ref);
     if (c.state === "closed") return opsProblem(REFUSAL_WORDS.closed!, 409, "invalid_args");
     if (!c.subjectClinicId) return opsProblem(REFUSAL_WORDS.no_clinic!, 409, "invalid_args");
-    const checks = await checkReplyText(text, read, "draft");
+    const checks = await checkReplyText(text, read, actorFor(operator));
     const to: SupportCaseState = checks.ok ? "drafted" : "needs_edit";
     if (c.state !== to && !canMove(c.state, to)) {
       return opsProblem(`${ref} cannot take a new draft while it is ${c.state.replace(/_/g, " ")}.`, 409, "invalid_args");
     }
     const saved = await saveReplyDraft({ caseId, text, checks, now });
+    if (!saved) return opsProblem(REFUSAL_WORDS.closed!, 409, "invalid_args");
     const moved = await unsafeDb
       .update(supportCases)
       .set({ state: to, updatedAt: now, ...(c.state === "snoozed" ? { snoozedUntil: null } : {}) })

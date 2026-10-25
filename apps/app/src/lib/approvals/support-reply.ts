@@ -1,7 +1,7 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { opsApprovals, supportCases, supportMessages, type OpsApproval, type SupportCase } from "@/db/schema";
+import { opsApprovals, supportCases, type OpsApproval, type SupportCase } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import { describeError, log } from "@/lib/log";
 import { opsPeople } from "@/lib/support/people";
@@ -9,12 +9,15 @@ import { canMove, printRef, type SupportCaseState } from "@/lib/support/case-voc
 import {
   checkReplyText,
   clinicWroteFirst,
+  currentReplyDraft,
+  factsOfDraft,
   deliverReply,
   freezeApproval,
   openReplyDraft,
   readCaseForReply,
   subjectForCase,
 } from "@/lib/support/send";
+import type { FactsUsed } from "@/lib/support/draft/checks";
 import { failedRules, type ReplyCheck } from "@/lib/support/send-checks";
 import type { SendEmailOptions } from "@/lib/email/send";
 
@@ -124,10 +127,20 @@ export async function proposeSupportReplyFor(input: {
   if (!reply || reply.draftText === null || reply.draftVersion === null) return { status: "refused", code: "no_draft" };
   const draftVersion = reply.draftVersion;
 
-  const facts = Array.isArray(reply.factsJson) ? (reply.factsJson as unknown[]) : undefined;
-  const checks = await checkReplyText(reply.draftText, { supportCase: c, clinicName: read.clinicName, facts }, "draft");
-  await expireOlderVersions(reply.id, draftVersion, input.now);
-  if (!checks.ok) return { status: "checks_failed", rules: failedRules(checks), draftVersion };
+  // Every check again now, as Send will run them; and a drafter's draft must
+  // also have passed check 1 (facts) when it was written, which needs the
+  // model's run and so cannot be run here.
+  const checks = await checkReplyText(
+    reply.draftText,
+    { supportCase: c, clinicName: read.clinicName, facts: factsOfDraft(reply) },
+    input.tenantActor,
+  );
+  await expireOlderVersions(c.id, reply.id, input.now);
+  const storedFailed = byDrafter(reply) && (reply.checksJson as { ok?: unknown } | null)?.ok !== true;
+  if (!checks.ok || storedFailed) {
+    const rules = failedRules(checks);
+    return { status: "checks_failed", rules: storedFailed && rules.length === 0 ? [STORED_CHECKS_FAILED] : rules, draftVersion };
+  }
 
   if (c.state === "needs_edit" && canMove("needs_edit", "drafted")) {
     await unsafeDb
@@ -159,22 +172,24 @@ export async function proposeSupportReplyFor(input: {
   return { status: "already_waiting", approvalId: waiting?.id ?? null, draftVersion };
 }
 
-/** Take every waiting item for an older version of this reply off the list: a newer draft replaces it. */
-export async function expireOlderVersions(messageId: string, currentVersion: number, now: Date): Promise<number> {
+/** Whether lane P7b's drafter wrote this draft (facts_json.by), rather than an operator. */
+function byDrafter(row: { factsJson: unknown }): boolean {
+  return (row.factsJson as { by?: unknown } | null)?.by === "drafter";
+}
+
+/** Shown when a drafter's draft failed its first check (facts) when it was written: edit it or draft again. */
+export const STORED_CHECKS_FAILED = "The draft failed its checks when it was written: save an edit, or draft it again";
+
+/** Take every waiting item of this case for another draft off the list: the current draft replaces it. */
+export async function expireOlderVersions(caseId: string, currentMessageId: string, now: Date): Promise<number> {
   const waiting = await unsafeDb
     .select({ id: opsApprovals.id, payload: opsApprovals.payload })
     .from(opsApprovals)
-    .where(
-      and(
-        eq(opsApprovals.kind, SUPPORT_REPLY_KIND),
-        eq(opsApprovals.status, "waiting"),
-        sql`starts_with(${opsApprovals.subjectRef}, ${`${messageId}:`})`,
-      ),
-    );
+    .where(and(eq(opsApprovals.kind, SUPPORT_REPLY_KIND), eq(opsApprovals.status, "waiting")));
   let expired = 0;
   for (const item of waiting) {
     const p = parseSupportReplyPayload(item.payload);
-    if (p && p.draftVersion === currentVersion) continue;
+    if (p && (p.caseId !== caseId || p.messageId === currentMessageId)) continue;
     if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "no_longer_needed" })) {
       expired += 1;
     }
@@ -202,26 +217,31 @@ export async function expireCaseItems(caseId: string, now: Date): Promise<number
 // Still needed?
 // -----------------------------------------------------------------------------
 
-type Standing = { stillNeeded: boolean; supportCase: SupportCase | null; currentVersion: number | null; clinicName: string | null };
+type Standing = {
+  stillNeeded: boolean;
+  supportCase: SupportCase | null;
+  currentVersion: number | null;
+  clinicName: string | null;
+  /** The current draft's facts (check 5's billing facts). */
+  facts: FactsUsed[];
+};
 
 async function standing(payload: SupportReplyApprovalPayload, actor?: ActorContext): Promise<Standing> {
   const read = await readCaseForReply(payload.caseId, actor);
-  if (!read) return { stillNeeded: false, supportCase: null, currentVersion: null, clinicName: null };
-  const [reply] = await unsafeDb
-    .select({ version: supportMessages.draftVersion, approvedAt: supportMessages.approvedAt, kind: supportMessages.kind, caseId: supportMessages.caseId })
-    .from(supportMessages)
-    .where(eq(supportMessages.id, payload.messageId))
-    .limit(1);
-  const current = reply && reply.kind === "reply" && reply.caseId === payload.caseId ? reply : null;
+  if (!read) return { stillNeeded: false, supportCase: null, currentVersion: null, clinicName: null, facts: [] };
+  // The case's current draft: only it can be approved, and only while unapproved.
+  const current = await currentReplyDraft(payload.caseId);
   return {
     stillNeeded:
       read.supportCase.state !== "closed" &&
       current !== null &&
+      current.id === payload.messageId &&
       current.approvedAt === null &&
-      current.version === payload.draftVersion,
+      current.draftVersion === payload.draftVersion,
     supportCase: read.supportCase,
-    currentVersion: current?.version ?? null,
+    currentVersion: current?.draftVersion ?? null,
     clinicName: read.clinicName,
+    facts: current ? factsOfDraft(current) : [],
   };
 }
 
@@ -280,7 +300,7 @@ export async function supportReplyPacket(
   if (!s.supportCase) return null;
   const stored = parseStoredDraft(approval.draft);
   const checks = stored
-    ? await checkReplyText(stored.body, { supportCase: s.supportCase, clinicName: s.clinicName }, "draft")
+    ? await checkReplyText(stored.body, { supportCase: s.supportCase, clinicName: s.clinicName }, ctx.actor)
     : { ok: false, results: [] };
   return {
     operation: "sendSupportReply",
@@ -358,7 +378,7 @@ export async function sendSupportReply(
     return fail("subject_changed", "The subject of a support reply is fixed for its topic and cannot be edited, so nothing was sent. Edit the body only.");
   }
   // The checks again, in send mode, on exactly the text approved: the rules' names, never the words.
-  const checks = await checkReplyText(draft.body, { supportCase: c, clinicName: s.clinicName }, "send");
+  const checks = await checkReplyText(draft.body, { supportCase: c, clinicName: s.clinicName, facts: s.facts });
   if (!checks.ok) {
     return fail("checks_failed", `Nothing was sent: the reply fails ${failedRules(checks).join("; ")}. Edit it and propose it again.`);
   }

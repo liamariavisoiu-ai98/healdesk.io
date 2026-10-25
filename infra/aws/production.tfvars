@@ -56,13 +56,17 @@ worker_desired        = 1
 # The Retell voice endpoint: set on 22 October 2026 (owner; live once infra.yml applies it), after the
 # deploy of eecd2199 and with HEALDESK_RETELL_LLM_SECRET and
 # HEALDESK_RETELL_API_KEY pasted, for a test call on the demo clinic: with
-# voice_real_calls off, the endpoint answers only that made-up clinic. One
-# task of a quarter vCPU and 1 GB, about $8.61 a month; voice_desired = 2
-# survives losing a task mid-call.
+# voice_real_calls off, the endpoint answers only that made-up clinic.
+# voice_desired = 2 survives losing a task mid-call. One full vCPU and 2 GB
+# since 25 October 2026 (owner: "half a core, or even better if it
+# exists"), about $28.94 a month: the quarter vCPU it started on was shared
+# with the TLS sidecar, and the voice process, single-threaded Node, can use
+# one core and no more, so 1024 is the most that helps; 2 GB is the least
+# Fargate allows with it.
 enable_voice  = true
 voice_desired = 1
-voice_cpu     = 256
-voice_memory  = 1024
+voice_cpu     = 1024
+voice_memory  = 2048
 
 # Real patients' calls: off until every business associate agreement in the
 # chain is signed, Retell's included. Off, the voice endpoint answers only the

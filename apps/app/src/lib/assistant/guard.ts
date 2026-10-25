@@ -118,12 +118,16 @@ function normalise(text: string): string {
 }
 
 /** Every amount a reply may name: the configured prices and deposits. */
-function allowedAmounts(facts: Pick<AssistantFacts, "services">): Set<number> {
+function allowedAmounts(facts: Pick<AssistantFacts, "services" | "quotedAmountsUsd">): Set<number> {
   const amounts = new Set<number>();
   for (const s of facts.services) {
     for (const v of [s.priceFromUsd, s.priceToUsd, s.depositUsd]) {
       if (typeof v === "number" && Number.isFinite(v)) amounts.add(Math.round(v * 100));
     }
+  }
+  // A demo's pitch: healdesk's own catalog prices, each exactly (demo-facts.ts).
+  for (const v of facts.quotedAmountsUsd ?? []) {
+    if (Number.isFinite(v)) amounts.add(Math.round(v * 100));
   }
   return amounts;
 }

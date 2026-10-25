@@ -2,7 +2,13 @@ import {
   DEMO_CALL_VARIABLE,
   NEVER_SAY_DEFAULTS,
   openDaysPerWeek,
+  PACKAGES,
+  packageSetupFeeUsd,
+  PRODUCTS,
   resolveBookingRequirements,
+  setupAfterCreditUsd,
+  USAGE_STEPS,
+  STEP_UNITS,
   type DemoCallClinic,
   type DemoCallContext,
 } from "@healdesk/catalog";
@@ -225,7 +231,7 @@ function offerLine(offer: Pick<DemoCallContext, "offer">["offer"], now: number):
   // reads "about 10 more hours" as a figure it cannot place and refuses the
   // whole sentence as clinical. "about 10 hours left" keeps the unit right
   // after the number, which that pattern already knows to leave alone.
-  return `A real, live discount applies right now: ${offer.percentOfSetupFee}% off healdesk's setup fee, with about ${hoursLeft} hour${hoursLeft === 1 ? "" : "s"} left on it. If you mention it, say only that percentage and that rough window; never a dollar amount (no package is chosen yet to price one), and never a different number or a different amount of time than given here.`;
+  return `A real, live discount applies right now: ${offer.percentOfSetupFee}% off healdesk's setup fee, with about ${hoursLeft} hour${hoursLeft === 1 ? "" : "s"} left on it, already applied at checkout. Say that percentage, that rough window and the discounted setup fees given here, and never a different number or a different amount of time.`;
 }
 
 /**
@@ -249,12 +255,72 @@ export type DemoStage = "intro" | "roleplay" | "pitch";
 /** The words that start and end the role-play, as said in Aya's own replies. */
 export const DEMO_ROLEPLAY_START = /\bring[\s,!.-]*ring\b/i;
 export const DEMO_ROLEPLAY_END = /\bhow was that\b/i;
+/** The pitch's first question, which also starts it when they skip the role-play or ask about price first. */
+export const DEMO_PITCH_START = /\bhow many calls\b/i;
 
-/** The stage after a reply: moved on only by the scripted line that opens the next one. */
+/**
+ * The stage after a reply: moved on only by the scripted line that opens the
+ * next one. A role-play may be skipped (straight to the pitch's first
+ * question) or run again from the pitch ("Ring ring!" once more).
+ */
 export function nextDemoStage(stage: DemoStage, reply: string): DemoStage {
-  if (stage === "intro" && DEMO_ROLEPLAY_START.test(reply)) return "roleplay";
+  if (stage !== "roleplay" && DEMO_ROLEPLAY_START.test(reply)) return "roleplay";
   if (stage === "roleplay" && DEMO_ROLEPLAY_END.test(reply)) return "pitch";
+  if (stage === "intro" && DEMO_PITCH_START.test(reply)) return "pitch";
   return stage;
+}
+
+/** How a person says a dollar amount: "$1,394". */
+function usd(amount: number): string {
+  return `$${amount.toLocaleString("en-US")}`;
+}
+
+/**
+ * healdesk's own prices for the pitch (owner, 25 October 2026: "the absolute
+ * best closer"), from the catalog (packages/catalog/src/plans.ts), never
+ * typed here: each product's price for every step of 100, a voice-and-chat
+ * package's sum for every pair of steps, the yearly per-step price, and each
+ * package's setup fee, before and after the live discount. The discount is
+ * worked out per package (setupAfterCreditUsd rounds up), as checkout works
+ * it out, because two products' discounted fees added together can differ
+ * from the package's by a dollar. `amounts` is what the guard lets the pitch
+ * say (AssistantFacts.quotedAmountsUsd); every other figure is still refused.
+ */
+export function demoPriceList(offer: DemoCallContext["offer"], now: number): { amounts: number[]; line: string } {
+  const live = offer && offer.endsAt > now ? offer : null;
+  const steps = USAGE_STEPS.map((units) => units / STEP_UNITS);
+  const amounts = new Set<number>();
+  for (const product of Object.values(PRODUCTS)) {
+    amounts.add(product.perStepAnnualMonthlyUsd);
+    for (const n of steps) amounts.add(product.perStepMonthlyUsd * n);
+  }
+  for (const chat of [PRODUCTS.webchat, PRODUCTS.metachat]) {
+    for (const v of steps) for (const c of steps) amounts.add(PRODUCTS.voice.perStepMonthlyUsd * v + chat.perStepMonthlyUsd * c);
+  }
+  const setups = PACKAGES.map((pkg) => {
+    const fee = packageSetupFeeUsd(pkg);
+    const after = live ? setupAfterCreditUsd({ setupFeeUsd: fee }, live) : null;
+    amounts.add(fee);
+    if (after !== null) amounts.add(after);
+    const name = pkg.name.replace(/\bAYA\b/g, "Aya").replace(" + ", " plus ");
+    return `${name} ${usd(fee)}${after !== null ? ` (${usd(after)} with their ${live!.percentOfSetupFee}% off)` : ""}`;
+  });
+  const { voice, webchat, metachat } = PRODUCTS;
+  const line = [
+    `healdesk's prices, per location, which you may quote exactly when they ask or when it helps them decide: Aya Voice is ${usd(voice.perStepMonthlyUsd)} a month for every 100 minutes; Aya Web Chat ${usd(webchat.perStepMonthlyUsd)} a month for every 100 conversations; Aya Meta Chat, website chat included, ${usd(metachat.perStepMonthlyUsd)} a month for every 100 conversations. They choose 100 to 1,500 a month in steps of 100; a package with voice and chat adds the two. Paying yearly takes 20% off the monthly price.`,
+    `One-time setup fee by package: ${setups.join("; ")}.`,
+    `The monthly price only starts the day you first answer one of their patients; the setup fee is paid when they sign up. Say amounts the way a person says them ("eighty dollars a month for every hundred minutes"), never a per-minute or per-conversation rate, never what an extra block costs, and never any figure not given here.`,
+  ].join(" ");
+  return { amounts: [...amounts].sort((a, b) => a - b), line };
+}
+
+/** The first listed service with a single price, for putting a value on a booking in the clinic's own terms. */
+function examplePrice(context: Pick<DemoCallContext, "clinic">): { name: string; price: number } | null {
+  for (const s of context.clinic.services) {
+    const p = demoPrice(s.price);
+    if ((p.priceKind === "exact" || p.priceKind === "from") && p.priceFromUsd) return { name: s.name, price: p.priceFromUsd };
+  }
+  return null;
 }
 
 /**
@@ -284,15 +350,18 @@ const PROFESSIONAL = `Keep it professional: no flirting, no compliments on how t
  * either; a number of calls always followed by the word "calls", which the
  * guard's dose-like-figure pattern leaves alone; claims as the launch
  * tracker allows (CLAUDE.md, "Copy first, then the switch": what Aya is
- * built to do, deposit links only in chat, no price but the live discount).
+ * built to do, deposit links only in chat); healdesk's prices only in the
+ * pitch, from the catalog (demoPriceList), and a close on the demo page's own
+ * buy button, since Aya can send nothing.
  */
 export function demoStageNote(
-  context: Pick<DemoCallContext, "firstName" | "clinic" | "offer">,
+  context: Pick<DemoCallContext, "firstName" | "clinic" | "offer" | "buyButton" | "mode">,
   stage: DemoStage,
   now: number,
 ): string {
   const clinic = context.clinic.clinicName;
   const who = context.firstName ?? "the caller";
+  const opener = demoRoleplayOpener(clinic);
   if (stage === "intro") {
     return [
       `This call is a live demo for ${who}, who is on ${clinic}'s team and asked to hear you at work. ${NAME_RULE} You opened by saying who you are and asking who you are speaking with.`,
@@ -300,7 +369,8 @@ export function demoStageNote(
       `1. Once they confirm who they are, greet them warmly by name and ask their role at ${clinic} ("Great to meet you, ${context.firstName ?? "there"}! What's your role at ${clinic}?").`,
       `2. Once they say, react to it in a few words, then say, close to these words: "Awesome, look, I'll keep this super brief. Would you like to hear what I can do for ${clinic} and how that helps your team, or jump straight into a quick role-play to see how I handle a live patient call?"`,
       `3. If they want to hear more: in two or three short spoken sentences, say you answer ${clinic}'s calls in English and Spanish whenever the front desk can't get to the phone, know its treatments, prices, hours and policies, take booking requests, handle urgent calls safely and pass anyone who wants a person to the team; name one or two real details you know about ${clinic} (never mention a website, scraping or how you learned anything); then offer the role-play.`,
-      `4. When they want the role-play, start it by saying exactly: "${demoRoleplayOpener(clinic)}" Then they play one of your patients and you answer as ${clinic}'s front desk. Say "your patients", never "our patients" or "another patient".`,
+      `4. When they want the role-play, start it by saying exactly: "${opener}" Then they play one of your patients and you answer as ${clinic}'s front desk. Say "your patients", never "our patients" or "another patient".${context.clinic.services.length === 0 ? ` ${clinic}'s treatments and prices are not on file, so if they are unsure what to ask, suggest what callers ask first: the hours, where it is, or booking a consultation.` : ""}`,
+      `If they would rather skip the role-play, or ask about price or getting started, move on to the pitch by asking: "Generally, how many calls do you get a day?"`,
       PROFESSIONAL,
     ].join("\n");
   }
@@ -313,20 +383,41 @@ export function demoStageNote(
   }
   const days = demoOpenDays(context);
   const offer = offerLine(context.offer, now);
+  const prices = demoPriceList(context.offer, now).line;
+  const example = examplePrice(context);
+  const button = context.buyButton?.replace(/\bAYA\b/g, "Aya") ?? null;
+  const close = button
+    ? `Close on the button on their demo page: "${button}" opens checkout${offer ? " with their discount already applied" : ""}, for example "Just tap ${button} at the top of your demo page${offer ? ` and your ${context.offer!.percentOfSetupFee}% is already applied` : ""}."`
+    : `Tell them the healdesk team will help them get started.`;
   const volume = days
     ? `When they give a number, say, close to these words: "I see you're open ${days} days a week, so would it be fair to say about [their number times ${days}] calls a week, or around [that times four, plus a third, rounded to a friendly number] calls a month?"`
     : `When they give a number, ask how many days a week they are open, then check the total with them, close to these words: "So would it be fair to say about [calls a day times days open] calls a week, or around [that times four, plus a third, rounded to a friendly number] calls a month?"`;
   return [
     `The role-play is over: you are talking with ${who}, of ${clinic}'s team, as themselves again. ${NAME_RULE} Keep in mind everything said earlier, their name included.`,
     `Go one step at a time, one short question a turn, and react to what they say before moving on:`,
-    `1. Take their reaction to the role-play warmly, then make the point, close to these words: "I'm built to do that 24/7, on the phone and in your website chat, Instagram, Messenger and WhatsApp: taking bookings, sending your own deposit link in chat, and answering patient questions automatically." Deposit links go only in website chat or social messages, never on a call and never by text message.`,
+    `1. Take their reaction to the role-play warmly, then make the point, close to these words: "I'm built to do that 24/7, on the phone and in your website chat, Instagram, Messenger and WhatsApp: taking bookings, sending your own deposit link in chat, and answering patient questions automatically." Deposit links go only in website chat or social messages, never on a call and never by text message.${context.mode === "browser" ? " Mention once that they can try you in chat too, right there on their demo page." : ""}`,
     `2. Ask: "Generally, how many calls do you get a day?"`,
     `3. ${volume} Do the arithmetic right, and always say the word "calls" straight after a number of calls ("about 100 calls a week").`,
     `4. Ask: "What happens with after-hours calls, or when your team's busy with patients?"`,
     `5. Ask: "How do you see me helping you best: after-hours calls only, taking over when the lines are busy, or handling all your incoming calls?"`,
-    `6. Then answer any question or doubt honestly and briefly, and suggest the package that fits what they told you: Aya Voice, Aya Web Chat, Aya Meta Chat (which includes website chat), Voice plus Web Chat, or Voice plus Meta Chat.${offer ? ` ${offer}` : ""} Never say what Aya or healdesk costs beyond that, and promise nothing about setup: the healdesk team goes through prices and setup with them. When they are done, thank them warmly and say goodbye.`,
+    `6. Recommend the one package that fits what they told you (Aya Voice, Aya Web Chat, Aya Meta Chat, Voice plus Web Chat, or Voice plus Meta Chat) and the step that covers their volume, in a sentence that ties it to their own words ("so the after-hours calls stop going to voicemail").${example ? ` If it helps, put a value on it in ${clinic}'s own terms: each of those calls that becomes a booking is, say, a ${example.name} on their books at ${usd(example.price)}. Never call it revenue, profit or money they will make, and never promise a number of bookings.` : ""}`,
+    `7. Then ask for it plainly, once: "Want to get ${clinic} set up?" ${close} If they hesitate, ask what is holding them back, answer that one thing, and ask once more; if they are still not ready, thank them warmly, mention the discount window once if there is one, and say goodbye. Never say you will send a link, an email or a text, and never take payment details on the call.`,
+    `True answers to the usual doubts, in a sentence each: patients minding an AI (you say you are an AI in your first line, and anyone who wants a person gets passed to the team); patient data ("We sign a business associate agreement and handle patient data under it", never "HIPAA compliant"); setup (about fifteen minutes of their attention; phone goes live once they set up call forwarding on their own line, so they keep their number; website chat once a snippet is on their site); mistakes (you never diagnose or quote a price that is not on their list, urgent calls go straight to their team, and if anything fails, calls go to their own direct line); cost (the monthly price only starts once you are answering their patients).`,
+    prices,
+    ...(offer ? [offer] : []),
+    `If they want to try another role-play, start it the same way: "${opener}"`,
     PROFESSIONAL,
   ].join("\n");
+}
+
+/**
+ * The facts for a demo's pitch stage: its facts with healdesk's own prices
+ * the guard may let through (demoPriceList). Only in the pitch: in the intro
+ * and the role-play a made-up treatment price that happened to match one of
+ * healdesk's would otherwise pass.
+ */
+export function demoPitchFacts(facts: AssistantFacts, context: Pick<DemoCallContext, "offer">, now: number): AssistantFacts {
+  return { ...facts, quotedAmountsUsd: demoPriceList(context.offer, now).amounts };
 }
 
 /** The facts a demo call answers from: the clinic's published profile, read as AssistantFacts. No database. */

@@ -5,6 +5,7 @@ import { JsonLd } from "@/components/JsonLd";
 import { CookieNotice } from "@/components/analytics/CookieNotice";
 import { CampaignMemory } from "@/components/analytics/CampaignMemory";
 import { PostHogProvider } from "@/components/analytics/PostHogProvider";
+import { VercelAnalytics } from "@/components/analytics/VercelAnalytics";
 import { RevealOnScroll } from "@/components/RevealOnScroll";
 import { site } from "@/lib/site";
 import { organizationLd, websiteLd } from "@/lib/structured-data";
@@ -127,6 +128,7 @@ export default function RootLayout({
             docs/architecture.md "No conversion attribution to ad platforms". */}
         <RevealOnScroll />
         <PostHogProvider />
+        <VercelAnalytics />
         <CookieNotice />
         <CampaignMemory />
       </body>

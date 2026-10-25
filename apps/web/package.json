@@ -24,6 +24,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
     "@healdesk/catalog": "*",
+    "@vercel/analytics": "^2.0.1",
     "motion": "^13.0.0",
     "next": "^16.4.2",
     "posthog-js": "^1.430.3",

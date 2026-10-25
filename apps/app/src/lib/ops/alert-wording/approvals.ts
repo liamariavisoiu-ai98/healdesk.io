@@ -60,7 +60,7 @@ export const WORDING: Partial<Record<OpsEvent, AlertWording>> = {
       "Until you decide, the clinic hears nothing more from us about it. After two weeks an email leaves the list unsent, and a reminder sent sooner after three days; the clinic's own setup reminders still go on their days.",
     steps: [
       "Open the Queues page and find each email under Approvals: it shows the email as the clinic would read it, what approving does, and the choices you may change.",
-      "Change only what is offered if you need to, then press Approve on the Queues page and enter the code from your authenticator. The email goes once. For more time, the deadline moves first and the email goes only if it moved.",
+      "Press Approve on the Queues page and enter the code from your authenticator, after changing any of the offered choices you need to. The email goes once. For more time, the deadline moves first and the email goes only if it moved.",
       "Press Reject on the Queues page if it should not go, pick the reason and enter the code. Nothing is sent.",
       "Check History on the Queues page. You are done when each item reads went through, failed, rejected or left the list without running.",
     ],

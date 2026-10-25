@@ -1,6 +1,6 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 
-import { auditReviewQueue, billingNotices, clinics, type LifecycleStage } from "@/db/schema";
+import { auditReviewQueue, billingNotices, clinicChannels, clinics, type LifecycleStage } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import { agreementInEffect } from "@/lib/agreements/in-effect";
 import { chaseBlocked, resignFactsIn } from "@/lib/agreements/open-resigns";
@@ -75,6 +75,8 @@ export type QuestionFacts = {
   openResign: boolean;
   /** Where AYA pauses until the BAA is signed if the answer is Yes or Not sure: every location. */
   locationsToPause: number;
+  /** Whether AYA answers on any channel yet: a practice not yet live has nothing to pause. */
+  isAnswering: boolean;
 };
 
 export type SetupNoticeFacts = {
@@ -229,6 +231,14 @@ export async function contactFacts(kind: ContactKind, rawPayload: unknown, ctx: 
           earlierDecisions: decided.length,
           openResign: (await openResign(tx)) !== null,
           locationsToPause: await locationCount(tx),
+          isAnswering:
+            (
+              await tx.db
+                .select({ channel: clinicChannels.channel })
+                .from(clinicChannels)
+                .where(and(eq(clinicChannels.clinicId, tx.clinicId), eq(clinicChannels.enabled, true), isNotNull(clinicChannels.liveAt)))
+                .limit(1)
+            ).length > 0,
         } satisfies QuestionFacts;
       });
     }
@@ -304,7 +314,11 @@ export function contactEffect(facts: ContactFacts): string {
         (facts.callFirst ? " The version in force is below the one go-live accepts: phone the practice as well." : "")
       );
     case "agreement_question":
-      return `Emails the clinic the question: does it send insurance claims or eligibility checks electronically? Nothing changes until you record the answer you hear. If the answer is Yes or Not sure, the business associate agreement goes to sign and AYA pauses at ${facts.locationsToPause === 1 ? "its 1 location" : `all ${facts.locationsToPause} of its locations`} until it is signed. If it is No, nothing changes.`;
+      return `Emails the clinic the question: does it send insurance claims or eligibility checks electronically? Nothing changes until you record the answer you hear. If the answer is Yes or Not sure, the business associate agreement goes to sign and ${
+        facts.isAnswering
+          ? `AYA pauses at ${facts.locationsToPause === 1 ? "its 1 location" : `all ${facts.locationsToPause} of its locations`} until it is signed`
+          : `AYA, not answering anywhere yet, starts only once it is signed (${facts.locationsToPause === 1 ? "1 location" : `${facts.locationsToPause} locations`})`
+      }. If it is No, nothing changes.`;
     case "setup_extended":
       return `Extends the setup deadline${facts.newLastDay ? ` to the end of ${facts.newLastDay}` : ""}, then emails the clinic that it has more time. The email goes only if the extension went through.`;
     case "setup_waiting_on_us":

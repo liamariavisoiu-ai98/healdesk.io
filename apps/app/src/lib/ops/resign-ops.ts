@@ -118,10 +118,13 @@ export function operatorEventActor(operator: Operator) {
 }
 
 /** Whether the clinic is healdesk's demo clinic or a closed account: nothing is sent to either. */
-async function outOfService(clinicId: string): Promise<boolean> {
-  const result = await unsafeDb.execute<{ out: boolean }>(
-    sql`select (app_clinic_is_demo(id) or account_closed_at is not null or destroyed_at is not null) as out
-          from clinics where id = ${clinicId}::uuid`,
+async function outOfService(clinicId: string, operator: Operator): Promise<boolean> {
+  // In the clinic's own tenant: clinics is a forced row-level-security table.
+  const result = await withTenant({ clinicId, actor: actorFor(operator), request: operator.request }, (tx) =>
+    tx.db.execute<{ out: boolean }>(
+      sql`select (app_clinic_is_demo(id) or account_closed_at is not null or destroyed_at is not null) as out
+            from clinics where id = ${clinicId}::uuid`,
+    ),
   );
   return result.rows[0]?.out !== false;
 }
@@ -135,7 +138,7 @@ export async function opProposeAgreementQuestion(
   if (!clinic) return refused("No such clinic.");
   const reviewId = stringArg(args, "reviewId") ?? "";
   if (!UUID.test(reviewId)) return refused("No such review at this clinic.");
-  if (await outOfService(clinic.id)) return refused("This is the demo clinic or a closed account, so nothing is sent to it.");
+  if (await outOfService(clinic.id, operator)) return refused("This is the demo clinic or a closed account, so nothing is sent to it.");
   const facts = await withTenant({ clinicId: clinic.id, actor: actorFor(operator), request: operator.request }, async (tx) => {
     const [review] = await tx.db
       .select({ status: auditReviewQueue.status })

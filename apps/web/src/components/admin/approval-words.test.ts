@@ -40,6 +40,7 @@ import {
   rejectConfirm,
   REMINDER_BLOCK_WORDS,
   REQUEST_KIND_WORDS,
+  RESIGN_REASON_WORDS,
   REVIEW_STATUS_WORDS,
   STAGE_WORDS,
   STOP_REASON_WORDS,
@@ -198,7 +199,10 @@ describe("the closed lists have words", () => {
     expect(Object.keys(REMINDER_BLOCK_WORDS).sort()).toEqual([...reminder, "already_queued"].sort());
   });
 
-  test("the lifecycle stages, the watch's recommendations and a review's statuses", () => {
+  test("the lifecycle stages, the watch's recommendations, a review's statuses and a re-sign's reasons", () => {
+    expect(Object.keys(RESIGN_REASON_WORDS).sort()).toEqual(constList("db/schema.ts", "AGREEMENT_RESIGN_REASONS").sort());
+    // A version re-sign pauses nothing; the two DPA answers do (resign-ops.ts holdsPause).
+    expect(source("lib/ops/resign-ops.ts")).toContain('holdsPause: r.reason !== "baa_version"');
     expect(Object.keys(STAGE_WORDS).sort()).toEqual(constList("db/schema.ts", "LIFECYCLE_STAGES").sort());
     expect(Object.keys(RECOMMENDATION_WORDS).sort()).toEqual(constList("lib/lifecycle/recommend.ts", "RECOMMENDATIONS").sort());
     const review = unionOf("lib/approvals/contact-packets.ts", /reviewStatus: ((?:"[a-z_]+" \| )+)null;/);
@@ -220,6 +224,7 @@ describe("the closed lists have words", () => {
       STAGE_WORDS,
       REVIEW_STATUS_WORDS,
       RECOMMENDATION_WORDS,
+      RESIGN_REASON_WORDS,
     ]) {
       for (const [code, words] of Object.entries(table)) {
         expect(words, code).not.toMatch(/_/);

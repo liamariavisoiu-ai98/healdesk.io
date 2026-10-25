@@ -15,6 +15,7 @@ import {
 import { requireOperator } from "@/lib/admin/operator";
 import {
   fetchAgreements,
+  fetchOpenResigns,
   markAgreementTerminated as markTerminatedUpstream,
   resendAgreementCopy as resendCopyUpstream,
   type AgreementQuery,
@@ -31,6 +32,7 @@ import {
   RegisterLoading,
   type MintDownloadResult,
 } from "./AgreementsRegister";
+import { OpenResigns } from "./OpenResigns";
 
 /**
  * /admin/compliance/agreements (until 23 October 2026 /admin/agreements), the register of signed agreements: business associate
@@ -140,6 +142,14 @@ export default async function AgreementsPage({
       <Suspense key={JSON.stringify(filters)} fallback={<RegisterLoading />}>
         <Register filters={filters} />
       </Suspense>
+
+      {/* The open re-signs (ops automation lane P6j), after the register and
+          read apart from it: a read of their own, so a failure costs the
+          section alone. In standby the register's notice has already said
+          why, so the section says nothing more. */}
+      <Suspense fallback={null}>
+        <Resigns />
+      </Suspense>
     </main>
   );
 }
@@ -156,6 +166,12 @@ async function Register({ filters }: { filters: AgreementQuery }) {
       actions={{ resendCopy, markTerminated, mintDownload }}
     />
   );
+}
+
+async function Resigns() {
+  const result = await fetchOpenResigns();
+  if (isHostUnreachable(result)) return null;
+  return <OpenResigns resigns={result} now={new Date().toISOString()} />;
 }
 
 /**

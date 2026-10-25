@@ -11,6 +11,7 @@ import type {
   ContactPhrase,
   ContactRecommendation,
   IncidentApprovalKind,
+  OpenResignRow,
   RejectReason,
 } from "@/lib/admin/ops-client";
 import type { Tone } from "@/lib/admin/strip-types";
@@ -485,6 +486,18 @@ export const STAGE_WORDS: Record<StageCode, string> = {
   partly_live: "partly live",
   live: "live",
   closed: "closed",
+};
+
+/**
+ * Why a practice signs again (apps/app db/schema.ts AGREEMENT_RESIGN_REASONS):
+ * under a DPA, its answer to the covered-entity question, which stops the DPA
+ * covering it and pauses AYA until the BAA is signed; under a BAA, a newer
+ * version, which pauses nothing (lib/ops/resign-ops.ts holdsPause).
+ */
+export const RESIGN_REASON_WORDS: Record<OpenResignRow["reason"], string> = {
+  now_covered: "answered Yes, it is covered by HIPAA: its DPA no longer covers it",
+  not_sure: "answered Not sure whether HIPAA covers it: its DPA no longer covers it",
+  baa_version: "a newer version of the business associate agreement",
 };
 
 /** An agreement-kind review's status, as Queues › Agreement checks words a decision (passed: the DPA stands; failed: the BAA was sent). */

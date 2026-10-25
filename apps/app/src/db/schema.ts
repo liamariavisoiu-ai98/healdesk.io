@@ -7956,8 +7956,9 @@ export type RightsStatus = (typeof RIGHTS_STATUSES)[number];
  * changed. Recorded once per clinic and request_key, the form's own key,
  * so a retried form records nothing twice while two people's requests of
  * one kind on one day stay two; and at most once per record it became.
- * Flipped once from open to done or not applicable, never deleted. Kept for good
- * when the account closes (lib/offboarding/account-closure.ts).
+ * Flipped once from open to done or not applicable. Deleted with the clinic's
+ * other patient-rights records at its destruction, open or closed
+ * (app_destroy_rights_intakes, drizzle/0121), never by the runtime role.
  */
 export const rightsIntakes = pgTable(
   "rights_intakes",

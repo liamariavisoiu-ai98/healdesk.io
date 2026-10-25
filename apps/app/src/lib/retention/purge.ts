@@ -251,6 +251,8 @@ export const PURGE_COVERAGE: Readonly<{
     transcript_emails:
       "its own clock: the outbox job deletes each sealed copy on delivery and never keeps one past 30 days, and the receipt goes with its conversation by cascade (lib/conversations/transcript-outbox.ts)",
     erasure_requests: "its own clock: expireErasureRecords, hourly, BACKUP_RETENTION_DAYS after the deletion",
+    rights_intakes:
+      "no clock of its own: each patient-rights request as it reached us (drizzle/0120), no person; goes with the clinic's destruction, open or closed (app_destroy_rights_intakes, drizzle/0121)",
     suppressions: "a person's \"stop\", which must outlast what it stopped: goes with the person's erasure, or the clinic's destruction",
     consent_records: "append-only evidence: goes with the person's erasure, or the clinic's destruction",
     contact_attempts: "append-only evidence: goes with the person's erasure, or the clinic's destruction",
@@ -287,7 +289,6 @@ export const PURGE_COVERAGE: Readonly<{
     lifecycle_waves: "the reminder ledger (drizzle/0115), no patient: kept",
     clinic_lifecycle: "the account's setup stage and our decision (drizzle/0115), no patient: kept",
     lifecycle_ignored_clinics: "our mark that the account is an internal test account (drizzle/0118), no patient: kept",
-    rights_intakes: "the record of each patient-rights request and when it was met (drizzle/0120), no person: kept",
     overage_invoices: "a billing record, kept",
     usage_events: "a billing record, kept",
     channel_events: "a billing record, kept",

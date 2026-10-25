@@ -848,6 +848,13 @@
       "when": 1792855251003,
       "tag": "0120_rights_intakes",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1792858851003,
+      "tag": "0121_rights_intakes_destroyed",
+      "breakpoints": true
     }
   ]
 }

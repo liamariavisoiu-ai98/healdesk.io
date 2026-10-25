@@ -25,6 +25,7 @@ import {
   providerConnections,
   reconciliationExceptions,
   retellRecordingAlerts,
+  rightsIntakes,
   securityEvents,
   slotHolds,
   transactions,
@@ -156,7 +157,8 @@ import { withTenant } from "@/lib/tenant";
  * Every patient row, the amendments Practice directed to them
  * (record_amendments), the keyed hashes of who messaged the clinic, its
  * closed days, its connections, the records of its deletion requests
- * (erasure_requests), and its suppressions, consent records and contact
+ * (erasure_requests) and of the patient-rights requests ops recorded for it
+ * (rights_intakes, open or closed), and its suppressions, consent records and contact
  * attempts. Those last three were kept until BAA 1.3.0's release gate 7 as the
  * TCPA evidence that an outbound contact was lawful; v1 contacts no one
  * first, so there is nothing for them to evidence, and every agreement's
@@ -587,8 +589,8 @@ export async function releaseNumberAfterPassThrough(tx: TenantTx): Promise<boole
  * progress, its providers, its suppressions, consent records and contact
  * attempts, the records of its deletion requests, the amendments Practice
  * directed, the flags staff put on its conversations, its deposits, the
- * patients' requests passed to it (L32), and the list of who an incident
- * affected, gone. Audit, agreements, calendar elections and billing stay, and
+ * patients' requests passed to it (L32), the patient-rights intakes ops
+ * recorded for it, and the list of who an incident affected, gone. Audit, agreements, calendar elections and billing stay, and
  * so do AYA's number, the sign-in and the setup until the pass-through has
  * ended (then the account closes: lib/offboarding/account-closure.ts).
  */
@@ -698,6 +700,33 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // database's), so app_destroy_erasure_requests() does, on the same floor.
   const erasures = await tx.db.execute<{ n: number }>(sql`select app_destroy_erasure_requests(${c}::uuid) as n`);
   deleted.erasure_requests = erasures.rows[0]?.n ?? 0;
+  // The patient-rights intakes (drizzle/0120): who asked what of the clinic,
+  // when, and how it was verified, with no person in them, but each says a
+  // patient of the clinic exercised a right, so they go with the clinic's
+  // other patient-rights records, open or closed, as an open patient request
+  // or an erasure with its Retell step outstanding does (owner, 25 October
+  // 2026). The app role cannot delete one, so app_destroy_rights_intakes()
+  // does, on the same floor (drizzle/0121). The open ones are read first:
+  // an open request was still owed to someone, and the delete leaves no
+  // trace of it, so ops is told which (ids and kinds only), as the open
+  // Retell alerts are above, and the audit row counts both.
+  const intakeRows = await tx.db
+    .select({ id: rightsIntakes.id, kind: rightsIntakes.kind, status: rightsIntakes.status })
+    .from(rightsIntakes)
+    .where(eq(rightsIntakes.clinicId, c));
+  const openIntakes = intakeRows.filter((r) => r.status === "open");
+  const intakes = await tx.db.execute<{ n: number }>(sql`select app_destroy_rights_intakes(${c}::uuid) as n`);
+  deleted.rights_intakes = intakes.rows[0]?.n ?? 0;
+  if (openIntakes.length > 0) {
+    log.error("destruction took open patient-rights intakes: check each was answered or passed on", {
+      clinicId: c,
+      // Allowlisted keys only (lib/log.ts): the intake ids under requestId
+      // and their kinds under kind, comma-joined, in the same order.
+      count: openIntakes.length,
+      requestId: openIntakes.map((r) => r.id).join(","),
+      kind: openIntakes.map((r) => r.kind).join(","),
+    });
+  }
   // sync_runs and connection_links are append-only by grant (0015, 0024):
   // operational history with no patient in it, kept as the record of what
   // ran. The credentials go with the connection row below.
@@ -752,7 +781,12 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
     resourceType: "clinic_destruction",
     resourceId: c,
     resultCount: total,
-    metadata: { ...Object.fromEntries(Object.entries(deleted).map(([k, v]) => [k, v])), stripe_connect_events: connectEvents },
+    metadata: {
+      ...Object.fromEntries(Object.entries(deleted).map(([k, v]) => [k, v])),
+      stripe_connect_events: connectEvents,
+      rightsIntakesOpen: openIntakes.length,
+      rightsIntakesClosed: intakeRows.length - openIntakes.length,
+    },
   });
   return { clinicId: c, deleted };
 }

@@ -255,8 +255,12 @@ export type DemoStage = "intro" | "roleplay" | "pitch";
 /** The words that start and end the role-play, as said in Aya's own replies. */
 export const DEMO_ROLEPLAY_START = /\bring[\s,!.-]*ring\b/i;
 export const DEMO_ROLEPLAY_END = /\bhow was that\b/i;
-/** The pitch's first question, which also starts it when they skip the role-play or ask about price first. */
-export const DEMO_PITCH_START = /\bhow many calls\b/i;
+/**
+ * The questions that open the talk after the role-play, which also start it
+ * when they skip the role-play or ask about price first: what they are
+ * after, or how many calls they get.
+ */
+export const DEMO_PITCH_START = /\bhow many calls\b|\bwhat made you\b/i;
 
 /**
  * The stage after a reply: moved on only by the scripted line that opens the
@@ -268,6 +272,105 @@ export function nextDemoStage(stage: DemoStage, reply: string): DemoStage {
   if (stage === "roleplay" && DEMO_ROLEPLAY_END.test(reply)) return "pitch";
   if (stage === "intro" && DEMO_PITCH_START.test(reply)) return "pitch";
   return stage;
+}
+
+/**
+ * The questions a demo asks, in order: who they are and what they want from
+ * the call, then, after the role-play, what they are after before anything
+ * is sold (owner, 25 October 2026: "before getting into selling healdesk to
+ * us she should ask questions, to understand what the caller is after").
+ */
+export type DemoQuestion = "role" | "choice" | "goal" | "volume" | "volumeCheck" | "missed" | "coverage" | "ask";
+
+/**
+ * What a demo call has found out, kept by the session from Aya's own
+ * questions and the caller's next words (owner's test call, 25 October 2026:
+ * "she doesn't remember anything I say previously so it makes the caller
+ * repeat itself"): Aya asked "how many calls do you get a day?" three times
+ * after hearing "Five". Each stage's note lists what was answered, never to
+ * be asked again, and says which step is next, so the note itself never
+ * asks for something the caller already said. In memory for the call only,
+ * like the rest of a demo call: the words of a clinic's team member about
+ * their business, never a patient's.
+ */
+export type DemoProgress = {
+  /** The question Aya's last reply asked, which the caller's next words answer. */
+  asked: DemoQuestion | null;
+  /** What the caller said back to each question, in their own words. */
+  answers: Partial<Record<DemoQuestion, string>>;
+  /** The caller's turns inside the role-play being run. */
+  roleplayTurns: number;
+};
+
+export const DEMO_START_PROGRESS: DemoProgress = { asked: null, answers: {}, roleplayTurns: 0 };
+
+/** How Aya's scripted questions read, in her own replies (demoStageNote words each one). */
+const QUESTION_WORDS: readonly (readonly [DemoQuestion, RegExp])[] = [
+  ["role", /\b(?:what'?s|what is) your role\b|\bwhat do you do (?:at|there)\b/i],
+  ["choice", /\bor jump straight into\b|\bquick role-?play\b/i],
+  ["goal", /\bwhat made you\b|\bwhat (?:are|were) you hoping\b|\bbiggest (?:headache|challenge|problem)\b|\bwhat would make (?:it|this|that) convincing\b/i],
+  ["volume", /\bhow many calls\b/i],
+  ["volumeCheck", /\bfair to say\b/i],
+  ["missed", /\bwhat happens (?:to|with)\b/i],
+  ["coverage", /\bhow do you see me helping\b|\bafter[- ]hours(?: calls)? only\b/i],
+  ["ask", /\bset up\?|\bget (?:started|going)\?/i],
+];
+
+/** Answers longer than this are cut: what is kept is a reminder, not a record. */
+const ANSWER_MAX = 200;
+
+/** The scripted question a reply asks, the last one it asks; null when it asks none, or asks no question at all. */
+export function demoQuestionAsked(reply: string): DemoQuestion | null {
+  if (!reply.includes("?")) return null;
+  let found: DemoQuestion | null = null;
+  let at = -1;
+  for (const [question, words] of QUESTION_WORDS) {
+    const m = words.exec(reply);
+    if (m && m.index > at) {
+      found = question;
+      at = m.index;
+    }
+  }
+  return found;
+}
+
+/** The progress with the caller's latest words taken as the answer to what was asked, and counted in a role-play. */
+export function withDemoAnswer(progress: DemoProgress, stage: DemoStage, words: string): DemoProgress {
+  const answers = progress.asked ? { ...progress.answers, [progress.asked]: words.trim().slice(0, ANSWER_MAX) } : progress.answers;
+  return { ...progress, answers, roleplayTurns: stage === "roleplay" ? progress.roleplayTurns + 1 : progress.roleplayTurns };
+}
+
+/** The progress once a reply is said: what it asked, and a fresh count for a role-play it starts. */
+export function afterDemoReply(progress: DemoProgress, stageBefore: DemoStage, stageAfter: DemoStage, reply: string): DemoProgress {
+  return {
+    ...progress,
+    asked: stageAfter === "roleplay" ? null : demoQuestionAsked(reply),
+    roleplayTurns: stageAfter === "roleplay" && stageBefore !== "roleplay" ? 0 : progress.roleplayTurns,
+  };
+}
+
+/** The caller's turns after which a role-play is wrapped up in the next reply, whatever is left. */
+export const ROLEPLAY_MAX_TURNS = 4;
+
+const ANSWER_LABELS: Readonly<Record<DemoQuestion, string>> = {
+  role: "their role",
+  choice: "hear more or a role-play",
+  goal: "what they are after",
+  volume: "calls a day",
+  volumeCheck: "the weekly and monthly calls you checked",
+  missed: "what happens to after-hours and busy calls now",
+  coverage: "how they want you to help",
+  ask: "when you asked them to get set up",
+};
+
+/** The answers so far, as the note lists them; null before any. */
+function knownLine(progress: DemoProgress): string | null {
+  const known = (Object.keys(ANSWER_LABELS) as DemoQuestion[]).filter((q) => progress.answers[q]);
+  if (known.length === 0) return null;
+  return [
+    `What they have already told you, in their words. Never ask any of it again; use it. Only if a reply plainly did not answer the question (they asked what you meant, or talked about something else), ask it once more in different words:`,
+    ...known.map((q) => `- ${ANSWER_LABELS[q]}: "${progress.answers[q]!.replace(/"/g, "'")}"`),
+  ].join("\n");
 }
 
 /** How a person says a dollar amount: "$1,394". */
@@ -343,41 +446,56 @@ const PROFESSIONAL = `Keep it professional: no flirting, no compliments on how t
 
 /**
  * What the model is told on each turn of a demo call (turn.ts, `notes`), for
- * the stage it is in. Shaped around the guard, which reads every word as on
- * any call: "your patients", because "our patients" or "another patient"
- * reads as another patient spoken of (guard.ts, mentionsOtherParty); nothing
- * about how the facts were learnt, which a clinic's own Aya never says
- * either; a number of calls always followed by the word "calls", which the
- * guard's dose-like-figure pattern leaves alone; claims as the launch
- * tracker allows (CLAUDE.md, "Copy first, then the switch": what Aya is
- * built to do, deposit links only in chat); healdesk's prices only in the
- * pitch, from the catalog (demoPriceList), and a close on the demo page's own
- * buy button, since Aya can send nothing.
+ * the stage it is in and what the call has found out (DemoProgress). Shaped
+ * around the guard, which reads every word as on any call: "your patients",
+ * because "our patients" or "another patient" reads as another patient
+ * spoken of (guard.ts, mentionsOtherParty); nothing about how the facts were
+ * learnt, which a clinic's own Aya never says either; a number of calls
+ * always followed by the word "calls", which the guard's dose-like-figure
+ * pattern leaves alone; claims as the launch tracker allows (CLAUDE.md,
+ * "Copy first, then the switch": what Aya is built to do, deposit links only
+ * in chat); healdesk's prices only after the role-play, from the catalog
+ * (demoPriceList), and a close on the demo page's own buy button, since Aya
+ * can send nothing.
+ *
+ * The note says which step is next, from what was answered, rather than
+ * listing every step for the model to keep track of: a list read afresh each
+ * turn, after the conversation, had Aya ask its second step again after it
+ * was answered (owner's test call, 25 October 2026).
  */
 export function demoStageNote(
   context: Pick<DemoCallContext, "firstName" | "clinic" | "offer" | "buyButton" | "mode">,
   stage: DemoStage,
   now: number,
+  progress: DemoProgress = DEMO_START_PROGRESS,
 ): string {
   const clinic = context.clinic.clinicName;
   const who = context.firstName ?? "the caller";
   const opener = demoRoleplayOpener(clinic);
+  const known = knownLine(progress);
+  const a = progress.answers;
+  const goalQuestion = `"What made you want to look at an AI assistant for ${clinic}?"`;
   if (stage === "intro") {
+    const next = !a.role
+      ? `Next: once they confirm who they are, greet them by name in a few words and ask their role at ${clinic} ("Great to meet you! What's your role at ${clinic}?").`
+      : !a.choice
+      ? `Next: react to their role in a few natural words (never congratulate them, and don't repeat their title back), then ask, close to these words: "Would you like to hear what I can do for ${clinic}, or jump straight into a quick role-play where you call in as a patient?"`
+      : `Next: do what they chose. If they want to hear more, say in two or three short spoken sentences that you answer ${clinic}'s calls in English and Spanish whenever the front desk can't get to the phone, know its treatments, prices, hours and policies, take booking requests, handle urgent calls safely and pass anyone who wants a person to the team; name one real detail you know about ${clinic} (never mention a website, scraping or how you learned anything); then offer the role-play. If they want the role-play, or leave it to you ("whatever's best"), start it in this same reply: one short handover ("Let's do it, you be the patient.") and then exactly: "${opener}"`;
     return [
       `This call is a live demo for ${who}, who is on ${clinic}'s team and asked to hear you at work. ${NAME_RULE} You opened by saying who you are and asking who you are speaking with.`,
-      `Go one step at a time, one short question a turn, and skip any step they have already answered:`,
-      `1. Once they confirm who they are, greet them warmly by name and ask their role at ${clinic} ("Great to meet you, ${context.firstName ?? "there"}! What's your role at ${clinic}?").`,
-      `2. Once they say, react to it in a few words, then say, close to these words: "Awesome, look, I'll keep this super brief. Would you like to hear what I can do for ${clinic} and how that helps your team, or jump straight into a quick role-play to see how I handle a live patient call?"`,
-      `3. If they want to hear more: in two or three short spoken sentences, say you answer ${clinic}'s calls in English and Spanish whenever the front desk can't get to the phone, know its treatments, prices, hours and policies, take booking requests, handle urgent calls safely and pass anyone who wants a person to the team; name one or two real details you know about ${clinic} (never mention a website, scraping or how you learned anything); then offer the role-play.`,
-      `4. When they want the role-play, start it by saying exactly: "${opener}" Then they play one of your patients and you answer as ${clinic}'s front desk. Say "your patients", never "our patients" or "another patient".${context.clinic.services.length === 0 ? ` ${clinic}'s treatments and prices are not on file, so if they are unsure what to ask, suggest what callers ask first: the hours, where it is, or booking a consultation.` : ""}`,
-      `If they would rather skip the role-play, or ask about price or getting started, move on to the pitch by asking: "Generally, how many calls do you get a day?"`,
-      PROFESSIONAL,
+      ...(known ? [known] : []),
+      next,
+      `Whenever they want the role-play, start it in the same reply, never a later one, with exactly: "${opener}" Then they play one of your patients and you answer as ${clinic}'s front desk. Say "your patients", never "our patients" or "another patient".${context.clinic.services.length === 0 ? ` ${clinic}'s treatments and prices are not on file, so if they are unsure what to ask, suggest what callers ask first: the hours, where it is, or booking a consultation.` : ""}`,
+      `If they would rather skip the role-play, or ask about price or getting started, find out what they need first, by asking: ${goalQuestion}`,
+      `One short question a turn. ${PROFESSIONAL}`,
     ].join("\n");
   }
   if (stage === "roleplay") {
     return [
-      `The role-play is on: ${who}, of ${clinic}'s team, is playing a patient calling ${clinic}, and you are Aya at its front desk. ${NAME_RULE} Stay fully in character and answer exactly as you would a real caller; step out only if they clearly talk to you as themselves. Keep in mind everything said earlier, their name included.`,
-      `As soon as the patient has what they called for (a booking request taken, or their questions answered), wrap the role-play up yourself in the same reply: one short in-character goodbye, then step out of character with exactly: "Ok, how was that? Haha!" That is the one laugh you are asked to say.`,
+      `The role-play is on: ${who}, of ${clinic}'s team, is playing a patient calling ${clinic}, and you are Aya at its front desk. ${NAME_RULE} Stay fully in character and answer exactly as you would a real caller; step out only if they clearly talk to you as themselves.`,
+      `Keep it brisk, the way a quick, capable front desk sounds: one or two short sentences a turn. Give a real answer to what they ask; if they are unsure what to book, name one or two treatments from the list that suit what they want (no price that is not on the list, and never a figure they said) and offer a consultation. To take a booking request, ask only for the treatment and a preferred day and time, then say in one sentence that the team will confirm the time. Ask for nothing else, and never ask "anything else?".`,
+      `As soon as the request is taken or their question is answered, wrap up in that same reply: a short in-character goodbye, then step out of character with exactly: "And that's the role-play! So, how was that?"`,
+      ...(progress.roleplayTurns >= ROLEPLAY_MAX_TURNS ? [`The role-play has run long enough: wrap it up in this reply, as above.`] : []),
       `Never set "end" to true during the role-play: the demo carries on after it.`,
     ].join("\n");
   }
@@ -389,19 +507,30 @@ export function demoStageNote(
   const close = button
     ? `Close on the button on their demo page: "${button}" opens checkout${offer ? " with their discount already applied" : ""}, for example "Just tap ${button} at the top of your demo page${offer ? ` and your ${context.offer!.percentOfSetupFee}% is already applied` : ""}."`
     : `Tell them the healdesk team will help them get started.`;
-  const volume = days
-    ? `When they give a number, say, close to these words: "I see you're open ${days} days a week, so would it be fair to say about [their number times ${days}] calls a week, or around [that times four, plus a third, rounded to a friendly number] calls a month?"`
-    : `When they give a number, ask how many days a week they are open, then check the total with them, close to these words: "So would it be fair to say about [calls a day times days open] calls a week, or around [that times four, plus a third, rounded to a friendly number] calls a month?"`;
+  const volumeCheck = days
+    ? `Check the total with them, close to these words: "I see you're open ${days} days a week, so would it be fair to say about [their calls a day times ${days}] calls a week, or around [that times four, plus a third, rounded to a friendly number] calls a month?" Do the arithmetic right, and always say the word "calls" straight after a number of calls.`
+    : null;
+  const pitch = `Now, and only now, tie what you do to what they told you: you're built to answer 24/7, on the phone and in their website chat, Instagram, Messenger and WhatsApp, taking bookings, sending their own deposit link in chat, and answering patient questions, said in their terms ("so those after-hours calls stop going to voicemail"). Deposit links go only in website chat or social messages, never on a call and never by text message.${context.mode === "browser" ? " Mention once that they can try you in chat too, right there on their demo page." : ""} Recommend the one package that fits (Aya Voice, Aya Web Chat, Aya Meta Chat, Voice plus Web Chat, or Voice plus Meta Chat) and the step that covers their volume.${example ? ` If it helps, put a value on it in ${clinic}'s own terms: each of those calls that becomes a booking is, say, a ${example.name} on their books at ${usd(example.price)}. Never call it revenue, profit or money they will make, and never promise a number of bookings.` : ""} Then ask for it plainly, once: "Want to get ${clinic} set up?" ${close}`;
+  const next = !a.goal
+    ? `Next: take their reaction to the role-play in a few words (if they are unsure or not convinced, ask what would make it convincing for them), then find out what they are after: ${goalQuestion}, or what the biggest headache with the phones is right now.`
+    : !a.volume
+    ? `Next: react to what they said in a few words, then ask: "Generally, how many calls do you get a day?"`
+    : volumeCheck && !a.volumeCheck
+    ? `Next: ${volumeCheck}`
+    : !a.missed
+    ? `Next: ask: "What happens with after-hours calls, or when your team's busy with patients?"`
+    : !a.coverage
+    ? `Next: ask: "How do you see me helping you best: after-hours calls only, taking over when the lines are busy, or handling all your incoming calls?"`
+    : !a.ask
+    ? `Next: ${pitch}`
+    : `Next: if they said yes, ${close.charAt(0).toLowerCase()}${close.slice(1)} If they hesitated, ask what is holding them back, answer that one thing and ask once more; if they are still not ready, thank them warmly, mention the discount window once if there is one, and say goodbye.`;
   return [
-    `The role-play is over: you are talking with ${who}, of ${clinic}'s team, as themselves again. ${NAME_RULE} Keep in mind everything said earlier, their name included.`,
-    `Go one step at a time, one short question a turn, and react to what they say before moving on:`,
-    `1. Take their reaction to the role-play warmly, then make the point, close to these words: "I'm built to do that 24/7, on the phone and in your website chat, Instagram, Messenger and WhatsApp: taking bookings, sending your own deposit link in chat, and answering patient questions automatically." Deposit links go only in website chat or social messages, never on a call and never by text message.${context.mode === "browser" ? " Mention once that they can try you in chat too, right there on their demo page." : ""}`,
-    `2. Ask: "Generally, how many calls do you get a day?"`,
-    `3. ${volume} Do the arithmetic right, and always say the word "calls" straight after a number of calls ("about 100 calls a week").`,
-    `4. Ask: "What happens with after-hours calls, or when your team's busy with patients?"`,
-    `5. Ask: "How do you see me helping you best: after-hours calls only, taking over when the lines are busy, or handling all your incoming calls?"`,
-    `6. Recommend the one package that fits what they told you (Aya Voice, Aya Web Chat, Aya Meta Chat, Voice plus Web Chat, or Voice plus Meta Chat) and the step that covers their volume, in a sentence that ties it to their own words ("so the after-hours calls stop going to voicemail").${example ? ` If it helps, put a value on it in ${clinic}'s own terms: each of those calls that becomes a booking is, say, a ${example.name} on their books at ${usd(example.price)}. Never call it revenue, profit or money they will make, and never promise a number of bookings.` : ""}`,
-    `7. Then ask for it plainly, once: "Want to get ${clinic} set up?" ${close} If they hesitate, ask what is holding them back, answer that one thing, and ask once more; if they are still not ready, thank them warmly, mention the discount window once if there is one, and say goodbye. Never say you will send a link, an email or a text, and never take payment details on the call.`,
+    `The role-play is over: you are talking with ${who}, of ${clinic}'s team, as themselves again. ${NAME_RULE}`,
+    ...(known ? [known] : []),
+    `Find out what they need before you sell anything: one short question a turn, a few words reacting to each answer before the next, and no pitch until the questions are answered. If they ask about price, what you do or how to start before then, answer that briefly and come back to the next question.`,
+    next,
+    `If they want the package now, skip the rest of the questions: ${pitch}`,
+    `Never say you will send a link, an email or a text, and never take payment details on the call.`,
     `True answers to the usual doubts, in a sentence each: patients minding an AI (you say you are an AI in your first line, and anyone who wants a person gets passed to the team); patient data ("We sign a business associate agreement and handle patient data under it", never "HIPAA compliant"); setup (about fifteen minutes of their attention; phone goes live once they set up call forwarding on their own line, so they keep their number; website chat once a snippet is on their site); mistakes (you never diagnose or quote a price that is not on their list, urgent calls go straight to their team, and if anything fails, calls go to their own direct line); cost (the monthly price only starts once you are answering their patients).`,
     prices,
     ...(offer ? [offer] : []),

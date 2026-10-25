@@ -162,7 +162,8 @@ describe("the sentence splitter", () => {
 
   test("words the language check cannot place yet wait for the next sentence instead of cutting the reply", async () => {
     const speak = vi.fn();
-    // "Mm-hmm. Got it." alone reads as no language; with what follows it is plain English.
+    // "Mm-hmm. Got it." alone reads as no language; with what follows it is
+    // plain English. The opening "Mm-hmm." goes (withoutLeadingFiller).
     const turn = await answerTurn({
       facts: FACTS,
       channel: "voice",
@@ -172,7 +173,7 @@ describe("the sentence splitter", () => {
       speak,
     });
     expect(turn.source).toBe("model");
-    expect(turn.reply).toBe("Mm-hmm. Got it. We can do nails on any weekday. Which day suits you?");
+    expect(turn.reply).toBe("Got it. We can do nails on any weekday. Which day suits you?");
     expect(speak.mock.calls.map(([s]) => s).join(" ")).toBe(turn.spoken);
   });
 
@@ -275,7 +276,8 @@ describe("borrowed from full-duplex speech (owner, 24 October 2026)", () => {
     const again = `We have Friday at ten or Saturday at noon.\n${SPOKEN_END}\n{}`;
     for (const text of ["sorry?", "What?", "can you speak up", "sorry, I couldn't hear you", "¿perdón?"]) {
       const turn = await answerTurn({ facts: FACTS, channel: "voice", history, text, responder: async () => `Sure! ${again}` });
-      expect(turn.reply, text).toBe("Sure! We have Friday at ten or Saturday at noon.");
+      // The habitual "Sure!" goes; the key part is said again.
+      expect(turn.reply, text).toBe("We have Friday at ten or Saturday at noon.");
     }
     // An ordinary answer still drops the repeat.
     const on = await answerTurn({ facts: FACTS, channel: "voice", history, text: "Friday works for me", responder: async () => `Great! ${again}` });
@@ -387,12 +389,13 @@ describe("a declined idea, a known menu, and a peer on the line (owner, 24 Octob
     expect(await told("yes please, Friday")).not.toMatch(/turned down/);
   });
 
-  test("the prompt lets her describe a listed service generally, never invent the practice, and think out loud unevenly", () => {
+  test("the prompt lets her describe a listed service generally, never invent the practice, and never open on a filler", () => {
     const prompt = buildAssistantPrompt(FACTS, "voice");
     expect(prompt).toMatch(/You may say what a listed service generally is/);
     expect(prompt).toMatch(/never anything about risks, safety, downtime or results/);
     expect(prompt).toMatch(/Do not invent facts about the practice: its staff, equipment, brands/);
-    expect(prompt).toMatch(/Put them at a different point each time, in some replies and not others/);
+    expect(prompt).toMatch(/Start every reply with what you have to say, never with a sound or a one-word filler/);
+    expect(prompt).not.toMatch(/Think out loud/);
     expect(prompt).toMatch(/Be the person callers love talking to/);
     expect(prompt).toMatch(/no flirting, no compliments on how they look/);
   });

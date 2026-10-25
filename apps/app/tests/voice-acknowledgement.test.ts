@@ -129,12 +129,15 @@ describe("the acknowledgement while the model thinks", () => {
     expect(recorded.turns?.find((t) => t.text.startsWith(ACKNOWLEDGEMENTS.en[0]!))?.text).toBe(`${ACKNOWLEDGEMENTS.en[0]} Lovely, which day suits you?`);
   });
 
-  test("is never the same twice in a row", async () => {
+  test("is never said on two turns running, and never the same one twice in a row", async () => {
     const { s, raw, heard } = session(reply("Sure thing."));
     await s.open();
     const opening = raw()[0]!.content;
     await s.handle(said(1, [{ role: "agent", content: opening }, { role: "user", content: "what time do you open tomorrow" }]));
     await s.handle(said(2, [{ role: "agent", content: heard()[1]!.content }, { role: "user", content: "and is there parking nearby" }]));
+    // The second turn came straight after one that had it: none (owner's test call, 25 October 2026).
+    expect(raw().filter((r) => r.content_complete === false)).toHaveLength(1);
+    await s.handle(said(3, [{ role: "agent", content: heard()[2]!.content }, { role: "user", content: "and do you take walk ins" }]));
     const acks = raw().filter((r) => r.content_complete === false).map((r) => r.content);
     expect(acks).toHaveLength(2);
     expect(acks[0]).not.toBe(acks[1]);
@@ -265,10 +268,12 @@ describe("a silence (owner, 24 October 2026)", () => {
 });
 
 describe("the thinking sound (owner, 24 October 2026)", () => {
-  test("is a thinking sound picked at random, never the same twice in a row, and said within a fifth of a second", async () => {
+  test("is a thinking sound, never a verdict, said only for a reply that is genuinely slow", async () => {
     const { ACKNOWLEDGE_AFTER_MS } = await import("@/lib/voice/retell");
-    expect(ACKNOWLEDGE_AFTER_MS).toBeLessThanOrEqual(200);
+    // At 200 ms nearly every reply began with one (owner's test call, 25 October 2026).
+    expect(ACKNOWLEDGE_AFTER_MS).toBeGreaterThanOrEqual(800);
+    expect(ACKNOWLEDGE_AFTER_MS).toBeLessThanOrEqual(1_200);
     expect(ACKNOWLEDGEMENTS.en).toContain("Mm.");
-    expect(ACKNOWLEDGEMENTS.en.some((line) => /okay/i.test(line))).toBe(false);
+    expect(ACKNOWLEDGEMENTS.en.some((line) => /okay|sure|right|mm-hmm/i.test(line))).toBe(false);
   });
 });

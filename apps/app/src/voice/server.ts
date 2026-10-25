@@ -181,8 +181,10 @@ export function createVoiceServer(options: VoiceServerOptions = {}): { server: S
  */
 export async function warmProcess(): Promise<number> {
   const started = Date.now();
+  // Outside the try: an SDK missing from the build must fail loudly, never
+  // be swallowed (tests/aws-sdk-externals.test.ts); main() logs it as an error.
+  await import("@anthropic-ai/sdk");
   try {
-    await import("@anthropic-ai/sdk");
     const facts = demoAssistantFacts({
       slug: "warm-up",
       clinic: {
@@ -223,7 +225,10 @@ async function main(): Promise<void> {
     log.info("voice endpoint in test mode: only a made-up clinic's calls are answered", { status: "test-calls" });
   }
   server.listen(port, host, () => log.info("voice endpoint ready", { status: "listening" }));
-  void warmProcess().then((ms) => log.info("voice endpoint warmed", { ms }));
+  void warmProcess().then(
+    (ms) => log.info("voice endpoint warmed", { ms }),
+    (error: unknown) => log.error("voice endpoint warm-up failed: the model SDK did not load", { error: describeError(error) }),
+  );
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.on(signal, () => {
       log.info("voice endpoint draining on signal", { signal });

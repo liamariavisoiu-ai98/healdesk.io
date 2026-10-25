@@ -458,7 +458,8 @@ type OperatorOp =
   // fresh code (lib/admin/approval-decide.ts).
   | "previewSupportReply"
   | "saveSupportDraft"
-  | "proposeSupportReply";
+  | "proposeSupportReply"
+  | "regenerateSupportDraft";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -9293,8 +9294,8 @@ export type SupportCaseView = {
   case: SupportCaseRowView;
   messages: SupportMessageView[];
   facts: SupportCaseFactsView | null;
-  /** Lane P7b's draft; null until the drafter writes one. */
-  draft: null;
+  /** The newest draft, or why the last run wrote none (lane P7b); null until the drafter has run. */
+  draft: SupportDraftView | null;
   /** The names a case may be given to (HEALDESK_OPS_PEOPLE). */
   people: string[];
 };
@@ -9511,12 +9512,11 @@ export function fetchSupportCases(
 export function fetchSupportCase(caseId: string): Promise<OpsResult<SupportCaseView>> {
   return callOps("getSupportCase", "read", { caseId }, (value) => {
     const data = exactKeys(value, ["case", "messages", "facts", "draft", "people"], "getSupportCase");
-    if (data.draft !== null) throw new ShapeError("getSupportCase.draft");
     return {
       case: readSupportCaseRow(data.case, "getSupportCase.case"),
       messages: list(data.messages, "getSupportCase.messages").map((m, i) => readSupportMessage(m, `getSupportCase.messages[${i}]`)),
       facts: nullable(data.facts, (v) => readCaseFacts(v, "getSupportCase.facts")),
-      draft: null,
+      draft: nullable(data.draft, (v) => readSupportDraft(v, "getSupportCase.draft")),
       people: list(data.people, "getSupportCase.people").map((p, i) => personLabel(p, `getSupportCase.people[${i}]`)),
     };
   });
@@ -9800,5 +9800,100 @@ export function fetchSupportReplyHistory(options: { limit?: number } = {}): Prom
           at: isoInstant(r.at, `${at}.at`),
         };
       });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The support drafter (lane P7b)
+// -----------------------------------------------------------------------------
+
+/** apps/app lib/support/draft/checks.ts CHECK_IDS, in order. */
+export const SUPPORT_CHECK_IDS = ["facts", "screen", "names", "clinical", "promises", "claims", "shape", "other_clinics"] as const;
+export type SupportCheckId = (typeof SUPPORT_CHECK_IDS)[number];
+/** apps/app lib/support/draft/tools.ts READ_TOOL_NAMES. */
+const SUPPORT_DRAFT_TOOLS = ["get_account_state", "get_forwarding_steps", "get_clinic_signals", "get_case_history"] as const;
+/** apps/app lib/support/draft/store.ts DRAFT_FAILURES. */
+export const SUPPORT_DRAFT_FAILURES = [
+  "model_unavailable",
+  "model_failed",
+  "model_refused",
+  "no_proposal",
+  "account_unreadable",
+  "draft_limit",
+] as const;
+const SUPPORT_DRAFT_CONFIDENCE = ["high", "medium", "low"] as const;
+/** support_messages.draft_text's own limit (apps/app drizzle/0125). */
+const MAX_SUPPORT_DRAFT = 20_000;
+
+/**
+ * A case's newest draft: the text the eight checks read, each check's
+ * verdict and fixed rule, the facts the draft rests on (tool, field, value),
+ * the questions for ops and the model's confidence. Or, when the last run
+ * wrote none, why (`failure`), with no version and no text.
+ */
+export type SupportDraftView = {
+  messageId: string;
+  version: number | null;
+  text: string | null;
+  checks: { id: SupportCheckId; ok: boolean; rule: string }[];
+  factsUsed: { tool: (typeof SUPPORT_DRAFT_TOOLS)[number]; field: string; value: string }[];
+  questionsForOps: string[];
+  confidence: (typeof SUPPORT_DRAFT_CONFIDENCE)[number] | null;
+  createdAt: string;
+  failure: (typeof SUPPORT_DRAFT_FAILURES)[number] | null;
+};
+
+function readSupportDraft(value: unknown, at: string): SupportDraftView {
+  const d = exactKeys(
+    value,
+    ["messageId", "version", "text", "checks", "factsUsed", "questionsForOps", "confidence", "createdAt", "failure"],
+    at,
+  );
+  const failure = nullable(d.failure, (v) => literal(v, SUPPORT_DRAFT_FAILURES, `${at}.failure`));
+  const version = nullable(d.version, (v) => count(v, `${at}.version`));
+  const draftText = nullable(d.text, (v) => editable(v, `${at}.text`, MAX_SUPPORT_DRAFT));
+  // A draft has a version and text and no failure; a failed run has neither.
+  if (failure === null ? version === null || version < 1 || draftText === null : version !== null || draftText !== null) {
+    throw new ShapeError(`${at}.failure`);
+  }
+  return {
+    messageId: id(d.messageId, `${at}.messageId`),
+    version,
+    text: draftText,
+    checks: list(d.checks, `${at}.checks`).map((c, i) => {
+      const r = exactKeys(c, ["id", "ok", "rule"], `${at}.checks[${i}]`);
+      return {
+        id: literal(r.id, SUPPORT_CHECK_IDS, `${at}.checks[${i}].id`),
+        ok: bool(r.ok, `${at}.checks[${i}].ok`),
+        rule: text(r.rule, `${at}.checks[${i}].rule`),
+      };
+    }),
+    factsUsed: list(d.factsUsed, `${at}.factsUsed`).map((f, i) => {
+      const r = exactKeys(f, ["tool", "field", "value"], `${at}.factsUsed[${i}]`);
+      return {
+        tool: literal(r.tool, SUPPORT_DRAFT_TOOLS, `${at}.factsUsed[${i}].tool`),
+        field: text(r.field, `${at}.factsUsed[${i}].field`).slice(0, 120),
+        value: text(r.value, `${at}.factsUsed[${i}].value`).slice(0, 300),
+      };
+    }),
+    questionsForOps: list(d.questionsForOps, `${at}.questionsForOps`).map((q, i) =>
+      text(q, `${at}.questionsForOps[${i}]`).slice(0, 300),
+    ),
+    confidence: nullable(d.confidence, (v) => literal(v, SUPPORT_DRAFT_CONFIDENCE, `${at}.confidence`)),
+    createdAt: isoInstant(d.createdAt, `${at}.createdAt`),
+    failure,
+  };
+}
+
+/** Ask for a new draft of a case: it only queues, and the support-draft job drafts it. At most five a case. */
+export function regenerateSupportDraft(caseId: string): Promise<OpsResult<SupportCaseMoveOutcome>> {
+  return callOps("regenerateSupportDraft", "write", { caseId }, (value) => {
+    const data = exactKeys(value, ["outcome", "ref", "state", "auditRecorded"], "regenerateSupportDraft");
+    return {
+      outcome: literal(data.outcome, ["done", "unchanged"] as const, "regenerateSupportDraft.outcome"),
+      ref: supportRef(data.ref, "regenerateSupportDraft.ref"),
+      state: literal(data.state, ["new"] as const, "regenerateSupportDraft.state"),
+      auditRecorded: bool(data.auditRecorded, "regenerateSupportDraft.auditRecorded"),
+    };
   });
 }

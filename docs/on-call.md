@@ -180,6 +180,16 @@ first clinic's 30th live day: hourly, it asks for a read of each live clinic's w
 days after its last, compares it with the purchase-time baseline, puts what Knowledge does
 not say on the clinic's "Changes on your website" list, and queues L23.
 
+The support drafter (`lib/scheduler/support-draft.ts`, lane P7b) is the `support-draft`
+row, shipped OFF: every minute from its own `support-draft` queue (install it and restart
+the worker, as above), up to three `new` support cases that name a clinic each get a draft
+reply written from the case's fields and the clinic's account, checked by the eight reply
+rules (`lib/support/draft/checks.ts`). It sends nothing: the case moves to `drafted` when
+every rule passes and `needs_edit` when one fails or the model could not be reached, with
+the rule or the reason shown on the case. At most five drafts a case; ops
+`regenerateSupportDraft` asks for another. Switch it on only with `ANTHROPIC_API_KEY` set:
+without the key every case it takes ends `needs_edit` (`model_unavailable`).
+
 v1 adds jobs that are not built yet: the demo-sandbox purge (7 to 14 days), the 14-day
 zero-inbound flag for an active voice plan, the 48-hour zero-interaction flag, the
 48-hour channel-not-live reminder to the clinic, and the daily summary email to the

@@ -5,6 +5,7 @@ import { log } from "@/lib/log";
 import { formatPhone } from "@/lib/setup/help";
 
 import { describeAccountState, type AccountState } from "./account-state";
+import { openCasesText, type OpenCase } from "./draft/open-cases";
 import type { EscalationResult } from "./escalate";
 import type { ClosedForwardingSteps, ForwardingAnswer, ForwardingSteps } from "./forwarding";
 import { supportRequest, type SupportModelClient } from "./model";
@@ -51,6 +52,8 @@ export type SupportToolbox = {
   accountState(): Promise<AccountState | null>;
   forwardingSteps(): Promise<ForwardingAnswer | null>;
   linkTo(setting: unknown): SupportLink | null;
+  /** get_open_cases (lane P7b): the practice's open requests, dates and states only. */
+  openCases(): Promise<OpenCase[] | null>;
   escalate(input: unknown): Promise<EscalationResult>;
 };
 
@@ -161,6 +164,11 @@ async function runTool(
           input.emit({ type: "link", label: link.label, url: link.url });
         }
         return result(`A button to "${link.label}" is shown under your reply.`);
+      }
+      case "get_open_cases": {
+        const cases = await input.tools.openCases();
+        if (!cases) return result("The practice's requests could not be read just now.", true);
+        return result(openCasesText(cases));
       }
       case "escalate_to_support": {
         const outcome = await input.tools.escalate(use.input);

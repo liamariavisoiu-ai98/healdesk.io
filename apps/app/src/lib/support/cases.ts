@@ -537,8 +537,8 @@ export function assignSupportCase(caseId: string, label: string, now: Date): Pro
  * (30 days after close, 7 when phi_suspected; the sweep is follow-up S7);
  * a chat case holds no text, so its day is set all the same and finds none.
  */
-export function closeSupportCase(caseId: string, reason: SupportClosedReason, now: Date): Promise<CaseMoveOutcome> {
-  return move(caseId, (c) => ({
+export async function closeSupportCase(caseId: string, reason: SupportClosedReason, now: Date): Promise<CaseMoveOutcome> {
+  const outcome = await move(caseId, (c) => ({
     to: "closed",
     write: {
       state: "closed",
@@ -549,6 +549,9 @@ export function closeSupportCase(caseId: string, reason: SupportClosedReason, no
       updatedAt: now,
     },
   }));
+  // Lane P7e: a closed case leaves no reply waiting for the owner's yes (outcome case_closed).
+  if (outcome.outcome === "done") await (await import("./wire")).expireAfterClose(caseId, now);
+  return outcome;
 }
 
 export type MatchOutcome =

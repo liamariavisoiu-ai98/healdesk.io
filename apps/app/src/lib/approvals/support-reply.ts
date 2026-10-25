@@ -198,8 +198,8 @@ export async function expireOlderVersions(caseId: string, currentMessageId: stri
   return expired;
 }
 
-/** Take every waiting item of a case off the list (the case closed). */
-export async function expireCaseItems(caseId: string, now: Date): Promise<number> {
+/** Take every waiting item of a case off the list (the case closed: lib/support/wire.ts passes `case_closed`). */
+export async function expireCaseItems(caseId: string, now: Date, outcomeCode = "no_longer_needed"): Promise<number> {
   const waiting = await unsafeDb
     .select({ id: opsApprovals.id, payload: opsApprovals.payload })
     .from(opsApprovals)
@@ -207,7 +207,7 @@ export async function expireCaseItems(caseId: string, now: Date): Promise<number
   let expired = 0;
   for (const item of waiting) {
     if (parseSupportReplyPayload(item.payload)?.caseId !== caseId) continue;
-    if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode: "no_longer_needed" })) {
+    if (await moveStatus(item.id, "waiting", "expired", "expired", SERVICE_ACTOR, now, { outcomeCode })) {
       expired += 1;
     }
   }

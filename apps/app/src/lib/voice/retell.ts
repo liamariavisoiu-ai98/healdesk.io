@@ -7,6 +7,7 @@ import { clinics, clinicSettings } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { bookingTools, EMPTY_TOOL_STATE, type BookingTools, type BookingToolState } from "@/lib/assistant/booking-tools";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
+import { buildAssistantPrompt } from "@/lib/assistant/prompt";
 import { checkMenu } from "@/lib/assistant/menu-check";
 import { openingLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, failureLine, languageTerms, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
@@ -213,6 +214,16 @@ export const ACKNOWLEDGEMENTS: Readonly<Record<SpokenLanguage, readonly string[]
 /** How long the reply may take to start before the acknowledgement is said instead. */
 export const ACKNOWLEDGE_AFTER_MS = 200;
 
+/**
+ * How long the model may sit idle on a call before it is readied again
+ * (responder.ts prewarmModel; owner, 25 October 2026: "still way too slow to
+ * answer"). Under the four seconds after which Node's fetch closes an idle
+ * connection, so the caller's next turn never starts with a new TLS handshake
+ * on the voice task's quarter vCPU, and well inside the prompt cache's five
+ * minutes. Each warm is a cache read of the prompt, no output.
+ */
+export const KEEP_WARM_MS = 3_000;
+
 /** Words the caller must have said for an acknowledgement: a lone "John" or "nails" is answered straight away anyway. */
 const ACKNOWLEDGE_MIN_WORDS = 3;
 
@@ -302,6 +313,8 @@ export type RetellSessionDeps = {
   cacheFacts?: boolean;
   /** How long a reply may take to start before the acknowledgement is said (ACKNOWLEDGE_AFTER_MS). */
   acknowledgeAfterMs?: number;
+  /** How long the model may sit idle on a call before it is warmed again (KEEP_WARM_MS); 0 turns keeping warm off. */
+  keepWarmMs?: number;
   /** The acknowledgement's pick, 0 to 1; Math.random unset. */
   random?: () => number;
   /**
@@ -508,6 +521,11 @@ export class RetellCallSession {
   private demoContext: DemoCallContext | null = null;
   /** Where a demo call is (demo-facts.ts, DemoStage), moved on by Aya's own scripted lines. */
   private demoStage: DemoStage = "intro";
+  /** When the model was last asked anything on this call, a warm included (Date.now()). */
+  private lastModelAt = 0;
+  /** A turn is with the model: no warm goes alongside it. */
+  private answering = false;
+  private warmTimer: ReturnType<typeof setInterval> | null = null;
   /** Retell's call object from call details, for a demo call's context; dropped once read. */
   private demoCall: unknown = null;
 
@@ -683,6 +701,8 @@ export class RetellCallSession {
     this.facts = facts;
     this.disclosurePlayedAt = this.now();
     this.say(responseId, this.openingFor(facts), { noInterruption: true });
+    // The opening line plays for a few seconds: the model is readied meanwhile.
+    this.startKeepingWarm();
     log.info("retell demo call started", { clinicId: this.clinicId, callId: this.callId, source: context.mode, count: facts.services.length });
   }
 
@@ -730,6 +750,7 @@ export class RetellCallSession {
     // Short since 24 October 2026, and said whole: the caller cannot talk
     // over the disclosure, so it is heard before anything they say is answered.
     this.say(responseId, openingLine(facts, "voice"), { noInterruption: true });
+    this.startKeepingWarm();
   }
 
   /**
@@ -912,6 +933,43 @@ export class RetellCallSession {
   /** The socket closed. Called at once, before the record waits its turn. */
   socketClosed(): void {
     this.hungUp = true;
+    this.stopKeepingWarm();
+  }
+
+  /**
+   * Readies the model for this call's next turn (responder.ts, prewarm):
+   * the same stable prompt the turn will send, so its cache is written now,
+   * and the connection to the API kept open. Never alongside a turn, never
+   * once the call is closing; a failure is nothing, the turn simply runs cold.
+   */
+  private warm(): void {
+    const prewarm = this.deps.responder?.prewarm;
+    const facts = this.facts;
+    if (!prewarm || !facts || this.closing || this.hungUp || this.answering) return;
+    this.lastModelAt = Date.now();
+    // Booking tools change the stable prompt (prompt.ts BOOKING_TOOLS); a
+    // demo has none, and a clinic's call with them live still gets the
+    // connection kept open.
+    const stable = buildAssistantPrompt(facts, "voice", { bookingTools: false });
+    prewarm({ stable, turn: "" }, "voice").catch(() => {});
+  }
+
+  /** Warms now, then again whenever the model has been idle for KEEP_WARM_MS, until the call ends. */
+  private startKeepingWarm(): void {
+    const every = this.deps.keepWarmMs ?? KEEP_WARM_MS;
+    if (!this.deps.responder?.prewarm) return;
+    this.warm();
+    if (every <= 0 || this.warmTimer) return;
+    this.warmTimer = setInterval(() => {
+      if (this.closing || this.hungUp) return this.stopKeepingWarm();
+      if (Date.now() - this.lastModelAt >= every) this.warm();
+    }, Math.max(50, Math.floor(every / 3)));
+    this.warmTimer.unref?.();
+  }
+
+  private stopKeepingWarm(): void {
+    if (this.warmTimer) clearInterval(this.warmTimer);
+    this.warmTimer = null;
   }
 
   /** One message from Retell. Never throws: a fault is logged and the caller hears a fixed line. */
@@ -1110,6 +1168,8 @@ export class RetellCallSession {
       if (ackTimer) clearTimeout(ackTimer);
       ackTimer = null;
     };
+    this.answering = true;
+    this.lastModelAt = Date.now();
     const turn = await answerTurn({
       facts,
       channel: "voice",
@@ -1156,7 +1216,11 @@ export class RetellCallSession {
       // The note for the stage the demo is in (demo-facts.ts), so no stage's
       // instructions are ever repeated into another, a role-play above all.
       notes: this.demoContext ? [demoStageNote(this.demoContext, this.demoStage, this.now().getTime())] : null,
-    }).finally(stopAck);
+    }).finally(() => {
+      stopAck();
+      this.answering = false;
+      this.lastModelAt = Date.now();
+    });
     // The caller spoke again while this was being answered: the newer
     // request carries these words too, so this answer is dropped unsaid.
     if (responseId !== this.latestResponseId || this.closing) return;
@@ -1373,6 +1437,7 @@ export class RetellCallSession {
   private async record(): Promise<IngestResult | null> {
     this.recording = true;
     this.closing = true;
+    this.stopKeepingWarm();
     // The earlier call's turns were for this call's replies only.
     this.redial = null;
     this.redialLookup = null;

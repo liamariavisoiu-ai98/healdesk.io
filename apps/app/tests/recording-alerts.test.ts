@@ -119,7 +119,7 @@ describe("a clinic's Retell agent", () => {
       backchannel_words: ["mm-hmm", "uh-huh", "yeah", "I see"],
       interruption_sensitivity: 0.8,
       responsiveness: 1,
-      enable_dynamic_responsiveness: true,
+      enable_dynamic_responsiveness: false,
       voice_temperature: 1.2,
       voice_speed: 1.05,
       enable_dynamic_voice_speed: true,

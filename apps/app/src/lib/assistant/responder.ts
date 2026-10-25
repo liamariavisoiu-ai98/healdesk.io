@@ -73,7 +73,7 @@ export function isModelRefusal(value: unknown): value is ModelRefusal {
 }
 
 /** The model behind a call or a web chat: a system prompt and the conversation so far, the last message the person's. */
-export type AssistantResponder = (request: {
+export type AssistantResponder = ((request: {
   system: AssistantPrompt;
   messages: AssistantMessage[];
   channel: AssistantChannel;
@@ -84,7 +84,14 @@ export type AssistantResponder = (request: {
    * stream simply never calls it.
    */
   onText?: (delta: string) => void;
-}) => Promise<string | ModelRefusal>;
+}) => Promise<string | ModelRefusal>) & {
+  /**
+   * Readies the model for the next turn without answering anything (prewarmModel):
+   * writes the prompt cache for `system.stable` and keeps the connection
+   * open. A responder without it (a test's) simply is not warmed.
+   */
+  prewarm?: (system: AssistantPrompt, channel: AssistantChannel) => Promise<void>;
+};
 
 /** Every channel the client serves: the assistant's two, and the Meta front door. */
 export type ModelChannel = AssistantChannel | "meta";
@@ -247,6 +254,23 @@ export async function callModel(input: {
 }
 
 /**
+ * Readies the model for a call's next turn (owner, 25 October 2026: "still
+ * way too slow to answer"): a `max_tokens: 0` request, built by modelRequest
+ * so the model, thinking and effort match the real turns byte for byte
+ * (otherwise the cache it writes is one the turns never read), runs prefill
+ * only: it writes the prompt cache at the stable prefix's breakpoint and
+ * returns at once, no output billed. On the call's one kept client, it also
+ * keeps the connection to the API open, so a turn never starts with a fresh
+ * TLS handshake on the voice task's quarter vCPU. The placeholder message is
+ * read and never answered. Throws what the SDK throws.
+ */
+export async function prewarmModel(input: { apiKey: string; channel: ModelChannel; system: AssistantPrompt }): Promise<void> {
+  const client = await clientFor(input.apiKey, input.channel);
+  const request = modelRequest({ channel: input.channel, system: { stable: input.system.stable, turn: "" }, messages: [{ role: "user", content: "warmup" }] });
+  await client.messages.create({ ...request, max_tokens: 0 });
+}
+
+/**
  * One client per key and channel, kept for the process: a client made per
  * turn opened a new TLS connection to the API on every turn of a call,
  * which the caller heard as dead air before each reply (test calls of 23
@@ -278,5 +302,8 @@ function clientFor(apiKey: string, channel: ModelChannel): Promise<Anthropic> {
 export function anthropicAssistantResponder(): AssistantResponder | null {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
-  return ({ system, messages, channel, onText }) => callModel({ apiKey, channel, system, messages, ...(onText ? { onText } : {}) });
+  const responder: AssistantResponder = ({ system, messages, channel, onText }) =>
+    callModel({ apiKey, channel, system, messages, ...(onText ? { onText } : {}) });
+  responder.prewarm = (system, channel) => prewarmModel({ apiKey, channel, system });
+  return responder;
 }

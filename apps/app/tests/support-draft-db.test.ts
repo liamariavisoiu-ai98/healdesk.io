@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
-import type { Operator } from "@/lib/ops/api";
+import { isMutating, isOpName, runOperation, type Operator } from "@/lib/ops/api";
 import { opRegenerateSupportDraft, supportDraftFor } from "@/lib/ops/support-draft-ops";
 import { JOB_SUPPORT_DRAFT, runSupportDraftJob } from "@/lib/scheduler/support-draft";
 import { closeSupportCase, insertCase, recordChatEscalation } from "@/lib/support/cases";
@@ -206,6 +206,24 @@ describeDb("support drafter", () => {
     expect(await readCurrentDraft(opened.caseId)).toMatchObject({ version: 1, text: BY_WEDNESDAY });
   });
 
+  test("regenerateSupportDraft is a registered, mutating operation, and getSupportCase carries the draft", async () => {
+    expect(isOpName("regenerateSupportDraft")).toBe(true);
+    expect(isMutating("regenerateSupportDraft")).toBe(true);
+    const c = await emailCase(a.clinicId, "sign_in");
+    const before = await runOperation("getSupportCase", { caseId: c.id }, OPERATOR);
+    expect((before.body as { data: { draft: unknown } }).data.draft).toBeNull();
+    await draftNextCase({ client: new FakeDrafter(() => ({ reply: BY_WEDNESDAY })), now: NOW }, c.id);
+    const after = await runOperation("getSupportCase", { caseId: c.id }, OPERATOR);
+    expect(after.status).toBe(200);
+    const draft = (after.body as { data: { draft: Record<string, unknown> } }).data.draft;
+    // The keys apps/web's reader holds (ops-client-support-draft.test.ts).
+    expect(Object.keys(draft).sort()).toEqual(
+      ["checks", "confidence", "createdAt", "factsUsed", "failure", "messageId", "questionsForOps", "text", "version"].sort(),
+    );
+    expect(draft).toMatchObject({ version: 1, text: BY_WEDNESDAY, failure: null });
+    expect((draft.checks as { id: string }[]).map((x) => x.id)).toEqual([...CHECK_IDS]);
+  });
+
   test("the last request of a run must propose", () => {
     const req = draftRequest({ system: { stable: "s", turn: "t" }, messages: [], final: true });
     expect(req.tool_choice).toEqual({ type: "tool", name: "propose_reply" });
@@ -300,7 +318,7 @@ describeDb("support drafter", () => {
     for (let n = 1; n <= DRAFTS_PER_CASE; n += 1) {
       if (n > 1) {
         const before = model.requests.length;
-        const asked = await opRegenerateSupportDraft({ caseId: c.id }, OPERATOR, NOW);
+        const asked = await runOperation("regenerateSupportDraft", { caseId: c.id }, OPERATOR);
         expect(asked.status, JSON.stringify(asked.body)).toBe(200);
         expect(model.requests.length, "a regeneration calls no model").toBe(before);
         expect((await caseRow(c.id)).state).toBe("new");

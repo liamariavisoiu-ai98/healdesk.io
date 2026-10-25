@@ -16,6 +16,7 @@ import {
 import { opsPeople } from "@/lib/support/people";
 
 import { actorFor, audit, clinicById, ok, opsProblem, UUID_SHAPED, type Operator, type OpsOutcome } from "./api";
+import { supportDraftFor } from "./support-draft-ops";
 
 /**
  * The support cases' ops operations (ops automation Phase 7, lane P7a;
@@ -101,7 +102,8 @@ export async function opGetSupportCase(
     const facts: CaseFacts | null = read.row.clinicId
       ? await readCaseFacts({ clinicId: read.row.clinicId, actor: actorFor(operator), request: operator.request, now })
       : null;
-    return ok({ case: read.row, messages: read.messages, facts, draft: null, people: [...opsPeople()] });
+    const draft = await supportDraftFor(caseId);
+    return ok({ case: read.row, messages: read.messages, facts, draft, people: [...opsPeople()] });
   } catch (error) {
     log.error("support case not read", { error: describeError(error) });
     return opsProblem("The support case could not be read.", 500, "failed");

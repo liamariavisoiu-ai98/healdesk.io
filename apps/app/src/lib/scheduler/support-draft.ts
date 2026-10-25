@@ -1,7 +1,7 @@
 import { describeError, log } from "@/lib/log";
 import { draftNextCase, type DraftDeps } from "@/lib/support/draft/run";
 
-import { getJob, runSwitchedJob, type JobOutcome } from "./jobs";
+import { getJob, JOB_SUPPORT_DRAFT, runSwitchedJob, type JobOutcome } from "./jobs";
 
 /**
  * The support drafter's job (design E5 §2.3; lane P7b): every minute from
@@ -18,12 +18,12 @@ import { getJob, runSwitchedJob, type JobOutcome } from "./jobs";
  * email sender does.
  *
  * The job row itself is seeded by a migration (lane P7b handed the INSERT to
- * the lead for drizzle/0126). Until that row exists this job does nothing and
+ * the lead for drizzle/0126); the queue is QUEUE_SUPPORT_DRAFT
+ * (lib/queue/boss.ts). Until that row exists this job does nothing and
  * says so, rather than throwing "Unknown job" every minute.
  */
 
-export const JOB_SUPPORT_DRAFT = "support-draft";
-export const QUEUE_SUPPORT_DRAFT = "support-draft";
+export { JOB_SUPPORT_DRAFT };
 /** Cases per fire, at most: each is a few model calls, and the next minute's fire takes the rest. */
 export const CASES_PER_FIRE = 3;
 

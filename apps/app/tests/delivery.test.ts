@@ -472,6 +472,9 @@ describeDb("delivery", () => {
           // The approval inbox (drizzle/0119), hourly behind its switch,
           // which ships off.
           "approvals-propose",
+          // The weekly compliance pack (drizzle/0123), hourly behind its
+          // switch, which ships off; due from 07:00 New York on Monday.
+          "compliance-pack",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

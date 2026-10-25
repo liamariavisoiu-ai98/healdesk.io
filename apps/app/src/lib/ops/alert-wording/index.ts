@@ -6,6 +6,7 @@ import * as approvals from "./approvals";
 import * as availability from "./availability";
 import * as billing from "./billing";
 import * as calendar from "./calendar";
+import * as compliancePack from "./compliance-pack";
 import * as emailDelivery from "./email-delivery";
 import * as goLive from "./go-live";
 import * as incidents from "./incidents";
@@ -56,6 +57,7 @@ export const SECTIONS = {
   "setup-progress": setupProgress,
   "morning-digest": morningDigest,
   approvals,
+  "compliance-pack": compliancePack,
 } as const;
 
 export const ALERT_WORDING: Partial<Record<OpsEvent, AlertWording>> = Object.assign(

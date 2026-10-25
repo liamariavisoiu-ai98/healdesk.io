@@ -848,6 +848,13 @@
       "when": 1792855251003,
       "tag": "0120_rights_intakes",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1792866051003,
+      "tag": "0123_compliance_packs",
+      "breakpoints": true
     }
   ]
 }

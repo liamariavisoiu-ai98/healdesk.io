@@ -620,3 +620,27 @@ is recorded too, so check History before acting. History, on the same page, is t
 record of who decided what and when (the operator account, its IP address and browser), read
 from `ops_approval_events`; the event an item ends on reads went through, failed, rejected or
 left the list without running, with the outcome's words beside it.
+
+### Compliance pack
+
+`compliance_pack_ready`, `compliance_pack_failed`. The weekly compliance pack
+(`apps/app/src/lib/compliance-pack/`, ops automation lane P6h; owner decision D20: for the owner
+only) is one stored row per week, Monday to Sunday on New York's clock, made by the hourly
+`compliance-pack` job (off until the owner switches it on) from 07:00 New York on the Monday
+after the week (11:00 UTC in summer, 12:00 UTC in winter). Once stored it never changes: the
+table refuses every update and delete, for every role. It holds counts, ids, dates and closed
+words: agreements signed and re-signs, the vendor chain's attestations, incidents and their two
+clocks, patient-rights requests and their clocks, transcript copies and the purge jobs, the
+security log's counts and the approval inbox's decisions. Never a patient, never anything typed.
+
+`compliance_pack_ready` comes once a week by email (and Slack): the week and five numbers
+(incidents still open, rights requests past their day, re-signs unsigned, vendor agreements not in
+force or ending within 30 days, transcript copies held past 30 days). Each is a promise; any number
+above zero needs a person that week. A section that could not be read is stored as such and its
+number is left out of the email, never shown as zero. The printable page is
+`/admin/compliance/pack/<week>` (lane P6j); a missed week is made from there by hand
+(`generateCompliancePack`), never one already stored.
+
+`compliance_pack_failed` comes when the same week failed twice in a row. The job keeps trying every
+hour; read its last run at System > Jobs, check System > Requires your attention for a database
+that cannot be reached, and the next good run stores the week.

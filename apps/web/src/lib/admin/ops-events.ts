@@ -110,6 +110,8 @@ export const OPS_EVENTS = [
   "rights_request_blocked",
   "rights_request_due_soon",
   "rights_request_overdue",
+  "compliance_pack_ready",
+  "compliance_pack_failed",
 ] as const;
 
 export type OpsEvent = (typeof OPS_EVENTS)[number];

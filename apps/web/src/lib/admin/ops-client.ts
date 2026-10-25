@@ -410,7 +410,14 @@ type OperatorOp =
   // name; never a person, a contact id or anything typed. Nothing runs here.
   | "listRights"
   | "recordRightsIntake"
-  | "closeRightsIntake";
+  | "closeRightsIntake"
+  // The weekly compliance pack (apps/app lib/ops/pack-ops.ts; ops automation
+  // lane P6h): one stored week, the newest weeks with their five headline
+  // numbers, and a missed week made by hand, never one already stored.
+  // Counts, ids, dates and closed words; nothing contacts anyone.
+  | "getCompliancePack"
+  | "listCompliancePacks"
+  | "generateCompliancePack";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -7690,6 +7697,442 @@ export function closeRightsIntake(
       outcome: literal(data.outcome, ["closed", "already_closed"] as const, "closeRightsIntake.outcome"),
       status: literal(data.status, ["done", "not_applicable"] as const, "closeRightsIntake.status"),
       auditRecorded: bool(data.auditRecorded, "closeRightsIntake.auditRecorded"),
+    };
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The weekly compliance pack (ops automation lane P6h; apps/app
+// lib/compliance-pack/build.ts and lib/ops/pack-ops.ts)
+// -----------------------------------------------------------------------------
+
+/** The platform subjects a pack reports, in apps/app's order (lib/compliance/subjects.ts). */
+export const PACK_SUBJECTS = [
+  "anthropic",
+  "database_host",
+  "aws",
+  "retell",
+  "launch_promises",
+  "runtime_web",
+  "runtime_meta",
+  "runtime_voice",
+  "voice_pass_through",
+] as const;
+export const PACK_VENDOR_STATES = ["in_force", "lapsed", "withdrawn", "not_attested"] as const;
+/** The security events the access section counts (apps/app ACCESS_EVENTS), in order. */
+export const PACK_ACCESS_EVENTS = [
+  "approval_approved",
+  "approval_rejected",
+  "device_recovery_issued",
+  "device_recovery_claimed",
+  "device_recovery_used",
+  "device_recovery_refused",
+  "device_recovery_revoked",
+  "passkey_added",
+  "passkey_removed",
+  "totp_enrolled",
+  "backup_codes_generated",
+  "factor_locked_out",
+  "step_up_granted",
+  "sign_in_help_link_sent",
+  "sign_in_address_changed",
+  "operator_signed_out",
+] as const;
+export const PACK_LIFECYCLE_JOBS = ["retention-purge", "transcript-emails", "offboarding-destroy"] as const;
+export const PACK_FAILURE_EVENTS = [
+  "retention_purge_failed",
+  "transcript_undelivered",
+  "export_undelivered_before_destruction",
+] as const;
+export const PACK_INCIDENT_CLASSES = [
+  "security_incident",
+  "improper_use_or_disclosure",
+  "breach",
+  "service_complaint",
+] as const;
+
+type PackSection<T> = ({ status: "ok" } & T) | { status: "could_not_read"; unreadClinics?: number };
+
+export type CompliancePackHeadline = {
+  incidentsOpen: number | null;
+  rightsOverdue: number | null;
+  resignsOpen: number | null;
+  vendorsNeedingAttention: number | null;
+  transcriptCopiesPast30Days: number | null;
+};
+
+export type CompliancePackView = {
+  schema: 1;
+  week: { start: string; lastDay: string; timeZone: "America/New_York"; from: string; to: string };
+  headline: CompliancePackHeadline;
+  agreements: PackSection<{
+    signed: { kind: "baa" | "dpa"; version: string; count: number }[];
+    resigns: {
+      openedThisWeek: number;
+      signedThisWeek: number;
+      withdrawnThisWeek: number;
+      openAtWeekEnd: number;
+      belowFloorAtWeekEnd: number;
+    };
+    reviews: { openedThisWeek: number; decidedThisWeek: number; openAtWeekEnd: number };
+  }>;
+  vendors: PackSection<{
+    subjects: {
+      subject: (typeof PACK_SUBJECTS)[number];
+      kind: "vendor" | "readiness";
+      state: (typeof PACK_VENDOR_STATES)[number];
+      effectiveOn: string | null;
+      expiresOn: string | null;
+      expiresWithin30Days: boolean;
+    }[];
+    recordedThisWeek: number;
+  }>;
+  incidents: PackSection<{
+    openedThisWeek: number;
+    openedByClass: { class: (typeof PACK_INCIDENT_CLASSES)[number]; count: number }[];
+    notifiedThisWeek: number;
+    reportedThisWeek: number;
+    notReportableThisWeek: number;
+    resolvedThisWeek: number;
+    openAtWeekEnd: number;
+    targetMissed: { clinicId: string; incidentId: string }[];
+    agreementDeadlineAtRisk: { clinicId: string; incidentId: string; agreementNotifyBy: string }[];
+  }>;
+  rights: PackSection<{
+    receivedThisWeek: number;
+    receivedByKind: { kind: (typeof RIGHTS_KINDS)[number]; count: number }[];
+    closedThisWeek: number;
+    closedOnTimeThisWeek: number;
+    closedLateThisWeek: number;
+    openAtWeekEnd: number;
+    overdueAtWeekEnd: number;
+    dueSoonAtWeekEnd: number;
+    blockedNow: number;
+  }>;
+  dataLifecycle: PackSection<{
+    transcripts: { queuedThisWeek: number; deliveredThisWeek: number; copiesPast30DaysNow: number };
+    jobs: {
+      job: (typeof PACK_LIFECYCLE_JOBS)[number];
+      enabled: boolean;
+      lastRunAt: string | null;
+      lastRunStatus: string | null;
+    }[];
+    failureAlertsThisWeek: { event: (typeof PACK_FAILURE_EVENTS)[number]; count: number }[];
+  }>;
+  access: PackSection<{
+    events: { event: (typeof PACK_ACCESS_EVENTS)[number]; count: number }[];
+    freshCodeSteps: { approvalDecisions: number; platformAttestations: number; deviceRecoveriesIssued: number };
+    operatorSignIns: "not_recorded_on_the_host";
+  }>;
+  approvals: PackSection<{
+    approvedThisWeek: number;
+    rejectedThisWeek: number;
+    executedThisWeek: number;
+    failedThisWeek: number;
+    expiredThisWeek: number;
+    medianMinutesToDecide: number | null;
+    waitingAtWeekEnd: number;
+  }>;
+  launchPromises: { status: "read_on_the_console" };
+};
+
+export type CompliancePackSummaryView = {
+  id: string;
+  weekStart: string;
+  generatedAt: string;
+  generatedBy: string;
+  payloadHash: string;
+  headline: CompliancePackHeadline | null;
+};
+
+export type CompliancePackRecordView = Omit<CompliancePackSummaryView, "headline"> & { payload: CompliancePackView };
+
+const SERVICE_NAME = /^[a-z][a-z0-9-]{0,63}$/;
+const DOCUMENT_VERSION = /^[a-z0-9][a-z0-9./-]{0,63}$/;
+const RUN_STATUS = /^[a-z][a-z-]{0,31}$/;
+
+function serviceName(value: unknown, at: string): string {
+  if (typeof value !== "string" || !SERVICE_NAME.test(value)) throw new ShapeError(at);
+  return value;
+}
+
+function nullableCount(value: unknown, at: string): number | null {
+  return value === null ? null : count(value, at);
+}
+
+/** Every key of an object, each read by its own reader, nothing more. */
+function fields<T extends Record<string, unknown>>(
+  value: unknown,
+  readers: { [K in keyof T]: (v: unknown, at: string) => T[K] },
+  at: string,
+): T {
+  const data = exactKeys(value, Object.keys(readers), at);
+  const out = {} as T;
+  for (const key of Object.keys(readers) as (keyof T)[]) {
+    out[key] = readers[key](data[key as string], `${at}.${String(key)}`);
+  }
+  return out;
+}
+
+function counts<K extends string>(keys: readonly K[]): { [P in K]: (v: unknown, at: string) => number } {
+  return Object.fromEntries(keys.map((k) => [k, count])) as { [P in K]: (v: unknown, at: string) => number };
+}
+
+function rowsOf<T>(value: unknown, at: string, read: (v: unknown, at: string) => T): T[] {
+  return list(value, at).map((row, i) => read(row, `${at}[${i}]`));
+}
+
+/** A section: its fields when it was read, or `could_not_read` with nothing that could pass for a zero. */
+function packSection<T extends Record<string, unknown>>(
+  value: unknown,
+  at: string,
+  readers: { [K in keyof T]: (v: unknown, at: string) => T[K] },
+): PackSection<T> {
+  const data = object(value, at);
+  if (data.status === "could_not_read") {
+    const keys = "unreadClinics" in data ? ["status", "unreadClinics"] : ["status"];
+    exactKeys(data, keys, at);
+    return "unreadClinics" in data
+      ? { status: "could_not_read", unreadClinics: count(data.unreadClinics, `${at}.unreadClinics`) }
+      : { status: "could_not_read" };
+  }
+  if (data.status !== "ok") throw new ShapeError(`${at}.status`);
+  const { status: _status, ...rest } = data;
+  return { status: "ok", ...fields<T>(rest, readers, at) };
+}
+
+function readHeadline(value: unknown, at: string): CompliancePackHeadline {
+  return fields<CompliancePackHeadline>(
+    value,
+    {
+      incidentsOpen: nullableCount,
+      rightsOverdue: nullableCount,
+      resignsOpen: nullableCount,
+      vendorsNeedingAttention: nullableCount,
+      transcriptCopiesPast30Days: nullableCount,
+    },
+    at,
+  );
+}
+
+const nullableDate = (v: unknown, at: string) => nullable(v, (x) => date(x, at));
+const nullableIso = (v: unknown, at: string) => optionalIsoInstant(v, at);
+
+function readCompliancePack(value: unknown, at: string): CompliancePackView {
+  const data = exactKeys(
+    value,
+    ["schema", "week", "headline", "agreements", "vendors", "incidents", "rights", "dataLifecycle", "access", "approvals", "launchPromises"],
+    at,
+  );
+  if (data.schema !== 1) throw new ShapeError(`${at}.schema`);
+  return {
+    schema: 1,
+    week: fields<CompliancePackView["week"]>(
+      data.week,
+      {
+        start: date,
+        lastDay: date,
+        timeZone: (v, a) => literal(v, ["America/New_York"] as const, a),
+        from: isoInstant,
+        to: isoInstant,
+      },
+      `${at}.week`,
+    ),
+    headline: readHeadline(data.headline, `${at}.headline`),
+    agreements: packSection(data.agreements, `${at}.agreements`, {
+      signed: (v, a) =>
+        rowsOf(v, a, (row, ra) =>
+          fields<{ kind: "baa" | "dpa"; version: string; count: number }>(
+            row,
+            {
+              kind: (x, xa) => literal(x, ["baa", "dpa"] as const, xa),
+              version: (x, xa) => {
+                if (typeof x !== "string" || !DOCUMENT_VERSION.test(x)) throw new ShapeError(xa);
+                return x;
+              },
+              count,
+            },
+            ra,
+          ),
+        ),
+      resigns: (v, a) =>
+        fields(v, counts(["openedThisWeek", "signedThisWeek", "withdrawnThisWeek", "openAtWeekEnd", "belowFloorAtWeekEnd"] as const), a),
+      reviews: (v, a) => fields(v, counts(["openedThisWeek", "decidedThisWeek", "openAtWeekEnd"] as const), a),
+    }),
+    vendors: packSection(data.vendors, `${at}.vendors`, {
+      subjects: (v, a) =>
+        rowsOf(v, a, (row, ra) =>
+          fields(
+            row,
+            {
+              subject: (x, xa) => literal(x, PACK_SUBJECTS, xa),
+              kind: (x, xa) => literal(x, ["vendor", "readiness"] as const, xa),
+              state: (x, xa) => literal(x, PACK_VENDOR_STATES, xa),
+              effectiveOn: nullableDate,
+              expiresOn: nullableDate,
+              expiresWithin30Days: bool,
+            },
+            ra,
+          ),
+        ),
+      recordedThisWeek: count,
+    }),
+    incidents: packSection(data.incidents, `${at}.incidents`, {
+      ...counts([
+        "openedThisWeek",
+        "notifiedThisWeek",
+        "reportedThisWeek",
+        "notReportableThisWeek",
+        "resolvedThisWeek",
+        "openAtWeekEnd",
+      ] as const),
+      openedByClass: (v, a) =>
+        rowsOf(v, a, (row, ra) =>
+          fields(row, { class: (x, xa) => literal(x, PACK_INCIDENT_CLASSES, xa), count }, ra),
+        ),
+      targetMissed: (v, a) => rowsOf(v, a, (row, ra) => fields(row, { clinicId: id, incidentId: id }, ra)),
+      agreementDeadlineAtRisk: (v, a) =>
+        rowsOf(v, a, (row, ra) => fields(row, { clinicId: id, incidentId: id, agreementNotifyBy: isoInstant }, ra)),
+    }),
+    rights: packSection(data.rights, `${at}.rights`, {
+      ...counts([
+        "receivedThisWeek",
+        "closedThisWeek",
+        "closedOnTimeThisWeek",
+        "closedLateThisWeek",
+        "openAtWeekEnd",
+        "overdueAtWeekEnd",
+        "dueSoonAtWeekEnd",
+        "blockedNow",
+      ] as const),
+      receivedByKind: (v, a) =>
+        rowsOf(v, a, (row, ra) => fields(row, { kind: (x, xa) => literal(x, RIGHTS_KINDS, xa), count }, ra)),
+    }),
+    dataLifecycle: packSection(data.dataLifecycle, `${at}.dataLifecycle`, {
+      transcripts: (v, a) => fields(v, counts(["queuedThisWeek", "deliveredThisWeek", "copiesPast30DaysNow"] as const), a),
+      jobs: (v, a) =>
+        rowsOf(v, a, (row, ra) =>
+          fields(
+            row,
+            {
+              job: (x, xa) => literal(x, PACK_LIFECYCLE_JOBS, xa),
+              enabled: bool,
+              lastRunAt: nullableIso,
+              lastRunStatus: (x, xa) =>
+                nullable(x, (y) => {
+                  if (typeof y !== "string" || !RUN_STATUS.test(y)) throw new ShapeError(xa);
+                  return y;
+                }),
+            },
+            ra,
+          ),
+        ),
+      failureAlertsThisWeek: (v, a) =>
+        rowsOf(v, a, (row, ra) => fields(row, { event: (x, xa) => literal(x, PACK_FAILURE_EVENTS, xa), count }, ra)),
+    }),
+    access: packSection(data.access, `${at}.access`, {
+      events: (v, a) =>
+        rowsOf(v, a, (row, ra) => fields(row, { event: (x, xa) => literal(x, PACK_ACCESS_EVENTS, xa), count }, ra)),
+      freshCodeSteps: (v, a) =>
+        fields(v, counts(["approvalDecisions", "platformAttestations", "deviceRecoveriesIssued"] as const), a),
+      operatorSignIns: (v, a) => literal(v, ["not_recorded_on_the_host"] as const, a),
+    }),
+    approvals: packSection(data.approvals, `${at}.approvals`, {
+      ...counts([
+        "approvedThisWeek",
+        "rejectedThisWeek",
+        "executedThisWeek",
+        "failedThisWeek",
+        "expiredThisWeek",
+        "waitingAtWeekEnd",
+      ] as const),
+      medianMinutesToDecide: nullableCount,
+    }),
+    launchPromises: fields<CompliancePackView["launchPromises"]>(
+      data.launchPromises,
+      { status: (v, a) => literal(v, ["read_on_the_console"] as const, a) },
+      `${at}.launchPromises`,
+    ),
+  };
+}
+
+function packMeta(data: Record<string, unknown>, at: string): Omit<CompliancePackSummaryView, "headline"> {
+  return {
+    id: id(data.id, `${at}.id`),
+    weekStart: date(data.weekStart, `${at}.weekStart`),
+    generatedAt: isoInstant(data.generatedAt, `${at}.generatedAt`),
+    generatedBy: serviceName(data.generatedBy, `${at}.generatedBy`),
+    payloadHash: hash(data.payloadHash, `${at}.payloadHash`),
+  };
+}
+
+export type CompliancePackLookup = { status: "found"; pack: CompliancePackRecordView } | { status: "not_found" };
+
+/** One week's stored pack, by its Monday (YYYY-MM-DD), or not_found. */
+export function fetchCompliancePack(week: string): Promise<OpsResult<CompliancePackLookup>> {
+  return callOps("getCompliancePack", "read", { week }, (value) => {
+    const data = object(value, "getCompliancePack");
+    if (data.status === "not_found") {
+      exactKeys(data, ["status"], "getCompliancePack");
+      return { status: "not_found" as const };
+    }
+    exactKeys(data, ["status", "pack"], "getCompliancePack");
+    if (data.status !== "found") throw new ShapeError("getCompliancePack.status");
+    const pack = exactKeys(
+      data.pack,
+      ["id", "weekStart", "generatedAt", "generatedBy", "payloadHash", "payload"],
+      "getCompliancePack.pack",
+    );
+    return {
+      status: "found" as const,
+      pack: { ...packMeta(pack, "getCompliancePack.pack"), payload: readCompliancePack(pack.payload, "getCompliancePack.pack.payload") },
+    };
+  });
+}
+
+/** The newest stored packs first, each with its five headline numbers. */
+export function fetchCompliancePacks(limit?: number): Promise<OpsResult<CompliancePackSummaryView[]>> {
+  return callOps("listCompliancePacks", "read", limit === undefined ? {} : { limit }, (value) => {
+    const data = exactKeys(value, ["packs"], "listCompliancePacks");
+    return rowsOf(data.packs, "listCompliancePacks.packs", (row, at) => {
+      const r = exactKeys(row, ["id", "weekStart", "generatedAt", "generatedBy", "payloadHash", "headline"], at);
+      return { ...packMeta(r, at), headline: nullable(r.headline, (h) => readHeadline(h, `${at}.headline`)) };
+    });
+  });
+}
+
+export type GenerateCompliancePackOutcome =
+  | {
+      status: "stored";
+      weekStart: string;
+      packId: string;
+      payloadHash: string;
+      unreadSections: number;
+      auditRecorded: boolean;
+    }
+  | { status: "refused"; message: string };
+
+/**
+ * Make and store the pack of a week that has ended and has none (by default
+ * the week now due). A week already stored is refused: a pack is never made
+ * twice.
+ */
+export function generateCompliancePack(week?: string): Promise<OpsResult<GenerateCompliancePackOutcome>> {
+  return callOps("generateCompliancePack", "write", week === undefined ? {} : { week }, (value) => {
+    const data = object(value, "generateCompliancePack");
+    if (data.status === "refused") {
+      exactKeys(data, ["status", "message"], "generateCompliancePack");
+      return refusal(data, "generateCompliancePack");
+    }
+    exactKeys(data, ["status", "weekStart", "packId", "payloadHash", "unreadSections", "auditRecorded"], "generateCompliancePack");
+    if (data.status !== "stored") throw new ShapeError("generateCompliancePack.status");
+    return {
+      status: "stored" as const,
+      weekStart: date(data.weekStart, "generateCompliancePack.weekStart"),
+      packId: id(data.packId, "generateCompliancePack.packId"),
+      payloadHash: hash(data.payloadHash, "generateCompliancePack.payloadHash"),
+      unreadSections: count(data.unreadSections, "generateCompliancePack.unreadSections"),
+      auditRecorded: bool(data.auditRecorded, "generateCompliancePack.auditRecorded"),
     };
   });
 }

@@ -152,6 +152,10 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   // The approval inbox: billing items past due wait on the owner today. A
   // legal-clock kind (none yet) is the owner's to rank: urgent if it joins.
   approval_waiting: "today",
+  // The weekly compliance pack: its pointer is news; a week that failed
+  // twice needs a person today, before the record is missing for good.
+  compliance_pack_ready: "fyi",
+  compliance_pack_failed: "today",
 };
 
 /** The tag's word and colour, the subject's prefix and Slack's emoji, by level. */

@@ -5,6 +5,7 @@ import { opsApprovalEvents, opsApprovals, type OpsApproval } from "@/db/schema";
 
 import {
   APPROVED_STUCK_MS,
+  draftHash,
   KIND_SPECS,
   OUTCOME_CODE,
   PROPOSER,
@@ -77,8 +78,24 @@ export type Proposal<K extends ApprovalKind = ApprovalKind> = {
  * the guard against two proposers racing; a lost race is "not proposed",
  * never an error. Returns the new id or null.
  */
-export async function propose(proposal: Proposal, now: Date): Promise<string | null> {
+export async function propose(
+  proposal: Proposal,
+  now: Date,
+  options: {
+    /**
+     * Lane P6f: an operator's button proposes too, recorded under the
+     * console (CONSOLE_PROPOSER) with the operator as the event's actor,
+     * and an email kind's draft is stored with its hash.
+     */
+    proposedBy?: string;
+    actor?: EventActor;
+    draft?: string;
+    /** Statuses that also block a new proposal of the same subject: a once-only kind's `executed`. */
+    blockedBy?: readonly ApprovalStatus[];
+  } = {},
+): Promise<string | null> {
   const spec = KIND_SPECS[proposal.kind];
+  const blocking: ApprovalStatus[] = ["waiting", "rejected", ...(options.blockedBy ?? [])];
   return unsafeDb.transaction(async (tx) => {
     const [seen] = await tx
       .select({ id: opsApprovals.id })
@@ -88,7 +105,7 @@ export async function propose(proposal: Proposal, now: Date): Promise<string | n
           eq(opsApprovals.kind, proposal.kind),
           eq(opsApprovals.subjectRef, proposal.subjectRef),
           or(
-            inArray(opsApprovals.status, ["waiting", "rejected"]),
+            inArray(opsApprovals.status, blocking),
             and(eq(opsApprovals.status, "expired"), eq(opsApprovals.outcomeCode, "window_passed")),
           ),
         ),
@@ -105,18 +122,35 @@ export async function propose(proposal: Proposal, now: Date): Promise<string | n
         dueAt: new Date(now.getTime() + spec.dueHours * HOUR_MS),
         expiresAt: spec.expiryDays === null ? null : new Date(now.getTime() + spec.expiryDays * DAY_MS),
         urgency: spec.urgency,
-        proposedBy: PROPOSER,
+        proposedBy: options.proposedBy ?? PROPOSER,
         proposedAt: now,
+        ...(options.draft !== undefined ? { draft: options.draft, draftHash: draftHash(options.draft) } : {}),
       })
       .onConflictDoNothing()
       .returning({ id: opsApprovals.id });
     if (!row) return null;
-    await recordEvent(tx, row.id, "proposed", SERVICE_ACTOR, { at: now });
+    await recordEvent(tx, row.id, "proposed", options.actor ?? SERVICE_ACTOR, { at: now });
     return row.id;
   });
 }
 
 type EventExtra = { outcomeCode?: string | null; draftHashApproved?: string | null; draftHashSent?: string | null };
+
+/**
+ * The hash of what an email kind's executor sent (lane P6f), held for the
+ * move that settles its item: lib/ops/approval-ops.ts settles an approved
+ * item with its outcome code only, so the executor (./executors.ts
+ * execute) notes the hash here and moveStatus writes it on the
+ * `executed`/`failed` event of that same item, then forgets it. In-process
+ * and per item: the decision, the executor and the settling move run in one
+ * request. NOTE for the lead: passing `draftHashSent: result.draftHashSent`
+ * in approval-ops.ts's settling call would make this map unnecessary.
+ */
+const sentHashes = new Map<string, string>();
+
+export function noteSentHash(approvalId: string, hash: string): void {
+  if (/^[0-9a-f]{64}$/.test(hash)) sentHashes.set(approvalId, hash);
+}
 
 /**
  * Move one item from the status it is expected to hold, recording the event
@@ -137,6 +171,10 @@ export async function moveStatus(
   extra: EventExtra = {},
   before: { event: ApprovalEventName; at: Date; extra: EventExtra }[] = [],
 ): Promise<boolean> {
+  if (from === "approved" && extra.draftHashSent === undefined && sentHashes.has(id)) {
+    extra = { ...extra, draftHashSent: sentHashes.get(id)! };
+    sentHashes.delete(id);
+  }
   return unsafeDb.transaction(async (tx) => {
     const code = extra.outcomeCode ?? null;
     const moved = await tx

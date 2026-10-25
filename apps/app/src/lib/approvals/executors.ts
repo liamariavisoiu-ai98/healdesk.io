@@ -7,6 +7,8 @@ import { opReplayBillingEvent, opRetryBillingRequest, opRetryOverageInvoice } fr
 import { actorFor, type Operator, type OpsOutcome } from "@/lib/ops/api";
 import { withTenant } from "@/lib/tenant";
 
+import { CONTACT_EXECUTORS } from "./contact-executors";
+import { noteSentHash } from "./store";
 import type { Draft } from "./drafts";
 import { KIND_SPECS, parsePayload, subjectId, type ApprovalKind } from "./kinds";
 import { billingSwitches, stillParkedAsProposed } from "./packets";
@@ -33,6 +35,11 @@ export type ExecutionResult = {
   message: string | null;
   /** Whether the operation's own audit row was written, when it says. */
   auditRecorded: boolean | null;
+  /**
+   * For an email kind (lane P6f): the SHA-256 of what was sent, for
+   * ops_approval_events.draft_hash_sent beside the hash approved.
+   */
+  draftHashSent?: string | null;
 };
 
 /** What a decision hands its executor: the draft the owner approved (the edit when there was one), for an email kind. */
@@ -150,6 +157,9 @@ export const EXECUTORS: Readonly<Record<ApprovalKind, Executor>> = {
   billing_request_retry: retryBillingRequest,
   overage_invoice_retry: retryOverageInvoice,
   billing_event_replay: replayBillingEvent,
+  // The clinic-contact kinds (lane P6f): the outbox, the direct sender's
+  // ledger, extendSetupDeadline and queueSetupReminder (./contact-executors.ts).
+  ...CONTACT_EXECUTORS,
 };
 
 /** Run an item's executor; one that throws is a failure with a code, never an unrecorded item. */
@@ -162,7 +172,10 @@ export async function execute(
   const executor = executors[approval.kind];
   if (!executor || !KIND_SPECS[approval.kind as ApprovalKind]) return malformed();
   try {
-    return await executor(approval, operator, context);
+    const result = await executor(approval, operator, context);
+    // What an email kind sent, for the settling move's event (store.ts).
+    if (result.draftHashSent) noteSentHash(approval.id, result.draftHashSent);
+    return result;
   } catch (error) {
     log.error("approval executor threw", { kind: approval.kind, error: describeError(error) });
     return { ok: false, outcomeCode: "threw", message: "The operation failed partway. Nothing more was run; the item records it.", auditRecorded: null };

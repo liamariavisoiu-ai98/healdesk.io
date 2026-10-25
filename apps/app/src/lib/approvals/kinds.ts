@@ -13,6 +13,8 @@ import {
   type BillingRequestKind,
 } from "@/db/schema";
 
+import { parseContactPayload, type ContactPayloads } from "./contact-payloads";
+
 export {
   APPROVAL_EVENTS,
   APPROVAL_KINDS,
@@ -47,7 +49,16 @@ export {
 
 export type KindSpec = {
   /** The existing ops operation approving runs, as the console names it. */
-  readonly operation: "retryBillingRequest" | "retryOverageInvoice" | "replayBillingEvent";
+  readonly operation:
+    | "retryBillingRequest"
+    | "retryOverageInvoice"
+    | "replayBillingEvent"
+    // The clinic-contact kinds (lane P6f, ./contact-executors.ts).
+    | "sendResignChase"
+    | "sendAgreementQuestion"
+    | "extendSetupDeadline"
+    | "sendSetupNotice"
+    | "queueSetupReminder";
   readonly urgency: ApprovalUrgency;
   /** Past this many hours after it was proposed, a waiting item is past due (one alert; a legal clock re-alerts every 4 hours). */
   readonly dueHours: number;
@@ -103,7 +114,90 @@ export const KIND_SPECS: Readonly<Record<ApprovalKind, KindSpec>> = {
     // lib/approvals/stripe-ids.ts). No job replays a parked event.
     retriedBy: null,
   },
+  // The clinic-contact kinds (ops automation lane P6f; design E6 §3 items 13
+  // and 14, E2 "Manual buttons"). Each emails the clinic's one address, so
+  // each needs a fresh authenticator code (E6 §2: "any email to a clinic"),
+  // and each email draft leaves the list after 14 days unsent. None has a
+  // legal clock: a BAA version re-sign never pauses AYA and has no date the
+  // practice must meet (lib/agreements/resign-pause.ts), and the agreement
+  // question's review has an internal day only. Nothing retries any of them.
+  baa_resign_chase: {
+    operation: "sendResignChase",
+    urgency: "routine",
+    dueHours: 48,
+    expiryDays: 14,
+    irreversible: true,
+    hasDraft: true,
+    retriedBy: null,
+  },
+  agreement_question: {
+    operation: "sendAgreementQuestion",
+    urgency: "routine",
+    dueHours: 48,
+    expiryDays: 14,
+    irreversible: true,
+    hasDraft: true,
+    retriedBy: null,
+  },
+  setup_extended: {
+    operation: "extendSetupDeadline",
+    urgency: "routine",
+    dueHours: 48,
+    expiryDays: 14,
+    irreversible: true,
+    hasDraft: true,
+    retriedBy: null,
+  },
+  setup_waiting_on_us: {
+    operation: "sendSetupNotice",
+    urgency: "routine",
+    dueHours: 48,
+    expiryDays: 14,
+    irreversible: true,
+    hasDraft: true,
+    retriedBy: null,
+  },
+  setup_help_offer: {
+    operation: "sendSetupNotice",
+    urgency: "routine",
+    dueHours: 48,
+    expiryDays: 14,
+    irreversible: true,
+    hasDraft: true,
+    retriedBy: null,
+  },
+  // "Send reminder now": the next of the six spec reminders, sooner. Its
+  // wording is the reminder's own (the six keep their wording, D4), so it
+  // has no draft to edit. Three days: a reminder pulled forward is about
+  // now, and the schedule sends it anyway on its own day.
+  setup_reminder_now: {
+    operation: "queueSetupReminder",
+    urgency: "routine",
+    dueHours: 24,
+    expiryDays: 3,
+    irreversible: true,
+    hasDraft: false,
+    retriedBy: null,
+  },
 };
+
+/** The kinds that email a clinic (lane P6f): proposed by an operator's button, or the BAA chase by the job. */
+export const CONTACT_KINDS = [
+  "baa_resign_chase",
+  "agreement_question",
+  "setup_extended",
+  "setup_waiting_on_us",
+  "setup_help_offer",
+  "setup_reminder_now",
+] as const satisfies readonly ApprovalKind[];
+export type ContactKind = (typeof CONTACT_KINDS)[number];
+
+export function isContactKind(kind: string): kind is ContactKind {
+  return (CONTACT_KINDS as readonly string[]).includes(kind);
+}
+
+/** The service an operator's proposal is recorded under (ops_approvals.proposed_by): the console. */
+export const CONSOLE_PROPOSER = "ops-console";
 
 /**
  * Which job re-arms a dead-lettered billing request by itself, by kind. The
@@ -159,7 +253,7 @@ export type Payloads = {
   overage_invoice_retry: { billingClinicId: string; overageId: string; windowStart: string };
   /** `parkedAt`: when the event was parked, the episode the item was proposed for. */
   billing_event_replay: { eventType: string; parkedAt: string };
-};
+} & ContactPayloads;
 
 /**
  * A payload as the kind defines it, or null. Every key is named and checked;
@@ -168,6 +262,7 @@ export type Payloads = {
  */
 export function parsePayload<K extends ApprovalKind>(kind: K, raw: unknown): Payloads[K] | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  if (isContactKind(kind)) return parseContactPayload(kind, raw) as Payloads[K] | null;
   const p = raw as Record<string, unknown>;
   const keys = Object.keys(p).sort().join(",");
   switch (kind) {

@@ -287,7 +287,7 @@ variable "voice_desired" {
 }
 
 variable "voice_cpu" {
-  description = "Fargate CPU units for each voice task (1024 = one vCPU). 256 is a quarter vCPU, the lean default, shared by the voice process and the TLS sidecar: a call spends its time waiting on Retell and the model, not computing. Nobody has measured it under calls: raise it to 512 if its CPU sits high while calls run, because a starved process is heard as a pause."
+  description = "Fargate CPU units for each voice task (1024 = one vCPU). 256 is a quarter vCPU, the lean default, shared by the voice process and the TLS sidecar: a call spends its time waiting on Retell and the model, not computing. A starved process is heard as a pause: production.tfvars runs 1024 from 25 October 2026 (owner: "half a core, or even better"), one full core, the most single-threaded Node can use."
   type        = number
   default     = 256
 

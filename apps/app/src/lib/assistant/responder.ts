@@ -113,6 +113,13 @@ type ChannelConfig = {
   thinking: "adaptive" | "off" | null;
   /** The longest message passed on, in characters. */
   maxMessageChars: number;
+  /**
+   * The conversation is cached turn to turn (modelRequest): the turn's own
+   * context goes after the conversation as a system message, and the cache
+   * breakpoint on the person's latest words. A call only, where each turn's
+   * wait is heard.
+   */
+  cacheConversation: boolean;
 };
 
 export const MODEL_CONFIG: Readonly<Record<ModelChannel, ChannelConfig>> = {
@@ -124,6 +131,7 @@ export const MODEL_CONFIG: Readonly<Record<ModelChannel, ChannelConfig>> = {
     maxRetries: 1,
     thinking: null,
     maxMessageChars: 4_000,
+    cacheConversation: false,
   },
   voice: {
     modelEnv: "HEALDESK_VOICE_MODEL",
@@ -133,6 +141,7 @@ export const MODEL_CONFIG: Readonly<Record<ModelChannel, ChannelConfig>> = {
     maxRetries: 0,
     thinking: "off",
     maxMessageChars: 4_000,
+    cacheConversation: true,
   },
   meta: {
     modelEnv: null,
@@ -142,6 +151,7 @@ export const MODEL_CONFIG: Readonly<Record<ModelChannel, ChannelConfig>> = {
     maxRetries: undefined,
     thinking: "adaptive",
     maxMessageChars: 2_000,
+    cacheConversation: false,
   },
 };
 
@@ -187,18 +197,43 @@ export function assistantModel(channel: ModelChannel): PatientModelId {
 
 /**
  * The request for one turn, as the API receives it. Exported so the tests can
- * hold the cache breakpoint on the stable prefix, and nothing after it.
+ * hold the cache breakpoints where they belong.
+ *
+ * The stable prefix always carries one. On a call (cacheConversation; owner,
+ * 25 October 2026: "the absolute faster to answer possible") the
+ * conversation is cached too: the turn's own context, which changes every
+ * turn (the time, the demo's note), goes after the conversation as a
+ * system message instead of ahead of it in `system`, where it made every
+ * turn read the whole conversation again uncached; and a second breakpoint
+ * sits on the person's latest words, so the next turn reads everything up to
+ * them from the cache. The conversation is rebuilt from the same stored turns
+ * each time (turn.ts messagesFor), so its bytes match. `cacheConversation:
+ * false` (the warm-up's placeholder message) leaves the conversation as it is.
  */
-export function modelRequest(input: {
-  channel: ModelChannel;
-  system: AssistantPrompt;
-  messages: AssistantMessage[];
-}): Anthropic.MessageCreateParamsNonStreaming {
+export function modelRequest(
+  input: {
+    channel: ModelChannel;
+    system: AssistantPrompt;
+    messages: AssistantMessage[];
+  },
+  options: { cacheConversation?: boolean } = {},
+): Anthropic.MessageCreateParamsNonStreaming {
   const config = MODEL_CONFIG[input.channel];
+  const cacheConversation = (options.cacheConversation ?? true) && config.cacheConversation;
   const system: Anthropic.TextBlockParam[] = [
     { type: "text", text: input.system.stable, cache_control: { type: "ephemeral" } },
   ];
-  if (input.system.turn.trim()) system.push({ type: "text", text: input.system.turn });
+  const turn = input.system.turn.trim() ? input.system.turn : null;
+  if (turn && !cacheConversation) system.push({ type: "text", text: turn });
+  const messages: Anthropic.MessageParam[] = input.messages.map((m) => ({ role: m.role, content: m.content.slice(0, config.maxMessageChars) }));
+  const last = messages[messages.length - 1];
+  if (cacheConversation && last && last.role === "user" && typeof last.content === "string") {
+    last.content = [{ type: "text", text: last.content, cache_control: { type: "ephemeral" } }];
+    if (turn) messages.push({ role: "system", content: [{ type: "text", text: turn }] });
+  } else if (turn && cacheConversation) {
+    // Not ending on the person's words (never on a call): the context stays in `system`, as before.
+    system.push({ type: "text", text: turn });
+  }
   const model = assistantModel(input.channel);
   const thinking: Anthropic.ThinkingConfigParam | null =
     config.thinking === "adaptive"
@@ -212,7 +247,7 @@ export function modelRequest(input: {
     ...(thinking ? { thinking } : {}),
     output_config: { effort: "low" },
     system,
-    messages: input.messages.map((m) => ({ role: m.role, content: m.content.slice(0, config.maxMessageChars) })),
+    messages,
   };
 }
 
@@ -266,7 +301,11 @@ export async function callModel(input: {
  */
 export async function prewarmModel(input: { apiKey: string; channel: ModelChannel; system: AssistantPrompt }): Promise<void> {
   const client = await clientFor(input.apiKey, input.channel);
-  const request = modelRequest({ channel: input.channel, system: { stable: input.system.stable, turn: "" }, messages: [{ role: "user", content: "warmup" }] });
+  const request = modelRequest(
+    { channel: input.channel, system: { stable: input.system.stable, turn: "" }, messages: [{ role: "user", content: "warmup" }] },
+    // The breakpoint stays on the shared prompt, never on the placeholder.
+    { cacheConversation: false },
+  );
   await client.messages.create({ ...request, max_tokens: 0 });
 }
 

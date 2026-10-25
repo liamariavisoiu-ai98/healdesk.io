@@ -240,8 +240,8 @@ the NAT and every service, keeping the key, the parameters and the images, at
 about $4 a month; started from `/admin/host` or by a first paid invoice that
 finds the host off). Since 13
 October 2026 it builds the owner's lean profile by default, about $70 a month
-running (about $79 with the voice task, which `production.tfvars` turns on from
-22 October 2026, once applied): one ARM64 web task of a quarter vCPU carrying the worker too
+running (about $99 with the voice task, which `production.tfvars` turns on from
+22 October 2026 and sizes at one vCPU and 2 GB from 25 October, once applied): one ARM64 web task of a quarter vCPU carrying the worker too
 (`worker_placement`), a `db.t4g.micro`, a NAT instance instead of a NAT
 gateway (`nat_mode`), and the WAF off (`enable_waf`); each is one variable
 from the shape first built (README, "Costs").

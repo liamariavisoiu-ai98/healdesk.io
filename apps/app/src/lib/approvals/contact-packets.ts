@@ -92,6 +92,12 @@ export type SetupNoticeFacts = {
   stepsLeft: number | null;
   /** For the once-only notices: one has already gone for this stage entry. */
   alreadySent: boolean;
+  /**
+   * For the waiting-on-us note and the call offer: the clinic is no longer in
+   * the stage entry the item was proposed for (the stage moved, we finished
+   * the step, or a channel went live since), so approving sends nothing.
+   */
+  stageMoved: boolean;
   recommendation: Recommendation | null;
 };
 
@@ -146,6 +152,33 @@ async function noticeQueued(tx: TenantTx, kind: "setup_waiting_on_us" | "setup_h
     .where(and(eq(billingNotices.clinicId, tx.clinicId), eq(billingNotices.kind, kind), eq(billingNotices.dedupeKey, dedupeKey)))
     .limit(1);
   return row !== undefined;
+}
+
+/**
+ * Whether a setup notice's stage entry has passed since it was proposed: the
+ * lifecycle row's stage or its stage_since differs from the proposal's, or a
+ * channel went live after it. The waiting-on-us note must be about the wait
+ * the clinic is in now, and the call offer is once per stage entry.
+ */
+export async function noticeStageMoved(
+  kind: "setup_waiting_on_us" | "setup_help_offer",
+  p: ContactPayloads["setup_waiting_on_us"] | ContactPayloads["setup_help_offer"],
+  ctx: Ctx,
+  now: Date,
+): Promise<boolean> {
+  const seen = await lifecycleOf(p.clinicId, ctx, now);
+  if (!seen) return true;
+  const stage = kind === "setup_waiting_on_us" ? "waiting_on_us" : (p as ContactPayloads["setup_help_offer"]).stage;
+  if (seen.view.stage !== stage || seen.view.stageSince.toISOString() !== p.stageSince) return true;
+  const since = new Date(p.stageSince);
+  const liveSince = await withTenant({ clinicId: p.clinicId, actor: ctx.actor, request: ctx.request }, (tx) =>
+    tx.db
+      .select({ channel: clinicChannels.channel })
+      .from(clinicChannels)
+      .where(and(eq(clinicChannels.clinicId, tx.clinicId), sql`${clinicChannels.liveAt} > ${since}`))
+      .limit(1),
+  );
+  return liveSince.length > 0;
 }
 
 /** The outbox key a once-only setup notice is queued under (lib/notices/plan-notices.ts). */
@@ -256,6 +289,10 @@ export async function contactFacts(kind: ContactKind, rawPayload: unknown, ctx: 
         );
       }
       const tz = p.timeZone;
+      const stageMoved =
+        kind === "setup_extended"
+          ? false
+          : await noticeStageMoved(kind, p as ContactPayloads["setup_waiting_on_us"] | ContactPayloads["setup_help_offer"], ctx, now);
       return {
         kind,
         stage: seen?.view.stage ?? null,
@@ -265,6 +302,7 @@ export async function contactFacts(kind: ContactKind, rawPayload: unknown, ctx: 
         newLastDay: kind === "setup_extended" ? extendedLastDay(p as ContactPayloads["setup_extended"]) : null,
         stepsLeft: seen?.view.stepsLeft ?? null,
         alreadySent,
+        stageMoved,
         recommendation: seen ? { ...seen.view.recommendation } : null,
       } satisfies SetupNoticeFacts;
     }
@@ -299,7 +337,7 @@ export function contactStillNeeded(facts: ContactFacts): boolean {
       return facts.stage === "not_started" || facts.stage === "in_setup" || facts.stage === "waiting_on_us";
     case "setup_waiting_on_us":
     case "setup_help_offer":
-      return !facts.alreadySent && facts.stage !== "live" && facts.stage !== "closed";
+      return !facts.alreadySent && !facts.stageMoved && facts.stage !== "live" && facts.stage !== "closed";
     case "setup_reminder_now":
       return facts.blocked === null;
   }

@@ -22,7 +22,7 @@ import { clinicSignIn } from "@/lib/sign-in/address-change";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { emailPayloadOf, LINK_PLACEHOLDER, renderContactEmail, sentDraft } from "./contact-drafts";
-import { locationCount, noticeDedupeKey } from "./contact-packets";
+import { locationCount, noticeDedupeKey, noticeStageMoved } from "./contact-packets";
 import {
   parseContactPayload,
   parseFields,
@@ -294,6 +294,14 @@ export async function sendSetupNotice(
 ): Promise<ContactResult> {
   const payload = effectivePayload(kind, approval, fields);
   if (!payload) return MALFORMED;
+  if (await noticeStageMoved(kind, payload, { actor: ACTOR }, new Date())) {
+    return fail(
+      "no_longer_needed",
+      kind === "setup_waiting_on_us"
+        ? "The clinic is no longer waiting on us for this step (we finished it, a channel went live, or the stage moved), so nothing was sent."
+        : "The clinic has moved on from the stage this call was offered for, so nothing was sent.",
+    );
+  }
   return withTenant({ clinicId: payload.clinicId, actor: ACTOR }, async (tx) => {
     const state = await readSetupState(tx, { userId: null });
     if (!state?.billing || state.clinic.offboardingStartedAt) {

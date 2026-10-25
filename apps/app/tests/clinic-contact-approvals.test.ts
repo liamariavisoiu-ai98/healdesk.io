@@ -541,6 +541,23 @@ describeDb("the clinic-contact approvals, against the database", () => {
     });
   });
 
+  test("a setup notice whose stage entry has passed sends nothing, and its card says so", async () => {
+    const c = await setupClinic("moved", 12);
+    const proposed = data(await runOperation("proposeLifecycleNotice", { clinicId: c.clinicId, kind: "setup_help_offer", phrase: "phone" }, OPERATOR));
+    expect(proposed).toMatchObject({ status: "proposed" });
+    // The clinic moves on: a new stage entry, as the watch records it.
+    await inTenant(c.clinicId, (q) =>
+      q.query(`update clinic_lifecycle set stage_since = stage_since + interval '1 hour' where clinic_id = $1`, [c.clinicId]),
+    );
+    const listed = data(await runOperation("listApprovals", {}, OPERATOR));
+    const card = (listed.items as Data[]).find((i) => i.id === proposed.approvalId)!;
+    expect(card.packet).toMatchObject({ stillNeeded: false, facts: { stageMoved: true } });
+    const out = await decide(proposed.approvalId as string);
+    expect(out).toMatchObject({ status: "failed", outcomeCode: "no_longer_needed" });
+    expect(out.message).toContain("moved on");
+    expect(await notices(c, "setup_help_offer")).toEqual([]);
+  });
+
   test("send reminder now: the next reminder by the real clock, never the sixth, never at night, never twice in five days, never twice on its day", async () => {
     const c = await setupClinic("pull", 7);
     const keysOf = async () => (await notices(c, "setup_reminder")).map((n) => n.dedupe_key).sort();

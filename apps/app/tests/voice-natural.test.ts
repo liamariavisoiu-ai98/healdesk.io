@@ -14,9 +14,11 @@ vi.mock("@/lib/email/outbox", () => ({ deliverCriticalAfterCommit: async () => {
 import type { AssistantFacts } from "@/lib/assistant/facts";
 import { guardedLine, movingOnLine } from "@/lib/assistant/guard";
 import { SPOKEN_END } from "@/lib/assistant/prompt";
+import { guardAssistantReply } from "@/lib/assistant/guard";
 import {
   answerTurn,
   askedAgain,
+  askedBefore,
   voiceHabits,
   withoutLeadingFiller,
   type AssistantResponder,
@@ -323,5 +325,68 @@ describe("no habit openers, no loops", () => {
     let turn = "";
     await answerTurn({ facts: FACTS, channel: "voice", history, text: "sure tell me more", callerFirstName: "Josh", responder: async ({ system }) => ((turn = system.turn), answer("We answer every call.")) });
     expect(turn).toContain("Do not say their name in this reply.");
+  });
+
+  test("a patient's call still refuses a dose without its unit; only a demo's business talk lets a bare count of calls through", () => {
+    for (const reply of ["It's usually about 20.", "So about 25 a week, or roughly 100 a month?", "Got it, about 5 a day."]) {
+      expect([reply, guardAssistantReply(reply, FACTS)]).toEqual([reply, { ok: false, reason: "clinical" }]);
+    }
+    const business = { ...FACTS, businessCounts: true };
+    expect(guardAssistantReply("So about 25 calls a week, or around 110 a month?", business)).toEqual({ ok: true });
+    // Every other clinical pattern still reads a demo's business talk.
+    expect(guardAssistantReply("Swelling is normal for a few days.", business)).toMatchObject({ ok: false, reason: "clinical" });
+    expect(guardAssistantReply("Take 400mg of ibuprofen.", business)).toMatchObject({ ok: false, reason: "clinical" });
+    expect(guardAssistantReply("Results last about 4 months.", business)).toMatchObject({ ok: false, reason: "clinical" });
+  });
+
+  test("the fail-soft layer is off unless the adapter sets it: a patient's refusal still hears the guard's own line", async () => {
+    const clinical = guardedLine("clinical", "Lumen Aesthetics", "en", true);
+    const refused = async (softRefusal: { line: string; alternate: string; bridge: string } | null) => {
+      let calls = 0;
+      const turn = await answerTurn({
+        facts: FACTS,
+        channel: "voice",
+        history: [],
+        text: "is it normal to swell",
+        softRefusal,
+        responder: async () => (calls++, answer("Swelling is normal for a few days.")),
+      });
+      return { turn, calls };
+    };
+    const plain = await refused(null);
+    expect(plain.calls).toBe(1);
+    expect(plain.turn).toMatchObject({ source: "guard", guard: "clinical", reply: clinical });
+    const soft = await refused({ line: "Sorry, I lost my train of thought. So, how many calls a day?", alternate: "Let me put that another way.", bridge: "So, how many calls a day?" });
+    // Asked again once with the reason; still refused; the soft line, never the clinicians' line, and nothing refused is said.
+    expect(soft.calls).toBe(2);
+    expect(soft.turn).toMatchObject({ source: "guard", guard: "clinical", reply: "Sorry, I lost my train of thought. So, how many calls a day?" });
+    expect(soft.turn.reply).not.toContain("Swelling");
+  });
+
+  test("a question asked again in other words is noticed: the same words, or the channels however they are put", () => {
+    const history = [
+      { speaker: "assistant" as const, text: "Hi, this is Aya." },
+      { speaker: "person" as const, text: "Is it phone only?" },
+      { speaker: "assistant" as const, text: "It covers more than the phone." },
+    ];
+    expect(askedBefore(history, "What about social media?")).toBe("Is it phone only?");
+    expect(askedBefore(history, "And WhatsApp?")).toBe("Is it phone only?");
+    const prices = [{ speaker: "person" as const, text: "How much does the HydraFacial cost?" }, { speaker: "assistant" as const, text: "It's $199." }];
+    expect(askedBefore(prices, "Sorry, how much does the HydraFacial cost again?")).toBe("How much does the HydraFacial cost?");
+    expect(askedBefore(prices, "Can I book Friday morning?")).toBeNull();
+    expect(voiceHabits([{ speaker: "assistant", text: "Hi" }, ...history], null, "And WhatsApp?").some((n) => n.startsWith("They asked nearly the same thing a moment ago"))).toBe(true);
+  });
+
+  test("after a price was quoted, a price refusal offers the consultation and never says there is no price", async () => {
+    const quoted = [
+      { speaker: "assistant" as const, text: "Hi, this is Aya, the AI assistant for Lumen Aesthetics." },
+      { speaker: "person" as const, text: "how much are nails" },
+      { speaker: "assistant" as const, text: "Nails are $40." },
+    ];
+    const turn = await answerTurn({ facts: FACTS, channel: "voice", history: quoted, text: "that's a lot", responder: async () => answer("We can do them for $30.") });
+    expect(turn).toMatchObject({ source: "guard", guard: "price", reply: "The team can go through the options and pricing with you at a consultation. Want me to request one?" });
+    // With no price quoted before, the usual line.
+    const fresh = await answerTurn({ facts: FACTS, channel: "voice", history: quoted.slice(0, 2), text: "and the facial?", responder: async () => answer("It's $250.") });
+    expect(fresh.reply).toBe(guardedLine("price", "Lumen Aesthetics", "en", true));
   });
 });

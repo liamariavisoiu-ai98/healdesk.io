@@ -26,12 +26,14 @@ import { withTenant } from "@/lib/tenant";
 import { nextCallLanguage, START_LANGUAGE, type CallLanguageState } from "./call-language";
 import {
   afterDemoReply,
-  DEMO_START_PROGRESS,
+  DEMO_OPENED_PROGRESS,
   DEMO_TIME_ZONE,
   demoAssistantFacts,
   demoContextFromCall,
   demoPitchFacts,
+  demoRecovery,
   demoStageNote,
+  demoStateFrom,
   nextDemoStage,
   withDemoAnswer,
   type DemoProgress,
@@ -601,7 +603,7 @@ export class RetellCallSession {
   /** Where a demo call is (demo-facts.ts, DemoStage), moved on by Aya's own scripted lines. */
   private demoStage: DemoStage = "intro";
   /** What a demo call has found out (demo-facts.ts, DemoProgress); in memory only. */
-  private demoProgress: DemoProgress = DEMO_START_PROGRESS;
+  private demoProgress: DemoProgress = DEMO_OPENED_PROGRESS;
   /**
    * The demo's stage and progress before each reply that moved them, by the
    * record's length then: a reply dropped unheard (heardTurns) takes back
@@ -637,6 +639,11 @@ export class RetellCallSession {
   /** The language the call is being spoken in: English until the caller turns it (call-language.ts). */
   get language(): SpokenLanguage {
     return this.callLanguage.language;
+  }
+
+  /** A demo call's stage and progress, read by its regression cases (demo-cases.ts); null on a clinic's call. */
+  get demoSnapshot(): { stage: DemoStage; progress: DemoProgress } | null {
+    return this.demoContext ? { stage: this.demoStage, progress: this.demoProgress } : null;
   }
 
   /**
@@ -1292,9 +1299,14 @@ export class RetellCallSession {
       : null;
     // These words as the answer to the demo's last question, kept once the reply is said.
     const progress = this.demoContext ? withDemoAnswer(this.demoProgress, this.demoStage, words) : null;
+    // After the role-play the call is with a clinic's owner about their own
+    // business: a refused reply is asked again, then heard as a person losing
+    // the thread and moving on, never as the guard's line for a patient
+    // (turn.ts, softRefusal). Never in the intro or the role-play.
+    const recovery = this.demoContext && progress && this.demoStage === "pitch" ? demoRecovery(this.demoContext, progress) : null;
     const turn = await answerTurn({
       // A demo's pitch may quote healdesk's own prices; nothing else may (demo-facts.ts).
-      facts: this.demoContext && this.demoStage === "pitch" ? demoPitchFacts(facts, this.demoContext, this.now().getTime()) : facts,
+      facts: this.demoContext && progress && this.demoStage === "pitch" ? demoPitchFacts(facts, this.demoContext, this.now().getTime(), progress) : facts,
       channel: "voice",
       acknowledge: acknowledgeable
         ? {
@@ -1339,6 +1351,7 @@ export class RetellCallSession {
       // The note for the stage the demo is in (demo-facts.ts), so no stage's
       // instructions are ever repeated into another, a role-play above all.
       notes: this.demoContext ? [demoStageNote(this.demoContext, this.demoStage, this.now().getTime(), progress ?? undefined)] : null,
+      softRefusal: recovery ? { line: recovery.line, alternate: recovery.alternate, bridge: recovery.bridge } : null,
       callerFirstName: this.demoContext?.firstName ?? null,
     }).finally(() => {
       stopAck();
@@ -1361,8 +1374,14 @@ export class RetellCallSession {
     // the call: the pitch comes after it.
     const stageBefore = this.demoStage;
     if (this.demoContext && progress && turn.source !== "fallback") {
-      this.demoStage = nextDemoStage(stageBefore, turn.reply);
-      this.demoProgress = afterDemoReply(progress, stageBefore, this.demoStage, turn.reply);
+      // Her structured state update, or the recovery line's own question.
+      const recovered = recovery && turn.source === "guard" && [recovery.line, recovery.alternate, recovery.bridge].some((line) => turn.reply.endsWith(line));
+      const update = recovered ? { asked: recovery.asks, beats: [] } : demoStateFrom(turn.state, turn.reply);
+      if (!update && turn.source === "model" && stageBefore !== "roleplay") {
+        log.warn("demo reply without its state update", { callId: this.callId, kind: stageBefore });
+      }
+      this.demoStage = nextDemoStage(stageBefore, turn.reply, update?.asked ?? null);
+      this.demoProgress = afterDemoReply(progress, stageBefore, this.demoStage, update);
     }
     const ends = turn.end && !(this.demoContext && stageBefore === "roleplay");
 

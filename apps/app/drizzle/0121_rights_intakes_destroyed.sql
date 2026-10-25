@@ -39,16 +39,30 @@
 --   * rights_intakes_closed_account: a closed account takes no new or
 --     changed intake (app_refuse_after_account_closure, 0096), as every
 --     table destruction empties.
+--   * rights_intakes_guard() now pins its search_path and counts in UTC,
+--     as erasure_requests_guard does, so a caller's session cannot move
+--     what it reads or what "today" is.
+--   * Any clinic destroyed or closed while 0120 was live may still hold
+--     intakes: they are deleted here, once, each clinic under its own
+--     tenant setting (FORCEd row-level security binds the owner too). Safe
+--     to run again: a second run finds none.
+--   * The grants are asserted last: the runtime role still cannot delete or
+--     truncate an intake, and only healdesk_app may call the new definer
+--     (not PUBLIC, not the read-only or the writer role).
 --
 -- The clinics row is never deleted (the runtime role has no DELETE on it,
 -- 0066; destruction stamps it), so the foreign key's ON DELETE CASCADE from
 -- clinics never runs in this path: the intakes go only by the delete here.
 --
--- Safe to apply in place: functions and one trigger; no row changes.
+-- Safe to apply in place: functions and one trigger, and the delete of
+-- leftover intakes at clinics already destroyed or closed.
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION rights_intakes_guard() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
+AS $$
 DECLARE
   destroyed timestamptz;
 BEGIN
@@ -207,4 +221,44 @@ CREATE TRIGGER rights_intakes_closed_account
   FOR EACH ROW EXECUTE FUNCTION app_refuse_after_account_closure();--> statement-breakpoint
 
 COMMENT ON TABLE rights_intakes IS
-  'One row per patient-rights request as it reached healdesk (0120): ids, closed words and dates, no person. Deleted with the clinic''s other patient-rights records at its destruction, open or closed (app_destroy_rights_intakes, 0121); never kept past it.';
+  'One row per patient-rights request as it reached healdesk (0120): ids, closed words and dates, no person. Deleted with the clinic''s other patient-rights records at its destruction, open or closed (app_destroy_rights_intakes, 0121); never kept past it.';--> statement-breakpoint
+
+-- BEGIN leftover-intakes (tests/rights-intake-destruction.test.ts runs this block)
+DO $$
+DECLARE
+  previous text := current_setting('app.clinic_id', true);
+  c record;
+BEGIN
+  FOR c IN SELECT cl.id FROM clinics cl WHERE cl.destroyed_at IS NOT NULL OR cl.account_closed_at IS NOT NULL LOOP
+    PERFORM set_config('app.clinic_id', c.id::text, true);
+    DELETE FROM rights_intakes ri WHERE ri.clinic_id = c.id;
+  END LOOP;
+  PERFORM set_config('app.clinic_id', coalesce(previous, ''), true);
+END
+$$;
+-- END leftover-intakes
+--> statement-breakpoint
+
+DO $$
+DECLARE
+  fn oid := 'app_destroy_rights_intakes(uuid)'::regprocedure;
+  r name;
+BEGIN
+  IF has_table_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'DELETE')
+     OR has_table_privilege('healdesk_app'::name, 'rights_intakes'::regclass, 'TRUNCATE') THEN
+    RAISE EXCEPTION 'healdesk_app can delete or truncate rights_intakes; only app_destroy_rights_intakes() may.';
+  END IF;
+  IF NOT has_function_privilege('healdesk_app'::name, fn, 'EXECUTE') THEN
+    RAISE EXCEPTION 'healdesk_app cannot call app_destroy_rights_intakes(), which destroyClinicData needs.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+              WHERE p.oid = fn AND a.grantee = 0 AND a.privilege_type = 'EXECUTE') THEN
+    RAISE EXCEPTION 'PUBLIC can call app_destroy_rights_intakes().';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['healdesk_readonly', 'healdesk_writer']::name[] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) AND has_function_privilege(r, fn, 'EXECUTE') THEN
+      RAISE EXCEPTION '% can call app_destroy_rights_intakes().', r;
+    END IF;
+  END LOOP;
+END
+$$;

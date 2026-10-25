@@ -77,8 +77,14 @@ const ENV = [
 const SAVED: Record<string, string | undefined> = {};
 let keys = 0;
 
-/** Noon in New York today, by the real clock. */
-const NOW = new Date(Math.floor(Date.now() / DAY) * DAY + 16 * HOUR);
+/**
+ * Noon in New York (16:00 UTC) by the real clock, the next one still to come:
+ * what the code under test stamps with the database's own clock must come
+ * before every time the test passes in, so a fixed "today at 16:00" failed
+ * the chase and five-minute-call cases on every run after 16:00 UTC.
+ */
+const TODAY_16 = Math.floor(Date.now() / DAY) * DAY + 16 * HOUR;
+const NOW = new Date(TODAY_16 > Date.now() ? TODAY_16 : TODAY_16 + DAY);
 const at = (ms: number) => new Date(NOW.getTime() + ms);
 
 const CTX = { clinicName: "Radiance Med Spa", audience: "patients" as const, timeZone: "America/New_York" };

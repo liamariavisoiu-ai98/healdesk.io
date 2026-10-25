@@ -379,6 +379,8 @@ export async function draftClaimedCase(claimed: ClaimedCase, deps: DraftDeps = {
   if (!written.written) return { outcome: "superseded", caseId: claimed.id };
   const failed = failedCheckIds(checks);
   log.info("support draft written", { clinicId: claimed.clinicId, attempt: claimed.version, code: failed.join(",") || "ok" });
+  // Lane P7e: a draft that passed all eight goes to the owner's approval inbox (never sent from here; it never fails the draft).
+  if (checks.ok) await (await import("../wire")).proposeAfterDraft(claimed.id, now);
   return { outcome: checks.ok ? "drafted" : "needs_edit", caseId: claimed.id, version: claimed.version, failed };
 }
 

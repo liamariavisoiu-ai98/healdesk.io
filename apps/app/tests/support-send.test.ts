@@ -528,20 +528,21 @@ describeDb("approve and send a support reply (drizzle/0126)", () => {
     expect(replySends()).toHaveLength(0);
   });
 
-  test("a case closed meanwhile sends nothing, and the approvals job takes its item off the list", async () => {
+  test("a case closed meanwhile sends nothing: closing it takes its item off the list at once (lane P7e)", async () => {
     const c = await chatCase("send-closed");
     const saved = await saveAndPropose(c.caseId, GOOD);
     await closeSupportCase(c.caseId, "replied_by_hand", at(MINUTE));
-    expect(ok<{ status: string; outcomeCode: string }>(await decide(saved.approvalId!))).toMatchObject({
-      status: "failed",
-      outcomeCode: "no_longer_needed",
-    });
+    expect((await getApproval(saved.approvalId!))!).toMatchObject({ status: "expired", outcomeCode: "case_closed" });
+    await decide(saved.approvalId!);
+    expect((await getApproval(saved.approvalId!))!.status).toBe("expired");
     expect(replySends()).toHaveLength(0);
-    const c2 = await chatCase("send-closed-sweep");
-    const saved2 = await saveAndPropose(c2.caseId, GOOD);
-    await closeSupportCase(c2.caseId, "duplicate", at(MINUTE));
+    // The executor, run directly on the item as proposed, still sends nothing for a closed case.
+    const item = (await getApproval(saved.approvalId!))!;
+    expect((await sendSupportReply(item, JSON.parse(item.draft!), at(2 * MINUTE))).outcomeCode).toBe("no_longer_needed");
+    // And the approvals job's sweep has nothing left to expire for it.
     await proposeApprovals(at(2 * MINUTE));
-    expect((await getApproval(saved2.approvalId!))!).toMatchObject({ status: "expired", outcomeCode: "no_longer_needed" });
+    expect((await getApproval(saved.approvalId!))!).toMatchObject({ status: "expired", outcomeCode: "case_closed" });
+    expect(replySends()).toHaveLength(0);
   });
 
   test("the fresh code is required: without its mark nothing is decided or sent", async () => {

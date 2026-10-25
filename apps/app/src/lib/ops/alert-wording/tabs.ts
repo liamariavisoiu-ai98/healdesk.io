@@ -274,6 +274,9 @@ export const NO_CLINIC_PAGE: Readonly<Record<OpsEvent, string>> = {
   incident_step_waiting: "/admin/compliance/incidents",
   // always raised with a clinic (lane P7c); without one, the Support section.
   support_reply_dead: "/admin/queues#support",
+  // a support case (lane P7e): the case is listed under Support, with or without a clinic.
+  support_case_past_due: "/admin/queues#support",
+  support_case_now: "/admin/queues#support",
 };
 
 /** The console pages an alert with no clinic opens, by path, as a button names them. */

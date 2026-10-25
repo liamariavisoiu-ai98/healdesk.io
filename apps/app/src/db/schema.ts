@@ -7912,7 +7912,7 @@ export const opsApprovals = pgTable(
     ),
     check(
       "ops_approvals_draft_check",
-      sql`(${t.draft} is null) = (${t.draftHash} is null) and (${t.draftHash} is null or ${t.draftHash} ~ '^[0-9a-f]{64}$') and (${t.draft} is null or char_length(${t.draft}) <= 20000)`,
+      sql`((${t.draft} is null) = (${t.draftHash} is null) or (${t.kind} = 'support_reply_send' and ${t.draft} is null)) and (${t.draftHash} is null or ${t.draftHash} ~ '^[0-9a-f]{64}$') and (${t.draft} is null or char_length(${t.draft}) <= 20000)`,
     ),
     check("ops_approvals_decided_check", sql`(${t.status} = 'waiting') = (${t.decidedAt} is null)`),
     check("ops_approvals_outcome_check", sql`${t.outcomeCode} is null or ${t.outcomeCode} ~ '^[a-z][a-z0-9_]{0,63}$'`),

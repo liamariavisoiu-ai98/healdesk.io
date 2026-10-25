@@ -52,6 +52,7 @@ export const RUNBOOK_ANCHORS = [
   "compliance-pack",
   "incident-assistant",
   "support-replies",
+  "support-cases",
 ] as const;
 
 export type RunbookAnchor = (typeof RUNBOOK_ANCHORS)[number];
@@ -167,6 +168,8 @@ export const RUNBOOK_ANCHOR: Record<OpsEvent, RunbookAnchor> = {
   compliance_pack_failed: "compliance-pack",
   incident_step_waiting: "incident-assistant",
   support_reply_dead: "support-replies",
+  support_case_past_due: "support-cases",
+  support_case_now: "support-cases",
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

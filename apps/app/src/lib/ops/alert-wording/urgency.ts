@@ -164,6 +164,12 @@ export const URGENCY: Readonly<Record<OpsEvent, Urgency>> = {
   // An approved support reply that never went (lane P7c): the clinic is
   // still waiting on a promised day, so a person answers it today.
   support_reply_dead: "today",
+  // A support case past its promised day (lane P7e): a person answers today.
+  support_case_past_due: "today",
+  // A support case the chat triaged `now` (lane P7e): calls not reaching AYA,
+  // a charge, a lost device, sign-in security; a patient-facing channel or
+  // money at risk, so it is urgent.
+  support_case_now: "urgent",
 };
 
 /** The tag's word and colour, the subject's prefix and Slack's emoji, by level. */

@@ -6563,28 +6563,10 @@ export function fetchAgreementReviews(): Promise<OpsResult<AgreementReview[]>> {
   );
 }
 
-/** The practice's answer, as the operator heard it: recorded through setCoveredEntity. */
-export function decideAgreementReview(
-  clinicId: string,
-  reviewId: string,
-  answer: CoveredAnswer,
-): Promise<OpsResult<SetCoveredEntityOutcome>> {
-  return callOps("decideAgreementReview", "write", { clinicId, reviewId, answer }, (value) => {
-    const data = object(value, "decideAgreementReview");
-    if (state(data, "decideAgreementReview") !== "recorded") {
-      return refusal(data, "decideAgreementReview");
-    }
-    return {
-      status: "recorded",
-      agreementKind: literal(data.agreementKind, ["baa", "dpa"] as const, "decideAgreementReview.agreementKind"),
-      isCoveredEntity: optionalBoolean(data.isCoveredEntity, "decideAgreementReview.isCoveredEntity"),
-      covered: bool(data.covered, "decideAgreementReview.covered"),
-      supersedeStarted: bool(data.supersedeStarted, "decideAgreementReview.supersedeStarted"),
-      linkSent: bool(data.linkSent, "decideAgreementReview.linkSent"),
-      auditRecorded: bool(data.auditRecorded, "decideAgreementReview.auditRecorded"),
-    };
-  });
-}
+// decideAgreementReview has no client here (lane P6f): every answer needs a
+// fresh code, so it is recorded only through lib/admin/agreement-answer.ts
+// (recordAgreementAnswer below), and apps/app refuses the old op without
+// the mark.
 
 const CARD_CHANNELS = ["web", "meta", "voice"] as const;
 const CARD_CHANNEL_STATUSES = ["off", "paused", "live", "waiting", "setting_up"] as const;
@@ -7744,12 +7726,12 @@ export function closeRightsIntake(
 /** apps/app's closed lists (lib/email/templates/contact-words.ts, lib/approvals/contact-payloads.ts), mirrored by hand. */
 export const CONTACT_PHRASES = ["phone", "website_chat", "meta", "calendar"] as const;
 export type ContactPhrase = (typeof CONTACT_PHRASES)[number];
-export const CONTACT_NOTES = ["call_offer", "thanks", "reply_questions"] as const;
+export const CONTACT_NOTES = ["call_offer", "thanks", "reply_questions", "thanks_sign"] as const;
 export type ContactNote = (typeof CONTACT_NOTES)[number];
 const LIFECYCLE_STAGE_CODES = ["not_started", "in_setup", "waiting_on_us", "partly_live", "live", "closed"] as const;
 const RECOMMENDATION_ACTIONS = ["extend", "offer_call", "let_close", "wait", "phone_the_clinic"] as const;
 const CHASE_BLOCKS = ["not_baa_version", "switched_off", "too_early", "chased_recently"] as const;
-const REMINDER_BLOCKS = ["not_billed", "window_over", "live", "last_reminder", "already_queued"] as const;
+const REMINDER_BLOCKS = ["not_billed", "window_over", "live", "last_reminder", "night", "recently_sent", "already_queued"] as const;
 const RESIGN_REASONS = ["now_covered", "not_sure", "baa_version"] as const;
 const AGREEMENT_VERSION = /^(?:[a-z]{2,8}\/)?\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[a-z0-9.]{1,20})?$/;
 /** A draft's body: our template's plain text, footer included, line breaks kept (apps/app MAX_BODY). */
@@ -7800,6 +7782,8 @@ export type ContactFacts =
       newLastDay: string | null;
       stepsLeft: number | null;
       alreadySent: boolean;
+      /** The clinic has left the stage entry the item was proposed for: approving sends nothing. */
+      stageMoved: boolean;
       recommendation: ContactRecommendation | null;
     }
   | {
@@ -7897,7 +7881,7 @@ function readContactFacts(value: unknown, kind: Exclude<ApprovalKind, "billing_r
     case "setup_help_offer": {
       const f = exactKeys(
         value,
-        ["kind", "stage", "stageSince", "remainingDays", "lastDay", "newLastDay", "stepsLeft", "alreadySent", "recommendation"],
+        ["kind", "stage", "stageSince", "remainingDays", "lastDay", "newLastDay", "stepsLeft", "alreadySent", "stageMoved", "recommendation"],
         at,
       );
       return {
@@ -7909,6 +7893,7 @@ function readContactFacts(value: unknown, kind: Exclude<ApprovalKind, "billing_r
         newLastDay: nullable(f.newLastDay, (v) => date(v, `${at}.newLastDay`)),
         stepsLeft: optionalCount(f.stepsLeft, `${at}.stepsLeft`),
         alreadySent: bool(f.alreadySent, `${at}.alreadySent`),
+        stageMoved: bool(f.stageMoved, `${at}.stageMoved`),
         recommendation: readRecommendation(f.recommendation, `${at}.recommendation`),
       };
     }

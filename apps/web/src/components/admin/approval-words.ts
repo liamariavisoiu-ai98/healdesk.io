@@ -193,6 +193,9 @@ export const OUTCOME_WORDS: Readonly<Record<string, string>> = {
   extension_refused: "the extension did not go through, so nothing was emailed",
   extended_email_not_queued: "the deadline moved but the email could not be queued",
   reminder_not_queued: "the reminder was not queued",
+  reminder_night: "it was night at the clinic, so the reminder was not sent",
+  reminder_too_soon: "a reminder went less than five days before, so this one was not sent",
+  superseded_by_next_round: "a newer chase of the same re-sign replaced it",
 };
 
 /** An outcome code in words; one this table does not know is printed as its own words. */

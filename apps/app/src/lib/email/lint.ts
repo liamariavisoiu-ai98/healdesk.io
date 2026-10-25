@@ -10,6 +10,7 @@ import {
 import { publicOrigin } from "@/lib/public-url";
 
 import { carriesUnsubscribe, isLinkEmail, isEmailKind, type EmailKind } from "./kind-rules";
+import { NOTES, PHRASES } from "./templates/contact-words";
 
 /**
  * The checks every email passes (Annex X4), in one place so the sender, the
@@ -66,7 +67,10 @@ type ValueClass =
   | "phone"
   | "url"
   | "flag"
-  | "rows";
+  | "rows"
+  // Lane P6f: a code from lib/email/templates/contact-words.ts's own lists.
+  | "note"
+  | "phrase";
 
 /** Counters that do not end in Count, Days, Hours, Minutes or Percent. */
 const COUNT_KEYS: ReadonlySet<string> = new Set([
@@ -141,12 +145,6 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   // The lifecycle watch's recommended action (lib/lifecycle/recommend.ts
   // RECOMMENDATIONS), a closed word in an ops alert.
   "recommendation",
-  // Ops automation lane P6f, the emails the owner sends by hand (owner
-  // decision D12): the approved closing sentence and the part of setup a
-  // notice names, each a code from lib/email/templates/contact-words.ts,
-  // printed by the template, never words.
-  "note",
-  "phrase",
 ]);
 
 /** The class a key's value must belong to, or null when the key is not on the list. */
@@ -154,6 +152,11 @@ function classOfKey(key: string): ValueClass | null {
   // An opening date never enters a payload (X4); opening dates are gone.
   if (/open(ing|s)/i.test(key)) return null;
   if (key === "clinicName") return "clinicName";
+  // Lane P6f (owner decision D12): the approved closing sentence and the part
+  // of setup a notice names, each checked against its own closed list, never
+  // the generic token pattern.
+  if (key === "note") return "note";
+  if (key === "phrase") return "phrase";
   if (key === "deviceName") return "deviceName";
   // P6, the agreement copy: who signed it, as typed, and the document's
   // SHA-256, the one reference the email gives for it.
@@ -351,6 +354,12 @@ function checkValue(
     }
     case "flag":
       if (typeof value !== "boolean") fail("must be true or false.");
+      return;
+    case "note":
+      if (typeof value !== "string" || !(NOTES as readonly string[]).includes(value)) fail("must be an approved closing sentence's code.");
+      return;
+    case "phrase":
+      if (typeof value !== "string" || !(PHRASES as readonly string[]).includes(value)) fail("must be one of the listed parts of setup.");
       return;
   }
 }

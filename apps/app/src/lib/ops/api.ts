@@ -1466,6 +1466,12 @@ export async function runOperation(
     case "listAgreementReviews":
       return opListAgreementReviews(operator);
     case "decideAgreementReview":
+      // Every answer needs apps/web's fresh-code mark (lane P6f): a Yes or Not
+      // sure pauses AYA at every location, and only the wrapper
+      // (lib/admin/agreement-answer.ts) sets it after the operator's code.
+      if (booleanArg(args, "codeChecked") !== true) {
+        return ok({ status: "refused", message: "This needs the code from your authenticator. Nothing was changed." });
+      }
       return opDecideAgreementReview(args, operator);
     case "listPlatformCompliance":
       return opListPlatformCompliance();
